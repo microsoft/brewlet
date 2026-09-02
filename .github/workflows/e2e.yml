@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: core/go.mod
           cache-dependency-path: |
@@ -92,14 +92,14 @@ jobs:
 
       - name: Set up JDK
         if: matrix.java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Set up Helm
         if: matrix.helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: Create kind cluster
         if: matrix.cluster
