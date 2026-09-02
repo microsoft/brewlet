@@ -365,7 +365,7 @@ tier2_cli() {
          -Dbrewlet.trustedSignerIdentity=platform-builder >>"$registry_log" 2>&1 \
        && python3 "$E2E_DIR/validate-managed-registry.py" \
          "$registry_ref" platform/approved 1 apps/demo 1 "$maven_bom" \
-         org.apache.commons:commons-lang3:3.17.0 "$managed_public" \
+         org.apache.commons:commons-lang3:3.18.0 "$managed_public" \
          application-builder >>"$registry_log" 2>&1; then
       local bundle_tags app_tags
       bundle_tags="$(curl -fsS \
