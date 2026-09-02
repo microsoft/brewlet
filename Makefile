@@ -7,7 +7,7 @@ else
   ARCH ?= amd64
 endif
 
-REGISTRY ?= ghcr.io/brewlet
+REGISTRY ?= ghcr.io/microsoft
 TAG ?= latest
 PROVISIONER_IMAGE ?= $(REGISTRY)/node-provisioner:$(TAG)
 

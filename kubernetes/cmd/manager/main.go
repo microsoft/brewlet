@@ -1,5 +1,5 @@
 // Command manager runs the brewlet-operator node lifecycle controller
-// (https://github.com/brewlet/brewlet/tree/main/specs): it watches nodes opted into provisioning,
+// (https://github.com/microsoft/brewlet/tree/main/specs): it watches nodes opted into provisioning,
 // brewlet-node-provisioner DaemonSet and the brewlet RuntimeClass, and surfaces
 // each node's provisioning state via annotations and events.
 package main
@@ -40,7 +40,7 @@ func main() {
 		enableLeaderElec bool
 	)
 	flag.StringVar(&cfg.Namespace, "namespace", "brewlet", "namespace to manage the provisioner DaemonSet in")
-	flag.StringVar(&cfg.ProvisionerImage, "provisioner-image", "ghcr.io/brewlet/node-provisioner:0.1.0", "brewlet-node-provisioner image to run")
+	flag.StringVar(&cfg.ProvisionerImage, "provisioner-image", "ghcr.io/microsoft/node-provisioner:0.1.0", "brewlet-node-provisioner image to run")
 	flag.StringVar(&cfg.JDKs, "jdks", "temurin-21", "comma-separated <dist>-<feature> JDK roots to install on nodes")
 	flag.StringVar(&cfg.Launchers, "launchers", "", "comma-separated launcher layers to install (e.g. jaz)")
 	flag.IntVar(&cfg.MetricsPort, "node-metrics-port", 9090, "node provisioner metrics exporter port")

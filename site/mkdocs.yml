@@ -3,9 +3,9 @@ site_description: Brewlet user and operator documentation
 site_url: https://brewlet.sh/docs/
 docs_dir: ../docs
 site_dir: _site/docs
-repo_url: https://github.com/brewlet/brewlet
-repo_name: brewlet/brewlet
-edit_uri: https://github.com/brewlet/brewlet/edit/main/docs/
+repo_url: https://github.com/microsoft/brewlet
+repo_name: microsoft/brewlet
+edit_uri: https://github.com/microsoft/brewlet/edit/main/docs/
 not_in_nav: |
   logos/README.md
 
@@ -66,7 +66,7 @@ nav:
   - Understand:
       - Home: README.md
       - Concepts & architecture: concepts.md
-      - Roadmap (planned work): https://github.com/brewlet/brewlet/blob/main/ROADMAP.md
+      - Roadmap (planned work): https://github.com/microsoft/brewlet/blob/main/ROADMAP.md
   - Try it:
       - Getting started: getting-started.md
       - Spring PetClinic: spring-petclinic.md

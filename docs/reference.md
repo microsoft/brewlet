@@ -2,9 +2,9 @@
 
 Quick-lookup tables for the identifiers, formats, and paths Brewlet uses.
 Normative sources include the
-[capability-label contract](https://github.com/brewlet/brewlet/blob/main/specs/CAPABILITY_LABELS.md),
-[`core/internal/artifact/`](https://github.com/brewlet/brewlet/tree/main/core/internal/artifact/),
-and [SPECIFICATION](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md).
+[capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md),
+[`core/internal/artifact/`](https://github.com/microsoft/brewlet/tree/main/core/internal/artifact/),
+and [SPECIFICATION](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
 ---
 
@@ -13,7 +13,7 @@ and [SPECIFICATION](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICA
 ### Node labels (set by the provisioner; drive scheduling)
 
 The
-[canonical capability-label contract](https://github.com/brewlet/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
+[canonical capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
 defines the stable runtime, JDK, launcher, and architecture keys, their token
 grammar, and compatibility guarantees. JDK and launcher capabilities are
 boolean-presence labels: admission matches their keys with `Operator: Exists`,
@@ -106,7 +106,7 @@ a thin app JAR plus one or more `classpath.layer.v1+tar` dependency layers unpac
 | `<splitSnapshotLayers>` / `-Dbrewlet.splitSnapshotLayers` | Maven | `true` | When `layered`, pack released deps and `-SNAPSHOT` deps into separate `deps` / `snapshot-deps` layers (stable → volatile) for finer dedup. |
 
 Full flag reference: [CLI reference](cli-reference.md#brewlet-push) and the
-[Maven plugin README](https://github.com/brewlet/brewlet/blob/main/maven-plugin/README.md#configuration-parameters).
+[Maven plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#configuration-parameters).
 
 ---
 
@@ -234,4 +234,4 @@ verifies the live runtime handler, and automatically rolls back failed changes.
 - [Concepts & architecture](concepts.md) · [Configuration](configuration.md) ·
   [Capability labels and autoscaling](capability-labels-and-autoscaling.md) ·
   [CLI reference](cli-reference.md) ·
-  [SPECIFICATION](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md).
+  [SPECIFICATION](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).

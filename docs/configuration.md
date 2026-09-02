@@ -45,13 +45,13 @@ DaemonSet it manages.
 
 ## Helm chart values
 
-From [`charts/brewlet/values.yaml`](https://github.com/brewlet/brewlet/blob/main/kubernetes/charts/brewlet/values.yaml). Override
+From [`charts/brewlet/values.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/charts/brewlet/values.yaml). Override
 with `--set key=value` or a values file.
 
 | Key | Default | Meaning |
 |---|---|---|
 | `namespace` | `brewlet` | Namespace all components install into (created by the chart). |
-| `images.registry` | `ghcr.io/brewlet` | Registry prefix used to generate component image references. |
+| `images.registry` | `ghcr.io/microsoft` | Registry prefix used to generate component image references. |
 | `images.tag` | chart `appVersion` | Shared component tag. A versioned OCI chart therefore selects matching images automatically. |
 | `images.operator` | generated | Explicit operator image override; supports tags or digests. |
 | `images.provisioner` | generated | Explicit provisioner image override; supports tags or digests. |
@@ -61,10 +61,10 @@ with `--set key=value` or a values file.
 | `provisioner.launchers` | `jaz` | Comma-separated launcher layers ([§Launchers](launchers.md)). Empty = vanilla `java` only. |
 | `provisioner.rollout.maxUnavailable` | `null` | Bounds the default profile's provisioner DaemonSet rolling update. `null` keeps the DaemonSet default. |
 | `provisioner.rollout.validate` | `true` | Gate node readiness on post-install JDK and launcher smoke tests (`java -version` per root plus a deterministic version probe per launcher layer). Renders the provisioner `BREWLET_VALIDATE` env. |
-| `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`); legacy in-place render plus SIGHUP (`sighup`); or no containerd mutation/signal (`none`). Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md)). |
+| `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`); legacy in-place render plus SIGHUP (`sighup`); or no containerd mutation/signal (`none`). Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `provisioner.registry.mirrors` | `{}` | `<upstream-host>: <mirror-host>` map applied to every copy-from-image pull for air-gapped clusters. Renders `MIRRORS`. |
-| `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md)). |
-| `profiles` | `[]` | Additional per-pool `NodeProfile` CRs, each binding node pool(s) to their own JDK/launcher inventory plus rollout/registry policy ([§5.6](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md)). |
+| `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
+| `profiles` | `[]` | Additional per-pool `NodeProfile` CRs, each binding node pool(s) to their own JDK/launcher inventory plus rollout/registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `operator.replicas` | `1` | Operator replica count. |
 | `operator.leaderElect` | `true` | Enable leader election for HA. |
 | `operator.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Operator pod resources. |
@@ -84,7 +84,7 @@ with `--set key=value` or a values file.
 Example production install (own registry, no `jaz`):
 
 ```bash
-helm install brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --set images.operator=registry.example.com/brewlet/operator@sha256:… \
   --set images.provisioner=registry.example.com/brewlet/node-provisioner@sha256:… \
@@ -102,13 +102,13 @@ helm install brewlet oci://ghcr.io/brewlet/charts/brewlet \
 ## Operator flags
 
 The source for these flags lives in
-[`cmd/manager`](https://github.com/brewlet/brewlet/tree/main/kubernetes/cmd/manager).
+[`cmd/manager`](https://github.com/microsoft/brewlet/tree/main/kubernetes/cmd/manager).
 When you install via Helm, the chart populates them for you.
 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--namespace` | `brewlet` | Namespace the provisioner DaemonSet is managed in. |
-| `--provisioner-image` | `ghcr.io/brewlet/node-provisioner:0.1.0` | Image the DaemonSet runs. |
+| `--provisioner-image` | `ghcr.io/microsoft/node-provisioner:0.1.0` | Image the DaemonSet runs. |
 | `--jdks` | `temurin-21` | Comma-separated `<dist>-<feature>` inventory (flows to the provisioner `JDKS` env). |
 | `--launchers` | *(empty)* | Comma-separated launcher inventory (`LAUNCHERS` env). |
 | `--leader-elect` | `false` | Enable leader election for HA. |
@@ -117,7 +117,7 @@ When you install via Helm, the chart populates them for you.
 
 ```bash
 ./bin/operator --namespace=brewlet \
-  --provisioner-image=ghcr.io/brewlet/node-provisioner:0.1.0 \
+  --provisioner-image=ghcr.io/microsoft/node-provisioner:0.1.0 \
   --jdks=temurin-21,microsoft-25 --launchers=jaz
 ```
 
@@ -126,7 +126,7 @@ When you install via Helm, the chart populates them for you.
 ## Node-provisioner environment variables
 
 The provisioner environment contract lives in the core runtime's
-[`provisioner/README.md`](https://github.com/brewlet/brewlet/blob/main/provisioner/README.md).
+[`provisioner/README.md`](https://github.com/microsoft/brewlet/blob/main/provisioner/README.md).
 The Kubernetes operator sets these variables on the DaemonSet it manages; you
 only touch them directly if you hand-wire the DaemonSet.
 
@@ -152,7 +152,7 @@ only touch them directly if you hand-wire the DaemonSet.
 
 ## Admission webhook
 
-The [`brewlet-admission`](https://github.com/brewlet/brewlet/tree/main/kubernetes/cmd/admission/) webhook is
+The [`brewlet-admission`](https://github.com/microsoft/brewlet/tree/main/kubernetes/cmd/admission/) webhook is
 mutating+validating. For every pod on CREATE with `runtimeClassName: brewlet` it:
 
 - **stamps** `brewlet.sh/artifact-ref` (and `brewlet.sh/artifact-digest` when the
@@ -164,7 +164,7 @@ mutating+validating. For every pod on CREATE with `runtimeClassName: brewlet` it
 Admission matches JDK and launcher capability keys with `Operator: Exists`.
 The [Capability labels and autoscaling](capability-labels-and-autoscaling.md)
 guide explains the end-to-end scheduling flow and autoscaler integration. The
-[canonical capability-label contract](https://github.com/brewlet/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
+[canonical capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
 defines the complete key grammar and compatibility guarantees.
 
 Non-brewlet pods pass through untouched. With `admission.failurePolicy: Ignore`
@@ -190,7 +190,7 @@ Pod-side annotations the webhook reads (developer-facing) — see
 ## RuntimeClass
 
 The operator manages the `brewlet` `RuntimeClass`; this is what it generates (mirrors
-[`deploy/runtimeclass.yaml`](https://github.com/brewlet/brewlet/blob/main/kubernetes/deploy/runtimeclass.yaml)):
+[`deploy/runtimeclass.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/runtimeclass.yaml)):
 
 ```yaml
 apiVersion: node.k8s.io/v1

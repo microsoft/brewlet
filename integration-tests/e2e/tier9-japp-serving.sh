@@ -111,7 +111,7 @@ _t9_patch_containerd() {
   docker exec "$node" grep -qiE '^[[:space:]]*SystemdCgroup[[:space:]]*=[[:space:]]*false' /etc/containerd/config.toml 2>/dev/null && systemd=false
   docker exec -i "$node" sh -c "cat >>/etc/containerd/config.toml" <<EOF
 
-# --- added by e2e tier9 (mirrors brewlet/brewlet provisioner/entrypoint.sh) ---
+# --- added by e2e tier9 (mirrors microsoft/brewlet provisioner/entrypoint.sh) ---
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet]
   runtime_type = "io.containerd.brewlet.v2"
   pod_annotations = ["brewlet.sh/*"]

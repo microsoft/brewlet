@@ -12,7 +12,7 @@ namespace: brewlet
 # <registry>/<component>:<tag>, where an empty tag uses Chart.appVersion.
 # Set a component explicitly to override the generated reference or pin a digest.
 images:
-  registry: ghcr.io/brewlet
+  registry: ghcr.io/microsoft
   tag: ""
   operator: ""
   provisioner: ""

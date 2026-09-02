@@ -10,7 +10,7 @@ JAR.
 Kubernetes never resolves Maven dependencies. A `JavaApplication` or raw
 Deployment still references only the complete application image.
 
-The [Brewlet specification section 4.5](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#45-managed-dependency-bundles)
+The [Brewlet specification section 4.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#45-managed-dependency-bundles)
 is the normative bundle and attestation contract. This page focuses on how to
 publish and consume it.
 

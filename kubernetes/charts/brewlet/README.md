@@ -24,7 +24,7 @@ the webhook.
 ## Install
 
 ```bash
-helm upgrade --install brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --namespace brewlet \
   --create-namespace \
@@ -46,7 +46,7 @@ kubectl get nodes -L brewlet.sh/runtime
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `namespace` | `brewlet` | Namespace all components install into (created by the chart). |
-| `images.registry` | `ghcr.io/brewlet` | Registry prefix used for generated component image references. |
+| `images.registry` | `ghcr.io/microsoft` | Registry prefix used for generated component image references. |
 | `images.tag` | chart `appVersion` | Shared component tag. |
 | `images.operator` | generated | Explicit operator image override. |
 | `images.provisioner` | generated | Explicit provisioner image override. |

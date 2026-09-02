@@ -51,7 +51,7 @@ export BREWLET_WORK="${TMPDIR:-/tmp}/brewlet-quickstart-${BREWLET_VERSION}"
 mkdir -p "$BREWLET_WORK"
 
 curl -fL \
-  "https://github.com/brewlet/brewlet/archive/refs/tags/v${BREWLET_VERSION}.tar.gz" \
+  "https://github.com/microsoft/brewlet/archive/refs/tags/v${BREWLET_VERSION}.tar.gz" \
   -o "$BREWLET_WORK/source.tar.gz"
 tar -xzf "$BREWLET_WORK/source.tar.gz" -C "$BREWLET_WORK"
 cd "$BREWLET_WORK/brewlet-${BREWLET_VERSION}"

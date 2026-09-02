@@ -1,10 +1,10 @@
 # Brewlet
 
-[![CI](https://github.com/brewlet/brewlet/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/brewlet/brewlet/actions/workflows/ci.yml)
-[![E2E](https://github.com/brewlet/brewlet/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/brewlet/brewlet/actions/workflows/e2e.yml)
-[![Release](https://img.shields.io/github/v/release/brewlet/brewlet?sort=semver)](https://github.com/brewlet/brewlet/releases/latest)
-[![Go version](https://img.shields.io/github/go-mod/go-version/brewlet/brewlet?filename=core%2Fgo.mod)](core/go.mod)
-[![License](https://img.shields.io/github/license/brewlet/brewlet)](LICENSE)
+[![CI](https://github.com/microsoft/brewlet/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/ci.yml)
+[![E2E](https://github.com/microsoft/brewlet/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/e2e.yml)
+[![Release](https://img.shields.io/github/v/release/microsoft/brewlet?sort=semver)](https://github.com/microsoft/brewlet/releases/latest)
+[![Go version](https://img.shields.io/github/go-mod/go-version/microsoft/brewlet?filename=core%2Fgo.mod)](core/go.mod)
+[![License](https://img.shields.io/github/license/microsoft/brewlet)](LICENSE)
 
 **Run Java applications from OCI artifacts using JDKs managed once on each
 Kubernetes node.**
@@ -28,7 +28,7 @@ integration tests, website, and user-facing documentation.
 - [Getting started](https://brewlet.sh/docs/getting-started/)
 - [Ops workshop](https://brewlet.sh/docs/workshops/operations/)
 - [Developer workshop](https://brewlet.sh/docs/workshops/developers/)
-- [Latest release](https://github.com/brewlet/brewlet/releases/latest)
+- [Latest release](https://github.com/microsoft/brewlet/releases/latest)
 - [Specification](specs/SPECIFICATION.md)
 - [Roadmap](ROADMAP.md)
 
@@ -100,7 +100,7 @@ use named `NodeProfile`s to restrict production or shared clusters to
 platform-owned node pools.
 
 ```bash
-helm upgrade --install brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --namespace brewlet \
   --create-namespace \
@@ -142,12 +142,12 @@ Tags matching `v*` publish version-aligned artifacts:
 
 | Artifact | Location |
 | --- | --- |
-| CLI archives and checksums | [GitHub Releases](https://github.com/brewlet/brewlet/releases) |
-| Operator image | `ghcr.io/brewlet/operator:<version>` |
-| Admission webhook image | `ghcr.io/brewlet/admission:<version>` |
-| Node provisioner image | `ghcr.io/brewlet/node-provisioner:<version>` |
-| Helm chart | `oci://ghcr.io/brewlet/charts/brewlet` |
-| Maven plugin JAR and POM | [GitHub Releases](https://github.com/brewlet/brewlet/releases) |
+| CLI archives and checksums | [GitHub Releases](https://github.com/microsoft/brewlet/releases) |
+| Operator image | `ghcr.io/microsoft/operator:<version>` |
+| Admission webhook image | `ghcr.io/microsoft/admission:<version>` |
+| Node provisioner image | `ghcr.io/microsoft/node-provisioner:<version>` |
+| Helm chart | `oci://ghcr.io/microsoft/charts/brewlet` |
+| Maven plugin JAR and POM | [GitHub Releases](https://github.com/microsoft/brewlet/releases) |
 
 The Helm chart's `appVersion` selects matching component image tags by default.
 Release images support Linux `amd64` and `arm64`; CLI archives support those

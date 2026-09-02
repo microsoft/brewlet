@@ -8,7 +8,7 @@
 #      host-mutation tooling it needs: bash, curl, kubectl, and the containerd
 #      `ctr` client (used for copy-from-image against the host containerd socket).
 #
-# Build (single arch, native):   docker build -t ghcr.io/brewlet/node-provisioner:dev -f provisioner/Dockerfile .
+# Build (single arch, native):   docker build -t ghcr.io/microsoft/node-provisioner:dev -f provisioner/Dockerfile .
 # Build (multi-arch, buildx):    docker buildx build --platform linux/amd64,linux/arm64 ...
 #
 # The build context is the repository root; the Go module lives in core/.

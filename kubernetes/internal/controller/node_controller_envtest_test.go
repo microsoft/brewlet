@@ -22,7 +22,7 @@ func newNodeReconciler(c client.Client, ns string) *NodeReconciler {
 		Recorder: record.NewFakeRecorder(100),
 		Config: Config{
 			Namespace:        ns,
-			ProvisionerImage: "ghcr.io/brewlet/node-provisioner:test",
+			ProvisionerImage: "ghcr.io/microsoft/node-provisioner:test",
 			JDKs:             "temurin-21",
 		},
 	}

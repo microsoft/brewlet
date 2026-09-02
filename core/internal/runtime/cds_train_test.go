@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brewlet/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 func TestAppCDSTrainingArgsFatJar(t *testing.T) {

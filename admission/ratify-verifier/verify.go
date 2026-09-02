@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/brewlet/brewlet/pkg/attest"
+	"github.com/microsoft/brewlet/pkg/attest"
 
 	"github.com/ratify-project/ratify/pkg/common"
 	"github.com/ratify-project/ratify/pkg/ocispecs"

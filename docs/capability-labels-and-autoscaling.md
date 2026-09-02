@@ -8,7 +8,7 @@ This page explains how to connect that behavior to node pools and autoscalers.
 
     The complete key catalog, token grammar, matching semantics, and compatibility
     guarantees are maintained in the
-    [Brewlet capability-label contract](https://github.com/brewlet/brewlet/blob/main/specs/CAPABILITY_LABELS.md).
+    [Brewlet capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md).
     Treat that document as normative; this page focuses on operator workflows.
 
 Related: [Installation](installation.md) · [Configuration](configuration.md) ·
@@ -213,7 +213,7 @@ unsupported.
 
 ## Next steps
 
-- **[Brewlet capability-label contract](https://github.com/brewlet/brewlet/blob/main/specs/CAPABILITY_LABELS.md)** —
+- **[Brewlet capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md)** —
   normative keys, grammar, matching semantics, and compatibility guarantees.
 - **[Configuration](configuration.md)** — define `NodeProfile` inventories and
   pool selection.

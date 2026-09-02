@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brewlet/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 // fakeJDK writes a minimal JDK root with a `release` file advertising the given

@@ -4,7 +4,7 @@ Brewlet keeps **container-grade isolation** (runc) while adopting a Wasm-grade
 developer experience. This page covers the isolation model, defaults, digest
 verification, and the one genuinely sharp edge: privileged node provisioning.
 
-See also [SPECIFICATION §11](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md).
+See also [SPECIFICATION §11](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
 ---
 
@@ -137,4 +137,4 @@ Mitigations and guardrails:
       verifier plugin to digests.
 - [ ] Plan JDK patch cadence — it's now a single centralized lever.
 
-Future security capabilities are tracked in the [roadmap](https://github.com/brewlet/brewlet/blob/main/ROADMAP.md#security-and-isolation).
+Future security capabilities are tracked in the [roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md#security-and-isolation).

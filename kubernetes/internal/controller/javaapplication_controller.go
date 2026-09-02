@@ -23,7 +23,7 @@ import (
 )
 
 // JavaApplicationReconciler implements the brewlet-operator developer-ergonomics
-// controller (https://github.com/brewlet/brewlet/tree/main/specs). It reconciles each JavaApplication into
+// controller (https://github.com/microsoft/brewlet/tree/main/specs). It reconciles each JavaApplication into
 // a managed Deployment (runtimeClassName: brewlet) plus an optional Service and
 // HorizontalPodAutoscaler, owns them via controller references (so they are
 // garbage-collected with the JavaApplication), and reflects readiness on status.
@@ -119,7 +119,7 @@ func (r *JavaApplicationReconciler) reconcileHPA(ctx context.Context, app *appsv
 }
 
 // validateSpec enforces spec invariants that the developer-facing contract
-// documents (https://github.com/brewlet/brewlet) but that a structural CRD schema
+// documents (https://github.com/microsoft/brewlet) but that a structural CRD schema
 // cannot fully express on its own. It runs before any object is built so an
 // invalid spec surfaces as a clear Ready=False/event instead of a rejected or
 // nonsensical HorizontalPodAutoscaler. It is belt-and-suspenders behind the

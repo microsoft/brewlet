@@ -286,5 +286,5 @@ The tooling implements module detection and layout end to end:
 - `java` launcher: `--module-path` / `--module`, `jar --describe-module`
 - [Layered classpath deployment](layered-classpath-deployment.md) — the
   class-path counterpart (thin JAR + dependency layers for registry dedup)
-- Brewlet: [SPECIFICATION §4 (artifact)](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md),
+- Brewlet: [SPECIFICATION §4 (artifact)](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md),
   [building & publishing](building-and-publishing.md), [reference](reference.md)

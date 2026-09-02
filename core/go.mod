@@ -1,4 +1,4 @@
-module github.com/brewlet/brewlet
+module github.com/microsoft/brewlet
 
 go 1.26
 

@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Node-side AppCDS regeneration (https://github.com/brewlet/brewlet/blob/main/docs/appcds.md §4.3, Phase B). When an artifact
+// Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3, Phase B). When an artifact
 // sets cds.regenerate, the node maintains a per-(artifact, JDK-build) archive
 // cache and launches with -XX:+AutoCreateSharedArchive so the archive self-heals
 // on every central JDK patch — decoupling the archive from the shipped artifact.
@@ -23,7 +23,7 @@ import (
 // launch (mirroring -Xshare:auto's safe-fallback posture).
 const (
 	// DefaultCDSCacheDir is the node-local directory the regeneration cache lives
-	// in. The provisioner (https://github.com/brewlet/brewlet/tree/main/specs §5.2) creates it; entries are
+	// in. The provisioner (https://github.com/microsoft/brewlet/tree/main/specs §5.2) creates it; entries are
 	// per-(artifact-digest, JDK-build) `.jsa` files shared across sandboxes.
 	DefaultCDSCacheDir = "/opt/brewlet/cds"
 	// InSandboxCDSDir is where the shim/bundle bind-mounts the node cache dir
@@ -57,7 +57,7 @@ const (
 	RegenConsume RegenRole = "consume"
 	// RegenWrite: this launch was elected to (re)generate the archive; it runs
 	// with -XX:+AutoCreateSharedArchive and writes the archive to the node cache
-	// at JVM exit (https://github.com/brewlet/brewlet/blob/main/docs/appcds.md §4.3 — the win lands on the next rollout).
+	// at JVM exit (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3 — the win lands on the next rollout).
 	RegenWrite RegenRole = "write"
 	// RegenDefer: another launch is already generating this key; run on base CDS
 	// this boot and pick up the app archive on a later restart (thundering-herd
@@ -85,7 +85,7 @@ type RegenParams struct {
 	// (the local `run` path, which is not sandboxed).
 	ArchiveArgDir string
 	// MetricsDir, when set, receives a best-effort node-local role record the
-	// metrics exporter (https://github.com/brewlet/brewlet/blob/main/docs/metrics-exporter.md, Option A) can aggregate.
+	// metrics exporter (https://github.com/microsoft/brewlet/blob/main/docs/metrics-exporter.md, Option A) can aggregate.
 	MetricsDir string
 	// Now is an injectable clock for tests; zero => time.Now().
 	Now time.Time

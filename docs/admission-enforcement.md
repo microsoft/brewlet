@@ -10,9 +10,9 @@ The plugin verifies Brewlet's native evidence directly, reusing Brewlet's own
 DSSE and predicate verification code instead of requiring evidence to be
 republished in cosign or notation format.
 
-The [Brewlet specification section 4.5](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#45-managed-dependency-bundles)
+The [Brewlet specification section 4.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#45-managed-dependency-bundles)
 defines the normative attestation contract. The
-[`admission/` source directory](https://github.com/brewlet/brewlet/tree/main/admission)
+[`admission/` source directory](https://github.com/microsoft/brewlet/tree/main/admission)
 contains the verifier, deployable resources, and authoritative operational
 notes.
 
@@ -95,7 +95,7 @@ fetch failures deny admission.
 Build the external verifier:
 
 ```bash
-git clone https://github.com/brewlet/brewlet.git
+git clone https://github.com/microsoft/brewlet.git
 cd brewlet/admission/ratify-verifier
 go build -o brewlet-managed-dependencies .
 ```
@@ -105,7 +105,7 @@ Choose one delivery model:
 === "Dynamic plugin artifact"
 
     Publish the binary as an OCI artifact and configure
-    [`20-ratify-verifier.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/20-ratify-verifier.yaml)
+    [`20-ratify-verifier.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/20-ratify-verifier.yaml)
     with an immutable source:
 
     ```yaml
@@ -137,15 +137,15 @@ it with a toolchain compatible with the Ratify installation.
 ## Configure and deploy
 
 1. Edit
-   [`20-ratify-verifier.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/20-ratify-verifier.yaml):
+   [`20-ratify-verifier.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/20-ratify-verifier.yaml):
    set the digest-pinned plugin source (or remove it for a baked plugin), provide
    `trustedPublicKey` or `trustedPublicKeyPath`, and set
    `expectedBuilderIdentity`.
 2. Configure private-registry authentication in
-   [`10-ratify-store.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/10-ratify-store.yaml)
+   [`10-ratify-store.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/10-ratify-store.yaml)
    when required.
 3. Review the namespace exclusions and begin
-   [`50-gatekeeper-constraint.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/50-gatekeeper-constraint.yaml)
+   [`50-gatekeeper-constraint.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/50-gatekeeper-constraint.yaml)
    with `enforcementAction: warn` or `dryrun`.
 4. Apply the resources in order:
 
@@ -161,11 +161,11 @@ The resources configure:
 
 | File | Resource | Purpose |
 |---|---|---|
-| [`10-ratify-store.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/10-ratify-store.yaml) | Ratify Store | Discovers native referrers through the OCI 1.1 Referrers API and fetches their blobs. |
-| [`20-ratify-verifier.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/20-ratify-verifier.yaml) | Ratify Verifier | Loads the Brewlet plugin and configures its trusted key and expected application-builder identity. |
-| [`30-ratify-policy.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/30-ratify-policy.yaml) | Ratify Rego Policy | Counts success only from the named `brewlet-managed-dependencies` verifier and admits when at least one attestation verifies. |
-| [`40-gatekeeper-constrainttemplate.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/40-gatekeeper-constrainttemplate.yaml) | Gatekeeper ConstraintTemplate | Sends regular, init, and ephemeral container images from Brewlet-runtime pods to Ratify. |
-| [`50-gatekeeper-constraint.yaml`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/50-gatekeeper-constraint.yaml) | Gatekeeper Constraint | Applies the check to Pod CREATE and UPDATE requests, with explicit namespace exclusions. |
+| [`10-ratify-store.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/10-ratify-store.yaml) | Ratify Store | Discovers native referrers through the OCI 1.1 Referrers API and fetches their blobs. |
+| [`20-ratify-verifier.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/20-ratify-verifier.yaml) | Ratify Verifier | Loads the Brewlet plugin and configures its trusted key and expected application-builder identity. |
+| [`30-ratify-policy.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/30-ratify-policy.yaml) | Ratify Rego Policy | Counts success only from the named `brewlet-managed-dependencies` verifier and admits when at least one attestation verifies. |
+| [`40-gatekeeper-constrainttemplate.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/40-gatekeeper-constrainttemplate.yaml) | Gatekeeper ConstraintTemplate | Sends regular, init, and ephemeral container images from Brewlet-runtime pods to Ratify. |
+| [`50-gatekeeper-constraint.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/50-gatekeeper-constraint.yaml) | Gatekeeper Constraint | Applies the check to Pod CREATE and UPDATE requests, with explicit namespace exclusions. |
 
 Observe warnings and test known-good and known-bad images before changing the
 constraint to `enforcementAction: deny`.
@@ -189,7 +189,7 @@ constraint to `enforcementAction: deny`.
 ## Verify in CI
 
 The non-Kubernetes
-[`config.json`](https://github.com/brewlet/brewlet/blob/main/admission/deploy/config.json)
+[`config.json`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/config.json)
 registers only this verifier, so its `config-policy` use is safe for that
 isolated CLI process:
 

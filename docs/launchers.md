@@ -60,7 +60,7 @@ jvm:
 ## How launcher selection is resolved
 
 At launch, Brewlet resolves the launcher binary like this
-([`core/internal/runtime/launch.go`](https://github.com/brewlet/brewlet/blob/main/core/internal/runtime/launch.go)):
+([`core/internal/runtime/launch.go`](https://github.com/microsoft/brewlet/blob/main/core/internal/runtime/launch.go)):
 
 - **Vanilla** (`launcher` omitted or `"java"`): use the selected JDK's own
   `<jdk-home>/bin/java`.
@@ -144,7 +144,7 @@ node unready and set a bounded reason such as
 `brewlet.sh/provision-error=launcher-jaz-probe-failed`.
 
 See the core runtime's
-[`provisioner/README.md`](https://github.com/brewlet/brewlet/blob/main/provisioner/README.md)
+[`provisioner/README.md`](https://github.com/microsoft/brewlet/blob/main/provisioner/README.md)
 for the provisioner mechanics.
 
 ---

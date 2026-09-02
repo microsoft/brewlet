@@ -19,8 +19,8 @@ import (
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/brewlet/brewlet/internal/artifact"
-	kcruntime "github.com/brewlet/brewlet/internal/runtime"
+	"github.com/microsoft/brewlet/internal/artifact"
+	kcruntime "github.com/microsoft/brewlet/internal/runtime"
 )
 
 type deleteTaskService struct {

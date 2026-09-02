@@ -132,8 +132,8 @@ config describing how to launch it.
 | Artifact type    | `application/vnd.brewlet.app.v1+json`               | Manifest `artifactType`           |
 | Config blob      | `application/vnd.brewlet.jvm.config.v1+json`        | Launch descriptor (below)         |
 | Payload layer    | `application/vnd.brewlet.jar.layer.v1+jar`          | The raw self-executable JAR       |
-| (optional) layer | `application/vnd.brewlet.classpath.layer.v1+tar`    | Dependency JARs; unpacked to `/app/lib` for layered class-path deployment ([docs](https://github.com/brewlet/brewlet/blob/main/docs/layered-classpath-deployment.md)) |
-| (optional) layer | `application/vnd.brewlet.modulepath.layer.v1+tar`   | Library modules for a modular (JPMS) app; unpacked to `/app/mods` and fed to `--module-path` ([docs](https://github.com/brewlet/brewlet/blob/main/docs/jpms-support.md)) |
+| (optional) layer | `application/vnd.brewlet.classpath.layer.v1+tar`    | Dependency JARs; unpacked to `/app/lib` for layered class-path deployment ([docs](https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md)) |
+| (optional) layer | `application/vnd.brewlet.modulepath.layer.v1+tar`   | Library modules for a modular (JPMS) app; unpacked to `/app/mods` and fed to `--module-path` ([docs](https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md)) |
 
 ### 4.2 Launch config (config blob) schema
 
@@ -267,7 +267,7 @@ Maven plugin, since it fulfils the pure `image: <ref>` promise end to end. Nativ
 artifact mode (`--format=artifact` / `-Dbrewlet.format=artifact`) remains available for
 clusters with a node pre-puller that want the registry-native, smallest, no-OS-image
 framing (and its self-describing media types). See
-[`docs/runnable-image.md`](https://github.com/brewlet/brewlet/blob/main/docs/runnable-image.md)
+[`docs/runnable-image.md`](https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md)
 for the full contract. The kubelet-pull → unpack → shim-run path is covered on a
 live node by the end-to-end test suite.
 
@@ -562,7 +562,7 @@ and wires it into containerd.
 ### 5.1 Activation
 ```bash
 helm repo add brewlet https://charts.brewlet.sh
-helm install -n brewlet --create-namespace brewlet brewlet/brewlet-operator
+helm install -n brewlet --create-namespace brewlet microsoft/brewlet-operator
 ```
 
 The chart renders a **default `NodeProfile`** (§5.6) that provisions **every
@@ -691,7 +691,7 @@ pods are unaffected until they restart. Install one root per node architecture
 > `source.image` and `source.javaHome` on their `NodeProfile`; the operator renders
 > indexed custom-source env variables consumed by the provisioner. Full operator reference, including
 > the distribution → image matrix, is in
-> [`provisioner/README.md`](https://github.com/brewlet/brewlet/blob/main/provisioner/README.md).
+> [`provisioner/README.md`](https://github.com/microsoft/brewlet/blob/main/provisioner/README.md).
 
 > **Licensing:** ship only OpenJDK builds whose license you accept. Brewlet is
 > distribution-neutral and pins nothing — the platform team chooses the builds.
@@ -754,12 +754,12 @@ this check together with the JDK smoke tests.
 ### 5.5 Provisioner
 
 The provisioner is a container image built from the
-[`provisioner/`](https://github.com/brewlet/brewlet/tree/main/provisioner)
+[`provisioner/`](https://github.com/microsoft/brewlet/tree/main/provisioner)
 directory (`Dockerfile` + `entrypoint.sh`) and deployed by
 [`deploy/node-provisioner.yaml`](../kubernetes/deploy/node-provisioner.yaml):
 
 - **Image** — a multi-stage build that first compiles `containerd-shim-brewlet-v2`
-  from the [core runtime](https://github.com/brewlet/brewlet) for the target architecture
+  from the [core runtime](https://github.com/microsoft/brewlet) for the target architecture
   (so the installed shim always
   matches the node arch), then assembles a small Debian-based runtime carrying the
   entrypoint plus `bash`/`curl`/`kubectl`. Build with `make provisioner-image`
@@ -786,7 +786,7 @@ Helm chart.
 
 Operator reference for the provisioner (env-var interface, copy-from-image
 mechanics, curated distribution → image matrix, deployment): see
-[`provisioner/README.md`](https://github.com/brewlet/brewlet/blob/main/provisioner/README.md).
+[`provisioner/README.md`](https://github.com/microsoft/brewlet/blob/main/provisioner/README.md).
 
 ### 5.6 Node profiles (per-pool preparation)
 
@@ -899,7 +899,7 @@ bundle and delegates isolation to runc*. This maximizes correctness and reuse.
 ### 6.4 Runtime shim
 
 The shim lives in the
-[`core/shim/cmd/containerd-shim-brewlet-v2`](https://github.com/brewlet/brewlet/tree/main/core/shim/cmd/containerd-shim-brewlet-v2)
+[`core/shim/cmd/containerd-shim-brewlet-v2`](https://github.com/microsoft/brewlet/tree/main/core/shim/cmd/containerd-shim-brewlet-v2)
 package
 and builds/runs on Linux:
 
@@ -1274,7 +1274,7 @@ descriptor's `jvm.args`.
   until no workload references them, then GC'd by the provisioner.
 - **Multi-arch:** JDK roots installed per node architecture (amd64/arm64); the JAR
   artifact is arch-independent, so the *same* artifact runs on any provisioned arch
-  (see [multi-arch](https://github.com/brewlet/brewlet/blob/main/docs/multi-arch.md)).
+  (see [multi-arch](https://github.com/microsoft/brewlet/blob/main/docs/multi-arch.md)).
 
 ---
 
@@ -1297,7 +1297,7 @@ and JVM features:
   run/bundle --appcds-regenerate` locally): the node maintains a
   per-`(artifact, JDK-build)` archive cache driven by `-XX:+AutoCreateSharedArchive`
   (JDK 19+) that self-heals on every central JDK patch. See the
-  [AppCDS note](https://github.com/brewlet/brewlet/blob/main/docs/appcds.md).
+  [AppCDS note](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md).
 
 ---
 

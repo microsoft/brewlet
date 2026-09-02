@@ -18,7 +18,7 @@
     the JAR layer + a generated application/vnd.brewlet.jvm.config.v1+json launch
     descriptor — with no Dockerfile and no container build.
   </description>
-  <url>https://github.com/brewlet/brewlet</url>
+  <url>https://github.com/microsoft/brewlet</url>
 
   <licenses>
     <license>
