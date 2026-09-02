@@ -20,12 +20,17 @@ WORKDIR /src
 COPY core/go.mod core/go.sum ./
 RUN go mod download
 COPY core/. .
+COPY scripts/generate-go-notice.sh /usr/local/bin/generate-go-notice
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags='-s -w' \
     -o /out/containerd-shim-brewlet-v2 ./shim/cmd/containerd-shim-brewlet-v2 \
  && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags='-s -w' \
-    -o /out/brewlet-metrics-exporter ./cmd/brewlet-metrics-exporter
+    -o /out/brewlet-metrics-exporter ./cmd/brewlet-metrics-exporter \
+ && GOOS=linux GOARCH=${TARGETARCH} \
+    /usr/local/bin/generate-go-notice /src /out/NOTICE.txt \
+      ./shim/cmd/containerd-shim-brewlet-v2 \
+      ./cmd/brewlet-metrics-exporter
 
 # ---- stage 2: runtime image ------------------------------------------------
 FROM debian:bookworm-slim
@@ -33,6 +38,9 @@ ARG TARGETARCH
 ARG KUBECTL_VERSION=v1.31.0
 ARG CONTAINERD_VERSION=2.0.5
 ARG CRICTL_VERSION=v1.31.1
+ARG KUBECTL_SOURCE_COMMIT=9edcffcde5595e8a5b1a35f88c421764e575afce
+ARG CONTAINERD_SOURCE_COMMIT=fb4c30d4ede3531652d86197bf3fc9515e5276d9
+ARG CRICTL_SOURCE_COMMIT=ea669ca726b21585ee9c94276391eea5b486da46
 
 # Host-mutation tooling: ca-certificates for TLS, curl to fetch kubectl at build
 # time, kubectl to label the node, the containerd `ctr` client used to copy
@@ -54,6 +62,22 @@ RUN apt-get update \
 # The shim binary the provisioner installs onto the node.
 COPY --from=shim /out/containerd-shim-brewlet-v2 /opt/brewlet-dist/containerd-shim-brewlet-v2
 COPY --from=shim /out/brewlet-metrics-exporter /opt/brewlet-dist/brewlet-metrics-exporter
+COPY --from=shim /out/NOTICE.txt /NOTICE.txt
+COPY LICENSE /LICENSE
+COPY legal/CONTAINER-LEGAL-NOTICE.txt /CONTAINER-LEGAL-NOTICE.txt
+
+RUN set -eu; \
+    for component in \
+      "Kubernetes kubectl ${KUBECTL_VERSION#v}|https://github.com/kubernetes/kubernetes|${KUBECTL_SOURCE_COMMIT}" \
+      "containerd ctr ${CONTAINERD_VERSION}|https://github.com/containerd/containerd|${CONTAINERD_SOURCE_COMMIT}" \
+      "Kubernetes CRI tools crictl ${CRICTL_VERSION#v}|https://github.com/kubernetes-sigs/cri-tools|${CRICTL_SOURCE_COMMIT}"; do \
+      name="${component%%|*}"; rest="${component#*|}"; source="${rest%%|*}"; commit="${rest##*|}"; \
+      repository="${source#https://github.com/}"; \
+      printf '\n================================================================================\nComponent: %s\nSource: %s/tree/%s\n\n--- LICENSE ---\n\n' \
+       "$name" "$source" "$commit" >> /NOTICE.txt; \
+      curl -fsSL "https://raw.githubusercontent.com/$repository/$commit/LICENSE" >> /NOTICE.txt; \
+      printf '\n' >> /NOTICE.txt; \
+    done
 
 COPY provisioner/entrypoint.sh /usr/local/bin/brewlet-provision
 RUN chmod 0755 /usr/local/bin/brewlet-provision

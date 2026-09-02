@@ -1,0 +1,17 @@
+{
+  "name": "brewlet-site-notice-inputs",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Exact npm components embedded in the generated Brewlet documentation site.",
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "7.1.0",
+    "@mdi/svg": "7.4.47",
+    "clipboard": "2.0.11",
+    "escape-html": "1.0.3",
+    "focus-visible": "5.2.1",
+    "lunr": "2.3.9",
+    "lunr-languages": "1.14.0",
+    "rxjs": "7.8.2",
+    "tslib": "2.7.0"
+  }
+}

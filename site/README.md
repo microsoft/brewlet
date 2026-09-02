@@ -16,6 +16,7 @@ repository-level [`docs/`](../docs/) directory.
 | `../docs/workshops/` | Role-based workshop material for operators and developers |
 | `assets/images/` | Brand assets and architecture diagrams |
 | `CNAME` | GitHub Pages custom domain |
+| `NOTICE.txt` | Browser-delivered third-party license and attribution text |
 
 ## Local preview
 
@@ -30,7 +31,9 @@ Then open <http://localhost:8099>.
 Documentation site (`/docs/` with left navigation):
 
 ```bash
-python3 -m pip install mkdocs mkdocs-material
+python3 -m pip install -r site/requirements.txt
+npm ci --ignore-scripts --prefix site/notices
+python3 site/scripts/generate-notice.py
 python3 -m mkdocs serve -f site/mkdocs.yml
 ```
 
@@ -40,4 +43,5 @@ Then open <http://localhost:8000/docs/>.
 
 Pushes to `main` that change the web assets, documentation, or Pages
 workflow build and deploy the static landing page plus a rendered MkDocs site at
-`/docs/`.
+`/docs/`. The workflow regenerates `NOTICE.txt` and fails if the checked-in
+notice is stale.
