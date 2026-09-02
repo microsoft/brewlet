@@ -5,80 +5,82 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  merge_group:
   schedule:
     - cron: "30 6 * * *"
   workflow_dispatch:
 
 concurrency:
-  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  select:
+    name: Select E2E tiers
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      has_e2e: ${{ steps.select.outputs.has_e2e }}
+      selected_tiers: ${{ steps.select.outputs.selected_tiers }}
+      reason: ${{ steps.select.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: select
+        name: Build tier matrix
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          FULL_E2E_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-e2e') }}
+        run: |
+          case "${{ github.event_name }}" in
+            push|schedule|workflow_dispatch)
+              full=true
+              ;;
+            pull_request)
+              full="$FULL_E2E_LABEL"
+              ;;
+            *)
+              full=false
+              ;;
+          esac
+
+          if [[ "$full" == "true" ]]; then
+            .github/scripts/select-e2e.sh /dev/null --full
+            exit
+          fi
+
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="$(git rev-parse HEAD^)"
+          fi
+          git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > changed-files.txt
+          .github/scripts/select-e2e.sh changed-files.txt
+
+      - name: Summarize selection
+        env:
+          SELECTED_TIERS: ${{ steps.select.outputs.selected_tiers }}
+          REASON: ${{ steps.select.outputs.reason }}
+        run: |
+          {
+            echo "### E2E selection"
+            echo
+            echo "- Tiers: $SELECTED_TIERS"
+            echo "- Reason: $REASON"
+          } >>"$GITHUB_STEP_SUMMARY"
+
   tiers:
     name: ${{ matrix.name }}
+    needs: select
+    if: needs.select.outputs.has_e2e == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Local CLI and JVM (tiers 1-2)
-            tiers: --tier 1 --tier 2
-            java: true
-            cluster: false
-            helm: false
-          - name: Shim to runc (tier 3)
-            tiers: --tier 3
-            java: true
-            cluster: false
-            helm: false
-          - name: Kubernetes control plane (tiers 4-6, 13)
-            tiers: --tier 4 --tier 5 --tier 6 --tier 13
-            java: false
-            cluster: true
-            helm: true
-          - name: Spring PetClinic (tier 7)
-            tiers: --tier 7
-            java: true
-            cluster: true
-            helm: true
-          - name: Node-side AppCDS (tier 8)
-            tiers: --tier 8
-            java: true
-            cluster: true
-            helm: false
-          - name: Serving and cgroups (tier 9)
-            tiers: --tier 9
-            java: true
-            cluster: true
-            helm: false
-          - name: Helm installation (tier 10)
-            tiers: --tier 10
-            java: false
-            cluster: true
-            helm: true
-          - name: Webhook resilience (tier 11)
-            tiers: --tier 11
-            java: false
-            cluster: true
-            helm: false
-          - name: Runnable image (tier 12)
-            tiers: --tier 12
-            java: true
-            cluster: true
-            helm: false
-          - name: Custom JDK NodeProfile (tier 14)
-            tiers: --tier 14
-            java: true
-            cluster: true
-            helm: false
-          - name: Runtime metrics (tier 15)
-            tiers: --tier 15
-            java: true
-            cluster: true
-            helm: true
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -109,3 +111,21 @@ jobs:
 
       - name: Run tiers
         run: integration-tests/e2e/run.sh ${{ matrix.tiers }}
+
+  gate:
+    name: E2E gate
+    if: always()
+    needs: [select, tiers]
+    runs-on: ubuntu-latest
+    env:
+      SELECT_RESULT: ${{ needs.select.result }}
+      TIERS_RESULT: ${{ needs.tiers.result }}
+    steps:
+      - name: Verify selected E2E tiers
+        run: |
+          for result in "$SELECT_RESULT" "$TIERS_RESULT"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "A required E2E job finished with result: $result" >&2; exit 1 ;;
+            esac
+          done

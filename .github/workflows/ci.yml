@@ -5,20 +5,51 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  schedule:
-    - cron: "0 6 * * *"
+  merge_group:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.select.outputs.core }}
+      kubernetes: ${{ steps.select.outputs.kubernetes }}
+      helm: ${{ steps.select.outputs.helm }}
+      maven: ${{ steps.select.outputs.maven }}
+      provisioner: ${{ steps.select.outputs.provisioner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: select
+        name: Select component checks
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            .github/scripts/select-ci.sh /dev/null --all
+            exit
+          fi
+
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="$(git rev-parse HEAD^)"
+          fi
+          git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > changed-files.txt
+          .github/scripts/select-ci.sh changed-files.txt
+
   core:
     name: Go core runtime
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,6 +83,8 @@ jobs:
 
   kubernetes:
     name: Go Kubernetes platform
+    needs: changes
+    if: needs.changes.outputs.kubernetes == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -85,6 +118,8 @@ jobs:
 
   helm:
     name: Helm chart
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -100,6 +135,8 @@ jobs:
 
   maven-plugin:
     name: Maven plugin
+    needs: changes
+    if: needs.changes.outputs.maven == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -117,3 +154,38 @@ jobs:
 
       - name: Build and test
         run: mvn -B --no-transfer-progress verify
+
+  provisioner:
+    name: Node provisioner
+    needs: changes
+    if: needs.changes.outputs.provisioner == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Test entrypoint
+        run: bash provisioner/entrypoint_test.sh
+
+  gate:
+    name: CI gate
+    if: always()
+    needs: [changes, core, kubernetes, helm, maven-plugin, provisioner]
+    runs-on: ubuntu-latest
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      CORE_RESULT: ${{ needs.core.result }}
+      KUBERNETES_RESULT: ${{ needs.kubernetes.result }}
+      HELM_RESULT: ${{ needs.helm.result }}
+      MAVEN_RESULT: ${{ needs['maven-plugin'].result }}
+      PROVISIONER_RESULT: ${{ needs.provisioner.result }}
+    steps:
+      - name: Verify selected checks
+        run: |
+          for result in \
+            "$CHANGES_RESULT" "$CORE_RESULT" "$KUBERNETES_RESULT" \
+            "$HELM_RESULT" "$MAVEN_RESULT" "$PROVISIONER_RESULT"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "A required CI job finished with result: $result" >&2; exit 1 ;;
+            esac
+          done

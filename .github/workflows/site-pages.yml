@@ -7,19 +7,24 @@ on:
       - "site/**"
       - "docs/**"
       - ".github/workflows/site-pages.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/**"
+      - ".github/workflows/site-pages.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'deployment' }}
+  cancel-in-progress: true
 
 jobs:
   release-smoke:
+    name: Release documentation smoke test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -31,12 +36,9 @@ jobs:
       - name: Verify installer, public release, and Getting Started
         run: ./site/scripts/verify-release-artifacts.sh 0.1.0
 
-  deploy:
-    needs: release-smoke
+  site-check:
+    name: Site check
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -56,6 +58,32 @@ jobs:
             --exclude='docs' \
             --exclude='_site' \
             site/ site/_site/
+      - name: Verify publish directory
+        run: test -s site/_site/index.html
+      - name: Save publish directory
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: site-publish
+          path: site/_site
+          if-no-files-found: error
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: [release-smoke, site-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: site-publish
+          path: site/_site
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
