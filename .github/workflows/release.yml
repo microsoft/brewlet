@@ -23,17 +23,17 @@ jobs:
       matrix:
         include:
           - name: operator
-            image: operator
+            image: brewlet-operator
             context: kubernetes
             file: kubernetes/Dockerfile
             build_args: CMD=manager
           - name: admission
-            image: admission
+            image: brewlet-admission
             context: kubernetes
             file: kubernetes/Dockerfile
             build_args: CMD=admission
           - name: node-provisioner
-            image: node-provisioner
+            image: brewlet-node-provisioner
             context: .
             file: provisioner/Dockerfile
             build_args: ""

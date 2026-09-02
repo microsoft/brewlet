@@ -143,9 +143,9 @@ Tags matching `v*` publish version-aligned artifacts:
 | Artifact | Location |
 | --- | --- |
 | CLI archives and checksums | [GitHub Releases](https://github.com/microsoft/brewlet/releases) |
-| Operator image | `ghcr.io/microsoft/operator:<version>` |
-| Admission webhook image | `ghcr.io/microsoft/admission:<version>` |
-| Node provisioner image | `ghcr.io/microsoft/node-provisioner:<version>` |
+| Operator image | `ghcr.io/microsoft/brewlet-operator:<version>` |
+| Admission webhook image | `ghcr.io/microsoft/brewlet-admission:<version>` |
+| Node provisioner image | `ghcr.io/microsoft/brewlet-node-provisioner:<version>` |
 | Helm chart | `oci://ghcr.io/microsoft/charts/brewlet` |
 | Maven plugin JAR and POM | [GitHub Releases](https://github.com/microsoft/brewlet/releases) |
 

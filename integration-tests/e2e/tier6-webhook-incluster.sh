@@ -11,7 +11,7 @@
 # (e.g. a remote cluster whose nodes aren't local docker containers).
 # Prereqs: kubectl + cluster, docker, openssl, nodes loadable via `ctr`.
 
-T6_IMG="brewlet.local/admission:e2e"
+T6_IMG="brewlet.local/brewlet-admission:e2e"
 T6_SYS_NS="brewlet-webhook-ic-sys"   # webhook Deployment/Service/Secret/RBAC
 T6_NS="brewlet-webhook-ic"           # labelled test namespace probe pods land in
 T6_SVC="brewlet-admission-ic"
