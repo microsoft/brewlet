@@ -39,7 +39,7 @@ EXTRA_LICENSES = {
     "focus-visible": ["licenses/w3c-software-document-2015.txt"],
 }
 
-SOURCE_OVERRIDES = {
+VERSIONED_SOURCE_URLS = {
     "@fortawesome/fontawesome-free": (
         "https://github.com/FortAwesome/Font-Awesome/tree/7.1.0"
     ),
@@ -149,7 +149,7 @@ def main() -> int:
         append_component(
             parts,
             f"{name} {version}",
-            SOURCE_OVERRIDES.get(name, repository or "npm registry"),
+            VERSIONED_SOURCE_URLS.get(name, repository or "npm registry"),
             files,
             COMPONENT_NOTICES.get(name),
         )
