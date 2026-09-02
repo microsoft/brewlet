@@ -101,7 +101,7 @@ platform-owned node pools.
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.3.1 \
   --namespace brewlet \
   --create-namespace \
   --set-string provisioner.jdks=temurin-21
@@ -135,6 +135,17 @@ make binaries
 
 To run the full tiered integration harness against a suitable local cluster,
 see [`integration-tests/AGENTS.md`](integration-tests/AGENTS.md).
+
+## Contributing and support
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development workflow and pull request requirements, and review the
+[Microsoft Open Source Code of Conduct](CODE_OF_CONDUCT.md) before
+participating.
+
+Use [GitHub Issues](https://github.com/microsoft/brewlet/issues) for bugs and
+feature requests. See [SUPPORT.md](SUPPORT.md) for support expectations and
+[SECURITY.md](SECURITY.md) for confidential vulnerability reporting.
 
 ## Releases
 

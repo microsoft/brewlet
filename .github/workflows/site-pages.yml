@@ -8,6 +8,12 @@ on:
       - "docs/**"
       - ".github/workflows/site-pages.yml"
   workflow_dispatch:
+    inputs:
+      skip_release_smoke:
+        description: Skip validation of public release artifacts
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -20,6 +26,7 @@ concurrency:
 
 jobs:
   release-smoke:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_release_smoke }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,10 +36,11 @@ jobs:
           distribution: temurin
           java-version: "21"
       - name: Verify installer, public release, and Getting Started
-        run: ./site/scripts/verify-release-artifacts.sh 0.1.0
+        run: ./site/scripts/verify-release-artifacts.sh 0.3.1
 
   deploy:
     needs: release-smoke
+    if: ${{ always() && (needs.release-smoke.result == 'success' || needs.release-smoke.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages

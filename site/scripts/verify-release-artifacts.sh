@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="${1:-0.1.0}"
+version="${1:-0.3.1}"
 work="$(mktemp -d)"
 app_pid=""
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"

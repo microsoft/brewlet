@@ -14,7 +14,7 @@ Ask the Ops participant for:
 export BREWLET_CONTEXT="<kubernetes-context>"
 export BREWLET_NAMESPACE="<developer-namespace>"
 export BREWLET_JDK="21"
-export BREWLET_VERSION="0.1.0"
+export BREWLET_VERSION="0.3.1"
 export BREWLET_REGISTRY="<registry-host>/<team>"
 ```
 

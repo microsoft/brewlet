@@ -1,6 +1,6 @@
 # Getting started with the released CLI
 
-In this local quick start you will download Brewlet v0.1.0, build a small Java
+In this local quick start you will download Brewlet v0.3.1, build a small Java
 application, package only its JAR into an OCI layout, inspect it, and run it with
 your installed JDK. You do not need Go, Docker, Kubernetes, or a Brewlet source
 build.
@@ -29,14 +29,14 @@ the matching release archive, and verifies its SHA-256 checksum before
 installing it:
 
 ```bash
-export BREWLET_VERSION="0.1.0"
+export BREWLET_VERSION="0.3.1"
 curl -fsSL https://brewlet.sh/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
 brewlet version
 ```
 
-The last command must print `0.1.0`.
+The last command must print `0.3.1`.
 
 Without `BREWLET_VERSION`, the installer selects the latest release. Set
 `BREWLET_INSTALL_DIR` to choose a directory other than `$HOME/.local/bin`.
@@ -134,7 +134,7 @@ and Linux; executing the bundle with `runc` is a Linux node operation.
 
 ## What you proved
 
-- Brewlet itself came from the public v0.1.0 release.
+- Brewlet itself came from the public v0.3.1 release.
 - The application payload contains only the JAR and launch metadata.
 - A node-resident JDK can run the packaged application directly.
 - Brewlet can translate the same artifact into an OCI runtime bundle with
