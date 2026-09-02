@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/component-detection-manifest.json",
+  "version": 1,
+  "registrations": [
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/kubernetes/kubernetes",
+          "commitHash": "9edcffcde5595e8a5b1a35f88c421764e575afce",
+          "tag": "v1.31.0"
+        }
+      },
+      "developmentDependency": false,
+      "detectedComponentLocations": [
+        "Dockerfile"
+      ]
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/containerd/containerd",
+          "commitHash": "fb4c30d4ede3531652d86197bf3fc9515e5276d9",
+          "tag": "v2.0.5"
+        }
+      },
+      "developmentDependency": false,
+      "detectedComponentLocations": [
+        "Dockerfile"
+      ]
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/kubernetes-sigs/cri-tools",
+          "commitHash": "ea669ca726b21585ee9c94276391eea5b486da46",
+          "tag": "v1.31.1"
+        }
+      },
+      "developmentDependency": false,
+      "detectedComponentLocations": [
+        "Dockerfile"
+      ]
+    }
+  ]
+}

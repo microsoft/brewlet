@@ -162,7 +162,9 @@ Tags matching `v*` publish version-aligned artifacts:
 
 The Helm chart's `appVersion` selects matching component image tags by default.
 Release images support Linux `amd64` and `arm64`; CLI archives support those
-architectures on Linux and macOS.
+architectures on Linux and macOS. Binary archives, JARs, images, and the
+published website carry their applicable third-party notices inside the
+artifact; container images also carry Microsoft's container legal notice.
 
 ## License
 

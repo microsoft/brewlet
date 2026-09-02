@@ -101,11 +101,14 @@ make -C kubernetes test-envtest
 make -C kubernetes helm-check
 ```
 
-Build the component images with `kubernetes/` as the Docker context:
+Build the component images from the repository root so the image also receives
+the shared license and notice-generation inputs:
 
 ```bash
-docker build -t ghcr.io/microsoft/brewlet-operator:dev kubernetes
-docker build -t ghcr.io/microsoft/brewlet-admission:dev kubernetes --build-arg CMD=admission
+docker build -f kubernetes/Dockerfile \
+  -t ghcr.io/microsoft/brewlet-operator:dev .
+docker build -f kubernetes/Dockerfile --build-arg CMD=admission \
+  -t ghcr.io/microsoft/brewlet-admission:dev .
 ```
 
 ## Component layout
@@ -123,4 +126,6 @@ docker build -t ghcr.io/microsoft/brewlet-admission:dev kubernetes --build-arg C
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE). Published images include dependency attributions at
+`/NOTICE.txt` and the Microsoft container notice at
+`/CONTAINER-LEGAL-NOTICE.txt`.

@@ -116,4 +116,55 @@ jobs:
           cache-dependency-path: maven-plugin/pom.xml
 
       - name: Build and test
-        run: mvn -B --no-transfer-progress verify
+        run: |
+          mvn -B --no-transfer-progress verify
+          scripts/generate-notice.sh --check
+          unzip -l target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/NOTICE.txt'
+
+  notices:
+    name: Third-party notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: |
+            core/go.sum
+            kubernetes/go.sum
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: site/notices/package-lock.json
+
+      - name: Verify Go notices
+        run: |
+          work="$(mktemp -d)"
+          GOOS=linux GOARCH=amd64 ./scripts/generate-go-notice.sh \
+            core "$work/cli.txt" ./cmd/brewlet
+          GOOS=linux GOARCH=amd64 ./scripts/generate-go-notice.sh \
+            core "$work/provisioner.txt" \
+            ./shim/cmd/containerd-shim-brewlet-v2 \
+            ./cmd/brewlet-metrics-exporter
+          GOOS=linux GOARCH=amd64 ./scripts/generate-go-notice.sh \
+            kubernetes "$work/operator.txt" ./cmd/manager
+          GOOS=linux GOARCH=amd64 ./scripts/generate-go-notice.sh \
+            kubernetes "$work/admission.txt" ./cmd/admission
+          test -s "$work/cli.txt"
+          test -s "$work/provisioner.txt"
+          test -s "$work/operator.txt"
+          test -s "$work/admission.txt"
+
+      - name: Verify website notice
+        run: |
+          python -m pip install --quiet -r site/requirements.txt
+          npm ci --ignore-scripts --prefix site/notices
+          python site/scripts/generate-notice.py
+          git diff --exit-code -- site/NOTICE.txt

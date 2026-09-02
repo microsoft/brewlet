@@ -43,6 +43,8 @@ kubernetes-check: ## Run Kubernetes platform CI checks
 
 maven-plugin-check: ## Run Maven plugin tests
 	mvn -B --no-transfer-progress -f maven-plugin/pom.xml verify
+	maven-plugin/scripts/generate-notice.sh --check
+	unzip -l maven-plugin/target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/NOTICE.txt'
 
 admission-check: ## Build and test the Ratify managed-dependency verifier plugin
 	go -C admission/ratify-verifier vet ./...

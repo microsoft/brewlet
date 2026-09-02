@@ -42,9 +42,10 @@ To build the components from source instead, use the
 git clone https://github.com/microsoft/brewlet.git
 cd brewlet
 docker buildx build --platform linux/amd64,linux/arm64 \
-  -t <registry>/operator:<tag> --push kubernetes
+  -f kubernetes/Dockerfile -t <registry>/operator:<tag> --push .
 docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-arg CMD=admission -t <registry>/admission:<tag> --push kubernetes
+  -f kubernetes/Dockerfile --build-arg CMD=admission \
+  -t <registry>/admission:<tag> --push .
 make provisioner-image-push \
   PROVISIONER_IMAGE=<registry>/node-provisioner:<tag>
 ```
