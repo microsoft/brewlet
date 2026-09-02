@@ -40,10 +40,10 @@ admission-build:
 	$(GO) build -o bin/admission ./cmd/admission
 
 operator-image:
-	docker build -t ghcr.io/microsoft/operator:dev .
+	docker build -t ghcr.io/microsoft/brewlet-operator:dev -f Dockerfile ..
 
 admission-image:
-	docker build -t ghcr.io/microsoft/admission:dev . --build-arg CMD=admission
+	docker build -t ghcr.io/microsoft/brewlet-admission:dev -f Dockerfile .. --build-arg CMD=admission
 
 helm-lint:
 	$(HELM) lint charts/brewlet

@@ -90,7 +90,7 @@ owned by the application team.
         <plugin>
           <groupId>sh.brewlet</groupId>
           <artifactId>brewlet-maven-plugin</artifactId>
-          <version>0.1.0</version>
+          <version>0.3.1</version>
           <configuration>
             <dependencyBundleImage>registry.example.com/platform/java-deps/spring-web:2026.08</dependencyBundleImage>
             <sourceBom>com.example.platform:approved-spring-bom:2026.08</sourceBom>
@@ -130,7 +130,7 @@ owned by the application team.
         <plugin>
           <groupId>sh.brewlet</groupId>
           <artifactId>brewlet-maven-plugin</artifactId>
-          <version>0.1.0</version>
+          <version>0.3.1</version>
           <configuration>
             <image>registry.example.com/apps/orders:${project.version}</image>
             <dependencyBundle>registry.example.com/platform/java-deps/spring-web:2026.08</dependencyBundle>

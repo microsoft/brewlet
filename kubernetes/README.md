@@ -19,7 +19,7 @@ documentation lives in [`docs/`](../docs/).
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.3.1 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.jdks="temurin-21,microsoft-25" \
@@ -86,9 +86,9 @@ The raw manifests use these images:
 
 | Component | Image |
 |---|---|
-| Operator | `ghcr.io/microsoft/operator` |
-| Admission webhook | `ghcr.io/microsoft/admission` |
-| Node provisioner | `ghcr.io/microsoft/node-provisioner` |
+| Operator | `ghcr.io/microsoft/brewlet-operator` |
+| Admission webhook | `ghcr.io/microsoft/brewlet-admission` |
+| Node provisioner | `ghcr.io/microsoft/brewlet-node-provisioner` |
 
 ## Build and test
 
@@ -101,11 +101,14 @@ make -C kubernetes test-envtest
 make -C kubernetes helm-check
 ```
 
-Build the component images with `kubernetes/` as the Docker context:
+Build the component images from the repository root so the image also receives
+the shared license and notice-generation inputs:
 
 ```bash
-docker build -t ghcr.io/microsoft/operator:dev kubernetes
-docker build -t ghcr.io/microsoft/admission:dev kubernetes --build-arg CMD=admission
+docker build -f kubernetes/Dockerfile \
+  -t ghcr.io/microsoft/brewlet-operator:dev .
+docker build -f kubernetes/Dockerfile --build-arg CMD=admission \
+  -t ghcr.io/microsoft/brewlet-admission:dev .
 ```
 
 ## Component layout
@@ -123,4 +126,6 @@ docker build -t ghcr.io/microsoft/admission:dev kubernetes --build-arg CMD=admis
 
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE). Published images include dependency attributions at
+`/NOTICE.txt` and the Microsoft container notice at
+`/CONTAINER-LEGAL-NOTICE.txt`.

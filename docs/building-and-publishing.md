@@ -154,7 +154,7 @@ config for you:
 
 ```bash
 # One-off: enable layering on the command line
-mvn clean package sh.brewlet:brewlet-maven-plugin:0.1.0:push \
+mvn clean package sh.brewlet:brewlet-maven-plugin:0.3.1:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2 \
   -Dbrewlet.layered=true
 ```
@@ -163,7 +163,7 @@ mvn clean package sh.brewlet:brewlet-maven-plugin:0.1.0:push \
 <plugin>
   <groupId>sh.brewlet</groupId>
   <artifactId>brewlet-maven-plugin</artifactId>
-  <version>0.1.0</version>
+  <version>0.3.1</version>
   <configuration>
     <image>registry.example.com/team/app:${project.version}</image>
     <layered>true</layered>                         <!-- thin JAR + dependency layers -->
@@ -299,20 +299,20 @@ framework from the project and JAR manifest; its `manifest` goal writes the
 descriptor's JDK feature request and infers the container `ports`.
 
 Until the plugin is published to Maven Central, download its JAR and POM from
-the [GitHub release](https://github.com/microsoft/brewlet/releases/tag/v0.1.0) and
+the [GitHub release](https://github.com/microsoft/brewlet/releases/tag/v0.3.1) and
 install them once:
 
 ```bash
-curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.1.0/brewlet-maven-plugin-0.1.0.jar
-curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.1.0/brewlet-maven-plugin-0.1.0.pom
+curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.3.1/brewlet-maven-plugin-0.3.1.jar
+curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.3.1/brewlet-maven-plugin-0.3.1.pom
 mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
-  -Dfile=brewlet-maven-plugin-0.1.0.jar \
-  -DpomFile=brewlet-maven-plugin-0.1.0.pom
+  -Dfile=brewlet-maven-plugin-0.3.1.jar \
+  -DpomFile=brewlet-maven-plugin-0.3.1.pom
 ```
 
 ```bash
 # Build the fat JAR and push it as a Brewlet OCI artifact in one line:
-mvn clean package sh.brewlet:brewlet-maven-plugin:0.1.0:push \
+mvn clean package sh.brewlet:brewlet-maven-plugin:0.3.1:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 ```
 
@@ -322,7 +322,7 @@ Or configure it once in `pom.xml` and bind `push` / `manifest` to the lifecycle:
 <plugin>
   <groupId>sh.brewlet</groupId>
   <artifactId>brewlet-maven-plugin</artifactId>
-  <version>0.1.0</version>
+  <version>0.3.1</version>
   <configuration>
     <image>registry.example.com/team/app:${project.version}</image>
     <jdkFeature>21</jdkFeature>

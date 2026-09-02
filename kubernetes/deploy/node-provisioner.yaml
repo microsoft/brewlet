@@ -71,7 +71,7 @@ spec:
         - operator: Exists
       containers:
         - name: provisioner
-          image: ghcr.io/microsoft/node-provisioner:0.1.0
+          image: ghcr.io/microsoft/brewlet-node-provisioner:0.1.0
           securityContext:
             privileged: true              # required to install shim + edit containerd config
           env:

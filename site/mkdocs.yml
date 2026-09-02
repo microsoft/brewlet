@@ -34,6 +34,8 @@ hooks:
 extra:
   homepage: https://brewlet.sh/
 
+copyright: '<a href="/NOTICE.txt">Third-party notices</a>'
+
 markdown_extensions:
   - admonition
   - attr_list
@@ -99,3 +101,4 @@ nav:
       - JPMS support: jpms-support.md
       - Layered classpath deployment: layered-classpath-deployment.md
       - Runnable-image delivery: runnable-image.md
+      - Third-party notices: third-party-notices.md

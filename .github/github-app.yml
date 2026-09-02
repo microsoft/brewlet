@@ -5,11 +5,11 @@ instructions: |
 
 scripts:
   - name: Setup site
-    command: python3 -m venv site/.venv && site/.venv/bin/python -m pip install --quiet mkdocs mkdocs-material
+    command: python3 -m venv site/.venv && site/.venv/bin/python -m pip install --quiet -r site/requirements.txt && npm ci --ignore-scripts --prefix site/notices
     triggers:
       - session.create
   - name: Run site
-    command: site/.venv/bin/python -m mkdocs build --strict -f site/mkdocs.yml && mkdir -p site/_site && rsync -a --exclude='.git' --exclude='.github' --exclude='.venv' --exclude='docs' --exclude='_site' site/ site/_site/ && site/.venv/bin/python -m http.server 8099 --directory site/_site
+    command: site/.venv/bin/python site/scripts/generate-notice.py && site/.venv/bin/python -m mkdocs build --strict -f site/mkdocs.yml && mkdir -p site/_site && rsync -a --exclude='.git' --exclude='.github' --exclude='.venv' --exclude='docs' --exclude='_site' --exclude='notices' site/ site/_site/ && site/.venv/bin/python -m http.server 8099 --directory site/_site
 
 server_ready_pattern: 'Serving HTTP on .* port (8099)'
 auto_open_in_browser: true

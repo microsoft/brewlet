@@ -85,7 +85,7 @@ Example production install (own registry, no `jaz`):
 
 ```bash
 helm install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.3.1 \
   --set images.operator=registry.example.com/brewlet/operator@sha256:… \
   --set images.provisioner=registry.example.com/brewlet/node-provisioner@sha256:… \
   --set images.admission=registry.example.com/brewlet/admission@sha256:… \
@@ -108,7 +108,7 @@ When you install via Helm, the chart populates them for you.
 | Flag | Default | Meaning |
 |---|---|---|
 | `--namespace` | `brewlet` | Namespace the provisioner DaemonSet is managed in. |
-| `--provisioner-image` | `ghcr.io/microsoft/node-provisioner:0.1.0` | Image the DaemonSet runs. |
+| `--provisioner-image` | `ghcr.io/microsoft/brewlet-node-provisioner:0.3.1` | Image the DaemonSet runs. |
 | `--jdks` | `temurin-21` | Comma-separated `<dist>-<feature>` inventory (flows to the provisioner `JDKS` env). |
 | `--launchers` | *(empty)* | Comma-separated launcher inventory (`LAUNCHERS` env). |
 | `--leader-elect` | `false` | Enable leader election for HA. |
@@ -117,7 +117,7 @@ When you install via Helm, the chart populates them for you.
 
 ```bash
 ./bin/operator --namespace=brewlet \
-  --provisioner-image=ghcr.io/microsoft/node-provisioner:0.1.0 \
+  --provisioner-image=ghcr.io/microsoft/brewlet-node-provisioner:0.3.1 \
   --jdks=temurin-21,microsoft-25 --launchers=jaz
 ```
 

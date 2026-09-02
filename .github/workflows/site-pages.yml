@@ -14,6 +14,12 @@ on:
       - "docs/**"
       - ".github/workflows/site-pages.yml"
   workflow_dispatch:
+    inputs:
+      skip_release_smoke:
+        description: Skip validation of public release artifacts
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,6 +31,7 @@ concurrency:
 jobs:
   release-smoke:
     name: Release documentation smoke test
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_release_smoke }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -34,7 +41,7 @@ jobs:
           distribution: temurin
           java-version: "21"
       - name: Verify installer, public release, and Getting Started
-        run: ./site/scripts/verify-release-artifacts.sh 0.1.0
+        run: ./site/scripts/verify-release-artifacts.sh 0.3.1
 
   site-check:
     name: Site check
@@ -44,10 +51,18 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: site/notices/package-lock.json
       - name: Build docs site
         run: |
           python -m pip install --upgrade pip
-          pip install --quiet mkdocs mkdocs-material
+          pip install --quiet -r site/requirements.txt
+          npm ci --ignore-scripts --prefix site/notices
+          python site/scripts/generate-notice.py
+          git diff --exit-code -- site/NOTICE.txt
           python -m mkdocs build --strict -f site/mkdocs.yml
       - name: Assemble publish directory
         run: |
@@ -57,6 +72,7 @@ jobs:
             --exclude='.github' \
             --exclude='docs' \
             --exclude='_site' \
+            --exclude='notices' \
             site/ site/_site/
       - name: Verify publish directory
         run: test -s site/_site/index.html
@@ -69,7 +85,7 @@ jobs:
           if-no-files-found: error
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: ${{ always() && github.event_name != 'pull_request' && (needs.release-smoke.result == 'success' || needs.release-smoke.result == 'skipped') }}
     needs: [release-smoke, site-check]
     runs-on: ubuntu-latest
     permissions:

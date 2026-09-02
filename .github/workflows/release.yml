@@ -23,17 +23,17 @@ jobs:
       matrix:
         include:
           - name: operator
-            image: operator
-            context: kubernetes
+            image: brewlet-operator
+            context: .
             file: kubernetes/Dockerfile
             build_args: CMD=manager
           - name: admission
-            image: admission
-            context: kubernetes
+            image: brewlet-admission
+            context: .
             file: kubernetes/Dockerfile
             build_args: CMD=admission
           - name: node-provisioner
-            image: node-provisioner
+            image: brewlet-node-provisioner
             context: .
             file: provisioner/Dockerfile
             build_args: ""
@@ -153,7 +153,11 @@ jobs:
             -ldflags="-s -w -X main.version=$VERSION" \
             -o ../dist/brewlet \
             ./cmd/brewlet
-          tar -C dist -czf "brewlet_${VERSION}_${GOOS}_${GOARCH}.tar.gz" brewlet
+          GOOS="$GOOS" GOARCH="$GOARCH" \
+            ./scripts/generate-go-notice.sh core dist/NOTICE.txt ./cmd/brewlet
+          cp LICENSE dist/LICENSE
+          tar -C dist -czf "brewlet_${VERSION}_${GOOS}_${GOARCH}.tar.gz" \
+            brewlet LICENSE NOTICE.txt
 
       - uses: actions/upload-artifact@v7
         with:
@@ -193,6 +197,9 @@ jobs:
             -DnewVersion="${{ steps.version.outputs.version }}" \
             -DgenerateBackupPoms=false
           mvn -B --no-transfer-progress verify
+          scripts/generate-notice.sh --check
+          unzip -l "target/brewlet-maven-plugin-${{ steps.version.outputs.version }}.jar" \
+            | grep -q 'META-INF/NOTICE.txt'
           mkdir -p ../dist
           cp "target/brewlet-maven-plugin-${{ steps.version.outputs.version }}.jar" ../dist/
           cp pom.xml "../dist/brewlet-maven-plugin-${{ steps.version.outputs.version }}.pom"

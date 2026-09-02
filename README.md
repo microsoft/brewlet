@@ -101,7 +101,7 @@ platform-owned node pools.
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.3.1 \
   --namespace brewlet \
   --create-namespace \
   --set-string provisioner.jdks=temurin-21
@@ -136,6 +136,17 @@ make binaries
 To run the full tiered integration harness against a suitable local cluster,
 see [`integration-tests/AGENTS.md`](integration-tests/AGENTS.md).
 
+## Contributing and support
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development workflow and pull request requirements, and review the
+[Microsoft Open Source Code of Conduct](CODE_OF_CONDUCT.md) before
+participating.
+
+Use [GitHub Issues](https://github.com/microsoft/brewlet/issues) for bugs and
+feature requests. See [SUPPORT.md](SUPPORT.md) for support expectations and
+[SECURITY.md](SECURITY.md) for confidential vulnerability reporting.
+
 ## Releases
 
 Tags matching `v*` publish version-aligned artifacts:
@@ -143,15 +154,17 @@ Tags matching `v*` publish version-aligned artifacts:
 | Artifact | Location |
 | --- | --- |
 | CLI archives and checksums | [GitHub Releases](https://github.com/microsoft/brewlet/releases) |
-| Operator image | `ghcr.io/microsoft/operator:<version>` |
-| Admission webhook image | `ghcr.io/microsoft/admission:<version>` |
-| Node provisioner image | `ghcr.io/microsoft/node-provisioner:<version>` |
+| Operator image | `ghcr.io/microsoft/brewlet-operator:<version>` |
+| Admission webhook image | `ghcr.io/microsoft/brewlet-admission:<version>` |
+| Node provisioner image | `ghcr.io/microsoft/brewlet-node-provisioner:<version>` |
 | Helm chart | `oci://ghcr.io/microsoft/charts/brewlet` |
 | Maven plugin JAR and POM | [GitHub Releases](https://github.com/microsoft/brewlet/releases) |
 
 The Helm chart's `appVersion` selects matching component image tags by default.
 Release images support Linux `amd64` and `arm64`; CLI archives support those
-architectures on Linux and macOS.
+architectures on Linux and macOS. Binary archives, JARs, images, and the
+published website carry their applicable third-party notices inside the
+artifact; container images also carry Microsoft's container legal notice.
 
 ## License
 

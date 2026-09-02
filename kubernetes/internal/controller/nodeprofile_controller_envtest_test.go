@@ -25,7 +25,7 @@ func newProfileReconciler(c client.Client, ns string) *NodeProfileReconciler {
 		Recorder: record.NewFakeRecorder(100),
 		Config: Config{
 			Namespace:        ns,
-			ProvisionerImage: "ghcr.io/microsoft/node-provisioner:test",
+			ProvisionerImage: "ghcr.io/microsoft/brewlet-node-provisioner:test",
 		},
 	}
 }

@@ -32,7 +32,7 @@ There are two paths:
 ### Released components
 
 Brewlet publishes version-aligned multi-architecture component images and an OCI
-Helm chart. Installing chart `0.1.0` selects image tag `0.1.0` automatically.
+Helm chart. Installing chart `0.3.1` selects image tag `0.3.1` automatically.
 Pin to your own registry or immutable digests in production.
 
 To build the components from source instead, use the
@@ -42,9 +42,10 @@ To build the components from source instead, use the
 git clone https://github.com/microsoft/brewlet.git
 cd brewlet
 docker buildx build --platform linux/amd64,linux/arm64 \
-  -t <registry>/operator:<tag> --push kubernetes
+  -f kubernetes/Dockerfile -t <registry>/operator:<tag> --push .
 docker buildx build --platform linux/amd64,linux/arm64 \
-  --build-arg CMD=admission -t <registry>/admission:<tag> --push kubernetes
+  -f kubernetes/Dockerfile --build-arg CMD=admission \
+  -t <registry>/admission:<tag> --push .
 make provisioner-image-push \
   PROVISIONER_IMAGE=<registry>/node-provisioner:<tag>
 ```
@@ -65,7 +66,7 @@ values — so there is a single runtime source of truth for the JDK/launcher inv
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.3.1 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.jdks="temurin-21,microsoft-25" \
@@ -109,7 +110,7 @@ Point the chart at your own registry or image digests if required:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.3.1 \
   --namespace brewlet \
   --create-namespace \
   --set images.operator=<registry>/operator:<tag> \
@@ -133,9 +134,9 @@ upgrading an existing Brewlet installation to a release that adds custom JDK or
 jlink runtime sources, apply that release's `NodeProfile` CRD explicitly:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/microsoft/brewlet/v0.1.0/kubernetes/deploy/nodeprofile-crd.yaml
+kubectl apply -f https://raw.githubusercontent.com/microsoft/brewlet/v0.3.1/kubernetes/deploy/nodeprofile-crd.yaml
 helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.3.1 \
   -f values.yaml
 ```
 
@@ -193,7 +194,7 @@ and admission flags are in [Configuration](configuration.md#operator-flags).
 
 ```bash
 # Install the CLI version that matches the chart, then run the readiness check:
-export BREWLET_VERSION="0.1.0"
+export BREWLET_VERSION="0.3.1"
 curl -fsSL https://brewlet.sh/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 brewlet doctor --namespace default

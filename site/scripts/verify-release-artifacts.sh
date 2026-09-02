@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="${1:-0.1.0}"
+version="${1:-0.3.1}"
 work="$(mktemp -d)"
 app_pid=""
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -90,10 +90,10 @@ helm template brewlet "$work/brewlet-${version}.tgz" \
   --set-string provisioner.jdks=temurin-21 \
   > "$work/rendered.yaml"
 
-grep -q "ghcr.io/microsoft/operator:${version}" "$work/rendered.yaml"
-grep -q "ghcr.io/microsoft/admission:${version}" "$work/rendered.yaml"
-grep -q "ghcr.io/microsoft/node-provisioner:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/brewlet-operator:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/brewlet-admission:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/brewlet-node-provisioner:${version}" "$work/rendered.yaml"
 
-docker manifest inspect "ghcr.io/microsoft/operator:${version}" >/dev/null
-docker manifest inspect "ghcr.io/microsoft/admission:${version}" >/dev/null
-docker manifest inspect "ghcr.io/microsoft/node-provisioner:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/brewlet-operator:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/brewlet-admission:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/brewlet-node-provisioner:${version}" >/dev/null
