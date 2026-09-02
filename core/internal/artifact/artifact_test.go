@@ -3,6 +3,7 @@ package artifact
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -29,6 +30,40 @@ func writeTar(t *testing.T, path string, files map[string]string) {
 	}
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type testBlobSource map[string][]byte
+
+func (s testBlobSource) ReadBlob(digest string) ([]byte, error) {
+	return s[digest], nil
+}
+
+func (s testBlobSource) BlobPath(string) string {
+	return ""
+}
+
+func TestExtractGzTarRejectsTraversal(t *testing.T) {
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "../../escape.jar", Mode: 0o644, Size: 4, Typeflag: tar.TypeReg,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("boom")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := extractGzTar(testBlobSource{"sha256:test": buf.Bytes()}, "sha256:test", t.TempDir()); err == nil {
+		t.Fatal("expected extractGzTar to reject a path-traversal entry")
 	}
 }
 

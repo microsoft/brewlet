@@ -268,6 +268,9 @@ func extractGzTar(src BlobSource, digest, destDir string) error {
 		if err != nil {
 			return err
 		}
+		if !filepath.IsLocal(hdr.Name) {
+			return fmt.Errorf("tar entry %q escapes destination", hdr.Name)
+		}
 		name := filepath.Clean(hdr.Name)
 		if name == "." {
 			continue
