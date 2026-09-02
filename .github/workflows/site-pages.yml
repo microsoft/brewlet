@@ -63,6 +63,10 @@ jobs:
           python site/scripts/generate-notice.py
           git diff --exit-code -- site/NOTICE.txt
           python -m mkdocs build --strict -f site/mkdocs.yml
+          rm -rf site/_site/docs/assets/javascripts/lunr
+          test ! -e site/_site/docs/assets/javascripts/lunr
+          grep -Eq '"lang"[[:space:]]*:[[:space:]]*\[[[:space:]]*"en"[[:space:]]*\]' \
+            site/_site/docs/search/search_index.json
       - name: Assemble publish directory
         run: |
           mkdir -p site/_site

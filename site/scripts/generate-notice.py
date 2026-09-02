@@ -35,6 +35,37 @@ LICENSE_FALLBACKS = {
     "select": "licenses/zenorocha-mit.txt",
 }
 
+EXTRA_LICENSES = {
+    "focus-visible": ["licenses/w3c-software-document-2015.txt"],
+}
+
+SOURCE_OVERRIDES = {
+    "@fortawesome/fontawesome-free": (
+        "https://github.com/FortAwesome/Font-Awesome/tree/7.1.0"
+    ),
+    "focus-visible": "https://github.com/WICG/focus-visible/tree/v5.2.1",
+}
+
+COMPONENT_NOTICES = {
+    "@fortawesome/fontawesome-free": [
+        "Browser artifact use: Material for MkDocs embeds the Font Awesome Free",
+        "\"Git Alt\" icon as inline SVG in generated documentation pages. No Font",
+        "Awesome font files are published by the Brewlet GitHub Pages build.",
+        "Modification statement: Material for MkDocs inlines the SVG geometry into",
+        "generated HTML; Brewlet makes no other changes.",
+        "Creator: Fonticons, Inc. License for the icon: CC BY 4.0.",
+        "Licensed material:",
+        "https://github.com/FortAwesome/Font-Awesome/blob/7.1.0/svgs/brands/git-alt.svg",
+        "License: https://creativecommons.org/licenses/by/4.0/",
+    ],
+    "focus-visible": [
+        "Exact source archive:",
+        "https://github.com/WICG/focus-visible/archive/refs/tags/v5.2.1.tar.gz",
+        "Modification statement: Brewlet does not modify the upstream source.",
+        "Material for MkDocs bundles and minifies it into its browser JavaScript.",
+    ],
+}
+
 
 def license_files(package_dir: Path) -> list[Path]:
     prefixes = ("license", "copying", "notice", "patents", "authors")
@@ -45,7 +76,13 @@ def license_files(package_dir: Path) -> list[Path]:
     )
 
 
-def append_component(parts: list[str], name: str, source: str, files: list[Path]) -> None:
+def append_component(
+    parts: list[str],
+    name: str,
+    source: str,
+    files: list[Path],
+    notices: list[str] | None = None,
+) -> None:
     if not files:
         raise RuntimeError(f"no attribution files found for {name}")
     parts.extend([
@@ -54,6 +91,8 @@ def append_component(parts: list[str], name: str, source: str, files: list[Path]
         f"Component: {name}",
         f"Source: {source}",
     ])
+    if notices:
+        parts.extend(["", *notices])
     for path in files:
         text = "\n".join(
             line.rstrip() for line in path.read_text(encoding="utf-8").splitlines()
@@ -103,7 +142,17 @@ def main() -> int:
         files = license_files(package_dir)
         if not files and name in LICENSE_FALLBACKS:
             files = [notice_dir / LICENSE_FALLBACKS[name]]
-        append_component(parts, f"{name} {version}", repository or "npm registry", files)
+        files.extend(
+            notice_dir / relative_path
+            for relative_path in EXTRA_LICENSES.get(name, [])
+        )
+        append_component(
+            parts,
+            f"{name} {version}",
+            SOURCE_OVERRIDES.get(name, repository or "npm registry"),
+            files,
+            COMPONENT_NOTICES.get(name),
+        )
 
     missing = sorted(set(expected) - set(found))
     mismatched = sorted(
