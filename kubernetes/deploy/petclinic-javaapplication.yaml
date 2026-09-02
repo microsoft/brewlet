@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Spring PetClinic as a Brewlet JavaApplication.
 #
 # The real upstream Spring Boot app (spring-projects/spring-petclinic), shipped

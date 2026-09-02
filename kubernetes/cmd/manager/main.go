@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Command manager runs the brewlet-operator node lifecycle controller
 // (https://github.com/microsoft/brewlet/tree/main/specs): it watches nodes opted into provisioning,
 // brewlet-node-provisioner DaemonSet and the brewlet RuntimeClass, and surfaces

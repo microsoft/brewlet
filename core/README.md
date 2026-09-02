@@ -3,7 +3,7 @@
 [![CI](https://github.com/microsoft/brewlet/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/ci.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/microsoft/brewlet?filename=core%2Fgo.mod)](go.mod)
 [![Release](https://img.shields.io/github/v/release/microsoft/brewlet?sort=semver)](https://github.com/microsoft/brewlet/releases/latest)
-[![License](https://img.shields.io/github/license/microsoft/brewlet)](../LICENSE)
+[![License](https://img.shields.io/github/license/microsoft/brewlet)](../LICENSE.txt)
 
 This Go module contains the Brewlet command-line interface, OCI artifact
 tooling, shared runtime packages, and containerd Runtime v2 shim.

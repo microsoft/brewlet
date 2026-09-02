@@ -4,7 +4,7 @@
 [![E2E](https://github.com/microsoft/brewlet/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/e2e.yml)
 [![Release](https://img.shields.io/github/v/release/microsoft/brewlet?sort=semver)](https://github.com/microsoft/brewlet/releases/latest)
 [![Go version](https://img.shields.io/github/go-mod/go-version/microsoft/brewlet?filename=core%2Fgo.mod)](core/go.mod)
-[![License](https://img.shields.io/github/license/microsoft/brewlet)](LICENSE)
+[![License](https://img.shields.io/github/license/microsoft/brewlet)](LICENSE.txt)
 
 **Run Java applications from OCI artifacts using JDKs managed once on each
 Kubernetes node.**
@@ -23,6 +23,12 @@ a central control point for JDK policy, runtime optimization, and upgrades.
 This repository contains the complete Brewlet implementation: the CLI and
 runtime, Kubernetes platform, node provisioner, Maven plugin, specifications,
 integration tests, website, and user-facing documentation.
+
+## Project status
+
+Brewlet is a pre-1.0 preview. It is under active development, and its APIs,
+artifact formats, and operational behavior may change between minor releases.
+Evaluate it carefully before using it for production workloads.
 
 - [Documentation](https://brewlet.sh/)
 - [Getting started](https://brewlet.sh/docs/getting-started/)
@@ -168,4 +174,22 @@ artifact; container images also carry Microsoft's container legal notice.
 
 ## License
 
-Brewlet is licensed under the [MIT License](LICENSE).
+Brewlet is licensed under the [MIT License](LICENSE.txt).
+
+## Third-party software
+
+Brewlet builds on third-party open source software. The repository-level
+[NOTICE.txt](NOTICE.txt) describes the attribution approach, and release
+artifacts include the complete notices applicable to the software they
+redistribute. See the [third-party notice documentation](docs/third-party-notices.md)
+for the notice location in each artifact.
+
+## Trademarks
+
+This project may contain trademarks or logos for projects, products, or
+services. Authorized use of Microsoft trademarks or logos is subject to and
+must follow [Microsoft's Trademark & Brand
+Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
+Use of Microsoft trademarks or logos in modified versions of this project must
+not cause confusion or imply Microsoft sponsorship. Any use of third-party
+trademarks or logos are subject to those third-party's policies.

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
@@ -91,10 +92,10 @@
         <directory>src/main/resources</directory>
       </resource>
       <resource>
-        <directory>${project.basedir}</directory>
+        <directory>${project.basedir}/..</directory>
         <targetPath>META-INF</targetPath>
         <includes>
-          <include>LICENSE</include>
+          <include>LICENSE.txt</include>
         </includes>
       </resource>
     </resources>

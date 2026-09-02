@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Default values for the brewlet chart.
 # This single-install activation combines the node/shim lifecycle role of
 # SpinKube's Runtime Class Manager with the workload role of Spin Operator: it

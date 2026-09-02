@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 4 — Kubernetes control-plane capabilities against the live cluster.
 # The brewlet-operator runs OUT-OF-CLUSTER (built binary, using your kubeconfig)
 # so no operator image build/load is needed. Covers:

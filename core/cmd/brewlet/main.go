@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // brewlet is a Phase-0 PoC CLI proving the Brewlet model: a developer ships
 // ONLY a JAR (as an OCI artifact); the node-resident JVM runs it with java -jar.
 //

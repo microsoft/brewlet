@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 13 — NodeProfile controller against the live cluster (proposal 0001).
 # The brewlet-operator runs OUT-OF-CLUSTER (built binary, using your kubeconfig)
 # so no operator image build/load is needed. This tier proves the profile-driven

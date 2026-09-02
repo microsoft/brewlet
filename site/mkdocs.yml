@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 site_name: Brewlet docs
 site_description: Brewlet user and operator documentation
 site_url: https://brewlet.sh/docs/

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 {{/*
 NodeProfile CRs (see https://github.com/microsoft/brewlet/tree/main/specs). The chart
 renders a catch-all `default` profile from provisioner.* plus one NodeProfile per

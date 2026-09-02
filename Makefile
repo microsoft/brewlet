@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 SHELL := /bin/bash
 
 HOST_ARCH := $(shell uname -m)
@@ -11,7 +14,7 @@ REGISTRY ?= ghcr.io/microsoft
 TAG ?= latest
 PROVISIONER_IMAGE ?= $(REGISTRY)/node-provisioner:$(TAG)
 
-.PHONY: build binaries test vet fmt-check check check-all kubernetes-check maven-plugin-check admission-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
+.PHONY: build binaries test vet fmt-check license-check check check-all kubernetes-check maven-plugin-check admission-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
 
 build: ## Build every package for the current platform
 	go -C core build ./...
@@ -36,7 +39,10 @@ fmt-check: ## Fail when tracked Go source is not gofmt-formatted
 		exit 1; \
 	fi
 
-check: fmt-check vet build test ## Run all CI checks
+license-check: ## Verify Microsoft MIT headers on tracked source files
+	./scripts/check-license-headers.sh
+
+check: license-check fmt-check vet build test ## Run all CI checks
 
 kubernetes-check: ## Run Kubernetes platform CI checks
 	$(MAKE) -C kubernetes ci
@@ -45,6 +51,7 @@ maven-plugin-check: ## Run Maven plugin tests
 	mvn -B --no-transfer-progress -f maven-plugin/pom.xml verify
 	maven-plugin/scripts/generate-notice.sh --check
 	unzip -l maven-plugin/target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/NOTICE.txt'
+	unzip -l maven-plugin/target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/LICENSE.txt'
 
 admission-check: ## Build and test the Ratify managed-dependency verifier plugin
 	go -C admission/ratify-verifier vet ./...

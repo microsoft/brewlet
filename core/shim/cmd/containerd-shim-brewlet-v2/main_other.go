@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 //go:build !linux
 
 // containerd-shim-brewlet-v2 is the Brewlet containerd Runtime v2 shim.

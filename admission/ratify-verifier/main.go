@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Command brewlet-managed-dependencies is a Ratify (v1.4.x) external verifier
 // plugin that admits Kubernetes workloads only when their image carries a valid
 // Brewlet managed-dependency attestation signed by a trusted key and naming an

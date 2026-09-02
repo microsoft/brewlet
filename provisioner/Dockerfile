@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # brewlet-node-provisioner image.
 #
 # Multi-stage build:
@@ -63,7 +66,7 @@ RUN apt-get update \
 COPY --from=shim /out/containerd-shim-brewlet-v2 /opt/brewlet-dist/containerd-shim-brewlet-v2
 COPY --from=shim /out/brewlet-metrics-exporter /opt/brewlet-dist/brewlet-metrics-exporter
 COPY --from=shim /out/NOTICE.txt /NOTICE.txt
-COPY LICENSE /LICENSE
+COPY LICENSE.txt /LICENSE.txt
 COPY legal/CONTAINER-LEGAL-NOTICE.txt /CONTAINER-LEGAL-NOTICE.txt
 
 RUN set -eu; \

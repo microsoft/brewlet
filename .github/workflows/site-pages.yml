@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 name: Deploy website
 
 on:
@@ -6,6 +9,7 @@ on:
     paths:
       - "site/**"
       - "docs/**"
+      - "LICENSE.txt"
       - ".github/workflows/site-pages.yml"
   workflow_dispatch:
     inputs:
@@ -70,6 +74,7 @@ jobs:
       - name: Assemble publish directory
         run: |
           mkdir -p site/_site
+          cp LICENSE.txt site/_site/LICENSE.txt
           rsync -a \
             --exclude='.git' \
             --exclude='.github' \

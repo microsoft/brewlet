@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 12 — the SpinKube workload-delivery model, for real: a brewlet workload whose pod
 # `image:` IS the OCI artifact, PULLED and UNPACKED by containerd/kubelet like any
 # ordinary image — no placeholder, no out-of-band blob delivery — then RUN by the

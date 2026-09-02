@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 10 — the SHIPPED Helm chart installed into a live cluster (real RBAC).
 #
 # Tiers 4/6 only cover the control plane partially: tier 4 runs the operator
@@ -80,10 +83,10 @@ _t10_cleanup() {
 _t10_build_load() {
   local cmd="$1" img="$2" nodes="$3" n tarball
   if ! docker build --provenance=false --build-arg CMD="$cmd" -t "$img" \
-        -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$BREWLET_KUBERNETES_DIR" \
+        -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$MONOREPO_DIR" \
         >>"$WORK/t10-build.log" 2>&1; then
     if ! docker build --build-arg CMD="$cmd" -t "$img" \
-          -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$BREWLET_KUBERNETES_DIR" \
+          -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$MONOREPO_DIR" \
           >>"$WORK/t10-build.log" 2>&1; then
       return 1
     fi

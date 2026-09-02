@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 15 — live, metrics-enabled Helm installation through the complete
 # operator -> provisioner -> shim -> exporter path on a local containerd node.
 #
@@ -329,10 +332,10 @@ _t15_build_load_kubernetes_image() {
   local cmd="$1" image="$2" nodes="$3" n
   local tarball="$WORK/t15-$cmd.tar"
   if ! docker build --provenance=false --build-arg CMD="$cmd" -t "$image" \
-      -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$BREWLET_KUBERNETES_DIR" \
+      -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$MONOREPO_DIR" \
       >>"$WORK/t15-build.log" 2>&1; then
     docker build --build-arg CMD="$cmd" -t "$image" \
-      -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$BREWLET_KUBERNETES_DIR" \
+      -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$MONOREPO_DIR" \
       >>"$WORK/t15-build.log" 2>&1 || return 1
   fi
   T15_BUILT_IMAGES+=("$image")

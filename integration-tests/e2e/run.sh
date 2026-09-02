@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Brewlet end-to-end test suite — orchestrator.
 #
 # Runs every implemented capability against the local toolchain and your

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Runnable OCI image mode.
 //
 // The Brewlet application artifact (artifact.go) uses custom layer media types

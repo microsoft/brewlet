@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 7 — the real Spring Boot fat JAR (upstream Spring PetClinic) end-to-end.
 # Proves the Brewlet model against a genuine, dependency-heavy application (not a
 # toy HTTP server), on two fronts:

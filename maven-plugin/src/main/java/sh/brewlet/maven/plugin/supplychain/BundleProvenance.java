@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 package sh.brewlet.maven.plugin.supplychain;
 
 import com.fasterxml.jackson.databind.JsonNode;

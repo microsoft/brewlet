@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package runtime contains the Brewlet launch core shared by the CLI ("run"
 // for local demo) and the containerd shim ("bundle" for the runc-backed path).
 package runtime

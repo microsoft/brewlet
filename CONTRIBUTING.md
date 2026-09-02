@@ -40,6 +40,8 @@ Cluster-dependent end-to-end tests are documented in
   breaking.
 - Do not include credentials, proprietary data, or unrelated generated files.
 - Ensure commits contain only work that you have the right to contribute.
+- Add the language-appropriate Microsoft MIT copyright header to every new
+  source file. Run `make license-check` to verify coverage.
 
 This project welcomes contributions and suggestions. Most contributions require
 you to agree to a Contributor License Agreement (CLA) declaring that you have

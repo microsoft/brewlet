@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 9 — a brewlet workload behind a Service, proven to SERVE REAL TRAFFIC under
 # REAL cgroup limits, through kubelet/CRI on a provisioned node.
 #

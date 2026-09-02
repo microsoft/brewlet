@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // This file scans a JAR for bundled native libraries (JNI .so/.dll/.dylib) and
 // infers the architecture(s) they target, so the CLI and Maven plugin can
 // default the optional launch-config `arch` constraint for NON-portable

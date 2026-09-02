@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package doctor diagnoses whether a Kubernetes context is ready to run Brewlet
 // workloads without requiring an in-process Kubernetes client.
 package doctor

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 package sh.brewlet.maven.plugin;
 
 import org.apache.maven.plugin.MojoExecutionException;

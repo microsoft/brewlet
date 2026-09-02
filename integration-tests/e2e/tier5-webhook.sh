@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 5 — admission/scheduling webhook, exercised for real through the API
 # server with the webhook running ON THE HOST. The cluster reaches it via
 # host.docker.internal (Docker Desktop). The assertions themselves live in

@@ -395,5 +395,5 @@ mvn -f maven-plugin/pom.xml install
 
 ## License
 
-[MIT](LICENSE). The published JAR also includes the applicable dependency
+[MIT](../LICENSE.txt). The published JAR also includes the applicable dependency
 attributions at `META-INF/NOTICE.txt`.

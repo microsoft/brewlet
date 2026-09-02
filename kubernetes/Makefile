@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 GO ?= go
 GOFMT ?= gofmt
 HELM ?= helm

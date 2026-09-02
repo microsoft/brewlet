@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package brewlet holds the label/annotation vocabulary shared across the
 // brewlet-operator controllers. These keys are the contract between the node
 // provisioner (which sets them, see src/provisioner) and the operator (which

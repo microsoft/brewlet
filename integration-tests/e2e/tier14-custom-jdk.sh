@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 14 — custom JDK and launcher layers through the complete NodeProfile ->
 # provisioner -> node inventory -> shim -> live workload path. Uses the Docker
 # Official Azul Zulu 21 image with jaz, then proves a broken launcher withdraws

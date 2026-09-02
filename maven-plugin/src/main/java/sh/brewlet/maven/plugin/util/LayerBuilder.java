@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 package sh.brewlet.maven.plugin.util;
 
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;

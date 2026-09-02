@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // This file inspects a JAR for a JPMS module descriptor (module-info.class),
 // so the CLI can auto-detect a modular application and default entry.mode=module
 // with the module name and (optional) main class. See https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md.

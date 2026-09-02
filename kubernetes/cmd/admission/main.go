@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Command admission runs the brewlet pod admission/scheduling webhook
 // (https://github.com/microsoft/brewlet/tree/main/specs). It intercepts pods on CREATE, stamps the
 // brewlet.sh/artifact-ref + artifact-digest annotations the shim resolves,

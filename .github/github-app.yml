@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 instructions: |
   This repository contains the complete Brewlet implementation, static landing page,
   and MkDocs documentation. Use the GitHub Pages workflow as the source of truth

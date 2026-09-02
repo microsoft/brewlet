@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 {{/*
 brewlet-operator: node lifecycle controller (§8.1). Watches provision-opted
 nodes, manages the provisioner DaemonSet + the brewlet RuntimeClass from the

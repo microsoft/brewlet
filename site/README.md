@@ -1,7 +1,7 @@
 # Brewlet site and documentation
 
 [![Deploy website](https://github.com/microsoft/brewlet/actions/workflows/site-pages.yml/badge.svg)](https://github.com/microsoft/brewlet/actions/workflows/site-pages.yml)
-[![License: MIT](https://img.shields.io/github/license/microsoft/brewlet)](./LICENSE)
+[![License: MIT](https://img.shields.io/github/license/microsoft/brewlet)](../LICENSE.txt)
 
 This directory contains the [brewlet.sh](https://brewlet.sh) static website and
 branding assets. User-facing documentation and workshop material live in the

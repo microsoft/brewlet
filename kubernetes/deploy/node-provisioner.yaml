@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Runtime Class Manager-style node bootstrap. A privileged DaemonSet that, on
 # nodes labeled brewlet.sh/provision=true (a label — it drives the nodeAffinity
 # below), installs the shim binary + one or more JDK runtime roots + optional

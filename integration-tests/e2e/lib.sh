@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Shared helpers for the Brewlet end-to-end test suite.
 # Sourced by run.sh and every tier script.
 
