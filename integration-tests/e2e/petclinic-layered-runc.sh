@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 set -e
 # Real Linux mechanism for the *layered classpath* Spring PetClinic: the shim
 # disassembles the Brewlet artifact into an OCI runtime bundle — the thin

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 set -e
 # Real Linux mechanism for the MIXED class-path + module-path launch form
 # (docs/layered-classpath-deployment.md §8.1, docs/jpms-support.md §6.3): the shim

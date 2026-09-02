@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 3 — real Linux mechanism: the shim disassembles the artifact into an OCI
 # bundle and runc runs the JVM as PID 1 under real cgroup limits with a
 # node-resident JDK. This is exactly what the containerd shim does on a node.

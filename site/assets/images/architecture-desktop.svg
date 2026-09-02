@@ -1,3 +1,4 @@
+<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 366" role="img" aria-labelledby="ttl desc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
   <title id="ttl">Brewlet high-level architecture</title>
   <desc id="desc">Two independent sources feed one worker node. In Developer/CI, mvn package and oras push publish an artifact to an OCI Registry. In the control plane, brewlet-operator generates a Deployment/Pod with runtimeClassName brewlet, and schedules and annotates the worker node. On the worker node, the shim pulls the OCI artifact from the registry; containerd-shim-brewlet hands off to runc, which runs the Sandbox (cgroup and netns) as java -jar /app/app.jar with the node JDK mounted read-only.</desc>

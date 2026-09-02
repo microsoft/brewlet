@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Sample NodeProfile manifests. See https://github.com/microsoft/brewlet/tree/main/specs.
 #
 # A NodeProfile binds a node pool to a JDK/launcher inventory. Selecting a pool

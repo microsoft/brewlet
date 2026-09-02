@@ -1,4 +1,7 @@
 #!/bin/sh
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 set -eu
 
 repository="microsoft/brewlet"

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 //go:build linux
 
 // Production entrypoint for the Brewlet containerd Runtime v2 shim.

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package v1alpha1 contains the Go API types for the apps.brewlet.sh/v1alpha1
 // group — currently the JavaApplication CRD (https://github.com/microsoft/brewlet/tree/main/specs), the
 // developer-facing "deployment descriptor" reconciled by the JavaApplication

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package attest is the single source of truth for Brewlet's DSSE/in-toto
 // signing and verification of managed-dependency evidence. It contains only the
 // wire types, the ECDSA P-256 signing profile, and the predicate-binding checks

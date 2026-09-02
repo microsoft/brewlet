@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Reset any Brewlet state a previous e2e run (or an aborted one) left behind in
 # your cluster and on its nodes, so the suite starts clean and re-runs are
 # deterministic. This is the single biggest reliability win for re-running the

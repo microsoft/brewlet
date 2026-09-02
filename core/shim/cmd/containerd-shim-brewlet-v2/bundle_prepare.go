@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Brewlet-specific bundle assembly shared by the harness (`prepare-bundle`) and
 // the production Linux shim's Create() hook. This is the *novel* part of the
 // shim: turning an OCI artifact + resource limits into an OCI runtime bundle a

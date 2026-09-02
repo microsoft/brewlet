@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Builds the *real* upstream Spring PetClinic into a Spring Boot fat JAR, so
 # Brewlet can ship it as an OCI artifact and run it with `java -jar` on a
 # node-resident JDK — no Dockerfile, no base image, no JVM baked into an image.

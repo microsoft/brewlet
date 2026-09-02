@@ -1,3 +1,4 @@
+{{/* Copyright (c) Microsoft Corporation. Licensed under the MIT License. */}}
 {{/* Common helpers for the brewlet chart. */}}
 
 {{- define "brewlet.namespace" -}}

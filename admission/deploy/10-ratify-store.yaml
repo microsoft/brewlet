@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 ####################################################################
 # Ratify referrer store: discover Brewlet attestation referrers via
 # the OCI 1.1 Referrers API.

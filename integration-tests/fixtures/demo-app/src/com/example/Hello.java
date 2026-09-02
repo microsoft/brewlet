@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 package com.example;
 
 import com.sun.net.httpserver.HttpServer;

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Builds the demo self-executable JAR using only the JDK (no Maven/Gradle).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"

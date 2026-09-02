@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Builds the modular (JPMS) demo app using only the JDK (no Maven/Gradle).
 #
 # Produces two artifacts that exercise Brewlet's `entry.mode: module` path:

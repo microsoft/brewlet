@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 name: CI
 
 on:
@@ -120,12 +123,16 @@ jobs:
           mvn -B --no-transfer-progress verify
           scripts/generate-notice.sh --check
           unzip -l target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/NOTICE.txt'
+          unzip -l target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/LICENSE.txt'
 
   notices:
-    name: Third-party notices
+    name: License and notices
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Verify source license headers
+        run: ./scripts/check-license-headers.sh
 
       - uses: actions/setup-go@v7
         with:

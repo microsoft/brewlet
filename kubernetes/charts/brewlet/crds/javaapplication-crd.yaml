@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # JavaApplication CRD. See https://github.com/microsoft/brewlet/tree/main/specs.
 # Helm installs files under crds/ before the templated release.
 # Keep in sync with deploy/javaapplication-crd.yaml.

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Splits the Spring PetClinic Spring Boot fat JAR into a *multi-layer classpath*
 # deployment, so Brewlet ships (and a registry/node dedups) the slow-moving
 # dependency layers separately from the fast-moving business code.

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # brewlet-operator / brewlet-admission image.
 #
 # Multi-stage: build one of the module's binaries for the target arch, then drop
@@ -25,7 +28,7 @@ FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=build /out/entry /entry
 COPY --from=build /out/NOTICE.txt /NOTICE.txt
-COPY LICENSE /LICENSE
+COPY LICENSE.txt /LICENSE.txt
 COPY legal/CONTAINER-LEGAL-NOTICE.txt /CONTAINER-LEGAL-NOTICE.txt
 USER 65532:65532
 ENTRYPOINT ["/entry"]

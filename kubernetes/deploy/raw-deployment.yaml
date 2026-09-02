@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Raw usage: no CRD, just a Deployment whose container image IS the OCI artifact
 # and whose runtimeClassName routes it to the Brewlet shim. The shim runs
 # `java -jar app.jar` using the node-resident JDK.

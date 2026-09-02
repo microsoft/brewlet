@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 6 — admission/scheduling webhook run IN-CLUSTER, exactly as shipped by the
 # Helm chart: the brewlet-admission image is built, loaded into the cluster's
 # containerd, and deployed behind a Service + MutatingWebhookConfiguration that
@@ -64,10 +67,10 @@ tier6_webhook_incluster() {
   # back to a plain build on Dockers too old to know the flag.
   info "tier6: building $T6_IMG (docker build, may take a minute)"
   if ! docker build --provenance=false --build-arg CMD=admission -t "$T6_IMG" \
-        -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$BREWLET_KUBERNETES_DIR" \
+        -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$MONOREPO_DIR" \
         >"$WORK/t6-build.log" 2>&1; then
     if ! docker build --build-arg CMD=admission -t "$T6_IMG" \
-          -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$BREWLET_KUBERNETES_DIR" \
+          -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$MONOREPO_DIR" \
           >>"$WORK/t6-build.log" 2>&1; then
       fail "webhook(in-cluster): build $T6_IMG" "see $WORK/t6-build.log"; return 0
     fi

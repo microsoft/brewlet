@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """Validate that a registry image reuses a Maven-produced dependency bundle."""
 
 import argparse

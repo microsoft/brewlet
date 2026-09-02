@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 2 — local developer experience: the CLI + node-resident JVM path.
 # Covers: push (OCI artifact, no Dockerfile), inspect, run (java -jar + live curl),
 # bundle (resource->JVM/cgroup mapping in config.json), layered classpath, and

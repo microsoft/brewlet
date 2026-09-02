@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # brewlet-node-provisioner entrypoint.
 #
 # Runs as a privileged DaemonSet pod on nodes annotated brewlet.sh/provision=true

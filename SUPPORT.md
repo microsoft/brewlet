@@ -1,7 +1,7 @@
 # Support
 
 Brewlet is an open source project provided under the terms of the
-[MIT License](LICENSE).
+[MIT License](LICENSE.txt).
 
 ## Questions, bugs, and feature requests
 

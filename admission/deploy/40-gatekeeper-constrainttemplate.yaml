@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 ####################################################################
 # Gatekeeper ConstraintTemplate: enforce Brewlet managed-dependency
 # verification through Ratify's external-data provider, but ONLY for

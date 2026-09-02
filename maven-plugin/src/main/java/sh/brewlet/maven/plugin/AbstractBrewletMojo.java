@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 package sh.brewlet.maven.plugin;
 
 import com.fasterxml.jackson.databind.ObjectMapper;

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Shared admission-webhook assertions, run against whatever webhook is currently
 # intercepting pods in a labelled test namespace. Tier 5 wires the webhook up on
 # the host (reached via host.docker.internal); Tier 6 runs the very same webhook

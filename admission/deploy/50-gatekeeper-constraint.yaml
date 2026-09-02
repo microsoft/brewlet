@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 ####################################################################
 # Gatekeeper Constraint: apply the Brewlet managed-dependency check to
 # pods on CREATE and UPDATE. The template itself restricts enforcement

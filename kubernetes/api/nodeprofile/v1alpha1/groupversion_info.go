@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package v1alpha1 contains the Go API types for the node.brewlet.sh/v1alpha1
 // group — the cluster-scoped NodeProfile CRD (https://github.com/microsoft/brewlet/tree/main/specs,
 // 0001). A NodeProfile binds a node pool to a JDK/launcher inventory (plus a

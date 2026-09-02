@@ -1,7 +1,7 @@
 # Brewlet Kubernetes platform
 
 [![CI](https://github.com/microsoft/brewlet/actions/workflows/ci.yml/badge.svg)](https://github.com/microsoft/brewlet/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/microsoft/brewlet)](./LICENSE)
+[![License](https://img.shields.io/github/license/microsoft/brewlet)](../LICENSE.txt)
 
 This directory contains the Kubernetes-facing components of Brewlet:
 
@@ -126,6 +126,6 @@ docker build -f kubernetes/Dockerfile --build-arg CMD=admission \
 
 ## License
 
-[MIT](./LICENSE). Published images include dependency attributions at
+[MIT](../LICENSE.txt). Published images include dependency attributions at
 `/NOTICE.txt` and the Microsoft container notice at
 `/CONTAINER-LEGAL-NOTICE.txt`.

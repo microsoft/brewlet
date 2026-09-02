@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 1 — unit / component tests (no cluster, no JVM runtime needed).
 # Covers: artifact OCI format, resource->JVM mapping, shim bundle-assembly core,
 # admission mutate/capability logic, operator resource builders.

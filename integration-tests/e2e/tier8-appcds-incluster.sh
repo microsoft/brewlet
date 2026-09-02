@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 8 — node-side AppCDS regeneration, proven END TO END in a real cluster.
 #
 # This is the decisive coverage for docs/appcds.md §4.3/§8: it provisions a real

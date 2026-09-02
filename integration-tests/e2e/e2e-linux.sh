@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 set -e
 echo "== installing runc on the node =="
 apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq runc >/dev/null 2>&1

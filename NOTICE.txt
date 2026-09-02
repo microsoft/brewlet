@@ -1,0 +1,21 @@
+NOTICES AND INFORMATION
+Do Not Translate or Localize
+
+This project incorporates third-party open source software. Complete license
+and attribution text is generated for each release surface from the dependencies
+actually redistributed by that artifact:
+
+- Brewlet CLI archives: NOTICE.txt beside the executable.
+- Operator and admission container images: /NOTICE.txt.
+- Node provisioner container image: /NOTICE.txt.
+- Brewlet Maven plugin: META-INF/NOTICE.txt.
+- Brewlet website and generated documentation: /NOTICE.txt.
+
+The generation and verification process is documented in
+docs/third-party-notices.md and enforced by the repository's CI and release
+workflows. The checked-in website and Maven plugin notices are available at
+site/NOTICE.txt and maven-plugin/src/main/resources/META-INF/NOTICE.txt.
+
+Container images also include Microsoft's container legal notice at
+/CONTAINER-LEGAL-NOTICE.txt. Third-party license files retained in base images
+remain in their original filesystem locations.

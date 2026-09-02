@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # The developer-facing "deployment descriptor". The brewlet-operator expands
 # this into a Deployment (runtimeClassName: brewlet) + Service + optional HPA.
 #

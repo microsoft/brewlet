@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Tier 11 — admission webhook RESILIENCE: failurePolicy under a webhook outage.
 #
 # Tiers 5/6 only exercise the webhook while it is UP (admit/deny logic). A webhook
@@ -96,10 +99,10 @@ tier11_webhook_resilience() {
   # --- build + side-load the admission image --------------------------------
   info "tier11: building $T11_IMG (docker build, may take a minute)"
   if ! docker build --provenance=false --build-arg CMD=admission -t "$T11_IMG" \
-        -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$BREWLET_KUBERNETES_DIR" \
+        -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$MONOREPO_DIR" \
         >"$WORK/t11-build.log" 2>&1; then
     if ! docker build --build-arg CMD=admission -t "$T11_IMG" \
-          -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$BREWLET_KUBERNETES_DIR" \
+          -f "$BREWLET_KUBERNETES_DIR/Dockerfile" "$MONOREPO_DIR" \
           >>"$WORK/t11-build.log" 2>&1; then
       fail "webhook(resilience): build $T11_IMG" "see $WORK/t11-build.log"; return 0
     fi

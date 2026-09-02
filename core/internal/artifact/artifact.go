@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package artifact implements the Brewlet OCI application artifact format and a
 // minimal local OCI image-layout store, so a developer can publish ONLY a JAR
 // (plus a small launch config) without building a container image.

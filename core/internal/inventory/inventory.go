@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package inventory reads and renders the JDK inventory that Brewlet nodes
 // advertise, so developers can inspect which JDKs (vendor, major version, minor
 // version, architecture) are available on a cluster and match dev/CI to prod.

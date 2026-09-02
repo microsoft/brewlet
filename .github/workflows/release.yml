@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 name: Release
 
 on:
@@ -155,9 +158,9 @@ jobs:
             ./cmd/brewlet
           GOOS="$GOOS" GOARCH="$GOARCH" \
             ./scripts/generate-go-notice.sh core dist/NOTICE.txt ./cmd/brewlet
-          cp LICENSE dist/LICENSE
+          cp LICENSE.txt dist/LICENSE.txt
           tar -C dist -czf "brewlet_${VERSION}_${GOOS}_${GOARCH}.tar.gz" \
-            brewlet LICENSE NOTICE.txt
+            brewlet LICENSE.txt NOTICE.txt
 
       - uses: actions/upload-artifact@v7
         with:
@@ -200,6 +203,8 @@ jobs:
           scripts/generate-notice.sh --check
           unzip -l "target/brewlet-maven-plugin-${{ steps.version.outputs.version }}.jar" \
             | grep -q 'META-INF/NOTICE.txt'
+          unzip -l "target/brewlet-maven-plugin-${{ steps.version.outputs.version }}.jar" \
+            | grep -q 'META-INF/LICENSE.txt'
           mkdir -p ../dist
           cp "target/brewlet-maven-plugin-${{ steps.version.outputs.version }}.jar" ../dist/
           cp pom.xml "../dist/brewlet-maven-plugin-${{ steps.version.outputs.version }}.pom"

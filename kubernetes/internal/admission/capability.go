@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 // Package admission implements the Brewlet pod admission/scheduling seam
 // (https://github.com/microsoft/brewlet/tree/main/specs). It is deliberately split into pure logic (this
 // file + mutate.go, unit-tested without a cluster) and a thin controller-runtime

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 {{/*
 Provisioner ServiceAccount + RBAC. The operator creates the node-provisioner
 DaemonSet at runtime (§8.1); its pods run as this ServiceAccount and label +

@@ -6,6 +6,7 @@ build-only and test-only dependencies are not presented as shipped software.
 
 | Release surface | Notice location |
 |---|---|
+| Repository source | [`NOTICE.txt`](https://github.com/microsoft/brewlet/blob/main/NOTICE.txt) |
 | `brewlet` CLI archive | `NOTICE.txt` beside the executable |
 | Operator and admission images | `/NOTICE.txt` |
 | Node provisioner image | `/NOTICE.txt` |
@@ -16,6 +17,10 @@ build-only and test-only dependencies are not presented as shipped software.
 Container images also include the Microsoft container legal notice at
 `/CONTAINER-LEGAL-NOTICE.txt`. Base-image package copyright files remain in
 their original filesystem locations.
+
+The Maven plugin JAR also includes the project's MIT license at
+`META-INF/LICENSE.txt`. CLI archives include `LICENSE.txt`, and container images
+include it at `/LICENSE.txt`.
 
 ## Maintaining the notices
 

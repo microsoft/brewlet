@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 set -e
 # Real Linux mechanism for a genuine Spring Boot fat JAR: the shim disassembles
 # the Brewlet artifact into an OCI runtime bundle and runc runs `java -jar` as
