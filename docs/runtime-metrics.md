@@ -41,7 +41,7 @@ Install or upgrade Brewlet with the values file:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.3.1 \
   --values metrics-values.yaml
 ```
 
