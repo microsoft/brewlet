@@ -33,7 +33,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.version>3.9.0</maven.version>
     <maven.plugin.tools.version>3.10.2</maven.plugin.tools.version>
-    <jackson.version>2.16.1</jackson.version>
+    <jackson.version>2.18.9</jackson.version>
     <junit.version>5.10.1</junit.version>
   </properties>
 
