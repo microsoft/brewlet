@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/brewlet/brewlet/pkg/attest"
+	"github.com/microsoft/brewlet/pkg/attest"
 )
 
 const (

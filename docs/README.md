@@ -6,22 +6,22 @@ app (a fat JAR, a layered classpath, or a module), no Dockerfile, no base image.
 This directory is the complete, task-oriented documentation for Brewlet. If you
 want the elevator pitch and the "why", start with the [project landing page](/);
 if you want the deep architecture and design rationale, read the
-[SPECIFICATION](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md). These pages sit in between: they tell you how
+[SPECIFICATION](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md). These pages sit in between: they tell you how
 to actually **install, configure, deploy, tune, and operate** Brewlet.
 
 Brewlet is developed in the
-[`brewlet/brewlet`](https://github.com/brewlet/brewlet) monorepo. Runtime code
+[`microsoft/brewlet`](https://github.com/microsoft/brewlet) monorepo. Runtime code
 lives at its root, Kubernetes resources in
-[`kubernetes/`](https://github.com/brewlet/brewlet/tree/main/kubernetes), Maven
-goals in [`maven-plugin/`](https://github.com/brewlet/brewlet/tree/main/maven-plugin),
+[`kubernetes/`](https://github.com/microsoft/brewlet/tree/main/kubernetes), Maven
+goals in [`maven-plugin/`](https://github.com/microsoft/brewlet/tree/main/maven-plugin),
 architecture contracts in
-[`specs/`](https://github.com/brewlet/brewlet/tree/main/specs), and runnable
+[`specs/`](https://github.com/microsoft/brewlet/tree/main/specs), and runnable
 examples in
-[`integration-tests/`](https://github.com/brewlet/brewlet/tree/main/integration-tests).
+[`integration-tests/`](https://github.com/microsoft/brewlet/tree/main/integration-tests).
 
 > ⚠️ Brewlet is not production-ready. These docs cover functionality available in
 > the current release. Future work is kept separately in the
-> [roadmap](https://github.com/brewlet/brewlet/blob/main/ROADMAP.md).
+> [roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md).
 
 ---
 
@@ -33,7 +33,7 @@ examples in
 | **Platform / cluster operator** enabling Brewlet on a cluster | [Installation](installation.md) → [Configuration](configuration.md) → [JDK management](jdk-management.md) |
 | **Anyone** who wants to try the released CLI locally | [Getting started](getting-started.md) |
 | **Someone evaluating** the idea | [Concepts & architecture](concepts.md) |
-| **Someone tracking planned work** | [Roadmap](https://github.com/brewlet/brewlet/blob/main/ROADMAP.md) |
+| **Someone tracking planned work** | [Roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md) |
 
 ---
 
@@ -101,7 +101,7 @@ examples in
 
 ### Planned work
 
-- **[Roadmap](https://github.com/brewlet/brewlet/blob/main/ROADMAP.md)** — proposed capabilities and known follow-up work.
+- **[Roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md)** — proposed capabilities and known follow-up work.
   Roadmap items are not part of the shipped feature set.
 
 ---

@@ -2,7 +2,7 @@
 
 - **Status:** implemented
 - **Target spec sections:** amend **§5.2** (steps 4–5) + **§14** (failure modes)
-- **Related code:** [`brewlet/brewlet`](https://github.com/brewlet/brewlet):
+- **Related code:** [`microsoft/brewlet`](https://github.com/microsoft/brewlet):
   `provisioner/entrypoint.sh`; [`kubernetes/`](../../kubernetes):
   `internal/controller` (node lifecycle) and `internal/brewlet`
   (labels/annotations vocabulary)

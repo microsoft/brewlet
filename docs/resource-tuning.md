@@ -159,7 +159,7 @@ Cold start is the JVM's classic weakness vs. Wasm. Brewlet mitigates it with:
   --appcds-archive`, plus opt-in node-side regeneration — to cut startup. See
   [AppCDS](appcds.md).
 
-See [SPECIFICATION §13](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md).
+See [SPECIFICATION §13](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
 ---
 

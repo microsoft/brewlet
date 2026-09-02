@@ -36,10 +36,10 @@ Helm chart. Installing chart `0.1.0` selects image tag `0.1.0` automatically.
 Pin to your own registry or immutable digests in production.
 
 To build the components from source instead, use the
-[Kubernetes component Makefile](https://github.com/brewlet/brewlet/blob/main/kubernetes/Makefile):
+[Kubernetes component Makefile](https://github.com/microsoft/brewlet/blob/main/kubernetes/Makefile):
 
 ```bash
-git clone https://github.com/brewlet/brewlet.git
+git clone https://github.com/microsoft/brewlet.git
 cd brewlet
 docker buildx build --platform linux/amd64,linux/arm64 \
   -t <registry>/operator:<tag> --push kubernetes
@@ -58,13 +58,13 @@ the node.
 
 ## Helm (recommended)
 
-The [`charts/brewlet`](https://github.com/brewlet/brewlet/tree/main/kubernetes/charts/brewlet) chart installs the operator, the
+The [`charts/brewlet`](https://github.com/microsoft/brewlet/tree/main/kubernetes/charts/brewlet) chart installs the operator, the
 provisioner RBAC, and the admission webhook. The operator then creates and
 reconciles the provisioner DaemonSet and the `brewlet` RuntimeClass from the chart's
 values — so there is a single runtime source of truth for the JDK/launcher inventory.
 
 ```bash
-helm upgrade --install brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --namespace brewlet \
   --create-namespace \
@@ -81,7 +81,7 @@ kubectl get nodes -L brewlet.sh/runtime -w
 > To limit provisioning to platform-owned pools instead of every node, disable the
 > chart's default profile (`--set defaultProfile.enabled=false`) and define named
 > `NodeProfile`s scoped to those pools — see [Configuration](configuration.md#helm-chart-values)
-> (`profiles` / `defaultProfile`) and [SPECIFICATION §5.6](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md).
+> (`profiles` / `defaultProfile`) and [SPECIFICATION §5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 > For the labels those profiles publish and their autoscaler implications, see
 > [Capability labels and autoscaling](capability-labels-and-autoscaling.md).
 
@@ -108,7 +108,7 @@ See [Configuration](configuration.md#helm-chart-values) for the values.
 Point the chart at your own registry or image digests if required:
 
 ```bash
-helm upgrade --install brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --namespace brewlet \
   --create-namespace \
@@ -133,8 +133,8 @@ upgrading an existing Brewlet installation to a release that adds custom JDK or
 jlink runtime sources, apply that release's `NodeProfile` CRD explicitly:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/brewlet/brewlet/v0.1.0/kubernetes/deploy/nodeprofile-crd.yaml
-helm upgrade brewlet oci://ghcr.io/brewlet/charts/brewlet \
+kubectl apply -f https://raw.githubusercontent.com/microsoft/brewlet/v0.1.0/kubernetes/deploy/nodeprofile-crd.yaml
+helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   -f values.yaml
 ```
@@ -180,8 +180,8 @@ make -C kubernetes operator-build
 ```
 
 The RuntimeClass and provisioner DaemonSet the operator generates mirror
-[`deploy/runtimeclass.yaml`](https://github.com/brewlet/brewlet/blob/main/kubernetes/deploy/runtimeclass.yaml) and
-[`deploy/node-provisioner.yaml`](https://github.com/brewlet/brewlet/blob/main/kubernetes/deploy/node-provisioner.yaml). All operator
+[`deploy/runtimeclass.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/runtimeclass.yaml) and
+[`deploy/node-provisioner.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/node-provisioner.yaml). All operator
 and admission flags are in [Configuration](configuration.md#operator-flags).
 
 > The operator itself does **not** need to be privileged — it only talks to the API

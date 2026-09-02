@@ -7,7 +7,7 @@
 // (artifactType application/vnd.brewlet.attestation.v1+json) WITHOUT republishing
 // it in cosign or notation format. Ratify's oras referrer store performs registry
 // discovery (OCI 1.1 Referrers API), authentication, and blob fetch; this plugin
-// runs Brewlet's exact DSSE/in-toto verification (github.com/brewlet/brewlet/pkg/attest)
+// runs Brewlet's exact DSSE/in-toto verification (github.com/microsoft/brewlet/pkg/attest)
 // over the fetched DSSE envelope.
 //
 // Protocol: Ratify invokes this binary as a subprocess, setting RATIFY_VERIFIER_*

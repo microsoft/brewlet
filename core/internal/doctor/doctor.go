@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/brewlet/brewlet/internal/inventory"
+	"github.com/microsoft/brewlet/internal/inventory"
 )
 
 type Status string

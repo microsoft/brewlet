@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/brewlet/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 // writeContentBlob writes b into an OCI-style content store and returns its

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/brewlet/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 // CDSModTime is the fixed modification time Brewlet stamps on the application
@@ -18,7 +18,7 @@ import (
 // entry's basename, file size, and last-modified time; if any differ from what
 // the training (dump) run recorded, the archive is rejected. Under Brewlet's
 // -Xshare:auto default that rejection is silent — the JVM just falls back to base
-// CDS and the app-archive win evaporates (verified; see https://github.com/brewlet/brewlet/blob/main/docs/appcds.md §2.1).
+// CDS and the app-archive win evaporates (verified; see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §2.1).
 //
 // The node runs the exact same JAR bytes shipped in the artifact (same basename,
 // same size), so the ONLY axis that would otherwise drift is the on-disk mtime:

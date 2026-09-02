@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/brewlet/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 // TestLayoutBlobsWithCDSLayer verifies the shim resolves the optional AppCDS

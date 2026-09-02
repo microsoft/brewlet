@@ -14,14 +14,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-base="https://github.com/brewlet/brewlet/releases/download/v${version}"
+base="https://github.com/microsoft/brewlet/releases/download/v${version}"
 
 cat "$script_dir/../install.sh" \
   | BREWLET_VERSION="$version" BREWLET_INSTALL_DIR="$work/bin" sh
 test "$("$work/bin/brewlet" version)" = "$version"
 
 curl -fsSL -o "$work/source.tar.gz" \
-  "https://github.com/brewlet/brewlet/archive/refs/tags/v${version}.tar.gz"
+  "https://github.com/microsoft/brewlet/archive/refs/tags/v${version}.tar.gz"
 tar -xzf "$work/source.tar.gz" -C "$work"
 
 example="$work/brewlet-${version}/integration-tests/fixtures/demo-app"
@@ -83,17 +83,17 @@ mvn -q -f "$example/pom.xml" package \
 test -f "$example/target/brewlet/jvm-config.json"
 test -f "$example/target/brewlet/oci/index.json"
 
-helm pull oci://ghcr.io/brewlet/charts/brewlet \
+helm pull oci://ghcr.io/microsoft/charts/brewlet \
   --version "$version" \
   --destination "$work"
 helm template brewlet "$work/brewlet-${version}.tgz" \
   --set-string provisioner.jdks=temurin-21 \
   > "$work/rendered.yaml"
 
-grep -q "ghcr.io/brewlet/operator:${version}" "$work/rendered.yaml"
-grep -q "ghcr.io/brewlet/admission:${version}" "$work/rendered.yaml"
-grep -q "ghcr.io/brewlet/node-provisioner:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/operator:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/admission:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/node-provisioner:${version}" "$work/rendered.yaml"
 
-docker manifest inspect "ghcr.io/brewlet/operator:${version}" >/dev/null
-docker manifest inspect "ghcr.io/brewlet/admission:${version}" >/dev/null
-docker manifest inspect "ghcr.io/brewlet/node-provisioner:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/operator:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/admission:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/node-provisioner:${version}" >/dev/null

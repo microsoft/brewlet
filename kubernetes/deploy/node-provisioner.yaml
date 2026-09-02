@@ -3,7 +3,7 @@
 # below), installs the shim binary + one or more JDK runtime roots + optional
 # launcher layers (e.g. jaz), registers the containerd runtime, and labels the
 # node ready. See
-# See https://github.com/brewlet/brewlet/tree/main/specs.
+# See https://github.com/microsoft/brewlet/tree/main/specs.
 #
 # NOTE: provisioning is privileged and mutates the host.
 # Do not apply on a shared/hostile cluster.
@@ -71,7 +71,7 @@ spec:
         - operator: Exists
       containers:
         - name: provisioner
-          image: ghcr.io/brewlet/node-provisioner:0.1.0
+          image: ghcr.io/microsoft/node-provisioner:0.1.0
           securityContext:
             privileged: true              # required to install shim + edit containerd config
           env:

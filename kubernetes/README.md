@@ -1,7 +1,7 @@
 # Brewlet Kubernetes platform
 
-[![CI](https://github.com/brewlet/brewlet/actions/workflows/ci.yml/badge.svg)](https://github.com/brewlet/brewlet/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/brewlet/brewlet)](./LICENSE)
+[![CI](https://github.com/microsoft/brewlet/actions/workflows/ci.yml/badge.svg)](https://github.com/microsoft/brewlet/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/microsoft/brewlet)](./LICENSE)
 
 This directory contains the Kubernetes-facing components of Brewlet:
 
@@ -18,7 +18,7 @@ documentation lives in [`docs/`](../docs/).
 ## Install with Helm
 
 ```bash
-helm upgrade --install brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --namespace brewlet \
   --create-namespace \
@@ -86,9 +86,9 @@ The raw manifests use these images:
 
 | Component | Image |
 |---|---|
-| Operator | `ghcr.io/brewlet/operator` |
-| Admission webhook | `ghcr.io/brewlet/admission` |
-| Node provisioner | `ghcr.io/brewlet/node-provisioner` |
+| Operator | `ghcr.io/microsoft/operator` |
+| Admission webhook | `ghcr.io/microsoft/admission` |
+| Node provisioner | `ghcr.io/microsoft/node-provisioner` |
 
 ## Build and test
 
@@ -104,8 +104,8 @@ make -C kubernetes helm-check
 Build the component images with `kubernetes/` as the Docker context:
 
 ```bash
-docker build -t ghcr.io/brewlet/operator:dev kubernetes
-docker build -t ghcr.io/brewlet/admission:dev kubernetes --build-arg CMD=admission
+docker build -t ghcr.io/microsoft/operator:dev kubernetes
+docker build -t ghcr.io/microsoft/admission:dev kubernetes --build-arg CMD=admission
 ```
 
 ## Component layout

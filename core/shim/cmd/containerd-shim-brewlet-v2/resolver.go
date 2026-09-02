@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/brewlet/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 // artifactBlobs is the OCI artifact after separating the JVM launch config from

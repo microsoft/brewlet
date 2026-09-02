@@ -72,9 +72,9 @@ jobs:
           push: true
           build-args: ${{ matrix.build_args }}
           tags: |
-            ghcr.io/brewlet/${{ matrix.image }}:${{ steps.version.outputs.version }}
+            ghcr.io/microsoft/${{ matrix.image }}:${{ steps.version.outputs.version }}
           labels: |
-            org.opencontainers.image.source=https://github.com/brewlet/brewlet
+            org.opencontainers.image.source=https://github.com/microsoft/brewlet
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
@@ -114,7 +114,7 @@ jobs:
             --username "${{ github.actor }}" \
             --password-stdin
           helm push "dist/brewlet-${{ steps.version.outputs.version }}.tgz" \
-            oci://ghcr.io/brewlet/charts
+            oci://ghcr.io/microsoft/charts
 
   cli:
     name: CLI - ${{ matrix.os }}-${{ matrix.arch }}

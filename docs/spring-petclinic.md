@@ -7,11 +7,11 @@ The example spans monorepo components:
 
 | Piece | Owner |
 |---|---|
-| Pinned upstream build and layering scripts | [`integration-tests/fixtures/spring-petclinic`](https://github.com/brewlet/brewlet/tree/main/integration-tests/fixtures/spring-petclinic) |
-| End-to-end orchestration | [`integration-tests/e2e/tier7-petclinic.sh`](https://github.com/brewlet/brewlet/blob/main/integration-tests/e2e/tier7-petclinic.sh) |
-| CLI and shim | [`core/`](https://github.com/brewlet/brewlet/tree/main/core) |
-| `JavaApplication` descriptor and operator | [`kubernetes/`](https://github.com/brewlet/brewlet/tree/main/kubernetes) |
-| Architecture contract | [`specs/`](https://github.com/brewlet/brewlet/tree/main/specs) |
+| Pinned upstream build and layering scripts | [`integration-tests/fixtures/spring-petclinic`](https://github.com/microsoft/brewlet/tree/main/integration-tests/fixtures/spring-petclinic) |
+| End-to-end orchestration | [`integration-tests/e2e/tier7-petclinic.sh`](https://github.com/microsoft/brewlet/blob/main/integration-tests/e2e/tier7-petclinic.sh) |
+| CLI and shim | [`core/`](https://github.com/microsoft/brewlet/tree/main/core) |
+| `JavaApplication` descriptor and operator | [`kubernetes/`](https://github.com/microsoft/brewlet/tree/main/kubernetes) |
+| Architecture contract | [`specs/`](https://github.com/microsoft/brewlet/tree/main/specs) |
 
 Nothing about PetClinic is special to Brewlet. Its ordinary Spring Boot JAR is
 published as an OCI artifact and launched with `java -jar` on a node-resident JDK.
@@ -21,7 +21,7 @@ published as an OCI artifact and launched with `java -jar` on a node-resident JD
 Clone the monorepo:
 
 ```bash
-git clone https://github.com/brewlet/brewlet.git
+git clone https://github.com/microsoft/brewlet.git
 cd brewlet
 
 export JAVA_HOME="$HOME/.sdkman/candidates/java/current"   # any full JDK 21+
@@ -94,14 +94,14 @@ the resource into a Deployment with `runtimeClassName: brewlet`, a Service, and
 optional autoscaling.
 
 See the
-[`petclinic-javaapplication.yaml`](https://github.com/brewlet/brewlet/blob/main/kubernetes/deploy/petclinic-javaapplication.yaml)
+[`petclinic-javaapplication.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/petclinic-javaapplication.yaml)
 source for replicas, cgroup limits, actuator probes, the H2 profile, and
 autoscaling.
 
 ## Layered classpath delivery
 
 A fat JAR is one large blob, so any code change produces a new blob. The fixture's
-[`layered-build.sh`](https://github.com/brewlet/brewlet/blob/main/integration-tests/fixtures/spring-petclinic/layered-build.sh)
+[`layered-build.sh`](https://github.com/microsoft/brewlet/blob/main/integration-tests/fixtures/spring-petclinic/layered-build.sh)
 maps Spring Boot's structure onto Brewlet's framework-neutral layers:
 
 - application classes and resources become a thin application JAR;

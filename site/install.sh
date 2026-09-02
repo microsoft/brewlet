@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repository="brewlet/brewlet"
+repository="microsoft/brewlet"
 version="${BREWLET_VERSION:-latest}"
 install_dir="${BREWLET_INSTALL_DIR:-${HOME:?HOME is not set}/.local/bin}"
 

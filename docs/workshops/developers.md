@@ -23,7 +23,7 @@ and the example source from the matching Brewlet release:
 
 ```bash
 git clone --depth 1 --branch "v${BREWLET_VERSION}" \
-  https://github.com/brewlet/brewlet.git
+  https://github.com/microsoft/brewlet.git
 cd brewlet
 ```
 
@@ -79,10 +79,10 @@ repository:
 mkdir -p target/brewlet-release
 curl -fL \
   -o target/brewlet-release/brewlet-maven-plugin.jar \
-  "https://github.com/brewlet/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.jar"
+  "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.jar"
 curl -fL \
   -o target/brewlet-release/brewlet-maven-plugin.pom \
-  "https://github.com/brewlet/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.pom"
+  "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.pom"
 
 mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
   -Dfile=target/brewlet-release/brewlet-maven-plugin.jar \

@@ -4,7 +4,7 @@
 - **Specification sections:** **§5.2**, **§7**, **§8.3**, and
   the public [capability-label reference](../CAPABILITY_LABELS.md)
 - **Related code:** [`kubernetes/`](../../kubernetes):
-  `internal/brewlet/labels.go`; [`brewlet/brewlet`](https://github.com/brewlet/brewlet):
+  `internal/brewlet/labels.go`; [`microsoft/brewlet`](https://github.com/microsoft/brewlet):
   `provisioner/entrypoint.sh` (`label_node`)
 - **Split from:** the original [0001 (node profiles)](0001-node-profiles.md) draft (the
   autoscaling-label contract 0001 depends on, §3 / §10). This is a

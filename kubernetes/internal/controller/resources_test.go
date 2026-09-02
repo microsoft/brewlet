@@ -13,7 +13,7 @@ import (
 func testConfig() Config {
 	return Config{
 		Namespace:        "brewlet",
-		ProvisionerImage: "ghcr.io/brewlet/node-provisioner:test",
+		ProvisionerImage: "ghcr.io/microsoft/node-provisioner:test",
 		JDKs:             "temurin-21,microsoft-25",
 		Launchers:        "jaz",
 		MetricsEnabled:   true,

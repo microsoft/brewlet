@@ -40,7 +40,7 @@ metrics:
 Install or upgrade Brewlet with the values file:
 
 ```bash
-helm upgrade --install brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --values metrics-values.yaml
 ```
@@ -542,7 +542,7 @@ source; the ConfigMap supplies only dashboard JSON.
 ## Implementation validation
 
 The Brewlet monorepo's
-[`integration-tests/e2e/tier15-metrics-incluster.sh`](https://github.com/brewlet/brewlet/blob/main/integration-tests/e2e/tier15-metrics-incluster.sh)
+[`integration-tests/e2e/tier15-metrics-incluster.sh`](https://github.com/microsoft/brewlet/blob/main/integration-tests/e2e/tier15-metrics-incluster.sh)
 exercises the live operator -> provisioner -> shim -> exporter path, all three
 scrape surfaces, inventory collectors, and runtime events. It is implementation
 validation for contributors, not an end-user installation procedure.

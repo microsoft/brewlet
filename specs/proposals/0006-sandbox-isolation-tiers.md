@@ -3,7 +3,7 @@
 - **Status:** research complete; runtime implementation is gated on a successful
   compatibility and performance prototype
 - **Related roadmap item:** stronger sandbox options
-- **Related issue:** [#1](https://github.com/brewlet/brewlet/issues/1)
+- **Related issue:** [#1](https://github.com/microsoft/brewlet/issues/1)
 - **Current execution path:** [`core/shim`](../../core/shim),
   [`provisioner/entrypoint.sh`](../../provisioner/entrypoint.sh)
 - **Control plane:** [`NodeProfile`](0001-node-profiles.md), capability labels

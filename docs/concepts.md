@@ -2,7 +2,7 @@
 
 This page explains the Brewlet model, the components that implement it, and the
 end-to-end flow from `mvn package` to a running JVM on a node. For the full design
-rationale and every edge case, see the [SPECIFICATION](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md).
+rationale and every edge case, see the [SPECIFICATION](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
 ---
 
@@ -69,21 +69,21 @@ Brewlet deliberately keeps **container-grade isolation** (runc) while adopting t
 
 Brewlet is a small set of cooperating components organized in focused monorepo
 directories. Each implementation maps to a section of the
-[specification](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md).
+[specification](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
 | Component | What it does | Where |
 |---|---|---|
-| **OCI application artifact** | A Java application packaged as an OCI artifact (custom media types) — a fat JAR, or an app split into classpath layers — plus a small JSON launch config — *not* a runnable container image. | [`core/internal/artifact/`](https://github.com/brewlet/brewlet/tree/main/core/internal/artifact/), spec §4 |
-| **Managed dependency bundle** | An Ops-published, immutable approved classpath derived from a Maven BOM. Application publication verifies its dependency graph and composes the exact bundle layer with a thin JAR; Kubernetes never resolves Maven dependencies. | [Managed dependency bundles](managed-dependency-bundles.md), [spec §4.5](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#45-managed-dependency-bundles) |
-| **`brewlet` CLI** | Developer/ops tool: `push`, `inspect`, `run`, `bundle`, `jdks`. | [`core/cmd/brewlet/`](https://github.com/brewlet/brewlet/tree/main/core/cmd/brewlet/) |
-| **`containerd-shim-brewlet-v2`** | containerd Runtime v2 shim. On `Create` it disassembles the artifact, selects a node JDK, assembles an overlay-rootfs `java -jar` sandbox, and delegates to runc. | [`core/shim/`](https://github.com/brewlet/brewlet/tree/main/core/shim/), spec §6 |
-| **`brewlet-node-provisioner`** | Privileged DaemonSet. On opted-in nodes it installs the shim, materializes JDK roots + launcher layers, registers the containerd runtime, and labels the node ready. | Source: [`provisioner/`](https://github.com/brewlet/brewlet/tree/main/provisioner); deployment: [`kubernetes/deploy/node-provisioner.yaml`](https://github.com/brewlet/brewlet/blob/main/kubernetes/deploy/node-provisioner.yaml); spec §5 |
-| **`brewlet-operator`** | Node lifecycle controller. Watches opted-in nodes, manages the provisioner DaemonSet + the `brewlet` RuntimeClass, and tracks node readiness. | [`kubernetes/cmd/manager/`](https://github.com/brewlet/brewlet/tree/main/kubernetes/cmd/manager), spec §8.1 |
-| **`brewlet-admission`** | Mutating+validating webhook. Stamps the artifact ref/digest onto brewlet pods and matches/steers requested JDK/launcher onto compatible nodes. | [`kubernetes/cmd/admission/`](https://github.com/brewlet/brewlet/tree/main/kubernetes/cmd/admission), spec §8.3 |
-| **Ratify/Gatekeeper enforcement** | Optional production policy that requires a valid, trusted final-image managed-dependency attestation for every image on a Brewlet-runtime pod. | [Admission enforcement](admission-enforcement.md), [`admission/`](https://github.com/brewlet/brewlet/tree/main/admission) |
-| **`RuntimeClass/brewlet`** | Routes pods to the shim handler; its `nodeSelector` keeps workloads on ready nodes. | [`deploy/runtimeclass.yaml`](https://github.com/brewlet/brewlet/blob/main/kubernetes/deploy/runtimeclass.yaml), spec §7 |
-| **`JavaApplication` CRD** | The higher-level developer-facing deployment descriptor, reconciled by the operator's `JavaApplication` controller (§8.2). | [`deploy/javaapplication-crd.yaml`](https://github.com/brewlet/brewlet/blob/main/kubernetes/deploy/javaapplication-crd.yaml), spec §9 |
-| **Helm chart** | SpinKube-style single-command activation of the operator + provisioner RBAC + webhook. | [`charts/brewlet/`](https://github.com/brewlet/brewlet/tree/main/kubernetes/charts/brewlet/) |
+| **OCI application artifact** | A Java application packaged as an OCI artifact (custom media types) — a fat JAR, or an app split into classpath layers — plus a small JSON launch config — *not* a runnable container image. | [`core/internal/artifact/`](https://github.com/microsoft/brewlet/tree/main/core/internal/artifact/), spec §4 |
+| **Managed dependency bundle** | An Ops-published, immutable approved classpath derived from a Maven BOM. Application publication verifies its dependency graph and composes the exact bundle layer with a thin JAR; Kubernetes never resolves Maven dependencies. | [Managed dependency bundles](managed-dependency-bundles.md), [spec §4.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#45-managed-dependency-bundles) |
+| **`brewlet` CLI** | Developer/ops tool: `push`, `inspect`, `run`, `bundle`, `jdks`. | [`core/cmd/brewlet/`](https://github.com/microsoft/brewlet/tree/main/core/cmd/brewlet/) |
+| **`containerd-shim-brewlet-v2`** | containerd Runtime v2 shim. On `Create` it disassembles the artifact, selects a node JDK, assembles an overlay-rootfs `java -jar` sandbox, and delegates to runc. | [`core/shim/`](https://github.com/microsoft/brewlet/tree/main/core/shim/), spec §6 |
+| **`brewlet-node-provisioner`** | Privileged DaemonSet. On opted-in nodes it installs the shim, materializes JDK roots + launcher layers, registers the containerd runtime, and labels the node ready. | Source: [`provisioner/`](https://github.com/microsoft/brewlet/tree/main/provisioner); deployment: [`kubernetes/deploy/node-provisioner.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/node-provisioner.yaml); spec §5 |
+| **`brewlet-operator`** | Node lifecycle controller. Watches opted-in nodes, manages the provisioner DaemonSet + the `brewlet` RuntimeClass, and tracks node readiness. | [`kubernetes/cmd/manager/`](https://github.com/microsoft/brewlet/tree/main/kubernetes/cmd/manager), spec §8.1 |
+| **`brewlet-admission`** | Mutating+validating webhook. Stamps the artifact ref/digest onto brewlet pods and matches/steers requested JDK/launcher onto compatible nodes. | [`kubernetes/cmd/admission/`](https://github.com/microsoft/brewlet/tree/main/kubernetes/cmd/admission), spec §8.3 |
+| **Ratify/Gatekeeper enforcement** | Optional production policy that requires a valid, trusted final-image managed-dependency attestation for every image on a Brewlet-runtime pod. | [Admission enforcement](admission-enforcement.md), [`admission/`](https://github.com/microsoft/brewlet/tree/main/admission) |
+| **`RuntimeClass/brewlet`** | Routes pods to the shim handler; its `nodeSelector` keeps workloads on ready nodes. | [`deploy/runtimeclass.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/runtimeclass.yaml), spec §7 |
+| **`JavaApplication` CRD** | The higher-level developer-facing deployment descriptor, reconciled by the operator's `JavaApplication` controller (§8.2). | [`deploy/javaapplication-crd.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/javaapplication-crd.yaml), spec §9 |
+| **Helm chart** | SpinKube-style single-command activation of the operator + provisioner RBAC + webhook. | [`charts/brewlet/`](https://github.com/microsoft/brewlet/tree/main/kubernetes/charts/brewlet/) |
 
 ---
 

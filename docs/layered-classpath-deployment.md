@@ -23,7 +23,7 @@ the same layering idea for the **module path** (`-p`).
   store then dedup the heavy dependency layers across versions *and* across apps by
   digest — only the small app layer moves on a typical rebuild.
 - **Brewlet uses a classpath layer for dependencies.**
-  [SPECIFICATION §4.1](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#41-media-types) and
+  [SPECIFICATION §4.1](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#41-media-types) and
   [reference](reference.md#oci-media-types) already list
   `application/vnd.brewlet.classpath.layer.v1+tar` as an *optional* layer "for
   classpath mode": a tar of JARs unpacked to `/app/lib`, driven
@@ -65,7 +65,7 @@ entire dependency payload too.
 | **Full re-push every build** | One layer, one digest — no sub-part can be deduped. A 5 KB code change re-uploads 150–250 MB. |
 | **Full re-pull on the node** | The containerd content store dedups by layer digest; a new fat-JAR digest is a cache miss, so the shim fetches the whole thing again. |
 | **No cross-app sharing** | Two services on the same Spring Boot BOM still store their dependencies twice — the bytes are identical but buried in different fat-JAR digests. |
-| **Slow cold pulls** | Startup latency ([§13](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md)) includes pulling the artifact; a smaller changed-layer pull is a faster cold start. |
+| **Slow cold pulls** | Startup latency ([§13](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)) includes pulling the artifact; a smaller changed-layer pull is a faster cold start. |
 
 ### 2.3 Prior art: layered JARs
 
@@ -92,7 +92,7 @@ shared and patched centrally (see the [project landing page](/) and
 - **Still only bytecode.** The layers contain JARs — application classes and library
   JARs — and nothing else. No OS, no JVM. The node JDK still does the launching.
 - **Same mount, same isolation.** Layers are unpacked into the same read-only `/app`
-  tree the shim already assembles ([§6.1](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#61-per-container-lifecycle-create)).
+  tree the shim already assembles ([§6.1](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#61-per-container-lifecycle-create)).
   Nothing about the runc sandbox, cgroup mapping, RuntimeClass, or admission path
   changes.
 - **Dedup is a registry/containerd property, not a runtime one.** Splitting into layers
@@ -125,7 +125,7 @@ concrete design for the `classpath.layer.v1+tar` media type the spec already nam
 
 ## 5. Launch config: `entry.classPath`
 
-The launch config ([SPECIFICATION §4.2](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#42-launch-config-config-blob-schema)
+The launch config ([SPECIFICATION §4.2](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#42-launch-config-config-blob-schema)
 / [reference](reference.md#launch-config-schema-config-blob)) supports an optional
 `entry.classPath` for `classpath` mode. Existing `jar` and `classpath` configs
 can omit it.
@@ -214,7 +214,7 @@ digest → its own dedup unit). The thin application JAR keeps the existing
 java -cp /app/app.jar:/app/lib/* com.acme.orders.Main
 ```
 
-During [rootfs assembly](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#61-per-container-lifecycle-create),
+During [rootfs assembly](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#61-per-container-lifecycle-create),
 the shim mounts the JAR layer at `/app` and unpacks each
 `classpath.layer.v1+tar` into `/app/lib` (read-only, shared like the JAR). Everything
 else — overlayfs, cgroups, CNI, signals — is unchanged.
@@ -378,7 +378,7 @@ Question #3 for the mixed case.
 - [Google Jib](https://github.com/GoogleContainerTools/jib) and
   [Cloud Native Buildpacks](https://buildpacks.io/) — automatic dependency/app layering
 - `java` launcher class-path wildcard (`-cp 'lib/*'`)
-- Brewlet: [SPECIFICATION §4 (artifact)](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#4-the-oci-application-artifact),
+- Brewlet: [SPECIFICATION §4 (artifact)](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#4-the-oci-application-artifact),
   [JPMS support](jpms-support.md),
   [building & publishing](building-and-publishing.md),
   [reference](reference.md)

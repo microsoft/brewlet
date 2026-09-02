@@ -175,7 +175,7 @@ mvn clean package sh.brewlet:brewlet-maven-plugin:0.1.0:push \
 By default (`brewlet.splitSnapshotLayers=true`) released dependencies and internal
 `-SNAPSHOT` dependencies land in separate `deps` / `snapshot-deps` layers (stable →
 volatile) for finer dedup; set it to `false` to pack all dependencies into one layer.
-See the [plugin README](https://github.com/brewlet/brewlet/blob/main/maven-plugin/README.md#configuration-parameters)
+See the [plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#configuration-parameters)
 for the full option reference.
 
 **CLI.** Pre-build the dependency tar(s) yourself and attach them with
@@ -293,18 +293,18 @@ artifact rather than a container image.
 
 ### Option C — Maven plugin
 
-The [Brewlet Maven plugin](https://github.com/brewlet/brewlet/tree/main/maven-plugin/) wraps steps 2–3 so developers
+The [Brewlet Maven plugin](https://github.com/microsoft/brewlet/tree/main/maven-plugin/) wraps steps 2–3 so developers
 never touch ORAS or hand-author the launch config. It infers the entry point and
 framework from the project and JAR manifest; its `manifest` goal writes the
 descriptor's JDK feature request and infers the container `ports`.
 
 Until the plugin is published to Maven Central, download its JAR and POM from
-the [GitHub release](https://github.com/brewlet/brewlet/releases/tag/v0.1.0) and
+the [GitHub release](https://github.com/microsoft/brewlet/releases/tag/v0.1.0) and
 install them once:
 
 ```bash
-curl -fLO https://github.com/brewlet/brewlet/releases/download/v0.1.0/brewlet-maven-plugin-0.1.0.jar
-curl -fLO https://github.com/brewlet/brewlet/releases/download/v0.1.0/brewlet-maven-plugin-0.1.0.pom
+curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.1.0/brewlet-maven-plugin-0.1.0.jar
+curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.1.0/brewlet-maven-plugin-0.1.0.pom
 mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
   -Dfile=brewlet-maven-plugin-0.1.0.jar \
   -DpomFile=brewlet-maven-plugin-0.1.0.pom
@@ -338,7 +338,7 @@ Goals: `brewlet:config` (generate the launch config), `brewlet:build` (assemble 
 local OCI layout), `brewlet:push` (publish to a registry), `brewlet:manifest`
 (emit a `JavaApplication`/Deployment YAML), `brewlet:inspect` (dry-run preview),
 and `brewlet:appcds` (generate an AppCDS startup archive — see [AppCDS](appcds.md)).
-See the [plugin README](https://github.com/brewlet/brewlet/blob/main/maven-plugin/README.md) for the full goal and
+See the [plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md) for the full goal and
 parameter reference.
 
 ---

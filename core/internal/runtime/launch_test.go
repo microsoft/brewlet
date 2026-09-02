@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/brewlet/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 func writeTar(t *testing.T, path string, files map[string]string) {

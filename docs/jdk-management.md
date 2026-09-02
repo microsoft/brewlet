@@ -65,7 +65,7 @@ JDK that no ready node provides fails admission with `NoCompatibleJDK`
 ([Troubleshooting](troubleshooting.md)). See
 [Capability labels and autoscaling](capability-labels-and-autoscaling.md) for
 the `NodeProfile`-to-label workflow and supported autoscaler patterns, and the
-[canonical capability-label contract](https://github.com/brewlet/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
+[canonical capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
 for the complete key grammar and compatibility guarantees.
 
 ---

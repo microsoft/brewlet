@@ -45,7 +45,7 @@ flowchart LR
 
 Ratify's `oras` referrer store performs registry discovery, authentication, and
 blob fetch. The **Brewlet verifier plugin** (`admission/ratify-verifier`) runs
-Brewlet's *exact* verification code — `github.com/brewlet/brewlet/pkg/attest`,
+Brewlet's *exact* verification code — `github.com/microsoft/brewlet/pkg/attest`,
 the single source of truth also used by the `brewlet` CLI and Maven plugin — over
 the fetched DSSE envelope. There is no divergent crypto and no republishing of
 the artifact into another signature format.

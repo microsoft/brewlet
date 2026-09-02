@@ -25,7 +25,7 @@ The Ops workshop installs the released chart and CLI directly. The Dev workshop
 uses the example application from the matching release tag:
 
 ```bash
-git clone --depth 1 --branch v0.1.0 https://github.com/brewlet/brewlet.git
+git clone --depth 1 --branch v0.1.0 https://github.com/microsoft/brewlet.git
 cd brewlet
 ```
 
@@ -43,8 +43,8 @@ make check-all
 
 Cluster-backed capabilities remain available through
 `integration-tests/e2e/run.sh`; see the
-[integration-test runbook](https://github.com/brewlet/brewlet/blob/main/integration-tests/AGENTS.md).
+[integration-test runbook](https://github.com/microsoft/brewlet/blob/main/integration-tests/AGENTS.md).
 The website deployment also runs
-[`site/scripts/verify-release-artifacts.sh`](https://github.com/brewlet/brewlet/blob/main/site/scripts/verify-release-artifacts.sh) to
+[`site/scripts/verify-release-artifacts.sh`](https://github.com/microsoft/brewlet/blob/main/site/scripts/verify-release-artifacts.sh) to
 confirm that the documented CLI, Maven plugin, chart, and component images are
 publicly downloadable.

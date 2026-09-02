@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/brewlet/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 // This file turns the manual empirical verification of the AppCDS turnkey path
-// (see https://github.com/brewlet/brewlet/blob/main/docs/appcds.md §4.2/§4.4) into an automated, self-skipping integration
+// (see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.2/§4.4) into an automated, self-skipping integration
 // test. It requires a real JDK (java + javac + jar, feature >= 17) and is skipped
 // under `go test -short` or when no suitable JDK is found — so CI's Go-only job
 // skips it while any developer/CI host with a JDK runs it for real.

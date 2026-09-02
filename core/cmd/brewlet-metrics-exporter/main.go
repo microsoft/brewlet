@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/brewlet/brewlet/internal/telemetry"
+	"github.com/microsoft/brewlet/internal/telemetry"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )

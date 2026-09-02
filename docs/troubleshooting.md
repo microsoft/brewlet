@@ -1,7 +1,7 @@
 # Troubleshooting
 
 A field guide to what can go wrong, what it looks like, and how to fix it. The
-failure-mode summary is from [SPECIFICATION §14](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md).
+failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
 ---
 
@@ -174,7 +174,7 @@ containerd --config /etc/containerd/config.toml config dump | grep -A4 runtimes.
 ## Local development issues
 
 - **The harness cannot find a component directory** — run it from a complete
-  `brewlet/brewlet` monorepo checkout. For external component checkouts, set
+  `microsoft/brewlet` monorepo checkout. For external component checkouts, set
   `BREWLET_CORE_DIR` and `BREWLET_KUBERNETES_DIR`.
 - **Tier 2 cannot build a fixture** — check `JAVA_HOME` points at a full JDK 21+.
 - **Core or Kubernetes build fails** — Go 1.26+ is required.

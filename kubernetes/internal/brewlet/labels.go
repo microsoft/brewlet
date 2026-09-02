@@ -1,7 +1,7 @@
 // Package brewlet holds the label/annotation vocabulary shared across the
 // brewlet-operator controllers. These keys are the contract between the node
 // provisioner (which sets them, see src/provisioner) and the operator (which
-// reads them) — keep them in sync with https://github.com/brewlet/brewlet/tree/main/specs.
+// reads them) — keep them in sync with https://github.com/microsoft/brewlet/tree/main/specs.
 package brewlet
 
 const (
@@ -118,7 +118,7 @@ const (
 	AnnotationRequestedArch = "brewlet.sh/arch"
 
 	// AnnotationCDSRegenerate optionally opts a pod into node-side AppCDS
-	// regeneration (https://github.com/brewlet/brewlet). Value "true" tells the shim to maintain
+	// regeneration (https://github.com/microsoft/brewlet). Value "true" tells the shim to maintain
 	// a per-(artifact, JDK-build) archive cache with -XX:+AutoCreateSharedArchive
 	// instead of consuming a shipped archive verbatim. It imposes no scheduling
 	// constraint (every ready node can regenerate, or safely skips on JDK < 19),
@@ -170,7 +170,7 @@ const (
 	ProvisionerAppLabel = "brewlet-node-provisioner"
 )
 
-// Event reasons the operator records (see https://github.com/brewlet/brewlet/tree/main/specs).
+// Event reasons the operator records (see https://github.com/microsoft/brewlet/tree/main/specs).
 const (
 	// ReasonProvisioning — the operator has requested provisioning for a node.
 	ReasonProvisioning = "Provisioning"

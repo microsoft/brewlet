@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/brewlet/brewlet/pkg/attest"
+	"github.com/microsoft/brewlet/pkg/attest"
 
 	"github.com/opencontainers/go-digest"
 	oci "github.com/opencontainers/image-spec/specs-go/v1"

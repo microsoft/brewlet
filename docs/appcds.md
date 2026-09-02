@@ -278,7 +278,7 @@ The engine also evicts cache entries untouched for longer than `DefaultEvictTTL`
 so operators can watch archive hits/rebuilds. Running app code to produce archives on
 the node is inherent to this mechanism; it runs inside the same sandbox as the app.
 
-**Verified end to end in a real cluster.** [e2e Tier 8](https://github.com/brewlet/brewlet/blob/main/integration-tests/README.md)
+**Verified end to end in a real cluster.** [e2e Tier 8](https://github.com/microsoft/brewlet/blob/main/integration-tests/README.md)
 provisions a `kind` node for real (shim + full-userland `temurin-21` JDK root +
 `brewlet` containerd runtime), deploys a genuine `runtimeClassName: brewlet` pod
 with `brewlet.sh/cds-regenerate: true`, and asserts the full lifecycle: rollout 1
@@ -378,8 +378,8 @@ per-image-JVM coupling Brewlet exists to remove.
   [JEP 350: Dynamic CDS Archives](https://openjdk.org/jeps/350).
 - [JEP 483: Ahead-of-Time Class Loading & Linking (Leyden, JDK 24)](https://openjdk.org/jeps/483).
 - `java` flags: `-XX:SharedArchiveFile`, `-XX:ArchiveClassesAtExit`, `-Xshare:auto|on|off`.
-- Brewlet: [SPECIFICATION §13 (startup)](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#13-performance--startup),
-  [§4 (artifact)](https://github.com/brewlet/brewlet/blob/main/specs/SPECIFICATION.md#4-the-oci-application-artifact),
+- Brewlet: [SPECIFICATION §13 (startup)](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#13-performance--startup),
+  [§4 (artifact)](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#4-the-oci-application-artifact),
   [layered-classpath-deployment](layered-classpath-deployment.md),
   [multi-arch.md](multi-arch.md);
   `core/internal/runtime/launch.go`, `core/internal/artifact/artifact.go`,

@@ -21,7 +21,7 @@ import (
 )
 
 // NodeReconciler implements the brewlet-operator node lifecycle controller
-// (https://github.com/brewlet/brewlet/tree/main/specs). It reflects each brewlet node's provisioning state
+// (https://github.com/microsoft/brewlet/tree/main/specs). It reflects each brewlet node's provisioning state
 // (Provisioning/Ready/Failed) via an annotation and Kubernetes events. The
 // RuntimeClass and the per-profile provisioner DaemonSets are owned by the
 // NodeProfileReconciler (§5.2); this controller no longer manages them — it is

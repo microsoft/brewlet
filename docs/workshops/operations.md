@@ -50,7 +50,7 @@ brewlet version
 Render and inspect the chart before applying it:
 
 ```bash
-helm template brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$BREWLET_VERSION" \
   --namespace brewlet \
   --set-string provisioner.jdks=temurin-21 \
@@ -64,7 +64,7 @@ platform-owned node pools.
 ## 3. Install Brewlet
 
 ```bash
-helm upgrade --install brewlet oci://ghcr.io/brewlet/charts/brewlet \
+helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$BREWLET_VERSION" \
   --namespace brewlet \
   --create-namespace \
