@@ -9,7 +9,7 @@
 namespace: brewlet
 
 # Container images for each component. Empty component values resolve to
-# <registry>/<component>:<tag>, where an empty tag uses Chart.appVersion.
+# <registry>/brewlet-<component>:<tag>, where an empty tag uses Chart.appVersion.
 # Set a component explicitly to override the generated reference or pin a digest.
 images:
   registry: ghcr.io/microsoft

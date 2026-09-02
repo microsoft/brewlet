@@ -86,9 +86,9 @@ The raw manifests use these images:
 
 | Component | Image |
 |---|---|
-| Operator | `ghcr.io/microsoft/operator` |
-| Admission webhook | `ghcr.io/microsoft/admission` |
-| Node provisioner | `ghcr.io/microsoft/node-provisioner` |
+| Operator | `ghcr.io/microsoft/brewlet-operator` |
+| Admission webhook | `ghcr.io/microsoft/brewlet-admission` |
+| Node provisioner | `ghcr.io/microsoft/brewlet-node-provisioner` |
 
 ## Build and test
 
@@ -104,8 +104,8 @@ make -C kubernetes helm-check
 Build the component images with `kubernetes/` as the Docker context:
 
 ```bash
-docker build -t ghcr.io/microsoft/operator:dev kubernetes
-docker build -t ghcr.io/microsoft/admission:dev kubernetes --build-arg CMD=admission
+docker build -t ghcr.io/microsoft/brewlet-operator:dev kubernetes
+docker build -t ghcr.io/microsoft/brewlet-admission:dev kubernetes --build-arg CMD=admission
 ```
 
 ## Component layout

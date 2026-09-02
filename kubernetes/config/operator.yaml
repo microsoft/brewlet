@@ -100,10 +100,10 @@ spec:
         runAsNonRoot: true
       containers:
         - name: manager
-          image: ghcr.io/microsoft/operator:0.1.0
+          image: ghcr.io/microsoft/brewlet-operator:0.1.0
           args:
             - --namespace=brewlet
-            - --provisioner-image=ghcr.io/microsoft/node-provisioner:0.1.0
+            - --provisioner-image=ghcr.io/microsoft/brewlet-node-provisioner:0.1.0
             - --jdks=temurin-21,microsoft-25
             - --launchers=jaz
             - --leader-elect

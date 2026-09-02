@@ -40,7 +40,7 @@ func main() {
 		enableLeaderElec bool
 	)
 	flag.StringVar(&cfg.Namespace, "namespace", "brewlet", "namespace to manage the provisioner DaemonSet in")
-	flag.StringVar(&cfg.ProvisionerImage, "provisioner-image", "ghcr.io/microsoft/node-provisioner:0.1.0", "brewlet-node-provisioner image to run")
+	flag.StringVar(&cfg.ProvisionerImage, "provisioner-image", "ghcr.io/microsoft/brewlet-node-provisioner:0.1.0", "brewlet-node-provisioner image to run")
 	flag.StringVar(&cfg.JDKs, "jdks", "temurin-21", "comma-separated <dist>-<feature> JDK roots to install on nodes")
 	flag.StringVar(&cfg.Launchers, "launchers", "", "comma-separated launcher layers to install (e.g. jaz)")
 	flag.IntVar(&cfg.MetricsPort, "node-metrics-port", 9090, "node provisioner metrics exporter port")

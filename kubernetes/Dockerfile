@@ -4,8 +4,8 @@
 # it into a distroless static base. Which command is built is selected by the CMD
 # build-arg (default: manager). Build context is the repository root.
 #
-#   docker build -t ghcr.io/microsoft/operator:dev .
-#   docker build -t ghcr.io/microsoft/admission:dev . --build-arg CMD=admission
+#   docker build -t ghcr.io/microsoft/brewlet-operator:dev .
+#   docker build -t ghcr.io/microsoft/brewlet-admission:dev . --build-arg CMD=admission
 
 FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
 ARG TARGETARCH

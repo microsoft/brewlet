@@ -20,7 +20,7 @@
 # unless: kubectl + cluster, docker, openssl, and nodes loadable via `ctr`.
 # Prereqs: kubectl + cluster, docker, openssl, go (build image).
 
-T11_IMG="brewlet.local/admission:e2e-res"
+T11_IMG="brewlet.local/brewlet-admission:e2e-res"
 T11_SYS_NS="brewlet-webhook-res-sys"    # webhook Deployment/Service/Secret/RBAC
 T11_NS="brewlet-webhook-res"            # labelled probe namespace
 T11_SVC="brewlet-admission-res"

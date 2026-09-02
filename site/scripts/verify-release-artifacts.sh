@@ -90,10 +90,10 @@ helm template brewlet "$work/brewlet-${version}.tgz" \
   --set-string provisioner.jdks=temurin-21 \
   > "$work/rendered.yaml"
 
-grep -q "ghcr.io/microsoft/operator:${version}" "$work/rendered.yaml"
-grep -q "ghcr.io/microsoft/admission:${version}" "$work/rendered.yaml"
-grep -q "ghcr.io/microsoft/node-provisioner:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/brewlet-operator:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/brewlet-admission:${version}" "$work/rendered.yaml"
+grep -q "ghcr.io/microsoft/brewlet-node-provisioner:${version}" "$work/rendered.yaml"
 
-docker manifest inspect "ghcr.io/microsoft/operator:${version}" >/dev/null
-docker manifest inspect "ghcr.io/microsoft/admission:${version}" >/dev/null
-docker manifest inspect "ghcr.io/microsoft/node-provisioner:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/brewlet-operator:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/brewlet-admission:${version}" >/dev/null
+docker manifest inspect "ghcr.io/microsoft/brewlet-node-provisioner:${version}" >/dev/null
