@@ -153,6 +153,13 @@ func ResolveNativeBlobs(src BlobSource, man Manifest, manifestDigest string) (Re
 // are mounted rather than read, so this is the only point at which the content
 // the workload executes is checked against the descriptor that named it.
 func verifiedBlobPath(src BlobSource, layer Descriptor, kind string) (string, error) {
+	// Validate before calling into BlobSource rather than relying on the
+	// implementation to do it: the interface cannot force an implementation to
+	// check, and a future backend that builds a path before validating would
+	// silently reopen this hole.
+	if err := ValidateDigest(layer.Digest); err != nil {
+		return "", fmt.Errorf("%s layer: %w", kind, err)
+	}
 	p, err := src.BlobPath(layer.Digest)
 	if err != nil {
 		return "", fmt.Errorf("%s layer: %w", kind, err)

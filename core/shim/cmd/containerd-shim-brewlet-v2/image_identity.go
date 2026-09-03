@@ -5,9 +5,10 @@ package main
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 const (
@@ -112,17 +113,15 @@ func requiredImageTargetDigest(ref string) (string, error) {
 	return value, nil
 }
 
+// requireSHA256Digest validates a digest carried on textual identity metadata
+// (a CRI field or an OCI annotation), where surrounding whitespace is a
+// formatting artifact rather than an attack. It trims that whitespace once and
+// then defers to artifact.ValidateDigest so there is a single definition of the
+// canonical digest grammar: a second copy here could drift from the one that
+// guards path construction.
 func requireSHA256Digest(field, value string) (string, error) {
 	value = strings.TrimSpace(value)
-	const prefix = "sha256:"
-	if !strings.HasPrefix(value, prefix) {
-		return "", fmt.Errorf("%s must be a sha256 digest, got %q", field, value)
-	}
-	encoded := strings.TrimPrefix(value, prefix)
-	if len(encoded) != 64 || encoded != strings.ToLower(encoded) {
-		return "", fmt.Errorf("%s must be a sha256 digest, got %q", field, value)
-	}
-	if _, err := hex.DecodeString(encoded); err != nil {
+	if err := artifact.ValidateDigest(value); err != nil {
 		return "", fmt.Errorf("%s must be a sha256 digest, got %q", field, value)
 	}
 	return value, nil

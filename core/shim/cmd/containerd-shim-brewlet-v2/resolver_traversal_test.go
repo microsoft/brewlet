@@ -100,25 +100,31 @@ func TestContentStoreBlobsRejectsTraversalDescriptorDigests(t *testing.T) {
 		t.Fatal("baseline resolution produced no jar path")
 	}
 
+	// Every case must be rejected *by digest validation*, not incidentally.
+	// Before the fix some of these digests resolved to "/", and reads of "/"
+	// fail on their own with EISDIR — so asserting only "an error occurred"
+	// would pass against the vulnerable code. Requiring the error to name the
+	// invalid digest is what makes these genuine regression tests.
 	cases := []struct {
-		name   string
-		mutate func(*artifact.Manifest)
+		name    string
+		mutate  func(*artifact.Manifest)
+		wantErr string
 	}{
-		{"jar layer", func(m *artifact.Manifest) { m.Layers[0].Digest = traversalDigest }},
-		{"classpath layer", func(m *artifact.Manifest) { m.Layers[1].Digest = traversalDigest }},
-		{"modulepath layer", func(m *artifact.Manifest) { m.Layers[2].Digest = traversalDigest }},
-		{"cds layer", func(m *artifact.Manifest) { m.Layers[3].Digest = traversalDigest }},
-		{"config blob", func(m *artifact.Manifest) { m.Config.Digest = traversalDigest; m.Config.Size = 0 }},
+		{"jar layer", func(m *artifact.Manifest) { m.Layers[0].Digest = traversalDigest }, "invalid digest"},
+		{"classpath layer", func(m *artifact.Manifest) { m.Layers[1].Digest = traversalDigest }, "invalid digest"},
+		{"modulepath layer", func(m *artifact.Manifest) { m.Layers[2].Digest = traversalDigest }, "invalid digest"},
+		{"cds layer", func(m *artifact.Manifest) { m.Layers[3].Digest = traversalDigest }, "invalid digest"},
+		{"config blob", func(m *artifact.Manifest) { m.Config.Digest = traversalDigest; m.Config.Size = 0 }, "invalid digest"},
 		{"uppercase jar digest", func(m *artifact.Manifest) {
 			m.Layers[0].Digest = strings.ToUpper(m.Layers[0].Digest[len("sha256:"):])
 			m.Layers[0].Digest = "sha256:" + m.Layers[0].Digest
-		}},
+		}, "invalid digest"},
 		{"truncated jar digest", func(m *artifact.Manifest) {
 			m.Layers[0].Digest = m.Layers[0].Digest[:len(m.Layers[0].Digest)-1]
-		}},
+		}, "invalid digest"},
 		{"unsupported algorithm", func(m *artifact.Manifest) {
 			m.Layers[0].Digest = "sha512:" + strings.Repeat("a", 128)
-		}},
+		}, "invalid digest"},
 	}
 
 	for _, tc := range cases {
@@ -127,6 +133,9 @@ func TestContentStoreBlobsRejectsTraversalDescriptorDigests(t *testing.T) {
 			blobs, err := contentStoreBlobs(root, tampered)
 			if err == nil {
 				t.Fatalf("resolution succeeded for a hostile %s digest: %+v", tc.name, blobs)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %v, want it to contain %q (rejection must come from digest validation, not an incidental read failure)", err, tc.wantErr)
 			}
 			assertNoHostPaths(t, blobs)
 		})
@@ -185,6 +194,12 @@ func TestRunnableImageRejectsTraversalLayerDigest(t *testing.T) {
 	blobs, err := loadArtifactBlobs(imageConfig{Backend: "containerd", ContentRoot: root, ManifestDigest: tampered})
 	if err == nil {
 		t.Fatalf("runnable image resolved with a traversal app-layer digest: %+v", blobs)
+	}
+	// The pre-fix code read this layer with os.ReadFile, which would fail on
+	// "/" by itself, so the error must specifically name the invalid digest for
+	// this to be a real regression test.
+	if !strings.Contains(err.Error(), "invalid digest") {
+		t.Errorf("error = %v, want it to contain %q (rejection must come from digest validation, not an incidental read failure)", err, "invalid digest")
 	}
 	assertNoHostPaths(t, blobs)
 

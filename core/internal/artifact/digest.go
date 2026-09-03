@@ -71,9 +71,13 @@ func BlobPathIn(root, digest string) (string, error) {
 // VerifyBytes checks raw against the size and digest its descriptor declares.
 // The size is only advisory (descriptors written by older tooling may omit it),
 // but the digest is always verified so an absent size cannot disable the check.
+// A negative size is a malformed descriptor rather than an absent one.
 func VerifyBytes(desc Descriptor, raw []byte) error {
 	if err := ValidateDigest(desc.Digest); err != nil {
 		return err
+	}
+	if desc.Size < 0 {
+		return fmt.Errorf("blob %s declares a negative size %d", desc.Digest, desc.Size)
 	}
 	if desc.Size > 0 && int64(len(raw)) != desc.Size {
 		return fmt.Errorf("blob %s size mismatch: got %d, descriptor requires %d", desc.Digest, len(raw), desc.Size)
@@ -91,6 +95,9 @@ func VerifyBytes(desc Descriptor, raw []byte) error {
 func VerifyFile(desc Descriptor, path string) error {
 	if err := ValidateDigest(desc.Digest); err != nil {
 		return err
+	}
+	if desc.Size < 0 {
+		return fmt.Errorf("blob %s declares a negative size %d", desc.Digest, desc.Size)
 	}
 	f, err := os.Open(path)
 	if err != nil {
