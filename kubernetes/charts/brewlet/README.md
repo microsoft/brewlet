@@ -63,6 +63,7 @@ kubectl get nodes -L brewlet.sh/runtime
 | `metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator `ServiceMonitor`. |
 | `metrics.grafanaDashboard.enabled` | `false` | Create the starter Grafana dashboard ConfigMap. |
 | `networkPolicy.enabled` | `false` | Create ingress NetworkPolicies for admission and enabled metrics endpoints. |
+| `networkPolicy.healthProbes.ingressFrom` | `[]` | NetworkPolicy peers used by kubelets to reach control-plane health endpoints on port 8081. |
 | `networkPolicy.admission.apiServerCIDRs` | `[]` | API-server source CIDRs permitted to call the admission webhook when NetworkPolicies are enabled. |
 | `networkPolicy.metrics.ingressFrom` | `[]` | NetworkPolicy peers permitted to scrape enabled metrics endpoints. |
 | `admission.enabled` | `true` | Deploy the admission/scheduling webhook. |
@@ -294,6 +295,10 @@ metrics:
 
 networkPolicy:
   enabled: true
+  healthProbes:
+    ingressFrom:
+      - ipBlock:
+          cidr: 10.1.0.0/16
   admission:
     apiServerCIDRs:
       - 10.0.0.0/24
@@ -309,7 +314,8 @@ networkPolicy:
 
 The policies select the admission and operator pods plus every
 `app=brewlet-node-provisioner` pod created dynamically by the operator. They
-allow only the webhook target port and enabled metrics ports; egress is
-unchanged. Confirm the source address seen by webhook traffic for your managed
-Kubernetes service and CNI before enabling the admission policy. An incorrect
-CIDR blocks API-server calls to the webhook.
+allow the webhook target port, control-plane health port 8081 from configured
+kubelet peers, and enabled metrics ports; egress is unchanged. Confirm both the
+API-server and kubelet source addresses used by your managed Kubernetes service
+and CNI before enabling the policies. Incorrect peers can block webhook calls or
+make healthy pods fail their probes.

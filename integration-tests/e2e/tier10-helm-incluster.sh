@@ -9,7 +9,7 @@
 # hand-rolls the webhook Deployment. Nothing exercises the chart as customers
 # actually consume it — a real `helm install` that stands up the operator AND
 # the admission webhook IN-CLUSTER behind the chart's own ServiceAccounts,
-# ClusterRoles/Bindings, generated serving cert and MutatingWebhookConfiguration.
+# ClusterRoles/Bindings, serving cert and MutatingWebhookConfiguration.
 #
 # This tier does exactly that and then proves the shipped RBAC works end to end:
 #   1. `helm install` the chart (operator + admission images side-loaded; the
@@ -28,6 +28,9 @@
 #   5. A custom JDK distribution without its required source is rejected, and a
 #      pool conflict is rejected by the live NodeProfile webhook (proves the
 #      shipped ValidatingWebhookConfiguration + its caBundle wiring).
+#   6. When cert-manager is installed, the chart-managed certificate is issued,
+#      both CA bundles are injected, and a reissued Secret is served without
+#      restarting the admission pod.
 #
 # No brewlet pod is expected to actually RUN here (no node is provisioned ready,
 # so brewlet pods stay Pending/denied) — that path is tiers 8/9. This tier is
@@ -48,10 +51,13 @@ T10_ADM_IMG="brewlet.local/brewlet-admission:e2e"
 T10_PROV_IMG="brewlet.invalid/brewlet-node-provisioner:e2e"  # bogus on purpose: never runs
 T10_NODE=""
 T10_RC_PREEXISTING=""
+T10_CERT_MANAGER=""
+T10_PORT_FORWARD_PID=""
 declare -a T10_LOADED_NODES=()
 
 _t10_cleanup() {
   info "tier10: cleaning up"
+  [[ -n "$T10_PORT_FORWARD_PID" ]] && kill "$T10_PORT_FORWARD_PID" 2>/dev/null || true
   kubectl delete javaapplication "$T10_APP" -n "$T10_APP_NS" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete ns "$T10_APP_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   # NodeProfiles (the chart's default + any this tier created) hold a cleanup
@@ -99,6 +105,23 @@ _t10_build_load() {
   return 0
 }
 
+_t10_cert_serial() {
+  kubectl get secret brewlet-admission-cert -n "$T10_NS" \
+    -o jsonpath='{.data.tls\.crt}' 2>/dev/null |
+    openssl base64 -d -A 2>/dev/null |
+    openssl x509 -noout -serial 2>/dev/null |
+    sed 's/^serial=//'
+}
+
+_t10_served_cert_serial() {
+  local port="$1"
+  printf '' |
+    openssl s_client -connect "127.0.0.1:$port" \
+      -servername "brewlet-admission.$T10_NS.svc" 2>/dev/null |
+    openssl x509 -noout -serial 2>/dev/null |
+    sed 's/^serial=//'
+}
+
 tier10_helm_incluster() {
   section "Tier 10 — shipped Helm chart installed in-cluster (real RBAC)"
   if ! have kubectl || ! k8s_reachable; then skip "tier10: helm install" "no reachable cluster"; return 0; fi
@@ -140,6 +163,15 @@ tier10_helm_incluster() {
   # a snappy single-replica rollout. Keep defaultProfile disabled during install:
   # a fail-closed NodeProfile validating webhook can come up after resources are
   # applied, so creating NodeProfiles during the same helm transaction is flaky.
+  local -a certificate_args=()
+  if kubectl get crd certificates.cert-manager.io >/dev/null 2>&1; then
+    T10_CERT_MANAGER=1
+    certificate_args=(
+      --set admission.certManager.enabled=true
+      --set admission.certManager.createSelfSignedIssuer=true
+    )
+    info "tier10: cert-manager detected; exercising managed certificate issuance"
+  fi
   info "tier10: helm install $T10_RELEASE"
   if ! helm install "$T10_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
         --namespace "$T10_RELEASE_NS" \
@@ -150,6 +182,7 @@ tier10_helm_incluster() {
         --set defaultProfile.enabled=false \
         --set operator.leaderElect=false \
         --set admission.nodeProfileFailurePolicy=Fail \
+        "${certificate_args[@]}" \
         --wait --timeout 180s >"$WORK/t10-install.log" 2>&1; then
     kubectl get pods -n "$T10_NS" >>"$WORK/t10-install.log" 2>&1 || true
     kubectl logs -n "$T10_NS" -l app=brewlet-operator --tail=50 >>"$WORK/t10-install.log" 2>&1 || true
@@ -184,6 +217,59 @@ tier10_helm_incluster() {
   admAvail="$(kubectl get deploy brewlet-admission -n "$T10_NS" -o jsonpath='{.status.availableReplicas}' 2>/dev/null)"
   assert_eq "helm(in-cluster): operator Deployment available" "${opAvail:-0}" "1"
   assert_eq "helm(in-cluster): admission Deployment available" "${admAvail:-0}" "1"
+  if [[ -n "$T10_CERT_MANAGER" ]]; then
+    if kubectl wait --for=condition=Ready certificate/brewlet-admission-cert \
+         -n "$T10_NS" --timeout=120s >>"$WORK/t10-install.log" 2>&1 &&
+       [[ -n "$(kubectl get mutatingwebhookconfiguration brewlet-admission \
+         -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)" ]] &&
+       [[ -n "$(kubectl get validatingwebhookconfiguration brewlet-nodeprofiles \
+         -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)" ]]; then
+      pass "helm(in-cluster): cert-manager issued TLS and injected both webhook CA bundles"
+    else
+      fail "helm(in-cluster): cert-manager issued TLS and injected both webhook CA bundles" \
+        "see $WORK/t10-install.log"
+      return 0
+    fi
+
+    if have openssl; then
+      local old_serial new_serial served_serial admission_uid port
+      old_serial="$(_t10_cert_serial)"
+      admission_uid="$(kubectl get pod -n "$T10_NS" -l app=brewlet-admission \
+        -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null)"
+      kubectl delete secret brewlet-admission-cert -n "$T10_NS" \
+        >>"$WORK/t10-cert-rotation.log" 2>&1 || true
+      for _ in $(seq 1 120); do
+        new_serial="$(_t10_cert_serial)"
+        [[ -n "$new_serial" && "$new_serial" != "$old_serial" ]] && break
+        sleep 1
+      done
+      if [[ -z "$new_serial" || "$new_serial" == "$old_serial" ]]; then
+        fail "helm(in-cluster): cert-manager reissued a deleted serving Secret" \
+          "see $WORK/t10-cert-rotation.log"
+        return 0
+      fi
+
+      port="$(free_port)"
+      kubectl port-forward -n "$T10_NS" service/brewlet-admission "$port:443" \
+        >"$WORK/t10-port-forward.log" 2>&1 &
+      T10_PORT_FORWARD_PID=$!
+      # Secret projection can take a kubelet sync period plus watch propagation.
+      for _ in $(seq 1 180); do
+        served_serial="$(_t10_served_cert_serial "$port")"
+        [[ "$served_serial" == "$new_serial" ]] && break
+        sleep 1
+      done
+      kill "$T10_PORT_FORWARD_PID" 2>/dev/null || true
+      T10_PORT_FORWARD_PID=""
+      assert_eq "helm(in-cluster): webhook hot-reloads the reissued serving certificate" \
+        "$served_serial" "$new_serial"
+      assert_eq "helm(in-cluster): certificate rotation does not restart the admission pod" \
+        "$(kubectl get pod -n "$T10_NS" -l app=brewlet-admission \
+          -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null)" "$admission_uid"
+    else
+      skip "helm(in-cluster): serving certificate hot reload" "openssl not installed"
+    fi
+  fi
   if kubectl get clusterrolebinding brewlet-operator brewlet-admission >/dev/null 2>&1; then
     pass "helm(in-cluster): shipped operator + admission ClusterRoleBindings present"
   else

@@ -120,6 +120,10 @@ metrics:
 # Enabling policies requires explicit cluster-specific trusted sources.
 networkPolicy:
   enabled: false
+  healthProbes:
+    # Kubernetes NetworkPolicy peers used by kubelet health probes. Configure
+    # the node source CIDRs or selectors used by your cluster.
+    ingressFrom: []
   admission:
     # Source CIDRs used by the Kubernetes API server when calling admission
     # webhooks. These vary by cluster and CNI.

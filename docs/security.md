@@ -163,8 +163,9 @@ Mitigations and guardrails:
 - [ ] Run workloads `runAsNonRoot`, drop capabilities, `readOnlyRootFilesystem`.
 - [ ] Enable **cert-manager** for automatic admission webhook certificate
       renewal. See [Configuration](configuration.md#admission-webhook).
-- [ ] Enable Brewlet **NetworkPolicies** with the real API-server source CIDRs
-      and only the monitoring namespace/pods that need metrics access.
+- [ ] Enable Brewlet **NetworkPolicies** with the real kubelet and API-server
+      source CIDRs and only the monitoring namespace/pods that need metrics
+      access.
 - [ ] Require trusted final-image managed-dependency attestations with
       [admission enforcement](admission-enforcement.md); pin images and the
       verifier plugin to digests.

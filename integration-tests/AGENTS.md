@@ -23,13 +23,14 @@ The harness does not switch branches or modify component sources. It uses
 | Docker | 3, 6, 7, 8-12, 14, 15 |
 | kubectl and a reachable cluster | 4-15 |
 | Helm | 4 (optional), 10, 15 |
-| OpenSSL | 4, 5, 6, 11 |
+| OpenSSL | 4, 5, 6, 10, 11 |
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
 behavior. Tiers 6, 8-12, 14, and 15 require local containerd nodes that Docker
 can enter, such as kind. Managed clusters skip those node-side paths. Tier 14
 installs explicit custom JDK and `jaz` sources and runs a live workload through
-both. Tier 15 installs the
+both. Tier 10 also exercises cert-manager issuance and certificate hot reload
+when cert-manager is installed. Tier 15 installs the
 chart with metrics enabled, provisions one node through the real DaemonSet,
 launches a Brewlet workload, and scrapes all metrics surfaces.
 

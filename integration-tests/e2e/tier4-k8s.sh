@@ -339,6 +339,7 @@ YAML
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
           --set metrics.enabled=true \
           --set networkPolicy.enabled=true \
+          --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
           --set 'networkPolicy.admission.apiServerCIDRs[0]=10.0.0.0/8' \
           --set 'networkPolicy.metrics.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=monitoring' \
           2>>"$WORK/t4-helm-template.log")"; then
@@ -350,6 +351,15 @@ YAML
         "$tmpl" "name: brewlet-node-metrics"
       assert_contains "helm: renders configured API-server CIDR" \
         "$tmpl" "cidr: \"10.0.0.0/8\""
+      assert_contains "helm: renders configured kubelet probe CIDR" \
+        "$tmpl" "cidr: 10.1.0.0/16"
+      assert_eq "helm: permits health probes for admission and operator pods" \
+        "$(awk '
+          /^kind: NetworkPolicy$/ { policy=1; next }
+          policy && /port: 8081/ { count++ }
+          policy && /^---$/ { policy=0 }
+          END { print count+0 }
+        ' <<<"$tmpl")" "2"
       assert_contains "helm: renders configured metrics namespace selector" \
         "$tmpl" "kubernetes.io/metadata.name: monitoring"
     else
@@ -357,6 +367,17 @@ YAML
     fi
     if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
          --set networkPolicy.enabled=true \
+         --set 'networkPolicy.admission.apiServerCIDRs[0]=10.0.0.0/8' \
+         >"$WORK/t4-network-policy-health-invalid.log" 2>&1; then
+      fail "helm: NetworkPolicies require kubelet health-probe peers"
+    else
+      assert_contains "helm: NetworkPolicies report missing health-probe peers" \
+        "$(cat "$WORK/t4-network-policy-health-invalid.log")" \
+        "networkPolicy.healthProbes.ingressFrom must contain at least one"
+    fi
+    if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+         --set networkPolicy.enabled=true \
+         --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
          >"$WORK/t4-network-policy-invalid.log" 2>&1; then
       fail "helm: NetworkPolicies require API-server CIDRs"
     else

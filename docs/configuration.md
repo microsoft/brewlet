@@ -266,6 +266,10 @@ metrics:
   enabled: true
 networkPolicy:
   enabled: true
+  healthProbes:
+    ingressFrom:
+      - ipBlock:
+          cidr: 10.1.0.0/16
   admission:
     apiServerCIDRs: ["10.0.0.0/24"]
   metrics:
@@ -278,11 +282,11 @@ networkPolicy:
             app.kubernetes.io/name: prometheus
 ```
 
-The chart requires explicit API-server CIDRs and metrics peers rather than
-guessing cluster-specific identities. Determine the source CIDRs used by your
-control plane and verify webhook connectivity before rolling this setting into
-production. NetworkPolicies require a CNI that enforces the Kubernetes
-`NetworkPolicy` API.
+The chart requires explicit kubelet health-probe peers, API-server CIDRs, and
+metrics peers rather than guessing cluster-specific identities. Determine the
+source CIDRs used by your nodes and control plane, then verify health probes and
+webhook connectivity before rolling this setting into production.
+NetworkPolicies require a CNI that enforces the Kubernetes `NetworkPolicy` API.
 
 Pod-side annotations the webhook reads (developer-facing) — see
 [Deploying workloads](deploying-workloads.md):

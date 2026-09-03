@@ -240,6 +240,10 @@ containerd --config /etc/containerd/config.toml config dump | grep -A4 runtimes.
   used by the control plane. Temporarily disable the policies, confirm those
   addresses with your Kubernetes provider/CNI documentation, and re-enable with
   the corrected CIDRs.
+- **Control-plane pods fail readiness after enabling NetworkPolicies** when
+  `networkPolicy.healthProbes.ingressFrom` does not match the source addresses
+  used by kubelets. Configure the cluster's node CIDRs or equivalent trusted
+  peers so port 8081 remains reachable.
 - **Metrics scrape timeouts with NetworkPolicies enabled** mean the Prometheus
   namespace/pod or source CIDR does not match
   `networkPolicy.metrics.ingressFrom`, or the cluster CNI does not enforce

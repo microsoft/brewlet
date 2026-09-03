@@ -601,6 +601,7 @@ tier15_metrics_incluster() {
       --set admission.nodeProfileFailurePolicy=Fail \
       --set metrics.enabled=true \
       --set networkPolicy.enabled=true \
+      --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=0.0.0.0/0' \
       --set 'networkPolicy.admission.apiServerCIDRs[0]=0.0.0.0/0' \
       --set "networkPolicy.metrics.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\\.io/metadata\\.name=$T15_APP_NS" \
       --wait --timeout 180s >"$WORK/t15-install.log" 2>&1; then
@@ -841,6 +842,15 @@ YAML
     "$node_metrics" 'brewlet_launcher_info\{launcher="java"\} 1'
   _t15_assert_metric "tier15: JDK installation timestamp metric is exported" \
     "$node_metrics" 'brewlet_jdk_installed_timestamp_seconds\{[^}]*distribution="temurin"[^}]*feature="21"'
+  local allowed_operator_metrics
+  allowed_operator_metrics="$(_t15_scrape_until \
+    "http://brewlet-operator-metrics.$T15_NS.svc:8080/metrics" \
+    'go_gc_duration_seconds' 30)"
+  if [[ -z "$allowed_operator_metrics" ]]; then
+    fail "tier15: configured namespace reaches operator metrics before denial check"
+    return 0
+  fi
+  pass "tier15: configured namespace reaches operator metrics before denial check"
   if kubectl exec -n "$T15_DENY_NS" t15-denied-client -- \
        wget -q -O- -T 5 "http://brewlet-operator-metrics.$T15_NS.svc:8080/metrics" \
        >"$WORK/t15-denied-scrape.log" 2>&1; then
