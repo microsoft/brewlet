@@ -169,6 +169,12 @@ config describing how to launch it.
   its `cds.layer.v1+jsa` layer — §13). Ports and process credentials are
   deployment concerns, not part of the artifact. Consumers MUST reject a config
   containing a `user` field.
+- `mainJar` and `cds.archive` MUST be bare filenames (no path separator, no
+  wildcard, no `..`). Both name files that a node materializes under a per-image
+  staging directory and then bind-mounts read-only into the sandbox, so
+  producers MUST reject a non-bare value at publish time and consumers MUST
+  reject it at load time and confirm the resolved path is contained by the
+  staging directory.
 - The descriptor's launcher selects the JVM launcher that fronts the entrypoint. It is **generic
   and OpenJDK-neutral**: omitted (or `"java"`) means the stock `java` launcher from
   the selected JDK. Brewlet injects **no JVM tuning flags** in either case — the

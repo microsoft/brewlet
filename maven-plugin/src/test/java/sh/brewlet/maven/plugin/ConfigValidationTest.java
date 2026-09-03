@@ -246,4 +246,64 @@ class ConfigValidationTest {
         cfg.setCds(new JvmConfig.Cds("app.jsa", "generated"));
         assertThrows(IllegalStateException.class, cfg::validate);
     }
+
+    // mainJar is joined onto the per-image staging directory on a node, and the
+    // result becomes a root bind-mount source, so anything but a bare filename is
+    // a host path-traversal primitive. Mirrors the Go core's TestValidate cases.
+
+    @Test
+    void mainJar_bareFilename_ok() {
+        assertDoesNotThrow(() -> withEntry("orders.jar", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_unset_ok() {
+        assertDoesNotThrow(() -> withEntry(null, new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_parentTraversal_fails() {
+        assertThrows(IllegalStateException.class, () -> withEntry("../x.jar", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_deepTraversal_fails() {
+        assertThrows(IllegalStateException.class,
+                () -> withEntry("../../etc/passwd", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_absolutePath_fails() {
+        assertThrows(IllegalStateException.class, () -> withEntry("/etc/passwd", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_nestedPath_fails() {
+        assertThrows(IllegalStateException.class, () -> withEntry("a/b.jar", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_backslashPath_fails() {
+        assertThrows(IllegalStateException.class, () -> withEntry("a\\b.jar", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_parentDotSegment_fails() {
+        assertThrows(IllegalStateException.class, () -> withEntry("..", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_currentDotSegment_fails() {
+        assertThrows(IllegalStateException.class, () -> withEntry(".", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_wildcard_fails() {
+        assertThrows(IllegalStateException.class, () -> withEntry("*.jar", new Entry("jar")).validate());
+    }
+
+    @Test
+    void mainJar_paddedWithWhitespace_fails() {
+        assertThrows(IllegalStateException.class, () -> withEntry(" app.jar ", new Entry("jar")).validate());
+    }
 }

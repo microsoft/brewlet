@@ -47,7 +47,7 @@ you can author it and pass `--config`.
 
 | Field | Meaning |
 |---|---|
-| `mainJar` | The JAR filename inside the artifact (mounted at `/app/<mainJar>`). |
+| `mainJar` | The JAR filename inside the artifact (mounted at `/app/<mainJar>`). Must be a bare filename: separators, wildcards and parent references are rejected at publish and load time, since the name is resolved against the node's staging directory and bind-mounted from there. |
 | `entry.mode` | `jar` → `java -jar` (default); `classpath` → `java -cp <jar> <mainClass>`; `module` → `java -p <modulePath> -m <module>[/<mainClass>]` (JPMS). |
 | `entry.mainClass` | Required when `entry.mode == "classpath"`; optional in `module` mode. |
 | `entry.classPath` | Optional, ordered `/app`-relative class-path entries (e.g. `["app.jar", "lib/*"]`) used with `entry.mode == "classpath"` for layered deployment. |

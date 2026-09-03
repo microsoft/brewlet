@@ -44,9 +44,9 @@ and digests are strictly validated; the NodeProfile validating webhook fails
 closed; the operator and admission pods are hardened; and containerd
 configuration updates are validated and rolled back.
 
-**Overall risk: Medium.** The container-escape-equivalent host read primitive is
-closed. The remaining open findings are all Medium: launcher and `mainJar` path
-inputs, credential forwarding, and the provisioning default that targets every
+**Overall risk: Medium.** The container-escape-equivalent host read primitives are
+closed. The remaining open findings are all Medium: the launcher annotation path
+input, credential forwarding, and the provisioning default that targets every
 node. Restricting Brewlet to dedicated, platform-owned node pools further
 reduces exposure.
 
@@ -61,7 +61,7 @@ reduces exposure.
 | 5 | Medium | The launcher annotation can traverse outside the launcher root | [#23](https://github.com/microsoft/brewlet/issues/23) | — | 7/10 |
 | 6 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
 | 7 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
-| 8 | Medium | `mainJar` can escape staging and select arbitrary host paths | [#26](https://github.com/microsoft/brewlet/issues/26) | — | 8/10 |
+| 8 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
 | 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP | [#27](https://github.com/microsoft/brewlet/issues/27) | — | 8/10 |
 | 10 | Medium | The privileged provisioner defaults to every node | [#28](https://github.com/microsoft/brewlet/issues/28) | — | 9/10 |
 | 11 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity **(Remediated)** | [#29](https://github.com/microsoft/brewlet/issues/29) | [#42](https://github.com/microsoft/brewlet/pull/42) | 9/10 |
@@ -553,7 +553,7 @@ runtime image receives only verified outputs and no longer contains `curl`, and
 repository policy tests reject unpinned images or direct Dockerfile downloads.
 Build corruption tests cover every downloaded binary and license asset.
 
-### 8. `mainJar` can escape staging and select arbitrary host paths
+### 8. `mainJar` can escape staging and select arbitrary host paths — remediated
 
 **Severity:** Medium  
 **Confidence:** 8/10  
@@ -561,10 +561,13 @@ Build corruption tests cover every downloaded binary and license asset.
 **CWE:** CWE-22  
 **Type:** Confirmed vulnerability
 
+**Status:** Remediated by [issue #26](https://github.com/microsoft/brewlet/issues/26)
+via [pull request #41](https://github.com/microsoft/brewlet/pull/41)
+
 **Attacker prerequisites:** Control of the runnable image's
 `brewlet.sh/jvm-config` metadata.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `core/internal/artifact/blobs.go:163-178` joins `cfg.MainJar` directly to the
   application staging directory.
@@ -584,6 +587,21 @@ wildcards, or dot segments, and enforce staging-directory containment with
 
 **Remediation test:** Reject `../x.jar`, `/etc/passwd`, `a/b.jar`, and `..`;
 assert all successfully resolved JAR and CDS paths remain under staging.
+
+**Resolution:** `JVMConfig.Validate` now rejects a `mainJar` carrying a path
+separator, wildcard, parent reference, or surrounding whitespace, and the
+pre-existing `cds.archive` check shares the same validator so the two rules
+cannot drift. The rule applies at publish time, whenever a launch config is
+decoded — including from a runnable image's `brewlet.sh/jvm-config` annotation —
+and at launch. Runnable-blob resolution additionally confirms with `filepath.Rel`
+that every JAR and CDS path it returns is contained by the per-image staging
+directory, and the shim plus the runtime staging and bundle helpers re-check the
+filename before using it as a bind-mount source or destination, so the root mount
+fails closed rather than following image-chosen metadata. The Maven plugin
+applies the identical rule at publish time. Tests reject `../x.jar`,
+`../../etc/passwd`, `/etc/passwd`, `a/b.jar`, `..`, `.`, wildcards, and padded
+names through config validation, through image resolution, and at the shim, and
+assert that successfully resolved JAR and CDS paths remain under staging.
 
 ### 9. Registry credentials can be forwarded cross-origin or over HTTP
 
@@ -851,16 +869,19 @@ metrics access.
 
 ## Most dangerous attack chains and remediation status
 
-### A. Namespace tenant to cluster compromise
+### A. Historical namespace tenant to cluster compromise — remediated
 
-A namespace tenant publishes and requests a digest-pinned malicious image whose
-manifest contains a traversal descriptor. Protected CRI image identity now
-ensures that the shim executes the requested image, but descriptor path
-validation remains absent, so the root shim can still mount host `/`. The tenant
-reads kubelet credentials and every co-located workload's Secrets and
-service-account tokens, then replays the most privileged credential against the
-API server. Default control-plane provisioning increases the chance that
-control-plane PKI is exposed directly.
+The original chain began with a namespace tenant publishing a digest-pinned
+malicious image whose manifest carried a traversal descriptor. Protected CRI
+image identity ensured the shim executed the requested image, but descriptor
+paths were unvalidated, so the root shim could mount host `/` — exposing kubelet
+credentials and every co-located workload's Secrets and service-account tokens
+for replay against the API server. Descriptor digests are now rejected unless
+they are canonical `sha256:<64 hex>`, every resolved path is independently proven
+to stay under the content store's blob directory, and blob bytes are verified
+against the digest that named them before they are read, staged, or mounted.
+Default control-plane provisioning (Finding 10) remains open and still widens
+the blast radius of any future node-level primitive.
 
 ### B. Historical cross-tenant JVM code injection — remediated
 
@@ -905,7 +926,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 ### P1: Next release
 
 1. Sanitize and allowlist launcher names.
-2. Restrict `mainJar` to a contained bare filename.
+2. **Remediated:** Restrict `mainJar` to a contained bare filename.
 3. **Remediated:** Verify every binary downloaded by the provisioner image and
    digest-pin base images.
 4. **Remediated:** Require administrator-provided, digest-pinned JDK and launcher
@@ -933,7 +954,9 @@ downloaded tools and external build images are checksum- or digest-pinned.
 4. **Prevent artifact configuration from overriding Pod UID/GID (remediated in
    issue #21 and pull request #37).** Covers Finding 3.
 5. **Validate launcher and `mainJar` path components.** Covers Findings 5 and 8,
-   which share the same path-input validation fix.
+   which share the same path-input validation fix. The `mainJar` half is
+   remediated in issue #26 and pull request #41; the launcher half (Finding 5)
+   remains open.
 6. **Require digest-pinned administrator-provided runtime sources and validate
    registry mirrors (remediated in issue #24 and pull request #34).** Covers
    Finding 6.

@@ -30,6 +30,13 @@ public class JvmConfig {
     @JsonProperty("schemaVersion")
     private int schemaVersion = 1;
 
+    /**
+     * Physical filename the single primary JAR is materialized as under
+     * {@code /app}. It must be a bare filename: a node joins it onto the per-image
+     * staging directory and bind-mounts the result into the sandbox as root, so
+     * separators, wildcards and parent references are rejected by
+     * {@link #validate()}.
+     */
     @JsonProperty("mainJar")
     private String mainJar;
 
@@ -155,6 +162,13 @@ public class JvmConfig {
                 throw new IllegalStateException("unknown entry.mode \"" + mode
                         + "\" (expected \"jar\", \"classpath\", or \"module\").");
         }
+        // The primary JAR is materialized at /app/<mainJar>; on a node the name is
+        // joined onto the per-image staging directory and the result becomes a root
+        // bind-mount source, so anything but a bare filename is a host path-traversal
+        // primitive. Mirrors JVMConfig.Validate() in the Go core.
+        if (mainJar != null && !mainJar.isEmpty()) {
+            requireBareFilename("mainJar", mainJar, "the primary JAR is mounted at /app/<mainJar>");
+        }
         // Dangling top-level JAR reference: a bare `<name>.jar` entry (no directory,
         // no wildcard) in classPath/modulePath can only be satisfied by the primary
         // JAR, since dependency layers unpack under /app/lib or /app/mods — never at
@@ -198,22 +212,48 @@ public class JvmConfig {
         // https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
         if (cds != null) {
             String archive = cds.getArchive();
-            String trimmed = archive == null ? "" : archive.trim();
-            if (trimmed.isEmpty()) {
+            if (archive == null || archive.trim().isEmpty()) {
                 throw new IllegalStateException(
                         "cds.archive must be a non-empty archive filename (e.g. \"app.jsa\").");
             }
-            if (!trimmed.equals(archive) || archive.indexOf('/') >= 0 || archive.indexOf('\\') >= 0
-                    || archive.contains("..") || archive.indexOf('*') >= 0) {
-                throw new IllegalStateException("cds.archive \"" + archive
-                        + "\" must be a bare filename (no path separator, no parent reference, "
-                        + "no wildcard): the archive is mounted at /app/<archive>.");
-            }
+            requireBareFilename("cds.archive", archive, "the archive is mounted at /app/<archive>");
             String cdsMode = cds.getMode();
             if (cdsMode != null && !cdsMode.isEmpty() && !KNOWN_CDS_MODES.contains(cdsMode)) {
                 throw new IllegalStateException("cds.mode \"" + cdsMode
                         + "\" is not recognized (expected \"dynamic\", \"static\", or omitted).");
             }
+        }
+    }
+
+    /**
+     * Enforces that {@code value} is a single path component: no surrounding
+     * whitespace, no path separator (either flavor), no wildcard, and no parent
+     * reference. Both {@code mainJar} and
+     * {@code cds.archive} name files that a node materializes under a per-image
+     * staging directory and then bind-mounts into the sandbox as root, so a value
+     * that is not bare is a host path-traversal primitive rather than merely a
+     * malformed hint. Mirrors {@code validateBareFilename} in the Go core.
+     *
+     * @param field the config key, used in the error message
+     * @param value the value to check
+     * @param hint  where the named file is mounted, appended to the error message
+     */
+    private static void requireBareFilename(String field, String value, String hint) {
+        if (!value.equals(value.trim())) {
+            throw new IllegalStateException(field + " \"" + value
+                    + "\" must be a bare filename (no leading or trailing whitespace): " + hint + ".");
+        }
+        if (value.isEmpty()) {
+            throw new IllegalStateException(field + " must be a non-empty bare filename: " + hint + ".");
+        }
+        if (value.indexOf('/') >= 0 || value.indexOf('\\') >= 0
+                || value.indexOf('*') >= 0 || value.indexOf('?') >= 0) {
+            throw new IllegalStateException(field + " \"" + value
+                    + "\" must be a bare filename (no path separator, no wildcard): " + hint + ".");
+        }
+        if (value.equals(".") || value.contains("..")) {
+            throw new IllegalStateException(field + " \"" + value
+                    + "\" must be a bare filename (no parent reference): " + hint + ".");
         }
     }
 

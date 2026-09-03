@@ -50,8 +50,13 @@ func pinCDSModTime(path string) error {
 // bundle path bind-mount the app JAR read-only straight from a content blob whose
 // mtime is non-deterministic; when the artifact ships a CDS archive they instead
 // mount this canonical-mtime copy so the archive's recorded JAR timestamp matches
-// (see CDSModTime). dstDir is created if needed.
+// (see CDSModTime). dstDir is created if needed. name must be a bare filename:
+// the copy's path is used as a bind-mount source, so a name carrying separators
+// or dot segments would place (and then expose) a file outside dstDir.
 func StageCDSJar(src, dstDir, name string) (string, error) {
+	if err := artifact.ValidateBareFilename("mainJar", name); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return "", err
 	}

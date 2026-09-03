@@ -73,7 +73,9 @@ func GenerateAppCDSArchive(cfg artifact.JVMConfig, jarPath, javaBin, outArchive 
 	if jarName == "" {
 		jarName = filepath.Base(jarPath)
 	}
-
+	if err := artifact.ValidateBareFilename("mainJar", jarName); err != nil {
+		return err
+	}
 	absOut, err := filepath.Abs(outArchive)
 	if err != nil {
 		return err

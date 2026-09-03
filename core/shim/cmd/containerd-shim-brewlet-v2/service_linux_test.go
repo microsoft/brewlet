@@ -341,6 +341,48 @@ func TestApplyBrewletLaunchRequiresCRIProcess(t *testing.T) {
 	}
 }
 
+// mainJar and cds.archive are image-controlled metadata that become mount
+// destinations and (after staging) bind-mount sources. Resolution rejects a
+// non-bare filename, but the shim is the trust boundary: it must fail closed
+// rather than mount whatever host path the image named.
+func TestApplyBrewletLaunchRejectsEscapingArtifactFilenames(t *testing.T) {
+	jarHost := filepath.Join(t.TempDir(), "blob")
+	if err := os.WriteFile(jarHost, []byte("PK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hostile := []string{"../x.jar", "../../etc/passwd", "/etc/passwd", "a/b.jar", "..", "."}
+	for _, name := range hostile {
+		t.Run("mainJar="+name, func(t *testing.T) {
+			ra := testResolved()
+			ra.JarHostPath = jarHost
+			ra.Config.MainJar = name
+			spec := &specs.Spec{Process: &specs.Process{}}
+			err := applyBrewletLaunch(spec, ra, t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), "mainJar") {
+				t.Fatalf("applyBrewletLaunch error = %v for mainJar %q, want bare-filename rejection (mounts = %+v)", err, name, spec.Mounts)
+			}
+			for _, m := range spec.Mounts {
+				if m.Source == "/etc/passwd" || strings.Contains(m.Destination, "..") {
+					t.Fatalf("hostile mainJar %q produced mount %+v", name, m)
+				}
+			}
+		})
+	}
+	for _, name := range hostile {
+		t.Run("cds.archive="+name, func(t *testing.T) {
+			ra := testResolved()
+			ra.JarHostPath = jarHost
+			ra.CDSHostPath = jarHost
+			ra.Config.CDS = &artifact.CDS{Archive: name, Mode: "dynamic"}
+			spec := &specs.Spec{Process: &specs.Process{}}
+			err := applyBrewletLaunch(spec, ra, t.TempDir())
+			if err == nil || !strings.Contains(err.Error(), "cds.archive") {
+				t.Fatalf("applyBrewletLaunch error = %v for cds.archive %q, want bare-filename rejection (mounts = %+v)", err, name, spec.Mounts)
+			}
+		})
+	}
+}
+
 func TestApplyBrewletLaunchWithCDS(t *testing.T) {
 	// StageCDSJar copies the real JAR bytes, so back JarHostPath with a file.
 	jarHost := filepath.Join(t.TempDir(), "blob")

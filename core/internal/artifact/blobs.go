@@ -208,17 +208,23 @@ func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (
 	if err := extractGzTar(src, appLayer, appDir); err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("stage app layer: %w", err)
 	}
-	jarName := cfg.MainJar
-	if jarName == "" {
-		jarName = "app.jar"
+	jarName, err := MainJarName(cfg)
+	if err != nil {
+		return ResolvedBlobs{}, err
 	}
-	jarPath := filepath.Join(appDir, jarName)
+	jarPath, err := stagedPath(appDir, jarName)
+	if err != nil {
+		return ResolvedBlobs{}, fmt.Errorf("runnable image jar: %w", err)
+	}
 	if _, err := os.Stat(jarPath); err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing jar %q: %w", jarName, err)
 	}
 	var cdsPath string
 	if cfg.CDS != nil && cfg.CDS.Archive != "" {
-		cdsPath = filepath.Join(appDir, cfg.CDS.Archive)
+		cdsPath, err = stagedPath(appDir, cfg.CDS.Archive)
+		if err != nil {
+			return ResolvedBlobs{}, fmt.Errorf("runnable image cds archive: %w", err)
+		}
 		if _, err := os.Stat(cdsPath); err != nil {
 			return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing cds archive %q: %w", cfg.CDS.Archive, err)
 		}
@@ -233,6 +239,25 @@ func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (
 		return ResolvedBlobs{}, err
 	}
 	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, ManifestDigest: manifestDigest, Format: "image"}, nil
+}
+
+// stagedPath joins name onto dir and verifies the result is contained by dir.
+// name is expected to have already been rejected by Validate if it is not a
+// bare filename; the containment check is the independent second line of
+// defense that makes the guarantee structural — every path this function
+// returns is under the per-image staging directory, so a launch config that
+// reached resolution without validation (or a future caller that forgets it)
+// still cannot turn a bind-mount source into an arbitrary host path.
+func stagedPath(dir, name string) (string, error) {
+	if !filepath.IsLocal(name) {
+		return "", fmt.Errorf("%q escapes the staging directory", name)
+	}
+	target := filepath.Join(dir, filepath.Clean(name))
+	rel, err := filepath.Rel(dir, target)
+	if err != nil || rel == ".." || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%q escapes the staging directory", name)
+	}
+	return target, nil
 }
 
 // runnableStageDir is the per-image staging directory a runnable image is
