@@ -187,12 +187,16 @@ _t15_prepare_containerd_fallback_baseline() {
 _t15_remove_created_cds_files() {
   [[ -n "$T15_CDS_SNAPSHOT" && -f "$T15_CDS_SNAPSHOT" ]] || return 0
   local after="$WORK/t15-cds-after.txt" path
-  docker exec "$T15_NODE" find /opt/brewlet/cds -maxdepth 1 -type f -print \
+  # Each regeneration entry is now the private directory /opt/brewlet/cds/<key>
+  # (holding archive.jsa), with a flat /opt/brewlet/cds/<key>.writer marker
+  # alongside it — not a flat <key>.jsa file. List both kinds at depth 1 and
+  # rm -rf them so newly created entries (files or directories) are removed.
+  docker exec "$T15_NODE" find /opt/brewlet/cds -mindepth 1 -maxdepth 1 -print \
     2>/dev/null | sort >"$after" || true
   while IFS= read -r path; do
     case "$path" in
       /opt/brewlet/cds/*)
-        docker exec "$T15_NODE" sh -c 'rm -f "$1"' sh "$path" >/dev/null 2>&1 || true
+        docker exec "$T15_NODE" sh -c 'rm -rf "$1"' sh "$path" >/dev/null 2>&1 || true
         ;;
     esac
   done < <(comm -13 "$T15_CDS_SNAPSHOT" "$after")
@@ -638,6 +642,8 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+  appCDS:
+    regenerationEnabled: true
   rollout:
     validate: true
     containerdRestart: validated
@@ -805,7 +811,10 @@ YAML
     "$node_metrics" 'brewlet_jdk_installed_timestamp_seconds\{[^}]*distribution="temurin"[^}]*feature="21"'
 
   T15_CDS_SNAPSHOT="$WORK/t15-cds-before.txt"
-  docker exec "$T15_NODE" find /opt/brewlet/cds -maxdepth 1 -type f -print \
+  # Snapshot both the per-key entry directories and the flat .writer markers
+  # (see _t15_remove_created_cds_files) so the post-run diff catches every
+  # regeneration artifact this test causes to be created.
+  docker exec "$T15_NODE" find /opt/brewlet/cds -mindepth 1 -maxdepth 1 -print \
     2>/dev/null | sort >"$T15_CDS_SNAPSHOT" || true
   if ! kubectl apply -n "$T15_APP_NS" -f - >>"$WORK/t15-app.log" 2>&1 <<YAML
 apiVersion: apps/v1

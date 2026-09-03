@@ -6,9 +6,12 @@ set -euo pipefail
 
 source "$(dirname "$0")/entrypoint.sh"
 
-calls="$(mktemp)"
-dest="$(mktemp -d)"
-trap 'rm -f "$calls"; chmod -R u+w "$dest" 2>/dev/null || true; rm -rf "$dest"' EXIT
+TEST_TMP_ROOT="$(dirname "$0")/.entrypoint-test-tmp.$$"
+mkdir -p "$TEST_TMP_ROOT"
+export TMPDIR="$TEST_TMP_ROOT"
+calls="$(mktemp "$TEST_TMP_ROOT/calls.XXXXXX")"
+dest="$(mktemp -d "$TEST_TMP_ROOT/dest.XXXXXX")"
+trap 'rm -f "$calls"; chmod -R u+w "$dest" 2>/dev/null || true; rm -rf "$dest" "$TEST_TMP_ROOT"' EXIT
 
 host_ctr() {
   printf '%s\n' "$*" >>"$calls"
@@ -73,9 +76,9 @@ if (
   exit 1
 fi
 
-validation_root="$(mktemp -d)"
+validation_root="$(mktemp -d "$TEST_TMP_ROOT/validation.XXXXXX")"
 chmod -R u+w "$validation_root" 2>/dev/null || true
-trap 'rm -f "$calls"; chmod -R u+w "$dest" "$validation_root" 2>/dev/null || true; rm -rf "$dest" "$validation_root"' EXIT
+trap 'rm -f "$calls"; chmod -R u+w "$dest" "$validation_root" 2>/dev/null || true; rm -rf "$dest" "$validation_root" "$TEST_TMP_ROOT"' EXIT
 
 mkdir -p "$validation_root/launchers/jaz/bin"
 cat >"$validation_root/launchers/jaz/bin/jaz" <<'EOF'
@@ -371,6 +374,10 @@ assert_contains() {
   }
 }
 
+file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
 assert_activation_validation_order() {
   local mode="$1" expected="$2" order
   order="$(
@@ -400,10 +407,10 @@ assert_activation_validation_order validated $'validate\nactivate'
 assert_activation_validation_order sighup $'configure\nactivate\nvalidate'
 assert_activation_validation_order none $'[brewlet-provisioner] BREWLET_CONTAINERD_RESTART=none; skipping containerd configuration mutation\nvalidate\n[brewlet-provisioner] BREWLET_CONTAINERD_RESTART=none; containerd configuration is managed out of band'
 
-restart_calls="$(mktemp)"
-health_calls="$(mktemp)"
-node_calls="$(mktemp)"
-trap 'rm -f "$calls" "$restart_calls" "$health_calls" "$node_calls"; chmod -R u+w "$dest" "$validation_root" 2>/dev/null || true; rm -rf "$dest" "$validation_root"' EXIT
+restart_calls="$(mktemp "$TEST_TMP_ROOT/restart-calls.XXXXXX")"
+health_calls="$(mktemp "$TEST_TMP_ROOT/health-calls.XXXXXX")"
+node_calls="$(mktemp "$TEST_TMP_ROOT/node-calls.XXXXXX")"
+trap 'rm -f "$calls" "$restart_calls" "$health_calls" "$node_calls"; chmod -R u+w "$dest" "$validation_root" 2>/dev/null || true; rm -rf "$dest" "$validation_root" "$TEST_TMP_ROOT"' EXIT
 
 # Validated mode restarts only after a mutation and checks both health surfaces.
 (
@@ -497,7 +504,7 @@ assert_contains "handler" "$health_calls"
 
 # A restart failure restores the primary config, restarts again, verifies
 # recovery, and reports the original failure without advertising success.
-rollback_dir="$(mktemp -d)"
+rollback_dir="$(mktemp -d "$TEST_TMP_ROOT/rollback.XXXXXX")"
 printf 'known-good\n' >"$rollback_dir/config.toml.brewlet.bak"
 printf 'brewlet-change\n' >"$rollback_dir/config.toml"
 : >"$restart_calls"
@@ -583,6 +590,7 @@ printf 'drop-in\n' >"$dropin"
 if output="$(
   (
     clear_node_advertisement() { printf 'unready\n' >>"$node_calls"; }
+    remove_appcds_regeneration_policy() { printf 'policy-removed\n' >>"$node_calls"; }
     kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
     die "containerd-health-check-failed: containerd is not operational"
   )
@@ -591,7 +599,73 @@ if output="$(
   exit 1
 fi
 assert_contains "unready" "$node_calls"
+assert_contains "policy-removed" "$node_calls"
 assert_contains "annotate node" "$node_calls"
 assert_contains "brewlet.sh/provision-error=containerd-health-check-failed: containerd is not operational" "$node_calls"
+
+# AppCDS regeneration policy is a root-controlled, read-only sentinel created
+# atomically and removed when the profile disables it.
+policy_root="$(mktemp -d "$TEST_TMP_ROOT/policy-root.XXXXXX")"
+(
+  POLICY_DIR="$policy_root/policy"
+  APP_CDS_REGENERATION_SENTINEL="$POLICY_DIR/appcds-regeneration-enabled"
+  BREWLET_APP_CDS_REGENERATION_ENABLED=true
+  policy_chown_root() { :; }
+  configure_appcds_regeneration_policy
+  [[ -f "$APP_CDS_REGENERATION_SENTINEL" ]]
+  [[ "$(file_mode "$APP_CDS_REGENERATION_SENTINEL")" == "444" ]]
+  [[ "$(file_mode "$POLICY_DIR")" == "755" ]]
+  if compgen -G "${APP_CDS_REGENERATION_SENTINEL}.tmp.*" >/dev/null; then
+    echo "temporary AppCDS policy file was not cleaned up" >&2
+    exit 1
+  fi
+
+  BREWLET_APP_CDS_REGENERATION_ENABLED=false
+  configure_appcds_regeneration_policy
+  [[ ! -e "$APP_CDS_REGENERATION_SENTINEL" ]]
+)
+
+# Readiness advertisement publishes the policy capability only when enabled;
+# both ordinary clearing and cleanup remove it.
+: >"$node_calls"
+(
+  PREFIX="$policy_root"
+  JDKS="temurin-21"
+  LAUNCHERS=""
+  BREWLET_APP_CDS_REGENERATION_ENABLED=true
+  kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
+  label_node
+)
+assert_contains "brewlet.sh/appcds-regeneration=true" "$node_calls"
+
+: >"$node_calls"
+(
+  BREWLET_APP_CDS_REGENERATION_ENABLED=false
+  JDKS="temurin-21"
+  kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
+  label_node
+  clear_node_advertisement
+  unlabel_node
+)
+assert_contains "brewlet.sh/appcds-regeneration-" "$node_calls"
+
+# Cleanup revokes both the host sentinel and the node advertisement before
+# removing the remaining host state.
+mkdir -p "$policy_root/cleanup-policy"
+: >"$policy_root/cleanup-policy/appcds-regeneration-enabled"
+: >"$node_calls"
+(
+  POLICY_DIR="$policy_root/cleanup-policy"
+  APP_CDS_REGENERATION_SENTINEL="$POLICY_DIR/appcds-regeneration-enabled"
+  BREWLET_CONTAINERD_RESTART=none
+  clear_node_advertisement() { printf 'advertisement-cleared\n' >>"$node_calls"; }
+  remove_shim() { printf 'shim-removed\n' >>"$node_calls"; }
+  unlabel_node() { printf 'labels-removed\n' >>"$node_calls"; }
+  cleanup_host
+)
+[[ ! -e "$policy_root/cleanup-policy/appcds-regeneration-enabled" ]]
+assert_contains "advertisement-cleared" "$node_calls"
+assert_contains "shim-removed" "$node_calls"
+assert_contains "labels-removed" "$node_calls"
 
 rm -rf "$rollback_dir"

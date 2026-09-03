@@ -84,6 +84,7 @@ func TestNodeProfileReconcileCreatesDaemonSet(t *testing.T) {
 	createProfile(t, ctx, c, name, nodev1alpha1.NodeProfileSpec{
 		NodePool: nodev1alpha1.NodePoolRef{Names: []string{"batch"}, Key: poolKey},
 		JDKs:     []nodev1alpha1.JDKRef{jdk("temurin", 21)},
+		AppCDS:   &nodev1alpha1.AppCDSSpec{RegenerationEnabled: true},
 	})
 
 	reconcileProfile(t, ctx, r, name)
@@ -101,6 +102,15 @@ func TestNodeProfileReconcileCreatesDaemonSet(t *testing.T) {
 	}
 	if len(ds.OwnerReferences) != 1 || ds.OwnerReferences[0].Kind != "NodeProfile" {
 		t.Fatalf("DaemonSet owner = %+v, want NodeProfile controller ref", ds.OwnerReferences)
+	}
+	var regenerationEnv string
+	for _, env := range ds.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "BREWLET_APP_CDS_REGENERATION_ENABLED" {
+			regenerationEnv = env.Value
+		}
+	}
+	if regenerationEnv != "true" {
+		t.Fatalf("BREWLET_APP_CDS_REGENERATION_ENABLED = %q, want true", regenerationEnv)
 	}
 
 	// Status: one assigned node, not yet ready -> Provisioning.

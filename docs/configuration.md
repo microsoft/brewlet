@@ -59,12 +59,13 @@ with `--set key=value` or a values file.
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
 | `provisioner.jdks` | `temurin-21,microsoft-25` | Comma-separated curated `<dist>-<feature>` roots, or a structured list with `source.image` and `source.javaHome` for custom distributions ([§JDK management](jdk-management.md#custom-distributions-azul-zulu-example)). |
 | `provisioner.launchers` | `jaz` | Comma-separated launcher layers ([§Launchers](launchers.md)). Empty = vanilla `java` only. |
+| `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the chart-managed default `NodeProfile`. |
 | `provisioner.rollout.maxUnavailable` | `null` | Bounds the default profile's provisioner DaemonSet rolling update. `null` keeps the DaemonSet default. |
 | `provisioner.rollout.validate` | `true` | Gate node readiness on post-install JDK and launcher smoke tests (`java -version` per root plus a deterministic version probe per launcher layer). Renders the provisioner `BREWLET_VALIDATE` env. |
 | `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`); legacy in-place render plus SIGHUP (`sighup`); or no containerd mutation/signal (`none`). Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `provisioner.registry.mirrors` | `{}` | `<upstream-host>: <mirror-host>` map applied to every copy-from-image pull for air-gapped clusters. Renders `MIRRORS`. |
 | `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
-| `profiles` | `[]` | Additional per-pool `NodeProfile` CRs, each binding node pool(s) to their own JDK/launcher inventory plus rollout/registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
+| `profiles` | `[]` | Additional per-pool `NodeProfile` CRs, each binding node pool(s) to their own JDK/launcher inventory plus AppCDS, rollout, and registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `operator.replicas` | `1` | Operator replica count. |
 | `operator.leaderElect` | `true` | Enable leader election for HA. |
 | `operator.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Operator pod resources. |
@@ -91,6 +92,18 @@ helm install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --set images.admission=registry.example.com/brewlet/admission@sha256:… \
   --set provisioner.jdks="temurin-21,temurin-25" \
   --set provisioner.launchers=""
+```
+
+AppCDS regeneration is default-deny. Enable it for the default profile with
+`--set provisioner.appCDS.regenerationEnabled=true`, or on a named profile with:
+
+```yaml
+profiles:
+  - name: appcds-builders
+    pools: ["appcds-builders"]
+    jdks: "temurin-21"
+    appCDS:
+      regenerationEnabled: true
 ```
 
 > JDKs and launchers are always obtained **copy-from-image** (the vendor's
@@ -136,6 +149,7 @@ only touch them directly if you hand-wire the DaemonSet.
 | `JDK_CUSTOM_SOURCE_COUNT` | `0` | Number of indexed custom source entries rendered by the operator. |
 | `JDK_CUSTOM_SOURCE_<n>_{TOKEN,IMAGE,JAVA_HOME}` | *(empty)* | Internal operator-to-provisioner transport for custom `NodeProfile` JDK sources. Configure `spec.jdks[].source`, not these variables directly. |
 | `LAUNCHERS` | *(empty)* | Comma-separated launcher layers to stage (e.g. `jaz`). `java` is implicit. |
+| `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Internal operator-to-provisioner policy transport. When true, atomically creates the root-owned AppCDS authorization sentinel and publishes `brewlet.sh/appcds-regeneration=true`; when false or during cleanup/failure, removes both. Configure `spec.appCDS.regenerationEnabled`, not this variable directly. |
 | `NODE_NAME` | (downward API) | The node to label; injected from `spec.nodeName`. |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host install prefix (`bin/`, `jdks/`, `launchers/`). |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | Primary containerd configuration. Validated mode uses an imported drop-in when supported and otherwise patches this file with a backup. |
@@ -155,12 +169,13 @@ only touch them directly if you hand-wire the DaemonSet.
 The [`brewlet-admission`](https://github.com/microsoft/brewlet/tree/main/kubernetes/cmd/admission/) webhook is
 mutating+validating. For every pod on CREATE with `runtimeClassName: brewlet` it:
 
-- **overwrites** `brewlet.sh/artifact-ref` (and `brewlet.sh/artifact-digest` when the
-  ref is digest-pinned) as compatibility hints from the selected Pod image; the
-  shim resolves the JAR from containerd-owned metadata and the content store by
-  digest, not from the hints;
-- **matches** any requested JDK/launcher against the ready fleet, denying with
-  `NoCompatibleJDK` / `NoCompatibleLauncher`;
+- **overwrites** `brewlet.sh/artifact-container`, `brewlet.sh/artifact-ref`, and
+  `brewlet.sh/artifact-digest` (when digest-pinned) as compatibility hints from
+  the selected Pod image; the shim resolves the JAR from containerd-owned
+  metadata and the content store by digest, not from the hints;
+- **matches** any requested JDK/launcher/AppCDS-regeneration combination against
+  the ready fleet, denying with `NoCompatibleJDK`, `NoCompatibleLauncher`, or
+  `AppCDSRegenerationDisabled`;
 - **steers** scheduling via `nodeAffinity` onto per-capability node labels.
 
 Admission matches JDK and launcher capability keys with `Operator: Exists`.
@@ -170,9 +185,12 @@ guide explains the end-to-end scheduling flow and autoscaler integration. The
 defines the complete key grammar and compatibility guarantees.
 
 Non-brewlet pods pass through untouched. With `admission.failurePolicy: Ignore`
-(default) a webhook outage never blocks workloads, but if the shim cannot
-resolve runtime identity from containerd metadata it still fails closed rather
-than guessing.
+(default) a webhook outage never blocks workloads. For AppCDS regeneration this
+is only an availability choice: the shim independently requires the root-owned
+`/opt/brewlet/policy/appcds-regeneration-enabled` sentinel, so fail-open
+admission cannot grant cache-write authority. The shim also fails closed rather
+than guessing when it cannot resolve runtime image identity from containerd
+metadata.
 
 **Serving certificate.** By default Helm generates a self-signed serving cert at
 render time and injects the CA as the `caBundle`. Because Helm regenerates it on
@@ -187,6 +205,7 @@ Pod-side annotations the webhook reads (developer-facing) — see
 |---|---|---|
 | `brewlet.sh/jdk` | `21` or `temurin-21` | Request a specific JDK feature (any distro) or exact `<dist>-<feature>`. |
 | `brewlet.sh/launcher` | `jaz` | Request a launcher. Empty / `java` = vanilla OpenJDK launcher. |
+| `brewlet.sh/cds-regenerate` | `true` | Request node-side AppCDS regeneration. Requires a ready node whose `NodeProfile.spec.appCDS.regenerationEnabled` is true. |
 | `brewlet.sh/artifact-container` | `app` | Selects which regular container's `image` the webhook mirrors into Pod-wide compatibility hints. The webhook normalizes this value to the selected container name; other tasks ignore the shared hints and remain bound to their own CRI images. |
 
 ---

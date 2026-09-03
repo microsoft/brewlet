@@ -5,36 +5,35 @@ package runtime
 
 import (
 	"bufio"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-// Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3, Phase B). When an artifact
-// sets cds.regenerate, the node maintains a per-(artifact, JDK-build) archive
-// cache and launches with -XX:+AutoCreateSharedArchive so the archive self-heals
-// on every central JDK patch — decoupling the archive from the shipped artifact.
-// The whole feature is *best-effort*: any inability to determine the JDK build,
-// create the cache, or elect a writer degrades to base CDS and never fails a
-// launch (mirroring -Xshare:auto's safe-fallback posture).
+// Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3). The node maintains a
+// per-(isolation scope, artifact digest, JDK build) archive cache and launches
+// with -XX:+AutoCreateSharedArchive so the archive self-heals on every central
+// JDK patch. Each workload sees only its private cache-entry directory; the
+// node-global cache root and writer-election markers are never mounted.
 const (
 	// DefaultCDSCacheDir is the node-local directory the regeneration cache lives
-	// in. The provisioner (https://github.com/microsoft/brewlet/tree/main/specs §5.2) creates it; entries are
-	// per-(artifact-digest, JDK-build) `.jsa` files shared across sandboxes.
+	// in. The provisioner creates it; entries are private hashed directories.
 	DefaultCDSCacheDir = "/opt/brewlet/cds"
-	// InSandboxCDSDir is where the shim/bundle bind-mounts the node cache dir
-	// inside the sandbox, so -XX:SharedArchiveFile resolves to a stable path
-	// regardless of the host cache location.
+	// InSandboxCDSDir is where the shim/bundle bind-mounts one private cache entry
+	// inside the sandbox.
 	InSandboxCDSDir = "/run/brewlet/cds"
-	// DefaultWriterTTL bounds how long a writer-election marker is trusted before
-	// a crashed/never-exiting writer is assumed dead and the key is re-elected.
+	// DefaultWriterTTL bounds how long a writer-election marker is trusted without
+	// a heartbeat before the writer is assumed dead and the key is re-elected.
 	DefaultWriterTTL = 10 * time.Minute
 	// DefaultEvictTTL is the max age (by mtime) a cached archive is kept before a
 	// best-effort prune removes it — old JDK-build keys accumulate after patches.
@@ -44,7 +43,9 @@ const (
 	// a *fatal* unrecognized-option error, so regeneration is skipped instead.
 	minRegenFeature = 19
 
+	cacheArchiveName   = "archive.jsa"
 	writerMarkerSuffix = ".writer"
+	writerStateLock    = ".writer-state.lock"
 )
 
 // RegenRole is the launch treatment the node chose for an artifact that opted
@@ -55,8 +56,9 @@ const (
 	// RegenSkip: regeneration does not apply (feature disabled, unsupported JDK,
 	// or JDK identity undeterminable). Launch as if no regeneration were set.
 	RegenSkip RegenRole = "skip"
-	// RegenConsume: a valid cached archive exists for this (artifact, JDK-build);
-	// map it read-only with -Xshare:auto -XX:SharedArchiveFile.
+	// RegenConsume: a valid cached archive exists for this
+	// (scope, artifact, JDK-build); map it read-only with
+	// -Xshare:auto -XX:SharedArchiveFile.
 	RegenConsume RegenRole = "consume"
 	// RegenWrite: this launch was elected to (re)generate the archive; it runs
 	// with -XX:+AutoCreateSharedArchive and writes the archive to the node cache
@@ -72,17 +74,24 @@ const (
 type RegenParams struct {
 	// CacheDir is the host cache directory; "" => DefaultCDSCacheDir.
 	CacheDir string
+	// CacheScope is the isolation boundary for cache sharing. The production shim
+	// passes the trusted CRI sandbox namespace; local commands use a fixed local
+	// scope.
+	CacheScope string
 	// JDKRoot is the selected node JDK root, read for build identity + the
 	// feature-version gate.
 	JDKRoot string
-	// ArtifactKey is a stable per-artifact identity (the manifest digest in
-	// production; the ref otherwise). It must be stable across replicas so they
-	// share one cache entry, and change when the app changes.
-	ArtifactKey string
+	// ArtifactDigest is the verified resolved platform-manifest digest. It must be
+	// stable across replicas and change whenever the artifact changes.
+	ArtifactDigest string
 	// SeedArchive is the host path of a shipped `.jsa` to seed a fresh cache
 	// entry with, or "". A seed gives the very first boot a warm archive;
 	// -XX:+AutoCreateSharedArchive transparently recreates it if JDK-stale.
 	SeedArchive string
+	// WriterOwner is the UID/GID that must own a fresh private entry so a
+	// non-root workload can create archive.jsa. Nil keeps the invoking user's
+	// ownership (the local run/default-root case).
+	WriterOwner *RegenOwner
 	// ArchiveArgDir is the directory the JVM sees the archive under (the
 	// in-sandbox mount point). "" means the JVM uses the host CacheDir directly
 	// (the local `run` path, which is not sandboxed).
@@ -97,14 +106,29 @@ type RegenParams struct {
 	EvictTTL time.Duration
 }
 
+// RegenOwner is the filesystem identity of an elected regeneration writer.
+type RegenOwner struct {
+	UID int
+	GID int
+}
+
+// CDSWriterLease identifies the writer-election marker owned by one launch.
+// Call StartHeartbeat while the writer workload is active so cache maintenance
+// cannot mistake a long-running JVM for a crashed writer.
+type CDSWriterLease struct {
+	marker string
+	token  string
+}
+
 // RegenDecision is the outcome of DecideCDSRegen.
 type RegenDecision struct {
 	Role RegenRole
-	// Key is the per-(artifact, JDK-build) cache key (hash), or "" when skipped.
+	// Key is the per-(scope, artifact, JDK-build) cache key, or "" when skipped.
 	Key string
-	// HostArchive is the host path of the cache archive to mount, or "" for
-	// skip/defer (defer maps nothing; skip is handled by the shipped-archive
-	// path).
+	// HostMount is the private host directory that may be bind-mounted into the
+	// workload. It is never the node-global cache root.
+	HostMount string
+	// HostArchive is the archive within HostMount, or "" for skip/defer.
 	HostArchive string
 	// ArgArchive is the archive path passed to -XX:SharedArchiveFile (the
 	// in-sandbox path when ArchiveArgDir is set, else the host path).
@@ -114,16 +138,21 @@ type RegenDecision struct {
 	Args []string
 	// MountRW reports whether the cache mount must be writable (writer only).
 	MountRW bool
+	// WriterLease is set only for an elected writer. Production callers keep it
+	// alive for the task lifetime; bundle-only callers may leave the marker to
+	// expire naturally if the generated task is never started.
+	WriterLease *CDSWriterLease
 }
 
 // DecideCDSRegen resolves how a regeneration-enabled artifact should launch on
-// this node. It never returns a hard error for expected conditions (unsupported
-// JDK, unwritable cache, lost election); those degrade to RegenSkip/RegenDefer so
-// the launch proceeds on base CDS. It returns an error only for programmer
-// misuse (empty JDKRoot/ArtifactKey).
+// this node. Expected host conditions (unsupported JDK, unwritable cache, lost
+// election) degrade to RegenSkip/RegenDefer. Missing identity inputs are errors.
 func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
-	if p.JDKRoot == "" || p.ArtifactKey == "" {
-		return RegenDecision{}, fmt.Errorf("cds regen: JDKRoot and ArtifactKey are required")
+	if p.JDKRoot == "" || p.CacheScope == "" || p.ArtifactDigest == "" {
+		return RegenDecision{}, fmt.Errorf("cds regen: JDKRoot, CacheScope, and ArtifactDigest are required")
+	}
+	if p.WriterOwner != nil && (p.WriterOwner.UID < 0 || p.WriterOwner.GID < 0) {
+		return RegenDecision{}, fmt.Errorf("cds regen: writer UID/GID must be non-negative")
 	}
 	now := p.Now
 	if now.IsZero() {
@@ -145,29 +174,34 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 	// JDK build identity + feature gate. Any failure => skip (base CDS).
 	feature, buildID, err := readJDKIdentity(p.JDKRoot)
 	if err != nil || feature < minRegenFeature {
-		return decisionSkip(p, cacheDir), nil
+		return decisionSkip(p), nil
 	}
 
-	key := regenKey(p.ArtifactKey, buildID)
-	hostArchive := filepath.Join(cacheDir, key+".jsa")
+	key := regenKey(p.CacheScope, p.ArtifactDigest, buildID)
+	hostMount := filepath.Join(cacheDir, key)
+	hostArchive := filepath.Join(hostMount, cacheArchiveName)
+	writerMarker := filepath.Join(cacheDir, key+writerMarkerSuffix)
 	argArchive := hostArchive
 	if p.ArchiveArgDir != "" {
 		// Nodes are Linux; join with "/" so the in-sandbox path is correct
 		// regardless of the dev OS generating a bundle.
-		argArchive = strings.TrimRight(p.ArchiveArgDir, "/") + "/" + key + ".jsa"
+		argArchive = strings.TrimRight(p.ArchiveArgDir, "/") + "/" + cacheArchiveName
 	}
 
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		// Can't manage a cache here — fall back to base CDS.
-		return decisionSkip(p, cacheDir), nil
+		return decisionSkip(p), nil
 	}
-	evictStaleArchives(cacheDir, key, evictTTL, now)
+	evictStaleEntries(cacheDir, key, evictTTL, lockTTL, now)
 
-	// A valid cached archive already exists → consume it read-only.
-	if fi, statErr := os.Stat(hostArchive); statErr == nil && fi.Size() > 0 {
+	// A valid cached archive already exists -> consume its private directory
+	// read-only. Both the entry and final archive component are checked without
+	// following symlinks.
+	if _, ok := validCacheArchive(hostMount, hostArchive); ok {
 		d := RegenDecision{
 			Role:        RegenConsume,
 			Key:         key,
+			HostMount:   hostMount,
 			HostArchive: hostArchive,
 			ArgArchive:  argArchive,
 			Args:        []string{"-Xshare:auto", "-XX:SharedArchiveFile=" + argArchive},
@@ -177,20 +211,29 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 	}
 
 	// No archive yet: elect a single writer per key; others defer to base CDS.
-	if claimWriter(hostArchive+writerMarkerSuffix, now, lockTTL) {
+	if writerLease := claimWriter(writerMarker, now, lockTTL); writerLease != nil {
+		// The previous writer controlled the old directory contents. Replace the
+		// whole entry before any privileged host-side seed copy, so planted links
+		// or special files cannot be followed.
+		if err := resetCacheEntry(hostMount, p.WriterOwner); err != nil {
+			writerLease.Release()
+			return decisionSkip(p), nil
+		}
 		// Seed a fresh cache entry from the shipped archive if one is available.
 		// -XX:+AutoCreateSharedArchive validates it and recreates at exit if the
 		// seed is JDK-stale, so seeding is always safe.
 		if p.SeedArchive != "" {
-			_ = seedArchive(p.SeedArchive, hostArchive)
+			_ = seedArchive(p.SeedArchive, hostArchive, p.WriterOwner)
 		}
 		d := RegenDecision{
 			Role:        RegenWrite,
 			Key:         key,
+			HostMount:   hostMount,
 			HostArchive: hostArchive,
 			ArgArchive:  argArchive,
 			Args:        []string{"-XX:+AutoCreateSharedArchive", "-XX:SharedArchiveFile=" + argArchive, "-Xshare:auto"},
 			MountRW:     true,
+			WriterLease: writerLease,
 		}
 		recordRegenMetric(p.MetricsDir, key, d.Role, now)
 		return d, nil
@@ -201,7 +244,7 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 	return d, nil
 }
 
-func decisionSkip(p RegenParams, cacheDir string) RegenDecision {
+func decisionSkip(p RegenParams) RegenDecision {
 	d := RegenDecision{Role: RegenSkip}
 	recordRegenMetric(p.MetricsDir, "", d.Role, timeOrNow(p.Now))
 	return d
@@ -214,79 +257,287 @@ func timeOrNow(t time.Time) time.Time {
 	return t
 }
 
-// claimWriter attempts to atomically become the sole generator for a key by
-// creating marker with O_EXCL. If the marker already exists but is older than
-// ttl, the previous writer is assumed dead and the claim is reclaimed. Best
-// effort: any unexpected error yields false (defer to base CDS).
-func claimWriter(marker string, now time.Time, ttl time.Duration) bool {
-	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err == nil {
-		fmt.Fprintf(f, "pid=%d\ntime=%s\n", os.Getpid(), now.UTC().Format(time.RFC3339))
-		_ = f.Close()
-		return true
-	}
-	if !errors.Is(err, os.ErrExist) {
-		return false
-	}
-	fi, statErr := os.Stat(marker)
-	if statErr != nil {
-		return false
-	}
-	if now.Sub(fi.ModTime()) <= ttl {
-		return false // a live writer holds the key
-	}
-	// Stale marker: reclaim by refreshing its mtime in place.
-	if err := os.Chtimes(marker, now, now); err != nil {
-		return false
-	}
-	return true
-}
-
-// seedArchive copies src to dst (the cache path) only when dst does not yet
-// exist, so a concurrent writer's in-progress archive is never clobbered.
-func seedArchive(src, dst string) error {
-	if _, err := os.Stat(dst); err == nil {
+// claimWriter atomically becomes the sole generator for a key with O_EXCL. A
+// stale marker is removed and then competed for again; refreshing it in place
+// would allow multiple reclaimers to believe they won.
+func claimWriter(marker string, now time.Time, ttl time.Duration) *CDSWriterLease {
+	unlock, err := acquireCDSWriterStateLock(filepath.Join(filepath.Dir(marker), writerStateLock))
+	if err != nil {
 		return nil
 	}
-	return copyFileContents(src, dst)
+	defer unlock()
+
+	for range 3 {
+		f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			tokenBytes := make([]byte, 16)
+			if _, err := rand.Read(tokenBytes); err != nil {
+				_ = f.Close()
+				_ = os.Remove(marker)
+				return nil
+			}
+			token := hex.EncodeToString(tokenBytes)
+			_, writeErr := fmt.Fprintf(f, "token=%s\npid=%d\ntime=%s\n", token, os.Getpid(), now.UTC().Format(time.RFC3339))
+			closeErr := f.Close()
+			if writeErr != nil || closeErr != nil {
+				_ = os.Remove(marker)
+				return nil
+			}
+			return &CDSWriterLease{marker: marker, token: token}
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil
+		}
+		fi, statErr := os.Lstat(marker)
+		if statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+			return nil
+		}
+		if fi.Mode().IsRegular() && now.Sub(fi.ModTime()) <= ttl {
+			return nil
+		}
+		if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+	}
+	return nil
 }
 
-// evictStaleArchives removes cache `.jsa` files (and their writer markers) whose
-// mtime is older than ttl, except the key currently in use. Best-effort: all
-// errors are ignored. Prevents old JDK-build keys from accumulating after
-// patches.
-func evictStaleArchives(cacheDir, keepKey string, ttl time.Duration, now time.Time) {
+// StartHeartbeat refreshes the lease marker until the returned stop function is
+// called. Stopping also releases this launch's marker, but never removes a
+// marker that another writer replaced after stale recovery.
+func (l *CDSWriterLease) StartHeartbeat(ttl time.Duration) func() {
+	if l == nil {
+		return func() {}
+	}
+	if ttl <= 0 {
+		ttl = DefaultWriterTTL
+	}
+	interval := ttl / 3
+	if interval < time.Millisecond {
+		interval = time.Millisecond
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case now := <-ticker.C:
+				if !l.refresh(now) {
+					return
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return func() {
+		once.Do(func() {
+			close(stop)
+			<-done
+			l.Release()
+		})
+	}
+}
+
+// Release removes this lease's marker when it still belongs to this launch.
+func (l *CDSWriterLease) Release() {
+	if l == nil {
+		return
+	}
+	unlock, err := acquireCDSWriterStateLock(filepath.Join(filepath.Dir(l.marker), writerStateLock))
+	if err != nil {
+		return
+	}
+	defer unlock()
+	if !l.matchesMarker() {
+		return
+	}
+	_ = os.Remove(l.marker)
+}
+
+func (l *CDSWriterLease) refresh(now time.Time) bool {
+	unlock, err := acquireCDSWriterStateLock(filepath.Join(filepath.Dir(l.marker), writerStateLock))
+	if err != nil {
+		// Reclaimers use the same lock, so a transient lock failure cannot let
+		// another writer remove this lease. Retry on the next heartbeat.
+		return true
+	}
+	defer unlock()
+	if !l.matchesMarker() {
+		return false
+	}
+	return os.Chtimes(l.marker, now, now) == nil
+}
+
+func (l *CDSWriterLease) matchesMarker() bool {
+	info, err := os.Lstat(l.marker)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	raw, err := os.ReadFile(l.marker)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(string(raw), "token="+l.token+"\n")
+}
+
+func resetCacheEntry(entryDir string, owner *RegenOwner) error {
+	if err := os.RemoveAll(entryDir); err != nil {
+		return err
+	}
+	if err := os.Mkdir(entryDir, 0o700); err != nil {
+		return err
+	}
+	if owner == nil {
+		return nil
+	}
+	return os.Chown(entryDir, owner.UID, owner.GID)
+}
+
+// seedArchive publishes a complete seed atomically into a freshly reset entry.
+func seedArchive(src, dst string, owner *RegenOwner) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".seed-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if owner != nil {
+		if err := tmp.Chown(owner.UID, owner.GID); err != nil {
+			_ = tmp.Close()
+			return err
+		}
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, dst)
+}
+
+// evictStaleEntries removes stale private entries, orphan markers, and legacy
+// flat cache files. It recognizes only Brewlet's hashed names and never follows
+// symlinks.
+func evictStaleEntries(cacheDir, keepKey string, ttl, lockTTL time.Duration, now time.Time) {
+	unlock, err := acquireCDSWriterStateLock(filepath.Join(cacheDir, writerStateLock))
+	if err != nil {
+		return
+	}
+	defer unlock()
+
 	entries, err := os.ReadDir(cacheDir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if !strings.HasSuffix(name, ".jsa") {
+		path := filepath.Join(cacheDir, name)
+
+		if isLegacyCacheName(name) {
+			_ = os.RemoveAll(path)
 			continue
 		}
-		if strings.TrimSuffix(name, ".jsa") == keepKey {
+
+		if name == keepKey || name == keepKey+writerMarkerSuffix {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil {
+
+		if _, ok := markerKey(name); ok {
+			info, err := os.Lstat(path)
+			if err == nil && (!info.Mode().IsRegular() || now.Sub(info.ModTime()) > lockTTL) {
+				_ = os.Remove(path)
+			}
 			continue
 		}
-		if now.Sub(info.ModTime()) <= ttl {
+
+		if !isCacheKey(name) {
 			continue
 		}
-		p := filepath.Join(cacheDir, name)
-		_ = os.Remove(p)
-		_ = os.Remove(p + writerMarkerSuffix)
+
+		marker := filepath.Join(cacheDir, name+writerMarkerSuffix)
+		if info, err := os.Lstat(marker); err == nil &&
+			info.Mode().IsRegular() &&
+			now.Sub(info.ModTime()) <= lockTTL {
+			continue
+		}
+		archive := filepath.Join(path, cacheArchiveName)
+		if info, ok := validCacheArchive(path, archive); ok && now.Sub(info.ModTime()) <= ttl {
+			continue
+		}
+		_ = os.RemoveAll(path)
+		_ = os.Remove(marker)
 	}
 }
 
-// regenKey derives the per-(artifact, JDK-build) cache key. Both inputs feed a
-// SHA-256 so the key changes iff the app or the JDK build changes; the hex is
-// truncated to a filename-friendly length.
-func regenKey(artifactKey, buildID string) string {
-	h := sha256.Sum256([]byte(artifactKey + "\x00" + buildID))
-	return hex.EncodeToString(h[:])[:32]
+func validCacheArchive(entryDir, archive string) (os.FileInfo, bool) {
+	dirInfo, err := os.Lstat(entryDir)
+	if err != nil || !dirInfo.IsDir() || dirInfo.Mode()&os.ModeSymlink != 0 {
+		return nil, false
+	}
+	info, err := os.Lstat(archive)
+	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 {
+		return nil, false
+	}
+	return info, true
+}
+
+func isCacheKey(name string) bool {
+	return len(name) == sha256.Size*2 && isLowerHex(name)
+}
+
+func markerKey(name string) (string, bool) {
+	if !strings.HasSuffix(name, writerMarkerSuffix) {
+		return "", false
+	}
+	key := strings.TrimSuffix(name, writerMarkerSuffix)
+	return key, isCacheKey(key)
+}
+
+func isLegacyCacheName(name string) bool {
+	if strings.HasSuffix(name, ".jsa.writer") {
+		return len(strings.TrimSuffix(name, ".jsa.writer")) == 32 &&
+			isLowerHex(strings.TrimSuffix(name, ".jsa.writer"))
+	}
+	if strings.HasSuffix(name, ".jsa") {
+		return len(strings.TrimSuffix(name, ".jsa")) == 32 &&
+			isLowerHex(strings.TrimSuffix(name, ".jsa"))
+	}
+	return false
+}
+
+func isLowerHex(s string) bool {
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// regenKey derives the per-(scope, artifact, JDK-build) cache key.
+func regenKey(cacheScope, artifactDigest, buildID string) string {
+	h := sha256.Sum256([]byte(cacheScope + "\x00" + artifactDigest + "\x00" + buildID))
+	return hex.EncodeToString(h[:])
 }
 
 // readJDKIdentity returns the JDK feature version and a build-identity token for

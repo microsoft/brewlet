@@ -213,7 +213,7 @@ brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [--appcds-reg
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--jdk-root` | *(none)* | Node JDK home to launch with. When unset, falls back to `BREWLET_JDK_HOME`, then `JAVA_HOME`, then `java` on `PATH`. |
 | `--launcher` | `java` | Launcher binary name under the selected JDK (or a compatible node-installed launcher name such as `jaz`). |
-| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local-dev equivalent of the deployment's `spec.jvm.cds.regenerate`). Maintains a per-`(local artifact key, JDK-build)` archive cache under `$BREWLET_CDS_CACHE` (default `/opt/brewlet/cds`) driven by `-XX:+AutoCreateSharedArchive` (JDK 19+), self-healing on every central JDK patch. Any shipped archive becomes optional *seed* data — works with no archive at all. |
+| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local-dev equivalent of the deployment's `spec.jvm.cds.regenerate`). Maintains a private entry keyed by the fixed local scope, verified resolved manifest digest, and exact JDK build under `$BREWLET_CDS_CACHE` (default `/opt/brewlet/cds`). `-XX:+AutoCreateSharedArchive` (JDK 19+) self-heals it after a central JDK patch; any shipped archive is optional seed data. |
 | `-- <args>` | *(none)* | Everything after `--` is appended as extra JVM args. |
 
 ```bash
@@ -247,7 +247,7 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--jdk-root DIR] [--la
 | `--jdk-root` | `/opt/brewlet/jdks/temurin-21` | Node JDK runtime root to mount read-only. |
 | `--launcher` | `java` | Launcher binary name to record in the runtime spec annotations and execute. |
 | `--launcher-root` | *(none)* | Node launcher-layer root for a custom launcher (e.g. `jaz`). |
-| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local equivalent of the deployment's `spec.jvm.cds.regenerate`). Bind-mounts a per-`(local artifact key, JDK-build)` archive cache into the sandbox and prepends `-XX:+AutoCreateSharedArchive` (JDK 19+). |
+| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local equivalent of the deployment's `spec.jvm.cds.regenerate`). Bind-mounts only the private local cache entry at `/run/brewlet/cds` and prepends `-XX:+AutoCreateSharedArchive` (JDK 19+). |
 | `--out` | `./bundle` | Output bundle directory. |
 
 ```bash
@@ -343,7 +343,7 @@ Source builds without release linker flags print `dev`.
 | `JAVA_HOME` | `run`, `push --appcds` | Default node JDK home if `--jdk-root` is unset (`run`); default training JVM if `--appcds-java` is unset (`push --appcds`). |
 | `BREWLET_JDK_HOME` | `run` | Overrides `JAVA_HOME` for JDK resolution. |
 | `BREWLET_STORE_ROOT` | shim (`layout` resolver) | OCI layout root used by the local layout resolver. |
-| `BREWLET_CDS_CACHE` | `run`, `bundle`, shim | Node AppCDS regeneration cache dir (default `/opt/brewlet/cds`). Used when a deployment opts into `spec.jvm.cds.regenerate` (or `--appcds-regenerate` locally) ([AppCDS §4.3](appcds.md)). |
+| `BREWLET_CDS_CACHE` | `run`, `bundle`, shim | AppCDS cache root (default `/opt/brewlet/cds`). Entries are private `<key>/archive.jsa` directories; Kubernetes keys include the trusted sandbox namespace, verified platform-manifest digest, and JDK build. The cache root itself is never mounted into a workload. |
 | `BREWLET_METRICS_DIR` | `run`, shim | Directory for the best-effort node-local CDS metric textfile (`brewlet_cds_archive_mapped`). Unset disables the metric. |
 
 ---

@@ -25,6 +25,10 @@ spec:
   launchers:
     {{- $launchers | nindent 4 }}
   {{- end }}
+  {{- if .Values.provisioner.appCDS.regenerationEnabled }}
+  appCDS:
+    regenerationEnabled: true
+  {{- end }}
   {{- with .Values.provisioner.registry }}
   {{- if .mirrors }}
   registry:
@@ -66,6 +70,12 @@ spec:
   {{- if trim $launchers }}
   launchers:
     {{- $launchers | nindent 4 }}
+  {{- end }}
+  {{- with $p.appCDS }}
+  {{- if .regenerationEnabled }}
+  appCDS:
+    regenerationEnabled: true
+  {{- end }}
   {{- end }}
   {{- with $p.registry }}
   {{- if .mirrors }}

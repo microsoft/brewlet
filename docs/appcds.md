@@ -119,8 +119,9 @@ prefer 21 as the gate.
   problem (§6), so Brewlet uses safe fallback and/or node-side
   regeneration rather than a hard artifact↔JDK pin.
 
-AppCDS is a *best-effort accelerator*, never a correctness or scheduling
-constraint.
+A shipped AppCDS archive is a *best-effort accelerator*, never a correctness
+constraint. Node-side regeneration adds an explicit policy and scheduling
+capability because it grants a workload write access to node cache state.
 
 ---
 
@@ -209,16 +210,44 @@ gracefully on `SIGTERM`.
 ### 4.3 Node-side regeneration (the durable answer for a patched fleet)
 
 Opt in per-**deployment** with the `spec.jvm.cds.regenerate` field on the
-`JavaApplication` CRD. The controller
-> stamps the `brewlet.sh/cds-regenerate` pod annotation, which the shim reads. For
-> local dev the `brewlet run` / `brewlet bundle` commands take an equivalent
-> `--appcds-regenerate` flag (with or without a seed archive). Regeneration is a
-> fleet/operational choice (it depends on your JDK patch cadence), so it lives in the
-> deployment descriptor, not baked into the artifact digest. The decision engine
-> lives in `core/internal/runtime/cds_regen.go`
-> (`DecideCDSRegen`) and is wired into local `run`, `bundle`/e2e harness, and the
-> production shim (`applyBrewletLaunch`). It is entirely best-effort: any failure
-> degrades to base CDS and never fails a launch.
+`JavaApplication` CRD. The controller stamps the
+`brewlet.sh/cds-regenerate: "true"` pod annotation, which the shim reads.
+Kubernetes regeneration also requires explicit platform authorization:
+
+```yaml
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata:
+  name: appcds-builders
+spec:
+  nodePool:
+    names: ["appcds-builders"]
+  jdks:
+    - { distribution: temurin, feature: 21 }
+  appCDS:
+    regenerationEnabled: true
+```
+
+`spec.appCDS.regenerationEnabled` defaults to `false`. When enabled, the
+provisioner atomically installs the root-owned
+`/opt/brewlet/policy/appcds-regeneration-enabled` sentinel and publishes the
+`brewlet.sh/appcds-regeneration=true` scheduling capability. Admission requires
+an otherwise-compatible ready node with that capability and injects an `Exists`
+affinity requirement; otherwise it denies the pod with
+`AppCDSRegenerationDisabled`.
+
+Admission remains an early guard, not the security boundary: the webhook uses
+`failurePolicy: Ignore`, so the shim independently requires a regular,
+root-owned, non-group-writable sentinel before creating a regeneration task.
+Missing policy, trusted namespace, or verified manifest identity fails task
+creation rather than silently enabling or downgrading regeneration.
+
+For local development, `brewlet run` and `brewlet bundle` take the equivalent
+`--appcds-regenerate` flag and use a fixed `local` cache scope; NodeProfile policy
+applies only to the Kubernetes shim path. The decision engine lives in
+`core/internal/runtime/cds_regen.go` (`DecideCDSRegen`). Operational misses such
+as an unsupported JDK, an unavailable cache, or losing the writer election still
+fall back to base CDS through the `skip`/`defer` roles.
 
 The verified patch-invalidation (§2.1) makes build-time generation structurally at
 odds with Brewlet's core promise — *patch the node JDK once, patch everything*. A
@@ -227,21 +256,49 @@ build-time archive goes stale on the **next** central patch, and a `.jsa` is als
 property. Node-side regeneration removes both problems by decoupling the archive
 from the shipped artifact entirely.
 
-The node generates/refreshes a per-`(containerd-resolved image target digest, jdk-build)` archive lazily
-and caches it under `<cacheDir>/<key>.jsa`, where `artifactKey` is the containerd-
-resolved image target digest and `key = sha256(artifactKey|jdkBuild)`
-(first 32 hex) and `cacheDir` defaults to `/opt/brewlet/cds` (`DefaultCDSCacheDir`,
-overridable via the `BREWLET_CDS_CACHE` env var). Inside the sandbox the cache is
-bind-mounted at `/run/brewlet/cds` (`InSandboxCDSDir`) — read-write for the elected
-writer, read-only for everyone else. On a JDK patch the `<jdkBuild>` component of the
-key changes, the old entry is ignored, and a fresh archive is produced on the next
-launch — always matched to the running JVM and to the node's architecture. The
-shipped archive (§4.1) becomes optional *seed* data (copied into the cache slot when
-present and the slot is empty; `AutoCreateSharedArchive` revalidates and recreates it
-if JDK-stale, so seeding is always safe).
+The node generates/refreshes an archive lazily from three verified identity
+inputs:
+
+- the trusted CRI sandbox namespace
+  (`io.kubernetes.cri.sandbox-namespace`), never a tenant Brewlet annotation;
+- the resolved platform-manifest digest reached from the CRI/containerd-
+  authoritative image target, after canonical SHA-256 syntax, descriptor-size,
+  and content-hash verification; and
+- the selected JDK's exact build identity.
+
+The full cache key is
+`sha256(namespace NUL manifestDigest NUL jdkBuild)`. `cacheDir` defaults to
+`/opt/brewlet/cds` (`DefaultCDSCacheDir`, overridable with
+`BREWLET_CDS_CACHE`), and each entry uses this layout:
+
+```text
+<cacheDir>/<64-hex-key>/archive.jsa
+<cacheDir>/<64-hex-key>.writer
+```
+
+Only `<cacheDir>/<key>` is bind-mounted at `/run/brewlet/cds`; the workload
+never receives the cache root or writer markers. The elected writer gets that
+single directory read-write, consumers get it read-only, and both mounts add
+`nosuid,nodev,noexec`. A fresh entry is mode `0700` and owned by the workload's
+configured UID/GID so non-root writers can create `archive.jsa`.
+
+Before consumption, Brewlet checks both the entry directory and
+`archive.jsa` with no-follow metadata reads and accepts only a non-empty regular
+archive. Before writing or seeding, it removes and recreates the whole private
+entry, then copies any shipped seed through a temporary file and atomic rename.
+This prevents a previous writer from planting a symlink or special file that a
+privileged host-side copy would follow. Legacy flat
+`<legacy-32-hex>.jsa` and `<legacy-32-hex>.jsa.writer` entries are never
+consumed and are removed by cache maintenance.
+
+On a JDK patch the `<jdkBuild>` component changes, the old entry is ignored, and
+a fresh archive is produced on the next launch—always matched to the running JVM
+and node architecture. A shipped archive (§4.1) remains optional seed data;
+`AutoCreateSharedArchive` revalidates and recreates it if stale.
 
 **Built on `-XX:+AutoCreateSharedArchive` (JDK 19+, hence the JDK 21 floor).**
-Launching with `-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=<cache>.jsa`
+Launching with
+`-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=/run/brewlet/cds/archive.jsa`
 makes the JVM *use* the archive when it is valid and *(re)create* it at exit when
 it is missing or JDK-stale — so regeneration is automatic and JDK-build-keyed with
 no bespoke training tooling. **This flag is a *fatal* unrecognized-option error on
@@ -252,9 +309,11 @@ that would break the app.
 
 The engine resolves one of four roles per launch (`RegenDecision.Role`):
 
-- **consume** — a valid cached archive exists → `-Xshare:auto -XX:SharedArchiveFile=<cache>`.
+- **consume** — a valid cached archive exists →
+  `-Xshare:auto -XX:SharedArchiveFile=/run/brewlet/cds/archive.jsa`.
 - **write** — no archive yet and this launch wins the writer election → seed if a
-  shipped archive is present, then `-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=<cache>`.
+  shipped archive is present, then
+  `-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=/run/brewlet/cds/archive.jsa`.
 - **defer** — no archive and another writer is in flight → base CDS this time.
 - **skip** — JDK unsupported or regeneration disabled → base CDS.
 
@@ -268,14 +327,20 @@ Two hard problems this design handles:
    invocation is the alternative, at the cost of extra plumbing and knowing when
    startup is "done".)
 2. **Thundering herd.** A Deployment scaling to N cold replicas all miss the cache
-   at once. The engine elects exactly one writer per key via an `O_EXCL` marker file
-   (`<archive>.writer`); the rest take the **defer** role — start on base CDS and pick
-   up the app archive on a later restart. A stale marker (older than `DefaultWriterTTL`
-   = 10m) is reclaimable, so a crashed writer never wedges the key permanently.
+   at once. The engine elects exactly one writer per key via the cache-root
+   `O_EXCL` marker `<key>.writer`, which is outside the workload mount. The rest
+   take the **defer** role—start on base CDS and pick up the app archive on a
+   later restart. The CLI or shim refreshes the elected writer's marker for the
+   workload lifetime. If that heartbeat stops, a marker older than
+   `DefaultWriterTTL` (10m) is removed and atomically competed for again, so a
+   crashed writer never wedges the key and a healthy long-running server is not
+   evicted before its exit-time archive dump. Marker refresh, release, and
+   reclaim operations are serialized through the host-only
+   `<cacheDir>/.writer-state.lock`.
 
 The engine also evicts cache entries untouched for longer than `DefaultEvictTTL`
 (14d) on a best-effort pass, and emits a best-effort node-local metric
-(`brewlet_cds_archive_mapped{key,role}` as a textfile under `BREWLET_METRICS_DIR`)
+(`brewlet_cds_archive_mapped{role}` as a textfile under `BREWLET_METRICS_DIR`)
 so operators can watch archive hits/rebuilds. Running app code to produce archives on
 the node is inherent to this mechanism; it runs inside the same sandbox as the app.
 
@@ -283,16 +348,17 @@ the node is inherent to this mechanism; it runs inside the same sandbox as the a
 provisions a `kind` node for real (shim + full-userland `temurin-21` JDK root +
 `brewlet` containerd runtime), deploys a genuine `runtimeClassName: brewlet` pod
 with `brewlet.sh/cds-regenerate: true`, and asserts the full lifecycle: rollout 1
-elects a **writer** (`-XX:+AutoCreateSharedArchive`), a graceful delete dumps the
-`.jsa` into the node cache, and rollout 2 **consumes** it (`-Xshare:auto
--XX:SharedArchiveFile`, no AutoCreate) with the archive confirmed *mmap'd into the
-JVM* via `/proc/1/maps` — a real CDS hit, not a silent fallback. Standing this up
-also hardened the shim's CRI path (it now registers the `runtimeoptions` proto,
-translates the generic options CRI hands a non-`runc` handler into `runc` options
-preserving the cgroup driver, and skips the pod sandbox container) and added the
-`pod_annotations = ["brewlet.sh/*"]` passthrough to the node provisioner so the
-shim actually receives the `cds-regenerate` toggle and compatibility hints, while
-the executable image digest continues to come from containerd metadata.
+elects a **writer**, a graceful delete dumps `archive.jsa`, and rollout 2
+**consumes** it with the archive confirmed *mmap'd into the JVM* via
+`/proc/1/maps`. Tier 8 then starts an attacker writer in another namespace on the
+same node, verifies that its OCI bundle mounts a different private child rather
+than `/opt/brewlet/cds`, proves it cannot enumerate or address the victim entry,
+modifies and replaces its own archive, and confirms the victim bytes and mapped
+consumer remain unchanged. Standing this up also hardened the shim's CRI path:
+it translates generic runtime options while preserving the cgroup driver, skips
+the pod sandbox container, receives deployment annotations through the
+provisioner's allowlist, and still derives executable image identity from
+containerd-owned metadata rather than those annotations.
 
 ### 4.4 Deterministic JAR mtime — why a shipped archive maps on the node
 
@@ -327,12 +393,13 @@ invariant that must stay in lockstep:
 - Java: `FileTime.from(Instant.ofEpochSecond(946684800L))`
   (`AppCdsMojo.CANONICAL_APP_MTIME`).
 
-Normalization happens **only when the artifact ships a CDS archive**
-(`cfg.CDS != nil`), so the common no-CDS path is byte-for-byte unchanged. On the
-node side the JAR can't be re-timestamped on the shared read-only blob, so when CDS
-is present the runtime copies the JAR into per-container staging, `chtimes` it to
-the canonical value, and bind-mounts that copy; extracted `lib/`/`mods/` JARs are
-pinned in place. All three JAR-materialization paths implement this identically:
+Normalization happens whenever the artifact ships a CDS archive **or** the
+deployment requests node-side regeneration, so the common no-CDS path remains
+unchanged. On the node side the JAR can't be re-timestamped on the shared
+read-only blob, so the runtime copies it into per-container staging, `chtimes` it
+to the canonical value, and bind-mounts that copy; extracted `lib/`/`mods/` JARs
+are pinned in place. All three JAR-materialization paths implement this
+identically:
 `AssembleSandboxWithCDS` (`run`), `GenerateBundleWithCDS` (`bundle` + harness), and
 the production shim's `applyBrewletLaunch`.
 
@@ -364,10 +431,12 @@ Mitigations, in order of preference:
    regenerated; you never break the app. This alone makes shipping an archive safe.
 2. **Node-side regeneration keyed on JDK build (§4.3), built on
    `-XX:+AutoCreateSharedArchive` (JDK 19+).** Opt in with
-   `spec.jvm.cds.regenerate`. This decouples the artifact from the JDK build — the shipped
-   archive is optional seed data, and the node self-heals the archive on the next
-   patch. This is the durable fix; see §4.3 for the server-doesn't-exit and
-   thundering-herd handling.
+   `spec.jvm.cds.regenerate` on a node pool whose
+   `NodeProfile.spec.appCDS.regenerationEnabled` policy is true. This decouples
+   the artifact from the JDK build—the shipped archive is optional seed data,
+   and the node self-heals the archive on the next patch. This is the durable
+   fix; see §4.3 for policy enforcement, tenant isolation, server-doesn't-exit,
+   and thundering-herd handling.
 Explicitly **reject** turning the archive into a hard artifact↔JDK-build pin (e.g.
 denying scheduling unless an exact JDK build is present) — that would resurrect the
 per-image-JVM coupling Brewlet exists to remove.

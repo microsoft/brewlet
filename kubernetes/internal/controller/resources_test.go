@@ -53,6 +53,7 @@ func TestBuildProfileDaemonSet(t *testing.T) {
 				{Distribution: "microsoft", Feature: 25},
 			},
 			Launchers: []string{"jaz"},
+			AppCDS:    &nodev1alpha1.AppCDSSpec{RegenerationEnabled: true},
 			Registry:  &nodev1alpha1.RegistrySpec{Mirrors: map[string]string{"mcr.microsoft.com": "registry.internal/mcr"}},
 		},
 	}
@@ -105,6 +106,9 @@ func TestBuildProfileDaemonSet(t *testing.T) {
 	if env["BREWLET_CONTAINERD_RESTART"] != "validated" {
 		t.Errorf("BREWLET_CONTAINERD_RESTART env = %q, want validated (default)", env["BREWLET_CONTAINERD_RESTART"])
 	}
+	if env["BREWLET_APP_CDS_REGENERATION_ENABLED"] != "true" {
+		t.Errorf("BREWLET_APP_CDS_REGENERATION_ENABLED env = %q, want true", env["BREWLET_APP_CDS_REGENERATION_ENABLED"])
+	}
 	if len(spec.Containers) != 2 || spec.Containers[1].Name != "metrics-exporter" {
 		t.Fatalf("containers = %+v, want provisioner plus metrics-exporter sidecar", spec.Containers)
 	}
@@ -127,6 +131,12 @@ func TestBuildProfileDaemonSetWithoutMetrics(t *testing.T) {
 	if got := len(ds.Spec.Template.Spec.Containers); got != 1 {
 		t.Fatalf("containers = %d, want only provisioner when metrics are disabled", got)
 	}
+	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "BREWLET_APP_CDS_REGENERATION_ENABLED" && e.Value == "false" {
+			return
+		}
+	}
+	t.Fatal("disabled profile must render BREWLET_APP_CDS_REGENERATION_ENABLED=false")
 }
 
 func TestProfileAffinityCatchAll(t *testing.T) {

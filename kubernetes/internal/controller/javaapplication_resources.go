@@ -147,8 +147,8 @@ func podAnnotations(app *appsv1alpha1.JavaApplication) map[string]string {
 	}
 	// Opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet). This is a
 	// deployment/fleet decision, so it originates here and rides the pod as
-	// brewlet.sh/cds-regenerate; the shim reads it. It carries no scheduling
-	// constraint (the webhook ignores it).
+	// brewlet.sh/cds-regenerate. Admission turns it into policy-capability
+	// affinity, and the shim independently enforces the host sentinel.
 	if app.Spec.JVM.CDS.Regenerate {
 		ann[brewlet.AnnotationCDSRegenerate] = "true"
 	}

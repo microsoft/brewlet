@@ -108,6 +108,15 @@ spec:
                   type: array
                   items: { type: string }
                   description: Optional launcher layers (e.g. "jaz"). "java" is always available.
+                appCDS:
+                  type: object
+                  maxProperties: 1
+                  description: Node-side AppCDS policy. Omitted means regeneration is disabled.
+                  properties:
+                    regenerationEnabled:
+                      type: boolean
+                      default: false
+                      description: Authorize node-side AppCDS archive regeneration (default false).
                 registry:
                   type: object
                   description: Optional per-profile registry override for air-gapped clusters (§5.6).

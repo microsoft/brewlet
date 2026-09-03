@@ -126,12 +126,10 @@ const (
 
 	// AnnotationCDSRegenerate optionally opts a pod into node-side AppCDS
 	// regeneration (https://github.com/microsoft/brewlet). Value "true" tells the shim to maintain
-	// a per-(artifact, JDK-build) archive cache with -XX:+AutoCreateSharedArchive
-	// instead of consuming a shipped archive verbatim. It imposes no scheduling
-	// constraint (every ready node can regenerate, or safely skips on JDK < 19),
-	// so unlike the JDK/launcher/arch requests the webhook does not validate it —
-	// it merely flows through to the shim. The controller stamps it from
-	// spec.jvm.cds.regenerate.
+	// a per-(namespace, artifact, JDK-build) archive cache with
+	// -XX:+AutoCreateSharedArchive instead of consuming a shipped archive
+	// verbatim. The admission webhook constrains such pods to policy-authorized
+	// nodes; the root-owned sentinel remains the authoritative enforcement point.
 	AnnotationCDSRegenerate = "brewlet.sh/cds-regenerate"
 )
 
@@ -149,6 +147,9 @@ const (
 	// LabelLauncherPrefix + "<name>" (e.g. brewlet.sh/launcher.jaz) marks a node
 	// that has that launcher layer installed.
 	LabelLauncherPrefix = "brewlet.sh/launcher."
+	// LabelAppCDSRegeneration marks a node whose active profile authorizes AppCDS
+	// regeneration. It is a scheduling hint; the host sentinel is authoritative.
+	LabelAppCDSRegeneration = "brewlet.sh/appcds-regeneration"
 	// LabelArch is the standard, kubelet-provided node label carrying the node's
 	// architecture (e.g. "amd64", "arm64"). Brewlet reuses it — rather than
 	// emitting a provisioner label — to steer non-portable artifacts via the
@@ -200,4 +201,7 @@ const (
 	// ReasonNoCompatibleArch — a non-portable brewlet pod requested an
 	// architecture no ready node provides; the admission webhook denies it (§14).
 	ReasonNoCompatibleArch = "NoCompatibleArch"
+	// ReasonAppCDSRegenerationDisabled — a pod requested AppCDS regeneration but
+	// no otherwise-compatible ready node is policy-authorized.
+	ReasonAppCDSRegenerationDisabled = "AppCDSRegenerationDisabled"
 )

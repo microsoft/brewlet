@@ -105,11 +105,13 @@ spec:
                           type: boolean
                           default: false
                           description: >-
-                            Opt into node-side AppCDS regeneration (see
-                            https://github.com/microsoft/brewlet): the node maintains a per-(artifact, JDK-build)
-                            archive cache via -XX:+AutoCreateSharedArchive (JDK 19+)
-                            that self-heals on every central JDK patch. Any archive
-                            shipped in the artifact becomes optional seed data.
+                            Request node-side AppCDS regeneration (see
+                            https://github.com/microsoft/brewlet). Requires an
+                            otherwise-compatible ready node whose NodeProfile
+                            authorizes regeneration; the shim also enforces the
+                            root-owned host policy. The private entry is keyed by
+                            namespace, verified manifest, and JDK build. Any shipped
+                            archive becomes optional seed data.
                       description: >-
                         Deployment-side AppCDS behavior. Node-side regeneration is a
                         fleet/operational choice, so it lives here rather than in the

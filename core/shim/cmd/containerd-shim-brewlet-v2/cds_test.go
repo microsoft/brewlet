@@ -86,6 +86,9 @@ func TestContentStoreBlobsWithCDSLayer(t *testing.T) {
 	if want := contentBlobPath(root, jsaDigest); blobs.CDSHostPath != want {
 		t.Errorf("cds path = %q, want %q", blobs.CDSHostPath, want)
 	}
+	if blobs.ManifestDigest != manDigest {
+		t.Errorf("ManifestDigest = %q, want %q", blobs.ManifestDigest, manDigest)
+	}
 }
 
 // TestLayoutBlobsNoCDSLayer confirms CDSHostPath stays empty for an artifact

@@ -92,16 +92,17 @@ type JVMSpec struct {
 type CDSSpec struct {
 	// Regenerate opts this deployment into node-side AppCDS regeneration
 	// (see https://github.com/microsoft/brewlet). When true the controller stamps the
-	// brewlet.sh/cds-regenerate pod annotation; the node then maintains a
-	// per-(artifact, JDK-build) archive cache and launches with
-	// -XX:+AutoCreateSharedArchive, so the archive self-heals on every central
-	// JDK patch instead of silently going stale. Any archive the artifact ships
-	// (cds.archive) becomes optional *seed* data rather than the consumed
-	// archive. Requires a JDK feature version that supports AutoCreateSharedArchive
-	// (>= 19, i.e. Brewlet's JDK 21 floor); on older JDKs the node safely skips
+	// brewlet.sh/cds-regenerate pod annotation. Admission requires an
+	// otherwise-compatible ready node whose NodeProfile authorizes regeneration,
+	// and the shim independently enforces the root-owned host policy. The node
+	// maintains a private per-(namespace, verified-manifest, JDK-build) entry and
+	// launches with -XX:+AutoCreateSharedArchive, so the archive self-heals after
+	// a central JDK patch. Any shipped cds.archive becomes optional seed data.
+	// Requires a JDK feature version that supports AutoCreateSharedArchive (>= 19,
+	// i.e. Brewlet's JDK 21 floor); on older JDKs the node safely skips
 	// regeneration and falls back to base CDS. Because AutoCreateSharedArchive
-	// only writes the archive at JVM exit, the app-archive win lands on the second
-	// rollout of a long-running server, not the first boot.
+	// only writes at JVM exit, the app-archive win lands on the second rollout of
+	// a long-running server, not the first boot.
 	Regenerate bool `json:"regenerate,omitempty"`
 }
 
