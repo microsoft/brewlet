@@ -54,6 +54,9 @@ with `--set key=value` or a values file.
 | `images.operator` | generated | Explicit operator image override; supports tags or digests. |
 | `images.provisioner` | generated | Explicit provisioner image override; supports tags or digests. |
 | `images.admission` | generated | Explicit admission webhook image override; supports tags or digests. |
+| `images.digests.operator` | recorded at release | Immutable `sha256:<64 hex>` digest for the operator image. Set by the release workflow in published charts; renders `<registry>/brewlet-operator@<digest>` and takes precedence over `images.tag`. |
+| `images.digests.provisioner` | recorded at release | Immutable digest for the node-provisioner image. |
+| `images.digests.admission` | recorded at release | Immutable digest for the admission webhook image. |
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
 | `security.allowedSourceMirrorHosts` | `[]` | Exact registry destination hosts, including explicit ports, that NodeProfiles may use for JDK/launcher mirrors. Empty disables mirrors. The chart passes the same list to manager and admission. |
 | `provisioner.jdks` | structured Temurin 21 and Microsoft 25 examples | Required JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` ([§JDK management](jdk-management.md#source-model)). |

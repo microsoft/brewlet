@@ -33,6 +33,31 @@ Additional environment requirements are documented in the
 Cluster-dependent end-to-end tests are documented in
 [`integration-tests/AGENTS.md`](integration-tests/AGENTS.md).
 
+## Changing GitHub Actions workflows
+
+Workflows are part of the release supply chain, so `make workflow-security-check`
+enforces two rules that CI will not let you skip:
+
+- **Every `uses:` must pin a full 40-character commit SHA**, followed by a comment
+  naming the version it resolves to — for example
+  `uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1`.
+  A version tag can be moved by whoever controls the action repository; a commit
+  SHA cannot. Resolve one with:
+
+  ```bash
+  gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
+  ```
+
+  Dependabot keeps these pins current, so you rarely need to bump one by hand.
+
+- **`write` permissions belong on jobs, not on the workflow.** Declare
+  `permissions:` at workflow scope with read-only values, then grant the narrow
+  write scopes on the individual job that publishes. This keeps build-only jobs
+  from carrying the ability to replace a release or a package.
+
+Actions inside this repository (`uses: ./...`) are exempt; they are already read
+from the checked-out commit.
+
 ## Pull request requirements
 
 - Keep commits and pull requests focused.

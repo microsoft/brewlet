@@ -5,9 +5,12 @@ GO ?= go
 GOFMT ?= gofmt
 HELM ?= helm
 ENVTEST_K8S_VERSION ?= 1.31.0
+# Immutable pin of the release-0.19 tree (commit 5fe7bb3e). The upstream
+# `release-0.19` branch is mutable, so it cannot be trusted as a build input.
+SETUP_ENVTEST_VERSION ?= v0.0.0-20250308055145-5fe7bb3edc86
 SETUP_ENVTEST ?= $(shell $(GO) env GOPATH)/bin/setup-envtest
 
-.PHONY: all fmt-check vet build test test-envtest ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-check clean
+.PHONY: all fmt-check vet build test test-envtest ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-check print-setup-envtest-version clean
 
 all: build
 
@@ -29,7 +32,10 @@ test:
 	$(GO) test -race ./...
 
 $(SETUP_ENVTEST):
-	$(GO) install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.19
+	$(GO) install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
+
+print-setup-envtest-version:
+	@echo $(SETUP_ENVTEST_VERSION)
 
 test-envtest: $(SETUP_ENVTEST)
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GO) test -race ./...
@@ -54,7 +60,28 @@ helm-lint:
 helm-template:
 	$(HELM) template brewlet charts/brewlet >/dev/null
 
-helm-check: helm-lint helm-template
+# Released charts record image digests; verify both resolution modes render and
+# that a malformed digest fails closed rather than silently producing a tag.
+helm-digest-check:
+	@digest="sha256:$$(printf 'a%.0s' $$(seq 1 64))"; \
+	rendered="$$($(HELM) template brewlet charts/brewlet \
+		--set images.digests.operator="$$digest" \
+		--set images.digests.provisioner="$$digest" \
+		--set images.digests.admission="$$digest")"; \
+	for component in operator node-provisioner admission; do \
+		printf '%s\n' "$$rendered" \
+			| grep -Fq "ghcr.io/microsoft/brewlet-$$component@$$digest" || { \
+				echo "chart did not render a digest reference for $$component"; \
+				exit 1; \
+			}; \
+	done; \
+	if $(HELM) template brewlet charts/brewlet \
+		--set images.digests.operator=sha256:deadbeef >/dev/null 2>&1; then \
+		echo "chart accepted a malformed image digest"; \
+		exit 1; \
+	fi
+
+helm-check: helm-lint helm-template helm-digest-check
 
 clean:
 	rm -rf bin
