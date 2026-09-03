@@ -22,15 +22,35 @@ images:
   admission: ""
   pullPolicy: IfNotPresent
 
+# Cluster-level trust policy. NodeProfiles may request mirrors only when the
+# destination registry host (including any explicit port) appears here exactly.
+# Empty disables all JDK/launcher source mirrors.
+security:
+  allowedSourceMirrorHosts: []
+
 # What the operator installs on every opted-in node. `provisioner.jdks/launchers`
 # seed the chart-rendered **default** NodeProfile (the catch-all that owns every
 # node not claimed by a named-pool profile below). See §5.6.
 provisioner:
-  # Comma-separated curated <dist>-<feature> roots, or a structured list when
-  # custom distributions need source.image + source.javaHome (§5.3).
-  jdks: "temurin-21,microsoft-25"
-  # Comma-separated launcher layers, e.g. "jaz" (§5.4). Empty = vanilla java only.
-  launchers: "jaz"
+  # Editable examples. Every JDK must provide a fully qualified, tagless,
+  # SHA-256 digest-pinned image and its JDK root path (§5.3).
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
+    - distribution: microsoft
+      feature: 25
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        javaHome: /usr/lib/jvm/msopenjdk-25
+  # Optional launcher examples. Vanilla java comes from each JDK and is implicit.
+  launchers:
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
   # Node-side AppCDS archive regeneration is privileged policy and is disabled
   # unless explicitly enabled for this profile.
   appCDS:
@@ -44,6 +64,7 @@ provisioner:
     # containerdRestart: validated | sighup | none.
     containerdRestart: validated
   # Optional registry mirrors for air-gapped pulls (§5.6): upstreamHost -> mirror.
+  # Every destination host must also appear in security.allowedSourceMirrorHosts.
   registry:
     mirrors: {}
 
@@ -57,8 +78,17 @@ defaultProfile:
 #   - name: batch
 #     pools: ["batch"]        # pool name(s), matched on the resolved pool key
 #     key: ""                 # optional explicit node label key (auto-detected if empty)
-#     jdks: "microsoft-25"    # string, or structured list for custom sources
-#     launchers: "jaz"        # comma-separated (optional)
+#     jdks:                   # one or more explicit JDK sources
+#       - distribution: microsoft
+#         feature: 25
+#         source:
+#           image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
+#           javaHome: /usr/lib/jvm/msopenjdk-25
+#     launchers:              # optional explicit launcher sources
+#       - name: jaz
+#         source:
+#           image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
+#           path: /usr/bin/jaz
 #     appCDS: { regenerationEnabled: true } # explicitly authorize regeneration
 #     rollout: { maxUnavailable: 1, validate: true, containerdRestart: validated }
 #     registry: { mirrors: { "mcr.microsoft.com": "mirror.internal/mcr" } }

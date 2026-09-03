@@ -26,7 +26,6 @@ func newNodeReconciler(c client.Client, ns string) *NodeReconciler {
 		Config: Config{
 			Namespace:        ns,
 			ProvisionerImage: "ghcr.io/microsoft/brewlet-node-provisioner:test",
-			JDKs:             "temurin-21",
 		},
 	}
 }

@@ -262,7 +262,6 @@ tier7_petclinic() {
   "$WORK/t7-manager" \
       --namespace "$T7_NS_OP" \
       --provisioner-image "brewlet-e2e/nonexistent-provisioner:donotpull" \
-      --jdks "temurin-17" --launchers "" \
       --leader-elect=false \
       --metrics-bind-address 0 \
       --health-probe-bind-address ":$probe" \

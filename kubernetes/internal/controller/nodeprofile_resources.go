@@ -128,25 +128,32 @@ func jdkTokens(profile *nodev1alpha1.NodeProfile) string {
 	return strings.Join(toks, ",")
 }
 
-func customJDKSourceEnv(profile *nodev1alpha1.NodeProfile) []corev1.EnvVar {
-	var sources []corev1.EnvVar
-	count := 0
-	for _, j := range profile.Spec.JDKs {
-		if j.Source == nil {
-			continue
-		}
-		prefix := fmt.Sprintf("JDK_CUSTOM_SOURCE_%d_", count)
+func jdkSourceEnv(profile *nodev1alpha1.NodeProfile) []corev1.EnvVar {
+	sources := make([]corev1.EnvVar, 0, 1+len(profile.Spec.JDKs)*3)
+	sources = append(sources, corev1.EnvVar{Name: "JDK_SOURCE_COUNT", Value: strconv.Itoa(len(profile.Spec.JDKs))})
+	for i, j := range profile.Spec.JDKs {
+		prefix := fmt.Sprintf("JDK_SOURCE_%d_", i)
 		sources = append(sources,
 			corev1.EnvVar{Name: prefix + "TOKEN", Value: j.Token()},
 			corev1.EnvVar{Name: prefix + "IMAGE", Value: j.Source.Image},
 			corev1.EnvVar{Name: prefix + "JAVA_HOME", Value: j.Source.JavaHome},
 		)
-		count++
 	}
-	if count == 0 {
-		return nil
+	return sources
+}
+
+func launcherSourceEnv(profile *nodev1alpha1.NodeProfile) []corev1.EnvVar {
+	sources := make([]corev1.EnvVar, 0, 1+len(profile.Spec.Launchers)*3)
+	sources = append(sources, corev1.EnvVar{Name: "LAUNCHER_SOURCE_COUNT", Value: strconv.Itoa(len(profile.Spec.Launchers))})
+	for i, launcher := range profile.Spec.Launchers {
+		prefix := fmt.Sprintf("LAUNCHER_SOURCE_%d_", i)
+		sources = append(sources,
+			corev1.EnvVar{Name: prefix + "NAME", Value: launcher.Name},
+			corev1.EnvVar{Name: prefix + "IMAGE", Value: launcher.Source.Image},
+			corev1.EnvVar{Name: prefix + "PATH", Value: launcher.Source.Path},
+		)
 	}
-	return append([]corev1.EnvVar{{Name: "JDK_CUSTOM_SOURCE_COUNT", Value: fmt.Sprintf("%d", count)}}, sources...)
+	return sources
 }
 
 // mirrorEnv encodes a profile's registry mirrors as a deterministic
@@ -183,7 +190,7 @@ func appCDSRegenerationEnabled(profile *nodev1alpha1.NodeProfile) bool {
 
 // buildProfileDaemonSet returns the provisioner DaemonSet for one profile — the
 // generalized buildDaemonSet: pod nodeAffinity comes from the profile's pool and
-// JDKS/LAUNCHERS/MIRRORS env come from its inventory (§5.2). Pool disjointness is
+// indexed runtime sources and MIRRORS env come from its inventory (§5.2). Pool disjointness is
 // what enforces single ownership; there is no per-node assignment label.
 func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string) *appsv1.DaemonSet {
 	privileged := true
@@ -198,14 +205,15 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{
 			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
 		}},
-		{Name: "JDKS", Value: jdkTokens(profile)},
-		{Name: "LAUNCHERS", Value: strings.Join(profile.Spec.Launchers, ",")},
 		{Name: "BREWLET_APP_CDS_REGENERATION_ENABLED", Value: strconv.FormatBool(appCDSRegenerationEnabled(profile))},
 		{Name: "BREWLET_CONTAINERD_RESTART", Value: containerdRestart(profile)},
 		{Name: "BREWLET_PROFILE_NAME", Value: profile.Name},
+		{Name: "BREWLET_PROFILE_UID", Value: string(profile.UID)},
 		{Name: "BREWLET_PROFILE_GENERATION", Value: strconv.FormatInt(profile.Generation, 10)},
+		{Name: "SOURCE_ALLOWED_MIRROR_HOSTS", Value: strings.Join(cfg.AllowedSourceMirrorHosts, ",")},
 	}
-	env = append(env, customJDKSourceEnv(profile)...)
+	env = append(env, jdkSourceEnv(profile)...)
+	env = append(env, launcherSourceEnv(profile)...)
 	if m := mirrorEnv(profile); m != "" {
 		env = append(env, corev1.EnvVar{Name: "MIRRORS", Value: m})
 	}

@@ -20,18 +20,14 @@ type Config struct {
 	Namespace string
 	// ProvisionerImage is the brewlet-node-provisioner image to run.
 	ProvisionerImage string
-	// JDKs is the comma-separated <dist>-<feature> inventory that seeds the
-	// chart-rendered default NodeProfile (deprecated flag path, §5.3). Per-pool
-	// inventories now come from NodeProfile objects, not this field.
-	JDKs string
-	// Launchers is the comma-separated launcher inventory seeding the default
-	// profile (deprecated flag path, §5.3).
-	Launchers string
 	// MetricsPort is the node-local exporter port exposed by provisioner pods.
 	MetricsPort int
 	// MetricsEnabled controls whether managed provisioner pods run the node-local
 	// metrics exporter sidecar.
 	MetricsEnabled bool
+	// AllowedSourceMirrorHosts is the exact operator-level allowlist for registry
+	// mirror destination hosts, including any explicit port.
+	AllowedSourceMirrorHosts []string
 }
 
 // buildRuntimeClass returns the desired brewlet RuntimeClass: it schedules only

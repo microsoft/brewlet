@@ -19,16 +19,27 @@ metadata:
   name: default
 spec:
   jdks:
-    - { distribution: temurin, feature: 21 }
-    - { distribution: microsoft, feature: 25 }
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
+    - distribution: microsoft
+      feature: 25
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        javaHome: /usr/lib/jvm/msopenjdk-25
   launchers:
-    - jaz
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
   rollout:
     validate: true
     containerdRestart: validated
 ---
-# A custom distribution supplies the OCI image and the JDK root inside it. This
-# example uses the multi-architecture Docker Official Image for Azul Zulu.
+# A custom distribution supplies a digest-pinned OCI image and the JDK root
+# inside it. This example pins the multi-architecture Azul Zulu image index.
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
@@ -40,7 +51,7 @@ spec:
     - distribution: zulu
       feature: 21
       source:
-        image: docker.io/library/azul-zulu:21
+        image: docker.io/library/azul-zulu@sha256:2e230d906cffcc7bb7360ce82836f2ff0e0be74a1d5ebaf929e4e6ac99d61bf2
         javaHome: /usr/lib/jvm/zulu21
   rollout:
     validate: true
@@ -59,10 +70,18 @@ spec:
     names: ["batch"]
     # key: agentpool
   jdks:
-    - { distribution: microsoft, feature: 25 }
+    - distribution: microsoft
+      feature: 25
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        javaHome: /usr/lib/jvm/msopenjdk-25
   launchers:
-    - jaz
-  # Air-gapped clusters: pull the curated vendor images through an internal mirror.
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
+  # Air-gapped clusters: pull immutable sources through an internal mirror. The
+  # destination host must be present in the operator/admission mirror allowlist.
   registry:
     mirrors:
       mcr.microsoft.com: mirror.internal.example.com/mcr

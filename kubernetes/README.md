@@ -21,9 +21,7 @@ documentation lives in [`docs/`](../docs/).
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.3.1 \
   --namespace brewlet \
-  --create-namespace \
-  --set provisioner.jdks="temurin-21,microsoft-25" \
-  --set provisioner.launchers="jaz"
+  --create-namespace
 ```
 
 The chart installs the CRDs, operator, admission webhook, and the RBAC used by
@@ -44,11 +42,11 @@ the node labels emitted from `NodeProfile` inventories, the affinity injected
 by admission, and supported Cluster Autoscaler and Karpenter integration
 patterns.
 
-### Custom JDK distributions
+### Runtime sources
 
-`temurin` and `microsoft` use built-in image mappings. For another distribution,
-provide its fully qualified OCI image and Java home directly in the
-`NodeProfile`. For example, Azul Zulu 21:
+Brewlet has no built-in image mappings. Every JDK supplies its fully qualified,
+tagless SHA-256 digest reference and Java home directly in the `NodeProfile`.
+For example, Azul Zulu 21:
 
 ```yaml
 apiVersion: node.brewlet.sh/v1alpha1
@@ -62,15 +60,16 @@ spec:
     - distribution: zulu
       feature: 21
       source:
-        image: docker.io/library/azul-zulu:21
+        image: docker.io/library/azul-zulu@sha256:2e230d906cffcc7bb7360ce82836f2ff0e0be74a1d5ebaf929e4e6ac99d61bf2
         javaHome: /usr/lib/jvm/zulu21
 ```
 
-Use a digest-pinned image in production. The image must support every
-architecture in the selected pool, contain `<javaHome>/bin/java`, and provide the
-runtime's required userland libraries. `javaHome` may point to a centrally built
-jlink runtime; Brewlet installs it once per node pool rather than placing it in
-each application artifact.
+The image must support every architecture in the selected pool, contain
+`<javaHome>/bin/java`, and provide the runtime's required userland libraries.
+`javaHome` may point to a centrally built jlink runtime; Brewlet installs it once
+per node pool rather than placing it in each application artifact. Optional
+launchers use the same explicit-source model with `name`, `source.image`, and
+`source.path`.
 
 ## Install raw manifests
 

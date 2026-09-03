@@ -107,10 +107,9 @@ spec:
           args:
             - --namespace={{ include "brewlet.namespace" . }}
             - --provisioner-image={{ include "brewlet.image" (dict "root" . "component" "provisioner" "name" "brewlet-node-provisioner") }}
-            - --jdks={{ include "brewlet.jdkTokens" (dict "value" .Values.provisioner.jdks) }}
-            - --launchers={{ .Values.provisioner.launchers }}
             - --node-metrics-port={{ .Values.metrics.nodePort }}
             - --node-metrics-enabled={{ .Values.metrics.enabled }}
+            - {{ printf "--allowed-source-mirror-hosts=%s" (join "," .Values.security.allowedSourceMirrorHosts) | quote }}
             {{- if .Values.metrics.enabled }}
             - --metrics-bind-address=:8080
             {{- else }}

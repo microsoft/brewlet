@@ -45,7 +45,7 @@ matches `nodeAffinity` against (`labels.go`, `label_node`):
 |---|---|---|
 | `brewlet.sh/jdk.<dist>-<feature>` | exact JDK root installed | `brewlet.sh/jdk.temurin-21=true` |
 | `brewlet.sh/jdk-feature.<feature>` | some JDK of that feature (distribution-agnostic) | `brewlet.sh/jdk-feature.21=true` |
-| `brewlet.sh/launcher.<name>` | launcher layer installed (incl. built-in `java`) | `brewlet.sh/launcher.jaz=true` |
+| `brewlet.sh/launcher.<name>` | launcher layer installed (including implicit `java`) | `brewlet.sh/launcher.jaz=true` |
 | `brewlet.sh/runtime=ready` | shim + JDK installed, runtime registered | — |
 | `kubernetes.io/arch` (reused) | node architecture for non-portable artifacts | `amd64` |
 

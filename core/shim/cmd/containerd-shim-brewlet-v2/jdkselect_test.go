@@ -21,6 +21,17 @@ func mkJDK(t *testing.T, rootsDir, name string) {
 	}
 }
 
+func mkLauncher(t *testing.T, rootsDir, name string) {
+	t.Helper()
+	bin := filepath.Join(rootsDir, name, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSelectJDKBareFeaturePicksLexicallyFirst(t *testing.T) {
 	dir := t.TempDir()
 	// Install two distributions of feature 21, out of lexical order, plus an
@@ -165,5 +176,34 @@ func TestSelectJDKIgnoresInactiveRoots(t *testing.T) {
 	}
 	if _, err := selectJDK(dir, "microsoft-21"); err == nil {
 		t.Fatal("selectJDK(microsoft-21) selected an inactive root")
+	}
+}
+
+func TestSelectLauncherIgnoresInactiveRoots(t *testing.T) {
+	dir := t.TempDir()
+	mkLauncher(t, dir, "jaz")
+	mkLauncher(t, dir, "stale")
+	if err := os.WriteFile(filepath.Join(dir, launcherActiveInventory), []byte("jaz\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := selectLauncher(dir, "jaz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(dir, "jaz"); got != want {
+		t.Fatalf("selectLauncher(jaz) = %q, want active root %q", got, want)
+	}
+	if _, err := selectLauncher(dir, "stale"); err == nil {
+		t.Fatal("selectLauncher(stale) selected an inactive root")
+	}
+}
+
+func TestSelectLauncherRequiresActiveInventory(t *testing.T) {
+	dir := t.TempDir()
+	mkLauncher(t, dir, "jaz")
+
+	if _, err := selectLauncher(dir, "jaz"); err == nil {
+		t.Fatal("selectLauncher(jaz) selected a root without an active inventory")
 	}
 }

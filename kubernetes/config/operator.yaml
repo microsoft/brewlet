@@ -107,8 +107,9 @@ spec:
           args:
             - --namespace=brewlet
             - --provisioner-image=ghcr.io/microsoft/brewlet-node-provisioner:0.1.0
-            - --jdks=temurin-21,microsoft-25
-            - --launchers=jaz
+            # Empty disables NodeProfile registry mirrors. Add exact destination
+            # hosts here and to the admission deployment when mirrors are needed.
+            - --allowed-source-mirror-hosts=
             - --leader-elect
             - --health-probe-bind-address=:8081
           ports:

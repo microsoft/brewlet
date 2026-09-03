@@ -9,6 +9,7 @@ require (
 	github.com/containerd/platforms v0.2.1
 	github.com/containerd/ttrpc v1.2.7
 	github.com/containerd/typeurl/v2 v2.1.1
+	github.com/distribution/reference v0.6.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/opencontainers/runtime-spec v1.1.0
 	github.com/prometheus/client_golang v1.19.1

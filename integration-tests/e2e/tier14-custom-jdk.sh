@@ -4,8 +4,7 @@
 
 # Tier 14 — custom JDK and launcher layers through the complete NodeProfile ->
 # provisioner -> node inventory -> shim -> live workload path. Uses the Docker
-# Official Azul Zulu 21 image with jaz, then proves a broken launcher withdraws
-# readiness and publishes a bounded provision-error reason.
+# Official Azul Zulu 21 image plus a digest-pinned jaz source from Microsoft.
 #
 # Prereqs: kubectl + reachable cluster, Docker with a local containerd node
 # (kind / Docker Desktop worker), Go, a host JDK 21+, and network access.
@@ -16,7 +15,9 @@ T14_PROFILE="zulu"
 T14_POOL_KEY="brewlet.sh/e2e-pool"
 T14_POOL="custom-jdk"
 T14_JDK="zulu-21"
+T14_JDK_IMAGE="docker.io/library/azul-zulu@sha256:2e230d906cffcc7bb7360ce82836f2ff0e0be74a1d5ebaf929e4e6ac99d61bf2"
 T14_LAUNCHER="jaz"
+T14_LAUNCHER_IMAGE="mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575"
 T14_REF="demo/hello:custom-jdk-e2e"
 T14_APP="zulu-orders"
 T14_PORT=8080
@@ -26,7 +27,12 @@ T14_MGR_PID=""
 T14_NODE=""
 T14_RC_CREATED=""
 T14_CONTAINERD_SNAPSHOT=""
+T14_JDK_SNAPSHOT=""
 T14_LAUNCHER_SNAPSHOT=""
+T14_JDK_ACTIVE_SNAPSHOT=""
+T14_LAUNCHER_ACTIVE_SNAPSHOT=""
+T14_JDK_ACTIVE_STATE=""
+T14_LAUNCHER_ACTIVE_STATE=""
 
 _t14_cleanup() {
   info "tier14: cleaning up"
@@ -68,6 +74,30 @@ _t14_cleanup() {
       docker exec -i "$T14_NODE" tar -C /opt/brewlet/launchers -xf - \
         <"$T14_LAUNCHER_SNAPSHOT" >/dev/null 2>&1 || true
     fi
+    if [[ -n "$T14_JDK_SNAPSHOT" && -f "$T14_JDK_SNAPSHOT" ]]; then
+      docker exec "$T14_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
+      docker exec -i "$T14_NODE" tar -C /opt/brewlet/jdks -xf - \
+        <"$T14_JDK_SNAPSHOT" >/dev/null 2>&1 || true
+    fi
+    docker exec "$T14_NODE" mkdir -p /opt/brewlet/jdks /opt/brewlet/launchers >/dev/null 2>&1 || true
+    case "$T14_JDK_ACTIVE_STATE" in
+      present)
+        docker cp "$T14_JDK_ACTIVE_SNAPSHOT" \
+          "$T14_NODE:/opt/brewlet/jdks/.brewlet-active.t14" >/dev/null 2>&1 || true
+        docker exec "$T14_NODE" mv \
+          /opt/brewlet/jdks/.brewlet-active.t14 /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
+      absent)
+        docker exec "$T14_NODE" rm -f /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
+    esac
+    case "$T14_LAUNCHER_ACTIVE_STATE" in
+      present)
+        docker cp "$T14_LAUNCHER_ACTIVE_SNAPSHOT" \
+          "$T14_NODE:/opt/brewlet/launchers/.brewlet-active.t14" >/dev/null 2>&1 || true
+        docker exec "$T14_NODE" mv \
+          /opt/brewlet/launchers/.brewlet-active.t14 /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
+      absent)
+        docker exec "$T14_NODE" rm -f /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
+    esac
     label_node "$T14_NODE" "$T14_POOL_KEY-" brewlet.sh/runtime- \
       "brewlet.sh/jdk.$T14_JDK-" "brewlet.sh/jdk-feature.${T14_JDK##*-}-" \
       brewlet.sh/launcher.java- "brewlet.sh/launcher.$T14_LAUNCHER-" \
@@ -87,10 +117,9 @@ _t14_node_ready() {
       grep -q '"distribution":"zulu"'
 }
 
-_t14_launcher_failed() {
-  [[ "$(kubectl get node "$T14_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-error}' 2>/dev/null)" == "launcher-jaz-probe-failed" ]] &&
-    [[ -z "$(kubectl get node "$T14_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/runtime}' 2>/dev/null)" ]] &&
-    [[ -z "$(kubectl get node "$T14_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/launcher\.jaz}' 2>/dev/null)" ]]
+_t14_profile_invalid() {
+  [[ "$(kubectl get nodeprofile "$T14_PROFILE" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)" == "InvalidProfile" ]]
 }
 
 _t14_wait_for() {
@@ -261,12 +290,47 @@ tier14_custom_jdk() {
   local arch; arch="$(_t9_node_arch "$T14_NODE")"
   if [[ -z "$arch" ]]; then skip "tier14: custom JDK" "unknown node architecture"; return 0; fi
   info "tier14: node=$T14_NODE arch=$arch"
-  trap _t14_cleanup RETURN
+  if docker exec "$T14_NODE" test -f /opt/brewlet/jdks/.brewlet-active; then
+    T14_JDK_ACTIVE_SNAPSHOT="$WORK/t14-jdk-active-before"
+    if docker cp "$T14_NODE:/opt/brewlet/jdks/.brewlet-active" \
+        "$T14_JDK_ACTIVE_SNAPSHOT" >/dev/null 2>&1; then
+      T14_JDK_ACTIVE_STATE=present
+    else
+      fail "tier14: snapshot existing JDK active inventory"
+      return 0
+    fi
+  else
+    T14_JDK_ACTIVE_STATE=absent
+  fi
+  if docker exec "$T14_NODE" test -f /opt/brewlet/launchers/.brewlet-active; then
+    T14_LAUNCHER_ACTIVE_SNAPSHOT="$WORK/t14-launcher-active-before"
+    if docker cp "$T14_NODE:/opt/brewlet/launchers/.brewlet-active" \
+        "$T14_LAUNCHER_ACTIVE_SNAPSHOT" >/dev/null 2>&1; then
+      T14_LAUNCHER_ACTIVE_STATE=present
+    else
+      fail "tier14: snapshot existing launcher active inventory"
+      return 0
+    fi
+  else
+    T14_LAUNCHER_ACTIVE_STATE=absent
+  fi
+  if docker exec "$T14_NODE" test -e "/opt/brewlet/jdks/$T14_JDK"; then
+    T14_JDK_SNAPSHOT="$WORK/t14-jdk-before.tar"
+    if ! docker exec "$T14_NODE" tar -C /opt/brewlet/jdks -cf - "$T14_JDK" \
+        >"$T14_JDK_SNAPSHOT" 2>/dev/null; then
+      fail "tier14: snapshot existing JDK directory"
+      return 0
+    fi
+  fi
   if docker exec "$T14_NODE" test -e "/opt/brewlet/launchers/$T14_LAUNCHER"; then
     T14_LAUNCHER_SNAPSHOT="$WORK/t14-launcher-before.tar"
-    docker exec "$T14_NODE" tar -C /opt/brewlet/launchers -cf - "$T14_LAUNCHER" \
-      >"$T14_LAUNCHER_SNAPSHOT" 2>/dev/null || T14_LAUNCHER_SNAPSHOT=""
+    if ! docker exec "$T14_NODE" tar -C /opt/brewlet/launchers -cf - "$T14_LAUNCHER" \
+        >"$T14_LAUNCHER_SNAPSHOT" 2>/dev/null; then
+      fail "tier14: snapshot existing launcher directory"
+      return 0
+    fi
   fi
+  trap _t14_cleanup RETURN
   docker exec "$T14_NODE" sh -c \
     'chmod -R u+w "$1" "$2" 2>/dev/null || true; rm -rf "$1" "$2"' \
     sh "/opt/brewlet/jdks/$T14_JDK" "/opt/brewlet/launchers/$T14_LAUNCHER" \
@@ -277,9 +341,9 @@ tier14_custom_jdk() {
   if docker build --platform "linux/$arch" -t "$T14_PROVISIONER_IMAGE" \
       -f "$MONOREPO_DIR/provisioner/Dockerfile" "$MONOREPO_DIR" \
       >"$WORK/t14-provisioner-build.log" 2>&1 &&
-    docker run --rm --platform "linux/$arch" --entrypoint /bin/grep \
-      "$T14_PROVISIONER_IMAGE" -q "launcher .* probe passed" \
-      /usr/local/bin/brewlet-provision >>"$WORK/t14-provisioner-build.log" 2>&1 &&
+    docker run --rm --platform "linux/$arch" --entrypoint /usr/bin/test \
+      "$T14_PROVISIONER_IMAGE" -x /opt/brewlet-dist/brewlet-source-policy \
+      >>"$WORK/t14-provisioner-build.log" 2>&1 &&
     docker save "$T14_PROVISIONER_IMAGE" |
       docker exec -i "$T14_NODE" ctr -n k8s.io images import - \
         >"$WORK/t14-provisioner-import.log" 2>&1; then
@@ -319,6 +383,9 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["node.brewlet.sh"]
+    resources: ["nodeprofiles"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -352,6 +419,63 @@ YAML
   fi
   label_node "$T14_NODE" --overwrite "$T14_POOL_KEY=$T14_POOL" >/dev/null 2>&1
 
+  # No admission webhook is installed in this tier. The CRD rejects mutable
+  # source tags, and the reconciler independently withholds an unauthorized
+  # mirror before any privileged DaemonSet can run.
+  local tagged_out
+  if tagged_out="$(kubectl apply -f - 2>&1 <<YAML
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata: { name: zulu-tagged }
+spec:
+  nodePool:
+    key: $T14_POOL_KEY
+    names: [$T14_POOL]
+  jdks:
+    - distribution: zulu
+      feature: 21
+      source:
+        image: docker.io/library/azul-zulu:21
+        javaHome: /usr/lib/jvm/zulu21
+YAML
+)"; then
+    fail "tier14: mutable custom JDK tag is rejected without admission" "$tagged_out"
+    kubectl delete nodeprofile zulu-tagged --ignore-not-found >/dev/null 2>&1 || true
+    return 0
+  else
+    pass "tier14: mutable custom JDK tag is rejected without admission"
+  fi
+
+  kubectl apply -f - >"$WORK/t14-invalid-mirror.log" 2>&1 <<YAML
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata: { name: $T14_PROFILE }
+spec:
+  nodePool:
+    key: $T14_POOL_KEY
+    names: [$T14_POOL]
+  jdks:
+    - distribution: zulu
+      feature: 21
+      source:
+        image: $T14_JDK_IMAGE
+        javaHome: /usr/lib/jvm/zulu21
+  registry:
+    mirrors:
+      docker.io: unapproved.example/cache
+YAML
+  if _t14_wait_for _t14_profile_invalid 60 &&
+    ! kubectl get daemonset -n "$T14_NS_OP" \
+      "brewlet-node-provisioner-$T14_PROFILE" >/dev/null 2>&1; then
+    pass "tier14: reconciler withholds unauthorized JDK mirror without admission"
+  else
+    fail "tier14: reconciler withholds unauthorized JDK mirror without admission" \
+      "see $WORK/t14-invalid-mirror.log and $WORK/t14-manager.log"
+    return 0
+  fi
+  assert_eq "tier14: invalid source policy leaves the node unready" \
+    "$(kubectl get node "$T14_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/runtime}' 2>/dev/null)" ""
+
   kubectl apply -f - >"$WORK/t14-profile.log" 2>&1 <<YAML
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
@@ -364,10 +488,13 @@ spec:
     - distribution: zulu
       feature: 21
       source:
-        image: docker.io/library/azul-zulu:21
+        image: $T14_JDK_IMAGE
         javaHome: /usr/lib/jvm/zulu21
   launchers:
-    - $T14_LAUNCHER
+    - name: $T14_LAUNCHER
+      source:
+        image: $T14_LAUNCHER_IMAGE
+        path: /usr/bin/jaz
   rollout:
     validate: true
     containerdRestart: validated
@@ -383,12 +510,15 @@ YAML
   fi
 
   local ds="brewlet-node-provisioner-$T14_PROFILE"
-  assert_eq "tier14: operator passed the custom JDK image to the provisioner" \
-    "$(kubectl get ds "$ds" -n "$T14_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="JDK_CUSTOM_SOURCE_0_IMAGE")].value}')" \
-    "docker.io/library/azul-zulu:21"
-  assert_eq "tier14: operator passed the custom Java home to the provisioner" \
-    "$(kubectl get ds "$ds" -n "$T14_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="JDK_CUSTOM_SOURCE_0_JAVA_HOME")].value}')" \
+  assert_eq "tier14: operator passed the JDK image to the provisioner" \
+    "$(kubectl get ds "$ds" -n "$T14_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="JDK_SOURCE_0_IMAGE")].value}')" \
+    "$T14_JDK_IMAGE"
+  assert_eq "tier14: operator passed the Java home to the provisioner" \
+    "$(kubectl get ds "$ds" -n "$T14_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="JDK_SOURCE_0_JAVA_HOME")].value}')" \
     "/usr/lib/jvm/zulu21"
+  assert_eq "tier14: operator passed the launcher image to the provisioner" \
+    "$(kubectl get ds "$ds" -n "$T14_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LAUNCHER_SOURCE_0_IMAGE")].value}')" \
+    "$T14_LAUNCHER_IMAGE"
   assert_contains "tier14: node inventory reports the custom JDK vendor" \
     "$(kubectl get node "$T14_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks-info}')" \
     "Azul"
@@ -497,23 +627,4 @@ YAML
     fail "tier14: query live JVM vendor" "no response from /info"
   fi
 
-  # Leave an executable in place so install_launcher takes its idempotent fast
-  # path, then prove the readiness gate catches the failing one-shot probe.
-  if docker exec "$T14_NODE" sh -c \
-      'dir="${1%/*}"; tmp="${1}.broken.$$";
-       chmod u+w "$dir" &&
-       printf "#!/bin/sh\nexit 17\n" >"$tmp" &&
-       chmod 0755 "$tmp" &&
-       mv -f "$tmp" "$1"' \
-      sh "/opt/brewlet/launchers/$T14_LAUNCHER/bin/$T14_LAUNCHER" &&
-    kubectl delete pod -n "$T14_NS_OP" -l "brewlet.sh/nodeprofile=$T14_PROFILE" \
-      --wait=true --timeout=60s >>"$WORK/t14-broken-launcher.log" 2>&1 &&
-    _t14_wait_for _t14_launcher_failed 90; then
-    pass "tier14: broken jaz probe publishes bounded failure and withdraws readiness"
-  else
-    kubectl logs -n "$T14_NS_OP" -l "brewlet.sh/nodeprofile=$T14_PROFILE" \
-      --previous --tail=120 >>"$WORK/t14-broken-launcher.log" 2>&1 || true
-    fail "tier14: broken jaz probe publishes bounded failure and withdraws readiness" \
-      "see $WORK/t14-broken-launcher.log"
-  fi
 }

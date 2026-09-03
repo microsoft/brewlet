@@ -90,7 +90,6 @@ helm pull oci://ghcr.io/microsoft/charts/brewlet \
   --version "$version" \
   --destination "$work"
 helm template brewlet "$work/brewlet-${version}.tgz" \
-  --set-string provisioner.jdks=temurin-21 \
   > "$work/rendered.yaml"
 
 grep -q "ghcr.io/microsoft/brewlet-operator:${version}" "$work/rendered.yaml"

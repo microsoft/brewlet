@@ -94,7 +94,6 @@ tier13_nodeprofile() {
   "$WORK/t13-manager" \
       --namespace "$T13_NS" \
       --provisioner-image "brewlet-e2e/nonexistent-provisioner:donotpull" \
-      --jdks "temurin-21" --launchers "" \
       --leader-elect=false \
       --metrics-bind-address 0 \
       --health-probe-bind-address ":$probe" \
@@ -116,6 +115,9 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
 YAML
   if kubectl apply -f "$WORK/t13-default.yaml" >"$WORK/t13-np.log" 2>&1; then
     pass "default profile: accepted by the API server"
@@ -163,7 +165,10 @@ spec:
     names: [$T13_POOL]
   jdks:
     - distribution: microsoft
-      feature: 21
+      feature: 25
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        javaHome: /usr/lib/jvm/msopenjdk-25
 YAML
     if kubectl apply -f "$WORK/t13-pool.yaml" >>"$WORK/t13-np.log" 2>&1; then
       pass "named-pool profile: accepted by the API server"
