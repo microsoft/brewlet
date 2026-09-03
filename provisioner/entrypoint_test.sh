@@ -37,6 +37,7 @@ grep -Fxq "docker.io/library/azul-zulu:21" "$dest/.brewlet-source"
 grep -Fxq "/usr/lib/jvm/zulu21" "$dest/.brewlet-source"
 
 if (
+  NODE_NAME=""
   JDK_CUSTOM_SOURCE_COUNT=0
   CUSTOM_JDK_TOKENS=("")
   CUSTOM_JDK_IMAGES=("")
@@ -50,6 +51,7 @@ fi
 
 
 if (
+  NODE_NAME=""
   JDK_CUSTOM_SOURCE_COUNT=1
   JDK_CUSTOM_SOURCE_0_IMAGE=azul-zulu:21
   parse_custom_jdk_sources
@@ -59,6 +61,7 @@ if (
 fi
 
 if (
+  NODE_NAME=""
   JDK_CUSTOM_SOURCE_COUNT=1
   JDK_CUSTOM_SOURCE_0_JAVA_HOME=/
   parse_custom_jdk_sources
@@ -68,6 +71,7 @@ if (
 fi
 
 if (
+  NODE_NAME=""
   JDK_CUSTOM_SOURCE_COUNT=1
   JDK_CUSTOM_SOURCE_0_TOKEN=../../../host-21
   parse_custom_jdk_sources
@@ -164,11 +168,50 @@ if grep -Fq "$long_launcher" <<<"$output"; then
 fi
 
 new_containerd_test_dir() {
-  local dir
+  local dir version="${1:-2}"
   dir="$(mktemp -d "$dest/containerd.XXXXXX")"
-  printf 'version = 2\n' >"$dir/config.toml"
+  printf 'version = %s\n' "$version" >"$dir/config.toml"
   printf '%s' "$dir"
 }
+
+# The bundled ctr client version is not authoritative: require a containerd 2+
+# server because older CRI metadata omits the requested image identity.
+(
+  host_ctr() {
+    cat <<'EOF'
+Client:
+  Version:  v2.1.4
+Server:
+  Version:  v2.0.5
+EOF
+  }
+  [[ "$(containerd_server_version)" == "v2.0.5" ]]
+  [[ "$(containerd_server_major v2.0.5)" == "2" ]]
+  containerd_image_identity_supported
+  require_containerd_image_identity
+) >"$dest/containerd-v2-output"
+grep -Fq 'containerd server v2.0.5 supports protected CRI requested-image identity' \
+  "$dest/containerd-v2-output"
+
+if output="$(
+  (
+    NODE_NAME=""
+    host_ctr() {
+      cat <<'EOF'
+Client:
+  Version:  v2.1.4
+Server:
+  Version:  v1.7.27
+EOF
+    }
+    require_containerd_image_identity
+  ) 2>&1
+)"; then
+  echo "expected a containerd 1.x server to fail the image-identity preflight" >&2
+  exit 1
+fi
+grep -Fq 'unsupported-containerd-version' <<<"$output"
+grep -Fq 'found server v1.7.27' <<<"$output"
 
 mock_containerd_dump() {
   printf '%s\n' "$*" >>"$calls"
@@ -200,6 +243,28 @@ printf 'imports = ["./config.toml.d/*.toml"]\n' >>"$dropin_dir/config.toml"
 grep -Fq 'containerd.runtimes.brewlet' "$dropin_dir/config.toml.d/99-brewlet.toml"
 if grep -Fq 'containerd.runtimes.brewlet' "$dropin_dir/config.toml"; then
   echo "expected drop-in support to leave the primary containerd config unchanged" >&2
+  exit 1
+fi
+
+# Config version 3 uses containerd 2's split CRI runtime plugin namespace.
+v3_dir="$(new_containerd_test_dir 3)"
+printf 'imports = ["./config.toml.d/*.toml"]\n' >>"$v3_dir/config.toml"
+(
+  CONTAINERD_CONFIG="$v3_dir/config.toml"
+  CONTAINERD_DROPIN_DIR="$v3_dir/config.toml.d"
+  CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
+  BREWLET_CONTAINERD_RESTART=validated
+  BREWLET_VALIDATE=false
+  NODE_NAME=""
+  host_exec() { mock_containerd_dump "$@"; }
+  reload_containerd() { mock_reload_containerd; }
+  configure_containerd
+)
+grep -Fq 'plugins."io.containerd.cri.v1.runtime".containerd.runtimes.brewlet' \
+  "$v3_dir/config.toml.d/99-brewlet.toml"
+if grep -Fq 'plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet' \
+  "$v3_dir/config.toml.d/99-brewlet.toml"; then
+  echo "expected config version 3 to use the split CRI runtime plugin" >&2
   exit 1
 fi
 
@@ -313,6 +378,30 @@ if [[ -e "$missing_dir/config.toml.d/99-brewlet.toml" ]]; then
   exit 1
 fi
 
+# containerd 2 delegates the legacy CRI plugin to an external binary. Its
+# config dump omits those runtime tables, so accept the rendered source only
+# when the dump explicitly reports that external-plugin limitation.
+external_cri_dir="$(new_containerd_test_dir)"
+if ! (
+  CONTAINERD_CONFIG="$external_cri_dir/config.toml"
+  CONTAINERD_DROPIN_DIR="$external_cri_dir/config.toml.d"
+  CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
+  BREWLET_CONTAINERD_RESTART=validated
+  BREWLET_VALIDATE=false
+  NODE_NAME=""
+  host_exec() {
+    printf '%s\n' \
+      'time="2026-09-03T01:47:12Z" level=warning msg="Ignoring unknown key in TOML for plugin" key="containerd runtimes brewlet" plugin=io.containerd.grpc.v1.cri' >&2
+    printf '%s\n' 'version = 2'
+  }
+  configure_containerd
+) >"$external_cri_dir/output" 2>&1; then
+  echo "expected containerd 2 external CRI config validation to succeed" >&2
+  exit 1
+fi
+grep -Fq 'validated rendered brewlet handler' "$external_cri_dir/output"
+grep -Fq 'containerd.runtimes.brewlet' "$external_cri_dir/config.toml"
+
 # The legacy modes retain their behavior: sighup patches in place and reloads,
 # while none leaves containerd configuration untouched.
 for mode in sighup none; do
@@ -406,7 +495,7 @@ assert_contains "handler" "$health_calls"
 fake_crictl="$dest/crictl"
 cat >"$fake_crictl" <<'EOF'
 #!/usr/bin/env bash
-printf '{"config":{"containerd":{"runtimes":{"runc":{},"brewlet":{}}}}}\n'
+printf 'io.containerd.brewlet.v2'
 EOF
 chmod +x "$fake_crictl"
 (
@@ -417,7 +506,7 @@ chmod +x "$fake_crictl"
 )
 cat >"$fake_crictl" <<'EOF'
 #!/usr/bin/env bash
-printf '{"config":{"containerd":{"runtimes":{"runc":{}}}}}\n'
+printf 'io.containerd.runc.v2'
 EOF
 if (
   HOST_CRICTL="$fake_crictl"
@@ -486,6 +575,7 @@ printf 'brewlet-change\n' >"$rollback_dir/config.toml"
 : >"$restart_calls"
 if output="$(
   (
+    NODE_NAME=""
     CONTAINERD_CONFIG="$rollback_dir/config.toml"
     CONTAINERD_CONFIG_CHANGED=1
     CONTAINERD_ROLLBACK_KIND=primary
@@ -514,6 +604,7 @@ printf 'brewlet-change\n' >"$rollback_dir/config.toml"
 : >"$restart_calls"
 if output="$(
   (
+    NODE_NAME=""
     CONTAINERD_CONFIG="$rollback_dir/config.toml"
     CONTAINERD_CONFIG_CHANGED=1
     CONTAINERD_ROLLBACK_KIND=primary
@@ -537,6 +628,7 @@ printf 'known-good\n' >"$rollback_dir/config.toml.brewlet.bak"
 printf 'brewlet-change\n' >"$rollback_dir/config.toml"
 if output="$(
   (
+    NODE_NAME=""
     CONTAINERD_CONFIG="$rollback_dir/config.toml"
     CONTAINERD_CONFIG_CHANGED=1
     CONTAINERD_ROLLBACK_KIND=primary

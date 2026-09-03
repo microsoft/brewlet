@@ -17,7 +17,7 @@ metadata:
   namespace: payments
 spec:
   artifact:
-    image: registry.example.com/team/orders:1.4.2   # ship ONLY the JAR
+    image: registry.example.com/team/orders@sha256:REPLACE_WITH_IMAGE_DIGEST
     pullPolicy: IfNotPresent
   replicas: 3
   resources:

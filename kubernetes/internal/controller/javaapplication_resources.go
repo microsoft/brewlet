@@ -55,7 +55,7 @@ func selectorLabels(app *appsv1alpha1.JavaApplication) map[string]string {
 }
 
 // buildDeployment renders the managed Deployment for a JavaApplication (§8.2):
-// runtimeClassName=brewlet, container image = the OCI artifact, resources
+// runtimeClassName=brewlet, container image = the runnable OCI image, resources
 // copied verbatim, JDK/launcher stamped as pod annotations for the admission
 // webhook, and user env/ports/probes/jvm.args wired through.
 func buildDeployment(app *appsv1alpha1.JavaApplication) *appsv1.Deployment {

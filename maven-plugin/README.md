@@ -44,7 +44,7 @@ mvn clean package sh.brewlet:brewlet-maven-plugin:0.1.0:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 ```
 
-Or configure it once in `pom.xml` and bind `push` / `manifest` to the lifecycle:
+Or configure publishing once in `pom.xml` and bind `push` to the lifecycle:
 
 ```xml
 <plugin>
@@ -71,14 +71,19 @@ Or configure it once in `pom.xml` and bind `push` / `manifest` to the lifecycle:
   </configuration>
   <executions>
     <execution>
-      <goals><goal>config</goal><goal>push</goal><goal>manifest</goal></goals>
+      <goals><goal>config</goal><goal>push</goal></goals>
     </execution>
   </executions>
 </plugin>
 ```
 
-With that, `mvn deploy` publishes the runnable OCI image and writes the deployment
-descriptor as part of the normal lifecycle.
+With that, `mvn deploy` publishes the runnable OCI image and prints its
+digest-pinned `deploy image`. Pass that exact reference to the manifest goal:
+
+```bash
+mvn brewlet:manifest \
+  -Dbrewlet.image=registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST
+```
 
 ---
 
@@ -91,7 +96,7 @@ descriptor as part of the normal lifecycle.
 | `brewlet:push` | `deploy` | Build and push to the registry in `<image>`. By default (`image` format) this pushes a **runnable OCI image** — a standard, kubelet-pullable image (see [Delivery format](#delivery-format-native-artifact-vs-runnable-image)). With `-Dbrewlet.format=artifact` it pushes the native Brewlet artifact instead (JAR layer + launch-config blob + manifest with `artifactType: application/vnd.brewlet.app.v1+json`). |
 | `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) with a self-terminating fat-JAR training run. Attach it later with `-Dbrewlet.cdsArchive=...`. |
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
-| `brewlet:manifest` | — | Emit a `JavaApplication` CR (or raw `Deployment`) YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. |
+| `brewlet:manifest` | — | Emit a `JavaApplication` CR (or raw `Deployment`) YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Pass the digest-pinned image reference printed by `brewlet:push`. |
 | `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. |
 
 Run any goal directly, e.g. `mvn brewlet:inspect`.
@@ -107,7 +112,7 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
-| `image` | `brewlet.image` | — | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2`. **Required for `build`, `push`, and `manifest`.** |
+| `image` | `brewlet.image` | — | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2` for `build`/`push` or `registry.example.com/team/app@sha256:…` for `manifest`. **Required for `build`, `push`, and `manifest`; Kubernetes manifests must use the digest-pinned form.** |
 | `format` | `brewlet.format` | `image` | Delivery format for `push`: `image` (runnable, kubelet-pullable OCI image — the default) or `artifact` (native Brewlet OCI artifact). See [Delivery format](#delivery-format-native-artifact-vs-runnable-image). |
 | `jarFile` | `brewlet.jarFile` | project's primary artifact | Path to the fat JAR to publish. |
 | `mainClass` | `brewlet.mainClass` | inferred from `Main-Class` | Main class to launch. Does **not** by itself set the entry mode — the mode is inferred from the JAR's shape (see `entryMode`). Used in `classpath` mode (the class launched via `-cp`) and optionally in `module` mode (selects `<module>/<mainClass>`); ignored in `jar` mode (uses the manifest's `Main-Class`). |
@@ -332,7 +337,7 @@ no AppCDS benefit); see [AppCDS §7](https://github.com/microsoft/brewlet/blob/m
 
 | Format | What it publishes | When a pod names it as `image:` |
 |---|---|---|
-| `image` (default) | A **runnable OCI image**: your JAR (+ dependency/module/CDS payload) packaged as standard `tar+gzip` layers with a real OCI image config and a multi-arch index. The Brewlet launch contract rides in the `brewlet.sh/jvm-config` manifest annotation. | kubelet/containerd pull and unpack it like any image, so a `runtimeClassName: brewlet` pod can set `image: <ref>` directly — the SpinKube-style workflow. |
+| `image` (default) | A **runnable OCI image**: your JAR (+ dependency/module/CDS payload) packaged as standard `tar+gzip` layers with a real OCI image config and a multi-arch index. The Brewlet launch contract rides in the `brewlet.sh/jvm-config` manifest annotation. | kubelet/containerd pull and unpack it like any image. A `runtimeClassName: brewlet` pod uses the digest-pinned reference printed by `brewlet:push`; tag-only execution is rejected. |
 | `artifact` | The **native Brewlet OCI artifact**: your JAR plus a launch-config blob under Brewlet [media types](https://github.com/microsoft/brewlet/blob/main/docs/reference.md#oci-media-types) (`artifactType: application/vnd.brewlet.app.v1+json`). Compact and the canonical Brewlet shape. | kubelet/containerd **cannot** unpack the custom layer media types, so a bare pod `image:` reference `ImagePullBackOff`s. It is resolved by the shim out-of-band via the `brewlet.sh/artifact-*` annotations the admission webhook stamps. |
 
 ```bash

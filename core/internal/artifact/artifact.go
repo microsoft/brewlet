@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Media types that define the Brewlet application artifact (see https://github.com/microsoft/brewlet/tree/main/specs §4).
@@ -350,13 +352,9 @@ type Descriptor struct {
 	Annotations  map[string]string `json:"annotations,omitempty"`
 }
 
-// Platform names the OS/arch a runnable-image manifest targets. It appears on
-// an image index's manifest descriptors so containerd/kubelet can select the
-// entry matching the node (see image.go / docs on the runnable-image mode).
-type Platform struct {
-	OS           string `json:"os"`
-	Architecture string `json:"architecture"`
-}
+// Platform is the OCI OS/architecture/variant descriptor containerd uses when
+// selecting a runnable-image manifest from an image index.
+type Platform = ocispec.Platform
 
 type Manifest struct {
 	SchemaVersion int          `json:"schemaVersion"`

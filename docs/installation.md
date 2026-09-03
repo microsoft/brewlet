@@ -2,7 +2,9 @@
 
 This page enables Brewlet on a Kubernetes cluster: the operator, the node
 provisioner, and the admission webhook. After this, any pod with
-`runtimeClassName: brewlet` runs a Java application (packaged as an OCI artifact) directly on a node JDK.
+`runtimeClassName: brewlet` runs a Java application in the runnable OCI image
+format directly on a node JDK. The workload image must be digest-pinned
+(`repo@sha256:…`); native artifacts remain for local OCI-layout / CLI workflows.
 
 There are two paths:
 
@@ -22,7 +24,7 @@ There are two paths:
 
 | Requirement | Why |
 |---|---|
-| Kubernetes with **containerd** as the CRI runtime | The shim is a containerd Runtime v2 shim. |
+| Kubernetes with **containerd 2.0 or newer** as the CRI runtime | The Runtime v2 shim requires protected CRI requested-image metadata that containerd 1.x does not preserve. |
 | **cgroup v2** on nodes | Brewlet requires it; the provisioner refuses cgroup v1-only nodes. |
 | Nodes you control | Provisioning is privileged and host-mutating. |
 | `kubectl` + `helm` (for the Helm path) | To install and manage node provisioning. |

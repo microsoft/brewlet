@@ -261,8 +261,9 @@ brewlet push ./target/app.jar registry.example.com/team/app:1.4.2
 - Full flags: [CLI reference](cli-reference.md#brewlet-push).
 
 > The native-artifact path can write to a local **OCI layout** (`--store`, default
-> `./oci`). To publish to a registry, use the default runnable-image format, ORAS
-> (below), or the [Maven plugin](#option-c-maven-plugin).
+> `./oci`) for local CLI / bundle / prepare-bundle workflows. To publish a
+> Kubernetes workload, use the default runnable-image format; for registry-native
+> delivery, use ORAS (below) or the [Maven plugin](#option-c-maven-plugin).
 
 Inspect what you built:
 
@@ -317,7 +318,7 @@ mvn clean package sh.brewlet:brewlet-maven-plugin:0.3.1:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 ```
 
-Or configure it once in `pom.xml` and bind `push` / `manifest` to the lifecycle:
+Or configure publishing once in `pom.xml` and bind `push` to the lifecycle:
 
 ```xml
 <plugin>
@@ -330,9 +331,17 @@ Or configure it once in `pom.xml` and bind `push` / `manifest` to the lifecycle:
     <ports><port><name>http</name><containerPort>8080</containerPort></port></ports>
   </configuration>
   <executions>
-    <execution><goals><goal>push</goal><goal>manifest</goal></goals></execution>
+    <execution><goals><goal>push</goal></goals></execution>
   </executions>
 </plugin>
+```
+
+`brewlet:push` prints a digest-pinned `deploy image`. Use that exact reference
+when generating the Kubernetes descriptor:
+
+```bash
+mvn brewlet:manifest \
+  -Dbrewlet.image=registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST
 ```
 
 Goals: `brewlet:config` (generate the launch config), `brewlet:build` (assemble a
@@ -344,17 +353,22 @@ parameter reference.
 
 ---
 
-## 4. Pin to a digest (recommended)
+## 4. Pin to a digest
 
-Prefer digest-pinned references for deploys:
+Kubernetes workloads using `runtimeClassName: brewlet` must use a
+digest-pinned reference:
 
 ```
 registry.example.com/team/app@sha256:<digest>
 ```
 
-Digest pinning lets the shim resolve the artifact straight from containerd's content
-store (the admission webhook stamps `brewlet.sh/artifact-digest`), and it's the
-basis for cosign/SLSA supply-chain policy. See [Security](security.md).
+The shim extracts this immutable target from containerd's protected CRI
+metadata, resolves it directly from the content store, and verifies that the
+selected platform manifest has the config digest CRI recorded for the
+container. Tag-only requests are rejected before launch. The admission webhook
+mirrors the target digest in `brewlet.sh/artifact-digest` only as a
+cross-checked compatibility hint. Digest pinning is also the basis for
+cosign/SLSA supply-chain policy. See [Security](security.md).
 
 ---
 

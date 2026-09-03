@@ -160,7 +160,7 @@ metadata:
 spec:
   runtimeClassName: brewlet
   containers:
-    - image: registry.example.com/demo/hello:1.0.0
+    - image: registry.example.com/demo/hello@sha256:REPLACE_WITH_IMAGE_DIGEST
 ```
 
 Or, in a `JavaApplication` descriptor:

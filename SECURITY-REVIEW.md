@@ -319,13 +319,15 @@ containerd E2E tier covers both UID/GID preservation and fail-closed rejection
 of a re-hashed root-requesting artifact in a Pod Security `restricted`
 namespace.
 
-### 4. Attestation enforcement verifies a different identity from the executed artifact
+### 4. Attestation enforcement verifies a different identity from the executed artifact — remediated
 
 **Severity:** High  
 **Confidence:** 8/10  
 **STRIDE:** Spoofing, Tampering  
 **CWE:** CWE-345, CWE-807  
 **Type:** Confirmed admission bypass
+
+**Status:** Remediated
 
 **Attacker prerequisites:** Permission to create a Brewlet Pod in a cluster
 using the documented Ratify/Gatekeeper policy.
@@ -360,6 +362,15 @@ runs.
 **Remediation test:** With Ratify/Gatekeeper enabled, submit an attested image
 and a mismatched artifact digest and assert the Pod is rejected or the runtime
 refuses to create the container.
+
+**Resolution:** The webhook overwrites image-derived compatibility hints, while
+the shim independently requires containerd's protected CRI requested-image
+metadata to contain a digest-pinned reference. It resolves that exact target
+directly from the content store, requires
+`io.kubernetes.cri.image-name` to name the same digest, and verifies the
+selected platform manifest's config digest against CRI's recorded image
+identity. It never selects executable content through a mutable config-digest
+image alias. Conflicting hints and tag-only requests fail closed.
 
 ### 5. The launcher annotation can traverse outside the launcher root
 

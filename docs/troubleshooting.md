@@ -16,6 +16,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | Node provisioning fails | Node not labeled `ready`; condition/event `ProvisionFailed` | [→ provisioning](#node-never-becomes-ready) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
+| containerd 1.x node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 
 ---
 
@@ -38,6 +39,10 @@ kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-e
 
 - **cgroup v1-only node** — the provisioner refuses it (cgroup v2 is required). Move
   the node to a cgroup v2 kernel/config, or exclude it.
+- **containerd 1.x node** — the provisioner reports
+  `unsupported-containerd-version`; upgrade the server to containerd 2.0 or
+  newer. Config file `version = 2` remains supported on containerd 2 and is not
+  the containerd server version.
 - **JDK copy-from-image failed** — the node can't reach the vendor JDK image, or an
   uncurated distribution was requested. Verify the containerd socket mount and image
   pull access, mirror the image, or request `temurin`/`microsoft`. See
@@ -104,9 +109,9 @@ annotation). See [Launchers](launchers.md#installing-jaz-on-nodes).
 
 ## ImagePull-style failure
 
-**Symptom:** the pod can't fetch the OCI artifact.
+**Symptom:** the pod can't fetch the OCI image.
 
-- **Wrong ref / not pushed** — verify the artifact exists:
+- **Wrong ref / not pushed** — verify the image exists:
   `oras manifest fetch <ref>` (or `brewlet inspect <ref>` for the local layout).
 - **Unauthorized** — add/verify `imagePullSecrets` (or `artifact.pullSecrets` in the
   `JavaApplication`).
@@ -156,10 +161,12 @@ containerd --config /etc/containerd/config.toml config dump | grep -A4 runtimes.
 
 ## Webhook / admission problems
 
-**Symptom:** artifact annotations aren't stamped, or scheduling isn't steered.
+**Symptom:** compatibility hints aren't stamped, or scheduling isn't steered.
 
 - With `admission.failurePolicy: Ignore` (default), a webhook outage silently lets
-  pods through **without** stamping/steering — check the webhook is healthy:
+  pods through **without** stamping/steering — check the webhook is healthy. If
+  the shim still cannot resolve the workload image from containerd metadata, it
+  fails closed rather than guessing:
   ```bash
   kubectl get pods -n brewlet -l app=brewlet-admission
   kubectl logs -n brewlet -l app=brewlet-admission

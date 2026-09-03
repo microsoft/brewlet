@@ -230,7 +230,8 @@ public class PushMojo extends AbstractBrewletMojo {
                 getLog().info("  index: " + indexDigest);
                 getLog().info("  platforms: "
                         + sh.brewlet.maven.plugin.oci.RunnableImageBuilder.targetArches(cfg));
-                getLog().info("  a runtimeClassName: brewlet pod can now set image: " + image);
+                String pinnedImage = RegistryClient.pinReference(image, indexDigest);
+                getLog().info("  deploy image: " + pinnedImage);
                 getLog().info("  developer shipped ONLY the JAR; no Dockerfile, no base image.");
             } catch (IOException | InterruptedException | GeneralSecurityException e) {
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();

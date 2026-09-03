@@ -9,6 +9,7 @@ The node provisioner prepares a Linux Kubernetes node to run Brewlet workloads.
 Its privileged entrypoint installs the containerd shim, materializes configured
 JDK runtime roots and optional launcher layers, registers the `brewlet`
 containerd runtime, validates the installation, and advertises node readiness.
+The host must run containerd 2.0 or newer.
 
 See the [Brewlet specification](../specs/SPECIFICATION.md) for the node
 provisioning model and the [user documentation](../docs/)
@@ -107,6 +108,12 @@ provisioning failure removes both. The node label is a scheduling hint; the shim
 checks the sentinel authoritatively.
 
 ## Containerd configuration
+
+The provisioner first queries the host server through `ctr version` and rejects
+containerd 1.x. Brewlet's immutable image identity requires protected CRI
+requested-image metadata that older servers discard. This server-version gate
+is independent of the TOML config format: containerd 2 remains supported with
+either config `version = 2` or `version = 3`.
 
 The default `validated` mode checks whether the host's primary containerd
 configuration imports `/etc/containerd/config.toml.d/*.toml`. When it does,

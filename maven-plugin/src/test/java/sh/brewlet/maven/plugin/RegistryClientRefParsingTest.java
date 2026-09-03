@@ -57,4 +57,25 @@ class RegistryClientRefParsingTest {
         assertEquals("1.0.0-SNAPSHOT",
                 RegistryClient.extractTag("registry.example.com/team/app:1.0.0-SNAPSHOT"));
     }
+
+    @Test
+    void digestPinnedReference_requiresCanonicalSha256() {
+        String digest = "sha256:" + "a".repeat(64);
+        assertTrue(RegistryClient.isDigestPinnedReference(
+                "registry.example.com/team/app:1.0@" + digest));
+        assertFalse(RegistryClient.isDigestPinnedReference(
+                "registry.example.com/team/app:1.0"));
+        assertFalse(RegistryClient.isDigestPinnedReference(
+                "registry.example.com/team/app@sha256:not-a-digest"));
+    }
+
+    @Test
+    void pinReference_replacesTagOrDigest() {
+        String digest = "sha256:" + "a".repeat(64);
+        assertEquals("registry.example.com/team/app@" + digest,
+                RegistryClient.pinReference("registry.example.com/team/app:1.0", digest));
+        assertEquals("localhost:5000/team/app@" + digest,
+                RegistryClient.pinReference(
+                        "localhost:5000/team/app@sha256:" + "b".repeat(64), digest));
+    }
 }

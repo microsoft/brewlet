@@ -264,8 +264,10 @@ inputs:
 
 - the trusted CRI sandbox namespace
   (`io.kubernetes.cri.sandbox-namespace`), never a tenant Brewlet annotation;
-- the resolved platform-manifest digest after canonical SHA-256 syntax,
-  descriptor-size, and content-hash verification; and
+- the resolved platform-manifest digest reached from the digest-pinned CRI
+  requested-image target, after direct content-store resolution, CRI config-
+  digest binding, canonical SHA-256 syntax, descriptor-size, and content-hash
+  verification;
 - the selected JDK's exact build identity; and
 - the CRI-configured process UID, so workloads using different identities never
   receive an owner-inaccessible cache entry.
@@ -363,7 +365,11 @@ elects a **writer**, a graceful delete dumps `archive.jsa`, and rollout 2
 same node, verifies that its OCI bundle mounts a different private child rather
 than `/opt/brewlet/cds`, proves it cannot enumerate or address the victim entry,
 modifies and replaces its own archive, and confirms the victim bytes and mapped
-consumer remain unchanged.
+consumer remain unchanged. Standing this up also hardened the shim's CRI path:
+it translates generic runtime options while preserving the cgroup driver, skips
+the pod sandbox container, receives deployment annotations through the
+provisioner's allowlist, and still derives executable image identity from
+containerd-owned metadata rather than those annotations.
 
 ### 4.4 Deterministic JAR mtime — why a shipped archive maps on the node
 

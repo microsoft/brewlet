@@ -39,7 +39,7 @@ spec:
   runtimeClassName: brewlet
   containers:
     - name: app
-      image: registry.example.com/team/app:1.4.2
+      image: registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true          # the JDK root is RO already
@@ -62,9 +62,16 @@ upper/scratch layer is writable.
 
 Because the JAR is a first-class OCI artifact, standard supply-chain controls apply:
 
-- **Digest-pin** artifact references (`repo@sha256:…`). The admission webhook stamps
-  `brewlet.sh/artifact-digest`, and the shim resolves the JAR straight from
-  containerd's content store by digest. See [Building & publishing](building-and-publishing.md#4-pin-to-a-digest-recommended).
+- **Digest-pin** every runnable image reference (`repo@sha256:…`); tag-only
+  Kubernetes execution is rejected. The admission webhook overwrites
+  `brewlet.sh/artifact-digest` as a compatibility hint from the selected Pod
+  image. The shim takes the exact target digest from containerd's protected CRI
+  requested-image metadata, requires the protected
+  `io.kubernetes.cri.image-name` OCI annotation to name the same target, resolves
+  that target directly from the content store, and verifies the selected
+  platform manifest's config digest against CRI's recorded image identity.
+  Tenant-controlled Brewlet annotations never select executable content. See
+  [Building & publishing](building-and-publishing.md#4-pin-to-a-digest).
 
 ### Supply-chain attestations
 
@@ -82,8 +89,9 @@ trusted through the configured key, not OIDC- or Fulcio-issued identities.
 
 Deploy [Ratify/Gatekeeper admission enforcement](admission-enforcement.md) to
 require the final-image attestation for `runtimeClassName: brewlet` pods. It
-requires an OCI 1.1 Referrers-API registry and digest-pinned images and fails
-closed when trusted evidence cannot be discovered or verified.
+requires an OCI 1.1 Referrers-API registry and digest-pinned images, verifies
+the Pod image before admission, and fails closed when trusted evidence cannot
+be discovered or verified.
 
 ---
 
@@ -113,9 +121,9 @@ Mitigations and guardrails:
 | **Provisioning is scoped, but broad by default** | The chart's default `NodeProfile` provisions **every** node (§5.6). To limit the blast radius, disable it (`defaultProfile.enabled=false`) and define named `NodeProfile`s scoped to platform-owned pools. The legacy standalone DaemonSet instead touches only nodes carrying the `brewlet.sh/provision=true` **label**. |
 | **Scope to platform-owned pools** | Use named `NodeProfile` pools (or the `brewlet.sh/provision` label for the standalone path) to restrict provisioning to nodes your platform team controls. Do **not** provision shared/hostile multi-tenant nodes. |
 | **Build inputs fail closed** | The provisioner verifies repository-pinned SHA-256 values for `kubectl`, `ctr`, `crictl`, and downloaded notices before extraction. Its runtime image receives only verified outputs, all repository Dockerfile bases are digest-pinned, and CI and release workflows reject corrupt assets or future unpinned/download-bypass changes. |
-| **Host mutation is validated and reversible** | The default rollout validates the effective containerd config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK and launcher probes also pass. |
+| **Host mutation is validated and reversible** | The provisioner rejects containerd servers older than 2.0, validates the effective config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK and launcher probes also pass. |
 | **The operator is unprivileged** | The operator only talks to the API server; only the DaemonSet it manages is privileged. |
-| **Webhook can't block workloads** | `admission.failurePolicy: Ignore` (default) means a webhook outage never wedges deployments. |
+| **Webhook can't block workloads** | `admission.failurePolicy: Ignore` (default) means a webhook outage never wedges deployments; the shim still fails closed when it cannot resolve runtime image identity. |
 
 > ⚠️ Treat enabling Brewlet on a node the same way you'd treat any privileged
 > node-bootstrap DaemonSet (a pattern also used for node runtime installation in

@@ -877,4 +877,19 @@ public class RegistryClient {
         }
         return "latest";
     }
+
+    /** Returns whether the reference ends in a canonical sha256 digest. */
+    public static boolean isDigestPinnedReference(String imageRef) {
+        if (imageRef == null) return false;
+        int atIdx = imageRef.lastIndexOf('@');
+        return atIdx > 0 && isDigest(imageRef.substring(atIdx + 1));
+    }
+
+    /** Replaces a tag or existing digest with the supplied canonical digest. */
+    public static String pinReference(String imageRef, String digest) {
+        if (imageRef == null || imageRef.isBlank() || !isDigest(digest)) {
+            throw new IllegalArgumentException("Image reference and canonical sha256 digest are required");
+        }
+        return imageRef.replaceFirst("[:@][^/]*$", "") + "@" + digest;
+    }
 }

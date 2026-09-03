@@ -34,15 +34,13 @@ func (c contentStoreSource) BlobPath(digest string) string { return contentBlobP
 //   - "layout"     — a Brewlet-local OCI image layout (the PoC's stand-in for a
 //     registry; addressed by tag/ref). Selected when StoreRoot is set.
 //   - "containerd" — containerd's own on-disk content store, addressed by the
-//     artifact manifest digest. This is the production path once containerd has
-//     pulled the OCI artifact into its content store.
+//     CRI-resolved image target digest. This is the production path once
+//     containerd has pulled the runnable OCI image into its content store.
 //
 // The backend is taken from ic.Backend, or inferred: a StoreRoot implies the
 // layout backend, otherwise the containerd content store is used. Each backend
-// handles BOTH a native Brewlet artifact (custom media types) and a runnable OCI
-// image (standard tar+gzip layers pulled by kubelet); the manifest tells them
-// apart via Manifest.IsRunnableImage. The actual format resolution lives in the
-// artifact package so the local CLI (run/bundle) and the shim share one path.
+// can decode both formats so the local CLI and production shim share resolution
+// code, but the task service rejects native artifacts for Kubernetes execution.
 func loadArtifactBlobs(ic imageConfig) (artifactBlobs, error) {
 	backend := ic.Backend
 	if backend == "" {
@@ -70,14 +68,14 @@ func loadArtifactBlobs(ic imageConfig) (artifactBlobs, error) {
 const defaultContentRoot = "/var/lib/containerd/io.containerd.content.v1.content"
 
 // contentStoreBlobs resolves the artifact from containerd's content store given
-// the manifest digest (which may be an image index — the running node's platform
-// manifest is selected). It handles both a native Brewlet artifact and a
-// kubelet-pulled runnable image. No copy of the native JAR blob is made — it is
+// the manifest digest (which may be an image index — the current Linux platform
+// manifest is selected strictly). It handles both a native Brewlet artifact and
+// a kubelet-pulled runnable image. No copy of the native JAR blob is made — it is
 // mounted from the content store directly; a runnable image's gzip layers are
 // staged (gunzipped) once per image into a temp tree the sandbox reads from.
 func contentStoreBlobs(contentRoot, manifestDigest string) (artifactBlobs, error) {
 	if manifestDigest == "" {
-		return artifactBlobs{}, fmt.Errorf("containerd backend requires the artifact manifest digest (annotation %q)", annArtifactDigest)
+		return artifactBlobs{}, fmt.Errorf("containerd backend requires a resolved image manifest digest")
 	}
 	src := contentStoreSource{root: contentRoot}
 	man, digest, err := artifact.ResolveManifestFollowingIndex(src, manifestDigest)

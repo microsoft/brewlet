@@ -101,19 +101,28 @@ test -f integration-tests/fixtures/demo-app/target/brewlet/jvm-config.json
 test -f integration-tests/fixtures/demo-app/target/brewlet/oci/index.json
 ```
 
-The image layout contains standard OCI layers for `amd64` and `arm64`. Its image
-config carries a Brewlet launch contract; it does not contain a base image.
+The image layout contains standard OCI layers for `amd64` and `arm64`. Each
+platform manifest carries the Brewlet launch contract in
+`brewlet.sh/jvm-config`; the image does not contain a base image.
 
 ## 4. Publish the application
 
 Choose a unique tag and push it to the registry supplied by Ops:
 
 ```bash
-export IMAGE="$BREWLET_REGISTRY/hello:$(date +%Y%m%d%H%M%S)"
+export IMAGE_TAG="$BREWLET_REGISTRY/hello:$(date +%Y%m%d%H%M%S)"
+export PUSH_LOG="$(mktemp)"
 
 mvn -f integration-tests/fixtures/demo-app/pom.xml \
   "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
-  -Dbrewlet.image="$IMAGE"
+  -Dbrewlet.image="$IMAGE_TAG" | tee "$PUSH_LOG"
+
+export IMAGE_DIGEST="$(
+  sed -n 's/.*index: \(sha256:[0-9a-f]\{64\}\).*/\1/p' "$PUSH_LOG" | tail -1
+)"
+test -n "$IMAGE_DIGEST"
+export IMAGE="${IMAGE_TAG%:*}@$IMAGE_DIGEST"
+rm -f "$PUSH_LOG"
 ```
 
 Use your normal registry login mechanism before this command. Private registry

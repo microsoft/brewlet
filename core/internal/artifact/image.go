@@ -34,8 +34,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
+
+	"github.com/containerd/platforms"
 )
 
 // marshalIndent is json.MarshalIndent with Brewlet's canonical 2-space layout,
@@ -480,30 +481,39 @@ func gzipBytes(b []byte) []byte {
 	return buf.Bytes()
 }
 
-// SelectPlatformManifest returns the digest of the index entry matching arch
-// (defaulting to the running node's GOARCH), for an image index. It lets a
-// consumer resolve a runnable image's platform manifest from the tagged index.
-func (idx Index) SelectPlatformManifest(arch string) (Descriptor, bool) {
-	if arch == "" {
-		arch = runtime.GOARCH
+// currentRunnablePlatform returns the Linux platform containerd selects on a
+// Brewlet node, including the CPU variant used for strict ARM matching.
+func currentRunnablePlatform() Platform {
+	target := platforms.DefaultSpec()
+	target.OS = "linux"
+	return target
+}
+
+func platformName(target Platform) string {
+	return platforms.Format(target)
+}
+
+// SelectPlatformManifest returns the first index entry selected by containerd's
+// strict OS/architecture/variant matcher. A zero target selects the current
+// Brewlet Linux node platform. It never falls back to an unmatched descriptor.
+func (idx Index) SelectPlatformManifest(target Platform) (Descriptor, bool) {
+	if target.OS == "" && target.Architecture == "" {
+		target = currentRunnablePlatform()
 	}
+	matcher := platforms.OnlyStrict(target)
 	for _, m := range idx.Manifests {
-		if m.Platform != nil && m.Platform.Architecture == arch {
+		if m.Platform != nil && matcher.Match(*m.Platform) {
 			return m, true
 		}
-	}
-	// Fall back to the first entry (e.g. a single-arch index).
-	if len(idx.Manifests) > 0 {
-		return idx.Manifests[0], true
 	}
 	return Descriptor{}, false
 }
 
 // ResolveManifestByRef reads the manifest a ref tags, transparently following an
-// image index to the entry matching the running node's architecture. It returns
-// the resolved (platform) manifest and its digest. Unlike Resolve it does NOT
-// decode a Brewlet config blob, so it works for both native artifacts and
-// runnable images — the caller inspects Manifest.IsRunnableImage to branch.
+// image index to the entry matching the current Linux platform. It returns the
+// resolved (platform) manifest and its digest. Unlike Resolve it does NOT decode
+// a Brewlet config blob, so it works for both native artifacts and runnable
+// images — the caller inspects Manifest.IsRunnableImage to branch.
 func (s Store) ResolveManifestByRef(ref string) (Manifest, string, error) {
 	var idx Index
 	b, err := os.ReadFile(s.indexPath())
@@ -523,7 +533,7 @@ func (s Store) ResolveManifestByRef(ref string) (Manifest, string, error) {
 }
 
 // readManifestFollowingIndex reads the blob at digest; if it is an image index
-// it selects the entry for the running node's arch and reads that manifest.
+// it strictly selects the entry for the current Linux platform.
 func (s Store) readManifestFollowingIndex(desc Descriptor) (Manifest, string, error) {
 	raw, err := s.readVerifiedBlob(desc)
 	if err != nil {
@@ -535,9 +545,10 @@ func (s Store) readManifestFollowingIndex(desc Descriptor) (Manifest, string, er
 		if err := json.Unmarshal(raw, &idx); err != nil {
 			return Manifest{}, "", err
 		}
-		sel, ok := idx.SelectPlatformManifest("")
+		target := currentRunnablePlatform()
+		sel, ok := idx.SelectPlatformManifest(target)
 		if !ok {
-			return Manifest{}, "", fmt.Errorf("image index %s has no manifests", digest)
+			return Manifest{}, "", fmt.Errorf("image index %s has no manifest for %s", digest, platformName(target))
 		}
 		digest = sel.Digest
 		if raw, err = s.readVerifiedBlob(sel); err != nil {

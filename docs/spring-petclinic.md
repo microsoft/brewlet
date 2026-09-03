@@ -89,8 +89,10 @@ kubectl apply -f kubernetes/deploy/petclinic-javaapplication.yaml
 kubectl get javaapplication,deploy,svc -n petclinic
 ```
 
-Update the placeholder registry in the descriptor first. The operator reconciles
-the resource into a Deployment with `runtimeClassName: brewlet`, a Service, and
+Update the placeholder registry and image-index digest in the descriptor from
+the `index: sha256:…` value printed by `brewlet push`. Kubernetes Brewlet
+workloads require that digest-pinned reference. The operator reconciles the
+resource into a Deployment with `runtimeClassName: brewlet`, a Service, and
 optional autoscaling.
 
 See the

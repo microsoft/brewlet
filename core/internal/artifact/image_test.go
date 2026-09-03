@@ -214,3 +214,23 @@ func TestPushRunnableImageNonPortableArch(t *testing.T) {
 		t.Errorf("non-portable image arches = %+v, want [arm64]", idx.Manifests)
 	}
 }
+
+func TestSelectPlatformManifestMatchesOSArchitectureAndVariant(t *testing.T) {
+	target := Platform{OS: "linux", Architecture: "arm", Variant: "v7"}
+	wrongOS := Platform{OS: "windows", Architecture: "arm", Variant: "v7"}
+	wrongVariant := Platform{OS: "linux", Architecture: "arm", Variant: "v6"}
+	idx := Index{Manifests: []Descriptor{
+		{Digest: "wrong-os", Platform: &wrongOS},
+		{Digest: "wrong-variant", Platform: &wrongVariant},
+		{Digest: "exact", Platform: &target},
+	}}
+
+	got, ok := idx.SelectPlatformManifest(target)
+	if !ok || got.Digest != "exact" {
+		t.Fatalf("selected descriptor = %+v, ok=%t; want exact platform match", got, ok)
+	}
+	idx.Manifests = idx.Manifests[:2]
+	if got, ok := idx.SelectPlatformManifest(target); ok {
+		t.Fatalf("selected unmatched descriptor %+v; want no fallback", got)
+	}
+}

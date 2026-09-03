@@ -71,7 +71,7 @@ func TestBuildDeployment(t *testing.T) {
 
 	c := pod.Containers[0]
 	if c.Image != app.Spec.Artifact.Image {
-		t.Errorf("image = %q, want the OCI artifact ref", c.Image)
+		t.Errorf("image = %q, want the runnable OCI image ref", c.Image)
 	}
 	if _, ok := c.Resources.Limits[corev1.ResourceMemory]; !ok {
 		t.Error("container must carry the descriptor's memory limit (sandbox cgroup)")

@@ -301,7 +301,7 @@ following under both runc and the candidate gVisor tier:
 |---|---|
 | CRI lifecycle | Pod sandbox, single-container and multi-container pods (init container plus sidecar), workload create/start, exec, logs, probes, signal handling, graceful termination, forced deletion |
 | Artifact delivery | Default runnable image pulled by kubelet and resolved from containerd content |
-| Native artifact path | Existing pre-pulled/native-artifact fallback where supported |
+| Native artifact path | Local OCI-layout / CLI bundle workflows remain available outside Kubernetes |
 | Launch modes | JAR, layered classpath, JPMS module path, and mixed module/classpath |
 | Managed dependencies | Governed thin JAR using the exact managed classpath layer |
 | JDK inventory | Feature-only and distribution-specific selection, custom JDK source, incompatible JDK denial |
