@@ -14,13 +14,14 @@ explicit workload request.
 | `brewlet.sh/jdk.<distribution>-<feature>` | The exact JDK root is installed. | Brewlet provisioner | `Exists` |
 | `brewlet.sh/jdk-feature.<feature>` | At least one JDK distribution for the feature version is installed. | Brewlet provisioner | `Exists` |
 | `brewlet.sh/launcher.<name>` | The launcher is available. The provisioner always publishes `brewlet.sh/launcher.java`; configured launcher layers add more keys. | Brewlet provisioner | `Exists` for non-`java` requests |
+| `brewlet.sh/appcds-regeneration` | The active `NodeProfile` authorizes node-side AppCDS regeneration and the root-owned host policy sentinel is installed. Published only while enabled. | Brewlet provisioner | `Exists` when regeneration is requested |
 | `kubernetes.io/arch=<architecture>` | The kubelet-reported node architecture. Brewlet reuses this standard label rather than publishing an architecture label of its own. | Kubelet | `In: [...]` |
 
-The dynamic JDK and launcher labels are **boolean-presence labels**. Brewlet
-currently writes the value `true`, but the value is not part of the capability
-test. Consumers MUST match these keys with Kubernetes `Operator: Exists` and
-MUST NOT require `=true`. This permits Brewlet to add non-semantic diagnostic
-values in a future compatible release without changing scheduling behavior.
+The dynamic JDK, launcher, and AppCDS labels are **boolean-presence labels**.
+Brewlet currently writes the value `true`, but the value is not part of the
+scheduling test. Consumers MUST match these keys with Kubernetes
+`Operator: Exists` and MUST NOT require `=true`. A disabled AppCDS policy removes
+the key rather than publishing a false value.
 
 `brewlet.sh/runtime` is not a boolean-presence label: only the exact value
 `ready` means that the runtime may accept workloads. `kubernetes.io/arch` also
@@ -73,6 +74,8 @@ spec:
       feature: 25
   launchers:
     - jaz
+  appCDS:
+    regenerationEnabled: true
 ```
 
 causes each successfully provisioned `batch` node to publish:
@@ -85,16 +88,18 @@ brewlet.sh/jdk.microsoft-25=true
 brewlet.sh/jdk-feature.25=true
 brewlet.sh/launcher.java=true
 brewlet.sh/launcher.jaz=true
+brewlet.sh/appcds-regeneration=true
 ```
 
 The provider's kubelet separately publishes `kubernetes.io/arch`.
 
 ## Admission-injected affinity
 
-`JavaApplication.spec.jvm.version`, `.distribution`, and `.launcher` become pod
-annotations before pod admission. Equivalent raw pods can set the annotations
-directly. For a distribution-agnostic JDK 21 request with the `jaz` launcher,
-the Brewlet webhook injects the following requirements:
+`JavaApplication.spec.jvm.version`, `.distribution`, `.launcher`, and
+`.cds.regenerate` become pod annotations before pod admission. Equivalent raw
+pods can set the annotations directly. For a distribution-agnostic JDK 21
+request with the `jaz` launcher and AppCDS regeneration, the Brewlet webhook
+injects the following requirements:
 
 ```yaml
 spec:
@@ -108,6 +113,8 @@ spec:
                 operator: Exists
               - key: brewlet.sh/launcher.jaz
                 operator: Exists
+              - key: brewlet.sh/appcds-regeneration
+                operator: Exists
 ```
 
 The `brewlet` `RuntimeClass` additionally contributes:
@@ -120,8 +127,8 @@ nodeSelector:
 An exact `temurin-21` request uses
 `brewlet.sh/jdk.temurin-21 Exists` instead. A non-portable artifact requesting
 `amd64` or `arm64` adds `kubernetes.io/arch In [...]`. A missing JDK request adds
-no JDK affinity, and the built-in `java` launcher adds no launcher affinity
-because every ready Brewlet node provides it.
+no JDK affinity, the built-in `java` launcher adds no launcher affinity, and a
+pod that does not request regeneration adds no AppCDS affinity.
 
 When a pod already has required node affinity, Brewlet appends its requirements
 to every existing node selector term. Expressions within a term remain ANDed
@@ -129,12 +136,17 @@ and terms remain ORed, so Brewlet preserves the pod author's existing selection
 logic while requiring the requested runtime capabilities in every alternative.
 
 Admission first verifies explicit requests against the current ready fleet. If
-no ready node advertises the requested JDK, launcher, or architecture, the pod
-is denied with `NoCompatibleJDK`, `NoCompatibleLauncher`, or
-`NoCompatibleArch`. Consequently, a dynamically provisioned capability pool
+no ready node jointly advertises the requested JDK, launcher, architecture, and
+AppCDS authorization, the pod is denied with `NoCompatibleJDK`,
+`NoCompatibleLauncher`, `NoCompatibleArch`, or
+`AppCDSRegenerationDisabled`. Consequently, a dynamically provisioned capability pool
 must retain at least one ready node advertising the requested capability;
 current Brewlet admission does not support waking a completely zero-sized
 capability fleet.
+
+The AppCDS label is a scheduling hint, not the authorization boundary. The shim
+requires `/opt/brewlet/policy/appcds-regeneration-enabled` independently, so a
+stale or forged label cannot grant cache-write access.
 
 ## Autoscaler recipes
 
@@ -155,7 +167,8 @@ aws autoscaling create-or-update-tags --tags \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk.temurin-21,Value=true,PropagateAtLaunch=false" \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk-feature.21,Value=true,PropagateAtLaunch=false" \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.java,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.jaz,Value=true,PropagateAtLaunch=false"
+  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.jaz,Value=true,PropagateAtLaunch=false" \
+  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/appcds-regeneration,Value=true,PropagateAtLaunch=false"
 ```
 
 These tags are scheduling hints to Cluster Autoscaler; with
@@ -208,6 +221,8 @@ spec:
       feature: 21
   launchers:
     - jaz
+  appCDS:
+    regenerationEnabled: true
 ```
 
 This pool-targeting arrangement ensures every created node receives the declared
@@ -235,6 +250,7 @@ spec:
         brewlet.sh/jdk-feature.21: "true"
         brewlet.sh/launcher.java: "true"
         brewlet.sh/launcher.jaz: "true"
+        brewlet.sh/appcds-regeneration: "true"
     spec:
       requirements:
         - key: kubernetes.io/arch
@@ -247,7 +263,9 @@ from a Karpenter template while relying on the Brewlet provisioner to install
 the runtime after node registration is unsupported. The current
 `NodeProfile`-managed provisioner is therefore suitable for Karpenter nodes
 created for other demand, but not as the bootstrap mechanism for a
-capability-driven Karpenter `NodePool`.
+capability-driven Karpenter `NodePool`. If the template publishes
+`brewlet.sh/appcds-regeneration`, that bootstrap MUST also install the root-owned
+AppCDS policy sentinel; the label alone is never authorization.
 
 ## Compatibility and versioning
 

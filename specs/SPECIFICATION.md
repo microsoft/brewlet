@@ -591,9 +591,9 @@ DaemonSet — remains for the no-operator path (§5.5).
    ```toml
    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet]
      runtime_type = "io.containerd.brewlet.v2"
-     # Forward the deployment-descriptor annotations the admission webhook stamps
-     # so the shim receives the artifact digest (to resolve the artifact from the
-     # content store) and the cds-regenerate toggle.
+     # Forward the deployment-descriptor annotations the admission webhook stamps.
+     # The shim verifies the resolved platform manifest from the content store and
+     # does not trust the artifact-digest annotation as AppCDS cache identity.
      pod_annotations = ["brewlet.sh/*"]
      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet.options]
        SystemdCgroup = true  # mirror the node's runc cgroup driver
@@ -623,12 +623,18 @@ DaemonSet — remains for the no-operator path (§5.5).
    advertised. Unchanged valid configuration is config-dump validated and
    health-checked without another restart.
 5. Verifies the shim responds.
-6. On success, labels the node `brewlet.sh/runtime=ready` and annotates with the
+6. Applies the profile's AppCDS policy. When
+   `spec.appCDS.regenerationEnabled=true`, atomically installs the root-owned,
+   read-only `/opt/brewlet/policy/appcds-regeneration-enabled` sentinel. When
+   disabled, during cleanup, or after any provisioning failure, removes the
+   sentinel and its capability advertisement.
+7. On success, labels the node `brewlet.sh/runtime=ready` and annotates with the
    available JDKs, e.g. `brewlet.sh/jdks=temurin-17,temurin-21,temurin-25`, and
    any installed launchers, e.g. `brewlet.sh/launchers=java,jaz`. It also emits
    per-capability **scheduling labels** the admission webhook matches nodeAffinity
    against (annotations can't drive nodeAffinity): `brewlet.sh/jdk.<dist>-<feature>`,
-   `brewlet.sh/jdk-feature.<feature>`, and `brewlet.sh/launcher.<name>` (§8/§14).
+   `brewlet.sh/jdk-feature.<feature>`, `brewlet.sh/launcher.<name>`, and, only
+   when policy authorizes it, `brewlet.sh/appcds-regeneration` (§8/§14).
    Their exact keys, token grammar, presence semantics, compatibility guarantees,
    and autoscaler integration are defined by the public
    [capability-label contract](CAPABILITY_LABELS.md).
@@ -795,7 +801,8 @@ or the legacy `brewlet.sh/provision` label (§5.1/§5.5) — ignores that real
 clusters are heterogeneous: a batch pool wants a different JDK than the web pool,
 an air-gapped pool needs a registry mirror, some pools must never have containerd
 restarted. The cluster-scoped **`NodeProfile`** CRD (`node.brewlet.sh/v1alpha1`)
-binds a **node pool** to a **JDK/launcher inventory** and a rollout policy.
+binds a **node pool** to a **JDK/launcher inventory**, AppCDS policy, and rollout
+policy.
 *Selecting a pool is the opt-in* — every node in the pool, present and future, is
 provisioned; there is no per-node label to manage.
 
@@ -810,6 +817,8 @@ spec:
   jdks:
     - { distribution: microsoft, feature: 25 }
   launchers: ["jaz"]
+  appCDS:
+    regenerationEnabled: true  # default false; authorizes node cache writers
   registry:                  # optional, air-gapped pulls (see below)
     mirrors: { "mcr.microsoft.com": "mirror.internal/mcr" }
   rollout:
@@ -831,7 +840,8 @@ spec:
 - **One DaemonSet per profile.** The operator's `NodeProfileReconciler` (§8.1)
   reconciles each profile into its own `brewlet-node-provisioner-<profile>`
   DaemonSet whose pod `nodeAffinity` is the profile's pool and whose `JDKS` /
-  `LAUNCHERS` / `MIRRORS` / `BREWLET_CONTAINERD_RESTART` env come from the spec.
+  `LAUNCHERS` / `BREWLET_APP_CDS_REGENERATION_ENABLED` / `MIRRORS` /
+  `BREWLET_CONTAINERD_RESTART` env come from the spec.
   Non-curated JDK image and Java-home mappings are rendered as indexed
   `JDK_CUSTOM_SOURCE_*` env variables.
 - **Registry mirrors (air-gap).** `spec.registry.mirrors` maps a curated upstream
@@ -840,9 +850,10 @@ spec:
 - **Reversal.** Deleting a NodeProfile does not silently strip nodes. A finalizer
   (`node.brewlet.sh/cleanup`) holds the object while the operator runs a
   short-lived `brewlet-cleanup-<profile>` DaemonSet (`BREWLET_MODE=cleanup`) that
-  restores the containerd config backup, removes the shim, and drops the runtime +
-  capability labels; only once every assigned node is cleaned is the finalizer
-  removed and the object garbage-collected.
+  restores the containerd config backup, removes the AppCDS authorization
+  sentinel and shim, and drops the runtime + capability labels; only once every
+  assigned node is cleaned is the finalizer removed and the object
+  garbage-collected.
 
 Sample manifests:
 [`deploy/sample-nodeprofile.yaml`](../kubernetes/deploy/sample-nodeprofile.yaml);
@@ -860,9 +871,10 @@ bundle and delegates isolation to runc*. This maximizes correctness and reuse.
 
 ### 6.1 Per-container lifecycle (`Create`)
 
-1. **Resolve artifact.** Read the image the kubelet handed us. Separate the
-   `jvm.config.v1+json` blob from the `jar.layer.v1+jar` blob (containerd content
-   store already cached them).
+1. **Resolve artifact.** Read the image the kubelet handed us, verify the
+   resolved platform-manifest digest against its bytes (and descriptor size when
+   present), and separate the `jvm.config.v1+json` blob from the
+   `jar.layer.v1+jar` blob (containerd content store already cached them).
 2. **Select JDK/launcher.** Read `brewlet.sh/jdk` and `brewlet.sh/launcher` from
    the OCI runtime spec annotations that originated on the pod. The JDK annotation
    selects the node-resident JDK root (a bare feature or empty request picks the
@@ -882,6 +894,17 @@ bundle and delegates isolation to runc*. This maximizes correctness and reuse.
      (CPU shares/quota, memory limit) — see §10.
    - Standard pod mounts, env, hostname, and the **CNI-provided network namespace**
      injected by the kubelet/containerd (so the pod gets a normal pod IP).
+   - For `brewlet.sh/cds-regenerate: "true"`, require the root-owned AppCDS
+     policy sentinel, derive cache identity from the trusted CRI sandbox
+     namespace + verified resolved manifest digest + exact JDK build + trusted
+     CRI process UID, and mount only `<cache>/<key>` at `/run/brewlet/cds`. The
+     elected writer receives a UID/GID-owned read-write directory; consumers
+     with the same UID receive the same
+     namespace-scoped entry read-only. The cache root and `<key>.writer` marker
+     are never mounted. The shim refreshes the writer marker for the task
+     lifetime and releases it when the task is deleted; an unrefreshed marker
+     becomes reclaimable after the writer TTL. Marker state transitions are
+     serialized through a host-only cache-root lock.
 5. **Delegate to runc** to create/start the container. stdout/stderr flow back
    through containerd exactly like any container → `kubectl logs` just works.
 
@@ -917,11 +940,13 @@ and builds/runs on Linux:
   containerd's on-disk content store by digest (production), and a `layout`
   backend reads a Brewlet-local OCI layout (the PoC/e2e harness path).
 
-The artifact reference and manifest digest are stamped **cluster-side, not in the
-shim**: the `brewlet-admission` webhook (§8.3) stamps the
-`brewlet.sh/artifact-ref` and `brewlet.sh/artifact-digest` annotations onto pods
-using `runtimeClassName: brewlet`, so the shim can resolve the artifact from the
-content store. On non-Linux dev hosts only the portable bundle-assembly core builds locally;
+The artifact reference and initial manifest descriptor are stamped
+**cluster-side, not in the shim**: the `brewlet-admission` webhook (§8.3) stamps
+the `brewlet.sh/artifact-ref` and `brewlet.sh/artifact-digest` annotations onto
+pods using `runtimeClassName: brewlet`, so the shim can locate the artifact in
+the content store. The shim then verifies the selected platform manifest and
+uses that verified digest—not the pod annotation—as AppCDS cache identity. On
+non-Linux dev hosts only the portable bundle-assembly core builds locally;
 [integration-test tier 3](../integration-tests/e2e/tier3-runc.sh)
 exercises the real Linux/runc path against the monorepo's core and Kubernetes
 sources.
@@ -1033,25 +1058,27 @@ between a brewlet pod and the ready fleet. For every pod on CREATE with
   the container named by `brewlet.sh/artifact-container`) and, when the ref is
   digest-pinned (`repo@sha256:…`), `brewlet.sh/artifact-digest` — the annotations
   the shim resolves the JAR from containerd's content store by (§6.4).
-- **Matches** any explicitly requested JDK/launcher/architecture (pod annotations
-  `brewlet.sh/jdk` = `<dist>-<feature>` or a bare feature such as `21`, and
-  `brewlet.sh/launcher`, plus `brewlet.sh/arch` for non-portable artifacts)
-  against ready nodes, read from their `brewlet.sh/jdks` /
-  `brewlet.sh/launchers` annotations and standard `kubernetes.io/arch` label. If
-  no ready node is compatible, admission is denied with a `NoCompatibleJDK` /
-  `NoCompatibleLauncher` / `NoCompatibleArch` reason (§14).
+- **Matches** any explicitly requested JDK/launcher/architecture/AppCDS policy
+  (pod annotations `brewlet.sh/jdk` = `<dist>-<feature>` or a bare feature such
+  as `21`, `brewlet.sh/launcher`, `brewlet.sh/arch` for non-portable artifacts,
+  and `brewlet.sh/cds-regenerate`) against the same ready node. If no ready node
+  is compatible, admission is denied with `NoCompatibleJDK`,
+  `NoCompatibleLauncher`, `NoCompatibleArch`, or
+  `AppCDSRegenerationDisabled` (§14).
 - **Steers** scheduling by injecting `nodeAffinity` onto the provisioner's
   per-capability labels (`brewlet.sh/jdk.<d-f>`, `brewlet.sh/jdk-feature.<f>`,
-  `brewlet.sh/launcher.<n>`) and the standard `kubernetes.io/arch` label, using
-  the operators defined by the public
+  `brewlet.sh/launcher.<n>`, `brewlet.sh/appcds-regeneration`) and the standard
+  `kubernetes.io/arch` label, using the operators defined by the public
   [capability-label contract](CAPABILITY_LABELS.md), so the scheduler skips
   incompatible nodes rather than failing at runtime.
 
-Non-brewlet pods pass through untouched; a pod with no explicit JDK/launcher
-request is admitted with just the artifact annotations stamped, and the shim
-defaults the JDK to feature 21 (lexically-first installed distribution) and the
-launcher to `java`. `failurePolicy: Ignore`
-ensures a webhook outage never blocks workloads.
+Non-brewlet pods pass through untouched; a pod with no explicit JDK/launcher or
+regeneration request is admitted with just the artifact annotations stamped,
+and the shim defaults the JDK to feature 21 (lexically-first installed
+distribution) and the launcher to `java`. `failurePolicy: Ignore` ensures a
+webhook outage never blocks workloads. For AppCDS, the shim's root-owned sentinel
+check remains authoritative, so fail-open admission cannot authorize
+regeneration.
 
 > Built as a second binary in the operator module
 > ([`cmd/admission`](../kubernetes/cmd/admission)
@@ -1299,9 +1326,12 @@ and JVM features:
   mismatch falls back safely to base CDS. Alternatively opt into **node-side
   regeneration** at the deployment level (`spec.jvm.cds.regenerate` on the
   `JavaApplication` CRD → `brewlet.sh/cds-regenerate` pod annotation; `brewlet
-  run/bundle --appcds-regenerate` locally): the node maintains a
-  per-`(artifact, JDK-build)` archive cache driven by `-XX:+AutoCreateSharedArchive`
-  (JDK 19+) that self-heals on every central JDK patch. See the
+  run/bundle --appcds-regenerate` locally). Kubernetes regeneration additionally
+  requires `NodeProfile.spec.appCDS.regenerationEnabled=true`. The node maintains
+  a private per-`(namespace, verified-platform-manifest, JDK-build, process-UID)`
+  archive cache driven by `-XX:+AutoCreateSharedArchive` (JDK 19+) that
+  self-heals on every central JDK patch. Workloads receive only their single entry directory,
+  never the node-shared cache root. See the
   [AppCDS note](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md).
 
 ---
@@ -1313,6 +1343,7 @@ and JVM features:
 | No compatible JDK on any ready node        | Pod stays `Pending`; event `NoCompatibleJDK`; scheduler skips node  |
 | Requested launcher not installed on node   | Pod stays `Pending`; event `NoCompatibleLauncher`; scheduler skips node |
 | Non-portable JAR needs an arch with no ready node | Pod stays `Pending`; event `NoCompatibleArch`; scheduler skips node |
+| AppCDS regeneration requested with no authorized compatible node | Admission denies with `AppCDSRegenerationDisabled`; shim also rejects task creation when the host sentinel is absent or unsafe |
 | OCI artifact missing/unauthorized          | `ImagePull`-style failure surfaced on the pod                       |
 | JVM OOM                                     | `ExitOnOutOfMemoryError` → exit → kubelet restart per `restartPolicy`|
 | Node provisioning fails                     | Node not labeled `ready`; operator event `ProvisionFailed`          |
@@ -1322,13 +1353,17 @@ and JVM features:
 | Shim crash                                  | containerd reports task failure; pod restarts                       |
 | cgroup v1-only node                         | Provisioner refuses; node not marked ready (cgroup v2 required)     |
 
-> The `NoCompatibleJDK` / `NoCompatibleLauncher` / `NoCompatibleArch` rows are
-> enforced by the pod admission webhook (§8.3): an incompatible explicit request is
-> denied at admission with that reason, and compatible pods get nodeAffinity so the
-> scheduler skips nodes lacking the JDK/launcher or of the wrong architecture. The
+> The `NoCompatibleJDK` / `NoCompatibleLauncher` / `NoCompatibleArch` /
+> `AppCDSRegenerationDisabled` rows are enforced by the pod admission webhook
+> (§8.3): an incompatible explicit request is denied at admission with that
+> reason, and compatible pods get nodeAffinity so the scheduler skips nodes
+> lacking the requested capability. The
 > `arch` constraint (mapped to the kubelet-provided `kubernetes.io/arch` label) is
 > optional and only needed for non-portable JARs that bundle JNI native libraries;
 > arch-neutral bytecode artifacts leave it unset and run on any provisioned arch.
+> AppCDS admission remains a scheduling/early-denial aid; the root-owned host
+> sentinel is the authoritative authorization because webhook failure policy is
+> `Ignore`.
 
 ---
 

@@ -11,22 +11,25 @@
 # jdk, cds-regenerate), and then:
 #
 #   1. WRITE   rollout: the elected writer launches with
-#              -XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=<node cache>.
-#              A graceful delete lets the JVM dump the archive into the node
-#              cache (/opt/brewlet/cds) — we assert a .jsa lands there.
+#              -XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=<private entry>.
+#              A graceful delete lets the JVM dump the archive into its
+#              namespace-scoped node-cache directory.
 #   2. CONSUME rollout: with a valid archive present the next pod launches with
 #              -Xshare:auto -XX:SharedArchiveFile (NO AutoCreate). We assert the
 #              args flipped AND that the .jsa is actually mmap'd into the JVM
 #              (via /proc/1/maps) — a real CDS hit, not a silent fallback.
+#   3. ISOLATE attacker: a writer in another namespace receives a distinct
+#              private mount, cannot enumerate or address the victim entry, and
+#              can modify only its own archive without changing the victim.
 #
 # Unlike tier6 (which only side-loads a normal image), this tier provisions the
 # whole Brewlet runtime by hand — equivalent to the core provisioner — so it
 # only runs where the nodes are local containerd docker containers we can reach
 # with `docker exec` (kind / CI). It SKIPs everywhere else.
 #
-# Prereqs: kubectl + reachable cluster, docker (nodes are local containers),
-# go, a JDK 21+ ($JAVA_HOME) to build the demo JAR, and network access to pull
-# eclipse-temurin:21 for the JDK userland root.
+# Prereqs: kubectl + reachable cluster, docker (nodes are local containers), go,
+# python3, a JDK 21+ ($JAVA_HOME) to build the demo JAR, and network access to
+# pull eclipse-temurin:21 for the JDK userland root.
 #
 # NOTE: brewlet artifacts use custom OCI layer media types that kubelet's
 # ImageStatus cannot unpack, so the pod `image` is a normal placeholder
@@ -38,7 +41,9 @@ T8_REF="demo/hello:appcds-e2e"
 T8_JDK="temurin-21"
 T8_TEMURIN_IMG="eclipse-temurin:21"
 T8_NS="brewlet-appcds-ic"
+T8_ATTACKER_NS="brewlet-appcds-attacker"
 T8_CACHE="/opt/brewlet/cds"
+T8_POLICY="/opt/brewlet/policy/appcds-regeneration-enabled"
 T8_JDK_ROOT="/opt/brewlet/jdks/$T8_JDK"
 T8_SHIM_DST="/usr/local/bin/containerd-shim-brewlet-v2"
 T8_RC_CREATED=""
@@ -48,11 +53,13 @@ declare -a T8_PROVISIONED_NODES=()
 _t8_cleanup() {
   info "tier8: cleaning up"
   kubectl delete ns "$T8_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete ns "$T8_ATTACKER_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   [[ -n "$T8_RC_CREATED" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   for n in ${T8_PROVISIONED_NODES[@]+"${T8_PROVISIONED_NODES[@]}"}; do
-    label_node "$n" brewlet.sh/runtime- >/dev/null 2>&1 || true
+    label_node "$n" brewlet.sh/runtime- brewlet.sh/appcds-regeneration- >/dev/null 2>&1 || true
     annotate_node "$n" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
   done
+  [[ -n "$T8_NODE" ]] && docker exec "$T8_NODE" rm -f "$T8_POLICY" >/dev/null 2>&1 || true
   # We intentionally leave the node's shim binary / JDK root / config.toml patch
   # in place: they are cheap, idempotent, and reused on a re-run. The disposable
   # cluster is torn down by the operator anyway.
@@ -133,16 +140,17 @@ EOF
   return 1
 }
 
-# _t8_pod_cmdline POD: prints the launched JVM argv (NULs -> spaces).
+# _t8_pod_cmdline NAMESPACE POD: prints the launched JVM argv (NULs -> spaces).
 _t8_pod_cmdline() {
-  kubectl exec -n "$T8_NS" "$1" -- cat /proc/1/cmdline 2>/dev/null | tr '\0' ' '
+  kubectl exec -n "$1" "$2" -- cat /proc/1/cmdline 2>/dev/null | tr '\0' ' '
 }
 
 tier8_appcds_incluster() {
-  section "Tier 8 — node-side AppCDS regeneration in-cluster (write -> consume)"
+  section "Tier 8 — node-side AppCDS regeneration and namespace isolation"
   if ! have kubectl || ! k8s_reachable; then skip "tier8: appcds in-cluster" "no reachable cluster"; return 0; fi
   if ! have docker || ! docker info >/dev/null 2>&1; then skip "tier8: appcds in-cluster" "docker daemon not available"; return 0; fi
   if ! have go; then skip "tier8: appcds in-cluster" "go not installed"; return 0; fi
+  if ! have python3; then skip "tier8: appcds in-cluster" "python3 not installed"; return 0; fi
 
   # Pick a node that is a local containerd docker container we can provision,
   # preferring one that is schedulable (kind's single node, or a Docker Desktop
@@ -199,7 +207,8 @@ tier8_appcds_incluster() {
   if ! "$WORK/t8-brewlet" push "$jar" "$T8_REF" --store "$store" --format=artifact >>"$WORK/t8-build.log" 2>&1; then
     fail "tier8: push artifact" "see $WORK/t8-build.log"; return 0
   fi
-  # Manifest digest the shim resolves from the node content store (annotation).
+  # Initial manifest descriptor the shim resolves from the node content store;
+  # the resolved platform-manifest bytes are verified before cache keying.
   local digest
   digest="$(python3 - "$store" "$T8_REF" <<'PY'
 import json, sys
@@ -230,14 +239,21 @@ PY
   # --- provision the node: shim binary, JDK userland, containerd runtime -----
   docker cp "$shimbin" "$T8_NODE":"$T8_SHIM_DST" >>"$WORK/t8-prov.log" 2>&1
   docker exec "$T8_NODE" chmod +x "$T8_SHIM_DST" >>"$WORK/t8-prov.log" 2>&1
-  docker exec "$T8_NODE" mkdir -p "$T8_CACHE" >>"$WORK/t8-prov.log" 2>&1
+  if ! {
+    docker exec "$T8_NODE" mkdir -p "$T8_CACHE" "$(dirname "$T8_POLICY")" &&
+      printf 'enabled\n' | docker exec -i "$T8_NODE" sh -c \
+        "rm -f '$T8_POLICY' && cat > '$T8_POLICY' && chmod 0444 '$T8_POLICY'"
+  } >>"$WORK/t8-prov.log" 2>&1; then
+    fail "tier8: install AppCDS regeneration policy" "see $WORK/t8-prov.log"; return 0
+  fi
   if ! _t8_stage_jdk "$T8_NODE" "$arch"; then
     skip "tier8: appcds in-cluster" "could not stage temurin JDK userland (see $WORK/t8-jdk.log)"; return 0
   fi
   if ! _t8_patch_containerd "$T8_NODE"; then
     fail "tier8: register brewlet containerd runtime" "see $WORK/t8-containerd.log"; return 0
   fi
-  if ! label_node "$T8_NODE" --overwrite brewlet.sh/runtime=ready >>"$WORK/t8-prov.log" 2>&1; then
+  if ! label_node "$T8_NODE" --overwrite \
+    brewlet.sh/runtime=ready brewlet.sh/appcds-regeneration=true >>"$WORK/t8-prov.log" 2>&1; then
     fail "tier8: advertise node runtime label" "see $WORK/t8-prov.log"; return 0
   fi
   if ! annotate_node "$T8_NODE" --overwrite "brewlet.sh/jdks=$T8_JDK" "brewlet.sh/launchers=" >>"$WORK/t8-prov.log" 2>&1; then
@@ -257,7 +273,8 @@ YAML
     T8_RC_CREATED=1
   fi
   kubectl create namespace "$T8_NS" >/dev/null 2>&1 || true
-  kubectl label namespace "$T8_NS" --overwrite \
+  kubectl create namespace "$T8_ATTACKER_NS" >/dev/null 2>&1 || true
+  kubectl label namespace "$T8_NS" "$T8_ATTACKER_NS" --overwrite \
     pod-security.kubernetes.io/enforce=restricted \
     pod-security.kubernetes.io/enforce-version=latest \
     pod-security.kubernetes.io/warn=restricted \
@@ -265,13 +282,13 @@ YAML
     >>"$WORK/t8-pod.log" 2>&1
 
   # A pod carrying exactly the annotations the admission webhook stamps from
-  # spec.jvm.cds.regenerate. $1 = pod name.
+  # spec.jvm.cds.regenerate. $1 = namespace, $2 = pod name.
   _t8_apply_pod() {
-    kubectl apply -n "$T8_NS" -f - >>"$WORK/t8-pod.log" 2>&1 <<YAML
+    kubectl apply -n "$1" -f - >>"$WORK/t8-pod.log" 2>&1 <<YAML
 apiVersion: v1
 kind: Pod
 metadata:
-  name: $1
+  name: $2
   annotations:
     brewlet.sh/artifact-ref: "$T8_REF"
     brewlet.sh/artifact-digest: "$digest"
@@ -280,7 +297,10 @@ metadata:
 spec:
   runtimeClassName: brewlet
   terminationGracePeriodSeconds: 30
-  nodeSelector: { brewlet.sh/runtime: ready }
+  nodeName: "$T8_NODE"
+  nodeSelector:
+    brewlet.sh/runtime: ready
+    brewlet.sh/appcds-regeneration: "true"
   securityContext:
     runAsNonRoot: true
     runAsUser: 1000
@@ -305,48 +325,45 @@ YAML
   # Start from a clean cache so rollout 1 deterministically elects a WRITER
   # (a leftover archive from a previous run would make it a consumer instead).
   docker exec "$T8_NODE" sh -c \
-    'find "$1" -mindepth 1 -maxdepth 2 -type f \( -name "*.jsa" -o -name "*.writer" \) -delete 2>/dev/null; find "$1" -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null' \
-    sh "$T8_CACHE" || true
+    "find '$T8_CACHE' -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +" || true
   info "tier8: deploying WRITE rollout (regen-writer)"
-  _t8_apply_pod regen-writer
+  _t8_apply_pod "$T8_NS" regen-writer
   if ! kubectl wait -n "$T8_NS" --for=condition=Ready pod/regen-writer --timeout=120s >>"$WORK/t8-pod.log" 2>&1; then
     fail "tier8: writer pod Ready" "see $WORK/t8-pod.log; diag: $(save_pod_diag regen-writer "$T8_NS")"
     return 0
   fi
-  local wcmd; wcmd="$(_t8_pod_cmdline regen-writer)"
+  local wcmd; wcmd="$(_t8_pod_cmdline "$T8_NS" regen-writer)"
   assert_contains "tier8: writer launches with AutoCreateSharedArchive" "$wcmd" "AutoCreateSharedArchive"
-  assert_contains "tier8: writer targets the node CDS cache" "$wcmd" "$(basename "$T8_CACHE")"
+  assert_contains "tier8: writer targets its private archive" "$wcmd" "/run/brewlet/cds/archive.jsa"
 
   # Graceful delete lets AutoCreateSharedArchive dump the archive at JVM exit.
   info "tier8: graceful delete of writer (JVM dumps the archive on exit)"
   kubectl delete -n "$T8_NS" pod/regen-writer --grace-period=30 --wait=true >>"$WORK/t8-pod.log" 2>&1 || true
 
-  local jsa
+  local victim_jsa
   if wait_for docker exec "$T8_NODE" sh -c \
-      'test -n "$(find "$1" -mindepth 1 -maxdepth 2 -type f -name "*.jsa" -print -quit 2>/dev/null)"' \
-      sh "$T8_CACHE"; then
-    jsa="$(docker exec "$T8_NODE" sh -c \
-      'find "$1" -mindepth 1 -maxdepth 2 -type f -name "*.jsa" -print -quit 2>/dev/null' \
-      sh "$T8_CACHE" | tr -d '\r')"
-    local sz; sz="$(docker exec "$T8_NODE" sh -c "wc -c < '$jsa' 2>/dev/null" | tr -d '[:space:]')"
+    "find '$T8_CACHE' -mindepth 2 -maxdepth 2 -type f -name archive.jsa | grep -q ."; then
+    victim_jsa="$(docker exec "$T8_NODE" sh -c \
+      "find '$T8_CACHE' -mindepth 2 -maxdepth 2 -type f -name archive.jsa | head -1" | tr -d '\r')"
+    local sz; sz="$(docker exec "$T8_NODE" sh -c "wc -c < '$victim_jsa' 2>/dev/null" | tr -d '[:space:]')"
     if [[ "${sz:-0}" -gt 0 ]]; then
-      pass "tier8: writer dumped AppCDS archive to node cache ($(basename "$jsa"), ${sz} bytes)"
+      pass "tier8: writer dumped AppCDS archive to private node cache (${sz} bytes)"
     else
       fail "tier8: writer dumped AppCDS archive" "archive is empty"
     fi
   else
-    fail "tier8: writer dumped AppCDS archive" "no .jsa in $T8_CACHE after graceful exit"
+    fail "tier8: writer dumped AppCDS archive" "no private archive.jsa under $T8_CACHE after graceful exit"
     return 0
   fi
 
   # --- ROLLOUT 2: consumer ---------------------------------------------------
   info "tier8: deploying CONSUME rollout (regen-consumer)"
-  _t8_apply_pod regen-consumer
+  _t8_apply_pod "$T8_NS" regen-consumer
   if ! kubectl wait -n "$T8_NS" --for=condition=Ready pod/regen-consumer --timeout=120s >>"$WORK/t8-pod.log" 2>&1; then
     fail "tier8: consumer pod Ready" "see $WORK/t8-pod.log; diag: $(save_pod_diag regen-consumer "$T8_NS")"
     return 0
   fi
-  local ccmd; ccmd="$(_t8_pod_cmdline regen-consumer)"
+  local ccmd; ccmd="$(_t8_pod_cmdline "$T8_NS" regen-consumer)"
   assert_contains "tier8: consumer launches with -Xshare:auto + SharedArchiveFile" "$ccmd" "SharedArchiveFile"
   assert_not_contains "tier8: consumer does NOT re-create the archive" "$ccmd" "AutoCreateSharedArchive"
 
@@ -354,5 +371,83 @@ YAML
   local maps; maps="$(kubectl exec -n "$T8_NS" regen-consumer -- cat /proc/1/maps 2>/dev/null || true)"
   assert_contains "tier8: consumer mmap'd the .jsa (real CDS hit, not fallback)" "$maps" ".jsa"
 
+  # --- CROSS-NAMESPACE ATTACK: private writer mount --------------------------
+  local victim_entry victim_key victim_sum
+  victim_entry="$(dirname "$victim_jsa")"
+  victim_key="$(basename "$victim_entry")"
+  victim_sum="$(docker exec "$T8_NODE" sha256sum "$victim_jsa" | awk '{print $1}' | tr -d '\r')"
+
+  info "tier8: deploying attacker writer in a separate namespace"
+  _t8_apply_pod "$T8_ATTACKER_NS" regen-attacker
+  if ! kubectl wait -n "$T8_ATTACKER_NS" --for=condition=Ready pod/regen-attacker --timeout=120s >>"$WORK/t8-pod.log" 2>&1; then
+    fail "tier8: attacker writer pod Ready" "see $WORK/t8-pod.log; diag: $(save_pod_diag regen-attacker "$T8_ATTACKER_NS")"
+    return 0
+  fi
+  local acmd; acmd="$(_t8_pod_cmdline "$T8_ATTACKER_NS" regen-attacker)"
+  assert_contains "tier8: attacker is an elected writer" "$acmd" "AutoCreateSharedArchive"
+
+  local attacker_cid attacker_bundle attacker_config attacker_source
+  attacker_cid="$(kubectl get pod -n "$T8_ATTACKER_NS" regen-attacker \
+    -o jsonpath='{.status.containerStatuses[0].containerID}' | sed 's#^containerd://##')"
+  attacker_bundle="/run/containerd/io.containerd.runtime.v2.task/k8s.io/${attacker_cid}/config.json"
+  attacker_config="$WORK/t8-attacker-config.json"
+  if ! docker exec "$T8_NODE" cat "$attacker_bundle" >"$attacker_config"; then
+    fail "tier8: inspect attacker runtime bundle" "missing $attacker_bundle"
+    return 0
+  fi
+  attacker_source="$(python3 - "$attacker_config" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    spec = json.load(stream)
+for mount in spec.get("mounts", []):
+    if mount.get("destination") == "/run/brewlet/cds":
+        print(mount.get("source", ""))
+        break
+PY
+)"
+  if [[ -z "$attacker_source" || "$attacker_source" == "$T8_CACHE" ||
+        "$(dirname "$attacker_source")" != "$T8_CACHE" ]]; then
+    fail "tier8: writer mount source is a private cache entry" \
+      "source=${attacker_source:-missing}, root=$T8_CACHE"
+    return 0
+  fi
+  if [[ "$attacker_source" == "$victim_entry" ]]; then
+    fail "tier8: namespaces receive distinct cache entries" "both mounted $attacker_source"
+    return 0
+  fi
+  pass "tier8: writer mount source is private and namespace-distinct"
+
+  local visible_parent
+  visible_parent="$(kubectl exec -n "$T8_ATTACKER_NS" regen-attacker -- \
+    sh -c 'ls -1A /run/brewlet/cds/..' 2>/dev/null || true)"
+  assert_not_contains "tier8: attacker cannot enumerate victim cache key" "$visible_parent" "$victim_key"
+  if kubectl exec -n "$T8_ATTACKER_NS" regen-attacker -- \
+    sh -c "printf poisoned > '/run/brewlet/cds/../$victim_key/archive.jsa'" \
+    >/dev/null 2>&1; then
+    fail "tier8: attacker cannot address victim archive" "write through sibling path unexpectedly succeeded"
+    return 0
+  fi
+  pass "tier8: attacker cannot address victim archive"
+
+  if ! kubectl exec -n "$T8_ATTACKER_NS" regen-attacker -- sh -c \
+    'printf attacker-owned > /run/brewlet/cds/archive.jsa &&
+     rm /run/brewlet/cds/archive.jsa &&
+     printf attacker-replaced > /run/brewlet/cds/archive.jsa' \
+    >>"$WORK/t8-pod.log" 2>&1; then
+    fail "tier8: attacker can modify only its own private entry" "see $WORK/t8-pod.log"
+    return 0
+  fi
+  local victim_sum_after
+  victim_sum_after="$(docker exec "$T8_NODE" sha256sum "$victim_jsa" | awk '{print $1}' | tr -d '\r')"
+  if [[ "$victim_sum_after" != "$victim_sum" ]]; then
+    fail "tier8: attacker cannot modify or replace victim archive" "victim checksum changed"
+    return 0
+  fi
+  pass "tier8: attacker tampering is confined to its own cache entry"
+
+  maps="$(kubectl exec -n "$T8_NS" regen-consumer -- cat /proc/1/maps 2>/dev/null || true)"
+  assert_contains "tier8: victim remains mapped after attacker tampering" "$maps" ".jsa"
+
   kubectl delete -n "$T8_NS" pod/regen-consumer --wait=false >/dev/null 2>&1 || true
+  kubectl delete -n "$T8_ATTACKER_NS" pod/regen-attacker --wait=false >/dev/null 2>&1 || true
 }

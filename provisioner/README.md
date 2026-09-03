@@ -33,6 +33,37 @@ The multi-stage Docker build compiles
 `containerd-shim-brewlet-v2` and `brewlet-metrics-exporter` for the target Linux
 architecture and packages them with the host installation entrypoint.
 
+### Supply-chain integrity
+
+The image build downloads `kubectl`, the containerd `ctr` client, and `crictl`
+only in a build-only stage. Each asset is matched against the repository-pinned
+SHA-256 value for `amd64` or `arm64` before it is exposed, then checked again
+immediately before extraction. The final runtime stage contains the verified
+tools but not `curl`. All external Dockerfile base images are pinned by
+multi-architecture manifest digest.
+
+When updating one of these tools:
+
+1. Update its version and source commit in `provisioner/Dockerfile` and its
+   registration in `provisioner/cgmanifest.json`.
+2. Retrieve the published checksum for both supported architectures:
+   - kubectl: `https://dl.k8s.io/release/<version>/bin/linux/<arch>/kubectl.sha256`
+   - containerd: the matching `.tar.gz.sha256sum` release asset
+   - crictl: the matching `.tar.gz.sha256` release asset
+3. Update `provisioner/checksums/<arch>.sha256`. If a source commit changes,
+   update the matching entry in `provisioner/checksums/licenses.sha256`.
+4. Refresh changed base-image manifest digests with
+   `docker buildx imagetools inspect <image>:<tag>`.
+5. Run:
+
+   ```bash
+   make container-security-check
+   make container-security-test
+   ```
+
+The Docker-based test deliberately corrupts every downloaded asset and requires
+the checksum gate to reject each build.
+
 ## Configuration
 
 | Environment variable | Default | Purpose |
@@ -43,6 +74,7 @@ architecture and packages them with the host installation entrypoint.
 | `JDK_CUSTOM_SOURCE_<n>_IMAGE` | empty | Fully qualified OCI image reference containing the runtime and its userland |
 | `JDK_CUSTOM_SOURCE_<n>_JAVA_HOME` | empty | Absolute JDK or jlink runtime path inside that image |
 | `LAUNCHERS` | empty | Optional launcher layers, such as `jaz` |
+| `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Authorize node-side AppCDS regeneration for the active profile |
 | `NODE_NAME` | downward API | Kubernetes node to label |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host installation prefix |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | containerd configuration |
@@ -66,6 +98,13 @@ Provisioning is idempotent, records the source image and Java home, and
 reinstalls a token when either changes. Runtime roots retain the source image's
 filesystem modes; the shim keeps the shared lower layer and Java-home bind mount
 read-only for workloads.
+
+When AppCDS regeneration is enabled, the provisioner atomically creates the
+root-owned, mode `0444`
+`/opt/brewlet/policy/appcds-regeneration-enabled` sentinel before publishing
+`brewlet.sh/appcds-regeneration=true`. Disabling the policy, cleanup, or any
+provisioning failure removes both. The node label is a scheduling hint; the shim
+checks the sentinel authoritatively.
 
 ## Containerd configuration
 

@@ -132,20 +132,18 @@ func GenerateBundleWithCDS(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launch
 }
 
 // CDSRegenOptions carries the node context needed for node-side AppCDS
-// regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3, Phase B). Regeneration is a deployment/fleet
+// regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3). Regeneration is a deployment/fleet
 // decision (the brewlet.sh/cds-regenerate annotation / --appcds-regenerate flag),
-// so Regenerate is passed in here rather than read from the artifact. It is only
-// acted on when Regenerate is true AND ArtifactKey is non-empty; otherwise
-// regeneration is skipped and launch falls back to base CDS (or the shipped
-// archive, when the deployment did not opt in).
+// so Regenerate is passed in here rather than read from the artifact.
 type CDSRegenOptions struct {
 	// Regenerate reflects the deployment's node-side regeneration choice. When
 	// false the shipped archive (if any) is consumed verbatim as before.
 	Regenerate bool
-	// ArtifactKey is the stable per-artifact identity (manifest digest in
-	// production, ref otherwise) used to key the node archive cache. Empty
-	// disables regeneration for this call.
-	ArtifactKey string
+	// CacheScope is the isolation boundary for sharing. Kubernetes uses the
+	// trusted sandbox namespace; local commands use a fixed local scope.
+	CacheScope string
+	// ArtifactDigest is the verified resolved platform-manifest digest.
+	ArtifactDigest string
 	// CacheDir overrides the node cache directory (default DefaultCDSCacheDir).
 	CacheDir string
 	// MetricsDir, when set, receives best-effort node-local role records
@@ -154,12 +152,10 @@ type CDSRegenOptions struct {
 }
 
 // GenerateBundleWithRegen is GenerateBundleWithCDS plus node-side regeneration.
-// When the deployment opts into regeneration (regen.Regenerate) and
-// regen.ArtifactKey is set, it resolves a per-(artifact, JDK-build) archive from
-// the node cache (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): it bind-mounts the cache dir at
-// InSandboxCDSDir (writable only for the elected writer), prepends the resolved
-// -XX:+AutoCreateSharedArchive / -XX:SharedArchiveFile args, and treats any
-// shipped archive as optional seed data rather than mounting it at /app/<archive>.
+// When the deployment opts in, it resolves a private per-(scope, artifact,
+// JDK-build, process-UID) entry, bind-mounts only that directory at
+// InSandboxCDSDir (writable only for the elected writer), and treats any shipped
+// archive as optional seed data rather than mounting it at /app/<archive>.
 func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, regen CDSRegenOptions) error {
 	return GenerateBundleWithIdentityAndRegen(
 		cfg, jdkRoot, launcherRoot, launcherName, jarHostPath,
@@ -187,11 +183,10 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 		return err
 	}
 
-	// Node-side regeneration: resolve the cache archive and prepend its launch
-	// args. An isolated per-key cache directory is bind-mounted at
-	// InSandboxCDSDir (rw for the writer, ro otherwise).
+	// Node-side regeneration: resolve a private cache entry and prepend its launch
+	// args. Only that entry is mounted at InSandboxCDSDir.
 	var cdsCacheMount []ociMount
-	if regen.Regenerate && regen.ArtifactKey != "" {
+	if regen.Regenerate {
 		seed := ""
 		if cdsHostPath != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
 			seed = cdsHostPath
@@ -200,14 +195,16 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 		if cacheDir == "" {
 			cacheDir = DefaultCDSCacheDir
 		}
+		writerOwner := &RegenOwner{UID: int(identity.UID), GID: int(identity.GID)}
 		dec, derr := DecideCDSRegen(RegenParams{
 			CacheDir:           cacheDir,
+			CacheScope:         regen.CacheScope,
 			JDKRoot:            jdkRoot,
-			ArtifactKey:        regen.ArtifactKey,
+			ArtifactDigest:     regen.ArtifactDigest,
 			SeedArchive:        seed,
-			ArchiveArgDir:      InSandboxCDSDir,
-			WriterIdentity:     &identity,
+			WriterOwner:        writerOwner,
 			AllowUnownedWriter: true,
+			ArchiveArgDir:      InSandboxCDSDir,
 			MetricsDir:         regen.MetricsDir,
 		})
 		if derr != nil {
@@ -223,9 +220,10 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 			} else {
 				opts = append(opts, "ro")
 			}
+			opts = append(opts, "nosuid", "nodev", "noexec")
 			cdsCacheMount = []ociMount{{
 				Destination: InSandboxCDSDir, Type: "bind",
-				Source: dec.MountSource, Options: opts,
+				Source: dec.HostMount, Options: opts,
 			}}
 		}
 	}

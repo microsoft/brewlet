@@ -45,11 +45,13 @@ func TestDecideCDSRegenWriterCanWriteAsProcessIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity := ProcessIdentity{UID: DefaultProcessUID, GID: DefaultProcessGID}
+	owner := RegenOwner{UID: int(identity.UID), GID: int(identity.GID)}
 	dec, err := DecideCDSRegen(RegenParams{
 		CacheDir:       cache,
+		CacheScope:     "local",
 		JDKRoot:        fakeJDK(t, "21.0.5"),
-		ArtifactKey:    "sha256:non-root-writer",
-		WriterIdentity: &identity,
+		ArtifactDigest: "sha256:non-root-writer",
+		WriterOwner:    &owner,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -82,11 +84,13 @@ func TestDecideCDSRegenDoesNotFollowWorkloadSymlink(t *testing.T) {
 	}
 
 	identity := ProcessIdentity{UID: DefaultProcessUID, GID: DefaultProcessGID}
+	owner := RegenOwner{UID: int(identity.UID), GID: int(identity.GID)}
 	params := RegenParams{
 		CacheDir:       cache,
+		CacheScope:     "local",
 		JDKRoot:        fakeJDK(t, "21.0.5"),
-		ArtifactKey:    "sha256:symlink",
-		WriterIdentity: &identity,
+		ArtifactDigest: "sha256:symlink",
+		WriterOwner:    &owner,
 		LockTTL:        time.Minute,
 	}
 	first, err := DecideCDSRegen(params)

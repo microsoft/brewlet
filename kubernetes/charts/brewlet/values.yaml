@@ -31,6 +31,10 @@ provisioner:
   jdks: "temurin-21,microsoft-25"
   # Comma-separated launcher layers, e.g. "jaz" (§5.4). Empty = vanilla java only.
   launchers: "jaz"
+  # Node-side AppCDS archive regeneration is privileged policy and is disabled
+  # unless explicitly enabled for this profile.
+  appCDS:
+    regenerationEnabled: false
   # Rollout policy for the default profile's provisioner DaemonSet (proposal 0002).
   rollout:
     # maxUnavailable bounds the DaemonSet rolling update. null = DaemonSet default.
@@ -55,6 +59,7 @@ defaultProfile:
 #     key: ""                 # optional explicit node label key (auto-detected if empty)
 #     jdks: "microsoft-25"    # string, or structured list for custom sources
 #     launchers: "jaz"        # comma-separated (optional)
+#     appCDS: { regenerationEnabled: true } # explicitly authorize regeneration
 #     rollout: { maxUnavailable: 1, validate: true, containerdRestart: validated }
 #     registry: { mirrors: { "mcr.microsoft.com": "mirror.internal/mcr" } }
 profiles: []

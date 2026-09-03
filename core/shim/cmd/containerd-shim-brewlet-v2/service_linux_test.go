@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	taskAPI "github.com/containerd/containerd/api/runtime/task/v2"
@@ -36,9 +37,11 @@ func (s *deleteTaskService) Delete(context.Context, *taskAPI.DeleteRequest) (*ta
 }
 
 func TestDeleteCleansPendingLaunch(t *testing.T) {
+	released := false
 	service := &brewletTaskService{
 		TaskService: &deleteTaskService{},
 		pending:     map[string]launchInfo{"task-1": {entryMode: "jar"}},
+		writers:     map[string]func(){"task-1": func() { released = true }},
 	}
 
 	if _, err := service.Delete(context.Background(), &taskAPI.DeleteRequest{ID: "task-1"}); err != nil {
@@ -47,12 +50,20 @@ func TestDeleteCleansPendingLaunch(t *testing.T) {
 	if _, ok := service.pending["task-1"]; ok {
 		t.Fatal("successful task deletion left stale pending launch state")
 	}
+	if !released {
+		t.Fatal("successful task deletion did not release the AppCDS writer lease")
+	}
+	if _, ok := service.writers["task-1"]; ok {
+		t.Fatal("successful task deletion left stale writer state")
+	}
 }
 
 func TestDeleteKeepsPendingLaunchWhenDeleteFails(t *testing.T) {
+	released := false
 	service := &brewletTaskService{
 		TaskService: &deleteTaskService{err: errors.New("delete failed")},
 		pending:     map[string]launchInfo{"task-1": {entryMode: "jar"}},
+		writers:     map[string]func(){"task-1": func() { released = true }},
 	}
 
 	if _, err := service.Delete(context.Background(), &taskAPI.DeleteRequest{ID: "task-1"}); err == nil {
@@ -60,6 +71,12 @@ func TestDeleteKeepsPendingLaunchWhenDeleteFails(t *testing.T) {
 	}
 	if _, ok := service.pending["task-1"]; !ok {
 		t.Fatal("failed task deletion removed pending launch state")
+	}
+	if released {
+		t.Fatal("failed task deletion released the active AppCDS writer lease")
+	}
+	if _, ok := service.writers["task-1"]; !ok {
+		t.Fatal("failed task deletion removed active writer state")
 	}
 }
 
@@ -260,6 +277,214 @@ func TestApplyBrewletLaunchNoCDS(t *testing.T) {
 	if argv := strings.Join(spec.Process.Args, " "); strings.Contains(argv, "SharedArchiveFile") {
 		t.Errorf("unexpected CDS flag in argv: %q", argv)
 	}
+}
+
+func TestApplyBrewletLaunchRegenUsesPrivateScopedMount(t *testing.T) {
+	enableTestCDSRegenPolicy(t)
+	jdk := t.TempDir()
+	if err := os.WriteFile(filepath.Join(jdk, "release"), []byte(
+		"IMPLEMENTOR=\"Eclipse Adoptium\"\n"+
+			"JAVA_VERSION=\"21.0.5\"\n"+
+			"JAVA_RUNTIME_VERSION=\"21.0.5+11-LTS\"\n"+
+			"OS_ARCH=\"amd64\"\n",
+	), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	jar := filepath.Join(t.TempDir(), "app.jar")
+	if err := os.WriteFile(jar, []byte("PK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ra := testResolved()
+	ra.JDKHome = jdk
+	ra.JarHostPath = jar
+	ra.ManifestDigest = "sha256:" + strings.Repeat("a", 64)
+	// Use the test process's own CRI UID/GID as the writer owner: os.Chown only
+	// succeeds without CAP_CHOWN when the target UID/GID matches the caller,
+	// which unprivileged CI runners are. This still exercises the real
+	// resetCacheEntry -> os.Chown production path.
+	writerUID, writerGID := os.Getuid(), os.Getgid()
+
+	apply := func(namespace, annotatedDigest, cache string) (specs.Mount, string) {
+		t.Helper()
+		if err := os.Setenv("BREWLET_CDS_CACHE", cache); err != nil {
+			t.Fatal(err)
+		}
+		spec := &specs.Spec{
+			Process: &specs.Process{
+				User: specs.User{UID: uint32(writerUID), GID: uint32(writerGID)},
+			},
+			Annotations: map[string]string{
+				annCDSRegenerate:       "TrUe",
+				annCRISandboxNamespace: namespace,
+				annArtifactDigest:      annotatedDigest,
+			},
+		}
+		if err := applyBrewletLaunch(spec, ra, t.TempDir()); err != nil {
+			t.Fatalf("applyBrewletLaunch: %v", err)
+		}
+		for _, mount := range spec.Mounts {
+			if mount.Destination == kcruntime.InSandboxCDSDir {
+				return mount, strings.Join(spec.Process.Args, " ")
+			}
+		}
+		t.Fatalf("missing %s mount: %+v", kcruntime.InSandboxCDSDir, spec.Mounts)
+		return specs.Mount{}, ""
+	}
+	oldCache, hadCache := os.LookupEnv("BREWLET_CDS_CACHE")
+	t.Cleanup(func() {
+		if hadCache {
+			_ = os.Setenv("BREWLET_CDS_CACHE", oldCache)
+		} else {
+			_ = os.Unsetenv("BREWLET_CDS_CACHE")
+		}
+	})
+
+	cacheA := t.TempDir()
+	first, firstArgs := apply("tenant-a", "sha256:"+strings.Repeat("1", 64), cacheA)
+	if first.Source == cacheA || filepath.Dir(first.Source) != cacheA {
+		t.Fatalf("writer source = %q, want private child of %q", first.Source, cacheA)
+	}
+	info, err := os.Stat(first.Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(writerUID) || stat.Gid != uint32(writerGID) {
+		t.Fatalf("writer entry owner = %#v, want uid=%d gid=%d", info.Sys(), writerUID, writerGID)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("writer entry mode = %o, want 700", info.Mode().Perm())
+	}
+	for _, want := range []string{"rw", "nosuid", "nodev", "noexec"} {
+		if !hasMountOption(first.Options, want) {
+			t.Errorf("writer options = %v, missing %q", first.Options, want)
+		}
+	}
+	if !strings.Contains(firstArgs, "-XX:SharedArchiveFile="+kcruntime.InSandboxCDSDir+"/archive.jsa") {
+		t.Fatalf("writer args target the wrong archive: %q", firstArgs)
+	}
+
+	cacheSameScope := t.TempDir()
+	sameScope, _ := apply("tenant-a", "sha256:"+strings.Repeat("2", 64), cacheSameScope)
+	if filepath.Base(first.Source) != filepath.Base(sameScope.Source) {
+		t.Fatalf("pod annotation changed cache identity: %q vs %q", first.Source, sameScope.Source)
+	}
+
+	cacheOtherScope := t.TempDir()
+	otherScope, _ := apply("tenant-b", "sha256:"+strings.Repeat("1", 64), cacheOtherScope)
+	if filepath.Base(first.Source) == filepath.Base(otherScope.Source) {
+		t.Fatalf("different namespaces shared cache identity: %q", first.Source)
+	}
+}
+
+func TestApplyBrewletLaunchRegenRequiresPolicyNamespaceAndDigest(t *testing.T) {
+	ra := testResolved()
+	spec := &specs.Spec{
+		Process: &specs.Process{},
+		Annotations: map[string]string{
+			annCDSRegenerate:       "true",
+			annCRISandboxNamespace: "tenant-a",
+		},
+	}
+
+	oldPath, oldUID := cdsRegenPolicyPath, cdsRegenPolicyOwnerUID
+	cdsRegenPolicyPath = filepath.Join(t.TempDir(), "missing")
+	cdsRegenPolicyOwnerUID = uint32(os.Getuid())
+	t.Cleanup(func() {
+		cdsRegenPolicyPath = oldPath
+		cdsRegenPolicyOwnerUID = oldUID
+	})
+	if err := applyBrewletLaunch(spec, ra, t.TempDir()); err == nil || !strings.Contains(err.Error(), "disabled by node policy") {
+		t.Fatalf("missing policy error = %v", err)
+	}
+
+	enableTestCDSRegenPolicy(t)
+	delete(spec.Annotations, annCRISandboxNamespace)
+	if err := applyBrewletLaunch(spec, ra, t.TempDir()); err == nil || !strings.Contains(err.Error(), "sandbox namespace") {
+		t.Fatalf("missing namespace error = %v", err)
+	}
+
+	spec.Annotations[annCRISandboxNamespace] = "tenant-a"
+	ra.ManifestDigest = ""
+	if err := applyBrewletLaunch(spec, ra, t.TempDir()); err == nil || !strings.Contains(err.Error(), "verified resolved manifest digest") {
+		t.Fatalf("missing manifest digest error = %v", err)
+	}
+}
+
+func enableTestCDSRegenPolicy(t *testing.T) {
+	t.Helper()
+	oldPath, oldUID := cdsRegenPolicyPath, cdsRegenPolicyOwnerUID
+	path := filepath.Join(t.TempDir(), "appcds-regeneration-enabled")
+	if err := os.WriteFile(path, []byte("enabled\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	cdsRegenPolicyPath = path
+	cdsRegenPolicyOwnerUID = uint32(os.Getuid())
+	t.Cleanup(func() {
+		cdsRegenPolicyPath = oldPath
+		cdsRegenPolicyOwnerUID = oldUID
+	})
+}
+
+func TestRequireCDSRegenPolicyRejectsUnsafeSentinels(t *testing.T) {
+	oldPath, oldUID := cdsRegenPolicyPath, cdsRegenPolicyOwnerUID
+	cdsRegenPolicyOwnerUID = uint32(os.Getuid())
+	t.Cleanup(func() {
+		cdsRegenPolicyPath = oldPath
+		cdsRegenPolicyOwnerUID = oldUID
+	})
+
+	t.Run("group writable", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "policy")
+		if err := os.WriteFile(path, nil, 0o664); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, 0o664); err != nil {
+			t.Fatal(err)
+		}
+		cdsRegenPolicyPath = path
+		if err := requireCDSRegenPolicy(); err == nil || !strings.Contains(err.Error(), "non-group-writable") {
+			t.Fatalf("error = %v, want unsafe-mode rejection", err)
+		}
+	})
+
+	t.Run("symlink", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "target")
+		if err := os.WriteFile(target, nil, 0o444); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, "policy")
+		if err := os.Symlink(target, path); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		cdsRegenPolicyPath = path
+		if err := requireCDSRegenPolicy(); err == nil || !strings.Contains(err.Error(), "regular file") {
+			t.Fatalf("error = %v, want symlink rejection", err)
+		}
+	})
+
+	t.Run("wrong owner", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "policy")
+		if err := os.WriteFile(path, nil, 0o444); err != nil {
+			t.Fatal(err)
+		}
+		cdsRegenPolicyPath = path
+		cdsRegenPolicyOwnerUID = uint32(os.Getuid()) + 1
+		if err := requireCDSRegenPolicy(); err == nil || !strings.Contains(err.Error(), "owned by uid") {
+			t.Fatalf("error = %v, want owner rejection", err)
+		}
+		cdsRegenPolicyOwnerUID = uint32(os.Getuid())
+	})
+}
+
+func hasMountOption(options []string, want string) bool {
+	for _, option := range options {
+		if option == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestMountClasspathLayers(t *testing.T) {

@@ -660,7 +660,7 @@ func cmdRun(args []string) error {
 	store := fs.String("store", "./oci", "OCI layout directory")
 	jdkRoot := fs.String("jdk-root", "", "node JDK home (default: JAVA_HOME)")
 	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
-	appcdsRegen := fs.Bool("appcds-regenerate", false, "opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): maintain a per-(artifact,JDK-build) archive cache with -XX:+AutoCreateSharedArchive, self-healing on every JDK patch. This is the deployment/fleet equivalent of spec.jvm.cds.regenerate; any shipped archive becomes optional seed data")
+	appcdsRegen := fs.Bool("appcds-regenerate", false, "opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): maintain a private cache entry keyed by local scope, verified manifest, and JDK build with -XX:+AutoCreateSharedArchive. This is the deployment/fleet equivalent of spec.jvm.cds.regenerate; any shipped archive becomes optional seed data")
 	flagArgs, extra := splitDoubleDash(args)
 	pos, err := parseInterspersed(fs, flagArgs)
 	if err != nil {
@@ -703,17 +703,22 @@ func cmdRun(args []string) error {
 			seed = cdsSrc
 		}
 		dec, derr := runtime.DecideCDSRegen(runtime.RegenParams{
-			CacheDir:    os.Getenv("BREWLET_CDS_CACHE"),
-			JDKRoot:     plan.JDKHome,
-			ArtifactKey: ref,
-			SeedArchive: seed,
-			MetricsDir:  os.Getenv("BREWLET_METRICS_DIR"),
+			CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
+			CacheScope:     "local",
+			JDKRoot:        plan.JDKHome,
+			ArtifactDigest: blobs.ManifestDigest,
+			SeedArchive:    seed,
+			MetricsDir:     os.Getenv("BREWLET_METRICS_DIR"),
 		})
 		if derr != nil {
 			return derr
 		}
 		if len(dec.Args) > 0 {
 			plan.Args = append(append([]string{}, dec.Args...), plan.Args...)
+		}
+		if dec.WriterLease != nil {
+			stopHeartbeat := dec.WriterLease.StartHeartbeat(runtime.DefaultWriterTTL)
+			defer stopHeartbeat()
 		}
 	}
 
@@ -738,7 +743,7 @@ func cmdBundle(args []string) error {
 	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
 	launcherRoot := fs.String("launcher-root", "", "node launcher layer root (custom launcher, e.g. jaz)")
 	out := fs.String("out", "./bundle", "output bundle directory")
-	appcdsRegen := fs.Bool("appcds-regenerate", false, "opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): maintain a per-(artifact,JDK-build) archive cache with -XX:+AutoCreateSharedArchive, self-healing on every JDK patch. Deployment/fleet equivalent of spec.jvm.cds.regenerate")
+	appcdsRegen := fs.Bool("appcds-regenerate", false, "opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): maintain a private cache entry keyed by local scope, verified manifest, process UID, and JDK build with -XX:+AutoCreateSharedArchive. Deployment/fleet equivalent of spec.jvm.cds.regenerate")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
@@ -763,7 +768,12 @@ func cmdBundle(args []string) error {
 	cdsSrc := blobs.CDSHostPath
 	if err := runtime.GenerateBundleWithIdentityAndRegen(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
 		runtime.Resources{CPULimit: *cpu, MemoryLimit: *mem}, nil, runtime.ProcessIdentity{UID: uid, GID: gid},
-		runtime.CDSRegenOptions{Regenerate: *appcdsRegen, ArtifactKey: pos[0], CacheDir: os.Getenv("BREWLET_CDS_CACHE")}); err != nil {
+		runtime.CDSRegenOptions{
+			Regenerate:     *appcdsRegen,
+			CacheScope:     "local",
+			ArtifactDigest: blobs.ManifestDigest,
+			CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
+		}); err != nil {
 		return err
 	}
 	fmt.Printf("wrote OCI runtime bundle to %s/config.json\n", *out)

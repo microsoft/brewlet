@@ -211,19 +211,20 @@ to cluster compromise.
 - Add an integration test proving a mismatched or traversal digest fails task
   creation and produces no mount.
 
-### 2. The node-shared AppCDS cache is writable from a tenant container
+### 2. The node-shared AppCDS cache is writable from a tenant container — remediated
 
 **Severity:** High  
 **Confidence:** 8/10  
 **STRIDE:** Tampering, Elevation of Privilege  
 **CWE:** CWE-732, CWE-269, CWE-349  
 **Type:** Confirmed architectural vulnerability
+**Status:** Remediated by [issue #20](https://github.com/microsoft/brewlet/issues/20)
 
 **Attacker prerequisites:** Permission to create a Brewlet Pod. Root inside the
 sandbox increases reliability and is available through Finding 3 or a workload
 that does not request non-root execution.
 
-**Evidence:**
+**Original evidence (before remediation):**
 
 - `core/internal/runtime/cds_regen.go:28-35` defines the node-global
   `/opt/brewlet/cds` cache.
@@ -248,17 +249,30 @@ The immediate impact is cross-tenant cache corruption and denial of service.
 A valid malicious AppCDS archive may inject class metadata into the victim JVM,
 yielding code execution with the victim workload identity.
 
-**Remediation:**
+**Implemented remediation:**
 
-- Mount only the single archive file or a per-key private directory.
-- Derive cache identity from a shim-verified artifact digest.
-- Partition cache state by namespace and artifact identity.
-- Gate regeneration through platform policy rather than an unrestricted pod
-  annotation.
+- Cache identity is the SHA-256 of the trusted CRI sandbox namespace, the
+  content-verified resolved platform-manifest digest, the exact JDK build, and
+  the trusted CRI process UID. Tenant artifact annotations are not used as cache
+  identity, and workloads with different UIDs never share an owner-private
+  entry.
+- Each entry is `<cache>/<key>/archive.jsa`; only `<cache>/<key>` is mounted at
+  `/run/brewlet/cds`. The node-global cache root and external `<key>.writer`
+  election marker are never exposed to the workload.
+- Writers receive only their UID/GID-owned private directory read-write;
+  consumers receive it read-only. Both mounts add `nosuid,nodev,noexec`.
+- Brewlet rejects symlink/non-regular archives, recreates an elected writer
+  entry before host-side seeding, and never consumes legacy flat cache entries.
+- Kubernetes regeneration is default-deny through
+  `NodeProfile.spec.appCDS.regenerationEnabled`. Admission denies and steers
+  requests early, while the shim authoritatively requires the root-owned host
+  policy sentinel even when the webhook fails open.
 
-**Remediation test:** Run writer and victim pods in separate namespaces on the
-same node and verify neither can list, modify, or replace the other's archive.
-Assert the writer mount source is not `/opt/brewlet/cds`.
+**Remediation test:** Tier 8 runs victim and attacker writers in separate
+namespaces on the same node, asserts distinct private bundle mount sources,
+proves the attacker cannot enumerate or address the victim entry, tampers with
+the attacker archive, and verifies the victim bytes and mapped consumer remain
+unchanged.
 
 ### 3. Artifact launch configuration overrides the pod UID/GID
 
