@@ -10,7 +10,9 @@
 #   - the real provisioner image contains and runs the metrics exporter sidecar;
 #   - a real Brewlet workload sends shim datagrams to the node exporter;
 #   - JDK/launcher inventory, launch, artifact, and AppCDS metrics are exported;
-#   - admission outcomes and NodeProfile/provisioning transitions are exported.
+#   - admission outcomes and NodeProfile/provisioning transitions are exported;
+#   - NetworkPolicies allow the configured scraper namespace and deny an unrelated
+#     namespace.
 #
 # The provisioner performs the same targeted host mutation as tiers 8, 9, and 14.
 # Cleanup deletes the profile first so its real cleanup DaemonSet reverses the
@@ -20,6 +22,7 @@ T15_RELEASE="brewlet-metrics-e2e"
 T15_RELEASE_NS="default"
 T15_NS="brewlet"
 T15_APP_NS="brewlet-metrics-e2e"
+T15_DENY_NS="brewlet-metrics-denied-e2e"
 T15_PROFILE="metrics"
 T15_POOL_KEY="brewlet.sh/e2e-pool"
 T15_POOL="metrics"
@@ -34,6 +37,7 @@ T15_ARCH=""
 T15_HELM_INSTALLED=""
 T15_PROFILE_CREATED=""
 T15_APP_NS_CREATED=""
+T15_DENY_NS_CREATED=""
 T15_NODE_TOUCHED=""
 T15_JDK_PREEXISTING=""
 T15_JDK_ACTIVE_PREEXISTING=""
@@ -209,6 +213,9 @@ _t15_cleanup() {
       --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1 || true
     kubectl delete ns "$T15_APP_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   fi
+  if [[ -n "$T15_DENY_NS_CREATED" ]]; then
+    kubectl delete ns "$T15_DENY_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  fi
 
   if [[ -n "$T15_PROFILE_CREATED" ]] &&
      kubectl get nodeprofile "$T15_PROFILE" >/dev/null 2>&1; then
@@ -238,6 +245,8 @@ _t15_cleanup() {
   fi
   [[ -n "$T15_APP_NS_CREATED" ]] &&
     wait_for bash -c "! kubectl get namespace '$T15_APP_NS' >/dev/null 2>&1" || true
+  [[ -n "$T15_DENY_NS_CREATED" ]] &&
+    wait_for bash -c "! kubectl get namespace '$T15_DENY_NS' >/dev/null 2>&1" || true
   [[ -n "$T15_HELM_INSTALLED" ]] &&
     wait_for bash -c "! kubectl get namespace '$T15_NS' >/dev/null 2>&1" || true
 
@@ -579,7 +588,7 @@ tier15_metrics_incluster() {
   T15_IMAGE_DIGEST="$digest"
   pass "tier15: built and imported a real Brewlet workload image ($T15_IMAGE_REF)"
 
-  info "tier15: installing the shipped chart with metrics.enabled=true"
+  info "tier15: installing the shipped chart with metrics and NetworkPolicies enabled"
   T15_HELM_INSTALLED=1
   if ! helm install "$T15_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
       --namespace "$T15_RELEASE_NS" \
@@ -589,7 +598,12 @@ tier15_metrics_incluster() {
       --set images.pullPolicy=IfNotPresent \
       --set defaultProfile.enabled=false \
       --set operator.leaderElect=false \
+      --set admission.nodeProfileFailurePolicy=Fail \
       --set metrics.enabled=true \
+      --set networkPolicy.enabled=true \
+      --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=0.0.0.0/0' \
+      --set 'networkPolicy.admission.apiServerCIDRs[0]=0.0.0.0/0' \
+      --set "networkPolicy.metrics.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\\.io/metadata\\.name=$T15_APP_NS" \
       --wait --timeout 180s >"$WORK/t15-install.log" 2>&1; then
     save_pod_diag t15-install "$T15_NS" >>"$WORK/t15-install.log" 2>&1 || true
     fail "tier15: install metrics-enabled chart" "see $WORK/t15-install.log"
@@ -613,6 +627,13 @@ tier15_metrics_incluster() {
     "$(kubectl get deploy brewlet-admission -n "$T15_NS" \
       -o jsonpath='{.spec.template.spec.containers[0].args[?(@=="--metrics-bind-address=:8080")]}')" \
     "--metrics-bind-address=:8080"
+  if kubectl get networkpolicy brewlet-admission brewlet-operator-metrics \
+       brewlet-node-metrics -n "$T15_NS" >/dev/null 2>&1; then
+    pass "tier15: admission and metrics NetworkPolicies are installed"
+  else
+    fail "tier15: admission and metrics NetworkPolicies are installed"
+    return 0
+  fi
 
   T15_APP_NS_CREATED=1
   kubectl create namespace "$T15_APP_NS" >/dev/null 2>&1 || true
@@ -621,6 +642,15 @@ tier15_metrics_incluster() {
   if ! kubectl wait -n "$T15_APP_NS" --for=condition=Ready pod/t15-client \
       --timeout=60s >>"$WORK/t15-app.log" 2>&1; then
     fail "tier15: in-cluster metrics client became Ready" "see $WORK/t15-app.log"
+    return 0
+  fi
+  T15_DENY_NS_CREATED=1
+  kubectl create namespace "$T15_DENY_NS" >/dev/null 2>&1 || true
+  kubectl run t15-denied-client -n "$T15_DENY_NS" --image=busybox:1.36 --restart=Never \
+    --command -- sleep 3600 >>"$WORK/t15-app.log" 2>&1 || true
+  if ! kubectl wait -n "$T15_DENY_NS" --for=condition=Ready pod/t15-denied-client \
+      --timeout=60s >>"$WORK/t15-app.log" 2>&1; then
+    fail "tier15: unrelated-namespace metrics client became Ready" "see $WORK/t15-app.log"
     return 0
   fi
 
@@ -812,6 +842,22 @@ YAML
     "$node_metrics" 'brewlet_launcher_info\{launcher="java"\} 1'
   _t15_assert_metric "tier15: JDK installation timestamp metric is exported" \
     "$node_metrics" 'brewlet_jdk_installed_timestamp_seconds\{[^}]*distribution="temurin"[^}]*feature="21"'
+  local allowed_operator_metrics
+  allowed_operator_metrics="$(_t15_scrape_until \
+    "http://brewlet-operator-metrics.$T15_NS.svc:8080/metrics" \
+    'go_gc_duration_seconds' 30)"
+  if [[ -z "$allowed_operator_metrics" ]]; then
+    fail "tier15: configured namespace reaches operator metrics before denial check"
+    return 0
+  fi
+  pass "tier15: configured namespace reaches operator metrics before denial check"
+  if kubectl exec -n "$T15_DENY_NS" t15-denied-client -- \
+       wget -q -O- -T 5 "http://brewlet-operator-metrics.$T15_NS.svc:8080/metrics" \
+       >"$WORK/t15-denied-scrape.log" 2>&1; then
+    fail "tier15: NetworkPolicy denies metrics from an unrelated namespace"
+  else
+    pass "tier15: NetworkPolicy denies metrics from an unrelated namespace"
+  fi
 
   T15_CDS_SNAPSHOT="$WORK/t15-cds-before.txt"
   # Snapshot both the per-key entry directories and the flat .writer markers

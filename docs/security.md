@@ -128,7 +128,9 @@ Mitigations and guardrails:
 | **Stale or hostile image roots are not trusted** | Existing JDK roots are not executed until `.brewlet-source` matches the newly verified digest. Launcher images are pulled and mounted for host-side copying; they are not executed, do not receive host networking, and do not receive a writable host bind mount. |
 | **Host mutation is validated and reversible** | The provisioner rejects containerd servers older than 2.0, validates the effective config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK smoke tests and launcher executable checks pass. |
 | **The operator is unprivileged** | The operator only talks to the API server; only the DaemonSet it manages is privileged. |
-| **Webhook can't block workloads** | `admission.failurePolicy: Ignore` (default) means a webhook outage never wedges deployments; the shim still fails closed when it cannot resolve runtime image identity. |
+| **Webhook outages do not cross the security boundary** | Pod and NodeProfile transport failures default to `Ignore`; the shim and NodeProfile reconciler independently repeat the security-critical checks before execution or privileged work. Set `admission.nodeProfileFailurePolicy=Fail` after certificate bootstrap when synchronous profile-write rejection is preferred. |
+| **Webhook credentials can rotate automatically** | The simple Helm path uses a 90-day self-signed certificate. Enable `admission.certManager` for continuous issuance, renewal, and CA-bundle injection. |
+| **Control-plane endpoints can be isolated** | Enable `networkPolicy` with explicit API-server CIDRs and monitoring peers to restrict webhook and metrics ingress. |
 
 > ⚠️ Treat enabling Brewlet on a node the same way you'd treat any privileged
 > node-bootstrap DaemonSet (a pattern also used for node runtime installation in
@@ -159,8 +161,11 @@ Mitigations and guardrails:
 - [ ] Allowlist only platform-operated mirror hosts and ensure mirrored OCI
       manifests retain their original digests.
 - [ ] Run workloads `runAsNonRoot`, drop capabilities, `readOnlyRootFilesystem`.
-- [ ] Use **cert-manager** for the admission webhook serving cert in production
-      (not the Helm self-signed cert). See [Configuration](configuration.md#admission-webhook).
+- [ ] Enable **cert-manager** for automatic admission webhook certificate
+      renewal. See [Configuration](configuration.md#admission-webhook).
+- [ ] Enable Brewlet **NetworkPolicies** with the real kubelet and API-server
+      source CIDRs and only the monitoring namespace/pods that need metrics
+      access.
 - [ ] Require trusted final-image managed-dependency attestations with
       [admission enforcement](admission-enforcement.md); pin images and the
       verifier plugin to digests.

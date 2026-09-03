@@ -116,6 +116,23 @@ metrics:
     labels:
       grafana_dashboard: "1"
 
+# Optional ingress isolation for Brewlet control-plane and metrics pods.
+# Enabling policies requires explicit cluster-specific trusted sources.
+networkPolicy:
+  enabled: false
+  healthProbes:
+    # Kubernetes NetworkPolicy peers used by kubelet health probes. Configure
+    # the node source CIDRs or selectors used by your cluster.
+    ingressFrom: []
+  admission:
+    # Source CIDRs used by the Kubernetes API server when calling admission
+    # webhooks. These vary by cluster and CNI.
+    apiServerCIDRs: []
+  metrics:
+    # Kubernetes NetworkPolicy peers allowed to scrape Brewlet metrics. Each
+    # entry may use namespaceSelector, podSelector, or ipBlock.
+    ingressFrom: []
+
 # The pod admission/scheduling webhook (§8/§14): overwrites image identity
 # compatibility hints and matches a pod's requested JDK/launcher against the
 # ready fleet (NoCompatibleJDK / NoCompatibleLauncher).
@@ -124,7 +141,31 @@ admission:
   replicas: 1
   # failurePolicy Ignore keeps a webhook outage from ever blocking workloads.
   failurePolicy: Ignore
+  # The reconciler repeats NodeProfile validation before privileged work, so
+  # transport failures default to Ignore while a new certificate is issued.
+  # Set Fail for synchronous rejection once webhook availability is guaranteed.
+  nodeProfileFailurePolicy: Ignore
   port: 9443
+  selfSigned:
+    # Used by the dependency-free default. Helm creates a fresh certificate on
+    # install/upgrade; use certManager below for automatic renewal.
+    validityDays: 90
+  certManager:
+    # Requires cert-manager and its CA injector to be installed in the cluster.
+    enabled: false
+    # Create a chart-managed self-signed CA chain. When false, issuerRef.name is
+    # required and should identify an existing Issuer or ClusterIssuer.
+    createSelfSignedIssuer: false
+    issuerRef:
+      name: ""
+      kind: Issuer
+      group: cert-manager.io
+    duration: 2160h
+    renewBefore: 720h
+    caDuration: 8760h
+    # Keep this longer than duration-renewBefore so a leaf renews before the
+    # previous CA expires after CA rotation.
+    caRenewBefore: 2160h
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits: { cpu: "200m", memory: "128Mi" }

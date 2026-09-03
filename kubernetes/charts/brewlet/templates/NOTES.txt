@@ -9,6 +9,15 @@ Components:
 {{- if .Values.admission.enabled }}
   • brewlet-admission     pod admission/scheduling webhook (stamps artifact
                           ref/digest; NoCompatibleJDK / NoCompatibleLauncher)
+{{- if .Values.admission.certManager.enabled }}
+                          TLS: cert-manager issuance and automatic renewal enabled
+{{- else }}
+                          TLS: Helm-generated certificate valid for
+                          {{ .Values.admission.selfSigned.validityDays }} days
+                          WARNING: this certificate does not renew automatically.
+                          Enable admission.certManager for long-running installs,
+                          or complete a Helm upgrade before it expires.
+{{- end }}
 {{- end }}
 
 Node inventory the operator will install (§5.3/§5.4):

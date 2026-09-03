@@ -1211,8 +1211,11 @@ determine the containerd-resolved image.
 > `--allowed-source-mirror-hosts`, an invalid
 > `containerdRestart`, and — after listing existing profiles — two profiles
 > naming the same pool (`PoolConflict`). Unlike the pod webhook it is
-> `failurePolicy: Fail` for immediate feedback, while the reconciler repeats the
-> same policy so admission is not the privileged security boundary (§5.6).
+> configurable with `admission.nodeProfileFailurePolicy`. It defaults to
+> `Ignore` so certificate bootstrap cannot block profile creation; operators can
+> select `Fail` for synchronous transport-failure rejection once webhook
+> availability is guaranteed. The reconciler repeats the same policy, so
+> admission is not the privileged security boundary (§5.6).
 
 ---
 

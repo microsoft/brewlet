@@ -273,6 +273,31 @@ YAML
       assert_contains "helm: disables source mirrors by default" "$tmpl" "--allowed-source-mirror-hosts="
       assert_not_contains "helm: omits operator metrics Service by default" "$tmpl" "brewlet-operator-metrics"
       assert_not_contains "helm: omits node metrics Service by default" "$tmpl" "brewlet-node-metrics"
+      assert_not_contains "helm: omits NetworkPolicies by default" "$tmpl" "kind: NetworkPolicy"
+      if have openssl; then
+        local cert_b64 cert_file
+        cert_b64="$(awk '
+          /^kind: Secret$/ { in_secret=1; target=0; next }
+          in_secret && /^  name: brewlet-admission-selfsigned-cert$/ { target=1; next }
+          target && /^  tls.crt:/ { print $2; exit }
+        ' <<<"$tmpl")"
+        cert_file="$WORK/t4-admission.crt"
+        if [[ -n "$cert_b64" ]] &&
+           printf '%s' "$cert_b64" | openssl base64 -d -A >"$cert_file" 2>/dev/null &&
+           openssl x509 -in "$cert_file" -noout >/dev/null 2>&1; then
+          if openssl x509 -in "$cert_file" -checkend $((89 * 86400)) -noout >/dev/null 2>&1 &&
+             ! openssl x509 -in "$cert_file" -checkend $((91 * 86400)) -noout >/dev/null 2>&1; then
+            pass "helm: default admission certificate lifetime is approximately 90 days"
+          else
+            fail "helm: default admission certificate lifetime is approximately 90 days" \
+              "$(openssl x509 -in "$cert_file" -noout -dates 2>/dev/null | tr '\n' ' ')"
+          fi
+        else
+          fail "helm: decode the default admission certificate"
+        fi
+      else
+        skip "helm: default admission certificate lifetime" "openssl not installed"
+      fi
     else
       fail "helm: template render" "see $WORK/t4-helm-template.log"
     fi
@@ -284,6 +309,81 @@ YAML
       assert_contains "helm: optionally renders Grafana dashboard" "$tmpl" "brewlet-grafana-dashboard"
     else
       fail "helm: optional metrics template render" "see $WORK/t4-helm-template.log"
+    fi
+    if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+          --set admission.certManager.enabled=true \
+          --set admission.certManager.createSelfSignedIssuer=true \
+          2>>"$WORK/t4-helm-template.log")"; then
+      assert_contains "helm: cert-manager mode renders Certificate resources" \
+        "$tmpl" "kind: Certificate"
+      assert_contains "helm: cert-manager mode renders the chart-managed CA issuer" \
+        "$tmpl" "name: brewlet-admission-ca"
+      assert_contains "helm: cert-manager injects the webhook CA" \
+        "$tmpl" "cert-manager.io/inject-ca-from: \"brewlet/brewlet-admission-cert\""
+      assert_not_contains "helm: cert-manager mode omits Helm-generated TLS data" \
+        "$tmpl" "tls.key:"
+      assert_not_contains "helm: cert-manager mode omits static webhook CA bundles" \
+        "$tmpl" "caBundle:"
+    else
+      fail "helm: cert-manager template render" "see $WORK/t4-helm-template.log"
+    fi
+    if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+         --set admission.certManager.enabled=true \
+         >"$WORK/t4-cert-manager-invalid.log" 2>&1; then
+      fail "helm: cert-manager requires an issuer"
+    else
+      assert_contains "helm: cert-manager reports the missing issuer" \
+        "$(cat "$WORK/t4-cert-manager-invalid.log")" \
+        "admission.certManager.issuerRef.name is required"
+    fi
+    if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+          --set metrics.enabled=true \
+          --set networkPolicy.enabled=true \
+          --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
+          --set 'networkPolicy.admission.apiServerCIDRs[0]=10.0.0.0/8' \
+          --set 'networkPolicy.metrics.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=monitoring' \
+          2>>"$WORK/t4-helm-template.log")"; then
+      assert_contains "helm: optionally renders admission NetworkPolicy" \
+        "$tmpl" "name: brewlet-admission"
+      assert_contains "helm: optionally renders operator metrics NetworkPolicy" \
+        "$tmpl" "name: brewlet-operator-metrics"
+      assert_contains "helm: optionally renders node metrics NetworkPolicy" \
+        "$tmpl" "name: brewlet-node-metrics"
+      assert_contains "helm: renders configured API-server CIDR" \
+        "$tmpl" "cidr: \"10.0.0.0/8\""
+      assert_contains "helm: renders configured kubelet probe CIDR" \
+        "$tmpl" "cidr: 10.1.0.0/16"
+      assert_eq "helm: permits health probes for admission and operator pods" \
+        "$(awk '
+          /^kind: NetworkPolicy$/ { policy=1; next }
+          policy && /port: 8081/ { count++ }
+          policy && /^---$/ { policy=0 }
+          END { print count+0 }
+        ' <<<"$tmpl")" "2"
+      assert_contains "helm: renders configured metrics namespace selector" \
+        "$tmpl" "kubernetes.io/metadata.name: monitoring"
+    else
+      fail "helm: NetworkPolicy template render" "see $WORK/t4-helm-template.log"
+    fi
+    if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+         --set networkPolicy.enabled=true \
+         --set 'networkPolicy.admission.apiServerCIDRs[0]=10.0.0.0/8' \
+         >"$WORK/t4-network-policy-health-invalid.log" 2>&1; then
+      fail "helm: NetworkPolicies require kubelet health-probe peers"
+    else
+      assert_contains "helm: NetworkPolicies report missing health-probe peers" \
+        "$(cat "$WORK/t4-network-policy-health-invalid.log")" \
+        "networkPolicy.healthProbes.ingressFrom must contain at least one"
+    fi
+    if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+         --set networkPolicy.enabled=true \
+         --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
+         >"$WORK/t4-network-policy-invalid.log" 2>&1; then
+      fail "helm: NetworkPolicies require API-server CIDRs"
+    else
+      assert_contains "helm: NetworkPolicies report missing API-server CIDRs" \
+        "$(cat "$WORK/t4-network-policy-invalid.log")" \
+        "networkPolicy.admission.apiServerCIDRs must contain at least one"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
           --set security.allowedSourceMirrorHosts[0]=registry.internal \

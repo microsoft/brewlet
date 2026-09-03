@@ -11,9 +11,6 @@ accepted and implemented.
   configuration, restart through a reversible path, restore the previous
   configuration after failure, and extend readiness checks to custom launchers.
   See [proposal 0002](specs/proposals/0002-validated-node-reconfig.md).
-- **Managed admission certificates.** Add an opt-in cert-manager integration for
-  webhook certificate issuance and rotation. See
-  [proposal 0004](specs/proposals/0004-cert-manager-admission.md).
 - **Stronger sandbox options.** Prototype gVisor as the leading stronger-isolation
   candidate before committing runtime or API support. The current Brewlet shim
   cannot assume that `BinaryName=runsc` is a supported composition, and Kata's
