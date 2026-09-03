@@ -21,8 +21,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -32,29 +30,39 @@ jobs:
   release-smoke:
     if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_release_smoke }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v5
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "21"
       - name: Verify installer, public release, and Getting Started
+        # Needed once the pinned version reaches BREWLET_MIN_PROVENANCE_VERSION
+        # and the script starts calling gh attestation verify.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./site/scripts/verify-release-artifacts.sh 0.3.1
 
   deploy:
     needs: release-smoke
     if: ${{ always() && (needs.release-smoke.result == 'success' || needs.release-smoke.result == 'skipped') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.x"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
           cache: npm
@@ -82,9 +90,9 @@ jobs:
             --exclude='_site' \
             --exclude='notices' \
             site/ site/_site/
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site/_site
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

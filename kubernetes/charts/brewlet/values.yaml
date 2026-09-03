@@ -12,14 +12,24 @@
 namespace: brewlet
 
 # Container images for each component. Empty component values resolve to
-# <registry>/brewlet-<component>:<tag>, where an empty tag uses Chart.appVersion.
-# Set a component explicitly to override the generated reference or pin a digest.
+# <registry>/brewlet-<component>@<digest> when `images.digests` records one, and
+# otherwise to <registry>/brewlet-<component>:<tag>, where an empty tag uses
+# Chart.appVersion. Set a component explicitly to override the generated
+# reference or pin a digest.
 images:
   registry: ghcr.io/microsoft
   tag: ""
   operator: ""
   provisioner: ""
   admission: ""
+  # Immutable digests recorded by the release workflow for the images it built
+  # and attested. Charts packaged from source leave these empty and fall back to
+  # the shared tag; published charts carry `sha256:<64 hex>` values so an install
+  # cannot be redirected by moving a registry tag.
+  digests:
+    operator: ""
+    provisioner: ""
+    admission: ""
   pullPolicy: IfNotPresent
 
 # Cluster-level trust policy. NodeProfiles may request mirrors only when the

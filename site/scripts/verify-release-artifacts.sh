@@ -5,9 +5,18 @@
 set -euo pipefail
 
 version="${1:-0.3.1}"
+# Releases from this version on publish build provenance and a digest-pinned
+# chart. Older releases predate that workflow and are verified by checksum only.
+min_provenance_version="${BREWLET_MIN_PROVENANCE_VERSION:-0.4.0}"
 work="$(mktemp -d)"
 app_pid=""
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+repo_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
+
+has_provenance() {
+  [[ "$(printf '%s\n%s\n' "$min_provenance_version" "$version" |
+    sort -V | head -n 1)" == "$min_provenance_version" ]]
+}
 
 cleanup() {
   if [[ -n "$app_pid" ]]; then
@@ -92,10 +101,23 @@ helm pull oci://ghcr.io/microsoft/charts/brewlet \
 helm template brewlet "$work/brewlet-${version}.tgz" \
   > "$work/rendered.yaml"
 
-grep -q "ghcr.io/microsoft/brewlet-operator:${version}" "$work/rendered.yaml"
-grep -q "ghcr.io/microsoft/brewlet-admission:${version}" "$work/rendered.yaml"
-grep -q "ghcr.io/microsoft/brewlet-node-provisioner:${version}" "$work/rendered.yaml"
+if has_provenance; then
+  # A published chart must bind each component to the exact image the release
+  # built, so a moved registry tag cannot redirect an install.
+  for image in brewlet-operator brewlet-admission brewlet-node-provisioner; do
+    grep -Eq "ghcr\.io/microsoft/${image}@sha256:[0-9a-f]{64}" "$work/rendered.yaml"
+    digest="$(grep -Eo "ghcr\.io/microsoft/${image}@sha256:[0-9a-f]{64}" \
+      "$work/rendered.yaml" | head -n 1)"
+    docker manifest inspect "$digest" >/dev/null
+  done
 
-docker manifest inspect "ghcr.io/microsoft/brewlet-operator:${version}" >/dev/null
-docker manifest inspect "ghcr.io/microsoft/brewlet-admission:${version}" >/dev/null
-docker manifest inspect "ghcr.io/microsoft/brewlet-node-provisioner:${version}" >/dev/null
+  "$repo_root/scripts/verify-release-provenance.sh" "$version"
+else
+  grep -q "ghcr.io/microsoft/brewlet-operator:${version}" "$work/rendered.yaml"
+  grep -q "ghcr.io/microsoft/brewlet-admission:${version}" "$work/rendered.yaml"
+  grep -q "ghcr.io/microsoft/brewlet-node-provisioner:${version}" "$work/rendered.yaml"
+
+  docker manifest inspect "ghcr.io/microsoft/brewlet-operator:${version}" >/dev/null
+  docker manifest inspect "ghcr.io/microsoft/brewlet-admission:${version}" >/dev/null
+  docker manifest inspect "ghcr.io/microsoft/brewlet-node-provisioner:${version}" >/dev/null
+fi

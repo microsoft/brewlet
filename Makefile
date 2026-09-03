@@ -14,7 +14,7 @@ REGISTRY ?= ghcr.io/microsoft
 TAG ?= latest
 PROVISIONER_IMAGE ?= $(REGISTRY)/node-provisioner:$(TAG)
 
-.PHONY: build binaries test vet fmt-check license-check container-security-check container-security-test check check-all kubernetes-check maven-plugin-check admission-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
+.PHONY: build binaries test vet fmt-check license-check workflow-security-check container-security-check container-security-test check check-all kubernetes-check maven-plugin-check admission-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
 
 build: ## Build every package for the current platform
 	go -C core build ./...
@@ -42,6 +42,10 @@ fmt-check: ## Fail when tracked Go source is not gofmt-formatted
 license-check: ## Verify Microsoft MIT headers on tracked source files
 	./scripts/check-license-headers.sh
 
+workflow-security-check: ## Enforce SHA-pinned actions and job-scoped write permissions
+	./scripts/check-workflow-security.sh
+	./scripts/check-workflow-security_test.sh
+
 container-security-check: ## Enforce digest-pinned Dockerfiles and verified downloads
 	./scripts/check-container-build-security.sh
 	./scripts/check-container-build-security_test.sh
@@ -54,7 +58,7 @@ container-security-test: ## Exercise corrupt-download failures and multi-arch im
 		--build-arg CMD=manager --output=type=cacheonly \
 		-f kubernetes/Dockerfile .
 
-check: license-check container-security-check fmt-check vet build test ## Run all CI checks
+check: license-check workflow-security-check container-security-check fmt-check vet build test ## Run all CI checks
 
 kubernetes-check: ## Run Kubernetes platform CI checks
 	$(MAKE) -C kubernetes ci

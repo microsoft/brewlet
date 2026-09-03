@@ -51,6 +51,9 @@ kubectl get nodes -L brewlet.sh/runtime
 | `images.operator` | generated | Explicit operator image override. |
 | `images.provisioner` | generated | Explicit provisioner image override. |
 | `images.admission` | generated | Explicit admission image override. |
+| `images.digests.operator` | recorded at release | Immutable `sha256:<64 hex>` digest rendering `<registry>/brewlet-operator@<digest>`; takes precedence over `images.tag`. |
+| `images.digests.provisioner` | recorded at release | Immutable digest for the node-provisioner image. |
+| `images.digests.admission` | recorded at release | Immutable digest for the admission image. |
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
 | `security.allowedSourceMirrorHosts` | `[]` | Exact destination registry hosts, including explicit ports, approved for JDK/launcher mirror rewrites. Empty disables mirrors. |
 | `provisioner.jdks` | structured Temurin 21 and Microsoft 25 examples | Required JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` (§5.3). |
