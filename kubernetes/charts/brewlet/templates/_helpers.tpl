@@ -6,16 +6,30 @@
 {{- end -}}
 
 {{/*
-Resolve a component image. Explicit images.<component> overrides the generated
-<registry>/<name>:<tag> reference; tag defaults to Chart.appVersion.
+Resolve a component image. Explicit images.<component> overrides everything.
+Otherwise a recorded images.digests.<component> produces an immutable
+<registry>/<name>@sha256:<digest> reference, and only when no digest is recorded
+does the reference fall back to <registry>/<name>:<tag> (tag defaults to
+Chart.appVersion). Released charts record digests, so an installed release is
+bound to the exact images the release workflow built and attested.
 */}}
 {{- define "brewlet.image" -}}
 {{- $override := index .root.Values.images .component -}}
 {{- if $override -}}
 {{- $override -}}
 {{- else -}}
+{{- $registry := trimSuffix "/" .root.Values.images.registry -}}
+{{- $digests := default (dict) .root.Values.images.digests -}}
+{{- $digest := default "" (index $digests .component) -}}
+{{- if $digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
+{{- fail (printf "images.digests.%s must be a full sha256 digest, got %q" .component $digest) -}}
+{{- end -}}
+{{- printf "%s/%s@%s" $registry .name $digest -}}
+{{- else -}}
 {{- $tag := default .root.Chart.AppVersion .root.Values.images.tag -}}
-{{- printf "%s/%s:%s" (trimSuffix "/" .root.Values.images.registry) .name $tag -}}
+{{- printf "%s/%s:%s" $registry .name $tag -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 

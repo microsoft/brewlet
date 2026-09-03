@@ -139,6 +139,7 @@ Mitigations and guardrails:
 | **Webhook outages do not cross the security boundary** | Pod and NodeProfile transport failures default to `Ignore`; the shim and NodeProfile reconciler independently repeat the security-critical checks before execution or privileged work. Set `admission.nodeProfileFailurePolicy=Fail` after certificate bootstrap when synchronous profile-write rejection is preferred. |
 | **Webhook credentials can rotate automatically** | The simple Helm path uses a 90-day self-signed certificate. Enable `admission.certManager` for continuous issuance, renewal, and CA-bundle injection. |
 | **Control-plane endpoints can be isolated** | Enable `networkPolicy` with explicit API-server CIDRs and monitoring peers to restrict webhook and metrics ingress. |
+| **Releases are independently verifiable** | Every workflow action is pinned to a full commit SHA, release write permissions are scoped to the individual publishing jobs, and the release workflow publishes SLSA build provenance for each component image, the OCI chart, and every GitHub Release asset. See [Verify a release](installation.md#verify-a-release). |
 
 > ⚠️ Treat enabling Brewlet on a node the same way you'd treat any privileged
 > node-bootstrap DaemonSet (a pattern also used for node runtime installation in
@@ -163,7 +164,13 @@ Mitigations and guardrails:
       [Capability labels and autoscaling](capability-labels-and-autoscaling.md).
 - [ ] Build component images only from repository-pinned base-image digests and
       checksum-verified provisioner assets.
-- [ ] Pin component images and OCI artifacts to **digests**.
+- [ ] Pin component images and OCI artifacts to **digests**. Published charts
+      already record the digests the release built; keep them rather than
+      overriding `images.tag`.
+- [ ] Verify build provenance for every Brewlet artifact you install with
+      `./scripts/verify-release-provenance.sh <version>` (or `gh attestation
+      verify`) before promoting a release. See
+      [Verify a release](installation.md#verify-a-release).
 - [ ] Use reviewed SHA-256 digest pins and absolute paths for every JDK and
       launcher source; never use mutable tags.
 - [ ] Allowlist only platform-operated mirror hosts and ensure mirrored OCI

@@ -27,10 +27,10 @@ jobs:
       run:
         working-directory: core
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
@@ -64,10 +64,10 @@ jobs:
       run:
         working-directory: kubernetes
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: kubernetes/go.mod
           cache-dependency-path: kubernetes/go.sum
@@ -83,7 +83,9 @@ jobs:
 
       - name: Set up envtest control plane
         run: |
-          go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.19
+          go install "sigs.k8s.io/controller-runtime/tools/setup-envtest@$(
+            make --no-print-directory print-setup-envtest-version
+          )"
           setup_envtest="$(go env GOPATH)/bin/setup-envtest"
           echo "KUBEBUILDER_ASSETS=$("$setup_envtest" use 1.31.0 -p path)" >> "$GITHUB_ENV"
 
@@ -94,7 +96,7 @@ jobs:
     name: Node provisioner image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build image
         run: docker build --build-arg TARGETARCH=amd64 -t brewlet-node-provisioner:ci -f provisioner/Dockerfile .
@@ -109,22 +111,31 @@ jobs:
       run:
         working-directory: kubernetes
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Helm
-        uses: azure/setup-helm@v5
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
       - name: Lint and render chart
         run: make helm-check
+
+  supply-chain:
+    name: Workflow supply chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Enforce workflow pinning and permission scoping
+        run: make workflow-security-check
 
   container-security:
     name: Container build integrity
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Enforce Dockerfile security policy
         run: make container-security-check
@@ -139,10 +150,10 @@ jobs:
       run:
         working-directory: maven-plugin
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up JDK
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
           java-version: "17"
@@ -160,23 +171,23 @@ jobs:
     name: License and notices
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify source license headers
         run: ./scripts/check-license-headers.sh
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: core/go.mod
           cache-dependency-path: |
             core/go.sum
             kubernetes/go.sum
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.x"
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "24"
           cache: npm
