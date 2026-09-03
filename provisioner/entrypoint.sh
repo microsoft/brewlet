@@ -735,8 +735,8 @@ containerd_systemd_cgroup() {
   printf '%s' "$systemd_cgroup"
 }
 
-containerd_runtime_plugin() {
-  local version
+containerd_runtime_plugin_for_config() {
+  local config="$1" version
   version="$(
     awk -F= '
       /^[[:space:]]*version[[:space:]]*=/ {
@@ -745,13 +745,17 @@ containerd_runtime_plugin() {
         print $2
         exit
       }
-    ' "$CONTAINERD_CONFIG"
+    ' "$config"
   )"
   if [[ "$version" =~ ^[0-9]+$ ]] && (( version >= 3 )); then
     printf 'io.containerd.cri.v1.runtime'
   else
     printf 'io.containerd.grpc.v1.cri'
   fi
+}
+
+containerd_runtime_plugin() {
+  containerd_runtime_plugin_for_config "$CONTAINERD_CONFIG"
 }
 
 render_containerd_runtime() {
@@ -799,9 +803,8 @@ containerd_config_has_runtime() {
   grep -Eq "^[[:space:]]*\\[plugins\\.[\"']${plugin}[\"']\\.containerd\\.runtimes\\.brewlet\\][[:space:]]*$" "$1"
 }
 
-containerd_dump_has_runtime_handler() {
-  local plugin
-  plugin="$(containerd_runtime_plugin)"
+containerd_file_has_runtime_handler() {
+  local file="$1" plugin="$2"
   awk -v plugin="$plugin" '
     /^[[:space:]]*\[/ {
       if (in_brewlet) exit
@@ -813,13 +816,23 @@ containerd_dump_has_runtime_handler() {
       exit
     }
     END { exit !found }
-  ' "$1"
+  ' "$file"
+}
+
+containerd_dump_has_runtime_handler() {
+  local dump="$1" plugin
+  # containerd 2 migrates a v2 source config to its v3 split-plugin schema in
+  # `config dump`, so select the runtime table from the effective dump itself.
+  plugin="$(containerd_runtime_plugin_for_config "$dump")"
+  containerd_file_has_runtime_handler "$dump" "$plugin"
 }
 
 containerd_source_has_runtime_handler() {
-  containerd_dump_has_runtime_handler "$CONTAINERD_CONFIG" && return 0
+  local plugin
+  plugin="$(containerd_runtime_plugin)"
+  containerd_file_has_runtime_handler "$CONTAINERD_CONFIG" "$plugin" && return 0
   [[ -f "$CONTAINERD_DROPIN_FILE" ]] \
-    && containerd_dump_has_runtime_handler "$CONTAINERD_DROPIN_FILE"
+    && containerd_file_has_runtime_handler "$CONTAINERD_DROPIN_FILE" "$plugin"
 }
 
 containerd_dump_omits_external_cri_schema() {

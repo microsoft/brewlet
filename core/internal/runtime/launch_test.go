@@ -123,6 +123,9 @@ func TestGenerateBundleDefaultsToNonRootIdentity(t *testing.T) {
 		t.Fatalf("process user = %d:%d, want default %d:%d",
 			got.Process.User.UID, got.Process.User.GID, DefaultProcessUID, DefaultProcessGID)
 	}
+	if env := strings.Join(got.Process.Env, "\n"); !strings.Contains(env, "\nHOME=/tmp") {
+		t.Fatalf("process environment = %q, want writable HOME=/tmp", got.Process.Env)
+	}
 }
 
 func TestGenerateBundleUsesExplicitRuntimeIdentity(t *testing.T) {

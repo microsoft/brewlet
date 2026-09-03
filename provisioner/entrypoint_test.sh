@@ -677,6 +677,33 @@ if grep -Fq 'plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet' \
   exit 1
 fi
 
+# containerd 2 normalizes a version-2 source config into the version-3 split
+# CRI plugin schema in `config dump`; validate the migrated effective handler.
+normalized_dump_dir="$(new_containerd_test_dir)"
+if ! (
+  CONTAINERD_CONFIG="$normalized_dump_dir/config.toml"
+  CONTAINERD_DROPIN_DIR="$normalized_dump_dir/config.toml.d"
+  CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
+  BREWLET_CONTAINERD_RESTART=validated
+  BREWLET_VALIDATE=false
+  NODE_NAME=""
+  host_exec() {
+    cat <<'EOF'
+version = 3
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.brewlet]
+  runtime_type = "io.containerd.brewlet.v2"
+EOF
+  }
+  configure_containerd
+) >"$normalized_dump_dir/output" 2>&1; then
+  echo "expected migrated containerd 2 config validation to succeed" >&2
+  exit 1
+fi
+grep -Fq 'config validation passed: brewlet runtime handler is present' \
+  "$normalized_dump_dir/output"
+grep -Fq 'plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet' \
+  "$normalized_dump_dir/config.toml"
+
 # Re-running an unchanged validated render still validates it but does not
 # reload containerd again.
 : >"$calls"

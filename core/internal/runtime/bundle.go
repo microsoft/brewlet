@@ -171,8 +171,13 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	if identity.UID > MaxProcessID || identity.GID > MaxProcessID {
 		return fmt.Errorf("process UID/GID must be between 0 and %d", MaxProcessID)
 	}
-	if regen.Regenerate && (uint64(identity.UID) > uint64(math.MaxInt) || uint64(identity.GID) > uint64(math.MaxInt)) {
-		return fmt.Errorf("process UID/GID must be between 0 and %d for CDS regeneration on this platform", math.MaxInt)
+	var writerOwner *RegenOwner
+	if regen.Regenerate {
+		regenUID, regenGID := uint64(identity.UID), uint64(identity.GID)
+		if regenUID > math.MaxInt || regenGID > math.MaxInt {
+			return fmt.Errorf("process UID/GID must be between 0 and %d for CDS regeneration on this platform", math.MaxInt)
+		}
+		writerOwner = &RegenOwner{UID: int(regenUID), GID: int(regenGID)}
 	}
 	if err := os.MkdirAll(filepath.Join(outDir, "rootfs"), 0o755); err != nil {
 		return err
@@ -198,7 +203,6 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 		if cacheDir == "" {
 			cacheDir = DefaultCDSCacheDir
 		}
-		writerOwner := &RegenOwner{UID: int(identity.UID), GID: int(identity.GID)}
 		dec, derr := DecideCDSRegen(RegenParams{
 			CacheDir:           cacheDir,
 			CacheScope:         regen.CacheScope,
@@ -322,6 +326,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	env := []string{
 		"PATH=" + path,
 		"JAVA_HOME=/opt/jdk",
+		"HOME=/tmp",
 	}
 	for _, e := range cfg.Env {
 		env = append(env, e.Name+"="+e.Value)
