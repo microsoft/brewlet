@@ -102,7 +102,7 @@ func TestContentStoreBlobsWithClasspathLayers(t *testing.T) {
 	if len(blobs.ClasspathHostPaths) != 1 {
 		t.Fatalf("ClasspathHostPaths len = %d, want 1", len(blobs.ClasspathHostPaths))
 	}
-	if want := contentBlobPath(root, depsDigest); blobs.ClasspathHostPaths[0] != want {
+	if want := mustContentBlobPath(t, root, depsDigest); blobs.ClasspathHostPaths[0] != want {
 		t.Errorf("classpath path = %q, want %q", blobs.ClasspathHostPaths[0], want)
 	}
 }
@@ -181,7 +181,7 @@ func TestContentStoreBlobsWithModulepathLayers(t *testing.T) {
 	if len(blobs.ModulepathHostPaths) != 1 {
 		t.Fatalf("ModulepathHostPaths len = %d, want 1", len(blobs.ModulepathHostPaths))
 	}
-	if want := contentBlobPath(root, modsDigest); blobs.ModulepathHostPaths[0] != want {
+	if want := mustContentBlobPath(t, root, modsDigest); blobs.ModulepathHostPaths[0] != want {
 		t.Errorf("modulepath path = %q, want %q", blobs.ModulepathHostPaths[0], want)
 	}
 }

@@ -83,7 +83,7 @@ func TestContentStoreBlobsWithCDSLayer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("contentStoreBlobs: %v", err)
 	}
-	if want := contentBlobPath(root, jsaDigest); blobs.CDSHostPath != want {
+	if want := mustContentBlobPath(t, root, jsaDigest); blobs.CDSHostPath != want {
 		t.Errorf("cds path = %q, want %q", blobs.CDSHostPath, want)
 	}
 	if blobs.ManifestDigest != manDigest {

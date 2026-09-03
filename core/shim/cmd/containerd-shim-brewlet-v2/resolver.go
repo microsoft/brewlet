@@ -6,8 +6,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/microsoft/brewlet/internal/artifact"
 )
@@ -24,9 +22,16 @@ type artifactBlobs = artifact.ResolvedBlobs
 type contentStoreSource struct{ root string }
 
 func (c contentStoreSource) ReadBlob(digest string) ([]byte, error) {
-	return os.ReadFile(c.BlobPath(digest))
+	path, err := c.BlobPath(digest)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
 }
-func (c contentStoreSource) BlobPath(digest string) string { return contentBlobPath(c.root, digest) }
+
+func (c contentStoreSource) BlobPath(digest string) (string, error) {
+	return contentBlobPath(c.root, digest)
+}
 
 // loadArtifactBlobs reads the artifact's config + payload layers from the
 // configured blob source. Two backends are supported:
@@ -92,11 +97,9 @@ func contentStoreBlobs(contentRoot, manifestDigest string) (artifactBlobs, error
 }
 
 // contentBlobPath maps a "sha256:<hex>" digest to its on-disk blob path in an
-// OCI-style content store: <root>/blobs/<algo>/<hex>.
-func contentBlobPath(root, digest string) string {
-	algo, hex, found := strings.Cut(digest, ":")
-	if !found {
-		algo, hex = "sha256", digest
-	}
-	return filepath.Join(root, "blobs", algo, hex)
+// OCI-style content store: <root>/blobs/sha256/<hex>. A descriptor digest is
+// untrusted tenant input, so a non-canonical digest yields an error rather than
+// a host path the root shim would otherwise bind-mount into the container.
+func contentBlobPath(root, digest string) (string, error) {
+	return artifact.BlobPathIn(root, digest)
 }

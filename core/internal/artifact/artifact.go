@@ -400,12 +400,18 @@ func (s Store) writeBlob(b []byte) (Descriptor, error) {
 
 // ReadBlob returns the raw bytes of a blob by digest ("sha256:...").
 func (s Store) ReadBlob(digest string) ([]byte, error) {
-	return os.ReadFile(s.BlobPath(digest))
+	path, err := s.BlobPath(digest)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
 }
 
 // BlobPath returns the on-disk path of a blob (used to mount the JAR directly).
-func (s Store) BlobPath(digest string) string {
-	return filepath.Join(s.blobsDir(), digest[len("sha256:"):])
+// The digest must be a canonical SHA-256 digest: an untrusted descriptor must
+// never be able to name a path outside the store's blob directory.
+func (s Store) BlobPath(digest string) (string, error) {
+	return BlobPathIn(s.Root, digest)
 }
 
 // Push writes the config + JAR layer + manifest and tags it as ref in index.json.
@@ -641,7 +647,7 @@ func (s Store) Resolve(ref string) (Manifest, JVMConfig, error) {
 	}
 	for _, m := range idx.Manifests {
 		if m.Annotations[refNameAnnotation] == ref {
-			mb, err := s.ReadBlob(m.Digest)
+			mb, err := s.readVerifiedBlob(m)
 			if err != nil {
 				return Manifest{}, JVMConfig{}, err
 			}
@@ -649,7 +655,7 @@ func (s Store) Resolve(ref string) (Manifest, JVMConfig, error) {
 			if err := json.Unmarshal(mb, &man); err != nil {
 				return Manifest{}, JVMConfig{}, err
 			}
-			cb, err := s.ReadBlob(man.Config.Digest)
+			cb, err := s.readVerifiedBlob(man.Config)
 			if err != nil {
 				return Manifest{}, JVMConfig{}, err
 			}

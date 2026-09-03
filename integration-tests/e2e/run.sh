@@ -162,7 +162,7 @@ for t in "${TIERS[@]}"; do
   case "$t" in
     1) tier1_unit ;;
     2) tier2_cli ;;
-    3) tier3_runc ;;
+    3) tier3_runc; tier3_digest_traversal ;;
     4) tier4_k8s ;;
     5) tier5_webhook ;;
     6) tier6_webhook_incluster ;;

@@ -42,8 +42,8 @@ func (s testBlobSource) ReadBlob(digest string) ([]byte, error) {
 	return s[digest], nil
 }
 
-func (s testBlobSource) BlobPath(string) string {
-	return ""
+func (s testBlobSource) BlobPath(string) (string, error) {
+	return "", nil
 }
 
 func TestExtractGzTarRejectsTraversal(t *testing.T) {
@@ -65,7 +65,8 @@ func TestExtractGzTarRejectsTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := extractGzTar(testBlobSource{"sha256:test": buf.Bytes()}, "sha256:test", t.TempDir()); err == nil {
+	desc := Descriptor{Digest: digestOf(buf.Bytes()), Size: int64(buf.Len())}
+	if err := extractGzTar(testBlobSource{desc.Digest: buf.Bytes()}, desc, t.TempDir()); err == nil {
 		t.Fatal("expected extractGzTar to reject a path-traversal entry")
 	}
 }
