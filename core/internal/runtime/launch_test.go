@@ -126,6 +126,21 @@ func TestGenerateBundleDefaultsToNonRootIdentity(t *testing.T) {
 	if env := strings.Join(got.Process.Env, "\n"); !strings.Contains(env, "\nHOME=/tmp") {
 		t.Fatalf("process environment = %q, want writable HOME=/tmp", got.Process.Env)
 	}
+	writableTmp := false
+	for _, mount := range got.Mounts {
+		if mount.Destination != "/tmp" || mount.Type != "tmpfs" {
+			continue
+		}
+		for _, option := range mount.Options {
+			if option == "mode=1777" {
+				writableTmp = true
+				break
+			}
+		}
+	}
+	if !writableTmp {
+		t.Fatalf("mounts = %#v, want /tmp tmpfs with mode=1777", got.Mounts)
+	}
 }
 
 func TestGenerateBundleUsesExplicitRuntimeIdentity(t *testing.T) {

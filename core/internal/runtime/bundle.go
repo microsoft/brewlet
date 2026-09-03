@@ -359,7 +359,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 			// in an ordinary container. Without this the JVM sees the host's
 			// resources and mis-sizes itself.
 			{Destination: "/sys/fs/cgroup", Type: "cgroup", Source: "cgroup", Options: []string{"nosuid", "noexec", "nodev", "relatime", "ro"}},
-			{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"nosuid", "nodev"}},
+			{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"nosuid", "nodev", "mode=1777"}},
 		}, append(append(append(append(libMount, modsMount...), cdsMount...), cdsCacheMount...), launcherMount...)...),
 		Linux: ociLinux{
 			// PoC omits the "network" namespace so it shares the host netns and
