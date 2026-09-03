@@ -41,9 +41,9 @@ the provisioning, affinity, Cluster Autoscaler, and Karpenter workflows.
 | `brewlet.sh/jdk` | `21` or `temurin-21` | you | Request a JDK feature (any distro) or an exact `<dist>-<feature>`. Validated + scheduled by the webhook. |
 | `brewlet.sh/launcher` | `jaz` | you | Request a launcher. Empty / `java` = vanilla OpenJDK launcher. |
 | `brewlet.sh/arch` | `amd64` or `amd64,arm64` | you (or the `JavaApplication` controller from `spec.arch`) | Optional architecture constraint for **non-portable JARs** bundling JNI natives. Injects `kubernetes.io/arch` nodeAffinity; if no ready node of a required arch exists → `NoCompatibleArch`. Omit for arch-neutral bytecode. |
-| `brewlet.sh/artifact-container` | `app` | you | Which container's `image` is the OCI artifact (defaults to the brewlet container). |
-| `brewlet.sh/artifact-ref` | `repo:tag` | webhook | The OCI artifact ref the shim resolves. |
-| `brewlet.sh/artifact-digest` | `sha256:…` | webhook | Stamped when the ref is digest-pinned; lets the shim read the artifact from the content store by digest. |
+| `brewlet.sh/artifact-container` | `app` | you + webhook | Selects which regular container's `image` is mirrored into Pod-wide compatibility hints. The webhook normalizes the value to the selected container name; other tasks ignore those hints and remain bound to their own CRI images. |
+| `brewlet.sh/artifact-ref` | `repo:tag` | webhook | Compatibility hint mirrored from the selected Pod image. |
+| `brewlet.sh/artifact-digest` | `sha256:…` | webhook | Compatibility hint mirroring the selected Pod image digest. The shim resolves executable content from containerd metadata, not from this annotation. |
 
 ---
 

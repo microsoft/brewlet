@@ -7,16 +7,12 @@
 # ordinary image — no placeholder, no out-of-band blob delivery — then RUN by the
 # shim on the node-resident JDK.
 #
-# THE GAP THIS CLOSES. Tiers 8 and 9 prove the shim runs a brewlet workload, but
-# they must smuggle the payload in: a native Brewlet artifact uses custom OCI
-# layer media types (application/vnd.brewlet.jar.layer.v1+jar, …) that
-# containerd's differ cannot untar, so `crictl/kubelet` fail to UNPACK it
-# (ImagePullBackOff) and the pod can never name the artifact as its `image`. Those
-# tiers therefore give the pod a busybox placeholder image and hand the artifact
-# to the shim via `ctr images import` + brewlet.sh/artifact-* annotations. That
-# proves the runtime, but NOT the developer-facing promise: `kubectl run
-# --image=<my-app>` the way SpinKube delivers a Spin-compatible Wasm application
-# from OCI to containerd-shim-spin.
+# THE GAP THIS CLOSES. Native Brewlet artifacts use custom OCI layer media types
+# (application/vnd.brewlet.jar.layer.v1+jar, ...) that containerd's differ cannot
+# untar, so `crictl/kubelet` fail to UNPACK them (ImagePullBackOff). Kubernetes
+# workloads therefore use the standard runnable-image format as their actual,
+# digest-pinned Pod image, the same model SpinKube uses for a Spin-compatible
+# Wasm application.
 #
 # `brewlet push --format=image` fixes this by publishing the SAME jar as a
 # STANDARD, kubelet-pullable OCI image (real image config, tar+gzip layers, the
@@ -28,11 +24,13 @@
 # WHAT THIS TIER ASSERTS (beyond tier 9's serving/cgroup checks):
 #   (0) containerd unpacks the runnable image successfully — explicitly through
 #       `ctr images unpack` on containerd 1.x or during import on containerd 2.x.
-#   (1) the pod's container `image:` is the brewlet artifact ref ITSELF (not a
-#       placeholder), and the pod reaches Ready — i.e. kubelet pulled/unpacked it.
-#   (2) both the signed default and an unsigned bundle explicitly authorized by
+#   (1) a conflicting artifact-digest hint cannot redirect the signed image to
+#       the unsigned content already present in containerd; the shim fails Create.
+#   (2) the pod's container `image:` is the digest-pinned Brewlet image itself and
+#       the pod reaches Ready — i.e. kubelet resolved and unpacked that identity.
+#   (3) both the signed default and an unsigned bundle explicitly authorized by
 #       the Ops-authored bundle policy run on Kubernetes.
-#   (3) both running JVMs load the managed dependency; the workload serves real
+#   (4) both running JVMs load the managed dependency; the workload serves real
 #       Service traffic and is cgroup-aware.
 #
 # It reuses tier 9's generic node-provisioning helpers (shim binary, temurin JDK
@@ -63,14 +61,11 @@ _t12_cleanup() {
   # idempotent, reused on a re-run), matching tier 8/9.
 }
 
-# _t12_apply_deploy DIGEST [NONCE]: render the workload as a Deployment + Service.
-# The decisive difference from tier 9: image is the brewlet artifact REF, pulled
-# from the node's content store (imagePullPolicy: Never — pre-loaded by ctr), NOT
-# a busybox placeholder. The brewlet.sh/artifact-digest annotation still carries
-# the (index) digest so the shim resolves the launch config from the content
-# store; the shim follows the index to the node's platform manifest.
+# _t12_apply_deploy IMAGE_REF [NONCE]: render the workload as a Deployment +
+# Service. The digest-pinned image is pre-loaded into the node's CRI namespace;
+# no artifact identity annotation participates in content selection.
 _t12_apply_deploy() {
-  local digest="$1" nonce="${2:-0}"
+  local image_ref="$1" nonce="${2:-0}"
   kubectl apply -n "$T12_NS" -f - >>"$WORK/t12-deploy.log" 2>&1 <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -84,8 +79,6 @@ spec:
     metadata:
       labels: { app: $T12_APP }
       annotations:
-        brewlet.sh/artifact-ref: "$T12_REF"
-        brewlet.sh/artifact-digest: "$digest"
         brewlet.sh/jdk: "$T9_JDK"
     spec:
       runtimeClassName: brewlet
@@ -93,7 +86,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: app
-          image: $T12_REF
+          image: "$image_ref"
           imagePullPolicy: Never
           env:
             - { name: JDK_JAVA_OPTIONS, value: "-XX:MaxRAMPercentage=50.0" }
@@ -137,7 +130,7 @@ _t12_curl_retry() {
 }
 
 tier12_runnable_image() {
-  section "Tier 12 — kubelet pulls + unpacks the artifact as its image (SpinKube model)"
+  section "Tier 12 — image-bound execution through kubelet/containerd"
   if ! have kubectl || ! k8s_reachable; then skip "tier12: runnable image pulled by kubelet" "no reachable cluster"; return 0; fi
   if ! have docker || ! docker info >/dev/null 2>&1; then skip "tier12: runnable image pulled by kubelet" "docker daemon not available"; return 0; fi
   if ! have go; then skip "tier12: runnable image pulled by kubelet" "go not installed"; return 0; fi
@@ -179,6 +172,15 @@ tier12_runnable_image() {
     fail "tier12: build demo and managed dependency JARs" "see $WORK/t12-build.log"; return 0
   fi
   local jar="$FIXTURES_DIR/demo-app/target/app.jar"
+  local unsigned_jar="$WORK/t12-unsigned-app.jar"
+  local unsigned_marker="$WORK/t12-unsigned-content.txt"
+  cp "$jar" "$unsigned_jar"
+  printf 'unsigned runtime content\n' >"$unsigned_marker"
+  if ! "$jh/bin/jar" --update --file "$unsigned_jar" \
+      -C "$WORK" "$(basename "$unsigned_marker")" >>"$WORK/t12-build.log" 2>&1; then
+    fail "tier12: create distinct unsigned application content" "see $WORK/t12-build.log"
+    return 0
+  fi
 
   # --- publish signed and unsigned bundles -----------------------------------
   local store="$WORK/t12-oci"; rm -rf "$store"
@@ -226,7 +228,7 @@ tier12_runnable_image() {
       --store "$store" --name approved-unsigned --version 1 \
       --source-bom com.example.platform:approved-bom:1 --lock "$managed_lock" \
       >>"$WORK/t12-build.log" 2>&1 \
-      || ! "$WORK/t12-brewlet" push "$jar" "$T12_UNSIGNED_REF" \
+      || ! "$WORK/t12-brewlet" push "$unsigned_jar" "$T12_UNSIGNED_REF" \
       --store "$store" --dependency-bundle "$unsigned_bundle_ref" \
       --dependency-lock "$managed_lock" --main-class com.example.Hello \
       >>"$WORK/t12-build.log" 2>&1; then
@@ -244,47 +246,39 @@ tier12_runnable_image() {
       --main-class com.example.Hello >>"$WORK/t12-build.log" 2>&1; then
     fail "tier12: push signed managed runnable image" "see $WORK/t12-build.log"; return 0
   fi
+  local attestation_out
+  if attestation_out="$("$WORK/t12-brewlet" inspect "$T12_REF" --store "$store" \
+      --trusted-public-key "$public_key" \
+      --trusted-signer-identity application-builder 2>&1)"; then
+    assert_contains "tier12: signed image has a valid final-image attestation" \
+      "$attestation_out" "managed dependency attestation (signed, verified)"
+  else
+    fail "tier12: verify signed final-image attestation" \
+      "$(printf '%s' "$attestation_out" | tail -1)"
+    return 0
+  fi
   local digest unsigned_digest
-  digest="$(python3 - "$store" "$T12_REF" <<'PY'
-import json, sys
-root, ref = sys.argv[1], sys.argv[2]
-tag = ref.split(":")[-1]
-idx = json.load(open(f"{root}/index.json"))
-for m in idx["manifests"]:
-    ann = m.get("annotations", {})
-    if ann.get("org.opencontainers.image.ref.name") in (ref, tag):
-        print(m["digest"]); break
-else:
-    print(idx["manifests"][0]["digest"])
-PY
-)"
+  digest="$(oci_layout_digest "$store" "$T12_REF")"
   if [[ -z "$digest" ]]; then fail "tier12: resolve image index digest" "index.json had no manifest"; return 0; fi
-  unsigned_digest="$(python3 - "$store" "$T12_UNSIGNED_REF" <<'PY'
-import json, sys
-root, ref = sys.argv[1], sys.argv[2]
-idx = json.load(open(f"{root}/index.json"))
-for manifest in idx["manifests"]:
-    if manifest.get("annotations", {}).get("org.opencontainers.image.ref.name") == ref:
-        print(manifest["digest"])
-        break
-PY
-)"
+  unsigned_digest="$(oci_layout_digest "$store" "$T12_UNSIGNED_REF")"
   if [[ -z "$unsigned_digest" ]]; then fail "tier12: resolve unsigned image index digest" "index.json had no unsigned image"; return 0; fi
+  if [[ "$digest" == "$unsigned_digest" ]]; then
+    fail "tier12: signed and unsigned image identities differ"; return 0
+  fi
   info "tier12: runnable image index digest $digest"
   pass "tier12: composed signed bundle into runnable OCI image ($T12_REF)"
 
   # --- import the STANDARD image into the node content store ----------------
-  if ! ( cd "$store" && tar -cf - . ) | docker exec -i "$T12_NODE" ctr -n k8s.io images import --digests - >>"$WORK/t12-import.log" 2>&1; then
-    if ! ( cd "$store" && tar -cf - . ) | docker exec -i "$T12_NODE" ctr -n k8s.io images import - >>"$WORK/t12-import.log" 2>&1; then
-      fail "tier12: import runnable image into node content store" "see $WORK/t12-import.log"; return 0
-    fi
+  if ! import_oci_layout "$T12_NODE" "$store" "$WORK/t12-import.log"; then
+    fail "tier12: import runnable images into node content store" "see $WORK/t12-import.log"; return 0
   fi
-  local cri_ref="$T12_REF"
-  if [[ "${T12_REF%%/*}" != *.* && "${T12_REF%%/*}" != *:* && "${T12_REF%%/*}" != "localhost" ]]; then
-    cri_ref="docker.io/$T12_REF"
-    docker exec "$T12_NODE" ctr -n k8s.io images tag "$T12_REF" "$cri_ref" >>"$WORK/t12-import.log" 2>&1 || true
-    docker exec "$T12_NODE" ctr -n k8s.io images tag "$T12_UNSIGNED_REF" \
-      "docker.io/$T12_UNSIGNED_REF" >>"$WORK/t12-import.log" 2>&1 || true
+  local signed_image_ref unsigned_image_ref
+  if ! signed_image_ref="$(pin_image_for_cri \
+      "$T12_NODE" "$T12_REF" "$digest" "$WORK/t12-import.log")" \
+      || ! unsigned_image_ref="$(pin_image_for_cri \
+      "$T12_NODE" "$T12_UNSIGNED_REF" "$unsigned_digest" "$WORK/t12-import.log")"; then
+    fail "tier12: create digest-pinned CRI image references" "see $WORK/t12-import.log"
+    return 0
   fi
 
   # (0) THE decisive assertion: containerd can UNPACK the brewlet image — the
@@ -292,7 +286,8 @@ PY
   # 1.x exposes a separate unpack command; containerd 2.x unpacks during import
   # by default and exposes --no-unpack only to opt out.
   if ctr_supports_unpack "$T12_NODE"; then
-    if docker exec "$T12_NODE" ctr -n k8s.io images unpack --platform "linux/$arch" "$T12_REF" >>"$WORK/t12-import.log" 2>&1; then
+    if docker exec "$T12_NODE" ctr -n k8s.io images unpack \
+        --platform "linux/$arch" "$signed_image_ref" >>"$WORK/t12-import.log" 2>&1; then
       pass "tier12: containerd UNPACKED the brewlet image (standard tar+gzip layers) — the step that ImagePullBackOffs for a native artifact"
     else
       fail "tier12: containerd unpack of the runnable image" "see $WORK/t12-import.log"; return 0
@@ -302,10 +297,13 @@ PY
   else
     fail "tier12: containerd unpack capability" "node ctr supports neither explicit unpack nor import-time unpack"; return 0
   fi
-  if docker exec "$T12_NODE" crictl inspecti "$cri_ref" >/dev/null 2>&1; then
-    pass "tier12: runnable image registered with CRI ($cri_ref)"
+  if docker exec "$T12_NODE" crictl inspecti "$signed_image_ref" >/dev/null 2>&1 \
+      && docker exec "$T12_NODE" crictl inspecti "$unsigned_image_ref" >/dev/null 2>&1; then
+    pass "tier12: signed and unsigned runnable images registered with CRI"
   else
-    fail "tier12: runnable image registered with CRI" "image $cri_ref not available through crictl"; return 0
+    fail "tier12: runnable images registered with CRI" \
+      "one or both digest-pinned images are unavailable through crictl"
+    return 0
   fi
 
   # --- provision the node (reuse tier 9's generic helpers) ------------------
@@ -338,21 +336,73 @@ YAML
   kubectl run t12-client -n "$T12_NS" --image=busybox:1.36 --restart=Never \
     --command -- sleep 3600 >>"$WORK/t12-deploy.log" 2>&1 || true
 
-  # --- deploy: pod image IS the brewlet artifact ----------------------------
-  info "tier12: deploying workload whose image: is the brewlet artifact ($T12_APP)"
-  _t12_apply_deploy "$digest"
+  # --- attack regression: attested image + conflicting executable hint -------
+  # Both targets are present locally. The annotation points at the unsigned
+  # target while CRI selected the signed digest-pinned image. The runtime must
+  # reject Create rather than resolving content from the annotation.
+  local mismatch_pod="t12-identity-mismatch"
+  if ! kubectl apply -n "$T12_NS" -f - >>"$WORK/t12-deploy.log" 2>&1 <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $mismatch_pod
+  annotations:
+    brewlet.sh/artifact-digest: "$unsigned_digest"
+    brewlet.sh/jdk: "$T9_JDK"
+spec:
+  runtimeClassName: brewlet
+  nodeSelector: { brewlet.sh/runtime: ready }
+  restartPolicy: Never
+  containers:
+    - name: app
+      image: "$signed_image_ref"
+      imagePullPolicy: Never
+YAML
+  then
+    fail "tier12: submit mismatched image identity regression pod"
+    return 0
+  fi
+  local mismatch_diag="" mismatch_seen=0 tries=60
+  while (( tries-- > 0 )); do
+    mismatch_diag="$(kubectl describe pod "$mismatch_pod" -n "$T12_NS" 2>&1)"
+    if grep -q "artifact identity mismatch" <<<"$mismatch_diag"; then
+      mismatch_seen=1
+      break
+    fi
+    if kubectl get pod "$mismatch_pod" -n "$T12_NS" \
+        -o jsonpath='{.status.containerStatuses[0].state.running.startedAt}' \
+        2>/dev/null | grep -q .; then
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$mismatch_seen" -eq 1 ]]; then
+    pass "tier12: shim rejects an unsigned digest hint for the signed Pod image"
+  else
+    printf '%s\n' "$mismatch_diag" >>"$WORK/t12-deploy.log"
+    fail "tier12: shim rejects mismatched artifact identity" \
+      "expected an artifact identity mismatch; see $WORK/t12-deploy.log"
+    return 0
+  fi
+  kubectl delete pod "$mismatch_pod" -n "$T12_NS" \
+    --ignore-not-found --wait=true --timeout=60s >/dev/null 2>&1 || true
+
+  # --- happy path: Pod image IS the digest-pinned Brewlet image --------------
+  info "tier12: deploying image-bound workload ($T12_APP)"
+  _t12_apply_deploy "$signed_image_ref"
   if ! kubectl rollout status -n "$T12_NS" deploy/"$T12_APP" --timeout=150s >>"$WORK/t12-deploy.log" 2>&1; then
     kubectl describe -n "$T12_NS" deploy/"$T12_APP" >>"$WORK/t12-deploy.log" 2>&1 || true
     kubectl get pods -n "$T12_NS" -o wide >>"$WORK/t12-deploy.log" 2>&1 || true
-    fail "tier12: Deployment whose image is the brewlet artifact rolled out" "see $WORK/t12-deploy.log; $(kubectl get pods -n "$T12_NS" -l app="$T12_APP" 2>&1 | tail -2 | tr '\n' ' ')"
+    fail "tier12: Deployment whose image is the digest-pinned Brewlet image rolled out" "see $WORK/t12-deploy.log; $(kubectl get pods -n "$T12_NS" -l app="$T12_APP" 2>&1 | tail -2 | tr '\n' ' ')"
     return 0
   fi
 
-  # (1) The running pod's container image is the brewlet artifact REF itself —
+  # The running pod's container image is the Brewlet image identity itself —
   # kubelet resolved + unpacked it and the shim ran it. No placeholder.
   local podimg
   podimg="$(kubectl get pod -n "$T12_NS" -l app="$T12_APP" -o jsonpath='{.items[0].spec.containers[0].image}' 2>/dev/null)"
-  assert_contains "tier12: the running pod's image is the brewlet artifact (SpinKube model, no placeholder)" "$podimg" "$T12_REF"
+  assert_eq "tier12: the running pod uses the digest-pinned Brewlet image" \
+    "$podimg" "$signed_image_ref"
   pass "tier12: kubelet pulled/unpacked the brewlet image and the shim ran it (java -jar as PID 1)"
 
   # (2) It loads the managed dependency. (3) It serves and is cgroup-aware.
@@ -375,15 +425,14 @@ YAML
   fi
 
   # Roll the same Kubernetes workload to the unsigned bundle and application.
-  T12_REF="$T12_UNSIGNED_REF"
-  _t12_apply_deploy "$unsigned_digest" 1
+  _t12_apply_deploy "$unsigned_image_ref" 1
   if kubectl rollout status -n "$T12_NS" deploy/"$T12_APP" \
       --timeout=150s >>"$WORK/t12-deploy.log" 2>&1 \
       && hello="$(_t12_curl_retry /hello)"; then
     podimg="$(kubectl get deployment -n "$T12_NS" "$T12_APP" \
       -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)"
-    assert_contains "tier12: unsigned workload uses its managed image" \
-      "$podimg" "$T12_UNSIGNED_REF"
+    assert_eq "tier12: unsigned workload uses its digest-pinned managed image" \
+      "$podimg" "$unsigned_image_ref"
     assert_contains "tier12: Kubernetes JVM loads the unsigned managed bundle" \
       "$hello" "MANAGED DEPENDENCY OK"
   else

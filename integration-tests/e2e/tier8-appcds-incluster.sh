@@ -6,9 +6,9 @@
 #
 # This is the decisive coverage for docs/appcds.md §4.3/§8: it provisions a real
 # brewlet node (shim + full-userland JDK root + containerd `brewlet` runtime),
-# deploys a genuine `runtimeClassName: brewlet` pod carrying the deployment-
-# descriptor annotations the admission webhook stamps (brewlet.sh/artifact-*,
-# jdk, cds-regenerate), and then:
+# deploys a genuine `runtimeClassName: brewlet` pod whose `image` is the
+# digest-pinned Brewlet runnable image and carries the deployment-time JDK/CDS
+# annotations, and then:
 #
 #   1. WRITE   rollout: the elected writer launches with
 #              -XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=<private entry>.
@@ -31,11 +31,9 @@
 # python3, a JDK 21+ ($JAVA_HOME) to build the demo JAR, and network access to
 # pull eclipse-temurin:21 for the JDK userland root.
 #
-# NOTE: brewlet artifacts use custom OCI layer media types that kubelet's
-# ImageStatus cannot unpack, so the pod `image` is a normal placeholder
-# (busybox) and the artifact is delivered purely via annotations — the shim's
-# setupOverlayRootfs replaces the rootfs entirely; as with SpinKube's Wasm
-# runtime path, no Linux userland from the workload image is executed.
+# The standard runnable-image format lets kubelet resolve and unpack the actual
+# application image. The shim binds execution and AppCDS cache identity to that
+# containerd-resolved image target.
 
 T8_REF="demo/hello:appcds-e2e"
 T8_JDK="temurin-21"
@@ -199,42 +197,28 @@ tier8_appcds_incluster() {
   fi
   pass "tier8: built shim + CLI + demo JAR"
 
-  # --- push the artifact with node-side regeneration opted in ----------------
-  # Push the artifact normally. Node-side regeneration is NOT baked into the
-  # artifact (PR #76): it is a deployment-time decision the operator carries on
-  # the pod as brewlet.sh/cds-regenerate (set on the pods below).
+  # --- push the runnable image with node-side regeneration opted in -----------
+  # Node-side regeneration is NOT baked into the image (PR #76): it is a
+  # deployment-time decision carried on the pod as brewlet.sh/cds-regenerate.
   local store="$WORK/t8-oci"; rm -rf "$store"
-  if ! "$WORK/t8-brewlet" push "$jar" "$T8_REF" --store "$store" --format=artifact >>"$WORK/t8-build.log" 2>&1; then
-    fail "tier8: push artifact" "see $WORK/t8-build.log"; return 0
+  if ! "$WORK/t8-brewlet" push "$jar" "$T8_REF" --store "$store" --format=image >>"$WORK/t8-build.log" 2>&1; then
+    fail "tier8: push runnable image" "see $WORK/t8-build.log"; return 0
   fi
-  # Initial manifest descriptor the shim resolves from the node content store;
-  # the resolved platform-manifest bytes are verified before cache keying.
+  # Authoritative image target the shim resolves through CRI/containerd; the
+  # selected platform-manifest bytes are verified before cache keying.
   local digest
-  digest="$(python3 - "$store" "$T8_REF" <<'PY'
-import json, sys
-root, ref = sys.argv[1], sys.argv[2]
-tag = ref.split(":")[-1]
-idx = json.load(open(f"{root}/index.json"))
-for m in idx["manifests"]:
-    ann = m.get("annotations", {})
-    if ann.get("org.opencontainers.image.ref.name") in (ref, tag):
-        print(m["digest"]); break
-else:
-    print(idx["manifests"][0]["digest"])
-PY
-)"
-  if [[ -z "$digest" ]]; then fail "tier8: resolve artifact digest" "index.json had no manifest"; return 0; fi
-  info "tier8: artifact digest $digest"
+  digest="$(oci_layout_digest "$store" "$T8_REF")"
+  if [[ -z "$digest" ]]; then fail "tier8: resolve image digest" "index.json had no manifest"; return 0; fi
+  info "tier8: runnable image digest $digest"
 
-  # Import the OCI layout into the node's k8s.io content store (by digest). The
-  # resolver reads blobs from the content store; the tag is cosmetic.
-  if ! ( cd "$store" && tar -cf - . ) | docker exec -i "$T8_NODE" ctr -n k8s.io images import --digests - >>"$WORK/t8-import.log" 2>&1; then
-    # older ctr lacks --digests; retry without it
-    if ! ( cd "$store" && tar -cf - . ) | docker exec -i "$T8_NODE" ctr -n k8s.io images import - >>"$WORK/t8-import.log" 2>&1; then
-      fail "tier8: import artifact into node content store" "see $WORK/t8-import.log"; return 0
-    fi
+  if ! import_oci_layout "$T8_NODE" "$store" "$WORK/t8-import.log"; then
+    fail "tier8: import runnable image into node content store" "see $WORK/t8-import.log"; return 0
   fi
-  pass "tier8: pushed + imported artifact ($T8_REF)"
+  local image_ref
+  if ! image_ref="$(pin_image_for_cri "$T8_NODE" "$T8_REF" "$digest" "$WORK/t8-import.log")"; then
+    fail "tier8: create digest-pinned CRI image reference" "see $WORK/t8-import.log"; return 0
+  fi
+  pass "tier8: pushed + imported runnable image ($image_ref)"
 
   # --- provision the node: shim binary, JDK userland, containerd runtime -----
   docker cp "$shimbin" "$T8_NODE":"$T8_SHIM_DST" >>"$WORK/t8-prov.log" 2>&1
@@ -275,8 +259,9 @@ YAML
   kubectl create namespace "$T8_NS" >/dev/null 2>&1 || true
   kubectl create namespace "$T8_ATTACKER_NS" >/dev/null 2>&1 || true
 
-  # A pod carrying exactly the annotations the admission webhook stamps from
-  # spec.jvm.cds.regenerate. $1 = namespace, $2 = pod name.
+  # A pod carrying the deployment-time AppCDS/JDK annotations. Image identity
+  # is intentionally absent from annotations; the shim must derive it from CRI.
+  # $1 = namespace, $2 = pod name.
   _t8_apply_pod() {
     kubectl apply -n "$1" -f - >>"$WORK/t8-pod.log" 2>&1 <<YAML
 apiVersion: v1
@@ -284,8 +269,6 @@ kind: Pod
 metadata:
   name: $2
   annotations:
-    brewlet.sh/artifact-ref: "$T8_REF"
-    brewlet.sh/artifact-digest: "$digest"
     brewlet.sh/jdk: "$T8_JDK"
     brewlet.sh/cds-regenerate: "true"
 spec:
@@ -297,8 +280,8 @@ spec:
     brewlet.sh/appcds-regeneration: "true"
   containers:
     - name: app
-      image: busybox:1.36
-      command: ["sleep", "3600"]
+      image: "$image_ref"
+      imagePullPolicy: Never
       readinessProbe:
         httpGet: { path: /healthz, port: 8080 }
         initialDelaySeconds: 1

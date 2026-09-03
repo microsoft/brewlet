@@ -104,9 +104,9 @@ annotation). See [Launchers](launchers.md#installing-jaz-on-nodes).
 
 ## ImagePull-style failure
 
-**Symptom:** the pod can't fetch the OCI artifact.
+**Symptom:** the pod can't fetch the OCI image.
 
-- **Wrong ref / not pushed** — verify the artifact exists:
+- **Wrong ref / not pushed** — verify the image exists:
   `oras manifest fetch <ref>` (or `brewlet inspect <ref>` for the local layout).
 - **Unauthorized** — add/verify `imagePullSecrets` (or `artifact.pullSecrets` in the
   `JavaApplication`).
@@ -156,10 +156,12 @@ containerd --config /etc/containerd/config.toml config dump | grep -A4 runtimes.
 
 ## Webhook / admission problems
 
-**Symptom:** artifact annotations aren't stamped, or scheduling isn't steered.
+**Symptom:** compatibility hints aren't stamped, or scheduling isn't steered.
 
 - With `admission.failurePolicy: Ignore` (default), a webhook outage silently lets
-  pods through **without** stamping/steering — check the webhook is healthy:
+  pods through **without** stamping/steering — check the webhook is healthy. If
+  the shim still cannot resolve the workload image from containerd metadata, it
+  fails closed rather than guessing:
   ```bash
   kubectl get pods -n brewlet -l app=brewlet-admission
   kubectl logs -n brewlet -l app=brewlet-admission

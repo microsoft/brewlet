@@ -8,9 +8,9 @@
 {{- $ca := genCA "brewlet-admission-ca" 3650 -}}
 {{- $cert := genSignedCert $svc nil $altNames 3650 $ca -}}
 {{/*
-brewlet-admission: the pod admission/scheduling webhook (§8/§14). It stamps the
-brewlet.sh/artifact-ref + artifact-digest annotations the shim resolves, and
-matches a pod's requested JDK/launcher against the ready node fleet
+brewlet-admission: the pod admission/scheduling webhook (§8/§14). It overwrites
+brewlet.sh/artifact-ref + artifact-digest compatibility hints from the selected
+Pod image, and matches a pod's requested JDK/launcher against the ready node fleet
 (NoCompatibleJDK / NoCompatibleLauncher), steering scheduling via nodeAffinity.
 
 The serving cert is a self-signed cert generated at render time. NOTE: because
@@ -165,8 +165,8 @@ webhooks:
   - name: pods.brewlet.sh
     admissionReviewVersions: ["v1"]
     sideEffects: None
-    # Ignore keeps a webhook outage from blocking non-brewlet workloads; the shim
-    # still enforces JDK/launcher compatibility at runtime.
+    # Ignore keeps a webhook outage from blocking workloads; the shim still
+    # enforces runtime image identity and JDK/launcher compatibility.
     failurePolicy: {{ .Values.admission.failurePolicy }}
     clientConfig:
       service:

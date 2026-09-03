@@ -313,6 +313,30 @@ if [[ -e "$missing_dir/config.toml.d/99-brewlet.toml" ]]; then
   exit 1
 fi
 
+# containerd 2 delegates the legacy CRI plugin to an external binary. Its
+# config dump omits those runtime tables, so accept the rendered source only
+# when the dump explicitly reports that external-plugin limitation.
+external_cri_dir="$(new_containerd_test_dir)"
+if ! (
+  CONTAINERD_CONFIG="$external_cri_dir/config.toml"
+  CONTAINERD_DROPIN_DIR="$external_cri_dir/config.toml.d"
+  CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
+  BREWLET_CONTAINERD_RESTART=validated
+  BREWLET_VALIDATE=false
+  NODE_NAME=""
+  host_exec() {
+    printf '%s\n' \
+      'time="2026-09-03T01:47:12Z" level=warning msg="Ignoring unknown key in TOML for plugin" key="containerd runtimes brewlet" plugin=io.containerd.grpc.v1.cri' >&2
+    printf '%s\n' 'version = 2'
+  }
+  configure_containerd
+) >"$external_cri_dir/output" 2>&1; then
+  echo "expected containerd 2 external CRI config validation to succeed" >&2
+  exit 1
+fi
+grep -Fq 'validated rendered brewlet handler' "$external_cri_dir/output"
+grep -Fq 'containerd.runtimes.brewlet' "$external_cri_dir/config.toml"
+
 # The legacy modes retain their behavior: sighup patches in place and reloads,
 # while none leaves containerd configuration untouched.
 for mode in sighup none; do
@@ -406,7 +430,7 @@ assert_contains "handler" "$health_calls"
 fake_crictl="$dest/crictl"
 cat >"$fake_crictl" <<'EOF'
 #!/usr/bin/env bash
-printf '{"config":{"containerd":{"runtimes":{"runc":{},"brewlet":{}}}}}\n'
+printf 'io.containerd.brewlet.v2'
 EOF
 chmod +x "$fake_crictl"
 (
@@ -417,7 +441,7 @@ chmod +x "$fake_crictl"
 )
 cat >"$fake_crictl" <<'EOF'
 #!/usr/bin/env bash
-printf '{"config":{"containerd":{"runtimes":{"runc":{}}}}}\n'
+printf 'io.containerd.runc.v2'
 EOF
 if (
   HOST_CRICTL="$fake_crictl"

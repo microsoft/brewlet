@@ -12,19 +12,15 @@
 # through kubelet, or (c) exercises scaling + rolling updates of brewlet pods.
 #
 # Like tier8, it provisions a real brewlet node by hand (shim + full-userland JDK
-# root + containerd `brewlet` runtime), imports the demo artifact into the node
-# content store, and delivers the artifact purely via the brewlet.sh/artifact-*
-# annotations the admission webhook stamps — the shim's setupOverlayRootfs then
-# replaces the rootfs entirely; as with SpinKube's Wasm runtime path, no Linux
-# userland from the workload image is executed.
+# root + containerd `brewlet` runtime), imports the demo runnable image into the
+# node content store, and uses that digest-pinned image directly in the Pod. The
+# shim derives the same target from containerd before replacing the image rootfs
+# with the node JDK overlay.
 #
-# WHY BUILD THE DEPLOYMENT DIRECTLY (not via the operator): brewlet artifacts use
-# custom OCI layer media types kubelet's ImageStatus cannot unpack, so a pod whose
-# `image` is the artifact ref would ImagePullBackOff. The pod therefore carries a
-# normal placeholder image (busybox) and the artifact rides on annotations — the
-# same pattern tier8 uses. The operator/webhook RECONCILE paths (JavaApplication →
-# Deployment/Service/HPA + artifact stamping + affinity) are covered by tiers 4–7;
-# this tier closes the "does the workload actually run and serve?" gap.
+# WHY BUILD THE DEPLOYMENT DIRECTLY (not via the operator): the
+# operator/webhook RECONCILE paths (JavaApplication -> Deployment/Service/HPA +
+# identity hints + affinity) are covered by tiers 4–7; this tier closes the
+# "does the image-bound workload actually run and serve?" gap.
 #
 # Unlike tier8, it uses a Deployment + Service (not a raw pod), curls the Service
 # from an in-cluster client, and asserts the JVM's cgroup-aware view + scaling +
@@ -43,6 +39,7 @@ T9_PORT=8080
 T9_CACHE="/opt/brewlet/cds"
 T9_JDK_ROOT="/opt/brewlet/jdks/$T9_JDK"
 T9_SHIM_DST="/usr/local/bin/containerd-shim-brewlet-v2"
+T9_IMAGE_REF=""
 T9_RC_CREATED=""
 T9_NODE=""
 declare -a T9_PROVISIONED_NODES=()
@@ -146,11 +143,11 @@ _t9_advertise() {
 }
 
 # _t9_apply_deploy: render the demo JavaApplication-equivalent as a Deployment +
-# Service. $1 = artifact digest. $2 = a rollout nonce carried as an env var —
-# changing it changes the pod-template hash (used for the rolling-update
-# assertion). Resources.limits pin the cgroup so we can prove the JVM reads them.
+# Service. $1 = a rollout nonce carried as an env var; changing it changes the
+# pod-template hash (used for the rolling-update assertion). Resources.limits
+# pin the cgroup so we can prove the JVM reads them.
 _t9_apply_deploy() {
-  local digest="$1" nonce="${2:-0}"
+  local nonce="${1:-0}"
   kubectl apply -n "$T9_NS" -f - >>"$WORK/t9-deploy.log" 2>&1 <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -164,8 +161,6 @@ spec:
     metadata:
       labels: { app: $T9_APP }
       annotations:
-        brewlet.sh/artifact-ref: "$T9_REF"
-        brewlet.sh/artifact-digest: "$digest"
         brewlet.sh/jdk: "$T9_JDK"
     spec:
       runtimeClassName: brewlet
@@ -173,8 +168,8 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: app
-          image: busybox:1.36
-          command: ["sleep", "3600"]
+          image: "$T9_IMAGE_REF"
+          imagePullPolicy: Never
           env:
             - { name: JDK_JAVA_OPTIONS, value: "-XX:MaxRAMPercentage=50.0" }
             - { name: BREWLET_ROLLOUT, value: "$nonce" }
@@ -266,35 +261,23 @@ tier9_serving() {
   fi
   pass "tier9: built shim + CLI + demo JAR"
 
-  # --- push the artifact + resolve its manifest digest -----------------------
+  # --- push the runnable image + resolve its index digest --------------------
   local store="$WORK/t9-oci"; rm -rf "$store"
-  if ! "$WORK/t9-brewlet" push "$jar" "$T9_REF" --store "$store" --format=artifact >>"$WORK/t9-build.log" 2>&1; then
-    fail "tier9: push artifact" "see $WORK/t9-build.log"; return 0
+  if ! "$WORK/t9-brewlet" push "$jar" "$T9_REF" --store "$store" --format=image >>"$WORK/t9-build.log" 2>&1; then
+    fail "tier9: push runnable image" "see $WORK/t9-build.log"; return 0
   fi
   local digest
-  digest="$(python3 - "$store" "$T9_REF" <<'PY'
-import json, sys
-root, ref = sys.argv[1], sys.argv[2]
-tag = ref.split(":")[-1]
-idx = json.load(open(f"{root}/index.json"))
-for m in idx["manifests"]:
-    ann = m.get("annotations", {})
-    if ann.get("org.opencontainers.image.ref.name") in (ref, tag):
-        print(m["digest"]); break
-else:
-    print(idx["manifests"][0]["digest"])
-PY
-)"
-  if [[ -z "$digest" ]]; then fail "tier9: resolve artifact digest" "index.json had no manifest"; return 0; fi
-  info "tier9: artifact digest $digest"
+  digest="$(oci_layout_digest "$store" "$T9_REF")"
+  if [[ -z "$digest" ]]; then fail "tier9: resolve image digest" "index.json had no manifest"; return 0; fi
+  info "tier9: runnable image digest $digest"
 
-  # Import the OCI layout into the node's k8s.io content store (by digest).
-  if ! ( cd "$store" && tar -cf - . ) | docker exec -i "$T9_NODE" ctr -n k8s.io images import --digests - >>"$WORK/t9-import.log" 2>&1; then
-    if ! ( cd "$store" && tar -cf - . ) | docker exec -i "$T9_NODE" ctr -n k8s.io images import - >>"$WORK/t9-import.log" 2>&1; then
-      fail "tier9: import artifact into node content store" "see $WORK/t9-import.log"; return 0
-    fi
+  if ! import_oci_layout "$T9_NODE" "$store" "$WORK/t9-import.log"; then
+    fail "tier9: import runnable image into node content store" "see $WORK/t9-import.log"; return 0
   fi
-  pass "tier9: pushed + imported artifact ($T9_REF)"
+  if ! T9_IMAGE_REF="$(pin_image_for_cri "$T9_NODE" "$T9_REF" "$digest" "$WORK/t9-import.log")"; then
+    fail "tier9: create digest-pinned CRI image reference" "see $WORK/t9-import.log"; return 0
+  fi
+  pass "tier9: pushed + imported runnable image ($T9_IMAGE_REF)"
 
   # --- provision the node: shim binary, JDK userland, containerd runtime -----
   docker cp "$shimbin" "$T9_NODE":"$T9_SHIM_DST" >>"$WORK/t9-prov.log" 2>&1
@@ -331,7 +314,7 @@ YAML
 
   # --- deploy the brewlet workload -------------------------------------------
   info "tier9: deploying brewlet Deployment + Service ($T9_APP)"
-  _t9_apply_deploy "$digest"
+  _t9_apply_deploy
   if ! kubectl rollout status -n "$T9_NS" deploy/"$T9_APP" --timeout=150s >>"$WORK/t9-deploy.log" 2>&1; then
     fail "tier9: brewlet Deployment rolled out (pod Ready)" "see $WORK/t9-deploy.log; diag: $(save_pod_diag "$T9_APP" "$T9_NS" "app=$T9_APP")"
     return 0
@@ -399,7 +382,7 @@ YAML
   kubectl scale -n "$T9_NS" deploy/"$T9_APP" --replicas=1 >>"$WORK/t9-deploy.log" 2>&1
   kubectl rollout status -n "$T9_NS" deploy/"$T9_APP" --timeout=120s >>"$WORK/t9-deploy.log" 2>&1 || true
   # Change the pod template (new rollout nonce) -> a new ReplicaSet -> rolling update.
-  _t9_apply_deploy "$digest" "1"
+  _t9_apply_deploy "1"
   if kubectl rollout status -n "$T9_NS" deploy/"$T9_APP" --timeout=150s >>"$WORK/t9-deploy.log" 2>&1; then
     local rscount
     rscount="$(kubectl get rs -n "$T9_NS" -l app="$T9_APP" --no-headers 2>/dev/null | wc -l | tr -d ' ')"

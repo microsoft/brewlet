@@ -21,15 +21,13 @@ import (
 	kcruntime "github.com/microsoft/brewlet/internal/runtime"
 )
 
-// Annotations the CRI/kubelet path carries the OCI artifact identity on. We
-// accept a Brewlet-native ref key first, then fall back to the standard CRI
-// image annotation so a raw `runtimeClassName: brewlet` pod works unchanged.
-// The manifest digest lets the shim read the artifact straight from
-// containerd's content store.
+// The webhook carries OCI identity hints on these annotations for diagnostics
+// and compatibility. Production execution derives its authoritative target
+// digest from containerd and rejects any conflicting digest-bearing hint.
 const (
-	annArtifactRef    = "brewlet.sh/artifact-ref"
-	annArtifactDigest = "brewlet.sh/artifact-digest"
-	annCRIImage       = "io.kubernetes.cri.image-name"
+	annArtifactContainer = "brewlet.sh/artifact-container"
+	annArtifactRef       = "brewlet.sh/artifact-ref"
+	annArtifactDigest    = "brewlet.sh/artifact-digest"
 	// annRequestedJDK / annRequestedLauncher carry the deployment descriptor's
 	// JDK and launcher request onto the pod (set by the operator from
 	// jvm.version/jvm.launcher, or by the user on a raw Deployment). They are
@@ -50,12 +48,11 @@ const (
 	jdkActiveInventory = ".brewlet-active"
 )
 
-// imageConfig is the subset of CRI image metadata the kubelet hands the shim:
-// where the pulled artifact's config + JAR layer live in the content store, and
-// the container resource limits from the pod spec.
+// imageConfig describes where a Brewlet image or local artifact lives and the
+// deployment/runtime choices used to assemble its bundle.
 type imageConfig struct {
 	StoreRoot        string `json:"storeRoot"`        // OCI content store / layout root
-	Ref              string `json:"ref"`              // image ref (the OCI artifact)
+	Ref              string `json:"ref"`              // image/artifact reference
 	JDKRootsDir      string `json:"jdkRootsDir"`      // e.g. /opt/brewlet/jdks
 	LauncherRootsDir string `json:"launcherRootsDir"` // e.g. /opt/brewlet/launchers
 	CPULimit         string `json:"cpuLimit"`         // from container.resources.limits.cpu
@@ -79,12 +76,12 @@ type imageConfig struct {
 	// carried on the pod, not read from the artifact. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3.
 	CDSRegenerate bool `json:"cdsRegenerate,omitempty"`
 
-	// Content-store resolution (production path). When Backend is "containerd"
-	// the artifact's manifest is read from containerd's own content store by
-	// digest, rather than a Brewlet-local OCI layout.
+	// Content-store resolution (production path). When Backend is "containerd",
+	// the runnable image manifest is read from containerd's own content store by
+	// its authoritative target digest rather than from a Brewlet-local OCI layout.
 	Backend        string `json:"backend,omitempty"`        // "" (infer) | "layout" | "containerd"
 	ContentRoot    string `json:"contentRoot,omitempty"`    // containerd content root
-	ManifestDigest string `json:"manifestDigest,omitempty"` // "sha256:…" of the artifact manifest
+	ManifestDigest string `json:"manifestDigest,omitempty"` // authoritative "sha256:..." image target
 }
 
 // resolvedArtifact is everything the shim needs after disassembling a Brewlet
