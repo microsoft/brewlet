@@ -17,6 +17,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | NodeProfile is invalid | `Ready=False`, reason `InvalidProfile`; profile DaemonSet is absent | [→ source policy](#nodeprofile-source-policy-failures) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
+| containerd 1.x node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 
 ---
 
@@ -39,6 +40,10 @@ kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-e
 
 - **cgroup v1-only node** — the provisioner refuses it (cgroup v2 is required). Move
   the node to a cgroup v2 kernel/config, or exclude it.
+- **containerd 1.x node** — the provisioner reports
+  `unsupported-containerd-version`; upgrade the server to containerd 2.0 or
+  newer. Config file `version = 2` remains supported on containerd 2 and is not
+  the containerd server version.
 - **Runtime source preflight failed** — a required indexed entry is missing, an
   image is not a canonical SHA-256 digest reference, a path/name is malformed,
   an entry is duplicated, or a mirror is malformed/unapproved. The provisioner

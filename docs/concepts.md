@@ -136,9 +136,11 @@ directories. Each implementation maps to a section of the
    cluster can additionally use [Ratify/Gatekeeper admission enforcement](admission-enforcement.md)
    to require a trusted final-image managed-dependency attestation before the pod
    runs.
-5. The **containerd shim** resolves the executable image target digest from
-   containerd metadata, disassembles the image, selects the matching node-resident
-   JDK, assembles an OCI runtime bundle (JDK mounted read-only + JAR at `/app`,
+5. The **containerd shim** requires the CRI-recorded requested image to be
+   digest-pinned, resolves that exact target from containerd's content store,
+   verifies its selected platform manifest against CRI's image-config digest,
+   disassembles the image, selects the matching node-resident JDK, assembles an
+   OCI runtime bundle (JDK mounted read-only + JAR at `/app`,
    `process.args = ["java","-jar","/app/app.jar"]`, cgroup limits from the pod),
    and hands it to **runc**.
 6. The JVM runs as a normal pod: real pod IP via CNI, `kubectl logs`/`exec`, probes,

@@ -122,7 +122,6 @@ Full flag reference: [CLI reference](cli-reference.md#brewlet-push) and the
   "systemProperties": { "spring.aot.enabled": "true" },
   "cds": { "archive": "app.jsa", "mode": "dynamic" },
   "arch": ["amd64"],
-  "user": { "uid": 1000, "gid": 1000 },
   "env": []
 }
 ```
@@ -143,8 +142,11 @@ Full flag reference: [CLI reference](cli-reference.md#brewlet-push) and the
 | `systemProperties` | object | Optional string map expanded, sorted by key, as `-D<key>=<value>`. |
 | `cds` | object | Optional Application Class-Data Sharing hint: `{archive, mode}`. `archive` is a bare filename (e.g. `app.jsa`) shipped as a `cds.layer.v1+jsa` layer, mounted read-only at `/app/<archive>`; launch prepends `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`. `mode` (`dynamic`\|`static`, informational) records how it was produced. Best-effort accelerator: a build/version/classpath mismatch falls back to base CDS, never fails. See [AppCDS](appcds.md). |
 | `arch` | array | Optional architecture constraint (`amd64`, `arm64`). Omit for arch-neutral bytecode (the default — runs on any provisioned arch). Set only for **non-portable JARs** that bundle JNI native libraries or arch-specific deps; steers scheduling to matching-arch nodes via `kubernetes.io/arch` nodeAffinity, and denies admission with `NoCompatibleArch` when no ready node of a required arch exists. The CLI (`brewlet push`) and Maven plugin auto-detect bundled natives and default this accordingly. |
-| `user` | object | `{uid, gid}`. |
 | `env` | array | `{name, value}`. |
+
+Process credentials are not artifact fields. A config containing `user` is
+rejected; Kubernetes identity comes from Pod `securityContext`, while standalone
+bundles use the trusted `brewlet bundle --uid/--gid` flags.
 
 Artifact launch knobs expand first in this order: `-Xshare:auto`
 `-XX:SharedArchiveFile` (when `cds` is set), `--enable-preview`, `--add-modules`,

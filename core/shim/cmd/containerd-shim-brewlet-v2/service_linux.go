@@ -19,7 +19,6 @@ import (
 	"github.com/BurntSushi/toml"
 	taskAPI "github.com/containerd/containerd/api/runtime/task/v2"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
-	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	apitypes "github.com/containerd/containerd/api/types"
 	runcoptions "github.com/containerd/containerd/api/types/runc/options"
 	runtimeoptions "github.com/containerd/containerd/pkg/runtimeoptions/v1"
@@ -102,7 +101,6 @@ func init() {
 				TaskService: inner,
 				imageIdentity: newContainerdImageIdentityResolver(
 					containersapi.NewContainersClient(connection),
-					imagesapi.NewImagesClient(connection),
 					envOr("BREWLET_CONTENT_ROOT", defaultContentRoot),
 				),
 				pending: map[string]launchInfo{},
@@ -360,6 +358,10 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 	if err := validateRuntimeImageIdentity(spec.Annotations, identity.TargetDigest); err != nil {
 		return launchInfo{}, err
 	}
+	manifestDigest, err := requireSHA256Digest("resolved platform manifest", identity.ManifestDigest)
+	if err != nil {
+		return launchInfo{}, err
+	}
 
 	ic := imageConfig{
 		Ref:              identity.ImageName,
@@ -375,7 +377,7 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 		// the explicit prepare-bundle/local harness path.
 		Backend:        "containerd",
 		ContentRoot:    envOr("BREWLET_CONTENT_ROOT", defaultContentRoot),
-		ManifestDigest: identity.TargetDigest,
+		ManifestDigest: manifestDigest,
 	}
 	resolveStart := time.Now()
 	ra, err := resolveArtifact(ic)
@@ -558,6 +560,13 @@ func applyBrewletLaunchWithWriterLease(
 		mainJar = "app.jar"
 	}
 	inSandboxJar := "/app/" + mainJar
+	if spec.Process == nil {
+		return fmt.Errorf("CRI OCI spec is missing process configuration")
+	}
+	writerOwner := &kcruntime.RegenOwner{
+		UID: int(spec.Process.User.UID),
+		GID: int(spec.Process.User.GID),
+	}
 
 	// Node-side AppCDS regeneration is a deployment/fleet decision, carried on the
 	// pod as brewlet.sh/cds-regenerate (set by the operator from
@@ -586,10 +595,6 @@ func applyBrewletLaunchWithWriterLease(
 		seed := ""
 		if ra.CDSHostPath != "" && ra.Config.CDS != nil && ra.Config.CDS.Archive != "" {
 			seed = ra.CDSHostPath
-		}
-		var writerOwner *kcruntime.RegenOwner
-		if ra.Config.User != nil {
-			writerOwner = &kcruntime.RegenOwner{UID: ra.Config.User.UID, GID: ra.Config.User.GID}
 		}
 		dec, err := kcruntime.DecideCDSRegen(kcruntime.RegenParams{
 			CacheDir:       cacheDir,
@@ -628,15 +633,8 @@ func applyBrewletLaunchWithWriterLease(
 		}
 	}
 
-	if spec.Process == nil {
-		spec.Process = &specs.Process{}
-	}
 	spec.Process.Args = append([]string{artifact.LauncherName(ra.LauncherName)}, jvmArgs...)
 	spec.Process.Cwd = "/app"
-	if ra.Config.User != nil {
-		spec.Process.User.UID = uint32(ra.Config.User.UID)
-		spec.Process.User.GID = uint32(ra.Config.User.GID)
-	}
 
 	// PATH: prepend the custom launcher layer when present so e.g. `jaz`
 	// resolves ahead of the JDK's own bin.

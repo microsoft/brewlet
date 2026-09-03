@@ -18,7 +18,7 @@ metadata:
   name: orders
 spec:
   artifact:
-    image: registry.example.com/team/orders:1.4.2
+    image: registry.example.com/team/orders@sha256:REPLACE_WITH_IMAGE_INDEX_DIGEST
   jvm:
     version: 21
 ```

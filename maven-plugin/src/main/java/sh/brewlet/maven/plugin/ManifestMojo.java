@@ -9,6 +9,7 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.model.Port;
+import sh.brewlet.maven.plugin.oci.RegistryClient;
 import sh.brewlet.maven.plugin.util.FrameworkDetector;
 
 import java.io.File;
@@ -106,6 +107,11 @@ public class ManifestMojo extends AbstractBrewletMojo {
         if (image == null || image.isBlank()) {
             throw new MojoExecutionException(
                     "brewlet:manifest requires <image> to be configured.");
+        }
+        if (!RegistryClient.isDigestPinnedReference(image)) {
+            throw new MojoExecutionException(
+                    "brewlet:manifest requires a digest-pinned <image> (repo@sha256:<64 lowercase hex>); "
+                            + "use the deploy image printed by brewlet:push.");
         }
 
         JvmConfig cfg = buildConfig();

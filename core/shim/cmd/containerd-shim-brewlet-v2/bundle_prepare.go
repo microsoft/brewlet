@@ -39,10 +39,10 @@ const (
 	// annCDSRegenerate opts the workload into node-side AppCDS regeneration
 	// (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3). Value "true" (set by the operator from
 	// spec.jvm.cds.regenerate, or by the user on a raw Deployment) tells the shim
-	// to maintain a namespace-scoped cache keyed by the verified manifest and JDK
-	// build with -XX:+AutoCreateSharedArchive rather than consume a shipped
-	// archive. It is a deployment/fleet decision, so it lives on the pod, not in
-	// the artifact.
+	// to maintain a namespace-scoped cache keyed by the verified manifest, JDK
+	// build, and trusted CRI process UID with -XX:+AutoCreateSharedArchive rather
+	// than consume a shipped archive. It is a deployment/fleet decision, so it
+	// lives on the pod, not in the artifact.
 	annCDSRegenerate        = "brewlet.sh/cds-regenerate"
 	jdkHomeMetadata         = ".brewlet-java-home"
 	jdkActiveInventory      = ".brewlet-active"
@@ -52,19 +52,21 @@ const (
 // imageConfig describes where a Brewlet image or local artifact lives and the
 // deployment/runtime choices used to assemble its bundle.
 type imageConfig struct {
-	StoreRoot        string `json:"storeRoot"`        // OCI content store / layout root
-	Ref              string `json:"ref"`              // image/artifact reference
-	JDKRootsDir      string `json:"jdkRootsDir"`      // e.g. /opt/brewlet/jdks
-	LauncherRootsDir string `json:"launcherRootsDir"` // e.g. /opt/brewlet/launchers
-	CPULimit         string `json:"cpuLimit"`         // from container.resources.limits.cpu
-	MemoryLimit      string `json:"memoryLimit"`      // from container.resources.limits.memory
+	StoreRoot        string  `json:"storeRoot"`        // OCI content store / layout root
+	Ref              string  `json:"ref"`              // image/artifact reference
+	JDKRootsDir      string  `json:"jdkRootsDir"`      // e.g. /opt/brewlet/jdks
+	LauncherRootsDir string  `json:"launcherRootsDir"` // e.g. /opt/brewlet/launchers
+	CPULimit         string  `json:"cpuLimit"`         // from container.resources.limits.cpu
+	MemoryLimit      string  `json:"memoryLimit"`      // from container.resources.limits.memory
+	ProcessUID       *uint32 `json:"processUID,omitempty"`
+	ProcessGID       *uint32 `json:"processGID,omitempty"`
 
 	// JDKRequest / LauncherName are the JDK and launcher the *deployment
 	// descriptor* asked for, carried on the pod as the brewlet.sh/jdk and
-	// brewlet.sh/launcher annotations and propagated onto the OCI runtime spec
-	// (like brewlet.sh/artifact-ref). They are NOT read from the artifact's
-	// launch config: the descriptor is the single source of truth for which JDK
-	// feature/distribution and launcher a workload runs on. JDKRequest is a
+	// brewlet.sh/launcher annotations and propagated onto the OCI runtime spec.
+	// They are NOT read from the artifact's launch config: the descriptor is the
+	// single source of truth for which JDK feature/distribution and launcher a
+	// workload runs on. JDKRequest is a
 	// "<dist>-<feature>" token (e.g. "temurin-21") or a bare feature ("21");
 	// empty means the node default. LauncherName is "" or "java" for the vanilla
 	// OpenJDK launcher.
@@ -82,11 +84,22 @@ type imageConfig struct {
 	// its authoritative target digest rather than from a Brewlet-local OCI layout.
 	Backend        string `json:"backend,omitempty"`        // "" (infer) | "layout" | "containerd"
 	ContentRoot    string `json:"contentRoot,omitempty"`    // containerd content root
-	ManifestDigest string `json:"manifestDigest,omitempty"` // authoritative "sha256:..." image target
+	ManifestDigest string `json:"manifestDigest,omitempty"` // verified resolved platform-manifest digest
+}
+
+func (ic imageConfig) processIdentity() kcruntime.ProcessIdentity {
+	identity := kcruntime.DefaultProcessIdentity()
+	if ic.ProcessUID != nil {
+		identity.UID = *ic.ProcessUID
+	}
+	if ic.ProcessGID != nil {
+		identity.GID = *ic.ProcessGID
+	}
+	return identity
 }
 
 // resolvedArtifact is everything the shim needs after disassembling a Brewlet
-// OCI artifact against the node's installed JDK/launcher roots.
+// image or local artifact against the node's installed JDK/launcher roots.
 type resolvedArtifact struct {
 	Config              artifact.JVMConfig
 	JarHostPath         string   // on-disk path of the JAR payload blob
@@ -168,7 +181,7 @@ func prepareBundle(args []string) error {
 		CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
 		MetricsDir:     os.Getenv("BREWLET_METRICS_DIR"),
 	}
-	if err := kcruntime.GenerateBundleWithRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, regen); err != nil {
+	if err := kcruntime.GenerateBundleWithIdentityAndRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, ic.processIdentity(), regen); err != nil {
 		return fmt.Errorf("generate bundle: %w", err)
 	}
 

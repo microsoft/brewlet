@@ -339,6 +339,46 @@ host_exec() {
   nsenter --target 1 --mount --pid -- "$@"
 }
 
+containerd_server_version() {
+  host_ctr version 2>/dev/null | awk '
+    $1 == "Server:" {
+      server = 1
+      next
+    }
+    server && $1 == "Version:" {
+      print $2
+      exit
+    }
+  '
+}
+
+containerd_server_major() {
+  local version="${1#v}"
+  [[ "$version" =~ ^([0-9]+)\. ]] || return 1
+  printf '%s' "${BASH_REMATCH[1]}"
+}
+
+containerd_image_identity_supported() {
+  local version major
+  version="$(containerd_server_version)" || return 1
+  [[ -n "$version" ]] || return 1
+  major="$(containerd_server_major "$version")" || return 1
+  (( 10#$major >= 2 ))
+}
+
+require_containerd_image_identity() {
+  local version major
+  version="$(containerd_server_version)" \
+    || die "containerd-version-unavailable: could not query the host containerd server"
+  [[ -n "$version" ]] \
+    || die "containerd-version-unavailable: host ctr returned no server version"
+  major="$(containerd_server_major "$version")" \
+    || die "containerd-version-invalid: could not parse host containerd server version '${version}'"
+  (( 10#$major >= 2 )) \
+    || die "unsupported-containerd-version: containerd 2.0 or newer is required for protected CRI requested-image identity metadata (found server ${version})"
+  log "containerd server ${version} supports protected CRI requested-image identity"
+}
+
 ACTIVE_SOURCE_MOUNTS=()
 
 track_source_mount() {
@@ -695,18 +735,42 @@ containerd_systemd_cgroup() {
   printf '%s' "$systemd_cgroup"
 }
 
+containerd_runtime_plugin_for_config() {
+  local config="$1" version
+  version="$(
+    awk -F= '
+      /^[[:space:]]*version[[:space:]]*=/ {
+        sub(/[[:space:]]*#.*/, "", $2)
+        gsub(/[[:space:]]/, "", $2)
+        print $2
+        exit
+      }
+    ' "$config"
+  )"
+  if [[ "$version" =~ ^[0-9]+$ ]] && (( version >= 3 )); then
+    printf 'io.containerd.cri.v1.runtime'
+  else
+    printf 'io.containerd.grpc.v1.cri'
+  fi
+}
+
+containerd_runtime_plugin() {
+  containerd_runtime_plugin_for_config "$CONTAINERD_CONFIG"
+}
+
 render_containerd_runtime() {
-  local systemd_cgroup="$1"
+  local systemd_cgroup="$1" plugin
+  plugin="$(containerd_runtime_plugin)"
   cat <<EOF
 # --- added by brewlet-node-provisioner (https://github.com/microsoft/brewlet/tree/main/specs §5.2) ---
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet]
+[plugins."${plugin}".containerd.runtimes.brewlet]
   runtime_type = "io.containerd.brewlet.v2"
   # Propagate the deployment-descriptor annotations the admission webhook stamps
   # onto the OCI spec so the shim can resolve the artifact and apply node-side
   # AppCDS regeneration. The shim verifies the resolved manifest from the content
   # store; it does not trust artifact-digest as the cache identity.
   pod_annotations = ["brewlet.sh/*"]
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet.options]
+  [plugins."${plugin}".containerd.runtimes.brewlet.options]
     SystemdCgroup = ${systemd_cgroup}
 # --- end brewlet ---
 EOF
@@ -734,25 +798,41 @@ validate_launcher() {
 }
 
 containerd_config_has_runtime() {
-  grep -Eq '^[[:space:]]*\[[^]]*containerd\.runtimes\.brewlet\][[:space:]]*$' "$1"
+  local plugin
+  plugin="$(containerd_runtime_plugin)"
+  grep -Eq "^[[:space:]]*\\[plugins\\.[\"']${plugin}[\"']\\.containerd\\.runtimes\\.brewlet\\][[:space:]]*$" "$1"
 }
 
-containerd_dump_has_runtime_handler() {
-  awk '
-    /^[[:space:]]*\[[^]]*containerd\.runtimes\.brewlet\][[:space:]]*$/ { in_brewlet=1; next }
-    in_brewlet && /^[[:space:]]*\[/ { exit }
+containerd_file_has_runtime_handler() {
+  local file="$1" plugin="$2"
+  awk -v plugin="$plugin" '
+    /^[[:space:]]*\[/ {
+      if (in_brewlet) exit
+      in_brewlet = index($0, plugin) && index($0, "containerd.runtimes.brewlet]")
+      next
+    }
     in_brewlet && /^[[:space:]]*runtime_type[[:space:]]*=[[:space:]]*["'\'']io\.containerd\.brewlet\.v2["'\'']/ {
       found=1
       exit
     }
     END { exit !found }
-  ' "$1"
+  ' "$file"
+}
+
+containerd_dump_has_runtime_handler() {
+  local dump="$1" plugin
+  # containerd 2 migrates a v2 source config to its v3 split-plugin schema in
+  # `config dump`, so select the runtime table from the effective dump itself.
+  plugin="$(containerd_runtime_plugin_for_config "$dump")"
+  containerd_file_has_runtime_handler "$dump" "$plugin"
 }
 
 containerd_source_has_runtime_handler() {
-  containerd_dump_has_runtime_handler "$CONTAINERD_CONFIG" && return 0
+  local plugin
+  plugin="$(containerd_runtime_plugin)"
+  containerd_file_has_runtime_handler "$CONTAINERD_CONFIG" "$plugin" && return 0
   [[ -f "$CONTAINERD_DROPIN_FILE" ]] \
-    && containerd_dump_has_runtime_handler "$CONTAINERD_DROPIN_FILE"
+    && containerd_file_has_runtime_handler "$CONTAINERD_DROPIN_FILE" "$plugin"
 }
 
 containerd_dump_omits_external_cri_schema() {
@@ -856,7 +936,8 @@ validate_containerd_config() {
     # `containerd config dump` warns about and omits its runtime tables. Validate
     # the rendered source here; the post-restart CRI health check remains the
     # authoritative proof that the handler loaded successfully.
-    if containerd_dump_omits_external_cri_schema "$error" \
+    if [[ "$(containerd_runtime_plugin)" == "io.containerd.grpc.v1.cri" ]] \
+      && containerd_dump_omits_external_cri_schema "$error" \
       && containerd_source_has_runtime_handler; then
       log "containerd config dump omits external CRI runtime tables; validated rendered brewlet handler"
     else
@@ -1355,6 +1436,7 @@ main() {
   install_shim
   install_source_mount_traps
   cleanup_stale_source_mounts
+  require_containerd_image_identity
   install_runtime_sources
 
   configure_containerd

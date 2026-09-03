@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Media types that define the Brewlet application artifact (see https://github.com/microsoft/brewlet/tree/main/specs §4).
@@ -80,7 +82,6 @@ type JVMConfig struct {
 	// SystemProperties are expanded (sorted by key) into -D<key>=<value> flags
 	// the application assumes at startup.
 	SystemProperties map[string]string `json:"systemProperties,omitempty"`
-	User             *User             `json:"user,omitempty"`
 	Env              []EnvVar          `json:"env,omitempty"`
 	// Arch is an OPTIONAL architecture constraint for NON-portable artifacts —
 	// those bundling JNI native libraries or arch-specific dependencies (e.g.
@@ -199,11 +200,6 @@ type Entry struct {
 	// (e.g. "mods", from a modulepath layer) contributes every JAR it contains.
 	// See https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md.
 	ModulePath []string `json:"modulePath,omitempty"`
-}
-
-type User struct {
-	UID int `json:"uid"`
-	GID int `json:"gid"`
 }
 
 type EnvVar struct {
@@ -356,13 +352,9 @@ type Descriptor struct {
 	Annotations  map[string]string `json:"annotations,omitempty"`
 }
 
-// Platform names the OS/arch a runnable-image manifest targets. It appears on
-// an image index's manifest descriptors so containerd/kubelet can select the
-// entry matching the node (see image.go / docs on the runnable-image mode).
-type Platform struct {
-	OS           string `json:"os"`
-	Architecture string `json:"architecture"`
-}
+// Platform is the OCI OS/architecture/variant descriptor containerd uses when
+// selecting a runnable-image manifest from an image index.
+type Platform = ocispec.Platform
 
 type Manifest struct {
 	SchemaVersion int          `json:"schemaVersion"`

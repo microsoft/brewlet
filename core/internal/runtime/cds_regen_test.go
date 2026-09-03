@@ -4,9 +4,9 @@
 package runtime
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -400,10 +400,15 @@ func TestDecideCDSRegenWritesMetric(t *testing.T) {
 }
 
 func TestRegenKeyChangesWithBuild(t *testing.T) {
-	a := regenKey("team-a", "sha256:abc", "temurin|21.0.5+11")
-	b := regenKey("team-a", "sha256:abc", "temurin|21.0.6+7") // patch bump
-	c := regenKey("team-a", "sha256:xyz", "temurin|21.0.5+11")
-	d := regenKey("team-b", "sha256:abc", "temurin|21.0.5+11")
+	uid1000 := &RegenOwner{UID: 1000, GID: 1000}
+	uid1000OtherGroup := &RegenOwner{UID: 1000, GID: 2000}
+	uid2000 := &RegenOwner{UID: 2000, GID: 2000}
+	a := regenKey("team-a", "sha256:abc", "temurin|21.0.5+11", uid1000)
+	b := regenKey("team-a", "sha256:abc", "temurin|21.0.6+7", uid1000) // patch bump
+	c := regenKey("team-a", "sha256:xyz", "temurin|21.0.5+11", uid1000)
+	d := regenKey("team-b", "sha256:abc", "temurin|21.0.5+11", uid1000)
+	e := regenKey("team-a", "sha256:abc", "temurin|21.0.5+11", uid2000)
+	f := regenKey("team-a", "sha256:abc", "temurin|21.0.5+11", uid1000OtherGroup)
 	if a == b {
 		t.Error("key must change when the JDK build changes")
 	}
@@ -412,6 +417,12 @@ func TestRegenKeyChangesWithBuild(t *testing.T) {
 	}
 	if a == d {
 		t.Error("key must change when the cache scope changes")
+	}
+	if a == e {
+		t.Error("key must change when the process UID changes")
+	}
+	if a != f {
+		t.Error("key must not change when only the process GID changes")
 	}
 	if len(a) != 64 {
 		t.Errorf("key length = %d, want 64", len(a))
@@ -448,13 +459,10 @@ func TestGenerateBundleWithRegenMountsCache(t *testing.T) {
 	if !strings.Contains(cfgJSON, InSandboxCDSDir) {
 		t.Errorf("config.json missing cache mount at %s:\n%s", InSandboxCDSDir, cfgJSON)
 	}
+	spec := readBundleSpec(t, out)
 	// A regenerating artifact with no shipped archive must not mount /app/*.jsa.
 	if strings.Contains(cfgJSON, "/app/app.jsa") {
 		t.Errorf("config.json should not mount a /app archive in pure regen mode:\n%s", cfgJSON)
-	}
-	var spec ociSpec
-	if err := json.Unmarshal(b, &spec); err != nil {
-		t.Fatal(err)
 	}
 	var cacheMount *ociMount
 	for i := range spec.Mounts {
@@ -473,6 +481,47 @@ func TestGenerateBundleWithRegenMountsCache(t *testing.T) {
 		if !containsString(cacheMount.Options, want) {
 			t.Errorf("cache mount options = %v, missing %q", cacheMount.Options, want)
 		}
+	}
+}
+
+func TestGenerateBundleWithIdentitySeparatesRegenCacheByUID(t *testing.T) {
+	dir := t.TempDir()
+	jdkRoot := fakeJDK(t, "21.0.5")
+	jarHost := filepath.Join(dir, "app.jar")
+	if err := os.WriteFile(jarHost, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cache := t.TempDir()
+	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
+	regen := CDSRegenOptions{
+		Regenerate:     true,
+		CacheScope:     "local",
+		ArtifactDigest: "sha256:abc",
+		CacheDir:       cache,
+	}
+
+	cacheMount := func(uid uint32) string {
+		t.Helper()
+		out := filepath.Join(dir, "bundle-"+strconv.FormatUint(uint64(uid), 10))
+		if err := GenerateBundleWithIdentityAndRegen(
+			cfg, jdkRoot, "", "", jarHost, nil, nil, "", out,
+			Resources{}, nil, ProcessIdentity{UID: uid, GID: uid}, regen,
+		); err != nil {
+			t.Fatalf("GenerateBundleWithIdentityAndRegen(%d): %v", uid, err)
+		}
+		for _, mount := range readBundleSpec(t, out).Mounts {
+			if mount.Destination == InSandboxCDSDir {
+				return mount.Source
+			}
+		}
+		t.Fatalf("bundle for UID %d is missing %s mount", uid, InSandboxCDSDir)
+		return ""
+	}
+
+	first := cacheMount(1000)
+	second := cacheMount(2000)
+	if first == second {
+		t.Fatalf("different process UIDs shared cache entry %q", first)
 	}
 }
 

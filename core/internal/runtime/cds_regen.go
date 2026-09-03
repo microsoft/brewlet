@@ -21,10 +21,11 @@ import (
 )
 
 // Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3). The node maintains a
-// per-(isolation scope, artifact digest, JDK build) archive cache and launches
-// with -XX:+AutoCreateSharedArchive so the archive self-heals on every central
-// JDK patch. Each workload sees only its private cache-entry directory; the
-// node-global cache root and writer-election markers are never mounted.
+// per-(isolation scope, artifact digest, JDK build, process UID) archive cache
+// and launches with -XX:+AutoCreateSharedArchive so the archive self-heals on
+// every central JDK patch. Each workload sees only its private cache-entry
+// directory; the node-global cache root and writer-election markers are never
+// mounted.
 const (
 	// DefaultCDSCacheDir is the node-local directory the regeneration cache lives
 	// in. The provisioner creates it; entries are private hashed directories.
@@ -57,7 +58,7 @@ const (
 	// or JDK identity undeterminable). Launch as if no regeneration were set.
 	RegenSkip RegenRole = "skip"
 	// RegenConsume: a valid cached archive exists for this
-	// (scope, artifact, JDK-build); map it read-only with
+	// (scope, artifact, JDK-build, process-UID); map it read-only with
 	// -Xshare:auto -XX:SharedArchiveFile.
 	RegenConsume RegenRole = "consume"
 	// RegenWrite: this launch was elected to (re)generate the archive; it runs
@@ -89,12 +90,18 @@ type RegenParams struct {
 	// -XX:+AutoCreateSharedArchive transparently recreates it if JDK-stale.
 	SeedArchive string
 	// WriterOwner is the UID/GID that must own a fresh private entry so a
-	// non-root workload can create archive.jsa. Nil keeps the invoking user's
-	// ownership (the local run/default-root case).
+	// non-root workload can create archive.jsa. Its UID also partitions cache
+	// identity because an entry remains owner-private. Nil selects the host-local
+	// identity bucket used by the unsandboxed local run path.
 	WriterOwner *RegenOwner
+	// AllowUnownedWriter permits standalone bundle generation to fall back to
+	// owner-writable, traversal-only permissions when the caller cannot chown the
+	// private entry to the future sandbox identity. Production shims leave this
+	// false and fail closed to base CDS.
+	AllowUnownedWriter bool
 	// ArchiveArgDir is the directory the JVM sees the archive under (the
-	// in-sandbox mount point). "" means the JVM uses the host CacheDir directly
-	// (the local `run` path, which is not sandboxed).
+	// in-sandbox mount point). "" means the JVM uses the host archive path
+	// directly (the local `run` path, which is not sandboxed).
 	ArchiveArgDir string
 	// MetricsDir, when set, receives a best-effort node-local role record the
 	// metrics exporter (https://github.com/microsoft/brewlet/blob/main/docs/metrics-exporter.md, Option A) can aggregate.
@@ -123,7 +130,8 @@ type CDSWriterLease struct {
 // RegenDecision is the outcome of DecideCDSRegen.
 type RegenDecision struct {
 	Role RegenRole
-	// Key is the per-(scope, artifact, JDK-build) cache key, or "" when skipped.
+	// Key is the per-(scope, artifact, JDK-build, process-UID) cache key, or ""
+	// when skipped.
 	Key string
 	// HostMount is the private host directory that may be bind-mounted into the
 	// workload. It is never the node-global cache root.
@@ -177,7 +185,7 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 		return decisionSkip(p), nil
 	}
 
-	key := regenKey(p.CacheScope, p.ArtifactDigest, buildID)
+	key := regenKey(p.CacheScope, p.ArtifactDigest, buildID, p.WriterOwner)
 	hostMount := filepath.Join(cacheDir, key)
 	hostArchive := filepath.Join(hostMount, cacheArchiveName)
 	writerMarker := filepath.Join(cacheDir, key+writerMarkerSuffix)
@@ -215,7 +223,7 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 		// The previous writer controlled the old directory contents. Replace the
 		// whole entry before any privileged host-side seed copy, so planted links
 		// or special files cannot be followed.
-		if err := resetCacheEntry(hostMount, p.WriterOwner); err != nil {
+		if err := resetCacheEntry(hostMount, p.WriterOwner, p.AllowUnownedWriter); err != nil {
 			writerLease.Release()
 			return decisionSkip(p), nil
 		}
@@ -223,7 +231,7 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 		// -XX:+AutoCreateSharedArchive validates it and recreates at exit if the
 		// seed is JDK-stale, so seeding is always safe.
 		if p.SeedArchive != "" {
-			_ = seedArchive(p.SeedArchive, hostArchive, p.WriterOwner)
+			_ = seedArchive(p.SeedArchive, hostArchive, p.WriterOwner, p.AllowUnownedWriter)
 		}
 		d := RegenDecision{
 			Role:        RegenWrite,
@@ -388,7 +396,7 @@ func (l *CDSWriterLease) matchesMarker() bool {
 	return strings.HasPrefix(string(raw), "token="+l.token+"\n")
 }
 
-func resetCacheEntry(entryDir string, owner *RegenOwner) error {
+func resetCacheEntry(entryDir string, owner *RegenOwner, allowUnowned bool) error {
 	if err := os.RemoveAll(entryDir); err != nil {
 		return err
 	}
@@ -398,11 +406,17 @@ func resetCacheEntry(entryDir string, owner *RegenOwner) error {
 	if owner == nil {
 		return nil
 	}
-	return os.Chown(entryDir, owner.UID, owner.GID)
+	if err := os.Chown(entryDir, owner.UID, owner.GID); err != nil {
+		if !allowUnowned || !errors.Is(err, os.ErrPermission) {
+			return err
+		}
+		return os.Chmod(entryDir, 0o733)
+	}
+	return nil
 }
 
 // seedArchive publishes a complete seed atomically into a freshly reset entry.
-func seedArchive(src, dst string, owner *RegenOwner) error {
+func seedArchive(src, dst string, owner *RegenOwner, allowUnowned bool) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -417,11 +431,19 @@ func seedArchive(src, dst string, owner *RegenOwner) error {
 	defer os.Remove(tmpName)
 	if owner != nil {
 		if err := tmp.Chown(owner.UID, owner.GID); err != nil {
+			if !allowUnowned || !errors.Is(err, os.ErrPermission) {
+				_ = tmp.Close()
+				return err
+			}
+			if err := tmp.Chmod(0o666); err != nil {
+				_ = tmp.Close()
+				return err
+			}
+		} else if err := tmp.Chmod(0o600); err != nil {
 			_ = tmp.Close()
 			return err
 		}
-	}
-	if err := tmp.Chmod(0o600); err != nil {
+	} else if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -534,9 +556,14 @@ func isLowerHex(s string) bool {
 	return true
 }
 
-// regenKey derives the per-(scope, artifact, JDK-build) cache key.
-func regenKey(cacheScope, artifactDigest, buildID string) string {
-	h := sha256.Sum256([]byte(cacheScope + "\x00" + artifactDigest + "\x00" + buildID))
+// regenKey derives the per-(scope, artifact, JDK-build, process-UID) cache key.
+// GID is intentionally excluded because 0700 entry access is governed by UID.
+func regenKey(cacheScope, artifactDigest, buildID string, owner *RegenOwner) string {
+	uid := "host"
+	if owner != nil {
+		uid = strconv.Itoa(owner.UID)
+	}
+	h := sha256.Sum256([]byte(cacheScope + "\x00" + artifactDigest + "\x00" + buildID + "\x00" + uid))
 	return hex.EncodeToString(h[:])
 }
 

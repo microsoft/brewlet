@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
-	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	"github.com/containerd/containerd/namespaces"
 
 	"github.com/microsoft/brewlet/internal/artifact"
@@ -26,24 +25,24 @@ type containerIdentityRecord struct {
 }
 
 type imageIdentityRecord struct {
-	ConfigDigest string
-	TargetDigest string
+	ConfigDigest   string
+	TargetDigest   string
+	ManifestDigest string
 }
 
 type imageIdentityMetadataClient interface {
 	ContainerInfo(context.Context, string) (containerIdentityRecord, error)
-	ImageInfo(context.Context, string) (imageIdentityRecord, error)
+	ImageTargetInfo(context.Context, string) (imageIdentityRecord, error)
 }
 
 type containerdImageIdentityResolver struct {
 	client imageIdentityMetadataClient
 }
 
-func newContainerdImageIdentityResolver(containers containersapi.ContainersClient, images imagesapi.ImagesClient, contentRoot string) *containerdImageIdentityResolver {
+func newContainerdImageIdentityResolver(containers containersapi.ContainersClient, contentRoot string) *containerdImageIdentityResolver {
 	return &containerdImageIdentityResolver{
 		client: containerdIdentityMetadataClient{
 			containers:  containers,
-			images:      images,
 			contentRoot: contentRoot,
 		},
 	}
@@ -80,29 +79,40 @@ func (r *containerdImageIdentityResolver) Resolve(ctx context.Context, container
 	if imageName == "" {
 		return resolvedImageIdentity{}, fmt.Errorf("container %q has no containerd image reference", containerID)
 	}
-	// CRI materializes an image record named by its immutable config identity.
-	// The container image field can instead be a normalized, mutable tag.
-	image, err := r.client.ImageInfo(ctx, configDigest)
+	target, err := requiredImageTargetDigest(metadata.RequestedImage)
 	if err != nil {
-		return resolvedImageIdentity{}, fmt.Errorf("load containerd image identity %q for container %q: %w", configDigest, containerID, err)
+		return resolvedImageIdentity{}, fmt.Errorf("CRI requested image %q: %w", metadata.RequestedImage, err)
+	}
+	// The CRI image config digest is not a safe lookup key because multiple
+	// manifests may share one image config while carrying different launch
+	// annotations. Resolve the exact digest-pinned request from the content store.
+	image, err := r.client.ImageTargetInfo(ctx, target)
+	if err != nil {
+		return resolvedImageIdentity{}, fmt.Errorf("load digest-pinned containerd image target %q for container %q: %w", target, containerID, err)
 	}
 	actualConfig, err := requireSHA256Digest("containerd image config", image.ConfigDigest)
 	if err != nil {
 		return resolvedImageIdentity{}, err
 	}
 	if actualConfig != configDigest {
-		return resolvedImageIdentity{}, fmt.Errorf("containerd image identity changed for container %q: CRI resolved config %s but image %q now has config %s", containerID, configDigest, imageName, actualConfig)
+		return resolvedImageIdentity{}, fmt.Errorf("containerd image target config mismatch for container %q: CRI resolved config %s but target %s has config %s", containerID, configDigest, target, actualConfig)
 	}
-	target, err := requireSHA256Digest("containerd image target", image.TargetDigest)
+	actualTarget, err := requireSHA256Digest("containerd image target", image.TargetDigest)
 	if err != nil {
 		return resolvedImageIdentity{}, err
 	}
-	if requested, hasDigest, err := imageReferenceDigest(metadata.RequestedImage); err != nil {
-		return resolvedImageIdentity{}, fmt.Errorf("CRI requested image %q: %w", metadata.RequestedImage, err)
-	} else if hasDigest && requested != target {
-		return resolvedImageIdentity{}, fmt.Errorf("containerd image target mismatch for container %q: CRI requested %s but image %q resolves to %s", containerID, requested, imageName, target)
+	if actualTarget != target {
+		return resolvedImageIdentity{}, fmt.Errorf("containerd image target mismatch for container %q: CRI requested %s but content resolution returned %s", containerID, target, actualTarget)
 	}
-	return resolvedImageIdentity{ImageName: imageName, TargetDigest: target}, nil
+	manifestDigest, err := requireSHA256Digest("containerd platform manifest", image.ManifestDigest)
+	if err != nil {
+		return resolvedImageIdentity{}, err
+	}
+	return resolvedImageIdentity{
+		ImageName:      imageName,
+		TargetDigest:   target,
+		ManifestDigest: manifestDigest,
+	}, nil
 }
 
 type criImageMetadata struct {
@@ -153,7 +163,6 @@ func decodeCRIImageMetadata(extension []byte) (criImageMetadata, error) {
 
 type containerdIdentityMetadataClient struct {
 	containers  containersapi.ContainersClient
-	images      imagesapi.ImagesClient
 	contentRoot string
 }
 
@@ -178,25 +187,18 @@ func (c containerdIdentityMetadataClient) ContainerInfo(ctx context.Context, con
 	}, nil
 }
 
-func (c containerdIdentityMetadataClient) ImageInfo(ctx context.Context, imageName string) (imageIdentityRecord, error) {
-	response, err := c.images.Get(ctx, &imagesapi.GetImageRequest{Name: imageName})
+func (c containerdIdentityMetadataClient) ImageTargetInfo(_ context.Context, targetDigest string) (imageIdentityRecord, error) {
+	targetDigest, err := requireSHA256Digest("containerd image target", targetDigest)
 	if err != nil {
 		return imageIdentityRecord{}, err
 	}
-	image := response.GetImage()
-	if image == nil || image.GetTarget() == nil {
-		return imageIdentityRecord{}, fmt.Errorf("containerd returned an image without a target")
-	}
-	targetDigest, err := requireSHA256Digest("containerd image target", image.GetTarget().GetDigest())
-	if err != nil {
-		return imageIdentityRecord{}, err
-	}
-	manifest, _, err := artifact.ResolveManifestFollowingIndex(contentStoreSource{root: c.contentRoot}, targetDigest)
+	manifest, manifestDigest, err := artifact.ResolveManifestFollowingIndex(contentStoreSource{root: c.contentRoot}, targetDigest)
 	if err != nil {
 		return imageIdentityRecord{}, err
 	}
 	return imageIdentityRecord{
-		ConfigDigest: manifest.Config.Digest,
-		TargetDigest: targetDigest,
+		ConfigDigest:   manifest.Config.Digest,
+		TargetDigest:   targetDigest,
+		ManifestDigest: manifestDigest,
 	}, nil
 }

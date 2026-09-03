@@ -249,6 +249,9 @@ applies only to the Kubernetes shim path. The decision engine lives in
 as an unsupported JDK, an unavailable cache, or losing the writer election still
 fall back to base CDS through the `skip`/`defer` roles.
 
+`brewlet bundle` additionally partitions the local cache by its trusted
+`--uid`; the unsandboxed `brewlet run` path uses a host-local identity bucket.
+
 The verified patch-invalidation (§2.1) makes build-time generation structurally at
 odds with Brewlet's core promise — *patch the node JDK once, patch everything*. A
 build-time archive goes stale on the **next** central patch, and a `.jsa` is also
@@ -256,18 +259,23 @@ build-time archive goes stale on the **next** central patch, and a `.jsa` is als
 property. Node-side regeneration removes both problems by decoupling the archive
 from the shipped artifact entirely.
 
-The node generates/refreshes an archive lazily from three verified identity
+The node generates/refreshes an archive lazily from four trusted identity
 inputs:
 
 - the trusted CRI sandbox namespace
   (`io.kubernetes.cri.sandbox-namespace`), never a tenant Brewlet annotation;
-- the resolved platform-manifest digest reached from the CRI/containerd-
-  authoritative image target, after canonical SHA-256 syntax, descriptor-size,
-  and content-hash verification; and
-- the selected JDK's exact build identity.
+- the resolved platform-manifest digest reached from the digest-pinned CRI
+  requested-image target, after direct content-store resolution, CRI config-
+  digest binding, canonical SHA-256 syntax, descriptor-size, and content-hash
+  verification;
+- the selected JDK's exact build identity; and
+- the CRI-configured process UID, so workloads using different identities never
+  receive an owner-inaccessible cache entry.
 
 The full cache key is
-`sha256(namespace NUL manifestDigest NUL jdkBuild)`. `cacheDir` defaults to
+`sha256(namespace NUL manifestDigest NUL jdkBuild NUL processUID)`. GID is not
+part of the key because the private entry is mode `0700`, so access is governed
+by its owning UID. `cacheDir` defaults to
 `/opt/brewlet/cds` (`DefaultCDSCacheDir`, overridable with
 `BREWLET_CDS_CACHE`), and each entry uses this layout:
 
@@ -279,8 +287,11 @@ The full cache key is
 Only `<cacheDir>/<key>` is bind-mounted at `/run/brewlet/cds`; the workload
 never receives the cache root or writer markers. The elected writer gets that
 single directory read-write, consumers get it read-only, and both mounts add
-`nosuid,nodev,noexec`. A fresh entry is mode `0700` and owned by the workload's
-configured UID/GID so non-root writers can create `archive.jsa`.
+`nosuid,nodev,noexec`. The production shim creates a fresh entry at mode `0700`
+and assigns it to the CRI-configured UID/GID so non-root writers can create
+`archive.jsa`. An unprivileged standalone bundle generator that cannot perform
+that `chown` uses write-and-traverse-only permissions for non-owners on its
+single private local entry; the production shim never enables that fallback.
 
 Before consumption, Brewlet checks both the entry directory and
 `archive.jsa` with no-follow metadata reads and accepts only a non-empty regular

@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -33,6 +34,29 @@ type ociProcess struct {
 type ociUser struct {
 	UID uint32 `json:"uid"`
 	GID uint32 `json:"gid"`
+}
+
+const (
+	// DefaultProcessUID and DefaultProcessGID are the secure identity used by
+	// standalone OCI bundles when the trusted runtime caller does not select one.
+	DefaultProcessUID uint32 = 65532
+	DefaultProcessGID uint32 = 65532
+	// MaxProcessID excludes the all-ones value Linux reserves as the invalid
+	// (uid_t)-1/(gid_t)-1 sentinel.
+	MaxProcessID uint32 = 1<<32 - 2
+)
+
+// ProcessIdentity is the trusted runtime-side UID/GID for a standalone OCI
+// bundle. Artifact metadata never controls this value.
+type ProcessIdentity struct {
+	UID uint32
+	GID uint32
+}
+
+// DefaultProcessIdentity returns Brewlet's unprivileged standalone bundle
+// identity.
+func DefaultProcessIdentity() ProcessIdentity {
+	return ProcessIdentity{UID: DefaultProcessUID, GID: DefaultProcessGID}
 }
 
 type ociRoot struct {
@@ -129,10 +153,32 @@ type CDSRegenOptions struct {
 
 // GenerateBundleWithRegen is GenerateBundleWithCDS plus node-side regeneration.
 // When the deployment opts in, it resolves a private per-(scope, artifact,
-// JDK-build) entry, bind-mounts only that directory at InSandboxCDSDir (writable
-// only for the elected writer), and treats any shipped archive as optional seed
-// data rather than mounting it at /app/<archive>.
+// JDK-build, process-UID) entry, bind-mounts only that directory at
+// InSandboxCDSDir (writable only for the elected writer), and treats any shipped
+// archive as optional seed data rather than mounting it at /app/<archive>.
 func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, regen CDSRegenOptions) error {
+	return GenerateBundleWithIdentityAndRegen(
+		cfg, jdkRoot, launcherRoot, launcherName, jarHostPath,
+		classpathTars, modulepathTars, cdsHostPath, outDir, res, extraArgs,
+		DefaultProcessIdentity(), regen,
+	)
+}
+
+// GenerateBundleWithIdentityAndRegen is GenerateBundleWithRegen with an
+// explicit trusted runtime identity. It is used by deployment-side callers such
+// as `brewlet bundle`; artifact metadata is intentionally not consulted.
+func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity, regen CDSRegenOptions) error {
+	if identity.UID > MaxProcessID || identity.GID > MaxProcessID {
+		return fmt.Errorf("process UID/GID must be between 0 and %d", MaxProcessID)
+	}
+	var writerOwner *RegenOwner
+	if regen.Regenerate {
+		regenUID, regenGID := uint64(identity.UID), uint64(identity.GID)
+		if regenUID > math.MaxInt || regenGID > math.MaxInt {
+			return fmt.Errorf("process UID/GID must be between 0 and %d for CDS regeneration on this platform", math.MaxInt)
+		}
+		writerOwner = &RegenOwner{UID: int(regenUID), GID: int(regenGID)}
+	}
 	if err := os.MkdirAll(filepath.Join(outDir, "rootfs"), 0o755); err != nil {
 		return err
 	}
@@ -157,19 +203,16 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 		if cacheDir == "" {
 			cacheDir = DefaultCDSCacheDir
 		}
-		var writerOwner *RegenOwner
-		if cfg.User != nil {
-			writerOwner = &RegenOwner{UID: cfg.User.UID, GID: cfg.User.GID}
-		}
 		dec, derr := DecideCDSRegen(RegenParams{
-			CacheDir:       cacheDir,
-			CacheScope:     regen.CacheScope,
-			JDKRoot:        jdkRoot,
-			ArtifactDigest: regen.ArtifactDigest,
-			SeedArchive:    seed,
-			WriterOwner:    writerOwner,
-			ArchiveArgDir:  InSandboxCDSDir,
-			MetricsDir:     regen.MetricsDir,
+			CacheDir:           cacheDir,
+			CacheScope:         regen.CacheScope,
+			JDKRoot:            jdkRoot,
+			ArtifactDigest:     regen.ArtifactDigest,
+			SeedArchive:        seed,
+			WriterOwner:        writerOwner,
+			AllowUnownedWriter: true,
+			ArchiveArgDir:      InSandboxCDSDir,
+			MetricsDir:         regen.MetricsDir,
 		})
 		if derr != nil {
 			return derr
@@ -283,20 +326,16 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 	env := []string{
 		"PATH=" + path,
 		"JAVA_HOME=/opt/jdk",
+		"HOME=/tmp",
 	}
 	for _, e := range cfg.Env {
 		env = append(env, e.Name+"="+e.Value)
 	}
 
-	uid, gid := uint32(0), uint32(0)
-	if cfg.User != nil {
-		uid, gid = uint32(cfg.User.UID), uint32(cfg.User.GID)
-	}
-
 	spec := ociSpec{
 		OCIVersion: "1.1.0",
 		Process: ociProcess{
-			User: ociUser{UID: uid, GID: gid},
+			User: ociUser{UID: identity.UID, GID: identity.GID},
 			Args: args,
 			Env:  env,
 			Cwd:  "/app",
@@ -320,7 +359,7 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 			// in an ordinary container. Without this the JVM sees the host's
 			// resources and mis-sizes itself.
 			{Destination: "/sys/fs/cgroup", Type: "cgroup", Source: "cgroup", Options: []string{"nosuid", "noexec", "nodev", "relatime", "ro"}},
-			{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"nosuid", "nodev"}},
+			{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"nosuid", "nodev", "mode=1777"}},
 		}, append(append(append(append(libMount, modsMount...), cdsMount...), cdsCacheMount...), launcherMount...)...),
 		Linux: ociLinux{
 			// PoC omits the "network" namespace so it shares the host netns and

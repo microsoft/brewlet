@@ -9,6 +9,8 @@ import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * Minimal dependency-free HTTP server used to prove the Brewlet PoC:
@@ -32,14 +34,18 @@ public final class Hello {
             String body = String.format(
                     "java.version       = %s%n"
                   + "java.vendor        = %s%n"
+                  + "process.uid        = %s%n"
+                  + "process.gid        = %s%n"
                   + "availableProcessors= %d   (cgroup/JVM aware)%n"
                   + "Runtime.maxMemory  = %d MB (driven by -XX:MaxRAMPercentage)%n"
                   + "jvm.input.args     = %s%n",
-                    System.getProperty("java.version"),
-                    System.getProperty("java.vendor"),
-                    rt.availableProcessors(),
-                    maxMb,
-                    ManagementFactory.getRuntimeMXBean().getInputArguments());
+                   System.getProperty("java.version"),
+                   System.getProperty("java.vendor"),
+                   processStatusID("Uid:"),
+                   processStatusID("Gid:"),
+                   rt.availableProcessors(),
+                   maxMb,
+                   ManagementFactory.getRuntimeMXBean().getInputArguments());
             respond(exchange, 200, body);
         });
 
@@ -59,6 +65,20 @@ public final class Hello {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
         }
+    }
+
+    private static String processStatusID(String key) {
+        try {
+            for (String line : Files.readAllLines(Path.of("/proc/self/status"))) {
+                if (line.startsWith(key)) {
+                    String[] values = line.substring(key.length()).trim().split("\\s+");
+                    return values.length == 0 ? "unknown" : values[0];
+                }
+            }
+        } catch (IOException ignored) {
+            // /proc is Linux-specific; local non-Linux runs report unknown.
+        }
+        return "unknown";
     }
 
     private static String managedDependencyGreeting() {

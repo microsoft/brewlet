@@ -24,8 +24,10 @@ The JAR is treated as **untrusted code** and runs inside that sandbox — nothin
 
 ## Non-root by default
 
-The JVM runs as an **unprivileged uid**; root is squashed unless explicitly
-requested. Set the identity via the artifact's `user` (uid/gid) or the pod
+`JavaApplication` workloads and standalone OCI bundles default to the
+unprivileged UID/GID `65532:65532`. Generated `JavaApplication` Pods also use
+`RuntimeDefault` seccomp, disable privilege escalation, and drop all Linux
+capabilities. For raw Pods or Deployments, set the identity with Pod
 `securityContext`:
 
 ```yaml
@@ -37,12 +39,19 @@ spec:
   runtimeClassName: brewlet
   containers:
     - name: app
-      image: registry.example.com/team/app:1.4.2
+      image: registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true          # the JDK root is RO already
         capabilities: { drop: ["ALL"] }
 ```
+
+The CRI-populated OCI process user is authoritative: the Brewlet shim preserves
+it unchanged. Process credentials are forbidden in artifact launch metadata, and
+an artifact config containing `user` is rejected before runc starts the process.
+Explicit root therefore requires a trusted deployment/runtime choice,
+such as a raw Pod `securityContext` or standalone `brewlet bundle --uid 0 --gid
+0`; untrusted artifact bytes cannot request it.
 
 The JDK runtime root is mounted **read-only** and shared; only a small per-container
 upper/scratch layer is writable.
@@ -53,13 +62,16 @@ upper/scratch layer is writable.
 
 Because the JAR is a first-class OCI artifact, standard supply-chain controls apply:
 
-- **Digest-pin** runnable image references (`repo@sha256:…`). The admission webhook
-  overwrites `brewlet.sh/artifact-digest` as a compatibility hint from the selected
-  Pod image. The shim follows CRI's immutable image-config identity to the
-  containerd image target, then cross-checks that target against containerd's
-  protected `io.kubernetes.cri.image-name` OCI annotation before reading the JAR
-  from the content store. Tenant-controlled Brewlet annotations never select
-  executable content. See [Building & publishing](building-and-publishing.md#4-pin-to-a-digest-recommended).
+- **Digest-pin** every runnable image reference (`repo@sha256:…`); tag-only
+  Kubernetes execution is rejected. The admission webhook overwrites
+  `brewlet.sh/artifact-digest` as a compatibility hint from the selected Pod
+  image. The shim takes the exact target digest from containerd's protected CRI
+  requested-image metadata, requires the protected
+  `io.kubernetes.cri.image-name` OCI annotation to name the same target, resolves
+  that target directly from the content store, and verifies the selected
+  platform manifest's config digest against CRI's recorded image identity.
+  Tenant-controlled Brewlet annotations never select executable content. See
+  [Building & publishing](building-and-publishing.md#4-pin-to-a-digest).
 
 ### Supply-chain attestations
 
@@ -114,7 +126,7 @@ Mitigations and guardrails:
 | **Admission is not the security boundary** | The operator repeats source, mirror, and pool validation before creating a privileged DaemonSet. Invalid profiles receive `Ready=False` with reason `InvalidProfile`; their DaemonSet and profile-owned node advertisements are removed. |
 | **Stale provisioners cannot republish readiness** | Provisioner DaemonSets are deleted in the foreground, reconciliation waits for their pods to terminate, and each managed provisioner rechecks its profile UID, generation, and deletion state immediately before advertising node capabilities. |
 | **Stale or hostile image roots are not trusted** | Existing JDK roots are not executed until `.brewlet-source` matches the newly verified digest. Launcher images are pulled and mounted for host-side copying; they are not executed, do not receive host networking, and do not receive a writable host bind mount. |
-| **Host mutation is validated and reversible** | The default rollout validates the effective containerd config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK smoke tests and launcher executable checks pass. |
+| **Host mutation is validated and reversible** | The provisioner rejects containerd servers older than 2.0, validates the effective config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK smoke tests and launcher executable checks pass. |
 | **The operator is unprivileged** | The operator only talks to the API server; only the DaemonSet it manages is privileged. |
 | **Webhook can't block workloads** | `admission.failurePolicy: Ignore` (default) means a webhook outage never wedges deployments; the shim still fails closed when it cannot resolve runtime image identity. |
 

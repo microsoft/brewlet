@@ -45,7 +45,7 @@ type JavaApplicationSpec struct {
 
 // ArtifactSpec references the Brewlet runnable OCI image (§4/§9).
 type ArtifactSpec struct {
-	// Image is the OCI reference to the runnable Java application image (digest pin required for attestation enforcement).
+	// Image is the digest-pinned OCI reference to the runnable Java application image.
 	Image string `json:"image"`
 	// PullPolicy for the runnable image (defaults to IfNotPresent).
 	PullPolicy corev1.PullPolicy `json:"pullPolicy,omitempty"`

@@ -95,9 +95,9 @@ examples in
   dedup and faster pulls; the `classpath.layer.v1+tar` layer and `entry.classPath`.
 - **[Runnable-image delivery](runnable-image.md)** — `brewlet push --format=image`
   publishes the JAR as a standard, kubelet-pullable OCI image so a
-  `runtimeClassName: brewlet` pod can set `image: <ref>` and let kubelet pull +
-  unpack it (the WASI/SpinKube pull path), instead of custom media types that
-  `ImagePullBackOff`.
+  `runtimeClassName: brewlet` pod can set a digest-pinned
+  `image: <repo@sha256:…>` and let kubelet pull + unpack it (the WASI/SpinKube
+  pull path), instead of custom media types that `ImagePullBackOff`.
 
 ### Planned work
 

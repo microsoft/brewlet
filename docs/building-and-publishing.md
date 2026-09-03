@@ -41,7 +41,6 @@ you can author it and pass `--config`.
   "enablePreview": true,
   "addOpens": ["java.base/java.lang=ALL-UNNAMED"],
   "systemProperties": { "spring.aot.enabled": "true" },
-  "user": { "uid": 1000, "gid": 1000 },
   "env": []
 }
 ```
@@ -60,11 +59,13 @@ you can author it and pass `--config`.
 | `addExports` | Optional module/package export tokens; expands to repeated `--add-exports`. |
 | `systemProperties` | Optional string map expanded as sorted `-D<key>=<value>` flags. |
 | `cds` | Optional AppCDS block. `cds.archive` is a bare `/app`-relative `.jsa` filename shipped as a CDS layer (`brewlet push --appcds-archive`); `cds.mode` (`dynamic`\|`static`) is informational. Launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`, so a JDK-build mismatch falls back safely to base CDS. The artifact carries only this shipped *seed* archive; node-side regeneration is a deployment choice set via `spec.jvm.cds.regenerate` on the `JavaApplication` CRD (or `brewlet run/bundle --appcds-regenerate`), not a field in the artifact. See [AppCDS](appcds.md). |
-| `user` | uid/gid to run as (also settable via pod `securityContext`). |
 | `env` | Environment variables baked into the artifact. |
 
 Ports are **not** an artifact field — they are a deployment concern
 (`spec.ports` in the descriptor, or the Maven `manifest` goal's `<ports>`).
+Process UID/GID is also a deployment concern: use Pod `securityContext` on
+Kubernetes or `brewlet bundle --uid/--gid` for a standalone OCI bundle. A
+launch config containing `user` is rejected.
 
 Artifact launch knobs are app-intrinsic correctness flags. They expand before
 descriptor `jvm.args`, which is where deployment tuning and escape-hatch JVM args
@@ -317,7 +318,7 @@ mvn clean package sh.brewlet:brewlet-maven-plugin:0.3.1:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 ```
 
-Or configure it once in `pom.xml` and bind `push` / `manifest` to the lifecycle:
+Or configure publishing once in `pom.xml` and bind `push` to the lifecycle:
 
 ```xml
 <plugin>
@@ -330,9 +331,17 @@ Or configure it once in `pom.xml` and bind `push` / `manifest` to the lifecycle:
     <ports><port><name>http</name><containerPort>8080</containerPort></port></ports>
   </configuration>
   <executions>
-    <execution><goals><goal>push</goal><goal>manifest</goal></goals></execution>
+    <execution><goals><goal>push</goal></goals></execution>
   </executions>
 </plugin>
+```
+
+`brewlet:push` prints a digest-pinned `deploy image`. Use that exact reference
+when generating the Kubernetes descriptor:
+
+```bash
+mvn brewlet:manifest \
+  -Dbrewlet.image=registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST
 ```
 
 Goals: `brewlet:config` (generate the launch config), `brewlet:build` (assemble a
@@ -344,19 +353,22 @@ parameter reference.
 
 ---
 
-## 4. Pin to a digest (recommended)
+## 4. Pin to a digest
 
-Prefer digest-pinned references for deploys:
+Kubernetes workloads using `runtimeClassName: brewlet` must use a
+digest-pinned reference:
 
 ```
 registry.example.com/team/app@sha256:<digest>
 ```
 
-Digest pinning lets the shim bind execution to the exact target containerd
-resolved for the Pod image. The admission webhook mirrors that digest in
-`brewlet.sh/artifact-digest` only as a cross-checked compatibility hint. It is
-also the basis for cosign/SLSA supply-chain policy. See
-[Security](security.md).
+The shim extracts this immutable target from containerd's protected CRI
+metadata, resolves it directly from the content store, and verifies that the
+selected platform manifest has the config digest CRI recorded for the
+container. Tag-only requests are rejected before launch. The admission webhook
+mirrors the target digest in `brewlet.sh/artifact-digest` only as a
+cross-checked compatibility hint. Digest pinning is also the basis for
+cosign/SLSA supply-chain policy. See [Security](security.md).
 
 ---
 

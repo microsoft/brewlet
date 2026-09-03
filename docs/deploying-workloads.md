@@ -26,9 +26,11 @@ The image field references the **runnable OCI image** for the Java application,
 not the native Brewlet artifact. The only Brewlet-specific line is
 `runtimeClassName: brewlet`.
 
-When managed-dependency admission enforcement is enabled, use an immutable
-reference such as `registry.example.com/demo/hello@sha256:<digest>`; tag-based
-images are denied fail-closed.
+Use an immutable reference such as
+`registry.example.com/demo/hello@sha256:<digest>`. The Brewlet shim rejects
+tag-only Kubernetes image requests because a tag does not identify the exact
+manifest carrying the launch configuration. Managed-dependency admission
+enforcement also denies tag-based images earlier.
 
 ```yaml
 apiVersion: apps/v1
@@ -41,9 +43,17 @@ spec:
     metadata: { labels: { app: hello } }
     spec:
       runtimeClassName: brewlet
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: hello
-          image: registry.example.com/demo/hello:1.0.0   # the runnable OCI image
+          image: registry.example.com/demo/hello@sha256:REPLACE_WITH_IMAGE_DIGEST
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
           resources:
             limits: { cpu: "1", memory: "512Mi" }         # → cgroup limits
           ports: [{ containerPort: 8080 }]
@@ -61,6 +71,10 @@ Because the shim is runc-backed, this pod is a **first-class Kubernetes citizen*
 - `kubectl logs` / `kubectl exec` / ephemeral debug containers work;
 - readiness/liveness/startup probes (`httpGet`, `tcpSocket`, `exec`) work;
 - HPA and metrics-server work.
+
+The Pod `securityContext` is the sole source of process UID/GID for raw
+workloads. Brewlet preserves the identity CRI places in the OCI spec; artifact
+launch metadata cannot override it.
 
 Add a Service exactly as usual:
 
@@ -99,7 +113,7 @@ spec:
       runtimeClassName: brewlet
       containers:
         - name: hello
-          image: registry.example.com/demo/hello:1.0.0
+          image: registry.example.com/demo/hello@sha256:REPLACE_WITH_IMAGE_DIGEST
           resources: { limits: { cpu: "2", memory: "1Gi" } }
 ```
 
@@ -143,7 +157,7 @@ apiVersion: apps.brewlet.sh/v1alpha1
 kind: JavaApplication
 metadata: { name: hello }
 spec:
-  artifact: { image: registry.example.com/demo/hello:1.0.0 }
+  artifact: { image: registry.example.com/demo/hello@sha256:REPLACE_WITH_IMAGE_DIGEST }
   resources:
     requests:
       cpu: "500m"
@@ -153,6 +167,10 @@ spec:
       memory: "1Gi"
   ports: [{ name: http, containerPort: 8080 }]
 ```
+
+The generated Deployment defaults to `runAsNonRoot: true` with UID/GID
+`65532:65532`, `RuntimeDefault` seccomp, privilege escalation disabled, and all
+Linux capabilities dropped.
 
 ### Full example
 
@@ -164,7 +182,7 @@ metadata:
   namespace: payments
 spec:
   artifact:
-    image: registry.example.com/team/orders:1.4.2   # digest-pinned recommended
+    image: registry.example.com/team/orders@sha256:REPLACE_WITH_IMAGE_DIGEST
     pullPolicy: IfNotPresent
     pullSecrets: [regcred]
   replicas: 3
@@ -209,7 +227,7 @@ spec:
 | `jvm.distribution` | Optional JDK distribution (`temurin`, `microsoft`). With `jvm.version` pins an exact `<distribution>-<feature>` node JDK; omit to accept any distribution of that feature. |
 | `jvm.launcher` | `java` (default) or `jaz` ([Launchers](launchers.md)). |
 | `jvm.args` | Your JVM tuning flags. Omit under `jaz`. |
-| `jvm.cds.regenerate` | Request **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). Default `false`. Requires an otherwise-compatible ready node whose `NodeProfile.spec.appCDS.regenerationEnabled` is true; otherwise admission denies with `AppCDSRegenerationDisabled`, and the shim independently enforces the host policy. The private cache key includes the trusted namespace, the verified platform manifest derived from the CRI/containerd-resolved image, and the JDK build. Any shipped `cds.archive` becomes optional seed data. |
+| `jvm.cds.regenerate` | Request **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). Default `false`. Requires an otherwise-compatible ready node whose `NodeProfile.spec.appCDS.regenerationEnabled` is true; otherwise admission denies with `AppCDSRegenerationDisabled`, and the shim independently enforces the host policy. The private cache key includes the trusted namespace, the verified platform manifest derived from the CRI/containerd-resolved image, the JDK build, and the CRI process UID. Any shipped `cds.archive` becomes optional seed data. |
 | `arch` | Optional architecture constraint (`amd64`, `arm64`). Only for **non-portable JARs** bundling JNI native libraries; steers scheduling to matching-arch nodes and denies admission with `NoCompatibleArch` when unsatisfiable. Omit for arch-neutral bytecode (runs on any arch). |
 | `env` / `ports` / `service` / `probes` | Wired through to the generated objects. |
 

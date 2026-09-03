@@ -73,7 +73,6 @@ class ModelSerializationTest {
         assertFalse(node.has("addOpens"), "addOpens should be omitted when null");
         assertFalse(node.has("addExports"), "addExports should be omitted when null");
         assertFalse(node.has("systemProperties"), "systemProperties should be omitted when null");
-        assertFalse(node.has("user"), "user should be omitted when null");
         assertFalse(node.has("env"), "env should be omitted when null");
         assertFalse(node.has("arch"), "arch should be omitted when null");
         assertFalse(node.has("cds"), "cds should be omitted when null");
@@ -119,6 +118,21 @@ class ModelSerializationTest {
         assertFalse(node.has("launcher"), "launcher must not be an artifact-config field");
         assertFalse(node.has("labels"), "labels must not be an artifact-config field");
         assertFalse(node.has("ports"), "ports must not be an artifact-config field");
+        assertFalse(node.has("user"), "user must not be an artifact-config field");
+    }
+
+    @Test
+    void jvmConfig_rejectsArtifactUser() {
+        String json = """
+                {
+                  "schemaVersion": 1,
+                  "mainJar": "app.jar",
+                  "entry": {"mode": "jar"},
+                  "user": {"uid": 0, "gid": 0}
+                }
+                """;
+
+        assertThrows(IOException.class, () -> MAPPER.readValue(json, JvmConfig.class));
     }
 
     @Test

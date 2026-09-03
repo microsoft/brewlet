@@ -103,7 +103,18 @@ func testResolved() resolvedArtifact {
 }
 
 func TestAssembleBrewletBundleUsesResolvedImageWithoutHints(t *testing.T) {
-	contentRoot, _, targetDigest := buildRunnableStore(t)
+	contentRoot, ref, targetDigest := buildRunnableStore(t)
+	store := artifact.Store{Root: contentRoot}
+	_, manifestDigest, err := store.ResolveManifestByRef(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifestDigest == targetDigest {
+		t.Fatal("test requires a multi-platform index target and distinct platform manifest")
+	}
+	if err := os.Remove(store.BlobPath(targetDigest)); err != nil {
+		t.Fatal(err)
+	}
 	jdkRoots := t.TempDir()
 	mkJDK(t, jdkRoots, "temurin-21")
 	t.Setenv("BREWLET_CONTENT_ROOT", contentRoot)
@@ -122,8 +133,9 @@ func TestAssembleBrewletBundleUsesResolvedImageWithoutHints(t *testing.T) {
 	request := &taskAPI.CreateTaskRequest{ID: "task-1", Bundle: bundle}
 	info, err := assembleBrewletBundle(context.Background(), request, staticImageIdentityResolver{
 		identity: resolvedImageIdentity{
-			ImageName:    "demo/orders@" + targetDigest,
-			TargetDigest: targetDigest,
+			ImageName:      "demo/orders@" + targetDigest,
+			TargetDigest:   targetDigest,
+			ManifestDigest: manifestDigest,
 		},
 	})
 	if err != nil {
@@ -195,7 +207,11 @@ func TestAssembleBrewletBundleRejectsNativeArtifact(t *testing.T) {
 	_, err = assembleBrewletBundle(context.Background(), &taskAPI.CreateTaskRequest{
 		ID: "task-1", Bundle: bundle,
 	}, staticImageIdentityResolver{
-		identity: resolvedImageIdentity{ImageName: "demo/app:1", TargetDigest: desc.Digest},
+		identity: resolvedImageIdentity{
+			ImageName:      "demo/app:1",
+			TargetDigest:   desc.Digest,
+			ManifestDigest: desc.Digest,
+		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "require a runnable OCI image") {
 		t.Fatalf("error = %v, want native artifact rejection", err)
@@ -296,6 +312,31 @@ func TestApplyBrewletLaunch(t *testing.T) {
 	}
 }
 
+func TestApplyBrewletLaunchPreservesCRIProcessUser(t *testing.T) {
+	cases := map[string]specs.User{
+		"non-root": {UID: 1000, GID: 1000},
+		"root":     {UID: 0, GID: 0},
+	}
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := &specs.Spec{Process: &specs.Process{User: want}}
+			if err := applyBrewletLaunch(spec, testResolved(), t.TempDir()); err != nil {
+				t.Fatalf("applyBrewletLaunch: %v", err)
+			}
+			if got := spec.Process.User; got.UID != want.UID || got.GID != want.GID {
+				t.Fatalf("process user = %d:%d, want CRI identity %d:%d", got.UID, got.GID, want.UID, want.GID)
+			}
+		})
+	}
+}
+
+func TestApplyBrewletLaunchRequiresCRIProcess(t *testing.T) {
+	err := applyBrewletLaunch(&specs.Spec{}, testResolved(), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "missing process") {
+		t.Fatalf("applyBrewletLaunch error = %v, want missing CRI process error", err)
+	}
+}
+
 func TestApplyBrewletLaunchWithCDS(t *testing.T) {
 	// StageCDSJar copies the real JAR bytes, so back JarHostPath with a file.
 	jarHost := filepath.Join(t.TempDir(), "blob")
@@ -383,12 +424,11 @@ func TestApplyBrewletLaunchRegenUsesPrivateScopedMount(t *testing.T) {
 	ra.JDKHome = jdk
 	ra.JarHostPath = jar
 	ra.ManifestDigest = "sha256:" + strings.Repeat("a", 64)
-	// Use the test process's own UID/GID as the writer owner: os.Chown only
+	// Use the test process's own CRI UID/GID as the writer owner: os.Chown only
 	// succeeds without CAP_CHOWN when the target UID/GID matches the caller,
 	// which unprivileged CI runners are. This still exercises the real
 	// resetCacheEntry -> os.Chown production path.
 	writerUID, writerGID := os.Getuid(), os.Getgid()
-	ra.Config.User = &artifact.User{UID: writerUID, GID: writerGID}
 
 	apply := func(namespace, annotatedDigest, cache string) (specs.Mount, string) {
 		t.Helper()
@@ -396,7 +436,9 @@ func TestApplyBrewletLaunchRegenUsesPrivateScopedMount(t *testing.T) {
 			t.Fatal(err)
 		}
 		spec := &specs.Spec{
-			Process: &specs.Process{},
+			Process: &specs.Process{
+				User: specs.User{UID: uint32(writerUID), GID: uint32(writerGID)},
+			},
 			Annotations: map[string]string{
 				annCDSRegenerate:       "TrUe",
 				annCRISandboxNamespace: namespace,

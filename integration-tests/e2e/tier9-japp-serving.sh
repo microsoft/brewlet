@@ -31,6 +31,7 @@
 # eclipse-temurin:21 for the JDK userland root. SKIPs otherwise.
 
 T9_REF="demo/hello:serving-e2e"
+T9_MALICIOUS_REF="demo/hello:root-user-e2e"
 T9_JDK="temurin-21"
 T9_TEMURIN_IMG="eclipse-temurin:21"
 T9_NS="brewlet-serving"
@@ -104,18 +105,20 @@ _t9_stage_jdk() {
 # passthrough + cgroup-driver handling the core provisioner installs. Idempotent.
 _t9_patch_containerd() {
   local node="$1"
-  if docker exec "$node" grep -q 'containerd.runtimes.brewlet\]' /etc/containerd/config.toml 2>/dev/null; then
+  local systemd=true plugin=io.containerd.grpc.v1.cri
+  docker exec "$node" grep -qE '^[[:space:]]*version[[:space:]]*=[[:space:]]*3([[:space:]]|$)' /etc/containerd/config.toml 2>/dev/null \
+    && plugin=io.containerd.cri.v1.runtime
+  if docker exec "$node" grep -Fq "[plugins.\"${plugin}\".containerd.runtimes.brewlet]" /etc/containerd/config.toml 2>/dev/null; then
     return 0
   fi
-  local systemd=true
   docker exec "$node" grep -qiE '^[[:space:]]*SystemdCgroup[[:space:]]*=[[:space:]]*false' /etc/containerd/config.toml 2>/dev/null && systemd=false
   docker exec -i "$node" sh -c "cat >>/etc/containerd/config.toml" <<EOF
 
 # --- added by e2e tier9 (mirrors microsoft/brewlet provisioner/entrypoint.sh) ---
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet]
+[plugins."${plugin}".containerd.runtimes.brewlet]
   runtime_type = "io.containerd.brewlet.v2"
   pod_annotations = ["brewlet.sh/*"]
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet.options]
+  [plugins."${plugin}".containerd.runtimes.brewlet.options]
     SystemdCgroup = ${systemd}
 # --- end brewlet ---
 EOF
@@ -166,10 +169,18 @@ spec:
       runtimeClassName: brewlet
       nodeSelector: { brewlet.sh/runtime: ready }
       terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: app
           image: "$T9_IMAGE_REF"
           imagePullPolicy: Never
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
           env:
             - { name: JDK_JAVA_OPTIONS, value: "-XX:MaxRAMPercentage=50.0" }
             - { name: BREWLET_ROLLOUT, value: "$nonce" }
@@ -206,6 +217,13 @@ _t9_curl() {
 # _t9_no_pods: true once no app pods remain (used to assert scale-to-zero drains).
 _t9_no_pods() {
   [[ "$(kubectl get pods -n "$T9_NS" -l app="$T9_APP" --no-headers 2>/dev/null | wc -l | tr -d ' ')" == 0 ]]
+}
+
+_t9_malicious_user_rejected() {
+  local message
+  message="$(kubectl get pod t9-root-user -n "$T9_NS" \
+    -o jsonpath='{.status.containerStatuses[0].state.waiting.message}{.status.containerStatuses[0].state.terminated.message}' 2>/dev/null)"
+  [[ "$message" == *'unknown field "user"'* ]]
 }
 
 # _t9_curl_retry PATH [tries]: retry _t9_curl until it succeeds.
@@ -271,13 +289,23 @@ tier9_serving() {
   if [[ -z "$digest" ]]; then fail "tier9: resolve image digest" "index.json had no manifest"; return 0; fi
   info "tier9: runnable image digest $digest"
 
+  local malicious_digest
+  if ! malicious_digest="$(python3 "$E2E_DIR/inject-artifact-user.py" "$store" "$T9_REF" "$T9_MALICIOUS_REF")"; then
+    fail "tier9: create malicious root-user image" "could not rewrite the OCI layout"; return 0
+  fi
+  info "tier9: malicious runnable image digest $malicious_digest"
+
   if ! import_oci_layout "$T9_NODE" "$store" "$WORK/t9-import.log"; then
     fail "tier9: import runnable image into node content store" "see $WORK/t9-import.log"; return 0
   fi
   if ! T9_IMAGE_REF="$(pin_image_for_cri "$T9_NODE" "$T9_REF" "$digest" "$WORK/t9-import.log")"; then
     fail "tier9: create digest-pinned CRI image reference" "see $WORK/t9-import.log"; return 0
   fi
-  pass "tier9: pushed + imported runnable image ($T9_IMAGE_REF)"
+  local malicious_image_ref
+  if ! malicious_image_ref="$(pin_image_for_cri "$T9_NODE" "$T9_MALICIOUS_REF" "$malicious_digest" "$WORK/t9-import.log")"; then
+    fail "tier9: create digest-pinned malicious image reference" "see $WORK/t9-import.log"; return 0
+  fi
+  pass "tier9: pushed + imported runnable images ($T9_IMAGE_REF)"
 
   # --- provision the node: shim binary, JDK userland, containerd runtime -----
   docker cp "$shimbin" "$T9_NODE":"$T9_SHIM_DST" >>"$WORK/t9-prov.log" 2>&1
@@ -306,11 +334,34 @@ YAML
     T9_RC_CREATED=1
   fi
   kubectl create namespace "$T9_NS" >/dev/null 2>&1 || true
+  kubectl label namespace "$T9_NS" --overwrite \
+    pod-security.kubernetes.io/enforce=restricted \
+    pod-security.kubernetes.io/enforce-version=latest \
+    pod-security.kubernetes.io/warn=restricted \
+    pod-security.kubernetes.io/audit=restricted \
+    >>"$WORK/t9-deploy.log" 2>&1
 
   # A plain (non-brewlet) client pod we exec `wget` from, to hit the Service over
   # the real in-cluster network — proving Service routing, not just a local port.
-  kubectl run t9-client -n "$T9_NS" --image=busybox:1.36 --restart=Never \
-    --command -- sleep 3600 >>"$WORK/t9-deploy.log" 2>&1 || true
+  kubectl apply -n "$T9_NS" -f - >>"$WORK/t9-deploy.log" 2>&1 <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata: { name: t9-client }
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: client
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+YAML
 
   # --- deploy the brewlet workload -------------------------------------------
   info "tier9: deploying brewlet Deployment + Service ($T9_APP)"
@@ -339,10 +390,14 @@ YAML
   fi
 
   # --- (B) the cgroup-aware JVM promise (§ the whole point of Brewlet) --------
-  local info_body procs mem
+  local info_body procs mem uid gid
   if info_body="$(_t9_curl_retry /info)"; then
     procs="$(printf '%s' "$info_body" | grep -i availableProcessors | grep -oE '[0-9]+' | head -1)"
     mem="$(printf '%s' "$info_body" | grep -i 'maxMemory' | grep -oE '[0-9]+' | head -1)"
+    uid="$(printf '%s' "$info_body" | grep -i 'process.uid' | grep -oE '[0-9]+' | head -1)"
+    gid="$(printf '%s' "$info_body" | grep -i 'process.gid' | grep -oE '[0-9]+' | head -1)"
+    assert_eq "tier9: JVM process UID preserves the Pod securityContext" "${uid:-?}" "1000"
+    assert_eq "tier9: JVM process GID preserves the Pod securityContext" "${gid:-?}" "1000"
     # limits.cpu = "1" -> the container-aware JDK must see exactly 1 processor,
     # NOT the node's real core count. That is the cgroup-aware guarantee.
     assert_eq "tier9: JVM availableProcessors reflects the CPU limit (cgroup-aware, ==1)" "${procs:-0}" "1"
@@ -399,6 +454,40 @@ YAML
   else
     fail "tier9: rolling update completed" "see $WORK/t9-deploy.log"
   fi
+
+  # --- (E) artifact metadata cannot replace the Pod UID/GID -------------------
+  kubectl apply -n "$T9_NS" -f - >>"$WORK/t9-deploy.log" 2>&1 <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: t9-root-user
+  annotations:
+    brewlet.sh/jdk: "$T9_JDK"
+spec:
+  runtimeClassName: brewlet
+  restartPolicy: Never
+  nodeSelector: { brewlet.sh/runtime: ready }
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: app
+      image: "$malicious_image_ref"
+      imagePullPolicy: Never
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+YAML
+  if wait_for _t9_malicious_user_rejected; then
+    pass "tier9: artifact user UID/GID is rejected before JVM process start"
+  else
+    fail "tier9: reject artifact-controlled UID/GID" \
+      "runtime message: $(kubectl get pod t9-root-user -n "$T9_NS" -o jsonpath='{.status.containerStatuses[0].state.waiting.message}{.status.containerStatuses[0].state.terminated.message}' 2>/dev/null); diag: $(save_pod_diag t9-root-user "$T9_NS")"
+  fi
+  assert_eq "tier9: malicious root-user artifact never starts a JVM process" \
+    "$(kubectl get pod t9-root-user -n "$T9_NS" -o jsonpath='{.status.containerStatuses[0].state.running.startedAt}' 2>/dev/null)" ""
 
   kubectl delete -n "$T9_NS" deploy/"$T9_APP" svc/"$T9_APP" --wait=false >/dev/null 2>&1 || true
 }

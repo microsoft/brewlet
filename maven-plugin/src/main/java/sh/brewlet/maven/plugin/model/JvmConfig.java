@@ -51,9 +51,6 @@ public class JvmConfig {
     @JsonProperty("systemProperties")
     private Map<String, String> systemProperties;
 
-    @JsonProperty("user")
-    private User user;
-
     @JsonProperty("env")
     private List<EnvVar> env;
 
@@ -93,9 +90,6 @@ public class JvmConfig {
 
     public Map<String, String> getSystemProperties() { return systemProperties; }
     public void setSystemProperties(Map<String, String> systemProperties) { this.systemProperties = systemProperties; }
-
-    public User getUser() { return user; }
-    public void setUser(User user) { this.user = user; }
 
     public List<EnvVar> getEnv() { return env; }
     public void setEnv(List<EnvVar> env) { this.env = env; }

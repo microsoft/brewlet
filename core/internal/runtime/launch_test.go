@@ -6,6 +6,8 @@ package runtime
 import (
 	"archive/tar"
 	"bytes"
+	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +109,100 @@ func TestBuildJVMArgsNoCDS(t *testing.T) {
 	if got := strings.Join(args, " "); strings.Contains(got, "SharedArchiveFile") || strings.Contains(got, "Xshare") {
 		t.Errorf("args = %q, want no CDS flags when cds is unset", got)
 	}
+}
+
+func TestGenerateBundleDefaultsToNonRootIdentity(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "bundle")
+	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
+	if err := GenerateBundle(cfg, filepath.Join(dir, "jdk"), filepath.Join(dir, "app.jar"), out, Resources{}, nil); err != nil {
+		t.Fatalf("GenerateBundle: %v", err)
+	}
+	got := readBundleSpec(t, out)
+	if got.Process.User.UID != DefaultProcessUID || got.Process.User.GID != DefaultProcessGID {
+		t.Fatalf("process user = %d:%d, want default %d:%d",
+			got.Process.User.UID, got.Process.User.GID, DefaultProcessUID, DefaultProcessGID)
+	}
+	if env := strings.Join(got.Process.Env, "\n"); !strings.Contains(env, "\nHOME=/tmp") {
+		t.Fatalf("process environment = %q, want writable HOME=/tmp", got.Process.Env)
+	}
+	writableTmp := false
+	for _, mount := range got.Mounts {
+		if mount.Destination != "/tmp" || mount.Type != "tmpfs" {
+			continue
+		}
+		for _, option := range mount.Options {
+			if option == "mode=1777" {
+				writableTmp = true
+				break
+			}
+		}
+	}
+	if !writableTmp {
+		t.Fatalf("mounts = %#v, want /tmp tmpfs with mode=1777", got.Mounts)
+	}
+}
+
+func TestGenerateBundleUsesExplicitRuntimeIdentity(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "bundle")
+	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
+	want := ProcessIdentity{UID: 1234, GID: 5678}
+	if err := GenerateBundleWithIdentityAndRegen(
+		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
+		nil, nil, "", out, Resources{}, nil, want, CDSRegenOptions{},
+	); err != nil {
+		t.Fatalf("GenerateBundleWithIdentityAndRegen: %v", err)
+	}
+	got := readBundleSpec(t, out)
+	if got.Process.User.UID != want.UID || got.Process.User.GID != want.GID {
+		t.Fatalf("process user = %d:%d, want %d:%d",
+			got.Process.User.UID, got.Process.User.GID, want.UID, want.GID)
+	}
+}
+
+func TestGenerateBundleRejectsReservedProcessIdentity(t *testing.T) {
+	dir := t.TempDir()
+	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
+	err := GenerateBundleWithIdentityAndRegen(
+		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
+		nil, nil, "", filepath.Join(dir, "bundle"), Resources{}, nil,
+		ProcessIdentity{UID: MaxProcessID + 1, GID: DefaultProcessGID},
+		CDSRegenOptions{},
+	)
+	if err == nil {
+		t.Fatal("GenerateBundleWithIdentityAndRegen accepted Linux's reserved UID sentinel")
+	}
+}
+
+func TestGenerateBundleRejectsRegenIdentityBeyondPlatformInt(t *testing.T) {
+	if uint64(math.MaxInt) > uint64(math.MaxInt32) {
+		t.Skip("platform int represents every uint32 value")
+	}
+	dir := t.TempDir()
+	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
+	err := GenerateBundleWithIdentityAndRegen(
+		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
+		nil, nil, "", filepath.Join(dir, "bundle"), Resources{}, nil,
+		ProcessIdentity{UID: math.MaxInt32 + 1, GID: DefaultProcessGID},
+		CDSRegenOptions{Regenerate: true},
+	)
+	if err == nil {
+		t.Fatal("GenerateBundleWithIdentityAndRegen accepted a UID that overflows int")
+	}
+}
+
+func readBundleSpec(t *testing.T, out string) ociSpec {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(out, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec ociSpec
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		t.Fatal(err)
+	}
+	return spec
 }
 
 func TestGenerateBundleWithCDS(t *testing.T) {

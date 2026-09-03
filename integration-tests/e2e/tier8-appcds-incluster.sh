@@ -112,18 +112,20 @@ _t8_stage_jdk() {
 # Idempotent: skips when the brewlet block already exists.
 _t8_patch_containerd() {
   local node="$1"
-  if docker exec "$node" grep -q 'containerd.runtimes.brewlet\]' /etc/containerd/config.toml 2>/dev/null; then
+  local systemd=true plugin=io.containerd.grpc.v1.cri
+  docker exec "$node" grep -qE '^[[:space:]]*version[[:space:]]*=[[:space:]]*3([[:space:]]|$)' /etc/containerd/config.toml 2>/dev/null \
+    && plugin=io.containerd.cri.v1.runtime
+  if docker exec "$node" grep -Fq "[plugins.\"${plugin}\".containerd.runtimes.brewlet]" /etc/containerd/config.toml 2>/dev/null; then
     return 0
   fi
-  local systemd=true
   docker exec "$node" grep -qiE '^[[:space:]]*SystemdCgroup[[:space:]]*=[[:space:]]*false' /etc/containerd/config.toml 2>/dev/null && systemd=false
   docker exec -i "$node" sh -c "cat >>/etc/containerd/config.toml" <<EOF
 
 # --- added by e2e tier8 (mirrors microsoft/brewlet provisioner/entrypoint.sh) ---
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet]
+[plugins."${plugin}".containerd.runtimes.brewlet]
   runtime_type = "io.containerd.brewlet.v2"
   pod_annotations = ["brewlet.sh/*"]
-  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet.options]
+  [plugins."${plugin}".containerd.runtimes.brewlet.options]
     SystemdCgroup = ${systemd}
 # --- end brewlet ---
 EOF
@@ -258,6 +260,12 @@ YAML
   fi
   kubectl create namespace "$T8_NS" >/dev/null 2>&1 || true
   kubectl create namespace "$T8_ATTACKER_NS" >/dev/null 2>&1 || true
+  kubectl label namespace "$T8_NS" "$T8_ATTACKER_NS" --overwrite \
+    pod-security.kubernetes.io/enforce=restricted \
+    pod-security.kubernetes.io/enforce-version=latest \
+    pod-security.kubernetes.io/warn=restricted \
+    pod-security.kubernetes.io/audit=restricted \
+    >>"$WORK/t8-pod.log" 2>&1
 
   # A pod carrying the deployment-time AppCDS/JDK annotations. Image identity
   # is intentionally absent from annotations; the shim must derive it from CRI.
@@ -278,10 +286,18 @@ spec:
   nodeSelector:
     brewlet.sh/runtime: ready
     brewlet.sh/appcds-regeneration: "true"
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile: { type: RuntimeDefault }
   containers:
     - name: app
       image: "$image_ref"
       imagePullPolicy: Never
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
       readinessProbe:
         httpGet: { path: /healthz, port: 8080 }
         initialDelaySeconds: 1

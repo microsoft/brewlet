@@ -60,9 +60,9 @@ func (s Store) ResolveBlobs(ref string) (ResolvedBlobs, error) {
 }
 
 // ResolveManifestFollowingIndex reads the blob at digest from src; when it is an
-// OCI image index it selects the entry for the running node's architecture and
-// reads that platform manifest. Returns the resolved manifest and its digest.
-// Works for both native artifacts and runnable images.
+// OCI image index it selects the entry for the current Linux node's complete OCI
+// platform and reads that platform manifest. Returns the resolved manifest and
+// its digest. Works for both native artifacts and runnable images.
 func ResolveManifestFollowingIndex(src BlobSource, digest string) (Manifest, string, error) {
 	raw, err := readVerifiedManifestBlob(src, Descriptor{Digest: digest})
 	if err != nil {
@@ -73,9 +73,10 @@ func ResolveManifestFollowingIndex(src BlobSource, digest string) (Manifest, str
 		if err := json.Unmarshal(raw, &idx); err != nil {
 			return Manifest{}, "", fmt.Errorf("parse image index %s: %w", digest, err)
 		}
-		sel, ok := idx.SelectPlatformManifest("")
+		target := currentRunnablePlatform()
+		sel, ok := idx.SelectPlatformManifest(target)
 		if !ok {
-			return Manifest{}, "", fmt.Errorf("image index %s has no manifests", digest)
+			return Manifest{}, "", fmt.Errorf("image index %s has no manifest for %s", digest, platformName(target))
 		}
 		digest = sel.Digest
 		if raw, err = readVerifiedManifestBlob(src, sel); err != nil {

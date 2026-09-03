@@ -67,6 +67,19 @@ resolved="$(
 )"
 [[ "$resolved" == "$temurin_ref"$'\t'"/opt/java/openjdk" ]]
 
+if (
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=temurin-21
+  export JDK_SOURCE_0_IMAGE="$temurin_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/opt/java/openjdk
+  export LAUNCHER_SOURCE_COUNT=0
+  parse_runtime_sources
+  resolve_jdk_source unknown 21
+) >/dev/null 2>&1; then
+  echo "expected an unconfigured JDK source to fail" >&2
+  exit 1
+fi
+
 resolved="$(
   export JDK_SOURCE_COUNT=1
   export JDK_SOURCE_0_TOKEN=microsoft-25
@@ -440,6 +453,36 @@ if grep -Eq "image pull|images mount|cp -a|brewlet.microsoft.com/jdk" "$calls"; 
   exit 1
 fi
 
+: >"$calls"
+if (
+  BREWLET_MODE=provision
+  NODE_NAME=test-node
+  host_arch_oci() { printf 'amd64'; }
+  remove_appcds_regeneration_policy() { return 0; }
+  clear_node_advertisement() { return 0; }
+  parse_mirrors() { return 0; }
+  parse_runtime_sources() { return 0; }
+  require_cgroup_v2() { return 0; }
+  preflight_sources() { return 0; }
+  install_shim() { printf 'install-shim\n' >>"$calls"; }
+  install_source_mount_traps() { printf 'install-mount-traps\n' >>"$calls"; }
+  cleanup_stale_source_mounts() { printf 'cleanup-stale-mounts\n' >>"$calls"; }
+  require_containerd_image_identity() {
+    printf 'require-containerd-identity\n' >>"$calls"
+    exit 42
+  }
+  main
+) >/dev/null 2>&1; then
+  echo "expected containerd identity preflight to stop provisioning" >&2
+  exit 1
+fi
+expected_order=$'install-shim\ninstall-mount-traps\ncleanup-stale-mounts\nrequire-containerd-identity'
+if [[ "$(cat "$calls")" != "$expected_order" ]]; then
+  echo "stale source mounts were not cleaned before the containerd identity preflight" >&2
+  cat "$calls" >&2
+  exit 1
+fi
+
 mkdir -p "$validation_root/launchers/jaz/bin"
 cat >"$validation_root/launchers/jaz/bin/jaz" <<'EOF'
 #!/usr/bin/env bash
@@ -534,11 +577,50 @@ if grep -Fq "$long_launcher" <<<"$output"; then
 fi
 
 new_containerd_test_dir() {
-  local dir
+  local dir version="${1:-2}"
   dir="$(mktemp -d "$dest/containerd.XXXXXX")"
-  printf 'version = 2\n' >"$dir/config.toml"
+  printf 'version = %s\n' "$version" >"$dir/config.toml"
   printf '%s' "$dir"
 }
+
+# The bundled ctr client version is not authoritative: require a containerd 2+
+# server because older CRI metadata omits the requested image identity.
+(
+  host_ctr() {
+    cat <<'EOF'
+Client:
+  Version:  v2.1.4
+Server:
+  Version:  v2.0.5
+EOF
+  }
+  [[ "$(containerd_server_version)" == "v2.0.5" ]]
+  [[ "$(containerd_server_major v2.0.5)" == "2" ]]
+  containerd_image_identity_supported
+  require_containerd_image_identity
+) >"$dest/containerd-v2-output"
+grep -Fq 'containerd server v2.0.5 supports protected CRI requested-image identity' \
+  "$dest/containerd-v2-output"
+
+if output="$(
+  (
+    NODE_NAME=""
+    host_ctr() {
+      cat <<'EOF'
+Client:
+  Version:  v2.1.4
+Server:
+  Version:  v1.7.27
+EOF
+    }
+    require_containerd_image_identity
+  ) 2>&1
+)"; then
+  echo "expected a containerd 1.x server to fail the image-identity preflight" >&2
+  exit 1
+fi
+grep -Fq 'unsupported-containerd-version' <<<"$output"
+grep -Fq 'found server v1.7.27' <<<"$output"
 
 mock_containerd_dump() {
   printf '%s\n' "$*" >>"$calls"
@@ -572,6 +654,55 @@ if grep -Fq 'containerd.runtimes.brewlet' "$dropin_dir/config.toml"; then
   echo "expected drop-in support to leave the primary containerd config unchanged" >&2
   exit 1
 fi
+
+# Config version 3 uses containerd 2's split CRI runtime plugin namespace.
+v3_dir="$(new_containerd_test_dir 3)"
+printf 'imports = ["./config.toml.d/*.toml"]\n' >>"$v3_dir/config.toml"
+(
+  CONTAINERD_CONFIG="$v3_dir/config.toml"
+  CONTAINERD_DROPIN_DIR="$v3_dir/config.toml.d"
+  CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
+  BREWLET_CONTAINERD_RESTART=validated
+  BREWLET_VALIDATE=false
+  NODE_NAME=""
+  host_exec() { mock_containerd_dump "$@"; }
+  reload_containerd() { mock_reload_containerd; }
+  configure_containerd
+)
+grep -Fq 'plugins."io.containerd.cri.v1.runtime".containerd.runtimes.brewlet' \
+  "$v3_dir/config.toml.d/99-brewlet.toml"
+if grep -Fq 'plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet' \
+  "$v3_dir/config.toml.d/99-brewlet.toml"; then
+  echo "expected config version 3 to use the split CRI runtime plugin" >&2
+  exit 1
+fi
+
+# containerd 2 normalizes a version-2 source config into the version-3 split
+# CRI plugin schema in `config dump`; validate the migrated effective handler.
+normalized_dump_dir="$(new_containerd_test_dir)"
+if ! (
+  CONTAINERD_CONFIG="$normalized_dump_dir/config.toml"
+  CONTAINERD_DROPIN_DIR="$normalized_dump_dir/config.toml.d"
+  CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
+  BREWLET_CONTAINERD_RESTART=validated
+  BREWLET_VALIDATE=false
+  NODE_NAME=""
+  host_exec() {
+    cat <<'EOF'
+version = 3
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.brewlet]
+  runtime_type = "io.containerd.brewlet.v2"
+EOF
+  }
+  configure_containerd
+) >"$normalized_dump_dir/output" 2>&1; then
+  echo "expected migrated containerd 2 config validation to succeed" >&2
+  exit 1
+fi
+grep -Fq 'config validation passed: brewlet runtime handler is present' \
+  "$normalized_dump_dir/output"
+grep -Fq 'plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet' \
+  "$normalized_dump_dir/config.toml"
 
 # Re-running an unchanged validated render still validates it but does not
 # reload containerd again.
@@ -880,6 +1011,7 @@ printf 'brewlet-change\n' >"$rollback_dir/config.toml"
 : >"$restart_calls"
 if output="$(
   (
+    NODE_NAME=""
     CONTAINERD_CONFIG="$rollback_dir/config.toml"
     CONTAINERD_CONFIG_CHANGED=1
     CONTAINERD_ROLLBACK_KIND=primary
@@ -908,6 +1040,7 @@ printf 'brewlet-change\n' >"$rollback_dir/config.toml"
 : >"$restart_calls"
 if output="$(
   (
+    NODE_NAME=""
     CONTAINERD_CONFIG="$rollback_dir/config.toml"
     CONTAINERD_CONFIG_CHANGED=1
     CONTAINERD_ROLLBACK_KIND=primary
@@ -931,6 +1064,7 @@ printf 'known-good\n' >"$rollback_dir/config.toml.brewlet.bak"
 printf 'brewlet-change\n' >"$rollback_dir/config.toml"
 if output="$(
   (
+    NODE_NAME=""
     CONTAINERD_CONFIG="$rollback_dir/config.toml"
     CONTAINERD_CONFIG_CHANGED=1
     CONTAINERD_ROLLBACK_KIND=primary

@@ -46,7 +46,7 @@ spec:
                   properties:
                     image:
                       type: string
-                      description: OCI reference to the runnable Java application image (digest pin required for attestation enforcement).
+                      description: Digest-pinned OCI reference to the runnable Java application image.
                     pullPolicy:
                       type: string
                       enum: [Always, IfNotPresent, Never]

@@ -23,6 +23,11 @@ func (s *manifestBlobSource) ReadBlob(digest string) ([]byte, error) {
 
 func (*manifestBlobSource) BlobPath(string) string { return "" }
 
+func testPlatform() *Platform {
+	target := currentRunnablePlatform()
+	return &target
+}
+
 func testManifestBytes(t *testing.T) []byte {
 	t.Helper()
 	raw, err := json.Marshal(Manifest{
@@ -60,8 +65,9 @@ func TestResolveManifestFollowingIndexVerifiesSelectedPlatformManifest(t *testin
 		SchemaVersion: 2,
 		MediaType:     OCIImageIndexMediaType,
 		Manifests: []Descriptor{{
-			Digest: manifestDigest,
-			Size:   int64(len(manifestRaw)),
+			Digest:   manifestDigest,
+			Size:     int64(len(manifestRaw)),
+			Platform: testPlatform(),
 		}},
 	})
 	if err != nil {
@@ -82,6 +88,87 @@ func TestResolveManifestFollowingIndexVerifiesSelectedPlatformManifest(t *testin
 	}
 	if src.reads != 2 {
 		t.Errorf("source reads = %d, want outer index and platform manifest", src.reads)
+	}
+}
+
+func TestResolveManifestFollowingIndexUsesExactPlatformWithoutFallback(t *testing.T) {
+	config := Descriptor{Digest: digestOf([]byte("shared-config"))}
+	manifestBytes := func(mainJar string) []byte {
+		t.Helper()
+		raw, err := json.Marshal(Manifest{
+			SchemaVersion: 2,
+			MediaType:     ociManifestMediaType,
+			Config:        config,
+			Annotations: map[string]string{
+				JVMConfigAnnotation: `{"schemaVersion":1,"mainJar":"` + mainJar + `","entry":{"mode":"jar"}}`,
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+
+	maliciousRaw := manifestBytes("malicious.jar")
+	maliciousDigest := digestOf(maliciousRaw)
+	safeRaw := manifestBytes("safe.jar")
+	safeDigest := digestOf(safeRaw)
+	target := currentRunnablePlatform()
+	wrongOS := target
+	wrongOS.OS = "windows"
+
+	indexRaw, err := json.Marshal(Index{
+		SchemaVersion: 2,
+		MediaType:     OCIImageIndexMediaType,
+		Manifests: []Descriptor{
+			{Digest: maliciousDigest, Size: int64(len(maliciousRaw)), Platform: &wrongOS},
+			{Digest: safeDigest, Size: int64(len(safeRaw)), Platform: &target},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexDigest := digestOf(indexRaw)
+	src := &manifestBlobSource{blobs: map[string][]byte{
+		indexDigest:     indexRaw,
+		maliciousDigest: maliciousRaw,
+		safeDigest:      safeRaw,
+	}}
+
+	man, gotDigest, err := ResolveManifestFollowingIndex(src, indexDigest)
+	if err != nil {
+		t.Fatalf("ResolveManifestFollowingIndex: %v", err)
+	}
+	if gotDigest != safeDigest {
+		t.Fatalf("resolved digest = %q, want matching platform manifest %q", gotDigest, safeDigest)
+	}
+	if got := man.Annotations[JVMConfigAnnotation]; !strings.Contains(got, `"mainJar":"safe.jar"`) {
+		t.Fatalf("resolved launch config = %q, want safe platform manifest", got)
+	}
+	if src.reads != 2 {
+		t.Fatalf("source reads = %d, want index plus matching platform manifest", src.reads)
+	}
+
+	indexRaw, err = json.Marshal(Index{
+		SchemaVersion: 2,
+		MediaType:     OCIImageIndexMediaType,
+		Manifests: []Descriptor{
+			{Digest: maliciousDigest, Size: int64(len(maliciousRaw)), Platform: &wrongOS},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexDigest = digestOf(indexRaw)
+	src = &manifestBlobSource{blobs: map[string][]byte{
+		indexDigest:     indexRaw,
+		maliciousDigest: maliciousRaw,
+	}}
+	if _, _, err := ResolveManifestFollowingIndex(src, indexDigest); err == nil || !strings.Contains(err.Error(), "has no manifest for") {
+		t.Fatalf("error = %v, want unmatched platform rejection", err)
+	}
+	if src.reads != 1 {
+		t.Fatalf("source reads = %d, want no unmatched manifest fallback", src.reads)
 	}
 }
 
@@ -115,7 +202,7 @@ func TestResolveManifestFollowingIndexRejectsDigestMismatch(t *testing.T) {
 		indexRaw, err := json.Marshal(Index{
 			SchemaVersion: 2,
 			MediaType:     OCIImageIndexMediaType,
-			Manifests:     []Descriptor{{Digest: manifestDigest}},
+			Manifests:     []Descriptor{{Digest: manifestDigest, Platform: testPlatform()}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -157,7 +244,7 @@ func TestResolveManifestFollowingIndexRejectsInvalidDigestBeforeSourceAccess(t *
 		indexRaw, err := json.Marshal(Index{
 			SchemaVersion: 2,
 			MediaType:     OCIImageIndexMediaType,
-			Manifests:     []Descriptor{{Digest: "sha256:invalid"}},
+			Manifests:     []Descriptor{{Digest: "sha256:invalid", Platform: testPlatform()}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -180,7 +267,7 @@ func TestResolveManifestFollowingIndexRejectsDescriptorSizeMismatch(t *testing.T
 	indexRaw, err := json.Marshal(Index{
 		SchemaVersion: 2,
 		MediaType:     OCIImageIndexMediaType,
-		Manifests:     []Descriptor{{Digest: manifestDigest, Size: int64(len(manifestRaw) + 1)}},
+		Manifests:     []Descriptor{{Digest: manifestDigest, Size: int64(len(manifestRaw) + 1), Platform: testPlatform()}},
 	})
 	if err != nil {
 		t.Fatal(err)

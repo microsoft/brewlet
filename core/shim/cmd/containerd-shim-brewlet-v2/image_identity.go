@@ -16,8 +16,9 @@ const (
 )
 
 type resolvedImageIdentity struct {
-	ImageName    string
-	TargetDigest string
+	ImageName      string
+	TargetDigest   string // exact manifest/index digest from the CRI request
+	ManifestDigest string // verified platform manifest selected from that target
 }
 
 type imageIdentityResolver interface {
@@ -37,7 +38,10 @@ func validateCRIImageIdentity(annotations map[string]string, resolved string) er
 	if err != nil {
 		return fmt.Errorf("containerd image annotation %s: %w", annCRIImageName, err)
 	}
-	if hasDigest && requested != resolved {
+	if !hasDigest {
+		return fmt.Errorf("containerd image annotation %s=%q must be digest-pinned", annCRIImageName, ref)
+	}
+	if requested != resolved {
 		return fmt.Errorf("artifact identity mismatch: containerd image %s does not match resolved image target %s", ref, resolved)
 	}
 	return nil
@@ -82,7 +86,8 @@ func validateRuntimeImageIdentity(annotations map[string]string, resolved string
 }
 
 func imageReferenceDigest(ref string) (string, bool, error) {
-	at := strings.LastIndexByte(strings.TrimSpace(ref), '@')
+	ref = strings.TrimSpace(ref)
+	at := strings.LastIndexByte(ref, '@')
 	if at < 0 {
 		return "", false, nil
 	}
@@ -91,6 +96,20 @@ func imageReferenceDigest(ref string) (string, bool, error) {
 		return "", true, err
 	}
 	return value, true, nil
+}
+
+func requiredImageTargetDigest(ref string) (string, error) {
+	if strings.LastIndexByte(strings.TrimSpace(ref), '@') <= 0 {
+		return "", fmt.Errorf("image reference %q must be digest-pinned", strings.TrimSpace(ref))
+	}
+	value, hasDigest, err := imageReferenceDigest(ref)
+	if err != nil {
+		return "", err
+	}
+	if !hasDigest {
+		return "", fmt.Errorf("image reference %q must be digest-pinned", strings.TrimSpace(ref))
+	}
+	return value, nil
 }
 
 func requireSHA256Digest(field, value string) (string, error) {

@@ -68,9 +68,9 @@ func loadArtifactBlobs(ic imageConfig) (artifactBlobs, error) {
 const defaultContentRoot = "/var/lib/containerd/io.containerd.content.v1.content"
 
 // contentStoreBlobs resolves the artifact from containerd's content store given
-// the manifest digest (which may be an image index — the running node's platform
-// manifest is selected). It handles both a native Brewlet artifact and a
-// kubelet-pulled runnable image. No copy of the native JAR blob is made — it is
+// the manifest digest (which may be an image index — the current Linux platform
+// manifest is selected strictly). It handles both a native Brewlet artifact and
+// a kubelet-pulled runnable image. No copy of the native JAR blob is made — it is
 // mounted from the content store directly; a runnable image's gzip layers are
 // staged (gunzipped) once per image into a temp tree the sandbox reads from.
 func contentStoreBlobs(contentRoot, manifestDigest string) (artifactBlobs, error) {

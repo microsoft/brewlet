@@ -24,6 +24,9 @@ shim runs with the node-resident JDK. This page documents the delivery contract 
 - **The developer experience becomes the WASI/SpinKube one:** `image: <ref>` +
   `runtimeClassName: brewlet` and nothing else. kubelet pulls, containerd unpacks, the
   shim launches `java -jar` under the pod's cgroup.
+- **The Kubernetes reference must be digest-pinned.** The immutable
+  `repo@sha256:…` target covers the manifest-level Brewlet launch configuration;
+  tag-only requests are rejected before launch.
 - **Runnable-image mode is now the default.** `brewlet push` (and `mvn brewlet:push`)
   produce a runnable image unless you opt into `--format=artifact`
   (`-Dbrewlet.format=artifact`). It is the delivery path that fulfils the WASI/SpinKube
@@ -103,17 +106,23 @@ CLI / prepare-bundle workflows only. For a runnable image the shim:
 Nothing about JVM launch, cgroup-awareness, JDK/launcher selection, or Brewlet's
 overlay rootfs (shared read-only JDK lower + per-container upper) changes.
 
-## 5. Operator & webhook: no change required
+## 5. Operator & webhook
 
-- The `JavaApplication` controller already sets the Deployment's container
-  `image:` to `spec.artifact.image`. With a runnable image that ref is now **pullable**,
-  so the happy path just works.
+- The `JavaApplication` controller sets the Deployment's container `image:` to
+  `spec.artifact.image`. Supply a digest-pinned runnable-image reference so it is
+  both pullable and immutable.
 - The admission webhook overwrites `brewlet.sh/artifact-ref` + `brewlet.sh/artifact-digest`
   as compatibility hints from the selected Pod image; for a runnable image the digest
-  is the **image-index** digest, and the shim resolves the executable image target
-  digest through CRI's immutable image-config record. For digest-pinned Pods it
-  also requires containerd's protected `io.kubernetes.cri.image-name` annotation
-  to name that same target, so conflicting tenant hints do not change what runs.
+  is the **image-index** digest. The shim takes that exact target from
+  containerd's protected CRI requested-image metadata, requires
+  `io.kubernetes.cri.image-name` to name the same target, resolves the target
+  directly from the content store, selects the platform manifest with
+  containerd's strict OS/architecture/variant matcher (with no unmatched
+  fallback), and verifies it against CRI's image-config digest. It never looks
+  up a mutable image record by config digest, so manifests that share a config
+  cannot substitute different launch metadata. This contract requires
+  containerd 2.0 or newer; the provisioner rejects older servers before
+  advertising node readiness.
 
 ## 6. When to use which
 
@@ -135,7 +144,7 @@ The runnable-image tier of the [e2e suite](https://github.com/microsoft/brewlet/
 `brewlet push --format=image`s the demo JAR, imports it into the node's `k8s.io`
 content store, and asserts **`ctr images unpack` SUCCEEDS** — the exact operation that
 `ImagePullBackOff`s for a native artifact. It then runs a `runtimeClassName: brewlet`
-Deployment whose container **`image:` is the brewlet ref itself** (no placeholder,
-`imagePullPolicy: Never`) and asserts the pod is Ready with that image, serves a `200`
-from `/hello`, and that the JVM is cgroup-aware (`availableProcessors == 1`, bounded
-`maxMemory`).
+Deployment whose container **`image:` is the digest-pinned Brewlet ref itself**
+(`imagePullPolicy: Never`) and asserts the pod is Ready with that image, serves a
+`200` from `/hello`, and that the JVM is cgroup-aware
+(`availableProcessors == 1`, bounded `maxMemory`).

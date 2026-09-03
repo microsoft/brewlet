@@ -18,7 +18,10 @@ import (
 )
 
 // appContainerName is the name of the single JAR container in generated pods.
-const appContainerName = "app"
+const (
+	appContainerName      = "app"
+	defaultWorkloadUserID = int64(65532)
+)
 
 // JVM options env vars. Brewlet wires the user's jvm.args through one of these
 // (it injects no tuning of its own — §8.2/§10). JDK_JAVA_OPTIONS is the modern,
@@ -57,6 +60,7 @@ func selectorLabels(app *appsv1alpha1.JavaApplication) map[string]string {
 // webhook, and user env/ports/probes/jvm.args wired through.
 func buildDeployment(app *appsv1alpha1.JavaApplication) *appsv1.Deployment {
 	labels := selectorLabels(app)
+	allowPrivilegeEscalation := false
 
 	container := corev1.Container{
 		Name:            appContainerName,
@@ -67,12 +71,29 @@ func buildDeployment(app *appsv1alpha1.JavaApplication) *appsv1.Deployment {
 		Env:             buildEnv(app),
 		ReadinessProbe:  app.Spec.Probes.Readiness,
 		LivenessProbe:   app.Spec.Probes.Liveness,
+		SecurityContext: &corev1.SecurityContext{
+			AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+			Capabilities: &corev1.Capabilities{
+				Drop: []corev1.Capability{"ALL"},
+			},
+		},
 	}
 
 	runtimeClass := brewlet.RuntimeClassName
+	runAsNonRoot := true
+	runAsUser := defaultWorkloadUserID
+	runAsGroup := defaultWorkloadUserID
 	podSpec := corev1.PodSpec{
 		RuntimeClassName: &runtimeClass,
 		Containers:       []corev1.Container{container},
+		SecurityContext: &corev1.PodSecurityContext{
+			RunAsNonRoot: &runAsNonRoot,
+			RunAsUser:    &runAsUser,
+			RunAsGroup:   &runAsGroup,
+			SeccompProfile: &corev1.SeccompProfile{
+				Type: corev1.SeccompProfileTypeRuntimeDefault,
+			},
+		},
 	}
 	for _, s := range app.Spec.Artifact.PullSecrets {
 		podSpec.ImagePullSecrets = append(podSpec.ImagePullSecrets, corev1.LocalObjectReference{Name: s})

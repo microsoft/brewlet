@@ -285,8 +285,10 @@ footprint.
 - **Mirror selection:** a NodeProfile mapping is accepted only when its
   destination host exactly matches the external operator/admission allowlist.
 - **cgroup v2 is mandatory** on nodes; the provisioner refuses cgroup v1-only nodes.
-- **Digest-pinned artifact refs are recommended** (`repo@sha256:…`) so the shim can
-  resolve straight from the content store and so supply-chain policy can apply.
+- **Digest-pinned artifact refs are required for Kubernetes execution**
+  (`repo@sha256:…`). The shim resolves that exact target from the content store,
+  verifies its platform-manifest config against CRI metadata, and rejects
+  tag-only requests.
 
 ## Next steps
 

@@ -121,7 +121,7 @@ func TestValidateCRIImageIdentity(t *testing.T) {
 		wantError string
 	}{
 		{name: "matching digest", imageName: "registry.example.com/team/app@" + resolved},
-		{name: "tag reference", imageName: "registry.example.com/team/app:latest"},
+		{name: "tag reference", imageName: "registry.example.com/team/app:latest", wantError: "must be digest-pinned"},
 		{name: "missing", wantError: "missing containerd image annotation"},
 		{name: "malformed digest", imageName: "registry.example.com/team/app@latest", wantError: "must be a sha256 digest"},
 		{name: "conflicting digest", imageName: "registry.example.com/team/app@" + other, wantError: "artifact identity mismatch"},
@@ -132,6 +132,39 @@ func TestValidateCRIImageIdentity(t *testing.T) {
 			if tc.wantError == "" {
 				if err != nil {
 					t.Fatalf("validateCRIImageIdentity: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("error = %v, want substring %q", err, tc.wantError)
+			}
+		})
+	}
+}
+
+func TestRequiredImageTargetDigest(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	tests := []struct {
+		name      string
+		ref       string
+		want      string
+		wantError string
+	}{
+		{name: "digest pinned", ref: "registry.example.com/team/app@" + digest, want: digest},
+		{name: "tag and digest", ref: "registry.example.com/team/app:1.0@" + digest, want: digest},
+		{name: "tag only", ref: "registry.example.com/team/app:1.0", wantError: "must be digest-pinned"},
+		{name: "missing repository", ref: "@" + digest, wantError: "must be digest-pinned"},
+		{name: "malformed digest", ref: "registry.example.com/team/app@sha256:not-a-digest", wantError: "must be a sha256 digest"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := requiredImageTargetDigest(tc.ref)
+			if tc.wantError == "" {
+				if err != nil {
+					t.Fatalf("requiredImageTargetDigest: %v", err)
+				}
+				if got != tc.want {
+					t.Fatalf("digest = %q, want %q", got, tc.want)
 				}
 				return
 			}

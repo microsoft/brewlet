@@ -107,9 +107,23 @@ tier2_cli() {
     assert_contains "bundle: mounts node JDK read-only at /opt/jdk" "$cfg" "/opt/jdk"
     if have python3 && python3 -c "import json,sys; json.load(open('$bdir/config.json'))" 2>/dev/null; then
       pass "bundle: config.json is valid OCI runtime JSON"
+      local identity
+      identity="$(python3 -c "import json; u=json.load(open('$bdir/config.json'))['process']['user']; print(f\"{u['uid']}:{u['gid']}\")")"
+      assert_eq "bundle: defaults to the secure non-root process identity" "$identity" "65532:65532"
     else
       fail "bundle: config.json is valid JSON"
     fi
+  fi
+
+  # Explicit identity overrides are trusted runtime inputs, never artifact data.
+  local identity_dir="$WORK/bundle-explicit-identity"
+  if "$bin" bundle "$ref" --store "$store" --uid 0 --gid 0 --out "$identity_dir" \
+       >"$WORK/t2-bundle-identity.log" 2>&1 && [[ -f "$identity_dir/config.json" ]]; then
+    local explicit_identity
+    explicit_identity="$(python3 -c "import json; u=json.load(open('$identity_dir/config.json'))['process']['user']; print(f\"{u['uid']}:{u['gid']}\")")"
+    assert_eq "bundle: trusted --uid/--gid flags can explicitly select root" "$explicit_identity" "0:0"
+  else
+    fail "bundle: trusted --uid/--gid identity override" "see $WORK/t2-bundle-identity.log"
   fi
 
   # --- bundle: --launcher overrides argv[0] (local launcher selection) ------
