@@ -171,6 +171,9 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	if identity.UID > MaxProcessID || identity.GID > MaxProcessID {
 		return fmt.Errorf("process UID/GID must be between 0 and %d", MaxProcessID)
 	}
+	if regen.Regenerate && (uint64(identity.UID) > uint64(math.MaxInt) || uint64(identity.GID) > uint64(math.MaxInt)) {
+		return fmt.Errorf("process UID/GID must be between 0 and %d for CDS regeneration on this platform", math.MaxInt)
+	}
 	if err := os.MkdirAll(filepath.Join(outDir, "rootfs"), 0o755); err != nil {
 		return err
 	}

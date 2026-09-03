@@ -7,6 +7,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,6 +154,23 @@ func TestGenerateBundleRejectsReservedProcessIdentity(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("GenerateBundleWithIdentityAndRegen accepted Linux's reserved UID sentinel")
+	}
+}
+
+func TestGenerateBundleRejectsRegenIdentityBeyondPlatformInt(t *testing.T) {
+	if uint64(math.MaxInt) > uint64(math.MaxInt32) {
+		t.Skip("platform int represents every uint32 value")
+	}
+	dir := t.TempDir()
+	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
+	err := GenerateBundleWithIdentityAndRegen(
+		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
+		nil, nil, "", filepath.Join(dir, "bundle"), Resources{}, nil,
+		ProcessIdentity{UID: math.MaxInt32 + 1, GID: DefaultProcessGID},
+		CDSRegenOptions{Regenerate: true},
+	)
+	if err == nil {
+		t.Fatal("GenerateBundleWithIdentityAndRegen accepted a UID that overflows int")
 	}
 }
 
