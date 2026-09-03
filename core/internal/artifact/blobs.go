@@ -28,6 +28,7 @@ type ResolvedBlobs struct {
 	ClasspathHostPaths  []string // on-disk paths of the optional classpath layer tars
 	ModulepathHostPaths []string // on-disk paths of the optional modulepath layer tars
 	CDSHostPath         string   // on-disk path of the optional AppCDS archive, or ""
+	ManifestDigest      string   // verified digest of the resolved platform manifest
 	Format              string   // "native" or "image"
 }
 
@@ -55,7 +56,7 @@ func (s Store) ResolveBlobs(ref string) (ResolvedBlobs, error) {
 	if man.IsRunnableImage() {
 		return ResolveRunnableBlobs(s, man, digest)
 	}
-	return ResolveNativeBlobs(s, man)
+	return ResolveNativeBlobs(s, man, digest)
 }
 
 // ResolveManifestFollowingIndex reads the blob at digest from src; when it is an
@@ -63,7 +64,7 @@ func (s Store) ResolveBlobs(ref string) (ResolvedBlobs, error) {
 // reads that platform manifest. Returns the resolved manifest and its digest.
 // Works for both native artifacts and runnable images.
 func ResolveManifestFollowingIndex(src BlobSource, digest string) (Manifest, string, error) {
-	raw, err := src.ReadBlob(digest)
+	raw, err := readVerifiedManifestBlob(src, Descriptor{Digest: digest})
 	if err != nil {
 		return Manifest{}, "", fmt.Errorf("read manifest blob: %w", err)
 	}
@@ -77,7 +78,7 @@ func ResolveManifestFollowingIndex(src BlobSource, digest string) (Manifest, str
 			return Manifest{}, "", fmt.Errorf("image index %s has no manifests", digest)
 		}
 		digest = sel.Digest
-		if raw, err = src.ReadBlob(digest); err != nil {
+		if raw, err = readVerifiedManifestBlob(src, sel); err != nil {
 			return Manifest{}, "", fmt.Errorf("read platform manifest %s: %w", digest, err)
 		}
 	}
@@ -88,10 +89,40 @@ func ResolveManifestFollowingIndex(src BlobSource, digest string) (Manifest, str
 	return man, digest, nil
 }
 
+func readVerifiedManifestBlob(src BlobSource, desc Descriptor) ([]byte, error) {
+	if err := validateCanonicalSHA256Digest(desc.Digest); err != nil {
+		return nil, err
+	}
+	raw, err := src.ReadBlob(desc.Digest)
+	if err != nil {
+		return nil, err
+	}
+	if desc.Size > 0 && int64(len(raw)) != desc.Size {
+		return nil, fmt.Errorf("blob %s size mismatch: got %d, descriptor requires %d", desc.Digest, len(raw), desc.Size)
+	}
+	if got := digestOf(raw); got != desc.Digest {
+		return nil, fmt.Errorf("blob digest mismatch: got %s, descriptor requires %s", got, desc.Digest)
+	}
+	return raw, nil
+}
+
+func validateCanonicalSHA256Digest(digest string) error {
+	const prefix = "sha256:"
+	if len(digest) != len(prefix)+sha256.Size*2 || !strings.HasPrefix(digest, prefix) {
+		return fmt.Errorf("invalid digest %q: must be canonical sha256:<64 lowercase hex>", digest)
+	}
+	for _, c := range digest[len(prefix):] {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return fmt.Errorf("invalid digest %q: must be canonical sha256:<64 lowercase hex>", digest)
+		}
+	}
+	return nil
+}
+
 // ResolveNativeBlobs resolves a native Brewlet artifact (custom media-type
 // layers) to on-disk blob paths, mounting each layer blob directly from src with
 // no copy — the historical production/PoC path.
-func ResolveNativeBlobs(src BlobSource, man Manifest) (ResolvedBlobs, error) {
+func ResolveNativeBlobs(src BlobSource, man Manifest, manifestDigest string) (ResolvedBlobs, error) {
 	cb, err := src.ReadBlob(man.Config.Digest)
 	if err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("read config blob: %w", err)
@@ -123,7 +154,7 @@ func ResolveNativeBlobs(src BlobSource, man Manifest) (ResolvedBlobs, error) {
 			return ResolvedBlobs{}, fmt.Errorf("cds blob %s not available: %w", l.Digest, err)
 		}
 	}
-	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, Format: "native"}, nil
+	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, ManifestDigest: manifestDigest, Format: "native"}, nil
 }
 
 // existingBlobPaths returns the on-disk path of each layer, verifying presence.
@@ -185,7 +216,7 @@ func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, Format: "image"}, nil
+	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, ManifestDigest: manifestDigest, Format: "image"}, nil
 }
 
 // runnableStageDir is the per-image staging directory a runnable image is

@@ -177,6 +177,10 @@ func containerdRestart(profile *nodev1alpha1.NodeProfile) string {
 	return nodev1alpha1.ContainerdRestartValidated
 }
 
+func appCDSRegenerationEnabled(profile *nodev1alpha1.NodeProfile) bool {
+	return profile.Spec.AppCDS != nil && profile.Spec.AppCDS.RegenerationEnabled
+}
+
 // buildProfileDaemonSet returns the provisioner DaemonSet for one profile — the
 // generalized buildDaemonSet: pod nodeAffinity comes from the profile's pool and
 // JDKS/LAUNCHERS/MIRRORS env come from its inventory (§5.2). Pool disjointness is
@@ -196,6 +200,7 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		}},
 		{Name: "JDKS", Value: jdkTokens(profile)},
 		{Name: "LAUNCHERS", Value: strings.Join(profile.Spec.Launchers, ",")},
+		{Name: "BREWLET_APP_CDS_REGENERATION_ENABLED", Value: strconv.FormatBool(appCDSRegenerationEnabled(profile))},
 		{Name: "BREWLET_CONTAINERD_RESTART", Value: containerdRestart(profile)},
 		{Name: "BREWLET_PROFILE_NAME", Value: profile.Name},
 		{Name: "BREWLET_PROFILE_GENERATION", Value: strconv.FormatInt(profile.Generation, 10)},

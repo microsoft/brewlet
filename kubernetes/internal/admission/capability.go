@@ -26,6 +26,9 @@ type NodeCapability struct {
 	Arch      string   // kubernetes.io/arch value, e.g. "amd64" or "arm64"
 	JDKs      []string // "<dist>-<feature>" tokens, e.g. ["temurin-21","microsoft-25"]
 	Launchers []string // launcher names, e.g. ["java","jaz"]
+	// AppCDSRegeneration is true when the node's active profile authorizes
+	// node-side AppCDS archive regeneration.
+	AppCDSRegeneration bool
 }
 
 // NodeCapabilityFrom extracts a NodeCapability from a Node object. Readiness is
@@ -35,11 +38,12 @@ type NodeCapability struct {
 // standard kubelet-provided kubernetes.io/arch label.
 func NodeCapabilityFrom(node *corev1.Node) NodeCapability {
 	return NodeCapability{
-		Name:      node.Name,
-		Ready:     node.Labels[brewlet.LabelRuntimeReady] == brewlet.ValueReady,
-		Arch:      node.Labels[brewlet.LabelArch],
-		JDKs:      splitInventory(node.Annotations[brewlet.AnnotationJDKs]),
-		Launchers: splitInventory(node.Annotations[brewlet.AnnotationLaunchers]),
+		Name:               node.Name,
+		Ready:              node.Labels[brewlet.LabelRuntimeReady] == brewlet.ValueReady,
+		Arch:               node.Labels[brewlet.LabelArch],
+		JDKs:               splitInventory(node.Annotations[brewlet.AnnotationJDKs]),
+		Launchers:          splitInventory(node.Annotations[brewlet.AnnotationLaunchers]),
+		AppCDSRegeneration: node.Labels[brewlet.LabelAppCDSRegeneration] == "true",
 	}
 }
 
@@ -135,26 +139,25 @@ func jdkFeature(jdk string) int {
 	return n
 }
 
-// FleetResult is the outcome of checking a JDK/launcher request against the
-// ready fleet.
+// FleetResult is the outcome of checking JDK, launcher, architecture, and
+// AppCDS-regeneration requests against the ready fleet.
 type FleetResult struct {
-	// Compatible is true if at least one ready node satisfies both the JDK and
-	// launcher request (or the request was not explicit).
+	// Compatible is true if at least one ready node jointly satisfies every
+	// explicit capability and policy request.
 	Compatible bool
-	// DenyReason is one of brewlet.ReasonNoCompatibleJDK /
-	// ReasonNoCompatibleLauncher when Compatible is false; empty otherwise.
+	// DenyReason identifies the unsatisfied capability or policy; empty when
+	// Compatible is true.
 	DenyReason string
 	// Message is a human-readable explanation for the admission response/event.
 	Message string
 }
 
-// CheckFleet decides whether a pod requesting the given JDK/launcher/arch can
-// run on the current ready fleet. It only ever denies for an *explicit* request
-// (a non-empty jdk, a non-vanilla launcher, or a non-empty arch): with no
-// request the pod is allowed and the shim keeps its runtime NoCompatibleJDK
-// behavior. Among explicit requests, an unsatisfiable JDK is reported before an
-// unsatisfiable launcher, then arch.
-func CheckFleet(fleet []NodeCapability, jdk, launcher string, arch []string) FleetResult {
+// CheckFleet decides whether a pod requesting the given JDK, launcher,
+// architecture, and AppCDS policy can run on the current ready fleet. It only
+// ever denies for an explicit request. Among explicit runtime requests, an
+// unsatisfiable JDK is reported before launcher, then architecture; regeneration
+// additionally requires authorization on the same otherwise-compatible node.
+func CheckFleet(fleet []NodeCapability, jdk, launcher string, arch []string, appCDSRegeneration bool) FleetResult {
 	ready := make([]NodeCapability, 0, len(fleet))
 	for _, n := range fleet {
 		if n.Ready {
@@ -165,12 +168,13 @@ func CheckFleet(fleet []NodeCapability, jdk, launcher string, arch []string) Fle
 	jdkExplicit := jdk != ""
 	launcherExplicit := launcher != "" && launcher != brewlet.VanillaLauncher
 	archExplicit := len(arch) > 0
-	if !jdkExplicit && !launcherExplicit && !archExplicit {
+	if !jdkExplicit && !launcherExplicit && !archExplicit && !appCDSRegeneration {
 		return FleetResult{Compatible: true}
 	}
 
 	for _, n := range ready {
-		if n.supportsJDK(jdk) && n.supportsLauncher(launcher) && n.supportsArch(arch) {
+		if n.supportsJDK(jdk) && n.supportsLauncher(launcher) && n.supportsArch(arch) &&
+			(!appCDSRegeneration || n.AppCDSRegeneration) {
 			return FleetResult{Compatible: true}
 		}
 	}
@@ -198,6 +202,12 @@ func CheckFleet(fleet []NodeCapability, jdk, launcher string, arch []string) Fle
 			Message: "no ready brewlet node provides architecture " + strconv.Quote(strings.Join(arch, ",")) +
 				"; provisioned arches=" + strconv.Quote(fleetArches(ready)),
 		}
+	case appCDSRegeneration && (!jdkExplicit && !launcherExplicit && !archExplicit ||
+		anySupportsWorkload(ready, jdk, launcher, arch)):
+		return FleetResult{
+			DenyReason: brewlet.ReasonAppCDSRegenerationDisabled,
+			Message:    "AppCDS regeneration is not enabled on any otherwise-compatible ready brewlet node",
+		}
 	case archExplicit:
 		return FleetResult{
 			DenyReason: brewlet.ReasonNoCompatibleArch,
@@ -217,6 +227,15 @@ func CheckFleet(fleet []NodeCapability, jdk, launcher string, arch []string) Fle
 				"; provisioned JDKs=" + strconv.Quote(fleetJDKs(ready)),
 		}
 	}
+}
+
+func anySupportsWorkload(fleet []NodeCapability, jdk, launcher string, arch []string) bool {
+	for _, n := range fleet {
+		if n.supportsJDK(jdk) && n.supportsLauncher(launcher) && n.supportsArch(arch) {
+			return true
+		}
+	}
+	return false
 }
 
 func anySupportsArch(fleet []NodeCapability, arch []string) bool {

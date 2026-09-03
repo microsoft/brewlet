@@ -54,6 +54,7 @@ kubectl get nodes -L brewlet.sh/runtime
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
 | `provisioner.jdks` | `temurin-21,microsoft-25` | Comma-separated `<dist>-<feature>` JDK roots to install (§5.3). |
 | `provisioner.launchers` | `jaz` | Comma-separated launcher layers (§5.4). Empty = vanilla `java` only. |
+| `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the default profile. |
 | `operator.leaderElect` | `true` | Enable operator leader election. |
 | `metrics.enabled` | `false` | Enable control-plane metrics listeners and the node exporter, and expose scrape Services/ports. |
 | `metrics.nodePort` | `9090` | Port served by the exporter in each provisioner pod. |
@@ -67,6 +68,8 @@ For a custom JDK distribution, use the structured inventory form:
 
 ```yaml
 provisioner:
+  appCDS:
+    regenerationEnabled: false
   jdks:
     - distribution: zulu
       feature: 21
@@ -80,9 +83,30 @@ contain a full JDK or a centrally built jlink runtime, but must include the
 userland libraries required by `javaHome/bin/java`. Pin custom images by digest
 in production.
 
+AppCDS regeneration is denied by default. Enable it only on profiles whose
+nodes are authorized to maintain namespace-partitioned cache entries:
+
+```yaml
+defaultProfile:
+  enabled: false
+profiles:
+  - name: appcds-builders
+    pools: ["appcds-builders"]
+    jdks: "temurin-21"
+    appCDS:
+      regenerationEnabled: true
+```
+
+The provisioner creates the root-owned
+`/opt/brewlet/policy/appcds-regeneration-enabled` authorization sentinel and
+advertises `brewlet.sh/appcds-regeneration=true`. The webhook requires that
+label when `brewlet.sh/cds-regenerate: "true"` is requested; the shim's sentinel
+check remains authoritative.
+
 > **Upgrades:** Helm installs files under `crds/` only on first install and does
 > not upgrade existing CRDs. Before upgrading an existing Brewlet release to a
-> version that supports custom JDK sources, apply the matching CRD explicitly:
+> version that supports AppCDS policy or custom JDK sources, apply the matching
+> CRD explicitly:
 >
 > ```bash
 > kubectl apply -f kubernetes/deploy/nodeprofile-crd.yaml
@@ -105,8 +129,9 @@ spec:
     - image: registry.example.com/demo/hello:1.0.0
 ```
 
-If no ready node provides a compatible JDK/launcher, the pod is rejected with a
-`NoCompatibleJDK` / `NoCompatibleLauncher` reason surfaced on the owning
+If no ready node provides a compatible JDK/launcher or authorizes requested
+AppCDS regeneration, the pod is rejected with `NoCompatibleJDK`,
+`NoCompatibleLauncher`, or `AppCDSRegenerationDisabled`, surfaced on the owning
 controller (§14). With no annotation, the pod is admitted (ref/digest still
 stamped) and the shim keeps its runtime compatibility check.
 

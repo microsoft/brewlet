@@ -41,26 +41,40 @@ func buildRunnableStore(t *testing.T) (root, ref, indexDigest string) {
 func TestRunnableImageLayoutBackend(t *testing.T) {
 	root, ref, _ := buildRunnableStore(t)
 	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	_, wantDigest, err := (artifact.Store{Root: root}).ResolveManifestByRef(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := loadArtifactBlobs(imageConfig{StoreRoot: root, Ref: ref})
 	if err != nil {
 		t.Fatalf("layout runnable resolve: %v", err)
 	}
 	assertRunnableBlobs(t, got)
+	if got.ManifestDigest != wantDigest {
+		t.Errorf("ManifestDigest = %q, want platform manifest %q", got.ManifestDigest, wantDigest)
+	}
 }
 
 func TestRunnableImageContainerdBackend(t *testing.T) {
 	// A layout store's blobs/ dir has the same shape as containerd's content
 	// store, so pointing the containerd backend at it (by the index digest)
 	// mirrors resolving a kubelet-pulled runnable image.
-	root, _, indexDigest := buildRunnableStore(t)
+	root, ref, indexDigest := buildRunnableStore(t)
 	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	_, wantDigest, err := (artifact.Store{Root: root}).ResolveManifestByRef(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	got, err := loadArtifactBlobs(imageConfig{Backend: "containerd", ContentRoot: root, ManifestDigest: indexDigest})
 	if err != nil {
 		t.Fatalf("containerd runnable resolve: %v", err)
 	}
 	assertRunnableBlobs(t, got)
+	if got.ManifestDigest != wantDigest {
+		t.Errorf("ManifestDigest = %q, want selected platform manifest %q (not index %q)", got.ManifestDigest, wantDigest, indexDigest)
+	}
 }
 
 func assertRunnableBlobs(t *testing.T, got artifactBlobs) {

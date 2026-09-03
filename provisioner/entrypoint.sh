@@ -95,6 +95,9 @@ CONTAINERD_VALIDATION_ERROR=""
 BREWLET_VALIDATE="${BREWLET_VALIDATE:-true}"
 BREWLET_PROFILE_NAME="${BREWLET_PROFILE_NAME:-default}"
 BREWLET_PROFILE_GENERATION="${BREWLET_PROFILE_GENERATION:-0}"
+BREWLET_APP_CDS_REGENERATION_ENABLED="${BREWLET_APP_CDS_REGENERATION_ENABLED:-false}"
+POLICY_DIR="${POLICY_DIR:-$PREFIX/policy}"
+APP_CDS_REGENERATION_SENTINEL="${APP_CDS_REGENERATION_SENTINEL:-$POLICY_DIR/appcds-regeneration-enabled}"
 
 # Registry mirrors for air-gapped / pull-through setups (§5.6): a
 # comma-separated list of "<registry-host>=<mirror-host>" pairs the operator
@@ -111,6 +114,9 @@ log()  { printf '[brewlet-provisioner] %s\n' "$*"; }
 # failure if annotating fails.
 die()  {
   printf '[brewlet-provisioner] ERROR: %s\n' "$*" >&2
+  if command -v remove_appcds_regeneration_policy >/dev/null 2>&1; then
+    remove_appcds_regeneration_policy || true
+  fi
   if [[ "${BREWLET_MODE}" != "cleanup" ]] && command -v kubectl >/dev/null 2>&1 && [[ -n "${NODE_NAME:-}" ]]; then
     if command -v clear_node_advertisement >/dev/null 2>&1; then
       clear_node_advertisement
@@ -461,10 +467,9 @@ render_containerd_runtime() {
 [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet]
   runtime_type = "io.containerd.brewlet.v2"
   # Propagate the deployment-descriptor annotations the admission webhook stamps
-  # (brewlet.sh/artifact-ref, artifact-digest, jdk, launcher, cds-regenerate)
   # onto the OCI spec so the shim can resolve the artifact and apply node-side
-  # AppCDS regeneration. Without this allowlist CRI drops them and the shim has
-  # no manifest digest to read from the content store.
+  # AppCDS regeneration. The shim verifies the resolved manifest from the content
+  # store; it does not trust artifact-digest as the cache identity.
   pod_annotations = ["brewlet.sh/*"]
   [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet.options]
     SystemdCgroup = ${systemd_cgroup}
@@ -814,6 +819,46 @@ verify_shim() {
     || die "shim binary missing after install"
 }
 
+# The shim treats this root-owned host sentinel as the authoritative policy
+# decision. Write it by rename so it is never observed partially created.
+policy_chown_root() {
+  chown 0:0 "$@"
+}
+
+ensure_appcds_policy_directory() {
+  [[ ! -L "$POLICY_DIR" ]] || return 1
+  install -d -m 0755 "$POLICY_DIR" || return 1
+  policy_chown_root "$POLICY_DIR" || return 1
+  chmod 0755 "$POLICY_DIR" || return 1
+}
+
+remove_appcds_regeneration_policy() {
+  [[ ! -L "$POLICY_DIR" ]] || return 1
+  rm -f "$APP_CDS_REGENERATION_SENTINEL"
+}
+
+configure_appcds_regeneration_policy() {
+  case "$BREWLET_APP_CDS_REGENERATION_ENABLED" in
+    false)
+      ensure_appcds_policy_directory || return 1
+      remove_appcds_regeneration_policy
+      ;;
+    true)
+      ensure_appcds_policy_directory || return 1
+      local tmp="${APP_CDS_REGENERATION_SENTINEL}.tmp.$$"
+      rm -f "$tmp"
+      : >"$tmp" || return 1
+      policy_chown_root "$tmp" || { rm -f "$tmp"; return 1; }
+      chmod 0444 "$tmp" || { rm -f "$tmp"; return 1; }
+      mv -f "$tmp" "$APP_CDS_REGENERATION_SENTINEL" || { rm -f "$tmp"; return 1; }
+      ;;
+    *)
+      log "ERROR: invalid BREWLET_APP_CDS_REGENERATION_ENABLED='$BREWLET_APP_CDS_REGENERATION_ENABLED' (want: true|false)"
+      return 1
+      ;;
+  esac
+}
+
 # ---------------------------------------------------------------------------
 # Step 5 — advertise readiness on the Node object.
 # ---------------------------------------------------------------------------
@@ -897,6 +942,11 @@ label_node() {
       [[ -n "$l" ]] && caps+=( "brewlet.sh/launcher.${l}=true" )
     done
   fi
+  if [[ "$BREWLET_APP_CDS_REGENERATION_ENABLED" == "true" ]]; then
+    caps+=( "brewlet.sh/appcds-regeneration=true" )
+  else
+    kubectl label node "$NODE_NAME" brewlet.sh/appcds-regeneration- >/dev/null 2>&1 || return 1
+  fi
   log "advertising scheduling labels: ${caps[*]}"
   kubectl label node "$NODE_NAME" "${caps[@]}" --overwrite || return 1
   kubectl label node "$NODE_NAME" brewlet.sh/runtime=ready --overwrite || return 1
@@ -916,7 +966,7 @@ clear_node_advertisement() {
   for l in "${_old_launchers[@]:-}"; do
     [[ -n "$l" ]] && caps+=( "brewlet.sh/launcher.${l}-" )
   done
-  kubectl label node "$NODE_NAME" brewlet.sh/runtime- >/dev/null 2>&1 || return 1
+  kubectl label node "$NODE_NAME" brewlet.sh/runtime- brewlet.sh/appcds-regeneration- >/dev/null 2>&1 || return 1
   if (( ${#caps[@]} > 0 )); then
     kubectl label node "$NODE_NAME" "${caps[@]}" >/dev/null 2>&1 || return 1
   fi
@@ -976,7 +1026,7 @@ unlabel_node() {
     brewlet.sh/jdks- brewlet.sh/jdks-info- brewlet.sh/launchers- \
     brewlet.sh/profile- brewlet.sh/profile-generation- \
     "${ANNOTATION_PROVISION_ERROR}-" >/dev/null 2>&1 || true
-  kubectl label node "$NODE_NAME" brewlet.sh/runtime- >/dev/null 2>&1 || true
+  kubectl label node "$NODE_NAME" brewlet.sh/runtime- brewlet.sh/appcds-regeneration- >/dev/null 2>&1 || true
 
   # Drop every per-capability scheduling label this profile could have set.
   local caps=()
@@ -995,8 +1045,11 @@ unlabel_node() {
   [[ ${#caps[@]} -gt 0 ]] && kubectl label node "$NODE_NAME" "${caps[@]}" >/dev/null 2>&1 || true
 }
 
-cleanup_node() {
-  log "cleaning up node ${NODE_NAME} for deleted NodeProfile (BREWLET_MODE=cleanup)"
+cleanup_host() {
+  remove_appcds_regeneration_policy \
+    || die "could not remove AppCDS regeneration policy during cleanup"
+  clear_node_advertisement \
+    || die "could not remove node readiness before cleanup"
   # Remove the runtime first so no new brewlet pods land while we tear down, then
   # reload containerd (unless disabled), drop the shim, and unlabel the node.
   case "${BREWLET_CONTAINERD_RESTART}" in
@@ -1012,6 +1065,11 @@ cleanup_node() {
   esac
   remove_shim
   unlabel_node
+}
+
+cleanup_node() {
+  log "cleaning up node ${NODE_NAME} for deleted NodeProfile (BREWLET_MODE=cleanup)"
+  cleanup_host
   log "node ${NODE_NAME} cleanup complete"
 
   # Stay Ready so the operator can observe the cleanup DaemonSet as complete
@@ -1030,6 +1088,8 @@ main() {
   fi
 
   log "provisioning node ${NODE_NAME} (arch $(host_arch_oci), copy-from-image)"
+  remove_appcds_regeneration_policy \
+    || die "could not remove stale AppCDS regeneration policy before provisioning"
   clear_node_advertisement || die "could not remove stale node readiness before provisioning"
   require_cgroup_v2
   install_shim
@@ -1047,6 +1107,8 @@ main() {
   activate_containerd_config
   validate_readiness_after_activation
   verify_shim
+  configure_appcds_regeneration_policy \
+    || die "could not apply AppCDS regeneration policy"
   label_node || die "could not publish node runtime inventory"
   # Clear any stale provision-error from a previous failed attempt now we're good.
   command -v kubectl >/dev/null && kubectl annotate node "$NODE_NAME" "${ANNOTATION_PROVISION_ERROR}-" >/dev/null 2>&1 || true

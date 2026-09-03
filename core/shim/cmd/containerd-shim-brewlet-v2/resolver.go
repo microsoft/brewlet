@@ -90,7 +90,7 @@ func contentStoreBlobs(contentRoot, manifestDigest string) (artifactBlobs, error
 	if man.ArtifactType != "" && man.ArtifactType != artifact.ArtifactType {
 		return artifactBlobs{}, fmt.Errorf("not a Brewlet OCI artifact (artifactType=%q)", man.ArtifactType)
 	}
-	return artifact.ResolveNativeBlobs(src, man)
+	return artifact.ResolveNativeBlobs(src, man, digest)
 }
 
 // contentBlobPath maps a "sha256:<hex>" digest to its on-disk blob path in an

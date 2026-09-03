@@ -13,6 +13,21 @@ import (
 )
 
 // DeepCopyInto copies the receiver into out.
+func (in *AppCDSSpec) DeepCopyInto(out *AppCDSSpec) {
+	*out = *in
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *AppCDSSpec) DeepCopy() *AppCDSSpec {
+	if in == nil {
+		return nil
+	}
+	out := new(AppCDSSpec)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies the receiver into out.
 func (in *JDKRef) DeepCopyInto(out *JDKRef) {
 	*out = *in
 	if in.Source != nil {
@@ -121,6 +136,9 @@ func (in *NodeProfileSpec) DeepCopyInto(out *NodeProfileSpec) {
 	if in.Launchers != nil {
 		out.Launchers = make([]string, len(in.Launchers))
 		copy(out.Launchers, in.Launchers)
+	}
+	if in.AppCDS != nil {
+		out.AppCDS = in.AppCDS.DeepCopy()
 	}
 	if in.Registry != nil {
 		out.Registry = in.Registry.DeepCopy()

@@ -23,6 +23,9 @@ type NodeProfileSpec struct {
 	// Launchers is the optional launcher-layer inventory (e.g. "jaz"). The
 	// vanilla "java" launcher is always available and need not be listed.
 	Launchers []string `json:"launchers,omitempty"`
+	// AppCDS controls node-side AppCDS behavior. Regeneration is disabled when
+	// this field is omitted.
+	AppCDS *AppCDSSpec `json:"appCDS,omitempty"`
 	// Registry is an optional per-profile registry override for air-gapped /
 	// mirrored clusters (§5.6).
 	Registry *RegistrySpec `json:"registry,omitempty"`
@@ -30,6 +33,13 @@ type NodeProfileSpec struct {
 	// reconfig/validate mechanics themselves are defined in proposal 0002; this
 	// profile only selects them.
 	Rollout RolloutSpec `json:"rollout,omitempty"`
+}
+
+// AppCDSSpec controls node-side AppCDS policy for a profile.
+type AppCDSSpec struct {
+	// RegenerationEnabled authorizes node-side AppCDS archive regeneration.
+	// It defaults to false.
+	RegenerationEnabled bool `json:"regenerationEnabled,omitempty"`
 }
 
 // NodePoolRef identifies the node pool(s) a profile provisions.

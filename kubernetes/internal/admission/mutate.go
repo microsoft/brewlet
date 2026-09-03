@@ -68,18 +68,19 @@ func MutatePod(pod *corev1.Pod, fleet []NodeCapability) MutationResult {
 		res.ArtifactDigest = pod.Annotations[brewlet.AnnotationArtifactDigest]
 	}
 
-	// 2. Validate the requested JDK/launcher/arch against the ready fleet.
+	// 2. Validate runtime capabilities and AppCDS policy against the ready fleet.
 	jdk := strings.TrimSpace(pod.Annotations[brewlet.AnnotationRequestedJDK])
 	launcher := strings.TrimSpace(pod.Annotations[brewlet.AnnotationRequestedLauncher])
 	arch := splitArch(pod.Annotations[brewlet.AnnotationRequestedArch])
-	if fr := CheckFleet(fleet, jdk, launcher, arch); !fr.Compatible {
+	appCDSRegeneration := strings.EqualFold(strings.TrimSpace(pod.Annotations[brewlet.AnnotationCDSRegenerate]), "true")
+	if fr := CheckFleet(fleet, jdk, launcher, arch, appCDSRegeneration); !fr.Compatible {
 		res.DenyReason = fr.DenyReason
 		res.DenyMessage = fr.Message
 		return res
 	}
 
 	// 3. Steer scheduling onto capable nodes.
-	injectNodeAffinity(pod, jdk, launcher, arch)
+	injectNodeAffinity(pod, jdk, launcher, arch, appCDSRegeneration)
 	return res
 }
 
@@ -130,11 +131,11 @@ func refDigest(ref string) string {
 }
 
 // requiredCapabilityLabels returns the node-label selector requirements a pod
-// needs, derived from its explicit JDK/launcher/arch request. JDK and launcher
-// map to presence matches (Operator: Exists) against provisioner-emitted
-// capability labels; arch maps to an In match against the standard
-// kubernetes.io/arch label. An empty request contributes nothing.
-func requiredCapabilityLabels(jdk, launcher string, arch []string) []corev1.NodeSelectorRequirement {
+// needs, derived from its explicit runtime and AppCDS policy requests. JDK,
+// launcher, and AppCDS map to presence matches (Operator: Exists) against
+// provisioner-emitted capability labels; arch maps to an In match against the
+// standard kubernetes.io/arch label. An empty request contributes nothing.
+func requiredCapabilityLabels(jdk, launcher string, arch []string, appCDSRegeneration bool) []corev1.NodeSelectorRequirement {
 	var reqs []corev1.NodeSelectorRequirement
 	if jdk != "" {
 		key := brewlet.LabelJDKPrefix + jdk
@@ -153,6 +154,11 @@ func requiredCapabilityLabels(jdk, launcher string, arch []string) []corev1.Node
 			Key: brewlet.LabelArch, Operator: corev1.NodeSelectorOpIn, Values: arch,
 		})
 	}
+	if appCDSRegeneration {
+		reqs = append(reqs, corev1.NodeSelectorRequirement{
+			Key: brewlet.LabelAppCDSRegeneration, Operator: corev1.NodeSelectorOpExists,
+		})
+	}
 	return reqs
 }
 
@@ -161,8 +167,8 @@ func requiredCapabilityLabels(jdk, launcher string, arch []string) []corev1.Node
 // matchExpressions within a term are ANDed while terms are ORed, the
 // requirements are appended to every existing term (and a fresh term is created
 // when the pod has none), preserving any operator/user-supplied affinity.
-func injectNodeAffinity(pod *corev1.Pod, jdk, launcher string, arch []string) {
-	reqs := requiredCapabilityLabels(jdk, launcher, arch)
+func injectNodeAffinity(pod *corev1.Pod, jdk, launcher string, arch []string, appCDSRegeneration bool) {
+	reqs := requiredCapabilityLabels(jdk, launcher, arch, appCDSRegeneration)
 	if len(reqs) == 0 {
 		return
 	}
