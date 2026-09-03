@@ -3,7 +3,7 @@
 **Repository:** `microsoft/brewlet`  
 **Revision assessed:** `f6c8a06`  
 **Assessment date:** 2026-09-02  
-**Remediation status verified:** `4206878` (2026-09-03)
+**Remediation status verified:** `92c179a` (2026-09-03)
 
 **Method:** Static, read-only STRIDE review of source code, Kubernetes resources,
 Helm templates, container build files, CI/CD workflows, release automation, and
@@ -17,18 +17,23 @@ constructs OCI bundles, overlay lower layers, and bind mounts for tenant
 workloads.
 
 The review originally identified one Critical, five High, five Medium, and one
-Low issue. All five High findings (2, 3, 4, 6, and 7) and the Low finding (12)
-have since been remediated through merged pull requests. The remaining Critical
-issue is a confirmed path traversal in OCI descriptor digest resolution:
-descriptor digest strings are converted into host filesystem paths without
-validating that they are canonical SHA-256 digests. A namespace tenant that can
-publish and run a malicious digest-pinned Brewlet image can cause the root shim
-to bind-mount arbitrary host paths, including `/`, read-only inside the tenant
-container. This exposes node credentials, kubelet state, and the Secrets and
-service-account tokens of co-located workloads.
+Low issue. The Critical finding (1), all five High findings (2, 3, 4, 6, and 7),
+and the Low finding (12) have since been remediated through merged pull
+requests.
 
-The remediations isolate the node-shared AppCDS cache, preserve the CRI-selected
-pod UID/GID, bind executed content to protected CRI image identity, require
+Finding 1 was a confirmed path traversal in OCI descriptor digest resolution:
+descriptor digest strings were converted into host filesystem paths without
+validating that they were canonical SHA-256 digests, so a namespace tenant able
+to publish and run a malicious digest-pinned Brewlet image could cause the root
+shim to bind-mount arbitrary host paths, including `/`, read-only inside the
+tenant container. Every digest used in path construction is now validated,
+every resolved path is independently confined to the content store, and blob
+bytes are verified against their declared descriptor digest before they are
+read, staged, or mounted.
+
+The remediations bind executed content to protected CRI image identity, confine
+content-addressed paths and verify blob contents before use, isolate the
+node-shared AppCDS cache, preserve the CRI-selected pod UID/GID, require
 explicit digest-pinned JDK and launcher sources, and verify every provisioner
 download and external container image.
 
@@ -39,16 +44,17 @@ and digests are strictly validated; the NodeProfile validating webhook fails
 closed; the operator and admission pods are hardened; and containerd
 configuration updates are validated and rolled back.
 
-**Overall risk: High.** Brewlet should not be used on multi-tenant clusters
-until Finding 1 is fixed. Restricting Brewlet to dedicated, platform-owned node
-pools reduces exposure but does not address the remaining path-input,
-credential-forwarding, provisioning-default, and release-integrity risks.
+**Overall risk: Medium.** The container-escape-equivalent host read primitive is
+closed. The remaining open findings are Medium: launcher and `mainJar` path
+inputs, credential forwarding, the provisioning default that targets every node,
+and release integrity. Restricting Brewlet to dedicated, platform-owned node
+pools further reduces exposure.
 
 ## Findings summary
 
 | # | Severity | Finding | Issue | PR | Confidence |
 |---|----------|---------|-------|----|------------|
-| 1 | Critical | Tenant-controlled OCI digests can bind-mount arbitrary node paths | [#19](https://github.com/microsoft/brewlet/issues/19) | — | 9/10 |
+| 1 | Critical | Tenant-controlled OCI digests can bind-mount arbitrary node paths **(Remediated)** | [#19](https://github.com/microsoft/brewlet/issues/19) | [#43](https://github.com/microsoft/brewlet/pull/43) | 9/10 |
 | 2 | High | The node-shared AppCDS cache is writable from a tenant container **(Remediated)** | [#20](https://github.com/microsoft/brewlet/issues/20) | [#31](https://github.com/microsoft/brewlet/pull/31) | 8/10 |
 | 3 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | [#21](https://github.com/microsoft/brewlet/issues/21) | [#37](https://github.com/microsoft/brewlet/pull/37) | 9/10 |
 | 4 | High | Attestation enforcement verifies a different identity from the executed artifact **(Remediated)** | [#22](https://github.com/microsoft/brewlet/issues/22) | [#33](https://github.com/microsoft/brewlet/pull/33) | 8/10 |
@@ -150,7 +156,7 @@ validating every descriptor digest at its path construction site.
 
 ## Detailed findings
 
-### 1. Tenant-controlled OCI digests can bind-mount arbitrary node paths
+### 1. Tenant-controlled OCI digests can bind-mount arbitrary node paths — remediated
 
 **Severity:** Critical  
 **Confidence:** 9/10  
@@ -158,15 +164,18 @@ validating every descriptor digest at its path construction site.
 **CWE:** CWE-22, CWE-20, CWE-345  
 **Type:** Confirmed vulnerability
 
-**Status:** Open in [issue #19](https://github.com/microsoft/brewlet/issues/19).
-The artifact-identity portion was remediated by
+**Status:** Remediated by [issue #19](https://github.com/microsoft/brewlet/issues/19)
+via [pull request #43](https://github.com/microsoft/brewlet/pull/43). The
+artifact-identity portion had previously been remediated by
 [issue #22](https://github.com/microsoft/brewlet/issues/22) via
-[pull request #33](https://github.com/microsoft/brewlet/pull/33).
+[pull request #33](https://github.com/microsoft/brewlet/pull/33), which bound
+execution to the protected CRI image identity but did not constrain the
+descriptors *inside* the manifest.
 
 **Attacker prerequisites:** Permission to create a Pod in one namespace and
 ability to publish an image to a registry the node can pull from.
 
-**Current evidence:**
+**Original evidence (before remediation):**
 
 - `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:351-380` derives
   the executable manifest from protected CRI image identity rather than the
@@ -174,13 +183,13 @@ ability to publish an image to a registry the node can pull from.
 - `core/shim/cmd/containerd-shim-brewlet-v2/image_identity_linux.go:73-115`
   validates the requested target, resolved config, and platform manifest as
   canonical SHA-256 digests.
-- `core/internal/artifact/artifact.go:346-365` still represents config and layer
+- `core/internal/artifact/artifact.go:346-365` still represented config and layer
   descriptor digests as unrestricted strings.
-- `core/shim/cmd/containerd-shim-brewlet-v2/resolver.go:94-102` splits an
-  arbitrary descriptor digest and passes its components to `filepath.Join`.
-- `core/internal/artifact/artifact.go:401-408` constructs local-layout blob
+- `core/shim/cmd/containerd-shim-brewlet-v2/resolver.go:94-102` split an
+  arbitrary descriptor digest and passed its components to `filepath.Join`.
+- `core/internal/artifact/artifact.go:401-408` constructed local-layout blob
   paths without validating the digest.
-- `core/internal/artifact/blobs.go:126-169` resolves config and layer
+- `core/internal/artifact/blobs.go:126-169` resolved config and layer
   descriptors through those path functions without validating their syntax or
   verifying their bytes against the declared digest.
 - `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:659-692`
@@ -206,24 +215,38 @@ ability to publish an image to a registry the node can pull from.
 This is a container-escape-equivalent host read primitive and a realistic path
 to cluster compromise.
 
-**Remediation:**
+**Remediation applied:**
 
-- Require every digest used in path construction to match
-  `^sha256:[0-9a-f]{64}$`; return an error instead of a path on mismatch.
-- Apply validation in `contentBlobPath`, `Store.BlobPath`, manifest parsing,
-  and every layer selector.
-- Verify blob bytes against the declared digest before use.
-- Reuse the existing canonical digest validation and verified-read path already
-  applied to index and manifest descriptors.
+- `core/internal/artifact/digest.go` is the single choke point for digest
+  handling: `ValidateDigest` enforces `^sha256:[0-9a-f]{64}$`, and `BlobPathIn`
+  independently re-checks with `filepath.Rel`/`filepath.IsLocal` that the
+  constructed path remains under `<root>/blobs/sha256`.
+- `BlobSource.BlobPath` returns `(string, error)`, so no caller can obtain a
+  path for an invalid digest. `Store.BlobPath`, `contentStoreSource`, and
+  `contentBlobPath` all route through `BlobPathIn`.
+- `ReadVerifiedBlob` replaces the separate manifest and store read paths and
+  covers the native config, `Store.Resolve`, and dependency-bundle reads.
+  Runnable-image layers are read through it as well.
+- Natively bind-mounted JAR, classpath, modulepath, and CDS blobs are verified
+  with a streaming SHA-256 (`verifiedBlobPath`) instead of a bare `os.Stat`
+  presence check. Descriptor `Size` remains advisory, but the hash is always
+  verified, so an absent size cannot disable verification.
+- `runnableStageDir` derives from a validated digest hex rather than an
+  unchecked `strings.Cut` fallback.
 
 **Remediation test:**
 
-- Add table tests for traversal, missing/extra hex digits, uppercase hex,
-  unsupported algorithms, and empty components.
-- Add a fuzz test asserting that every resolved content path remains under the
-  content-store root.
-- Add an integration test proving a traversal descriptor fails task creation
-  and produces no mount.
+- `core/internal/artifact/digest_test.go` covers traversal, missing and extra
+  hex digits, uppercase hex, unsupported algorithms, missing prefix, embedded
+  separators, and empty components, plus path-containment assertions.
+- `FuzzBlobPathInStaysUnderContentStore` asserts every resolved content path
+  remains under the content-store root.
+- `core/shim/cmd/containerd-shim-brewlet-v2/resolver_traversal_test.go`
+  reproduces the attack with a self-consistent manifest carrying hostile
+  payload descriptors and asserts no host path is returned.
+- Tier 3b of the e2e harness (`integration-tests/e2e/tier3-runc.sh`) proves a
+  traversal descriptor and a mismatched blob both fail bundle creation and
+  produce no mount.
 
 ### 2. The node-shared AppCDS cache is writable from a tenant container — remediated
 
@@ -804,7 +827,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 | The JVM is non-root unless root is explicitly requested through the Pod security context | `specs/SPECIFICATION.md:1228-1229`; `docs/security.md` | **Remediated:** artifact credentials are rejected and the CRI-populated user is authoritative |
 | Every runtime root arrives through a content-addressable, digest-verified pull | `specs/SPECIFICATION.md:664` | **Remediated:** every JDK and launcher source is explicit and digest-pinned |
 | Only a small per-container upper/scratch layer is writable | `docs/security.md` | **Remediated:** CDS regeneration exposes only a private per-key entry; consumers mount it read-only and the elected writer alone receives it read-write |
-| The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | **Partially remediated:** artifact selection is bound to protected CRI image identity, but descriptor digests still require path validation and byte verification under Finding 1 |
+| The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | **Remediated:** artifact selection is bound to protected CRI image identity, every descriptor digest is validated before path construction, resolved paths are confined to the content store, and blob bytes are verified against their declared digest before use |
 | Ratify/Gatekeeper requires the final-image attestation and fails closed | `docs/security.md` | **Remediated:** the shim resolves the exact digest-pinned CRI request and verifies its target, config, and platform-manifest identity |
 | Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | **Remediated:** JDK and launcher sources require explicit digest-pinned references |
 | The fail-open mutating webhook is presented as a security guardrail | `docs/security.md` | **Remediated for artifact identity:** the webhook overwrites compatibility hints, while the shim independently fails closed using protected CRI metadata |
@@ -813,7 +836,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 
 ### P0: Before multi-tenant or production use
 
-1. Validate every digest used in a path and verify blob content.
+1. **Remediated:** Validate every digest used in a path and verify blob content.
 2. **Remediated:** Bind shim artifact selection to the CRI image identity and
    reject annotation mismatches.
 3. **Remediated:** Make Brewlet admission overwrite security-sensitive
@@ -844,8 +867,8 @@ downloaded tools and external build images are checksum- or digest-pinned.
 
 ## Suggested GitHub issues
 
-1. **Validate OCI digests before path construction and verify blob content.**
-   Covers Finding 1.
+1. **Validate OCI digests before path construction and verify blob content
+   (remediated in issue #19 and pull request #43).** Covers Finding 1.
 2. **Bind shim artifact resolution to the CRI image identity (remediated in
    issue #22 and pull request #33).** Covers Finding 4 and the identity portion
    of Finding 1.

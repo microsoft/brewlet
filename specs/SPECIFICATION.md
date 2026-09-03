@@ -1028,7 +1028,13 @@ and builds/runs on Linux:
 - Artifact blobs are read through a pluggable resolver (`resolver.go`): a
   `containerd` backend reads the manifest + config + JAR straight from
   containerd's on-disk content store by digest (production), and a `layout`
-  backend reads a Brewlet-local OCI layout (the PoC/e2e harness path).
+  backend reads a Brewlet-local OCI layout (the PoC/e2e harness path). Both
+  backends resolve paths only through `artifact.BlobPathIn`, which requires a
+  canonical `sha256:<64 lowercase hex>` digest and independently confirms the
+  result stays under the store's `blobs/sha256` directory. Blob bytes are hashed
+  and checked against the declaring descriptor before they are read, staged, or
+  bind-mounted, so a descriptor inside a tenant-authored manifest can neither
+  escape the content store nor substitute unrelated content.
 
 The workload image reference and manifest digest hints are managed **cluster-side,
 not in the shim**: the `brewlet-admission` webhook (§8.3) overwrites the
