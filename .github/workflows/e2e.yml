@@ -27,57 +27,57 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Local CLI and JVM (tiers 1-2)
+          - name: "Tier 01-02: Local CLI and JVM"
             tiers: --tier 1 --tier 2
             java: true
             cluster: false
             helm: false
-          - name: Shim to runc (tier 3)
+          - name: "Tier 03: Shim to runc"
             tiers: --tier 3
             java: true
             cluster: false
             helm: false
-          - name: Kubernetes control plane (tiers 4-6, 13)
+          - name: "Tier 04-06, 13: Kubernetes control plane"
             tiers: --tier 4 --tier 5 --tier 6 --tier 13
             java: false
             cluster: true
             helm: true
-          - name: Spring PetClinic (tier 7)
+          - name: "Tier 07: Spring PetClinic"
             tiers: --tier 7
             java: true
             cluster: true
             helm: true
-          - name: Node-side AppCDS (tier 8)
+          - name: "Tier 08: Node-side AppCDS"
             tiers: --tier 8
             java: true
             cluster: true
             helm: false
-          - name: Serving and cgroups (tier 9)
+          - name: "Tier 09: Serving and cgroups"
             tiers: --tier 9
             java: true
             cluster: true
             helm: false
-          - name: Helm installation (tier 10)
+          - name: "Tier 10: Helm installation"
             tiers: --tier 10
             java: false
             cluster: true
             helm: true
-          - name: Webhook resilience (tier 11)
+          - name: "Tier 11: Webhook resilience"
             tiers: --tier 11
             java: false
             cluster: true
             helm: false
-          - name: Runnable image (tier 12)
+          - name: "Tier 12: Runnable image"
             tiers: --tier 12
             java: true
             cluster: true
             helm: false
-          - name: Custom JDK NodeProfile (tier 14)
+          - name: "Tier 14: Custom JDK NodeProfile"
             tiers: --tier 14
             java: true
             cluster: true
             helm: false
-          - name: Runtime metrics (tier 15)
+          - name: "Tier 15: Runtime metrics"
             tiers: --tier 15
             java: true
             cluster: true
