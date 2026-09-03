@@ -51,19 +51,21 @@ HOST_CRICTL_PATH="${HOST_CRICTL_PATH:-/usr/local/bin/brewlet-crictl}"
 JDK_HOME_METADATA=".brewlet-java-home"
 JDK_SOURCE_METADATA=".brewlet-source"
 JDK_ACTIVE_INVENTORY=".brewlet-active"
+LAUNCHER_SOURCE_METADATA=".brewlet-source"
+LAUNCHER_ACTIVE_INVENTORY=".brewlet-active"
+SOURCE_POLICY_BIN="${SOURCE_POLICY_BIN:-/opt/brewlet-dist/brewlet-source-policy}"
 
-# Declarative inventory (comma-separated). See §5.3 / §5.4.
-#   JDKS      = <distribution>-<feature>, e.g. "temurin-21,microsoft-25"
-#   JDK_CUSTOM_SOURCE_<n>_{TOKEN,IMAGE,JAVA_HOME} = copy source for each
-#              non-curated JDK; JDK_CUSTOM_SOURCE_COUNT declares the entry count
-#   LAUNCHERS = launcher names, e.g. "jaz"
-JDKS="${JDKS:-temurin-21}"
-JDK_CUSTOM_SOURCE_COUNT="${JDK_CUSTOM_SOURCE_COUNT:-0}"
-LAUNCHERS="${LAUNCHERS:-}"
+# Runtime sources are transported as indexed environment variables so image
+# references and paths never need delimiter escaping. JDK_SOURCE_COUNT must be
+# positive. LAUNCHER_SOURCE_COUNT may be zero because vanilla java comes from
+# every JDK root.
+JDK_SOURCE_COUNT="${JDK_SOURCE_COUNT:-}"
+LAUNCHER_SOURCE_COUNT="${LAUNCHER_SOURCE_COUNT:-0}"
 
-# JDKs and launchers are obtained exclusively via copy-from-image: the vendor's
-# official image is pulled through the host containerd and the runtime tree is
-# copied out onto the host, so no package manager ever touches the host (§5.3).
+# JDKs and launchers are obtained exclusively via copy-from-image after strict
+# validation of administrator-provided digest pins. The image is pulled through
+# host containerd and copied out, so no source image is executed and no host
+# package manager is involved (§5.3).
 CONTAINERD_ADDRESS="${CONTAINERD_ADDRESS:-/run/containerd/containerd.sock}"
 CONTAINERD_NAMESPACE="${CONTAINERD_NAMESPACE:-k8s.io}"
 
@@ -94,6 +96,7 @@ CONTAINERD_VALIDATION_ERROR=""
 # spec.rollout.validate=false sets this to skip validation (§5.6).
 BREWLET_VALIDATE="${BREWLET_VALIDATE:-true}"
 BREWLET_PROFILE_NAME="${BREWLET_PROFILE_NAME:-default}"
+BREWLET_PROFILE_UID="${BREWLET_PROFILE_UID:-}"
 BREWLET_PROFILE_GENERATION="${BREWLET_PROFILE_GENERATION:-0}"
 BREWLET_APP_CDS_REGENERATION_ENABLED="${BREWLET_APP_CDS_REGENERATION_ENABLED:-false}"
 POLICY_DIR="${POLICY_DIR:-$PREFIX/policy}"
@@ -104,6 +107,7 @@ APP_CDS_REGENERATION_SENTINEL="${APP_CDS_REGENERATION_SENTINEL:-$POLICY_DIR/appc
 # renders from spec.registry.mirrors. Every copy-from-image pull rewrites its
 # ref's registry host through this map.
 MIRRORS="${MIRRORS:-}"
+SOURCE_ALLOWED_MIRROR_HOSTS="${SOURCE_ALLOWED_MIRROR_HOSTS:-}"
 
 log()  { printf '[brewlet-provisioner] %s\n' "$*"; }
 
@@ -136,14 +140,79 @@ ANNOTATION_PROVISION_ERROR="brewlet.sh/provision-error"
 # ---------------------------------------------------------------------------
 MIRROR_KEYS=()
 MIRROR_VALS=()
+ALLOWED_MIRROR_HOSTS=()
+
+validate_digest_image() {
+  local image="$1" context="$2" output
+  if ! output="$("$SOURCE_POLICY_BIN" validate-ref --image "$image" 2>&1)"; then
+    die "${context}: ${output#error: }"
+  fi
+}
+
+validate_source_path() {
+  local value="$1" context="$2" output
+  if ! output="$("$SOURCE_POLICY_BIN" validate-path --path "$value" 2>&1)"; then
+    die "${context}: ${output#error: }"
+  fi
+}
+
+parse_allowed_mirror_hosts() {
+  ALLOWED_MIRROR_HOSTS=()
+  [[ -n "$SOURCE_ALLOWED_MIRROR_HOSTS" ]] || return 0
+  [[ "$SOURCE_ALLOWED_MIRROR_HOSTS" != ,* &&
+     "$SOURCE_ALLOWED_MIRROR_HOSTS" != *, &&
+     "$SOURCE_ALLOWED_MIRROR_HOSTS" != *,,* ]] \
+    || die "SOURCE_ALLOWED_MIRROR_HOSTS must be a comma-separated list without empty entries"
+
+  local host existing output
+  IFS=',' read -ra _allowed_hosts <<<"$SOURCE_ALLOWED_MIRROR_HOSTS"
+  for host in "${_allowed_hosts[@]}"; do
+    if ! output="$("$SOURCE_POLICY_BIN" validate-host --host "$host" 2>&1)"; then
+      die "invalid allowed source mirror host '${host}': ${output#error: }"
+    fi
+    for existing in "${ALLOWED_MIRROR_HOSTS[@]:-}"; do
+      [[ "$existing" != "$host" ]] || die "duplicate allowed source mirror host '${host}'"
+    done
+    ALLOWED_MIRROR_HOSTS+=("$host")
+  done
+}
+
+mirror_host_allowed() {
+  local target="$1" allowed
+  for allowed in "${ALLOWED_MIRROR_HOSTS[@]:-}"; do
+    [[ "$target" != "$allowed" ]] || return 0
+  done
+  return 1
+}
+
 parse_mirrors() {
+  MIRROR_KEYS=()
+  MIRROR_VALS=()
+  parse_allowed_mirror_hosts
   [[ -n "$MIRRORS" ]] || return 0
-  local pair host mirror
+  (( ${#ALLOWED_MIRROR_HOSTS[@]} > 0 )) \
+    || die "MIRRORS requires at least one SOURCE_ALLOWED_MIRROR_HOSTS entry"
+  [[ "$MIRRORS" != ,* && "$MIRRORS" != *, && "$MIRRORS" != *,,* ]] \
+    || die "MIRRORS must be a comma-separated list without empty entries"
+
+  local pair host mirror target_host existing output
   IFS=',' read -ra _pairs <<<"$MIRRORS"
   for pair in "${_pairs[@]}"; do
-    [[ -n "$pair" ]] || continue
     host="${pair%%=*}"; mirror="${pair#*=}"
-    [[ -n "$host" && -n "$mirror" && "$host" != "$mirror" ]] || continue
+    [[ "$host" != "$pair" && "$mirror" != *"="* && -n "$host" && -n "$mirror" ]] \
+      || die "invalid registry mirror pair '${pair}'; expected <upstream-host>=<mirror-host[/path]>"
+    if ! output="$("$SOURCE_POLICY_BIN" validate-host --host "$host" 2>&1)"; then
+      die "invalid registry mirror source '${host}': ${output#error: }"
+    fi
+    if ! target_host="$("$SOURCE_POLICY_BIN" validate-mirror --target "$mirror" 2>&1)"; then
+      die "invalid registry mirror destination '${mirror}': ${target_host#error: }"
+    fi
+    [[ "$host" != "$target_host" ]] || die "registry mirror source and destination hosts must differ: '${host}'"
+    mirror_host_allowed "$target_host" \
+      || die "registry mirror destination host '${target_host}' is not approved"
+    for existing in "${MIRROR_KEYS[@]:-}"; do
+      [[ "$existing" != "$host" ]] || die "duplicate registry mirror source '${host}'"
+    done
     MIRROR_KEYS+=("$host")
     MIRROR_VALS+=("$mirror")
     log "registry mirror: ${host} -> ${mirror}"
@@ -162,44 +231,87 @@ mirror_ref() {
   printf '%s' "$ref"
 }
 
-# Custom JDK sources are transported as indexed environment variables so image
-# references and paths do not need delimiter escaping.
-CUSTOM_JDK_TOKENS=("")
-CUSTOM_JDK_IMAGES=("")
-CUSTOM_JDK_JAVA_HOMES=("")
-parse_custom_jdk_sources() {
-  [[ "$JDK_CUSTOM_SOURCE_COUNT" =~ ^[0-9]+$ ]] \
-    || die "JDK_CUSTOM_SOURCE_COUNT must be a non-negative integer"
+# Parsed runtime inventory. JDKS and LAUNCHERS are derived outputs used by the
+# existing installation, validation, and node-advertisement paths; they are
+# never accepted as independent inputs.
+JDK_TOKENS=()
+JDK_IMAGES=()
+JDK_JAVA_HOMES=()
+LAUNCHER_NAMES=()
+LAUNCHER_IMAGES=()
+LAUNCHER_PATHS=()
+JDKS=""
+LAUNCHERS=""
+
+parse_runtime_sources() {
+  [[ -x "$SOURCE_POLICY_BIN" ]] \
+    || die "source policy validator not found or executable at ${SOURCE_POLICY_BIN}"
+  [[ "$JDK_SOURCE_COUNT" =~ ^[1-9][0-9]*$ ]] \
+    || die "JDK_SOURCE_COUNT must be a positive integer"
+  [[ "$LAUNCHER_SOURCE_COUNT" =~ ^[0-9]+$ ]] \
+    || die "LAUNCHER_SOURCE_COUNT must be a non-negative integer"
+
+  JDK_TOKENS=()
+  JDK_IMAGES=()
+  JDK_JAVA_HOMES=()
+  LAUNCHER_NAMES=()
+  LAUNCHER_IMAGES=()
+  LAUNCHER_PATHS=()
 
   local i token_var image_var home_var token image java_home existing
-  for ((i = 0; i < JDK_CUSTOM_SOURCE_COUNT; i++)); do
-    token_var="JDK_CUSTOM_SOURCE_${i}_TOKEN"
-    image_var="JDK_CUSTOM_SOURCE_${i}_IMAGE"
-    home_var="JDK_CUSTOM_SOURCE_${i}_JAVA_HOME"
+  for ((i = 0; i < JDK_SOURCE_COUNT; i++)); do
+    token_var="JDK_SOURCE_${i}_TOKEN"
+    image_var="JDK_SOURCE_${i}_IMAGE"
+    home_var="JDK_SOURCE_${i}_JAVA_HOME"
     token="$(printenv "$token_var" 2>/dev/null || true)"
     image="$(printenv "$image_var" 2>/dev/null || true)"
     java_home="$(printenv "$home_var" 2>/dev/null || true)"
     [[ -n "$token" && -n "$image" && -n "$java_home" ]] \
-      || die "custom JDK source ${i} requires ${token_var}, ${image_var}, and ${home_var}"
+      || die "JDK source ${i} requires ${token_var}, ${image_var}, and ${home_var}"
     [[ "$token" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?-[1-9][0-9]*$ ]] \
-      || die "custom JDK source ${i} token must be a safe <distribution>-<feature> value"
-    [[ "$image" != *"://"* && "$image" != *[[:space:]]* && "$image" == */* ]] \
-      || die "custom JDK source ${i} image must be a fully qualified OCI reference"
-    local image_host="${image%%/*}"
-    [[ "$image_host" == "localhost" || "$image_host" == *.* || "$image_host" == *:* ]] \
-      || die "custom JDK source ${i} image must include an explicit registry host"
-    [[ "$java_home" == /* && "$java_home" != *[[:space:]]* \
-       && "$java_home" != "/" && "$java_home" != */ \
-       && "$java_home" != *"//"* && "$java_home" != *"/./"* \
-       && "$java_home" != *"/../"* && "$java_home" != *"/." && "$java_home" != *"/.." ]] \
-      || die "custom JDK source ${i} javaHome must be a clean absolute path below /"
-    for existing in "${CUSTOM_JDK_TOKENS[@]}"; do
-      [[ "$existing" != "$token" ]] || die "duplicate custom JDK source for ${token}"
+      || die "JDK source ${i} token must be a safe <distribution>-<feature> value"
+    (( ${#token} <= 59 )) || die "JDK source ${i} token exceeds 59 characters"
+    validate_digest_image "$image" "JDK source ${i} image is not digest-pinned"
+    validate_source_path "$java_home" "JDK source ${i} javaHome is invalid"
+    for existing in "${JDK_TOKENS[@]:-}"; do
+      [[ "$existing" != "$token" ]] || die "duplicate JDK source for ${token}"
     done
-    CUSTOM_JDK_TOKENS+=("$token")
-    CUSTOM_JDK_IMAGES+=("$image")
-    CUSTOM_JDK_JAVA_HOMES+=("$java_home")
+    JDK_TOKENS+=("$token")
+    JDK_IMAGES+=("$image")
+    JDK_JAVA_HOMES+=("$java_home")
   done
+
+  local name_var path_var name source_path
+  for ((i = 0; i < LAUNCHER_SOURCE_COUNT; i++)); do
+    name_var="LAUNCHER_SOURCE_${i}_NAME"
+    image_var="LAUNCHER_SOURCE_${i}_IMAGE"
+    path_var="LAUNCHER_SOURCE_${i}_PATH"
+    name="$(printenv "$name_var" 2>/dev/null || true)"
+    image="$(printenv "$image_var" 2>/dev/null || true)"
+    source_path="$(printenv "$path_var" 2>/dev/null || true)"
+    [[ -n "$name" && -n "$image" && -n "$source_path" ]] \
+      || die "launcher source ${i} requires ${name_var}, ${image_var}, and ${path_var}"
+    [[ "$name" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] \
+      || die "launcher source ${i} name must be a lowercase DNS label"
+    (( ${#name} <= 54 )) || die "launcher source ${i} name exceeds 54 characters"
+    [[ "$name" != "java" ]] \
+      || die "launcher source ${i} must not use reserved name 'java'"
+    validate_digest_image "$image" "launcher source ${i} image is not digest-pinned"
+    validate_source_path "$source_path" "launcher source ${i} path is invalid"
+    for existing in "${LAUNCHER_NAMES[@]:-}"; do
+      [[ "$existing" != "$name" ]] || die "duplicate launcher source for ${name}"
+    done
+    LAUNCHER_NAMES+=("$name")
+    LAUNCHER_IMAGES+=("$image")
+    LAUNCHER_PATHS+=("$source_path")
+  done
+
+  JDKS="$(IFS=,; printf '%s' "${JDK_TOKENS[*]}")"
+  if (( ${#LAUNCHER_NAMES[@]} > 0 )); then
+    LAUNCHERS="$(IFS=,; printf '%s' "${LAUNCHER_NAMES[*]}")"
+  else
+    LAUNCHERS=""
+  fi
 }
 
 # Map `uname -m` to the OCI platform token (used only for logging here; the copy
@@ -225,6 +337,64 @@ host_ctr() {
 host_exec() {
   command -v nsenter >/dev/null || die "nsenter not found (required for host operations)"
   nsenter --target 1 --mount --pid -- "$@"
+}
+
+ACTIVE_SOURCE_MOUNTS=()
+
+track_source_mount() {
+  ACTIVE_SOURCE_MOUNTS+=("$1")
+}
+
+untrack_source_mount() {
+  local target="$1" mount_dir
+  local -a remaining=()
+  if (( ${#ACTIVE_SOURCE_MOUNTS[@]} > 0 )); then
+    for mount_dir in "${ACTIVE_SOURCE_MOUNTS[@]}"; do
+      [[ "$mount_dir" == "$target" ]] || remaining+=("$mount_dir")
+    done
+  fi
+  ACTIVE_SOURCE_MOUNTS=()
+  if (( ${#remaining[@]} > 0 )); then
+    ACTIVE_SOURCE_MOUNTS=("${remaining[@]}")
+  fi
+}
+
+release_source_mount() {
+  local mount_dir="$1"
+  if ! host_ctr images unmount --rm "$mount_dir" >/dev/null 2>&1; then
+    host_exec mountpoint -q "$mount_dir" && return 1
+  fi
+  host_exec rmdir "$mount_dir" >/dev/null 2>&1 || return 1
+  untrack_source_mount "$mount_dir"
+}
+
+cleanup_active_source_mounts() {
+  local mount_dir
+  (( ${#ACTIVE_SOURCE_MOUNTS[@]} > 0 )) || return 0
+  local -a mounts=("${ACTIVE_SOURCE_MOUNTS[@]}")
+  for mount_dir in "${mounts[@]}"; do
+    release_source_mount "$mount_dir" || true
+  done
+}
+
+cleanup_stale_source_mounts() {
+  local mount_dir mounts
+  if ! mounts="$(host_exec find "$PREFIX" -mindepth 1 -maxdepth 1 -type d -name '.image-mount-*' -print)"; then
+    die "could not enumerate stale source mounts under $PREFIX"
+  fi
+  while IFS= read -r mount_dir; do
+    [[ -n "$mount_dir" ]] || continue
+    track_source_mount "$mount_dir"
+    if ! release_source_mount "$mount_dir"; then
+      die "could not clean stale source mount $mount_dir"
+    fi
+  done <<<"$mounts"
+}
+
+install_source_mount_traps() {
+  trap cleanup_active_source_mounts EXIT
+  trap 'exit 143' TERM
+  trap 'exit 130' INT
 }
 
 # ---------------------------------------------------------------------------
@@ -317,9 +487,9 @@ install_jdk() {
   dist="${spec%-*}"; feature="${spec##*-}"
   dest="$PREFIX/jdks/${dist}-${feature}"
   resolve_jdk_source "$dist" "$feature"
-  if jdk_root_complete "$dest" &&
-    [[ -f "$dest/$JDK_SOURCE_METADATA" ]] &&
-    cmp -s <(printf '%s\n%s\n' "$JDK_SOURCE_IMAGE" "$JDK_SOURCE_JAVA_HOME") "$dest/$JDK_SOURCE_METADATA"; then
+  if [[ -f "$dest/$JDK_SOURCE_METADATA" ]] &&
+    cmp -s <(printf '%s\n%s\n' "$JDK_SOURCE_IMAGE" "$JDK_SOURCE_JAVA_HOME") "$dest/$JDK_SOURCE_METADATA" &&
+    jdk_root_complete "$dest"; then
     log "JDK ${spec} already present at $dest — skipping"
     return 0
   fi
@@ -350,28 +520,17 @@ resolve_jdk_source() {
   local dist="$1" feature="$2" token="${1}-${2}" i
   JDK_SOURCE_IMAGE=""
   JDK_SOURCE_JAVA_HOME=""
-  case "$dist" in
-    microsoft)
-      JDK_SOURCE_IMAGE="mcr.microsoft.com/openjdk/jdk:${feature}-ubuntu"
-      JDK_SOURCE_JAVA_HOME="/usr/lib/jvm/msopenjdk-${feature}"
-      ;;
-    temurin)
-      JDK_SOURCE_IMAGE="docker.io/library/eclipse-temurin:${feature}"
-      JDK_SOURCE_JAVA_HOME="/opt/java/openjdk"
-      ;;
-    *)
-      for i in "${!CUSTOM_JDK_TOKENS[@]}"; do
-        if [[ "${CUSTOM_JDK_TOKENS[$i]}" == "$token" ]]; then
-          JDK_SOURCE_IMAGE="${CUSTOM_JDK_IMAGES[$i]}"
-          JDK_SOURCE_JAVA_HOME="${CUSTOM_JDK_JAVA_HOMES[$i]}"
-          break
-        fi
-      done
-      [[ -n "$JDK_SOURCE_IMAGE" && -n "$JDK_SOURCE_JAVA_HOME" ]] \
-        || die "distribution '${dist}' is not curated and ${token} has no custom JDK source"
-      ;;
-  esac
+  for i in "${!JDK_TOKENS[@]}"; do
+    if [[ "${JDK_TOKENS[$i]}" == "$token" ]]; then
+      JDK_SOURCE_IMAGE="${JDK_IMAGES[$i]}"
+      JDK_SOURCE_JAVA_HOME="${JDK_JAVA_HOMES[$i]}"
+      break
+    fi
+  done
+  [[ -n "$JDK_SOURCE_IMAGE" && -n "$JDK_SOURCE_JAVA_HOME" ]] \
+    || die "no configured source exists for JDK ${token}"
   JDK_SOURCE_IMAGE="$(mirror_ref "$JDK_SOURCE_IMAGE")"
+  validate_digest_image "$JDK_SOURCE_IMAGE" "resolved JDK source for ${token} is invalid"
 }
 
 # Copy-from-image: pull and mount the source image through host containerd, then
@@ -379,67 +538,143 @@ resolve_jdk_source() {
 # layer and mounts source.javaHome at /opt/jdk. Mount/copy avoids requiring a
 # shell or package tools in custom jlink images.
 jdk_from_image() {
-  local dist="$1" feature="$2" dest="$3" image src mount_dir
+  local dist="$1" feature="$2" dest="$3" image src digest mount_dir
   resolve_jdk_source "$dist" "$feature"
   image="$JDK_SOURCE_IMAGE"
   src="$JDK_SOURCE_JAVA_HOME"
+  digest="${image##*@sha256:}"
   log "  pulling $image"
   host_ctr image pull "$image" >/dev/null
-  mount_dir="$PREFIX/.image-mount-${dist}-${feature}"
+  # ctr uses the target path as its snapshot key, so include the immutable digest
+  # to prevent a rotated source from reusing a prior image's snapshot.
+  mount_dir="$PREFIX/.image-mount-${dist}-${feature}-${digest}"
   host_exec mkdir -p "$mount_dir"
+  track_source_mount "$mount_dir"
   if ! host_ctr images mount "$image" "$mount_dir" >/dev/null; then
-    host_exec rmdir "$mount_dir" >/dev/null 2>&1 || true
+    release_source_mount "$mount_dir" || true
     die "could not mount JDK source image $image"
   fi
   if ! host_exec cp -a "$mount_dir/." "$dest/"; then
-    host_ctr images unmount "$mount_dir" >/dev/null 2>&1 || true
-    host_exec rmdir "$mount_dir" >/dev/null 2>&1 || true
+    release_source_mount "$mount_dir" || true
     die "could not copy JDK source image $image"
   fi
-  host_ctr images unmount "$mount_dir" >/dev/null
-  host_exec rmdir "$mount_dir" >/dev/null 2>&1 || true
+  release_source_mount "$mount_dir" || die "could not unmount JDK source image $image"
   mkdir -p "$dest/proc"
   printf '%s\n' "$src" >"$dest/$JDK_HOME_METADATA"
   printf '%s\n%s\n' "$image" "$src" >"$dest/$JDK_SOURCE_METADATA"
 }
 
 # ---------------------------------------------------------------------------
-# Step 2b — install launcher layers (e.g. jaz).  Independent of the JDKs (§5.4).
+# Step 2b — install launcher layers (e.g. jaz). Independent of the JDKs (§5.4).
 # ---------------------------------------------------------------------------
+LAUNCHER_SOURCE_IMAGE=""
+LAUNCHER_SOURCE_PATH=""
+
+resolve_launcher_source() {
+  local name="$1" i
+  LAUNCHER_SOURCE_IMAGE=""
+  LAUNCHER_SOURCE_PATH=""
+  for i in "${!LAUNCHER_NAMES[@]}"; do
+    if [[ "${LAUNCHER_NAMES[$i]}" == "$name" ]]; then
+      LAUNCHER_SOURCE_IMAGE="${LAUNCHER_IMAGES[$i]}"
+      LAUNCHER_SOURCE_PATH="${LAUNCHER_PATHS[$i]}"
+      break
+    fi
+  done
+  [[ -n "$LAUNCHER_SOURCE_IMAGE" && -n "$LAUNCHER_SOURCE_PATH" ]] \
+    || die "no configured source exists for launcher ${name}"
+  LAUNCHER_SOURCE_IMAGE="$(mirror_ref "$LAUNCHER_SOURCE_IMAGE")"
+  validate_digest_image "$LAUNCHER_SOURCE_IMAGE" "resolved launcher source for ${name} is invalid"
+}
+
+launcher_source_has_symlink() {
+  local mount_dir="$1" source_path="$2" current="$1" component
+  local -a components=()
+  if host_exec test -L "$current"; then
+    return 0
+  fi
+  IFS='/' read -r -a components <<<"${source_path#/}"
+  for component in "${components[@]}"; do
+    current="${current}/${component}"
+    if host_exec test -L "$current"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 install_launcher() {
-  local name="$1"
-  local dest="$PREFIX/launchers/${name}"
+  local name="$1" dest stage retired digest mount_dir source_file
+  dest="$PREFIX/launchers/${name}"
   if [[ "$name" == "java" ]]; then
     log "launcher 'java' is provided by the JDK root; nothing to stage"
     return 0
   fi
-  if [[ -x "$dest/bin/${name}" ]]; then
+  resolve_launcher_source "$name"
+  if [[ -f "$dest/$LAUNCHER_SOURCE_METADATA" ]] &&
+    cmp -s <(printf '%s\n%s\n' "$LAUNCHER_SOURCE_IMAGE" "$LAUNCHER_SOURCE_PATH") "$dest/$LAUNCHER_SOURCE_METADATA" &&
+    [[ -x "$dest/bin/${name}" ]]; then
     log "launcher ${name} already present — skipping"
     return 0
   fi
   log "installing launcher ${name} -> $dest/bin/${name}"
-  mkdir -p "$dest/bin"
-  case "$name" in
-    jaz)
-      # jaz ships preinstalled in the Microsoft Build of OpenJDK images, so copy
-      # it out via the host containerd; otherwise fall back to a binary baked into
-      # the provisioner image at /opt/brewlet-dist/launchers/jaz.
-      if [[ -x "$HOST_CTR" ]]; then
-        local image="mcr.microsoft.com/openjdk/jdk:25-ubuntu"
-        image="$(mirror_ref "$image")"
-        host_ctr image pull "$image" >/dev/null
-        host_ctr run --rm --net-host \
-          --mount "type=bind,src=${dest},dst=/out,options=rbind:rw" \
-          "$image" "brewlet-launcher-copy-jaz" cp -a /usr/bin/jaz /out/bin/jaz
-      elif [[ -x /opt/brewlet-dist/launchers/jaz ]]; then
-        install -m 0755 /opt/brewlet-dist/launchers/jaz "$dest/bin/jaz"
-      else
-        die "cannot install launcher 'jaz': ctr unavailable and no baked binary at /opt/brewlet-dist/launchers/jaz"
-      fi ;;
-    *)
-      die "unknown launcher '${name}'" ;;
-  esac
-  chmod -R a-w "$dest" 2>/dev/null || true
+  stage="${dest}.staging.$$"
+  chmod -R u+w "$stage" 2>/dev/null || true
+  rm -rf "$stage"
+  mkdir -p "$stage/bin"
+  log "  pulling $LAUNCHER_SOURCE_IMAGE"
+  host_ctr image pull "$LAUNCHER_SOURCE_IMAGE" >/dev/null
+  digest="${LAUNCHER_SOURCE_IMAGE##*@sha256:}"
+  mount_dir="$PREFIX/.image-mount-launcher-${name}-${digest}"
+  host_exec mkdir -p "$mount_dir"
+  track_source_mount "$mount_dir"
+  if ! host_ctr images mount "$LAUNCHER_SOURCE_IMAGE" "$mount_dir" >/dev/null; then
+    release_source_mount "$mount_dir" || true
+    die "could not mount launcher source image $LAUNCHER_SOURCE_IMAGE"
+  fi
+  source_file="${mount_dir}${LAUNCHER_SOURCE_PATH}"
+  if ! host_exec test -f "$source_file" || launcher_source_has_symlink "$mount_dir" "$LAUNCHER_SOURCE_PATH"; then
+    release_source_mount "$mount_dir" || true
+    die "launcher ${name} source must be a regular file reached without symlink path components"
+  fi
+  if ! host_exec install -m 0755 "$source_file" "$stage/bin/$name"; then
+    release_source_mount "$mount_dir" || true
+    die "could not copy launcher ${name} from $LAUNCHER_SOURCE_IMAGE"
+  fi
+  release_source_mount "$mount_dir" || die "could not unmount launcher source image $LAUNCHER_SOURCE_IMAGE"
+  printf '%s\n%s\n' "$LAUNCHER_SOURCE_IMAGE" "$LAUNCHER_SOURCE_PATH" >"$stage/$LAUNCHER_SOURCE_METADATA"
+  chmod -R a-w "$stage" 2>/dev/null || true
+  if [[ -e "$dest" ]]; then
+    retired="${dest}.retired.$(date +%s).$$"
+    mv "$dest" "$retired" || die "could not retain the previous launcher ${name}"
+  fi
+  if ! mv "$stage" "$dest"; then
+    [[ -n "${retired:-}" && -e "$retired" ]] && mv "$retired" "$dest" || true
+    die "could not activate launcher ${name}"
+  fi
+}
+
+preflight_sources() {
+  local j l
+  for j in "${JDK_TOKENS[@]}"; do
+    resolve_jdk_source "${j%-*}" "${j##*-}"
+  done
+  for l in "${LAUNCHER_NAMES[@]}"; do
+    resolve_launcher_source "$l"
+  done
+  log "validated all configured JDK and launcher sources"
+}
+
+install_runtime_sources() {
+  local j launcher
+  for j in "${JDK_TOKENS[@]}"; do
+    install_jdk "$j"
+  done
+  write_active_jdk_inventory
+  for launcher in "${LAUNCHER_NAMES[@]}"; do
+    install_launcher "$launcher"
+  done
+  write_active_launcher_inventory
 }
 
 # ---------------------------------------------------------------------------
@@ -495,15 +730,7 @@ validate_launcher() {
   [[ -e "$binary" ]] || die "launcher-${reason_id}-missing"
   [[ -x "$binary" ]] || die "launcher-${reason_id}-not-executable"
 
-  case "$name" in
-    jaz)
-      JAZ_PRINT_VERSION=1 JAZ_EXIT_WITHOUT_FLUSH=1 "$binary" >/dev/null 2>&1 \
-        || die "launcher-${reason_id}-probe-failed" ;;
-    *)
-      "$binary" -version >/dev/null 2>&1 \
-        || die "launcher-${reason_id}-probe-failed" ;;
-  esac
-  log "launcher ${name} probe passed"
+  log "launcher ${name} is present and executable"
 }
 
 containerd_config_has_runtime() {
@@ -660,11 +887,11 @@ configure_containerd_validated() {
   fi
 }
 
-# Before readiness is advertised, smoke-test every installed JDK and launcher
-# root. Honors BREWLET_VALIDATE=false (skip).
+# Before readiness is advertised, smoke-test every installed JDK and verify each
+# staged launcher exists and is executable. Honors BREWLET_VALIDATE=false.
 validate_runtime() {
   if [[ "${BREWLET_VALIDATE}" == "false" ]]; then
-    log "validation disabled (BREWLET_VALIDATE=false); skipping smoke test"
+    log "validation disabled (BREWLET_VALIDATE=false); skipping runtime checks"
     return 0
   fi
   local spec dist feature root java_home launcher
@@ -681,7 +908,7 @@ validate_runtime() {
   for launcher in "${_launchers[@]}"; do
     [[ -n "$launcher" ]] && validate_launcher "$launcher"
   done
-  log "validation passed: all JDK and launcher roots smoke-tested"
+  log "validation passed: all JDKs smoke-tested and launchers checked"
 }
 
 # Render the selected configuration. Validated mode owns drop-in detection and
@@ -954,7 +1181,7 @@ label_node() {
   # Per-capability labels drive the admission webhook's nodeAffinity so the
   # scheduler skips incompatible nodes (annotations can't drive nodeAffinity).
   # For each JDK <dist>-<feature> we emit both an exact label and a
-  # distribution-agnostic feature label; for each launcher (incl. built-in java)
+  # distribution-agnostic feature label; for each launcher (including implicit java)
   # a presence label. See https://github.com/microsoft/brewlet/tree/main/specs §8/§14.
   local caps=()
   for j in "${_jdks[@]}"; do
@@ -975,7 +1202,22 @@ label_node() {
   fi
   log "advertising scheduling labels: ${caps[*]}"
   kubectl label node "$NODE_NAME" "${caps[@]}" --overwrite || return 1
+  verify_profile_identity
   kubectl label node "$NODE_NAME" brewlet.sh/runtime=ready --overwrite || return 1
+}
+
+verify_profile_identity() {
+  [[ -n "$BREWLET_PROFILE_UID" ]] || return 0
+  local identity uid generation deleting
+  if ! identity="$(kubectl get nodeprofile "$BREWLET_PROFILE_NAME" \
+      -o jsonpath='{.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}' 2>/dev/null)"; then
+    die "profile ${BREWLET_PROFILE_NAME} no longer exists before readiness publication"
+  fi
+  IFS='|' read -r uid generation deleting <<<"$identity"
+  [[ "$uid" == "$BREWLET_PROFILE_UID" &&
+     "$generation" == "$BREWLET_PROFILE_GENERATION" &&
+     -z "$deleting" ]] \
+    || die "profile ${BREWLET_PROFILE_NAME} identity changed before readiness publication"
 }
 
 clear_node_advertisement() {
@@ -1007,6 +1249,17 @@ write_active_jdk_inventory() {
   mkdir -p "$PREFIX/jdks"
   tr ',' '\n' <<<"$JDKS" >"$tmp"
   mv "$tmp" "$PREFIX/jdks/$JDK_ACTIVE_INVENTORY"
+}
+
+write_active_launcher_inventory() {
+  local tmp="$PREFIX/launchers/${LAUNCHER_ACTIVE_INVENTORY}.tmp.$$"
+  mkdir -p "$PREFIX/launchers"
+  if [[ -n "$LAUNCHERS" ]]; then
+    tr ',' '\n' <<<"$LAUNCHERS" >"$tmp"
+  else
+    : >"$tmp"
+  fi
+  mv "$tmp" "$PREFIX/launchers/$LAUNCHER_ACTIVE_INVENTORY"
 }
 
 # ---------------------------------------------------------------------------
@@ -1047,28 +1300,7 @@ remove_shim() {
 unlabel_node() {
   command -v kubectl >/dev/null || { log "WARN: kubectl not present; skipping node unlabelling"; return 0; }
   log "removing brewlet runtime labels/annotations from ${NODE_NAME}"
-  # Drop readiness + inventory annotations and the runtime-ready label.
-  kubectl annotate node "$NODE_NAME" \
-    brewlet.sh/jdks- brewlet.sh/jdks-info- brewlet.sh/launchers- \
-    brewlet.sh/profile- brewlet.sh/profile-generation- \
-    "${ANNOTATION_PROVISION_ERROR}-" >/dev/null 2>&1 || true
-  kubectl label node "$NODE_NAME" brewlet.sh/runtime- brewlet.sh/appcds-regeneration- >/dev/null 2>&1 || true
-
-  # Drop every per-capability scheduling label this profile could have set.
-  local caps=()
-  IFS=',' read -ra _jdks <<<"$JDKS"
-  for j in "${_jdks[@]}"; do
-    [[ -n "$j" ]] || continue
-    caps+=( "brewlet.sh/jdk.${j}-" "brewlet.sh/jdk-feature.${j##*-}-" )
-  done
-  caps+=( "brewlet.sh/launcher.java-" )
-  if [[ -n "$LAUNCHERS" ]]; then
-    IFS=',' read -ra _launchers <<<"$LAUNCHERS"
-    for l in "${_launchers[@]}"; do
-      [[ -n "$l" ]] && caps+=( "brewlet.sh/launcher.${l}-" )
-    done
-  fi
-  [[ ${#caps[@]} -gt 0 ]] && kubectl label node "$NODE_NAME" "${caps[@]}" >/dev/null 2>&1 || true
+  clear_node_advertisement || log "WARN: could not remove all brewlet node advertisements"
 }
 
 cleanup_host() {
@@ -1095,6 +1327,8 @@ cleanup_host() {
 
 cleanup_node() {
   log "cleaning up node ${NODE_NAME} for deleted NodeProfile (BREWLET_MODE=cleanup)"
+  install_source_mount_traps
+  cleanup_stale_source_mounts
   cleanup_host
   log "node ${NODE_NAME} cleanup complete"
 
@@ -1105,9 +1339,6 @@ cleanup_node() {
 }
 
 main() {
-  parse_mirrors
-  parse_custom_jdk_sources
-
   if [[ "${BREWLET_MODE}" == "cleanup" ]]; then
     cleanup_node
     return 0
@@ -1117,22 +1348,20 @@ main() {
   remove_appcds_regeneration_policy \
     || die "could not remove stale AppCDS regeneration policy before provisioning"
   clear_node_advertisement || die "could not remove stale node readiness before provisioning"
+  parse_mirrors
+  parse_runtime_sources
   require_cgroup_v2
+  preflight_sources
   install_shim
-
-  IFS=',' read -ra jdk_list <<<"$JDKS"
-  for j in "${jdk_list[@]}"; do [[ -n "$j" ]] && install_jdk "$j"; done
-  write_active_jdk_inventory
-
-  if [[ -n "$LAUNCHERS" ]]; then
-    IFS=',' read -ra launcher_list <<<"$LAUNCHERS"
-    for l in "${launcher_list[@]}"; do [[ -n "$l" ]] && install_launcher "$l"; done
-  fi
+  install_source_mount_traps
+  cleanup_stale_source_mounts
+  install_runtime_sources
 
   configure_containerd
   activate_containerd_config
   validate_readiness_after_activation
   verify_shim
+  verify_profile_identity
   configure_appcds_regeneration_policy \
     || die "could not apply AppCDS regeneration policy"
   label_node || die "could not publish node runtime inventory"

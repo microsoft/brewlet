@@ -17,8 +17,6 @@ func testConfig() Config {
 	return Config{
 		Namespace:        "brewlet",
 		ProvisionerImage: "ghcr.io/microsoft/brewlet-node-provisioner:test",
-		JDKs:             "temurin-21,microsoft-25",
-		Launchers:        "jaz",
 		MetricsEnabled:   true,
 	}
 }
@@ -45,14 +43,14 @@ func TestBuildRuntimeClass(t *testing.T) {
 func TestBuildProfileDaemonSet(t *testing.T) {
 	cfg := testConfig()
 	profile := &nodev1alpha1.NodeProfile{
-		ObjectMeta: metav1.ObjectMeta{Name: "general"},
+		ObjectMeta: metav1.ObjectMeta{Name: "general", UID: "profile-uid", Generation: 3},
 		Spec: nodev1alpha1.NodeProfileSpec{
 			NodePool: nodev1alpha1.NodePoolRef{Names: []string{"general"}, Key: "cloud.google.com/gke-nodepool"},
 			JDKs: []nodev1alpha1.JDKRef{
-				{Distribution: "temurin", Feature: 21},
-				{Distribution: "microsoft", Feature: 25},
+				jdk("temurin", 21),
+				jdk("microsoft", 25),
 			},
-			Launchers: []string{"jaz"},
+			Launchers: []nodev1alpha1.LauncherRef{launcher("jaz")},
 			AppCDS:    &nodev1alpha1.AppCDSSpec{RegenerationEnabled: true},
 			Registry:  &nodev1alpha1.RegistrySpec{Mirrors: map[string]string{"mcr.microsoft.com": "registry.internal/mcr"}},
 		},
@@ -94,11 +92,14 @@ func TestBuildProfileDaemonSet(t *testing.T) {
 	for _, e := range spec.Containers[0].Env {
 		env[e.Name] = e.Value
 	}
-	if env["JDKS"] != "temurin-21,microsoft-25" {
-		t.Errorf("JDKS env = %q", env["JDKS"])
+	if env["JDK_SOURCE_COUNT"] != "2" {
+		t.Errorf("JDK_SOURCE_COUNT env = %q", env["JDK_SOURCE_COUNT"])
 	}
-	if env["LAUNCHERS"] != "jaz" {
-		t.Errorf("LAUNCHERS env = %q", env["LAUNCHERS"])
+	if env["JDK_SOURCE_0_TOKEN"] != "temurin-21" || env["JDK_SOURCE_1_TOKEN"] != "microsoft-25" {
+		t.Errorf("JDK source tokens = %q, %q", env["JDK_SOURCE_0_TOKEN"], env["JDK_SOURCE_1_TOKEN"])
+	}
+	if env["LAUNCHER_SOURCE_COUNT"] != "1" || env["LAUNCHER_SOURCE_0_NAME"] != "jaz" {
+		t.Errorf("launcher source env = count %q name %q", env["LAUNCHER_SOURCE_COUNT"], env["LAUNCHER_SOURCE_0_NAME"])
 	}
 	if env["MIRRORS"] != "mcr.microsoft.com=registry.internal/mcr" {
 		t.Errorf("MIRRORS env = %q", env["MIRRORS"])
@@ -108,6 +109,9 @@ func TestBuildProfileDaemonSet(t *testing.T) {
 	}
 	if env["BREWLET_APP_CDS_REGENERATION_ENABLED"] != "true" {
 		t.Errorf("BREWLET_APP_CDS_REGENERATION_ENABLED env = %q, want true", env["BREWLET_APP_CDS_REGENERATION_ENABLED"])
+	}
+	if env["BREWLET_PROFILE_UID"] != "profile-uid" || env["BREWLET_PROFILE_GENERATION"] != "3" {
+		t.Errorf("profile identity env = uid %q generation %q", env["BREWLET_PROFILE_UID"], env["BREWLET_PROFILE_GENERATION"])
 	}
 	if len(spec.Containers) != 2 || spec.Containers[1].Name != "metrics-exporter" {
 		t.Fatalf("containers = %+v, want provisioner plus metrics-exporter sidecar", spec.Containers)
@@ -123,7 +127,7 @@ func TestBuildProfileDaemonSetWithoutMetrics(t *testing.T) {
 	profile := &nodev1alpha1.NodeProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "general"},
 		Spec: nodev1alpha1.NodeProfileSpec{
-			JDKs: []nodev1alpha1.JDKRef{{Distribution: "temurin", Feature: 21}},
+			JDKs: []nodev1alpha1.JDKRef{jdk("temurin", 21)},
 		},
 	}
 
@@ -142,7 +146,7 @@ func TestBuildProfileDaemonSetWithoutMetrics(t *testing.T) {
 func TestProfileAffinityCatchAll(t *testing.T) {
 	def := &nodev1alpha1.NodeProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
-		Spec:       nodev1alpha1.NodeProfileSpec{JDKs: []nodev1alpha1.JDKRef{{Distribution: "temurin", Feature: 21}}},
+		Spec:       nodev1alpha1.NodeProfileSpec{JDKs: []nodev1alpha1.JDKRef{jdk("temurin", 21)}},
 	}
 
 	// With sibling named pools, the catch-all default excludes them via NotIn.

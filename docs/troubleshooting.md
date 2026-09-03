@@ -14,6 +14,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | OCI artifact missing/unauthorized | `ImagePull`-style failure on the pod | [→ artifact pull](#imagepull-style-failure) |
 | JVM OOM | `ExitOnOutOfMemoryError` → exit → kubelet restart | [→ OOM](#pod-restarts-oomkilled) |
 | Node provisioning fails | Node not labeled `ready`; condition/event `ProvisionFailed` | [→ provisioning](#node-never-becomes-ready) |
+| NodeProfile is invalid | `Ready=False`, reason `InvalidProfile`; profile DaemonSet is absent | [→ source policy](#nodeprofile-source-policy-failures) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 
@@ -38,16 +39,23 @@ kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-e
 
 - **cgroup v1-only node** — the provisioner refuses it (cgroup v2 is required). Move
   the node to a cgroup v2 kernel/config, or exclude it.
-- **JDK copy-from-image failed** — the node can't reach the vendor JDK image, or an
-  uncurated distribution was requested. Verify the containerd socket mount and image
-  pull access, mirror the image, or request `temurin`/`microsoft`. See
-  [JDK management](jdk-management.md#installation-copy-from-image).
+- **Runtime source preflight failed** — a required indexed entry is missing, an
+  image is not a canonical SHA-256 digest reference, a path/name is malformed,
+  an entry is duplicated, or a mirror is malformed/unapproved. The provisioner
+  exits before pulling or mounting source content. See
+  [NodeProfile source-policy failures](#nodeprofile-source-policy-failures).
+- **JDK copy-from-image failed** — the node can't reach the verified digest-pinned
+  JDK image. Verify the containerd socket mount and image pull access, or mirror
+  the exact digest through an approved destination. See
+  [JDK management](jdk-management.md#source-model).
 - **can't reach the registry / socket** — verify the containerd
   socket mount and that the node can pull the JDK image.
-- **JDK or launcher probe failed** — `brewlet.sh/provision-error` identifies the
-  failed component. Confirm each configured JDK has an executable `bin/java`;
-  confirm each launcher has an executable `bin/<name>` and can complete its
-  version probe. A failed probe removes stale runtime and capability labels.
+- **JDK or launcher validation failed** — `brewlet.sh/provision-error`
+  identifies the failed component. Confirm each configured JDK has an executable
+  `<javaHome>/bin/java` that passes `java -version`; confirm each launcher source
+  is a regular non-symlink file and the staged copy is executable. Arbitrary
+  launchers are not executed as readiness probes. A failure removes stale
+  runtime and capability labels.
 - **containerd config validation failed** — in `validated` mode, Brewlet runs
   `containerd config dump` and requires the exact `brewlet` handler before
   activation. Inspect the provisioner log and the effective host configuration;
@@ -60,6 +68,50 @@ kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-e
   immediate operator attention.
 - **RBAC** — the provisioner needs `get`/`patch` on nodes to label them; confirm the
   ServiceAccount/ClusterRole from the manifest/chart are present.
+
+---
+
+## NodeProfile source-policy failures
+
+The admission webhook validates sources and mirrors for immediate feedback, but
+the reconciler repeats the same checks. A stored invalid profile therefore fails
+closed even if admission is disabled or bypassed: its provisioner DaemonSet is
+withheld/deleted and only that profile's owned node advertisements are removed.
+Repair an invalid profile before deleting it if you need automatic host
+reversal. Its current pool selector is untrusted and may overlap another
+profile, so deletion while `InvalidProfile` deliberately skips the cleanup
+DaemonSet rather than risk deprovisioning another profile's nodes. The operator
+still waits for that profile's provisioner and cleanup pods to terminate before
+withdrawing advertisements one final time and releasing the finalizer.
+
+```bash
+kubectl get nodeprofile <name> \
+  -o jsonpath='{range .status.conditions[*]}{.type}{"="}{.status}{" reason="}{.reason}{" message="}{.message}{"\n"}{end}'
+kubectl describe nodeprofile <name>
+kubectl logs -n brewlet deploy/brewlet-operator
+```
+
+Correct the condition message:
+
+- replace every tagged `spec.jdks[].source.image` with a fully qualified,
+  tagless `repository@sha256:<64 lowercase hex>` reference;
+- supply `source.image` and `source.javaHome` for every JDK;
+- supply `name`, `source.image`, and `source.path` for every optional launcher;
+- add the exact mirror destination host, including any explicit port, to
+  `security.allowedSourceMirrorHosts`, or remove the mapping; and
+- remove duplicate/self mirror mappings and conflicting named-pool ownership.
+
+To inspect a provisioner source declaration directly:
+
+```bash
+/opt/brewlet-dist/brewlet-source-policy validate-ref \
+  --image docker.io/library/azul-zulu@sha256:2e230d906cffcc7bb7360ce82836f2ff0e0be74a1d5ebaf929e4e6ac99d61bf2
+/opt/brewlet-dist/brewlet-source-policy validate-path \
+  --path /usr/lib/jvm/zulu21
+```
+
+An air-gapped mirror must preserve the referenced OCI manifest/index bytes and
+digest.
 
 ---
 
@@ -79,11 +131,18 @@ kubectl get nodes -o custom-columns=NODE:.metadata.name,JDKS:.metadata.annotatio
 
 **Fix:** either request a JDK the fleet has, or add the JDK to the inventory:
 
-```bash
-helm upgrade brewlet ./charts/brewlet --set provisioner.jdks="temurin-21,temurin-25"
+```yaml
+provisioner:
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<reviewed-digest>
+        javaHome: /opt/java/openjdk
 ```
 
-Then wait for nodes to re-provision (`brewlet.sh/jdks` updates) and re-deploy.
+Apply the values with `helm upgrade ... -f values.yaml`, wait for
+`brewlet.sh/jdks` to update, and re-deploy.
 
 ---
 
@@ -96,9 +155,10 @@ Same as above, for launchers. The pod requested `spec.jvm.launcher` or
 kubectl get nodes -o custom-columns=NODE:.metadata.name,LAUNCHERS:.metadata.annotations.brewlet\\.sh/launchers
 ```
 
-**Fix:** add the launcher to the inventory (`provisioner.launchers="jaz"`) and
-re-provision, or drop the request to use the vanilla `java` launcher (omit the
-annotation). See [Launchers](launchers.md#installing-jaz-on-nodes).
+**Fix:** add a structured launcher entry with `name`, digest-pinned
+`source.image`, and absolute `source.path`, then re-provision; or drop the
+request to use the vanilla `java` launcher (omit the annotation). See
+[Launchers](launchers.md#helm-example-jaz).
 
 ---
 

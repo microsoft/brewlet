@@ -43,8 +43,14 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
   launchers:
-    - jaz
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
   appCDS:
     regenerationEnabled: true
 ```
@@ -184,8 +190,14 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
   launchers:
-    - jaz
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
   appCDS:
     regenerationEnabled: true
 ```

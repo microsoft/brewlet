@@ -4,14 +4,28 @@
 
 set -euo pipefail
 
-source "$(dirname "$0")/entrypoint.sh"
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+source "$repo_root/provisioner/entrypoint.sh"
 
-TEST_TMP_ROOT="$(dirname "$0")/.entrypoint-test-tmp.$$"
+TEST_TMP_ROOT="$repo_root/provisioner/.entrypoint-test-tmp.$$"
 mkdir -p "$TEST_TMP_ROOT"
 export TMPDIR="$TEST_TMP_ROOT"
 calls="$(mktemp "$TEST_TMP_ROOT/calls.XXXXXX")"
 dest="$(mktemp -d "$TEST_TMP_ROOT/dest.XXXXXX")"
-trap 'rm -f "$calls"; chmod -R u+w "$dest" 2>/dev/null || true; rm -rf "$dest" "$TEST_TMP_ROOT"' EXIT
+source_policy_bin="$(mktemp "$TEST_TMP_ROOT/source-policy.XXXXXX")"
+go -C "$repo_root/core" build -o "$source_policy_bin" ./cmd/brewlet-source-policy
+trap 'chmod -R u+w "$TEST_TMP_ROOT" 2>/dev/null || true; rm -rf "$TEST_TMP_ROOT"' EXIT
+
+SOURCE_POLICY_BIN="$source_policy_bin"
+# Expected-failure cases must never contact a developer's current Kubernetes
+# context through die(). Individual tests opt into a node name with a stub.
+NODE_NAME=""
+
+zulu_ref="docker.io/library/azul-zulu@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+temurin_ref="docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b"
+microsoft_ref="mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575"
+zulu_digest="${zulu_ref##*@sha256:}"
+microsoft_digest="${microsoft_ref##*@sha256:}"
 
 host_ctr() {
   printf '%s\n' "$*" >>"$calls"
@@ -19,66 +33,412 @@ host_ctr() {
 
 host_exec() {
   printf '%s\n' "$*" >>"$calls"
+  [[ "${1:-} ${2:-}" != "test -L" ]]
 }
 
-export JDK_CUSTOM_SOURCE_COUNT=1
-export JDK_CUSTOM_SOURCE_0_TOKEN=zulu-21
-export JDK_CUSTOM_SOURCE_0_IMAGE=docker.io/library/azul-zulu:21
-export JDK_CUSTOM_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+export JDK_SOURCE_COUNT=1
+export JDK_SOURCE_0_TOKEN=zulu-21
+export JDK_SOURCE_0_IMAGE="$zulu_ref"
+export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+export LAUNCHER_SOURCE_COUNT=0
 
-parse_custom_jdk_sources
+parse_runtime_sources
+[[ "$JDKS" == "zulu-21" ]]
+[[ -z "$LAUNCHERS" ]]
 jdk_from_image zulu 21 "$dest"
 
-grep -Fq "image pull docker.io/library/azul-zulu:21" "$calls"
-grep -Fq "images mount docker.io/library/azul-zulu:21 /opt/brewlet/.image-mount-zulu-21" "$calls"
-grep -Fq "cp -a /opt/brewlet/.image-mount-zulu-21/. $dest/" "$calls"
+grep -Fq "image pull $zulu_ref" "$calls"
+grep -Fq "images mount $zulu_ref /opt/brewlet/.image-mount-zulu-21-$zulu_digest" "$calls"
+grep -Fq "cp -a /opt/brewlet/.image-mount-zulu-21-$zulu_digest/. $dest/" "$calls"
+grep -Fq "images unmount --rm /opt/brewlet/.image-mount-zulu-21-$zulu_digest" "$calls"
 grep -Fxq "/usr/lib/jvm/zulu21" "$dest/.brewlet-java-home"
-grep -Fxq "docker.io/library/azul-zulu:21" "$dest/.brewlet-source"
+grep -Fxq "$zulu_ref" "$dest/.brewlet-source"
 grep -Fxq "/usr/lib/jvm/zulu21" "$dest/.brewlet-source"
 
+resolved="$(
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=temurin-21
+  export JDK_SOURCE_0_IMAGE="$temurin_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/opt/java/openjdk
+  export LAUNCHER_SOURCE_COUNT=0
+  parse_runtime_sources
+  resolve_jdk_source temurin 21
+  printf '%s\t%s' "$JDK_SOURCE_IMAGE" "$JDK_SOURCE_JAVA_HOME"
+)"
+[[ "$resolved" == "$temurin_ref"$'\t'"/opt/java/openjdk" ]]
+
+resolved="$(
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=microsoft-25
+  export JDK_SOURCE_0_IMAGE="$microsoft_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/msopenjdk-25
+  export LAUNCHER_SOURCE_COUNT=0
+  parse_runtime_sources
+  resolve_jdk_source microsoft 25
+  printf '%s\t%s' "$JDK_SOURCE_IMAGE" "$JDK_SOURCE_JAVA_HOME"
+)"
+[[ "$resolved" == "$microsoft_ref"$'\t'"/usr/lib/jvm/msopenjdk-25" ]]
+
+resolved="$(
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=1
+  export LAUNCHER_SOURCE_0_NAME=jaz
+  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
+  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
+  parse_runtime_sources
+  resolve_launcher_source jaz
+  printf '%s\t%s\t%s\t%s' "$JDKS" "$LAUNCHERS" "$LAUNCHER_SOURCE_IMAGE" "$LAUNCHER_SOURCE_PATH"
+)"
+[[ "$resolved" == "zulu-21"$'\t'"jaz"$'\t'"$microsoft_ref"$'\t'"/usr/bin/jaz" ]]
+
+(
+  export JDK_SOURCE_COUNT=2
+  export JDK_SOURCE_0_TOKEN=temurin-21
+  export JDK_SOURCE_0_IMAGE="$temurin_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/opt/java/openjdk
+  export JDK_SOURCE_1_TOKEN=microsoft-25
+  export JDK_SOURCE_1_IMAGE="$microsoft_ref"
+  export JDK_SOURCE_1_JAVA_HOME=/usr/lib/jvm/msopenjdk-25
+  export LAUNCHER_SOURCE_COUNT=1
+  export LAUNCHER_SOURCE_0_NAME=jaz
+  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
+  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
+  parse_runtime_sources
+  preflight_sources
+  [[ "$JDKS" == "temurin-21,microsoft-25" ]]
+  [[ "$LAUNCHERS" == "jaz" ]]
+) >/dev/null
+
 if (
-  JDK_CUSTOM_SOURCE_COUNT=0
-  CUSTOM_JDK_TOKENS=("")
-  CUSTOM_JDK_IMAGES=("")
-  CUSTOM_JDK_JAVA_HOMES=("")
-  parse_custom_jdk_sources
-  jdk_from_image unknown 21 "$dest"
+  export JDK_SOURCE_COUNT=0
+  export LAUNCHER_SOURCE_COUNT=0
+  parse_runtime_sources
 ) >/dev/null 2>&1; then
-  echo "expected an unknown JDK without a custom source to fail" >&2
+  echo "expected an empty JDK source inventory to fail" >&2
   exit 1
 fi
 
-
 if (
-  JDK_CUSTOM_SOURCE_COUNT=1
-  JDK_CUSTOM_SOURCE_0_IMAGE=azul-zulu:21
-  parse_custom_jdk_sources
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE=docker.io/library/azul-zulu:21
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=0
+  parse_runtime_sources
 ) >/dev/null 2>&1; then
-  echo "expected an unqualified custom image reference to fail" >&2
+  echo "expected a tagged JDK image reference to fail" >&2
   exit 1
 fi
 
 if (
-  JDK_CUSTOM_SOURCE_COUNT=1
-  JDK_CUSTOM_SOURCE_0_JAVA_HOME=/
-  parse_custom_jdk_sources
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/
+  export LAUNCHER_SOURCE_COUNT=0
+  parse_runtime_sources
 ) >/dev/null 2>&1; then
   echo "expected javaHome=/ to fail" >&2
   exit 1
 fi
 
 if (
-  JDK_CUSTOM_SOURCE_COUNT=1
-  JDK_CUSTOM_SOURCE_0_TOKEN=../../../host-21
-  parse_custom_jdk_sources
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=../../../host-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=0
+  parse_runtime_sources
 ) >/dev/null 2>&1; then
-  echo "expected a path-traversing custom JDK token to fail" >&2
+  echo "expected a path-traversing JDK token to fail" >&2
   exit 1
 fi
 
 validation_root="$(mktemp -d "$TEST_TMP_ROOT/validation.XXXXXX")"
 chmod -R u+w "$validation_root" 2>/dev/null || true
-trap 'rm -f "$calls"; chmod -R u+w "$dest" "$validation_root" 2>/dev/null || true; rm -rf "$dest" "$validation_root" "$TEST_TMP_ROOT"' EXIT
+
+if (
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=1
+  export LAUNCHER_SOURCE_0_NAME=java
+  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
+  export LAUNCHER_SOURCE_0_PATH=/usr/bin/java
+  parse_runtime_sources
+) >/dev/null 2>&1; then
+  echo "expected reserved launcher name java to fail" >&2
+  exit 1
+fi
+
+if (
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=1
+  export LAUNCHER_SOURCE_0_NAME=jaz
+  export LAUNCHER_SOURCE_0_IMAGE=mcr.microsoft.com/openjdk/jdk:25
+  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
+  parse_runtime_sources
+) >/dev/null 2>&1; then
+  echo "expected a tagged launcher image reference to fail" >&2
+  exit 1
+fi
+
+if (
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=1
+  export LAUNCHER_SOURCE_0_NAME=jaz
+  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
+  export LAUNCHER_SOURCE_0_PATH=/usr/../jaz
+  parse_runtime_sources
+) >/dev/null 2>&1; then
+  echo "expected an unclean launcher path to fail" >&2
+  exit 1
+fi
+
+rewritten="$(
+  SOURCE_ALLOWED_MIRROR_HOSTS=registry.internal
+  MIRRORS=docker.io=registry.internal/dockerhub
+  parse_mirrors >/dev/null
+  mirror_ref "$temurin_ref"
+)"
+[[ "$rewritten" == "registry.internal/dockerhub/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b" ]]
+
+assert_mirrors_fail() {
+  local mirrors="$1"
+  local allowed="${2-registry.internal}"
+  if (
+    SOURCE_ALLOWED_MIRROR_HOSTS="$allowed"
+    MIRRORS="$mirrors"
+    parse_mirrors
+  ) >/dev/null 2>&1; then
+    echo "expected mirror configuration to fail: ${mirrors}" >&2
+    exit 1
+  fi
+}
+
+assert_mirrors_fail "docker.io=https://registry.internal/dockerhub"
+assert_mirrors_fail "docker.io=registry.internal/docker hub"
+assert_mirrors_fail "=registry.internal/dockerhub"
+assert_mirrors_fail "docker.io="
+assert_mirrors_fail "docker.io=unapproved.example/cache"
+assert_mirrors_fail "docker.io=docker.io/cache" "docker.io"
+assert_mirrors_fail "docker.io=registry.internal/one,docker.io=registry.internal/two"
+assert_mirrors_fail "docker.io=registry.internal/cache,"
+assert_mirrors_fail "docker.io=registry.internal/cache" ""
+assert_mirrors_fail "" "https://registry.internal"
+assert_mirrors_fail "docker.io=registry.internal:0/cache" "registry.internal:0"
+assert_mirrors_fail "docker.io=registry.internal:65536/cache" "registry.internal:65536"
+
+stale_prefix="$(mktemp -d "$TEST_TMP_ROOT/stale.XXXXXX")"
+mkdir -p "$stale_prefix/jdks/zulu-21"
+printf '%s\n%s\n' \
+  "docker.io/library/azul-zulu@sha256:2222222222222222222222222222222222222222222222222222222222222222" \
+  "/usr/lib/jvm/zulu21" >"$stale_prefix/jdks/zulu-21/.brewlet-source"
+: >"$calls"
+(
+  PREFIX="$stale_prefix"
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=0
+  parse_runtime_sources
+  jdk_root_complete() {
+    printf 'jdk-root-complete\n' >>"$calls"
+    return 0
+  }
+  jdk_java() {
+    printf 'openjdk version "21"\n'
+  }
+  install_jdk zulu-21
+)
+[[ "$(head -n 1 "$calls")" == "image pull $zulu_ref" ]]
+grep -Fxq "jdk-root-complete" "$calls"
+
+if grep -Fq -- "--net-host" "$repo_root/provisioner/entrypoint.sh"; then
+  echo "launcher installation must not execute the source image with host networking" >&2
+  exit 1
+fi
+
+: >"$calls"
+(
+  PREFIX="$dest"
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=1
+  export LAUNCHER_SOURCE_0_NAME=jaz
+  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
+  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
+  parse_runtime_sources
+  install_launcher jaz
+)
+grep -Fq "image pull $microsoft_ref" "$calls"
+grep -Fq "images mount $microsoft_ref $dest/.image-mount-launcher-jaz-$microsoft_digest" "$calls"
+grep -Fq "test -f $dest/.image-mount-launcher-jaz-$microsoft_digest/usr/bin/jaz" "$calls"
+grep -Fq "test -L $dest/.image-mount-launcher-jaz-$microsoft_digest/usr" "$calls"
+grep -Fq "test -L $dest/.image-mount-launcher-jaz-$microsoft_digest/usr/bin/jaz" "$calls"
+grep -Fq "install -m 0755 $dest/.image-mount-launcher-jaz-$microsoft_digest/usr/bin/jaz $dest/launchers/jaz.staging." "$calls"
+grep -Fq "images unmount --rm $dest/.image-mount-launcher-jaz-$microsoft_digest" "$calls"
+grep -Fxq "$microsoft_ref" "$dest/launchers/jaz/.brewlet-source"
+
+if (
+  PREFIX="$dest/symlink-launcher"
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=1
+  export LAUNCHER_SOURCE_0_NAME=jaz
+  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
+  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
+  parse_runtime_sources
+  host_exec() {
+    printf '%s\n' "$*" >>"$calls"
+    if [[ "$*" == "test -L $PREFIX/.image-mount-launcher-jaz-$microsoft_digest/usr/bin/jaz" ]]; then
+      return 0
+    fi
+    [[ "${1:-} ${2:-}" != "test -L" ]]
+  }
+  install_launcher jaz
+) >/dev/null 2>&1; then
+  echo "expected a symlink launcher source to fail closed" >&2
+  exit 1
+fi
+
+if (
+  PREFIX="$dest/symlink-launcher-ancestor"
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=zulu-21
+  export JDK_SOURCE_0_IMAGE="$zulu_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
+  export LAUNCHER_SOURCE_COUNT=1
+  export LAUNCHER_SOURCE_0_NAME=jaz
+  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
+  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
+  parse_runtime_sources
+  host_exec() {
+    printf '%s\n' "$*" >>"$calls"
+    if [[ "$*" == "test -L $PREFIX/.image-mount-launcher-jaz-$microsoft_digest/usr" ]]; then
+      return 0
+    fi
+    [[ "${1:-} ${2:-}" != "test -L" ]]
+  }
+  install_launcher jaz
+) >/dev/null 2>&1; then
+  echo "expected a symlinked launcher source ancestor to fail closed" >&2
+  exit 1
+fi
+
+active_prefix="$dest/active-inventory"
+mkdir -p "$active_prefix/launchers/stale"
+(
+  PREFIX="$active_prefix"
+  LAUNCHERS="jaz,custom"
+  write_active_launcher_inventory
+)
+printf 'jaz\ncustom\n' | cmp -s - "$active_prefix/launchers/.brewlet-active"
+(
+  PREFIX="$active_prefix"
+  LAUNCHERS=""
+  write_active_launcher_inventory
+)
+[[ ! -s "$active_prefix/launchers/.brewlet-active" ]]
+
+: >"$calls"
+stale_mount="$dest/.image-mount-stale"
+mkdir -p "$stale_mount"
+(
+  PREFIX="$dest"
+  ACTIVE_SOURCE_MOUNTS=()
+  host_exec() {
+    if [[ "${1:-}" == "find" ]]; then
+      printf '%s\n' "$stale_mount"
+      return 0
+    fi
+    printf '%s\n' "$*" >>"$calls"
+  }
+  cleanup_stale_source_mounts
+)
+grep -Fq "images unmount --rm $stale_mount" "$calls"
+
+: >"$calls"
+(
+  ACTIVE_SOURCE_MOUNTS=("$dest/.image-mount-one" "$dest/.image-mount-two")
+  host_exec() {
+    printf '%s\n' "$*" >>"$calls"
+  }
+  cleanup_active_source_mounts
+)
+grep -Fq "images unmount --rm $dest/.image-mount-one" "$calls"
+grep -Fq "images unmount --rm $dest/.image-mount-two" "$calls"
+
+(
+  BREWLET_PROFILE_NAME=test-profile
+  BREWLET_PROFILE_UID=test-uid
+  BREWLET_PROFILE_GENERATION=7
+  kubectl() {
+    [[ "$*" == "get nodeprofile test-profile -o jsonpath={.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}" ]]
+    printf 'test-uid|7|'
+  }
+  verify_profile_identity
+)
+assert_profile_identity_fails() {
+  local identity="$1"
+  if (
+    BREWLET_PROFILE_NAME=test-profile
+    BREWLET_PROFILE_UID=test-uid
+    BREWLET_PROFILE_GENERATION=7
+    NODE_NAME=""
+    kubectl() { printf '%s' "$identity"; }
+    verify_profile_identity
+  ) >/dev/null 2>&1; then
+    echo "expected stale provisioner profile identity '$identity' to fail closed" >&2
+    exit 1
+  fi
+}
+assert_profile_identity_fails 'different-uid|7|'
+assert_profile_identity_fails 'test-uid|8|'
+assert_profile_identity_fails 'test-uid|7|2026-09-02T12:00:00Z'
+
+: >"$calls"
+if (
+  MIRRORS=""
+  SOURCE_ALLOWED_MIRROR_HOSTS=""
+  SOURCE_POLICY_BIN=/usr/bin/false
+  export JDK_SOURCE_COUNT=1
+  export JDK_SOURCE_0_TOKEN=temurin-21
+  export JDK_SOURCE_0_IMAGE="$temurin_ref"
+  export JDK_SOURCE_0_JAVA_HOME=/opt/java/openjdk
+  export LAUNCHER_SOURCE_COUNT=0
+  BREWLET_MODE=provision
+  NODE_NAME=test-node
+  kubectl() { return 0; }
+  clear_node_advertisement() {
+    printf 'readiness-cleared\n' >>"$calls"
+  }
+  require_cgroup_v2() { return 0; }
+  main
+) >/dev/null 2>&1; then
+  echo "expected source validation failure to stop provisioning" >&2
+  exit 1
+fi
+grep -Fxq "readiness-cleared" "$calls"
+if grep -Eq "image pull|images mount|cp -a|brewlet.microsoft.com/jdk" "$calls"; then
+  echo "source validation failure performed privileged source operations or published readiness" >&2
+  exit 1
+fi
 
 mkdir -p "$validation_root/launchers/jaz/bin"
 cat >"$validation_root/launchers/jaz/bin/jaz" <<'EOF'
@@ -92,14 +452,17 @@ chmod 0755 "$validation_root/launchers/jaz/bin/jaz"
 (
   PREFIX="$validation_root"
   JDKS=temurin-21
-  LAUNCHERS=java,jaz
+  LAUNCHERS=jaz
   BREWLET_VALIDATE=true
   LAUNCHER_PROBE_CALLS="$calls"
   export LAUNCHER_PROBE_CALLS
   jdk_root_complete() { return 0; }
   validate_runtime
 )
-grep -Fxq "jaz-probed" "$calls"
+if grep -Fxq "jaz-probed" "$calls"; then
+  echo "launcher validation must not execute administrator-provided binaries" >&2
+  exit 1
+fi
 
 assert_launcher_validation_fails() {
   local expected="$1"
@@ -130,7 +493,14 @@ assert_launcher_validation_fails "launcher-jaz-not-executable"
 
 printf '#!/usr/bin/env bash\nexit 7\n' >"$validation_root/launchers/jaz/bin/jaz"
 chmod 0755 "$validation_root/launchers/jaz/bin/jaz"
-assert_launcher_validation_fails "launcher-jaz-probe-failed"
+(
+  PREFIX="$validation_root"
+  JDKS=temurin-21
+  LAUNCHERS=jaz
+  BREWLET_VALIDATE=true
+  jdk_root_complete() { return 0; }
+  validate_runtime
+)
 
 (
   PREFIX="$validation_root"
@@ -523,8 +893,8 @@ if output="$(
     }
     containerd_healthy() { return 0; }
     validated_restart
-  )
-  )" 2>&1; then
+  ) 2>&1
+  )"; then
   echo "expected restart failure to exit non-zero" >&2
   exit 1
 fi
@@ -547,8 +917,8 @@ if output="$(
     containerd_healthy() { return 0; }
     brewlet_handler_healthy() { return 1; }
     validated_restart
-  )
-  )" 2>&1; then
+  ) 2>&1
+  )"; then
   echo "expected handler health failure to exit non-zero" >&2
   exit 1
 fi
@@ -569,8 +939,8 @@ if output="$(
     restart_containerd_service() { return 1; }
     containerd_healthy() { return 0; }
     validated_restart
-  )
-  )" 2>&1; then
+  ) 2>&1
+  )"; then
   echo "expected rollback failure to exit non-zero" >&2
   exit 1
 fi
@@ -589,12 +959,13 @@ printf 'drop-in\n' >"$dropin"
 # Fatal lifecycle failures explicitly clear readiness and publish their reason.
 if output="$(
   (
+    NODE_NAME=test-node
     clear_node_advertisement() { printf 'unready\n' >>"$node_calls"; }
     remove_appcds_regeneration_policy() { printf 'policy-removed\n' >>"$node_calls"; }
     kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
     die "containerd-health-check-failed: containerd is not operational"
-  )
-  )" 2>&1; then
+  ) 2>&1
+  )"; then
   echo "expected die to exit non-zero" >&2
   exit 1
 fi

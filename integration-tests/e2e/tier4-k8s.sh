@@ -89,7 +89,6 @@ tier4_k8s() {
   "$WORK/t4-manager" \
       --namespace "$T4_NS_OP" \
       --provisioner-image "brewlet-e2e/nonexistent-provisioner:donotpull" \
-      --jdks "temurin-21" --launchers "" \
       --leader-elect=false \
       --metrics-bind-address 0 \
       --health-probe-bind-address ":$probe" \
@@ -198,6 +197,9 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
 YAML
   if kubectl apply -f "$WORK/t4-nodeprofile.yaml" >"$WORK/t4-np.log" 2>&1; then
     pass "NodeProfile: default catch-all profile accepted by the API server"
@@ -268,6 +270,7 @@ YAML
       assert_contains "helm: renders provisioner RBAC" "$tmpl" "ServiceAccount"
       assert_contains "helm: renders the default NodeProfile CR" "$tmpl" "kind: NodeProfile"
       assert_contains "helm: renders the NodeProfile validating webhook" "$tmpl" "/validate-nodeprofiles"
+      assert_contains "helm: disables source mirrors by default" "$tmpl" "--allowed-source-mirror-hosts="
       assert_not_contains "helm: omits operator metrics Service by default" "$tmpl" "brewlet-operator-metrics"
       assert_not_contains "helm: omits node metrics Service by default" "$tmpl" "brewlet-node-metrics"
     else
@@ -281,6 +284,15 @@ YAML
       assert_contains "helm: optionally renders Grafana dashboard" "$tmpl" "brewlet-grafana-dashboard"
     else
       fail "helm: optional metrics template render" "see $WORK/t4-helm-template.log"
+    fi
+    if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+          --set security.allowedSourceMirrorHosts[0]=registry.internal \
+          --set security.allowedSourceMirrorHosts[1]=mirror.example.com:5000 \
+          2>>"$WORK/t4-helm-template.log")"; then
+      assert_contains "helm: passes the same source mirror allowlist to operator and admission" \
+        "$tmpl" "--allowed-source-mirror-hosts=registry.internal,mirror.example.com:5000"
+    else
+      fail "helm: mirror allowlist template render" "see $WORK/t4-helm-template.log"
     fi
     if helm install brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" --dry-run --namespace "$T4_NS_OP" \
          >"$WORK/t4-helm-dryrun.log" 2>&1; then

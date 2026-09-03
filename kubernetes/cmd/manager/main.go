@@ -9,6 +9,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
@@ -41,19 +42,25 @@ func main() {
 		metricsAddr      string
 		probeAddr        string
 		enableLeaderElec bool
+		allowedMirrors   string
 	)
 	flag.StringVar(&cfg.Namespace, "namespace", "brewlet", "namespace to manage the provisioner DaemonSet in")
 	flag.StringVar(&cfg.ProvisionerImage, "provisioner-image", "ghcr.io/microsoft/brewlet-node-provisioner:0.1.0", "brewlet-node-provisioner image to run")
-	flag.StringVar(&cfg.JDKs, "jdks", "temurin-21", "comma-separated <dist>-<feature> JDK roots to install on nodes")
-	flag.StringVar(&cfg.Launchers, "launchers", "", "comma-separated launcher layers to install (e.g. jaz)")
 	flag.IntVar(&cfg.MetricsPort, "node-metrics-port", 9090, "node provisioner metrics exporter port")
 	flag.BoolVar(&cfg.MetricsEnabled, "node-metrics-enabled", false, "run the node-local metrics exporter in provisioner pods")
+	flag.StringVar(&allowedMirrors, "allowed-source-mirror-hosts", "", "comma-separated exact registry hosts approved as runtime source mirror destinations")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "address the metric endpoint binds to; 0 disables metrics")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "address the health probe endpoint binds to")
 	flag.BoolVar(&enableLeaderElec, "leader-elect", false, "enable leader election for HA (single active manager)")
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	var err error
+	cfg.AllowedSourceMirrorHosts, err = controller.ParseAllowedSourceMirrorHosts(allowedMirrors)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --allowed-source-mirror-hosts: %v\n", err)
+		os.Exit(1)
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
@@ -80,9 +87,10 @@ func main() {
 	}
 
 	if err := (&controller.NodeProfileReconciler{
-		Client:   mgr.GetClient(),
-		Recorder: mgr.GetEventRecorderFor("brewlet-operator"),
-		Config:   cfg,
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Recorder:  mgr.GetEventRecorderFor("brewlet-operator"),
+		Config:    cfg,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeProfile")
 		os.Exit(1)
@@ -107,8 +115,7 @@ func main() {
 	}
 
 	setupLog.Info("starting brewlet-operator",
-		"namespace", cfg.Namespace, "provisionerImage", cfg.ProvisionerImage,
-		"jdks", cfg.JDKs, "launchers", cfg.Launchers)
+		"namespace", cfg.Namespace, "provisionerImage", cfg.ProvisionerImage)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)

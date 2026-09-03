@@ -65,14 +65,11 @@ spec:
                   type: array
                   minItems: 1
                   maxItems: 32
-                  description: Curated or explicitly sourced JDK roots to install on the pool's nodes.
+                  description: Administrator-provided JDK roots to install on the pool's nodes.
                   items:
                     type: object
                     maxProperties: 3
-                    required: [distribution, feature]
-                    x-kubernetes-validations:
-                      - rule: "(self.distribution in ['temurin', 'microsoft']) ? !has(self.source) : has(self.source)"
-                        message: source must be omitted for curated distributions and provided for custom distributions
+                    required: [distribution, feature, source]
                     properties:
                       distribution:
                         type: string
@@ -85,7 +82,7 @@ spec:
                       source:
                         type: object
                         maxProperties: 2
-                        description: Required for non-curated distributions; omitted for temurin and microsoft.
+                        description: Required administrator-provided digest-pinned JDK source.
                         required: [image, javaHome]
                         x-kubernetes-validations:
                           - rule: "!self.image.contains('://')"
@@ -97,8 +94,8 @@ spec:
                             type: string
                             minLength: 1
                             maxLength: 2048
-                            pattern: '^(localhost|[^/[:space:]]*[.:][^/[:space:]]*)/[^[:space:]]+$'
-                            description: Fully qualified OCI image reference containing the JDK root.
+                            pattern: '^(\[[0-9a-f:.]+\](:[0-9]+)?|localhost(:[0-9]+)?|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]+)?)/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$'
+                            description: Fully qualified, tagless OCI image reference pinned by SHA-256 digest.
                           javaHome:
                             type: string
                             maxLength: 1024
@@ -106,8 +103,41 @@ spec:
                             description: Absolute JDK root path inside the image.
                 launchers:
                   type: array
-                  items: { type: string }
-                  description: Optional launcher layers (e.g. "jaz"). "java" is always available.
+                  maxItems: 32
+                  description: Optional administrator-provided launcher layers. "java" comes from each JDK and must not be listed.
+                  items:
+                    type: object
+                    maxProperties: 2
+                    required: [name, source]
+                    x-kubernetes-validations:
+                      - rule: "self.name != 'java'"
+                        message: java is provided by every JDK and must not be listed
+                    properties:
+                      name:
+                        type: string
+                        maxLength: 54
+                        pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
+                      source:
+                        type: object
+                        maxProperties: 2
+                        required: [image, path]
+                        x-kubernetes-validations:
+                          - rule: "!self.image.contains('://')"
+                            message: image must be an OCI reference without a URL scheme
+                          - rule: "self.path != '/' && !self.path.contains('//') && !self.path.contains('/./') && !self.path.contains('/../') && !self.path.endsWith('/.') && !self.path.endsWith('/..')"
+                            message: path must be a clean absolute path below /
+                        properties:
+                          image:
+                            type: string
+                            minLength: 1
+                            maxLength: 2048
+                            pattern: '^(\[[0-9a-f:.]+\](:[0-9]+)?|localhost(:[0-9]+)?|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]+)?)/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$'
+                            description: Fully qualified, tagless OCI image reference pinned by SHA-256 digest.
+                          path:
+                            type: string
+                            maxLength: 1024
+                            pattern: '^/[^[:space:]/]+(/[^[:space:]/]+)*$'
+                            description: Absolute launcher binary path inside the image.
                 appCDS:
                   type: object
                   maxProperties: 1
@@ -123,8 +153,10 @@ spec:
                   properties:
                     mirrors:
                       type: object
-                      additionalProperties: { type: string }
-                      description: Maps a curated upstream host to a mirror host/path for ctr pulls.
+                      additionalProperties:
+                        type: string
+                        pattern: '^(\[[0-9a-f:.]+\](:[0-9]+)?|localhost(:[0-9]+)?|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]+)?)(/[a-z0-9][a-z0-9._/-]*)?$'
+                      description: Maps an upstream registry host to an operator-approved mirror host/path for digest-pinned ctr pulls.
                 rollout:
                   type: object
                   description: DaemonSet + host-reconfig rollout policy (§5.2; mechanics from proposal 0002).

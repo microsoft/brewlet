@@ -43,9 +43,10 @@ const (
 	// build with -XX:+AutoCreateSharedArchive rather than consume a shipped
 	// archive. It is a deployment/fleet decision, so it lives on the pod, not in
 	// the artifact.
-	annCDSRegenerate   = "brewlet.sh/cds-regenerate"
-	jdkHomeMetadata    = ".brewlet-java-home"
-	jdkActiveInventory = ".brewlet-active"
+	annCDSRegenerate        = "brewlet.sh/cds-regenerate"
+	jdkHomeMetadata         = ".brewlet-java-home"
+	jdkActiveInventory      = ".brewlet-active"
+	launcherActiveInventory = ".brewlet-active"
 )
 
 // imageConfig describes where a Brewlet image or local artifact lives and the
@@ -240,12 +241,27 @@ func selectJDK(rootsDir, request string) (string, error) {
 }
 
 func activeJDKs(rootsDir string) (map[string]bool, error) {
-	data, err := os.ReadFile(filepath.Join(rootsDir, jdkActiveInventory))
+	return activeRuntimeInventory(rootsDir, jdkActiveInventory, "NoCompatibleJDK")
+}
+
+func activeLaunchers(rootsDir string) (map[string]bool, error) {
+	active, err := activeRuntimeInventory(rootsDir, launcherActiveInventory, "NoCompatibleLauncher")
+	if err != nil {
+		return nil, err
+	}
+	if active == nil {
+		return nil, fmt.Errorf("NoCompatibleLauncher: active inventory missing under %s", rootsDir)
+	}
+	return active, nil
+}
+
+func activeRuntimeInventory(rootsDir, inventory, reason string) (map[string]bool, error) {
+	data, err := os.ReadFile(filepath.Join(rootsDir, inventory))
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("NoCompatibleJDK: read active inventory under %s: %w", rootsDir, err)
+		return nil, fmt.Errorf("%s: read active inventory under %s: %w", reason, rootsDir, err)
 	}
 	active := make(map[string]bool)
 	for _, name := range strings.Fields(string(data)) {
@@ -318,6 +334,13 @@ func selectLauncher(rootsDir, launcherName string) (string, error) {
 	name := artifact.LauncherName(launcherName)
 	if rootsDir == "" {
 		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q requested but no launcher roots on node", name)
+	}
+	active, err := activeLaunchers(rootsDir)
+	if err != nil {
+		return "", err
+	}
+	if active != nil && !active[name] {
+		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q is not active under %s", name, rootsDir)
 	}
 	root := filepath.Join(rootsDir, name)
 	if _, err := os.Stat(filepath.Join(root, "bin", name)); err != nil {

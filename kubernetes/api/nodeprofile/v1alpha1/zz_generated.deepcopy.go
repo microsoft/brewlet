@@ -30,9 +30,6 @@ func (in *AppCDSSpec) DeepCopy() *AppCDSSpec {
 // DeepCopyInto copies the receiver into out.
 func (in *JDKRef) DeepCopyInto(out *JDKRef) {
 	*out = *in
-	if in.Source != nil {
-		out.Source = in.Source.DeepCopy()
-	}
 }
 
 // DeepCopy returns a deep copy of the receiver.
@@ -56,6 +53,36 @@ func (in *JDKSource) DeepCopy() *JDKSource {
 		return nil
 	}
 	out := new(JDKSource)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies the receiver into out.
+func (in *LauncherRef) DeepCopyInto(out *LauncherRef) {
+	*out = *in
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *LauncherRef) DeepCopy() *LauncherRef {
+	if in == nil {
+		return nil
+	}
+	out := new(LauncherRef)
+	in.DeepCopyInto(out)
+	return out
+}
+
+// DeepCopyInto copies the receiver into out.
+func (in *LauncherSource) DeepCopyInto(out *LauncherSource) {
+	*out = *in
+}
+
+// DeepCopy returns a deep copy of the receiver.
+func (in *LauncherSource) DeepCopy() *LauncherSource {
+	if in == nil {
+		return nil
+	}
+	out := new(LauncherSource)
 	in.DeepCopyInto(out)
 	return out
 }
@@ -134,7 +161,7 @@ func (in *NodeProfileSpec) DeepCopyInto(out *NodeProfileSpec) {
 		}
 	}
 	if in.Launchers != nil {
-		out.Launchers = make([]string, len(in.Launchers))
+		out.Launchers = make([]LauncherRef, len(in.Launchers))
 		copy(out.Launchers, in.Launchers)
 	}
 	if in.AppCDS != nil {

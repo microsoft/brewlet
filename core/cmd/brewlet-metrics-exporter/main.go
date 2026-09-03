@@ -101,7 +101,7 @@ func newInventoryCollector(root string) *inventoryCollector {
 		),
 		launcherInfo: prometheus.NewDesc(
 			"brewlet_launcher_info",
-			"JVM launchers installed on this Brewlet node.",
+			"JVM launchers installed and active on this Brewlet node.",
 			[]string{"launcher"}, nil,
 		),
 	}
@@ -134,12 +134,11 @@ func (c *inventoryCollector) Collect(ch chan<- prometheus.Metric) {
 	}
 	emittedLaunchers := map[string]struct{}{"java": {}}
 	ch <- prometheus.MustNewConstMetric(c.launcherInfo, prometheus.GaugeValue, 1, "java")
-	entries, _ := os.ReadDir(filepath.Join(c.root, "launchers"))
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	for _, name := range readWords(filepath.Join(c.root, "launchers", ".brewlet-active")) {
+		info, err := os.Stat(filepath.Join(c.root, "launchers", name))
+		if err != nil || !info.IsDir() {
 			continue
 		}
-		name := entry.Name()
 		if _, emitted := emittedLaunchers[name]; emitted {
 			continue
 		}

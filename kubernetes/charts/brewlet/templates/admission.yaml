@@ -122,6 +122,7 @@ spec:
             - --webhook-port={{ .Values.admission.port }}
             - --cert-dir=/tmp/k8s-webhook-server/serving-certs
             - --health-probe-bind-address=:8081
+            - {{ printf "--allowed-source-mirror-hosts=%s" (join "," .Values.security.allowedSourceMirrorHosts) | quote }}
             {{- if .Values.metrics.enabled }}
             - --metrics-bind-address=:8080
             {{- else }}

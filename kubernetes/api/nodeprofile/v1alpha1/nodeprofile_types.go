@@ -20,9 +20,9 @@ type NodeProfileSpec struct {
 	// JDKs is the declarative JDK inventory to install on the pool's nodes. It
 	// replaces the global JDKS string. At least one entry is required.
 	JDKs []JDKRef `json:"jdks"`
-	// Launchers is the optional launcher-layer inventory (e.g. "jaz"). The
-	// vanilla "java" launcher is always available and need not be listed.
-	Launchers []string `json:"launchers,omitempty"`
+	// Launchers is the optional launcher-layer inventory. The vanilla "java"
+	// launcher comes from each JDK and must not be listed.
+	Launchers []LauncherRef `json:"launchers,omitempty"`
 	// AppCDS controls node-side AppCDS behavior. Regeneration is disabled when
 	// this field is omitted.
 	AppCDS *AppCDSSpec `json:"appCDS,omitempty"`
@@ -60,18 +60,35 @@ type JDKRef struct {
 	Distribution string `json:"distribution"`
 	// Feature is the JDK feature version (e.g. 21).
 	Feature int32 `json:"feature"`
-	// Source is required for a non-curated distribution and omitted for curated
-	// distributions, whose official image mapping is built into the provisioner.
-	Source *JDKSource `json:"source,omitempty"`
+	// Source is the administrator-provided image and JDK root. Brewlet does not
+	// resolve distribution names through a built-in catalog.
+	Source JDKSource `json:"source"`
 }
 
-// JDKSource describes where a custom JDK is copied from.
+// JDKSource describes an administrator-provided JDK source.
 type JDKSource struct {
-	// Image is a fully qualified OCI image reference containing the JDK root.
-	// Production profiles should pin this reference by digest.
+	// Image is a fully qualified, tagless OCI image reference pinned by SHA-256
+	// digest and containing the JDK root.
 	Image string `json:"image"`
 	// JavaHome is the absolute path to the JDK root inside Image.
 	JavaHome string `json:"javaHome"`
+}
+
+// LauncherRef is one optional launcher binary to install.
+type LauncherRef struct {
+	// Name is the stable lowercase launcher identifier advertised on the node.
+	Name string `json:"name"`
+	// Source is the administrator-provided image and binary path.
+	Source LauncherSource `json:"source"`
+}
+
+// LauncherSource describes an administrator-provided launcher source.
+type LauncherSource struct {
+	// Image is a fully qualified, tagless OCI image reference pinned by SHA-256
+	// digest and containing the launcher binary.
+	Image string `json:"image"`
+	// Path is the absolute path to the launcher binary inside Image.
+	Path string `json:"path"`
 }
 
 // Token renders the JDK as the on-node "<distribution>-<feature>" inventory token
@@ -82,10 +99,9 @@ func (j JDKRef) Token() string {
 
 // RegistrySpec carries the air-gap registry mirror configuration (§5.6).
 type RegistrySpec struct {
-	// Mirrors maps a curated upstream host (e.g. "mcr.microsoft.com",
-	// "docker.io") to a mirror host/path the provisioner uses for its
-	// copy-from-image `ctr` pulls. Auth to the mirror is a node/containerd
-	// concern, not carried here.
+	// Mirrors maps an upstream host (e.g. "mcr.microsoft.com", "docker.io") to
+	// an operator-approved mirror host/path for digest-pinned copy-from-image
+	// pulls. Auth to the mirror is a node/containerd concern, not carried here.
 	Mirrors map[string]string `json:"mirrors,omitempty"`
 }
 
@@ -121,7 +137,7 @@ type NodeProfileStatus struct {
 	// ReadyNodes is the number of assigned nodes advertising the brewlet runtime.
 	ReadyNodes int32 `json:"readyNodes"`
 	// Conditions carries the Ready condition (AllNodesProvisioned) / Degraded
-	// (EmptyPool, ValidationFailed, or a reconfig failure propagated from the
+	// (EmptyPool, InvalidProfile, or a reconfig failure propagated from the
 	// per-node brewlet.sh/provision-error).
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
@@ -139,6 +155,8 @@ const (
 	ReasonEmptyPool = "EmptyPool"
 	// ReasonNodeFailure — one or more assigned nodes reported provision-error.
 	ReasonNodeFailure = "NodeFailure"
+	// ReasonInvalidProfile — source trust policy rejected the stored profile.
+	ReasonInvalidProfile = "InvalidProfile"
 	// ReasonCleanupPending — the profile is being deleted; cleanup is running.
 	ReasonCleanupPending = "CleanupPending"
 )

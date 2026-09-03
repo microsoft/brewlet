@@ -39,6 +39,23 @@ func profileRequest(t *testing.T, p *nodev1alpha1.NodeProfile) admission.Request
 	}}
 }
 
+func profileUpdateRequest(t *testing.T, oldProfile, newProfile *nodev1alpha1.NodeProfile) admission.Request {
+	t.Helper()
+	oldRaw, err := json.Marshal(oldProfile)
+	if err != nil {
+		t.Fatalf("marshal old profile: %v", err)
+	}
+	newRaw, err := json.Marshal(newProfile)
+	if err != nil {
+		t.Fatalf("marshal new profile: %v", err)
+	}
+	return admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
+		Operation: admissionv1.Update,
+		OldObject: runtime.RawExtension{Raw: oldRaw},
+		Object:    runtime.RawExtension{Raw: newRaw},
+	}}
+}
+
 func newValidator(t *testing.T, existing ...*nodev1alpha1.NodeProfile) *NodeProfileValidator {
 	t.Helper()
 	scheme := profileScheme(t)
@@ -52,7 +69,18 @@ func newValidator(t *testing.T, existing ...*nodev1alpha1.NodeProfile) *NodeProf
 	}
 }
 
-func TestNodeProfileValidator_RejectsCustomDistributionWithoutSource(t *testing.T) {
+func webhookJDK(dist string, feature int32) nodev1alpha1.JDKRef {
+	return nodev1alpha1.JDKRef{
+		Distribution: dist,
+		Feature:      feature,
+		Source: nodev1alpha1.JDKSource{
+			Image:    "registry.example.com/jdks/" + dist + "@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+			JavaHome: "/opt/jdk",
+		},
+	}
+}
+
+func TestNodeProfileValidator_RejectsJDKWithoutSource(t *testing.T) {
 	v := newValidator(t)
 	p := &nodev1alpha1.NodeProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: "bad"},
@@ -60,7 +88,7 @@ func TestNodeProfileValidator_RejectsCustomDistributionWithoutSource(t *testing.
 	}
 	res := v.Handle(context.Background(), profileRequest(t, p))
 	if res.Allowed {
-		t.Fatal("expected rejection for custom distribution without source")
+		t.Fatal("expected rejection for JDK without source")
 	}
 }
 
@@ -78,7 +106,7 @@ func TestNodeProfileValidator_RejectsPoolConflict(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "team-a"},
 		Spec: nodev1alpha1.NodeProfileSpec{
 			NodePool: nodev1alpha1.NodePoolRef{Names: []string{"batch"}},
-			JDKs:     []nodev1alpha1.JDKRef{{Distribution: "temurin", Feature: 21}},
+			JDKs:     []nodev1alpha1.JDKRef{webhookJDK("temurin", 21)},
 		},
 	}
 	v := newValidator(t, existing)
@@ -86,7 +114,7 @@ func TestNodeProfileValidator_RejectsPoolConflict(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "team-b"},
 		Spec: nodev1alpha1.NodeProfileSpec{
 			NodePool: nodev1alpha1.NodePoolRef{Names: []string{"batch"}},
-			JDKs:     []nodev1alpha1.JDKRef{{Distribution: "temurin", Feature: 21}},
+			JDKs:     []nodev1alpha1.JDKRef{webhookJDK("temurin", 21)},
 		},
 	}
 	res := v.Handle(context.Background(), profileRequest(t, p))
@@ -101,7 +129,7 @@ func TestNodeProfileValidator_AllowsValid(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "ok"},
 		Spec: nodev1alpha1.NodeProfileSpec{
 			NodePool: nodev1alpha1.NodePoolRef{Names: []string{"general"}},
-			JDKs:     []nodev1alpha1.JDKRef{{Distribution: "microsoft", Feature: 25}},
+			JDKs:     []nodev1alpha1.JDKRef{webhookJDK("microsoft", 25)},
 		},
 	}
 	res := v.Handle(context.Background(), profileRequest(t, p))
@@ -117,8 +145,8 @@ func TestNodeProfileValidator_AllowsCustomDistributionWithSource(t *testing.T) {
 		Spec: nodev1alpha1.NodeProfileSpec{JDKs: []nodev1alpha1.JDKRef{{
 			Distribution: "zulu",
 			Feature:      21,
-			Source: &nodev1alpha1.JDKSource{
-				Image:    "docker.io/library/azul-zulu:21",
+			Source: nodev1alpha1.JDKSource{
+				Image:    "docker.io/library/azul-zulu@sha256:1111111111111111111111111111111111111111111111111111111111111111",
 				JavaHome: "/usr/lib/jvm/zulu21",
 			},
 		}}},
@@ -126,5 +154,111 @@ func TestNodeProfileValidator_AllowsCustomDistributionWithSource(t *testing.T) {
 	res := v.Handle(context.Background(), profileRequest(t, p))
 	if !res.Allowed {
 		t.Fatalf("expected custom JDK profile to be allowed, got %+v", res.Result)
+	}
+}
+
+func TestNodeProfileValidator_RejectsTaggedSource(t *testing.T) {
+	v := newValidator(t)
+	p := &nodev1alpha1.NodeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "tagged"},
+		Spec: nodev1alpha1.NodeProfileSpec{JDKs: []nodev1alpha1.JDKRef{{
+			Distribution: "temurin",
+			Feature:      21,
+			Source: nodev1alpha1.JDKSource{
+				Image:    "docker.io/library/eclipse-temurin:21",
+				JavaHome: "/opt/java/openjdk",
+			},
+		}}},
+	}
+	if res := v.Handle(context.Background(), profileRequest(t, p)); res.Allowed {
+		t.Fatal("expected mutable source tag to be rejected")
+	}
+}
+
+func TestNodeProfileValidator_EnforcesMirrorAllowlist(t *testing.T) {
+	p := &nodev1alpha1.NodeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "mirrored"},
+		Spec: nodev1alpha1.NodeProfileSpec{
+			JDKs: []nodev1alpha1.JDKRef{webhookJDK("temurin", 21)},
+			Registry: &nodev1alpha1.RegistrySpec{Mirrors: map[string]string{
+				"docker.io": "registry.internal/dockerhub",
+			}},
+		},
+	}
+	v := newValidator(t)
+	if res := v.Handle(context.Background(), profileRequest(t, p)); res.Allowed {
+		t.Fatal("expected mirrors to be rejected with an empty allowlist")
+	}
+	v.Policy.AllowedSourceMirrorHosts = []string{"registry.internal"}
+	if res := v.Handle(context.Background(), profileRequest(t, p)); !res.Allowed {
+		t.Fatalf("expected approved mirror to be allowed, got %+v", res.Result)
+	}
+}
+
+func TestNodeProfileValidator_AllowsDeletingInvalidProfileFinalizerRemoval(t *testing.T) {
+	v := newValidator(t)
+	now := metav1.Now()
+	oldProfile := &nodev1alpha1.NodeProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "invalid-deleting",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"node.brewlet.sh/cleanup", "example.com/other"},
+		},
+		Spec: nodev1alpha1.NodeProfileSpec{
+			JDKs: []nodev1alpha1.JDKRef{{Distribution: "temurin", Feature: 21}},
+		},
+	}
+	newProfile := oldProfile.DeepCopy()
+	newProfile.Finalizers = []string{"example.com/other"}
+
+	res := v.Handle(context.Background(), profileUpdateRequest(t, oldProfile, newProfile))
+	if !res.Allowed {
+		t.Fatalf("expected deleting invalid profile finalizer removal to be allowed, got %+v", res.Result)
+	}
+}
+
+func TestNodeProfileValidator_RejectsDeletingInvalidProfileSpecChange(t *testing.T) {
+	v := newValidator(t)
+	now := metav1.Now()
+	oldProfile := &nodev1alpha1.NodeProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "invalid-deleting",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"node.brewlet.sh/cleanup"},
+		},
+		Spec: nodev1alpha1.NodeProfileSpec{
+			JDKs: []nodev1alpha1.JDKRef{{Distribution: "temurin", Feature: 21}},
+		},
+	}
+	newProfile := oldProfile.DeepCopy()
+	newProfile.Finalizers = nil
+	newProfile.Spec.JDKs[0].Feature = 25
+
+	res := v.Handle(context.Background(), profileUpdateRequest(t, oldProfile, newProfile))
+	if res.Allowed {
+		t.Fatal("expected deleting invalid profile spec change to be rejected")
+	}
+}
+
+func TestNodeProfileValidator_RejectsDeletingInvalidProfileMetadataChange(t *testing.T) {
+	v := newValidator(t)
+	now := metav1.Now()
+	oldProfile := &nodev1alpha1.NodeProfile{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "invalid-deleting",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"node.brewlet.sh/cleanup"},
+		},
+		Spec: nodev1alpha1.NodeProfileSpec{
+			JDKs: []nodev1alpha1.JDKRef{{Distribution: "temurin", Feature: 21}},
+		},
+	}
+	newProfile := oldProfile.DeepCopy()
+	newProfile.Finalizers = nil
+	newProfile.Annotations = map[string]string{"example.com/change": "not-finalizer-only"}
+
+	res := v.Handle(context.Background(), profileUpdateRequest(t, oldProfile, newProfile))
+	if res.Allowed {
+		t.Fatal("expected deleting invalid profile metadata change to be rejected")
 	}
 }

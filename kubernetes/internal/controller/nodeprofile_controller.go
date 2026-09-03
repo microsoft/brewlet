@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
 	"brewlet-operator/internal/brewlet"
@@ -36,8 +38,9 @@ import (
 // GC drop the managed DaemonSet.
 type NodeProfileReconciler struct {
 	client.Client
-	Recorder record.EventRecorder
-	Config   Config
+	APIReader client.Reader
+	Recorder  record.EventRecorder
+	Config    Config
 }
 
 // Reconcile is invoked for NodeProfile events (and, via a Node watch, when the
@@ -62,12 +65,28 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	resolvedKey := resolvePoolKey(&profile, nodes.Items)
 	otherPools := namedPoolsExcept(profiles.Items, profile.Name)
+	policy := NodeProfilePolicy{AllowedSourceMirrorHosts: r.Config.AllowedSourceMirrorHosts}
+	validationErr := policy.Validate(&profile)
+	if validationErr == nil {
+		validationErr = ValidateNoPoolConflicts(&profile, profiles.Items)
+	}
 
 	// Deletion: run cleanup behind the finalizer before owner-ref GC (§5.6).
 	if !profile.DeletionTimestamp.IsZero() {
+		if validationErr != nil {
+			return r.reconcileDeleteInvalid(ctx, &profile, nodes.Items, validationErr)
+		}
 		return r.reconcileDelete(ctx, &profile, resolvedKey, otherPools, nodes.Items)
 	}
 
+	if validationErr != nil {
+		return r.reconcileInvalidProfile(ctx, &profile, resolvedKey, otherPools, nodes.Items, validationErr)
+	}
+
+	// Only profiles that pass policy validation can own host state. Avoid adding
+	// a cleanup finalizer to a never-valid profile, which could otherwise target
+	// nodes owned by the profile it conflicts with when the invalid object is
+	// deleted.
 	if controllerutil.AddFinalizer(&profile, brewlet.FinalizerCleanup) {
 		if err := r.Update(ctx, &profile); err != nil {
 			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
@@ -82,6 +101,161 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	return ctrl.Result{}, r.updateStatus(ctx, &profile, resolvedKey, otherPools, nodes.Items)
+}
+
+func (r *NodeProfileReconciler) reconcileDeleteInvalid(
+	ctx context.Context,
+	profile *nodev1alpha1.NodeProfile,
+	nodes []corev1.Node,
+	validationErr error,
+) (ctrl.Result, error) {
+	profileDeletionStarted, err := r.deleteProfileDaemonSetIfExists(ctx, profile)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	cleanupDeletionStarted, err := r.deleteCleanupDaemonSetIfExists(ctx, profile)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.withdrawProfileNodeAdvertisements(ctx, profile.Name, nodes); err != nil {
+		return ctrl.Result{}, err
+	}
+	if !controllerutil.ContainsFinalizer(profile, brewlet.FinalizerCleanup) {
+		return ctrl.Result{}, nil
+	}
+	podsRemain, err := r.profilePodsRemain(ctx, profile.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if profileDeletionStarted || cleanupDeletionStarted || podsRemain {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	var freshNodes corev1.NodeList
+	if err := r.apiReader().List(ctx, &freshNodes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("listing nodes before invalid profile finalization: %w", err)
+	}
+	if err := r.withdrawProfileNodeAdvertisements(ctx, profile.Name, freshNodes.Items); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// The current pool selector failed validation and may now overlap another
+	// profile. Never run privileged host cleanup against an untrusted selector.
+	// The old provisioner and cleanup pods are gone and readiness was withdrawn
+	// again after they stopped, so removing the finalizer cannot leave a pod that
+	// republishes stale capabilities. This avoids damaging a valid profile's
+	// nodes at the cost of leaving the previously trusted host installation for
+	// the platform team to clean explicitly.
+	r.Recorder.Eventf(
+		profile,
+		corev1.EventTypeWarning,
+		nodev1alpha1.ReasonInvalidProfile,
+		"skipping host cleanup for invalid profile during deletion: %s",
+		validationErr,
+	)
+	controllerutil.RemoveFinalizer(profile, brewlet.FinalizerCleanup)
+	if err := r.Update(ctx, profile); err != nil {
+		return ctrl.Result{}, fmt.Errorf("removing invalid profile finalizer: %w", err)
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *NodeProfileReconciler) reconcileInvalidProfile(
+	ctx context.Context,
+	profile *nodev1alpha1.NodeProfile,
+	resolvedKey string,
+	otherPools []string,
+	nodes []corev1.Node,
+	validationErr error,
+) (ctrl.Result, error) {
+	deletionStarted, err := r.deleteProfileDaemonSetIfExists(ctx, profile)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.withdrawProfileNodeAdvertisements(ctx, profile.Name, nodes); err != nil {
+		return ctrl.Result{}, err
+	}
+	podsRemain, err := r.profilePodsRemain(ctx, profile.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	result := ctrl.Result{}
+	if deletionStarted || podsRemain {
+		result.RequeueAfter = time.Second
+	} else {
+		var freshNodes corev1.NodeList
+		if err := r.apiReader().List(ctx, &freshNodes); err != nil {
+			return ctrl.Result{}, fmt.Errorf("listing nodes after invalid profile pod termination: %w", err)
+		}
+		if err := r.withdrawProfileNodeAdvertisements(ctx, profile.Name, freshNodes.Items); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	assigned, _ := r.poolCounts(profile, resolvedKey, otherPools, nodes)
+	base := profile.DeepCopy()
+	profile.Status.ObservedGeneration = profile.Generation
+	profile.Status.ResolvedPoolKey = resolvedKey
+	profile.Status.AssignedNodes = assigned
+	profile.Status.ReadyNodes = 0
+	meta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
+		Type:               nodev1alpha1.ConditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             nodev1alpha1.ReasonInvalidProfile,
+		Message:            validationErr.Error(),
+		ObservedGeneration: profile.Generation,
+	})
+	observability.SetNodeProfile(profile.Name, assigned, 0, nodev1alpha1.ReasonInvalidProfile, false)
+	if equalStatus(&base.Status, &profile.Status) {
+		return result, nil
+	}
+	r.Recorder.Eventf(profile, corev1.EventTypeWarning, nodev1alpha1.ReasonInvalidProfile, "%s", validationErr)
+	if err := r.Status().Update(ctx, profile); err != nil {
+		return ctrl.Result{}, fmt.Errorf("updating invalid NodeProfile status: %w", err)
+	}
+	return result, nil
+}
+
+func (r *NodeProfileReconciler) deleteProfileDaemonSet(ctx context.Context, profile *nodev1alpha1.NodeProfile) error {
+	_, err := r.deleteProfileDaemonSetIfExists(ctx, profile)
+	return err
+}
+
+func (r *NodeProfileReconciler) deleteProfileDaemonSetIfExists(
+	ctx context.Context,
+	profile *nodev1alpha1.NodeProfile,
+) (bool, error) {
+	return r.deleteDaemonSetIfExists(
+		ctx,
+		brewlet.ProfileDaemonSetName(profile.Name),
+		"invalid profile",
+	)
+}
+
+func (r *NodeProfileReconciler) withdrawProfileNodeAdvertisements(ctx context.Context, profileName string, nodes []corev1.Node) error {
+	for i := range nodes {
+		node := &nodes[i]
+		if node.Annotations[brewlet.AnnotationProfile] != profileName {
+			continue
+		}
+		base := node.DeepCopy()
+		for key := range node.Labels {
+			if key == brewlet.LabelRuntimeReady ||
+				strings.HasPrefix(key, brewlet.LabelJDKPrefix) ||
+				strings.HasPrefix(key, brewlet.LabelJDKFeaturePrefix) ||
+				strings.HasPrefix(key, brewlet.LabelLauncherPrefix) {
+				delete(node.Labels, key)
+			}
+		}
+		delete(node.Annotations, brewlet.AnnotationJDKs)
+		delete(node.Annotations, brewlet.AnnotationJDKsInfo)
+		delete(node.Annotations, brewlet.AnnotationLaunchers)
+		delete(node.Annotations, brewlet.AnnotationProfile)
+		delete(node.Annotations, brewlet.AnnotationProfileGeneration)
+		delete(node.Annotations, brewlet.AnnotationProvisionError)
+		if err := r.Patch(ctx, node, client.MergeFrom(base)); err != nil {
+			return fmt.Errorf("withdrawing invalid profile %q from node %q: %w", profileName, node.Name, err)
+		}
+	}
+	return nil
 }
 
 // reconcileDelete launches the cleanup DaemonSet, and only removes the finalizer
@@ -145,14 +319,56 @@ func (r *NodeProfileReconciler) ensureCleanupComplete(ctx context.Context, profi
 }
 
 func (r *NodeProfileReconciler) deleteCleanupDaemonSet(ctx context.Context, profile *nodev1alpha1.NodeProfile) error {
+	_, err := r.deleteCleanupDaemonSetIfExists(ctx, profile)
+	return err
+}
+
+func (r *NodeProfileReconciler) deleteCleanupDaemonSetIfExists(
+	ctx context.Context,
+	profile *nodev1alpha1.NodeProfile,
+) (bool, error) {
+	return r.deleteDaemonSetIfExists(
+		ctx,
+		brewlet.CleanupDaemonSetName(profile.Name),
+		"cleanup",
+	)
+}
+
+func (r *NodeProfileReconciler) deleteDaemonSetIfExists(
+	ctx context.Context,
+	name string,
+	kind string,
+) (bool, error) {
 	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{
-		Name:      brewlet.CleanupDaemonSetName(profile.Name),
+		Name:      name,
 		Namespace: r.Config.Namespace,
 	}}
-	if err := r.Delete(ctx, ds); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting cleanup DaemonSet: %w", err)
+	if err := r.Delete(ctx, ds, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
+		return false, fmt.Errorf("deleting %s DaemonSet: %w", kind, err)
+	} else if apierrors.IsNotFound(err) {
+		return false, nil
 	}
-	return nil
+	return true, nil
+}
+
+func (r *NodeProfileReconciler) profilePodsRemain(ctx context.Context, profileName string) (bool, error) {
+	var pods corev1.PodList
+	if err := r.apiReader().List(
+		ctx,
+		&pods,
+		client.InNamespace(r.Config.Namespace),
+		client.MatchingLabels{brewlet.LabelNodeProfile: profileName},
+	); err != nil {
+		return false, fmt.Errorf("listing pods for invalid profile %q: %w", profileName, err)
+	}
+	return len(pods.Items) > 0, nil
+}
+
+func (r *NodeProfileReconciler) apiReader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 func (r *NodeProfileReconciler) ensureRuntimeClass(ctx context.Context) error {
