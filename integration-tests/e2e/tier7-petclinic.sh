@@ -121,6 +121,7 @@ tier7_petclinic() {
         assert_contains "runc: end-to-end PetClinic run completed" "$out" "== petclinic done =="
       else
         printf '%s\n' "$out" >"$WORK/t7-petclinic-runc.log"
+        printf '%s\n' "$out" >&2
         fail "runc: PetClinic Linux harness" "see $WORK/t7-petclinic-runc.log"
       fi
     fi
@@ -230,6 +231,7 @@ tier7_petclinic() {
           assert_contains "layered runc: end-to-end layered PetClinic run completed" "$out" "== petclinic-layered done =="
         else
           printf '%s\n' "$out" >"$WORK/t7-petclinic-layered-runc.log"
+          printf '%s\n' "$out" >&2
           fail "layered runc: PetClinic Linux harness" "see $WORK/t7-petclinic-layered-runc.log"
         fi
       fi
