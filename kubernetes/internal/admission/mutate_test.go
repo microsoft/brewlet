@@ -4,6 +4,7 @@
 package admission
 
 import (
+	"strings"
 	"testing"
 
 	"brewlet-operator/internal/brewlet"
@@ -58,23 +59,36 @@ func TestMutatePod_StampsRefAndDigest(t *testing.T) {
 }
 
 func TestMutatePod_TagRefNoDigest(t *testing.T) {
-	pod := brewletPod("registry.example.com/demo/hello:1.0.0", nil)
-	MutatePod(pod, readyFleet())
+	pod := brewletPod("registry.example.com/demo/hello:1.0.0", map[string]string{
+		brewlet.AnnotationArtifactDigest: "sha256:" + hex64(),
+	})
+	res := MutatePod(pod, readyFleet())
 	if pod.Annotations[brewlet.AnnotationArtifactRef] != "registry.example.com/demo/hello:1.0.0" {
 		t.Fatalf("ref = %q", pod.Annotations[brewlet.AnnotationArtifactRef])
 	}
 	if _, ok := pod.Annotations[brewlet.AnnotationArtifactDigest]; ok {
-		t.Fatal("tag-based ref must not stamp a digest")
+		t.Fatal("tag-based ref must remove a stale digest")
+	}
+	if res.ArtifactDigest != "" {
+		t.Fatalf("result artifact digest = %q, want empty", res.ArtifactDigest)
 	}
 }
 
-func TestMutatePod_PreservesExistingRef(t *testing.T) {
-	pod := brewletPod("first/image:1", map[string]string{
-		brewlet.AnnotationArtifactRef: "override/ref:9",
+func TestMutatePod_OverwritesExistingIdentityHints(t *testing.T) {
+	imageDigest := "sha256:" + hex64()
+	pod := brewletPod("registry.example.com/team/app@"+imageDigest, map[string]string{
+		brewlet.AnnotationArtifactRef:    "attacker.example.com/other@sha256:" + strings64("b"),
+		brewlet.AnnotationArtifactDigest: "sha256:" + strings64("b"),
 	})
-	MutatePod(pod, readyFleet())
-	if pod.Annotations[brewlet.AnnotationArtifactRef] != "override/ref:9" {
-		t.Fatalf("existing ref overwritten: %q", pod.Annotations[brewlet.AnnotationArtifactRef])
+	res := MutatePod(pod, readyFleet())
+	if got := pod.Annotations[brewlet.AnnotationArtifactRef]; got != "registry.example.com/team/app@"+imageDigest {
+		t.Fatalf("artifact-ref = %q", got)
+	}
+	if got := pod.Annotations[brewlet.AnnotationArtifactDigest]; got != imageDigest {
+		t.Fatalf("artifact-digest = %q", got)
+	}
+	if res.ArtifactRef != pod.Annotations[brewlet.AnnotationArtifactRef] || res.ArtifactDigest != imageDigest {
+		t.Fatalf("mutation result = %+v", res)
 	}
 }
 
@@ -89,8 +103,21 @@ func TestMutatePod_ArtifactContainerOverride(t *testing.T) {
 	}}
 	pod.Annotations = map[string]string{"brewlet.sh/artifact-container": "app"}
 	MutatePod(pod, readyFleet())
+	if pod.Annotations[brewlet.AnnotationArtifactContainer] != "app" {
+		t.Fatalf("container = %q, want app", pod.Annotations[brewlet.AnnotationArtifactContainer])
+	}
 	if pod.Annotations[brewlet.AnnotationArtifactRef] != "the/jar:2" {
 		t.Fatalf("ref = %q, want the/jar:2", pod.Annotations[brewlet.AnnotationArtifactRef])
+	}
+}
+
+func TestMutatePod_OverwritesInvalidArtifactContainer(t *testing.T) {
+	pod := brewletPod("the/jar:2", map[string]string{
+		brewlet.AnnotationArtifactContainer: "missing",
+	})
+	MutatePod(pod, readyFleet())
+	if got := pod.Annotations[brewlet.AnnotationArtifactContainer]; got != "app" {
+		t.Fatalf("container = %q, want app", got)
 	}
 }
 
@@ -223,10 +250,11 @@ func TestMutatePod_DeniesNoCompatibleArch(t *testing.T) {
 
 func TestRefDigest(t *testing.T) {
 	cases := map[string]string{
-		"repo/x:1":                 "",
-		"repo/x@sha256:" + hex64(): "sha256:" + hex64(),
-		"repo/x@sha512:abcd":       "", // only sha256 recognized
-		"repo/x@sha256:":           "", // empty digest
+		"repo/x:1":                        "",
+		"repo/x@sha256:" + hex64():        "sha256:" + hex64(),
+		"repo/x@sha512:abcd":              "", // only sha256 recognized
+		"repo/x@sha256:":                  "", // empty digest
+		"repo/x@sha256:" + strings64("z"): "",
 	}
 	for in, want := range cases {
 		if got := refDigest(in); got != want {
@@ -236,7 +264,11 @@ func TestRefDigest(t *testing.T) {
 }
 
 func hex64() string {
-	return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	return strings64("a")
+}
+
+func strings64(value string) string {
+	return strings.Repeat(value, 64)
 }
 
 func requirementsFromPod(t *testing.T, pod *corev1.Pod) []corev1.NodeSelectorRequirement {

@@ -517,6 +517,21 @@ containerd_dump_has_runtime_handler() {
   ' "$1"
 }
 
+containerd_source_has_runtime_handler() {
+  containerd_dump_has_runtime_handler "$CONTAINERD_CONFIG" && return 0
+  [[ -f "$CONTAINERD_DROPIN_FILE" ]] \
+    && containerd_dump_has_runtime_handler "$CONTAINERD_DROPIN_FILE"
+}
+
+containerd_dump_omits_external_cri_schema() {
+  awk '
+    index($0, "Ignoring unknown key in TOML for plugin") &&
+    index($0, "key=\"containerd runtimes brewlet\"") &&
+    index($0, "plugin=io.containerd.grpc.v1.cri") { found=1 }
+    END { exit !found }
+  ' "$1"
+}
+
 containerd_dropins_supported() {
   local imports config_dir import_path resolved
   imports="$(
@@ -605,9 +620,18 @@ validate_containerd_config() {
     return 1
   fi
   if ! containerd_dump_has_runtime_handler "$dump"; then
-    CONTAINERD_VALIDATION_ERROR="containerd config validation failed: brewlet runtime handler is missing"
-    rm -f "$dump" "$error"
-    return 1
+    # containerd 2 delegates the legacy CRI plugin to an external binary, so
+    # `containerd config dump` warns about and omits its runtime tables. Validate
+    # the rendered source here; the post-restart CRI health check remains the
+    # authoritative proof that the handler loaded successfully.
+    if containerd_dump_omits_external_cri_schema "$error" \
+      && containerd_source_has_runtime_handler; then
+      log "containerd config dump omits external CRI runtime tables; validated rendered brewlet handler"
+    else
+      CONTAINERD_VALIDATION_ERROR="containerd config validation failed: brewlet runtime handler is missing"
+      rm -f "$dump" "$error"
+      return 1
+    fi
   fi
   rm -f "$dump" "$error"
   log "containerd config validation passed: brewlet runtime handler is present"
@@ -729,9 +753,11 @@ containerd_healthy() {
 
 brewlet_handler_healthy() {
   [[ -x "$HOST_CRICTL" ]] || return 1
-  host_exec "$HOST_CRICTL_PATH" \
-    --runtime-endpoint "unix://${CONTAINERD_ADDRESS}" info 2>/dev/null \
-    | grep -Eq '"brewlet"[[:space:]]*:'
+  [[ "$(host_exec "$HOST_CRICTL_PATH" \
+    --runtime-endpoint "unix://${CONTAINERD_ADDRESS}" \
+    info --output go-template \
+    --template '{{with index .config.containerd.runtimes "brewlet"}}{{.runtimeType}}{{end}}' \
+    2>/dev/null)" == "io.containerd.brewlet.v2" ]]
 }
 
 wait_for_health() {

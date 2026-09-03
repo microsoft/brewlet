@@ -22,8 +22,8 @@ type MutationResult struct {
 	// succeeded and the (possibly modified) pod should be admitted.
 	DenyReason  string
 	DenyMessage string
-	// ArtifactRef / ArtifactDigest are the values stamped onto the pod (for
-	// logging).
+	// ArtifactRef / ArtifactDigest are the image-derived informational values
+	// written onto the pod for logging and compatibility.
 	ArtifactRef    string
 	ArtifactDigest string
 }
@@ -35,9 +35,9 @@ func IsBrewletPod(pod *corev1.Pod) bool {
 
 // MutatePod applies the admission/scheduling seam to a brewlet pod in place:
 //
-//  1. stamps brewlet.sh/artifact-ref (from the brewlet container image) and, when
-//     the ref is digest-pinned, brewlet.sh/artifact-digest — the annotations the
-//     shim resolves;
+//  1. overwrites brewlet.sh/artifact-ref from the brewlet container image and,
+//     when the ref is digest-pinned, brewlet.sh/artifact-digest. These values are
+//     informational hints; the shim derives executable identity from containerd;
 //  2. validates any explicit JDK/launcher request against the ready fleet,
 //     returning a NoCompatibleJDK / NoCompatibleLauncher denial when unsatisfiable;
 //  3. injects nodeAffinity so the scheduler only lands the pod on nodes that
@@ -52,20 +52,25 @@ func MutatePod(pod *corev1.Pod, fleet []NodeCapability) MutationResult {
 	}
 	res := MutationResult{Applies: true}
 
-	// 1. Stamp the artifact ref/digest the shim reads.
-	ref := podArtifactRef(pod)
-	if ref != "" {
+	// 1. Replace tenant-supplied identity hints with values derived from the pod
+	// image. Record the selected container so other tasks in a multi-container
+	// pod ignore these Pod-wide hints. A tag-based image must also clear any
+	// stale digest hint.
+	container := podArtifactContainer(pod)
+	if container != nil {
 		if pod.Annotations == nil {
 			pod.Annotations = map[string]string{}
 		}
-		if pod.Annotations[brewlet.AnnotationArtifactRef] == "" {
-			pod.Annotations[brewlet.AnnotationArtifactRef] = ref
-		}
-		res.ArtifactRef = pod.Annotations[brewlet.AnnotationArtifactRef]
-		if digest := refDigest(res.ArtifactRef); digest != "" && pod.Annotations[brewlet.AnnotationArtifactDigest] == "" {
+		pod.Annotations[brewlet.AnnotationArtifactContainer] = container.Name
+		ref := container.Image
+		pod.Annotations[brewlet.AnnotationArtifactRef] = ref
+		res.ArtifactRef = ref
+		if digest := refDigest(ref); digest != "" {
 			pod.Annotations[brewlet.AnnotationArtifactDigest] = digest
+			res.ArtifactDigest = digest
+		} else {
+			delete(pod.Annotations, brewlet.AnnotationArtifactDigest)
 		}
-		res.ArtifactDigest = pod.Annotations[brewlet.AnnotationArtifactDigest]
 	}
 
 	// 2. Validate the requested JDK/launcher/arch against the ready fleet.
@@ -98,21 +103,20 @@ func splitArch(v string) []string {
 	return out
 }
 
-// podArtifactRef returns the OCI artifact reference for a brewlet pod: the
-// image of the container named by brewlet.sh/artifact-container if set, else the
-// first container's image.
-func podArtifactRef(pod *corev1.Pod) string {
+// podArtifactContainer returns the regular container selected for the Pod-wide
+// compatibility hints, or the first regular container when none is selected.
+func podArtifactContainer(pod *corev1.Pod) *corev1.Container {
 	if len(pod.Spec.Containers) == 0 {
-		return ""
+		return nil
 	}
-	if name := pod.Annotations["brewlet.sh/artifact-container"]; name != "" {
-		for _, c := range pod.Spec.Containers {
-			if c.Name == name {
-				return c.Image
+	if name := pod.Annotations[brewlet.AnnotationArtifactContainer]; name != "" {
+		for i := range pod.Spec.Containers {
+			if pod.Spec.Containers[i].Name == name {
+				return &pod.Spec.Containers[i]
 			}
 		}
 	}
-	return pod.Spec.Containers[0].Image
+	return &pod.Spec.Containers[0]
 }
 
 // refDigest returns the "sha256:…" manifest digest of a digest-pinned reference
@@ -123,8 +127,13 @@ func refDigest(ref string) string {
 		return ""
 	}
 	digest := ref[at+1:]
-	if !strings.HasPrefix(digest, "sha256:") || len(digest) <= len("sha256:") {
+	if !strings.HasPrefix(digest, "sha256:") || len(digest) != len("sha256:")+64 {
 		return ""
+	}
+	for _, r := range strings.TrimPrefix(digest, "sha256:") {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			return ""
+		}
 	}
 	return digest
 }

@@ -95,7 +95,7 @@ capability model.
               │               │   brewlet          │           │  │ Sandbox              │  │
               │               └────────────────────┘           │  │ (cgroup + netns)     │  │
               │                                                │  │ java -jar            │  │
-              └─────── shim pulls OCI artifact ──────────►     │  │ /app/app.jar         │  │
+              └─────── shim pulls pod image ──────────────►     │  │ /app/app.jar         │  │
                                                                │  │ (node JDK RO)        │  │
                                                                │  └──────────────────────┘  │
                                                                └────────────────────────────┘
@@ -231,10 +231,11 @@ The native artifact above is **registry-native but not runnable by containerd**:
 custom layer media types (`…+jar`, `.classpath+tar`, `.modulepath+tar`) are not
 `tar`/`tar+gzip`/`tar+zstd`, so containerd's CRI differ cannot unpack them. A pod that
 names such an artifact as its `image:` therefore fails to pull (`ImagePullBackOff`),
-and the payload must be delivered to nodes **out of band** (a node pre-puller, or the
-e2e harness's `ctr images import`). That breaks the SpinKube-style delivery
-promise that a `runtimeClassName: brewlet` pod can simply set `image: <ref>` and
-let kubelet pull it, as SpinKube does for a Spin-compatible Wasm application
+and the Kubernetes runtime path rejects native artifacts even if their blobs were
+delivered out of band. Native artifacts remain available to explicit local
+OCI-layout / CLI / `prepare-bundle` workflows. Kubernetes workloads must use a
+runnable image so a `runtimeClassName: brewlet` pod can simply set `image: <ref>`
+and let kubelet pull it, as SpinKube does for a Spin-compatible Wasm application
 routed to containerd-shim-spin.
 
 **Runnable-image mode** closes this gap without changing the native format. `brewlet
@@ -254,19 +255,24 @@ publishes the *same* JAR as a **standard, kubelet-pullable OCI image**:
   JAR carrying native libraries).
 
 containerd/kubelet pull and unpack this image with **no special configuration**. The
-shim recognizes it (the presence of `brewlet.sh/jvm-config` ⇒ runnable image),
-reads the launch config from the annotation, follows the index to the node's platform
-manifest, and assembles the same `java -jar`/`-cp`/`-p -m` sandbox on the node-resident
-JDK it would for a native artifact — the layers are gunzipped and fed to the existing
-bundle-assembly path unchanged. The operator and admission webhook need no change: the
-webhook still stamps `brewlet.sh/artifact-digest` (here the image-index digest) and the
-Deployment's `image:` is simply the now-pullable ref.
+shim follows CRI's immutable image-config identity to the selected containerd
+image record and takes that record's manifest/index target as authoritative. For
+a digest-pinned request, it also requires the containerd-owned
+`io.kubernetes.cri.image-name` OCI annotation to name the same target. It then
+recognizes a runnable image (the presence of `brewlet.sh/jvm-config` ⇒ runnable
+image), reads the launch config from the annotation, follows the index to the
+node's platform manifest, and assembles the same `java -jar`/`-cp`/`-p -m`
+sandbox on the node-resident JDK it would for a native artifact — the layers are
+gunzipped and fed to the existing bundle-assembly path unchanged. The admission webhook overwrites
+`brewlet.sh/artifact-ref` and `brewlet.sh/artifact-digest` compatibility hints from
+the selected Pod image (here the image-index digest), while the shim independently
+derives the authoritative target from containerd metadata.
 
 Runnable-image mode is the **default** delivery format for `brewlet push` and the
 Maven plugin, since it fulfils the pure `image: <ref>` promise end to end. Native
-artifact mode (`--format=artifact` / `-Dbrewlet.format=artifact`) remains available for
-clusters with a node pre-puller that want the registry-native, smallest, no-OS-image
-framing (and its self-describing media types). See
+artifact mode (`--format=artifact` / `-Dbrewlet.format=artifact`) remains available
+for local OCI-layout / CLI workflows that want the registry-native, smallest,
+no-OS-image framing and its self-describing media types. See
 [`docs/runnable-image.md`](https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md)
 for the full contract. The kubelet-pull → unpack → shim-run path is covered on a
 live node by the end-to-end test suite.
@@ -592,8 +598,9 @@ DaemonSet — remains for the no-operator path (§5.5).
    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet]
      runtime_type = "io.containerd.brewlet.v2"
      # Forward the deployment-descriptor annotations the admission webhook stamps
-     # so the shim receives the artifact digest (to resolve the artifact from the
-     # content store) and the cds-regenerate toggle.
+     # so the shim receives the compatibility hints (while resolving the
+     # executable image target digest from containerd metadata) and the
+     # cds-regenerate toggle.
      pod_annotations = ["brewlet.sh/*"]
      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet.options]
        SystemdCgroup = true  # mirror the node's runc cgroup driver
@@ -907,7 +914,7 @@ and builds/runs on Linux:
   runc-backed Task service for the full lifecycle (`Create`/`Start`/`Kill`/
   `Delete`/`Exec`/`Wait`) (`main_linux.go`, `service_linux.go`).
 - The Brewlet-specific work is a `Create()` decorator that performs §6.1
-  steps 1–4: it resolves the OCI artifact, selects the node JDK/launcher,
+  steps 1–4: it resolves the workload image, selects the node JDK/launcher,
   assembles the **overlay rootfs** (shared RO JDK lower + per-container
   upper/work, JAR at `/app`), and rewrites the OCI spec's args/env/mounts — while
   preserving the CRI-provided namespaces (incl. the CNI netns) and cgroup
@@ -917,11 +924,16 @@ and builds/runs on Linux:
   containerd's on-disk content store by digest (production), and a `layout`
   backend reads a Brewlet-local OCI layout (the PoC/e2e harness path).
 
-The artifact reference and manifest digest are stamped **cluster-side, not in the
-shim**: the `brewlet-admission` webhook (§8.3) stamps the
-`brewlet.sh/artifact-ref` and `brewlet.sh/artifact-digest` annotations onto pods
-using `runtimeClassName: brewlet`, so the shim can resolve the artifact from the
-content store. On non-Linux dev hosts only the portable bundle-assembly core builds locally;
+The workload image reference and manifest digest hints are managed **cluster-side,
+not in the shim**: the `brewlet-admission` webhook (§8.3) overwrites the
+`brewlet.sh/artifact-ref` and `brewlet.sh/artifact-digest` compatibility hints
+onto `runtimeClassName: brewlet` pods, mirrored from the selected Pod image. The
+shim resolves the executable image target digest from containerd-owned CRI/
+container metadata, loads the image record named by CRI's immutable config
+identity, and cross-checks digest-pinned requests against containerd's protected
+`io.kubernetes.cri.image-name` OCI annotation. It then reads the content store by
+the resolved target digest; it does not use Brewlet hints to select executable
+content. On non-Linux dev hosts only the portable bundle-assembly core builds locally;
 [integration-test tier 3](../integration-tests/e2e/tier3-runc.sh)
 exercises the real Linux/runc path against the monorepo's core and Kubernetes
 sources.
@@ -946,8 +958,8 @@ overhead:
 ```
 
 A raw Pod/Deployment is enough to use Brewlet — set `runtimeClassName: brewlet`
-and reference the OCI artifact as the container `image`. The CRD (§9) is a higher-level
-convenience on top of this.
+and reference the runnable OCI image as the container `image`. The CRD (§9) is a
+higher-level convenience on top of this.
 
 ---
 
@@ -994,7 +1006,7 @@ Manager, and workload reconciliation analogous to Spin Operator:
 - Watches the `JavaApplication` CRD (§9) and reconciles it into a managed
   `Deployment` + `Service` + (optional) `HPA`, with:
   - `runtimeClassName: brewlet`,
-  - the container `image` = the OCI artifact ref,
+  - the container `image` = the runnable OCI image ref,
   - `resources` copied from the descriptor (enforced as the sandbox cgroup),
   - user-supplied `jvm.args`/`env` wired through (Brewlet injects no tuning of its own),
   - probes, ports, and env wired through.
@@ -1029,10 +1041,16 @@ A mutating+validating admission webhook (`brewlet-admission`) closes the loop
 between a brewlet pod and the ready fleet. For every pod on CREATE with
 `runtimeClassName: brewlet` it:
 
-- **Stamps** `brewlet.sh/artifact-ref` (from the brewlet container `image`, or
-  the container named by `brewlet.sh/artifact-container`) and, when the ref is
-  digest-pinned (`repo@sha256:…`), `brewlet.sh/artifact-digest` — the annotations
-  the shim resolves the JAR from containerd's content store by (§6.4).
+- **Overwrites** `brewlet.sh/artifact-container` with the selected regular
+  container name, `brewlet.sh/artifact-ref` with that container's `image`, and,
+  when the ref is digest-pinned (`repo@sha256:…`),
+  `brewlet.sh/artifact-digest` as Pod-wide compatibility hints. Other tasks in a
+  multi-container Pod ignore those shared hints. The shim resolves each
+  executable image target digest from containerd-
+  owned CRI/container metadata, requires containerd's protected
+  `io.kubernetes.cri.image-name` annotation to agree for digest-pinned images,
+  and reads the JAR from containerd's content store by digest (§6.4); malformed
+  or conflicting hints are rejected, but hints never select executable content.
 - **Matches** any explicitly requested JDK/launcher/architecture (pod annotations
   `brewlet.sh/jdk` = `<dist>-<feature>` or a bare feature such as `21`, and
   `brewlet.sh/launcher`, plus `brewlet.sh/arch` for non-portable artifacts)
@@ -1048,10 +1066,11 @@ between a brewlet pod and the ready fleet. For every pod on CREATE with
   incompatible nodes rather than failing at runtime.
 
 Non-brewlet pods pass through untouched; a pod with no explicit JDK/launcher
-request is admitted with just the artifact annotations stamped, and the shim
+request is admitted with just the compatibility hints overwritten, and the shim
 defaults the JDK to feature 21 (lexically-first installed distribution) and the
-launcher to `java`. `failurePolicy: Ignore`
-ensures a webhook outage never blocks workloads.
+launcher to `java`. `failurePolicy: Ignore` keeps the webhook available without
+blocking workloads, but runtime identity resolution still fails closed if the
+shim cannot determine the containerd-resolved image.
 
 > Built as a second binary in the operator module
 > ([`cmd/admission`](../kubernetes/cmd/admission)
@@ -1083,7 +1102,7 @@ metadata:
   namespace: payments
 spec:
   artifact:
-    image: registry.example.com/team/orders:1.4.2   # OCI artifact (digest pinned recommended)
+    image: registry.example.com/team/orders:1.4.2   # runnable OCI image (digest pinned recommended)
     pullPolicy: IfNotPresent
     pullSecrets: [regcred]
   replicas: 3
@@ -1155,7 +1174,7 @@ spec:
       runtimeClassName: brewlet
       containers:
         - name: hello
-          image: registry.example.com/demo/hello:1.0.0   # the OCI artifact
+          image: registry.example.com/demo/hello:1.0.0   # the runnable OCI image
           resources: { limits: { cpu: "1", memory: "512Mi" } }
           ports: [{ containerPort: 8080 }]
 ```
@@ -1294,9 +1313,10 @@ and JVM features:
   mismatch falls back safely to base CDS. Alternatively opt into **node-side
   regeneration** at the deployment level (`spec.jvm.cds.regenerate` on the
   `JavaApplication` CRD → `brewlet.sh/cds-regenerate` pod annotation; `brewlet
-  run/bundle --appcds-regenerate` locally): the node maintains a
-  per-`(artifact, JDK-build)` archive cache driven by `-XX:+AutoCreateSharedArchive`
-  (JDK 19+) that self-heals on every central JDK patch. See the
+  run/bundle --appcds-regenerate` locally): the production node maintains a
+  per-`(containerd-resolved image target digest, JDK-build)` archive cache; local
+  commands use the resolved local artifact key. Both are driven by
+  `-XX:+AutoCreateSharedArchive` (JDK 19+) and self-heal on every central JDK patch. See the
   [AppCDS note](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md).
 
 ---

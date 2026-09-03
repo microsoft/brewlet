@@ -49,7 +49,7 @@ spec:
                   properties:
                     image:
                       type: string
-                      description: OCI ref to the artifact — a Java application packaged as an OCI artifact, not a container image (digest pin recommended).
+                      description: OCI reference to the runnable Java application image (digest pin required for attestation enforcement).
                     pullPolicy:
                       type: string
                       enum: [Always, IfNotPresent, Never]

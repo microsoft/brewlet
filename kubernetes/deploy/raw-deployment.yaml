@@ -1,7 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# Raw usage: no CRD, just a Deployment whose container image IS the OCI artifact
+# Raw usage: no CRD, just a Deployment whose container image is the digest-pinned
+# Brewlet runnable OCI image
 # and whose runtimeClassName routes it to the Brewlet shim. The shim runs
 # `java -jar app.jar` using the node-resident JDK.
 apiVersion: apps/v1
@@ -28,7 +29,7 @@ spec:
       runtimeClassName: brewlet          # <-- the only Brewlet-specific line
       containers:
         - name: hello
-          image: registry.example.com/demo/hello:1.0.0   # OCI artifact (not a container image)
+          image: registry.example.com/demo/hello@sha256:REPLACE_WITH_IMAGE_DIGEST
           resources:
             limits:
               cpu: "2"

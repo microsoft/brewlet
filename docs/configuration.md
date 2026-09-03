@@ -75,9 +75,9 @@ with `--set key=value` or a values file.
 | `metrics.serviceMonitor.additionalLabels` | `{}` | Extra `ServiceMonitor` labels, commonly used to match a Prometheus `serviceMonitorSelector`. |
 | `metrics.grafanaDashboard.enabled` | `false` | Create the `brewlet-grafana-dashboard` ConfigMap for dashboard sidecar discovery; does not install Grafana or a data source. |
 | `metrics.grafanaDashboard.labels` | `grafana_dashboard: "1"` | Labels applied to the dashboard ConfigMap for sidecar discovery. |
-| `admission.enabled` | `true` | Deploy the admission/scheduling webhook. Set `false` to skip it (the shim keeps its runtime JDK check). |
+| `admission.enabled` | `true` | Deploy the admission/scheduling webhook. Set `false` to skip it; the shim still enforces runtime image identity and JDK compatibility. |
 | `admission.replicas` | `1` | Webhook replica count. |
-| `admission.failurePolicy` | `Ignore` | Webhook failure policy. `Ignore` ensures a webhook outage never blocks workloads. |
+| `admission.failurePolicy` | `Ignore` | Webhook failure policy. `Ignore` keeps availability high, but runtime identity resolution still fails closed in the shim if containerd metadata cannot be resolved. |
 | `admission.port` | `9443` | Webhook server port. |
 | `admission.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Webhook pod resources. |
 
@@ -155,8 +155,10 @@ only touch them directly if you hand-wire the DaemonSet.
 The [`brewlet-admission`](https://github.com/microsoft/brewlet/tree/main/kubernetes/cmd/admission/) webhook is
 mutating+validating. For every pod on CREATE with `runtimeClassName: brewlet` it:
 
-- **stamps** `brewlet.sh/artifact-ref` (and `brewlet.sh/artifact-digest` when the
-  ref is digest-pinned) so the shim can resolve the JAR from the content store;
+- **overwrites** `brewlet.sh/artifact-ref` (and `brewlet.sh/artifact-digest` when the
+  ref is digest-pinned) as compatibility hints from the selected Pod image; the
+  shim resolves the JAR from containerd-owned metadata and the content store by
+  digest, not from the hints;
 - **matches** any requested JDK/launcher against the ready fleet, denying with
   `NoCompatibleJDK` / `NoCompatibleLauncher`;
 - **steers** scheduling via `nodeAffinity` onto per-capability node labels.
@@ -168,7 +170,9 @@ guide explains the end-to-end scheduling flow and autoscaler integration. The
 defines the complete key grammar and compatibility guarantees.
 
 Non-brewlet pods pass through untouched. With `admission.failurePolicy: Ignore`
-(default) a webhook outage never blocks workloads.
+(default) a webhook outage never blocks workloads, but if the shim cannot
+resolve runtime identity from containerd metadata it still fails closed rather
+than guessing.
 
 **Serving certificate.** By default Helm generates a self-signed serving cert at
 render time and injects the CA as the `caBundle`. Because Helm regenerates it on
@@ -183,7 +187,7 @@ Pod-side annotations the webhook reads (developer-facing) — see
 |---|---|---|
 | `brewlet.sh/jdk` | `21` or `temurin-21` | Request a specific JDK feature (any distro) or exact `<dist>-<feature>`. |
 | `brewlet.sh/launcher` | `jaz` | Request a launcher. Empty / `java` = vanilla OpenJDK launcher. |
-| `brewlet.sh/artifact-container` | `app` | Which container's `image` is the OCI artifact (defaults to the brewlet container). |
+| `brewlet.sh/artifact-container` | `app` | Selects which regular container's `image` the webhook mirrors into Pod-wide compatibility hints. The webhook normalizes this value to the selected container name; other tasks ignore the shared hints and remain bound to their own CRI images. |
 
 ---
 

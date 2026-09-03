@@ -30,8 +30,9 @@ brewlet version                       print the CLI version
 `<ref>` is a `name:tag`, e.g. `demo/hello:1.0.0`.
 
 > The native-artifact path reads and writes a local **OCI layout** directory
-> (`--store`, default `./oci`). The default runnable-image format publishes to a
-> registry. See [Building & publishing](building-and-publishing.md).
+> (`--store`, default `./oci`) for local CLI / bundle workflows. The default
+> runnable-image format publishes the Kubernetes workload image to a registry.
+> See [Building & publishing](building-and-publishing.md).
 
 Flags may appear before *and* after positional arguments. For `run`, everything
 after a literal `--` is passed as **extra JVM args**.
@@ -107,9 +108,9 @@ registry publication or consumption. See
 ## `brewlet push`
 
 Publish a JAR to an OCI registry (generates a minimal launch config, or embeds one
-you provide). By default it publishes a **runnable, kubelet-pullable OCI image**; pass
-`--format=artifact` for the native Brewlet artifact instead (see
-[runnable-image delivery](runnable-image.md)).
+you provide). By default it publishes a **runnable, kubelet-pullable OCI image**;
+pass `--format=artifact` only for the native Brewlet artifact path used by local
+OCI-layout / CLI / bundle workflows (see [runnable-image delivery](runnable-image.md)).
 
 ```
 brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
@@ -125,7 +126,7 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--format` | `image` | Delivery format: `image` (standard, kubelet-pullable OCI image — a `runtimeClassName: brewlet` pod can name it as `image: <ref>`) or `artifact` (native Brewlet OCI artifact with custom media types, delivered to nodes out of band). See [runnable-image delivery](runnable-image.md). |
+| `--format` | `image` | Delivery format: `image` (standard, kubelet-pullable OCI image — the production `runtimeClassName: brewlet` pod image) or `artifact` (native Brewlet OCI artifact for local OCI-layout / CLI / bundle workflows, not the production Kubernetes pod image path). See [runnable-image delivery](runnable-image.md). |
 | `--store` | `./oci` | OCI layout directory to write the artifact into. |
 | `--config` | *(none)* | Path to a `jvm-config.json` to embed verbatim (overrides the generated one). See the [launch config schema](building-and-publishing.md#2-the-launch-config). |
 | `--arch` | *(auto-detected)* | Comma-separated architecture constraint (e.g. `amd64` or `amd64,arm64`) for a **non-portable (JNI) JAR**: injects `kubernetes.io/arch` nodeAffinity and denies scheduling with `NoCompatibleArch` when no ready node matches. Overrides native-library auto-detection. Omit for arch-neutral bytecode (the default). See [multi-arch](multi-arch.md). |
@@ -212,7 +213,7 @@ brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [--appcds-reg
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--jdk-root` | *(none)* | Node JDK home to launch with. When unset, falls back to `BREWLET_JDK_HOME`, then `JAVA_HOME`, then `java` on `PATH`. |
 | `--launcher` | `java` | Launcher binary name under the selected JDK (or a compatible node-installed launcher name such as `jaz`). |
-| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local-dev equivalent of the deployment's `spec.jvm.cds.regenerate`). Maintains a per-`(artifact, JDK-build)` archive cache under `$BREWLET_CDS_CACHE` (default `/opt/brewlet/cds`) driven by `-XX:+AutoCreateSharedArchive` (JDK 19+), self-healing on every central JDK patch. Any shipped archive becomes optional *seed* data — works with no archive at all. |
+| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local-dev equivalent of the deployment's `spec.jvm.cds.regenerate`). Maintains a per-`(local artifact key, JDK-build)` archive cache under `$BREWLET_CDS_CACHE` (default `/opt/brewlet/cds`) driven by `-XX:+AutoCreateSharedArchive` (JDK 19+), self-healing on every central JDK patch. Any shipped archive becomes optional *seed* data — works with no archive at all. |
 | `-- <args>` | *(none)* | Everything after `--` is appended as extra JVM args. |
 
 ```bash
@@ -246,7 +247,7 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--jdk-root DIR] [--la
 | `--jdk-root` | `/opt/brewlet/jdks/temurin-21` | Node JDK runtime root to mount read-only. |
 | `--launcher` | `java` | Launcher binary name to record in the runtime spec annotations and execute. |
 | `--launcher-root` | *(none)* | Node launcher-layer root for a custom launcher (e.g. `jaz`). |
-| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local equivalent of the deployment's `spec.jvm.cds.regenerate`). Bind-mounts a per-`(artifact, JDK-build)` archive cache into the sandbox and prepends `-XX:+AutoCreateSharedArchive` (JDK 19+). |
+| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local equivalent of the deployment's `spec.jvm.cds.regenerate`). Bind-mounts a per-`(local artifact key, JDK-build)` archive cache into the sandbox and prepends `-XX:+AutoCreateSharedArchive` (JDK 19+). |
 | `--out` | `./bundle` | Output bundle directory. |
 
 ```bash

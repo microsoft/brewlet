@@ -260,8 +260,9 @@ brewlet push ./target/app.jar registry.example.com/team/app:1.4.2
 - Full flags: [CLI reference](cli-reference.md#brewlet-push).
 
 > The native-artifact path can write to a local **OCI layout** (`--store`, default
-> `./oci`). To publish to a registry, use the default runnable-image format, ORAS
-> (below), or the [Maven plugin](#option-c-maven-plugin).
+> `./oci`) for local CLI / bundle / prepare-bundle workflows. To publish a
+> Kubernetes workload, use the default runnable-image format; for registry-native
+> delivery, use ORAS (below) or the [Maven plugin](#option-c-maven-plugin).
 
 Inspect what you built:
 
@@ -351,9 +352,11 @@ Prefer digest-pinned references for deploys:
 registry.example.com/team/app@sha256:<digest>
 ```
 
-Digest pinning lets the shim resolve the artifact straight from containerd's content
-store (the admission webhook stamps `brewlet.sh/artifact-digest`), and it's the
-basis for cosign/SLSA supply-chain policy. See [Security](security.md).
+Digest pinning lets the shim bind execution to the exact target containerd
+resolved for the Pod image. The admission webhook mirrors that digest in
+`brewlet.sh/artifact-digest` only as a cross-checked compatibility hint. It is
+also the basis for cosign/SLSA supply-chain policy. See
+[Security](security.md).
 
 ---
 

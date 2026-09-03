@@ -2,7 +2,9 @@
 
 This page enables Brewlet on a Kubernetes cluster: the operator, the node
 provisioner, and the admission webhook. After this, any pod with
-`runtimeClassName: brewlet` runs a Java application (packaged as an OCI artifact) directly on a node JDK.
+`runtimeClassName: brewlet` runs a Java application in the runnable OCI image
+format directly on a node JDK; native artifacts remain for local OCI-layout /
+CLI workflows.
 
 There are two paths:
 

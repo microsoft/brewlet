@@ -22,9 +22,9 @@ digest-pinned with a trusted final-image attestation.
 
 ## Raw Deployment
 
-The image field references an **OCI artifact containing a Java application**, not a
-container image. The only
-Brewlet-specific line is `runtimeClassName: brewlet`.
+The image field references the **runnable OCI image** for the Java application,
+not the native Brewlet artifact. The only Brewlet-specific line is
+`runtimeClassName: brewlet`.
 
 When managed-dependency admission enforcement is enabled, use an immutable
 reference such as `registry.example.com/demo/hello@sha256:<digest>`; tag-based
@@ -43,7 +43,7 @@ spec:
       runtimeClassName: brewlet
       containers:
         - name: hello
-          image: registry.example.com/demo/hello:1.0.0   # the OCI artifact
+          image: registry.example.com/demo/hello:1.0.0   # the runnable OCI image
           resources:
             limits: { cpu: "1", memory: "512Mi" }         # → cgroup limits
           ports: [{ containerPort: 8080 }]
@@ -79,7 +79,8 @@ spec:
 
 For raw Kubernetes workloads, request the JDK/launcher with pod annotations. The
 admission webhook validates them against the ready fleet, injects `nodeAffinity`,
-and the shim reads the same propagated annotations at launch. If `brewlet.sh/jdk`
+and the shim reads the propagated JDK/launcher annotations at launch while still
+resolving the workload image digest from containerd metadata. If `brewlet.sh/jdk`
 is absent, the shim defaults to feature 21 and picks the lexically-first
 installed distribution for it; omit `brewlet.sh/launcher` for
 vanilla `java`.
@@ -107,10 +108,11 @@ spec:
 | `brewlet.sh/jdk` | `21` (any distro of that feature) or `temurin-21` (exact) | Validated against ready nodes; injects `nodeAffinity`. If none compatible → pod rejected with `NoCompatibleJDK`. |
 | `brewlet.sh/launcher` | `jaz`, or empty/`java` | Same, but for launchers → `NoCompatibleLauncher`. |
 | `brewlet.sh/arch` | `amd64`, or `amd64,arm64` | Optional; only for **non-portable JARs** bundling JNI natives. Injects `kubernetes.io/arch` nodeAffinity; if no ready node of a required arch exists → `NoCompatibleArch`. Omit for arch-neutral bytecode. |
-| `brewlet.sh/artifact-container` | container name | Which container's `image` is the OCI artifact (defaults to the brewlet container). |
+| `brewlet.sh/artifact-container` | container name | Selects which regular container's `image` the webhook mirrors into Pod-wide compatibility hints. The webhook normalizes this value to the selected container name; other tasks ignore the shared hints and resolve their own CRI image independently. |
 
-If you set **no** annotation, the pod is admitted (its artifact ref/digest are still
-stamped) and the shim performs its own runtime JDK compatibility check. See
+If you set **no** annotation, the pod is admitted (the webhook still overwrites
+its compatibility hints) and the shim performs its own runtime identity and JDK
+compatibility checks. See
 [Launchers](launchers.md) and [Troubleshooting](troubleshooting.md).
 
 ---
@@ -200,14 +202,14 @@ spec:
 
 | Field group | Purpose |
 |---|---|
-| `artifact` | The OCI artifact ref + pull policy/secrets. |
+| `artifact` | The runnable OCI image ref + pull policy/secrets. |
 | `replicas` / `autoscaling` | Deployment replica count / HPA. |
 | `resources` | Requests → scheduling/HPA; limits → sandbox cgroup ceilings ([Resource requests, limits & JVM tuning](resource-tuning.md)). |
 | `jvm.version` | JDK feature version to run on (e.g. `21`); must match a node-installed JDK. |
 | `jvm.distribution` | Optional JDK distribution (`temurin`, `microsoft`). With `jvm.version` pins an exact `<distribution>-<feature>` node JDK; omit to accept any distribution of that feature. |
 | `jvm.launcher` | `java` (default) or `jaz` ([Launchers](launchers.md)). |
 | `jvm.args` | Your JVM tuning flags. Omit under `jaz`. |
-| `jvm.cds.regenerate` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). When `true` the controller stamps the `brewlet.sh/cds-regenerate` pod annotation and the node maintains a per-`(artifact, JDK-build)` archive cache via `-XX:+AutoCreateSharedArchive` (JDK 19+), self-healing on every central JDK patch. Fleet/operational choice (depends on your JDK patch cadence), so it lives here rather than in the artifact; any shipped `cds.archive` becomes optional seed data. Default `false`. |
+| `jvm.cds.regenerate` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). When `true` the controller stamps the `brewlet.sh/cds-regenerate` pod annotation and the node maintains a per-`(containerd-resolved image target digest, JDK-build)` archive cache via `-XX:+AutoCreateSharedArchive` (JDK 19+), self-healing on every central JDK patch. Fleet/operational choice (depends on your JDK patch cadence), so it lives here rather than in the artifact; any shipped `cds.archive` becomes optional seed data. Default `false`. |
 | `arch` | Optional architecture constraint (`amd64`, `arm64`). Only for **non-portable JARs** bundling JNI native libraries; steers scheduling to matching-arch nodes and denies admission with `NoCompatibleArch` when unsatisfiable. Omit for arch-neutral bytecode (runs on any arch). |
 | `env` / `ports` / `service` / `probes` | Wired through to the generated objects. |
 

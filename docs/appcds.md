@@ -227,8 +227,9 @@ build-time archive goes stale on the **next** central patch, and a `.jsa` is als
 property. Node-side regeneration removes both problems by decoupling the archive
 from the shipped artifact entirely.
 
-The node generates/refreshes a per-`(artifact-digest, jdk-build)` archive lazily
-and caches it under `<cacheDir>/<key>.jsa`, where `key = sha256(artifactKey|jdkBuild)`
+The node generates/refreshes a per-`(containerd-resolved image target digest, jdk-build)` archive lazily
+and caches it under `<cacheDir>/<key>.jsa`, where `artifactKey` is the containerd-
+resolved image target digest and `key = sha256(artifactKey|jdkBuild)`
 (first 32 hex) and `cacheDir` defaults to `/opt/brewlet/cds` (`DefaultCDSCacheDir`,
 overridable via the `BREWLET_CDS_CACHE` env var). Inside the sandbox the cache is
 bind-mounted at `/run/brewlet/cds` (`InSandboxCDSDir`) — read-write for the elected
@@ -290,7 +291,8 @@ also hardened the shim's CRI path (it now registers the `runtimeoptions` proto,
 translates the generic options CRI hands a non-`runc` handler into `runc` options
 preserving the cgroup driver, and skips the pod sandbox container) and added the
 `pod_annotations = ["brewlet.sh/*"]` passthrough to the node provisioner so the
-shim actually receives the artifact digest and the `cds-regenerate` toggle.
+shim actually receives the `cds-regenerate` toggle and compatibility hints, while
+the executable image digest continues to come from containerd metadata.
 
 ### 4.4 Deterministic JAR mtime — why a shipped archive maps on the node
 

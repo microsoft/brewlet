@@ -1,10 +1,11 @@
 # Admission enforcement
 
 Brewlet's production admission integration admits a pod using
-`runtimeClassName: brewlet` only when every image on that pod carries a valid,
-trusted final-image managed-dependency attestation. It combines a
+`runtimeClassName: brewlet` only when the Pod image resolves to a digest with a
+valid, trusted final-image managed-dependency attestation. It combines a
 **Ratify v1.4.5 external verifier plugin** with a **Gatekeeper policy** and
-verifies Brewlet's native OCI 1.1 referrer in place.
+verifies Brewlet's native OCI 1.1 referrer in place so the runtime executes that
+same admitted image.
 
 The plugin verifies Brewlet's native evidence directly, reusing Brewlet's own
 DSSE and predicate verification code instead of requiring evidence to be
@@ -28,6 +29,10 @@ flowchart LR
 ```
 
 ---
+
+Ratify/Gatekeeper perform the signature and identity check before admission.
+The node shim does not introduce a second on-node signature-verification pass;
+it resolves and executes the same image digest admitted by the policy.
 
 ## Why Ratify
 

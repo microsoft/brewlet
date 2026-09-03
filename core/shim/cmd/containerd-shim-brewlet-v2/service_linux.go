@@ -17,6 +17,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	taskAPI "github.com/containerd/containerd/api/runtime/task/v2"
+	containersapi "github.com/containerd/containerd/api/services/containers/v1"
+	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	apitypes "github.com/containerd/containerd/api/types"
 	runcoptions "github.com/containerd/containerd/api/types/runc/options"
 	runtimeoptions "github.com/containerd/containerd/pkg/runtimeoptions/v1"
@@ -27,6 +29,8 @@ import (
 	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/microsoft/brewlet/internal/artifact"
@@ -70,11 +74,31 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			inner, err := task.NewTaskService(ic.Context, pp.(shim.Publisher), ss.(shutdown.Service))
+			shutdownService := ss.(shutdown.Service)
+			inner, err := task.NewTaskService(ic.Context, pp.(shim.Publisher), shutdownService)
 			if err != nil {
 				return nil, err
 			}
-			return &brewletTaskService{TaskService: inner, pending: map[string]launchInfo{}}, nil
+			target := ic.Address
+			if !strings.Contains(target, "://") {
+				target = "unix://" + target
+			}
+			connection, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				return nil, fmt.Errorf("connect to containerd for image identity: %w", err)
+			}
+			shutdownService.RegisterCallback(func(context.Context) error {
+				return connection.Close()
+			})
+			return &brewletTaskService{
+				TaskService: inner,
+				imageIdentity: newContainerdImageIdentityResolver(
+					containersapi.NewContainersClient(connection),
+					imagesapi.NewImagesClient(connection),
+					envOr("BREWLET_CONTENT_ROOT", defaultContentRoot),
+				),
+				pending: map[string]launchInfo{},
+			}, nil
 		},
 	})
 }
@@ -84,12 +108,13 @@ func init() {
 // runc implementation, so `kubectl logs/exec`, probes, signals and Services all
 // behave exactly like an ordinary container (https://github.com/microsoft/brewlet/tree/main/specs §6.3). The one
 // Brewlet-specific step is Create(): before runc ever sees the bundle, we
-// disassemble the OCI artifact and rewrite the OCI spec into a `java -jar`
+// disassemble the runnable OCI image and rewrite the OCI spec into a `java -jar`
 // sandbox backed by the node-resident JDK.
 type brewletTaskService struct {
 	taskAPI.TaskService
-	mu      sync.Mutex
-	pending map[string]launchInfo
+	imageIdentity imageIdentityResolver
+	mu            sync.Mutex
+	pending       map[string]launchInfo
 }
 
 type launchInfo struct {
@@ -127,7 +152,7 @@ func (s *brewletTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 		return nil, err
 	}
 	if !sandbox {
-		info, err := assembleBrewletBundle(r)
+		info, err := assembleBrewletBundle(ctx, r, s.imageIdentity)
 		if err != nil {
 			emitLaunch(info, err)
 			return nil, err
@@ -179,9 +204,9 @@ func (s *brewletTaskService) Delete(ctx context.Context, r *taskAPI.DeleteReques
 }
 
 // isSandboxBundle reports whether the OCI spec at <bundle>/config.json belongs
-// to a CRI pod sandbox (the pause container). Non-CRI callers (the ctr / e2e
-// harness paths) leave the annotation unset, so those bundles are always treated
-// as workload containers and get the brewlet rewrite.
+// to a CRI pod sandbox (the pause container). Production workload tasks must
+// carry CRI container metadata; local harnesses use prepare-bundle instead of
+// entering this TTRPC path.
 func isSandboxBundle(bundle string) (bool, error) {
 	raw, err := os.ReadFile(filepath.Join(bundle, "config.json"))
 	if err != nil {
@@ -267,7 +292,7 @@ func runcOptionsFromGeneric(o *runtimeoptions.Options) (*runcoptions.Options, er
 // JDK/JAR mounts and JVM env — while preserving everything CRI set up
 // (namespaces incl. the CNI-provided network namespace, cgroup resources, user,
 // and standard pod mounts).
-func assembleBrewletBundle(r *taskAPI.CreateTaskRequest) (launchInfo, error) {
+func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, identityResolver imageIdentityResolver) (launchInfo, error) {
 	specPath := filepath.Join(r.Bundle, "config.json")
 	raw, err := os.ReadFile(specPath)
 	if err != nil {
@@ -278,14 +303,22 @@ func assembleBrewletBundle(r *taskAPI.CreateTaskRequest) (launchInfo, error) {
 		return launchInfo{}, fmt.Errorf("parse oci spec: %w", err)
 	}
 
-	ref := artifactRef(&spec)
-	if ref == "" {
-		return launchInfo{}, fmt.Errorf("no Brewlet artifact reference on task %q (expected annotation %q)", r.ID, annArtifactRef)
+	if identityResolver == nil {
+		return launchInfo{}, fmt.Errorf("containerd image identity resolver is not configured for task %q", r.ID)
+	}
+	identity, err := identityResolver.Resolve(ctx, r.ID)
+	if err != nil {
+		return launchInfo{}, fmt.Errorf("resolve runtime image identity: %w", err)
+	}
+	if err := validateCRIImageIdentity(spec.Annotations, identity.TargetDigest); err != nil {
+		return launchInfo{}, err
+	}
+	if err := validateRuntimeImageIdentity(spec.Annotations, identity.TargetDigest); err != nil {
+		return launchInfo{}, err
 	}
 
 	ic := imageConfig{
-		StoreRoot:        envOr("BREWLET_STORE_ROOT", ""),
-		Ref:              ref,
+		Ref:              identity.ImageName,
 		JDKRootsDir:      envOr("BREWLET_JDK_ROOTS", defaultJDKRootsDir),
 		LauncherRootsDir: envOr("BREWLET_LAUNCHER_ROOTS", defaultLauncherRootsDir),
 		// The JDK/launcher the deployment descriptor requested, carried on the
@@ -293,13 +326,12 @@ func assembleBrewletBundle(r *taskAPI.CreateTaskRequest) (launchInfo, error) {
 		// no longer carries these — the descriptor is the single source of truth.
 		JDKRequest:   spec.Annotations[annRequestedJDK],
 		LauncherName: spec.Annotations[annRequestedLauncher],
-		// Content-store resolution: read the artifact straight from containerd's
-		// own content store by manifest digest. Selected by default (no
-		// BREWLET_STORE_ROOT); the PoC harness sets BREWLET_STORE_ROOT to fall
-		// back to the Brewlet-local OCI layout.
-		Backend:        envOr("BREWLET_STORE_BACKEND", ""),
+		// Kubernetes execution is always bound to the image containerd resolved
+		// for this CRI container. The layout backend remains available only to
+		// the explicit prepare-bundle/local harness path.
+		Backend:        "containerd",
 		ContentRoot:    envOr("BREWLET_CONTENT_ROOT", defaultContentRoot),
-		ManifestDigest: spec.Annotations[annArtifactDigest],
+		ManifestDigest: identity.TargetDigest,
 	}
 	resolveStart := time.Now()
 	ra, err := resolveArtifact(ic)
@@ -307,6 +339,9 @@ func assembleBrewletBundle(r *taskAPI.CreateTaskRequest) (launchInfo, error) {
 	format := ra.Format
 	if format == "" {
 		format = "unknown"
+	}
+	if err == nil && format != "image" {
+		err = fmt.Errorf("Brewlet Kubernetes workloads require a runnable OCI image, got %q format for %q", format, identity.ImageName)
 	}
 	_ = telemetry.Emit(telemetry.Event{
 		Kind:            telemetry.KindArtifactResolution,
@@ -411,10 +446,9 @@ func emitLaunchWithReason(info launchInfo, err error, reason string) {
 // whose read-only lower layer is the shared node JDK runtime root and whose
 // upper/work layers are per-container writable scratch. containerd's runc
 // container setup mounts r.Rootfs onto <bundle>/rootfs, so replacing the
-// (nonexistent, for an OCI artifact) snapshot mounts with this overlay gives the
-// JVM a writable root backed by the shared JDK userland — no container image
-// userland or snapshot required, paralleling containerd-shim-spin's Wasm runtime
-// path.
+// image snapshot mounts with this overlay gives the JVM a writable root backed
+// by the shared JDK userland. The runnable image snapshot establishes CRI image
+// identity and unpackability, but its OS-less rootfs is not executed.
 func setupOverlayRootfs(r *taskAPI.CreateTaskRequest, ra resolvedArtifact) error {
 	scratch := filepath.Join(r.Bundle, "brewlet")
 	upper := filepath.Join(scratch, "upper")
@@ -469,10 +503,7 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 	// writer), and a shipped archive becomes seed data rather than a /app mount.
 	var cdsCacheMount []specs.Mount
 	if regenerate {
-		artifactKey := spec.Annotations[annArtifactDigest]
-		if artifactKey == "" {
-			artifactKey = artifactRef(spec)
-		}
+		artifactKey := ra.ImageDigest
 		if artifactKey != "" {
 			cacheDir := envOr("BREWLET_CDS_CACHE", kcruntime.DefaultCDSCacheDir)
 			seed := ""
@@ -676,20 +707,6 @@ func envKey(kv string) string {
 		}
 	}
 	return kv
-}
-
-// artifactRef pulls the OCI artifact reference from the OCI spec annotations,
-// preferring the Brewlet-native key and falling back to the CRI image name.
-func artifactRef(spec *specs.Spec) string {
-	if spec.Annotations != nil {
-		if v := spec.Annotations[annArtifactRef]; v != "" {
-			return v
-		}
-		if v := spec.Annotations[annCRIImage]; v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func envOr(key, def string) string {

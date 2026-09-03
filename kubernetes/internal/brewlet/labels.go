@@ -92,13 +92,17 @@ func CleanupDaemonSetName(profile string) string {
 
 // Pod-side vocabulary consumed by the admission/scheduling seam (§8 / §14).
 const (
-	// AnnotationArtifactRef is stamped by the admission webhook onto a brewlet
-	// pod: the OCI artifact reference the shim resolves (mirrors the shim's
-	// annArtifactRef). Sourced from the pod's brewlet container image.
+	// AnnotationArtifactContainer selects the regular container whose image is
+	// mirrored into the Pod-wide compatibility hints. The webhook overwrites it
+	// with the selected container name so other runtime tasks ignore those hints.
+	AnnotationArtifactContainer = "brewlet.sh/artifact-container"
+	// AnnotationArtifactRef is overwritten by the admission webhook from the
+	// brewlet container image. It is an informational hint that the shim
+	// cross-checks when digest-bearing, not the runtime content authority.
 	AnnotationArtifactRef = "brewlet.sh/artifact-ref"
-	// AnnotationArtifactDigest is stamped when the artifact ref is digest-pinned
-	// (repo@sha256:…); it lets the shim read the artifact straight from
-	// containerd's content store (mirrors the shim's annArtifactDigest).
+	// AnnotationArtifactDigest is overwritten when the image ref is digest-pinned
+	// (repo@sha256:…). The shim rejects conflicts but derives its authoritative
+	// image target from containerd-owned CRI metadata.
 	AnnotationArtifactDigest = "brewlet.sh/artifact-digest"
 
 	// AnnotationRequestedJDK optionally declares the JDK a pod needs, as either a
