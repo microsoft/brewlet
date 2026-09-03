@@ -152,7 +152,6 @@ config describing how to launch it.
   "enablePreview": true,
   "addOpens": ["java.base/java.lang=ALL-UNNAMED"],
   "systemProperties": { "spring.aot.enabled": "true" },
-  "user": { "uid": 1000, "gid": 1000 },
   "env": []
 }
 ```
@@ -164,11 +163,12 @@ config describing how to launch it.
   for raw Deployments). The artifact is deployment-agnostic.
 - The artifact field set is exactly `schemaVersion`, `mainJar`, `entry`,
   `enablePreview`, `addModules`, `addOpens`, `addExports`, `systemProperties`,
-  `user`, `env`, and the two optional constraints/hints `arch` (an architecture
+  `env`, and the two optional constraints/hints `arch` (an architecture
   constraint for non-portable/JNI JARs, steering `kubernetes.io/arch`
   nodeAffinity — §14) and `cds` (an AppCDS archive hint pairing the artifact with
-  its `cds.layer.v1+jsa` layer — §13). Ports are a deployment concern
-  (`spec.ports`), not part of the artifact.
+  its `cds.layer.v1+jsa` layer — §13). Ports and process credentials are
+  deployment concerns, not part of the artifact. Consumers MUST reject a config
+  containing a `user` field.
 - The descriptor's launcher selects the JVM launcher that fronts the entrypoint. It is **generic
   and OpenJDK-neutral**: omitted (or `"java"`) means the stock `java` launcher from
   the selected JDK. Brewlet injects **no JVM tuning flags** in either case — the
@@ -1226,8 +1226,13 @@ descriptor's `jvm.args`.
 - **Isolation parity with containers.** Because execution is runc-backed, workloads
   get the same namespace/cgroup/seccomp/AppArmor isolation as ordinary pods. The JAR
   is treated as untrusted code.
-- **Non-root by default.** JVM runs as an unprivileged uid; root squashed unless
-  explicitly requested via `securityContext`.
+- **Deployment-authoritative process identity.** `JavaApplication` workloads and
+  standalone bundles default to UID/GID `65532:65532`. Raw Pods select identity
+  through `securityContext`, and the shim preserves the CRI-populated OCI user
+  unchanged. Generated workloads also use `RuntimeDefault` seccomp, disable
+  privilege escalation, and drop all Linux capabilities. Artifact metadata
+  cannot carry process credentials and a config containing `user` is rejected.
+  Root is possible only through an explicit, trusted deployment/runtime choice.
 - **Artifact identity.** Digest-pinned references are recommended so the admitted
   artifact cannot change between deployments.
 - **Privileged provisioning is the sharp edge.** As with SpinKube's Runtime Class

@@ -257,6 +257,12 @@ YAML
     T8_RC_CREATED=1
   fi
   kubectl create namespace "$T8_NS" >/dev/null 2>&1 || true
+  kubectl label namespace "$T8_NS" --overwrite \
+    pod-security.kubernetes.io/enforce=restricted \
+    pod-security.kubernetes.io/enforce-version=latest \
+    pod-security.kubernetes.io/warn=restricted \
+    pod-security.kubernetes.io/audit=restricted \
+    >>"$WORK/t8-pod.log" 2>&1
 
   # A pod carrying exactly the annotations the admission webhook stamps from
   # spec.jvm.cds.regenerate. $1 = pod name.
@@ -275,10 +281,18 @@ spec:
   runtimeClassName: brewlet
   terminationGracePeriodSeconds: 30
   nodeSelector: { brewlet.sh/runtime: ready }
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile: { type: RuntimeDefault }
   containers:
     - name: app
       image: busybox:1.36
       command: ["sleep", "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
       readinessProbe:
         httpGet: { path: /healthz, port: 8080 }
         initialDelaySeconds: 1
@@ -290,7 +304,9 @@ YAML
   # --- ROLLOUT 1: writer -----------------------------------------------------
   # Start from a clean cache so rollout 1 deterministically elects a WRITER
   # (a leftover archive from a previous run would make it a consumer instead).
-  docker exec "$T8_NODE" sh -c "rm -f $T8_CACHE/*.jsa $T8_CACHE/*.jsa.writer 2>/dev/null" || true
+  docker exec "$T8_NODE" sh -c \
+    'find "$1" -mindepth 1 -maxdepth 2 -type f \( -name "*.jsa" -o -name "*.writer" \) -delete 2>/dev/null; find "$1" -mindepth 1 -maxdepth 1 -type d -empty -delete 2>/dev/null' \
+    sh "$T8_CACHE" || true
   info "tier8: deploying WRITE rollout (regen-writer)"
   _t8_apply_pod regen-writer
   if ! kubectl wait -n "$T8_NS" --for=condition=Ready pod/regen-writer --timeout=120s >>"$WORK/t8-pod.log" 2>&1; then
@@ -306,8 +322,12 @@ YAML
   kubectl delete -n "$T8_NS" pod/regen-writer --grace-period=30 --wait=true >>"$WORK/t8-pod.log" 2>&1 || true
 
   local jsa
-  if wait_for docker exec "$T8_NODE" sh -c "ls $T8_CACHE/*.jsa >/dev/null 2>&1"; then
-    jsa="$(docker exec "$T8_NODE" sh -c "ls -1 $T8_CACHE/*.jsa 2>/dev/null | head -1" | tr -d '\r')"
+  if wait_for docker exec "$T8_NODE" sh -c \
+      'test -n "$(find "$1" -mindepth 1 -maxdepth 2 -type f -name "*.jsa" -print -quit 2>/dev/null)"' \
+      sh "$T8_CACHE"; then
+    jsa="$(docker exec "$T8_NODE" sh -c \
+      'find "$1" -mindepth 1 -maxdepth 2 -type f -name "*.jsa" -print -quit 2>/dev/null' \
+      sh "$T8_CACHE" | tr -d '\r')"
     local sz; sz="$(docker exec "$T8_NODE" sh -c "wc -c < '$jsa' 2>/dev/null" | tr -d '[:space:]')"
     if [[ "${sz:-0}" -gt 0 ]]; then
       pass "tier8: writer dumped AppCDS archive to node cache ($(basename "$jsa"), ${sz} bytes)"

@@ -53,12 +53,14 @@ const (
 // where the pulled artifact's config + JAR layer live in the content store, and
 // the container resource limits from the pod spec.
 type imageConfig struct {
-	StoreRoot        string `json:"storeRoot"`        // OCI content store / layout root
-	Ref              string `json:"ref"`              // image ref (the OCI artifact)
-	JDKRootsDir      string `json:"jdkRootsDir"`      // e.g. /opt/brewlet/jdks
-	LauncherRootsDir string `json:"launcherRootsDir"` // e.g. /opt/brewlet/launchers
-	CPULimit         string `json:"cpuLimit"`         // from container.resources.limits.cpu
-	MemoryLimit      string `json:"memoryLimit"`      // from container.resources.limits.memory
+	StoreRoot        string  `json:"storeRoot"`        // OCI content store / layout root
+	Ref              string  `json:"ref"`              // image ref (the OCI artifact)
+	JDKRootsDir      string  `json:"jdkRootsDir"`      // e.g. /opt/brewlet/jdks
+	LauncherRootsDir string  `json:"launcherRootsDir"` // e.g. /opt/brewlet/launchers
+	CPULimit         string  `json:"cpuLimit"`         // from container.resources.limits.cpu
+	MemoryLimit      string  `json:"memoryLimit"`      // from container.resources.limits.memory
+	ProcessUID       *uint32 `json:"processUID,omitempty"`
+	ProcessGID       *uint32 `json:"processGID,omitempty"`
 
 	// JDKRequest / LauncherName are the JDK and launcher the *deployment
 	// descriptor* asked for, carried on the pod as the brewlet.sh/jdk and
@@ -84,6 +86,17 @@ type imageConfig struct {
 	Backend        string `json:"backend,omitempty"`        // "" (infer) | "layout" | "containerd"
 	ContentRoot    string `json:"contentRoot,omitempty"`    // containerd content root
 	ManifestDigest string `json:"manifestDigest,omitempty"` // "sha256:…" of the artifact manifest
+}
+
+func (ic imageConfig) processIdentity() kcruntime.ProcessIdentity {
+	identity := kcruntime.DefaultProcessIdentity()
+	if ic.ProcessUID != nil {
+		identity.UID = *ic.ProcessUID
+	}
+	if ic.ProcessGID != nil {
+		identity.GID = *ic.ProcessGID
+	}
+	return identity
 }
 
 // resolvedArtifact is everything the shim needs after disassembling a Brewlet
@@ -166,7 +179,7 @@ func prepareBundle(args []string) error {
 		CacheDir:    os.Getenv("BREWLET_CDS_CACHE"),
 		MetricsDir:  os.Getenv("BREWLET_METRICS_DIR"),
 	}
-	if err := kcruntime.GenerateBundleWithRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, regen); err != nil {
+	if err := kcruntime.GenerateBundleWithIdentityAndRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, ic.processIdentity(), regen); err != nil {
 		return fmt.Errorf("generate bundle: %w", err)
 	}
 

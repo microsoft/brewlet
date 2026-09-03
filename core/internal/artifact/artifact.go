@@ -80,7 +80,6 @@ type JVMConfig struct {
 	// SystemProperties are expanded (sorted by key) into -D<key>=<value> flags
 	// the application assumes at startup.
 	SystemProperties map[string]string `json:"systemProperties,omitempty"`
-	User             *User             `json:"user,omitempty"`
 	Env              []EnvVar          `json:"env,omitempty"`
 	// Arch is an OPTIONAL architecture constraint for NON-portable artifacts —
 	// those bundling JNI native libraries or arch-specific dependencies (e.g.
@@ -199,11 +198,6 @@ type Entry struct {
 	// (e.g. "mods", from a modulepath layer) contributes every JAR it contains.
 	// See https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md.
 	ModulePath []string `json:"modulePath,omitempty"`
-}
-
-type User struct {
-	UID int `json:"uid"`
-	GID int `json:"gid"`
 }
 
 type EnvVar struct {

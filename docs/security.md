@@ -24,8 +24,10 @@ The JAR is treated as **untrusted code** and runs inside that sandbox — nothin
 
 ## Non-root by default
 
-The JVM runs as an **unprivileged uid**; root is squashed unless explicitly
-requested. Set the identity via the artifact's `user` (uid/gid) or the pod
+`JavaApplication` workloads and standalone OCI bundles default to the
+unprivileged UID/GID `65532:65532`. Generated `JavaApplication` Pods also use
+`RuntimeDefault` seccomp, disable privilege escalation, and drop all Linux
+capabilities. For raw Pods or Deployments, set the identity with Pod
 `securityContext`:
 
 ```yaml
@@ -43,6 +45,13 @@ spec:
         readOnlyRootFilesystem: true          # the JDK root is RO already
         capabilities: { drop: ["ALL"] }
 ```
+
+The CRI-populated OCI process user is authoritative: the Brewlet shim preserves
+it unchanged. Process credentials are forbidden in artifact launch metadata, and
+an artifact config containing `user` is rejected before runc starts the process.
+Explicit root therefore requires a trusted deployment/runtime choice,
+such as a raw Pod `securityContext` or standalone `brewlet bundle --uid 0 --gid
+0`; untrusted artifact bytes cannot request it.
 
 The JDK runtime root is mounted **read-only** and shared; only a small per-container
 upper/scratch layer is writable.

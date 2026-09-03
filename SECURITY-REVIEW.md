@@ -46,7 +46,7 @@ risks.
 |---|----------|---------|------------|
 | 1 | Critical | Tenant-controlled OCI digests can bind-mount arbitrary node paths | 9/10 |
 | 2 | High | The node-shared AppCDS cache is writable from a tenant container | 8/10 |
-| 3 | High | Artifact launch configuration overrides the pod UID/GID | 9/10 |
+| 3 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | 9/10 |
 | 4 | High | Attestation enforcement verifies a different identity from the executed artifact | 8/10 |
 | 5 | Medium | The launcher annotation can traverse outside the launcher root | 7/10 |
 | 6 | High | Mutable, unsigned JDK images become root-executed node runtimes | 9/10 |
@@ -268,9 +268,11 @@ Assert the writer mount source is not `/opt/brewlet/cds`.
 **CWE:** CWE-250, CWE-863  
 **Type:** Confirmed vulnerability and insecure default
 
+**Status:** Remediated
+
 **Attacker prerequisites:** Control of the executed artifact's config blob.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:517-521`
   unconditionally overwrites `spec.Process.User.UID` and `.GID` from artifact
@@ -294,6 +296,14 @@ requests a prohibited identity.
 **Remediation test:** Unit test a spec with UID 1000 and artifact UID 0 and
 assert the final UID remains 1000 or launch fails. Add an end-to-end test in a
 Pod Security `restricted` namespace.
+
+**Resolution:** Artifact launch config no longer has a `user` field and strict
+decoding rejects any artifact that supplies one. The production shim preserves
+the CRI-populated OCI process user unchanged, generated `JavaApplication`
+workloads and standalone bundles default to `65532:65532`, and the live
+containerd E2E tier covers both UID/GID preservation and fail-closed rejection
+of a re-hashed root-requesting artifact in a Pod Security `restricted`
+namespace.
 
 ### 4. Attestation enforcement verifies a different identity from the executed artifact
 
@@ -704,7 +714,7 @@ JDK tree then becomes a lower layer for every Brewlet workload.
 
 | Claim | Location | Implemented behavior |
 |-------|----------|----------------------|
-| The JVM is non-root unless root is explicitly requested through the Pod security context | `specs/SPECIFICATION.md:1228-1229`; `docs/security.md` | Artifact `user.uid/gid` overrides the Pod-derived OCI user |
+| The JVM is non-root unless root is explicitly requested through the Pod security context | `specs/SPECIFICATION.md:1228-1229`; `docs/security.md` | **Remediated:** artifact credentials are rejected and the CRI-populated user is authoritative |
 | Every runtime root arrives through a content-addressable, digest-verified pull | `specs/SPECIFICATION.md:664` | Curated JDKs use mutable tags without signature or digest enforcement |
 | Only a small per-container upper/scratch layer is writable | `docs/security.md` | CDS regeneration mounts the node-shared cache read-write |
 | The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | The digest is tenant-settable, unvalidated, and not bound to the image |
@@ -723,7 +733,8 @@ JDK tree then becomes a lower layer for every Brewlet workload.
    closed for Brewlet RuntimeClass pods.
 4. Remove tenant write access to the shared AppCDS directory and partition
    cache state.
-5. Prevent artifact launch configuration from raising UID/GID privilege.
+5. **Remediated:** Prevent artifact launch configuration from raising UID/GID
+   privilege.
 
 ### P1: Next release
 
@@ -752,8 +763,8 @@ JDK tree then becomes a lower layer for every Brewlet workload.
    Finding 1.
 3. **Stop mounting the shared AppCDS cache directory into workloads.** Covers
    Finding 2.
-4. **Prevent artifact configuration from overriding Pod UID/GID.** Covers
-   Finding 3.
+4. **Prevent artifact configuration from overriding Pod UID/GID (remediated in
+   issue #21).** Covers Finding 3.
 5. **Validate launcher and `mainJar` path components.** Covers Findings 5 and 8,
    which share the same path-input validation fix.
 6. **Support signed, digest-pinned curated JDK sources and validate registry

@@ -150,12 +150,6 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     protected Map<String, String> systemProperties;
 
     /**
-     * Optional UNIX user/group override for the sandbox process.
-     */
-    @Parameter
-    protected User user;
-
-    /**
      * Environment variables to set in the container.
      */
     @Parameter
@@ -438,7 +432,6 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
         cfg.setAddOpens(addOpens != null && !addOpens.isEmpty() ? addOpens : null);
         cfg.setAddExports(addExports != null && !addExports.isEmpty() ? addExports : null);
         cfg.setSystemProperties(systemProperties != null && !systemProperties.isEmpty() ? systemProperties : null);
-        cfg.setUser(user);
         cfg.setEnv(env != null && !env.isEmpty() ? env : null);
 
         // Optional arch constraint (non-portable artifacts): an explicit <arch>

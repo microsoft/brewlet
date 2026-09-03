@@ -453,6 +453,13 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 		mainJar = "app.jar"
 	}
 	inSandboxJar := "/app/" + mainJar
+	if spec.Process == nil {
+		return fmt.Errorf("CRI OCI spec is missing process configuration")
+	}
+	writerIdentity := kcruntime.ProcessIdentity{
+		UID: spec.Process.User.UID,
+		GID: spec.Process.User.GID,
+	}
 
 	// Node-side AppCDS regeneration is a deployment/fleet decision, carried on the
 	// pod as brewlet.sh/cds-regenerate (set by the operator from
@@ -465,8 +472,9 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 	// Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): when the deployment
 	// opts in, resolve a per-(artifact, JDK-build) archive from the node cache and
 	// prepend its -XX:+AutoCreateSharedArchive / -XX:SharedArchiveFile args. The
-	// cache dir is bind-mounted at InSandboxCDSDir (rw only for the elected
-	// writer), and a shipped archive becomes seed data rather than a /app mount.
+	// isolated per-key cache dir is bind-mounted at InSandboxCDSDir (rw only for
+	// the elected writer), and a shipped archive becomes seed data rather than a
+	// /app mount.
 	var cdsCacheMount []specs.Mount
 	if regenerate {
 		artifactKey := spec.Annotations[annArtifactDigest]
@@ -480,12 +488,13 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 				seed = ra.CDSHostPath
 			}
 			dec, err := kcruntime.DecideCDSRegen(kcruntime.RegenParams{
-				CacheDir:      cacheDir,
-				JDKRoot:       ra.JDKHome,
-				ArtifactKey:   artifactKey,
-				SeedArchive:   seed,
-				ArchiveArgDir: kcruntime.InSandboxCDSDir,
-				MetricsDir:    envOr("BREWLET_METRICS_DIR", ""),
+				CacheDir:       cacheDir,
+				JDKRoot:        ra.JDKHome,
+				ArtifactKey:    artifactKey,
+				SeedArchive:    seed,
+				ArchiveArgDir:  kcruntime.InSandboxCDSDir,
+				WriterIdentity: &writerIdentity,
+				MetricsDir:     envOr("BREWLET_METRICS_DIR", ""),
 			})
 			if err != nil {
 				return err
@@ -503,22 +512,15 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 				cdsCacheMount = []specs.Mount{{
 					Destination: kcruntime.InSandboxCDSDir,
 					Type:        "bind",
-					Source:      cacheDir,
+					Source:      dec.MountSource,
 					Options:     opts,
 				}}
 			}
 		}
 	}
 
-	if spec.Process == nil {
-		spec.Process = &specs.Process{}
-	}
 	spec.Process.Args = append([]string{artifact.LauncherName(ra.LauncherName)}, jvmArgs...)
 	spec.Process.Cwd = "/app"
-	if ra.Config.User != nil {
-		spec.Process.User.UID = uint32(ra.Config.User.UID)
-		spec.Process.User.GID = uint32(ra.Config.User.GID)
-	}
 
 	// PATH: prepend the custom launcher layer when present so e.g. `jaz`
 	// resolves ahead of the JDK's own bin.

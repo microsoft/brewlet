@@ -41,9 +41,17 @@ spec:
     metadata: { labels: { app: hello } }
     spec:
       runtimeClassName: brewlet
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: hello
           image: registry.example.com/demo/hello:1.0.0   # the OCI artifact
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
           resources:
             limits: { cpu: "1", memory: "512Mi" }         # → cgroup limits
           ports: [{ containerPort: 8080 }]
@@ -61,6 +69,10 @@ Because the shim is runc-backed, this pod is a **first-class Kubernetes citizen*
 - `kubectl logs` / `kubectl exec` / ephemeral debug containers work;
 - readiness/liveness/startup probes (`httpGet`, `tcpSocket`, `exec`) work;
 - HPA and metrics-server work.
+
+The Pod `securityContext` is the sole source of process UID/GID for raw
+workloads. Brewlet preserves the identity CRI places in the OCI spec; artifact
+launch metadata cannot override it.
 
 Add a Service exactly as usual:
 
@@ -151,6 +163,10 @@ spec:
       memory: "1Gi"
   ports: [{ name: http, containerPort: 8080 }]
 ```
+
+The generated Deployment defaults to `runAsNonRoot: true` with UID/GID
+`65532:65532`, `RuntimeDefault` seccomp, privilege escalation disabled, and all
+Linux capabilities dropped.
 
 ### Full example
 

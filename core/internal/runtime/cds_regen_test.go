@@ -187,7 +187,7 @@ func TestDecideCDSRegenStaleMarkerReelects(t *testing.T) {
 		t.Fatalf("first role = %q, want write", first.Role)
 	}
 	// Age the writer marker past the TTL -> the next launch reclaims the key.
-	marker := first.HostArchive + writerMarkerSuffix
+	marker := filepath.Join(cache, first.Key+writerMarkerSuffix)
 	old := time.Now().Add(-2 * time.Minute)
 	if err := os.Chtimes(marker, old, old); err != nil {
 		t.Fatal(err)
@@ -320,6 +320,20 @@ func TestGenerateBundleWithRegenMountsCache(t *testing.T) {
 	}
 	if !strings.Contains(cfgJSON, InSandboxCDSDir) {
 		t.Errorf("config.json missing cache mount at %s:\n%s", InSandboxCDSDir, cfgJSON)
+	}
+	spec := readBundleSpec(t, out)
+	foundCacheMount := false
+	for _, mount := range spec.Mounts {
+		if mount.Destination == InSandboxCDSDir {
+			foundCacheMount = true
+			if mount.Source == cache || filepath.Dir(mount.Source) != cache {
+				t.Errorf("cache mount source = %q, want an isolated child of %q", mount.Source, cache)
+			}
+			break
+		}
+	}
+	if !foundCacheMount {
+		t.Errorf("config.json has no cache mount at %s", InSandboxCDSDir)
 	}
 	// A regenerating artifact with no shipped archive must not mount /app/*.jsa.
 	if strings.Contains(cfgJSON, "/app/app.jsa") {

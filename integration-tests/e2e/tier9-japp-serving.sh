@@ -35,6 +35,7 @@
 # eclipse-temurin:21 for the JDK userland root. SKIPs otherwise.
 
 T9_REF="demo/hello:serving-e2e"
+T9_MALICIOUS_REF="demo/hello:root-user-e2e"
 T9_JDK="temurin-21"
 T9_TEMURIN_IMG="eclipse-temurin:21"
 T9_NS="brewlet-serving"
@@ -171,10 +172,18 @@ spec:
       runtimeClassName: brewlet
       nodeSelector: { brewlet.sh/runtime: ready }
       terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: app
           image: busybox:1.36
           command: ["sleep", "3600"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
           env:
             - { name: JDK_JAVA_OPTIONS, value: "-XX:MaxRAMPercentage=50.0" }
             - { name: BREWLET_ROLLOUT, value: "$nonce" }
@@ -211,6 +220,13 @@ _t9_curl() {
 # _t9_no_pods: true once no app pods remain (used to assert scale-to-zero drains).
 _t9_no_pods() {
   [[ "$(kubectl get pods -n "$T9_NS" -l app="$T9_APP" --no-headers 2>/dev/null | wc -l | tr -d ' ')" == 0 ]]
+}
+
+_t9_malicious_user_rejected() {
+  local message
+  message="$(kubectl get pod t9-root-user -n "$T9_NS" \
+    -o jsonpath='{.status.containerStatuses[0].state.waiting.message}{.status.containerStatuses[0].state.terminated.message}' 2>/dev/null)"
+  [[ "$message" == *'unknown field "user"'* ]]
 }
 
 # _t9_curl_retry PATH [tries]: retry _t9_curl until it succeeds.
@@ -288,6 +304,12 @@ PY
   if [[ -z "$digest" ]]; then fail "tier9: resolve artifact digest" "index.json had no manifest"; return 0; fi
   info "tier9: artifact digest $digest"
 
+  local malicious_digest
+  if ! malicious_digest="$(python3 "$E2E_DIR/inject-artifact-user.py" "$store" "$T9_REF" "$T9_MALICIOUS_REF")"; then
+    fail "tier9: create malicious root-user artifact" "could not rewrite the OCI layout"; return 0
+  fi
+  info "tier9: malicious artifact digest $malicious_digest"
+
   # Import the OCI layout into the node's k8s.io content store (by digest).
   if ! ( cd "$store" && tar -cf - . ) | docker exec -i "$T9_NODE" ctr -n k8s.io images import --digests - >>"$WORK/t9-import.log" 2>&1; then
     if ! ( cd "$store" && tar -cf - . ) | docker exec -i "$T9_NODE" ctr -n k8s.io images import - >>"$WORK/t9-import.log" 2>&1; then
@@ -323,11 +345,34 @@ YAML
     T9_RC_CREATED=1
   fi
   kubectl create namespace "$T9_NS" >/dev/null 2>&1 || true
+  kubectl label namespace "$T9_NS" --overwrite \
+    pod-security.kubernetes.io/enforce=restricted \
+    pod-security.kubernetes.io/enforce-version=latest \
+    pod-security.kubernetes.io/warn=restricted \
+    pod-security.kubernetes.io/audit=restricted \
+    >>"$WORK/t9-deploy.log" 2>&1
 
   # A plain (non-brewlet) client pod we exec `wget` from, to hit the Service over
   # the real in-cluster network — proving Service routing, not just a local port.
-  kubectl run t9-client -n "$T9_NS" --image=busybox:1.36 --restart=Never \
-    --command -- sleep 3600 >>"$WORK/t9-deploy.log" 2>&1 || true
+  kubectl apply -n "$T9_NS" -f - >>"$WORK/t9-deploy.log" 2>&1 <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata: { name: t9-client }
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: client
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+YAML
 
   # --- deploy the brewlet workload -------------------------------------------
   info "tier9: deploying brewlet Deployment + Service ($T9_APP)"
@@ -356,10 +401,14 @@ YAML
   fi
 
   # --- (B) the cgroup-aware JVM promise (§ the whole point of Brewlet) --------
-  local info_body procs mem
+  local info_body procs mem uid gid
   if info_body="$(_t9_curl_retry /info)"; then
     procs="$(printf '%s' "$info_body" | grep -i availableProcessors | grep -oE '[0-9]+' | head -1)"
     mem="$(printf '%s' "$info_body" | grep -i 'maxMemory' | grep -oE '[0-9]+' | head -1)"
+    uid="$(printf '%s' "$info_body" | grep -i 'process.uid' | grep -oE '[0-9]+' | head -1)"
+    gid="$(printf '%s' "$info_body" | grep -i 'process.gid' | grep -oE '[0-9]+' | head -1)"
+    assert_eq "tier9: JVM process UID preserves the Pod securityContext" "${uid:-?}" "1000"
+    assert_eq "tier9: JVM process GID preserves the Pod securityContext" "${gid:-?}" "1000"
     # limits.cpu = "1" -> the container-aware JDK must see exactly 1 processor,
     # NOT the node's real core count. That is the cgroup-aware guarantee.
     assert_eq "tier9: JVM availableProcessors reflects the CPU limit (cgroup-aware, ==1)" "${procs:-0}" "1"
@@ -416,6 +465,42 @@ YAML
   else
     fail "tier9: rolling update completed" "see $WORK/t9-deploy.log"
   fi
+
+  # --- (E) artifact metadata cannot replace the Pod UID/GID -------------------
+  kubectl apply -n "$T9_NS" -f - >>"$WORK/t9-deploy.log" 2>&1 <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: t9-root-user
+  annotations:
+    brewlet.sh/artifact-ref: "$T9_MALICIOUS_REF"
+    brewlet.sh/artifact-digest: "$malicious_digest"
+    brewlet.sh/jdk: "$T9_JDK"
+spec:
+  runtimeClassName: brewlet
+  restartPolicy: Never
+  nodeSelector: { brewlet.sh/runtime: ready }
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+YAML
+  if wait_for _t9_malicious_user_rejected; then
+    pass "tier9: artifact user UID/GID is rejected before JVM process start"
+  else
+    fail "tier9: reject artifact-controlled UID/GID" \
+      "runtime message: $(kubectl get pod t9-root-user -n "$T9_NS" -o jsonpath='{.status.containerStatuses[0].state.waiting.message}{.status.containerStatuses[0].state.terminated.message}' 2>/dev/null); diag: $(save_pod_diag t9-root-user "$T9_NS")"
+  fi
+  assert_eq "tier9: malicious root-user artifact never starts a JVM process" \
+    "$(kubectl get pod t9-root-user -n "$T9_NS" -o jsonpath='{.status.containerStatuses[0].state.running.startedAt}' 2>/dev/null)" ""
 
   kubectl delete -n "$T9_NS" deploy/"$T9_APP" svc/"$T9_APP" --wait=false >/dev/null 2>&1 || true
 }

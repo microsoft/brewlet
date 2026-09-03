@@ -146,10 +146,11 @@ descriptor. They are **not** serialized into `target/brewlet/jvm-config.json`.
 | `systemProperties` | App-intrinsic artifact map expanded as sorted `-D<key>=<value>` flags. |
 | `jvmArgs` (`brewlet.jvmArgs`) | Deployment tuning/escape-hatch args written directly to descriptor `spec.jvm.args`; use for heap, GC, agents, and `-XX` flags. |
 | `env` | `<envVar>` entries (`name`, `value`). |
-| `user` | Optional `uid`/`gid` override for the sandbox process. |
 
 Framework auto-detection is still used for port inference, but framework labels are
-not written into the artifact.
+not written into the artifact. Process UID/GID is also excluded: Kubernetes
+deployments set it through Pod `securityContext`, and artifact configs containing
+`user` are rejected.
 
 ---
 

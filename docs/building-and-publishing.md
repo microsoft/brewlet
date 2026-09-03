@@ -41,7 +41,6 @@ you can author it and pass `--config`.
   "enablePreview": true,
   "addOpens": ["java.base/java.lang=ALL-UNNAMED"],
   "systemProperties": { "spring.aot.enabled": "true" },
-  "user": { "uid": 1000, "gid": 1000 },
   "env": []
 }
 ```
@@ -60,11 +59,13 @@ you can author it and pass `--config`.
 | `addExports` | Optional module/package export tokens; expands to repeated `--add-exports`. |
 | `systemProperties` | Optional string map expanded as sorted `-D<key>=<value>` flags. |
 | `cds` | Optional AppCDS block. `cds.archive` is a bare `/app`-relative `.jsa` filename shipped as a CDS layer (`brewlet push --appcds-archive`); `cds.mode` (`dynamic`\|`static`) is informational. Launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`, so a JDK-build mismatch falls back safely to base CDS. The artifact carries only this shipped *seed* archive; node-side regeneration is a deployment choice set via `spec.jvm.cds.regenerate` on the `JavaApplication` CRD (or `brewlet run/bundle --appcds-regenerate`), not a field in the artifact. See [AppCDS](appcds.md). |
-| `user` | uid/gid to run as (also settable via pod `securityContext`). |
 | `env` | Environment variables baked into the artifact. |
 
 Ports are **not** an artifact field — they are a deployment concern
 (`spec.ports` in the descriptor, or the Maven `manifest` goal's `<ports>`).
+Process UID/GID is also a deployment concern: use Pod `securityContext` on
+Kubernetes or `brewlet bundle --uid/--gid` for a standalone OCI bundle. A
+launch config containing `user` is rejected.
 
 Artifact launch knobs are app-intrinsic correctness flags. They expand before
 descriptor `jvm.args`, which is where deployment tuning and escape-hatch JVM args

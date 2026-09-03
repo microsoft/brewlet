@@ -201,7 +201,8 @@ brewlet inspect demo/hello:1.0.0
 ## `brewlet run`
 
 Resolve the artifact, assemble a local sandbox, and launch `java -jar` in the
-foreground using a node-resident JDK. This is the Layer‑1 demo path (no cgroups).
+foreground using a node-resident JDK and the invoking OS user's credentials.
+This is the Layer‑1 demo path (no cgroups).
 
 ```
 brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [--appcds-regenerate] [-- <extra jvm args>]
@@ -235,7 +236,7 @@ Emit the **OCI runtime bundle** (`config.json` + rootfs layout) that the contain
 shim feeds to runc. Useful to see exactly what will run on a node.
 
 ```
-brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--appcds-regenerate] [--out DIR]
+brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--appcds-regenerate] [--out DIR]
 ```
 
 | Flag | Default | Meaning |
@@ -243,6 +244,8 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--jdk-root DIR] [--la
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--cpu` | *(unlimited)* | CPU limit, e.g. `2` or `500m` → sandbox `cpu.max`. |
 | `--memory` | *(unlimited)* | Memory limit, e.g. `512Mi` or `1Gi` → sandbox `memory.max`. |
+| `--uid` | `65532` | Trusted runtime process UID (`0`–`4294967294`) written to the OCI bundle. Artifact metadata cannot set it. |
+| `--gid` | `65532` | Trusted runtime process GID (`0`–`4294967294`) written to the OCI bundle. Artifact metadata cannot set it. |
 | `--jdk-root` | `/opt/brewlet/jdks/temurin-21` | Node JDK runtime root to mount read-only. |
 | `--launcher` | `java` | Launcher binary name to record in the runtime spec annotations and execute. |
 | `--launcher-root` | *(none)* | Node launcher-layer root for a custom launcher (e.g. `jaz`). |
@@ -250,7 +253,7 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--jdk-root DIR] [--la
 | `--out` | `./bundle` | Output bundle directory. |
 
 ```bash
-brewlet bundle demo/hello:1.0.0 --cpu 2 --memory 512Mi --out ./bundle
+brewlet bundle demo/hello:1.0.0 --cpu 2 --memory 512Mi --uid 1000 --gid 1000 --out ./bundle
 cat ./bundle/config.json
 # On a Linux node the shim runs the equivalent of:
 #   runc run -b ./bundle brewlet-<id>

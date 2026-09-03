@@ -228,16 +228,18 @@ property. Node-side regeneration removes both problems by decoupling the archive
 from the shipped artifact entirely.
 
 The node generates/refreshes a per-`(artifact-digest, jdk-build)` archive lazily
-and caches it under `<cacheDir>/<key>.jsa`, where `key = sha256(artifactKey|jdkBuild)`
-(first 32 hex) and `cacheDir` defaults to `/opt/brewlet/cds` (`DefaultCDSCacheDir`,
+and caches it under `<cacheDir>/<key>/<key>.jsa`, where `key =
+sha256(artifactKey|jdkBuild)` (first 32 hex) and `cacheDir` defaults to
+`/opt/brewlet/cds` (`DefaultCDSCacheDir`,
 overridable via the `BREWLET_CDS_CACHE` env var). Inside the sandbox the cache is
-bind-mounted at `/run/brewlet/cds` (`InSandboxCDSDir`) — read-write for the elected
-writer, read-only for everyone else. On a JDK patch the `<jdkBuild>` component of the
-key changes, the old entry is ignored, and a fresh archive is produced on the next
-launch — always matched to the running JVM and to the node's architecture. The
-shipped archive (§4.1) becomes optional *seed* data (copied into the cache slot when
-present and the slot is empty; `AutoCreateSharedArchive` revalidates and recreates it
-if JDK-stale, so seeding is always safe).
+bind-mounted at `/run/brewlet/cds` (`InSandboxCDSDir`) — only that key's
+directory is exposed, read-write for the elected writer and read-only for
+consumers. On a JDK patch the `<jdkBuild>` component of the key changes, the old
+entry is ignored, and a fresh archive is produced on the next launch — always
+matched to the running JVM and to the node's architecture. The shipped archive
+(§4.1) becomes optional *seed* data (copied into the cache slot when present and
+the slot is empty; `AutoCreateSharedArchive` revalidates and recreates it if
+JDK-stale, so seeding is always safe).
 
 **Built on `-XX:+AutoCreateSharedArchive` (JDK 19+, hence the JDK 21 floor).**
 Launching with `-XX:+AutoCreateSharedArchive -XX:SharedArchiveFile=<cache>.jsa`

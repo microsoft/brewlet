@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -33,6 +34,29 @@ type ociProcess struct {
 type ociUser struct {
 	UID uint32 `json:"uid"`
 	GID uint32 `json:"gid"`
+}
+
+const (
+	// DefaultProcessUID and DefaultProcessGID are the secure identity used by
+	// standalone OCI bundles when the trusted runtime caller does not select one.
+	DefaultProcessUID uint32 = 65532
+	DefaultProcessGID uint32 = 65532
+	// MaxProcessID excludes the all-ones value Linux reserves as the invalid
+	// (uid_t)-1/(gid_t)-1 sentinel.
+	MaxProcessID uint32 = 1<<32 - 2
+)
+
+// ProcessIdentity is the trusted runtime-side UID/GID for a standalone OCI
+// bundle. Artifact metadata never controls this value.
+type ProcessIdentity struct {
+	UID uint32
+	GID uint32
+}
+
+// DefaultProcessIdentity returns Brewlet's unprivileged standalone bundle
+// identity.
+func DefaultProcessIdentity() ProcessIdentity {
+	return ProcessIdentity{UID: DefaultProcessUID, GID: DefaultProcessGID}
 }
 
 type ociRoot struct {
@@ -137,6 +161,20 @@ type CDSRegenOptions struct {
 // -XX:+AutoCreateSharedArchive / -XX:SharedArchiveFile args, and treats any
 // shipped archive as optional seed data rather than mounting it at /app/<archive>.
 func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, regen CDSRegenOptions) error {
+	return GenerateBundleWithIdentityAndRegen(
+		cfg, jdkRoot, launcherRoot, launcherName, jarHostPath,
+		classpathTars, modulepathTars, cdsHostPath, outDir, res, extraArgs,
+		DefaultProcessIdentity(), regen,
+	)
+}
+
+// GenerateBundleWithIdentityAndRegen is GenerateBundleWithRegen with an
+// explicit trusted runtime identity. It is used by deployment-side callers such
+// as `brewlet bundle`; artifact metadata is intentionally not consulted.
+func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity, regen CDSRegenOptions) error {
+	if identity.UID > MaxProcessID || identity.GID > MaxProcessID {
+		return fmt.Errorf("process UID/GID must be between 0 and %d", MaxProcessID)
+	}
 	if err := os.MkdirAll(filepath.Join(outDir, "rootfs"), 0o755); err != nil {
 		return err
 	}
@@ -150,8 +188,8 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 	}
 
 	// Node-side regeneration: resolve the cache archive and prepend its launch
-	// args. The cache dir is bind-mounted at InSandboxCDSDir (rw for the writer,
-	// ro otherwise) so -XX:+AutoCreateSharedArchive can write it at JVM exit.
+	// args. An isolated per-key cache directory is bind-mounted at
+	// InSandboxCDSDir (rw for the writer, ro otherwise).
 	var cdsCacheMount []ociMount
 	if regen.Regenerate && regen.ArtifactKey != "" {
 		seed := ""
@@ -163,12 +201,14 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 			cacheDir = DefaultCDSCacheDir
 		}
 		dec, derr := DecideCDSRegen(RegenParams{
-			CacheDir:      cacheDir,
-			JDKRoot:       jdkRoot,
-			ArtifactKey:   regen.ArtifactKey,
-			SeedArchive:   seed,
-			ArchiveArgDir: InSandboxCDSDir,
-			MetricsDir:    regen.MetricsDir,
+			CacheDir:           cacheDir,
+			JDKRoot:            jdkRoot,
+			ArtifactKey:        regen.ArtifactKey,
+			SeedArchive:        seed,
+			ArchiveArgDir:      InSandboxCDSDir,
+			WriterIdentity:     &identity,
+			AllowUnownedWriter: true,
+			MetricsDir:         regen.MetricsDir,
 		})
 		if derr != nil {
 			return derr
@@ -185,7 +225,7 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 			}
 			cdsCacheMount = []ociMount{{
 				Destination: InSandboxCDSDir, Type: "bind",
-				Source: cacheDir, Options: opts,
+				Source: dec.MountSource, Options: opts,
 			}}
 		}
 	}
@@ -286,15 +326,10 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 		env = append(env, e.Name+"="+e.Value)
 	}
 
-	uid, gid := uint32(0), uint32(0)
-	if cfg.User != nil {
-		uid, gid = uint32(cfg.User.UID), uint32(cfg.User.GID)
-	}
-
 	spec := ociSpec{
 		OCIVersion: "1.1.0",
 		Process: ociProcess{
-			User: ociUser{UID: uid, GID: gid},
+			User: ociUser{UID: identity.UID, GID: identity.GID},
 			Args: args,
 			Env:  env,
 			Cwd:  "/app",

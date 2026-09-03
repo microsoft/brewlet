@@ -81,7 +81,7 @@ USAGE:
   brewlet keygen --private FILE --public FILE
   brewlet inspect <ref>       [--store DIR] [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
   brewlet run     <ref>       [--store DIR] [--jdk-root DIR] [--launcher NAME] [-- <extra jvm args>]
-  brewlet bundle  <ref>       [--store DIR] [--cpu N] [--memory M] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--out DIR]
+  brewlet bundle  <ref>       [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--out DIR]
   brewlet jdks                [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
   brewlet doctor              [--namespace NS] [--output table|json] [--kubeconfig FILE] [--context CTX]
   brewlet version
@@ -732,6 +732,8 @@ func cmdBundle(args []string) error {
 	store := fs.String("store", "./oci", "OCI layout directory")
 	cpu := fs.String("cpu", "", "CPU limit, e.g. 2 or 500m")
 	mem := fs.String("memory", "", "memory limit, e.g. 512Mi or 1Gi")
+	uidFlag := fs.String("uid", strconv.FormatUint(uint64(runtime.DefaultProcessUID), 10), "trusted runtime process UID (default: 65532)")
+	gidFlag := fs.String("gid", strconv.FormatUint(uint64(runtime.DefaultProcessGID), 10), "trusted runtime process GID (default: 65532)")
 	jdkRoot := fs.String("jdk-root", "/opt/brewlet/jdks/temurin-21", "node JDK runtime root")
 	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
 	launcherRoot := fs.String("launcher-root", "", "node launcher layer root (custom launcher, e.g. jaz)")
@@ -744,6 +746,14 @@ func cmdBundle(args []string) error {
 	if len(pos) < 1 {
 		return fmt.Errorf("usage: bundle <ref>")
 	}
+	uid, err := parseProcessIDFlag("uid", *uidFlag)
+	if err != nil {
+		return err
+	}
+	gid, err := parseProcessIDFlag("gid", *gidFlag)
+	if err != nil {
+		return err
+	}
 	s := artifact.Store{Root: *store}
 	blobs, err := s.ResolveBlobs(pos[0])
 	if err != nil {
@@ -751,8 +761,9 @@ func cmdBundle(args []string) error {
 	}
 	cfg := blobs.Config
 	cdsSrc := blobs.CDSHostPath
-	if err := runtime.GenerateBundleWithRegen(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
-		runtime.Resources{CPULimit: *cpu, MemoryLimit: *mem}, nil, runtime.CDSRegenOptions{Regenerate: *appcdsRegen, ArtifactKey: pos[0], CacheDir: os.Getenv("BREWLET_CDS_CACHE")}); err != nil {
+	if err := runtime.GenerateBundleWithIdentityAndRegen(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
+		runtime.Resources{CPULimit: *cpu, MemoryLimit: *mem}, nil, runtime.ProcessIdentity{UID: uid, GID: gid},
+		runtime.CDSRegenOptions{Regenerate: *appcdsRegen, ArtifactKey: pos[0], CacheDir: os.Getenv("BREWLET_CDS_CACHE")}); err != nil {
 		return err
 	}
 	fmt.Printf("wrote OCI runtime bundle to %s/config.json\n", *out)
@@ -761,6 +772,14 @@ func cmdBundle(args []string) error {
 	}
 	fmt.Printf("on a Linux node the shim runs:  runc run -b %s brewlet-<id>\n", *out)
 	return nil
+}
+
+func parseProcessIDFlag(name, value string) (uint32, error) {
+	id, err := strconv.ParseUint(strings.TrimSpace(value), 10, 32)
+	if err != nil || id > uint64(runtime.MaxProcessID) {
+		return 0, fmt.Errorf("--%s must be an integer between 0 and %d: %q", name, runtime.MaxProcessID, value)
+	}
+	return uint32(id), nil
 }
 
 // cmdJDKs lists the JDKs available across the cluster (vendor, major/minor

@@ -170,6 +170,31 @@ func TestApplyBrewletLaunch(t *testing.T) {
 	}
 }
 
+func TestApplyBrewletLaunchPreservesCRIProcessUser(t *testing.T) {
+	cases := map[string]specs.User{
+		"non-root": {UID: 1000, GID: 1000},
+		"root":     {UID: 0, GID: 0},
+	}
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := &specs.Spec{Process: &specs.Process{User: want}}
+			if err := applyBrewletLaunch(spec, testResolved(), t.TempDir()); err != nil {
+				t.Fatalf("applyBrewletLaunch: %v", err)
+			}
+			if got := spec.Process.User; got.UID != want.UID || got.GID != want.GID {
+				t.Fatalf("process user = %d:%d, want CRI identity %d:%d", got.UID, got.GID, want.UID, want.GID)
+			}
+		})
+	}
+}
+
+func TestApplyBrewletLaunchRequiresCRIProcess(t *testing.T) {
+	err := applyBrewletLaunch(&specs.Spec{}, testResolved(), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "missing process") {
+		t.Fatalf("applyBrewletLaunch error = %v, want missing CRI process error", err)
+	}
+}
+
 func TestApplyBrewletLaunchWithCDS(t *testing.T) {
 	// StageCDSJar copies the real JAR bytes, so back JarHostPath with a file.
 	jarHost := filepath.Join(t.TempDir(), "blob")

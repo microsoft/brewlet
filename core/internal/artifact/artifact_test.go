@@ -268,6 +268,22 @@ func TestDecodeConfigRejectsUnknownField(t *testing.T) {
 	}
 }
 
+func TestDecodeConfigRejectsArtifactUser(t *testing.T) {
+	cases := map[string]string{
+		"root":         `{"uid":0,"gid":0}`,
+		"negative":     `{"uid":-1,"gid":-1}`,
+		"out of range": `{"uid":4294967296,"gid":4294967296}`,
+	}
+	for name, user := range cases {
+		t.Run(name, func(t *testing.T) {
+			b := []byte(`{"schemaVersion":1,"mainJar":"app.jar","entry":{"mode":"jar"},"user":` + user + `}`)
+			if _, err := DecodeConfig(b); err == nil {
+				t.Fatal("DecodeConfig accepted artifact-controlled process identity")
+			}
+		})
+	}
+}
+
 func TestDecodeConfigModuleRoundTrip(t *testing.T) {
 	b := []byte(`{"schemaVersion":1,"mainJar":"orders.jar","entry":{"mode":"module","module":"com.acme.orders","modulePath":["orders.jar","mods"]}}`)
 	cfg, err := DecodeConfig(b)

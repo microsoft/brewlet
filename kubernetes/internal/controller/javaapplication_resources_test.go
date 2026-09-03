@@ -60,6 +60,14 @@ func TestBuildDeployment(t *testing.T) {
 	if len(pod.ImagePullSecrets) != 1 || pod.ImagePullSecrets[0].Name != "regcred" {
 		t.Errorf("imagePullSecrets = %v", pod.ImagePullSecrets)
 	}
+	if pod.SecurityContext == nil ||
+		pod.SecurityContext.RunAsNonRoot == nil || !*pod.SecurityContext.RunAsNonRoot ||
+		pod.SecurityContext.RunAsUser == nil || *pod.SecurityContext.RunAsUser != defaultWorkloadUserID ||
+		pod.SecurityContext.RunAsGroup == nil || *pod.SecurityContext.RunAsGroup != defaultWorkloadUserID ||
+		pod.SecurityContext.SeccompProfile == nil ||
+		pod.SecurityContext.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+		t.Fatalf("pod security context = %+v, want non-root %d:%d", pod.SecurityContext, defaultWorkloadUserID, defaultWorkloadUserID)
+	}
 
 	c := pod.Containers[0]
 	if c.Image != app.Spec.Artifact.Image {
@@ -70,6 +78,13 @@ func TestBuildDeployment(t *testing.T) {
 	}
 	if len(c.Ports) != 1 || c.Ports[0].ContainerPort != 8080 {
 		t.Errorf("ports = %v", c.Ports)
+	}
+	if c.SecurityContext == nil ||
+		c.SecurityContext.AllowPrivilegeEscalation == nil || *c.SecurityContext.AllowPrivilegeEscalation ||
+		c.SecurityContext.Capabilities == nil ||
+		len(c.SecurityContext.Capabilities.Drop) != 1 ||
+		c.SecurityContext.Capabilities.Drop[0] != corev1.Capability("ALL") {
+		t.Fatalf("container security context = %+v, want privilege escalation disabled and all capabilities dropped", c.SecurityContext)
 	}
 
 	// JDK/launcher must be stamped for the admission webhook.

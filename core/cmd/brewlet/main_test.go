@@ -120,6 +120,40 @@ func TestParseJDKFeaturesRejectsPartialInteger(t *testing.T) {
 	}
 }
 
+func TestParseProcessIDFlag(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   string
+		want    uint32
+		wantErr bool
+	}{
+		{name: "default non-root", value: "65532", want: 65532},
+		{name: "explicit root", value: "0", want: 0},
+		{name: "max Linux ID", value: "4294967294", want: 4294967294},
+		{name: "reserved uint32 sentinel", value: "4294967295", wantErr: true},
+		{name: "negative", value: "-1", wantErr: true},
+		{name: "out of range", value: "4294967296", wantErr: true},
+		{name: "partial integer", value: "1000x", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseProcessIDFlag("uid", tc.value)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseProcessIDFlag(%q) succeeded, want error", tc.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseProcessIDFlag(%q): %v", tc.value, err)
+			}
+			if got != tc.want {
+				t.Fatalf("parseProcessIDFlag(%q) = %d, want %d", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
 func writeCLITar(t *testing.T, path, name string, content []byte) {
 	t.Helper()
 	var buffer bytes.Buffer

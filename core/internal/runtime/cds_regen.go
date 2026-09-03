@@ -27,7 +27,7 @@ import (
 const (
 	// DefaultCDSCacheDir is the node-local directory the regeneration cache lives
 	// in. The provisioner (https://github.com/microsoft/brewlet/tree/main/specs §5.2) creates it; entries are
-	// per-(artifact-digest, JDK-build) `.jsa` files shared across sandboxes.
+	// isolated per-(artifact-digest, JDK-build) directories.
 	DefaultCDSCacheDir = "/opt/brewlet/cds"
 	// InSandboxCDSDir is where the shim/bundle bind-mounts the node cache dir
 	// inside the sandbox, so -XX:SharedArchiveFile resolves to a stable path
@@ -84,9 +84,17 @@ type RegenParams struct {
 	// -XX:+AutoCreateSharedArchive transparently recreates it if JDK-stale.
 	SeedArchive string
 	// ArchiveArgDir is the directory the JVM sees the archive under (the
-	// in-sandbox mount point). "" means the JVM uses the host CacheDir directly
-	// (the local `run` path, which is not sandboxed).
+	// in-sandbox mount point). "" means the JVM uses the host archive path
+	// directly (the local `run` path, which is not sandboxed).
 	ArchiveArgDir string
+	// WriterIdentity is the sandbox process identity that must own a newly
+	// elected writer's per-key cache directory. Nil is appropriate for the local
+	// `run` path, where the host caller creates and writes the archive directly.
+	WriterIdentity *ProcessIdentity
+	// AllowUnownedWriter permits a standalone bundle generator that cannot chown
+	// to make only this artifact key's directory writable by the future sandbox
+	// identity. Production shims leave this false and fail closed to base CDS.
+	AllowUnownedWriter bool
 	// MetricsDir, when set, receives a best-effort node-local role record the
 	// metrics exporter (https://github.com/microsoft/brewlet/blob/main/docs/metrics-exporter.md, Option A) can aggregate.
 	MetricsDir string
@@ -102,10 +110,11 @@ type RegenDecision struct {
 	Role RegenRole
 	// Key is the per-(artifact, JDK-build) cache key (hash), or "" when skipped.
 	Key string
-	// HostArchive is the host path of the cache archive to mount, or "" for
-	// skip/defer (defer maps nothing; skip is handled by the shipped-archive
-	// path).
+	// HostArchive is the host path of the cache archive, or "" for skip/defer.
 	HostArchive string
+	// MountSource is the isolated per-key host directory to bind-mount for
+	// consume/write decisions.
+	MountSource string
 	// ArgArchive is the archive path passed to -XX:SharedArchiveFile (the
 	// in-sandbox path when ArchiveArgDir is set, else the host path).
 	ArgArchive string
@@ -149,7 +158,9 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 	}
 
 	key := regenKey(p.ArtifactKey, buildID)
-	hostArchive := filepath.Join(cacheDir, key+".jsa")
+	entryDir := filepath.Join(cacheDir, key)
+	hostArchive := filepath.Join(entryDir, key+".jsa")
+	writerMarker := filepath.Join(cacheDir, key+writerMarkerSuffix)
 	argArchive := hostArchive
 	if p.ArchiveArgDir != "" {
 		// Nodes are Linux; join with "/" so the in-sandbox path is correct
@@ -162,13 +173,17 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 		return decisionSkip(p, cacheDir), nil
 	}
 	evictStaleArchives(cacheDir, key, evictTTL, now)
+	if err := os.MkdirAll(entryDir, 0o755); err != nil {
+		return decisionSkip(p, cacheDir), nil
+	}
 
 	// A valid cached archive already exists → consume it read-only.
-	if fi, statErr := os.Stat(hostArchive); statErr == nil && fi.Size() > 0 {
+	if fi, statErr := os.Lstat(hostArchive); statErr == nil && fi.Mode().IsRegular() && fi.Size() > 0 {
 		d := RegenDecision{
 			Role:        RegenConsume,
 			Key:         key,
 			HostArchive: hostArchive,
+			MountSource: entryDir,
 			ArgArchive:  argArchive,
 			Args:        []string{"-Xshare:auto", "-XX:SharedArchiveFile=" + argArchive},
 		}
@@ -177,17 +192,32 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 	}
 
 	// No archive yet: elect a single writer per key; others defer to base CDS.
-	if claimWriter(hostArchive+writerMarkerSuffix, now, lockTTL) {
+	if claimWriter(writerMarker, now, lockTTL) {
+		// Remove zero-length or non-regular entries without following symlinks.
+		if err := os.Remove(hostArchive); err != nil && !errors.Is(err, os.ErrNotExist) {
+			_ = os.Remove(writerMarker)
+			return decisionSkip(p, cacheDir), nil
+		}
+		if p.WriterIdentity != nil {
+			if err := prepareWriterDirectory(entryDir, *p.WriterIdentity, p.AllowUnownedWriter); err != nil {
+				_ = os.Remove(writerMarker)
+				return decisionSkip(p, cacheDir), nil
+			}
+		}
 		// Seed a fresh cache entry from the shipped archive if one is available.
 		// -XX:+AutoCreateSharedArchive validates it and recreates at exit if the
 		// seed is JDK-stale, so seeding is always safe.
 		if p.SeedArchive != "" {
-			_ = seedArchive(p.SeedArchive, hostArchive)
+			_ = seedArchiveForWriter(
+				p.SeedArchive, cacheDir, hostArchive,
+				p.WriterIdentity, p.AllowUnownedWriter,
+			)
 		}
 		d := RegenDecision{
 			Role:        RegenWrite,
 			Key:         key,
 			HostArchive: hostArchive,
+			MountSource: entryDir,
 			ArgArchive:  argArchive,
 			Args:        []string{"-XX:+AutoCreateSharedArchive", "-XX:SharedArchiveFile=" + argArchive, "-Xshare:auto"},
 			MountRW:     true,
@@ -199,6 +229,16 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 	d := RegenDecision{Role: RegenDefer, Key: key}
 	recordRegenMetric(p.MetricsDir, key, d.Role, now)
 	return d, nil
+}
+
+func prepareWriterDirectory(entryDir string, identity ProcessIdentity, allowUnowned bool) error {
+	if err := os.Chown(entryDir, int(identity.UID), int(identity.GID)); err != nil {
+		if !allowUnowned || !errors.Is(err, os.ErrPermission) {
+			return err
+		}
+		return os.Chmod(entryDir, 0o733)
+	}
+	return os.Chmod(entryDir, 0o755)
 }
 
 func decisionSkip(p RegenParams, cacheDir string) RegenDecision {
@@ -242,19 +282,44 @@ func claimWriter(marker string, now time.Time, ttl time.Duration) bool {
 	return true
 }
 
-// seedArchive copies src to dst (the cache path) only when dst does not yet
-// exist, so a concurrent writer's in-progress archive is never clobbered.
-func seedArchive(src, dst string) error {
-	if _, err := os.Stat(dst); err == nil {
-		return nil
+// seedArchiveForWriter stages a seed in the root-owned cache directory, applies
+// the future writer's ownership, then atomically moves it into the writable
+// per-key directory. No host ownership operation follows a workload-controlled
+// path.
+func seedArchiveForWriter(src, cacheDir, dst string, identity *ProcessIdentity, allowUnowned bool) error {
+	temp, err := os.CreateTemp(cacheDir, ".brewlet-cds-seed-")
+	if err != nil {
+		return err
 	}
-	return copyFileContents(src, dst)
+	tempPath := temp.Name()
+	if err := temp.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	defer os.Remove(tempPath)
+	if err := copyFileContents(src, tempPath); err != nil {
+		return err
+	}
+	if identity != nil {
+		if err := os.Chown(tempPath, int(identity.UID), int(identity.GID)); err != nil {
+			if !allowUnowned || !errors.Is(err, os.ErrPermission) {
+				return err
+			}
+			if err := os.Chmod(tempPath, 0o666); err != nil {
+				return err
+			}
+		} else if err := os.Chmod(tempPath, 0o644); err != nil {
+			return err
+		}
+	} else if err := os.Chmod(tempPath, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, dst)
 }
 
-// evictStaleArchives removes cache `.jsa` files (and their writer markers) whose
-// mtime is older than ttl, except the key currently in use. Best-effort: all
-// errors are ignored. Prevents old JDK-build keys from accumulating after
-// patches.
+// evictStaleArchives removes per-key cache directories (and legacy flat `.jsa`
+// files) whose archive mtime is older than ttl, except the key currently in use.
+// Best-effort: all errors are ignored.
 func evictStaleArchives(cacheDir, keepKey string, ttl time.Duration, now time.Time) {
 	entries, err := os.ReadDir(cacheDir)
 	if err != nil {
@@ -262,6 +327,19 @@ func evictStaleArchives(cacheDir, keepKey string, ttl time.Duration, now time.Ti
 	}
 	for _, e := range entries {
 		name := e.Name()
+		if e.IsDir() {
+			if name == keepKey {
+				continue
+			}
+			archive := filepath.Join(cacheDir, name, name+".jsa")
+			info, err := os.Stat(archive)
+			if err != nil || now.Sub(info.ModTime()) <= ttl {
+				continue
+			}
+			_ = os.RemoveAll(filepath.Join(cacheDir, name))
+			_ = os.Remove(filepath.Join(cacheDir, name+writerMarkerSuffix))
+			continue
+		}
 		if !strings.HasSuffix(name, ".jsa") {
 			continue
 		}
