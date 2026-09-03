@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 // Command admission runs the brewlet pod admission/scheduling webhook
-// (https://github.com/microsoft/brewlet/tree/main/specs). It intercepts pods on CREATE, stamps the
-// brewlet.sh/artifact-ref + artifact-digest annotations the shim resolves,
+// (https://github.com/microsoft/brewlet/tree/main/specs). It intercepts pods on CREATE, overwrites
+// brewlet.sh/artifact-ref + artifact-digest informational hints from the image,
 // validates any requested JDK/launcher against the ready node fleet
 // (NoCompatibleJDK / NoCompatibleLauncher), and injects nodeAffinity so the
 // scheduler only lands brewlet pods on capable nodes.

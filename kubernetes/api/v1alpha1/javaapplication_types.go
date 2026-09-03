@@ -43,11 +43,11 @@ type JavaApplicationSpec struct {
 	Arch []string `json:"arch,omitempty"`
 }
 
-// ArtifactSpec references the OCI artifact (§4/§9).
+// ArtifactSpec references the Brewlet runnable OCI image (§4/§9).
 type ArtifactSpec struct {
-	// Image is the OCI ref to the artifact — a Java application packaged as an OCI artifact, not a container image (digest pin recommended).
+	// Image is the OCI reference to the runnable Java application image (digest pin required for attestation enforcement).
 	Image string `json:"image"`
-	// PullPolicy for the artifact image (defaults to IfNotPresent).
+	// PullPolicy for the runnable image (defaults to IfNotPresent).
 	PullPolicy corev1.PullPolicy `json:"pullPolicy,omitempty"`
 	// PullSecrets are imagePullSecrets for a private registry.
 	PullSecrets []string `json:"pullSecrets,omitempty"`

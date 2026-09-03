@@ -53,9 +53,13 @@ upper/scratch layer is writable.
 
 Because the JAR is a first-class OCI artifact, standard supply-chain controls apply:
 
-- **Digest-pin** artifact references (`repo@sha256:…`). The admission webhook stamps
-  `brewlet.sh/artifact-digest`, and the shim resolves the JAR straight from
-  containerd's content store by digest. See [Building & publishing](building-and-publishing.md#4-pin-to-a-digest-recommended).
+- **Digest-pin** runnable image references (`repo@sha256:…`). The admission webhook
+  overwrites `brewlet.sh/artifact-digest` as a compatibility hint from the selected
+  Pod image. The shim follows CRI's immutable image-config identity to the
+  containerd image target, then cross-checks that target against containerd's
+  protected `io.kubernetes.cri.image-name` OCI annotation before reading the JAR
+  from the content store. Tenant-controlled Brewlet annotations never select
+  executable content. See [Building & publishing](building-and-publishing.md#4-pin-to-a-digest-recommended).
 
 ### Supply-chain attestations
 
@@ -73,8 +77,9 @@ trusted through the configured key, not OIDC- or Fulcio-issued identities.
 
 Deploy [Ratify/Gatekeeper admission enforcement](admission-enforcement.md) to
 require the final-image attestation for `runtimeClassName: brewlet` pods. It
-requires an OCI 1.1 Referrers-API registry and digest-pinned images and fails
-closed when trusted evidence cannot be discovered or verified.
+requires an OCI 1.1 Referrers-API registry and digest-pinned images, verifies
+the Pod image before admission, and fails closed when trusted evidence cannot
+be discovered or verified.
 
 ---
 
@@ -111,7 +116,7 @@ Mitigations and guardrails:
 | **Stale or hostile image roots are not trusted** | Existing JDK roots are not executed until `.brewlet-source` matches the newly verified digest. Launcher images are pulled and mounted for host-side copying; they are not executed, do not receive host networking, and do not receive a writable host bind mount. |
 | **Host mutation is validated and reversible** | The default rollout validates the effective containerd config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK smoke tests and launcher executable checks pass. |
 | **The operator is unprivileged** | The operator only talks to the API server; only the DaemonSet it manages is privileged. |
-| **Webhook can't block workloads** | `admission.failurePolicy: Ignore` (default) means a webhook outage never wedges deployments. |
+| **Webhook can't block workloads** | `admission.failurePolicy: Ignore` (default) means a webhook outage never wedges deployments; the shim still fails closed when it cannot resolve runtime image identity. |
 
 > ⚠️ Treat enabling Brewlet on a node the same way you'd treat any privileged
 > node-bootstrap DaemonSet (a pattern also used for node runtime installation in

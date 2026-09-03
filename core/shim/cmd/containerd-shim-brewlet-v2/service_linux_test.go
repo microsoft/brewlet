@@ -32,6 +32,15 @@ type deleteTaskService struct {
 	err error
 }
 
+type staticImageIdentityResolver struct {
+	identity resolvedImageIdentity
+	err      error
+}
+
+func (r staticImageIdentityResolver) Resolve(context.Context, string) (resolvedImageIdentity, error) {
+	return r.identity, r.err
+}
+
 func (s *deleteTaskService) Delete(context.Context, *taskAPI.DeleteRequest) (*taskAPI.DeleteResponse, error) {
 	return &taskAPI.DeleteResponse{}, s.err
 }
@@ -90,6 +99,106 @@ func testResolved() resolvedArtifact {
 		JarHostPath: "/var/lib/containerd/.../blobs/sha256/deadbeef",
 		JDKRoot:     "/opt/brewlet/jdks/temurin-21",
 		JDKHome:     "/opt/brewlet/jdks/temurin-21/opt/java/openjdk",
+	}
+}
+
+func TestAssembleBrewletBundleUsesResolvedImageWithoutHints(t *testing.T) {
+	contentRoot, _, targetDigest := buildRunnableStore(t)
+	jdkRoots := t.TempDir()
+	mkJDK(t, jdkRoots, "temurin-21")
+	t.Setenv("BREWLET_CONTENT_ROOT", contentRoot)
+	t.Setenv("BREWLET_JDK_ROOTS", jdkRoots)
+	t.Setenv("BREWLET_LAUNCHER_ROOTS", t.TempDir())
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+
+	bundle := t.TempDir()
+	writeSpecJSON(t, bundle, specs.Spec{
+		Annotations: map[string]string{
+			annCRIImageName: "demo/orders@" + targetDigest,
+			annRequestedJDK: "temurin-21",
+		},
+		Process: &specs.Process{},
+	})
+	request := &taskAPI.CreateTaskRequest{ID: "task-1", Bundle: bundle}
+	info, err := assembleBrewletBundle(context.Background(), request, staticImageIdentityResolver{
+		identity: resolvedImageIdentity{
+			ImageName:    "demo/orders@" + targetDigest,
+			TargetDigest: targetDigest,
+		},
+	})
+	if err != nil {
+		t.Fatalf("assembleBrewletBundle: %v", err)
+	}
+	if info.format != "image" || info.entryMode != "classpath" {
+		t.Fatalf("launch info = %+v", info)
+	}
+	if len(request.Rootfs) != 1 || request.Rootfs[0].Type != "overlay" {
+		t.Fatalf("rootfs = %+v, want Brewlet overlay", request.Rootfs)
+	}
+	raw, err := os.ReadFile(filepath.Join(bundle, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got specs.Spec
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if args := strings.Join(got.Process.Args, " "); !strings.Contains(args, "com.acme.Main") {
+		t.Fatalf("process args do not come from the resolved runnable image: %q", args)
+	}
+}
+
+func TestAssembleBrewletBundleRejectsConflictingHint(t *testing.T) {
+	resolved := "sha256:" + strings.Repeat("a", 64)
+	bundle := t.TempDir()
+	writeSpecJSON(t, bundle, specs.Spec{
+		Annotations: map[string]string{
+			annArtifactDigest: "sha256:" + strings.Repeat("b", 64),
+			annCRIImageName:   "demo/app@" + resolved,
+		},
+	})
+	_, err := assembleBrewletBundle(context.Background(), &taskAPI.CreateTaskRequest{
+		ID: "task-1", Bundle: bundle,
+	}, staticImageIdentityResolver{
+		identity: resolvedImageIdentity{ImageName: "demo/app:1", TargetDigest: resolved},
+	})
+	if err == nil || !strings.Contains(err.Error(), "artifact identity mismatch") {
+		t.Fatalf("error = %v, want artifact identity mismatch", err)
+	}
+}
+
+func TestAssembleBrewletBundleRejectsNativeArtifact(t *testing.T) {
+	contentRoot := t.TempDir()
+	jarPath := filepath.Join(t.TempDir(), "app.jar")
+	if err := os.WriteFile(jarPath, []byte("PK\x03\x04 app"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	desc, err := (artifact.Store{Root: contentRoot}).Push("demo/app:1", artifact.JVMConfig{
+		SchemaVersion: 1,
+		MainJar:       "app.jar",
+		Entry:         artifact.Entry{Mode: "jar"},
+	}, jarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jdkRoots := t.TempDir()
+	mkJDK(t, jdkRoots, "temurin-21")
+	t.Setenv("BREWLET_CONTENT_ROOT", contentRoot)
+	t.Setenv("BREWLET_JDK_ROOTS", jdkRoots)
+	t.Setenv("BREWLET_LAUNCHER_ROOTS", t.TempDir())
+
+	bundle := t.TempDir()
+	writeSpecJSON(t, bundle, specs.Spec{
+		Annotations: map[string]string{annCRIImageName: "demo/app@" + desc.Digest},
+		Process:     &specs.Process{},
+	})
+	_, err = assembleBrewletBundle(context.Background(), &taskAPI.CreateTaskRequest{
+		ID: "task-1", Bundle: bundle,
+	}, staticImageIdentityResolver{
+		identity: resolvedImageIdentity{ImageName: "demo/app:1", TargetDigest: desc.Digest},
+	})
+	if err == nil || !strings.Contains(err.Error(), "require a runnable OCI image") {
+		t.Fatalf("error = %v, want native artifact rejection", err)
 	}
 }
 
@@ -240,6 +349,7 @@ func TestApplyBrewletLaunchNoCDS(t *testing.T) {
 	if err := applyBrewletLaunch(spec, ra, t.TempDir()); err != nil {
 		t.Fatalf("applyBrewletLaunch: %v", err)
 	}
+
 	for _, m := range spec.Mounts {
 		if strings.HasSuffix(m.Destination, ".jsa") {
 			t.Errorf("unexpected CDS mount for artifact with no archive: %q", m.Destination)
@@ -582,18 +692,6 @@ func writeTar(t *testing.T, path string, files map[string][]byte) {
 	}
 	if err := tw.Close(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestArtifactRefAnnotations(t *testing.T) {
-	if got := artifactRef(&specs.Spec{Annotations: map[string]string{annArtifactRef: "demo/hello:1"}}); got != "demo/hello:1" {
-		t.Errorf("native ref = %q", got)
-	}
-	if got := artifactRef(&specs.Spec{Annotations: map[string]string{annCRIImage: "cri/img:2"}}); got != "cri/img:2" {
-		t.Errorf("cri fallback = %q", got)
-	}
-	if got := artifactRef(&specs.Spec{}); got != "" {
-		t.Errorf("want empty ref, got %q", got)
 	}
 }
 

@@ -28,7 +28,7 @@ shim runs with the node-resident JDK. This page documents the delivery contract 
   produce a runnable image unless you opt into `--format=artifact`
   (`-Dbrewlet.format=artifact`). It is the delivery path that fulfils the WASI/SpinKube
   parity goal, so it is the out-of-the-box behaviour; the native artifact remains an
-  opt-in choice for registry-native / pre-puller flows.
+  opt-in choice for explicit local OCI-layout / CLI workflows.
 
 ---
 
@@ -41,11 +41,10 @@ bespoke `+jar`/`+tar` media types so the artifact stays self-describing and
 registry-native — but that is precisely what makes `crictl`/kubelet unable to unpack
 them. The pull fails long before the shim is ever consulted.
 
-That is fine for a registry + out-of-band node delivery model, but it means the pod
-cannot *name* the artifact as its image. Tiers 8 and 9 of the e2e suite work around
-this by importing the artifact straight into the node content store and giving the pod
-a **busybox placeholder image** plus `brewlet.sh/artifact-*` annotations — proving the
-runtime, but not the `image: <ref>` promise.
+That remains useful for explicit local OCI-layout / CLI workflows, but a Pod
+cannot *name* the native artifact as its image. Kubernetes workloads use the
+runnable-image format so `runtimeClassName: brewlet` pods name the actual runnable image
+in `image:`.
 
 ## 3. What `--format=image` publishes
 
@@ -88,8 +87,9 @@ node matches. A JAR carrying native libraries narrows this with `--arch amd64,ar
 ## 4. How the shim runs it
 
 On the node the shim distinguishes the two formats by the manifest: the presence of the
-`brewlet.sh/jvm-config` annotation ⇒ runnable image (otherwise ⇒ native artifact, the
-raw-blob path, unchanged). For a runnable image the shim:
+`brewlet.sh/jvm-config` annotation ⇒ runnable image (the Kubernetes workload path);
+otherwise ⇒ native artifact, which remains the raw-blob path for local OCI-layout /
+CLI / prepare-bundle workflows only. For a runnable image the shim:
 
 1. follows the image index to the node's **platform** manifest (by `GOARCH`);
 2. decodes the launch config from `brewlet.sh/jvm-config`;
@@ -108,23 +108,26 @@ overlay rootfs (shared read-only JDK lower + per-container upper) changes.
 - The `JavaApplication` controller already sets the Deployment's container
   `image:` to `spec.artifact.image`. With a runnable image that ref is now **pullable**,
   so the happy path just works.
-- The admission webhook still stamps `brewlet.sh/artifact-ref` + `brewlet.sh/artifact-digest`
-  from the (digest-pinned) ref; for a runnable image the digest is the **image-index**
-  digest, which the shim resolver follows to the platform manifest.
+- The admission webhook overwrites `brewlet.sh/artifact-ref` + `brewlet.sh/artifact-digest`
+  as compatibility hints from the selected Pod image; for a runnable image the digest
+  is the **image-index** digest, and the shim resolves the executable image target
+  digest through CRI's immutable image-config record. For digest-pinned Pods it
+  also requires containerd's protected `io.kubernetes.cri.image-name` annotation
+  to name that same target, so conflicting tenant hints do not change what runs.
 
 ## 6. When to use which
 
 | | Runnable image (default) | Native artifact (`--format=artifact`) |
 |--|--------------------------|----------------------------------------|
 | Media types | standard OCI `tar+gzip` | custom `+jar` / `+tar` |
-| Pod `image: <ref>` pulls via kubelet | ✓ | ✗ (needs out-of-band delivery) |
+| Pod `image: <ref>` pulls via kubelet | ✓ | ✗ (rejected by the Kubernetes runtime path) |
 | Registry-native / smallest | slightly larger (OS-image framing) | ✓ |
-| Node delivery | kubelet `PullImage`, like any image | pre-puller / import |
-| Developer UX | pure WASI-style `image: <ref>` | ref + node delivery |
+| Delivery | kubelet `PullImage`, like any image | local OCI layout / explicit tooling |
+| Developer UX | pure WASI-style `image: <ref>` | local CLI / bundle workflow |
 
 The default runnable image gives the pure `image: <ref>` experience end to end — the
-WASI/SpinKube parity goal. Opt into `--format=artifact` when you have (or are building) a
-node pre-puller and want the leanest registry footprint / self-describing media types.
+WASI/SpinKube parity goal. Opt into `--format=artifact` only for local OCI-layout /
+CLI / bundle workflows; native artifacts stay out of the Kubernetes pod path.
 
 ## 7. End-to-end behavior
 

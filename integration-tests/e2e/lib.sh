@@ -212,6 +212,83 @@ ctr_supports_unpack() {
   docker exec "$n" ctr images unpack --help >/dev/null 2>&1
 }
 
+# oci_layout_digest STORE REF: print the descriptor digest associated with REF
+# in an OCI layout, falling back to the first descriptor for single-ref layouts.
+oci_layout_digest() {
+  local store="$1" ref="$2"
+  python3 - "$store" "$ref" <<'PY'
+import json, sys
+root, ref = sys.argv[1], sys.argv[2]
+tag = ref.rsplit(":", 1)[-1]
+with open(f"{root}/index.json", encoding="utf-8") as stream:
+    index = json.load(stream)
+for manifest in index.get("manifests", []):
+    annotation = manifest.get("annotations", {}).get("org.opencontainers.image.ref.name")
+    if annotation in (ref, tag):
+        print(manifest["digest"])
+        break
+else:
+    manifests = index.get("manifests", [])
+    if manifests:
+        print(manifests[0]["digest"])
+PY
+}
+
+# cri_image_ref REF: normalize a short image name the same way CRI does.
+cri_image_ref() {
+  local ref="$1" first="${1%%/*}"
+  if [[ "$ref" == sha256:* ]]; then
+    printf '%s' "$ref"
+  elif [[ "$ref" != */* ]]; then
+    printf 'docker.io/library/%s' "$ref"
+  elif [[ "$first" != *.* && "$first" != *:* && "$first" != "localhost" ]]; then
+    printf 'docker.io/%s' "$ref"
+  else
+    printf '%s' "$ref"
+  fi
+}
+
+# import_oci_layout NODE STORE LOG: import a complete OCI layout into k8s.io.
+import_oci_layout() {
+  local node="$1" store="$2" log="$3"
+  if ! (cd "$store" && tar -cf - .) |
+      docker exec -i "$node" ctr -n k8s.io images import --digests - >>"$log" 2>&1; then
+    (cd "$store" && tar -cf - .) |
+      docker exec -i "$node" ctr -n k8s.io images import - >>"$log" 2>&1
+  fi
+}
+
+# tag_image_for_cri NODE REF LOG: ensure a short imported ref is available under
+# CRI's normalized name, then print that normalized name.
+tag_image_for_cri() {
+  local node="$1" ref="$2" log="$3" normalized
+  normalized="$(cri_image_ref "$ref")"
+  if [[ "$normalized" != "$ref" ]]; then
+    if ! docker exec "$node" ctr -n k8s.io images tag --force "$ref" "$normalized" >>"$log" 2>&1; then
+      docker exec "$node" ctr -n k8s.io images rm "$normalized" >>"$log" 2>&1 || true
+      docker exec "$node" ctr -n k8s.io images tag "$ref" "$normalized" >>"$log" 2>&1 || return 1
+    fi
+  fi
+  printf '%s' "$normalized"
+}
+
+# pin_image_for_cri NODE REF DIGEST LOG: create and print a normalized
+# repository@digest alias for an imported image.
+pin_image_for_cri() {
+  local node="$1" ref="$2" digest="$3" log="$4" normalized repository pinned
+  normalized="$(tag_image_for_cri "$node" "$ref" "$log")" || return 1
+  repository="${normalized%@*}"
+  if [[ "${repository##*/}" == *:* ]]; then
+    repository="${repository%:*}"
+  fi
+  pinned="$repository@$digest"
+  if ! docker exec "$node" ctr -n k8s.io images tag --force "$normalized" "$pinned" >>"$log" 2>&1; then
+    docker exec "$node" ctr -n k8s.io images rm "$pinned" >>"$log" 2>&1 || true
+    docker exec "$node" ctr -n k8s.io images tag "$normalized" "$pinned" >>"$log" 2>&1 || return 1
+  fi
+  printf '%s' "$pinned"
+}
+
 # save_pod_diag NAME NS [SELECTOR]: dump pods, recent events, and pod logs for a
 # namespace (optionally narrowed by label selector) into $WORK/diag-NAME.log so
 # failures are debuggable AFTER a tier's cleanup trap has torn the objects down.

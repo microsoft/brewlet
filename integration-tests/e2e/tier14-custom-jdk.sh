@@ -541,7 +541,7 @@ YAML
     sed -n 's/^[[:space:]]*java.vendor[[:space:]]*=[[:space:]]*//p' | head -1)"
   assert_contains "tier14: staged custom root executes inside the sandbox" "$node_vendor" "Azul"
 
-  # Build and import a Brewlet artifact for a live zulu-21 workload.
+  # Build and import a Brewlet runnable image for a live zulu-21 workload.
   local jar="$FIXTURES_DIR/demo-app/target/app.jar"
   local jh; jh="$(resolve_java_home)"
   if [[ ! -f "$jar" ]] &&
@@ -552,18 +552,18 @@ YAML
     fail "tier14: build CLI" "see $WORK/t14-app.log"; return 0
   fi
   local store="$WORK/t14-oci"; rm -rf "$store"
-  "$WORK/t14-brewlet" push "$jar" "$T14_REF" --store "$store" --format=artifact >>"$WORK/t14-app.log" 2>&1
+  if ! "$WORK/t14-brewlet" push "$jar" "$T14_REF" --store "$store" \
+      --format=image >>"$WORK/t14-app.log" 2>&1; then
+    fail "tier14: build demo runnable image" "see $WORK/t14-app.log"; return 0
+  fi
   local digest
-  digest="$(python3 - "$store" <<'PY'
-import json, sys
-idx = json.load(open(f"{sys.argv[1]}/index.json"))
-print(idx["manifests"][0]["digest"])
-PY
-)"
-  if [[ -z "$digest" ]] ||
-    ! (cd "$store" && tar -cf - .) |
-      docker exec -i "$T14_NODE" ctr -n k8s.io images import --digests - >>"$WORK/t14-app.log" 2>&1; then
-    fail "tier14: import demo artifact" "see $WORK/t14-app.log"; return 0
+  digest="$(oci_layout_digest "$store" "$T14_REF")"
+  if [[ -z "$digest" ]] || ! import_oci_layout "$T14_NODE" "$store" "$WORK/t14-app.log"; then
+    fail "tier14: import demo runnable image" "see $WORK/t14-app.log"; return 0
+  fi
+  local image_ref
+  if ! image_ref="$(pin_image_for_cri "$T14_NODE" "$T14_REF" "$digest" "$WORK/t14-app.log")"; then
+    fail "tier14: create digest-pinned CRI image reference" "see $WORK/t14-app.log"; return 0
   fi
 
   kubectl create namespace "$T14_NS_APP" >/dev/null 2>&1 || true
@@ -578,8 +578,6 @@ spec:
     metadata:
       labels: { app: $T14_APP }
       annotations:
-        brewlet.sh/artifact-ref: "$T14_REF"
-        brewlet.sh/artifact-digest: "$digest"
         brewlet.sh/jdk: "$T14_JDK"
         brewlet.sh/launcher: "$T14_LAUNCHER"
     spec:
@@ -590,8 +588,8 @@ spec:
         brewlet.sh/launcher.jaz: "true"
       containers:
         - name: app
-          image: busybox:1.36
-          command: ["sleep", "3600"]
+          image: "$image_ref"
+          imagePullPolicy: Never
           ports: [{ name: http, containerPort: $T14_PORT }]
           resources:
             requests: { cpu: "100m", memory: "128Mi" }

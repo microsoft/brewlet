@@ -43,8 +43,8 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 	fleet, err := m.fleet(ctx)
 	if err != nil {
 		// Fail open: never block scheduling because the webhook couldn't read
-		// nodes. The shim still enforces JDK compatibility and AppCDS policy at
-		// runtime.
+		// nodes. The shim still enforces image identity, JDK compatibility, and
+		// AppCDS policy at runtime.
 		log.Error(err, "listing nodes for fleet check; allowing pod without steering")
 		observability.ObserveAdmission("fail_open", "fleet_unavailable")
 		return admission.Allowed("fleet unavailable")

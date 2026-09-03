@@ -2,8 +2,8 @@
 
 Production admission policy that **enforces Brewlet managed-dependency
 signatures and identities** before a workload runs. It admits a pod on the
-Brewlet runtime only when its image carries a valid, trusted final-image
-managed-dependency attestation.
+Brewlet runtime only when the Pod image resolves to a digest with a valid,
+trusted final-image managed-dependency attestation.
 
 It provides the cluster-side enforcement that the managed-dependency-bundles
 design (specification §4.5) leaves to admission policy: requiring a valid,
@@ -28,7 +28,9 @@ have a Brewlet **managed-dependency attestation** that:
 - names the expected application-builder identity **verbatim**.
 
 Anything missing, malformed, signed by the wrong key, naming the wrong identity,
-or bound to a different subject is **denied (fail closed)**.
+or bound to a different subject is **denied (fail closed)**. The node shim does
+not add a second signature-verification pass; it executes the same image digest
+admitted here.
 
 ## How it works
 
@@ -214,8 +216,11 @@ namespaces and restrict who can create pods there.
 original image reference to the plugin; a tag is not resolved to a digest in that
 hand-off, so the plugin cannot bind the attestation subject and **denies
 tag-based images (fail closed)**. This matches Brewlet's model — the admission
-webhook stamps `brewlet.sh/artifact-digest` and the managed attestation binds the
-image index digest. Enforce digest pinning at the source (CI/GitOps).
+webhook overwrites `brewlet.sh/artifact-digest` as a compatibility hint from the
+selected Pod image, while the shim independently resolves the containerd target
+through CRI's immutable image-config identity and cross-checks containerd's
+protected `io.kubernetes.cri.image-name` annotation. The managed attestation
+binds that image index digest. Enforce digest pinning at the source (CI/GitOps).
 
 ## Fail-closed behavior
 

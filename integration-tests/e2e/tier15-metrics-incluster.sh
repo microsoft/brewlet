@@ -44,7 +44,8 @@ T15_CONTAINERD_BACKUP_SNAPSHOT=""
 T15_CONTAINERD_DROPIN_PREEXISTING=""
 T15_CONTAINERD_DROPIN_SNAPSHOT=""
 T15_CONTAINERD_DROPIN_CHANGED=""
-T15_ARTIFACT_DIGEST=""
+T15_IMAGE_DIGEST=""
+T15_IMAGE_REF=""
 T15_CDS_SNAPSHOT=""
 declare -a T15_LOADED_NODES=()
 declare -a T15_BUILT_IMAGES=()
@@ -273,8 +274,9 @@ _t15_cleanup() {
   for n in ${T15_LOADED_NODES[@]+"${T15_LOADED_NODES[@]}"}; do
     docker exec "$n" ctr -n k8s.io images rm \
       "$T15_OP_IMG" "$T15_ADM_IMG" "$T15_PROV_IMG" >/dev/null 2>&1 || true
-    if [[ -n "$T15_ARTIFACT_DIGEST" ]]; then
-      docker exec "$n" ctr -n k8s.io images rm "$T15_REF" "$T15_ARTIFACT_DIGEST" \
+    if [[ -n "$T15_IMAGE_DIGEST" ]]; then
+      docker exec "$n" ctr -n k8s.io images rm \
+        "$T15_REF" "$T15_IMAGE_DIGEST" "$T15_IMAGE_REF" \
         >/dev/null 2>&1 || true
     fi
   done
@@ -317,19 +319,43 @@ _t15_recreate_provisioner_pod() {
   return 1
 }
 
-_t15_containerd_runtime_type() {
-  docker exec "$T15_NODE" containerd --config /etc/containerd/config.toml config dump 2>/dev/null |
-    awk '
-      /^[[:space:]]*\[[^]]*containerd\.runtimes\.brewlet\][[:space:]]*$/ { in_brewlet=1; next }
-      in_brewlet && /^[[:space:]]*\[/ { exit }
-      in_brewlet && /^[[:space:]]*runtime_type[[:space:]]*=/ {
-        value=$0
-        sub(/^[^=]*=[[:space:]]*/, "", value)
-        gsub(/["'\'']/, "", value)
-        print value
-        exit
-      }
-    '
+_t15_runtime_type_from_file() {
+  awk '
+    /^[[:space:]]*\[[^]]*containerd\.runtimes\.brewlet\][[:space:]]*$/ { in_brewlet=1; next }
+    in_brewlet && /^[[:space:]]*\[/ { exit }
+    in_brewlet && /^[[:space:]]*runtime_type[[:space:]]*=/ {
+      value=$0
+      sub(/^[^=]*=[[:space:]]*/, "", value)
+      gsub(/["'\'']/, "", value)
+      print value
+      exit
+    }
+  ' "$1"
+}
+
+_t15_rendered_containerd_runtime_type() {
+  local rendered="$WORK/t15-containerd-rendered.toml"
+  docker exec "$T15_NODE" sh -c '
+    cat /etc/containerd/config.toml
+    test ! -f /etc/containerd/config.toml.d/99-brewlet.toml ||
+      cat /etc/containerd/config.toml.d/99-brewlet.toml
+  ' >"$rendered" 2>/dev/null || return 1
+  _t15_runtime_type_from_file "$rendered"
+}
+
+_t15_effective_containerd_runtime_type() {
+  local dump="$1" error="$2" runtime_type
+  runtime_type="$(_t15_runtime_type_from_file "$dump")"
+  if [[ -n "$runtime_type" ]]; then
+    printf '%s\n' "$runtime_type"
+    return 0
+  fi
+  if grep -F 'Ignoring unknown key in TOML for plugin' "$error" |
+      grep -Fq 'key="containerd runtimes brewlet"' &&
+    grep -F 'key="containerd runtimes brewlet"' "$error" |
+      grep -Fq 'plugin=io.containerd.grpc.v1.cri'; then
+    _t15_rendered_containerd_runtime_type
+  fi
 }
 
 _t15_build_load_kubernetes_image() {
@@ -401,7 +427,7 @@ _t15_assert_metric() {
   fi
 }
 
-_t15_build_artifact() {
+_t15_build_image() {
   local jar="$FIXTURES_DIR/demo-app/target/app.jar" store="$WORK/t15-oci" jh
   if [[ ! -f "$jar" ]]; then
     jh="$(resolve_java_home)"
@@ -411,24 +437,12 @@ _t15_build_artifact() {
   (cd "$BREWLET_CORE_DIR" && go build -o "$WORK/t15-brewlet" ./cmd/brewlet) \
     >>"$WORK/t15-app.log" 2>&1 || return 1
   rm -rf "$store"
-  "$WORK/t15-brewlet" push "$jar" "$T15_REF" --store "$store" --format=artifact \
+  "$WORK/t15-brewlet" push "$jar" "$T15_REF" --store "$store" --format=image \
     >>"$WORK/t15-app.log" 2>&1 || return 1
 }
 
-_t15_artifact_digest() {
-  python3 - "$WORK/t15-oci" "$T15_REF" <<'PY'
-import json, sys
-root, ref = sys.argv[1], sys.argv[2]
-tag = ref.split(":")[-1]
-index = json.load(open(f"{root}/index.json"))
-for manifest in index["manifests"]:
-    annotation = manifest.get("annotations", {}).get("org.opencontainers.image.ref.name")
-    if annotation in (ref, tag):
-        print(manifest["digest"])
-        break
-else:
-    print(index["manifests"][0]["digest"])
-PY
+_t15_image_digest() {
+  oci_layout_digest "$WORK/t15-oci" "$T15_REF"
 }
 
 tier15_metrics_incluster() {
@@ -545,26 +559,25 @@ tier15_metrics_incluster() {
   fi
   pass "tier15: provisioner image contains executable /opt/brewlet-dist/brewlet-metrics-exporter"
 
-  if ! _t15_build_artifact; then
-    fail "tier15: build Brewlet workload artifact" "see $WORK/t15-app.log"; return 0
+  if ! _t15_build_image; then
+    fail "tier15: build Brewlet workload image" "see $WORK/t15-app.log"; return 0
   fi
   local digest
-  digest="$(_t15_artifact_digest)"
+  digest="$(_t15_image_digest)"
   if [[ -z "$digest" ]]; then
-    fail "tier15: resolve workload artifact digest"; return 0
+    fail "tier15: resolve workload image digest"; return 0
   fi
-  if ! (cd "$WORK/t15-oci" && tar -cf - .) |
-      docker exec -i "$T15_NODE" ctr -n k8s.io images import --digests - \
-        >>"$WORK/t15-app.log" 2>&1; then
-    if ! (cd "$WORK/t15-oci" && tar -cf - .) |
-        docker exec -i "$T15_NODE" ctr -n k8s.io images import - \
-          >>"$WORK/t15-app.log" 2>&1; then
-      fail "tier15: import workload artifact into node content store" "see $WORK/t15-app.log"
-      return 0
-    fi
+  if ! import_oci_layout "$T15_NODE" "$WORK/t15-oci" "$WORK/t15-app.log"; then
+    fail "tier15: import workload image into node content store" "see $WORK/t15-app.log"
+    return 0
   fi
-  T15_ARTIFACT_DIGEST="$digest"
-  pass "tier15: built and imported a real Brewlet workload artifact"
+  if ! T15_IMAGE_REF="$(pin_image_for_cri \
+      "$T15_NODE" "$T15_REF" "$digest" "$WORK/t15-app.log")"; then
+    fail "tier15: create digest-pinned CRI image reference" "see $WORK/t15-app.log"
+    return 0
+  fi
+  T15_IMAGE_DIGEST="$digest"
+  pass "tier15: built and imported a real Brewlet workload image ($T15_IMAGE_REF)"
 
   info "tier15: installing the shipped chart with metrics.enabled=true"
   T15_HELM_INSTALLED=1
@@ -691,8 +704,11 @@ YAML
       "see $WORK/t15-containerd-fallback-dump.log"
     return 0
   fi
-  assert_eq "tier15: effective config exposes the exact Brewlet handler and runtime type" \
-    "$(_t15_containerd_runtime_type)" "io.containerd.brewlet.v2"
+  assert_eq "tier15: effective config resolves the exact Brewlet handler and runtime type" \
+    "$(_t15_effective_containerd_runtime_type \
+      "$WORK/t15-containerd-fallback-dump.toml" \
+      "$WORK/t15-containerd-fallback-dump.log")" \
+    "io.containerd.brewlet.v2"
   if ! check "tier15: fallback preserved the original containerd config backup" \
       docker exec "$T15_NODE" test -f /etc/containerd/config.toml.brewlet.bak; then
     return 0
@@ -763,8 +779,11 @@ YAML
       "see $WORK/t15-containerd-dropin-dump.log"
     return 0
   fi
-  assert_eq "tier15: drop-in dump exposes the exact Brewlet handler and runtime type" \
-    "$(_t15_containerd_runtime_type)" "io.containerd.brewlet.v2"
+  assert_eq "tier15: drop-in config resolves the exact Brewlet handler and runtime type" \
+    "$(_t15_effective_containerd_runtime_type \
+      "$WORK/t15-containerd-dropin-dump.toml" \
+      "$WORK/t15-containerd-dropin-dump.log")" \
+    "io.containerd.brewlet.v2"
 
   dropin_checksum="$(docker exec "$T15_NODE" sha256sum /etc/containerd/config.toml.d/99-brewlet.toml | awk '{print $1}')"
   if ! provisioner_pod="$(_t15_recreate_provisioner_pod "$provisioner_pod")"; then
@@ -813,8 +832,6 @@ spec:
     metadata:
       labels: { app: $T15_APP }
       annotations:
-        brewlet.sh/artifact-ref: "$T15_REF"
-        brewlet.sh/artifact-digest: "$digest"
         brewlet.sh/jdk: "$T15_JDK"
         brewlet.sh/cds-regenerate: "true"
     spec:
@@ -824,8 +841,8 @@ spec:
         brewlet.sh/runtime: ready
       containers:
         - name: app
-          image: busybox:1.36
-          command: ["sleep", "3600"]
+          image: "$T15_IMAGE_REF"
+          imagePullPolicy: Never
           ports: [{ name: http, containerPort: 8080 }]
           resources:
             requests: { cpu: "100m", memory: "128Mi" }
@@ -855,13 +872,13 @@ YAML
   fi
   _t15_assert_metric "tier15: successful sandbox launch outcome is exported" \
     "$node_metrics" \
-    'brewlet_sandbox_launches_total\{[^}]*artifact_format="native"[^}]*entry_mode="jar"[^}]*outcome="success"[^}]*reason="none"[^}]*\} 1'
+    'brewlet_sandbox_launches_total\{[^}]*artifact_format="image"[^}]*entry_mode="jar"[^}]*outcome="success"[^}]*reason="none"[^}]*\} 1'
   _t15_assert_metric "tier15: successful process-start phase latency is exported" \
     "$node_metrics" \
     'brewlet_sandbox_launch_duration_seconds_count\{outcome="success",phase="process_start"\} 1'
-  _t15_assert_metric "tier15: successful containerd artifact resolution is exported" \
+  _t15_assert_metric "tier15: successful containerd image resolution is exported" \
     "$node_metrics" \
-    'brewlet_artifact_resolution_duration_seconds_count\{artifact_format="native",backend="containerd",outcome="success"\} 1'
+    'brewlet_artifact_resolution_duration_seconds_count\{artifact_format="image",backend="containerd",outcome="success"\} 1'
   _t15_assert_metric "tier15: AppCDS launch decision is exported" \
     "$node_metrics" \
     'brewlet_cds_regeneration_decisions_total\{role="(consume|write|defer|skip)"\} [1-9][0-9]*'

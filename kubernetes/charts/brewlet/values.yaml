@@ -116,9 +116,9 @@ metrics:
     labels:
       grafana_dashboard: "1"
 
-# The pod admission/scheduling webhook (§8/§14): stamps the artifact ref/digest
-# the shim resolves and matches a pod's requested JDK/launcher against the ready
-# fleet (NoCompatibleJDK / NoCompatibleLauncher).
+# The pod admission/scheduling webhook (§8/§14): overwrites image identity
+# compatibility hints and matches a pod's requested JDK/launcher against the
+# ready fleet (NoCompatibleJDK / NoCompatibleLauncher).
 admission:
   enabled: true
   replicas: 1
