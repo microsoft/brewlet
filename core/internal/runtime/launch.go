@@ -367,6 +367,9 @@ func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars
 	// the shipped archive is only seed data for the node cache (the caller feeds
 	// cdsSrc to DecideCDSRegen), and the /app copy would go unread.
 	if cdsSrc != "" && cfg.CDS != nil && !regenerate {
+		if err := artifact.ValidateBareFilename("cds.archive", cfg.CDS.Archive); err != nil {
+			return "", "", err
+		}
 		cdsData, err := os.ReadFile(cdsSrc)
 		if err != nil {
 			return "", "", err

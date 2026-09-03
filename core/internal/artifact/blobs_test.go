@@ -378,6 +378,12 @@ func TestResolveRunnableBlobsRejectsEscapingMainJar(t *testing.T) {
 			if err == nil {
 				t.Fatalf("resolved hostile mainJar %q to %q, want rejection", hostile, got.JarHostPath)
 			}
+			// Assert the value was rejected as a filename rather than merely
+			// failing to exist: a "no such file" error would leave the escape
+			// live for any hostile value that does name a real host path.
+			if !strings.Contains(err.Error(), "mainJar") {
+				t.Errorf("ResolveRunnableBlobs(%q) error = %v, want a mainJar validation rejection", hostile, err)
+			}
 			if got.JarHostPath != "" {
 				t.Errorf("JarHostPath = %q after rejection, want empty", got.JarHostPath)
 			}
