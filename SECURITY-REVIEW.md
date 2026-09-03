@@ -3,6 +3,8 @@
 **Repository:** `microsoft/brewlet`  
 **Revision assessed:** `f6c8a06`  
 **Assessment date:** 2026-09-02  
+**Remediation status verified:** `4206878` (2026-09-03)
+
 **Method:** Static, read-only STRIDE review of source code, Kubernetes resources,
 Helm templates, container build files, CI/CD workflows, release automation, and
 security documentation.
@@ -14,19 +16,21 @@ installs a containerd shim and JDK roots on nodes, and the root-privileged shim
 constructs OCI bundles, overlay lower layers, and bind mounts for tenant
 workloads.
 
-The review identified one Critical, five High, five Medium, and one Low issue.
-The most serious issue is a confirmed path traversal in artifact digest
-resolution: tenant-controlled pod annotations and OCI descriptor digest strings
-are converted into host filesystem paths without validating that they are
-canonical SHA-256 digests. A namespace tenant that can create a Brewlet pod can
-cause the root shim to bind-mount arbitrary host paths, including `/`, read-only
-inside the tenant container. This exposes node credentials, kubelet state, and
-the Secrets and service-account tokens of co-located workloads.
+The review originally identified one Critical, five High, five Medium, and one
+Low issue. All five High findings (2, 3, 4, 6, and 7) and the Low finding (12)
+have since been remediated through merged pull requests. The remaining Critical
+issue is a confirmed path traversal in OCI descriptor digest resolution:
+descriptor digest strings are converted into host filesystem paths without
+validating that they are canonical SHA-256 digests. A namespace tenant that can
+publish and run a malicious digest-pinned Brewlet image can cause the root shim
+to bind-mount arbitrary host paths, including `/`, read-only inside the tenant
+container. This exposes node credentials, kubelet state, and the Secrets and
+service-account tokens of co-located workloads.
 
-Other high-impact issues allow tenant containers to write the node-shared AppCDS
-cache, artifact metadata to override the pod UID/GID, admission attestations to
-verify a different image from the artifact the shim executes, and mutable or
-unverified upstream content to become root-executed node software.
+The remediations isolate the node-shared AppCDS cache, preserve the CRI-selected
+pod UID/GID, bind executed content to protected CRI image identity, require
+explicit digest-pinned JDK and launcher sources, and verify every provisioner
+download and external container image.
 
 Several controls are implemented correctly: tar extraction rejects traversal
 and ignores link/device entries; JDK Java-home resolution is contained; DSSE
@@ -36,26 +40,26 @@ closed; the operator and admission pods are hardened; and containerd
 configuration updates are validated and rolled back.
 
 **Overall risk: High.** Brewlet should not be used on multi-tenant clusters
-until Findings 1-4 are fixed. Restricting Brewlet to dedicated, platform-owned
-node pools reduces exposure but does not address the node software supply-chain
-risks.
+until Finding 1 is fixed. Restricting Brewlet to dedicated, platform-owned node
+pools reduces exposure but does not address the remaining path-input,
+credential-forwarding, provisioning-default, and release-integrity risks.
 
 ## Findings summary
 
-| # | Severity | Finding | Confidence |
-|---|----------|---------|------------|
-| 1 | Critical | Tenant-controlled OCI digests can bind-mount arbitrary node paths | 9/10 |
-| 2 | High | The node-shared AppCDS cache is writable from a tenant container | 8/10 |
-| 3 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | 9/10 |
-| 4 | High | Attestation enforcement verifies a different identity from the executed artifact | 8/10 |
-| 5 | Medium | The launcher annotation can traverse outside the launcher root | 7/10 |
-| 6 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | 9/10 |
-| 7 | High | Unverified downloaded binaries are installed on every node | 9/10 |
-| 8 | Medium | `mainJar` can escape staging and select arbitrary host paths | 8/10 |
-| 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP | 8/10 |
-| 10 | Medium | The privileged provisioner defaults to every node | 9/10 |
-| 11 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity | 9/10 |
-| 12 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth | 9/10 |
+| # | Severity | Finding | Issue | PR | Confidence |
+|---|----------|---------|-------|----|------------|
+| 1 | Critical | Tenant-controlled OCI digests can bind-mount arbitrary node paths | [#19](https://github.com/microsoft/brewlet/issues/19) | — | 9/10 |
+| 2 | High | The node-shared AppCDS cache is writable from a tenant container **(Remediated)** | [#20](https://github.com/microsoft/brewlet/issues/20) | [#31](https://github.com/microsoft/brewlet/pull/31) | 8/10 |
+| 3 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | [#21](https://github.com/microsoft/brewlet/issues/21) | [#37](https://github.com/microsoft/brewlet/pull/37) | 9/10 |
+| 4 | High | Attestation enforcement verifies a different identity from the executed artifact **(Remediated)** | [#22](https://github.com/microsoft/brewlet/issues/22) | [#33](https://github.com/microsoft/brewlet/pull/33) | 8/10 |
+| 5 | Medium | The launcher annotation can traverse outside the launcher root | [#23](https://github.com/microsoft/brewlet/issues/23) | — | 7/10 |
+| 6 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
+| 7 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
+| 8 | Medium | `mainJar` can escape staging and select arbitrary host paths | [#26](https://github.com/microsoft/brewlet/issues/26) | — | 8/10 |
+| 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP | [#27](https://github.com/microsoft/brewlet/issues/27) | — | 8/10 |
+| 10 | Medium | The privileged provisioner defaults to every node | [#28](https://github.com/microsoft/brewlet/issues/28) | — | 9/10 |
+| 11 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity | [#29](https://github.com/microsoft/brewlet/issues/29) | — | 9/10 |
+| 12 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth **(Remediated)** | [#30](https://github.com/microsoft/brewlet/issues/30) | [#39](https://github.com/microsoft/brewlet/pull/39) | 9/10 |
 
 ## Threat model
 
@@ -82,7 +86,7 @@ risks.
 | Namespace tenant | Can create a Pod or Deployment in one namespace and control its image, annotations, RuntimeClass, and security context |
 | Artifact publisher | Controls an OCI manifest, config blob, descriptors, and application launch metadata |
 | Cluster or GitOps administrator | Controls NodeProfiles, Helm values, registry mirrors, and component image references |
-| Upstream registry or vendor | Controls mutable JDK tags and downloadable tool release assets |
+| Upstream registry or vendor | Controls runtime image content and downloadable tool release assets |
 | CI/CD supply-chain attacker | Can compromise or retag a referenced GitHub Action or upstream build dependency |
 | Malicious registry | Can issue authentication challenges and return attacker-controlled manifests, blobs, and headers |
 | Compromised co-tenant workload | Has code execution inside a Brewlet sandbox on the same node as a victim |
@@ -100,7 +104,7 @@ workload creation, not cluster-scoped RBAC or direct node access.
 - Node labels and annotations used for scheduling and fleet compatibility.
 - Helm values and rendered RBAC, webhook, RuntimeClass, and DaemonSet resources.
 - Registry authentication challenges, token endpoints, manifests, and blobs.
-- Provisioner image downloads, public JDK image tags, GitHub Actions, and
+- Provisioner image downloads, JDK and launcher source images, GitHub Actions, and
   release workflows.
 
 ### Trust boundaries
@@ -127,20 +131,22 @@ workload creation, not cluster-scoped RBAC or direct node access.
 
 ### Critical data and control flow
 
-1. A tenant supplies `brewlet.sh/*` pod annotations.
-2. The mutating webhook fills only missing annotations and is configured with
-   `failurePolicy: Ignore`.
-3. The provisioner configures containerd to forward `brewlet.sh/*` pod
-   annotations to the OCI spec.
-4. The root shim reads `brewlet.sh/artifact-digest` directly from the OCI spec.
-5. The shim reads a manifest from the containerd content store, then resolves
-   descriptor digest strings into host paths.
+1. A tenant publishes and requests a digest-pinned Brewlet image containing
+   attacker-controlled OCI descriptors.
+2. Containerd preserves the protected CRI requested-image and resolved-config
+   identities.
+3. The root shim validates the requested target, image-name annotation, config
+   digest, and selected platform-manifest digest.
+4. The shim reads the verified manifest from the containerd content store, then
+   resolves its config and layer descriptor digest strings into host paths.
+5. Config and layer descriptor digests are not validated before
+   `contentBlobPath` and `Store.BlobPath` construct those paths.
 6. These paths become bind-mount sources or overlay lower layers in the tenant
    container.
 
-This flow crosses the tenant-to-root trust boundary without binding the
-annotation to the CRI image identity and without validating digest syntax at
-the path construction sites.
+Artifact selection is now bound to protected CRI image identity, but the
+selected image still crosses the tenant-to-root trust boundary without
+validating every descriptor digest at its path construction site.
 
 ## Detailed findings
 
@@ -152,26 +158,32 @@ the path construction sites.
 **CWE:** CWE-22, CWE-20, CWE-345  
 **Type:** Confirmed vulnerability
 
+**Status:** Open in [issue #19](https://github.com/microsoft/brewlet/issues/19).
+The artifact-identity portion was remediated by
+[issue #22](https://github.com/microsoft/brewlet/issues/22) via
+[pull request #33](https://github.com/microsoft/brewlet/pull/33).
+
 **Attacker prerequisites:** Permission to create a Pod in one namespace and
 ability to publish an image to a registry the node can pull from.
 
-**Evidence:**
+**Current evidence:**
 
-- `provisioner/entrypoint.sh:466-468` configures
-  `pod_annotations = ["brewlet.sh/*"]`.
-- `kubernetes/internal/admission/mutate.go:61-70` fills artifact annotations
-  only when they are empty and does not validate tenant-supplied values.
-- `kubernetes/charts/brewlet/values.yaml:90-91` defaults the mutating webhook to
-  `failurePolicy: Ignore`.
-- `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:286-303` copies
-  `brewlet.sh/artifact-digest` into `ManifestDigest`.
-- `core/shim/cmd/containerd-shim-brewlet-v2/resolver.go:78-103` splits an
-  arbitrary digest string and passes its components to `filepath.Join`.
-- `core/internal/artifact/artifact.go:350-357` represents OCI descriptor
-  digests as unrestricted strings.
-- `core/internal/artifact/blobs.go:96-140` resolves descriptor digests into
-  host paths and checks only that the resulting path exists.
-- `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:549,564-566`
+- `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:351-380` derives
+  the executable manifest from protected CRI image identity rather than the
+  tenant artifact-digest annotation.
+- `core/shim/cmd/containerd-shim-brewlet-v2/image_identity_linux.go:73-115`
+  validates the requested target, resolved config, and platform manifest as
+  canonical SHA-256 digests.
+- `core/internal/artifact/artifact.go:346-365` still represents config and layer
+  descriptor digests as unrestricted strings.
+- `core/shim/cmd/containerd-shim-brewlet-v2/resolver.go:94-102` splits an
+  arbitrary descriptor digest and passes its components to `filepath.Join`.
+- `core/internal/artifact/artifact.go:401-408` constructs local-layout blob
+  paths without validating the digest.
+- `core/internal/artifact/blobs.go:126-169` resolves config and layer
+  descriptors through those path functions without validating their syntax or
+  verifying their bytes against the declared digest.
+- `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:659-692`
   bind-mounts the resolved JAR path into the container.
 
 **Attack path and impact:**
@@ -179,11 +191,12 @@ ability to publish an image to a registry the node can pull from.
 1. The attacker publishes content containing a Brewlet manifest whose JAR
    descriptor digest is a traversal value such as
    `sha256:../../../../../..`.
-2. The attacker causes containerd to pull the content onto a target node.
-3. A Brewlet pod supplies the content blob digest in
-   `brewlet.sh/artifact-digest`.
-4. `filepath.Join` cleans the descriptor traversal and resolves the supposed
-   content-store blob path to `/`.
+2. The attacker requests that digest-pinned image in a Brewlet pod, and
+   containerd pulls it onto the target node.
+3. The shim correctly binds execution to that requested image and reads its
+   manifest.
+4. `filepath.Join` cleans the malicious layer-descriptor traversal and resolves
+   the supposed content-store blob path to `/`.
 5. `os.Stat("/")` succeeds and the root shim bind-mounts the host root
    filesystem read-only into the attacker container.
 6. The workload can read kubelet credentials and mounted Secrets and tokens for
@@ -200,7 +213,8 @@ to cluster compromise.
 - Apply validation in `contentBlobPath`, `Store.BlobPath`, manifest parsing,
   and every layer selector.
 - Verify blob bytes against the declared digest before use.
-- Bind artifact identity to the CRI-resolved image as described in Finding 4.
+- Reuse the existing canonical digest validation and verified-read path already
+  applied to index and manifest descriptors.
 
 **Remediation test:**
 
@@ -208,8 +222,8 @@ to cluster compromise.
   unsupported algorithms, and empty components.
 - Add a fuzz test asserting that every resolved content path remains under the
   content-store root.
-- Add an integration test proving a mismatched or traversal digest fails task
-  creation and produces no mount.
+- Add an integration test proving a traversal descriptor fails task creation
+  and produces no mount.
 
 ### 2. The node-shared AppCDS cache is writable from a tenant container — remediated
 
@@ -218,7 +232,9 @@ to cluster compromise.
 **STRIDE:** Tampering, Elevation of Privilege  
 **CWE:** CWE-732, CWE-269, CWE-349  
 **Type:** Confirmed architectural vulnerability
+
 **Status:** Remediated by [issue #20](https://github.com/microsoft/brewlet/issues/20)
+via [pull request #31](https://github.com/microsoft/brewlet/pull/31)
 
 **Attacker prerequisites:** Permission to create a Brewlet Pod. Root inside the
 sandbox increases reliability and is available through Finding 3 or a workload
@@ -274,7 +290,7 @@ proves the attacker cannot enumerate or address the victim entry, tampers with
 the attacker archive, and verifies the victim bytes and mapped consumer remain
 unchanged.
 
-### 3. Artifact launch configuration overrides the pod UID/GID
+### 3. Artifact launch configuration overrides the pod UID/GID — remediated
 
 **Severity:** High  
 **Confidence:** 9/10  
@@ -282,7 +298,8 @@ unchanged.
 **CWE:** CWE-250, CWE-863  
 **Type:** Confirmed vulnerability and insecure default
 
-**Status:** Remediated
+**Status:** Remediated by [issue #21](https://github.com/microsoft/brewlet/issues/21)
+via [pull request #37](https://github.com/microsoft/brewlet/pull/37)
 
 **Attacker prerequisites:** Control of the executed artifact's config blob.
 
@@ -327,12 +344,13 @@ namespace.
 **CWE:** CWE-345, CWE-807  
 **Type:** Confirmed admission bypass
 
-**Status:** Remediated
+**Status:** Remediated by [issue #22](https://github.com/microsoft/brewlet/issues/22)
+via [pull request #33](https://github.com/microsoft/brewlet/pull/33)
 
 **Attacker prerequisites:** Permission to create a Brewlet Pod in a cluster
 using the documented Ratify/Gatekeeper policy.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `admission/deploy/40-gatekeeper-constrainttemplate.yaml:38-53` submits
   `spec.containers[].image` to Ratify.
@@ -407,7 +425,7 @@ launcher directory.
 **Remediation test:** Table-test traversal and separator variants and assert
 they fail before mount construction.
 
-### 6. Mutable, unsigned JDK images become root-executed node runtimes
+### 6. Mutable, unsigned JDK images become root-executed node runtimes — remediated
 
 **Severity:** High  
 **Confidence:** 9/10  
@@ -415,12 +433,13 @@ they fail before mount construction.
 **CWE:** CWE-494, CWE-1357  
 **Type:** Architectural risk and insecure default
 
-**Status:** Remediated by [pull request #35](https://github.com/microsoft/brewlet/pull/35)
+**Status:** Remediated by [issue #24](https://github.com/microsoft/brewlet/issues/24)
+via [pull request #34](https://github.com/microsoft/brewlet/pull/34)
 
 **Attacker prerequisites:** Compromise of an upstream mutable JDK tag, or
 control of a NodeProfile registry mirror through cluster/GitOps compromise.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `provisioner/entrypoint.sh:344-369` selects mutable tags such as
   `docker.io/library/eclipse-temurin:<feature>` and
@@ -455,7 +474,16 @@ host networking or a writable host bind mount.
 whitespace, empty hosts, or unapproved destinations. Verify invalid input fails
 closed before any host operation or node readiness label.
 
-### 7. Unverified downloaded binaries are installed on every node
+**Resolution:** `NodeProfile` now requires an explicit structured source for
+every JDK and launcher. Admission and reconciliation require canonical
+digest-pinned OCI references and clean absolute source paths, and registry
+mirror destinations must match an operator-controlled exact-host allowlist.
+The provisioner validates the complete inventory before host mutation, mounts
+digest-specific source images, copies JDK roots, and installs launcher regular
+files without executing source images with host networking or writable host
+bind mounts.
+
+### 7. Unverified downloaded binaries are installed on every node — remediated
 
 **Severity:** High  
 **Confidence:** 9/10  
@@ -463,10 +491,13 @@ closed before any host operation or node readiness label.
 **CWE:** CWE-494  
 **Type:** Confirmed supply-chain vulnerability
 
+**Status:** Remediated by [issue #25](https://github.com/microsoft/brewlet/issues/25)
+via [pull request #32](https://github.com/microsoft/brewlet/pull/32)
+
 **Attacker prerequisites:** Compromise of, or an on-path position to, the
 upstream release assets used during the provisioner image build.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `provisioner/Dockerfile:55-72` downloads `kubectl`, `ctr`, and `crictl`
   without checksum or signature verification.
@@ -489,6 +520,15 @@ where practical.
 **Remediation test:** Corrupt each downloaded artifact during a build test and
 assert the build fails. Add a CI policy that requires checksum verification for
 Dockerfile downloads and digest pins for `FROM`.
+
+**Resolution:** The provisioner now stores architecture-specific SHA-256
+manifests for `kubectl`, `containerd`, and `crictl`, plus checksums for their
+license files. A dedicated HTTPS-only download helper verifies each asset during
+download, and the Dockerfile re-verifies all six files immediately before
+extraction. Every external `FROM` image is pinned by full SHA-256 digest, the
+runtime image receives only verified outputs and no longer contains `curl`, and
+repository policy tests reject unpinned images or direct Dockerfile downloads.
+Build corruption tests cover every downloaded binary and license asset.
 
 ### 8. `mainJar` can escape staging and select arbitrary host paths
 
@@ -636,7 +676,7 @@ release artifacts, publish build provenance, checksum Maven artifacts, and pin
 references and release smoke tests that verify signatures and attestations for
 newly published artifacts.
 
-### 12. Long-lived webhook credentials and absent NetworkPolicies
+### 12. Long-lived webhook credentials and absent NetworkPolicies — remediated
 
 **Severity:** Low  
 **Confidence:** 9/10  
@@ -644,10 +684,13 @@ newly published artifacts.
 **CWE:** CWE-1188, CWE-295  
 **Type:** Defense-in-depth recommendation
 
+**Status:** Remediated by [issue #30](https://github.com/microsoft/brewlet/issues/30)
+via [pull request #39](https://github.com/microsoft/brewlet/pull/39)
+
 **Attacker prerequisites:** Permission to read the webhook Secret or Helm
 release data, or pod-network access to exposed component endpoints.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `kubernetes/charts/brewlet/templates/admission.yaml:8-9` creates a ten-year
   CA and leaf certificate.
@@ -669,6 +712,16 @@ metrics ingress.
 **Remediation test:** Validate certificate lifetime in rendered manifests and
 verify an unrelated namespace cannot reach protected endpoints when policies
 are enabled.
+
+**Resolution:** The dependency-free default now issues fresh self-signed
+webhook credentials on Helm install or upgrade with a configurable 90-day
+validity. Clusters can opt into cert-manager-managed issuance, renewal, CA
+injection, and certificate hot reload. Optional ingress NetworkPolicies restrict
+the admission webhook, operator metrics, and node metrics to explicitly
+configured API-server, kubelet, and scraper peers, and fail rendering when
+required trusted sources are absent. In-cluster E2E coverage validates
+cert-manager issuance and reload as well as attributable denial of unauthorized
+metrics access.
 
 ## Correctly implemented controls
 
@@ -700,6 +753,11 @@ are enabled.
   `kubernetes/charts/brewlet/templates/admission.yaml:180-183`.
 - Containerd reconfiguration is validated and rolled back transactionally:
   `provisioner/entrypoint.sh:596-611,741-772`.
+- Provisioner downloads are checksum-verified twice, external build images are
+  digest-pinned, and repository policy tests reject direct Dockerfile downloads:
+  `provisioner/Dockerfile:28,51,67-120,140`,
+  `provisioner/download-verified.sh`, and
+  `scripts/check-container-build-security.sh`.
 - Operator and admission pods run non-root with a read-only root filesystem,
   no privilege escalation, and all capabilities dropped:
   `kubernetes/charts/brewlet/templates/operator.yaml:99,136-139` and
@@ -712,55 +770,56 @@ are enabled.
   interpolation in shell commands. Release version input is validated.
 - No hardcoded production credentials were identified.
 
-## Most dangerous attack chains
+## Most dangerous attack chains and remediation status
 
 ### A. Namespace tenant to cluster compromise
 
-A namespace tenant seeds a malicious manifest blob, supplies its digest through
-the Brewlet annotation, and uses a traversal descriptor so the root shim mounts
-host `/`. The tenant reads kubelet credentials and every co-located workload's
-Secrets and service-account tokens, then replays the most privileged credential
-against the API server. Default control-plane provisioning increases the chance
-that control-plane PKI is exposed directly.
+A namespace tenant publishes and requests a digest-pinned malicious image whose
+manifest contains a traversal descriptor. Protected CRI image identity now
+ensures that the shim executes the requested image, but descriptor path
+validation remains absent, so the root shim can still mount host `/`. The tenant
+reads kubelet credentials and every co-located workload's Secrets and
+service-account tokens, then replays the most privileged credential against the
+API server. Default control-plane provisioning increases the chance that
+control-plane PKI is exposed directly.
 
-### B. Cross-tenant JVM code injection
+### B. Historical cross-tenant JVM code injection — remediated
 
-An attacker publishes an artifact requesting UID 0, bypasses the Pod's
-non-root intent, requests CDS regeneration using the victim's artifact key, and
-wins the writer election. The attacker receives the shared cache read-write,
-replaces the victim archive, and the victim JVM maps attacker-controlled class
-metadata on its next launch.
+The original chain combined artifact-requested UID 0 with a writable global
+AppCDS cache. Artifact credentials are now rejected, CRI process identity is
+preserved, cache keys include trusted namespace, verified manifest, JDK build,
+and process UID, and workloads see only their private cache-entry directory.
 
-### C. Upstream software to root on every node
+### C. Historical upstream software to root on every node — remediated
 
-A mutable JDK tag, registry mirror, or unverified tool archive is compromised.
-The provisioner pulls or downloads it, copies it to the host, and executes it as
-root with access to host namespaces or the containerd socket. The compromised
-JDK tree then becomes a lower layer for every Brewlet workload.
+The original chain relied on mutable runtime tags, unrestricted mirrors, and
+unverified tool archives. Runtime sources are now explicit and digest-pinned,
+mirror targets are allowlisted, launcher images are mounted rather than run, and
+downloaded tools and external build images are checksum- or digest-pinned.
 
-## Documentation mismatches
+## Documentation alignment status
 
 | Claim | Location | Implemented behavior |
 |-------|----------|----------------------|
 | The JVM is non-root unless root is explicitly requested through the Pod security context | `specs/SPECIFICATION.md:1228-1229`; `docs/security.md` | **Remediated:** artifact credentials are rejected and the CRI-populated user is authoritative |
 | Every runtime root arrives through a content-addressable, digest-verified pull | `specs/SPECIFICATION.md:664` | **Remediated:** every JDK and launcher source is explicit and digest-pinned |
-| Only a small per-container upper/scratch layer is writable | `docs/security.md` | CDS regeneration mounts the node-shared cache read-write |
-| The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | The digest is tenant-settable, unvalidated, and not bound to the image |
-| Ratify/Gatekeeper requires the final-image attestation and fails closed | `docs/security.md` | Admission verifies `image`; the shim can execute a different annotation-selected artifact |
-| Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | Implicit JDK sources cannot currently be digest-pinned |
-| The fail-open mutating webhook is presented as a security guardrail | `docs/security.md` | It improves availability but cannot enforce Brewlet artifact identity |
+| Only a small per-container upper/scratch layer is writable | `docs/security.md` | **Remediated:** CDS regeneration exposes only a private per-key entry; consumers mount it read-only and the elected writer alone receives it read-write |
+| The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | **Partially remediated:** artifact selection is bound to protected CRI image identity, but descriptor digests still require path validation and byte verification under Finding 1 |
+| Ratify/Gatekeeper requires the final-image attestation and fails closed | `docs/security.md` | **Remediated:** the shim resolves the exact digest-pinned CRI request and verifies its target, config, and platform-manifest identity |
+| Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | **Remediated:** JDK and launcher sources require explicit digest-pinned references |
+| The fail-open mutating webhook is presented as a security guardrail | `docs/security.md` | **Remediated for artifact identity:** the webhook overwrites compatibility hints, while the shim independently fails closed using protected CRI metadata |
 
 ## Prioritized remediation roadmap
 
 ### P0: Before multi-tenant or production use
 
 1. Validate every digest used in a path and verify blob content.
-2. Bind shim artifact selection to the CRI image identity and reject annotation
-   mismatches.
-3. Make Brewlet admission overwrite security-sensitive annotations and fail
-   closed for Brewlet RuntimeClass pods.
-4. Remove tenant write access to the shared AppCDS directory and partition
-   cache state.
+2. **Remediated:** Bind shim artifact selection to the CRI image identity and
+   reject annotation mismatches.
+3. **Remediated:** Make Brewlet admission overwrite security-sensitive
+   annotations, with the shim enforcing artifact identity independently.
+4. **Remediated:** Remove tenant write access to the shared AppCDS directory and
+   partition cache state.
 5. **Remediated:** Prevent artifact launch configuration from raising UID/GID
    privilege.
 
@@ -768,8 +827,8 @@ JDK tree then becomes a lower layer for every Brewlet workload.
 
 1. Sanitize and allowlist launcher names.
 2. Restrict `mainJar` to a contained bare filename.
-3. Verify every binary downloaded by the provisioner image and digest-pin base
-   images.
+3. **Remediated:** Verify every binary downloaded by the provisioner image and
+   digest-pin base images.
 4. **Remediated:** Require administrator-provided, digest-pinned JDK and launcher
    images, and validate and allowlist NodeProfile registry mirrors.
 5. Enforce same-origin HTTPS registry token realms and exact loopback matching.
@@ -779,48 +838,49 @@ JDK tree then becomes a lower layer for every Brewlet workload.
 1. Pin GitHub Actions by SHA, narrow workflow permissions, and publish
    signatures and provenance.
 2. Make node provisioning opt-in and exclude control-plane nodes by default.
-3. Add NetworkPolicy templates and automated short-lived webhook certificates.
-4. Correct the documented guarantees listed above.
+3. **Remediated:** Add NetworkPolicy templates and automated short-lived webhook
+   certificates.
+4. Keep security documentation aligned with the remaining open controls.
 
 ## Suggested GitHub issues
 
 1. **Validate OCI digests before path construction and verify blob content.**
    Covers Finding 1.
-2. **Bind shim artifact resolution to the CRI image identity and make Brewlet
-   admission fail closed.** Covers Finding 4 and the identity portion of
-   Finding 1.
-3. **Stop mounting the shared AppCDS cache directory into workloads.** Covers
-   Finding 2.
+2. **Bind shim artifact resolution to the CRI image identity (remediated in
+   issue #22 and pull request #33).** Covers Finding 4 and the identity portion
+   of Finding 1.
+3. **Stop mounting the shared AppCDS cache directory into workloads (remediated
+   in issue #20 and pull request #31).** Covers Finding 2.
 4. **Prevent artifact configuration from overriding Pod UID/GID (remediated in
-   issue #21).** Covers Finding 3.
+   issue #21 and pull request #37).** Covers Finding 3.
 5. **Validate launcher and `mainJar` path components.** Covers Findings 5 and 8,
    which share the same path-input validation fix.
 6. **Require digest-pinned administrator-provided runtime sources and validate
-   registry mirrors (remediated in pull request #35).** Covers Finding 6.
-7. **Verify provisioner binary downloads and pin base images.** Covers Finding
-   7.
+   registry mirrors (remediated in issue #24 and pull request #34).** Covers
+   Finding 6.
+7. **Verify provisioner binary downloads and pin base images (remediated in
+   issue #25 and pull request #32).** Covers Finding 7.
 8. **Restrict registry token authentication to approved HTTPS origins.** Covers
    Finding 9.
 9. **Pin Actions and publish release signatures and provenance.** Covers
    Finding 11.
 10. **Make privileged node provisioning opt-in and exclude control-plane
     nodes.** Covers Finding 10.
-11. **Add NetworkPolicies and automated webhook certificate rotation.** Covers
-    Finding 12.
-12. **Align security documentation with enforced controls.** Covers all
-    documentation mismatches.
+11. **Add NetworkPolicies and automated webhook certificate rotation
+    (remediated in issue #30 and pull request #39).** Covers Finding 12.
+12. **Align security documentation with enforced controls.** Covers remaining
+    documentation mismatches and future remediation updates.
 
 ## Residual risk after remediation
 
-Even after the identified input-validation and identity-binding issues are
-fixed, Brewlet retains a high-trust node architecture. A root containerd shim
-and privileged provisioner intentionally control runtime configuration and
-shared node software. Dedicated Brewlet node pools, strong workload admission,
-restricted NodeProfile administration, immutable and signed node software,
-runtime monitoring, and rapid credential rotation remain necessary. Without a
-stronger sandbox such as a virtual-machine-based RuntimeClass, a vulnerability
-in the shim, JDK, launcher, or OCI runtime can still cross workload and node
-boundaries.
+Even after the remaining findings are fixed, Brewlet retains a high-trust node
+architecture. A root containerd shim and privileged provisioner intentionally
+control runtime configuration and shared node software. Dedicated Brewlet node
+pools, strong workload admission, restricted NodeProfile administration,
+immutable and signed node software, runtime monitoring, and rapid credential
+rotation remain necessary. Without a stronger sandbox such as a
+virtual-machine-based RuntimeClass, a vulnerability in the shim, JDK, launcher,
+or OCI runtime can still cross workload and node boundaries.
 
 ## Assessment limitations
 
