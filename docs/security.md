@@ -103,6 +103,7 @@ Mitigations and guardrails:
 |---|---|
 | **Provisioning is scoped, but broad by default** | The chart's default `NodeProfile` provisions **every** node (§5.6). To limit the blast radius, disable it (`defaultProfile.enabled=false`) and define named `NodeProfile`s scoped to platform-owned pools. The legacy standalone DaemonSet instead touches only nodes carrying the `brewlet.sh/provision=true` **label**. |
 | **Scope to platform-owned pools** | Use named `NodeProfile` pools (or the `brewlet.sh/provision` label for the standalone path) to restrict provisioning to nodes your platform team controls. Do **not** provision shared/hostile multi-tenant nodes. |
+| **Build inputs fail closed** | The provisioner verifies repository-pinned SHA-256 values for `kubectl`, `ctr`, `crictl`, and downloaded notices before extraction. Its runtime image receives only verified outputs, all repository Dockerfile bases are digest-pinned, and CI and release workflows reject corrupt assets or future unpinned/download-bypass changes. |
 | **Host mutation is validated and reversible** | The default rollout validates the effective containerd config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK and launcher probes also pass. |
 | **The operator is unprivileged** | The operator only talks to the API server; only the DaemonSet it manages is privileged. |
 | **Webhook can't block workloads** | `admission.failurePolicy: Ignore` (default) means a webhook outage never wedges deployments. |
@@ -128,6 +129,8 @@ Mitigations and guardrails:
       operator-managed installations or `brewlet.sh/provision` only for the
       legacy standalone path. See
       [Capability labels and autoscaling](capability-labels-and-autoscaling.md).
+- [ ] Build component images only from repository-pinned base-image digests and
+      checksum-verified provisioner assets.
 - [ ] Pin component images and OCI artifacts to **digests**.
 - [ ] Run workloads `runAsNonRoot`, drop capabilities, `readOnlyRootFilesystem`.
 - [ ] Use **cert-manager** for the admission webhook serving cert in production

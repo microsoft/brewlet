@@ -33,6 +33,37 @@ The multi-stage Docker build compiles
 `containerd-shim-brewlet-v2` and `brewlet-metrics-exporter` for the target Linux
 architecture and packages them with the host installation entrypoint.
 
+### Supply-chain integrity
+
+The image build downloads `kubectl`, the containerd `ctr` client, and `crictl`
+only in a build-only stage. Each asset is matched against the repository-pinned
+SHA-256 value for `amd64` or `arm64` before it is exposed, then checked again
+immediately before extraction. The final runtime stage contains the verified
+tools but not `curl`. All external Dockerfile base images are pinned by
+multi-architecture manifest digest.
+
+When updating one of these tools:
+
+1. Update its version and source commit in `provisioner/Dockerfile` and its
+   registration in `provisioner/cgmanifest.json`.
+2. Retrieve the published checksum for both supported architectures:
+   - kubectl: `https://dl.k8s.io/release/<version>/bin/linux/<arch>/kubectl.sha256`
+   - containerd: the matching `.tar.gz.sha256sum` release asset
+   - crictl: the matching `.tar.gz.sha256` release asset
+3. Update `provisioner/checksums/<arch>.sha256`. If a source commit changes,
+   update the matching entry in `provisioner/checksums/licenses.sha256`.
+4. Refresh changed base-image manifest digests with
+   `docker buildx imagetools inspect <image>:<tag>`.
+5. Run:
+
+   ```bash
+   make container-security-check
+   make container-security-test
+   ```
+
+The Docker-based test deliberately corrupts every downloaded asset and requires
+the checksum gate to reject each build.
+
 ## Configuration
 
 | Environment variable | Default | Purpose |

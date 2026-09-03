@@ -11,7 +11,7 @@
 #   docker build -f kubernetes/Dockerfile --build-arg CMD=admission \
 #     -t ghcr.io/microsoft/brewlet-admission:dev .
 
-FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81 AS build
 ARG TARGETARCH
 ARG CMD=manager
 WORKDIR /src
@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
  && GOOS=linux GOARCH=${TARGETARCH} \
     /usr/local/bin/generate-go-notice /src /out/NOTICE.txt ./cmd/${CMD}
 
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot@sha256:1c2c046bc09ed40fad370b599a0b1ae7987f55b01e247cf27a7c27cd97e5bbc7
 WORKDIR /
 COPY --from=build /out/entry /entry
 COPY --from=build /out/NOTICE.txt /NOTICE.txt
