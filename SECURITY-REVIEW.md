@@ -647,6 +647,7 @@ provisioner lands on the control-plane node under default values.
 **Type:** Supply-chain architectural risk
 
 **Status:** Remediated by [issue #29](https://github.com/microsoft/brewlet/issues/29)
+and [pull request #42](https://github.com/microsoft/brewlet/pull/42)
 
 **Attacker prerequisites:** Compromise of an action repository or ability to
 move a referenced action tag.
@@ -919,7 +920,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 8. **Restrict registry token authentication to approved HTTPS origins.** Covers
    Finding 9.
 9. **Pin Actions and publish release signatures and provenance (remediated in
-   issue #29).** Covers Finding 11.
+   issue #29 and pull request #42).** Covers Finding 11.
 10. **Make privileged node provisioning opt-in and exclude control-plane
     nodes.** Covers Finding 10.
 11. **Add NetworkPolicies and automated webhook certificate rotation
