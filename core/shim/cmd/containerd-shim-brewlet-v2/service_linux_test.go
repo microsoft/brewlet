@@ -273,7 +273,12 @@ func TestApplyBrewletLaunchRegenUsesPrivateScopedMount(t *testing.T) {
 	ra.JDKHome = jdk
 	ra.JarHostPath = jar
 	ra.ManifestDigest = "sha256:" + strings.Repeat("a", 64)
-	ra.Config.User = &artifact.User{UID: 1234, GID: 2345}
+	// Use the test process's own UID/GID as the writer owner: os.Chown only
+	// succeeds without CAP_CHOWN when the target UID/GID matches the caller,
+	// which unprivileged CI runners are. This still exercises the real
+	// resetCacheEntry -> os.Chown production path.
+	writerUID, writerGID := os.Getuid(), os.Getgid()
+	ra.Config.User = &artifact.User{UID: writerUID, GID: writerGID}
 
 	apply := func(namespace, annotatedDigest, cache string) (specs.Mount, string) {
 		t.Helper()
@@ -318,8 +323,8 @@ func TestApplyBrewletLaunchRegenUsesPrivateScopedMount(t *testing.T) {
 		t.Fatal(err)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != 1234 || stat.Gid != 2345 {
-		t.Fatalf("writer entry owner = %#v, want uid=1234 gid=2345", info.Sys())
+	if !ok || stat.Uid != uint32(writerUID) || stat.Gid != uint32(writerGID) {
+		t.Fatalf("writer entry owner = %#v, want uid=%d gid=%d", info.Sys(), writerUID, writerGID)
 	}
 	if info.Mode().Perm() != 0o700 {
 		t.Fatalf("writer entry mode = %o, want 700", info.Mode().Perm())
