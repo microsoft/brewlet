@@ -82,6 +82,7 @@ jobs:
             java: true
             cluster: true
             helm: true
+            network_policy: true
     steps:
       - uses: actions/checkout@v7
 
@@ -109,6 +110,14 @@ jobs:
         uses: helm/kind-action@v1
         with:
           cluster_name: brewlet-e2e
+          config: ${{ matrix.network_policy && 'integration-tests/e2e/kind-network-policy.yaml' || '' }}
+
+      - name: Install NetworkPolicy-capable CNI
+        if: matrix.network_policy
+        run: |
+          kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.32.2/manifests/calico.yaml
+          kubectl rollout status daemonset/calico-node -n kube-system --timeout=180s
+          kubectl wait --for=condition=Ready nodes --all --timeout=180s
 
       - name: Run tiers
         run: integration-tests/e2e/run.sh ${{ matrix.tiers }}

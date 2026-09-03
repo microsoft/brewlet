@@ -149,6 +149,7 @@ tier10_helm_incluster() {
         --set images.pullPolicy=IfNotPresent \
         --set defaultProfile.enabled=false \
         --set operator.leaderElect=false \
+        --set admission.nodeProfileFailurePolicy=Fail \
         --wait --timeout 180s >"$WORK/t10-install.log" 2>&1; then
     kubectl get pods -n "$T10_NS" >>"$WORK/t10-install.log" 2>&1 || true
     kubectl logs -n "$T10_NS" -l app=brewlet-operator --tail=50 >>"$WORK/t10-install.log" 2>&1 || true

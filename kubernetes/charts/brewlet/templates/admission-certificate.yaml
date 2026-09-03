@@ -1,0 +1,83 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+{{- if and .Values.admission.enabled .Values.admission.certManager.enabled }}
+{{- $ns := include "brewlet.namespace" . -}}
+{{- $svc := include "brewlet.admission.serviceName" . -}}
+{{- $cm := .Values.admission.certManager -}}
+{{- if and (not $cm.createSelfSignedIssuer) (empty $cm.issuerRef.name) -}}
+{{- fail "admission.certManager.issuerRef.name is required when createSelfSignedIssuer is false" -}}
+{{- end -}}
+{{- if and (not $cm.createSelfSignedIssuer) (not (has $cm.issuerRef.kind (list "Issuer" "ClusterIssuer"))) -}}
+{{- fail "admission.certManager.issuerRef.kind must be Issuer or ClusterIssuer" -}}
+{{- end -}}
+{{- if $cm.createSelfSignedIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: brewlet-admission-selfsigned
+  namespace: {{ $ns }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: brewlet-admission-ca
+  namespace: {{ $ns }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: brewlet-admission-ca
+  secretName: brewlet-admission-ca
+  duration: {{ $cm.caDuration | quote }}
+  renewBefore: {{ $cm.caRenewBefore | quote }}
+  issuerRef:
+    name: brewlet-admission-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: brewlet-admission-ca
+  namespace: {{ $ns }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: brewlet-admission-ca
+---
+{{- end }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: brewlet-admission-cert
+  namespace: {{ $ns }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+spec:
+  secretName: brewlet-admission-cert
+  duration: {{ $cm.duration | quote }}
+  renewBefore: {{ $cm.renewBefore | quote }}
+  dnsNames:
+    - {{ printf "%s.%s.svc" $svc $ns }}
+    - {{ printf "%s.%s.svc.cluster.local" $svc $ns }}
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+  issuerRef:
+    {{- if $cm.createSelfSignedIssuer }}
+    name: brewlet-admission-ca
+    kind: Issuer
+    group: cert-manager.io
+    {{- else }}
+    name: {{ $cm.issuerRef.name | quote }}
+    kind: {{ $cm.issuerRef.kind | quote }}
+    group: {{ $cm.issuerRef.group | quote }}
+    {{- end }}
+{{- end }}

@@ -231,9 +231,19 @@ containerd --config /etc/containerd/config.toml config dump | grep -A4 runtimes.
   kubectl get pods -n brewlet -l app=brewlet-admission
   kubectl logs -n brewlet -l app=brewlet-admission
   ```
-- **caBundle/cert mismatch** after a `helm upgrade` should self-heal (Helm rotates
-  cert + `caBundle` together). In production use cert-manager. See
-  [Configuration](configuration.md#admission-webhook).
+- **caBundle/cert mismatch** in the default mode should self-heal after
+  `helm upgrade`, which rotates the generated cert and `caBundle` together.
+  With cert-manager enabled, inspect `Certificate`, `CertificateRequest`, and
+  issuer readiness plus the `cert-manager.io/inject-ca-from` annotations.
+- **Webhook timeouts after enabling NetworkPolicies** usually mean
+  `networkPolicy.admission.apiServerCIDRs` does not match the source addresses
+  used by the control plane. Temporarily disable the policies, confirm those
+  addresses with your Kubernetes provider/CNI documentation, and re-enable with
+  the corrected CIDRs.
+- **Metrics scrape timeouts with NetworkPolicies enabled** mean the Prometheus
+  namespace/pod or source CIDR does not match
+  `networkPolicy.metrics.ingressFrom`, or the cluster CNI does not enforce
+  NetworkPolicy as expected.
 - Non-brewlet pods are intentionally passed through untouched.
 
 ---

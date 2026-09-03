@@ -5,18 +5,25 @@
 {{- $ns := include "brewlet.namespace" . -}}
 {{- $svc := include "brewlet.admission.serviceName" . -}}
 {{- $altNames := list (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) -}}
-{{- $ca := genCA "brewlet-admission-ca" 3650 -}}
-{{- $cert := genSignedCert $svc nil $altNames 3650 $ca -}}
+{{- $certManagerEnabled := .Values.admission.certManager.enabled -}}
+{{- $ca := dict "Cert" "" -}}
+{{- $cert := dict "Cert" "" "Key" "" -}}
+{{- if not $certManagerEnabled -}}
+{{- $validityDays := int .Values.admission.selfSigned.validityDays -}}
+{{- if le $validityDays 0 -}}
+{{- fail "admission.selfSigned.validityDays must be greater than zero" -}}
+{{- end -}}
+{{- $ca = genCA "brewlet-admission-ca" $validityDays -}}
+{{- $cert = genSignedCert $svc nil $altNames $validityDays $ca -}}
+{{- end -}}
 {{/*
 brewlet-admission: the pod admission/scheduling webhook (§8/§14). It overwrites
 brewlet.sh/artifact-ref + artifact-digest compatibility hints from the selected
 Pod image, and matches a pod's requested JDK/launcher against the ready node fleet
 (NoCompatibleJDK / NoCompatibleLauncher), steering scheduling via nodeAffinity.
 
-The serving cert is a self-signed cert generated at render time. NOTE: because
-Helm regenerates it on each `helm upgrade`, the Secret + caBundle rotate together
-(consistent, but the webhook pod must roll to pick up a new Secret — the
-checksum annotation below forces that).
+By default, the serving cert is generated at render time. cert-manager mode
+instead owns the Secret and injects the webhook CA bundle automatically.
 */}}
 apiVersion: v1
 kind: ServiceAccount
@@ -56,10 +63,11 @@ subjects:
     name: brewlet-admission
     namespace: {{ $ns }}
 ---
+{{- if not $certManagerEnabled }}
 apiVersion: v1
 kind: Secret
 metadata:
-  name: brewlet-admission-cert
+  name: brewlet-admission-selfsigned-cert
   namespace: {{ $ns }}
   labels:
     {{- include "brewlet.labels" . | nindent 4 }}
@@ -68,6 +76,7 @@ data:
   tls.crt: {{ $cert.Cert | b64enc }}
   tls.key: {{ $cert.Key | b64enc }}
 ---
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -107,9 +116,11 @@ spec:
       labels:
         {{- include "brewlet.labels" . | nindent 8 }}
         app: brewlet-admission
+      {{- if not $certManagerEnabled }}
       annotations:
         # Roll the pods whenever the serving cert changes.
         checksum/cert: {{ $cert.Cert | sha256sum }}
+      {{- end }}
     spec:
       serviceAccountName: brewlet-admission
       securityContext:
@@ -154,7 +165,11 @@ spec:
       volumes:
         - name: serving-certs
           secret:
+            {{- if $certManagerEnabled }}
             secretName: brewlet-admission-cert
+            {{- else }}
+            secretName: brewlet-admission-selfsigned-cert
+            {{- end }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
@@ -162,6 +177,10 @@ metadata:
   name: brewlet-admission
   labels:
     {{- include "brewlet.labels" . | nindent 4 }}
+  {{- if $certManagerEnabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ printf "%s/brewlet-admission-cert" $ns | quote }}
+  {{- end }}
 webhooks:
   - name: pods.brewlet.sh
     admissionReviewVersions: ["v1"]
@@ -175,7 +194,9 @@ webhooks:
         namespace: {{ $ns }}
         path: /mutate-pods
         port: 443
+      {{- if not $certManagerEnabled }}
       caBundle: {{ $ca.Cert | b64enc }}
+      {{- end }}
     rules:
       - apiGroups: [""]
         apiVersions: ["v1"]
@@ -189,20 +210,27 @@ metadata:
   name: brewlet-nodeprofiles
   labels:
     {{- include "brewlet.labels" . | nindent 4 }}
+  {{- if $certManagerEnabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ printf "%s/brewlet-admission-cert" $ns | quote }}
+  {{- end }}
 webhooks:
   - name: nodeprofiles.node.brewlet.sh
     admissionReviewVersions: ["v1"]
     sideEffects: None
-    # Fail closed on NodeProfiles: a malformed profile would provision the whole
-    # fleet wrong, so reject it up front rather than let the reconciler cope.
-    failurePolicy: Fail
+    # The reconciler repeats this validation before privileged work. Ignore is
+    # safe during certificate bootstrap; Fail can be selected for synchronous
+    # transport-failure rejection once webhook availability is guaranteed.
+    failurePolicy: {{ .Values.admission.nodeProfileFailurePolicy }}
     clientConfig:
       service:
         name: {{ $svc }}
         namespace: {{ $ns }}
         path: /validate-nodeprofiles
         port: 443
+      {{- if not $certManagerEnabled }}
       caBundle: {{ $ca.Cert | b64enc }}
+      {{- end }}
     rules:
       - apiGroups: ["node.brewlet.sh"]
         apiVersions: ["v1alpha1"]

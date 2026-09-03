@@ -223,11 +223,66 @@ admission cannot grant cache-write authority. The shim also fails closed rather
 than guessing when it cannot resolve runtime image identity from containerd
 metadata.
 
-**Serving certificate.** By default Helm generates a self-signed serving cert at
-render time and injects the CA as the `caBundle`. Because Helm regenerates it on
-each `helm upgrade`, the Secret and `caBundle` rotate together and a checksum
-annotation rolls the webhook pods. **For production, swap in cert-manager** (a
-`Certificate` + the `cert-manager.io/inject-ca-from` annotation).
+**Serving certificate.** By default Helm generates a 90-day self-signed serving
+certificate and injects the CA as the `caBundle`. A `helm upgrade` regenerates
+the Secret and CA bundle together and rolls the webhook pods, but this simple
+mode does not renew certificates between Helm operations. Configure its lifetime
+with `admission.selfSigned.validityDays`. Treat it as the simple evaluation path:
+long-running installations must either enable cert-manager or schedule a Helm
+upgrade before the certificate expires.
+
+For automatic renewal, install cert-manager with its CA injector and enable:
+
+```yaml
+admission:
+  certManager:
+    enabled: true
+    issuerRef:
+      name: platform-ca
+      kind: ClusterIssuer
+      group: cert-manager.io
+    duration: 2160h
+    renewBefore: 720h
+```
+
+Set `createSelfSignedIssuer: true` instead of `issuerRef.name` when a
+chart-managed namespaced self-signed CA chain is appropriate. In either
+cert-manager mode, cert-manager creates and rotates the
+`brewlet-admission-cert` Secret and injects the CA into both webhook
+configurations. The admission process watches the mounted keypair and reloads
+renewed certificates without a pod restart.
+
+`admission.nodeProfileFailurePolicy` defaults to `Ignore` so certificate
+bootstrap cannot block chart-created profiles. The operator still repeats every
+NodeProfile validation before privileged reconciliation. Set it to `Fail` once
+webhook availability is guaranteed if API transport failures must reject profile
+writes synchronously.
+
+**Network isolation.** The chart can add ingress NetworkPolicies for the
+admission pod and all enabled metrics endpoints:
+
+```yaml
+metrics:
+  enabled: true
+networkPolicy:
+  enabled: true
+  admission:
+    apiServerCIDRs: ["10.0.0.0/24"]
+  metrics:
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: prometheus
+```
+
+The chart requires explicit API-server CIDRs and metrics peers rather than
+guessing cluster-specific identities. Determine the source CIDRs used by your
+control plane and verify webhook connectivity before rolling this setting into
+production. NetworkPolicies require a CNI that enforces the Kubernetes
+`NetworkPolicy` API.
 
 Pod-side annotations the webhook reads (developer-facing) — see
 [Deploying workloads](deploying-workloads.md):

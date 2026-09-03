@@ -1,0 +1,87 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+{{- if .Values.networkPolicy.enabled }}
+{{- $admissionPeers := .Values.networkPolicy.admission.apiServerCIDRs -}}
+{{- $metricsPeers := .Values.networkPolicy.metrics.ingressFrom -}}
+{{- if and .Values.admission.enabled (eq (len $admissionPeers) 0) -}}
+{{- fail "networkPolicy.admission.apiServerCIDRs must contain at least one API-server source CIDR when NetworkPolicies and admission are enabled" -}}
+{{- end -}}
+{{- if and .Values.metrics.enabled (eq (len $metricsPeers) 0) -}}
+{{- fail "networkPolicy.metrics.ingressFrom must contain at least one trusted peer when NetworkPolicies and metrics are enabled" -}}
+{{- end -}}
+{{- $ns := include "brewlet.namespace" . -}}
+{{- if .Values.admission.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: brewlet-admission
+  namespace: {{ $ns }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: brewlet-admission
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range $cidr := $admissionPeers }}
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.admission.port }}
+    {{- if .Values.metrics.enabled }}
+    - from:
+        {{- toYaml $metricsPeers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 8080
+    {{- end }}
+---
+{{- end }}
+{{- if .Values.metrics.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: brewlet-operator-metrics
+  namespace: {{ $ns }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: brewlet-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- toYaml $metricsPeers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: brewlet-node-metrics
+  namespace: {{ $ns }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: brewlet-node-provisioner
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- toYaml $metricsPeers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.metrics.nodePort }}
+{{- end }}
+{{- end }}

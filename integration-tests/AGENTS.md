@@ -23,7 +23,7 @@ The harness does not switch branches or modify component sources. It uses
 | Docker | 3, 6, 7, 8-12, 14, 15 |
 | kubectl and a reachable cluster | 4-15 |
 | Helm | 4 (optional), 10, 15 |
-| OpenSSL | 5, 6, 11 |
+| OpenSSL | 4, 5, 6, 11 |
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
 behavior. Tiers 6, 8-12, 14, and 15 require local containerd nodes that Docker
