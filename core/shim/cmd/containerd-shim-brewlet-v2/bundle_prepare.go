@@ -41,9 +41,10 @@ const (
 	// annCDSRegenerate opts the workload into node-side AppCDS regeneration
 	// (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3). Value "true" (set by the operator from
 	// spec.jvm.cds.regenerate, or by the user on a raw Deployment) tells the shim
-	// to maintain a per-(artifact, JDK-build) archive cache with
-	// -XX:+AutoCreateSharedArchive rather than consume a shipped archive. It is a
-	// deployment/fleet decision, so it lives on the pod, not in the artifact.
+	// to maintain a namespace-scoped cache keyed by the verified manifest and JDK
+	// build with -XX:+AutoCreateSharedArchive rather than consume a shipped
+	// archive. It is a deployment/fleet decision, so it lives on the pod, not in
+	// the artifact.
 	annCDSRegenerate   = "brewlet.sh/cds-regenerate"
 	jdkHomeMetadata    = ".brewlet-java-home"
 	jdkActiveInventory = ".brewlet-active"
@@ -94,6 +95,7 @@ type resolvedArtifact struct {
 	ClasspathHostPaths  []string // on-disk paths of the optional classpath layer tars
 	ModulepathHostPaths []string // on-disk paths of the optional modulepath layer tars
 	CDSHostPath         string   // on-disk path of the optional AppCDS archive blob, or ""
+	ManifestDigest      string   // verified digest of the resolved platform manifest
 	JDKRoot             string   // selected node-resident userland root (e.g. /opt/brewlet/jdks/temurin-21)
 	JDKHome             string   // JDK or jlink runtime within JDKRoot; mounted at /opt/jdk
 	LauncherRoot        string   // node-installed launcher layer, or "" for vanilla `java`
@@ -129,6 +131,7 @@ func resolveArtifact(ic imageConfig) (resolvedArtifact, error) {
 		ClasspathHostPaths:  blobs.ClasspathHostPaths,
 		ModulepathHostPaths: blobs.ModulepathHostPaths,
 		CDSHostPath:         blobs.CDSHostPath,
+		ManifestDigest:      blobs.ManifestDigest,
 		JDKRoot:             jdkRoot,
 		JDKHome:             jdkHome,
 		LauncherRoot:        launcherRoot,
@@ -161,10 +164,11 @@ func prepareBundle(args []string) error {
 
 	res := kcruntime.Resources{CPULimit: ic.CPULimit, MemoryLimit: ic.MemoryLimit}
 	regen := kcruntime.CDSRegenOptions{
-		Regenerate:  ic.CDSRegenerate,
-		ArtifactKey: firstNonEmptyStr(ic.ManifestDigest, ic.Ref),
-		CacheDir:    os.Getenv("BREWLET_CDS_CACHE"),
-		MetricsDir:  os.Getenv("BREWLET_METRICS_DIR"),
+		Regenerate:     ic.CDSRegenerate,
+		CacheScope:     "local",
+		ArtifactDigest: ra.ManifestDigest,
+		CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
+		MetricsDir:     os.Getenv("BREWLET_METRICS_DIR"),
 	}
 	if err := kcruntime.GenerateBundleWithRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, regen); err != nil {
 		return fmt.Errorf("generate bundle: %w", err)
@@ -304,16 +308,6 @@ func parseJDKRequest(request string) (dist string, feature int) {
 		return "", n
 	}
 	return "", feature
-}
-
-// firstNonEmptyStr returns the first non-empty argument, or "".
-func firstNonEmptyStr(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // selectLauncher resolves the node-installed launcher layer for a custom

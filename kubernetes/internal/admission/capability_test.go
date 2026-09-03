@@ -29,7 +29,9 @@ func node(name string, ready bool, jdks, launchers string) corev1.Node {
 }
 
 func TestNodeCapabilityFrom(t *testing.T) {
-	c := NodeCapabilityFrom(&[]corev1.Node{node("n1", true, "temurin-21,microsoft-25", "java,jaz")}[0])
+	n := node("n1", true, "temurin-21,microsoft-25", "java,jaz")
+	n.Labels[brewlet.LabelAppCDSRegeneration] = "true"
+	c := NodeCapabilityFrom(&n)
 	if !c.Ready {
 		t.Fatal("expected node ready")
 	}
@@ -38,6 +40,9 @@ func TestNodeCapabilityFrom(t *testing.T) {
 	}
 	if len(c.Launchers) != 2 || c.Launchers[1] != "jaz" {
 		t.Fatalf("launchers = %v", c.Launchers)
+	}
+	if !c.AppCDSRegeneration {
+		t.Fatal("expected AppCDS regeneration policy to be projected")
 	}
 }
 
@@ -82,57 +87,71 @@ func TestSupportsLauncher(t *testing.T) {
 func TestCheckFleet(t *testing.T) {
 	fleet := []NodeCapability{
 		{Name: "ready-a", Ready: true, Arch: "amd64", JDKs: []string{"temurin-21"}, Launchers: []string{"java"}},
-		{Name: "ready-b", Ready: true, Arch: "arm64", JDKs: []string{"microsoft-25"}, Launchers: []string{"java", "jaz"}},
+		{Name: "ready-b", Ready: true, Arch: "arm64", JDKs: []string{"microsoft-25"}, Launchers: []string{"java", "jaz"}, AppCDSRegeneration: true},
 		{Name: "not-ready", Ready: false, Arch: "amd64", JDKs: []string{"temurin-17"}, Launchers: []string{"java", "graal"}},
 	}
 
 	// No explicit request: always compatible.
-	if r := CheckFleet(fleet, "", "", nil); !r.Compatible {
+	if r := CheckFleet(fleet, "", "", nil, false); !r.Compatible {
 		t.Errorf("empty request should be compatible: %+v", r)
 	}
-	if r := CheckFleet(fleet, "", "java", nil); !r.Compatible {
+	if r := CheckFleet(fleet, "", "java", nil, false); !r.Compatible {
 		t.Errorf("vanilla launcher should be compatible: %+v", r)
 	}
 
 	// Satisfiable requests.
-	if r := CheckFleet(fleet, "temurin-21", "", nil); !r.Compatible {
+	if r := CheckFleet(fleet, "temurin-21", "", nil, false); !r.Compatible {
 		t.Errorf("temurin-21 should be compatible: %+v", r)
 	}
-	if r := CheckFleet(fleet, "25", "jaz", nil); !r.Compatible {
+	if r := CheckFleet(fleet, "25", "jaz", nil, false); !r.Compatible {
 		t.Errorf("feature 25 + jaz should be compatible (ready-b): %+v", r)
 	}
 
 	// Unsatisfiable JDK -> NoCompatibleJDK.
-	if r := CheckFleet(fleet, "temurin-17", "", nil); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleJDK {
+	if r := CheckFleet(fleet, "temurin-17", "", nil, false); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleJDK {
 		t.Errorf("temurin-17 only on not-ready node: got %+v", r)
 	}
-	if r := CheckFleet(fleet, "17", "", nil); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleJDK {
+	if r := CheckFleet(fleet, "17", "", nil, false); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleJDK {
 		t.Errorf("feature 17 not on ready fleet: got %+v", r)
 	}
 
 	// JDK exists but not with the requested launcher -> NoCompatibleLauncher.
-	if r := CheckFleet(fleet, "temurin-21", "jaz", nil); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleLauncher {
+	if r := CheckFleet(fleet, "temurin-21", "jaz", nil, false); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleLauncher {
 		t.Errorf("temurin-21 has no jaz: got %+v", r)
 	}
 
 	// Launcher exists nowhere ready -> NoCompatibleLauncher.
-	if r := CheckFleet(fleet, "", "graal", nil); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleLauncher {
+	if r := CheckFleet(fleet, "", "graal", nil, false); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleLauncher {
 		t.Errorf("graal only on not-ready node: got %+v", r)
 	}
 
 	// Arch constraint (non-portable artifact).
-	if r := CheckFleet(fleet, "", "", []string{"amd64"}); !r.Compatible {
+	if r := CheckFleet(fleet, "", "", []string{"amd64"}, false); !r.Compatible {
 		t.Errorf("amd64 available on ready-a: got %+v", r)
 	}
-	if r := CheckFleet(fleet, "", "", []string{"amd64", "arm64"}); !r.Compatible {
+	if r := CheckFleet(fleet, "", "", []string{"amd64", "arm64"}, false); !r.Compatible {
 		t.Errorf("amd64/arm64 both available: got %+v", r)
 	}
 	// arm64 only ready node is ready-b (microsoft-25), so amd64-only JDK + arm64 must be denied by arch.
-	if r := CheckFleet(fleet, "", "", []string{"ppc64le"}); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleArch {
+	if r := CheckFleet(fleet, "", "", []string{"ppc64le"}, false); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleArch {
 		t.Errorf("ppc64le not on ready fleet -> NoCompatibleArch: got %+v", r)
 	}
 	// JDK + arch that can't be jointly satisfied: temurin-21 is amd64 only; arm64 request -> arch denial.
-	if r := CheckFleet(fleet, "temurin-21", "", []string{"arm64"}); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleArch {
+	if r := CheckFleet(fleet, "temurin-21", "", []string{"arm64"}, false); r.Compatible || r.DenyReason != brewlet.ReasonNoCompatibleArch {
 		t.Errorf("temurin-21 is amd64-only, arm64 requested -> NoCompatibleArch: got %+v", r)
+	}
+
+	// Regeneration must be authorized on the same ready node that satisfies all
+	// other requested capabilities.
+	if r := CheckFleet(fleet, "25", "jaz", []string{"arm64"}, true); !r.Compatible {
+		t.Errorf("ready-b authorizes regeneration and satisfies the request: %+v", r)
+	}
+	if r := CheckFleet(fleet, "temurin-21", "", []string{"amd64"}, true); r.Compatible ||
+		r.DenyReason != brewlet.ReasonAppCDSRegenerationDisabled {
+		t.Errorf("otherwise-compatible ready-a is not policy-authorized: %+v", r)
+	}
+	if r := CheckFleet(nil, "", "", nil, true); r.Compatible ||
+		r.DenyReason != brewlet.ReasonAppCDSRegenerationDisabled {
+		t.Errorf("regeneration-only request without an authorized node: %+v", r)
 	}
 }

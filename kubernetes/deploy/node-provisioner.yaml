@@ -84,6 +84,8 @@ spec:
               value: "temurin-21,microsoft-25"
             - name: LAUNCHERS             # optional custom launchers to install (see §5.4)
               value: "jaz"
+            - name: BREWLET_APP_CDS_REGENERATION_ENABLED
+              value: "false"
           volumeMounts:
             - { name: host-opt,        mountPath: /opt/brewlet }
             - { name: containerd-conf, mountPath: /etc/containerd }

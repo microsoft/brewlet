@@ -68,6 +68,9 @@ func TestContentStoreBlobs(t *testing.T) {
 	if _, err := os.Stat(blobs.JarHostPath); err != nil {
 		t.Errorf("resolved jar path not on disk: %v", err)
 	}
+	if blobs.ManifestDigest != manDigest {
+		t.Errorf("ManifestDigest = %q, want %q", blobs.ManifestDigest, manDigest)
+	}
 }
 
 func TestContentStoreBlobsErrors(t *testing.T) {
@@ -98,7 +101,8 @@ func TestLoadArtifactBlobsBackendSelection(t *testing.T) {
 	}
 	store := artifact.Store{Root: layoutRoot}
 	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
-	if _, err := store.Push("demo/hello:1.0.0", cfg, jarPath); err != nil {
+	manifestDesc, err := store.Push("demo/hello:1.0.0", cfg, jarPath)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -109,9 +113,46 @@ func TestLoadArtifactBlobsBackendSelection(t *testing.T) {
 	if got.Config.MainJar != "app.jar" {
 		t.Errorf("layout MainJar = %q", got.Config.MainJar)
 	}
+	if got.ManifestDigest != manifestDesc.Digest {
+		t.Errorf("layout ManifestDigest = %q, want %q", got.ManifestDigest, manifestDesc.Digest)
+	}
 
 	// Unknown backend is rejected.
 	if _, err := loadArtifactBlobs(imageConfig{Backend: "bogus"}); err == nil {
 		t.Error("expected error for unknown backend")
+	}
+}
+
+func TestResolveArtifactPropagatesManifestDigest(t *testing.T) {
+	layoutRoot := t.TempDir()
+	jarPath := filepath.Join(t.TempDir(), "app.jar")
+	if err := os.WriteFile(jarPath, []byte("PK\x03\x04 layout-jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := artifact.Store{Root: layoutRoot}
+	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
+	manifestDesc, err := store.Push("demo/resolve:1", cfg, jarPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jdkRoot := filepath.Join(t.TempDir(), "temurin-21")
+	if err := os.MkdirAll(filepath.Join(jdkRoot, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(jdkRoot, "bin", "java"), []byte("java"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveArtifact(imageConfig{
+		StoreRoot:   layoutRoot,
+		Ref:         "demo/resolve:1",
+		JDKRootsDir: filepath.Dir(jdkRoot),
+	})
+	if err != nil {
+		t.Fatalf("resolveArtifact: %v", err)
+	}
+	if got.ManifestDigest != manifestDesc.Digest {
+		t.Errorf("ManifestDigest = %q, want %q", got.ManifestDigest, manifestDesc.Digest)
 	}
 }

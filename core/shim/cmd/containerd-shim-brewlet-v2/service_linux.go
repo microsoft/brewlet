@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -39,6 +40,12 @@ import (
 const (
 	defaultJDKRootsDir      = "/opt/brewlet/jdks"
 	defaultLauncherRootsDir = "/opt/brewlet/launchers"
+	defaultCDSRegenPolicy   = "/opt/brewlet/policy/appcds-regeneration-enabled"
+)
+
+var (
+	cdsRegenPolicyPath     = defaultCDSRegenPolicy
+	cdsRegenPolicyOwnerUID = uint32(0)
 )
 
 // CRI stamps the container role onto every OCI spec it hands the shim. The pod
@@ -46,8 +53,9 @@ const (
 // workload containers should be rewritten into a `java -jar` launch. See
 // containerd's pkg/cri/annotations.
 const (
-	annContainerType     = "io.kubernetes.cri.container-type"
-	containerTypeSandbox = "sandbox"
+	annContainerType       = "io.kubernetes.cri.container-type"
+	annCRISandboxNamespace = "io.kubernetes.cri.sandbox-namespace"
+	containerTypeSandbox   = "sandbox"
 )
 
 func init() {
@@ -74,7 +82,11 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			return &brewletTaskService{TaskService: inner, pending: map[string]launchInfo{}}, nil
+			return &brewletTaskService{
+				TaskService: inner,
+				pending:     map[string]launchInfo{},
+				writers:     map[string]func(){},
+			}, nil
 		},
 	})
 }
@@ -90,11 +102,13 @@ type brewletTaskService struct {
 	taskAPI.TaskService
 	mu      sync.Mutex
 	pending map[string]launchInfo
+	writers map[string]func()
 }
 
 type launchInfo struct {
-	entryMode string
-	format    string
+	entryMode   string
+	format      string
+	writerLease *kcruntime.CDSWriterLease
 }
 
 // RegisterTTRPC binds THIS decorator (not the embedded runc service) so
@@ -132,10 +146,12 @@ func (s *brewletTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 			emitLaunch(info, err)
 			return nil, err
 		}
+		s.trackWriter(r.ID, info.writerLease)
 		start := time.Now()
 		resp, err := s.TaskService.Create(ctx, r)
 		emitPhase("runc_create", start, err)
 		if err != nil {
+			s.releaseWriter(r.ID)
 			emitLaunchWithReason(info, err, "RuntimeCreate")
 			return nil, err
 		}
@@ -157,6 +173,9 @@ func (s *brewletTaskService) Start(ctx context.Context, r *taskAPI.StartRequest)
 	info, ok := s.pending[r.ID]
 	delete(s.pending, r.ID)
 	s.mu.Unlock()
+	if err != nil {
+		s.releaseWriter(r.ID)
+	}
 	if ok {
 		emitPhase("process_start", start, err)
 		reason := ""
@@ -174,8 +193,36 @@ func (s *brewletTaskService) Delete(ctx context.Context, r *taskAPI.DeleteReques
 		s.mu.Lock()
 		delete(s.pending, r.ID)
 		s.mu.Unlock()
+		s.releaseWriter(r.ID)
 	}
 	return resp, err
+}
+
+func (s *brewletTaskService) trackWriter(id string, lease *kcruntime.CDSWriterLease) {
+	if lease == nil {
+		return
+	}
+	stop := lease.StartHeartbeat(kcruntime.DefaultWriterTTL)
+	s.mu.Lock()
+	if s.writers == nil {
+		s.writers = map[string]func(){}
+	}
+	previous := s.writers[id]
+	s.writers[id] = stop
+	s.mu.Unlock()
+	if previous != nil {
+		previous()
+	}
+}
+
+func (s *brewletTaskService) releaseWriter(id string) {
+	s.mu.Lock()
+	stop := s.writers[id]
+	delete(s.writers, id)
+	s.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
 }
 
 // isSandboxBundle reports whether the OCI spec at <bundle>/config.json belongs
@@ -325,10 +372,18 @@ func assembleBrewletBundle(r *taskAPI.CreateTaskRequest) (launchInfo, error) {
 	}
 
 	bundleStart := time.Now()
-	if err := applyBrewletLaunch(&spec, ra, r.Bundle); err != nil {
+	var writerLease *kcruntime.CDSWriterLease
+	if err := applyBrewletLaunchWithWriterLease(&spec, ra, r.Bundle, &writerLease); err != nil {
 		emitPhase("bundle_prepare", bundleStart, err)
 		return info, err
 	}
+	info.writerLease = writerLease
+	releaseWriterLease := true
+	defer func() {
+		if releaseWriterLease && writerLease != nil {
+			writerLease.Release()
+		}
+	}()
 	bundleDuration := time.Since(bundleStart)
 
 	overlayStart := time.Now()
@@ -355,6 +410,9 @@ func assembleBrewletBundle(r *taskAPI.CreateTaskRequest) (launchInfo, error) {
 		return info, err
 	}
 	err = os.WriteFile(specPath, out, 0o644)
+	if err == nil {
+		releaseWriterLease = false
+	}
 	emitPhaseDuration("bundle_prepare", bundleDuration+time.Since(bundleStart), err)
 	return info, err
 }
@@ -448,6 +506,22 @@ func setupOverlayRootfs(r *taskAPI.CreateTaskRequest, ra resolvedArtifact) error
 // the container bundle root (r.Bundle), used to stage a canonical-mtime copy of
 // the app JAR when the artifact ships an AppCDS archive (see below).
 func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string) error {
+	return applyBrewletLaunchWithWriterLease(spec, ra, bundleDir, nil)
+}
+
+func applyBrewletLaunchWithWriterLease(
+	spec *specs.Spec,
+	ra resolvedArtifact,
+	bundleDir string,
+	writerLeaseOut **kcruntime.CDSWriterLease,
+) (err error) {
+	var writerLease *kcruntime.CDSWriterLease
+	defer func() {
+		if err != nil && writerLease != nil {
+			writerLease.Release()
+		}
+	}()
+
 	mainJar := ra.Config.MainJar
 	if mainJar == "" {
 		mainJar = "app.jar"
@@ -458,55 +532,68 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 	// pod as brewlet.sh/cds-regenerate (set by the operator from
 	// spec.jvm.cds.regenerate). Suppress the shipped-archive args when it is set;
 	// the regen args are injected below.
-	regenerate := spec.Annotations[annCDSRegenerate] == "true"
+	regenerate := strings.EqualFold(strings.TrimSpace(spec.Annotations[annCDSRegenerate]), "true")
 
 	jvmArgs, _ := kcruntime.BuildJVMArgs(ra.Config, inSandboxJar, nil, regenerate)
 
-	// Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): when the deployment
-	// opts in, resolve a per-(artifact, JDK-build) archive from the node cache and
-	// prepend its -XX:+AutoCreateSharedArchive / -XX:SharedArchiveFile args. The
-	// cache dir is bind-mounted at InSandboxCDSDir (rw only for the elected
-	// writer), and a shipped archive becomes seed data rather than a /app mount.
+	// Node-side AppCDS regeneration is authorized by a root-owned host policy and
+	// isolated by the trusted CRI namespace plus the verified resolved manifest.
+	// Only the resulting private entry directory is mounted into the workload.
 	var cdsCacheMount []specs.Mount
 	if regenerate {
-		artifactKey := spec.Annotations[annArtifactDigest]
-		if artifactKey == "" {
-			artifactKey = artifactRef(spec)
+		if err := requireCDSRegenPolicy(); err != nil {
+			return err
 		}
-		if artifactKey != "" {
-			cacheDir := envOr("BREWLET_CDS_CACHE", kcruntime.DefaultCDSCacheDir)
-			seed := ""
-			if ra.CDSHostPath != "" && ra.Config.CDS != nil && ra.Config.CDS.Archive != "" {
-				seed = ra.CDSHostPath
+		namespace := strings.TrimSpace(spec.Annotations[annCRISandboxNamespace])
+		if namespace == "" {
+			return fmt.Errorf("AppCDS regeneration requires trusted CRI sandbox namespace annotation %q", annCRISandboxNamespace)
+		}
+		if ra.ManifestDigest == "" {
+			return fmt.Errorf("AppCDS regeneration requires a verified resolved manifest digest")
+		}
+		cacheDir := envOr("BREWLET_CDS_CACHE", kcruntime.DefaultCDSCacheDir)
+		seed := ""
+		if ra.CDSHostPath != "" && ra.Config.CDS != nil && ra.Config.CDS.Archive != "" {
+			seed = ra.CDSHostPath
+		}
+		var writerOwner *kcruntime.RegenOwner
+		if ra.Config.User != nil {
+			writerOwner = &kcruntime.RegenOwner{UID: ra.Config.User.UID, GID: ra.Config.User.GID}
+		}
+		dec, err := kcruntime.DecideCDSRegen(kcruntime.RegenParams{
+			CacheDir:       cacheDir,
+			CacheScope:     namespace,
+			JDKRoot:        ra.JDKHome,
+			ArtifactDigest: ra.ManifestDigest,
+			SeedArchive:    seed,
+			WriterOwner:    writerOwner,
+			ArchiveArgDir:  kcruntime.InSandboxCDSDir,
+			MetricsDir:     envOr("BREWLET_METRICS_DIR", ""),
+		})
+		if err != nil {
+			return err
+		}
+		writerLease = dec.WriterLease
+		if len(dec.Args) > 0 {
+			jvmArgs = append(append([]string{}, dec.Args...), jvmArgs...)
+		}
+		if dec.Role == kcruntime.RegenConsume || dec.Role == kcruntime.RegenWrite {
+			if !privateCacheEntry(cacheDir, dec.HostMount) {
+				return fmt.Errorf("AppCDS regeneration refused unsafe cache mount %q under %q", dec.HostMount, cacheDir)
 			}
-			dec, err := kcruntime.DecideCDSRegen(kcruntime.RegenParams{
-				CacheDir:      cacheDir,
-				JDKRoot:       ra.JDKHome,
-				ArtifactKey:   artifactKey,
-				SeedArchive:   seed,
-				ArchiveArgDir: kcruntime.InSandboxCDSDir,
-				MetricsDir:    envOr("BREWLET_METRICS_DIR", ""),
-			})
-			if err != nil {
-				return err
+			opts := []string{"rbind"}
+			if dec.MountRW {
+				opts = append(opts, "rw")
+			} else {
+				opts = append(opts, "ro")
 			}
-			if len(dec.Args) > 0 {
-				jvmArgs = append(append([]string{}, dec.Args...), jvmArgs...)
-			}
-			if dec.Role == kcruntime.RegenConsume || dec.Role == kcruntime.RegenWrite {
-				opts := []string{"rbind"}
-				if dec.MountRW {
-					opts = append(opts, "rw")
-				} else {
-					opts = append(opts, "ro")
-				}
-				cdsCacheMount = []specs.Mount{{
-					Destination: kcruntime.InSandboxCDSDir,
-					Type:        "bind",
-					Source:      cacheDir,
-					Options:     opts,
-				}}
-			}
+			opts = append(opts, "nosuid", "nodev", "noexec")
+			cdsCacheMount = []specs.Mount{{
+				Destination: kcruntime.InSandboxCDSDir,
+				Type:        "bind",
+				Source:      dec.HostMount,
+				Options:     opts,
+			}}
 		}
 	}
 
@@ -580,7 +667,34 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 	brewletMounts = append(brewletMounts, cdsCacheMount...)
 	brewletMounts = append(brewletMounts, launcherMount...)
 	spec.Mounts = append(spec.Mounts, brewletMounts...)
+	if writerLeaseOut != nil {
+		*writerLeaseOut = writerLease
+	}
 	return nil
+}
+
+func requireCDSRegenPolicy() error {
+	info, err := os.Lstat(cdsRegenPolicyPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("AppCDS regeneration is disabled by node policy")
+		}
+		return fmt.Errorf("read AppCDS regeneration policy: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("AppCDS regeneration policy %q must be a non-group-writable regular file", cdsRegenPolicyPath)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != cdsRegenPolicyOwnerUID {
+		return fmt.Errorf("AppCDS regeneration policy %q must be owned by uid %d", cdsRegenPolicyPath, cdsRegenPolicyOwnerUID)
+	}
+	return nil
+}
+
+func privateCacheEntry(cacheDir, entry string) bool {
+	cacheDir = filepath.Clean(cacheDir)
+	entry = filepath.Clean(entry)
+	return entry != cacheDir && filepath.Dir(entry) == cacheDir
 }
 
 // mountClasspathLayers implements the §6.1 rootfs step for layered-classpath

@@ -20,9 +20,9 @@ import (
 // NEVER fails a launch: every error is swallowed, and an empty dir disables
 // file emission entirely.
 //
-// One file is written per launch decision at
-// <dir>/cds-<key-or-skip>-<unixnano>.prom, in Prometheus text-exposition format,
-// External collectors using this compatibility path must delete consumed files.
+// One file is written per launch decision at <dir>/cds-<unixnano>.prom, in
+// Prometheus text-exposition format. External collectors using this compatibility
+// path must delete consumed files.
 func recordRegenMetric(dir, _ string, role RegenRole, now time.Time) {
 	_ = telemetry.Emit(telemetry.Event{Kind: telemetry.KindCDS, CDSRole: string(role)})
 	if dir == "" {

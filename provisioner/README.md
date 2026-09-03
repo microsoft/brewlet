@@ -43,6 +43,7 @@ architecture and packages them with the host installation entrypoint.
 | `JDK_CUSTOM_SOURCE_<n>_IMAGE` | empty | Fully qualified OCI image reference containing the runtime and its userland |
 | `JDK_CUSTOM_SOURCE_<n>_JAVA_HOME` | empty | Absolute JDK or jlink runtime path inside that image |
 | `LAUNCHERS` | empty | Optional launcher layers, such as `jaz` |
+| `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Authorize node-side AppCDS regeneration for the active profile |
 | `NODE_NAME` | downward API | Kubernetes node to label |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host installation prefix |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | containerd configuration |
@@ -66,6 +67,13 @@ Provisioning is idempotent, records the source image and Java home, and
 reinstalls a token when either changes. Runtime roots retain the source image's
 filesystem modes; the shim keeps the shared lower layer and Java-home bind mount
 read-only for workloads.
+
+When AppCDS regeneration is enabled, the provisioner atomically creates the
+root-owned, mode `0444`
+`/opt/brewlet/policy/appcds-regeneration-enabled` sentinel before publishing
+`brewlet.sh/appcds-regeneration=true`. Disabling the policy, cleanup, or any
+provisioning failure removes both. The node label is a scheduling hint; the shim
+checks the sentinel authoritatively.
 
 ## Containerd configuration
 
