@@ -893,8 +893,8 @@ if output="$(
     }
     containerd_healthy() { return 0; }
     validated_restart
-  )
-  )" 2>&1; then
+  ) 2>&1
+  )"; then
   echo "expected restart failure to exit non-zero" >&2
   exit 1
 fi
@@ -917,8 +917,8 @@ if output="$(
     containerd_healthy() { return 0; }
     brewlet_handler_healthy() { return 1; }
     validated_restart
-  )
-  )" 2>&1; then
+  ) 2>&1
+  )"; then
   echo "expected handler health failure to exit non-zero" >&2
   exit 1
 fi
@@ -939,8 +939,8 @@ if output="$(
     restart_containerd_service() { return 1; }
     containerd_healthy() { return 0; }
     validated_restart
-  )
-  )" 2>&1; then
+  ) 2>&1
+  )"; then
   echo "expected rollback failure to exit non-zero" >&2
   exit 1
 fi
@@ -964,8 +964,8 @@ if output="$(
     remove_appcds_regeneration_policy() { printf 'policy-removed\n' >>"$node_calls"; }
     kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
     die "containerd-health-check-failed: containerd is not operational"
-  )
-  )" 2>&1; then
+  ) 2>&1
+  )"; then
   echo "expected die to exit non-zero" >&2
   exit 1
 fi
