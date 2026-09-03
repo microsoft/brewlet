@@ -555,9 +555,14 @@ func applyBrewletLaunchWithWriterLease(
 		}
 	}()
 
-	mainJar := ra.Config.MainJar
-	if mainJar == "" {
-		mainJar = "app.jar"
+	// The JAR filename is attacker-influenced metadata (the runnable image's
+	// brewlet.sh/jvm-config annotation): it becomes a mount destination and, via
+	// StageCDSJar/staging resolution, a root bind-mount SOURCE. Resolution
+	// already validates it, but this is the trust boundary — re-check and fail
+	// closed rather than mount a host path the image chose.
+	mainJar, err := artifact.MainJarName(ra.Config)
+	if err != nil {
+		return err
 	}
 	inSandboxJar := "/app/" + mainJar
 	if spec.Process == nil {
@@ -686,6 +691,9 @@ func applyBrewletLaunchWithWriterLease(
 	// Skipped under node-side regeneration: there the shipped archive is only seed
 	// data for the node cache (bind-mounted at InSandboxCDSDir instead).
 	if !regenerate && ra.CDSHostPath != "" && ra.Config.CDS != nil && ra.Config.CDS.Archive != "" {
+		if err := artifact.ValidateBareFilename("cds.archive", ra.Config.CDS.Archive); err != nil {
+			return err
+		}
 		brewletMounts = append(brewletMounts, specs.Mount{
 			Destination: "/app/" + ra.Config.CDS.Archive,
 			Type:        "bind",

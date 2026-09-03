@@ -185,7 +185,13 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 
 	// Re-derive the JVM args (resource mapping) but target in-sandbox paths.
 	// The deployment's regeneration choice suppresses the shipped-archive args.
-	inSandboxJar := "/app/" + nonEmpty(cfg.MainJar, "app.jar")
+	// MainJarName re-checks the name: it becomes both a mount destination here
+	// and (below) a host path the staged JAR copy is written to.
+	mainJar, err := artifact.MainJarName(cfg)
+	if err != nil {
+		return err
+	}
+	inSandboxJar := "/app/" + mainJar
 	jvmArgs, err := BuildJVMArgs(cfg, inSandboxJar, extraArgs, regen.Regenerate)
 	if err != nil {
 		return err
@@ -286,7 +292,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	// mtime.
 	jarSource := jarHostPath
 	if pinMtime {
-		staged, err := StageCDSJar(jarHostPath, filepath.Join(outDir, "brewlet-app"), nonEmpty(cfg.MainJar, "app.jar"))
+		staged, err := StageCDSJar(jarHostPath, filepath.Join(outDir, "brewlet-app"), mainJar)
 		if err != nil {
 			return err
 		}
@@ -395,11 +401,4 @@ func buildResources(res Resources) ociResources {
 		}
 	}
 	return out
-}
-
-func nonEmpty(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
 }
