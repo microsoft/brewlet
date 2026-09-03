@@ -32,7 +32,7 @@ the provisioning, affinity, Cluster Autoscaler, and Karpenter workflows.
 | `brewlet.sh/jdks` | `temurin-21,microsoft-25` | Advertised JDK roots (comma-separated). |
 | `brewlet.sh/launchers` | `java,jaz` | Advertised launcher layers. |
 | `brewlet.sh/provision-state` | `Provisioning` \| `Ready` \| `Failed` | The operator's view of the node's lifecycle (distinct from the provisioner-owned `runtime=ready` label). |
-| `brewlet.sh/provision-error` | `launcher-jaz-probe-failed` | Machine-readable provisioner failure reason. The operator uses it for `ProvisionFailed` events and clears it after a successful run. |
+| `brewlet.sh/provision-error` | `launcher-jaz-not-executable` | Machine-readable provisioner failure reason. The operator uses it for `ProvisionFailed` events and clears it after a successful run. |
 
 ### Pod annotations
 

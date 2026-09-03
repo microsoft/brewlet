@@ -1,169 +1,119 @@
 # Launchers
 
-A **launcher** is the program that fronts your entrypoint — the thing that actually
-becomes `java …`. Brewlet is launcher-agnostic: you can use the stock OpenJDK `java`
-launcher, or a drop-in, java-compatible launcher such as **`jaz`** (the
-[Azure Command Launcher for Java](https://learn.microsoft.com/java/jaz/overview))
-that auto-tunes the JVM for you.
+A launcher is the program that fronts the Java entrypoint. Brewlet always
+provides the selected JDK's stock `java` launcher; administrators may also stage
+explicit launcher binaries such as
+[`jaz`](https://learn.microsoft.com/java/jaz/overview).
 
-Crucially, **Brewlet injects no `-XX` tuning flags in either case**. The difference
-between launchers is *who does the tuning*.
-
-Related: [Resource requests, limits & JVM tuning](resource-tuning.md) · [JDK management](jdk-management.md).
+Related: [Resource requests, limits and JVM tuning](resource-tuning.md) ·
+[JDK management](jdk-management.md) · [Security](security.md).
 
 ---
 
-## The two launchers
+## `java` is implicit
 
-### Vanilla `java` (default) — you tune it
+When a workload omits its launcher or requests `java`, Brewlet executes:
 
-The container-aware JDK reads the cgroup limits; you set heap/GC/etc. explicitly via
-the descriptor's `jvm.args`. The artifact only carries app-intrinsic launch knobs.
+```text
+<selected-java-home>/bin/java
+```
+
+Do not add `java` to `spec.launchers`. It comes from every declared JDK and is a
+reserved launcher name.
 
 ```yaml
 jvm:
   version: 21
-  launcher: java                 # default; may be omitted
-  args:                          # tuning is YOUR responsibility
+  launcher: java
+  args:
     - "-XX:MaxRAMPercentage=75.0"
     - "-XX:+UseZGC"
-    - "-XX:+ExitOnOutOfMemoryError"
 ```
 
-### `jaz` — it tunes for you
-
-`jaz` inspects the container's resources and picks sensible JVM ergonomics
-automatically, so you typically pass **no** manual tuning flags. Don't restate what
-`jaz` derives (e.g. `MaxRAMPercentage`); reserve `args` for genuinely app-specific
-flags only.
-
-```yaml
-jvm:
-  version: 21
-  launcher: jaz                  # auto-tunes heap/GC/CPU from the cgroup limits
-  # no MaxRAMPercentage / GC selection needed — jaz derives them
-  # args: ["-Dfoo=bar"]          # only truly app-specific flags, if any
-```
-
-| | Vanilla `java` | `jaz` |
-|---|---|---|
-| Who tunes heap/GC/CPU | you (via descriptor `jvm.args`) | `jaz`, from the cgroup limits |
-| Node install needed | none — every JDK ships `java` | a launcher layer on the node ([below](#installing-jaz-on-nodes)) |
-| Composes over any JDK | n/a | yes — finds the JVM via `JAVA_HOME` |
-| Best for | full manual control | hands-off, sensible defaults |
-
-> If a pod requests a launcher a node doesn't have, it fails admission with
-> `NoCompatibleLauncher` ([Troubleshooting](troubleshooting.md)).
+Brewlet injects no JVM tuning flags. With stock `java`, the deployment's
+`jvm.args` owns heap, GC, agent, and other runtime tuning.
 
 ---
 
-## How launcher selection is resolved
+## Helm example: `jaz`
 
-At launch, Brewlet resolves the launcher binary like this
-([`core/internal/runtime/launch.go`](https://github.com/microsoft/brewlet/blob/main/core/internal/runtime/launch.go)):
-
-- **Vanilla** (`launcher` omitted or `"java"`): use the selected JDK's own
-  `<jdk-home>/bin/java`.
-- **Custom** (e.g. `"jaz"`): resolve it as an absolute path, or find it on `PATH`
-  from the node-installed launcher layer. A missing launcher surfaces as
-  `NoCompatibleLauncher`.
-
-Brewlet always pins `JAVA_HOME` to the selected node JDK, so a launcher like `jaz`
-finds the right JVM. Optional `launcher.args` are placed **ahead** of everything, and
-`launcher.env` is exported. This is why **one launcher layer composes over any
-installed OpenJDK distribution**.
-
-Arg ordering for a custom launcher:
-
-```
-<launcher> <launcher.args…>
-  <artifact launch knobs: --enable-preview/--add-*/-D…>
-  <descriptor jvm.args…> <extra args…> -jar /app/app.jar
-```
-
-(For the vanilla `java` launcher, `launcher.args` are not applied — `java` gets
-artifact launch knobs, descriptor `jvm.args`, extras, and the entrypoint.)
-
----
-
-## Installing `jaz` on nodes
-
-Launchers are installed the same declarative way as JDKs, but **independently** of
-them. Declare the inventory:
+Launchers are structured sources. Each entry requires a lowercase `name`, a
+fully qualified tagless SHA-256 digest reference, and an absolute binary path
+inside the image:
 
 ```yaml
-# Helm values
 provisioner:
-  launchers: "jaz"     # empty = vanilla java only
+  launchers:
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
 ```
 
-The provisioner stages each launcher under:
+The Microsoft Build of OpenJDK image in this editable example contains
+`/usr/bin/jaz`. Review and update the digest according to your patch policy.
 
-```
-/opt/brewlet/launchers/<name>/bin/<name>
-```
+The provisioner pulls and mounts the source image through host containerd,
+rejects a missing source file or a symlink in any source-path component, and
+copies it to:
 
-`jaz` is **not** part of any JDK — it's a separate Linux package. Preferred install
-is **copy-from-image** (the Microsoft Build of OpenJDK images ship `jaz`
-preinstalled), so the host package manager is untouched:
-
-```bash
-ctr image pull mcr.microsoft.com/openjdk/jdk:25-ubuntu
-mkdir -p /opt/brewlet/launchers/jaz/bin
-ctr run --rm --mount type=bind,src=/opt/brewlet/launchers/jaz,dst=/out,options=rbind:rw \
-  mcr.microsoft.com/openjdk/jdk:25-ubuntu cp -a /usr/bin/jaz /out/bin/jaz
+```text
+/opt/brewlet/launchers/jaz/bin/jaz
 ```
 
-Or install the package for the node OS and stage the binary:
-
-```bash
-# Azure Linux
-sudo tdnf install -y jaz
-# Ubuntu/Debian (after adding the Microsoft repo)
-sudo apt-get install -y jaz
-# then stage it into the launcher root:
-mkdir -p /opt/brewlet/launchers/jaz/bin && cp -a "$(command -v jaz)" /opt/brewlet/launchers/jaz/bin/
-```
-
-If a copied launcher needs shared libraries not present in the JDK root, include them
-under the launcher root (e.g. `lib/`); the layer is mounted read-only alongside the
-JDK.
-
-The node advertises installed launchers:
-
-```bash
-kubectl get node node-1 -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}{"\n"}'
-# java,jaz
-```
-
-With the default `provisioner.rollout.validate=true`, Brewlet probes every
-configured launcher before publishing this inventory or any readiness/capability
-labels. `jaz` uses its deterministic version-only mode; other launchers use
-`<launcher> -version`. Missing, non-executable, or failing binaries leave the
-node unready and set a bounded reason such as
-`brewlet.sh/provision-error=launcher-jaz-probe-failed`.
-
-See the core runtime's
-[`provisioner/README.md`](https://github.com/microsoft/brewlet/blob/main/provisioner/README.md)
-for the provisioner mechanics.
+It does not run the source image, grant it host networking, or expose a writable
+host bind mount. The exact image and source path are recorded in
+`/opt/brewlet/launchers/jaz/.brewlet-source`. An atomic
+`/opt/brewlet/launchers/.brewlet-active` inventory prevents undeclared stale
+launcher roots from being selected.
 
 ---
 
-## Requesting a launcher for a workload
+## Arbitrary launchers
 
-Per-pod, request a launcher via annotation (validated + scheduled by the webhook):
+Brewlet does not maintain a launcher catalog or special launcher allowlist. Any
+launcher can use the same shape:
 
 ```yaml
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
 metadata:
-  annotations:
-    brewlet.sh/launcher: "jaz"     # omit or "java" for the vanilla launcher
+  name: custom-launcher
 spec:
-  runtimeClassName: brewlet
-  containers:
-    - image: registry.example.com/demo/hello:1.0.0
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
+  launchers:
+    - name: acme-java
+      source:
+        image: registry.example.com/java/acme-launcher@sha256:<64-lowercase-hex>
+        path: /usr/local/bin/acme-java
 ```
 
-Or, in a `JavaApplication` descriptor:
+An arbitrary launcher must:
+
+- be a regular, non-symlink file at `source.path`;
+- be usable as an executable Linux program on every selected node architecture;
+- accept Brewlet's Java-style argument ordering; and
+- find the selected JVM through `JAVA_HOME` when it does not embed one.
+
+The readiness gate checks that the staged launcher exists and is executable. It
+does not execute arbitrary administrator-provided launcher binaries, because
+Brewlet cannot assume a universal safe probe argument. Test launcher/JDK
+compatibility in your own image qualification pipeline.
+
+If the launcher needs shared libraries not present in the JDK image, package
+them into an image layout compatible with your launcher or use a statically
+linked launcher.
+
+---
+
+## Requesting a launcher
+
+In a `JavaApplication`:
 
 ```yaml
 spec:
@@ -172,17 +122,32 @@ spec:
     launcher: jaz
 ```
 
-The deployment descriptor is authoritative; launchers are not recorded in
-`jvm-config.json`.
+Or on a raw pod:
 
----
+```yaml
+metadata:
+  annotations:
+    brewlet.sh/launcher: "jaz"
+spec:
+  runtimeClassName: brewlet
+```
 
-## Choosing between them
+The admission webhook rejects a request with `NoCompatibleLauncher` when no
+ready node advertises that launcher. Installed nodes expose:
 
-- Use **`jaz`** when you want hands-off, resource-aware defaults and don't want to
-  hand-maintain `-XX` flags across services.
-- Use **vanilla `java`** when you need precise, explicit control over GC and heap, or
-  can't install a launcher layer on your nodes.
+```bash
+kubectl get node node-1 \
+  -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}{"\n"}'
+# java,jaz
+```
 
-Either way, see [Resource requests, limits & JVM tuning](resource-tuning.md) for how requests and limits work
-to the JVM.
+Brewlet pins `JAVA_HOME` to the selected node JDK before invoking a custom
+launcher. Launcher arguments precede artifact launch knobs and JVM/application
+arguments:
+
+```text
+<launcher> <launcher.args...> <artifact launch knobs> <jvm.args...> -jar /app/app.jar
+```
+
+Use `jaz` when you want its resource-aware ergonomics. Use stock `java` when you
+need explicit JVM tuning or do not want an additional node launcher source.

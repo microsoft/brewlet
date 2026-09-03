@@ -20,7 +20,7 @@ metadata:
 spec:
   jdks:
     {{- include "brewlet.jdkItems" (dict "value" .Values.provisioner.jdks) | nindent 4 }}
-  {{- $launchers := include "brewlet.launcherItems" (dict "value" .Values.provisioner.launchers) }}
+  {{- $launchers := include "brewlet.launcherItems" (dict "value" (default (list) .Values.provisioner.launchers)) }}
   {{- if trim $launchers }}
   launchers:
     {{- $launchers | nindent 4 }}
@@ -66,7 +66,7 @@ spec:
     {{- end }}
   jdks:
     {{- include "brewlet.jdkItems" (dict "value" $p.jdks) | nindent 4 }}
-  {{- $launchers := include "brewlet.launcherItems" (dict "value" (default "" $p.launchers)) }}
+  {{- $launchers := include "brewlet.launcherItems" (dict "value" (default (list) $p.launchers)) }}
   {{- if trim $launchers }}
   launchers:
     {{- $launchers | nindent 4 }}

@@ -50,9 +50,8 @@ Capability keys are derived from the inventory declared by the platform team:
 - `<name>` is a launcher identifier. To produce a valid capability label, names
   use lowercase DNS-1123 label syntax and are limited to 54 characters so that
   `launcher.<name>` fits the Kubernetes label-name segment. `java` is reserved
-  for the built-in OpenJDK launcher. The current `NodeProfile` webhook does not
-  validate launcher tokens, so an invalid name is accepted initially but causes
-  node provisioning to fail when the provisioner publishes its label.
+  for the OpenJDK launcher supplied by every configured JDK. Admission and
+  reconciliation reject invalid or duplicate launcher names.
 - `<architecture>` is a Kubernetes architecture token such as `amd64` or
   `arm64`.
 
@@ -70,10 +69,19 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
     - distribution: microsoft
       feature: 25
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        javaHome: /usr/lib/jvm/msopenjdk-25
   launchers:
-    - jaz
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
   appCDS:
     regenerationEnabled: true
 ```
@@ -127,8 +135,9 @@ nodeSelector:
 An exact `temurin-21` request uses
 `brewlet.sh/jdk.temurin-21 Exists` instead. A non-portable artifact requesting
 `amd64` or `arm64` adds `kubernetes.io/arch In [...]`. A missing JDK request adds
-no JDK affinity, the built-in `java` launcher adds no launcher affinity, and a
-pod that does not request regeneration adds no AppCDS affinity.
+no JDK affinity, and the implicit `java` launcher adds no launcher affinity
+because every ready Brewlet node provides it. A pod that does not request
+regeneration adds no AppCDS affinity.
 
 When a pod already has required node affinity, Brewlet appends its requirements
 to every existing node selector term. Expressions within a term remain ANDed
@@ -219,8 +228,14 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
   launchers:
-    - jaz
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
   appCDS:
     regenerationEnabled: true
 ```

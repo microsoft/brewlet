@@ -6,24 +6,27 @@ package admission
 import (
 	"context"
 	"net/http"
+	"reflect"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
 	"brewlet-operator/internal/controller"
 
+	admissionv1 "k8s.io/api/admission/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // NodeProfileValidator is the controller-runtime admission handler that rejects
-// malformed NodeProfiles on CREATE/UPDATE (https://github.com/microsoft/brewlet/tree/main/specs): a non-empty
-// JDK list, only curated distributions, a valid containerdRestart value, and no
-// two profiles naming the same pool (ambiguous ownership). Catching these at
-// admission keeps the reconcile loop from defending against garbage and gives
-// users immediate feedback.
+// malformed NodeProfiles on CREATE/UPDATE
+// (https://github.com/microsoft/brewlet/tree/main/specs): a non-empty JDK list,
+// digest-pinned explicit sources, approved mirrors, valid rollout settings, and
+// no two profiles naming the same pool. Reconciliation repeats the same checks
+// so bypassing this webhook cannot reach the privileged provisioner.
 type NodeProfileValidator struct {
 	Client  client.Reader
 	Decoder admission.Decoder
+	Policy  controller.NodeProfilePolicy
 }
 
 // Handle implements admission.Handler.
@@ -34,8 +37,17 @@ func (v *NodeProfileValidator) Handle(ctx context.Context, req admission.Request
 	if err := v.Decoder.Decode(req, profile); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
 	}
+	if req.Operation == admissionv1.Update && !profile.DeletionTimestamp.IsZero() {
+		oldProfile := &nodev1alpha1.NodeProfile{}
+		if err := v.Decoder.DecodeRaw(req.OldObject, oldProfile); err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+		if deletingFinalizersOnlyRemoved(oldProfile, profile) {
+			return admission.Allowed("allowing finalizer removal from deleting NodeProfile")
+		}
+	}
 
-	if err := controller.ValidateNodeProfile(profile); err != nil {
+	if err := v.Policy.Validate(profile); err != nil {
 		log.Info("rejecting NodeProfile", "name", profile.Name, "reason", err.Error())
 		return denied("InvalidNodeProfile", "NodeProfile rejected: "+err.Error())
 	}
@@ -54,4 +66,37 @@ func (v *NodeProfileValidator) Handle(ctx context.Context, req admission.Request
 	}
 
 	return admission.Allowed("valid NodeProfile")
+}
+
+func deletingFinalizersOnlyRemoved(oldProfile, newProfile *nodev1alpha1.NodeProfile) bool {
+	if oldProfile.DeletionTimestamp.IsZero() ||
+		newProfile.DeletionTimestamp.IsZero() ||
+		!finalizersOnlyRemoved(oldProfile.Finalizers, newProfile.Finalizers) {
+		return false
+	}
+
+	oldCopy := oldProfile.DeepCopy()
+	newCopy := newProfile.DeepCopy()
+	oldCopy.Finalizers = nil
+	newCopy.Finalizers = nil
+	oldCopy.ManagedFields = nil
+	newCopy.ManagedFields = nil
+	return reflect.DeepEqual(oldCopy, newCopy)
+}
+
+func finalizersOnlyRemoved(oldFinalizers, newFinalizers []string) bool {
+	if len(newFinalizers) >= len(oldFinalizers) {
+		return false
+	}
+	remaining := make(map[string]int, len(oldFinalizers))
+	for _, finalizer := range oldFinalizers {
+		remaining[finalizer]++
+	}
+	for _, finalizer := range newFinalizers {
+		if remaining[finalizer] == 0 {
+			return false
+		}
+		remaining[finalizer]--
+	}
+	return true
 }

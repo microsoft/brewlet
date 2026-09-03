@@ -4,16 +4,18 @@ Brewlet's single-install activation combines roles split across SpinKube's
 Runtime Class Manager and Spin Operator. `helm install` deploys:
 
 - **brewlet-operator** — the node lifecycle controller (§8.1). It creates and
-  reconciles the `brewlet-node-provisioner` DaemonSet and the `brewlet`
-  RuntimeClass from the chart's `provisioner.*` values, so there is one runtime
-  source of truth for the JDK/launcher inventory.
+  reconciles one `brewlet-node-provisioner-<profile>` DaemonSet per
+  `NodeProfile` plus the shared `brewlet` RuntimeClass. Every JDK and launcher
+  source is declared explicitly in its profile and pinned to an OCI digest.
 - **node-provisioner RBAC** — the `ServiceAccount` + `ClusterRole` the DaemonSet
   the operator creates runs as (it labels/annotates the nodes it provisions).
 - **brewlet-admission** — the pod admission/scheduling webhook (§8/§14): it
   stamps `brewlet.sh/artifact-ref` + `brewlet.sh/artifact-digest` onto brewlet
   pods, matches a pod's requested JDK/launcher against the ready fleet
   (`NoCompatibleJDK` / `NoCompatibleLauncher` / `NoCompatibleArch`), and injects nodeAffinity so the
-  scheduler only lands pods on capable nodes. Can be disabled with
+  scheduler only lands pods on capable nodes. Its NodeProfile endpoint rejects
+  mutable sources and unauthorized mirror destinations; the operator repeats
+  that policy during reconciliation. Can be disabled with
   `--set admission.enabled=false`.
 
 The provisioner DaemonSet and RuntimeClass themselves are **not** templated here
@@ -27,9 +29,7 @@ the webhook.
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --namespace brewlet \
-  --create-namespace \
-  --set provisioner.jdks="temurin-21,microsoft-25" \
-  --set provisioner.launchers="jaz"
+  --create-namespace
 
 # The default NodeProfile provisions EVERY node (§5.6) — no per-node opt-in step.
 # The operator provisions each node; the provisioner marks it ready.
@@ -52,8 +52,10 @@ kubectl get nodes -L brewlet.sh/runtime
 | `images.provisioner` | generated | Explicit provisioner image override. |
 | `images.admission` | generated | Explicit admission image override. |
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
-| `provisioner.jdks` | `temurin-21,microsoft-25` | Comma-separated `<dist>-<feature>` JDK roots to install (§5.3). |
-| `provisioner.launchers` | `jaz` | Comma-separated launcher layers (§5.4). Empty = vanilla `java` only. |
+| `security.allowedSourceMirrorHosts` | `[]` | Exact destination registry hosts, including explicit ports, approved for JDK/launcher mirror rewrites. Empty disables mirrors. |
+| `provisioner.jdks` | structured Temurin 21 and Microsoft 25 examples | Required JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` (§5.3). |
+| `provisioner.launchers` | structured `jaz` example | Optional entries with `name`, digest-pinned `source.image`, and absolute `source.path` (§5.4). Empty = vanilla `java` only. |
+| `provisioner.registry.mirrors` | `{}` | Upstream host → approved mirror host/path map. Rewrites preserve the source digest. |
 | `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the default profile. |
 | `operator.leaderElect` | `true` | Enable operator leader election. |
 | `metrics.enabled` | `false` | Enable control-plane metrics listeners and the node exporter, and expose scrape Services/ports. |
@@ -64,7 +66,7 @@ kubectl get nodes -L brewlet.sh/runtime
 | `admission.failurePolicy` | `Ignore` | Webhook failure policy — `Ignore` never blocks workloads on a webhook outage. |
 | `admission.port` | `9443` | Webhook server port. |
 
-For a custom JDK distribution, use the structured inventory form:
+All JDK distributions use the structured inventory form:
 
 ```yaml
 provisioner:
@@ -74,14 +76,43 @@ provisioner:
     - distribution: zulu
       feature: 21
       source:
-        image: docker.io/library/azul-zulu:21
+        image: docker.io/library/azul-zulu@sha256:2e230d906cffcc7bb7360ce82836f2ff0e0be74a1d5ebaf929e4e6ac99d61bf2
         javaHome: /usr/lib/jvm/zulu21
 ```
 
-The string form remains supported for curated inventories. A custom image may
-contain a full JDK or a centrally built jlink runtime, but must include the
-userland libraries required by `javaHome/bin/java`. Pin custom images by digest
-in production.
+String inventories are not supported. Every source must be a fully qualified,
+tagless `repository@sha256:<64 lowercase hex>` reference. An image may contain a
+full JDK or a centrally built jlink runtime, but must include the userland
+libraries required by `javaHome/bin/java`.
+
+Optional launchers use the same explicit form:
+
+```yaml
+provisioner:
+  launchers:
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        path: /usr/bin/jaz
+```
+
+For an air-gapped mirror, approve its exact registry host outside the profile:
+
+```yaml
+security:
+  allowedSourceMirrorHosts:
+    - registry.internal.example.com
+provisioner:
+  registry:
+    mirrors:
+      docker.io: registry.internal.example.com/dockerhub
+      mcr.microsoft.com: registry.internal.example.com/mcr
+```
+
+The admission webhook, reconciler, and privileged provisioner all enforce the
+allowlist. Schemes, whitespace, duplicate/self mappings, and unapproved
+destinations fail closed. The mirror must preserve the original OCI
+manifest/index digest.
 
 AppCDS regeneration is denied by default. Enable it only on profiles whose
 nodes are authorized to maintain namespace-partitioned cache entries:
@@ -92,7 +123,12 @@ defaultProfile:
 profiles:
   - name: appcds-builders
     pools: ["appcds-builders"]
-    jdks: "temurin-21"
+    jdks:
+      - distribution: temurin
+        feature: 21
+        source:
+          image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+          javaHome: /opt/java/openjdk
     appCDS:
       regenerationEnabled: true
 ```
@@ -105,13 +141,24 @@ check remains authoritative.
 
 > **Upgrades:** Helm installs files under `crds/` only on first install and does
 > not upgrade existing CRDs. Before upgrading an existing Brewlet release to a
-> version that supports AppCDS policy or custom JDK sources, apply the matching
-> CRD explicitly:
+> version that requires explicit runtime sources, use a maintenance window. The
+> `v1alpha1` launcher wire format changed from strings to structured objects, so
+> delete legacy profiles while the old controller can clean their nodes, apply
+> the new CRD, and perform one profile-free upgrade before recreating the
+> migrated profiles:
 >
 > ```bash
+> kubectl delete nodeprofiles.node.brewlet.sh --all
+> kubectl wait --for=delete nodeprofiles.node.brewlet.sh --all --timeout=10m
 > kubectl apply -f kubernetes/deploy/nodeprofile-crd.yaml
-> helm upgrade brewlet ./kubernetes/charts/brewlet -f values.yaml
+> printf 'defaultProfile:\n  enabled: false\nprofiles: []\n' >/tmp/brewlet-no-profiles.yaml
+> helm upgrade brewlet ./kubernetes/charts/brewlet \
+>   -f values.yaml -f /tmp/brewlet-no-profiles.yaml --wait
+> helm upgrade brewlet ./kubernetes/charts/brewlet -f values.yaml --wait
 > ```
+>
+> Existing sources must be migrated to SHA-256 digest references, and mirror
+> destinations require an explicit `security.allowedSourceMirrorHosts` entry.
 
 ## Requesting a JDK / launcher
 

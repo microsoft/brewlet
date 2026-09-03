@@ -11,9 +11,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 
 	"brewlet-operator/internal/admission"
+	"brewlet-operator/internal/controller"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
 
@@ -37,18 +39,25 @@ func init() {
 
 func main() {
 	var (
-		metricsAddr string
-		probeAddr   string
-		certDir     string
-		webhookPort int
+		metricsAddr    string
+		probeAddr      string
+		certDir        string
+		webhookPort    int
+		allowedMirrors string
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "address the metric endpoint binds to; 0 disables metrics")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "address the health probe endpoint binds to")
 	flag.StringVar(&certDir, "cert-dir", "/tmp/k8s-webhook-server/serving-certs", "directory holding tls.crt/tls.key for the webhook server")
 	flag.IntVar(&webhookPort, "webhook-port", 9443, "port the webhook server listens on")
+	flag.StringVar(&allowedMirrors, "allowed-source-mirror-hosts", "", "comma-separated exact registry hosts approved as runtime source mirror destinations")
 	opts := zap.Options{Development: true}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	policyHosts, err := controller.ParseAllowedSourceMirrorHosts(allowedMirrors)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid --allowed-source-mirror-hosts: %v\n", err)
+		os.Exit(1)
+	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
@@ -78,6 +87,9 @@ func main() {
 		Handler: &admission.NodeProfileValidator{
 			Client:  mgr.GetClient(),
 			Decoder: decoder,
+			Policy: controller.NodeProfilePolicy{
+				AllowedSourceMirrorHosts: policyHosts,
+			},
 		},
 	})
 

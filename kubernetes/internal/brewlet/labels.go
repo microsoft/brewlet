@@ -29,6 +29,8 @@ const (
 	// comma-separated list of <dist>-<feature> tokens, e.g.
 	// "temurin-21,microsoft-25".
 	AnnotationJDKs = "brewlet.sh/jdks"
+	// AnnotationJDKsInfo carries the provisioner's structured JDK inventory.
+	AnnotationJDKsInfo = "brewlet.sh/jdks-info"
 	// AnnotationLaunchers advertises the installed launcher layers, similarly
 	// comma-separated, e.g. "java,jaz".
 	AnnotationLaunchers = "brewlet.sh/launchers"
@@ -73,10 +75,6 @@ var ProviderPoolKeys = []string{
 	"eks.amazonaws.com/nodegroup",    // EKS managed node groups
 	"karpenter.sh/nodepool",          // Karpenter
 }
-
-// CuratedDistributions have built-in copy-from-image mappings (§5.3). Other
-// distributions are accepted when their NodeProfile supplies a custom source.
-var CuratedDistributions = []string{"temurin", "microsoft"}
 
 // ProfileDaemonSetName is the name of the provisioner DaemonSet the operator
 // manages for a given profile (one DaemonSet per profile, §5.2).
@@ -153,7 +151,7 @@ const (
 	LabelArch = "kubernetes.io/arch"
 )
 
-// VanillaLauncher is the built-in OpenJDK launcher name; it needs no launcher
+// VanillaLauncher is the implicit OpenJDK launcher name; it needs no launcher
 // layer and is available on every ready node.
 const VanillaLauncher = "java"
 

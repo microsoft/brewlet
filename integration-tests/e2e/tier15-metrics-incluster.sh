@@ -629,6 +629,9 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
   appCDS:
     regenerationEnabled: true
   rollout:

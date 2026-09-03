@@ -53,6 +53,10 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+      - name: Test privileged provisioner source policy
+        working-directory: .
+        run: bash provisioner/entrypoint_test.sh
+
   kubernetes:
     name: Go Kubernetes platform
     runs-on: ubuntu-latest
@@ -85,6 +89,18 @@ jobs:
 
       - name: Test
         run: make test
+
+  provisioner-image:
+    name: Node provisioner image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build --build-arg TARGETARCH=amd64 -t brewlet-node-provisioner:ci -f provisioner/Dockerfile .
+
+      - name: Verify source policy validator
+        run: docker run --rm --entrypoint /usr/bin/test brewlet-node-provisioner:ci -x /opt/brewlet-dist/brewlet-source-policy
 
   helm:
     name: Helm chart
@@ -174,7 +190,8 @@ jobs:
           GOOS=linux GOARCH=amd64 ./scripts/generate-go-notice.sh \
             core "$work/provisioner.txt" \
             ./shim/cmd/containerd-shim-brewlet-v2 \
-            ./cmd/brewlet-metrics-exporter
+            ./cmd/brewlet-metrics-exporter \
+            ./cmd/brewlet-source-policy
           GOOS=linux GOARCH=amd64 ./scripts/generate-go-notice.sh \
             kubernetes "$work/operator.txt" ./cmd/manager
           GOOS=linux GOARCH=amd64 ./scripts/generate-go-notice.sh \

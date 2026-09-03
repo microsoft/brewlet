@@ -22,8 +22,8 @@ metadata:
   name: brewlet-node-provisioner
   namespace: brewlet
 ---
-# The provisioner labels/annotates the Node it runs on (step 5), which requires
-# get/patch on the cluster-scoped Node resource.
+# The provisioner labels/annotates its Node and, for operator-managed profiles,
+# verifies the owning NodeProfile immediately before publishing readiness.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -32,6 +32,9 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["node.brewlet.sh"]
+    resources: ["nodeprofiles"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -80,10 +83,33 @@ spec:
           env:
             - name: NODE_NAME
               valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
-            - name: JDKS                  # JDK runtime roots to install (see §5.3)
-              value: "temurin-21,microsoft-25"
-            - name: LAUNCHERS             # optional custom launchers to install (see §5.4)
-              value: "jaz"
+            # Editable source examples. Every image is fully qualified, tagless,
+            # and pinned to an immutable SHA-256 digest.
+            - name: JDK_SOURCE_COUNT
+              value: "2"
+            - name: JDK_SOURCE_0_TOKEN
+              value: temurin-21
+            - name: JDK_SOURCE_0_IMAGE
+              value: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+            - name: JDK_SOURCE_0_JAVA_HOME
+              value: /opt/java/openjdk
+            - name: JDK_SOURCE_1_TOKEN
+              value: microsoft-25
+            - name: JDK_SOURCE_1_IMAGE
+              value: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+            - name: JDK_SOURCE_1_JAVA_HOME
+              value: /usr/lib/jvm/msopenjdk-25
+            - name: LAUNCHER_SOURCE_COUNT
+              value: "1"
+            - name: LAUNCHER_SOURCE_0_NAME
+              value: jaz
+            - name: LAUNCHER_SOURCE_0_IMAGE
+              value: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+            - name: LAUNCHER_SOURCE_0_PATH
+              value: /usr/bin/jaz
+            # Empty disables registry mirror rewrites in the privileged provisioner.
+            - name: SOURCE_ALLOWED_MIRROR_HOSTS
+              value: ""
             - name: BREWLET_APP_CDS_REGENERATION_ENABLED
               value: "false"
           volumeMounts:

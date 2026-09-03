@@ -148,8 +148,6 @@ tier10_helm_incluster() {
         --set images.provisioner="$T10_PROV_IMG" \
         --set images.pullPolicy=IfNotPresent \
         --set defaultProfile.enabled=false \
-        --set provisioner.jdks=temurin-21 \
-        --set provisioner.launchers= \
         --set operator.leaderElect=false \
         --wait --timeout 180s >"$WORK/t10-install.log" 2>&1; then
     kubectl get pods -n "$T10_NS" >>"$WORK/t10-install.log" 2>&1 || true
@@ -211,6 +209,9 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
 YAML
 )"
     [[ "$npboot" == *"created"* || "$npboot" == *"configured"* || "$npboot" == *"unchanged"* ]] && break
@@ -319,9 +320,8 @@ YAML
   assert_contains "helm(in-cluster): live webhook denies an unsatisfiable brewlet pod (NoCompatibleJDK)" \
     "$out" "NoCompatibleJDK"
 
-  # --- a custom JDK distribution must declare its source ---------------------
-  # Uncurated distributions are supported when source.image and source.javaHome
-  # are present. This profile intentionally omits source and must be rejected by
+  # --- every JDK distribution must declare its source ------------------------
+  # This profile intentionally omits source and must be rejected by
   # the CRD or validating webhook. Retry because the webhook endpoint's
   # caBundle/Service can lag briefly after install.
   local npout npok=""
@@ -342,8 +342,8 @@ YAML
       sleep 2
       continue
     fi
-    if [[ "$npout" == *"source must be omitted for curated distributions and provided for custom distributions"* ||
-          "$npout" == *"source is required for non-curated distribution"* ]]; then
+    if [[ "$npout" == *"source: Required value"* ||
+          "$npout" == *"source.image"* ]]; then
       npok=1
       break
     fi
@@ -351,9 +351,9 @@ YAML
   done
   kubectl delete nodeprofile e2e-missing-jdk-source --ignore-not-found >/dev/null 2>&1 || true
   if [[ -n "$npok" ]]; then
-    pass "helm(in-cluster): NodeProfile rejects a custom JDK without source"
+    pass "helm(in-cluster): NodeProfile rejects a JDK without source"
   else
-    fail "helm(in-cluster): NodeProfile rejects a custom JDK without source" \
+    fail "helm(in-cluster): NodeProfile rejects a JDK without source" \
       "expected the apply to fail because source is required, got: $npout"
   fi
 
@@ -371,6 +371,9 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
 YAML
   then
     pass "helm(in-cluster): NodeProfile webhook admits a valid named-pool profile"
@@ -390,6 +393,9 @@ spec:
   jdks:
     - distribution: temurin
       feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
 YAML
 )"
   kubectl delete nodeprofile e2e-pool-b --ignore-not-found >/dev/null 2>&1 || true

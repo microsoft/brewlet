@@ -409,8 +409,8 @@ control of a NodeProfile registry mirror through cluster/GitOps compromise.
 - `kubernetes/internal/controller/nodeprofile_resources.go:155-170` passes
   registry mirrors to the provisioner.
 - `kubernetes/internal/controller/nodeprofile_validate.go:24-100` does not
-  validate registry mirrors and prevents curated distributions from supplying
-  a custom pinned source.
+  validate registry mirrors and prevents implicitly mapped distributions from
+  supplying a custom pinned source.
 - `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:429` uses the
   resulting JDK tree as a workload rootfs lower layer.
 
@@ -420,14 +420,15 @@ Java binary during validation. The malicious tree then underlies every Brewlet
 workload on that node. This provides root execution and persistent compromise
 across the provisioned fleet.
 
-**Remediation:** Ship and enforce a signed distribution-to-digest map, support
-digest-pinned curated JDKs, verify signatures before extraction, validate and
-allowlist mirror hosts, and remove host networking from launcher installation.
+**Remediation:** Remove implicit distribution mappings and require every JDK and
+launcher to declare an administrator-reviewed, digest-pinned source and absolute
+path. Validate and allowlist mirror hosts, and mount/copy launcher images without
+host networking or a writable host bind mount.
 
-**Remediation test:** Assert curated source resolution returns `@sha256:`
-references. Reject mirror values containing schemes, whitespace, empty hosts,
-or unapproved destinations. Verify a tampered image fails closed before node
-readiness labels are applied.
+**Remediation test:** Reject every JDK or launcher without a canonical
+`@sha256:` source and absolute path. Reject mirror values containing schemes,
+whitespace, empty hosts, or unapproved destinations. Verify invalid input fails
+closed before any host operation or node readiness label.
 
 ### 7. Unverified downloaded binaries are installed on every node
 
@@ -717,11 +718,11 @@ JDK tree then becomes a lower layer for every Brewlet workload.
 | Claim | Location | Implemented behavior |
 |-------|----------|----------------------|
 | The JVM is non-root unless root is explicitly requested through the Pod security context | `specs/SPECIFICATION.md:1228-1229`; `docs/security.md` | Artifact `user.uid/gid` overrides the Pod-derived OCI user |
-| Every runtime root arrives through a content-addressable, digest-verified pull | `specs/SPECIFICATION.md:664` | Curated JDKs use mutable tags without signature or digest enforcement |
+| Every runtime root arrives through a content-addressable, digest-verified pull | `specs/SPECIFICATION.md:664` | Implicit JDK mappings use mutable tags without digest enforcement |
 | Only a small per-container upper/scratch layer is writable | `docs/security.md` | CDS regeneration mounts the node-shared cache read-write |
 | The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | The digest is tenant-settable, unvalidated, and not bound to the image |
 | Ratify/Gatekeeper requires the final-image attestation and fails closed | `docs/security.md` | Admission verifies `image`; the shim can execute a different annotation-selected artifact |
-| Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | Curated JDK sources cannot currently be digest-pinned |
+| Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | Implicit JDK sources cannot currently be digest-pinned |
 | The fail-open mutating webhook is presented as a security guardrail | `docs/security.md` | It improves availability but cannot enforce Brewlet artifact identity |
 
 ## Prioritized remediation roadmap
@@ -743,7 +744,7 @@ JDK tree then becomes a lower layer for every Brewlet workload.
 2. Restrict `mainJar` to a contained bare filename.
 3. Verify every binary downloaded by the provisioner image and digest-pin base
    images.
-4. Support digest-pinned, signature-verified curated JDK images.
+4. Require administrator-provided, digest-pinned JDK and launcher images.
 5. Validate and allowlist NodeProfile registry mirrors.
 6. Enforce same-origin HTTPS registry token realms and exact loopback matching.
 
@@ -768,8 +769,8 @@ JDK tree then becomes a lower layer for every Brewlet workload.
    Finding 3.
 5. **Validate launcher and `mainJar` path components.** Covers Findings 5 and 8,
    which share the same path-input validation fix.
-6. **Support signed, digest-pinned curated JDK sources and validate registry
-   mirrors.** Covers Finding 6.
+6. **Require digest-pinned administrator-provided runtime sources and validate
+   registry mirrors.** Covers Finding 6.
 7. **Verify provisioner binary downloads and pin base images.** Covers Finding
    7.
 8. **Restrict registry token authentication to approved HTTPS origins.** Covers

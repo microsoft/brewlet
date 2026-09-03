@@ -143,7 +143,7 @@ func IsKnownArch(s string) bool {
 	return ok
 }
 
-// VanillaLauncher is the built-in OpenJDK launcher name. An empty or "java"
+// VanillaLauncher is the implicit OpenJDK launcher name. An empty or "java"
 // launcher request means the stock `java` binary from the selected JDK, which
 // every ready node provides and which needs no launcher layer.
 const VanillaLauncher = "java"

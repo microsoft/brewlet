@@ -1,8 +1,8 @@
 # JDK management
 
-The JDK is the part Brewlet moves **off** your image and **onto** the node. This
-page covers how JDK runtime roots get installed, versioned, patched, and served to
-workloads — the platform team's core operational surface.
+The JDK is the part Brewlet moves **off** application images and **onto** nodes.
+The platform team chooses every JDK build, pins it by digest, and declares where
+its Java home lives inside the source image.
 
 Related: [Configuration](configuration.md) ·
 [Capability labels and autoscaling](capability-labels-and-autoscaling.md) ·
@@ -10,204 +10,100 @@ Related: [Configuration](configuration.md) ·
 
 ---
 
-## The model
+## Source model
 
-- The platform team declares a **JDK inventory** once (Helm values / operator
-  flags). Nothing about JDKs is baked into application artifacts.
-- Workloads request a JDK once in the deployment descriptor:
-  `spec.jvm.version` (feature, e.g. `21`) with an optional `spec.jvm.distribution`
-  (e.g. `microsoft`) on `JavaApplication`, or `brewlet.sh/jdk` on raw Kubernetes
-  pods. The controller folds version + distribution into the `brewlet.sh/jdk`
-  annotation: a bare feature (`"21"`) matches **any** distribution of that
-  version, while `"<distribution>-<feature>"` (`"microsoft-25"`) pins an exact
-  root. The launcher request follows the same pattern (`spec.jvm.launcher` /
-  `brewlet.sh/launcher`) and may be omitted for vanilla `java`.
-- On every opted-in node, the provisioner materializes each declared JDK as a
-  **read-only, shared image root** at:
+Brewlet has no built-in JDK catalog and does not map distribution names to
+images. Every `spec.jdks[]` entry requires:
 
-  ```
-  /opt/brewlet/jdks/<distribution>-<feature>/
-  ```
+- a stable lowercase `distribution` name used in the node inventory;
+- a positive Java `feature` version;
+- a fully qualified, tagless
+  `source.image` in `registry/repository@sha256:<64 lowercase hex>` form; and
+- a clean absolute `source.javaHome` inside that image.
 
-- The root contains the source image's complete userland plus
-  `.brewlet-java-home`, which records the JDK or jlink runtime location inside
-  that root. The shim uses the complete root as the sandbox filesystem and
-  bind-mounts the recorded Java home at the stable `/opt/jdk` path.
-- The inventory path is what the shim's `selectJDK` resolves when a pod requests
-  a JDK. The operator/webhook validates descriptor requests, injects node affinity
-  for matching capability labels, and propagates the annotations onto the OCI
-  runtime spec. The shim reads those annotations at launch; if `brewlet.sh/jdk` is
-  absent it defaults to feature 21, selecting the lexically-first installed
-  distribution for that feature (no built-in vendor preference). One root is
-  shared (overlay-mounted read-only)
-  into every JVM sandbox.
-- Roots are **versioned and additive**: patching = drop in a new root, retire old
-  ones. Running pods keep their JDK until they restart.
+The provisioner validates all entries before installing the shim or accessing
+host containerd. It then pulls the image through host containerd, mounts its
+root filesystem, and copies that complete userland to:
 
-Declare the inventory:
+```text
+/opt/brewlet/jdks/<distribution>-<feature>/
+```
+
+The root records the selected Java home in `.brewlet-java-home` and the exact
+image/path pair in `.brewlet-source`. The shim uses the complete copied root as
+the sandbox filesystem and exposes the selected Java home at `/opt/jdk`.
+
+Mutable tags are intentionally rejected. A tag may resolve to different bytes
+between reviews or nodes; a digest identifies the exact OCI manifest or
+multi-platform index the administrator approved.
+
+---
+
+## Helm examples: Temurin and Microsoft
+
+The chart ships editable examples for Eclipse Temurin 21 and Microsoft Build of
+OpenJDK 25:
 
 ```yaml
-# Helm values
 provisioner:
-  jdks: "temurin-21,microsoft-25"   # two roots on every opted-in node
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
+    - distribution: microsoft
+      feature: 25
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        javaHome: /usr/lib/jvm/msopenjdk-25
 ```
 
-The node then advertises what it installed:
+These are ordinary chart values, not privileged Brewlet defaults. Review and
+replace the digests according to your patch policy before production rollout.
 
-```bash
-kubectl get node node-1 -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks}{"\n"}'
-# temurin-21,microsoft-25
-```
-
-…and emits per-capability scheduling labels the admission webhook matches against
-(`brewlet.sh/jdk.temurin-21`, `brewlet.sh/jdk-feature.21`, …). A pod requesting a
-JDK that no ready node provides fails admission with `NoCompatibleJDK`
-([Troubleshooting](troubleshooting.md)). See
-[Capability labels and autoscaling](capability-labels-and-autoscaling.md) for
-the `NodeProfile`-to-label workflow and supported autoscaler patterns, and the
-[canonical capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
-for the complete key grammar and compatibility guarantees.
-
----
-
-## Inspecting the JDKs available on the cluster
-
-Developers frequently need to know *exactly* which JDKs production offers —
-**vendor, major version, minor version, and architecture** — so they can match
-their local and CI toolchains. Alongside the coarse `brewlet.sh/jdks` list, each
-node publishes a rich inventory annotation, `brewlet.sh/jdks-info`, a JSON array:
-
-```json
-[
-  {"distribution":"temurin","vendor":"Eclipse Adoptium","feature":21,"version":"21.0.5","arch":"amd64"},
-  {"distribution":"microsoft","vendor":"Microsoft","feature":25,"version":"25","arch":"amd64"}
-]
-```
-
-The `vendor`, `version` (full/minor), and `arch` fields are read straight from the
-installed JDK (`java -XshowSettings:properties`) at provision time, so they reflect
-the actual build on the node — not just what was requested.
-
-### With `brewlet jdks`
-
-The CLI aggregates that inventory across the fleet:
-
-```bash
-brewlet jdks
-# VENDOR             DISTRIBUTION   MAJOR   VERSION   ARCH    NODES
-# Microsoft          microsoft      25      25        amd64   3
-# Eclipse Adoptium   temurin        21      21.0.5    amd64   3
-# Eclipse Adoptium   temurin        21      21.0.5    arm64   2
-
-brewlet jdks --output wide     # one row per node
-brewlet jdks --output json     # machine-readable, e.g. for CI matrix generation
-```
-
-It reads nodes through `kubectl` (respecting `--kubeconfig`, `--context`, and a
-`--selector`), so it needs no extra cluster access beyond what `kubectl get nodes`
-already has. See the [CLI reference](cli-reference.md#brewlet-jdks).
-
-### With plain `kubectl`
-
-No CLI required — the annotation is queryable directly:
-
-```bash
-# rich inventory for one node
-kubectl get node node-1 \
-  -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks-info}{"\n"}'
-
-# across the fleet
-kubectl get nodes \
-  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.brewlet\.sh/jdks-info}{"\n"}{end}'
-```
-
-> Nodes that were provisioned before this annotation existed still carry the
-> coarse `brewlet.sh/jdks` list; `brewlet jdks` falls back to it (showing only
-> distribution + major) so mixed fleets still render.
-
----
-
-## Installation: copy-from-image
-
-Brewlet obtains every JDK root **copy-from-image**: the provisioner pulls the
-vendor's official JDK image through the **host** containerd, mounts its unpacked
-root, and copies the complete userland onto the host `hostPath` — no package
-manager ever touches the host, and no vendor tarball endpoints need to be
-reachable. It requires the containerd socket and host mount namespace access
-(already wired into the DaemonSet).
-
-```bash
-ctr --address /run/containerd/containerd.sock --namespace k8s.io image pull "$image"
-ctr --address /run/containerd/containerd.sock --namespace k8s.io images mount "$image" /tmp/jdk-root
-cp -a /tmp/jdk-root/. /opt/brewlet/jdks/<dist>-<feature>/
-ctr --address /run/containerd/containerd.sock --namespace k8s.io images unmount /tmp/jdk-root
-```
-
-The built-in distribution → image map:
-
-| `distribution` | Image |
-|---|---|
-| `temurin` | `eclipse-temurin:<feature>` |
-| `microsoft` | `mcr.microsoft.com/openjdk/jdk:<feature>-ubuntu` |
-
-`temurin` and `microsoft` are curated: their image and Java-home mappings are
-built into the provisioner. Pulls go by image reference, so mirror these images
-into your own registry for air-gapped clusters.
-
-Because images are content-addressable (pulled by digest through containerd), you
-get integrity end-to-end without a separate checksum step.
-
-### Custom distributions: Azul Zulu example
-
-A Kubernetes administrator can install any image-packaged JDK by declaring its
-fully qualified OCI image and the absolute Java-home path inside that image:
+For a direct `NodeProfile`, use the same shape:
 
 ```yaml
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
-  name: zulu
+  name: java-platform
 spec:
   nodePool:
-    names: ["zulu-workers"]
+    names: ["java-workers"]
   jdks:
-    - distribution: zulu
+    - distribution: temurin
       feature: 21
       source:
-        image: docker.io/library/azul-zulu:21
-        javaHome: /usr/lib/jvm/zulu21
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
   rollout:
     validate: true
     containerdRestart: validated
 ```
 
-The Docker Official `azul-zulu:21` image is multi-architecture and exposes
-`JAVA_HOME=/usr/lib/jvm/zulu21`. Brewlet pulls the platform matching each node,
-copies that root to `/opt/brewlet/jdks/zulu-21`, runs `java -version`, and only
-then advertises `brewlet.sh/jdk.zulu-21=true`.
+---
 
-For production:
+## Arbitrary JDKs
 
-1. Pin `source.image` by multi-architecture manifest digest.
-2. Verify the image covers every architecture in the selected node pool.
-3. Verify `source.javaHome/bin/java` exists in every platform variant.
-4. Add the source registry host to `spec.registry.mirrors` when nodes use an
-   internal mirror.
+Any image-packaged OpenJDK distribution works when the selected path contains
+`bin/java` and the image includes the native loader and libraries it needs. For
+example, Azul Zulu 21:
 
-Curated distributions must omit `source`; custom distributions must provide it.
-The distribution name becomes part of node labels and must be a lowercase
-DNS-1123 label.
+```yaml
+spec:
+  jdks:
+    - distribution: zulu
+      feature: 21
+      source:
+        image: docker.io/library/azul-zulu@sha256:2e230d906cffcc7bb7360ce82836f2ff0e0be74a1d5ebaf929e4e6ac99d61bf2
+        javaHome: /usr/lib/jvm/zulu21
+```
 
 ### Shared jlink runtimes
 
-A custom source may be a platform-owned **jlink runtime image** instead of a full
-vendor JDK. This preserves Brewlet's model: applications still ship only JARs,
-while one centrally patched runtime and module set is installed once per node
-pool. It does not support embedding a separate jlink runtime in each application
-artifact.
-
-For example, a platform team can build a runtime containing approved JDK modules
-and an organization module:
+The same contract supports a platform-owned jlink runtime:
 
 ```dockerfile
 FROM eclipse-temurin:21-jdk AS build
@@ -222,8 +118,7 @@ FROM debian:bookworm-slim
 COPY --from=build /runtime /opt/java/runtime
 ```
 
-Publish each required architecture under one multi-architecture image reference,
-then configure the runtime exactly like another custom distribution:
+Publish each required architecture under one reviewed multi-platform digest:
 
 ```yaml
 spec:
@@ -231,97 +126,149 @@ spec:
     - distribution: platform
       feature: 21
       source:
-        image: registry.example.com/java/platform-runtime@sha256:<manifest-digest>
+        image: registry.example.com/java/platform-runtime@sha256:<64-lowercase-hex>
         javaHome: /opt/java/runtime
 ```
 
-The final image must contain the operating-system loader and libraries needed by
-`javaHome/bin/java`; Brewlet uses its complete root as the sandbox userland. The
-image does not need `sh`, `cp`, or `tar`. Rebuild and roll out the shared image
-when its JDK patch level or centrally approved module set changes.
+The distribution name is an inventory identifier, not a registry lookup key.
+There are no `lts`, `latest`, or vendor aliases.
 
-There is no distribution-name aliasing and no `lts`/`latest` feature shortcut:
-the `<distribution>-<feature>` token is taken verbatim so the root path and the
-`brewlet.sh/jdk-feature.<feature>` label stay stable and reproducible for the
-workloads that pin them.
+---
+
+## Selecting and reviewing a digest
+
+Resolve the digest with your registry tooling and review its platform coverage.
+For example:
+
+```bash
+docker buildx imagetools inspect docker.io/library/eclipse-temurin:21-jdk
+docker buildx imagetools inspect mcr.microsoft.com/openjdk/jdk:25
+```
+
+Use the top-level multi-platform index digest when the selected node pool mixes
+architectures. Otherwise, pin the reviewed platform manifest digest. Confirm
+that every selected variant exposes the same `source.javaHome`.
+
+Before rollout, verify:
+
+1. the reference is fully qualified and contains no tag;
+2. the digest is SHA-256 lowercase hex;
+3. every target architecture is present;
+4. `<javaHome>/bin/java` exists and is executable; and
+5. your organization accepts the distribution's license and update policy.
 
 ---
 
 ## Architecture mapping (multi-arch)
 
-The node's `uname -m` is mapped to the vendor's arch token:
+The provisioner runs on the target node and lets containerd select that node's
+platform from the pinned OCI image or image index:
 
-| Node (`uname -m`) | Temurin / MS token |
+| Node (`uname -m`) | OCI architecture |
 |---|---|
-| `x86_64` / `amd64` | `x64` |
-| `aarch64` / `arm64` | `aarch64` |
+| `x86_64` / `amd64` | `amd64` |
+| `aarch64` / `arm64` | `arm64` |
 
-Install **one root per node architecture** (amd64/arm64). The provisioner image and
-shim are compiled per-arch, but the **OCI artifact is arch-neutral** — the *same*
-artifact runs on any provisioned architecture. Multi-arch is transparent to
-developers.
+Use one reviewed multi-platform index digest for mixed-architecture pools, or
+separate profiles with platform-manifest digests when architecture-specific
+approval is required. The application JAR remains architecture-neutral.
+
+---
+
+## Registry mirrors and air-gapped clusters
+
+Mirror destinations are operator policy, separate from each `NodeProfile`.
+Allowlist exact destination hosts, including explicit ports:
+
+```yaml
+security:
+  allowedSourceMirrorHosts:
+    - registry.internal.example.com
+
+provisioner:
+  registry:
+    mirrors:
+      docker.io: registry.internal.example.com/dockerhub
+      mcr.microsoft.com: registry.internal.example.com/mcr
+```
+
+Admission, reconciliation, and the privileged provisioner all reject malformed,
+duplicate, self-referential, or unapproved mappings. A rewrite changes only the
+registry/repository prefix and preserves the original `@sha256:` digest, so the
+mirror must expose identical manifest or index bytes under that digest.
+Credentials remain a node/containerd concern and are not stored in
+`NodeProfile`.
+
+---
+
+## Inspecting the JDKs available on the cluster
+
+With `spec.rollout.validate=true`, each copied JDK must contain an executable
+`<javaHome>/bin/java`, and `java -version` must succeed inside the staged root
+before Brewlet publishes readiness.
+
+Nodes advertise the coarse inventory:
+
+```bash
+kubectl get node node-1 \
+  -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks}{"\n"}'
+# temurin-21,microsoft-25
+```
+
+They also publish `brewlet.sh/jdks-info`, populated from the installed JDK:
+
+```json
+[
+  {"distribution":"temurin","vendor":"Eclipse Adoptium","feature":21,"version":"21.0.5","arch":"amd64"},
+  {"distribution":"microsoft","vendor":"Microsoft","feature":25,"version":"25","arch":"amd64"}
+]
+```
+
+Use `brewlet jdks`, `brewlet jdks --output wide`, or
+`brewlet jdks --output json` to aggregate this data across the fleet.
 
 ---
 
 ## Patching & upgrading JDKs
 
-JDK CVE management is **centralized** — patching the node JDK patches *all* workloads
-at once, the big advantage over per-image JVMs.
+To patch a JDK within the same feature version:
 
-To roll out a new JDK across the fleet:
+1. review the new image or multi-platform index;
+2. replace `source.image` with its new digest;
+3. apply the Helm values or `NodeProfile`; and
+4. restart workloads after nodes report ready.
 
-1. Add the new root to the inventory (e.g. add `temurin-21` alongside an older
-   `temurin-17`), keeping both while you migrate:
-   ```bash
-   helm upgrade brewlet ./charts/brewlet \
-     --set provisioner.jdks="temurin-17,temurin-21"
-   ```
-2. The operator rolls the DaemonSet; each node installs the new root additively.
-   Running pods are unaffected.
-3. Migrate workloads to the new feature (`spec.jvm.version` or raw pod
-   `brewlet.sh/jdk`), then restart them to pick up the new root.
-4. Retire the old root once nothing references it:
-   ```bash
-   helm upgrade brewlet ./charts/brewlet --set provisioner.jdks="temurin-21"
-   ```
+The changed `.brewlet-source` causes an atomic replacement of the shared root.
+Running pods retain their existing mount until they restart.
 
-For a *patch* within the same feature (e.g. `21.0.3 → 21.0.4`), re-provisioning the
-root replaces the shared JDK installation; pods pick it up on their next restart. Because roots
-are read-only and shared, no per-pod pull/unpack happens.
+For a feature upgrade, declare both roots during migration:
 
-> **Idempotency.** The provisioner treats a root as present once the Java home
-> recorded by `<dist>-<feature>/.brewlet-java-home` contains a runnable `bin/java`.
-> To force a re-install of a patched root, remove the existing directory on the
-> node (or bump to a version that lands in a different `<dist>-<feature>` path)
-> before re-provisioning.
+```yaml
+provisioner:
+  jdks:
+    - distribution: temurin
+      feature: 17
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<temurin-17-digest>
+        javaHome: /opt/java/openjdk
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<temurin-21-digest>
+        javaHome: /opt/java/openjdk
+```
 
----
-
-## Licensing
-
-Brewlet is **distribution-neutral** and pins nothing. Ship only OpenJDK builds whose
-license you accept — the platform team chooses the builds. The curated copy-from-image
-map covers Temurin and the Microsoft Build of OpenJDK; add other published JDK images
-as needed.
+Move workloads to feature 21, then remove the feature-17 entry after nothing
+requests it.
 
 ---
 
 ## Known limitations
 
-- Custom images must expose the same Java-home path on every architecture in the
-  selected node pool.
-- **A requested `<feature>` must be published as an image** by the chosen vendor for
-  the node's architecture.
-- The default validated activation expects the host containerd service to be
-  restartable as `containerd` through systemd. Use the legacy `sighup` mode when
-  that service-manager contract is unavailable, or `none` when runtime
-  registration is managed in the node image.
-
-## Next steps
-
-- **[Launchers](launchers.md)** — install `jaz` alongside your JDKs.
-- **[Configuration](configuration.md)** — where the inventory is set.
-- **[Capability labels and autoscaling](capability-labels-and-autoscaling.md)** —
-  connect the inventory to scheduling and node-pool scaling.
-- **[Observability & day‑2](observability.md)** — upgrade choreography and GC of old
-  roots.
+- One source entry must use the same Java-home path on every architecture in its
+  selected multi-platform image.
+- The copied image must contain the operating-system loader and native libraries
+  required by `java`.
+- The default validated activation expects a `containerd` systemd service. Use
+  `sighup` only for the legacy reload path, or `none` when another system owns
+  runtime registration.

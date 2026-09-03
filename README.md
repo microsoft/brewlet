@@ -57,7 +57,8 @@ Maven plugin or Brewlet CLI  --->  OCI registry  --->  provisioned node
 ```
 
 1. The platform operator installs Brewlet and defines the supported JDK and
-   launcher inventory through one or more `NodeProfile` resources.
+   launcher inventory through one or more `NodeProfile` resources. Every runtime
+   source is administrator-provided and pinned to an OCI SHA-256 digest.
 2. The node provisioner installs the containerd shim and approved runtimes on
    matching nodes, then advertises their capabilities through node metadata.
 3. The developer packages a Java application with the CLI or Maven plugin and
@@ -109,8 +110,7 @@ platform-owned node pools.
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.3.1 \
   --namespace brewlet \
-  --create-namespace \
-  --set-string provisioner.jdks=temurin-21
+  --create-namespace
 
 kubectl get nodes -L brewlet.sh/runtime
 brewlet doctor --namespace <developer-namespace>

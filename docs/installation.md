@@ -68,9 +68,7 @@ values — so there is a single runtime source of truth for the JDK/launcher inv
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.3.1 \
   --namespace brewlet \
-  --create-namespace \
-  --set provisioner.jdks="temurin-21,microsoft-25" \
-  --set provisioner.launchers="jaz"
+  --create-namespace
 
 # The chart renders a default NodeProfile that provisions EVERY node (§5.6) —
 # there is no per-node opt-in step. The operator provisions each node and the
@@ -78,6 +76,11 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
 # handler, and configured readiness probes are healthy. Watch:
 kubectl get nodes -L brewlet.sh/runtime -w
 ```
+
+The chart's editable default `NodeProfile` uses explicit, digest-pinned Temurin
+21, Microsoft JDK 25, and `jaz` sources. Review or replace them in a values file;
+see [JDK management](jdk-management.md#helm-examples-temurin-and-microsoft) and
+[Launchers](launchers.md#helm-example-jaz).
 
 > To limit provisioning to platform-owned pools instead of every node, disable the
 > chart's default profile (`--set defaultProfile.enabled=false`) and define named
@@ -90,8 +93,10 @@ kubectl get nodes -L brewlet.sh/runtime -w
 
 The default rollout is fail-safe:
 
-- `provisioner.rollout.validate=true` executes every installed JDK and launcher
-  version probe before readiness or capability labels are published.
+- `provisioner.rollout.validate=true` executes every installed JDK's
+  `java -version` and checks that each staged launcher is executable before
+  readiness or capability labels are published. Arbitrary launchers are not
+  executed as probes.
 - `provisioner.rollout.containerdRestart=validated` renders an imported
   `/etc/containerd/config.toml.d/99-brewlet.toml` drop-in when supported, or a
   backed-up in-place configuration otherwise. It validates the effective config,
@@ -103,7 +108,8 @@ The default rollout is fail-safe:
 
 Use `containerdRestart: sighup` only for the legacy in-place SIGHUP path. Use
 `containerdRestart: none` when containerd registration is managed in the node
-image or by another system; the JDK and launcher readiness probes still run.
+image or by another system; the JDK smoke tests and launcher executable checks
+still run.
 See [Configuration](configuration.md#helm-chart-values) for the values.
 
 Point the chart at your own registry or image digests if required:
@@ -115,8 +121,7 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --create-namespace \
   --set images.operator=<registry>/operator:<tag> \
   --set images.provisioner=<registry>/node-provisioner:<tag> \
-  --set images.admission=<registry>/admission:<tag> \
-  --set provisioner.jdks="temurin-21"
+  --set images.admission=<registry>/admission:<tag>
 ```
 
 Every value is documented in [Configuration](configuration.md#helm-chart-values).
@@ -130,14 +135,39 @@ make -C kubernetes helm-template
 ### Upgrading
 
 Helm does not upgrade CRDs placed under a chart's `crds/` directory. Before
-upgrading an existing Brewlet installation to a release that adds custom JDK or
-jlink runtime sources, apply that release's `NodeProfile` CRD explicitly:
+upgrading an existing Brewlet installation to a release that requires explicit
+JDK and launcher sources, plan a maintenance window: the `v1alpha1` launcher
+wire format changed from strings to structured sources, so legacy profiles
+cannot remain present during the control-plane rollout. Delete them while the
+old controller can still clean their nodes, then upgrade once with profile
+creation disabled:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/microsoft/brewlet/v0.3.1/kubernetes/deploy/nodeprofile-crd.yaml
+RELEASE_VERSION=x.y.z
+
+kubectl delete nodeprofiles.node.brewlet.sh --all
+kubectl wait --for=delete nodeprofiles.node.brewlet.sh --all --timeout=10m
+
+kubectl apply -f \
+  "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/nodeprofile-crd.yaml"
+
+cat >/tmp/brewlet-no-profiles.yaml <<'EOF'
+defaultProfile:
+  enabled: false
+profiles: []
+EOF
+
 helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.3.1 \
-  -f values.yaml
+  --version "$RELEASE_VERSION" \
+  -f values.yaml \
+  -f /tmp/brewlet-no-profiles.yaml \
+  --wait
+
+# Re-enable the migrated, digest-pinned profiles after the new webhook is ready.
+helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
+  --version "$RELEASE_VERSION" \
+  -f values.yaml \
+  --wait
 ```
 
 ### What the chart deploys vs. what the operator creates
@@ -168,16 +198,16 @@ kubectl apply -f kubernetes/config/operator.yaml
 kubectl label node --all brewlet.sh/provision=true
 ```
 
-You can also run the operator locally against your current kubeconfig (useful for
-debugging), passing the same inventory the chart would set:
+You can also run the operator locally against your current kubeconfig (useful
+for debugging). Runtime inventory belongs in `NodeProfile`, not operator flags:
 
 ```bash
 make -C kubernetes operator-build
 ./kubernetes/bin/operator \
   --namespace=brewlet \
-  --provisioner-image=<registry>/node-provisioner:<tag> \
-  --jdks=temurin-21,microsoft-25 \
-  --launchers=jaz
+  --provisioner-image=<registry>/node-provisioner:<tag>
+
+kubectl apply -f kubernetes/deploy/sample-nodeprofile.yaml
 ```
 
 The RuntimeClass and provisioner DaemonSet the operator generates mirror
