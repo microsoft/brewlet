@@ -70,8 +70,8 @@ plain OCI images:
 
 Layer layout:
 
-- **app layer** — a flat tar containing the main JAR (named per `mainJar`) plus an
-  optional AppCDS `.jsa`.
+- **app layer** — a flat tar containing the main JAR (named per `mainJar`, which must
+  be a bare filename) plus an optional AppCDS `.jsa`.
 - **classpath / modulepath layers** — the *same* flat-JAR tars a native artifact would
   ship for [layered classpath](layered-classpath-deployment.md) / [JPMS](jpms-support.md)
   deployments, just gzip-compressed and role-tagged.

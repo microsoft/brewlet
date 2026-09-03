@@ -65,6 +65,9 @@ type JVMConfig struct {
 	// mode. Optional in the JSON; the launch/bundle path defaults it to "app.jar".
 	// The primary JAR always lives at /app top level; dependency layers unpack under
 	// /app/lib (classpath) or /app/mods (module), never at the top level.
+	// It MUST be a bare filename: separators, wildcards and dot segments are
+	// rejected, because the name is joined onto the per-image staging directory
+	// and the result becomes a root bind-mount source (see Validate).
 	MainJar string `json:"mainJar"`
 	Entry   Entry  `json:"entry"`
 	// EnablePreview adds --enable-preview when the bytecode was compiled with
@@ -279,6 +282,16 @@ func (c JVMConfig) Validate() error {
 		}
 		seenArch[a] = struct{}{}
 	}
+	// The primary JAR is materialized at /app/<mainJar> and, on a node, the path
+	// it resolves to under the per-image staging tree becomes a root bind-mount
+	// SOURCE. A value carrying a separator, a dot segment or an absolute path
+	// would escape staging and select an arbitrary host file, so require a bare
+	// filename. Empty is legal: the launch/bundle path defaults it to "app.jar".
+	if c.MainJar != "" {
+		if err := validateBareFilename("mainJar", c.MainJar); err != nil {
+			return fmt.Errorf("%w: the primary JAR is mounted at /app/<mainJar>", err)
+		}
+	}
 	// Dangling top-level JAR reference: a bare `<name>.jar` entry (no directory,
 	// no wildcard) in classPath/modulePath can only be satisfied by the primary
 	// JAR, since dependency layers unpack under /app/lib or /app/mods — never at
@@ -296,20 +309,73 @@ func (c JVMConfig) Validate() error {
 	// resolves to /app/<archive> (dependency layers unpack under lib/ or mods/;
 	// the archive always lives at the /app top level). Reject path separators,
 	// parent refs and wildcards so a malformed hint fails at publish time rather
-	// than as an opaque JVM error at launch. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
+	// than as an opaque JVM error at launch — and so it cannot escape the staging
+	// directory it is resolved against. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	if c.CDS != nil {
-		a := strings.TrimSpace(c.CDS.Archive)
-		if a == "" {
+		if strings.TrimSpace(c.CDS.Archive) == "" {
 			return fmt.Errorf("cds.archive must be a non-empty archive filename (e.g. \"app.jsa\")")
 		}
-		if a != c.CDS.Archive || strings.ContainsAny(a, "/*") || a == ".." || strings.Contains(a, string(os.PathSeparator)) {
-			return fmt.Errorf("cds.archive %q must be a bare filename (no path separator, no wildcard): the archive is mounted at /app/<archive>", c.CDS.Archive)
+		if err := validateBareFilename("cds.archive", c.CDS.Archive); err != nil {
+			return fmt.Errorf("%w: the archive is mounted at /app/<archive>", err)
 		}
 		if _, ok := KnownCDSModes[c.CDS.Mode]; c.CDS.Mode != "" && !ok {
 			return fmt.Errorf("cds.mode %q is not recognized (expected \"dynamic\", \"static\", or omitted)", c.CDS.Mode)
 		}
 	}
 	return nil
+}
+
+// validateBareFilename enforces that value is a single path component that can
+// only ever resolve to a file directly inside the directory it is joined to:
+// no surrounding whitespace, no path separator (either flavor, so the rule is
+// identical when the CLI runs off-Linux), no wildcard, and no parent reference.
+// Both `mainJar` and `cds.archive` name files that are materialized under a
+// per-image staging directory and then bind-mounted into the sandbox by the
+// root shim, so a value that is not bare is a host-path-traversal primitive
+// (CWE-22), not merely a malformed hint. The Maven plugin's JvmConfig.validate
+// applies the same rule, so an artifact published either way is checked
+// identically.
+func validateBareFilename(field, value string) error {
+	if value != strings.TrimSpace(value) {
+		return fmt.Errorf("%s %q must be a bare filename (no leading or trailing whitespace)", field, value)
+	}
+	if value == "" {
+		return fmt.Errorf("%s must be a non-empty bare filename", field)
+	}
+	if strings.ContainsAny(value, `/\*?`) || strings.ContainsRune(value, os.PathSeparator) {
+		return fmt.Errorf("%s %q must be a bare filename (no path separator, no wildcard)", field, value)
+	}
+	if value == "." || strings.Contains(value, "..") {
+		return fmt.Errorf("%s %q must be a bare filename (no parent reference)", field, value)
+	}
+	return nil
+}
+
+// ValidateBareFilename is validateBareFilename for callers outside this package
+// (the runtime sandbox/bundle assembly and the node shim), which re-check a
+// filename at the point it is joined onto a host directory or used as a
+// bind-mount source. field names the config key for the error message.
+func ValidateBareFilename(field, value string) error {
+	return validateBareFilename(field, value)
+}
+
+// DefaultMainJar is the filename the single primary JAR is materialized as at
+// the /app top level when the launch config does not name one.
+const DefaultMainJar = "app.jar"
+
+// MainJarName returns the filename the primary JAR is materialized as under
+// /app — c.MainJar when set, DefaultMainJar otherwise — after re-checking that
+// it is a bare filename. Every caller that joins the name onto a host directory
+// (staging, sandbox assembly, CDS staging) or uses it as a mount path resolves
+// it through here so an unvalidated config cannot escape the directory.
+func MainJarName(c JVMConfig) (string, error) {
+	if c.MainJar == "" {
+		return DefaultMainJar, nil
+	}
+	if err := validateBareFilename("mainJar", c.MainJar); err != nil {
+		return "", err
+	}
+	return c.MainJar, nil
 }
 
 // JAR filename — ends in ".jar", with no path separator and no wildcard. Such an

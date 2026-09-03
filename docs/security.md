@@ -56,6 +56,14 @@ such as a raw Pod `securityContext` or standalone `brewlet bundle --uid 0 --gid
 The JDK runtime root is mounted **read-only** and shared; only a small per-container
 upper/scratch layer is writable.
 
+Artifact metadata never selects a host path. The `mainJar` and `cds.archive`
+filenames are validated as bare filenames — no path separator, wildcard or parent
+reference — at publish time, when the launch config is decoded (including from a
+runnable image's `brewlet.sh/jvm-config` annotation), and again in the shim before
+the file is bind-mounted. Resolution additionally verifies that every path it hands
+to the shim is contained by the per-image staging directory, so a malicious image
+cannot point the read-only JAR or AppCDS mount at an arbitrary host file.
+
 ---
 
 ## Artifact integrity

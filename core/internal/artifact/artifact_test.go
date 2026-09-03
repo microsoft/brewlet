@@ -244,6 +244,28 @@ func TestValidate(t *testing.T) {
 		{"mixed refs mismatched top-level jar", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "module", Module: "com.acme.orders", ModulePath: []string{"orders.jar", "mods"}, ClassPath: []string{"legacy.jar"}}}, true},
 		{"nested jar under lib is not a top-level ref", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "classpath", MainClass: "M", ClassPath: []string{"orders.jar", "lib/legacy.jar"}}}, false},
 		{"mismatch ignored when mainJar unset", JVMConfig{Entry: Entry{Mode: "classpath", MainClass: "M", ClassPath: []string{"orders.jar", "lib/*"}}}, false},
+		// mainJar is joined onto the staging directory and the result becomes a
+		// root bind-mount source, so anything but a bare filename is a host
+		// path-traversal primitive (CWE-22) and must be rejected.
+		{"mainJar bare filename", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "jar"}}, false},
+		{"mainJar unset defaults later", JVMConfig{Entry: Entry{Mode: "jar"}}, false},
+		{"mainJar parent traversal", JVMConfig{MainJar: "../x.jar", Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar deep traversal", JVMConfig{MainJar: "../../etc/passwd", Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar absolute path", JVMConfig{MainJar: "/etc/passwd", Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar nested path", JVMConfig{MainJar: "a/b.jar", Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar backslash path", JVMConfig{MainJar: `a\b.jar`, Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar parent dot segment", JVMConfig{MainJar: "..", Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar current dot segment", JVMConfig{MainJar: ".", Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar wildcard", JVMConfig{MainJar: "lib/*.jar", Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar single-char wildcard", JVMConfig{MainJar: "app?.jar", Entry: Entry{Mode: "jar"}}, true},
+		{"mainJar padded with whitespace", JVMConfig{MainJar: " app.jar ", Entry: Entry{Mode: "jar"}}, true},
+		// cds.archive carries the same rule for the same reason.
+		{"cds archive bare filename", JVMConfig{MainJar: "app.jar", Entry: Entry{Mode: "jar"}, CDS: &CDS{Archive: "app.jsa"}}, false},
+		{"cds archive traversal", JVMConfig{MainJar: "app.jar", Entry: Entry{Mode: "jar"}, CDS: &CDS{Archive: "../app.jsa"}}, true},
+		{"cds archive absolute path", JVMConfig{MainJar: "app.jar", Entry: Entry{Mode: "jar"}, CDS: &CDS{Archive: "/etc/passwd"}}, true},
+		{"cds archive dot segment", JVMConfig{MainJar: "app.jar", Entry: Entry{Mode: "jar"}, CDS: &CDS{Archive: "."}}, true},
+		{"cds archive backslash path", JVMConfig{MainJar: "app.jar", Entry: Entry{Mode: "jar"}, CDS: &CDS{Archive: `dir\app.jsa`}}, true},
+		{"cds archive wildcard", JVMConfig{MainJar: "app.jar", Entry: Entry{Mode: "jar"}, CDS: &CDS{Archive: "app?.jsa"}}, true},
 		// Optional arch constraint (non-portable artifacts).
 		{"arch unset is arch-neutral", JVMConfig{Entry: Entry{Mode: "jar"}}, false},
 		{"arch amd64", JVMConfig{Entry: Entry{Mode: "jar"}, Arch: []string{"amd64"}}, false},

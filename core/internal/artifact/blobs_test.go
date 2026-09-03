@@ -311,3 +311,120 @@ func TestStoreResolveBlobsRejectsManifestDigestMismatch(t *testing.T) {
 		t.Errorf("ManifestDigest = %q after mismatch, want empty", got.ManifestDigest)
 	}
 }
+
+// pushRunnableFixture publishes a runnable OCI image (JAR + optional CDS
+// archive) into a local layout store and returns the store and the resolved
+// platform manifest, as the shim would see it after a kubelet pull.
+func pushRunnableFixture(t *testing.T, cfg JVMConfig, withCDS bool) (Store, Manifest, string) {
+	t.Helper()
+	work := t.TempDir()
+	jarPath := filepath.Join(work, "orders.jar")
+	if err := os.WriteFile(jarPath, []byte("PK\x03\x04 orders"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cdsPath := ""
+	if withCDS {
+		cdsPath = filepath.Join(work, "orders.jsa")
+		if err := os.WriteFile(cdsPath, []byte("JSA"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := Store{Root: t.TempDir()}
+	if _, err := store.PushRunnableImage("demo/orders:1", cfg, jarPath, nil, nil, cdsPath); err != nil {
+		t.Fatalf("PushRunnableImage: %v", err)
+	}
+	man, digest, err := store.ResolveManifestByRef("demo/orders:1")
+	if err != nil {
+		t.Fatalf("ResolveManifestByRef: %v", err)
+	}
+	return store, man, digest
+}
+
+// withHostileMainJar rewrites the manifest's launch-config annotation so it
+// carries a mainJar that publish-time validation would have rejected, modelling
+// an image whose brewlet.sh/jvm-config metadata the attacker controls.
+func withHostileMainJar(t *testing.T, man Manifest, mainJar string) Manifest {
+	t.Helper()
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(man.Annotations[JVMConfigAnnotation]), &raw); err != nil {
+		t.Fatal(err)
+	}
+	raw["mainJar"] = mainJar
+	b, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := man
+	out.Annotations = map[string]string{}
+	for k, v := range man.Annotations {
+		out.Annotations[k] = v
+	}
+	out.Annotations[JVMConfigAnnotation] = string(b)
+	return out
+}
+
+// A mainJar that escapes the staging directory turns the shim's read-only JAR
+// bind-mount into an arbitrary host-path disclosure primitive, so resolution
+// must refuse it outright rather than return a path outside staging.
+func TestResolveRunnableBlobsRejectsEscapingMainJar(t *testing.T) {
+	stage := t.TempDir()
+	t.Setenv("BREWLET_RUNNABLE_STAGE", stage)
+	cfg := JVMConfig{SchemaVersion: 1, MainJar: "orders.jar", Entry: Entry{Mode: "jar"}}
+	store, man, digest := pushRunnableFixture(t, cfg, false)
+
+	for _, hostile := range []string{"../x.jar", "../../etc/passwd", "/etc/passwd", "a/b.jar", "..", ".", "lib/*.jar", " orders.jar "} {
+		t.Run(hostile, func(t *testing.T) {
+			got, err := ResolveRunnableBlobs(store, withHostileMainJar(t, man, hostile), digest)
+			if err == nil {
+				t.Fatalf("resolved hostile mainJar %q to %q, want rejection", hostile, got.JarHostPath)
+			}
+			if got.JarHostPath != "" {
+				t.Errorf("JarHostPath = %q after rejection, want empty", got.JarHostPath)
+			}
+		})
+	}
+}
+
+// Every path resolution hands to the shim as a bind-mount source must live
+// under the per-image staging tree.
+func TestResolveRunnableBlobsPathsStayUnderStaging(t *testing.T) {
+	stage := t.TempDir()
+	t.Setenv("BREWLET_RUNNABLE_STAGE", stage)
+	cfg := JVMConfig{
+		SchemaVersion: 1,
+		MainJar:       "orders.jar",
+		Entry:         Entry{Mode: "jar"},
+		CDS:           &CDS{Archive: "orders.jsa", Mode: "dynamic"},
+	}
+	store, man, digest := pushRunnableFixture(t, cfg, true)
+
+	got, err := ResolveRunnableBlobs(store, man, digest)
+	if err != nil {
+		t.Fatalf("ResolveRunnableBlobs: %v", err)
+	}
+	if got.CDSHostPath == "" {
+		t.Fatal("CDSHostPath is empty, want the staged archive")
+	}
+	for name, p := range map[string]string{"JarHostPath": got.JarHostPath, "CDSHostPath": got.CDSHostPath} {
+		rel, err := filepath.Rel(stage, p)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			t.Errorf("%s = %q escapes staging root %q", name, p, stage)
+		}
+	}
+}
+
+func TestStagedPathRejectsEscape(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"../x.jar", "../../etc/passwd", "/etc/passwd", "a/../../b.jar", "..", ".", ""} {
+		if got, err := stagedPath(dir, name); err == nil {
+			t.Errorf("stagedPath(%q) = %q, want rejection", name, got)
+		}
+	}
+	got, err := stagedPath(dir, "orders.jar")
+	if err != nil {
+		t.Fatalf("stagedPath rejected a bare filename: %v", err)
+	}
+	if want := filepath.Join(dir, "orders.jar"); got != want {
+		t.Errorf("stagedPath = %q, want %q", got, want)
+	}
+}

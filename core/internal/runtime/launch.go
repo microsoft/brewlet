@@ -319,9 +319,9 @@ func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		return "", "", err
 	}
-	main := cfg.MainJar
-	if main == "" {
-		main = "app.jar"
+	main, err := artifact.MainJarName(cfg)
+	if err != nil {
+		return "", "", err
 	}
 	jarPath = filepath.Join(appDir, main)
 	data, err := os.ReadFile(jarSrc)
