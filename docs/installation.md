@@ -34,8 +34,14 @@ There are two paths:
 ### Released components
 
 Brewlet publishes version-aligned multi-architecture component images and an OCI
-Helm chart. Installing chart `0.3.1` selects image tag `0.3.1` automatically.
-Pin to your own registry or immutable digests in production.
+Helm chart. A published chart records the **immutable digest** of each component
+image it was built against, so installing chart `0.4.0` resolves
+`ghcr.io/microsoft/brewlet-operator@sha256:…` rather than a tag that could later
+be repointed. Charts packaged from a source checkout have no recorded digests and
+fall back to the shared `images.tag`.
+
+Every published artifact also carries [SLSA build
+provenance](#verify-a-release) signed by the release workflow.
 
 To build the components from source instead, use the
 [Kubernetes component Makefile](https://github.com/microsoft/brewlet/blob/main/kubernetes/Makefile):
@@ -56,6 +62,49 @@ These commands build multi-arch (`linux/amd64,linux/arm64`) images via `buildx`
 and require a logged-in registry. The provisioner image compiles the shim
 **inside** the build for each target arch, so the installed shim always matches
 the node.
+
+---
+
+## Verify a release
+
+The release workflow publishes SLSA build provenance for each component image,
+the OCI Helm chart, and every GitHub Release asset. Provenance for images and the
+chart is pushed to GHCR as an OCI referrer, so it can be verified straight from
+the registry without trusting the release page.
+
+Verify everything for a release in one step:
+
+```bash
+git clone https://github.com/microsoft/brewlet.git
+cd brewlet
+./scripts/verify-release-provenance.sh 0.4.0
+```
+
+The script checks that each image, the chart, and every release asset was built
+by `microsoft/brewlet`'s release workflow, and that `checksums.txt` matches the
+published files. The release workflow runs the same script against the version it
+just published, so a release that cannot produce verifiable provenance fails.
+
+To verify a single artifact directly:
+
+```bash
+# A component image, straight from the registry.
+gh attestation verify oci://ghcr.io/microsoft/brewlet-operator:0.4.0 \
+  --repo microsoft/brewlet \
+  --signer-workflow microsoft/brewlet/.github/workflows/release.yml
+
+# A downloaded CLI archive.
+gh attestation verify brewlet_0.4.0_linux_amd64.tar.gz \
+  --repo microsoft/brewlet \
+  --signer-workflow microsoft/brewlet/.github/workflows/release.yml
+```
+
+`--signer-workflow` is the important part: it requires the attestation to come
+from this repository's release workflow, not merely from some workflow in the
+repository.
+
+Releases before `0.4.0` predate build provenance and can only be verified with
+the published `checksums.txt`.
 
 ---
 

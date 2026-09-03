@@ -17,8 +17,9 @@ constructs OCI bundles, overlay lower layers, and bind mounts for tenant
 workloads.
 
 The review originally identified one Critical, five High, five Medium, and one
-Low issue. All five High findings (2, 3, 4, 6, and 7) and the Low finding (12)
-have since been remediated through merged pull requests. The remaining Critical
+Low issue. All five High findings (2, 3, 4, 6, and 7), the Low finding (12), and
+Medium finding 11 have since been remediated through merged pull requests. The
+remaining Critical
 issue is a confirmed path traversal in OCI descriptor digest resolution:
 descriptor digest strings are converted into host filesystem paths without
 validating that they are canonical SHA-256 digests. A namespace tenant that can
@@ -637,7 +638,7 @@ hostPath write access, and document the blast radius.
 or default control-plane placement. In a multi-node test cluster, verify no
 provisioner lands on the control-plane node under default values.
 
-### 11. Mutable GitHub Actions and absent provenance weaken release integrity
+### 11. Mutable GitHub Actions and absent provenance weaken release integrity — remediated
 
 **Severity:** Medium  
 **Confidence:** 9/10  
@@ -645,10 +646,66 @@ provisioner lands on the control-plane node under default values.
 **CWE:** CWE-1357, CWE-829  
 **Type:** Supply-chain architectural risk
 
+**Status:** Remediated by [issue #29](https://github.com/microsoft/brewlet/issues/29)
+and [pull request #42](https://github.com/microsoft/brewlet/pull/42)
+
 **Attacker prerequisites:** Compromise of an action repository or ability to
 move a referenced action tag.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
+
+- `.github/workflows/release.yml:47,53,207,216` and the other workflows use
+  action version tags instead of full commit SHAs.
+- `.github/workflows/release.yml:17-19` grants `contents: write` and
+  `packages: write` at workflow scope.
+- No workflow produces cosign signatures, attestations, or SLSA provenance.
+- `.github/workflows/release.yml:211-213` checksums CLI archives but not Maven
+  artifacts.
+- `.github/workflows/ci.yml:82` and `kubernetes/Makefile` install
+  `setup-envtest` from a mutable release branch.
+- Helm image helpers publish version-tag references with
+  `IfNotPresent`, not recorded immutable digests.
+
+**Attack path and impact:** A moved action tag executes attacker code in a
+release job with repository and package write permissions. The attacker can
+replace GitHub Releases and GHCR images, while consumers have no independent
+signature or provenance to detect the replacement.
+
+**Remediation:** Pin every action to a full commit SHA, scope write permissions
+to the jobs that need them, enable automated action updates, sign images and
+release artifacts, publish build provenance, checksum Maven artifacts, and pin
+`setup-envtest`.
+
+**Remediation test:** Add a workflow lint rule rejecting non-SHA `uses:`
+references and release smoke tests that verify signatures and attestations for
+newly published artifacts.
+
+**Resolution:** Every `uses:` reference across all five workflows is now pinned
+to a full commit SHA with a trailing version comment, and `setup-envtest` is
+installed from an immutable module pseudo-version instead of the mutable
+`release-0.19` branch. The release workflow declares `contents: read` at workflow
+scope and grants `contents`, `packages`, `id-token`, and `attestations` writes
+only to the jobs that publish, so build-only jobs can no longer replace a release
+or a package.
+
+`actions/attest-build-provenance` now publishes SLSA v1 build provenance for each
+component image, the OCI Helm chart, and every GitHub Release asset; image and
+chart attestations are pushed to GHCR as OCI referrers so they can be verified
+from the registry alone. Released charts record the immutable digest of each
+image they were built against, so an install resolves
+`ghcr.io/microsoft/brewlet-*@sha256:…` rather than a tag that can be repointed,
+and packaging fails if a rendered chart is not digest-pinned. Release checksums
+now cover the CLI archives and the Maven jar and pom by explicit pattern and fail
+closed when any component is missing.
+
+Both remediation tests are automated. `scripts/check-workflow-security.sh` (with
+its own self-tests in `scripts/check-workflow-security_test.sh`, wired into
+`make check` and CI) rejects any non-SHA `uses:` reference and any workflow-scope
+write permission. `scripts/verify-release-provenance.sh` verifies every published
+image, the chart, and every release asset against the release workflow's signer
+identity; the release workflow runs it against the version it just published, and
+the website release smoke test runs it for every release at or after `0.4.0`.
+Dependabot keeps the SHA pins current.
 
 - `.github/workflows/release.yml:47,53,207,216` and the other workflows use
   action version tags instead of full commit SHAs.
@@ -835,8 +892,8 @@ downloaded tools and external build images are checksum- or digest-pinned.
 
 ### P2: Defense in depth
 
-1. Pin GitHub Actions by SHA, narrow workflow permissions, and publish
-   signatures and provenance.
+1. **Remediated:** Pin GitHub Actions by SHA, narrow workflow permissions, and
+   publish signatures and provenance.
 2. Make node provisioning opt-in and exclude control-plane nodes by default.
 3. **Remediated:** Add NetworkPolicy templates and automated short-lived webhook
    certificates.
@@ -862,8 +919,8 @@ downloaded tools and external build images are checksum- or digest-pinned.
    issue #25 and pull request #32).** Covers Finding 7.
 8. **Restrict registry token authentication to approved HTTPS origins.** Covers
    Finding 9.
-9. **Pin Actions and publish release signatures and provenance.** Covers
-   Finding 11.
+9. **Pin Actions and publish release signatures and provenance (remediated in
+   issue #29 and pull request #42).** Covers Finding 11.
 10. **Make privileged node provisioning opt-in and exclude control-plane
     nodes.** Covers Finding 10.
 11. **Add NetworkPolicies and automated webhook certificate rotation

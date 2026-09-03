@@ -1,0 +1,65 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# SHA-pinned actions are immutable, which also makes them invisible to a human
+# reader watching for upstream fixes. Dependabot is the counterweight: it moves
+# the pins forward and records the new version in the trailing comment that
+# scripts/check-workflow-security.sh requires.
+
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+
+  - package-ecosystem: gomod
+    directory: /core
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+
+  - package-ecosystem: gomod
+    directory: /kubernetes
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+
+  - package-ecosystem: gomod
+    directory: /admission/ratify-verifier
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+
+  - package-ecosystem: maven
+    directory: /maven-plugin
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+
+  - package-ecosystem: npm
+    directory: /site/notices
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+
+  - package-ecosystem: pip
+    directory: /site
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
