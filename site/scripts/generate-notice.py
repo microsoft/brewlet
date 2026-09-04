@@ -43,7 +43,7 @@ EXTRA_LICENSES = {
 
 VERSIONED_SOURCE_URLS = {
     "@fortawesome/fontawesome-free": (
-        "https://github.com/FortAwesome/Font-Awesome/tree/7.1.0"
+        "https://github.com/FortAwesome/Font-Awesome/tree/7.3.1"
     ),
     "focus-visible": "https://github.com/WICG/focus-visible/tree/v5.2.1",
 }
@@ -57,7 +57,7 @@ COMPONENT_NOTICES = {
         "generated HTML; Brewlet makes no other changes.",
         "Creator: Fonticons, Inc. License for the icon: CC BY 4.0.",
         "Licensed material:",
-        "https://github.com/FortAwesome/Font-Awesome/blob/7.1.0/svgs/brands/git-alt.svg",
+        "https://github.com/FortAwesome/Font-Awesome/blob/7.3.1/svgs/brands/git-alt.svg",
         "License: https://creativecommons.org/licenses/by/4.0/",
     ],
     "focus-visible": [
