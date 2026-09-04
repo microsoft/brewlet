@@ -449,7 +449,7 @@ func (r *NodeProfileReconciler) updateStatus(ctx context.Context, profile *nodev
 		cond.Status = metav1.ConditionFalse
 		cond.Reason = nodev1alpha1.ReasonEmptyPool
 		cond.Message = fmt.Sprintf("no nodes match pool(s) %v on key %q", profile.Spec.NodePool.Names, resolvedKey)
-		r.Recorder.Event(profile, corev1.EventTypeWarning, brewlet.ReasonNodeUnmatched, cond.Message)
+		r.Recorder.Eventf(profile, corev1.EventTypeWarning, brewlet.ReasonNodeUnmatched, "%s", cond.Message)
 	case failed:
 		cond.Status = metav1.ConditionFalse
 		cond.Reason = nodev1alpha1.ReasonNodeFailure
