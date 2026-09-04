@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/containerd/containerd v1.7.33
+	github.com/containerd/containerd v1.7.34
 	github.com/containerd/containerd/api v1.8.0
 	github.com/containerd/platforms v0.2.1
 	github.com/containerd/ttrpc v1.2.7
