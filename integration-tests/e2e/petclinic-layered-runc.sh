@@ -21,9 +21,14 @@ runc --version | head -1
 
 echo "== provisioner installs the JDK runtime root (simulated) =="
 # PetClinic targets Java 17; the descriptor/CRI metadata requests temurin-17.
+# Copy, do not symlink: the shim requires a runtime root to be a real direct
+# child of the roots directory after symlink resolution, and requires the
+# distribution to appear in the .brewlet-active inventory the provisioner writes.
 mkdir -p /opt/brewlet/jdks
-ln -sfn /opt/java/openjdk /opt/brewlet/jdks/temurin-17
-echo "  /opt/brewlet/jdks/temurin-17 -> $(readlink -f /opt/brewlet/jdks/temurin-17)"
+rm -rf /opt/brewlet/jdks/temurin-17
+cp -a /opt/java/openjdk /opt/brewlet/jdks/temurin-17
+printf 'temurin-17\n' > /opt/brewlet/jdks/.brewlet-active
+echo "  /opt/brewlet/jdks/temurin-17 ($(head -1 /opt/brewlet/jdks/temurin-17/release 2>/dev/null))"
 
 echo "== kubelet/CRI hands the shim the image config + pod limits =="
 cat > /tmp/ic-pcl.json <<JSON
