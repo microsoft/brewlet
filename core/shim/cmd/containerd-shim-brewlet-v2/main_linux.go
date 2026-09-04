@@ -70,5 +70,5 @@ func main() {
 		return
 	}
 
-	shim.RunShim(context.Background(), manager.NewShimManager(runtimeName))
+	shim.Run(context.Background(), manager.NewShimManager(runtimeName))
 }
