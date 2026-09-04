@@ -21,6 +21,18 @@ When a workload omits its launcher or requests `java`, Brewlet executes:
 Do not add `java` to `spec.launchers`. It comes from every declared JDK and is a
 reserved launcher name.
 
+## Launcher names are tokens, not paths
+
+A launcher name identifies a node-installed launcher layer directory
+(`/opt/brewlet/launchers/<name>/`), so it must be a lowercase DNS-1123 token: up
+to 54 letters, digits and dashes, starting and ending with a letter or digit.
+Path separators, `..`, wildcards, surrounding whitespace, absolute paths and
+uppercase are rejected — in `spec.jvm.launcher`, in the `brewlet.sh/launcher`
+annotation, in `brewlet run --launcher`, and again on the node. The same rule
+applies to `spec.jvm.distribution`. The shim additionally requires the name to
+appear in the node's active inventory and verifies that the selected directory
+really is inside the configured runtime roots before mounting it.
+
 ```yaml
 jvm:
   version: 21

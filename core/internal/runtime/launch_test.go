@@ -661,3 +661,45 @@ func TestGenerateBundleWithMixedLayers(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveLauncherRejectsPaths pins the local-run contract: --launcher names
+// a launcher, never a path. Accepting a path (absolute or traversing) would let
+// a descriptor pick an arbitrary host binary to front the entrypoint.
+// See SECURITY-REVIEW.md finding 5.
+func TestResolveLauncherRejectsPaths(t *testing.T) {
+	jdkHome := t.TempDir()
+	bin := filepath.Join(jdkHome, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A real, executable binary at an absolute path: rejected on name grounds,
+	// not because it is missing.
+	planted := filepath.Join(t.TempDir(), "jaz")
+	if err := os.WriteFile(planted, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{planted, "/bin/sh", "..", "../..", "sub/jaz", `sub\jaz`, ".", "./jaz", "jaz*", " jaz", "JAZ"} {
+		t.Run(name, func(t *testing.T) {
+			got, err := resolveLauncher(name, jdkHome)
+			if err == nil {
+				t.Fatalf("resolveLauncher(%q) = %q, want rejection", name, got)
+			}
+			if !strings.Contains(err.Error(), "NoCompatibleLauncher") {
+				t.Fatalf("resolveLauncher(%q) error = %v, want NoCompatibleLauncher", name, err)
+			}
+		})
+	}
+
+	// The vanilla launcher still resolves to the selected JDK's own java.
+	got, err := resolveLauncher("", jdkHome)
+	if err != nil {
+		t.Fatalf("resolveLauncher(vanilla): %v", err)
+	}
+	if want := filepath.Join(bin, "java"); got != want {
+		t.Fatalf("resolveLauncher(vanilla) = %q, want %q", got, want)
+	}
+}

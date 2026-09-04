@@ -269,20 +269,19 @@ func resolveJDK(jdkHome string) (javaBin, home string, err error) {
 
 // resolveLauncher returns the launcher binary that fronts the entrypoint. The
 // vanilla launcher is the selected JDK's own `java`. A custom launcher (e.g.
-// "jaz") is a separate node-installed package resolved as an absolute path or
-// via PATH — independent of the JDK root. A missing launcher surfaces as
-// NoCompatibleLauncher, mirroring NoCompatibleJDK. The launcher name is supplied
-// by the deployment descriptor, not the artifact.
+// "jaz") is a separate node-installed package resolved by NAME on PATH —
+// independent of the JDK root. The name must be a safe DNS-1123 token
+// (artifact.ValidateLauncherName): `--launcher` names a launcher, never a path,
+// so a separator or parent reference is rejected rather than executed. A missing
+// launcher surfaces as NoCompatibleLauncher, mirroring NoCompatibleJDK. The
+// launcher name is supplied by the deployment descriptor, not the artifact.
 func resolveLauncher(launcherName, jdkHome string) (string, error) {
 	if artifact.IsVanillaLauncher(launcherName) {
 		return filepath.Join(jdkHome, "bin", "java"), nil
 	}
-	name := artifact.LauncherName(launcherName)
-	if filepath.IsAbs(name) {
-		if _, err := os.Stat(name); err != nil {
-			return "", fmt.Errorf("NoCompatibleLauncher: launcher %q not found: %w", name, err)
-		}
-		return name, nil
+	name, err := artifact.LauncherName(launcherName)
+	if err != nil {
+		return "", fmt.Errorf("NoCompatibleLauncher: %w", err)
 	}
 	bin, err := exec.LookPath(name)
 	if err != nil {

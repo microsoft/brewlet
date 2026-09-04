@@ -7,9 +7,15 @@ apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq runc >/dev/null 2>&
 runc --version | head -1
 
 echo "== provisioner installs the JDK runtime root (simulated) =="
+# Copy, do not symlink: the shim requires a runtime root to be a real direct
+# child of the roots directory after symlink resolution, and requires the
+# distribution to appear in the .brewlet-active inventory the provisioner
+# writes. This mirrors what install_runtime_sources() does on a real node.
 mkdir -p /opt/brewlet/jdks
-ln -sfn /opt/java/openjdk /opt/brewlet/jdks/temurin-21
-echo "  /opt/brewlet/jdks/temurin-21 -> $(readlink -f /opt/brewlet/jdks/temurin-21)"
+rm -rf /opt/brewlet/jdks/temurin-21
+cp -a /opt/java/openjdk /opt/brewlet/jdks/temurin-21
+printf 'temurin-21\n' > /opt/brewlet/jdks/.brewlet-active
+echo "  /opt/brewlet/jdks/temurin-21 ($(cat /opt/brewlet/jdks/temurin-21/release 2>/dev/null | head -1))"
 
 echo "== kubelet/CRI hands the shim the image config + pod limits =="
 cat > /tmp/ic.json <<JSON

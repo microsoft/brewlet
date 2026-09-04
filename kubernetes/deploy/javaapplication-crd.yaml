@@ -75,6 +75,8 @@ spec:
                       description: JDK feature version to run on; must match a node-installed JDK.
                     distribution:
                       type: string
+                      maxLength: 48
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                       description: >-
                         Optional JDK distribution (e.g. "temurin", "microsoft"). With
                         version, selects an exact "<distribution>-<version>" node JDK
@@ -85,9 +87,13 @@ spec:
                     launcher:
                       type: string
                       default: java
+                      maxLength: 54
+                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
                       description: >-
                         JVM launcher: "java" (vanilla OpenJDK, default) or a custom
                         launcher such as "jaz" that must be installed on a ready node.
+                        It names a node-installed launcher directory, so it is
+                        restricted to a lowercase DNS-1123 token.
                     args:
                       type: array
                       items: { type: string }

@@ -103,6 +103,13 @@ DaemonSet. It receives shim events, exposes them as Prometheus counters and
 histograms, and derives inventory gauges from the node's active JDK and launcher
 state under `/opt/brewlet`.
 
+The sidecar is deliberately narrow: it runs with a read-only root filesystem,
+all capabilities dropped, and no privilege escalation, and it mounts
+`/opt/brewlet` read-only. Its only writable host path is a separate
+`DirectoryOrCreate` mount of `/opt/brewlet/metrics`, which exists solely so the
+exporter can bind the telemetry socket. That volume is present only when the
+sidecar itself is — a metrics-disabled or cleanup DaemonSet carries neither.
+
 The operator and admission webhook use controller-runtime's Prometheus registry.
 Their endpoints include standard controller-runtime/process metrics alongside
 the Brewlet-specific collectors described below.
@@ -487,6 +494,15 @@ Inspect the exporter sidecar logs:
 
 ```bash
 kubectl logs -n brewlet <provisioner-pod> -c metrics-exporter
+```
+
+If the socket is missing and the logs report a read-only filesystem, confirm the
+sidecar still has its writable `/opt/brewlet/metrics` mount alongside the
+read-only `/opt/brewlet` one:
+
+```bash
+kubectl get daemonset <profile-daemonset> -n brewlet \
+  -o jsonpath='{range .spec.template.spec.containers[1].volumeMounts[*]}{.mountPath}{"\t"}{.readOnly}{"\n"}{end}'
 ```
 
 No launch samples are expected until Brewlet workloads run on that node.

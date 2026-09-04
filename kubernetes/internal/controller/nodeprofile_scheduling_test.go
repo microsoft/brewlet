@@ -163,10 +163,19 @@ func TestProvisionerHostMountsMinimizeWrite(t *testing.T) {
 	p := profileNamed("general", []string{"general"}, jdk("temurin", 21))
 	spec := buildProfileDaemonSet(cfg, &p, "agentpool", nil).Spec.Template.Spec
 
-	// The metrics exporter only reads what the provisioner wrote.
+	// The metrics exporter only reads what the provisioner wrote, except for
+	// the one directory holding the telemetry socket it must bind.
 	exporter := spec.Containers[1]
-	if len(exporter.VolumeMounts) != 1 || !exporter.VolumeMounts[0].ReadOnly {
-		t.Errorf("metrics-exporter mounts = %+v, want a single read-only mount", exporter.VolumeMounts)
+	if len(exporter.VolumeMounts) != 2 {
+		t.Fatalf("metrics-exporter mounts = %+v, want the read-only tree plus the socket directory", exporter.VolumeMounts)
+	}
+	// The read-only parent must be listed first so the nested socket mount
+	// lands on a path that already exists inside it.
+	if exporter.VolumeMounts[0].MountPath != "/opt/brewlet" || !exporter.VolumeMounts[0].ReadOnly {
+		t.Errorf("first exporter mount = %+v, want a read-only /opt/brewlet", exporter.VolumeMounts[0])
+	}
+	if exporter.VolumeMounts[1].MountPath != "/opt/brewlet/metrics" || exporter.VolumeMounts[1].ReadOnly {
+		t.Errorf("second exporter mount = %+v, want a writable /opt/brewlet/metrics", exporter.VolumeMounts[1])
 	}
 	if exporter.SecurityContext == nil ||
 		exporter.SecurityContext.ReadOnlyRootFilesystem == nil ||
@@ -183,6 +192,7 @@ func TestProvisionerHostMountsMinimizeWrite(t *testing.T) {
 	// non-containerd node fails the pod instead of creating root-owned paths.
 	wantTypes := map[string]corev1.HostPathType{
 		"/opt/brewlet":                    corev1.HostPathDirectoryOrCreate,
+		"/opt/brewlet/metrics":            corev1.HostPathDirectoryOrCreate,
 		"/etc/containerd":                 corev1.HostPathDirectory,
 		"/usr/local/bin":                  corev1.HostPathDirectory,
 		"/run/containerd/containerd.sock": corev1.HostPathSocket,
@@ -198,5 +208,40 @@ func TestProvisionerHostMountsMinimizeWrite(t *testing.T) {
 		if vol.HostPath.Type == nil || *vol.HostPath.Type != want {
 			t.Errorf("hostPath %q type = %v, want %v", vol.HostPath.Path, vol.HostPath.Type, want)
 		}
+	}
+
+	// The privileged provisioner already writes the whole tree through its own
+	// read-write mount, so the narrowly scoped socket volume stays exporter-only.
+	for _, mount := range spec.Containers[0].VolumeMounts {
+		if mount.MountPath == "/opt/brewlet/metrics" {
+			t.Error("provisioner must not carry the exporter's socket mount")
+		}
+	}
+}
+
+func TestMetricsSocketVolumeOnlyWithExporter(t *testing.T) {
+	hasSocketVolume := func(spec corev1.PodSpec) bool {
+		for _, vol := range spec.Volumes {
+			if vol.HostPath != nil && vol.HostPath.Path == "/opt/brewlet/metrics" {
+				return true
+			}
+		}
+		return false
+	}
+
+	cfg := testConfig()
+	p := profileNamed("general", []string{"general"}, jdk("temurin", 21))
+	if !hasSocketVolume(buildProfileDaemonSet(cfg, &p, "agentpool", nil).Spec.Template.Spec) {
+		t.Error("the exporter sidecar needs a writable telemetry socket volume")
+	}
+
+	// Without the sidecar nothing binds the socket, so kubelet must not create
+	// the directory on the node either.
+	if spec := buildCleanupDaemonSet(cfg, &p, "agentpool", nil).Spec.Template.Spec; hasSocketVolume(spec) {
+		t.Error("cleanup DaemonSet must not mount the telemetry socket directory")
+	}
+	cfg.MetricsEnabled = false
+	if spec := buildProfileDaemonSet(cfg, &p, "agentpool", nil).Spec.Template.Spec; hasSocketVolume(spec) {
+		t.Error("metrics-disabled DaemonSet must not mount the telemetry socket directory")
 	}
 }

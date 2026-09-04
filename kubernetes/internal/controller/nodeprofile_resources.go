@@ -348,7 +348,13 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 							VolumeMounts: []corev1.VolumeMount{
 								// The exporter only reads the inventory the
 								// provisioner wrote; it never mutates the host.
+								// The one exception is the telemetry socket it
+								// must bind, so that single subdirectory is
+								// mounted read-write on top of the read-only
+								// tree. The parent is listed first so the
+								// nested bind mount lands on an existing path.
 								{Name: "host-opt", MountPath: "/opt/brewlet", ReadOnly: true},
+								{Name: metricsSocketVolume, MountPath: "/opt/brewlet/metrics"},
 							},
 						},
 					},
@@ -358,6 +364,10 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 						// exist, so a typo or a non-containerd node fails the
 						// pod instead of creating root-owned directories.
 						hostPathVolume("host-opt", "/opt/brewlet", &hostPathDirOrCreate),
+						// Only the exporter's telemetry socket directory is
+						// writable, and only when the sidecar is scheduled;
+						// dropMetricsExporter removes it otherwise.
+						hostPathVolume(metricsSocketVolume, "/opt/brewlet/metrics", &hostPathDirOrCreate),
 						hostPathVolume("containerd-conf", "/etc/containerd", &hostPathDir),
 						hostPathVolume("host-bin", "/usr/local/bin", &hostPathDir),
 						hostPathVolume("containerd-sock", "/run/containerd/containerd.sock", &hostPathSocket),
@@ -373,9 +383,31 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		}
 	}
 	if !cfg.MetricsEnabled {
-		ds.Spec.Template.Spec.Containers = ds.Spec.Template.Spec.Containers[:1]
+		dropMetricsExporter(ds)
 	}
 	return ds
+}
+
+// metricsSocketVolume is the only host path the metrics exporter may write. It
+// is scoped to the directory holding the shim telemetry socket so the exporter
+// keeps a read-only view of the rest of the runtime tree (§ SECURITY-REVIEW
+// finding 9).
+const metricsSocketVolume = "host-opt-metrics"
+
+// dropMetricsExporter removes the exporter sidecar and the writable telemetry
+// socket volume it alone needs, so a DaemonSet without the sidecar never asks
+// kubelet to create /opt/brewlet/metrics on the node.
+func dropMetricsExporter(ds *appsv1.DaemonSet) {
+	spec := &ds.Spec.Template.Spec
+	spec.Containers = spec.Containers[:1]
+	kept := spec.Volumes[:0]
+	for _, vol := range spec.Volumes {
+		if vol.Name == metricsSocketVolume {
+			continue
+		}
+		kept = append(kept, vol)
+	}
+	spec.Volumes = kept
 }
 
 // buildCleanupDaemonSet returns the short-lived brewlet-cleanup DaemonSet the
@@ -394,6 +426,8 @@ func buildCleanupDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		ds.Spec.Template.Spec.Containers[0].Env,
 		corev1.EnvVar{Name: "BREWLET_MODE", Value: "cleanup"},
 	)
-	ds.Spec.Template.Spec.Containers = ds.Spec.Template.Spec.Containers[:1]
+	// Cleanup never scrapes metrics, so it carries neither the exporter nor its
+	// writable telemetry socket mount.
+	dropMetricsExporter(ds)
 	return ds
 }

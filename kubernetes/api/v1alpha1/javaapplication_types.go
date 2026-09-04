@@ -70,11 +70,19 @@ type JVMSpec struct {
 	// "<distribution>-<version>" node JDK (e.g. "microsoft-25"); when omitted,
 	// any distribution providing the requested Version is acceptable and each
 	// node selects the lexically-first installed distribution for it (no
-	// built-in vendor preference). Ignored unless Version is also set.
+	// built-in vendor preference). Ignored unless Version is also set. Like
+	// Launcher it names a node-installed runtime root directory, so it is
+	// constrained to a lowercase DNS-1123 token.
+	// +kubebuilder:validation:MaxLength=48
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Distribution string `json:"distribution,omitempty"`
 	// Launcher selects the JVM launcher: "java" (vanilla OpenJDK, default) or a
 	// custom launcher such as "jaz" (§9.3). Stamped as the brewlet.sh/launcher
-	// pod annotation.
+	// pod annotation. It names a node-installed launcher layer directory, so it
+	// is constrained to a lowercase DNS-1123 token — a separator or parent
+	// reference would be a host-path-traversal primitive on the node.
+	// +kubebuilder:validation:MaxLength=54
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Launcher string `json:"launcher,omitempty"`
 	// Args are user-supplied JVM flags, wired through to the JVM via
 	// JDK_JAVA_OPTIONS (or JAVA_TOOL_OPTIONS on JDK 8, which lacks the former).

@@ -652,7 +652,13 @@ func applyBrewletLaunchWithWriterLease(
 		}
 	}
 
-	spec.Process.Args = append([]string{artifact.LauncherName(ra.LauncherName)}, jvmArgs...)
+	// argv[0] is the launcher; LauncherName re-checks the tenant-supplied request
+	// at the point it becomes an executed program name.
+	launcherBin, err := artifact.LauncherName(ra.LauncherName)
+	if err != nil {
+		return err
+	}
+	spec.Process.Args = append([]string{launcherBin}, jvmArgs...)
 	spec.Process.Cwd = "/app"
 
 	// PATH: prepend the custom launcher layer when present so e.g. `jaz`
