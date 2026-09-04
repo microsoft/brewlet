@@ -22,8 +22,14 @@ spec:
         kinds: ["Pod"]
     # Optionally scope to the namespaces where Brewlet workloads run:
     # namespaces: ["apps", "payments"]
+    # Infra namespaces are excluded only to avoid a bootstrap deadlock if the
+    # provider is unavailable while the control plane itself is starting. The
+    # brewlet namespace is deliberately NOT excluded: no Brewlet component pod
+    # (operator, admission, provisioner, cleanup, exporter) sets
+    # runtimeClassName: brewlet, so the template already no-ops on them, and
+    # excluding it would only create a bypass surface. Restrict who can create
+    # pods in the namespaces listed here (see admission/README.md).
     excludedNamespaces:
       - kube-system
       - gatekeeper-system
       - ratify-service
-      - brewlet

@@ -95,7 +95,7 @@ physicalReplicas = n
 Extend `JavaApplicationSpec` with:
 
 ```yaml
-apiVersion: brewlet.sh/v1alpha1
+apiVersion: apps.brewlet.sh/v1alpha1
 kind: JavaApplication
 metadata:
   name: orders-api

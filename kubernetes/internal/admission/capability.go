@@ -36,14 +36,24 @@ type NodeCapability struct {
 // inventory comes from the comma-separated brewlet.sh/jdks|launchers
 // annotations the provisioner advertises; the architecture comes from the
 // standard kubelet-provided kubernetes.io/arch label.
+//
+// The AppCDS capability is a boolean-presence label: per the public
+// capability-label contract (specs/CAPABILITY_LABELS.md, "Contract v1"),
+// consumers MUST match these keys with Operator: Exists and MUST NOT require
+// the value "true". Brewlet's own provisioner writes "true", but a node
+// bootstrapped from an immutable image or an autoscaler template may publish the
+// key with any value, and the affinity Brewlet injects already uses Exists. So
+// this fleet pre-check tests key presence to stay consistent with both the
+// contract and injectNodeAffinity.
 func NodeCapabilityFrom(node *corev1.Node) NodeCapability {
+	_, appCDSRegeneration := node.Labels[brewlet.LabelAppCDSRegeneration]
 	return NodeCapability{
 		Name:               node.Name,
 		Ready:              node.Labels[brewlet.LabelRuntimeReady] == brewlet.ValueReady,
 		Arch:               node.Labels[brewlet.LabelArch],
 		JDKs:               splitInventory(node.Annotations[brewlet.AnnotationJDKs]),
 		Launchers:          splitInventory(node.Annotations[brewlet.AnnotationLaunchers]),
-		AppCDSRegeneration: node.Labels[brewlet.LabelAppCDSRegeneration] == "true",
+		AppCDSRegeneration: appCDSRegeneration,
 	}
 }
 

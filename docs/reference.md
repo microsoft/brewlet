@@ -76,7 +76,11 @@ Recorded by the operator / admission webhook (see [Troubleshooting](troubleshoot
 
 ## OCI media types
 
-The Java application is an **OCI Artifact** (OCI Image Spec ≥ 1.1), not a runnable image.
+The Java application ships either as a **runnable image** (the default for
+`brewlet push` and the Maven plugin — a standard, kubelet-pullable OCI image; see
+[runnable image](runnable-image.md)) or as a **native OCI artifact** with the
+custom media types below. Neither carries an OS layer or a JVM. The native types
+are used for local OCI-layout / CLI / `prepare-bundle` workflows.
 
 | Component | Media type | Contents |
 |---|---|---|

@@ -207,10 +207,24 @@ on your Ratify version.
 
 ### Scope and required image pinning
 The Gatekeeper template enforces on pods with `spec.runtimeClassName: brewlet`
-(including raw workloads, not just `JavaApplication`-managed pods). Pods in the
-constraint's `excludedNamespaces` (control-plane/infra namespaces, to avoid
-bootstrap deadlock) are **not** checked — keep Brewlet workloads out of those
-namespaces and restrict who can create pods there.
+(including raw workloads, not just `JavaApplication`-managed pods), and covers
+regular, init, and ephemeral containers. Every such image must have an explicit
+successful verification response; an empty, partial, or mismatched provider
+response is denied rather than admitted.
+
+Pods in the constraint's `excludedNamespaces` are **not** checked. Those
+exclusions exist only to avoid a bootstrap deadlock when the provider is
+unavailable while the control plane is starting, so treat them as a privileged
+boundary:
+
+- **Restrict pod creation in `kube-system`, `gatekeeper-system`, and
+  `ratify-service` via RBAC.** Anyone who can create a pod in an excluded
+  namespace can run an unattested Brewlet workload. Grant `create` on `pods`
+  (and on controllers that create pods, such as `deployments` and `daemonsets`)
+  in those namespaces only to cluster administrators.
+- **Do not run Brewlet workloads in an excluded namespace.**
+- The `brewlet` namespace is intentionally *not* excluded — no Brewlet component
+  pod sets `runtimeClassName: brewlet`, so the template already ignores them.
 
 **Images must be digest-pinned** (`repo@sha256:...`). Ratify passes the pod's
 original image reference to the plugin; a tag is not resolved to a digest in that

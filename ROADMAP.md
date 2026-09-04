@@ -7,23 +7,28 @@ accepted and implemented.
 
 ## Runtime and node operations
 
-- **Safer containerd reconfiguration.** Validate generated containerd
-  configuration, restart through a reversible path, restore the previous
-  configuration after failure, and extend readiness checks to custom launchers.
-  See [proposal 0002](specs/proposals/0002-validated-node-reconfig.md).
 - **Stronger sandbox options.** Prototype gVisor as the leading stronger-isolation
   candidate before committing runtime or API support. The current Brewlet shim
   cannot assume that `BinaryName=runsc` is a supported composition, and Kata's
   VM-local kernel and page cache conflict with the node-shared JDK model enough
   that it is deferred as a separate architecture. See
   [proposal 0006](specs/proposals/0006-sandbox-isolation-tiers.md).
-- **Node-level runtime metrics.** Export per-sandbox resource and JVM runtime
-  metrics from the node runtime.
-- **Node profile refinements.** Evaluate profile-managed taints and tolerations,
-  an operator-synthesized default profile, a documented bare-metal pool label,
-  and garbage collection for JDK roots no longer used by ready workloads.
+- **Per-sandbox and JVM runtime metrics.** Brewlet already exports launch-phase
+  latency and outcomes, artifact-resolution behavior, AppCDS regeneration
+  decisions, and installed JDK/launcher inventory (see SPECIFICATION §12). Still
+  to come: per-sandbox resource usage and in-JVM runtime metrics from the node
+  runtime.
+- **Reference-counted JDK root collection.** Rotated-out roots are already
+  reclaimed once no mount references them and they have aged past a grace period,
+  and profile cleanup removes a profile's roots. Still to come: collecting roots
+  that drop out of a live profile's inventory, which needs real reference
+  tracking against running workloads.
+- **Node profile refinements.** Evaluate profile-managed taints, an
+  operator-synthesized default profile (the chart renders one today), and a
+  documented bare-metal pool label.
 - **Configuration cleanup.** Consolidate the simple Helm values and `NodeProfile`
-  configuration paths before deprecating redundant global inventory flags.
+  configuration paths before deprecating redundant global inventory flags, and
+  stop shipping default JDK/launcher source digests that cannot be patched.
 
 ## Workload delivery
 
@@ -39,6 +44,11 @@ accepted and implemented.
   [proposal 0005](specs/proposals/0005-replica-coalescing.md).
 - **Gradle plugin.** Provide the artifact build, publish, inspection, and
   manifest workflow currently available through the Maven plugin.
+- **Registry publication from the Go CLI.** `brewlet push` currently reads and
+  writes local OCI layouts through `--store`; direct registry publication and
+  referrer consumption are available only through the Maven plugin. A Go
+  registry client would close that gap, at the cost of a second implementation
+  of trust-critical referrer and auth handling.
 - **Additional multi-architecture guardrails.** Expand architecture coverage
   observability and safeguards for workloads with accelerator or native-library
   constraints.

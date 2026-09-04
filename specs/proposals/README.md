@@ -9,6 +9,8 @@ engineering rationale behind those roadmap items.
 
 - [0001 — Node profiles: per-pool cluster preparation](0001-node-profiles.md)
   — implemented
+- [0002 — Validated containerd reconfiguration and readiness smoke gate](0002-validated-node-reconfig.md)
+  — implemented
 - [0003 — Stable capability-label taxonomy for autoscaling](0003-capability-label-taxonomy.md)
   — implemented
 - [0004 — cert-manager integration for the admission webhook](0004-cert-manager-admission.md)
@@ -16,8 +18,6 @@ engineering rationale behind those roadmap items.
 
 ## Roadmap designs
 
-- [0002 — Validated containerd reconfiguration and readiness smoke gate](0002-validated-node-reconfig.md)
-  — partially implemented
 - [0005 — Replica coalescing: fewer, larger JVMs](0005-replica-coalescing.md)
   — proposed
 - [0006 — Sandbox isolation tiers](0006-sandbox-isolation-tiers.md)

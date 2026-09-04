@@ -118,17 +118,18 @@ $ docker build -t registry/app:1.4.2 .
 $ docker push registry/app:1.4.2   <span class="c-cm"># ~250 MB</span></code></pre>
           </div>
           <div class="code-card highlight" data-reveal data-reveal-delay="1">
-            <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">Brewlet artifact — just the app</span></div>
-            <pre><code><span class="c-cm"># Push ONLY the JAR as an OCI artifact</span>
+            <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">Brewlet image — just the app</span></div>
+            <pre><code><span class="c-cm"># Push ONLY the JAR — as a kubelet-pullable OCI image, no OS, no JVM</span>
 $ brewlet push target/app.jar registry/app:1.4.2
 
 <span class="c-cm"># …or with the installed v0.3.1 Maven plugin, no CLI:</span>
 $ mvn package sh.brewlet:brewlet-maven-plugin:0.3.1:push \
     <span class="c-key">-Dbrewlet.image</span>=registry/app:1.4.2
 
-<span class="c-cm"># Deploy it — one Brewlet-specific line:</span>
+<span class="c-cm"># Deploy it — one Brewlet-specific line.</span>
+<span class="c-cm"># Kubernetes execution requires a digest-pinned image.</span>
 <span class="c-key">runtimeClassName</span>: <span class="c-val">brewlet</span>
-<span class="c-key">image</span>: <span class="c-val">registry/app:1.4.2</span>
+<span class="c-key">image</span>: <span class="c-val">registry/app@sha256:&lt;digest&gt;</span>
 <span class="c-key">resources</span>:
   <span class="c-key">limits</span>: { cpu: "2", memory: "512Mi" }</code></pre>
           </div>

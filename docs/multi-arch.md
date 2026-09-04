@@ -12,7 +12,7 @@ can schedule the workload on any ready node that offers the requested JDK and
 launcher:
 
 ```yaml
-apiVersion: brewlet.sh/v1alpha1
+apiVersion: apps.brewlet.sh/v1alpha1
 kind: JavaApplication
 metadata:
   name: orders

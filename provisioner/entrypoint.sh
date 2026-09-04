@@ -54,6 +54,9 @@ JDK_ACTIVE_INVENTORY=".brewlet-active"
 LAUNCHER_SOURCE_METADATA=".brewlet-source"
 LAUNCHER_ACTIVE_INVENTORY=".brewlet-active"
 SOURCE_POLICY_BIN="${SOURCE_POLICY_BIN:-/opt/brewlet-dist/brewlet-source-policy}"
+# How long a rotated-out JDK/launcher root must age before it may be reclaimed.
+# Belt-and-braces alongside the live-mount check in reclaim_retired_roots.
+RETIRED_GRACE_SECONDS="${BREWLET_RETIRED_GRACE_SECONDS:-3600}"
 
 # Runtime sources are transported as indexed environment variables so image
 # references and paths never need delimiter escaping. JDK_SOURCE_COUNT must be
@@ -703,6 +706,71 @@ preflight_sources() {
     resolve_launcher_source "$l"
   done
   log "validated all configured JDK and launcher sources"
+}
+
+# Rotating a JDK or launcher root renames the previous one to
+# "<root>.retired.<epoch>.<pid>" rather than deleting it, because overlayfs
+# resolves lowerdir at mount time: removing a root a live sandbox still uses
+# would break that container. Roots are therefore "versioned and additive"
+# (§5.3) and reclaimed here, on the next provisioning pass, once nothing
+# references them.
+#
+# Two independent gates, both must pass:
+#   1. no current mount entry mentions the path (fail safe: if the mount table
+#      cannot be read, the root is treated as referenced and kept);
+#   2. the root has aged past a grace period, so a sandbox being created right
+#      now cannot race the sweep.
+#
+# This runs BEFORE new roots are copied so a node that is already tight on disk
+# reclaims space ahead of a multi-hundred-megabyte copy-from-image.
+root_referenced_by_mount() {
+  local root="$1" mounts
+  mounts="$(host_exec cat /proc/mounts 2>/dev/null || true)"
+  [[ -n "$mounts" ]] || return 0
+  grep -Fq -- "$root" <<<"$mounts"
+}
+
+reclaim_retired_roots() {
+  local now dir age mtime
+  now="$(date +%s)"
+
+  while IFS= read -r dir; do
+    [[ -n "$dir" && -d "$dir" ]] || continue
+    if root_referenced_by_mount "$dir"; then
+      log "retaining retired root $dir (still referenced by a live mount)"
+      continue
+    fi
+    mtime="$(stat -c %Y "$dir" 2>/dev/null || echo "$now")"
+    age=$(( now - mtime ))
+    if (( age < RETIRED_GRACE_SECONDS )); then
+      log "retaining retired root $dir (within ${RETIRED_GRACE_SECONDS}s grace)"
+      continue
+    fi
+    log "reclaiming retired root $dir"
+    chmod -R u+w "$dir" 2>/dev/null || true
+    rm -rf "$dir" || log "WARN: could not reclaim retired root $dir"
+  done < <(find "$PREFIX/jdks" "$PREFIX/launchers" -maxdepth 1 -type d -name '*.retired.*' 2>/dev/null)
+
+  # Staging directories are only ever visible mid-install, so one left behind
+  # belongs to an interrupted run and is never referenced by a sandbox.
+  while IFS= read -r dir; do
+    [[ -n "$dir" && -d "$dir" ]] || continue
+    log "removing stale staging directory $dir"
+    chmod -R u+w "$dir" 2>/dev/null || true
+    rm -rf "$dir" || log "WARN: could not remove stale staging directory $dir"
+  done < <(find "$PREFIX/jdks" "$PREFIX/launchers" -maxdepth 1 -type d -name '*.staging.*' 2>/dev/null)
+}
+
+# Remove every installed runtime root. Used only by cleanup mode, where the
+# NodeProfile that authorized these roots is being deleted.
+remove_runtime_roots() {
+  local dir
+  for dir in "$PREFIX/jdks" "$PREFIX/launchers"; do
+    [[ -d "$dir" ]] || continue
+    log "removing runtime roots under $dir"
+    chmod -R u+w "$dir" 2>/dev/null || true
+    rm -rf "${dir:?}" || log "WARN: could not remove runtime roots under $dir"
+  done
 }
 
 install_runtime_sources() {
@@ -1403,6 +1471,14 @@ cleanup_host() {
     *) die "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
   esac
   remove_shim
+  # The NodeProfile that authorized these roots is gone, so leaving a full JDK
+  # inventory (often several GB) behind is a disk leak. Opt out for immutable
+  # nodes whose roots are baked into the node image rather than installed here.
+  if [[ "${BREWLET_CLEANUP_RUNTIME_ROOTS:-true}" == "true" ]]; then
+    remove_runtime_roots
+  else
+    log "BREWLET_CLEANUP_RUNTIME_ROOTS=false; leaving installed JDK/launcher roots in place"
+  fi
   unlabel_node
 }
 
@@ -1437,6 +1513,7 @@ main() {
   install_source_mount_traps
   cleanup_stale_source_mounts
   require_containerd_image_identity
+  reclaim_retired_roots
   install_runtime_sources
 
   configure_containerd

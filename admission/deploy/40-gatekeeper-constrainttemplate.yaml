@@ -79,3 +79,22 @@ spec:
           subject_validation[1].isSuccess == false
           result := sprintf("Brewlet admission: image %s has no valid managed-dependency attestation: %v", [subject_validation[0], subject_validation[1]])
         }
+
+        # verified is true only when the provider returned an explicit success
+        # for that exact image key.
+        verified(img) {
+          subject_validation := remote_data.responses[_]
+          subject_validation[0] == img
+          subject_validation[1].isSuccess == true
+        }
+
+        # Deny when an image has no successful response at all. The rules above
+        # only reject *explicit* failures, so without this a provider returning
+        # an empty or partial responses array (or keys that do not match the
+        # requested images) would admit unverified images. Admission must require
+        # proof rather than merely the absence of a recorded failure.
+        general_violation[{"result": result}] {
+          img := brewlet_images[_]
+          not verified(img)
+          result := sprintf("Brewlet admission: image %s has no successful managed-dependency verification response", [img])
+        }

@@ -248,28 +248,33 @@ dependency layers after a managed-bundle error.
 See [Managed dependency bundles](managed-dependency-bundles.md) for the Ops and
 developer workflows, signing options, trust roles, and Go CLI boundary.
 
-### Option A — the `brewlet` CLI (simplest)
+### Option A — the `brewlet` CLI (writes a local OCI layout)
 
 ```bash
-brewlet push ./target/app.jar registry.example.com/team/app:1.4.2
+brewlet push ./target/app.jar registry.example.com/team/app:1.4.2 --store ./oci
 ```
 
-- Ships **only the JAR** as an OCI artifact — no Dockerfile, no base image.
+- Ships **only the JAR** — no Dockerfile, no base image, no OS or JVM layers.
+- Defaults to `--format image`: a standard, kubelet-pullable OCI image index, so a
+  `runtimeClassName: brewlet` pod can just set `image: <ref>`. Use
+  `--format artifact` for the registry-native Brewlet media types.
 - Generates a minimal launch config, or embeds one you pass with `--config jvm-config.json`.
 - Attach a prebuilt AppCDS archive with `--appcds-archive ./target/app.jsa` to speed up
   startup (mounted at `/app/app.jsa`, launched with `-Xshare:auto`). See [AppCDS](appcds.md).
 - Full flags: [CLI reference](cli-reference.md#brewlet-push).
 
-> The native-artifact path can write to a local **OCI layout** (`--store`, default
-> `./oci`) for local CLI / bundle / prepare-bundle workflows. To publish a
-> Kubernetes workload, use the default runnable-image format; for registry-native
-> delivery, use ORAS (below) or the [Maven plugin](#option-c-maven-plugin).
+> **The Go CLI does not talk to a registry.** `brewlet push` reads and writes a
+> local **OCI layout** (`--store`, default `./oci`); the reference it takes names
+> the image *within* that layout. To publish to a registry, use the
+> [Maven plugin](#option-c-maven-plugin) or ORAS (below), then push the layout
+> with a tool such as `oras cp`. Registry publication from the Go CLI is
+> [roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md) work.
 
 Inspect what you built:
 
 ```bash
-brewlet inspect registry.example.com/team/app:1.4.2
-# == manifest ==   (OCI manifest with brewlet media types)
+brewlet inspect registry.example.com/team/app:1.4.2 --store ./oci
+# == manifest ==   (OCI image index by default; brewlet media types with --format artifact)
 # == jvm config == (the launch config above)
 ```
 

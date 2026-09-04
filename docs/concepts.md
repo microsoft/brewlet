@@ -73,7 +73,7 @@ directories. Each implementation maps to a section of the
 
 | Component | What it does | Where |
 |---|---|---|
-| **OCI application artifact** | A Java application packaged as an OCI artifact (custom media types) — a fat JAR, or an app split into classpath layers — plus a small JSON launch config — *not* the Kubernetes workload image format. | [`core/internal/artifact/`](https://github.com/microsoft/brewlet/tree/main/core/internal/artifact/), spec §4 |
+| **OCI application artifact** | A Java application — a fat JAR, or an app split into classpath layers — plus a small JSON launch config. Published by default as a kubelet-pullable **runnable image**; the native custom-media-type artifact form is used for local OCI-layout / CLI workflows. Neither carries an OS layer or a JVM. | [`core/internal/artifact/`](https://github.com/microsoft/brewlet/tree/main/core/internal/artifact/), spec §4 |
 | **Managed dependency bundle** | An Ops-published, immutable approved classpath derived from a Maven BOM. Application publication verifies its dependency graph and composes the exact bundle layer with a thin JAR; Kubernetes never resolves Maven dependencies. | [Managed dependency bundles](managed-dependency-bundles.md), [spec §4.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#45-managed-dependency-bundles) |
 | **`brewlet` CLI** | Developer/ops tool: `push`, `inspect`, `run`, `bundle`, `jdks`. | [`core/cmd/brewlet/`](https://github.com/microsoft/brewlet/tree/main/core/cmd/brewlet/) |
 | **`containerd-shim-brewlet-v2`** | containerd Runtime v2 shim. On `Create` it disassembles the workload image, selects a node JDK, assembles an overlay-rootfs `java -jar` sandbox, and delegates to runc. | [`core/shim/`](https://github.com/microsoft/brewlet/tree/main/core/shim/), spec §6 |
@@ -115,8 +115,10 @@ directories. Each implementation maps to a section of the
 
 1. Build your fat JAR as usual — `mvn package` / `gradle bootJar`. Nothing
    Brewlet-specific.
-2. Push it as an **OCI artifact** with custom media types plus a tiny JSON *launch
-   config* (main JAR, entry mode, app-intrinsic launch knobs). No image, no Dockerfile.
+2. Push it — by default as a kubelet-pullable **runnable OCI image** (or, with
+   `--format artifact`, as a native artifact with custom media types) plus a tiny
+   JSON *launch config* (main JAR, entry mode, app-intrinsic launch knobs). No
+   Dockerfile, no base image, no OS or JVM layers.
    See [Building & publishing](building-and-publishing.md).
 
     For a governed thin-JAR workflow, Ops first publishes a

@@ -46,6 +46,27 @@ func TestNodeCapabilityFrom(t *testing.T) {
 	}
 }
 
+// The AppCDS capability key is a boolean-presence label. CAPABILITY_LABELS.md
+// ("Contract v1") states the value is not part of the scheduling test and that
+// consumers MUST NOT require "=true". A node bootstrapped from an immutable
+// image or an autoscaler template may publish the key with any value, and the
+// affinity Brewlet injects uses Operator: Exists, so the fleet pre-check must
+// agree or it would deny pods the scheduler could have placed.
+func TestNodeCapabilityAppCDSIsPresenceNotValue(t *testing.T) {
+	for _, value := range []string{"true", "", "1", "enabled", "True"} {
+		n := node("n1", true, "temurin-21", "java")
+		n.Labels[brewlet.LabelAppCDSRegeneration] = value
+		if c := NodeCapabilityFrom(&n); !c.AppCDSRegeneration {
+			t.Errorf("label present with value %q must satisfy the presence contract", value)
+		}
+	}
+
+	n := node("n1", true, "temurin-21", "java")
+	if c := NodeCapabilityFrom(&n); c.AppCDSRegeneration {
+		t.Error("absent label must not advertise AppCDS regeneration")
+	}
+}
+
 func TestSupportsJDK(t *testing.T) {
 	c := NodeCapability{JDKs: []string{"temurin-21", "microsoft-25"}}
 	cases := []struct {
