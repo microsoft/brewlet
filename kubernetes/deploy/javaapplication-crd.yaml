@@ -98,9 +98,13 @@ spec:
                       type: array
                       items: { type: string }
                       description: >-
-                        User-supplied JVM flags, wired through via JDK_JAVA_OPTIONS
-                        (JAVA_TOOL_OPTIONS on JDK 8). Brewlet injects no tuning of its
-                        own (§8.2/§10) — set heap %, GC, etc. here.
+                        User-supplied JVM flags, delivered as launcher argv via the
+                        brewlet.sh/jvm-args pod annotation and applied after the
+                        artifact's own launch knobs, so they win on conflict
+                        (§4.2/§8.2). Args that select the entrypoint (-jar, -cp,
+                        -classpath, --class-path, -p, --module-path, -m, --module)
+                        and java @argfiles are rejected. Brewlet injects no tuning
+                        of its own (§8.2/§10) — set heap %, GC, etc. here.
                     cds:
                       type: object
                       properties:

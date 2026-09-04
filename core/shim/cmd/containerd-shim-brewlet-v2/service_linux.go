@@ -593,7 +593,20 @@ func applyBrewletLaunchWithWriterLease(
 	// the regen args are injected below.
 	regenerate := strings.EqualFold(strings.TrimSpace(spec.Annotations[annCDSRegenerate]), "true")
 
-	jvmArgs, _ := kcruntime.BuildJVMArgs(ra.Config, inSandboxJar, nil, regenerate)
+	// Deployment tuning (spec.jvm.args on a JavaApplication, or the
+	// brewlet.sh/jvm-args annotation on a raw pod) is delivered as argv rather
+	// than through JDK_JAVA_OPTIONS: the launcher PREPENDS that env var, which
+	// would put deployment tuning BEFORE the artifact's own flags and let the
+	// artifact win — the inverse of the §4.2 contract.
+	extraArgs, err := decodeJVMArgs(spec.Annotations[annJVMArgs])
+	if err != nil {
+		return err
+	}
+
+	jvmArgs, err := kcruntime.BuildJVMArgs(ra.Config, inSandboxJar, extraArgs, regenerate)
+	if err != nil {
+		return err
+	}
 
 	// Node-side AppCDS regeneration is authorized by a root-owned host policy and
 	// isolated by the trusted CRI namespace plus the verified resolved manifest.

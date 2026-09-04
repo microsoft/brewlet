@@ -7,8 +7,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	appsv1alpha1 "brewlet-operator/api/v1alpha1"
+	"brewlet-operator/internal/brewlet"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
@@ -128,6 +130,9 @@ func (r *JavaApplicationReconciler) reconcileHPA(ctx context.Context, app *appsv
 // nonsensical HorizontalPodAutoscaler. It is belt-and-suspenders behind the
 // CRD's CEL validation for API servers that do not evaluate CEL.
 func validateSpec(app *appsv1alpha1.JavaApplication) error {
+	if err := validateJVMArgs(app.Spec.JVM.Args); err != nil {
+		return err
+	}
 	as := app.Spec.Autoscaling
 	if !as.Enabled {
 		return nil
@@ -141,6 +146,49 @@ func validateSpec(app *appsv1alpha1.JavaApplication) error {
 		}
 		if *as.MinReplicas > as.MaxReplicas {
 			return fmt.Errorf("autoscaling.minReplicas (%d) must not exceed autoscaling.maxReplicas (%d)", *as.MinReplicas, as.MaxReplicas)
+		}
+	}
+	return nil
+}
+
+// entrypointSelectingJVMArgs are the `java` options that choose WHAT the JVM
+// runs. They belong to the artifact's launch config, never to deployment
+// tuning: jvm.args are appended immediately before the artifact's own
+// entrypoint, and `java` stops parsing options at the first entrypoint
+// selector, so `-jar other.jar` here would run other.jar and demote the
+// artifact's `-jar app.jar` to a program argument. The shim enforces the same
+// rule authoritatively (runtime.ValidateExtraArgs); rejecting here turns a
+// container that fails at launch into a clear Ready=False on the CRD.
+var entrypointSelectingJVMArgs = map[string]struct{}{
+	"-jar":          {},
+	"-cp":           {},
+	"-classpath":    {},
+	"--class-path":  {},
+	"-p":            {},
+	"--module-path": {},
+	"-m":            {},
+	"--module":      {},
+}
+
+// validateJVMArgs rejects jvm.args that would take over the launch. A java
+// @argfile is rejected too: `java` expands one in place, so its contents could
+// reintroduce an entrypoint selector past this check.
+func validateJVMArgs(args []string) error {
+	for _, a := range args {
+		if strings.TrimSpace(a) == "" {
+			continue
+		}
+		name := a
+		if i := strings.IndexByte(name, '='); i >= 0 {
+			name = name[:i]
+		}
+		if _, bad := entrypointSelectingJVMArgs[name]; bad {
+			return fmt.Errorf(
+				"jvm.args[%q] selects the entrypoint, which the artifact's launch config owns; use tuning flags only (-X…, -XX:…, -D…, --add-opens, …)", a)
+		}
+		if strings.HasPrefix(a, "@") {
+			return fmt.Errorf(
+				"jvm.args[%q] is a java @argfile, whose contents could select the entrypoint; inline the flags instead", a)
 		}
 	}
 	return nil
@@ -184,8 +232,42 @@ func (r *JavaApplicationReconciler) updateStatus(ctx context.Context, app *appsv
 		Message:            msg,
 		ObservedGeneration: app.Generation,
 	})
+	r.setJVMArgsCondition(app)
 
 	return r.Status().Update(ctx, app)
+}
+
+// setJVMArgsCondition records how spec.jvm.args reached the JVM. They are always
+// delivered — as the brewlet.sh/jvm-args pod annotation, appended to the
+// launcher argv — so the condition is informational rather than a failure. It
+// exists because the previous JDK_JAVA_OPTIONS wiring silently DISCARDED
+// jvm.args whenever the user set a JVM options env var themselves (common with
+// APM agents); the overlap is now reported instead of swallowed.
+func (r *JavaApplicationReconciler) setJVMArgsCondition(app *appsv1alpha1.JavaApplication) {
+	args := trimmedJVMArgs(app)
+	if len(args) == 0 {
+		meta.RemoveStatusCondition(&app.Status.Conditions, appsv1alpha1.ConditionJVMArgsApplied)
+		return
+	}
+
+	reason := appsv1alpha1.ReasonArgsDelivered
+	msg := fmt.Sprintf("%d jvm.args delivered as launcher argv via the %s pod annotation",
+		len(args), brewlet.AnnotationJVMArgs)
+	if envName := userSetJVMOptionsEnv(app); envName != "" {
+		reason = appsv1alpha1.ReasonEnvOptionsOverlap
+		msg = fmt.Sprintf(
+			"%d jvm.args delivered as launcher argv via the %s pod annotation; spec.env also sets %s, which the JVM applies BEFORE argv, so jvm.args win on conflict",
+			len(args), brewlet.AnnotationJVMArgs, envName)
+		r.Recorder.Event(app, corev1.EventTypeWarning, appsv1alpha1.ReasonEnvOptionsOverlap, msg)
+	}
+
+	meta.SetStatusCondition(&app.Status.Conditions, metav1.Condition{
+		Type:               appsv1alpha1.ConditionJVMArgsApplied,
+		Status:             metav1.ConditionTrue,
+		Reason:             reason,
+		Message:            msg,
+		ObservedGeneration: app.Generation,
+	})
 }
 
 // deploymentReady reports whether the managed Deployment has reached its desired

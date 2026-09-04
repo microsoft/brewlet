@@ -10,6 +10,7 @@ import (
 	"brewlet-operator/internal/brewlet"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -96,7 +97,12 @@ func TestBuildDeployment(t *testing.T) {
 		t.Errorf("launcher annotation = %q, want jaz", ann[brewlet.AnnotationRequestedLauncher])
 	}
 
-	// jvm.args must be wired through via JDK_JAVA_OPTIONS (version 21) alongside user env.
+	// jvm.args ride the brewlet.sh/jvm-args annotation as a JSON array (argv
+	// delivery), NOT an options env var (§4.2/§8.2).
+	if got, want := ann[brewlet.AnnotationJVMArgs], `["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]`; got != want {
+		t.Errorf("brewlet.sh/jvm-args = %q, want %q", got, want)
+	}
+
 	env := map[string]string{}
 	for _, e := range c.Env {
 		env[e.Name] = e.Value
@@ -104,11 +110,10 @@ func TestBuildDeployment(t *testing.T) {
 	if env["SPRING_PROFILES_ACTIVE"] != "prod" {
 		t.Error("user env must be wired through")
 	}
-	if env[jdkJavaOptionsEnv] != "-XX:MaxRAMPercentage=75.0 -XX:+UseZGC" {
-		t.Errorf("JDK_JAVA_OPTIONS = %q", env[jdkJavaOptionsEnv])
-	}
-	if _, ok := env[javaToolOptionsEnv]; ok {
-		t.Error("must not set JAVA_TOOL_OPTIONS for a modern (>=9) JDK")
+	for _, name := range []string{jdkJavaOptionsEnv, javaToolOptionsEnv} {
+		if _, ok := env[name]; ok {
+			t.Errorf("must not set %s: jvm.args are delivered as argv, and setting both would double-apply them", name)
+		}
 	}
 }
 
@@ -182,33 +187,68 @@ func TestPodAnnotationsCDSRegenerate(t *testing.T) {
 	}
 }
 
-func TestBuildDeploymentJDK8UsesJavaToolOptions(t *testing.T) {
-	app := sampleApp()
-	app.Spec.JVM.Version = 8
-	c := buildDeployment(app).Spec.Template.Spec.Containers[0]
-
-	env := map[string]string{}
-	for _, e := range c.Env {
-		env[e.Name] = e.Value
+func TestPodAnnotationsJVMArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string // "" means the annotation must be absent
+	}{
+		{"unset omits annotation", nil, ""},
+		{"empty slice omits annotation", []string{}, ""},
+		{"blank-only args omit annotation", []string{"", "   "}, ""},
+		{"single arg", []string{"-XX:+UseZGC"}, `["-XX:+UseZGC"]`},
+		{"blank entries dropped", []string{"-Da=1", "  ", "-Db=2"}, `["-Da=1","-Db=2"]`},
+		{
+			// The whole point of the JSON array: whitespace-joining would split
+			// this into four bogus argv elements.
+			"arg containing spaces survives intact",
+			[]string{`-XX:OnOutOfMemoryError=kill -9 %p`},
+			`["-XX:OnOutOfMemoryError=kill -9 %p"]`,
+		},
+		{"order preserved", []string{"-Xms1g", "-Xmx1g"}, `["-Xms1g","-Xmx1g"]`},
 	}
-	if env[javaToolOptionsEnv] != "-XX:MaxRAMPercentage=75.0 -XX:+UseZGC" {
-		t.Errorf("JAVA_TOOL_OPTIONS = %q, want the jvm.args (JDK_JAVA_OPTIONS is unsupported on 8)", env[javaToolOptionsEnv])
-	}
-	if _, ok := env[jdkJavaOptionsEnv]; ok {
-		t.Error("must not set JDK_JAVA_OPTIONS on JDK 8")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := sampleApp()
+			app.Spec.JVM.Args = tc.args
+			ann := buildDeployment(app).Spec.Template.Annotations
+			if got := ann[brewlet.AnnotationJVMArgs]; got != tc.want {
+				t.Errorf("brewlet.sh/jvm-args = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
-func TestJVMOptionsEnvName(t *testing.T) {
-	cases := map[int32]string{
-		0:  jdkJavaOptionsEnv,  // unspecified => assume modern
-		8:  javaToolOptionsEnv, // JDK 8 has no JDK_JAVA_OPTIONS
-		11: jdkJavaOptionsEnv,
-		21: jdkJavaOptionsEnv,
+// The annotation is JDK-version independent: argv delivery replaced the
+// JDK_JAVA_OPTIONS / JAVA_TOOL_OPTIONS split, which existed only because JDK 8
+// lacks the former.
+func TestBuildDeploymentJVMArgsAreVersionIndependent(t *testing.T) {
+	for _, version := range []int32{0, 8, 11, 21, 25} {
+		app := sampleApp()
+		app.Spec.JVM.Version = version
+		dep := buildDeployment(app)
+		if got, want := dep.Spec.Template.Annotations[brewlet.AnnotationJVMArgs],
+			`["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]`; got != want {
+			t.Errorf("version %d: brewlet.sh/jvm-args = %q, want %q", version, got, want)
+		}
+		for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+			if e.Name == jdkJavaOptionsEnv || e.Name == javaToolOptionsEnv {
+				t.Errorf("version %d: must not set %s", version, e.Name)
+			}
+		}
 	}
-	for version, want := range cases {
-		if got := jvmOptionsEnvName(version); got != want {
-			t.Errorf("jvmOptionsEnvName(%d) = %q, want %q", version, got, want)
+}
+
+func TestUserSetJVMOptionsEnv(t *testing.T) {
+	app := sampleApp()
+	if got := userSetJVMOptionsEnv(app); got != "" {
+		t.Errorf("no options env set, got %q", got)
+	}
+	for _, name := range []string{jdkJavaOptionsEnv, javaToolOptionsEnv} {
+		app := sampleApp()
+		app.Spec.Env = []corev1.EnvVar{{Name: "OTHER", Value: "x"}, {Name: name, Value: "-Dexplicit=1"}}
+		if got := userSetJVMOptionsEnv(app); got != name {
+			t.Errorf("userSetJVMOptionsEnv = %q, want %q", got, name)
 		}
 	}
 }
@@ -235,14 +275,23 @@ func TestBuildDeploymentDefaultsAndVanillaLauncher(t *testing.T) {
 	}
 }
 
-func TestBuildDeploymentRespectsUserJVMOptions(t *testing.T) {
-	// A user-set options var (either name) is respected: nothing is injected.
+func TestBuildDeploymentUserJVMOptionsNoLongerDropArgs(t *testing.T) {
+	// Regression: the old JDK_JAVA_OPTIONS wiring silently DISCARDED jvm.args
+	// whenever the user set an options env var (common with APM agents). Argv
+	// delivery applies both — the user's env var first, then jvm.args, which
+	// therefore win on conflict.
 	for _, name := range []string{javaToolOptionsEnv, jdkJavaOptionsEnv} {
-		app := sampleApp() // version 21
+		app := sampleApp() // version 21, two jvm.args
 		app.Spec.Env = []corev1.EnvVar{{Name: name, Value: "-Dexplicit=1"}}
+		dep := buildDeployment(app)
+
+		if got, want := dep.Spec.Template.Annotations[brewlet.AnnotationJVMArgs],
+			`["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]`; got != want {
+			t.Errorf("with user-set %s, brewlet.sh/jvm-args = %q, want %q (args must not be dropped)", name, got, want)
+		}
 		got := map[string]int{}
 		var value string
-		for _, e := range buildDeployment(app).Spec.Template.Spec.Containers[0].Env {
+		for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
 			if e.Name == jdkJavaOptionsEnv || e.Name == javaToolOptionsEnv {
 				got[e.Name]++
 				value = e.Value
@@ -333,5 +382,89 @@ func TestDeploymentReady(t *testing.T) {
 	// Not found yet.
 	if ok, _, _ := deploymentReady(nil, false); ok {
 		t.Error("missing deployment must not be Ready")
+	}
+}
+
+// TestBuildDeploymentResourcesCopiedVerbatim covers the §10 contract for every
+// requests/limits shape a user can write. Limits drive the sandbox cgroup and
+// therefore what the container-aware JDK sees; requests are a scheduling
+// concern only. Brewlet injects no JVM tuning and — critically — does NOT
+// default one side from the other, so an omitted limit stays omitted (an
+// unlimited cgroup, where the JDK falls back to host-visible memory) rather
+// than being silently synthesized from the request.
+func TestBuildDeploymentResourcesCopiedVerbatim(t *testing.T) {
+	rl := func(cpu, mem string) corev1.ResourceList {
+		if cpu == "" && mem == "" {
+			return nil
+		}
+		out := corev1.ResourceList{}
+		if cpu != "" {
+			out[corev1.ResourceCPU] = resource.MustParse(cpu)
+		}
+		if mem != "" {
+			out[corev1.ResourceMemory] = resource.MustParse(mem)
+		}
+		return out
+	}
+
+	cases := []struct {
+		name string
+		res  corev1.ResourceRequirements
+	}{
+		{
+			// The Burstable shape: the JVM sizes itself from the LIMIT, so a
+			// request far below it does not shrink the heap.
+			name: "request below limit",
+			res:  corev1.ResourceRequirements{Requests: rl("500m", "512Mi"), Limits: rl("2", "1Gi")},
+		},
+		{
+			// Guaranteed QoS: Kubernetes defaults the request from the limit at
+			// admission, but the operator must not pre-empt that.
+			name: "limit without request",
+			res:  corev1.ResourceRequirements{Limits: rl("2", "1Gi")},
+		},
+		{
+			// No limit => no cgroup ceiling => the JDK sees host memory. Brewlet
+			// must not invent a limit from the request to "help".
+			name: "request without limit",
+			res:  corev1.ResourceRequirements{Requests: rl("500m", "512Mi")},
+		},
+		{
+			name: "neither requests nor limits",
+			res:  corev1.ResourceRequirements{},
+		},
+		{
+			name: "memory limited, cpu unbounded",
+			res:  corev1.ResourceRequirements{Requests: rl("", "256Mi"), Limits: rl("", "1Gi")},
+		},
+		{
+			name: "cpu limited, memory unbounded",
+			res:  corev1.ResourceRequirements{Requests: rl("500m", ""), Limits: rl("2", "")},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := sampleApp()
+			app.Spec.Resources = tc.res
+			got := buildDeployment(app).Spec.Template.Spec.Containers[0].Resources
+
+			if !equality.Semantic.DeepEqual(got, tc.res) {
+				t.Fatalf("resources = %+v, want %+v (copied verbatim, §10)", got, tc.res)
+			}
+			// Neither side may be synthesized from the other.
+			if tc.res.Limits == nil && got.Limits != nil {
+				t.Errorf("limits synthesized from requests: %+v", got.Limits)
+			}
+			if tc.res.Requests == nil && got.Requests != nil {
+				t.Errorf("requests synthesized from limits: %+v", got.Requests)
+			}
+			// And Brewlet still injects no tuning flags of its own.
+			for _, e := range buildDeployment(app).Spec.Template.Spec.Containers[0].Env {
+				if e.Name == jdkJavaOptionsEnv || e.Name == javaToolOptionsEnv {
+					t.Errorf("resource shape must not trigger JVM tuning injection (%s)", e.Name)
+				}
+			}
+		})
 	}
 }

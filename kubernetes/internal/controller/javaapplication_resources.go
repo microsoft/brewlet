@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -23,25 +24,33 @@ const (
 	defaultWorkloadUserID = int64(65532)
 )
 
-// JVM options env vars. Brewlet wires the user's jvm.args through one of these
-// (it injects no tuning of its own — §8.2/§10). JDK_JAVA_OPTIONS is the modern,
-// launcher-scoped variable (JDK 9+) and is preferred; it is unsupported on JDK 8,
-// where JAVA_TOOL_OPTIONS (interpreted by the VM itself) is the only option.
+// JVM options env vars. Brewlet no longer writes either of these: user jvm.args
+// are delivered as argv via the brewlet.sh/jvm-args pod annotation (§4.2/§8.2)
+// because the `java` launcher PREPENDS JDK_JAVA_OPTIONS, which would apply
+// deployment tuning BEFORE the artifact's own flags and let the artifact win —
+// the inverse of the documented contract — and whitespace-joining also corrupts
+// any argument containing a space. They are still recognised here so a
+// user-supplied value in spec.env can be reported as an overlap (§8.2).
+// JDK_JAVA_OPTIONS is the modern, launcher-scoped variable (JDK 9+); it is
+// unsupported on JDK 8, where JAVA_TOOL_OPTIONS is the only option.
 // See https://bugs.openjdk.org/browse/JDK-8170832.
 const (
 	jdkJavaOptionsEnv  = "JDK_JAVA_OPTIONS"
 	javaToolOptionsEnv = "JAVA_TOOL_OPTIONS"
 )
 
-// jvmOptionsEnvName returns the env var Brewlet should use to pass jvm.args for a
-// given JDK feature version: JAVA_TOOL_OPTIONS on JDK 8 (JDK_JAVA_OPTIONS is not
-// supported there), JDK_JAVA_OPTIONS otherwise (including when the version is
-// unspecified, where a modern JDK is assumed).
-func jvmOptionsEnvName(version int32) string {
-	if version == 8 {
-		return javaToolOptionsEnv
+// userSetJVMOptionsEnv returns the name of the JVM options env var the user set
+// in spec.env, or "" when they set neither. Such a variable is still honored by
+// the JVM (Brewlet passes spec.env through untouched), but the launcher applies
+// it BEFORE the argv-delivered jvm.args, so jvm.args win on conflict. That is
+// reported as an overlap rather than silently discarding either side.
+func userSetJVMOptionsEnv(app *appsv1alpha1.JavaApplication) string {
+	for _, e := range app.Spec.Env {
+		if e.Name == jdkJavaOptionsEnv || e.Name == javaToolOptionsEnv {
+			return e.Name
+		}
 	}
-	return jdkJavaOptionsEnv
+	return ""
 }
 
 // selectorLabels are the immutable pod-selector labels for a JavaApplication's
@@ -173,33 +182,46 @@ func podAnnotations(app *appsv1alpha1.JavaApplication) map[string]string {
 	if app.Spec.JVM.CDS.Regenerate {
 		ann[brewlet.AnnotationCDSRegenerate] = "true"
 	}
+	// Deployment JVM tuning rides the pod as a JSON array so the shim can append
+	// it to the launcher argv with argument boundaries intact (§4.2/§8.2). The
+	// containerd runtime config forwards `brewlet.sh/*` pod annotations onto the
+	// OCI spec, so this needs no node reconfiguration. Marshalling a []string
+	// cannot fail, so an encoding error can only mean a programming mistake —
+	// omit the annotation rather than stamp a value the shim would reject.
+	if args := trimmedJVMArgs(app); len(args) > 0 {
+		if encoded, err := json.Marshal(args); err == nil {
+			ann[brewlet.AnnotationJVMArgs] = string(encoded)
+		}
+	}
 	if len(ann) == 0 {
 		return nil
 	}
 	return ann
 }
 
-// buildEnv wires the user env through and, when jvm.args are set, exposes them
-// via the version-appropriate JVM options env var (JDK_JAVA_OPTIONS, or
-// JAVA_TOOL_OPTIONS on JDK 8). If the user already set either options var
-// explicitly, theirs is respected and nothing is injected.
+// trimmedJVMArgs returns spec.jvm.args with blank entries dropped. An empty or
+// whitespace-only arg is meaningless to the launcher and would otherwise become
+// an empty argv element, so it is discarded here and by validateJVMArgs.
+func trimmedJVMArgs(app *appsv1alpha1.JavaApplication) []string {
+	var args []string
+	for _, a := range app.Spec.JVM.Args {
+		if strings.TrimSpace(a) != "" {
+			args = append(args, a)
+		}
+	}
+	return args
+}
+
+// buildEnv wires the user's env through verbatim. jvm.args are NOT delivered
+// here: they ride the brewlet.sh/jvm-args pod annotation and are appended to the
+// launcher argv by the shim (§4.2/§8.2). A user-set JDK_JAVA_OPTIONS /
+// JAVA_TOOL_OPTIONS (common with APM agents) is passed through untouched and
+// still applied by the JVM — the controller reports the overlap rather than
+// dropping either side.
 func buildEnv(app *appsv1alpha1.JavaApplication) []corev1.EnvVar {
 	env := make([]corev1.EnvVar, len(app.Spec.Env))
 	copy(env, app.Spec.Env)
-
-	if len(app.Spec.JVM.Args) == 0 {
-		return nilIfEmpty(env)
-	}
-	for _, e := range env {
-		if e.Name == jdkJavaOptionsEnv || e.Name == javaToolOptionsEnv {
-			return env // respect an explicit user-set JVM options var
-		}
-	}
-	env = append(env, corev1.EnvVar{
-		Name:  jvmOptionsEnvName(app.Spec.JVM.Version),
-		Value: strings.Join(app.Spec.JVM.Args, " "),
-	})
-	return env
+	return nilIfEmpty(env)
 }
 
 func nilIfEmpty(env []corev1.EnvVar) []corev1.EnvVar {

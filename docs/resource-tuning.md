@@ -54,6 +54,24 @@ Precedence for the vanilla path: artifact structured launch knobs
 `-D` flags) → descriptor `jvm.args` (append/override where the JVM honors
 last-wins).
 
+`jvm.args` are delivered as **argv** — the operator stamps them on the pod as the
+`brewlet.sh/jvm-args` annotation (a JSON array of strings) and the shim appends
+them ahead of the entrypoint. Brewlet does not set `JDK_JAVA_OPTIONS` or
+`JAVA_TOOL_OPTIONS`: `java` *prepends* those, which would apply your tuning
+*before* the artifact's flags and let the artifact win. Two practical
+consequences:
+
+- A flag whose value contains a space (e.g. `-XX:OnOutOfMemoryError=kill -9 %p`)
+  is delivered intact.
+- If you also set `JDK_JAVA_OPTIONS`/`JAVA_TOOL_OPTIONS` yourself in `env` (common
+  with APM agents), it is passed through and still applied — *before* `jvm.args`,
+  so `jvm.args` win on conflict. The `JavaApplication` reports this overlap as a
+  `JVMArgsApplied` condition with reason `EnvOptionsOverlap` plus a warning event.
+  Nothing is dropped.
+- `jvm.args` may not select the entrypoint (`-jar`, `-cp`/`-classpath`/
+  `--class-path`, `-p`/`--module-path`, `-m`/`--module`, `@argfile`); the artifact
+  owns that.
+
 ---
 
 ## Recommended tuning (vanilla `java`)

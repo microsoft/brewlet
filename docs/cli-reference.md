@@ -215,7 +215,7 @@ brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [--appcds-reg
 | `--jdk-root` | *(none)* | Node JDK home to launch with. When unset, falls back to `BREWLET_JDK_HOME`, then `JAVA_HOME`, then `java` on `PATH`. |
 | `--launcher` | `java` | Launcher binary **name** under the selected JDK (or a compatible node-installed launcher name such as `jaz`), resolved on `PATH`. It is a lowercase DNS-1123 token, never a path: separators, `..` and absolute paths are rejected. |
 | `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local-dev equivalent of the deployment's `spec.jvm.cds.regenerate`). Maintains a private entry keyed by the fixed local scope, verified resolved manifest digest, and exact JDK build under `$BREWLET_CDS_CACHE` (default `/opt/brewlet/cds`). `-XX:+AutoCreateSharedArchive` (JDK 19+) self-heals it after a central JDK patch; any shipped archive is optional seed data. |
-| `-- <args>` | *(none)* | Everything after `--` is appended as extra JVM args. |
+| `-- <args>` | *(none)* | Everything after `--` is appended as extra JVM args, immediately before the artifact's entrypoint (the local-dev equivalent of descriptor `jvm.args`). Args that select the entrypoint — `-jar`, `-cp`/`-classpath`/`--class-path`, `-p`/`--module-path`, `-m`/`--module`, and `@argfile` — are rejected: the artifact owns the entrypoint. |
 
 ```bash
 brewlet run demo/hello:1.0.0

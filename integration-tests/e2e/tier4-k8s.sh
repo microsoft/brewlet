@@ -120,7 +120,7 @@ spec:
     version: 21
     distribution: temurin
     launcher: jaz
-    args: ["-XX:MaxRAMPercentage=75.0"]
+    args: ["-XX:MaxRAMPercentage=75.0", "-XX:OnOutOfMemoryError=kill -9 %p"]
   ports:
     - name: http
       containerPort: 8080
@@ -151,6 +151,16 @@ YAML
       "$(kubectl get deploy orders -n "$T4_NS_APP" -o jsonpath='{.spec.template.metadata.annotations.brewlet\.sh/jdk}')" "temurin-21"
     assert_eq "controller: jvm.launcher folds into brewlet.sh/launcher annotation" \
       "$(kubectl get deploy orders -n "$T4_NS_APP" -o jsonpath='{.spec.template.metadata.annotations.brewlet\.sh/launcher}')" "jaz"
+    # spec.jvm.args are delivered as argv via a JSON-array annotation (§4.2/§8.2),
+    # not JDK_JAVA_OPTIONS: the launcher PREPENDS that env var, which would let an
+    # app-embedded flag beat the platform team's. The array form also keeps an
+    # argument containing spaces in one piece.
+    assert_eq "controller: jvm.args fold into the brewlet.sh/jvm-args JSON array" \
+      "$(kubectl get deploy orders -n "$T4_NS_APP" -o jsonpath='{.spec.template.metadata.annotations.brewlet\.sh/jvm-args}')" \
+      '["-XX:MaxRAMPercentage=75.0","-XX:OnOutOfMemoryError=kill -9 %p"]'
+    assert_eq "controller: jvm.args are not also wired through a JVM options env var" \
+      "$(kubectl get deploy orders -n "$T4_NS_APP" \
+        -o jsonpath='{range .spec.template.spec.containers[0].env[?(@.name=="JDK_JAVA_OPTIONS")]}{.name}{end}{range .spec.template.spec.containers[0].env[?(@.name=="JAVA_TOOL_OPTIONS")]}{.name}{end}')" ""
   else
     fail "controller: reconciled a managed Deployment" "see $WORK/t4-manager.log"
   fi

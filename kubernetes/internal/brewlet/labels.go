@@ -140,6 +140,21 @@ const (
 	// verbatim. The admission webhook constrains such pods to policy-authorized
 	// nodes; the root-owned sentinel remains the authoritative enforcement point.
 	AnnotationCDSRegenerate = "brewlet.sh/cds-regenerate"
+
+	// AnnotationJVMArgs carries the deployment descriptor's JVM tuning args onto
+	// the pod as a **JSON array of strings** (set by the operator from
+	// spec.jvm.args, or by the user on a raw Deployment). The shim decodes it and
+	// appends the args to the launcher argv immediately before the entrypoint, so
+	// deployment tuning is applied AFTER the artifact's own launch knobs and wins
+	// on conflict (§4.2).
+	//
+	// A JSON array rather than a whitespace-joined string is deliberate: argv
+	// delivery preserves argument boundaries, so a flag whose value contains a
+	// space (e.g. -XX:OnOutOfMemoryError="kill -9 %p") survives intact. Brewlet
+	// does NOT also set JDK_JAVA_OPTIONS/JAVA_TOOL_OPTIONS — the launcher
+	// PREPENDS those, which would invert the documented precedence, and setting
+	// both would double-apply every arg.
+	AnnotationJVMArgs = "brewlet.sh/jvm-args"
 )
 
 // Per-capability node labels the provisioner emits so the scheduler can skip

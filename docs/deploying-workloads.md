@@ -226,7 +226,7 @@ spec:
 | `jvm.version` | JDK feature version to run on (e.g. `21`); must match a node-installed JDK. |
 | `jvm.distribution` | Optional JDK distribution (`temurin`, `microsoft`). With `jvm.version` pins an exact `<distribution>-<feature>` node JDK; omit to accept any distribution of that feature. |
 | `jvm.launcher` | `java` (default) or `jaz` ([Launchers](launchers.md)). |
-| `jvm.args` | Your JVM tuning flags. Omit under `jaz`. |
+| `jvm.args` | Your JVM tuning flags, delivered as argv via the `brewlet.sh/jvm-args` pod annotation and applied after the artifact's own launch knobs (so they win on conflict). May not select the entrypoint (`-jar`, `-cp`, `-p`, `-m`, `@argfile`). Omit under `jaz`. |
 | `jvm.cds.regenerate` | Request **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). Default `false`. Requires an otherwise-compatible ready node whose `NodeProfile.spec.appCDS.regenerationEnabled` is true; otherwise admission denies with `AppCDSRegenerationDisabled`, and the shim independently enforces the host policy. The private cache key includes the trusted namespace, the verified platform manifest derived from the CRI/containerd-resolved image, the JDK build, and the CRI process UID. Any shipped `cds.archive` becomes optional seed data. |
 | `arch` | Optional architecture constraint (`amd64`, `arm64`). Only for **non-portable JARs** bundling JNI native libraries; steers scheduling to matching-arch nodes and denies admission with `NoCompatibleArch` when unsatisfiable. Omit for arch-neutral bytecode (runs on any arch). |
 | `env` / `ports` / `service` / `probes` | Wired through to the generated objects. |
