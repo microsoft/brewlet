@@ -513,7 +513,10 @@ public class AppCdsMojo extends AbstractBrewletMojo {
      *   <li>{@code jar} → {@code -jar <mainJar>}</li>
      *   <li>{@code classpath} → {@code -cp <classPath> <mainClass>} (relative,
      *       {@code lib/*} left literal for the JVM to expand)</li>
-     *   <li>{@code module} → {@code -p <modulePath> -m <module>[/<mainClass>]}</li>
+     *   <li>{@code module} → {@code [-cp <classPath>] -p <modulePath>
+     *       -m <module>[/<mainClass>]} — the supplementary {@code -cp} is the
+     *       JPMS <em>mixed form</em> and precedes the module path so
+     *       {@code -m} stays terminal, exactly as the launch core emits it</li>
      * </ul>
      * Path lists are joined with the platform separator so the training JVM starts
      * locally; HotSpot validates each classpath entry by basename+size+mtime (not
@@ -538,6 +541,15 @@ public class AppCdsMojo extends AbstractBrewletMojo {
                 break;
             }
             case "module": {
+                // Mixed form: module mode additionally permits a supplementary
+                // class path. Omitting it here would train the archive against a
+                // classpath that does not match production, so classes loaded
+                // from those entries would be absent from the archive (or fail
+                // its validation) and silently fall back to base CDS.
+                if (entry.getClassPath() != null && !entry.getClassPath().isEmpty()) {
+                    out.add("-cp");
+                    out.add(String.join(File.pathSeparator, entry.getClassPath()));
+                }
                 List<String> mp = entry.getModulePath() != null && !entry.getModulePath().isEmpty()
                         ? entry.getModulePath()
                         : List.of(mainJar);
@@ -575,8 +587,15 @@ public class AppCdsMojo extends AbstractBrewletMojo {
             Entry entry = cfg.getEntry();
             if ("classpath".equals(entryMode) && referencesDir(entry.getClassPath(), "lib")) {
                 stageDeps(trainingDir.resolve("lib"), "class-path");
-            } else if ("module".equals(entryMode) && referencesDir(entry.getModulePath(), "mods")) {
-                stageDeps(trainingDir.resolve("mods"), "module-path");
+            } else if ("module".equals(entryMode)) {
+                if (referencesDir(entry.getModulePath(), "mods")) {
+                    stageDeps(trainingDir.resolve("mods"), "module-path");
+                }
+                // The mixed form also carries a class path, whose lib/ entries
+                // must be staged too or the training launch cannot resolve them.
+                if (referencesDir(entry.getClassPath(), "lib")) {
+                    stageDeps(trainingDir.resolve("lib"), "class-path");
+                }
             }
             return trainingJar;
         } catch (IOException e) {

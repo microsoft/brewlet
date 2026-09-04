@@ -8,13 +8,49 @@
 {{- $certManagerEnabled := .Values.admission.certManager.enabled -}}
 {{- $ca := dict "Cert" "" -}}
 {{- $cert := dict "Cert" "" "Key" "" -}}
+{{- $certRenewAfter := 0 -}}
 {{- if not $certManagerEnabled -}}
 {{- $validityDays := int .Values.admission.selfSigned.validityDays -}}
 {{- if le $validityDays 0 -}}
 {{- fail "admission.selfSigned.validityDays must be greater than zero" -}}
 {{- end -}}
+{{- $renewBeforeDays := int .Values.admission.selfSigned.renewBeforeDays -}}
+{{- if or (lt $renewBeforeDays 0) (ge $renewBeforeDays $validityDays) -}}
+{{- fail "admission.selfSigned.renewBeforeDays must be >= 0 and less than admission.selfSigned.validityDays" -}}
+{{- end -}}
+{{/*
+Reuse the live certificate across upgrades instead of minting a new one every
+time. genSignedCert is non-deterministic, so regenerating on every `helm upgrade`
+rotated the serving cert and the webhook CA bundle for unrelated value changes,
+briefly breaking admission while the new Secret propagated to the running pod.
+
+The Secret records when it should next be rotated; we only regenerate once we are
+inside renewBeforeDays of expiry (or the Secret is absent/unreadable, or we are
+rendering without cluster access, where `lookup` returns nothing).
+
+This does NOT make the self-signed path self-renewing: nothing rotates it unless
+a `helm upgrade` runs. That is why admission.certManager is the supported
+auto-renewal path for long-lived clusters — see the chart README.
+*/}}
+{{- $existing := lookup "v1" "Secret" $ns "brewlet-admission-selfsigned-cert" -}}
+{{- $reusable := false -}}
+{{- if $existing -}}
+{{- $ann := default (dict) $existing.metadata.annotations -}}
+{{- $renewAfter := int (default "0" (get $ann "brewlet.sh/cert-renew-after")) -}}
+{{- $data := default (dict) $existing.data -}}
+{{- if and (gt $renewAfter (int (now | unixEpoch)))
+           (get $data "tls.crt") (get $data "tls.key") (get $ann "brewlet.sh/ca-cert") -}}
+{{- $reusable = true -}}
+{{- $ca = dict "Cert" (b64dec (get $ann "brewlet.sh/ca-cert")) -}}
+{{- $cert = dict "Cert" (b64dec (get $data "tls.crt")) "Key" (b64dec (get $data "tls.key")) -}}
+{{- $certRenewAfter = $renewAfter -}}
+{{- end -}}
+{{- end -}}
+{{- if not $reusable -}}
 {{- $ca = genCA "brewlet-admission-ca" $validityDays -}}
 {{- $cert = genSignedCert $svc nil $altNames $validityDays $ca -}}
+{{- $certRenewAfter = add (int (now | unixEpoch)) (mul (sub $validityDays $renewBeforeDays) 86400) -}}
+{{- end -}}
 {{- end -}}
 {{/*
 brewlet-admission: the pod admission/scheduling webhook (§8/§14). It overwrites
@@ -71,6 +107,13 @@ metadata:
   namespace: {{ $ns }}
   labels:
     {{- include "brewlet.labels" . | nindent 4 }}
+  annotations:
+    # Unix time after which the next `helm upgrade` mints a fresh certificate.
+    # Nothing rotates it on its own — use admission.certManager for that.
+    brewlet.sh/cert-renew-after: {{ $certRenewAfter | quote }}
+    # The issuing CA, so an upgrade that reuses this cert can re-derive the
+    # webhook caBundle without regenerating (and invalidating) the chain.
+    brewlet.sh/ca-cert: {{ $ca.Cert | b64enc | quote }}
 type: kubernetes.io/tls
 data:
   tls.crt: {{ $cert.Cert | b64enc }}
@@ -197,6 +240,19 @@ webhooks:
       {{- if not $certManagerEnabled }}
       caBundle: {{ $ca.Cert | b64enc }}
       {{- end }}
+    # This webhook is cluster-wide on pod CREATE, so narrow what the API server
+    # must consult it for. The default excludes kube-system: brewlet workloads
+    # never run there, and keeping a webhook off control-plane-critical pods
+    # bounds the blast radius of an outage or a slow response. Set either
+    # selector to {} to match everything.
+    {{- with .Values.admission.namespaceSelector }}
+    namespaceSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.admission.objectSelector }}
+    objectSelector:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     rules:
       - apiGroups: [""]
         apiVersions: ["v1"]

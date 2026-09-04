@@ -12,6 +12,8 @@ import sh.brewlet.maven.plugin.oci.OciReferrer;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.util.Iterator;
+import java.util.Set;
 
 /** Creates and validates the SBOM and signed provenance attached to a bundle. */
 public final class BundleProvenance {
@@ -64,6 +66,7 @@ public final class BundleProvenance {
                 bundle.manifestDigest(), MediaTypes.DEPENDENCY_BUNDLE_PREDICATE_TYPE,
                 signerIdentity);
         JsonNode predicate = statement.path("predicate");
+        requireKnownFields(predicate);
         if (predicate.path("schemaVersion").asInt() != 1) {
             throw new GeneralSecurityException("Unsupported bundle provenance schemaVersion");
         }
@@ -80,6 +83,38 @@ public final class BundleProvenance {
         CycloneDx.validate(sbom, bundle.lock(), bundle.config().getName(),
                 bundle.config().getVersion());
         return LocalStore.sha256Hex(sbom);
+    }
+
+    /**
+     * The exact field set of the dependency-bundle predicate, mirroring the Go
+     * {@code attest.BundleProvenance} struct.
+     */
+    private static final Set<String> BUNDLE_PREDICATE_FIELDS = Set.of(
+            "schemaVersion", "dependencyBundleDigest", "dependencyLayerDigest",
+            "dependencyLockDigest", "sbomDigest", "sourceBom", "builderIdentity");
+
+    /**
+     * Rejects a predicate carrying any field outside {@link #BUNDLE_PREDICATE_FIELDS}.
+     *
+     * <p>The Go verifier decodes this predicate with {@code DisallowUnknownFields}.
+     * Reading only the fields it knows about would make the Maven plugin accept a
+     * bundle that the Go verifier rejects at admission — a publish-time versus
+     * admission-time divergence, where a signed artifact passes every check the
+     * publisher runs and is then refused in the cluster. Both sides must agree on
+     * the exact field set.
+     */
+    private static void requireKnownFields(JsonNode predicate) throws GeneralSecurityException {
+        if (!predicate.isObject()) {
+            throw new GeneralSecurityException("Bundle provenance predicate must be an object");
+        }
+        Iterator<String> names = predicate.fieldNames();
+        while (names.hasNext()) {
+            String name = names.next();
+            if (!BUNDLE_PREDICATE_FIELDS.contains(name)) {
+                throw new GeneralSecurityException(
+                        "Bundle provenance predicate has unknown field " + name);
+            }
+        }
     }
 
     private static void require(JsonNode predicate, String field, String expected)

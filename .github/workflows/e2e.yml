@@ -84,6 +84,11 @@ jobs:
             cluster: true
             helm: true
             network_policy: true
+          - name: "Tier 16: Failure modes"
+            tiers: --tier 16
+            java: true
+            cluster: true
+            helm: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -130,3 +135,47 @@ jobs:
 
       - name: Run tiers
         run: integration-tests/e2e/run.sh ${{ matrix.tiers }}
+
+  # SPECIFICATION §4.4 publishes a multi-arch index (amd64 + arm64) and the shim
+  # selects a platform manifest with containerd's STRICT matcher — no unmatched
+  # fallback. Every job above runs on amd64, so arm64 was asserted only by unit
+  # tests over the index writer and never actually executed. This job runs the
+  # host-only tiers on a real arm64 runner: the CLI/JVM path (1-2) and the
+  # shim-to-runc sandbox assembly (3), which is where an arch-specific
+  # regression would surface.
+  arm64:
+    name: "Tier 01-03 on arm64"
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: |
+            core/go.sum
+            kubernetes/go.sum
+
+      - name: Set up JDK
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Confirm the runner really is arm64
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          echo "runner arch: $arch"
+          [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ] || {
+            echo "expected an arm64 runner, got $arch" >&2
+            exit 1
+          }
+          [ "$(go env GOARCH)" = "arm64" ] || {
+            echo "go toolchain is not arm64: $(go env GOARCH)" >&2
+            exit 1
+          }
+
+      - name: Run host-only tiers
+        run: integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3

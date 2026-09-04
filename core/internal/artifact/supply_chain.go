@@ -351,9 +351,27 @@ func (s Store) VerifyBundleSupplyChain(bundle ResolvedDependencyBundle, key *ecd
 	if err != nil {
 		return VerifiedBundleSupplyChain{}, err
 	}
+	// Deliberately stricter than the provenance check below, which accepts
+	// at-least-one-valid. The asymmetry is intentional (§4.5):
+	//
+	//   - Provenance is an ASSERTION ABOUT the bundle. Several are legitimate —
+	//     the spec explicitly supports adding signatures during signer rotation —
+	//     and one valid signature is proof.
+	//   - An SBOM is the INVENTORY OF the bundle. The bundle manifest is
+	//     immutable and content-addressed, so exactly one SBOM is correct for it.
+	//     Two are contradictory claims about the same content. Selecting whichever
+	//     one happens to validate would let anyone able to push a referrer steer
+	//     which inventory a consumer reads, and would hide the fact that the
+	//     registry holds a conflicting claim.
+	//
+	// So a stale or malformed extra referrer fails the bundle closed rather than
+	// being skipped. The remedy is under the publisher's control: delete the
+	// extra referrer. The message names both counts so it is clear whether the
+	// problem is an extra descriptor or an unreadable document.
 	if sbomCount != 1 || len(sboms) != 1 {
 		return VerifiedBundleSupplyChain{}, fmt.Errorf(
-			"bundle requires exactly one valid CycloneDX SBOM referrer, discovered %d descriptor(s) and %d valid document(s)",
+			"bundle requires exactly one valid CycloneDX SBOM referrer, discovered %d descriptor(s) and %d valid document(s); "+
+				"an SBOM is the inventory of an immutable bundle, so a second (stale or malformed) referrer is a conflicting claim and must be deleted from the registry",
 			sbomCount, len(sboms))
 	}
 	if err := validateCycloneDX(sboms[0].Document, bundle.Lock, bundle.Config); err != nil {

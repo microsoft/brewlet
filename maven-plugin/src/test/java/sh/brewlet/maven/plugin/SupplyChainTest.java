@@ -98,6 +98,51 @@ class SupplyChainTest {
                         MediaTypes.PREDICATE_TYPE_ANNOTATION).asText());
     }
 
+    /**
+     * The Go verifier decodes the bundle predicate with
+     * {@code DisallowUnknownFields}. If the Maven plugin accepted an extra field,
+     * a signed bundle would pass every check the publisher runs and then be
+     * refused at admission — a publish-time versus admission-time divergence.
+     */
+    @Test
+    void bundleProvenanceRejectsUnknownPredicateFields() throws Exception {
+        Keys keys = keys();
+        DependencyBundle.Content bundle = bundle();
+
+        // Re-sign a predicate carrying one extra field, everything else identical
+        // to what create() produces, so only the unknown field can fail it.
+        byte[] sbom = CycloneDx.generate(bundle.lock(), bundle.config().getName(),
+                bundle.config().getVersion());
+        String sbomDigest = LocalStore.sha256Hex(sbom);
+        var predicate = CanonicalJson.MAPPER.createObjectNode();
+        predicate.put("schemaVersion", 1);
+        predicate.put("dependencyBundleDigest", bundle.manifestDigest());
+        predicate.put("dependencyLayerDigest", bundle.config().getLayerDigest());
+        predicate.put("dependencyLockDigest", bundle.config().getLockDigest());
+        predicate.put("sbomDigest", sbomDigest);
+        predicate.put("sourceBom", bundle.config().getSourceBom());
+        predicate.put("builderIdentity", "builder");
+        predicate.put("unexpectedField", "surprise");
+        InToto.Statement statement = new InToto.Statement(bundle.config().getName(),
+                bundle.manifestDigest(), MediaTypes.DEPENDENCY_BUNDLE_PREDICATE_TYPE, predicate);
+        byte[] envelope = CanonicalJson.bytes(
+                Dsse.sign(CanonicalJson.bytes(statement), keys.privatePem()));
+
+        GeneralSecurityException e = assertThrows(GeneralSecurityException.class,
+                () -> BundleProvenance.verify(bundle, sbom, envelope, keys.publicPem(), "builder"));
+        assertTrue(e.getMessage().contains("unexpectedField"), e.getMessage());
+
+        // The same predicate WITHOUT the extra field still verifies, proving the
+        // rejection is the unknown field and not the hand-built statement.
+        predicate.remove("unexpectedField");
+        InToto.Statement clean = new InToto.Statement(bundle.config().getName(),
+                bundle.manifestDigest(), MediaTypes.DEPENDENCY_BUNDLE_PREDICATE_TYPE, predicate);
+        byte[] cleanEnvelope = CanonicalJson.bytes(
+                Dsse.sign(CanonicalJson.bytes(clean), keys.privatePem()));
+        assertEquals(sbomDigest,
+                BundleProvenance.verify(bundle, sbom, cleanEnvelope, keys.publicPem(), "builder"));
+    }
+
     @Test
     void bundleProvenanceValidatesEveryBinding() throws Exception {
         Keys keys = keys();

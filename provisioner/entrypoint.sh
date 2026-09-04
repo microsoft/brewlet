@@ -834,19 +834,60 @@ install_runtime_sources() {
 # ---------------------------------------------------------------------------
 # Step 3 — register the brewlet runtime in containerd and reload.
 # ---------------------------------------------------------------------------
+# Read SystemdCgroup from the runc runtime's own TOML table in one config file.
+# Prints "true"/"false", or nothing when the file does not set it.
+#
+# Scoping to the runc table matters: a plain file-wide grep also matches a
+# SystemdCgroup belonging to some OTHER handler (kata, runsc, a second runc
+# variant), which would make brewlet mirror a driver the kubelet is not using and
+# create pod cgroups in the wrong place. Section state is reset on every table
+# header, and a trailing comment is stripped before the value is read, so
+# `SystemdCgroup = true  # was false` is not misread.
+containerd_runc_systemd_cgroup() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  awk '
+    /^[[:space:]]*\[/ {
+      # runc options live in either [...containerd.runtimes.runc] or its
+      # [...containerd.runtimes.runc.options] child; any other table ends the scope.
+      in_runc = (index($0, "containerd.runtimes.runc]") > 0) ||
+                (index($0, "containerd.runtimes.runc.options]") > 0)
+      next
+    }
+    in_runc && tolower($0) ~ /^[[:space:]]*systemdcgroup[[:space:]]*=/ {
+      line = $0
+      sub(/#.*/, "", line)
+      sub(/^[^=]*=[[:space:]]*/, "", line)
+      gsub(/[[:space:]]/, "", line)
+      if (tolower(line) == "true")  { print "true";  exit }
+      if (tolower(line) == "false") { print "false"; exit }
+    }
+  ' "$file"
+}
+
 containerd_systemd_cgroup() {
   # Mirror the node's cgroup driver. containerd's CRI plugin only synthesizes the
   # runc-native options for the built-in runc runtime types; for a custom handler
   # like brewlet it passes a generic runtimeoptions.Options carrying this block
   # verbatim, which the shim translates back into runc options (SystemdCgroup
   # must match the kubelet cgroup driver or pod cgroups are created in the wrong
-  # place). Default to the container-runtime norm and inherit the value the
-  # existing runc runtime already uses when we can detect it.
-  local systemd_cgroup="true"
-  if grep -qiE '^[[:space:]]*SystemdCgroup[[:space:]]*=[[:space:]]*false' "$CONTAINERD_CONFIG"; then
-    systemd_cgroup="false"
+  # place). Inherit the value the existing runc runtime uses, defaulting to the
+  # container-runtime norm when the node states nothing.
+  local systemd_cgroup="" f
+  # Drop-ins are imported after the primary config and therefore win. Brewlet's
+  # own drop-in is skipped: it carries the value we are computing.
+  if [[ -d "$CONTAINERD_DROPIN_DIR" ]]; then
+    for f in "$CONTAINERD_DROPIN_DIR"/*.toml; do
+      [[ -f "$f" ]] || continue
+      [[ "$f" != "$CONTAINERD_DROPIN_FILE" ]] || continue
+      systemd_cgroup="$(containerd_runc_systemd_cgroup "$f")"
+      [[ -z "$systemd_cgroup" ]] || break
+    done
   fi
-  printf '%s' "$systemd_cgroup"
+  if [[ -z "$systemd_cgroup" ]]; then
+    systemd_cgroup="$(containerd_runc_systemd_cgroup "$CONTAINERD_CONFIG")"
+  fi
+  printf '%s' "${systemd_cgroup:-true}"
 }
 
 containerd_runtime_plugin_for_config() {
@@ -910,7 +951,14 @@ validate_launcher() {
   binary="$root/bin/${name}"
   reason_id="$(launcher_reason_id "$name")"
 
+  # §5.2 requires an executable REGULAR file. -e alone also accepts a directory,
+  # a device, or a dangling symlink's target class, and -x on a directory means
+  # "searchable" — so a staged launcher that is a directory would previously have
+  # passed both checks and then failed at exec time, on the first workload rather
+  # than at provisioning. -f is checked before -x so the diagnostic names the
+  # real problem.
   [[ -e "$binary" ]] || die "launcher-${reason_id}-missing" "launcher ${name} binary not found at ${binary}"
+  [[ -f "$binary" ]] || die "launcher-${reason_id}-not-executable" "launcher ${name} at ${binary} is not a regular file"
   [[ -x "$binary" ]] || die "launcher-${reason_id}-not-executable" "launcher ${name} binary at ${binary} is not executable"
 
   log "launcher ${name} is present and executable"
