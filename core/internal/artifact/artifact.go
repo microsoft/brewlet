@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -159,13 +160,73 @@ func IsVanillaLauncher(name string) bool {
 	return name == "" || name == VanillaLauncher
 }
 
-// LauncherName resolves a launcher request to the launcher binary name,
-// defaulting to the vanilla "java" launcher for an empty request.
-func LauncherName(name string) string {
-	if IsVanillaLauncher(name) {
-		return VanillaLauncher
+// MaxLauncherNameLength bounds a custom launcher name. It is the DNS-1123 label
+// budget left after the "launcher." prefix the Kubernetes platform stamps onto
+// nodes as the brewlet.sh/launcher.<name> capability label, so every name the
+// runtime accepts can also be advertised and scheduled on.
+const MaxLauncherNameLength = 63 - len("launcher.")
+
+// runtimeTokenPattern is the DNS-1123 label rule node-resident runtime directory
+// names must satisfy — custom launcher names and JDK distributions alike:
+// lowercase alphanumerics and dashes, starting and ending alphanumeric. It is
+// written out rather than pulled from k8s.io/apimachinery so the core module
+// stays dependency-free; NodeProfile validation
+// (kubernetes/internal/controller/nodeprofile_validate.go) applies the identical
+// rule to the inventory an administrator declares, and admission
+// (kubernetes/internal/brewlet) applies it to the pod annotation.
+var runtimeTokenPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
+// ValidateRuntimeToken enforces that value can only ever name a directory
+// *directly inside* the node's runtime roots. Such a token is not a cosmetic
+// hint: the shim joins it onto /opt/brewlet/{jdks,launchers} to pick an overlay
+// lower layer and a privileged bind-mount source. A value carrying a path
+// separator or a parent reference (e.g. "../../..") is therefore a
+// host-path-traversal primitive (CWE-22). The pattern rejects separators (either
+// flavor), dot segments, wildcards, whitespace, absolute paths and uppercase by
+// construction. field names the input for the error message.
+func ValidateRuntimeToken(field, value string, maxLen int) error {
+	if len(value) > maxLen {
+		return fmt.Errorf("%s %q exceeds %d characters", field, value, maxLen)
 	}
-	return name
+	if !runtimeTokenPattern.MatchString(value) {
+		return fmt.Errorf("%s %q must be a lowercase DNS-1123 token (letters, digits and dashes; no path separator, parent reference or wildcard)", field, value)
+	}
+	return nil
+}
+
+// validateLauncherName enforces that a custom launcher request is a safe
+// DNS-1123 token (see ValidateRuntimeToken). Beyond the shared runtime-root
+// traversal risk, the launcher name is also the sandbox argv[0]. The vanilla
+// launcher ("" or "java") needs no layer and is always accepted.
+func validateLauncherName(name string) error {
+	if IsVanillaLauncher(name) {
+		return nil
+	}
+	return ValidateRuntimeToken("launcher", name, MaxLauncherNameLength)
+}
+
+// ValidateLauncherName is validateLauncherName for callers outside this package
+// (the shim's launcher selection, the local runtime, and the CLI), which
+// re-check a launcher request at the point it is joined onto a host directory,
+// used as a bind-mount source, or used as argv[0].
+func ValidateLauncherName(name string) error {
+	return validateLauncherName(name)
+}
+
+// LauncherName resolves a launcher request to the launcher binary name,
+// defaulting to the vanilla "java" launcher for an empty request, after
+// re-checking that the request is a safe token. Every caller that joins the name
+// onto a host directory, uses it as a mount source, or executes it as argv[0]
+// resolves it through here (mirroring MainJarName) so an unvalidated annotation
+// cannot escape the launcher roots.
+func LauncherName(name string) (string, error) {
+	if IsVanillaLauncher(name) {
+		return VanillaLauncher, nil
+	}
+	if err := validateLauncherName(name); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 type Entry struct {

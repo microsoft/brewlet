@@ -33,6 +33,15 @@ The root records the selected Java home in `.brewlet-java-home` and the exact
 image/path pair in `.brewlet-source`. The shim uses the complete copied root as
 the sandbox filesystem and exposes the selected Java home at `/opt/jdk`.
 
+After installing the roots, the provisioner writes the set of active
+distributions to `/opt/brewlet/jdks/.brewlet-active`. Selection is fail-closed on
+that inventory: a root that is present on disk but absent from the inventory —
+and any request made on a node with no inventory at all — is refused with
+`NoCompatibleJDK`. A requested `distribution` must also be a lowercase DNS-1123
+token, and the shim verifies after symlink resolution that the selected root is a
+direct child of `/opt/brewlet/jdks` before mounting it. Launchers follow the
+identical rules (see [Launchers](launchers.md)).
+
 Mutable tags are intentionally rejected. A tag may resolve to different bytes
 between reviews or nodes; a digest identifies the exact OCI manifest or
 multi-platform index the administrator approved.

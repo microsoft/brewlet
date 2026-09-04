@@ -154,6 +154,7 @@ func TestResolveArtifactPropagatesManifestDigest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(jdkRoot, "bin", "java"), []byte("java"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	activate(t, filepath.Dir(jdkRoot), jdkActiveInventory, "temurin-21")
 
 	got, err := resolveArtifact(imageConfig{
 		StoreRoot:   layoutRoot,

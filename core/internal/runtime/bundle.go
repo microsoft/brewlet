@@ -314,7 +314,13 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 
 	// argv[0] is the launcher: "java" (vanilla, from /opt/jdk/bin) or a custom
 	// launcher such as "jaz" resolved from the launcher layer on PATH.
-	args := append([]string{artifact.LauncherName(launcherName)}, jvmArgs...)
+	// LauncherName re-checks the request: it is both argv[0] here and (below) the
+	// name the launcher root was selected by on the node.
+	launcherBin, err := artifact.LauncherName(launcherName)
+	if err != nil {
+		return err
+	}
+	args := append([]string{launcherBin}, jvmArgs...)
 
 	path := "/opt/jdk/bin:/usr/bin:/bin"
 	var launcherMount []ociMount

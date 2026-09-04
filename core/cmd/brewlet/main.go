@@ -724,7 +724,11 @@ func cmdRun(args []string) error {
 
 	fmt.Printf("[brewlet] node JDK : %s\n", plan.JDKHome)
 	if !artifact.IsVanillaLauncher(*launcher) {
-		fmt.Printf("[brewlet] launcher : %s (owns JVM tuning)\n", artifact.LauncherName(*launcher))
+		name, err := artifact.LauncherName(*launcher)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[brewlet] launcher : %s (owns JVM tuning)\n", name)
 	}
 	fmt.Printf("[brewlet] sandbox  : %s\n", sandbox)
 	fmt.Printf("[brewlet] launch   : %s\n", plan.CommandLine())
@@ -778,7 +782,11 @@ func cmdBundle(args []string) error {
 	}
 	fmt.Printf("wrote OCI runtime bundle to %s/config.json\n", *out)
 	if !artifact.IsVanillaLauncher(*launcher) {
-		fmt.Printf("  launcher: %s (owns JVM tuning)\n", artifact.LauncherName(*launcher))
+		name, err := artifact.LauncherName(*launcher)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("  launcher: %s (owns JVM tuning)\n", name)
 	}
 	fmt.Printf("on a Linux node the shim runs:  runc run -b %s brewlet-<id>\n", *out)
 	return nil

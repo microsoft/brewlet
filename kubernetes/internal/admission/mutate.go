@@ -17,9 +17,10 @@ type MutationResult struct {
 	// Applies is true when the pod targets the brewlet RuntimeClass and was
 	// therefore considered. When false the pod is left untouched.
 	Applies bool
-	// DenyReason / DenyMessage are set (from CheckFleet) when the pod requested a
-	// JDK/launcher no ready node provides. When DenyReason is empty the mutation
-	// succeeded and the (possibly modified) pod should be admitted.
+	// DenyReason / DenyMessage are set (from CheckFleet, or from launcher-name
+	// validation) when the pod requested a JDK/launcher no ready node provides,
+	// or a launcher name that is not a safe token. When DenyReason is empty the
+	// mutation succeeded and the (possibly modified) pod should be admitted.
 	DenyReason  string
 	DenyMessage string
 	// ArtifactRef / ArtifactDigest are the image-derived informational values
@@ -78,6 +79,14 @@ func MutatePod(pod *corev1.Pod, fleet []NodeCapability) MutationResult {
 	launcher := strings.TrimSpace(pod.Annotations[brewlet.AnnotationRequestedLauncher])
 	arch := splitArch(pod.Annotations[brewlet.AnnotationRequestedArch])
 	appCDSRegeneration := strings.EqualFold(strings.TrimSpace(pod.Annotations[brewlet.AnnotationCDSRegenerate]), "true")
+	// The launcher name reaches the node shim as a directory name under the
+	// launcher roots and as the sandbox argv[0]; reject anything that is not a
+	// safe token before it can be scheduled or turned into an affinity key.
+	if err := brewlet.ValidateLauncherName(launcher); err != nil {
+		res.DenyReason = brewlet.ReasonNoCompatibleLauncher
+		res.DenyMessage = err.Error()
+		return res
+	}
 	if fr := CheckFleet(fleet, jdk, launcher, arch, appCDSRegeneration); !fr.Compatible {
 		res.DenyReason = fr.DenyReason
 		res.DenyMessage = fr.Message
