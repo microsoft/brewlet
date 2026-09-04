@@ -159,9 +159,16 @@ func TestProfileAffinityCatchAll(t *testing.T) {
 		t.Fatalf("catch-all NotIn values = %v, want sorted [batch edge]", term.Values)
 	}
 
-	// A lone default (no named pools) matches every node: no affinity.
-	if aff := profileAffinity(def, "", nil); aff != nil {
-		t.Fatalf("lone default affinity = %+v, want nil (every node)", aff)
+	// A lone default (no named pools) matches every node in the fleet, but the
+	// control-plane exclusions are still required (see finding 10).
+	lone := profileAffinity(def, "", nil)
+	if lone == nil {
+		t.Fatal("lone default affinity = nil, want the control-plane exclusions")
+	}
+	for _, req := range lone.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions {
+		if req.Operator != corev1.NodeSelectorOpDoesNotExist {
+			t.Fatalf("lone default requirement = %+v, want only control-plane exclusions", req)
+		}
 	}
 }
 

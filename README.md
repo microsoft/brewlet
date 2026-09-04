@@ -102,15 +102,16 @@ workflow.
 ### Enable a Kubernetes cluster
 
 Brewlet requires containerd, cgroup v2, and permission to run a privileged
-host-modifying DaemonSet. The default chart profile provisions every node, so
-use named `NodeProfile`s to restrict production or shared clusters to
-platform-owned node pools.
+host-modifying DaemonSet. Because that DaemonSet mutates the host, the chart has
+no every-node default: name the pools it may provision, and it stays off
+control-plane nodes regardless.
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.3.1 \
   --namespace brewlet \
-  --create-namespace
+  --create-namespace \
+  --set provisioner.pools="{java-workers}"
 
 kubectl get nodes -L brewlet.sh/runtime
 brewlet doctor --namespace <developer-namespace>

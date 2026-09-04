@@ -59,6 +59,10 @@ with `--set key=value` or a values file.
 | `images.digests.admission` | recorded at release | Immutable digest for the admission webhook image. |
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
 | `security.allowedSourceMirrorHosts` | `[]` | Exact registry destination hosts, including explicit ports, that NodeProfiles may use for JDK/launcher mirrors. Empty disables mirrors. The chart passes the same list to manager and admission. |
+| `provisioner.pools` | `[]` (**required**) | Node pool names the chart-managed default `NodeProfile` may provision. The privileged provisioner is never cluster-wide by default: rendering fails when `defaultProfile.enabled` is `true` and this is empty. |
+| `provisioner.poolKey` | `""` | Node label carrying the pool name. Empty auto-detects the well-known provider keys (AKS, EKS, GKE); set it explicitly on bare metal or kubeadm. |
+| `provisioner.includeControlPlane` | `false` | Allow the default profile onto control-plane nodes. Off by default, and only needed on single-node clusters such as kind or Docker Desktop, which label their node as the control plane without tainting it. |
+| `provisioner.tolerations` | `[]` | Tolerations for the default profile's provisioner pods. Standard Kubernetes toleration entries; each must name a `key`. Nothing is tolerated implicitly. |
 | `provisioner.jdks` | structured Temurin 21 and Microsoft 25 examples | Required JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` ([§JDK management](jdk-management.md#source-model)). |
 | `provisioner.launchers` | structured `jaz` example | Optional launcher entries with `name`, digest-pinned `source.image`, and absolute `source.path` ([§Launchers](launchers.md#helm-example-jaz)). Empty = vanilla `java` only. |
 | `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the chart-managed default `NodeProfile`. |
@@ -66,7 +70,7 @@ with `--set key=value` or a values file.
 | `provisioner.rollout.validate` | `true` | Gate node readiness on post-install JDK smoke tests and staged-launcher executable checks. Arbitrary launchers are not executed as a probe. Renders the provisioner `BREWLET_VALIDATE` env. |
 | `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`); legacy in-place render plus SIGHUP (`sighup`); or no containerd mutation/signal (`none`). Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `provisioner.registry.mirrors` | `{}` | `<upstream-host>: <mirror-host[/path]>` map applied to digest-pinned source pulls. Every destination host must appear in `security.allowedSourceMirrorHosts`. |
-| `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
+| `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Requires `provisioner.pools`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `profiles` | `[]` | Additional per-pool `NodeProfile` CRs, each binding node pool(s) to their own JDK/launcher inventory plus AppCDS, rollout, and registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `operator.replicas` | `1` | Operator replica count. |
 | `operator.leaderElect` | `true` | Enable leader election for HA. |
@@ -93,6 +97,9 @@ images:
   provisioner: registry.example.com/brewlet/node-provisioner@sha256:<digest>
   admission: registry.example.com/brewlet/admission@sha256:<digest>
 provisioner:
+  # The privileged provisioner only ever touches the pools you name here.
+  pools: ["java-workers"]
+  poolKey: agentpool
   jdks:
     - distribution: platform
       feature: 21
@@ -127,6 +134,61 @@ profiles:
     appCDS:
       regenerationEnabled: true
 ```
+
+---
+
+## Where the provisioner may run
+
+The provisioner is privileged and mutates the host, so its placement is a
+security boundary rather than a scheduling preference. Three rules decide it,
+and all three are closed by default.
+
+**A profile provisions only the pools it names.** The chart will not render its
+default `NodeProfile` until `provisioner.pools` is set; an install that leaves
+it empty fails with an actionable message instead of quietly claiming the
+cluster. Set `defaultProfile.enabled=false` if you would rather author profiles
+yourself.
+
+**Control-plane nodes are excluded.** Every profile's DaemonSet requires
+`node-role.kubernetes.io/control-plane` and `node-role.kubernetes.io/master` to
+be *absent*. This is a node-affinity rule, not a taint rule, because kind and
+Docker Desktop label their single node as the control plane without tainting it
+— a `NoSchedule` taint alone would not have kept the provisioner off. The same
+rule governs `status.assignedNodes`, so an excluded node is never counted and
+never holds the profile short of `Ready`.
+
+**Nothing is tolerated implicitly.** The DaemonSet carries only the tolerations
+a profile declares, plus the node-condition tolerations Kubernetes injects into
+every DaemonSet. Each declared toleration must name a `key`, so a blanket
+"tolerate everything" entry cannot be written.
+
+To provision a tainted pool, name the taint:
+
+```yaml
+provisioner:
+  pools: ["java-workers"]
+  poolKey: agentpool
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: java
+      effect: NoSchedule
+```
+
+On a single-node kind or Docker Desktop cluster, the only node is the control
+plane, so opt in explicitly:
+
+```bash
+helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
+  --set provisioner.pools="{control-plane}" \
+  --set provisioner.poolKey=kubernetes.io/hostname \
+  --set provisioner.includeControlPlane=true
+```
+
+Both settings exist per profile as well — `pools`, `poolKey`,
+`includeControlPlane`, and `tolerations` on each `profiles[]` entry, and
+`spec.nodePool.includeControlPlane` / `spec.tolerations` on a hand-authored
+`NodeProfile`.
 
 ---
 

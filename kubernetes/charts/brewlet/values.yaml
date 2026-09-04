@@ -38,10 +38,27 @@ images:
 security:
   allowedSourceMirrorHosts: []
 
-# What the operator installs on every opted-in node. `provisioner.jdks/launchers`
-# seed the chart-rendered **default** NodeProfile (the catch-all that owns every
-# node not claimed by a named-pool profile below). See §5.6.
+# What the operator installs on the node pools you name. `provisioner.jdks/launchers`
+# seed the chart-rendered **default** NodeProfile. See §5.6.
 provisioner:
+  # REQUIRED when defaultProfile.enabled is true: the node pool name(s) the
+  # default profile provisions. There is deliberately no every-node default —
+  # provisioning is privileged and mutates the host, so an install must name the
+  # pools it owns. Rendering fails when this is empty.
+  pools: []
+  # Node label key carrying the pool name. Empty auto-detects the provider key
+  # (gke-nodepool / agentpool / nodegroup / karpenter). Set it explicitly on
+  # bare-metal / non-standard clusters.
+  poolKey: ""
+  # The only taints the privileged provisioner DaemonSet may schedule through.
+  # Empty means every taint is respected. Each entry must name a key, e.g.
+  #   - { key: "workload", operator: Equal, value: "java", effect: NoSchedule }
+  tolerations: []
+  # Provision nodes labelled node-role.kubernetes.io/control-plane (or the
+  # legacy .../master). Control-plane nodes are excluded by default even when
+  # untainted; enable this only for single-node development clusters (kind,
+  # Docker Desktop) where the only node is the control plane.
+  includeControlPlane: false
   # Editable examples. Every JDK must provide a fully qualified, tagless,
   # SHA-256 digest-pinned image and its JDK root path (§5.3).
   jdks:
@@ -78,8 +95,9 @@ provisioner:
   registry:
     mirrors: {}
 
-# Render the chart-managed default NodeProfile from provisioner.* above. Disable
-# when you manage the default profile yourself (e.g. GitOps).
+# Render the chart-managed default NodeProfile from provisioner.* above. It
+# requires provisioner.pools; disable it when you manage the default profile
+# yourself (e.g. GitOps).
 defaultProfile:
   enabled: true
 
@@ -88,6 +106,9 @@ defaultProfile:
 #   - name: batch
 #     pools: ["batch"]        # pool name(s), matched on the resolved pool key
 #     key: ""                 # optional explicit node label key (auto-detected if empty)
+#     includeControlPlane: false  # opt in to control-plane nodes (off by default)
+#     tolerations:            # taints this profile may schedule through
+#       - { key: "workload", operator: Equal, value: "batch", effect: NoSchedule }
 #     jdks:                   # one or more explicit JDK sources
 #       - distribution: microsoft
 #         feature: 25

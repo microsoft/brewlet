@@ -31,10 +31,6 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
-  # Manage the per-profile provisioner + cleanup DaemonSets.
-  - apiGroups: ["apps"]
-    resources: ["daemonsets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Reconcile NodeProfiles (§5.6): status subresource + finalizer for cleanup.
   - apiGroups: ["node.brewlet.sh"]
     resources: ["nodeprofiles"]
@@ -78,6 +74,33 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
+  name: brewlet-operator
+subjects:
+  - kind: ServiceAccount
+    name: brewlet-operator
+    namespace: brewlet
+---
+# The per-profile provisioner + cleanup DaemonSets only ever live in the
+# operator's own namespace, so this authority is namespaced: a compromised
+# operator token cannot plant a privileged DaemonSet elsewhere.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: brewlet-operator
+  namespace: brewlet
+rules:
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: brewlet-operator
+  namespace: brewlet
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
   name: brewlet-operator
 subjects:
   - kind: ServiceAccount

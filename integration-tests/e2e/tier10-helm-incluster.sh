@@ -293,6 +293,10 @@ kind: NodeProfile
 metadata:
   name: default
 spec:
+  nodePool:
+    # Single-node kind / Docker Desktop clusters label their only node as the
+    # control plane, and the provisioner refuses those unless asked explicitly.
+    includeControlPlane: true
   jdks:
     - distribution: temurin
       feature: 21

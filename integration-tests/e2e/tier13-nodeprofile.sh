@@ -15,6 +15,10 @@
 #   - finalizer-driven reversal (§5.6): deleting a named profile holds it in
 #     Terminating behind node.brewlet.sh/cleanup while a brewlet-cleanup-<pool>
 #     DaemonSet is created; the object is GC'd only once the finalizer clears
+#   - the control-plane guard (SECURITY-REVIEW.md finding 10): a profile that
+#     does not set nodePool.includeControlPlane gets DoesNotExist requirements on
+#     both control-plane role labels, no tolerations of its own, and neither
+#     counts nor schedules onto a control-plane node
 # Safety: the provisioner image is a NON-EXISTENT ref so DaemonSet pods can never
 # run host-mutating code. The cleanup finalizer never clears under that bogus
 # image, so this tier force-removes it during teardown. Everything is cleaned up.
@@ -22,6 +26,7 @@
 
 T13_NS="brewlet"
 T13_POOL="batch"
+T13_GUARDED="guarded"              # a pool that never opts into the control plane
 T13_POOL_KEY="agentpool"           # a real provider pool key (AKS legacy) so the
                                    # default profile auto-detects it for exclusion
 T13_MGR_PID=""
@@ -33,6 +38,7 @@ _t13_cleanup() {
   force_delete_nodeprofiles
   kubectl delete daemonset -n "$T13_NS" \
     brewlet-node-provisioner-default "brewlet-node-provisioner-$T13_POOL" "brewlet-cleanup-$T13_POOL" \
+    "brewlet-node-provisioner-$T13_GUARDED" "brewlet-cleanup-$T13_GUARDED" \
     --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete ns "$T13_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
@@ -48,6 +54,15 @@ _t13_cleanup() {
 _t13_rc_exists()      { kubectl get runtimeclass brewlet >/dev/null 2>&1; }
 _t13_default_ds()     { kubectl get ds brewlet-node-provisioner-default -n "$T13_NS" >/dev/null 2>&1; }
 _t13_pool_ds()        { kubectl get ds "brewlet-node-provisioner-$T13_POOL" -n "$T13_NS" >/dev/null 2>&1; }
+_t13_guarded_ds()     { kubectl get ds "brewlet-node-provisioner-$T13_GUARDED" -n "$T13_NS" >/dev/null 2>&1; }
+
+# _t13_node_is_control_plane NODE_REF ("node/<name>" or "<name>")
+_t13_node_is_control_plane() {
+  local labels
+  labels="$(kubectl get "$1" -o jsonpath='{.metadata.labels}' 2>/dev/null)"
+  [[ "$labels" == *'node-role.kubernetes.io/control-plane'* ]] \
+    || [[ "$labels" == *'node-role.kubernetes.io/master'* ]]
+}
 _t13_cleanup_ds()     { kubectl get ds "brewlet-cleanup-$T13_POOL" -n "$T13_NS" >/dev/null 2>&1; }
 _t13_pool_np_gone()   { ! kubectl get nodeprofile "$T13_POOL" >/dev/null 2>&1; }
 _t13_pool_terminating() { [[ -n "$(kubectl get nodeprofile "$T13_POOL" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]]; }
@@ -106,12 +121,18 @@ tier13_nodeprofile() {
   fi
 
   # --- (1) default catch-all profile ---------------------------------------
+  # includeControlPlane keeps the catch-all meaning "every node" on the
+  # single-node kind / Docker Desktop clusters this tier runs against, where the
+  # only node carries the control-plane label. Section (4) covers the guarded
+  # default that a real install gets.
   cat >"$WORK/t13-default.yaml" <<'YAML'
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
   name: default
 spec:
+  nodePool:
+    includeControlPlane: true
   jdks:
     - distribution: temurin
       feature: 21
@@ -134,7 +155,7 @@ YAML
 
   if wait_for _t13_default_ds; then
     pass "default profile: reconciler created brewlet-node-provisioner-default"
-    assert_eq "default profile: DaemonSet has no restricting nodeAffinity while it is the only profile" \
+    assert_eq "default profile: DaemonSet has no restricting nodeAffinity while it is the only profile (control plane opted in)" \
       "$(kubectl get ds brewlet-node-provisioner-default -n "$T13_NS" -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution}' 2>/dev/null)" ""
   else
     fail "default profile: reconciler created brewlet-node-provisioner-default"
@@ -163,6 +184,7 @@ spec:
   nodePool:
     key: $T13_POOL_KEY
     names: [$T13_POOL]
+    includeControlPlane: true
   jdks:
     - distribution: microsoft
       feature: 25
@@ -235,6 +257,87 @@ YAML
       pass "reversal: profile is garbage-collected once the finalizer clears"
     else
       fail "reversal: profile GC'd after finalizer removal"
+    fi
+
+    # --- (4) control-plane guard (SECURITY-REVIEW.md finding 10) -----------
+    # The provisioner is privileged with hostPID and host mounts, so a profile
+    # that has NOT opted in must never be able to land on a control-plane node,
+    # and must never carry a blanket toleration that would defeat its taint.
+    kubectl label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_GUARDED" >/dev/null 2>&1
+    cat >"$WORK/t13-guarded.yaml" <<YAML
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata:
+  name: $T13_GUARDED
+spec:
+  nodePool:
+    key: $T13_POOL_KEY
+    names: [$T13_GUARDED]
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
+YAML
+    if kubectl apply -f "$WORK/t13-guarded.yaml" >>"$WORK/t13-np.log" 2>&1; then
+      pass "control-plane guard: profile without includeControlPlane accepted"
+    else
+      fail "control-plane guard: apply" "see $WORK/t13-np.log"
+    fi
+
+    if wait_for _t13_guarded_ds; then
+      local exprs tols
+      exprs="$(kubectl get ds "brewlet-node-provisioner-$T13_GUARDED" -n "$T13_NS" \
+        -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions}' 2>/dev/null)"
+      assert_contains "control-plane guard: DaemonSet requires node-role.kubernetes.io/control-plane to be absent" \
+        "$exprs" '"key":"node-role.kubernetes.io/control-plane","operator":"DoesNotExist"'
+      assert_contains "control-plane guard: DaemonSet requires the legacy master label to be absent" \
+        "$exprs" '"key":"node-role.kubernetes.io/master","operator":"DoesNotExist"'
+      # A blanket `operator: Exists` toleration would defeat every taint the
+      # platform team relies on, control-plane included.
+      tols="$(kubectl get ds "brewlet-node-provisioner-$T13_GUARDED" -n "$T13_NS" \
+        -o jsonpath='{.spec.template.spec.tolerations}' 2>/dev/null)"
+      assert_eq "control-plane guard: DaemonSet declares no tolerations of its own" "$tols" ""
+    else
+      fail "control-plane guard: reconciler created brewlet-node-provisioner-$T13_GUARDED"
+    fi
+
+    # Membership must agree with placement, or the profile counts nodes it can
+    # never provision and never reaches Ready.
+    local want_assigned=1
+    if _t13_node_is_control_plane "$T13_NODE"; then want_assigned=0; fi
+    if wait_for bash -c "[[ \"\$(kubectl get nodeprofile $T13_GUARDED -o jsonpath='{.status.assignedNodes}' 2>/dev/null)\" == \"$want_assigned\" ]]"; then
+      pass "control-plane guard: status.assignedNodes == $want_assigned (control-plane node not counted)"
+    else
+      fail "control-plane guard: status.assignedNodes == $want_assigned" \
+        "got '$(kubectl get nodeprofile "$T13_GUARDED" -o jsonpath='{.status.assignedNodes}' 2>/dev/null)'"
+    fi
+
+    # The scheduler's own verdict, on clusters that actually have a distinct
+    # control-plane node. Pods never run (bogus image) but they are scheduled.
+    local cp_nodes
+    cp_nodes="$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o name 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ "$cp_nodes" == "0" ]]; then
+      skip "control-plane guard: no provisioner pod scheduled onto a control-plane node" \
+        "cluster has no control-plane-labelled node"
+    else
+      sleep 3
+      local landed=""
+      landed="$(kubectl get pods -n "$T13_NS" \
+        -l "brewlet.sh/nodeprofile=$T13_GUARDED" \
+        -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>/dev/null || true)"
+      local offender=""
+      local n
+      for n in $landed; do
+        if _t13_node_is_control_plane "node/$n"; then offender="$n"; fi
+      done
+      if [[ -z "$offender" ]]; then
+        pass "control-plane guard: no provisioner pod scheduled onto a control-plane node"
+      else
+        fail "control-plane guard: no provisioner pod scheduled onto a control-plane node" \
+          "pod landed on $offender"
+      fi
     fi
   fi
 }

@@ -193,7 +193,10 @@ jobs:
 
       - name: Package chart
         run: |
-          helm lint kubernetes/charts/brewlet
+          # The chart fails closed without provisioner.pools, so name one:
+          # this step checks packaging, not the placement guard (which
+          # kubernetes/Makefile helm-scheduling-check covers).
+          helm lint kubernetes/charts/brewlet --set provisioner.pools="{general}"
           helm package kubernetes/charts/brewlet \
             --version "${{ steps.version.outputs.version }}" \
             --app-version "${{ steps.version.outputs.version }}" \
@@ -203,6 +206,7 @@ jobs:
         shell: bash
         run: |
           helm template brewlet "dist/brewlet-${{ steps.version.outputs.version }}.tgz" \
+            --set provisioner.pools="{general}" \
             > rendered.yaml
           for image in brewlet-operator brewlet-admission brewlet-node-provisioner; do
             grep -Eq "ghcr\.io/microsoft/${image}@sha256:[0-9a-f]{64}" rendered.yaml || {
