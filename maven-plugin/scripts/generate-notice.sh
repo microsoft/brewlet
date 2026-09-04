@@ -14,22 +14,30 @@ case "$mode" in
 esac
 
 project_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-version="$(sed -n 's:.*<jackson.version>\([^<]*\)</jackson.version>.*:\1:p' "$project_dir/pom.xml")"
-repository="${MAVEN_REPO_LOCAL:-$HOME/.m2/repository}"
 output="$project_dir/src/main/resources/META-INF/NOTICE.txt"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 generated="$work/NOTICE.txt"
 
 artifacts=(jackson-databind jackson-core jackson-annotations)
+classpath="$work/jackson-classpath"
+mvn -q dependency:build-classpath \
+  -f "$project_dir/pom.xml" \
+  -DincludeArtifactIds="$(IFS=,; echo "${artifacts[*]}")" \
+  -Dmdep.outputFile="$classpath"
 jars=()
 for artifact in "${artifacts[@]}"; do
-  jar="$repository/com/fasterxml/jackson/core/$artifact/$version/$artifact-$version.jar"
+  jar="$(tr ':' '\n' < "$classpath" | grep -E "/$artifact-[^/]+\\.jar$" | head -n 1)"
   [[ -f "$jar" ]] || {
-    echo "missing $jar; run Maven dependency resolution first" >&2
+    echo "missing resolved $artifact JAR; run Maven dependency resolution first" >&2
     exit 1
   }
   jars+=("$jar")
+done
+
+versions=()
+for jar in "${jars[@]}"; do
+  versions+=("$(basename "$(dirname "$jar")")")
 done
 
 for jar in "${jars[@]:1}"; do
@@ -61,7 +69,8 @@ EOF
 
 {
   printf '\n================================================================================\n'
-  printf 'Component: Jackson Databind, Jackson Core, and Jackson Annotations %s\n' "$version"
+  printf 'Component: Jackson Databind %s, Jackson Core %s, and Jackson Annotations %s\n' \
+    "${versions[0]}" "${versions[1]}" "${versions[2]}"
   printf 'Source: https://github.com/FasterXML\n'
   printf '\n--- LICENSE ---\n\n'
   unzip -p "${jars[0]}" META-INF/LICENSE

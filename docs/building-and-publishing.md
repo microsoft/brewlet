@@ -351,6 +351,14 @@ and `brewlet:appcds` (generate an AppCDS startup archive — see [AppCDS](appcds
 See the [plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md) for the full goal and
 parameter reference.
 
+`brewlet:push` publishes over HTTPS and keeps your registry credentials on the
+registry's own origin. Plain HTTP is allowed only for exact loopback registries
+such as `localhost:5000`, so publishing to an internal plaintext registry
+(`registry.internal:5000`) fails until you list its authority in
+`insecureRegistries`; a registry that answers with a cross-origin bearer token
+realm likewise fails until you list that realm in `allowedTokenRealms`. See
+[publish-time registry credentials](security.md#publish-time-registry-credentials).
+
 ---
 
 ## 4. Pin to a digest

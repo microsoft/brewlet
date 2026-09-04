@@ -43,8 +43,8 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 
 ================================================================================
-Component: @fortawesome/fontawesome-free 7.1.0
-Source: https://github.com/FortAwesome/Font-Awesome/tree/7.1.0
+Component: @fortawesome/fontawesome-free 7.3.1
+Source: https://github.com/FortAwesome/Font-Awesome/tree/7.3.1
 
 Browser artifact use: Material for MkDocs embeds the Font Awesome Free
 "Git Alt" icon as inline SVG in generated documentation pages. No Font
@@ -53,7 +53,7 @@ Modification statement: Material for MkDocs inlines the SVG geometry into
 generated HTML; Brewlet makes no other changes.
 Creator: Fonticons, Inc. License for the icon: CC BY 4.0.
 Licensed material:
-https://github.com/FortAwesome/Font-Awesome/blob/7.1.0/svgs/brands/git-alt.svg
+https://github.com/FortAwesome/Font-Awesome/blob/7.3.1/svgs/brands/git-alt.svg
 License: https://creativecommons.org/licenses/by/4.0/
 
 --- LICENSE.txt ---
@@ -83,7 +83,7 @@ as SVG and JS file types.
 In the Font Awesome Free download, the SIL OFL license applies to all icons
 packaged as web and desktop font files.
 
-Copyright (c) 2025 Fonticons, Inc. (https://fontawesome.com)
+Copyright (c) 2026 Fonticons, Inc. (https://fontawesome.com)
 with Reserved Font Name: "Font Awesome".
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -183,7 +183,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 In the Font Awesome Free download, the MIT license applies to all non-font and
 non-icon files.
 
-Copyright 2025 Fonticons, Inc.
+Copyright 2026 Fonticons, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in the
@@ -734,7 +734,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-Component: tslib 2.7.0
+Component: tslib 2.8.1
 Source: https://github.com/Microsoft/tslib.git
 
 --- LICENSE.txt ---

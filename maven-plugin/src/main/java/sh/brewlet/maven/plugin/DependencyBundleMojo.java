@@ -100,7 +100,8 @@ public class DependencyBundleMojo extends AbstractBrewletMojo {
         String[] parts = RegistryClient.splitRef(ref);
         Credential credential = CredentialResolver.resolve(parts[0], settings);
         try {
-            RegistryClient client = new RegistryClient(parts[0], parts[1], credential);
+            RegistryClient client = new RegistryClient(parts[0], parts[1], credential,
+                    registryTrustPolicy());
             String digest = client.pushDependencyBundle(RegistryClient.extractTag(ref), bundle);
             client.pushReferrer(materials.sbomReferrer());
             if (materials.provenanceReferrer() != null) {
