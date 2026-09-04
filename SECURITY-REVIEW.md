@@ -34,8 +34,9 @@ read, staged, or mounted.
 The remediations bind executed content to protected CRI image identity, confine
 content-addressed paths and verify blob contents before use, isolate the
 node-shared AppCDS cache, preserve the CRI-selected pod UID/GID, require
-explicit digest-pinned JDK and launcher sources, and verify every provisioner
-download and external container image.
+explicit digest-pinned JDK and launcher sources, constrain runtime-selection
+annotations to safe tokens confined to the node's runtime roots, and verify every
+provisioner download and external container image.
 
 Several controls are implemented correctly: tar extraction rejects traversal
 and ignores link/device entries; JDK Java-home resolution is contained; DSSE
@@ -45,10 +46,9 @@ closed; the operator and admission pods are hardened; and containerd
 configuration updates are validated and rolled back.
 
 **Overall risk: Medium.** The container-escape-equivalent host read primitives are
-closed. The remaining open findings are all Medium: the launcher annotation path
-input, credential forwarding, and the provisioning default that targets every
-node. Restricting Brewlet to dedicated, platform-owned node pools further
-reduces exposure.
+closed. The remaining open findings are both Medium: credential forwarding and
+the provisioning default that targets every node. Restricting Brewlet to
+dedicated, platform-owned node pools further reduces exposure.
 
 ## Findings summary
 
@@ -58,7 +58,7 @@ reduces exposure.
 | 2 | High | The node-shared AppCDS cache is writable from a tenant container **(Remediated)** | [#20](https://github.com/microsoft/brewlet/issues/20) | [#31](https://github.com/microsoft/brewlet/pull/31) | 8/10 |
 | 3 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | [#21](https://github.com/microsoft/brewlet/issues/21) | [#37](https://github.com/microsoft/brewlet/pull/37) | 9/10 |
 | 4 | High | Attestation enforcement verifies a different identity from the executed artifact **(Remediated)** | [#22](https://github.com/microsoft/brewlet/issues/22) | [#33](https://github.com/microsoft/brewlet/pull/33) | 8/10 |
-| 5 | Medium | The launcher annotation can traverse outside the launcher root | [#23](https://github.com/microsoft/brewlet/issues/23) | — | 7/10 |
+| 5 | Medium | The launcher annotation can traverse outside the launcher root **(Remediated)** | [#23](https://github.com/microsoft/brewlet/issues/23) | [#PR](https://github.com/microsoft/brewlet/pull/PR) | 7/10 |
 | 6 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
 | 7 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
 | 8 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
@@ -413,7 +413,7 @@ selected platform manifest's config digest against CRI's recorded image
 identity. It never selects executable content through a mutable config-digest
 image alias. Conflicting hints and tag-only requests fail closed.
 
-### 5. The launcher annotation can traverse outside the launcher root
+### 5. The launcher annotation can traverse outside the launcher root — remediated
 
 **Severity:** Medium  
 **Confidence:** 7/10  
@@ -421,9 +421,12 @@ image alias. Conflicting hints and tag-only requests fail closed.
 **CWE:** CWE-22  
 **Type:** Confirmed traversal with constrained exploitation
 
+**Status:** Remediated by [issue #23](https://github.com/microsoft/brewlet/issues/23)
+via [pull request #PR](https://github.com/microsoft/brewlet/pull/PR)
+
 **Attacker prerequisites:** Permission to create a Brewlet Pod.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `core/shim/cmd/containerd-shim-brewlet-v2/bundle_prepare.go:320-336` joins the
   raw launcher annotation to the launcher roots directory.
@@ -447,6 +450,34 @@ launcher directory.
 
 **Remediation test:** Table-test traversal and separator variants and assert
 they fail before mount construction.
+
+**Resolution:** A launcher request is now a lowercase DNS-1123 token or nothing.
+`artifact.LauncherName` validates before returning the binary name, so every
+caller that joins it onto a host directory, uses it as a mount source, or
+executes it as `argv[0]` fails closed — separators (either flavor), dot
+segments, wildcards, whitespace, absolute paths, and uppercase are all rejected.
+The shim's `selectLauncher` then layers the remaining defenses in order:
+token validation, the administrator-owned `.brewlet-active` allowlist (already
+required, never skipped), symlink resolution, and a `filepath.Rel` proof that the
+resolved root is a direct child of the configured launcher roots — the same
+containment check `resolveJDKHome` applies to a Java home. The *resolved* root is
+returned, so the path that reaches overlay and bind-mount construction is exactly
+the one whose containment was proven, and a `bin/<name>` symlink that escapes the
+layer is refused. The local `brewlet run` path no longer accepts a launcher path
+at all, matching the documented `--launcher NAME` contract. Admission rejects a
+malformed `brewlet.sh/launcher` annotation before scheduling, and the
+`JavaApplication` CRD constrains `spec.jvm.launcher` with the same pattern, but
+the node-side guarantee does not depend on either. The same treatment closes the
+matching gap on the JDK half of the annotation pair: the requested distribution
+is validated as a token, the JDK `.brewlet-active` inventory is now required
+rather than optional (so a node without one fails closed instead of joining an
+unvetted name onto the roots directory), and the selected JDK root gets the same
+symlink-resolved containment check. Tests table-test traversal, separator,
+dot-segment, whitespace, wildcard, case and length variants against
+`ValidateLauncherName`, `selectLauncher`, `selectJDK`, `resolveLauncher`, and
+admission — including payloads deliberately listed in the active inventory, to
+prove name validation stands on its own — plus symlink escapes for both the
+runtime root and the launcher binary.
 
 ### 6. Mutable, unsigned JDK images become root-executed node runtimes — remediated
 
@@ -907,6 +938,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 | The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | **Remediated:** artifact selection is bound to protected CRI image identity, every descriptor digest is validated before path construction, resolved paths are confined to the content store, and blob bytes are verified against their declared digest before use |
 | Ratify/Gatekeeper requires the final-image attestation and fails closed | `docs/security.md` | **Remediated:** the shim resolves the exact digest-pinned CRI request and verifies its target, config, and platform-manifest identity |
 | Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | **Remediated:** JDK and launcher sources require explicit digest-pinned references |
+| A requested launcher resolves to a node-installed launcher layer | `specs/SPECIFICATION.md:766-805`; `docs/launchers.md` | **Remediated:** launcher (and JDK distribution) requests must be lowercase DNS-1123 tokens, must appear in the node's active inventory, and the selected root is proven by `filepath.Rel` to be a direct child of the configured runtime roots before it is mounted |
 | The fail-open mutating webhook is presented as a security guardrail | `docs/security.md` | **Remediated for artifact identity:** the webhook overwrites compatibility hints, while the shim independently fails closed using protected CRI metadata |
 
 ## Prioritized remediation roadmap
@@ -925,7 +957,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 
 ### P1: Next release
 
-1. Sanitize and allowlist launcher names.
+1. **Remediated:** Sanitize and allowlist launcher names.
 2. **Remediated:** Restrict `mainJar` to a contained bare filename.
 3. **Remediated:** Verify every binary downloaded by the provisioner image and
    digest-pin base images.
@@ -956,7 +988,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 5. **Validate launcher and `mainJar` path components.** Covers Findings 5 and 8,
    which share the same path-input validation fix. The `mainJar` half is
    remediated in issue #26 and pull request #41; the launcher half (Finding 5)
-   remains open.
+   is remediated in issue #23 and pull request #PR.
 6. **Require digest-pinned administrator-provided runtime sources and validate
    registry mirrors (remediated in issue #24 and pull request #34).** Covers
    Finding 6.

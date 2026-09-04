@@ -324,3 +324,46 @@ func requirementsFromPod(t *testing.T, pod *corev1.Pod) []corev1.NodeSelectorReq
 	}
 	return terms[0].MatchExpressions
 }
+
+// TestMutatePod_DeniesUnsafeLauncherName: the launcher annotation becomes a
+// directory name under the node's launcher roots and the sandbox argv[0], so a
+// traversal or separator payload is denied at admission — before it can be
+// scheduled or turned into a malformed brewlet.sh/launcher.<name> affinity key.
+// The node shim enforces the same rule independently.
+// See SECURITY-REVIEW.md finding 5.
+func TestMutatePod_DeniesUnsafeLauncherName(t *testing.T) {
+	unsafe := []string{
+		"..", "../..", "../../..", "../outside", "jaz/../../outside",
+		"sub/jaz", `sub\jaz`, "/opt/brewlet/launchers/jaz", ".", "./jaz",
+		"jaz*", "JAZ", "-jaz", "jaz-", "jaz.sh", strings.Repeat("j", 55),
+	}
+	for _, name := range unsafe {
+		t.Run(name, func(t *testing.T) {
+			pod := brewletPod("demo/hello:1", map[string]string{
+				brewlet.AnnotationRequestedLauncher: name,
+			})
+			res := MutatePod(pod, readyFleet())
+			if res.DenyReason != brewlet.ReasonNoCompatibleLauncher {
+				t.Fatalf("MutatePod(launcher=%q) DenyReason = %q, want %q", name, res.DenyReason, brewlet.ReasonNoCompatibleLauncher)
+			}
+			if pod.Spec.Affinity != nil {
+				t.Fatalf("MutatePod(launcher=%q) injected affinity %+v for a denied pod", name, pod.Spec.Affinity)
+			}
+		})
+	}
+}
+
+// TestMutatePod_AllowsVanillaAndTokenLaunchers keeps the validation from
+// regressing into rejecting legitimate requests.
+func TestMutatePod_AllowsVanillaAndTokenLaunchers(t *testing.T) {
+	for _, name := range []string{"", "java", "jaz"} {
+		t.Run(name, func(t *testing.T) {
+			pod := brewletPod("demo/hello:1", map[string]string{
+				brewlet.AnnotationRequestedLauncher: name,
+			})
+			if res := MutatePod(pod, readyFleet()); res.DenyReason != "" {
+				t.Fatalf("MutatePod(launcher=%q) denied: %+v", name, res)
+			}
+		})
+	}
+}

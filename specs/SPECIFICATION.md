@@ -798,7 +798,12 @@ no writable host bind mount. `.brewlet-source` records the exact image and
 source path; matching metadata is required before an existing launcher layer is
 reused. The provisioner atomically rewrites
 `/opt/brewlet/launchers/.brewlet-active`; the shim MUST reject a launcher root
-that is not listed in that inventory.
+that is not listed in that inventory, and MUST fail closed when the inventory is
+absent. The shim MUST also reject a requested launcher name (and JDK
+distribution) that is not a lowercase DNS-1123 token, and MUST verify after
+symlink resolution that the selected root is a direct child of the configured
+runtime roots directory before using it as an overlay lower layer or bind-mount
+source. The same requirement applies to `/opt/brewlet/jdks/.brewlet-active`.
 
 If a bundled/copied launcher needs shared libraries not present in the JDK root,
 include them under the launcher root (e.g. `lib/`); the layer is mounted read-only

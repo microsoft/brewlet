@@ -213,7 +213,7 @@ brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [--appcds-reg
 |---|---|---|
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--jdk-root` | *(none)* | Node JDK home to launch with. When unset, falls back to `BREWLET_JDK_HOME`, then `JAVA_HOME`, then `java` on `PATH`. |
-| `--launcher` | `java` | Launcher binary name under the selected JDK (or a compatible node-installed launcher name such as `jaz`). |
+| `--launcher` | `java` | Launcher binary **name** under the selected JDK (or a compatible node-installed launcher name such as `jaz`), resolved on `PATH`. It is a lowercase DNS-1123 token, never a path: separators, `..` and absolute paths are rejected. |
 | `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local-dev equivalent of the deployment's `spec.jvm.cds.regenerate`). Maintains a private entry keyed by the fixed local scope, verified resolved manifest digest, and exact JDK build under `$BREWLET_CDS_CACHE` (default `/opt/brewlet/cds`). `-XX:+AutoCreateSharedArchive` (JDK 19+) self-heals it after a central JDK patch; any shipped archive is optional seed data. |
 | `-- <args>` | *(none)* | Everything after `--` is appended as extra JVM args. |
 
@@ -248,7 +248,7 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID
 | `--uid` | `65532` | Trusted runtime process UID (`0`–`4294967294`) written to the OCI bundle. Artifact metadata cannot set it. |
 | `--gid` | `65532` | Trusted runtime process GID (`0`–`4294967294`) written to the OCI bundle. Artifact metadata cannot set it. |
 | `--jdk-root` | `/opt/brewlet/jdks/temurin-21` | Node JDK runtime root to mount read-only. |
-| `--launcher` | `java` | Launcher binary name to record in the runtime spec annotations and execute. |
+| `--launcher` | `java` | Launcher binary **name** to record in the runtime spec annotations and execute. Same token rule as `brewlet run --launcher`. |
 | `--launcher-root` | *(none)* | Node launcher-layer root for a custom launcher (e.g. `jaz`). |
 | `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local equivalent of the deployment's `spec.jvm.cds.regenerate`). Bind-mounts only the private local cache entry keyed by `--uid` at `/run/brewlet/cds` and prepends `-XX:+AutoCreateSharedArchive` (JDK 19+). |
 | `--out` | `./bundle` | Output bundle directory. |

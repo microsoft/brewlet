@@ -187,7 +187,11 @@ func prepareBundle(args []string) error {
 
 	fmt.Printf("shim: prepared bundle %s (jdk=%s", bundleDir, ra.JDKRoot)
 	if !artifact.IsVanillaLauncher(ra.LauncherName) {
-		fmt.Printf(", launcher=%s", artifact.LauncherName(ra.LauncherName))
+		name, err := artifact.LauncherName(ra.LauncherName)
+		if err != nil {
+			return err
+		}
+		fmt.Printf(", launcher=%s", name)
 	}
 	fmt.Printf(")\n")
 	fmt.Printf("shim: containerd Start() would now exec: runc run -b %s <container-id>\n", bundleDir)
@@ -212,13 +216,21 @@ func selectJDK(rootsDir, request string) (string, error) {
 	}
 
 	// Explicit distribution: exact match only — never silently fall back to a
-	// different vendor's build.
+	// different vendor's build. The distribution is tenant-controlled annotation
+	// input that becomes a directory name under the JDK roots, so it is validated
+	// as a safe token before it is joined (CWE-22).
 	if dist != "" {
+		if err := artifact.ValidateRuntimeToken("JDK distribution", dist, maxJDKDistributionLength); err != nil {
+			return "", fmt.Errorf("NoCompatibleJDK: %w", err)
+		}
 		name := fmt.Sprintf("%s-%d", dist, feature)
-		if active != nil && !active[name] {
+		if !active[name] {
 			return "", fmt.Errorf("NoCompatibleJDK: JDK %s is not active under %s", name, rootsDir)
 		}
-		root := filepath.Join(rootsDir, name)
+		root, err := resolveRuntimeRoot(rootsDir, name, "NoCompatibleJDK")
+		if err != nil {
+			return "", err
+		}
 		if _, err := resolveJDKHome(root); err == nil {
 			return root, nil
 		}
@@ -236,25 +248,42 @@ func selectJDK(rootsDir, request string) (string, error) {
 	var matches []string
 	for _, e := range entries {
 		name := e.Name()
-		if active != nil && !active[name] {
+		if !active[name] {
 			continue
 		}
 		if !strings.HasSuffix(name, suffix) {
 			continue
 		}
-		if _, err := resolveJDKHome(filepath.Join(rootsDir, name)); err == nil {
+		root, err := resolveRuntimeRoot(rootsDir, name, "NoCompatibleJDK")
+		if err != nil {
+			continue
+		}
+		if _, err := resolveJDKHome(root); err == nil {
 			matches = append(matches, name)
 		}
 	}
 	sort.Strings(matches)
 	if len(matches) > 0 {
-		return filepath.Join(rootsDir, matches[0]), nil
+		return resolveRuntimeRoot(rootsDir, matches[0], "NoCompatibleJDK")
 	}
 	return "", fmt.Errorf("NoCompatibleJDK: no JDK feature %d under %s", feature, rootsDir)
 }
 
+// maxJDKDistributionLength bounds a requested JDK distribution, matching the
+// NodeProfile validator's limit for spec.jdks[].distribution
+// (kubernetes/internal/controller/nodeprofile_validate.go), so the shim accepts
+// exactly the distributions an administrator can declare.
+const maxJDKDistributionLength = 48
+
 func activeJDKs(rootsDir string) (map[string]bool, error) {
-	return activeRuntimeInventory(rootsDir, jdkActiveInventory, "NoCompatibleJDK")
+	active, err := activeRuntimeInventory(rootsDir, jdkActiveInventory, "NoCompatibleJDK")
+	if err != nil {
+		return nil, err
+	}
+	if active == nil {
+		return nil, fmt.Errorf("NoCompatibleJDK: active inventory missing under %s", rootsDir)
+	}
+	return active, nil
 }
 
 func activeLaunchers(rootsDir string) (map[string]bool, error) {
@@ -340,11 +369,24 @@ func parseJDKRequest(request string) (dist string, feature int) {
 // launcher named by the deployment descriptor (brewlet.sh/launcher). The vanilla
 // `java` launcher needs no layer (returns ""). A missing layer surfaces as
 // NoCompatibleLauncher, mirroring selectJDK/NoCompatibleJDK.
+//
+// The launcher name is tenant-controlled input that ends up joined onto the
+// node's launcher roots, used as an overlay lower layer and a privileged
+// bind-mount source, and executed as argv[0]. It is therefore validated in
+// depth and fail-closed, in this order: the name must be a safe DNS-1123 token
+// (no separator, no parent reference), it must appear in the administrator-owned
+// `.brewlet-active` inventory, and the resolved root must provably remain a
+// direct child of the configured roots directory — the same containment check
+// resolveJDKHome applies to a JDK home. The RESOLVED root is returned, so the
+// path that reaches mount construction is exactly the one that was checked.
 func selectLauncher(rootsDir, launcherName string) (string, error) {
 	if artifact.IsVanillaLauncher(launcherName) {
 		return "", nil
 	}
-	name := artifact.LauncherName(launcherName)
+	name, err := artifact.LauncherName(launcherName)
+	if err != nil {
+		return "", fmt.Errorf("NoCompatibleLauncher: %w", err)
+	}
 	if rootsDir == "" {
 		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q requested but no launcher roots on node", name)
 	}
@@ -352,12 +394,55 @@ func selectLauncher(rootsDir, launcherName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if active != nil && !active[name] {
+	if !active[name] {
 		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q is not active under %s", name, rootsDir)
 	}
-	root := filepath.Join(rootsDir, name)
-	if _, err := os.Stat(filepath.Join(root, "bin", name)); err != nil {
+	root, err := resolveRuntimeRoot(rootsDir, name, "NoCompatibleLauncher")
+	if err != nil {
+		return "", err
+	}
+	bin := filepath.Join(root, "bin", name)
+	if _, err := os.Stat(bin); err != nil {
 		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q not installed under %s", name, rootsDir)
 	}
+	resolvedBin, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		return "", fmt.Errorf("NoCompatibleLauncher: resolve launcher %q under %s: %w", name, rootsDir, err)
+	}
+	if !containedIn(root, resolvedBin) {
+		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q resolves outside %s", name, root)
+	}
 	return root, nil
+}
+
+// resolveRuntimeRoot joins a validated runtime name onto a roots directory and
+// proves the result is a direct child of that directory after symlink
+// resolution. Name validation alone is not enough: a symlinked entry inside the
+// roots directory would otherwise redirect a privileged bind-mount or overlay
+// lower layer at an arbitrary host path. reason prefixes the error so failures
+// surface as the NoCompatibleJDK / NoCompatibleLauncher pod events.
+func resolveRuntimeRoot(rootsDir, name, reason string) (string, error) {
+	resolvedRoots, err := filepath.EvalSymlinks(rootsDir)
+	if err != nil {
+		return "", fmt.Errorf("%s: resolve roots %s: %w", reason, rootsDir, err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(filepath.Join(rootsDir, name))
+	if err != nil {
+		return "", fmt.Errorf("%s: %q not installed under %s", reason, name, rootsDir)
+	}
+	rel, err := filepath.Rel(resolvedRoots, resolvedRoot)
+	if err != nil || rel != name {
+		return "", fmt.Errorf("%s: %q resolves outside %s", reason, name, rootsDir)
+	}
+	return resolvedRoot, nil
+}
+
+// containedIn reports whether path is root itself or lies beneath it. Both
+// arguments must already be symlink-resolved.
+func containedIn(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

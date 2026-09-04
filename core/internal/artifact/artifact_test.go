@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -497,5 +498,70 @@ func TestPushRejectsInvalidConfig(t *testing.T) {
 	cfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "classpath"}}
 	if _, err := s.PushWithLayers("demo/bad:1.0.0", cfg, jarPath, nil); err == nil {
 		t.Error("PushWithLayers accepted an invalid config, want error")
+	}
+}
+
+// TestLauncherNameRejectsUnsafeRequests pins the launcher-name rule. The name is
+// joined onto the node's launcher roots to pick an overlay lower layer and a
+// privileged bind-mount source, and is executed as argv[0], so anything that is
+// not a bare DNS-1123 token is a host-path-traversal primitive (CWE-22).
+// See SECURITY-REVIEW.md finding 5.
+func TestLauncherNameRejectsUnsafeRequests(t *testing.T) {
+	cases := []struct {
+		name    string
+		request string
+		wantErr bool
+		want    string
+	}{
+		{"empty is vanilla", "", false, VanillaLauncher},
+		{"explicit vanilla", "java", false, VanillaLauncher},
+		{"custom launcher", "jaz", false, "jaz"},
+		{"dashed launcher", "acme-java", false, "acme-java"},
+		{"digits", "jaz2", false, "jaz2"},
+		{"max length", strings.Repeat("j", MaxLauncherNameLength), false, strings.Repeat("j", MaxLauncherNameLength)},
+		{"parent reference", "..", true, ""},
+		{"double traversal", "../..", true, ""},
+		{"deep traversal", "../../..", true, ""},
+		{"traversal to sibling", "../outside", true, ""},
+		{"embedded traversal", "jaz/../../outside", true, ""},
+		{"nested path", "sub/jaz", true, ""},
+		{"backslash path", `sub\jaz`, true, ""},
+		{"absolute path", "/opt/brewlet/launchers/jaz", true, ""},
+		{"current directory", ".", true, ""},
+		{"dot prefix", "./jaz", true, ""},
+		{"wildcard", "jaz*", true, ""},
+		{"single-char wildcard", "jaz?", true, ""},
+		{"leading space", " jaz", true, ""},
+		{"trailing space", "jaz ", true, ""},
+		{"newline injection", "jaz\n../outside", true, ""},
+		{"uppercase", "JAZ", true, ""},
+		{"leading dash", "-jaz", true, ""},
+		{"trailing dash", "jaz-", true, ""},
+		{"dotted", "jaz.sh", true, ""},
+		{"over length", strings.Repeat("j", MaxLauncherNameLength+1), true, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateLauncherName(tc.request)
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("ValidateLauncherName(%q) error = %v, wantErr %v", tc.request, err, tc.wantErr)
+			}
+			got, err := LauncherName(tc.request)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("LauncherName(%q) = %q, want error", tc.request, got)
+				}
+				if got != "" {
+					t.Fatalf("LauncherName(%q) returned %q alongside an error", tc.request, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LauncherName(%q): %v", tc.request, err)
+			}
+			if got != tc.want {
+				t.Fatalf("LauncherName(%q) = %q, want %q", tc.request, got, tc.want)
+			}
+		})
 	}
 }
