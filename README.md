@@ -41,19 +41,35 @@ Evaluate it carefully before using it for production workloads.
 ## How it works
 
 ```text
-Developer                                  Kubernetes cluster
-
-JAR + launch metadata                      NodeProfile
-        |                                      |
-        v                                      v
-Maven plugin or Brewlet CLI  --->  OCI registry  --->  provisioned node
-                                                        |
-                                      RuntimeClass: brewlet
-                                                        |
-                                      containerd shim + node JDK
-                                                        |
-                                                        v
-                                                Java application
+ Platform operator                   Developer
+ ─────────────────                   ─────────
+ NodeProfile: approved JDKs          JAR + launch metadata,
+ and launchers, pinned to            packaged by the CLI or
+ OCI digests                         the Maven plugin
+               │                                   │
+               ▼                                   ▼
+ ┌────────────────────────────┐      ┌────────────────────────────┐
+ │ Node provisioner           │      │ OCI registry               │
+ │ installs the shim and JDK  │      │ app JAR and launch spec,   │
+ │ roots, labels the node     │      │ addressed by digest        │
+ └─────────────┬──────────────┘      └─────────────┬──────────────┘
+               │                                   │
+               │                                   ▼
+               │                     ┌────────────────────────────┐
+               │                     │ Admission webhook          │
+               │                     │ validates the pod runtime  │
+               │                     │ and picks a capable node   │
+               │                     └─────────────┬──────────────┘
+               │                                   │
+               │                       runtimeClassName: brewlet
+               │                                   │
+               ▼                                   ▼
+ ┌────────────────────────────────────────────────────────────────┐
+ │ Brewlet-enabled node                                           │
+ │ containerd -> brewlet shim -> node-resident JDK                │
+ └────────────────────────────────┬───────────────────────────────┘
+                                  ▼
+                           Java application
 ```
 
 1. The platform operator installs Brewlet and defines the supported JDK and

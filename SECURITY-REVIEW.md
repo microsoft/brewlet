@@ -18,8 +18,8 @@ workloads.
 
 The review originally identified one Critical, five High, five Medium, and one
 Low issue. The Critical finding (1), all five High findings (2, 3, 4, 6, and 7),
-Medium finding 11, and the Low finding (12) have since been remediated through
-merged pull requests.
+Medium findings 9 and 11, and the Low finding (12) have since been remediated
+through merged pull requests.
 
 Finding 1 was a confirmed path traversal in OCI descriptor digest resolution:
 descriptor digest strings were converted into host filesystem paths without
@@ -45,10 +45,11 @@ closed; the operator and admission pods are hardened; and containerd
 configuration updates are validated and rolled back.
 
 **Overall risk: Medium.** The container-escape-equivalent host read primitives are
-closed. The remaining open findings are both Medium: the launcher annotation path
-input and credential forwarding. Provisioning is no longer cluster-wide by
-default — an install must name the node pools the privileged provisioner may
-mutate, and control-plane nodes are excluded unless a profile opts in.
+closed. The one remaining open finding is Medium: the launcher annotation path
+input. Registry credentials are no longer forwarded cross-origin or in the
+clear, and provisioning is no longer cluster-wide by default — an install must
+name the node pools the privileged provisioner may mutate, and control-plane
+nodes are excluded unless a profile opts in.
 
 ## Findings summary
 
@@ -62,7 +63,7 @@ mutate, and control-plane nodes are excluded unless a profile opts in.
 | 6 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
 | 7 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
 | 8 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
-| 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP | [#27](https://github.com/microsoft/brewlet/issues/27) | — | 8/10 |
+| 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP **(Remediated)** | [#27](https://github.com/microsoft/brewlet/issues/27) | [#61](https://github.com/microsoft/brewlet/pull/61) | 8/10 |
 | 10 | Medium | The privileged provisioner defaults to every node **(Remediated)** | [#28](https://github.com/microsoft/brewlet/issues/28) | [#63](https://github.com/microsoft/brewlet/pull/63) | 9/10 |
 | 11 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity **(Remediated)** | [#29](https://github.com/microsoft/brewlet/issues/29) | [#42](https://github.com/microsoft/brewlet/pull/42) | 9/10 |
 | 12 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth **(Remediated)** | [#30](https://github.com/microsoft/brewlet/issues/30) | [#39](https://github.com/microsoft/brewlet/pull/39) | 9/10 |
@@ -603,7 +604,7 @@ applies the identical rule at publish time. Tests reject `../x.jar`,
 names through config validation, through image resolution, and at the shim, and
 assert that successfully resolved JAR and CDS paths remain under staging.
 
-### 9. Registry credentials can be forwarded cross-origin or over HTTP
+### 9. Registry credentials can be forwarded cross-origin or over HTTP — remediated
 
 **Severity:** Medium  
 **Confidence:** 8/10  
@@ -611,10 +612,13 @@ assert that successfully resolved JAR and CDS paths remain under staging.
 **CWE:** CWE-522, CWE-918, CWE-20  
 **Type:** Confirmed vulnerability
 
+**Status:** Remediated by [issue #27](https://github.com/microsoft/brewlet/issues/27)
+via [pull request #61](https://github.com/microsoft/brewlet/pull/61)
+
 **Attacker prerequisites:** A malicious or compromised registry to which a
 developer or CI job authenticates.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `maven-plugin/src/main/java/sh/brewlet/maven/plugin/oci/RegistryClient.java:
   769-797` accepts an authentication challenge `realm` without validating its
@@ -640,6 +644,35 @@ credentials over HTTP.
 **Remediation test:** Simulate cross-origin and HTTP authentication challenges
 and assert no request containing `Authorization` is sent. Test exact behavior
 for `localhost`, loopback addresses, ports, and prefix-lookalike public names.
+
+**Resolution:** Every transport and credential-forwarding decision now runs
+through a single `RegistryTrustPolicy`. Plaintext HTTP is selected only for
+exact loopback authorities (`localhost`, an IPv4 literal in `127.0.0.0/8`,
+`::1`, with or without a port) or an authority listed in the new
+`insecureRegistries` option, so `localhost.attacker.example`, `127.example.com`,
+and `notlocalhost` stay on HTTPS. `authedRequest` attaches the bearer token or
+Basic credentials only when the request target is same-origin with the
+configured registry, which covers registry-controlled URLs such as the
+blob-upload `Location`; those URLs are still followed, but uncredentialed, and a
+plaintext upload location for a non-insecure authority is rejected outright. A
+`Bearer` challenge realm is validated before it is contacted at all — absolute
+`http`/`https` only, no embedded userinfo, and HTTPS unless the realm authority
+is itself insecure-eligible — and credentials are exchanged only with a
+same-origin realm, the built-in Docker Hub mapping
+(`docker.io`/`index.docker.io`/`registry-1.docker.io`/`registry.hub.docker.com`
+→ `auth.docker.io`), or an authority named in the new `allowedTokenRealms`
+option; any other realm fails the build with an actionable message instead of
+forwarding credentials. Anonymous flows still complete, having nothing to leak.
+The registry authority itself must be a bare `host[:port]`, so a value such as
+`attacker.example@registry.example.com` can no longer retarget requests, and the
+pre-existing pagination same-origin check now shares the policy's comparison.
+Tests drive live HTTP servers to assert that an untrusted cross-origin realm
+receives no request at all, that a same-origin realm exchange succeeds and reuses
+the issued token, that an allowlisted cross-origin realm receives credentials,
+that an anonymous cross-origin exchange sends none, and that a cross-origin
+upload `Location` receives the PUT without `Authorization`; unit tests cover
+`localhost`, loopback literals, bracketed IPv6, explicit ports, lookalike public
+names, Docker Hub realm lookalikes, and malformed configuration entries.
 
 ### 10. The privileged provisioner defaults to every node — remediated
 

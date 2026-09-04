@@ -92,6 +92,31 @@ Because the JAR is a first-class OCI artifact, standard supply-chain controls ap
   the JAR and CDS archives that are bind-mounted into the container. A blob that
   is present at the right path but does not match its digest is rejected.
 
+### Publish-time registry credentials
+
+The Maven plugin authenticates to registries with credentials resolved from
+`settings.xml`, `~/.docker/config.json`, or environment variables, so a
+malicious or compromised registry must not be able to steer those credentials
+elsewhere:
+
+- **HTTPS is required** for every registry except exact loopback authorities
+  (`localhost`, `127.0.0.0/8`, `::1`, with or without a port). Matching is exact,
+  so lookalikes such as `localhost.attacker.example` or `127.example.com` cannot
+  downgrade the transport. A non-loopback HTTP registry must be listed in
+  `insecureRegistries` (`-Dbrewlet.insecureRegistries`).
+- **Credentials never leave the registry origin.** `Authorization` is attached
+  only to requests whose scheme, host, and port match the configured registry.
+  Registry-supplied URLs — blob upload `Location` values, pagination links, and
+  storage redirects — are still followed, but never carry credentials.
+- **Token realms fail closed.** A `WWW-Authenticate: Bearer` realm must be an
+  absolute `https` URL (plain `http` only for insecure-eligible authorities)
+  without embedded credentials. Credentials are exchanged only with a
+  same-origin realm, Docker Hub's built-in `auth.docker.io` realm, or a realm
+  explicitly listed in `allowedTokenRealms`
+  (`-Dbrewlet.allowedTokenRealms`); any other realm aborts the publish instead
+  of forwarding credentials. See the
+  [Maven plugin reference](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#registry-transport-and-credential-safety).
+
 ### Supply-chain attestations
 
 [Managed dependency bundles](managed-dependency-bundles.md) can carry optional
@@ -197,6 +222,9 @@ Mitigations and guardrails:
 - [ ] Require trusted final-image managed-dependency attestations with
       [admission enforcement](admission-enforcement.md); pin images and the
       verifier plugin to digests.
+- [ ] Publish over HTTPS. Leave `insecureRegistries` and `allowedTokenRealms`
+      empty unless you deliberately trust a plaintext registry or a cross-origin
+      token realm with your registry credentials.
 - [ ] Plan JDK patch cadence — it's now a single centralized lever.
 
 Future security capabilities are tracked in the [roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md#security-and-isolation).
