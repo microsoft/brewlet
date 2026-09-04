@@ -338,7 +338,11 @@ tier14_custom_jdk() {
 
   # Build the real provisioner from the monorepo and load it into the
   # selected node's k8s.io containerd namespace.
-  if docker build --platform "linux/$arch" -t "$T14_PROVISIONER_IMAGE" \
+  local -a build_args=(--platform "linux/$arch" -t "$T14_PROVISIONER_IMAGE")
+  if [[ -n "${CAROOT:-}" && -f "$CAROOT/rootCA.pem" ]]; then
+    build_args+=(--secret "id=additional-ca,src=$CAROOT/rootCA.pem")
+  fi
+  if docker build "${build_args[@]}" \
       -f "$MONOREPO_DIR/provisioner/Dockerfile" "$MONOREPO_DIR" \
       >"$WORK/t14-provisioner-build.log" 2>&1 &&
     docker run --rm --platform "linux/$arch" --entrypoint /usr/bin/test \

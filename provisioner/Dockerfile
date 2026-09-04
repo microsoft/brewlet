@@ -29,6 +29,11 @@ FROM --platform=$BUILDPLATFORM golang:1.26-bookworm@sha256:9fdc884aacc3bec89b20f
 ARG TARGETARCH
 WORKDIR /src
 COPY core/go.mod core/go.sum ./
+RUN --mount=type=secret,id=additional-ca,required=false \
+    if [ -s /run/secrets/additional-ca ]; then \
+      install -m 0644 /run/secrets/additional-ca /usr/local/share/ca-certificates/additional-ca.crt; \
+      update-ca-certificates; \
+    fi
 RUN go mod download
 COPY core/. .
 COPY scripts/generate-go-notice.sh /usr/local/bin/generate-go-notice
@@ -63,6 +68,11 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends bash ca-certificates coreutils curl gzip tar \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=secret,id=additional-ca,required=false \
+    if [ -s /run/secrets/additional-ca ]; then \
+      install -m 0644 /run/secrets/additional-ca /usr/local/share/ca-certificates/additional-ca.crt; \
+      update-ca-certificates; \
+    fi
 
 RUN set -eu; \
     case "$TARGETARCH" in amd64|arm64) ;; *) echo "unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; esac; \
