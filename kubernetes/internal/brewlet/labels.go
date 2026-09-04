@@ -64,6 +64,17 @@ const (
 	FinalizerCleanup = "node.brewlet.sh/cleanup"
 )
 
+// ControlPlaneRoleLabels are the node-role labels that mark a control-plane
+// node. The privileged provisioner is kept off every node carrying one of them
+// unless a profile sets spec.nodePool.includeControlPlane, so an untainted
+// control-plane node (single-node kind / Docker Desktop, for example) is not
+// provisioned by accident. The legacy "master" label is included because
+// clusters upgraded from <1.24 still carry it.
+var ControlPlaneRoleLabels = []string{
+	"node-role.kubernetes.io/control-plane",
+	"node-role.kubernetes.io/master",
+}
+
 // ProviderPoolKeys are the node label keys that carry the node-pool name on the
 // major providers, in auto-detection probe order (§5.1). The operator resolves a
 // profile's pool key by probing these across the fleet unless spec.nodePool.key

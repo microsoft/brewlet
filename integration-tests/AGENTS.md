@@ -27,7 +27,11 @@ The harness does not switch branches or modify component sources. It uses
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
 behavior. Tiers 6, 8-12, 14, and 15 require local containerd nodes that Docker
-can enter, such as kind. Managed clusters skip those node-side paths. Tier 14
+can enter, such as kind. Managed clusters skip those node-side paths. Tier 13
+also proves the control-plane guard: a NodeProfile that does not set
+`nodePool.includeControlPlane` never counts or schedules onto a control-plane
+node. Because kind and Docker Desktop label their single node as the control
+plane, the node-side tiers set that opt-in explicitly. Tier 14
 installs explicit custom JDK and `jaz` sources and runs a live workload through
 both. Tier 10 also exercises cert-manager issuance and certificate hot reload
 when cert-manager is installed. Tier 15 installs the

@@ -431,6 +431,9 @@ spec:
   nodePool:
     key: $T14_POOL_KEY
     names: [$T14_POOL]
+    # The kind / Docker Desktop node this tier provisions carries the
+    # control-plane label, so the profile must opt in explicitly.
+    includeControlPlane: true
   jdks:
     - distribution: zulu
       feature: 21
@@ -454,6 +457,9 @@ spec:
   nodePool:
     key: $T14_POOL_KEY
     names: [$T14_POOL]
+    # The kind / Docker Desktop node this tier provisions carries the
+    # control-plane label, so the profile must opt in explicitly.
+    includeControlPlane: true
   jdks:
     - distribution: zulu
       feature: 21
@@ -484,6 +490,9 @@ spec:
   nodePool:
     key: $T14_POOL_KEY
     names: [$T14_POOL]
+    # The kind / Docker Desktop node this tier provisions carries the
+    # control-plane label, so the profile must opt in explicitly.
+    includeControlPlane: true
   jdks:
     - distribution: zulu
       feature: 21

@@ -21,13 +21,15 @@ documentation lives in [`docs/`](../docs/).
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.3.1 \
   --namespace brewlet \
-  --create-namespace
+  --create-namespace \
+  --set provisioner.pools="{java-workers}"
 ```
 
 The chart installs the CRDs, operator, admission webhook, and the RBAC used by
-the operator-managed node provisioner. The default `NodeProfile` targets every
-unclaimed node. Configure named profiles when provisioning should be restricted
-to platform-owned node pools.
+the operator-managed node provisioner. `provisioner.pools` is required: the
+provisioner is privileged, so the chart refuses to render a cluster-wide default
+`NodeProfile`. Control-plane nodes are excluded on top of that unless a profile
+sets `nodePool.includeControlPlane`.
 
 ```bash
 kubectl get nodeprofiles

@@ -50,16 +50,21 @@ brewlet version
 Render and inspect the chart before applying it:
 
 ```bash
+export BREWLET_POOL="java-workers"
+
 helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$BREWLET_VERSION" \
   --namespace brewlet \
+  --set provisioner.pools="{$BREWLET_POOL}" \
   > /tmp/brewlet-rendered.yaml
 ```
 
-This workshop uses the default `NodeProfile`, which targets every node. For a
-real shared cluster, disable it and create named profiles scoped to
-platform-owned node pools. The default profile contains editable, digest-pinned
-Temurin, Microsoft JDK, and `jaz` sources; review them before installation.
+The pool name is required. Provisioning is privileged and mutates the host, so
+the chart renders nothing until you say which pools it may touch — leave
+`provisioner.pools` empty and the render fails. Control-plane nodes are excluded
+on top of that, whether or not they are tainted. The default profile contains
+editable, digest-pinned Temurin, Microsoft JDK, and `jaz` sources; review them
+before installation.
 
 ## 3. Install Brewlet
 
@@ -67,7 +72,8 @@ Temurin, Microsoft JDK, and `jaz` sources; review them before installation.
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$BREWLET_VERSION" \
   --namespace brewlet \
-  --create-namespace
+  --create-namespace \
+  --set provisioner.pools="{$BREWLET_POOL}"
 ```
 
 The chart installs the operator and admission components. The operator creates

@@ -53,6 +53,43 @@ func isDefaultProfile(profile *nodev1alpha1.NodeProfile) bool {
 	return len(profile.Spec.NodePool.Names) == 0
 }
 
+// nodeIsControlPlane reports whether a node carries a control-plane role label.
+func nodeIsControlPlane(node *corev1.Node) bool {
+	for _, key := range brewlet.ControlPlaneRoleLabels {
+		if _, ok := node.Labels[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// profileExcludesNodeRole reports whether a node is off-limits to a profile
+// because it is a control-plane node the profile has not explicitly opted into.
+// It is the scheduling rule in controlPlaneExclusions expressed for the
+// controllers' own node bookkeeping, so status counts, the cleanup wait, and
+// node advertisement agree with where the DaemonSet can actually land.
+func profileExcludesNodeRole(profile *nodev1alpha1.NodeProfile, node *corev1.Node) bool {
+	return !profile.Spec.NodePool.IncludeControlPlane && nodeIsControlPlane(node)
+}
+
+// profileClaimsNode reports whether a node belongs to the given profile: it must
+// be in the profile's pool (or unclaimed by any named pool, for the catch-all
+// default) and must not be a control-plane node the profile has not opted into.
+// Both reconcilers share it so membership never disagrees with placement.
+func profileClaimsNode(profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string, node *corev1.Node) bool {
+	if profileExcludesNodeRole(profile, node) {
+		return false
+	}
+	if !isDefaultProfile(profile) {
+		return nodeInPool(node, resolvedKey, profile.Spec.NodePool.Names)
+	}
+	// Catch-all default: every node not claimed by a named pool.
+	if resolvedKey != "" && len(otherPools) > 0 && nodeInPool(node, resolvedKey, otherPools) {
+		return false
+	}
+	return true
+}
+
 // nodeInPool reports whether a node belongs to one of the given pool names on
 // the resolved key.
 func nodeInPool(node *corev1.Node, key string, names []string) bool {
@@ -74,14 +111,21 @@ func nodeInPool(node *corev1.Node, key string, names []string) bool {
 // profileAffinity computes the nodeAffinity term for a profile's DaemonSet:
 //   - named pool:      <resolvedKey> In [names]
 //   - catch-all default with sibling named pools: <resolvedKey> NotIn [namedPools]
-//   - catch-all default with no named pools / no pool key: nil (every node)
+//   - catch-all default with no named pools / no pool key: no pool requirement
+//
+// Every term additionally carries the control-plane exclusions, so the
+// privileged provisioner never lands on a control-plane node — tainted or not —
+// unless the profile sets nodePool.includeControlPlane. The exclusions are the
+// reason a lone catch-all default still produces an affinity.
 //
 // otherPools is the set of pool names claimed by OTHER (named) profiles; it is
 // what excludes the catch-all default from named pools (§5.6).
 func profileAffinity(profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string) *corev1.Affinity {
+	var reqs []corev1.NodeSelectorRequirement
 	names := profile.Spec.NodePool.Names
 
-	if len(names) > 0 {
+	switch {
+	case len(names) > 0:
 		key := resolvedKey
 		if key == "" {
 			// Could not resolve a pool key for a named-pool profile: land the
@@ -89,33 +133,60 @@ func profileAffinity(profile *nodev1alpha1.NodeProfile, resolvedKey string, othe
 			// emit an invalid empty-key selector or provision every node.
 			key = brewlet.ProviderPoolKeys[0]
 		}
-		return requiredNodeAffinity(key, corev1.NodeSelectorOpIn, names)
+		reqs = append(reqs, poolRequirement(key, corev1.NodeSelectorOpIn, names))
+	case resolvedKey != "" && len(otherPools) > 0:
+		// Catch-all default: everything the named profiles did not claim.
+		reqs = append(reqs, poolRequirement(resolvedKey, corev1.NodeSelectorOpNotIn, otherPools))
 	}
 
-	// Catch-all default.
-	if resolvedKey != "" && len(otherPools) > 0 {
-		return requiredNodeAffinity(resolvedKey, corev1.NodeSelectorOpNotIn, otherPools)
+	reqs = append(reqs, controlPlaneExclusions(profile)...)
+	if len(reqs) == 0 {
+		return nil
 	}
-	// Bare-metal / lone default: every node.
-	return nil
-}
-
-func requiredNodeAffinity(key string, op corev1.NodeSelectorOperator, values []string) *corev1.Affinity {
-	vals := append([]string(nil), values...)
-	sort.Strings(vals)
 	return &corev1.Affinity{
 		NodeAffinity: &corev1.NodeAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-					MatchExpressions: []corev1.NodeSelectorRequirement{{
-						Key:      key,
-						Operator: op,
-						Values:   vals,
-					}},
-				}},
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchExpressions: reqs}},
 			},
 		},
 	}
+}
+
+// controlPlaneExclusions requires every control-plane role label to be absent
+// from the node, unless the profile explicitly opted control-plane nodes in.
+func controlPlaneExclusions(profile *nodev1alpha1.NodeProfile) []corev1.NodeSelectorRequirement {
+	if profile.Spec.NodePool.IncludeControlPlane {
+		return nil
+	}
+	reqs := make([]corev1.NodeSelectorRequirement, 0, len(brewlet.ControlPlaneRoleLabels))
+	for _, key := range brewlet.ControlPlaneRoleLabels {
+		reqs = append(reqs, corev1.NodeSelectorRequirement{
+			Key:      key,
+			Operator: corev1.NodeSelectorOpDoesNotExist,
+		})
+	}
+	return reqs
+}
+
+func poolRequirement(key string, op corev1.NodeSelectorOperator, values []string) corev1.NodeSelectorRequirement {
+	vals := append([]string(nil), values...)
+	sort.Strings(vals)
+	return corev1.NodeSelectorRequirement{Key: key, Operator: op, Values: vals}
+}
+
+// profileTolerations returns the taints a profile's provisioner DaemonSet is
+// allowed to tolerate. There is deliberately no blanket `Exists` toleration: an
+// administrator must name every taint they want the privileged provisioner to
+// schedule through, so control-plane and other reserved nodes stay off-limits
+// by default. Returns nil (not an empty slice) when the profile names none, so
+// the rendered pod spec omits the field.
+func profileTolerations(profile *nodev1alpha1.NodeProfile) []corev1.Toleration {
+	if len(profile.Spec.Tolerations) == 0 {
+		return nil
+	}
+	tolerations := make([]corev1.Toleration, len(profile.Spec.Tolerations))
+	copy(tolerations, profile.Spec.Tolerations)
+	return tolerations
 }
 
 // jdkTokens renders a profile's JDK inventory as the comma-separated
@@ -195,6 +266,8 @@ func appCDSRegenerationEnabled(profile *nodev1alpha1.NodeProfile) bool {
 func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string) *appsv1.DaemonSet {
 	privileged := true
 	hostPathSocket := corev1.HostPathSocket
+	hostPathDir := corev1.HostPathDirectory
+	hostPathDirOrCreate := corev1.HostPathDirectoryOrCreate
 	lbls := profileLabels(profile.Name)
 	metricsPort := cfg.MetricsPort
 	if metricsPort <= 0 {
@@ -234,8 +307,13 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 				Spec: corev1.PodSpec{
 					ServiceAccountName: brewlet.ProvisionerName,
 					HostPID:            true,
-					Tolerations:        []corev1.Toleration{{Operator: corev1.TolerationOpExists}},
-					Affinity:           profileAffinity(profile, resolvedKey, otherPools),
+					// Only the taints the profile deliberately names. The
+					// DaemonSet controller still adds the standard
+					// node-condition tolerations, so normal rollouts are
+					// unaffected while control-plane and other taints are
+					// respected.
+					Tolerations: profileTolerations(profile),
+					Affinity:    profileAffinity(profile, resolvedKey, otherPools),
 					Containers: []corev1.Container{
 						{
 							Name:            "provisioner",
@@ -264,16 +342,24 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 							}},
 							SecurityContext: &corev1.SecurityContext{
 								AllowPrivilegeEscalation: boolPtr(false),
+								ReadOnlyRootFilesystem:   boolPtr(true),
+								Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 							},
 							VolumeMounts: []corev1.VolumeMount{
-								{Name: "host-opt", MountPath: "/opt/brewlet"},
+								// The exporter only reads the inventory the
+								// provisioner wrote; it never mutates the host.
+								{Name: "host-opt", MountPath: "/opt/brewlet", ReadOnly: true},
 							},
 						},
 					},
 					Volumes: []corev1.Volume{
-						hostPathVolume("host-opt", "/opt/brewlet", nil),
-						hostPathVolume("containerd-conf", "/etc/containerd", nil),
-						hostPathVolume("host-bin", "/usr/local/bin", nil),
+						// /opt/brewlet is brewlet-owned and created on first
+						// provision; the remaining host paths must already
+						// exist, so a typo or a non-containerd node fails the
+						// pod instead of creating root-owned directories.
+						hostPathVolume("host-opt", "/opt/brewlet", &hostPathDirOrCreate),
+						hostPathVolume("containerd-conf", "/etc/containerd", &hostPathDir),
+						hostPathVolume("host-bin", "/usr/local/bin", &hostPathDir),
 						hostPathVolume("containerd-sock", "/run/containerd/containerd.sock", &hostPathSocket),
 					},
 				},

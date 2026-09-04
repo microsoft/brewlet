@@ -7,6 +7,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -171,6 +172,12 @@ func (in *NodeProfileSpec) DeepCopyInto(out *NodeProfileSpec) {
 		out.Registry = in.Registry.DeepCopy()
 	}
 	in.Rollout.DeepCopyInto(&out.Rollout)
+	if in.Tolerations != nil {
+		out.Tolerations = make([]corev1.Toleration, len(in.Tolerations))
+		for i := range in.Tolerations {
+			in.Tolerations[i].DeepCopyInto(&out.Tolerations[i])
+		}
+	}
 }
 
 // DeepCopy returns a deep copy of the receiver.

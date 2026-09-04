@@ -7,12 +7,23 @@
 # IS the opt-in: every node in the pool — present and future — is provisioned by
 # a per-profile brewlet-node-provisioner DaemonSet the operator reconciles.
 #
+# The provisioner is privileged and mutates the host, so two guards apply to
+# every profile below:
+#   * control-plane nodes are excluded by node affinity, whether or not they
+#     carry the NoSchedule taint. spec.nodePool.includeControlPlane: true is the
+#     only way in — needed on single-node kind / Docker Desktop clusters, which
+#     label their only node as the control plane without tainting it.
+#   * nothing is tolerated implicitly. Name the taints you mean to cross in
+#     spec.tolerations; the DaemonSet controller still injects the standard
+#     node-condition tolerations on its own.
+#
 # Apply with:  kubectl apply -f deploy/sample-nodeprofile.yaml
 # Inspect with: kubectl get nodeprofiles
 ---
 # The catch-all default profile: no nodePool.names => it owns every node NOT
-# claimed by a named-pool profile below. The Helm chart renders one of these for
-# you from provisioner.jdks/launchers; this is what it looks like.
+# claimed by a named-pool profile below (control-plane nodes still excluded).
+# The Helm chart renders one of these for you from provisioner.jdks/launchers,
+# scoped to the pools you name in provisioner.pools; this is what it looks like.
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
@@ -69,6 +80,14 @@ spec:
   nodePool:
     names: ["batch"]
     # key: agentpool
+    # includeControlPlane: true   # only for single-node kind / Docker Desktop
+  # This pool is tainted for Java workloads, so the provisioner must say so.
+  # Every entry has to name a key: there is no blanket "tolerate everything".
+  tolerations:
+    - key: workload
+      operator: Equal
+      value: java
+      effect: NoSchedule
   jdks:
     - distribution: microsoft
       feature: 25

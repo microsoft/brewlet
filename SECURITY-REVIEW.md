@@ -46,9 +46,12 @@ closed; the operator and admission pods are hardened; and containerd
 configuration updates are validated and rolled back.
 
 **Overall risk: Medium.** The container-escape-equivalent host read primitives are
-closed. The only remaining open finding is Medium: the provisioning default that
-targets every node. Restricting Brewlet to dedicated, platform-owned node pools
-further reduces exposure.
+closed, and every finding in this assessment is now remediated. Registry
+credentials are no longer forwarded cross-origin or in the clear; runtime
+selection annotations are constrained to safe tokens confined to the node's
+runtime roots; and provisioning is no longer cluster-wide by default — an
+install must name the node pools the privileged provisioner may mutate, and
+control-plane nodes are excluded unless a profile opts in.
 
 ## Findings summary
 
@@ -63,7 +66,7 @@ further reduces exposure.
 | 7 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
 | 8 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
 | 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP **(Remediated)** | [#27](https://github.com/microsoft/brewlet/issues/27) | [#61](https://github.com/microsoft/brewlet/pull/61) | 8/10 |
-| 10 | Medium | The privileged provisioner defaults to every node | [#28](https://github.com/microsoft/brewlet/issues/28) | — | 9/10 |
+| 10 | Medium | The privileged provisioner defaults to every node **(Remediated)** | [#28](https://github.com/microsoft/brewlet/issues/28) | [#63](https://github.com/microsoft/brewlet/pull/63) | 9/10 |
 | 11 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity **(Remediated)** | [#29](https://github.com/microsoft/brewlet/issues/29) | [#42](https://github.com/microsoft/brewlet/pull/42) | 9/10 |
 | 12 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth **(Remediated)** | [#30](https://github.com/microsoft/brewlet/issues/30) | [#39](https://github.com/microsoft/brewlet/pull/39) | 9/10 |
 
@@ -704,7 +707,7 @@ upload `Location` receives the PUT without `Authorization`; unit tests cover
 `localhost`, loopback literals, bracketed IPv6, explicit ports, lookalike public
 names, Docker Hub realm lookalikes, and malformed configuration entries.
 
-### 10. The privileged provisioner defaults to every node
+### 10. The privileged provisioner defaults to every node — remediated
 
 **Severity:** Medium  
 **Confidence:** 9/10  
@@ -712,10 +715,13 @@ names, Docker Hub realm lookalikes, and malformed configuration entries.
 **CWE:** CWE-250, CWE-732  
 **Type:** Insecure default and architectural risk
 
+**Status:** Remediated by [issue #28](https://github.com/microsoft/brewlet/issues/28)
+and [pull request #63](https://github.com/microsoft/brewlet/pull/63)
+
 **Attacker prerequisites:** Cluster/GitOps administrator access or compromise
 of the operator service account.
 
-**Evidence:**
+**Original evidence at the assessed revision:**
 
 - `kubernetes/internal/controller/nodeprofile_resources.go:218-265` creates a
   privileged, `hostPID` DaemonSet with an `Exists` toleration for every taint
@@ -740,6 +746,56 @@ hostPath write access, and document the blast radius.
 **Remediation test:** Render the chart and assert there is no blanket toleration
 or default control-plane placement. In a multi-node test cluster, verify no
 provisioner lands on the control-plane node under default values.
+
+**Resolution:** There is no every-node install left to make. The chart still
+ships `defaultProfile.enabled: true`, but rendering now fails closed with an
+actionable message unless `provisioner.pools` names the pools the privileged
+provisioner may mutate; an administrator who prefers to author profiles directly
+sets `defaultProfile.enabled=false`. The catch-all profile remains in the API
+because bare-metal clusters with no pool label still need it, but reaching it is
+a deliberate act rather than the default.
+
+Placement is now closed independently of pool selection. `profileAffinity`
+appends required `node-role.kubernetes.io/control-plane` and
+`node-role.kubernetes.io/master` `DoesNotExist` expressions to every profile's
+DaemonSet — including the lone catch-all, which previously produced no affinity
+at all — unless the profile sets `spec.nodePool.includeControlPlane`. The guard
+is expressed on the node-role *label* rather than the taint because kind and
+Docker Desktop label their single node as the control plane without tainting it,
+so a taint-only rule would not have held. The blanket `{Operator: Exists}`
+toleration is gone; the pod tolerates only what the new `spec.tolerations`
+declares, and the CRD schema requires a `key` on every entry, so "tolerate
+everything" is no longer expressible. Kubernetes still injects the standard
+node-condition tolerations into every DaemonSet, so rollouts on healthy nodes
+are unchanged. Membership moved with placement: `nodeAssigned` and
+`profileClaimsNode` were consolidated into one shared `profileClaimsNode` that
+applies the same exclusion, so `status.assignedNodes`, the `Ready` condition,
+the cleanup-DaemonSet wait, and node advertisement can never disagree with where
+a pod can actually land.
+
+Host access is narrower on both sides of the boundary. The metrics exporter
+mounts `/opt/brewlet` read-only and runs with `readOnlyRootFilesystem` and all
+capabilities dropped; host mounts carry explicit `hostPath` types
+(`DirectoryOrCreate` for `/opt/brewlet`, `Directory` for `/etc/containerd` and
+`/usr/local/bin`, `Socket` for the containerd socket) so a typo or a
+non-containerd node fails the pod instead of silently creating root-owned paths.
+The operator's `daemonsets` grant moved out of the ClusterRole into a `Role` in
+its own namespace, with the manager's DaemonSet informer scoped to that
+namespace to match, so a compromised operator cannot create a privileged
+DaemonSet anywhere else in the cluster.
+
+Both remediation tests are automated. `make -C kubernetes helm-scheduling-check`
+(wired into `helm-check` and CI) asserts on rendered output that default values
+fail closed, that the rendered profile names its pools, that no blanket
+toleration appears, that the ClusterRole has no `daemonsets` rule while the
+namespaced Role does, and that the two CRD copies have not diverged. Go unit and
+envtest coverage in `internal/controller/nodeprofile_scheduling_test.go` and
+`nodeprofile_scheduling_envtest_test.go` pins the exclusions, the toleration
+pass-through, the read-only exporter mount, and — against a real API server —
+that a control-plane-labelled node is neither counted in `status.assignedNodes`
+nor allowed to hold a profile short of `Ready`. E2E tier 13 repeats the
+assertions against a live cluster and, when a distinct control-plane node
+exists, verifies that no provisioner pod is scheduled onto it.
 
 ### 11. Mutable GitHub Actions and absent provenance weaken release integrity — remediated
 
@@ -943,8 +999,9 @@ for replay against the API server. Descriptor digests are now rejected unless
 they are canonical `sha256:<64 hex>`, every resolved path is independently proven
 to stay under the content store's blob directory, and blob bytes are verified
 against the digest that named them before they are read, staged, or mounted.
-Default control-plane provisioning (Finding 10) remains open and still widens
-the blast radius of any future node-level primitive.
+The blast radius of any future node-level primitive is also narrower: the
+privileged provisioner no longer defaults to every node, and it is excluded from
+control-plane nodes unless a profile explicitly opts in (Finding 10).
 
 ### B. Historical cross-tenant JVM code injection — remediated
 
@@ -972,6 +1029,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 | Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | **Remediated:** JDK and launcher sources require explicit digest-pinned references |
 | A requested launcher resolves to a node-installed launcher layer | `specs/SPECIFICATION.md:766-805`; `docs/launchers.md` | **Remediated:** launcher (and JDK distribution) requests must be lowercase DNS-1123 tokens, must appear in the node's active inventory, and the selected root is proven by `filepath.Rel` to be a direct child of the configured runtime roots before it is mounted |
 | The fail-open mutating webhook is presented as a security guardrail | `docs/security.md` | **Remediated for artifact identity:** the webhook overwrites compatibility hints, while the shim independently fails closed using protected CRI metadata |
+| Provisioning is scoped to platform-owned pools and stays off control-plane nodes | `docs/security.md`; `docs/configuration.md`; `specs/SPECIFICATION.md` §5.1/§5.6 | **Remediated:** the chart requires `provisioner.pools`, every profile excludes both control-plane role labels unless it opts in, and tolerations are declared rather than blanket |
 
 ## Prioritized remediation roadmap
 
@@ -995,13 +1053,16 @@ downloaded tools and external build images are checksum- or digest-pinned.
    digest-pin base images.
 4. **Remediated:** Require administrator-provided, digest-pinned JDK and launcher
    images, and validate and allowlist NodeProfile registry mirrors.
-5. Enforce same-origin HTTPS registry token realms and exact loopback matching.
+5. **Remediated:** Enforce same-origin HTTPS registry token realms and exact
+   loopback matching.
 
 ### P2: Defense in depth
 
 1. **Remediated:** Pin GitHub Actions by SHA, narrow workflow permissions, and
    publish signatures and provenance.
-2. Make node provisioning opt-in and exclude control-plane nodes by default.
+2. **Remediated:** Require explicit node-pool selection, exclude control-plane
+   nodes, drop the blanket toleration, and scope the operator's DaemonSet
+   grant to its own namespace.
 3. **Remediated:** Add NetworkPolicy templates and automated short-lived webhook
    certificates.
 4. Keep security documentation aligned with the remaining open controls.
@@ -1026,12 +1087,12 @@ downloaded tools and external build images are checksum- or digest-pinned.
    Finding 6.
 7. **Verify provisioner binary downloads and pin base images (remediated in
    issue #25 and pull request #32).** Covers Finding 7.
-8. **Restrict registry token authentication to approved HTTPS origins.** Covers
-   Finding 9.
+8. **Restrict registry token authentication to approved HTTPS origins
+   (remediated in issue #27 and pull request #61).** Covers Finding 9.
 9. **Pin Actions and publish release signatures and provenance (remediated in
    issue #29 and pull request #42).** Covers Finding 11.
-10. **Make privileged node provisioning opt-in and exclude control-plane
-    nodes.** Covers Finding 10.
+10. **Make privileged node provisioning opt-in and exclude control-plane nodes
+    (remediated in issue #28 and pull request #63).** Covers Finding 10.
 11. **Add NetworkPolicies and automated webhook certificate rotation
     (remediated in issue #30 and pull request #39).** Covers Finding 12.
 12. **Align security documentation with enforced controls.** Covers remaining

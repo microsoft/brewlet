@@ -30,9 +30,6 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
-  - apiGroups: ["apps"]
-    resources: ["daemonsets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["node.brewlet.sh"]
     resources: ["nodeprofiles"]
     verbs: ["get", "list", "watch", "update", "patch"]
@@ -73,6 +70,40 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
+  name: brewlet-operator
+subjects:
+  - kind: ServiceAccount
+    name: brewlet-operator
+    namespace: {{ include "brewlet.namespace" . }}
+---
+{{/*
+The privileged provisioner DaemonSets only ever live in the release namespace,
+so the operator's authority to create them is namespaced rather than
+cluster-wide: a compromised operator token cannot plant a privileged DaemonSet
+in kube-system or any other namespace.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: brewlet-operator
+  namespace: {{ include "brewlet.namespace" . }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: brewlet-operator
+  namespace: {{ include "brewlet.namespace" . }}
+  labels:
+    {{- include "brewlet.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
   name: brewlet-operator
 subjects:
   - kind: ServiceAccount

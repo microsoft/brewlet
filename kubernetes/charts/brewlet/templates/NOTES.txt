@@ -29,13 +29,20 @@ Next steps:
 
 {{- if .Values.defaultProfile.enabled }}
 
-1. Provisioning starts automatically: the chart's default NodeProfile provisions
-   EVERY node (§5.6) — there is no per-node opt-in step.
+1. Provisioning starts automatically on the pool(s) you named
+   ({{ join ", " .Values.provisioner.pools }}) — every node in them, present and
+   future, is provisioned (§5.6). No other node is touched:
+{{- if .Values.provisioner.includeControlPlane }}
+   control-plane nodes ARE included because provisioner.includeControlPlane is
+   set — use this only on single-node development clusters.
+{{- else }}
+   control-plane nodes are excluded, and only the taints listed in
+   provisioner.tolerations are scheduled through.
+{{- end }}
 
    WARNING: Provisioning is privileged and mutates the host.
    See https://github.com/microsoft/brewlet/tree/main/specs.
-       To limit it to platform-owned pools, disable the default profile
-       (defaultProfile.enabled=false) and define named NodeProfiles (§5.6).
+       Only target node pools your platform team controls.
 {{- else }}
 
 1. The default NodeProfile is disabled. Define named NodeProfiles (via the

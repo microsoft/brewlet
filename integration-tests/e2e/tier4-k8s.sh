@@ -194,6 +194,10 @@ kind: NodeProfile
 metadata:
   name: default
 spec:
+  nodePool:
+    # A single-node kind / Docker Desktop cluster labels its only node as the
+    # control plane, which the provisioner declines unless asked explicitly.
+    includeControlPlane: true
   jdks:
     - distribution: temurin
       feature: 21
@@ -216,8 +220,8 @@ YAML
 
   if wait_for _t4_ds_exists; then
     pass "NodeProfile: reconciler created the per-profile provisioner DaemonSet (brewlet-node-provisioner-default)"
-    # The catch-all default with no sibling named pools targets every node, so it
-    # carries no restricting nodeAffinity.
+    # The catch-all default with no sibling named pools and an explicit
+    # control-plane opt-in targets every node, so it carries no nodeAffinity.
     assert_eq "NodeProfile: default DaemonSet has no restricting nodeAffinity (every node)" \
       "$(kubectl get ds brewlet-node-provisioner-default -n "$T4_NS_OP" -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution}' 2>/dev/null)" ""
   else
@@ -258,17 +262,36 @@ YAML
 
   # --- Helm chart packaging -------------------------------------------------
   if have helm; then
-    if helm lint "$BREWLET_KUBERNETES_DIR/charts/brewlet" >"$WORK/t4-helm-lint.log" 2>&1; then
+    if helm lint "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+         --set provisioner.pools="{general}" >"$WORK/t4-helm-lint.log" 2>&1; then
       pass "helm: chart lints clean"
     else
       fail "helm: chart lint" "see $WORK/t4-helm-lint.log"
     fi
+
+    # The privileged provisioner must never be a default: an install that leaves
+    # provisioner.pools empty has to fail closed rather than claim every node
+    # (SECURITY-REVIEW.md finding 10).
+    local failclosed
+    if failclosed="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" 2>&1)"; then
+      fail "helm: an install without provisioner.pools fails closed" \
+        "the chart rendered a default NodeProfile with no pools"
+    else
+      assert_contains "helm: an install without provisioner.pools fails closed" \
+        "$failclosed" "provisioner.pools"
+    fi
+
     local tmpl
-    if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" 2>>"$WORK/t4-helm-template.log")"; then
+    if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+        --set provisioner.pools="{general}" 2>>"$WORK/t4-helm-template.log")"; then
       assert_contains "helm: renders the operator Deployment" "$tmpl" "brewlet-operator"
       assert_contains "helm: renders the admission webhook" "$tmpl" "admission"
       assert_contains "helm: renders provisioner RBAC" "$tmpl" "ServiceAccount"
       assert_contains "helm: renders the default NodeProfile CR" "$tmpl" "kind: NodeProfile"
+      assert_contains "helm: the default NodeProfile names its pools explicitly" \
+        "$tmpl" '- "general"'
+      assert_not_contains "helm: no rendered workload carries a blanket toleration" \
+        "$tmpl" "operator: Exists"
       assert_contains "helm: renders the NodeProfile validating webhook" "$tmpl" "/validate-nodeprofiles"
       assert_contains "helm: disables source mirrors by default" "$tmpl" "--allowed-source-mirror-hosts="
       assert_not_contains "helm: omits operator metrics Service by default" "$tmpl" "brewlet-operator-metrics"
@@ -302,6 +325,7 @@ YAML
       fail "helm: template render" "see $WORK/t4-helm-template.log"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+          --set provisioner.pools="{general}" \
           --set metrics.enabled=true \
           --set metrics.serviceMonitor.enabled=true \
           --set metrics.grafanaDashboard.enabled=true 2>>"$WORK/t4-helm-template.log")"; then
@@ -311,6 +335,7 @@ YAML
       fail "helm: optional metrics template render" "see $WORK/t4-helm-template.log"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+          --set provisioner.pools="{general}" \
           --set admission.certManager.enabled=true \
           --set admission.certManager.createSelfSignedIssuer=true \
           2>>"$WORK/t4-helm-template.log")"; then
@@ -328,6 +353,7 @@ YAML
       fail "helm: cert-manager template render" "see $WORK/t4-helm-template.log"
     fi
     if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+         --set provisioner.pools="{general}" \
          --set admission.certManager.enabled=true \
          >"$WORK/t4-cert-manager-invalid.log" 2>&1; then
       fail "helm: cert-manager requires an issuer"
@@ -337,6 +363,7 @@ YAML
         "admission.certManager.issuerRef.name is required"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+          --set provisioner.pools="{general}" \
           --set metrics.enabled=true \
           --set networkPolicy.enabled=true \
           --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
@@ -366,6 +393,7 @@ YAML
       fail "helm: NetworkPolicy template render" "see $WORK/t4-helm-template.log"
     fi
     if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+         --set provisioner.pools="{general}" \
          --set networkPolicy.enabled=true \
          --set 'networkPolicy.admission.apiServerCIDRs[0]=10.0.0.0/8' \
          >"$WORK/t4-network-policy-health-invalid.log" 2>&1; then
@@ -376,6 +404,7 @@ YAML
         "networkPolicy.healthProbes.ingressFrom must contain at least one"
     fi
     if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+         --set provisioner.pools="{general}" \
          --set networkPolicy.enabled=true \
          --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
          >"$WORK/t4-network-policy-invalid.log" 2>&1; then
@@ -386,6 +415,7 @@ YAML
         "networkPolicy.admission.apiServerCIDRs must contain at least one"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+          --set provisioner.pools="{general}" \
           --set security.allowedSourceMirrorHosts[0]=registry.internal \
           --set security.allowedSourceMirrorHosts[1]=mirror.example.com:5000 \
           2>>"$WORK/t4-helm-template.log")"; then
@@ -395,6 +425,7 @@ YAML
       fail "helm: mirror allowlist template render" "see $WORK/t4-helm-template.log"
     fi
     if helm install brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" --dry-run --namespace "$T4_NS_OP" \
+         --set provisioner.pools="{general}" \
          >"$WORK/t4-helm-dryrun.log" 2>&1; then
       pass "helm: install --dry-run succeeds against the cluster"
     else

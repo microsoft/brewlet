@@ -583,11 +583,12 @@ helm repo add brewlet https://charts.brewlet.sh
 helm install -n brewlet --create-namespace brewlet microsoft/brewlet-operator
 ```
 
-The chart renders a **default `NodeProfile`** (§5.6) that provisions **every
-node** — a Runtime Class Manager-style "all nodes" activation, with no per-node
-opt-in step to manage. To scope provisioning to specific pools instead, define named
-`NodeProfile`s or disable the default profile (`defaultProfile.enabled=false`,
-§5.6). The legacy per-node opt-in — a `brewlet.sh/provision=true` node **label**
+The chart renders a **default `NodeProfile`** (§5.6) that provisions the node
+pools named in `provisioner.pools` — pool-level activation, with no per-node
+opt-in step to manage. `provisioner.pools` is **required**: because the
+provisioner is privileged and mutates the host, the chart fails to render rather
+than default to the whole cluster. To author profiles yourself instead, disable
+the default profile (`defaultProfile.enabled=false`, §5.6). The legacy per-node opt-in — a `brewlet.sh/provision=true` node **label**
 (not an annotation; it drives `nodeAffinity`) consumed by the standalone
 the [`deploy/node-provisioner.yaml`](../kubernetes/deploy/node-provisioner.yaml)
 DaemonSet — remains for the no-operator path (§5.5).
@@ -866,7 +867,7 @@ mechanics, source policy, deployment): see
 
 ### 5.6 Node profiles (per-pool preparation)
 
-Provisioning every node identically — whether via the chart's default profile
+Provisioning every node identically — whether via a cluster-wide default profile
 or the legacy `brewlet.sh/provision` label (§5.1/§5.5) — ignores that real
 clusters are heterogeneous: a batch pool wants a different JDK than the web pool,
 an air-gapped pool needs a registry mirror, some pools must never have containerd
@@ -889,6 +890,12 @@ spec:
   nodePool:
     names: ["batch"]        # matched on the resolved pool key
     # key: agentpool        # optional; auto-detected when omitted
+    # includeControlPlane: true   # opt in to control-plane nodes (default false)
+  tolerations:              # optional; nothing is tolerated implicitly
+    - key: workload
+      operator: Equal
+      value: java
+      effect: NoSchedule
   jdks:
     - distribution: microsoft
       feature: 25
@@ -918,8 +925,25 @@ spec:
 - **The default profile.** A profile with no `nodePool.names` is the **catch-all
   default**: it owns every node *not* claimed by a named-pool profile, expressed
   as a `NotIn [named pools]` nodeAffinity so the pools stay disjoint. The Helm
-  chart renders one from `provisioner.jdks/launchers`. Two profiles may not
-  name the same pool — the validating webhook (§8.3) rejects the overlap.
+  chart renders one from `provisioner.jdks/launchers`, scoped to the pools named
+  in the required `provisioner.pools`; the catch-all form remains available to
+  administrators who author a `NodeProfile` directly, which bare-metal clusters
+  with no pool label still need. Two profiles may not name the same pool — the
+  validating webhook (§8.3) rejects the overlap.
+- **Control-plane nodes are excluded.** Every profile's DaemonSet carries
+  required `node-role.kubernetes.io/control-plane` and
+  `node-role.kubernetes.io/master` `DoesNotExist` expressions, so a privileged
+  provisioner never lands on a control-plane node. This is deliberately a
+  *label* rule rather than a taint rule: kind and Docker Desktop label their
+  single node as the control plane without tainting it, so the taint alone would
+  not have held. `spec.nodePool.includeControlPlane: true` is the only way in.
+  The same rule governs membership (`status.assignedNodes`, the `Ready`
+  condition, the cleanup wait, and node advertisement), so a profile never
+  counts a node it cannot provision.
+- **Tolerations are explicit.** The DaemonSet tolerates exactly what
+  `spec.tolerations` declares — there is no blanket `operator: Exists` entry —
+  plus the node-condition tolerations Kubernetes injects into every DaemonSet.
+  Each entry must name a `key`, so "tolerate everything" is not expressible.
 - **One DaemonSet per profile.** The operator's `NodeProfileReconciler` (§8.1)
   reconciles each profile into its own `brewlet-node-provisioner-<profile>`
   DaemonSet whose pod `nodeAffinity` is the profile's pool. Every JDK is rendered

@@ -14,6 +14,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | OCI artifact missing/unauthorized | `ImagePull`-style failure on the pod | [→ artifact pull](#imagepull-style-failure) |
 | JVM OOM | `ExitOnOutOfMemoryError` → exit → kubelet restart | [→ OOM](#pod-restarts-oomkilled) |
 | Node provisioning fails | Node not labeled `ready`; condition/event `ProvisionFailed` | [→ provisioning](#node-never-becomes-ready) |
+| No provisioner pod on a node at all | Node absent from `status.assignedNodes`; no DaemonSet pod scheduled | [→ placement](#no-provisioner-pod-is-scheduled) |
 | NodeProfile is invalid | `Ready=False`, reason `InvalidProfile`; profile DaemonSet is absent | [→ source policy](#nodeprofile-source-policy-failures) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
@@ -73,6 +74,42 @@ kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-e
   immediate operator attention.
 - **RBAC** — the provisioner needs `get`/`patch` on nodes to label them; confirm the
   ServiceAccount/ClusterRole from the manifest/chart are present.
+
+---
+
+## No provisioner pod is scheduled
+
+**Symptom:** the profile's DaemonSet exists but has no pods on the node you
+expected, and `kubectl get nodeprofile <p> -o jsonpath='{.status.assignedNodes}'`
+does not count it. This is placement, not provisioning: the provisioner never
+started, so there is no `brewlet.sh/provision-error` to read.
+
+```bash
+# Which nodes may this profile touch?
+kubectl get ds brewlet-node-provisioner-<profile> -n brewlet \
+  -o jsonpath='{.spec.template.spec.affinity.nodeAffinity}{"\n"}'
+kubectl get ds brewlet-node-provisioner-<profile> -n brewlet \
+  -o jsonpath='{.spec.template.spec.tolerations}{"\n"}'
+# Why was this node not eligible?
+kubectl get node <n> --show-labels
+kubectl get node <n> -o jsonpath='{.spec.taints}{"\n"}'
+```
+
+**Common causes & fixes:**
+
+- **It is a control-plane node.** Every profile requires
+  `node-role.kubernetes.io/control-plane` and `node-role.kubernetes.io/master`
+  to be absent, because the provisioner is privileged. This bites on kind and
+  Docker Desktop, whose single node carries the label without the taint — so
+  nothing at all is provisioned. Set `spec.nodePool.includeControlPlane: true`
+  (Helm: `provisioner.includeControlPlane=true`) if you really intend it.
+- **The node is tainted and the profile says nothing about it.** Nothing is
+  tolerated implicitly. Add the matching entry to `spec.tolerations` (Helm:
+  `provisioner.tolerations`); every entry must name a `key`.
+- **The node is not in the profile's pool.** Compare the node's label for the
+  resolved pool key (`status.resolvedPoolKey`) against `spec.nodePool.names`. A
+  profile whose pool matches nothing reports `Ready=False` with reason
+  `EmptyPool`.
 
 ---
 
