@@ -30,6 +30,17 @@ func writeContentBlob(t *testing.T, root string, b []byte) string {
 	return digest
 }
 
+// mustContentBlobPath resolves a digest to its content-store path, failing the
+// test if the digest is not canonical.
+func mustContentBlobPath(t *testing.T, root, digest string) string {
+	t.Helper()
+	p, err := contentBlobPath(root, digest)
+	if err != nil {
+		t.Fatalf("contentBlobPath(%q): %v", digest, err)
+	}
+	return p
+}
+
 func TestContentStoreBlobs(t *testing.T) {
 	root := t.TempDir()
 
@@ -62,7 +73,7 @@ func TestContentStoreBlobs(t *testing.T) {
 	if blobs.Config.MainJar != "app.jar" {
 		t.Errorf("MainJar = %q, want app.jar", blobs.Config.MainJar)
 	}
-	if want := contentBlobPath(root, jarDigest); blobs.JarHostPath != want {
+	if want := mustContentBlobPath(t, root, jarDigest); blobs.JarHostPath != want {
 		t.Errorf("JarHostPath = %q, want %q", blobs.JarHostPath, want)
 	}
 	if _, err := os.Stat(blobs.JarHostPath); err != nil {

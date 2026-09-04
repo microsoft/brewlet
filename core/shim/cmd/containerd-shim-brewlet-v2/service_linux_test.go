@@ -112,7 +112,11 @@ func TestAssembleBrewletBundleUsesResolvedImageWithoutHints(t *testing.T) {
 	if manifestDigest == targetDigest {
 		t.Fatal("test requires a multi-platform index target and distinct platform manifest")
 	}
-	if err := os.Remove(store.BlobPath(targetDigest)); err != nil {
+	targetPath, err := store.BlobPath(targetDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(targetPath); err != nil {
 		t.Fatal(err)
 	}
 	jdkRoots := t.TempDir()

@@ -80,6 +80,17 @@ Because the JAR is a first-class OCI artifact, standard supply-chain controls ap
   platform manifest's config digest against CRI's recorded image identity.
   Tenant-controlled Brewlet annotations never select executable content. See
   [Building & publishing](building-and-publishing.md#4-pin-to-a-digest).
+- **Every descriptor digest is validated before it becomes a path.** Config,
+  JAR, classpath, modulepath, and CDS descriptors inside a manifest are
+  tenant-authored data, so each must match `sha256:` followed by exactly 64
+  lowercase hex characters. Resolved blob paths are then independently
+  re-checked to confirm they stay under the content store's `blobs/sha256`
+  directory, so a malformed or traversing digest yields an error rather than a
+  host path.
+- **Blob bytes are verified before they are read, staged, or mounted.** Every
+  blob is hashed and compared against its declared descriptor digest, including
+  the JAR and CDS archives that are bind-mounted into the container. A blob that
+  is present at the right path but does not match its digest is rejected.
 
 ### Supply-chain attestations
 

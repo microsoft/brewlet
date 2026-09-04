@@ -21,7 +21,7 @@ func (s *manifestBlobSource) ReadBlob(digest string) ([]byte, error) {
 	return s.blobs[digest], nil
 }
 
-func (*manifestBlobSource) BlobPath(string) string { return "" }
+func (*manifestBlobSource) BlobPath(string) (string, error) { return "", nil }
 
 func testPlatform() *Platform {
 	target := currentRunnablePlatform()
@@ -299,7 +299,11 @@ func TestStoreResolveBlobsRejectsManifestDigestMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(store.BlobPath(desc.Digest), []byte(strings.Repeat("x", int(desc.Size))), 0o644); err != nil {
+	manifestPath, err := store.BlobPath(desc.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte(strings.Repeat("x", int(desc.Size))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -309,6 +313,90 @@ func TestStoreResolveBlobsRejectsManifestDigestMismatch(t *testing.T) {
 	}
 	if got.ManifestDigest != "" {
 		t.Errorf("ManifestDigest = %q after mismatch, want empty", got.ManifestDigest)
+	}
+}
+
+// storeBlobSource resolves blobs from a local OCI layout, which is what the
+// CLI's run/bundle path uses.
+func TestResolveNativeBlobsRejectsTraversalLayerDigest(t *testing.T) {
+	root := t.TempDir()
+	store := Store{Root: root}
+	jarPath := filepath.Join(t.TempDir(), "app.jar")
+	if err := os.WriteFile(jarPath, []byte("PK\x03\x04 jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}}
+	if _, err := store.Push("demo/hostile:1", cfg, jarPath); err != nil {
+		t.Fatal(err)
+	}
+	man, manifestDigest, err := store.ResolveManifestByRef("demo/hostile:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveNativeBlobs(store, man, manifestDigest); err != nil {
+		t.Fatalf("untampered artifact must resolve: %v", err)
+	}
+
+	for _, digest := range []string{
+		"sha256:../../../../../..",
+		"sha256:..",
+		"sha256:" + strings.Repeat("a", 63),
+		"",
+	} {
+		hostile := man
+		hostile.Layers = append([]Descriptor(nil), man.Layers...)
+		for i := range hostile.Layers {
+			if hostile.Layers[i].MediaType == JarLayerMediaType {
+				hostile.Layers[i].Digest = digest
+			}
+		}
+		got, err := ResolveNativeBlobs(store, hostile, manifestDigest)
+		if err == nil {
+			t.Errorf("ResolveNativeBlobs accepted jar digest %q", digest)
+		}
+		if got.JarHostPath != "" {
+			t.Errorf("jar digest %q produced host path %q, want none", digest, got.JarHostPath)
+		}
+	}
+}
+
+// TestResolveNativeBlobsRejectsTamperedJarBytes covers a blob that is mounted
+// rather than read: its bytes must still match the descriptor that named it.
+func TestResolveNativeBlobsRejectsTamperedJarBytes(t *testing.T) {
+	root := t.TempDir()
+	store := Store{Root: root}
+	jarPath := filepath.Join(t.TempDir(), "app.jar")
+	if err := os.WriteFile(jarPath, []byte("PK\x03\x04 jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}}
+	if _, err := store.Push("demo/swapped:1", cfg, jarPath); err != nil {
+		t.Fatal(err)
+	}
+	man, manifestDigest, err := store.ResolveManifestByRef("demo/swapped:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer, err := man.JarLayer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobPath, err := store.BlobPath(layer.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same length as the original payload, so the size check cannot mask the
+	// content hash check.
+	if err := os.WriteFile(blobPath, []byte("swapped!"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ResolveNativeBlobs(store, man, manifestDigest)
+	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("error = %v, want a jar blob digest mismatch", err)
+	}
+	if got.JarHostPath != "" {
+		t.Errorf("JarHostPath = %q after rejection, want empty", got.JarHostPath)
 	}
 }
 

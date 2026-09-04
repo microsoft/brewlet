@@ -7,7 +7,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,8 +38,10 @@ type ResolvedBlobs struct {
 type BlobSource interface {
 	// ReadBlob returns the raw bytes of a blob by digest ("sha256:…").
 	ReadBlob(digest string) ([]byte, error)
-	// BlobPath returns the on-disk path of a blob by digest.
-	BlobPath(digest string) string
+	// BlobPath returns the on-disk path of a blob by digest. It returns an
+	// error rather than a path for any non-canonical digest, so an untrusted
+	// descriptor cannot name a host path outside the store.
+	BlobPath(digest string) (string, error)
 }
 
 // ResolveBlobs resolves a tagged ref in this local OCI layout to normalized
@@ -64,7 +65,7 @@ func (s Store) ResolveBlobs(ref string) (ResolvedBlobs, error) {
 // platform and reads that platform manifest. Returns the resolved manifest and
 // its digest. Works for both native artifacts and runnable images.
 func ResolveManifestFollowingIndex(src BlobSource, digest string) (Manifest, string, error) {
-	raw, err := readVerifiedManifestBlob(src, Descriptor{Digest: digest})
+	raw, err := ReadVerifiedBlob(src, Descriptor{Digest: digest})
 	if err != nil {
 		return Manifest{}, "", fmt.Errorf("read manifest blob: %w", err)
 	}
@@ -79,7 +80,7 @@ func ResolveManifestFollowingIndex(src BlobSource, digest string) (Manifest, str
 			return Manifest{}, "", fmt.Errorf("image index %s has no manifest for %s", digest, platformName(target))
 		}
 		digest = sel.Digest
-		if raw, err = readVerifiedManifestBlob(src, sel); err != nil {
+		if raw, err = ReadVerifiedBlob(src, sel); err != nil {
 			return Manifest{}, "", fmt.Errorf("read platform manifest %s: %w", digest, err)
 		}
 	}
@@ -90,41 +91,30 @@ func ResolveManifestFollowingIndex(src BlobSource, digest string) (Manifest, str
 	return man, digest, nil
 }
 
-func readVerifiedManifestBlob(src BlobSource, desc Descriptor) ([]byte, error) {
-	if err := validateCanonicalSHA256Digest(desc.Digest); err != nil {
+// ReadVerifiedBlob reads the blob a descriptor names and verifies it before
+// returning it: the digest must be canonical (so it cannot name a path outside
+// the store) and the bytes must hash to exactly that digest. Every descriptor
+// read — manifest, index entry, config, or layer — goes through this function,
+// because all of them come from attacker-controlled OCI metadata.
+func ReadVerifiedBlob(src BlobSource, desc Descriptor) ([]byte, error) {
+	if err := ValidateDigest(desc.Digest); err != nil {
 		return nil, err
 	}
 	raw, err := src.ReadBlob(desc.Digest)
 	if err != nil {
 		return nil, err
 	}
-	if desc.Size > 0 && int64(len(raw)) != desc.Size {
-		return nil, fmt.Errorf("blob %s size mismatch: got %d, descriptor requires %d", desc.Digest, len(raw), desc.Size)
-	}
-	if got := digestOf(raw); got != desc.Digest {
-		return nil, fmt.Errorf("blob digest mismatch: got %s, descriptor requires %s", got, desc.Digest)
+	if err := VerifyBytes(desc, raw); err != nil {
+		return nil, err
 	}
 	return raw, nil
-}
-
-func validateCanonicalSHA256Digest(digest string) error {
-	const prefix = "sha256:"
-	if len(digest) != len(prefix)+sha256.Size*2 || !strings.HasPrefix(digest, prefix) {
-		return fmt.Errorf("invalid digest %q: must be canonical sha256:<64 lowercase hex>", digest)
-	}
-	for _, c := range digest[len(prefix):] {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return fmt.Errorf("invalid digest %q: must be canonical sha256:<64 lowercase hex>", digest)
-		}
-	}
-	return nil
 }
 
 // ResolveNativeBlobs resolves a native Brewlet artifact (custom media-type
 // layers) to on-disk blob paths, mounting each layer blob directly from src with
 // no copy — the historical production/PoC path.
 func ResolveNativeBlobs(src BlobSource, man Manifest, manifestDigest string) (ResolvedBlobs, error) {
-	cb, err := src.ReadBlob(man.Config.Digest)
+	cb, err := ReadVerifiedBlob(src, man.Config)
 	if err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("read config blob: %w", err)
 	}
@@ -136,35 +126,57 @@ func ResolveNativeBlobs(src BlobSource, man Manifest, manifestDigest string) (Re
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	jarPath := src.BlobPath(layer.Digest)
-	if _, err := os.Stat(jarPath); err != nil {
-		return ResolvedBlobs{}, fmt.Errorf("jar blob %s not available: %w", layer.Digest, err)
-	}
-	cpPaths, err := existingBlobPaths(src, man.ClasspathLayers(), "classpath")
+	jarPath, err := verifiedBlobPath(src, layer, "jar")
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	mpPaths, err := existingBlobPaths(src, man.ModulepathLayers(), "modulepath")
+	cpPaths, err := verifiedBlobPaths(src, man.ClasspathLayers(), "classpath")
+	if err != nil {
+		return ResolvedBlobs{}, err
+	}
+	mpPaths, err := verifiedBlobPaths(src, man.ModulepathLayers(), "modulepath")
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
 	var cdsPath string
 	if l, ok := man.CDSLayer(); ok {
-		cdsPath = src.BlobPath(l.Digest)
-		if _, err := os.Stat(cdsPath); err != nil {
-			return ResolvedBlobs{}, fmt.Errorf("cds blob %s not available: %w", l.Digest, err)
+		if cdsPath, err = verifiedBlobPath(src, l, "cds"); err != nil {
+			return ResolvedBlobs{}, err
 		}
 	}
 	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, ManifestDigest: manifestDigest, Format: "native"}, nil
 }
 
-// existingBlobPaths returns the on-disk path of each layer, verifying presence.
-func existingBlobPaths(src BlobSource, layers []Descriptor, kind string) ([]string, error) {
+// verifiedBlobPath resolves one layer descriptor to the host path that will be
+// bind-mounted into the sandbox. The digest must be canonical (so the path
+// cannot escape the store) and the bytes on disk must hash to it: these blobs
+// are mounted rather than read, so this is the only point at which the content
+// the workload executes is checked against the descriptor that named it.
+func verifiedBlobPath(src BlobSource, layer Descriptor, kind string) (string, error) {
+	// Validate before calling into BlobSource rather than relying on the
+	// implementation to do it: the interface cannot force an implementation to
+	// check, and a future backend that builds a path before validating would
+	// silently reopen this hole.
+	if err := ValidateDigest(layer.Digest); err != nil {
+		return "", fmt.Errorf("%s layer: %w", kind, err)
+	}
+	p, err := src.BlobPath(layer.Digest)
+	if err != nil {
+		return "", fmt.Errorf("%s layer: %w", kind, err)
+	}
+	if err := VerifyFile(layer, p); err != nil {
+		return "", fmt.Errorf("%s blob %s is not usable: %w", kind, layer.Digest, err)
+	}
+	return p, nil
+}
+
+// verifiedBlobPaths resolves and verifies each layer, in manifest order.
+func verifiedBlobPaths(src BlobSource, layers []Descriptor, kind string) ([]string, error) {
 	var out []string
 	for _, l := range layers {
-		p := src.BlobPath(l.Digest)
-		if _, err := os.Stat(p); err != nil {
-			return nil, fmt.Errorf("%s blob %s not available: %w", kind, l.Digest, err)
+		p, err := verifiedBlobPath(src, l, kind)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, p)
 	}
@@ -183,14 +195,17 @@ func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	stageDir := runnableStageDir(manifestDigest)
+	stageDir, err := runnableStageDir(manifestDigest)
+	if err != nil {
+		return ResolvedBlobs{}, err
+	}
 
 	appLayer, err := man.RunnableAppLayer()
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
 	appDir := filepath.Join(stageDir, "app")
-	if err := extractGzTar(src, appLayer.Digest, appDir); err != nil {
+	if err := extractGzTar(src, appLayer, appDir); err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("stage app layer: %w", err)
 	}
 	jarName, err := MainJarName(cfg)
@@ -246,19 +261,20 @@ func stagedPath(dir, name string) (string, error) {
 }
 
 // runnableStageDir is the per-image staging directory a runnable image is
-// gunzipped into. It is derived from the manifest digest so concurrent/repeated
-// resolutions of the same image share one tree. Overridable via
-// BREWLET_RUNNABLE_STAGE for tests/harnesses.
-func runnableStageDir(manifestDigest string) string {
+// gunzipped into. It is derived from the verified manifest digest so
+// concurrent/repeated resolutions of the same image share one tree, and the
+// digest is validated first so the directory name cannot escape the staging
+// root. Overridable via BREWLET_RUNNABLE_STAGE for tests/harnesses.
+func runnableStageDir(manifestDigest string) (string, error) {
+	hex, err := DigestHex(manifestDigest)
+	if err != nil {
+		return "", fmt.Errorf("runnable image staging: %w", err)
+	}
 	base := os.Getenv("BREWLET_RUNNABLE_STAGE")
 	if base == "" {
 		base = filepath.Join(os.TempDir(), "brewlet-runnable")
 	}
-	_, hex, found := strings.Cut(manifestDigest, ":")
-	if !found {
-		hex = fmt.Sprintf("%x", sha256.Sum256([]byte(manifestDigest)))
-	}
-	return filepath.Join(base, hex)
+	return filepath.Join(base, hex), nil
 }
 
 // stageLayerTars gunzips each layer blob to an uncompressed <prefix>-<i>.tar
@@ -274,7 +290,7 @@ func stageLayerTars(src BlobSource, layers []Descriptor, stageDir, prefix string
 	out := make([]string, 0, len(layers))
 	for i, l := range layers {
 		dst := filepath.Join(stageDir, fmt.Sprintf("%s-%d.tar", prefix, i))
-		if err := gunzipToFile(src, l.Digest, dst); err != nil {
+		if err := gunzipToFile(src, l, dst); err != nil {
 			return nil, fmt.Errorf("stage %s layer %s: %w", prefix, l.Digest, err)
 		}
 		out = append(out, dst)
@@ -282,9 +298,9 @@ func stageLayerTars(src BlobSource, layers []Descriptor, stageDir, prefix string
 	return out, nil
 }
 
-// gunzipToFile decompresses the gzip blob at digest into dst.
-func gunzipToFile(src BlobSource, digest, dst string) error {
-	raw, err := src.ReadBlob(digest)
+// gunzipToFile decompresses the verified gzip blob the descriptor names into dst.
+func gunzipToFile(src BlobSource, desc Descriptor, dst string) error {
+	raw, err := ReadVerifiedBlob(src, desc)
 	if err != nil {
 		return err
 	}
@@ -304,10 +320,11 @@ func gunzipToFile(src BlobSource, digest, dst string) error {
 	return nil
 }
 
-// extractGzTar gunzips the tar+gzip blob at digest and unpacks its (flat) entries
-// into destDir, rejecting any entry whose path would escape destDir.
-func extractGzTar(src BlobSource, digest, destDir string) error {
-	raw, err := src.ReadBlob(digest)
+// extractGzTar gunzips the verified tar+gzip blob the descriptor names and
+// unpacks its (flat) entries into destDir, rejecting any entry whose path would
+// escape destDir.
+func extractGzTar(src BlobSource, desc Descriptor, destDir string) error {
+	raw, err := ReadVerifiedBlob(src, desc)
 	if err != nil {
 		return err
 	}

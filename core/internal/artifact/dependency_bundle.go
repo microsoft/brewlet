@@ -409,20 +409,7 @@ func (s Store) ResolveDependencyBundle(ref string) (ResolvedDependencyBundle, er
 }
 
 func (s Store) readVerifiedBlob(desc Descriptor) ([]byte, error) {
-	if err := validateCanonicalSHA256Digest(desc.Digest); err != nil {
-		return nil, err
-	}
-	raw, err := s.ReadBlob(desc.Digest)
-	if err != nil {
-		return nil, err
-	}
-	if desc.Size > 0 && int64(len(raw)) != desc.Size {
-		return nil, fmt.Errorf("blob %s size mismatch: got %d, descriptor requires %d", desc.Digest, len(raw), desc.Size)
-	}
-	if got := digestOf(raw); got != desc.Digest {
-		return nil, fmt.Errorf("blob digest mismatch: got %s, descriptor requires %s", got, desc.Digest)
-	}
-	return raw, nil
+	return ReadVerifiedBlob(s, desc)
 }
 
 func VerifyDependencyLock(expected, actual DependencyLock) error {
