@@ -61,7 +61,7 @@ to dedicated, platform-owned node pools further reduces exposure.
 | 6 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
 | 7 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
 | 8 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
-| 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP **(Remediated)** | [#27](https://github.com/microsoft/brewlet/issues/27) | — | 8/10 |
+| 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP **(Remediated)** | [#27](https://github.com/microsoft/brewlet/issues/27) | [#61](https://github.com/microsoft/brewlet/pull/61) | 8/10 |
 | 10 | Medium | The privileged provisioner defaults to every node | [#28](https://github.com/microsoft/brewlet/issues/28) | — | 9/10 |
 | 11 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity **(Remediated)** | [#29](https://github.com/microsoft/brewlet/issues/29) | [#42](https://github.com/microsoft/brewlet/pull/42) | 9/10 |
 | 12 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth **(Remediated)** | [#30](https://github.com/microsoft/brewlet/issues/30) | [#39](https://github.com/microsoft/brewlet/pull/39) | 9/10 |
@@ -611,6 +611,7 @@ assert that successfully resolved JAR and CDS paths remain under staging.
 **Type:** Confirmed vulnerability
 
 **Status:** Remediated by [issue #27](https://github.com/microsoft/brewlet/issues/27)
+via [pull request #61](https://github.com/microsoft/brewlet/pull/61)
 
 **Attacker prerequisites:** A malicious or compromised registry to which a
 developer or CI job authenticates.
