@@ -3,7 +3,7 @@
 **Repository:** `microsoft/brewlet`  
 **Revision assessed:** `f6c8a06`  
 **Assessment date:** 2026-09-02  
-**Remediation status verified:** `92c179a` (2026-09-03)
+**Remediation status verified:** `31a19a2` (2026-09-04)
 
 **Method:** Static, read-only STRIDE review of source code, Kubernetes resources,
 Helm templates, container build files, CI/CD workflows, release automation, and
@@ -17,9 +17,9 @@ constructs OCI bundles, overlay lower layers, and bind mounts for tenant
 workloads.
 
 The review originally identified one Critical, five High, five Medium, and one
-Low issue. The Critical finding (1), all five High findings (2, 3, 4, 6, and 7),
-Medium findings 9 and 11, and the Low finding (12) have since been remediated
-through merged pull requests.
+Low issue. All twelve have since been remediated through merged pull requests:
+the Critical finding (1), every High finding (2, 3, 4, 6, and 7), every Medium
+finding (5, 8, 9, 10, and 11), and the Low finding (12).
 
 Finding 1 was a confirmed path traversal in OCI descriptor digest resolution:
 descriptor digest strings were converted into host filesystem paths without
@@ -140,6 +140,8 @@ workload creation, not cluster-scoped RBAC or direct node access.
 
 ### Critical data and control flow
 
+This was the original exploitable path, before Finding 1 was remediated:
+
 1. A tenant publishes and requests a digest-pinned Brewlet image containing
    attacker-controlled OCI descriptors.
 2. Containerd preserves the protected CRI requested-image and resolved-config
@@ -148,14 +150,17 @@ workload creation, not cluster-scoped RBAC or direct node access.
    digest, and selected platform-manifest digest.
 4. The shim reads the verified manifest from the containerd content store, then
    resolves its config and layer descriptor digest strings into host paths.
-5. Config and layer descriptor digests are not validated before
-   `contentBlobPath` and `Store.BlobPath` construct those paths.
+5. Config and layer descriptor digests were not validated before
+   `contentBlobPath` and `Store.BlobPath` constructed those paths.
 6. These paths become bind-mount sources or overlay lower layers in the tenant
    container.
 
-Artifact selection is now bound to protected CRI image identity, but the
-selected image still crosses the tenant-to-root trust boundary without
-validating every descriptor digest at its path construction site.
+Artifact selection was already bound to protected CRI image identity, but the
+selected image still crossed the tenant-to-root trust boundary without
+validating every descriptor digest at its path construction site. Step 5 is
+closed: every descriptor digest is now validated at the path construction site,
+every resolved path is independently confined to the content store, and blob
+bytes are verified against their declared digest before use.
 
 ## Detailed findings
 
@@ -870,32 +875,6 @@ identity; the release workflow runs it against the version it just published, an
 the website release smoke test runs it for every release at or after `0.4.0`.
 Dependabot keeps the SHA pins current.
 
-- `.github/workflows/release.yml:47,53,207,216` and the other workflows use
-  action version tags instead of full commit SHAs.
-- `.github/workflows/release.yml:17-19` grants `contents: write` and
-  `packages: write` at workflow scope.
-- No workflow produces cosign signatures, attestations, or SLSA provenance.
-- `.github/workflows/release.yml:211-213` checksums CLI archives but not Maven
-  artifacts.
-- `.github/workflows/ci.yml:82` and `kubernetes/Makefile` install
-  `setup-envtest` from a mutable release branch.
-- Helm image helpers publish version-tag references with
-  `IfNotPresent`, not recorded immutable digests.
-
-**Attack path and impact:** A moved action tag executes attacker code in a
-release job with repository and package write permissions. The attacker can
-replace GitHub Releases and GHCR images, while consumers have no independent
-signature or provenance to detect the replacement.
-
-**Remediation:** Pin every action to a full commit SHA, scope write permissions
-to the jobs that need them, enable automated action updates, sign images and
-release artifacts, publish build provenance, checksum Maven artifacts, and pin
-`setup-envtest`.
-
-**Remediation test:** Add a workflow lint rule rejecting non-SHA `uses:`
-references and release smoke tests that verify signatures and attestations for
-newly published artifacts.
-
 ### 12. Long-lived webhook credentials and absent NetworkPolicies — remediated
 
 **Severity:** Low  
@@ -1104,7 +1083,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 
 ## Residual risk after remediation
 
-Even after the remaining findings are fixed, Brewlet retains a high-trust node
+Even with every finding remediated, Brewlet retains a high-trust node
 architecture. A root containerd shim and privileged provisioner intentionally
 control runtime configuration and shared node software. Dedicated Brewlet node
 pools, strong workload admission, restricted NodeProfile administration,
@@ -1117,9 +1096,9 @@ or OCI runtime can still cross workload and node boundaries.
 
 - No live cluster was provisioned and no exploit was executed. Findings are
   based on static control-flow and data-flow analysis.
-- Finding 5 is intentionally reported as constrained because the same traversal
-  string is currently used as the executable path and prevents a demonstrated
-  successful workload start.
+- Finding 5 was reported as constrained because, at the assessed revision, the
+  same traversal string was also used as the executable path and prevented a
+  demonstrated successful workload start.
 - Third-party dependencies were not scanned against an external vulnerability
   database.
 - Integration harnesses were not executed because they mutate clusters and
