@@ -177,8 +177,9 @@ When Helm runtime metrics are enabled, the profile-managed DaemonSet includes a
 best-effort exporter sidecar that serves `/metrics` and listens for shim
 telemetry on `/opt/brewlet/metrics/telemetry.sock`. It also reads the installed
 JDK and launcher roots directly, including each JDK's exact `release` metadata,
-source image, and node installation timestamp. The sidecar is disabled by
-default.
+source image, and node installation timestamp. The sidecar mounts `/opt/brewlet`
+read-only and receives a separate read-write mount of `/opt/brewlet/metrics` for
+the socket alone. The sidecar is disabled by default.
 
 Copy-from-image commands run through the bundled `ctr` client in the host mount
 namespace. This is required because the provisioner connects to the host

@@ -742,10 +742,14 @@ a pod can actually land.
 
 Host access is narrower on both sides of the boundary. The metrics exporter
 mounts `/opt/brewlet` read-only and runs with `readOnlyRootFilesystem` and all
-capabilities dropped; host mounts carry explicit `hostPath` types
-(`DirectoryOrCreate` for `/opt/brewlet`, `Directory` for `/etc/containerd` and
-`/usr/local/bin`, `Socket` for the containerd socket) so a typo or a
-non-containerd node fails the pod instead of silently creating root-owned paths.
+capabilities dropped; its only writable host path is a separate
+`DirectoryOrCreate` mount of `/opt/brewlet/metrics`, scoped to the directory
+holding the telemetry socket it must bind, and that volume is omitted entirely
+whenever the sidecar is not scheduled. Host mounts carry explicit `hostPath`
+types (`DirectoryOrCreate` for `/opt/brewlet` and `/opt/brewlet/metrics`,
+`Directory` for `/etc/containerd` and `/usr/local/bin`, `Socket` for the
+containerd socket) so a typo or a non-containerd node fails the pod instead of
+silently creating root-owned paths.
 The operator's `daemonsets` grant moved out of the ClusterRole into a `Role` in
 its own namespace, with the manager's DaemonSet informer scoped to that
 namespace to match, so a compromised operator cannot create a privileged
