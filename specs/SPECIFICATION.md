@@ -120,10 +120,20 @@ capability model.
 
 ## 4. The OCI Application Artifact
 
-The Java application is shipped as an **OCI Artifact** (OCI Image Spec ≥ 1.1), *not* as
-a runnable container image. There is no OS layer and no JVM inside it — only the
-application payload (a fat JAR, or dependency/module layers) plus a small JSON
-config describing how to launch it.
+The Java application ships in one of two OCI formats (OCI Image Spec ≥ 1.1), and
+in **neither** is there an OS layer or a JVM inside it — only the application
+payload (a fat JAR, or dependency/module layers) plus a small JSON config
+describing how to launch it:
+
+- a **runnable image** (§4.4) — a standard, kubelet-pullable OCI image. This is
+  the **default** for `brewlet push` and the Maven plugin, and the format
+  Kubernetes workloads use.
+- a **native artifact** (this section) — registry-native custom media types, *not*
+  runnable by containerd, retained for local OCI-layout / CLI / `prepare-bundle`
+  workflows.
+
+The launch contract below is shared by both; §4.4 describes how a runnable image
+carries it.
 
 ### 4.1 Media types
 
@@ -227,9 +237,12 @@ oras push registry.example.com/team/app:1.4.2 \
   target/app.jar:application/vnd.brewlet.jar.layer.v1+jar
 ```
 
-The `brewlet` CLI (`brewlet push ./target/app.jar registry.example.com/team/app:1.4.2`)
-and the [Brewlet Maven plugin](../maven-plugin) (`mvn brewlet:push`) wrap
-steps 2–3 so developers never touch ORAS directly.
+The [Brewlet Maven plugin](../maven-plugin) (`mvn brewlet:push`) wraps steps 2–3
+so developers never touch ORAS directly, **including registry publication**. The
+`brewlet` CLI (`brewlet push ./target/app.jar <ref> --store ./oci`) wraps step 2
+and writes the result to a local **OCI layout**; it has no registry client, so
+publishing to a registry is done by the Maven plugin or ORAS. Registry
+publication from the Go CLI is [roadmap](../ROADMAP.md) work.
 
 ### 4.4 Runnable-image delivery mode (kubelet-pullable, the SpinKube-style pull path)
 
@@ -969,7 +982,9 @@ spec:
   (`node.brewlet.sh/cleanup`) holds the object while the operator runs a
   short-lived `brewlet-cleanup-<profile>` DaemonSet (`BREWLET_MODE=cleanup`) that
   restores the containerd config backup, removes the AppCDS authorization
-  sentinel and shim, and drops the runtime + capability labels; only once every
+  sentinel, the shim, and the profile's installed JDK/launcher roots (unless
+  `BREWLET_CLEANUP_RUNTIME_ROOTS=false`, for nodes whose roots are baked into an
+  immutable image), and drops the runtime + capability labels; only once every
   assigned node is cleaned is the finalizer removed and the object
   garbage-collected. Exception: if the profile's current
   source/mirror/pool policy is invalid, its current pool selector is not trusted
@@ -1475,8 +1490,17 @@ descriptor's `jvm.args`.
   as the upstream patch release age.
 - **Probes & exec:** `kubectl exec`, ephemeral debug containers, and all probe types
   work because runc backs the sandbox.
-- **Upgrades:** JDK roots are versioned and additive on nodes; old versions retained
-  until no workload references them, then GC'd by the provisioner.
+- **Upgrades:** JDK roots are versioned and additive on nodes. Rotating a root
+  renames the previous one aside (`<root>.retired.<epoch>.<pid>`) rather than
+  deleting it, because overlayfs resolves `lowerdir` at mount time — so running
+  pods keep the root they started with. A later provisioning pass reclaims a
+  rotated-out root once no live mount references it *and* it has aged past a
+  grace period (`BREWLET_RETIRED_GRACE_SECONDS`, default 1h); if the mount table
+  cannot be read the root is retained. Deleting a `NodeProfile` removes the
+  profile's installed roots during cleanup unless
+  `BREWLET_CLEANUP_RUNTIME_ROOTS=false`. Roots that merely drop out of a
+  profile's inventory while the profile still exists are not yet reclaimed —
+  reference-counted GC of de-inventoried roots is [roadmap](../ROADMAP.md) work.
 - **Multi-arch:** JDK roots installed per node architecture (amd64/arm64); the JAR
   artifact is arch-independent, so the *same* artifact runs on any provisioned arch
   (see [multi-arch](https://github.com/microsoft/brewlet/blob/main/docs/multi-arch.md)).

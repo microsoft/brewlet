@@ -7,7 +7,9 @@ set -euo pipefail
 version="${1:-0.3.1}"
 # Releases from this version on publish build provenance and a digest-pinned
 # chart. Older releases predate that workflow and are verified by checksum only.
-min_provenance_version="${BREWLET_MIN_PROVENANCE_VERSION:-0.4.0}"
+# Keep this at or below the version the Pages workflow verifies, otherwise
+# has_provenance() silently downgrades the check to checksums.
+min_provenance_version="${BREWLET_MIN_PROVENANCE_VERSION:-0.3.1}"
 work="$(mktemp -d)"
 app_pid=""
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"

@@ -35,7 +35,7 @@ There are two paths:
 
 Brewlet publishes version-aligned multi-architecture component images and an OCI
 Helm chart. A published chart records the **immutable digest** of each component
-image it was built against, so installing chart `0.4.0` resolves
+image it was built against, so installing chart `0.3.1` resolves
 `ghcr.io/microsoft/brewlet-operator@sha256:…` rather than a tag that could later
 be repointed. Charts packaged from a source checkout have no recorded digests and
 fall back to the shared `images.tag`.
@@ -77,7 +77,7 @@ Verify everything for a release in one step:
 ```bash
 git clone https://github.com/microsoft/brewlet.git
 cd brewlet
-./scripts/verify-release-provenance.sh 0.4.0
+./scripts/verify-release-provenance.sh 0.3.1
 ```
 
 The script checks that each image, the chart, and every release asset was built
@@ -89,12 +89,12 @@ To verify a single artifact directly:
 
 ```bash
 # A component image, straight from the registry.
-gh attestation verify oci://ghcr.io/microsoft/brewlet-operator:0.4.0 \
+gh attestation verify oci://ghcr.io/microsoft/brewlet-operator:0.3.1 \
   --repo microsoft/brewlet \
   --signer-workflow microsoft/brewlet/.github/workflows/release.yml
 
 # A downloaded CLI archive.
-gh attestation verify brewlet_0.4.0_linux_amd64.tar.gz \
+gh attestation verify brewlet_0.3.1_linux_amd64.tar.gz \
   --repo microsoft/brewlet \
   --signer-workflow microsoft/brewlet/.github/workflows/release.yml
 ```
@@ -103,8 +103,9 @@ gh attestation verify brewlet_0.4.0_linux_amd64.tar.gz \
 from this repository's release workflow, not merely from some workflow in the
 repository.
 
-Releases before `0.4.0` predate build provenance and can only be verified with
-the published `checksums.txt`.
+Every release produced by the current release workflow carries build
+provenance. Any older artifact that predates it can only be verified with the
+published `checksums.txt`.
 
 ---
 
@@ -360,7 +361,9 @@ helm uninstall brewlet
 > (`BREWLET_MODE=cleanup`) removes the Brewlet drop-in or restores the primary-config
 > backup, removes the shim + JDK roots, and drops the runtime + capability labels on
 > every assigned node — reversing host state automatically before the object is
-> garbage-collected (§5.6). Watch it with
+> garbage-collected (§5.6). Set `BREWLET_CLEANUP_RUNTIME_ROOTS=false` on the
+> provisioner to keep the JDK/launcher roots (for nodes whose roots are baked
+> into an immutable node image). Watch it with
 > `kubectl get daemonset -n brewlet -w`. If a cluster was provisioned the older way (a
 > bare `brewlet.sh/provision=true` node **label** with no profile), drain and clean those
 > nodes (or replace them) to fully reverse provisioning.

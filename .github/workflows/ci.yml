@@ -92,6 +92,36 @@ jobs:
       - name: Test
         run: make test
 
+  admission:
+    name: Ratify admission verifier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: admission/ratify-verifier/go.mod
+          cache-dependency-path: admission/ratify-verifier/go.sum
+
+      - name: Verify formatting
+        working-directory: admission/ratify-verifier
+        run: |
+          unformatted="$(gofmt -l $(go list -f '{{.Dir}}' ./...))"
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        working-directory: admission/ratify-verifier
+        run: go build ./...
+
+      # Delegates to the Makefile target so `make check-all` and CI stay identical.
+      - name: Vet and test
+        run: make admission-check
+
   provisioner-image:
     name: Node provisioner image
     runs-on: ubuntu-latest

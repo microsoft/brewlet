@@ -1174,3 +1174,103 @@ assert_contains "shim-removed" "$node_calls"
 assert_contains "labels-removed" "$node_calls"
 
 rm -rf "$rollback_dir"
+
+# ---------------------------------------------------------------------------
+# Retired runtime roots (§5.3): rotation renames the previous root aside rather
+# than deleting it, because overlayfs resolves lowerdir at mount time. The sweep
+# must reclaim those roots on a later pass, but only when nothing references
+# them -- otherwise it would break a running sandbox.
+# ---------------------------------------------------------------------------
+reclaim_root="$(mktemp -d "$TEST_TMP_ROOT/reclaim.XXXXXX")"
+mkdir -p "$reclaim_root/jdks" "$reclaim_root/launchers"
+
+new_retired() {
+  local path="$1"
+  mkdir -p "$path"
+  : >"$path/payload"
+  printf '%s' "$path"
+}
+
+# Unreferenced and past the grace period: reclaimed.
+gone="$(new_retired "$reclaim_root/jdks/temurin-21.retired.100.1")"
+(
+  PREFIX="$reclaim_root"
+  RETIRED_GRACE_SECONDS=0
+  host_exec() { printf 'overlay / overlay rw,lowerdir=/opt/brewlet/jdks/temurin-25\n'; }
+  reclaim_retired_roots
+)
+[[ ! -e "$gone" ]] || { echo "unreferenced retired root should have been reclaimed" >&2; exit 1; }
+
+# Referenced by a live overlay mount: retained even though it is past grace.
+kept="$(new_retired "$reclaim_root/jdks/temurin-21.retired.200.2")"
+(
+  PREFIX="$reclaim_root"
+  RETIRED_GRACE_SECONDS=0
+  host_exec() { printf 'overlay / overlay rw,lowerdir=%s\n' "$kept"; }
+  reclaim_retired_roots
+)
+[[ -e "$kept" ]] || { echo "retired root still referenced by a mount must be retained" >&2; exit 1; }
+rm -rf "$kept"
+
+# Within the grace period: retained, so a sandbox being created right now
+# cannot race the sweep.
+fresh="$(new_retired "$reclaim_root/jdks/temurin-21.retired.300.3")"
+(
+  PREFIX="$reclaim_root"
+  RETIRED_GRACE_SECONDS=99999
+  host_exec() { printf 'overlay / overlay rw,lowerdir=/opt/brewlet/jdks/temurin-25\n'; }
+  reclaim_retired_roots
+)
+[[ -e "$fresh" ]] || { echo "retired root within grace must be retained" >&2; exit 1; }
+rm -rf "$fresh"
+
+# Mount table unreadable: fail safe and keep the root.
+unknown="$(new_retired "$reclaim_root/jdks/temurin-21.retired.400.4")"
+(
+  PREFIX="$reclaim_root"
+  RETIRED_GRACE_SECONDS=0
+  host_exec() { return 1; }
+  reclaim_retired_roots
+)
+[[ -e "$unknown" ]] || { echo "unreadable mount table must fail safe and retain the root" >&2; exit 1; }
+rm -rf "$unknown"
+
+# Launcher roots use the same rotation scheme.
+launcher_gone="$(new_retired "$reclaim_root/launchers/jaz.retired.100.5")"
+# A staging directory only exists mid-install, so one left behind is orphaned.
+staging="$(new_retired "$reclaim_root/jdks/temurin-21.staging.999")"
+(
+  PREFIX="$reclaim_root"
+  RETIRED_GRACE_SECONDS=0
+  host_exec() { printf 'overlay / overlay rw,lowerdir=/opt/brewlet/jdks/temurin-25\n'; }
+  reclaim_retired_roots
+)
+[[ ! -e "$launcher_gone" ]] || { echo "retired launcher root should have been reclaimed" >&2; exit 1; }
+[[ ! -e "$staging" ]] || { echo "orphaned staging directory should have been removed" >&2; exit 1; }
+
+# Cleanup mode removes the whole runtime inventory, and honours the opt-out for
+# nodes whose roots are baked into an immutable image.
+cleanup_roots="$(mktemp -d "$TEST_TMP_ROOT/cleanuproots.XXXXXX")"
+mkdir -p "$cleanup_roots/jdks/temurin-21" "$cleanup_roots/launchers/jaz"
+(
+  PREFIX="$cleanup_roots"
+  remove_runtime_roots
+)
+[[ ! -e "$cleanup_roots/jdks" && ! -e "$cleanup_roots/launchers" ]] \
+  || { echo "cleanup should remove installed runtime roots" >&2; exit 1; }
+
+mkdir -p "$cleanup_roots/jdks/temurin-21"
+: >"$node_calls"
+(
+  PREFIX="$cleanup_roots"
+  POLICY_DIR="$policy_root/cleanup-policy"
+  APP_CDS_REGENERATION_SENTINEL="$POLICY_DIR/appcds-regeneration-enabled"
+  BREWLET_CONTAINERD_RESTART=none
+  BREWLET_CLEANUP_RUNTIME_ROOTS=false
+  clear_node_advertisement() { :; }
+  remove_shim() { :; }
+  unlabel_node() { :; }
+  cleanup_host
+)
+[[ -e "$cleanup_roots/jdks/temurin-21" ]] \
+  || { echo "BREWLET_CLEANUP_RUNTIME_ROOTS=false must retain runtime roots" >&2; exit 1; }
