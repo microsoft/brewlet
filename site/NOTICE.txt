@@ -734,7 +734,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ================================================================================
-Component: tslib 2.7.0
+Component: tslib 2.8.1
 Source: https://github.com/Microsoft/tslib.git
 
 --- LICENSE.txt ---
