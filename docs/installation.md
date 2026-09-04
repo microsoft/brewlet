@@ -116,16 +116,24 @@ provisioner RBAC, and the admission webhook. The operator then creates and
 reconciles the provisioner DaemonSet and the `brewlet` RuntimeClass from the chart's
 values — so there is a single runtime source of truth for the JDK/launcher inventory.
 
-The install must name the node pools Brewlet may provision. Provisioning is
-privileged and mutates the host, so the chart has no every-node default: it
-fails to render until `provisioner.pools` is set.
+The install must name two things, and the chart fails to render without either.
+
+**The node pools Brewlet may provision** (`provisioner.pools`). Provisioning is
+privileged and mutates the host, so there is no every-node default.
+
+**The JDK sources to install** (`provisioner.jdks`). Brewlet ships no built-in
+runtime catalog: the platform team chooses every digest-pinned build it runs and
+owns its CVE posture ([§5.2/§5.3](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)).
+A chart-shipped default digest would be a JDK nobody chose that could never be
+patched, so the chart ships none.
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.3.1 \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{java-workers}"
+  --set provisioner.pools="{java-workers}" \
+  --values my-jdks.yaml
 
 # The chart renders a default NodeProfile scoped to those pools (§5.6) — there
 # is no per-node opt-in step. The operator provisions each node in them and the
@@ -138,9 +146,27 @@ kubectl get nodes -L brewlet.sh/runtime -w
 it unset on AKS, EKS, and GKE, where the well-known provider label is
 auto-detected; set it explicitly on bare metal or kubeadm.
 
-The chart's editable default `NodeProfile` uses explicit, digest-pinned Temurin
-21, Microsoft JDK 25, and `jaz` sources. Review or replace them in a values file;
-see [JDK management](jdk-management.md#helm-examples-temurin-and-microsoft) and
+`my-jdks.yaml` names the runtime inventory. Every entry needs a fully qualified,
+tagless, SHA-256 digest-pinned image and the JDK root inside it:
+
+```yaml
+provisioner:
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+  # Optional. Vanilla java comes from each JDK and is implicit.
+  launchers:
+    - name: jaz
+      source:
+        image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
+        path: /usr/bin/jaz
+```
+
+Pick the digests you intend to patch on your own schedule; see
+[JDK management](jdk-management.md#helm-examples-temurin-and-microsoft) and
 [Launchers](launchers.md#helm-example-jaz).
 
 > Control-plane nodes are excluded by node affinity regardless of taints, and
@@ -170,8 +196,10 @@ The default rollout is fail-safe:
   restarts the host containerd service only when required, and verifies both
   containerd and the live `brewlet` runtime handler.
 - If validation, restart, or a health check fails, Brewlet removes/restores its
-  change, recovers containerd, leaves the node unready, and records the reason in
-  `brewlet.sh/provision-error`.
+  change, recovers containerd, leaves the node unready, and records a stable
+  reason code in `brewlet.sh/provision-error` (with human detail in
+  `brewlet.sh/provision-error-message`). The codes are enumerated in
+  [SPECIFICATION §14](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
 Use `containerdRestart: sighup` only for the legacy in-place SIGHUP path. Use
 `containerdRestart: none` when containerd registration is managed in the node
@@ -187,6 +215,7 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \
+  --values my-jdks.yaml \
   --set images.operator=<registry>/operator:<tag> \
   --set images.provisioner=<registry>/node-provisioner:<tag> \
   --set images.admission=<registry>/admission:<tag>

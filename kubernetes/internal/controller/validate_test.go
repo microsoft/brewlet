@@ -189,3 +189,34 @@ func TestSetJVMArgsCondition(t *testing.T) {
 		})
 	}
 }
+
+// status.selectedJdk mirrors the resolved JDK in the same "<dist>-<feature>"
+// form as the brewlet.sh/jdk annotation and the node capability labels.
+func TestSelectedJdk(t *testing.T) {
+	cases := []struct {
+		name    string
+		version int32
+		dist    string
+		want    string
+	}{
+		{"no request", 0, "", ""},
+		// A pinned distribution IS the resolved JDK: admission constrains the pod
+		// to nodes carrying brewlet.sh/jdk.<dist>-<feature>.
+		{"pinned distribution", 21, "temurin", "temurin-21"},
+		{"pinned distribution trimmed", 25, "  microsoft  ", "microsoft-25"},
+		// Without a distribution the shim resolves it per node, so no single
+		// value would be truthful; report the bare feature.
+		{"bare feature", 21, "", "21"},
+		{"distribution without version is not a request", 0, "temurin", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			app := &appsv1alpha1.JavaApplication{}
+			app.Spec.JVM.Version = tc.version
+			app.Spec.JVM.Distribution = tc.dist
+			if got := selectedJdk(app); got != tc.want {
+				t.Errorf("selectedJdk = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

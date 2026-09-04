@@ -152,9 +152,12 @@ type JavaApplicationStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// ReadyReplicas mirrors the managed Deployment's readyReplicas.
 	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
-	// SelectedJdk is the requested JDK feature version (from jvm.version), for
-	// human-readable status/printer columns. The concrete distribution is
-	// resolved per-node by the shim, so it is not reflected here.
+	// SelectedJdk is the JDK the workload runs on, in the same
+	// "<distribution>-<feature>" form as the brewlet.sh/jdk annotation and the
+	// node capability labels (e.g. "temurin-21"). When jvm.distribution was not
+	// pinned, only the feature is reported (e.g. "21"): the distribution is then
+	// resolved per node by the shim and may differ between replicas, so a single
+	// status field cannot name one.
 	SelectedJdk string `json:"selectedJdk,omitempty"`
 	// Conditions carry the Ready condition and reconcile errors.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`

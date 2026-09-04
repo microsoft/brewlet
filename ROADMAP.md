@@ -27,8 +27,9 @@ accepted and implemented.
   operator-synthesized default profile (the chart renders one today), and a
   documented bare-metal pool label.
 - **Configuration cleanup.** Consolidate the simple Helm values and `NodeProfile`
-  configuration paths before deprecating redundant global inventory flags, and
-  stop shipping default JDK/launcher source digests that cannot be patched.
+  configuration paths before deprecating redundant global inventory flags.
+  (Shipping default JDK/launcher source digests that cannot be patched is now
+  resolved: the chart requires explicit `provisioner.jdks` — SPECIFICATION §5.3.)
 
 ## Workload delivery
 
@@ -52,6 +53,14 @@ accepted and implemented.
 - **Additional multi-architecture guardrails.** Expand architecture coverage
   observability and safeguards for workloads with accelerator or native-library
   constraints.
+- **Shim-reported JDK selection.** `status.selectedJdk` reports the *requested*
+  JDK: `<distribution>-<feature>` when the descriptor pinned one, otherwise the
+  bare feature. For a bare-feature request the distribution is chosen per node by
+  the shim at launch, and replicas on heterogeneous nodes can legitimately
+  resolve differently, so the controller cannot name one today. Reporting what
+  each replica actually runs needs a shim-to-status feedback channel, which does
+  not exist. SPECIFICATION §9 previously claimed this behavior; the claim was
+  removed because it was never built.
 - **Ahead-of-time startup options.** Track Project Leyden and related JDK
   capabilities as they become suitable for Brewlet workloads.
 

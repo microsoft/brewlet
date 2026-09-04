@@ -214,11 +214,7 @@ func (r *JavaApplicationReconciler) updateStatus(ctx context.Context, app *appsv
 
 	app.Status.ObservedGeneration = app.Generation
 	app.Status.ReadyReplicas = dep.Status.ReadyReplicas
-	if v := app.Spec.JVM.Version; v > 0 {
-		app.Status.SelectedJdk = strconv.Itoa(int(v))
-	} else {
-		app.Status.SelectedJdk = ""
-	}
+	app.Status.SelectedJdk = selectedJdk(app)
 
 	ready, reason, msg := deploymentReady(&dep, depErr == nil)
 	status := metav1.ConditionFalse
@@ -268,6 +264,27 @@ func (r *JavaApplicationReconciler) setJVMArgsCondition(app *appsv1alpha1.JavaAp
 		Message:            msg,
 		ObservedGeneration: app.Generation,
 	})
+}
+
+// selectedJdk renders status.selectedJdk: the JDK the workload will run on, in
+// the same "<distribution>-<feature>" form as the brewlet.sh/jdk annotation and
+// the node capability labels.
+//
+// When the user pinned a distribution, that IS the resolved JDK — admission
+// constrains the pod to nodes carrying brewlet.sh/jdk.<dist>-<feature>, so every
+// replica runs it. When only a feature was requested, the distribution is
+// resolved per node by the shim and may legitimately differ between replicas, so
+// a single status field cannot name one; the bare feature is reported instead.
+func selectedJdk(app *appsv1alpha1.JavaApplication) string {
+	v := app.Spec.JVM.Version
+	if v <= 0 {
+		return ""
+	}
+	feature := strconv.Itoa(int(v))
+	if dist := strings.TrimSpace(app.Spec.JVM.Distribution); dist != "" {
+		return dist + "-" + feature
+	}
+	return feature
 }
 
 // deploymentReady reports whether the managed Deployment has reached its desired

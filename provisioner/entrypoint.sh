@@ -114,13 +114,29 @@ SOURCE_ALLOWED_MIRROR_HOSTS="${SOURCE_ALLOWED_MIRROR_HOSTS:-}"
 
 log()  { printf '[brewlet-provisioner] %s\n' "$*"; }
 
-# On a fatal error, record a machine-readable reason on the Node object
-# (brewlet.sh/provision-error) before exiting non-zero, so the operator's
-# NodeReconciler can flip the node to a Failed state instead of leaving it stuck
-# in Provisioning (https://github.com/microsoft/brewlet/tree/main/specs §14). Best-effort: never mask the original
-# failure if annotating fails.
+# On a fatal error, record the failure on the Node object before exiting
+# non-zero, so the operator's NodeReconciler can flip the node to a Failed state
+# instead of leaving it stuck in Provisioning
+# (https://github.com/microsoft/brewlet/tree/main/specs §14).
+#
+# Two annotations, because these are two different contracts:
+#   brewlet.sh/provision-error          — a STABLE, machine-readable reason code
+#                                         from the enumeration in §14. Consumers
+#                                         (alerting, the operator, dashboards)
+#                                         may branch on it.
+#   brewlet.sh/provision-error-message  — free-form human detail. NOT a contract;
+#                                         its wording may change at any time.
+#
+# Usage: die <reason-code> <human message...>
+#
+# The code is normalized to the bounded token shape a Kubernetes annotation
+# value and a downstream label/metric can safely carry, so an unexpected value
+# can never produce an unparseable or unbounded reason. Best-effort: never mask
+# the original failure if annotating fails.
 die()  {
-  printf '[brewlet-provisioner] ERROR: %s\n' "$*" >&2
+  local code="$1"; shift
+  code="$(normalize_reason_code "$code")"
+  printf '[brewlet-provisioner] ERROR: %s: %s\n' "$code" "$*" >&2
   if command -v remove_appcds_regeneration_policy >/dev/null 2>&1; then
     remove_appcds_regeneration_policy || true
   fi
@@ -128,13 +144,43 @@ die()  {
     if command -v clear_node_advertisement >/dev/null 2>&1; then
       clear_node_advertisement
     fi
-    kubectl annotate node "$NODE_NAME" "${ANNOTATION_PROVISION_ERROR}=$*" --overwrite >/dev/null 2>&1 || true
+    kubectl annotate node "$NODE_NAME" \
+      "${ANNOTATION_PROVISION_ERROR}=${code}" \
+      "${ANNOTATION_PROVISION_ERROR_MESSAGE}=$(truncate_error_message "$*")" \
+      --overwrite >/dev/null 2>&1 || true
   fi
   exit 1
 }
 
-# Node annotation the operator reads to fail a node whose provisioning errored.
+# Reduce a reason code to the stable token shape §14 documents: lowercase
+# alphanumerics and '-', at most 63 characters, never empty. A code that does
+# not already conform is coerced rather than published verbatim, so a consumer
+# switching on the value never sees prose.
+normalize_reason_code() {
+  local code="$1"
+  code="$(printf '%s' "$code" | tr '[:upper:]' '[:lower:]')"
+  code="${code//[^a-z0-9-]/-}"
+  while [[ "$code" == -* ]]; do code="${code#-}"; done
+  while [[ "$code" == *- ]]; do code="${code%-}"; done
+  code="$(printf '%.63s' "$code")"
+  while [[ "$code" == *- ]]; do code="${code%-}"; done
+  printf '%s' "${code:-internal-error}"
+}
+
+# Annotation values are bounded (the whole metadata.annotations map is capped at
+# 256 KiB), and the message is free-form operator text, so keep it short enough
+# that it can never be the reason an annotate call fails. Newlines are folded so
+# the value stays a single line.
+truncate_error_message() {
+  local msg="$1"
+  msg="${msg//$'\n'/ }"
+  printf '%.512s' "$msg"
+}
+
+# Node annotations the operator reads to fail a node whose provisioning errored.
+# The first carries the stable reason code (§14); the second the human detail.
 ANNOTATION_PROVISION_ERROR="brewlet.sh/provision-error"
+ANNOTATION_PROVISION_ERROR_MESSAGE="brewlet.sh/provision-error-message"
 
 # ---------------------------------------------------------------------------
 # Registry mirror rewriting (§5.6). Given an image ref, if its registry host
@@ -148,14 +194,14 @@ ALLOWED_MIRROR_HOSTS=()
 validate_digest_image() {
   local image="$1" context="$2" output
   if ! output="$("$SOURCE_POLICY_BIN" validate-ref --image "$image" 2>&1)"; then
-    die "${context}: ${output#error: }"
+    die invalid-source-ref "${context}: ${output#error: }"
   fi
 }
 
 validate_source_path() {
   local value="$1" context="$2" output
   if ! output="$("$SOURCE_POLICY_BIN" validate-path --path "$value" 2>&1)"; then
-    die "${context}: ${output#error: }"
+    die invalid-source-path "${context}: ${output#error: }"
   fi
 }
 
@@ -165,16 +211,16 @@ parse_allowed_mirror_hosts() {
   [[ "$SOURCE_ALLOWED_MIRROR_HOSTS" != ,* &&
      "$SOURCE_ALLOWED_MIRROR_HOSTS" != *, &&
      "$SOURCE_ALLOWED_MIRROR_HOSTS" != *,,* ]] \
-    || die "SOURCE_ALLOWED_MIRROR_HOSTS must be a comma-separated list without empty entries"
+    || die invalid-mirror-config "SOURCE_ALLOWED_MIRROR_HOSTS must be a comma-separated list without empty entries"
 
   local host existing output
   IFS=',' read -ra _allowed_hosts <<<"$SOURCE_ALLOWED_MIRROR_HOSTS"
   for host in "${_allowed_hosts[@]}"; do
     if ! output="$("$SOURCE_POLICY_BIN" validate-host --host "$host" 2>&1)"; then
-      die "invalid allowed source mirror host '${host}': ${output#error: }"
+      die invalid-mirror-config "invalid allowed source mirror host '${host}': ${output#error: }"
     fi
     for existing in "${ALLOWED_MIRROR_HOSTS[@]:-}"; do
-      [[ "$existing" != "$host" ]] || die "duplicate allowed source mirror host '${host}'"
+      [[ "$existing" != "$host" ]] || die invalid-mirror-config "duplicate allowed source mirror host '${host}'"
     done
     ALLOWED_MIRROR_HOSTS+=("$host")
   done
@@ -194,27 +240,27 @@ parse_mirrors() {
   parse_allowed_mirror_hosts
   [[ -n "$MIRRORS" ]] || return 0
   (( ${#ALLOWED_MIRROR_HOSTS[@]} > 0 )) \
-    || die "MIRRORS requires at least one SOURCE_ALLOWED_MIRROR_HOSTS entry"
+    || die invalid-mirror-config "MIRRORS requires at least one SOURCE_ALLOWED_MIRROR_HOSTS entry"
   [[ "$MIRRORS" != ,* && "$MIRRORS" != *, && "$MIRRORS" != *,,* ]] \
-    || die "MIRRORS must be a comma-separated list without empty entries"
+    || die invalid-mirror-config "MIRRORS must be a comma-separated list without empty entries"
 
   local pair host mirror target_host existing output
   IFS=',' read -ra _pairs <<<"$MIRRORS"
   for pair in "${_pairs[@]}"; do
     host="${pair%%=*}"; mirror="${pair#*=}"
     [[ "$host" != "$pair" && "$mirror" != *"="* && -n "$host" && -n "$mirror" ]] \
-      || die "invalid registry mirror pair '${pair}'; expected <upstream-host>=<mirror-host[/path]>"
+      || die invalid-mirror-config "invalid registry mirror pair '${pair}'; expected <upstream-host>=<mirror-host[/path]>"
     if ! output="$("$SOURCE_POLICY_BIN" validate-host --host "$host" 2>&1)"; then
-      die "invalid registry mirror source '${host}': ${output#error: }"
+      die invalid-mirror-config "invalid registry mirror source '${host}': ${output#error: }"
     fi
     if ! target_host="$("$SOURCE_POLICY_BIN" validate-mirror --target "$mirror" 2>&1)"; then
-      die "invalid registry mirror destination '${mirror}': ${target_host#error: }"
+      die invalid-mirror-config "invalid registry mirror destination '${mirror}': ${target_host#error: }"
     fi
-    [[ "$host" != "$target_host" ]] || die "registry mirror source and destination hosts must differ: '${host}'"
+    [[ "$host" != "$target_host" ]] || die invalid-mirror-config "registry mirror source and destination hosts must differ: '${host}'"
     mirror_host_allowed "$target_host" \
-      || die "registry mirror destination host '${target_host}' is not approved"
+      || die invalid-mirror-config "registry mirror destination host '${target_host}' is not approved"
     for existing in "${MIRROR_KEYS[@]:-}"; do
-      [[ "$existing" != "$host" ]] || die "duplicate registry mirror source '${host}'"
+      [[ "$existing" != "$host" ]] || die invalid-mirror-config "duplicate registry mirror source '${host}'"
     done
     MIRROR_KEYS+=("$host")
     MIRROR_VALS+=("$mirror")
@@ -248,11 +294,11 @@ LAUNCHERS=""
 
 parse_runtime_sources() {
   [[ -x "$SOURCE_POLICY_BIN" ]] \
-    || die "source policy validator not found or executable at ${SOURCE_POLICY_BIN}"
+    || die source-policy-validator-missing "source policy validator not found or executable at ${SOURCE_POLICY_BIN}"
   [[ "$JDK_SOURCE_COUNT" =~ ^[1-9][0-9]*$ ]] \
-    || die "JDK_SOURCE_COUNT must be a positive integer"
+    || die invalid-jdk-source "JDK_SOURCE_COUNT must be a positive integer"
   [[ "$LAUNCHER_SOURCE_COUNT" =~ ^[0-9]+$ ]] \
-    || die "LAUNCHER_SOURCE_COUNT must be a non-negative integer"
+    || die invalid-launcher-source "LAUNCHER_SOURCE_COUNT must be a non-negative integer"
 
   JDK_TOKENS=()
   JDK_IMAGES=()
@@ -270,14 +316,14 @@ parse_runtime_sources() {
     image="$(printenv "$image_var" 2>/dev/null || true)"
     java_home="$(printenv "$home_var" 2>/dev/null || true)"
     [[ -n "$token" && -n "$image" && -n "$java_home" ]] \
-      || die "JDK source ${i} requires ${token_var}, ${image_var}, and ${home_var}"
+      || die invalid-jdk-source "JDK source ${i} requires ${token_var}, ${image_var}, and ${home_var}"
     [[ "$token" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?-[1-9][0-9]*$ ]] \
-      || die "JDK source ${i} token must be a safe <distribution>-<feature> value"
-    (( ${#token} <= 59 )) || die "JDK source ${i} token exceeds 59 characters"
+      || die invalid-jdk-source "JDK source ${i} token must be a safe <distribution>-<feature> value"
+    (( ${#token} <= 59 )) || die invalid-jdk-source "JDK source ${i} token exceeds 59 characters"
     validate_digest_image "$image" "JDK source ${i} image is not digest-pinned"
     validate_source_path "$java_home" "JDK source ${i} javaHome is invalid"
     for existing in "${JDK_TOKENS[@]:-}"; do
-      [[ "$existing" != "$token" ]] || die "duplicate JDK source for ${token}"
+      [[ "$existing" != "$token" ]] || die invalid-jdk-source "duplicate JDK source for ${token}"
     done
     JDK_TOKENS+=("$token")
     JDK_IMAGES+=("$image")
@@ -293,16 +339,16 @@ parse_runtime_sources() {
     image="$(printenv "$image_var" 2>/dev/null || true)"
     source_path="$(printenv "$path_var" 2>/dev/null || true)"
     [[ -n "$name" && -n "$image" && -n "$source_path" ]] \
-      || die "launcher source ${i} requires ${name_var}, ${image_var}, and ${path_var}"
+      || die invalid-launcher-source "launcher source ${i} requires ${name_var}, ${image_var}, and ${path_var}"
     [[ "$name" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] \
-      || die "launcher source ${i} name must be a lowercase DNS label"
-    (( ${#name} <= 54 )) || die "launcher source ${i} name exceeds 54 characters"
+      || die invalid-launcher-source "launcher source ${i} name must be a lowercase DNS label"
+    (( ${#name} <= 54 )) || die invalid-launcher-source "launcher source ${i} name exceeds 54 characters"
     [[ "$name" != "java" ]] \
-      || die "launcher source ${i} must not use reserved name 'java'"
+      || die invalid-launcher-source "launcher source ${i} must not use reserved name 'java'"
     validate_digest_image "$image" "launcher source ${i} image is not digest-pinned"
     validate_source_path "$source_path" "launcher source ${i} path is invalid"
     for existing in "${LAUNCHER_NAMES[@]:-}"; do
-      [[ "$existing" != "$name" ]] || die "duplicate launcher source for ${name}"
+      [[ "$existing" != "$name" ]] || die invalid-launcher-source "duplicate launcher source for ${name}"
     done
     LAUNCHER_NAMES+=("$name")
     LAUNCHER_IMAGES+=("$image")
@@ -323,7 +369,7 @@ host_arch_oci() {
   case "$(uname -m)" in
     x86_64|amd64)   echo "amd64" ;;
     aarch64|arm64)  echo "arm64" ;;
-    *) die "unsupported architecture: $(uname -m)" ;;
+    *) die unsupported-architecture "unsupported architecture: $(uname -m)" ;;
   esac
 }
 
@@ -331,14 +377,14 @@ host_arch_oci() {
 # mounts in the caller's namespace; using the pod namespace with the host socket
 # makes containerd return host paths the client cannot see.
 host_ctr() {
-  [[ -x "$HOST_CTR" ]] || die "host ctr helper not installed at $HOST_CTR"
-  command -v nsenter >/dev/null || die "nsenter not found (required for host containerd operations)"
+  [[ -x "$HOST_CTR" ]] || die host-tooling-missing "host ctr helper not installed at $HOST_CTR"
+  command -v nsenter >/dev/null || die host-tooling-missing "nsenter not found (required for host containerd operations)"
   nsenter --target 1 --mount -- "$HOST_CTR_PATH" \
     --address "$CONTAINERD_ADDRESS" --namespace "$CONTAINERD_NAMESPACE" "$@"
 }
 
 host_exec() {
-  command -v nsenter >/dev/null || die "nsenter not found (required for host operations)"
+  command -v nsenter >/dev/null || die host-tooling-missing "nsenter not found (required for host operations)"
   nsenter --target 1 --mount --pid -- "$@"
 }
 
@@ -372,13 +418,13 @@ containerd_image_identity_supported() {
 require_containerd_image_identity() {
   local version major
   version="$(containerd_server_version)" \
-    || die "containerd-version-unavailable: could not query the host containerd server"
+    || die containerd-version-unavailable "could not query the host containerd server"
   [[ -n "$version" ]] \
-    || die "containerd-version-unavailable: host ctr returned no server version"
+    || die containerd-version-unavailable "host ctr returned no server version"
   major="$(containerd_server_major "$version")" \
-    || die "containerd-version-invalid: could not parse host containerd server version '${version}'"
+    || die containerd-version-invalid "could not parse host containerd server version '${version}'"
   (( 10#$major >= 2 )) \
-    || die "unsupported-containerd-version: containerd 2.0 or newer is required for protected CRI requested-image identity metadata (found server ${version})"
+    || die unsupported-containerd-version "containerd 2.0 or newer is required for protected CRI requested-image identity metadata (found server ${version})"
   log "containerd server ${version} supports protected CRI requested-image identity"
 }
 
@@ -423,13 +469,13 @@ cleanup_active_source_mounts() {
 cleanup_stale_source_mounts() {
   local mount_dir mounts
   if ! mounts="$(host_exec find "$PREFIX" -mindepth 1 -maxdepth 1 -type d -name '.image-mount-*' -print)"; then
-    die "could not enumerate stale source mounts under $PREFIX"
+    die stale-mount-cleanup-failed "could not enumerate stale source mounts under $PREFIX"
   fi
   while IFS= read -r mount_dir; do
     [[ -n "$mount_dir" ]] || continue
     track_source_mount "$mount_dir"
     if ! release_source_mount "$mount_dir"; then
-      die "could not clean stale source mount $mount_dir"
+      die stale-mount-cleanup-failed "could not clean stale source mount $mount_dir"
     fi
   done <<<"$mounts"
 }
@@ -463,16 +509,16 @@ require_cgroup_v2() {
     log "cgroup v2 filesystem detected at ${mount}"
     return 0
   fi
-  die "cgroup v2 is required but not active on this node (${mount} is '${fstype:-unknown}', with no ${mount}/cgroup.controllers). Brewlet refuses to provision cgroup v1-only nodes; the node will not be marked ready. See https://github.com/microsoft/brewlet/tree/main/specs §10/§14."
+  die cgroup-v2-required "cgroup v2 is required but not active on this node (${mount} is '${fstype:-unknown}', with no ${mount}/cgroup.controllers). Brewlet refuses to provision cgroup v1-only nodes; the node will not be marked ready. See https://github.com/microsoft/brewlet/tree/main/specs §10/§14."
 }
 
 # ---------------------------------------------------------------------------
 # Step 1 — install the shim binary onto the host PATH.
 # ---------------------------------------------------------------------------
 install_shim() {
-  [[ -x "$SHIM_SRC" ]] || die "shim binary not found in image at $SHIM_SRC"
-  [[ -x "$CTR_SRC" ]] || die "ctr binary not found in image at $CTR_SRC"
-  [[ -x "$CRICTL_SRC" ]] || die "crictl binary not found in image at $CRICTL_SRC"
+  [[ -x "$SHIM_SRC" ]] || die shim-image-incomplete "shim binary not found in image at $SHIM_SRC"
+  [[ -x "$CTR_SRC" ]] || die shim-image-incomplete "ctr binary not found in image at $CTR_SRC"
+  [[ -x "$CRICTL_SRC" ]] || die shim-image-incomplete "crictl binary not found in image at $CRICTL_SRC"
   mkdir -p "$PREFIX/bin" "$HOST_BIN"
   # /opt/brewlet/bin is the canonical location; /usr/local/bin is on containerd's
   # PATH so runtime_type = io.containerd.brewlet.v2 resolves the shim binary.
@@ -526,7 +572,7 @@ jdk_root_complete() {
 install_jdk() {
   local spec="$1" dist feature dest stage retired
   [[ "$spec" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?-[1-9][0-9]*$ ]] \
-    || die "invalid JDK token '${spec}'; expected <distribution>-<positive-feature>"
+    || die invalid-jdk-source "invalid JDK token '${spec}'; expected <distribution>-<positive-feature>"
   dist="${spec%-*}"; feature="${spec##*-}"
   dest="$PREFIX/jdks/${dist}-${feature}"
   resolve_jdk_source "$dist" "$feature"
@@ -543,17 +589,17 @@ install_jdk() {
   mkdir -p "$stage"
   jdk_from_image "$dist" "$feature" "$stage"
   date -u +%Y-%m-%dT%H:%M:%SZ >"$stage/.brewlet-installed-at"
-  jdk_root_complete "$stage" || die "JDK ${spec} install did not produce a runnable root"
+  jdk_root_complete "$stage" || die jdk-install-failed "JDK ${spec} install did not produce a runnable root"
   local java_home; java_home="$(jdk_home_in_root "$stage")"
   log "JDK ${spec} ready: $(jdk_java "$stage" "$java_home" -version 2>&1 | head -1)"
 
   if [[ -e "$dest" ]]; then
     retired="${dest}.retired.$(date +%s).$$"
-    mv "$dest" "$retired" || die "could not retain the previous JDK ${spec} root"
+    mv "$dest" "$retired" || die jdk-install-failed "could not retain the previous JDK ${spec} root"
   fi
   if ! mv "$stage" "$dest"; then
     [[ -n "${retired:-}" && -e "$retired" ]] && mv "$retired" "$dest" || true
-    die "could not activate the new JDK ${spec} root"
+    die jdk-install-failed "could not activate the new JDK ${spec} root"
   fi
 }
 
@@ -571,7 +617,7 @@ resolve_jdk_source() {
     fi
   done
   [[ -n "$JDK_SOURCE_IMAGE" && -n "$JDK_SOURCE_JAVA_HOME" ]] \
-    || die "no configured source exists for JDK ${token}"
+    || die jdk-source-missing "no configured source exists for JDK ${token}"
   JDK_SOURCE_IMAGE="$(mirror_ref "$JDK_SOURCE_IMAGE")"
   validate_digest_image "$JDK_SOURCE_IMAGE" "resolved JDK source for ${token} is invalid"
 }
@@ -595,13 +641,13 @@ jdk_from_image() {
   track_source_mount "$mount_dir"
   if ! host_ctr images mount "$image" "$mount_dir" >/dev/null; then
     release_source_mount "$mount_dir" || true
-    die "could not mount JDK source image $image"
+    die jdk-install-failed "could not mount JDK source image $image"
   fi
   if ! host_exec cp -a "$mount_dir/." "$dest/"; then
     release_source_mount "$mount_dir" || true
-    die "could not copy JDK source image $image"
+    die jdk-install-failed "could not copy JDK source image $image"
   fi
-  release_source_mount "$mount_dir" || die "could not unmount JDK source image $image"
+  release_source_mount "$mount_dir" || die jdk-install-failed "could not unmount JDK source image $image"
   mkdir -p "$dest/proc"
   printf '%s\n' "$src" >"$dest/$JDK_HOME_METADATA"
   printf '%s\n%s\n' "$image" "$src" >"$dest/$JDK_SOURCE_METADATA"
@@ -625,7 +671,7 @@ resolve_launcher_source() {
     fi
   done
   [[ -n "$LAUNCHER_SOURCE_IMAGE" && -n "$LAUNCHER_SOURCE_PATH" ]] \
-    || die "no configured source exists for launcher ${name}"
+    || die launcher-source-missing "no configured source exists for launcher ${name}"
   LAUNCHER_SOURCE_IMAGE="$(mirror_ref "$LAUNCHER_SOURCE_IMAGE")"
   validate_digest_image "$LAUNCHER_SOURCE_IMAGE" "resolved launcher source for ${name} is invalid"
 }
@@ -673,27 +719,27 @@ install_launcher() {
   track_source_mount "$mount_dir"
   if ! host_ctr images mount "$LAUNCHER_SOURCE_IMAGE" "$mount_dir" >/dev/null; then
     release_source_mount "$mount_dir" || true
-    die "could not mount launcher source image $LAUNCHER_SOURCE_IMAGE"
+    die launcher-install-failed "could not mount launcher source image $LAUNCHER_SOURCE_IMAGE"
   fi
   source_file="${mount_dir}${LAUNCHER_SOURCE_PATH}"
   if ! host_exec test -f "$source_file" || launcher_source_has_symlink "$mount_dir" "$LAUNCHER_SOURCE_PATH"; then
     release_source_mount "$mount_dir" || true
-    die "launcher ${name} source must be a regular file reached without symlink path components"
+    die launcher-install-failed "launcher ${name} source must be a regular file reached without symlink path components"
   fi
   if ! host_exec install -m 0755 "$source_file" "$stage/bin/$name"; then
     release_source_mount "$mount_dir" || true
-    die "could not copy launcher ${name} from $LAUNCHER_SOURCE_IMAGE"
+    die launcher-install-failed "could not copy launcher ${name} from $LAUNCHER_SOURCE_IMAGE"
   fi
-  release_source_mount "$mount_dir" || die "could not unmount launcher source image $LAUNCHER_SOURCE_IMAGE"
+  release_source_mount "$mount_dir" || die launcher-install-failed "could not unmount launcher source image $LAUNCHER_SOURCE_IMAGE"
   printf '%s\n%s\n' "$LAUNCHER_SOURCE_IMAGE" "$LAUNCHER_SOURCE_PATH" >"$stage/$LAUNCHER_SOURCE_METADATA"
   chmod -R a-w "$stage" 2>/dev/null || true
   if [[ -e "$dest" ]]; then
     retired="${dest}.retired.$(date +%s).$$"
-    mv "$dest" "$retired" || die "could not retain the previous launcher ${name}"
+    mv "$dest" "$retired" || die launcher-install-failed "could not retain the previous launcher ${name}"
   fi
   if ! mv "$stage" "$dest"; then
     [[ -n "${retired:-}" && -e "$retired" ]] && mv "$retired" "$dest" || true
-    die "could not activate launcher ${name}"
+    die launcher-install-failed "could not activate launcher ${name}"
   fi
 }
 
@@ -845,11 +891,16 @@ EOF
 }
 
 # Keep launcher-derived provision-error reasons concise and bounded even if a
-# future inventory source passes an invalid or unexpectedly long token.
+# future inventory source passes an invalid or unexpectedly long token. The
+# budget is 39 characters so that the longest composed code —
+# "launcher-<id>-not-executable" (9 + 39 + 15) — still fits the 63-character
+# reason-code limit normalize_reason_code enforces, which truncates from the
+# tail and would otherwise eat the semantic suffix.
+LAUNCHER_REASON_ID_MAX=39
 launcher_reason_id() {
   local name="$1"
   name="${name//[^[:alnum:]._-]/_}"
-  printf '%.48s' "$name"
+  printf '%.*s' "$LAUNCHER_REASON_ID_MAX" "$name"
 }
 
 validate_launcher() {
@@ -859,8 +910,8 @@ validate_launcher() {
   binary="$root/bin/${name}"
   reason_id="$(launcher_reason_id "$name")"
 
-  [[ -e "$binary" ]] || die "launcher-${reason_id}-missing"
-  [[ -x "$binary" ]] || die "launcher-${reason_id}-not-executable"
+  [[ -e "$binary" ]] || die "launcher-${reason_id}-missing" "launcher ${name} binary not found at ${binary}"
+  [[ -x "$binary" ]] || die "launcher-${reason_id}-not-executable" "launcher ${name} binary at ${binary} is not executable"
 
   log "launcher ${name} is present and executable"
 }
@@ -968,7 +1019,7 @@ write_containerd_dropin() {
 }
 
 patch_containerd_in_place() {
-  [[ -f "$CONTAINERD_CONFIG" ]] || die "containerd config not found at $CONTAINERD_CONFIG"
+  [[ -f "$CONTAINERD_CONFIG" ]] || die containerd-config-missing "containerd config not found at $CONTAINERD_CONFIG"
   if containerd_config_has_runtime "$CONTAINERD_CONFIG"; then
     log "containerd already has the brewlet runtime in $CONTAINERD_CONFIG"
     return 0
@@ -1019,7 +1070,7 @@ validate_containerd_config() {
 }
 
 configure_containerd_validated() {
-  [[ -f "$CONTAINERD_CONFIG" ]] || die "containerd config not found at $CONTAINERD_CONFIG"
+  [[ -f "$CONTAINERD_CONFIG" ]] || die containerd-config-missing "containerd config not found at $CONTAINERD_CONFIG"
   validate_runtime
   if containerd_config_has_runtime "$CONTAINERD_CONFIG"; then
     log "using existing in-place brewlet runtime configuration"
@@ -1031,8 +1082,8 @@ configure_containerd_validated() {
   fi
 
   if ! validate_containerd_config; then
-    rollback_containerd_config || die "rollback-failed: could not restore config after validation failure"
-    die "$CONTAINERD_VALIDATION_ERROR"
+    rollback_containerd_config || die rollback-failed "could not restore config after validation failure"
+    die containerd-config-invalid "$CONTAINERD_VALIDATION_ERROR"
   fi
 }
 
@@ -1051,7 +1102,7 @@ validate_runtime() {
     root="$PREFIX/jdks/${dist}-${feature}"
     java_home="$(jdk_home_in_root "$root")"
     jdk_root_complete "$root" \
-      || die "validation failed: '${java_home%/}/bin/java -version' errored inside ${root} for ${spec}"
+      || die jdk-validation-failed "validation failed: '${java_home%/}/bin/java -version' errored inside ${root} for ${spec}"
   done
   IFS=',' read -ra _launchers <<<"$LAUNCHERS"
   for launcher in "${_launchers[@]}"; do
@@ -1075,7 +1126,7 @@ configure_containerd() {
     validated|"")
       configure_containerd_validated ;;
     *)
-      die "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
+      die invalid-restart-mode "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
   esac
 }
 
@@ -1096,7 +1147,7 @@ activate_containerd_config() {
     validated|"")
       validated_restart ;;
     *)
-      die "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
+      die invalid-restart-mode "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
   esac
 }
 
@@ -1106,7 +1157,7 @@ validate_readiness_after_activation() {
   case "${BREWLET_CONTAINERD_RESTART}" in
     sighup) validate_runtime ;;
     validated|""|none) ;;
-    *) die "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
+    *) die invalid-restart-mode "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
   esac
 }
 
@@ -1179,9 +1230,9 @@ rollback_and_recover() {
   if ! rollback_containerd_config \
       || ! restart_containerd_service \
       || ! wait_for_health containerd_healthy "$CONTAINERD_RECOVERY_ATTEMPTS"; then
-    die "rollback-failed: could not recover containerd after ${original_reason}"
+    die rollback-failed "could not recover containerd after ${original_reason}"
   fi
-  die "${original_reason}: configuration rolled back and containerd recovered"
+  die "${original_reason}" "configuration rolled back and containerd recovered"
 }
 
 validated_restart() {
@@ -1193,11 +1244,11 @@ validated_restart() {
     fi
     log "validated containerd configuration is not live; restarting it"
     restart_containerd_service \
-      || die "restart-failed: could not activate existing brewlet configuration"
+      || die restart-failed "could not activate existing brewlet configuration"
     wait_for_health containerd_healthy \
-      || die "containerd-health-check-failed: containerd is not operational after restart"
+      || die containerd-health-check-failed "containerd is not operational after restart"
     wait_for_health brewlet_handler_healthy \
-      || die "runtime-handler-health-check-failed: brewlet handler is not available after restart"
+      || die runtime-handler-health-check-failed "brewlet handler is not available after restart"
     return 0
   fi
 
@@ -1218,7 +1269,7 @@ verify_shim() {
   # The Runtime v2 shim has no standalone version flag; existence + exec bit is
   # the practical smoke test here (containerd invokes it via the TTRPC protocol).
   [[ -x "$PREFIX/bin/$SHIM_NAME" ]] && log "shim binary present and executable" \
-    || die "shim binary missing after install"
+    || die shim-install-failed "shim binary missing after install"
 }
 
 # The shim treats this root-owned host sentinel as the authoritative policy
@@ -1360,13 +1411,13 @@ verify_profile_identity() {
   local identity uid generation deleting
   if ! identity="$(kubectl get nodeprofile "$BREWLET_PROFILE_NAME" \
       -o jsonpath='{.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}' 2>/dev/null)"; then
-    die "profile ${BREWLET_PROFILE_NAME} no longer exists before readiness publication"
+    die profile-changed "profile ${BREWLET_PROFILE_NAME} no longer exists before readiness publication"
   fi
   IFS='|' read -r uid generation deleting <<<"$identity"
   [[ "$uid" == "$BREWLET_PROFILE_UID" &&
      "$generation" == "$BREWLET_PROFILE_GENERATION" &&
      -z "$deleting" ]] \
-    || die "profile ${BREWLET_PROFILE_NAME} identity changed before readiness publication"
+    || die profile-changed "profile ${BREWLET_PROFILE_NAME} identity changed before readiness publication"
 }
 
 clear_node_advertisement() {
@@ -1390,7 +1441,7 @@ clear_node_advertisement() {
   kubectl annotate node "$NODE_NAME" \
     brewlet.sh/jdks- brewlet.sh/jdks-info- brewlet.sh/launchers- \
     brewlet.sh/profile- brewlet.sh/profile-generation- \
-    "${ANNOTATION_PROVISION_ERROR}-" >/dev/null 2>&1 || return 1
+    "${ANNOTATION_PROVISION_ERROR}-" "${ANNOTATION_PROVISION_ERROR_MESSAGE}-" >/dev/null 2>&1 || return 1
 }
 
 write_active_jdk_inventory() {
@@ -1454,9 +1505,9 @@ unlabel_node() {
 
 cleanup_host() {
   remove_appcds_regeneration_policy \
-    || die "could not remove AppCDS regeneration policy during cleanup"
+    || die cleanup-failed "could not remove AppCDS regeneration policy during cleanup"
   clear_node_advertisement \
-    || die "could not remove node readiness before cleanup"
+    || die cleanup-failed "could not remove node readiness before cleanup"
   # Remove the runtime first so no new brewlet pods land while we tear down, then
   # reload containerd (unless disabled), drop the shim, and unlabel the node.
   case "${BREWLET_CONTAINERD_RESTART}" in
@@ -1468,7 +1519,7 @@ cleanup_host() {
     sighup)
       unpatch_containerd
       reload_containerd ;;
-    *) die "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
+    *) die invalid-restart-mode "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
   esac
   remove_shim
   # The NodeProfile that authorized these roots is gone, so leaving a full JDK
@@ -1503,8 +1554,8 @@ main() {
 
   log "provisioning node ${NODE_NAME} (arch $(host_arch_oci), copy-from-image)"
   remove_appcds_regeneration_policy \
-    || die "could not remove stale AppCDS regeneration policy before provisioning"
-  clear_node_advertisement || die "could not remove stale node readiness before provisioning"
+    || die policy-apply-failed "could not remove stale AppCDS regeneration policy before provisioning"
+  clear_node_advertisement || die node-advertisement-failed "could not remove stale node readiness before provisioning"
   parse_mirrors
   parse_runtime_sources
   require_cgroup_v2
@@ -1522,10 +1573,11 @@ main() {
   verify_shim
   verify_profile_identity
   configure_appcds_regeneration_policy \
-    || die "could not apply AppCDS regeneration policy"
-  label_node || die "could not publish node runtime inventory"
+    || die policy-apply-failed "could not apply AppCDS regeneration policy"
+  label_node || die node-advertisement-failed "could not publish node runtime inventory"
   # Clear any stale provision-error from a previous failed attempt now we're good.
-  command -v kubectl >/dev/null && kubectl annotate node "$NODE_NAME" "${ANNOTATION_PROVISION_ERROR}-" >/dev/null 2>&1 || true
+  command -v kubectl >/dev/null && kubectl annotate node "$NODE_NAME" \
+    "${ANNOTATION_PROVISION_ERROR}-" "${ANNOTATION_PROVISION_ERROR_MESSAGE}-" >/dev/null 2>&1 || true
   log "node ${NODE_NAME} provisioned successfully"
 
   # Keep provisioning independent from observability. The exporter runs as a

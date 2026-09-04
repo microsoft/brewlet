@@ -54,18 +54,28 @@ operator-image:
 admission-image:
 	docker build -t ghcr.io/microsoft/brewlet-admission:dev -f Dockerfile .. --build-arg CMD=admission
 
+# The chart deliberately ships NO default JDK sources: Brewlet has no built-in
+# runtime catalog, and a chart-pinned digest could never receive a CVE patch
+# (§5.2/§5.3). Every render therefore has to name one, exactly as an operator
+# would. Kept in one variable so the rendering targets cannot drift.
+HELM_MIN_PROFILE := --set provisioner.pools="{general}" \
+	--set provisioner.jdks[0].distribution=temurin \
+	--set provisioner.jdks[0].feature=21 \
+	--set provisioner.jdks[0].source.image=docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b \
+	--set provisioner.jdks[0].source.javaHome=/opt/java/openjdk
+
 helm-lint:
-	$(HELM) lint charts/brewlet --set provisioner.pools="{general}"
+	$(HELM) lint charts/brewlet $(HELM_MIN_PROFILE)
 
 helm-template:
-	$(HELM) template brewlet charts/brewlet --set provisioner.pools="{general}" >/dev/null
+	$(HELM) template brewlet charts/brewlet $(HELM_MIN_PROFILE) >/dev/null
 
 # Released charts record image digests; verify both resolution modes render and
 # that a malformed digest fails closed rather than silently producing a tag.
 helm-digest-check:
 	@digest="sha256:$$(printf 'a%.0s' $$(seq 1 64))"; \
 	rendered="$$($(HELM) template brewlet charts/brewlet \
-		--set provisioner.pools="{general}" \
+		$(HELM_MIN_PROFILE) \
 		--set images.digests.operator="$$digest" \
 		--set images.digests.provisioner="$$digest" \
 		--set images.digests.admission="$$digest")"; \
@@ -77,7 +87,7 @@ helm-digest-check:
 			}; \
 	done; \
 	if $(HELM) template brewlet charts/brewlet \
-		--set provisioner.pools="{general}" \
+		$(HELM_MIN_PROFILE) \
 		--set images.digests.operator=sha256:deadbeef >/dev/null 2>&1; then \
 		echo "chart accepted a malformed image digest"; \
 		exit 1; \
@@ -91,7 +101,21 @@ helm-scheduling-check:
 		echo "default values rendered a profile without provisioner.pools"; \
 		exit 1; \
 	fi
-	@rendered="$$($(HELM) template brewlet charts/brewlet --set provisioner.pools="{general}")"; \
+	@if $(HELM) template brewlet charts/brewlet --set provisioner.pools="{general}" >/dev/null 2>&1; then \
+		echo "default values rendered a profile without explicit provisioner.jdks"; \
+		exit 1; \
+	fi
+	@if $(HELM) template brewlet charts/brewlet --set provisioner.pools="{general}" 2>&1 \
+		| grep -q 'provisioner.jdks is required'; then :; else \
+		echo "empty provisioner.jdks did not fail with the documented message"; \
+		exit 1; \
+	fi
+	@if $(HELM) template brewlet charts/brewlet $(HELM_MIN_PROFILE) 2>/dev/null \
+		| grep -Eq 'image: .*@sha256:85f00967'; then :; else \
+		echo "explicit provisioner.jdks did not reach the rendered NodeProfile"; \
+		exit 1; \
+	fi
+	@rendered="$$($(HELM) template brewlet charts/brewlet $(HELM_MIN_PROFILE))"; \
 	if printf '%s\n' "$$rendered" | grep -q 'includeControlPlane'; then \
 		echo "default render opted into control-plane nodes"; exit 1; \
 	fi; \
@@ -101,7 +125,7 @@ helm-scheduling-check:
 	if ! printf '%s\n' "$$rendered" | grep -q '^      - "general"$$'; then \
 		echo "default profile did not render explicit pool names"; exit 1; \
 	fi
-	@ops="$$($(HELM) template brewlet charts/brewlet --set provisioner.pools="{general}" -s templates/operator.yaml)"; \
+	@ops="$$($(HELM) template brewlet charts/brewlet $(HELM_MIN_PROFILE) -s templates/operator.yaml)"; \
 	if printf '%s\n' "$$ops" | sed -n '/^kind: ClusterRole$$/,/^---$$/p' | grep -q daemonsets; then \
 		echo "operator ClusterRole still grants cluster-wide DaemonSet access"; exit 1; \
 	fi; \

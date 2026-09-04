@@ -144,6 +144,22 @@ carries it.
 | Payload layer    | `application/vnd.brewlet.jar.layer.v1+jar`          | The raw self-executable JAR       |
 | (optional) layer | `application/vnd.brewlet.classpath.layer.v1+tar`    | Dependency JARs; unpacked to `/app/lib` for layered class-path deployment ([docs](https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md)) |
 | (optional) layer | `application/vnd.brewlet.modulepath.layer.v1+tar`   | Library modules for a modular (JPMS) app; unpacked to `/app/mods` and fed to `--module-path` ([docs](https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md)) |
+| (optional) layer | `application/vnd.brewlet.cds.layer.v1+jsa`          | AppCDS class-data archive paired with the config's `cds.archive`; mounted read-only at `/app/<archive>` and consumed with `-Xshare:auto` (§13, [docs](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md)) |
+
+**Managed dependency bundles (§4.5)** add a second artifact family:
+
+| Component        | Media type                                            | Contents                        |
+|------------------|-------------------------------------------------------|---------------------------------|
+| Artifact type    | `application/vnd.brewlet.dependencies.v1+json`        | Manifest `artifactType`         |
+| Config blob      | `application/vnd.brewlet.dependencies.config.v1+json` | Bundle identity + layer binding |
+| Lock blob        | `application/vnd.brewlet.dependencies.lock.v1+json`   | Canonical approved inventory    |
+
+**Well-known annotations and labels on published artifacts:**
+
+| Key | Where | Meaning |
+|---|---|---|
+| `brewlet.sh/managed-dependency-evidence` | Application manifest annotation | JSON evidence binding an application to the approved dependency bundle it consumed (§4.5) |
+| `sh.brewlet.runnable` | Runnable **image** config label, value `"true"` | Marks a §4.4 runnable image. Informational: the shim derives its authoritative target from CRI/containerd metadata and never trusts this label for admission or execution |
 
 ### 4.2 Launch config (config blob) schema
 
@@ -179,6 +195,13 @@ carries it.
   its `cds.layer.v1+jsa` layer — §13). Ports and process credentials are
   deployment concerns, not part of the artifact. Consumers MUST reject a config
   containing a `user` field.
+- The optional `cds` object has exactly two fields. `cds.archive` (required when
+  `cds` is present) is the bare filename the paired `cds.layer.v1+jsa` layer is
+  materialized as under `/app`. `cds.mode` is optional and records how the
+  archive was produced — `"dynamic"` (`-XX:ArchiveClassesAtExit`) or `"static"`
+  (`-Xshare:dump`). `cds.mode` is **informational only**: consumption is
+  identical either way, so an omitted value is not a defect. Any other value is
+  rejected, like every other unknown field or mode.
 - `mainJar` and `cds.archive` MUST be bare filenames (no path separator, no
   wildcard, no `..`). Both name files that a node materializes under a per-image
   staging directory and then bind-mounts read-only into the sandbox, so
@@ -1173,7 +1196,9 @@ Manager, and workload reconciliation analogous to Spin Operator:
 >   `SOURCE_ALLOWED_MIRROR_HOSTS`, and `BREWLET_CONTAINERD_RESTART` env from the
 >   spec and operator policy),
 >   ensures the `brewlet` RuntimeClass, and reports `assignedNodes` / `readyNodes`
->   and a `Ready` condition (`EmptyPool` / `NodesNotReady` reasons) on status. A
+>   and a `Ready` condition on status (reasons: `AllNodesProvisioned`,
+>   `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`,
+>   `CleanupPending` — §14.3). A
 >   validation failure reports `Ready=False`, reason `InvalidProfile`, deletes
 >   or withholds the profile DaemonSet, and removes runtime/JDK/feature/launcher
 >   labels and inventory annotations only from nodes whose profile annotation
@@ -1359,7 +1384,7 @@ spec:
 status:
   observedGeneration: 4
   readyReplicas: 3
-  selectedJdk: "temurin-21"      # resolved node JDK; a bare-feature request (no distribution) records the shim-selected distribution
+  selectedJdk: "temurin-21"      # mirrors the jvm request: "<distribution>-<feature>", or a bare feature when no distribution was pinned
   conditions:
     - type: Ready
       status: "True"
@@ -1597,9 +1622,10 @@ and JVM features:
 
 | Scenario                                   | Behavior                                                            |
 |--------------------------------------------|--------------------------------------------------------------------|
-| No compatible JDK on any ready node        | Pod stays `Pending`; event `NoCompatibleJDK`; scheduler skips node  |
-| Requested launcher not installed on node   | Pod stays `Pending`; event `NoCompatibleLauncher`; scheduler skips node |
-| Non-portable JAR needs an arch with no ready node | Pod stays `Pending`; event `NoCompatibleArch`; scheduler skips node |
+| No compatible JDK on any ready node        | Pod **rejected at admission**, `403` with `reason: NoCompatibleJDK`   |
+| Requested launcher not installed on node   | Pod **rejected at admission**, `403` with `reason: NoCompatibleLauncher` |
+| Non-portable JAR needs an arch with no ready node | Pod **rejected at admission**, `403` with `reason: NoCompatibleArch` |
+| Requested capability exists but its nodes are momentarily unschedulable | Pod admitted with `nodeAffinity`; stays `Pending` with a scheduler `FailedScheduling` event |
 | AppCDS regeneration requested with no authorized compatible node | Admission denies with `AppCDSRegenerationDisabled`; shim also rejects task creation when the host sentinel is absent or unsafe |
 | OCI artifact missing/unauthorized          | `ImagePull`-style failure surfaced on the pod                       |
 | JVM OOM                                     | `ExitOnOutOfMemoryError` → exit → kubelet restart per `restartPolicy`|
@@ -1616,13 +1642,147 @@ and JVM features:
 > `AppCDSRegenerationDisabled` rows are enforced by the pod admission webhook
 > (§8.3): an incompatible explicit request is denied at admission with that
 > reason, and compatible pods get nodeAffinity so the scheduler skips nodes
-> lacking the requested capability. The
+> lacking the requested capability.
+>
+> **These are admission denials, not events.** The webhook returns them as the
+> `reason` of a `403` `metav1.Status`; it has no event recorder, and the pod
+> object is never created, so there is nothing to attach an event to. For a
+> workload owned by a Deployment/ReplicaSet the reason still surfaces on the
+> owner as a `FailedCreate` warning event and on the ReplicaSet's
+> `ReplicaFailure` condition; for a bare `kubectl create` it is the CLI error.
+> A pod that requests nothing imposes no constraint and is admitted. The
 > `arch` constraint (mapped to the kubelet-provided `kubernetes.io/arch` label) is
 > optional and only needed for non-portable JARs that bundle JNI native libraries;
 > arch-neutral bytecode artifacts leave it unset and run on any provisioned arch.
 > AppCDS admission remains a scheduling/early-denial aid; the root-owned host
 > sentinel is the authoritative authorization because webhook failure policy is
 > `Ignore`.
+
+---
+
+### 14.1 Observable contract (stable surfaces)
+
+Everything below is a **public contract**: consumers may parse it, alert on it,
+and branch on it. Free-form human text is always carried in a companion field
+that is explicitly *not* a contract.
+
+#### Node annotations the provisioner publishes
+
+| Annotation | Value | Contract |
+|---|---|---|
+| `brewlet.sh/jdks` | Comma-separated `<distribution>-<feature>` tokens, e.g. `temurin-21,microsoft-25` | Installed JDK inventory |
+| `brewlet.sh/jdks-info` | JSON array, one object per root: `{"distribution","vendor","feature","version","arch"}` | Diagnostic inventory. `vendor`/`version`/`arch` are read from the installed JDK itself, so they describe what is really on the node. A root whose `java` cannot be executed is omitted |
+| `brewlet.sh/launchers` | Comma-separated launcher names, always including the implicit `java` | Installed launcher inventory |
+| `brewlet.sh/profile` | The owning `NodeProfile`'s `metadata.name` | Which profile last provisioned this node |
+| `brewlet.sh/profile-generation` | Decimal `metadata.generation` of that profile | Distinguishes an up-to-date node from a stale one |
+| `brewlet.sh/provision-error` | A reason **code** from §14.2 | Machine-readable failure cause |
+| `brewlet.sh/provision-error-message` | Free-form text | **Not a contract.** Human detail only; wording may change at any time |
+| `brewlet.sh/provision-state` | `Provisioning` \| `Ready` \| `Failed` | The *operator's* view of the lifecycle. Distinct from the `brewlet.sh/runtime=ready` label, which the *provisioner* owns and which drives scheduling |
+
+None of these drive scheduling; the per-capability **labels** do
+([`CAPABILITY_LABELS.md`](CAPABILITY_LABELS.md)). Annotations cannot back a
+`nodeAffinity`.
+
+### 14.2 `provision-error` reason codes
+
+The provisioner publishes exactly one of these tokens. Each is lowercase
+alphanumerics and `-`, at most 63 characters, and is normalized before
+publication so an unexpected value can never become prose or an unbounded
+string. New codes may be added in a minor release; existing codes are not
+repurposed.
+
+| Code | Meaning |
+|---|---|
+| `invalid-source-ref` | A configured source image is not a fully qualified, tagless, digest-pinned reference |
+| `invalid-source-path` | A configured `javaHome`/launcher path failed path-policy validation |
+| `invalid-mirror-config` | `registry.mirrors` / the mirror allowlist is malformed, self-referential, duplicated, or names an unapproved destination |
+| `source-policy-validator-missing` | The source-policy validator binary is absent or not executable in the provisioner image |
+| `invalid-jdk-source` | A JDK source entry is missing fields, has a malformed `<distribution>-<feature>` token, or is duplicated |
+| `invalid-launcher-source` | A launcher source entry is missing fields, has a malformed or reserved name, or is duplicated |
+| `invalid-restart-mode` | `rollout.containerdRestart` is not `validated` / `sighup` / `none` |
+| `unsupported-architecture` | The node's architecture is not supported |
+| `host-tooling-missing` | A required host tool (`nsenter`, the host `ctr` helper) is unavailable |
+| `containerd-version-unavailable` | The host containerd server version could not be queried |
+| `containerd-version-invalid` | The reported containerd server version could not be parsed |
+| `unsupported-containerd-version` | containerd is older than 2.0 (protected CRI requested-image metadata is required) |
+| `cgroup-v2-required` | The node is cgroup-v1 only |
+| `shim-image-incomplete` | The provisioner image is missing the shim / `ctr` / `crictl` binary |
+| `shim-install-failed` | The shim was not present after installation |
+| `jdk-source-missing` | No configured source exists for a requested JDK token (there is no built-in catalog — §5.2) |
+| `jdk-install-failed` | Mounting, copying, activating, or retaining a JDK root failed |
+| `jdk-validation-failed` | An installed JDK failed its `java -version` smoke test |
+| `launcher-source-missing` | No configured source exists for a requested launcher |
+| `launcher-install-failed` | Mounting, copying, activating, or retaining a launcher failed |
+| `launcher-<name>-missing` | The named launcher's binary is absent. `<name>` is sanitized and truncated to 39 characters so the whole code stays within the 63-character limit |
+| `launcher-<name>-not-executable` | The named launcher's binary is present but not executable |
+| `containerd-config-missing` | The host containerd configuration file was not found |
+| `containerd-config-invalid` | The rendered containerd configuration failed validation |
+| `restart-failed` | The containerd service could not be restarted |
+| `containerd-health-check-failed` | containerd was not operational after a restart |
+| `runtime-handler-health-check-failed` | The `brewlet` runtime handler was not available after a restart |
+| `rollback-failed` | Brewlet could not restore the previous containerd configuration — the node needs manual attention |
+| `stale-mount-cleanup-failed` | A stale source mount from an earlier attempt could not be removed |
+| `profile-changed` | The owning `NodeProfile` was deleted or changed identity mid-provision |
+| `cleanup-failed` | Profile cleanup could not reverse host state |
+| `policy-apply-failed` | The AppCDS regeneration sentinel could not be applied or removed |
+| `node-advertisement-failed` | Node readiness/inventory could not be published or withdrawn |
+| `internal-error` | A code was empty or unrecognized after normalization |
+
+When a rollback succeeds, the code published is the **original** reason, not
+`rollback-failed`, so the cause is preserved. The operator's `NodeReconciler`
+surfaces `<code>: <message>` on the `ProvisionFailed` event (§8.1) and
+`NodeProfileReconciler` on the owning profile's `Ready=False` / `NodeFailure`
+reason (§5.5).
+
+### 14.3 Condition reasons and denial reasons
+
+| Object | Condition | Reasons |
+|---|---|---|
+| `JavaApplication` | `Ready` | `Reconciled`, `Progressing`, `ReconcileError` |
+| `JavaApplication` | `JVMArgsApplied` | `ArgsDelivered`, `EnvOptionsOverlap` (§8.2) |
+| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `CleanupPending` |
+
+Event reasons: `Provisioning`, `NodeReady`, `ProvisionFailed`, `NodeUnmatched`
+(node lifecycle, §8.1); `ReconcileError`, `EnvOptionsOverlap` (`JavaApplication`,
+§8.2). Admission **denial** reasons (§8.3, returned as a `403` `metav1.Status`
+reason — not events): `NoCompatibleJDK`, `NoCompatibleLauncher`,
+`NoCompatibleArch`, `AppCDSRegenerationDisabled`, `InvalidNodeProfile`,
+`PoolConflict`.
+
+### 14.4 Metrics
+
+Metric **names** are a contract; label sets may gain labels in a minor release.
+All are opt-in (`metrics.enabled=true`) and bounded-cardinality.
+
+| Metric | Emitted by |
+|---|---|
+| `brewlet_sandbox_launches_total`, `brewlet_sandbox_launch_duration_seconds` | Shim → node exporter |
+| `brewlet_artifact_resolution_duration_seconds` | Shim → node exporter |
+| `brewlet_cds_regeneration_decisions_total`, `brewlet_cds_archive_mapped` | Shim → node exporter |
+| `brewlet_jdk_info`, `brewlet_jdk_installed_timestamp_seconds`, `brewlet_launcher_info` | Node exporter |
+| `brewlet_telemetry_events_invalid_total` | Node exporter |
+| `brewlet_node_provision_transitions_total` | Operator |
+| `brewlet_nodeprofile_condition`, `brewlet_nodeprofile_nodes` | Operator |
+| `brewlet_admission_requests_total` | Admission webhook |
+
+### 14.5 Host path layout (`/opt/brewlet`)
+
+The provisioner root, overridable with `BREWLET_PREFIX`. It is platform-owned
+host state, not a workload interface: a workload only ever receives the specific
+read-only mounts §6.1 describes.
+
+| Path | Contents |
+|---|---|
+| `bin/containerd-shim-brewlet-v2` | The installed shim binary |
+| `jdks/<distribution>-<feature>/` | An installed JDK runtime root. `.brewlet-java-home` records the JDK home inside it and `.brewlet-source` its source ref |
+| `jdks/.brewlet-active` | Newline-separated list of the currently inventoried JDK tokens |
+| `launchers/<name>/bin/<name>` | An installed launcher, bind-mounted at `/opt/brewlet/launcher` in the sandbox |
+| `launchers/.brewlet-active` | Newline-separated list of the currently inventoried launchers |
+| `policy/appcds-regeneration-enabled` | Root-owned, mode `0444` sentinel authorizing node-side AppCDS regeneration (§13). The authoritative check — the node label is only a scheduling hint |
+| `cds/` | Private per-`(namespace, manifest, JDK build, UID)` AppCDS cache. Overridable with `BREWLET_CDS_CACHE`. A workload receives only its own entry directory |
+| `metrics/telemetry.sock` | Unix datagram socket the shim writes best-effort telemetry to |
+| `<root>.retired.<epoch>.<pid>/` | A rotated-out JDK/launcher root, retained while live mounts may reference it (§12) |
+| `.image-mount-*` | Transient source-image mount points; reclaimed on the next pass |
 
 ---
 

@@ -555,7 +555,7 @@ chmod 0755 "$validation_root/launchers/jaz/bin/jaz"
 )
 
 long_launcher="launcher-name-that-is-deliberately-longer-than-forty-eight-characters"
-bounded_launcher="${long_launcher:0:48}"
+bounded_launcher="${long_launcher:0:39}"
 if output="$(
   (
     PREFIX="$validation_root"
@@ -570,9 +570,17 @@ if output="$(
   echo "expected a missing long-named launcher to fail validation" >&2
   exit 1
 fi
+# The REASON CODE is bounded even for an absurd launcher name; the human message
+# may still name it in full, which is exactly why they are separate annotations.
 grep -Fq "ERROR: launcher-${bounded_launcher}-missing" <<<"$output"
-if grep -Fq "$long_launcher" <<<"$output"; then
-  echo "launcher validation reason was not bounded" >&2
+bounded_code="$(normalize_reason_code "launcher-${bounded_launcher}-missing")"
+[[ "$bounded_code" == "launcher-${bounded_launcher}-missing" ]]
+(( ${#bounded_code} <= 63 ))
+# Truncation must never eat the semantic suffix.
+[[ "$bounded_code" == *-missing ]]
+[[ "$(normalize_reason_code "launcher-${bounded_launcher}-not-executable")" == *-not-executable ]]
+if grep -Fq "ERROR: launcher-${long_launcher}-missing" <<<"$output"; then
+  echo "launcher validation reason code was not bounded" >&2
   exit 1
 fi
 
@@ -1079,6 +1087,8 @@ if output="$(
   exit 1
 fi
 [[ "$output" == *"rollback-failed: could not recover containerd after restart-failed"* ]]
+# rollback_and_recover passes the ORIGINAL reason through as the stable code, so a
+# consumer sees why provisioning failed rather than that a rollback happened.
 
 # The renderer contract also supports issue #21's drop-in path.
 dropin="$rollback_dir/99-brewlet.toml"
@@ -1097,7 +1107,7 @@ if output="$(
     clear_node_advertisement() { printf 'unready\n' >>"$node_calls"; }
     remove_appcds_regeneration_policy() { printf 'policy-removed\n' >>"$node_calls"; }
     kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
-    die "containerd-health-check-failed: containerd is not operational"
+    die containerd-health-check-failed "containerd is not operational"
   ) 2>&1
   )"; then
   echo "expected die to exit non-zero" >&2
@@ -1106,7 +1116,34 @@ fi
 assert_contains "unready" "$node_calls"
 assert_contains "policy-removed" "$node_calls"
 assert_contains "annotate node" "$node_calls"
-assert_contains "brewlet.sh/provision-error=containerd-health-check-failed: containerd is not operational" "$node_calls"
+# The reason CODE is the stable, parseable contract (§14); the human message is
+# a separate annotation so a consumer never has to parse prose out of it.
+assert_contains "brewlet.sh/provision-error=containerd-health-check-failed" "$node_calls"
+assert_contains "brewlet.sh/provision-error-message=containerd is not operational" "$node_calls"
+
+# The code annotation must carry ONLY the code. Guard against a regression that
+# folds the message back into it.
+if grep -Fq "brewlet.sh/provision-error=containerd-health-check-failed containerd" "$node_calls"; then
+  echo "provision-error must not carry the human message" >&2
+  exit 1
+fi
+
+# Reason codes are normalized to a bounded token, so even an unexpected value
+# from a future call site can never publish prose or an unbounded string.
+[[ "$(normalize_reason_code "Containerd Health Check FAILED")" == "containerd-health-check-failed" ]]
+[[ "$(normalize_reason_code "  ")" == "internal-error" ]]
+[[ "$(normalize_reason_code "")" == "internal-error" ]]
+[[ "$(normalize_reason_code "--weird--")" == "weird" ]]
+[[ "$(normalize_reason_code "launcher-jaz-missing")" == "launcher-jaz-missing" ]]
+long_code="$(normalize_reason_code "$(printf 'a%.0s' {1..200})")"
+(( ${#long_code} == 63 ))
+
+# The human message is folded to one line and bounded, so it can never be the
+# reason a kubectl annotate call fails.
+[[ "$(truncate_error_message "first
+second")" == "first second" ]]
+long_msg="$(truncate_error_message "$(printf 'b%.0s' {1..2000})")"
+(( ${#long_msg} == 512 ))
 
 # AppCDS regeneration policy is a root-controlled, read-only sentinel created
 # atomically and removed when the profile disables it.
