@@ -17,7 +17,7 @@ extent required to debug changes to any libraries licensed under the GNU Lesser
 General Public License.
 
 ================================================================================
-Component: Jackson Databind, Jackson Core, and Jackson Annotations 2.18.9
+Component: Jackson Databind 2.22.2, Jackson Core 2.22.2, and Jackson Annotations 2.22
 Source: https://github.com/FasterXML
 
 --- LICENSE ---

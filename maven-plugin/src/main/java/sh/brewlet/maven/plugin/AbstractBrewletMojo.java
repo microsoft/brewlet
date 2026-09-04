@@ -17,6 +17,7 @@ import sh.brewlet.maven.plugin.model.*;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
 import sh.brewlet.maven.plugin.oci.LocalStore;
 import sh.brewlet.maven.plugin.oci.MediaTypes;
+import sh.brewlet.maven.plugin.oci.RegistryTrustPolicy;
 import sh.brewlet.maven.plugin.util.JarInspector;
 import sh.brewlet.maven.plugin.util.JdkVersionResolver;
 import sh.brewlet.maven.plugin.util.LayerBuilder;
@@ -274,6 +275,27 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     protected String builderIdentity;
 
     /**
+     * Registry authorities ({@code host} or {@code host:port}) that may be
+     * contacted over plain HTTP. Loopback registries ({@code localhost},
+     * {@code 127.0.0.0/8}, {@code ::1}) are always allowed; every other registry
+     * requires HTTPS unless listed here, so registry credentials are not sent in
+     * the clear by accident. Matching is exact — a suffix such as
+     * {@code localhost.attacker.example} never matches.
+     */
+    @Parameter(property = "brewlet.insecureRegistries")
+    protected List<String> insecureRegistries;
+
+    /**
+     * Registry authorities ({@code host} or {@code host:port}) trusted to
+     * receive this build's registry credentials during a token exchange when the
+     * authentication challenge realm is not the registry's own origin. Docker
+     * Hub's {@code auth.docker.io} realm is trusted automatically; any other
+     * cross-origin realm fails closed until listed here.
+     */
+    @Parameter(property = "brewlet.allowedTokenRealms")
+    protected List<String> allowedTokenRealms;
+
+    /**
      * Output directory for generated Brewlet files
      * ({@code jvm-config.json}, OCI layout, manifests).
      */
@@ -283,6 +305,20 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     // -----------------------------------------------------------------------
     // Config-inference helpers
     // -----------------------------------------------------------------------
+
+    /**
+     * Builds the registry transport and credential-forwarding policy from the
+     * {@link #insecureRegistries} and {@link #allowedTokenRealms} parameters.
+     * Both default to empty, so credentials travel over HTTPS to the registry
+     * origin only.
+     */
+    protected RegistryTrustPolicy registryTrustPolicy() throws MojoExecutionException {
+        try {
+            return RegistryTrustPolicy.of(insecureRegistries, allowedTokenRealms);
+        } catch (IllegalArgumentException e) {
+            throw new MojoExecutionException(e.getMessage(), e);
+        }
+    }
 
     /**
      * Resolves the effective JAR file: the configured {@link #jarFile} if set,

@@ -1397,6 +1397,15 @@ descriptor's `jvm.args`.
   execution. The shim resolves the exact protected CRI target from the content
   store and verifies its selected platform-manifest config against CRI metadata;
   tag-only requests fail closed.
+- **Publishing credentials stay on the registry origin.** A publishing client
+  (§4.3) holds developer or CI registry credentials, so it MUST use HTTPS for
+  every registry except an exact loopback authority or one an operator has
+  explicitly marked insecure, and it MUST attach credentials only to requests
+  whose scheme, host, and port match the configured registry. Registry-supplied
+  URLs — bearer token realms, blob upload `Location` values, pagination links —
+  are attacker-influenced input: they may be followed, but a cross-origin target
+  MUST NOT receive credentials unless the operator allow-listed it, and an
+  unusable authenticated exchange MUST fail closed rather than fall back.
 - **Privileged provisioning is the sharp edge.** As with SpinKube's Runtime Class
   Manager, the node provisioner is privileged and mutates the host. Scope it to
   platform-owned node pools; document the blast radius, and do not use it on

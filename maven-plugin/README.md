@@ -130,6 +130,32 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 | `builderIdentity` | `brewlet.builderIdentity` | — | Application publisher identity asserted in optional final-image provenance. Required with `signingKey` when pushing a managed application. |
 | `cdsArchive` | `brewlet.cdsArchive` | — | Optional prebuilt AppCDS `.jsa` archive to append as a `application/vnd.brewlet.cds.layer.v1+jsa` layer after dependency layers. The archive basename becomes `cds.archive`, is mounted at `/app/<name>`, and launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<name>` as best-effort acceleration. See [AppCDS §4.1](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#41-build-time-archive-layer-recommended-primary). |
 
+### Registry transport and credential safety
+
+Registry credentials are resolved from `settings.xml`, `~/.docker/config.json`,
+or `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD`, and the plugin
+keeps them scoped to the registry you configured:
+
+- **HTTPS is required** for every registry except exact loopback authorities
+  (`localhost`, `127.0.0.0/8`, `::1`, with or without a port). Matching is exact,
+  so a lookalike host such as `localhost.attacker.example` or `127.example.com`
+  stays on HTTPS instead of leaking Basic credentials over plaintext.
+- **Credentials never leave the registry origin.** The `Authorization` header is
+  attached only to requests whose scheme, host, and port match the configured
+  registry. Registry-supplied URLs — blob upload `Location` values, pagination
+  links, storage redirects — are still followed, but without credentials.
+- **Token realms are validated.** A `WWW-Authenticate: Bearer` challenge realm
+  must be an absolute `https` URL (plain `http` only for insecure-eligible
+  authorities) with no embedded credentials. Credentials are exchanged only with
+  a same-origin realm, Docker Hub's built-in `auth.docker.io` realm, or a realm
+  you explicitly allowlisted; any other realm fails the build rather than
+  forwarding your credentials.
+
+| Parameter | Property | Default | Notes |
+|---|---|---|---|
+| `insecureRegistries` | `brewlet.insecureRegistries` | *(empty)* | Exact registry authorities (`host` or `host:port`) that may be contacted over plain HTTP. Loopback registries are always allowed, so this is only needed for a non-loopback HTTP registry such as an in-cluster mirror. Configure as `<insecureRegistries><insecureRegistry>registry.internal:5000</insecureRegistry></insecureRegistries>` or `-Dbrewlet.insecureRegistries=registry.internal:5000`. |
+| `allowedTokenRealms` | `brewlet.allowedTokenRealms` | *(empty)* | Exact authorities (`host` or `host:port`) trusted to receive this build's registry credentials when the authentication challenge realm is **not** the registry's own origin. Docker Hub (`auth.docker.io`) is trusted automatically; add an entry only when you trust that host with your registry credentials. |
+
 ### Descriptor JDK / launcher requests
 
 These parameters feed `brewlet:manifest` and are written to the deployment
