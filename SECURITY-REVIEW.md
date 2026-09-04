@@ -1019,7 +1019,8 @@ downloaded tools and external build images are checksum- or digest-pinned.
    digest-pin base images.
 4. **Remediated:** Require administrator-provided, digest-pinned JDK and launcher
    images, and validate and allowlist NodeProfile registry mirrors.
-5. Enforce same-origin HTTPS registry token realms and exact loopback matching.
+5. **Remediated:** Enforce same-origin HTTPS registry token realms and exact
+   loopback matching.
 
 ### P2: Defense in depth
 
@@ -1052,8 +1053,8 @@ downloaded tools and external build images are checksum- or digest-pinned.
    Finding 6.
 7. **Verify provisioner binary downloads and pin base images (remediated in
    issue #25 and pull request #32).** Covers Finding 7.
-8. **Restrict registry token authentication to approved HTTPS origins.** Covers
-   Finding 9.
+8. **Restrict registry token authentication to approved HTTPS origins
+   (remediated in issue #27 and pull request #61).** Covers Finding 9.
 9. **Pin Actions and publish release signatures and provenance (remediated in
    issue #29 and pull request #42).** Covers Finding 11.
 10. **Make privileged node provisioning opt-in and exclude control-plane nodes
