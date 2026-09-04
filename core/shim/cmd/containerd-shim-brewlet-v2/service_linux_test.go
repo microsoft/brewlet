@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"testing"
 
-	taskAPI "github.com/containerd/containerd/api/runtime/task/v2"
+	taskAPI "github.com/containerd/containerd/api/runtime/task/v3"
 	runcoptions "github.com/containerd/containerd/api/types/runc/options"
-	runtimeoptions "github.com/containerd/containerd/pkg/runtimeoptions/v1"
+	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -28,7 +28,7 @@ import (
 )
 
 type deleteTaskService struct {
-	taskAPI.TaskService
+	taskAPI.TTRPCTaskService
 	err error
 }
 
@@ -48,9 +48,9 @@ func (s *deleteTaskService) Delete(context.Context, *taskAPI.DeleteRequest) (*ta
 func TestDeleteCleansPendingLaunch(t *testing.T) {
 	released := false
 	service := &brewletTaskService{
-		TaskService: &deleteTaskService{},
-		pending:     map[string]launchInfo{"task-1": {entryMode: "jar"}},
-		writers:     map[string]func(){"task-1": func() { released = true }},
+		TTRPCTaskService: &deleteTaskService{},
+		pending:          map[string]launchInfo{"task-1": {entryMode: "jar"}},
+		writers:          map[string]func(){"task-1": func() { released = true }},
 	}
 
 	if _, err := service.Delete(context.Background(), &taskAPI.DeleteRequest{ID: "task-1"}); err != nil {
@@ -70,9 +70,9 @@ func TestDeleteCleansPendingLaunch(t *testing.T) {
 func TestDeleteKeepsPendingLaunchWhenDeleteFails(t *testing.T) {
 	released := false
 	service := &brewletTaskService{
-		TaskService: &deleteTaskService{err: errors.New("delete failed")},
-		pending:     map[string]launchInfo{"task-1": {entryMode: "jar"}},
-		writers:     map[string]func(){"task-1": func() { released = true }},
+		TTRPCTaskService: &deleteTaskService{err: errors.New("delete failed")},
+		pending:          map[string]launchInfo{"task-1": {entryMode: "jar"}},
+		writers:          map[string]func(){"task-1": func() { released = true }},
 	}
 
 	if _, err := service.Delete(context.Background(), &taskAPI.DeleteRequest{ID: "task-1"}); err == nil {

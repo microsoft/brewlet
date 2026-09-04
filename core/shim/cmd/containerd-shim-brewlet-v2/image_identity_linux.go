@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
-	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
 
 	"github.com/microsoft/brewlet/internal/artifact"
 )

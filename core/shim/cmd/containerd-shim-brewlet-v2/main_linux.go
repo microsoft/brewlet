@@ -23,13 +23,23 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/containerd/containerd/runtime/v2/runc/manager"
-	_ "github.com/containerd/containerd/runtime/v2/runc/pause"
-	"github.com/containerd/containerd/runtime/v2/shim"
+	"github.com/containerd/containerd/v2/cmd/containerd-shim-runc-v2/manager"
+	"github.com/containerd/containerd/v2/pkg/shim"
 	// The Brewlet task service (a decorator over the runc task service) is
 	// registered as the shim's TTRPC "task" plugin from service_linux.go's
 	// init(). We deliberately do NOT import runc's own task/plugin, which would
 	// collide on the same plugin ID.
+	//
+	// containerd 1.7's runc shim also registered a no-op TTRPC *sandbox*
+	// service (runtime/v2/runc/pause), which we blank-imported here. containerd
+	// 2.x deleted that package: pod-sandbox handling moved daemon-side, and the
+	// CRI plugin defaults every runtime handler that does not set `sandboxer`
+	// to the in-daemon "podsandbox" controller
+	// (internal/cri/config/config.go). That controller creates the pause
+	// container through this shim's ordinary Task service, which Create()
+	// already recognizes and passes through untouched (see isSandboxBundle).
+	// The provisioner's [plugins…runtimes.brewlet] block sets no `sandboxer`,
+	// so no shim-side sandbox service is required.
 
 	// Register the CRI runtime-options proto type ("runtimeoptions.v1.Options")
 	// with the global proto/typeurl registry. containerd's CRI plugin hands the
@@ -40,7 +50,7 @@ import (
 	// runtimeClassName: brewlet can ever start under kubelet/CRI. Upstream's
 	// containerd-shim-runc-v2 pulls this in transitively via its task/plugin
 	// import, which we intentionally omit (see above), so we register it here.
-	_ "github.com/containerd/containerd/pkg/runtimeoptions/v1"
+	_ "github.com/containerd/containerd/api/types/runtimeoptions/v1"
 )
 
 // runtimeName matches the containerd runtime the provisioner wires into
@@ -60,5 +70,5 @@ func main() {
 		return
 	}
 
-	shim.RunManager(context.Background(), manager.NewShimManager(runtimeName))
+	shim.RunShim(context.Background(), manager.NewShimManager(runtimeName))
 }

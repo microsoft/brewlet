@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
 
 	"github.com/microsoft/brewlet/internal/artifact"
 )

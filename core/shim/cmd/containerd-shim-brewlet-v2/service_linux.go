@@ -17,15 +17,17 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	taskAPI "github.com/containerd/containerd/api/runtime/task/v2"
+	taskAPI "github.com/containerd/containerd/api/runtime/task/v3"
 	containersapi "github.com/containerd/containerd/api/services/containers/v1"
 	apitypes "github.com/containerd/containerd/api/types"
 	runcoptions "github.com/containerd/containerd/api/types/runc/options"
-	runtimeoptions "github.com/containerd/containerd/pkg/runtimeoptions/v1"
-	"github.com/containerd/containerd/pkg/shutdown"
-	"github.com/containerd/containerd/plugin"
-	"github.com/containerd/containerd/runtime/v2/runc/task"
-	"github.com/containerd/containerd/runtime/v2/shim"
+	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
+	"github.com/containerd/containerd/v2/cmd/containerd-shim-runc-v2/task"
+	"github.com/containerd/containerd/v2/pkg/shim"
+	"github.com/containerd/containerd/v2/pkg/shutdown"
+	"github.com/containerd/containerd/v2/plugins"
+	"github.com/containerd/plugin"
+	"github.com/containerd/plugin/registry"
 	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -63,21 +65,30 @@ const (
 
 func init() {
 	// Register the Brewlet task service as the shim's TTRPC "task" plugin. The
-	// containerd shim framework (shim.RunManager -> run) walks the plugin graph
+	// containerd shim framework (shim.RunShim -> run) walks the plugin graph
 	// and serves whatever implements RegisterTTRPC as the Task service.
-	plugin.Register(&plugin.Registration{
-		Type: plugin.TTRPCPlugin,
+	//
+	// containerd 2.x split 1.7's monolithic containerd/plugin package: the
+	// registry lives in github.com/containerd/plugin{,/registry} while the
+	// plugin *type* constants live in containerd/v2/plugins. That package
+	// advises external plugins to copy the constants rather than import it, but
+	// these IDs must match byte-for-byte what the shim framework we already
+	// link (containerd/v2/pkg/shim) looks up, and we already depend directly on
+	// the containerd/v2 module — so importing costs no extra dependency surface
+	// and removes a silent drift risk. Upstream's own runc shim does the same.
+	registry.Register(&plugin.Registration{
+		Type: plugins.TTRPCPlugin,
 		ID:   "task",
 		Requires: []plugin.Type{
-			plugin.EventPlugin,
-			plugin.InternalPlugin,
+			plugins.EventPlugin,
+			plugins.InternalPlugin,
 		},
-		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			pp, err := ic.GetByID(plugin.EventPlugin, "publisher")
+		InitFn: func(ic *plugin.InitContext) (any, error) {
+			pp, err := ic.GetByID(plugins.EventPlugin, "publisher")
 			if err != nil {
 				return nil, err
 			}
-			ss, err := ic.GetByID(plugin.InternalPlugin, "shutdown")
+			ss, err := ic.GetByID(plugins.InternalPlugin, "shutdown")
 			if err != nil {
 				return nil, err
 			}
@@ -86,7 +97,10 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			target := ic.Address
+			// containerd 2.x replaced InitContext's typed Root/State/Address/
+			// TTRPCAddress fields with a generic Properties map, populated by
+			// pkg/shim's plugin.NewContext call.
+			target := ic.Properties[plugins.PropertyGRPCAddress]
 			if !strings.Contains(target, "://") {
 				target = "unix://" + target
 			}
@@ -98,7 +112,7 @@ func init() {
 				return connection.Close()
 			})
 			return &brewletTaskService{
-				TaskService: inner,
+				TTRPCTaskService: inner,
 				imageIdentity: newContainerdImageIdentityResolver(
 					containersapi.NewContainersClient(connection),
 					envOr("BREWLET_CONTENT_ROOT", defaultContentRoot),
@@ -118,7 +132,7 @@ func init() {
 // disassemble the runnable OCI image and rewrite the OCI spec into a `java -jar`
 // sandbox backed by the node-resident JDK.
 type brewletTaskService struct {
-	taskAPI.TaskService
+	taskAPI.TTRPCTaskService
 	imageIdentity imageIdentityResolver
 	mu            sync.Mutex
 	pending       map[string]launchInfo
@@ -134,7 +148,7 @@ type launchInfo struct {
 // RegisterTTRPC binds THIS decorator (not the embedded runc service) so
 // containerd dispatches Create() to our artifact-assembly hook.
 func (s *brewletTaskService) RegisterTTRPC(server *ttrpc.Server) error {
-	taskAPI.RegisterTaskService(server, s)
+	taskAPI.RegisterTTRPCTaskService(server, s)
 	return nil
 }
 
@@ -168,7 +182,7 @@ func (s *brewletTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 		}
 		s.trackWriter(r.ID, info.writerLease)
 		start := time.Now()
-		resp, err := s.TaskService.Create(ctx, r)
+		resp, err := s.TTRPCTaskService.Create(ctx, r)
 		emitPhase("runc_create", start, err)
 		if err != nil {
 			s.releaseWriter(r.ID)
@@ -180,12 +194,12 @@ func (s *brewletTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 		s.mu.Unlock()
 		return resp, nil
 	}
-	return s.TaskService.Create(ctx, r)
+	return s.TTRPCTaskService.Create(ctx, r)
 }
 
 func (s *brewletTaskService) Start(ctx context.Context, r *taskAPI.StartRequest) (*taskAPI.StartResponse, error) {
 	start := time.Now()
-	resp, err := s.TaskService.Start(ctx, r)
+	resp, err := s.TTRPCTaskService.Start(ctx, r)
 	if r.GetExecID() != "" {
 		return resp, err
 	}
@@ -208,7 +222,7 @@ func (s *brewletTaskService) Start(ctx context.Context, r *taskAPI.StartRequest)
 }
 
 func (s *brewletTaskService) Delete(ctx context.Context, r *taskAPI.DeleteRequest) (*taskAPI.DeleteResponse, error) {
-	resp, err := s.TaskService.Delete(ctx, r)
+	resp, err := s.TTRPCTaskService.Delete(ctx, r)
 	if err == nil && r.GetExecID() == "" {
 		s.mu.Lock()
 		delete(s.pending, r.ID)
@@ -837,4 +851,4 @@ func envOr(key, def string) string {
 }
 
 // compile-time check that the decorator still satisfies the Task service.
-var _ taskAPI.TaskService = (*brewletTaskService)(nil)
+var _ taskAPI.TTRPCTaskService = (*brewletTaskService)(nil)
