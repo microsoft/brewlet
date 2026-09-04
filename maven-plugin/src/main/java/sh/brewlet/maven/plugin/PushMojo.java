@@ -16,6 +16,7 @@ import sh.brewlet.maven.plugin.oci.DependencyBundle;
 import sh.brewlet.maven.plugin.oci.LocalStore;
 import sh.brewlet.maven.plugin.oci.MediaTypes;
 import sh.brewlet.maven.plugin.oci.RegistryClient;
+import sh.brewlet.maven.plugin.oci.RegistryTrustPolicy;
 import sh.brewlet.maven.plugin.util.CredentialResolver;
 import sh.brewlet.maven.plugin.util.JarInspector;
 import sh.brewlet.maven.plugin.supplychain.BundleProvenance;
@@ -99,7 +100,7 @@ public class PushMojo extends AbstractBrewletMojo {
                             + embedded.get(0) + ". Disable fat-JAR repackaging.");
                 }
                 verifiedBundle = resolveDependencyBundle(
-                        dependencyBundle, expectedBundleSigner);
+                        dependencyBundle, expectedBundleSigner, registryTrustPolicy());
                 managedBundle = verifiedBundle.bundle();
                 DependencyBundle.verifyGraph(managedBundle.lock(),
                         collectRuntimeDependencyLock());
@@ -169,7 +170,8 @@ public class PushMojo extends AbstractBrewletMojo {
             getLog().info("  auth: anonymous");
         }
 
-        RegistryClient client = new RegistryClient(registry, repository, credential);
+        RegistryClient client = new RegistryClient(registry, repository, credential,
+                registryTrustPolicy());
         Map<String, String> annotations = buildAnnotations();
         annotations.put("org.opencontainers.image.ref.name", image);
         List<ArtifactLayer> managedLayers = managedBundle == null
@@ -259,7 +261,8 @@ public class PushMojo extends AbstractBrewletMojo {
         }
     }
 
-    private VerifiedBundle resolveDependencyBundle(String reference, String expectedBundleSigner)
+    private VerifiedBundle resolveDependencyBundle(String reference, String expectedBundleSigner,
+                                                  RegistryTrustPolicy trustPolicy)
             throws IOException, InterruptedException, GeneralSecurityException {
         try {
             Path path = Path.of(reference);
@@ -278,7 +281,8 @@ public class PushMojo extends AbstractBrewletMojo {
         }
         String[] parts = RegistryClient.splitRef(reference);
         Credential bundleCredential = CredentialResolver.resolve(parts[0], settings);
-        RegistryClient client = new RegistryClient(parts[0], parts[1], bundleCredential);
+        RegistryClient client = new RegistryClient(parts[0], parts[1], bundleCredential,
+                trustPolicy);
         DependencyBundle.Content bundle =
                 client.pullDependencyBundle(RegistryClient.extractTag(reference));
         List<OciDescriptor> sbomRefs = client.discoverReferrers(bundle.manifestDigest(),
