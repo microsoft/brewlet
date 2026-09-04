@@ -58,7 +58,7 @@ dedicated, platform-owned node pools further reduces exposure.
 | 2 | High | The node-shared AppCDS cache is writable from a tenant container **(Remediated)** | [#20](https://github.com/microsoft/brewlet/issues/20) | [#31](https://github.com/microsoft/brewlet/pull/31) | 8/10 |
 | 3 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | [#21](https://github.com/microsoft/brewlet/issues/21) | [#37](https://github.com/microsoft/brewlet/pull/37) | 9/10 |
 | 4 | High | Attestation enforcement verifies a different identity from the executed artifact **(Remediated)** | [#22](https://github.com/microsoft/brewlet/issues/22) | [#33](https://github.com/microsoft/brewlet/pull/33) | 8/10 |
-| 5 | Medium | The launcher annotation can traverse outside the launcher root **(Remediated)** | [#23](https://github.com/microsoft/brewlet/issues/23) | [#PR](https://github.com/microsoft/brewlet/pull/PR) | 7/10 |
+| 5 | Medium | The launcher annotation can traverse outside the launcher root **(Remediated)** | [#23](https://github.com/microsoft/brewlet/issues/23) | [#62](https://github.com/microsoft/brewlet/pull/62) | 7/10 |
 | 6 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
 | 7 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
 | 8 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
@@ -422,7 +422,7 @@ image alias. Conflicting hints and tag-only requests fail closed.
 **Type:** Confirmed traversal with constrained exploitation
 
 **Status:** Remediated by [issue #23](https://github.com/microsoft/brewlet/issues/23)
-via [pull request #PR](https://github.com/microsoft/brewlet/pull/PR)
+via [pull request #62](https://github.com/microsoft/brewlet/pull/62)
 
 **Attacker prerequisites:** Permission to create a Brewlet Pod.
 
@@ -988,7 +988,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 5. **Validate launcher and `mainJar` path components.** Covers Findings 5 and 8,
    which share the same path-input validation fix. The `mainJar` half is
    remediated in issue #26 and pull request #41; the launcher half (Finding 5)
-   is remediated in issue #23 and pull request #PR.
+   is remediated in issue #23 and pull request #62.
 6. **Require digest-pinned administrator-provided runtime sources and validate
    registry mirrors (remediated in issue #24 and pull request #34).** Covers
    Finding 6.
