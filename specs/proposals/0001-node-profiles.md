@@ -26,6 +26,19 @@ separately allowlisted by operator/admission configuration and revalidated by
 the reconciler and privileged provisioner. This design record reflects that
 fail-closed behavior.
 
+> **Amendment (security review finding 10, issue #28).** Where this record says
+> an empty `nodePool` means "every node", the shipped behaviour is narrower. The
+> catch-all remains in the API — bare-metal clusters with no pool label still
+> need it — but it is no longer reachable by default: the Helm chart requires
+> `provisioner.pools` and fails to render without it. Independently of pool
+> selection, every profile's DaemonSet now excludes control-plane nodes by node
+> affinity (`node-role.kubernetes.io/control-plane` and
+> `.../master` must be absent) unless it sets
+> `spec.nodePool.includeControlPlane`, and it carries only the tolerations
+> `spec.tolerations` declares rather than the blanket `operator: Exists` this
+> design assumed. See [SPECIFICATION §5.6](../SPECIFICATION.md) for the
+> authoritative rules.
+
 ---
 
 ## 1. Summary

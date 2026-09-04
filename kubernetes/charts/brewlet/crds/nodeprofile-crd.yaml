@@ -50,6 +50,8 @@ spec:
                   description: |
                     Node pool(s) this profile provisions. Empty (no names) means
                     "every node" — the bare-metal / default-profile catch-all.
+                    Control-plane nodes are excluded from every profile unless
+                    includeControlPlane is true.
                   properties:
                     names:
                       type: array
@@ -61,6 +63,14 @@ spec:
                         Node label key carrying the pool name. Empty => the operator
                         auto-detects the provider key (gke-nodepool / agentpool /
                         nodegroup / karpenter).
+                    includeControlPlane:
+                      type: boolean
+                      default: false
+                      description: |
+                        Provision nodes labelled node-role.kubernetes.io/control-plane
+                        (or the legacy .../master). Default false: the privileged
+                        provisioner never lands on a control-plane node, even an
+                        untainted one, unless explicitly opted in.
                 jdks:
                   type: array
                   minItems: 1
@@ -171,6 +181,39 @@ spec:
                       type: string
                       enum: [validated, sighup, none]
                       description: How the provisioner restarts containerd; "none" is label-only / immutable-image mode.
+                tolerations:
+                  type: array
+                  maxItems: 16
+                  description: |
+                    The ONLY taints the privileged provisioner DaemonSet tolerates.
+                    Empty (the default) means every taint is respected, including the
+                    control-plane taint. Each entry must name a key, so a blanket
+                    "tolerate everything" entry cannot be expressed.
+                  items:
+                    type: object
+                    maxProperties: 5
+                    required: [key]
+                    properties:
+                      key:
+                        type: string
+                        minLength: 1
+                        maxLength: 316
+                        description: Taint key this profile deliberately tolerates.
+                      operator:
+                        type: string
+                        enum: [Equal, Exists]
+                        description: Equal (default) matches value; Exists matches any value of key.
+                      value:
+                        type: string
+                        maxLength: 63
+                      effect:
+                        type: string
+                        enum: [NoSchedule, PreferNoSchedule, NoExecute]
+                        description: Empty matches all effects of the key.
+                      tolerationSeconds:
+                        type: integer
+                        format: int64
+                        description: NoExecute eviction grace period.
             status:
               type: object
               properties:

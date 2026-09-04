@@ -115,27 +115,42 @@ provisioner RBAC, and the admission webhook. The operator then creates and
 reconciles the provisioner DaemonSet and the `brewlet` RuntimeClass from the chart's
 values — so there is a single runtime source of truth for the JDK/launcher inventory.
 
+The install must name the node pools Brewlet may provision. Provisioning is
+privileged and mutates the host, so the chart has no every-node default: it
+fails to render until `provisioner.pools` is set.
+
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.3.1 \
   --namespace brewlet \
-  --create-namespace
+  --create-namespace \
+  --set provisioner.pools="{java-workers}"
 
-# The chart renders a default NodeProfile that provisions EVERY node (§5.6) —
-# there is no per-node opt-in step. The operator provisions each node and the
+# The chart renders a default NodeProfile scoped to those pools (§5.6) — there
+# is no per-node opt-in step. The operator provisions each node in them and the
 # provisioner marks it ready once the shim, runtime inventory, containerd
 # handler, and configured readiness probes are healthy. Watch:
 kubectl get nodes -L brewlet.sh/runtime -w
 ```
+
+`provisioner.poolKey` pins the node label the pool names are matched on. Leave
+it unset on AKS, EKS, and GKE, where the well-known provider label is
+auto-detected; set it explicitly on bare metal or kubeadm.
 
 The chart's editable default `NodeProfile` uses explicit, digest-pinned Temurin
 21, Microsoft JDK 25, and `jaz` sources. Review or replace them in a values file;
 see [JDK management](jdk-management.md#helm-examples-temurin-and-microsoft) and
 [Launchers](launchers.md#helm-example-jaz).
 
-> To limit provisioning to platform-owned pools instead of every node, disable the
+> Control-plane nodes are excluded by node affinity regardless of taints, and
+> the provisioner tolerates only what a profile declares. On a single-node kind
+> or Docker Desktop cluster — whose only node is labelled as the control plane —
+> add `--set provisioner.includeControlPlane=true`, or nothing will be
+> provisioned. See [Where the provisioner may run](configuration.md#where-the-provisioner-may-run).
+
+> To manage profiles yourself instead of through the chart, disable the
 > chart's default profile (`--set defaultProfile.enabled=false`) and define named
-> `NodeProfile`s scoped to those pools — see [Configuration](configuration.md#helm-chart-values)
+> `NodeProfile`s scoped to your pools — see [Configuration](configuration.md#helm-chart-values)
 > (`profiles` / `defaultProfile`) and [SPECIFICATION §5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 > For the labels those profiles publish and their autoscaler implications, see
 > [Capability labels and autoscaling](capability-labels-and-autoscaling.md).
@@ -170,6 +185,7 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.3.1 \
   --namespace brewlet \
   --create-namespace \
+  --set provisioner.pools="{java-workers}" \
   --set images.operator=<registry>/operator:<tag> \
   --set images.provisioner=<registry>/node-provisioner:<tag> \
   --set images.admission=<registry>/admission:<tag>

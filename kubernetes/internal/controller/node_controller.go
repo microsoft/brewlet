@@ -108,18 +108,6 @@ func (r *NodeReconciler) isBrewletNode(ctx context.Context, node *corev1.Node) (
 	return false, nil
 }
 
-// profileClaimsNode mirrors NodeProfileReconciler.nodeAssigned without a
-// receiver, for the node controller's membership check.
-func profileClaimsNode(profile *nodev1alpha1.NodeProfile, resolvedKey string, allNamed []string, node *corev1.Node) bool {
-	if !isDefaultProfile(profile) {
-		return nodeInPool(node, resolvedKey, profile.Spec.NodePool.Names)
-	}
-	if resolvedKey != "" && len(allNamed) > 0 && nodeInPool(node, resolvedKey, allNamed) {
-		return false
-	}
-	return true
-}
-
 // node is stuck (CrashLoopBackOff or repeated restarts), which maps to the
 // ProvisionFailed event in §14.
 func (r *NodeReconciler) provisionerFailing(ctx context.Context, nodeName string) (bool, string, error) {

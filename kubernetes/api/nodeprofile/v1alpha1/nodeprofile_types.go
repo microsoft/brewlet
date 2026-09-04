@@ -4,6 +4,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -33,6 +34,11 @@ type NodeProfileSpec struct {
 	// reconfig/validate mechanics themselves are defined in proposal 0002; this
 	// profile only selects them.
 	Rollout RolloutSpec `json:"rollout,omitempty"`
+	// Tolerations are the ONLY taints the privileged provisioner DaemonSet
+	// tolerates. Empty (the default) means the pod respects every taint,
+	// including the control-plane taint. List a taint here to deliberately
+	// provision a tainted pool you own.
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 // AppCDSSpec controls node-side AppCDS policy for a profile.
@@ -51,6 +57,12 @@ type NodePoolRef struct {
 	// auto-detects the provider key (gke-nodepool / agentpool / nodegroup /
 	// karpenter). Set it explicitly on bare-metal / non-standard clusters.
 	Key string `json:"key,omitempty"`
+	// IncludeControlPlane opts a profile into provisioning control-plane nodes.
+	// Nodes labelled node-role.kubernetes.io/control-plane (or the legacy
+	// .../master) are excluded from every profile unless this is true, so an
+	// untainted control-plane node — single-node kind and Docker Desktop
+	// clusters, for example — is still not provisioned by accident.
+	IncludeControlPlane bool `json:"includeControlPlane,omitempty"`
 }
 
 // JDKRef is one JDK root to install.

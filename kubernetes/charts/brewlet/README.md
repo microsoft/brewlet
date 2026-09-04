@@ -29,17 +29,23 @@ the webhook.
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.1.0 \
   --namespace brewlet \
-  --create-namespace
+  --create-namespace \
+  --set provisioner.pools="{java-workers}"
 
-# The default NodeProfile provisions EVERY node (§5.6) — no per-node opt-in step.
-# The operator provisions each node; the provisioner marks it ready.
+# The default NodeProfile provisions the named pools (§5.6) — no per-node opt-in
+# step. The operator provisions each node; the provisioner marks it ready.
 kubectl get nodes -L brewlet.sh/runtime
 ```
 
 > Provisioning is privileged and mutates the host. See the
 > [Brewlet specification](../../../specs/SPECIFICATION.md).
-> The default profile targets **all** nodes. To scope it to platform-owned pools,
-> set `defaultProfile.enabled=false` and define named `profiles` (§5.6).
+> There is no every-node install: the chart fails to render until
+> `provisioner.pools` names the pools the provisioner may mutate, or
+> `defaultProfile.enabled=false` hands profile authorship to you (§5.6).
+> Control-plane nodes are excluded by node affinity whether or not they are
+> tainted, and the provisioner tolerates only what a profile declares. On a
+> single-node kind or Docker Desktop cluster, whose one node is labelled as the
+> control plane, add `--set provisioner.includeControlPlane=true`.
 
 ## Values
 
@@ -56,6 +62,10 @@ kubectl get nodes -L brewlet.sh/runtime
 | `images.digests.admission` | recorded at release | Immutable digest for the admission image. |
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
 | `security.allowedSourceMirrorHosts` | `[]` | Exact destination registry hosts, including explicit ports, approved for JDK/launcher mirror rewrites. Empty disables mirrors. |
+| `provisioner.pools` | `[]` (**required**) | Node pool names the default profile may provision. Rendering fails when `defaultProfile.enabled` is true and this is empty — the privileged provisioner is never cluster-wide by default. |
+| `provisioner.poolKey` | `""` | Node label carrying the pool name. Empty auto-detects the well-known provider keys. |
+| `provisioner.includeControlPlane` | `false` | Allow the default profile onto control-plane nodes. Needed only on single-node clusters such as kind. |
+| `provisioner.tolerations` | `[]` | Tolerations for the default profile's provisioner pods. Each entry must name a `key`; nothing is tolerated implicitly. |
 | `provisioner.jdks` | structured Temurin 21 and Microsoft 25 examples | Required JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` (§5.3). |
 | `provisioner.launchers` | structured `jaz` example | Optional entries with `name`, digest-pinned `source.image`, and absolute `source.path` (§5.4). Empty = vanilla `java` only. |
 | `provisioner.registry.mirrors` | `{}` | Upstream host → approved mirror host/path map. Rewrites preserve the source digest. |

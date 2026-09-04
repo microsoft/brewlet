@@ -16,10 +16,13 @@ import (
 	appsv1alpha1 "brewlet-operator/api/v1alpha1"
 	"brewlet-operator/internal/controller"
 
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -71,6 +74,17 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElec,
 		LeaderElectionID:       "brewlet-operator.brewlet.sh",
+		// The managed provisioner/cleanup DaemonSets only ever live in the
+		// operator's namespace, so the informer is scoped to it and the
+		// operator needs no cluster-wide DaemonSet authority (a namespaced Role
+		// is enough). Every other watched type stays cluster-wide.
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&appsv1.DaemonSet{}: {
+					Namespaces: map[string]cache.Config{cfg.Namespace: {}},
+				},
+			},
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")

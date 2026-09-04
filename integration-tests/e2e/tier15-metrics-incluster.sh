@@ -669,6 +669,9 @@ spec:
   nodePool:
     key: $T15_POOL_KEY
     names: [$T15_POOL]
+    # The kind / Docker Desktop node this tier provisions carries the
+    # control-plane label, so the profile must opt in explicitly.
+    includeControlPlane: true
   jdks:
     - distribution: temurin
       feature: 21

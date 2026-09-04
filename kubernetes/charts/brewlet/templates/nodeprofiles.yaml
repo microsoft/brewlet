@@ -3,14 +3,18 @@
 
 {{/*
 NodeProfile CRs (see https://github.com/microsoft/brewlet/tree/main/specs). The chart
-renders a catch-all `default` profile from provisioner.* plus one NodeProfile per
-entry in `.Values.profiles`. The operator's NodeProfileReconciler turns each into
-a provisioner DaemonSet scoped to the profile's pool.
+renders a `default` profile from provisioner.* plus one NodeProfile per entry in
+`.Values.profiles`. The operator's NodeProfileReconciler turns each into a
+provisioner DaemonSet scoped to the profile's pool.
 
-Selecting a pool IS the opt-in; the default profile (no pool names) owns every
-node not claimed by a named-pool profile.
+Selecting a pool IS the opt-in. The chart never renders an every-node profile:
+provisioning is privileged and mutates the host, so `provisioner.pools` is
+required whenever the default profile is enabled.
 */}}
 {{- if .Values.defaultProfile.enabled }}
+{{- if not .Values.provisioner.pools }}
+{{- fail "provisioner.pools is required when defaultProfile.enabled is true: name the node pool(s) the privileged provisioner may mutate, or set defaultProfile.enabled=false and define your own NodeProfiles" }}
+{{- end }}
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
@@ -18,6 +22,17 @@ metadata:
   labels:
     {{- include "brewlet.labels" . | nindent 4 }}
 spec:
+  nodePool:
+    names:
+      {{- range $n := .Values.provisioner.pools }}
+      - {{ $n | quote }}
+      {{- end }}
+    {{- with .Values.provisioner.poolKey }}
+    key: {{ . | quote }}
+    {{- end }}
+    {{- if .Values.provisioner.includeControlPlane }}
+    includeControlPlane: true
+    {{- end }}
   jdks:
     {{- include "brewlet.jdkItems" (dict "value" .Values.provisioner.jdks) | nindent 4 }}
   {{- $launchers := include "brewlet.launcherItems" (dict "value" (default (list) .Values.provisioner.launchers)) }}
@@ -46,6 +61,10 @@ spec:
     {{- with .Values.provisioner.rollout.containerdRestart }}
     containerdRestart: {{ . | quote }}
     {{- end }}
+  {{- with .Values.provisioner.tolerations }}
+  tolerations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}
 {{- range $p := .Values.profiles }}
 ---
@@ -63,6 +82,9 @@ spec:
       {{- end }}
     {{- with $p.key }}
     key: {{ . | quote }}
+    {{- end }}
+    {{- if $p.includeControlPlane }}
+    includeControlPlane: true
     {{- end }}
   jdks:
     {{- include "brewlet.jdkItems" (dict "value" $p.jdks) | nindent 4 }}
@@ -86,6 +108,10 @@ spec:
   {{- end }}
   {{- with $p.rollout }}
   rollout:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $p.tolerations }}
+  tolerations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}

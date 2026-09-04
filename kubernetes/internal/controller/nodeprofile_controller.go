@@ -428,14 +428,7 @@ func (r *NodeProfileReconciler) poolCounts(profile *nodev1alpha1.NodeProfile, re
 
 // nodeAssigned reports whether a node belongs to the given profile.
 func (r *NodeProfileReconciler) nodeAssigned(profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string, node *corev1.Node) bool {
-	if !isDefaultProfile(profile) {
-		return nodeInPool(node, resolvedKey, profile.Spec.NodePool.Names)
-	}
-	// Catch-all default: every node not claimed by a named pool.
-	if resolvedKey != "" && len(otherPools) > 0 && nodeInPool(node, resolvedKey, otherPools) {
-		return false
-	}
-	return true
+	return profileClaimsNode(profile, resolvedKey, otherPools, node)
 }
 
 // updateStatus recomputes assigned/ready counts and the Ready condition, and
