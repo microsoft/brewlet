@@ -43,11 +43,37 @@ const (
 	// build, and trusted CRI process UID with -XX:+AutoCreateSharedArchive rather
 	// than consume a shipped archive. It is a deployment/fleet decision, so it
 	// lives on the pod, not in the artifact.
-	annCDSRegenerate        = "brewlet.sh/cds-regenerate"
+	annCDSRegenerate = "brewlet.sh/cds-regenerate"
+	// annJVMArgs carries the deployment descriptor's jvm.args onto the pod (set
+	// by the operator from spec.jvm.args, or by the user on a raw Deployment) as
+	// a JSON array of strings. The shim appends them to the launcher argv ahead
+	// of the entrypoint, so deployment tuning is applied AFTER the artifact's own
+	// launch knobs and therefore wins under the JVM's last-wins semantics (§4.2).
+	// A JSON array — not a whitespace-joined string — is the wire form so an
+	// argument that itself contains spaces (e.g.
+	// -XX:OnOutOfMemoryError="kill -9 %p") survives delivery intact.
+	annJVMArgs              = "brewlet.sh/jvm-args"
 	jdkHomeMetadata         = ".brewlet-java-home"
 	jdkActiveInventory      = ".brewlet-active"
 	launcherActiveInventory = ".brewlet-active"
 )
+
+// decodeJVMArgs decodes the brewlet.sh/jvm-args annotation into the extra
+// launcher args BuildJVMArgs appends before the entrypoint. An absent or empty
+// annotation means "no deployment tuning" and is not an error; anything else
+// must be a JSON array of strings, and a malformed value fails the launch
+// rather than silently dropping the platform team's tuning.
+func decodeJVMArgs(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var args []string
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return nil, fmt.Errorf("annotation %s must be a JSON array of strings: %w", annJVMArgs, err)
+	}
+	return args, nil
+}
 
 // imageConfig describes where a Brewlet image or local artifact lives and the
 // deployment/runtime choices used to assemble its bundle.

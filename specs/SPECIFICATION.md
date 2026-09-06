@@ -199,10 +199,26 @@ carries it.
 - Artifact launch knobs (`enablePreview`, `addModules`, `addOpens`, `addExports`,
   `systemProperties`) carry app-intrinsic correctness flags. Deployment tuning
   (heap, GC, agents, container flags) belongs in descriptor `jvm.args`, which is
-  applied after the artifact knobs and before the entrypoint.
-- Launch expansion order is: `--enable-preview`, `--add-modules`, `--add-opens`,
-  `--add-exports`, sorted `-D` system properties, descriptor `jvm.args`, then the
-  entrypoint (`-jar`, `-cp … <MainClass>`, or `-p … -m …`).
+  applied after the artifact knobs and before the entrypoint. Because the JVM
+  resolves conflicting options last-wins, deployment tuning therefore **overrides**
+  an app-embedded flag — a platform team can always win.
+- Launch expansion order is: `-Xshare:auto` + `-XX:SharedArchiveFile` (only when
+  the artifact ships an AppCDS archive and the deployment has not opted into
+  node-side regeneration — §13), `--enable-preview`, `--add-modules`,
+  `--add-opens`, `--add-exports`, sorted `-D` system properties, descriptor
+  `jvm.args`, then the entrypoint (`-jar`, `-cp … <MainClass>`, or `-p … -m …`).
+- Descriptor `jvm.args` reach the JVM as **argv**, not as an options environment
+  variable. They ride the pod on `brewlet.sh/jvm-args` (§8.2) and the shim appends
+  them at the position above. Two consequences are contractual:
+  - Argument boundaries are preserved, so a flag whose value contains a space
+    (e.g. `-XX:OnOutOfMemoryError=kill -9 %p`) is delivered as one argument.
+  - `jvm.args` MUST NOT select the entrypoint. `-jar`, `-cp`/`-classpath`/
+    `--class-path`, `-p`/`--module-path`, `-m`/`--module` (including their
+    `--flag=value` forms) and `@argfile` are rejected, because `java` stops
+    parsing options at the first entrypoint selector and one injected here would
+    silently take over the launch. The artifact owns the entrypoint. This is a
+    well-definedness rule, not a privilege boundary: the pod author already
+    controls the image contents.
 - **Mode owns its fields.** Each `entry.mode` uses a fixed set of fields and
   fields foreign to the selected mode are rejected rather than silently ignored:
   `jar` mode must not carry `mainClass`/`classPath` (the manifest `Main-Class`
@@ -1184,7 +1200,8 @@ Manager, and workload reconciliation analogous to Spin Operator:
   - `runtimeClassName: brewlet`,
   - the container `image` = the runnable OCI image ref,
   - `resources` copied from the descriptor (enforced as the sandbox cgroup),
-  - user-supplied `jvm.args`/`env` wired through (Brewlet injects no tuning of its own),
+  - user-supplied `jvm.args` delivered as argv via the `brewlet.sh/jvm-args` pod
+    annotation, and `env` wired through verbatim (Brewlet injects no tuning of its own),
   - probes, ports, and env wired through.
 - Owns and continuously reconciles the generated objects (GC via owner refs).
 
@@ -1196,12 +1213,33 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 > unit-tested builders in `javaapplication_resources.go`). It reconciles the
 > Deployment/Service/HPA, owns them via controller references, stamps the
 > `brewlet.sh/jdk` / `brewlet.sh/launcher` pod annotations the admission webhook
-> (§8.3) consumes, wires `jvm.args` through via `JDK_JAVA_OPTIONS`
-> (`JAVA_TOOL_OPTIONS` on JDK 8), and reports
+> (§8.3) consumes, delivers `jvm.args` as argv via the
+> `brewlet.sh/jvm-args` pod annotation, and reports
 > `readyReplicas` / `selectedJdk` / a `Ready` condition on status. The API types
 > live in `api/v1alpha1`; RBAC ships in `config/operator.yaml` and the
 > [`charts/brewlet`](../kubernetes/charts/brewlet)
 > Helm chart (which also installs the CRD).
+>
+> **`jvm.args` delivery (`brewlet.sh/jvm-args`) — public contract.** The value is
+> a **JSON array of strings**, e.g. `["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]`.
+> The operator stamps it from `spec.jvm.args`; a user may set it directly on a raw
+> pod (§9.2). The shim decodes it and appends the elements to the launcher argv
+> immediately before the entrypoint (§4.2). The containerd runtime configuration
+> forwards `brewlet.sh/*` pod annotations onto the OCI spec (§5.2), so no node
+> reconfiguration is required to adopt it.
+>
+> Brewlet does **not** set `JDK_JAVA_OPTIONS` (or `JAVA_TOOL_OPTIONS`). The `java`
+> launcher *prepends* those variables to the command line, which would place
+> deployment tuning **before** the artifact's own flags and let the artifact win —
+> the inverse of the §4.2 contract — and joining the args with whitespace would
+> corrupt any argument containing a space. A user-supplied
+> `JDK_JAVA_OPTIONS`/`JAVA_TOOL_OPTIONS` in `spec.env` is still passed through
+> untouched and still honored by the JVM; because the launcher applies it before
+> argv, `jvm.args` win on conflict. That overlap is reported as a
+> `JVMArgsApplied=True` condition with reason `EnvOptionsOverlap` plus a warning
+> event. Both are applied — neither side is dropped. Args that would select the
+> entrypoint (§4.2) fail validation with `Ready=False`, reason `ReconcileError`,
+> and are independently rejected by the shim.
 >
 > **Autoscaling (HPA).** When `spec.autoscaling.enabled` is `true`, the controller
 > renders an `autoscaling/v1` `HorizontalPodAutoscaler` targeting the managed
@@ -1355,6 +1393,9 @@ spec:
       annotations:
         brewlet.sh/jdk: "21"
         brewlet.sh/launcher: java
+        # The raw-pod equivalent of spec.jvm.args (§8.2). A JSON array of
+        # strings, appended to the launcher argv before the entrypoint (§4.2).
+        brewlet.sh/jvm-args: '["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]'
     spec:
       runtimeClassName: brewlet
       containers:
@@ -1363,6 +1404,11 @@ spec:
           resources: { limits: { cpu: "1", memory: "512Mi" } }
           ports: [{ containerPort: 8080 }]
 ```
+
+Raw pods have no controller to validate the annotation, so the shim is the
+enforcement point: a value that is not a JSON array of strings, or that contains
+an entrypoint-selecting flag (§4.2), fails task creation rather than launching
+with the tuning silently dropped.
 
 ### 9.3 Choosing a launcher: vanilla `java` vs. `jaz`
 
@@ -1422,6 +1468,18 @@ descriptor's `jvm.args`.
 - Modern JDKs are cgroup-v2 aware; Brewlet **requires cgroup v2** on nodes.
 - A custom launcher (e.g. `jaz`) can auto-tune these from the cgroup limits on the
   user's behalf.
+
+**Requests vs. limits.** Only *limits* become the sandbox cgroup and therefore only
+limits are visible to the container-aware JDK; *requests* are a scheduling concern.
+Brewlet copies `spec.resources` verbatim and never defaults one side from the
+other, so each shape behaves as plain Kubernetes does:
+
+| Descriptor shape             | Cgroup / JVM consequence                                                                 |
+|------------------------------|------------------------------------------------------------------------------------------|
+| request < limit (Burstable)  | Cgroup uses the **limit**; the JDK sizes the heap from the limit, not the request           |
+| limit, no request            | Kubernetes defaults the request from the limit at admission; the cgroup is the limit         |
+| request, no limit            | **No cgroup ceiling** — the JDK sees host-visible memory/CPU. Set a limit or an explicit `-Xmx` |
+| neither                      | Unbounded (BestEffort); the JDK sees host-visible memory/CPU                                 |
 
 ---
 

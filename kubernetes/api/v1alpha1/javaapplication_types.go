@@ -84,8 +84,12 @@ type JVMSpec struct {
 	// +kubebuilder:validation:MaxLength=54
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Launcher string `json:"launcher,omitempty"`
-	// Args are user-supplied JVM flags, wired through to the JVM via
-	// JDK_JAVA_OPTIONS (or JAVA_TOOL_OPTIONS on JDK 8, which lacks the former).
+	// Args are user-supplied JVM flags. They are stamped on the pod as the
+	// brewlet.sh/jvm-args annotation (a JSON array) and appended by the shim to
+	// the launcher argv immediately before the entrypoint, so they are applied
+	// AFTER the artifact's own launch knobs and win on conflict (§4.2/§8.2).
+	// Args that select the entrypoint (-jar/-cp/-p/-m and their long forms) and
+	// java @argfiles are rejected: the artifact owns the entrypoint.
 	// Tuning (heap %, GC, processor count) is the user's responsibility (§10).
 	Args []string `json:"args,omitempty"`
 	// CDS carries deployment-side AppCDS behavior. Node-side regeneration is a
@@ -167,6 +171,19 @@ const (
 	ReasonProgressing = "Progressing"
 	// ReasonReconcileError — reconciling a managed object failed.
 	ReasonReconcileError = "ReconcileError"
+
+	// ConditionJVMArgsApplied reports how spec.jvm.args reached the JVM. It is
+	// only set when jvm.args is non-empty.
+	ConditionJVMArgsApplied = "JVMArgsApplied"
+
+	// ReasonArgsDelivered — jvm.args were stamped on the pod as the
+	// brewlet.sh/jvm-args annotation and are appended to the launcher argv.
+	ReasonArgsDelivered = "ArgsDelivered"
+	// ReasonEnvOptionsOverlap — jvm.args were delivered as argv, but the user
+	// also set JDK_JAVA_OPTIONS/JAVA_TOOL_OPTIONS in spec.env. The JVM applies
+	// that env var BEFORE argv, so jvm.args win on conflict. Both are applied;
+	// nothing is dropped. Previously the overlap silently discarded jvm.args.
+	ReasonEnvOptionsOverlap = "EnvOptionsOverlap"
 )
 
 // JavaApplication is the developer-facing deployment descriptor for a JAR (§9).

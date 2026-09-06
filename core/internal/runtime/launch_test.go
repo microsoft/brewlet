@@ -703,3 +703,113 @@ func TestResolveLauncherRejectsPaths(t *testing.T) {
 		t.Fatalf("resolveLauncher(vanilla) = %q, want %q", got, want)
 	}
 }
+
+// TestBuildJVMArgsExtraArgsWinOverArtifactKnobs pins the §4.2 precedence
+// contract: deployment tuning is expanded AFTER the artifact's own launch knobs
+// and before the entrypoint, so the JVM's last-wins parsing gives the platform
+// team's flag priority over an app-embedded one. The previous
+// JDK_JAVA_OPTIONS wiring inverted this, because `java` PREPENDS that variable.
+func TestBuildJVMArgsExtraArgsWinOverArtifactKnobs(t *testing.T) {
+	cfg := artifact.JVMConfig{
+		Entry:            artifact.Entry{Mode: "jar"},
+		EnablePreview:    true,
+		SystemProperties: map[string]string{"app.mode": "embedded"},
+	}
+	extra := []string{"-Dapp.mode=platform", "-XX:MaxRAMPercentage=75.0"}
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", extra, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "--enable-preview -Dapp.mode=embedded -Dapp.mode=platform -XX:MaxRAMPercentage=75.0 -jar /app/app.jar"
+	if got := strings.Join(args, " "); got != want {
+		t.Errorf("args = %q, want %q", got, want)
+	}
+}
+
+// The full §4.2 expansion order, CDS flags included.
+func TestBuildJVMArgsFullExpansionOrder(t *testing.T) {
+	cfg := artifact.JVMConfig{
+		Entry:            artifact.Entry{Mode: "jar"},
+		CDS:              &artifact.CDS{Archive: "app.jsa"},
+		EnablePreview:    true,
+		AddModules:       []string{"jdk.incubator.vector"},
+		AddOpens:         []string{"java.base/java.lang=ALL-UNNAMED"},
+		AddExports:       []string{"java.base/sun.nio.ch=ALL-UNNAMED"},
+		SystemProperties: map[string]string{"a": "1"},
+	}
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", []string{"-Xmx1g"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{
+		"-Xshare:auto", "-XX:SharedArchiveFile=/app/app.jsa",
+		"--enable-preview",
+		"--add-modules", "jdk.incubator.vector",
+		"--add-opens", "java.base/java.lang=ALL-UNNAMED",
+		"--add-exports", "java.base/sun.nio.ch=ALL-UNNAMED",
+		"-Da=1",
+		"-Xmx1g",
+		"-jar", "/app/app.jar",
+	}, " ")
+	if got := strings.Join(args, " "); got != want {
+		t.Errorf("args =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// Argv delivery preserves argument boundaries; the previous whitespace-joined
+// env var would have shattered this into four bogus arguments.
+func TestBuildJVMArgsPreservesArgsContainingSpaces(t *testing.T) {
+	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}}
+	arg := `-XX:OnOutOfMemoryError=kill -9 %p`
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", []string{arg}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 3 || args[0] != arg {
+		t.Fatalf("args = %q, want the space-bearing flag delivered as one element", args)
+	}
+}
+
+func TestValidateExtraArgs(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{"nil", nil, false},
+		{"tuning", []string{"-Xmx1g", "-XX:+UseZGC", "-Dfoo=bar"}, false},
+		{"module access is tuning", []string{"--add-opens", "java.base/java.lang=ALL-UNNAMED"}, false},
+		{"agent", []string{"-javaagent:/agents/apm.jar"}, false},
+		{"enable-preview", []string{"--enable-preview"}, false},
+		// A -D whose VALUE happens to look like a selector is still a -D.
+		{"system property valued like a flag", []string{"-Dcmd=-jar"}, false},
+
+		{"-jar", []string{"-jar", "/tmp/evil.jar"}, true},
+		{"-cp", []string{"-cp", "/tmp/evil"}, true},
+		{"-classpath", []string{"-classpath", "/tmp/evil"}, true},
+		{"--class-path", []string{"--class-path", "/tmp/evil"}, true},
+		{"--class-path=", []string{"--class-path=/tmp/evil"}, true},
+		{"-p", []string{"-p", "/tmp/mods"}, true},
+		{"--module-path", []string{"--module-path", "/tmp/mods"}, true},
+		{"--module-path=", []string{"--module-path=/tmp/mods"}, true},
+		{"-m", []string{"-m", "evil/Main"}, true},
+		{"--module", []string{"--module", "evil/Main"}, true},
+		{"--module=", []string{"--module=evil/Main"}, true},
+		{"selector after valid tuning", []string{"-Xmx1g", "-jar", "/tmp/evil.jar"}, true},
+		{"@argfile", []string{"@/tmp/args.txt"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateExtraArgs(tc.args); (err != nil) != tc.wantErr {
+				t.Fatalf("ValidateExtraArgs(%q) error = %v, wantErr %v", tc.args, err, tc.wantErr)
+			}
+			// BuildJVMArgs must enforce the same rule, so a hijacking arg can
+			// never reach argv through any caller.
+			cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}}
+			_, err := BuildJVMArgs(cfg, "/app/app.jar", tc.args, false)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("BuildJVMArgs(extra=%q) error = %v, wantErr %v", tc.args, err, tc.wantErr)
+			}
+		})
+	}
+}

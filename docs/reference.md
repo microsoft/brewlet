@@ -155,7 +155,16 @@ bundles use the trusted `brewlet bundle --uid/--gid` flags.
 Artifact launch knobs expand first in this order: `-Xshare:auto`
 `-XX:SharedArchiveFile` (when `cds` is set), `--enable-preview`, `--add-modules`,
 `--add-opens`, `--add-exports`, sorted `-D` flags. Descriptor `jvm.args` follows
-for deployment tuning/escape-hatch flags, then the entrypoint.
+for deployment tuning/escape-hatch flags, then the entrypoint. Because the JVM
+resolves conflicting options last-wins, descriptor `jvm.args` **override**
+app-embedded flags.
+
+Descriptor `jvm.args` are delivered as **argv**, carried on the pod as the
+`brewlet.sh/jvm-args` annotation (a JSON array of strings). Brewlet does not set
+`JDK_JAVA_OPTIONS`/`JAVA_TOOL_OPTIONS`, which the launcher would *prepend* and so
+invert that precedence. Args that select the entrypoint — `-jar`, `-cp` /
+`-classpath` / `--class-path`, `-p` / `--module-path`, `-m` / `--module`, and
+`@argfile` — are rejected: the artifact owns the entrypoint.
 
 JDK feature/distribution and launcher are not part of this artifact config. They
 are specified in the deployment descriptor (`spec.jvm.version` /

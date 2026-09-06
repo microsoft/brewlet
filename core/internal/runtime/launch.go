@@ -75,6 +75,9 @@ func BuildJVMArgs(cfg artifact.JVMConfig, jarPath string, extraArgs []string, re
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	if err := ValidateExtraArgs(extraArgs); err != nil {
+		return nil, err
+	}
 	var args []string
 
 	// AppCDS (optional): mount-point is /app/<archive>, i.e. beside the JAR, so
@@ -132,6 +135,48 @@ func BuildJVMArgs(cfg artifact.JVMConfig, jarPath string, extraArgs []string, re
 		return nil, fmt.Errorf("unknown entry.mode %q", cfg.Entry.Mode)
 	}
 	return args, nil
+}
+
+// entrypointSelectingFlags are the `java` launcher options that choose WHAT the
+// JVM runs, as opposed to how it runs. They belong to the artifact's launch
+// config (§4.2), never to deployment tuning.
+var entrypointSelectingFlags = map[string]struct{}{
+	"-jar":          {},
+	"-cp":           {},
+	"-classpath":    {},
+	"--class-path":  {},
+	"-p":            {},
+	"--module-path": {},
+	"-m":            {},
+	"--module":      {},
+}
+
+// ValidateExtraArgs rejects deployment-supplied JVM args that would take the
+// launch over. BuildJVMArgs appends extraArgs immediately BEFORE the entrypoint,
+// and `java` stops parsing options at the first entrypoint selector, so an
+// injected `-jar other.jar` would run other.jar and pass the artifact's own
+// `-jar app.jar` to it as program arguments. That is not a privilege boundary —
+// the pod author already controls the image — but it leaves the launch contract
+// ill-defined, so it fails closed instead.
+//
+// A `@argfile` is rejected for the same reason: `java` expands one in place, so
+// its contents could reintroduce an entrypoint selector past this check.
+func ValidateExtraArgs(extraArgs []string) error {
+	for _, a := range extraArgs {
+		name := a
+		if i := strings.IndexByte(name, '='); i >= 0 {
+			name = name[:i]
+		}
+		if _, bad := entrypointSelectingFlags[name]; bad {
+			return fmt.Errorf(
+				"jvm arg %q selects the entrypoint, which the artifact's launch config owns; use tuning flags only (-X…, -XX:…, -D…, --add-opens, …)", a)
+		}
+		if strings.HasPrefix(a, "@") {
+			return fmt.Errorf(
+				"jvm arg %q is a java @argfile, whose contents could select the entrypoint; inline the flags instead", a)
+		}
+	}
+	return nil
 }
 
 // classPath builds the `-cp` value for classpath mode. With no entry.classPath it is
