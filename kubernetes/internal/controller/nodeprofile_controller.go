@@ -251,6 +251,7 @@ func (r *NodeProfileReconciler) withdrawProfileNodeAdvertisements(ctx context.Co
 		delete(node.Annotations, brewlet.AnnotationProfile)
 		delete(node.Annotations, brewlet.AnnotationProfileGeneration)
 		delete(node.Annotations, brewlet.AnnotationProvisionError)
+		delete(node.Annotations, brewlet.AnnotationProvisionErrorMessage)
 		if err := r.Patch(ctx, node, client.MergeFrom(base)); err != nil {
 			return fmt.Errorf("withdrawing invalid profile %q from node %q: %w", profileName, node.Name, err)
 		}
@@ -481,8 +482,9 @@ func (r *NodeProfileReconciler) assignedNodeFailure(profile *nodev1alpha1.NodePr
 		if !r.nodeAssigned(profile, resolvedKey, otherPools, node) {
 			continue
 		}
-		if e := node.Annotations[brewlet.AnnotationProvisionError]; e != "" {
-			return true, fmt.Sprintf("node %s: %s", node.Name, e)
+		if code := node.Annotations[brewlet.AnnotationProvisionError]; code != "" {
+			return true, fmt.Sprintf("node %s: %s", node.Name,
+				brewlet.FormatProvisionError(code, node.Annotations[brewlet.AnnotationProvisionErrorMessage]))
 		}
 	}
 	return false, ""

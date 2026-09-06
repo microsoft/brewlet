@@ -59,25 +59,31 @@ provisioner:
   # untainted; enable this only for single-node development clusters (kind,
   # Docker Desktop) where the only node is the control plane.
   includeControlPlane: false
-  # Editable examples. Every JDK must provide a fully qualified, tagless,
-  # SHA-256 digest-pinned image and its JDK root path (§5.3).
-  jdks:
-    - distribution: temurin
-      feature: 21
-      source:
-        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
-        javaHome: /opt/java/openjdk
-    - distribution: microsoft
-      feature: 25
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        javaHome: /usr/lib/jvm/msopenjdk-25
-  # Optional launcher examples. Vanilla java comes from each JDK and is implicit.
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
+  # REQUIRED when defaultProfile.enabled is true. There is no default: Brewlet
+  # ships no built-in runtime catalog (§5.2/§5.3), and the platform team chooses
+  # every digest-pinned build it runs. A chart-shipped default digest could never
+  # receive a CVE patch, so rendering fails instead of silently pinning a JDK
+  # nobody chose.
+  #
+  # Every JDK must provide a fully qualified, tagless, SHA-256 digest-pinned
+  # image and its JDK root path (§5.3), e.g.
+  #
+  #   jdks:
+  #     - distribution: temurin
+  #       feature: 21
+  #       source:
+  #         image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
+  #         javaHome: /opt/java/openjdk
+  jdks: []
+  # Optional launcher sources. Vanilla java comes from each JDK and is implicit,
+  # so this may stay empty. Same digest-pinning rule as jdks, e.g.
+  #
+  #   launchers:
+  #     - name: jaz
+  #       source:
+  #         image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
+  #         path: /usr/bin/jaz
+  launchers: []
   # Node-side AppCDS archive regeneration is privileged policy and is disabled
   # unless explicitly enabled for this profile.
   appCDS:

@@ -57,9 +57,13 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	// A provisioner-reported reconfig/validation failure (proposal 0002) is a
-	// hard failure regardless of pod health.
-	if e := node.Annotations[brewlet.AnnotationProvisionError]; e != "" {
-		return ctrl.Result{}, r.markFailed(ctx, &node, e)
+	// hard failure regardless of pod health. brewlet.sh/provision-error carries
+	// the stable reason CODE (§14); brewlet.sh/provision-error-message carries
+	// optional human detail. The event message keeps the code first so an
+	// operator grepping events sees the parseable token.
+	if code := node.Annotations[brewlet.AnnotationProvisionError]; code != "" {
+		return ctrl.Result{}, r.markFailed(ctx, &node,
+			brewlet.FormatProvisionError(code, node.Annotations[brewlet.AnnotationProvisionErrorMessage]))
 	}
 
 	// Reflect the node's provisioning state.

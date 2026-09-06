@@ -63,7 +63,7 @@ with `--set key=value` or a values file.
 | `provisioner.poolKey` | `""` | Node label carrying the pool name. Empty auto-detects the well-known provider keys (AKS, EKS, GKE); set it explicitly on bare metal or kubeadm. |
 | `provisioner.includeControlPlane` | `false` | Allow the default profile onto control-plane nodes. Off by default, and only needed on single-node clusters such as kind or Docker Desktop, which label their node as the control plane without tainting it. |
 | `provisioner.tolerations` | `[]` | Tolerations for the default profile's provisioner pods. Standard Kubernetes toleration entries; each must name a `key`. Nothing is tolerated implicitly. |
-| `provisioner.jdks` | structured Temurin 21 and Microsoft 25 examples | Required JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` ([§JDK management](jdk-management.md#source-model)). |
+| `provisioner.jdks` | `[]` (**required**) | JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` ([§JDK management](jdk-management.md#source-model)). Brewlet ships no built-in runtime catalog, so rendering fails when `defaultProfile.enabled` is `true` and this is empty. |
 | `provisioner.launchers` | structured `jaz` example | Optional launcher entries with `name`, digest-pinned `source.image`, and absolute `source.path` ([§Launchers](launchers.md#helm-example-jaz)). Empty = vanilla `java` only. |
 | `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the chart-managed default `NodeProfile`. |
 | `provisioner.rollout.maxUnavailable` | `null` | Bounds the default profile's provisioner DaemonSet rolling update. `null` keeps the DaemonSet default. |
@@ -148,6 +148,11 @@ default `NodeProfile` until `provisioner.pools` is set; an install that leaves
 it empty fails with an actionable message instead of quietly claiming the
 cluster. Set `defaultProfile.enabled=false` if you would rather author profiles
 yourself.
+
+**And only the JDKs it names.** `provisioner.jdks` is required for the same
+reason a pool is: Brewlet has no built-in runtime catalog, and the platform team
+owns every digest it runs. The chart ships no default source, because a
+chart-pinned digest could never receive a CVE patch.
 
 **Control-plane nodes are excluded.** Every profile's DaemonSet requires
 `node-role.kubernetes.io/control-plane` and `node-role.kubernetes.io/master` to

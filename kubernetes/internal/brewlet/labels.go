@@ -7,6 +7,8 @@
 // reads them) — keep them in sync with https://github.com/microsoft/brewlet/tree/main/specs.
 package brewlet
 
+import "strings"
+
 const (
 	// LabelProvision is the legacy per-node opt-in for brewlet provisioning.
 	// The platform team sets it (e.g. `kubectl label node --all
@@ -29,7 +31,18 @@ const (
 	// comma-separated list of <dist>-<feature> tokens, e.g.
 	// "temurin-21,microsoft-25".
 	AnnotationJDKs = "brewlet.sh/jdks"
-	// AnnotationJDKsInfo carries the provisioner's structured JDK inventory.
+	// AnnotationJDKsInfo carries the provisioner's structured JDK inventory as a
+	// JSON array with one object per installed root:
+	//
+	//	{"distribution":"temurin","vendor":"Eclipse Adoptium","feature":21,
+	//	 "version":"21.0.5","arch":"amd64"}
+	//
+	// "vendor", "version" and "arch" are read from the installed JDK itself
+	// (java -XshowSettings:properties), so they describe what is really on the
+	// node rather than what was requested. It is the diagnostic companion to
+	// AnnotationJDKs, which carries just the comma-separated "<dist>-<feature>"
+	// tokens. Neither drives scheduling — the per-capability labels do (see
+	// LabelJDKPrefix). A root whose java binary cannot be run is omitted.
 	AnnotationJDKsInfo = "brewlet.sh/jdks-info"
 	// AnnotationLaunchers advertises the installed launcher layers, similarly
 	// comma-separated, e.g. "java,jaz".
@@ -41,16 +54,47 @@ const (
 	// provisioner owns).
 	AnnotationProvisionState = "brewlet.sh/provision-state"
 
-	// AnnotationProvisionError carries a machine-readable failure reason the
+	// AnnotationProvisionError carries a STABLE, machine-readable reason CODE the
 	// provisioner writes on a node when a reconfig/validation step fails
-	// (proposal 0002). The NodeProfileReconciler reads it when computing
-	// readyNodes and surfaces it as the owning profile's Degraded reason (§5.5).
+	// (proposal 0002). It is a public contract: consumers may branch on it. The
+	// enumeration lives in §14; the code shape is lowercase alphanumerics and
+	// '-', at most 63 characters. The NodeProfileReconciler reads it when
+	// computing readyNodes and surfaces it as the owning profile's Degraded
+	// reason (§5.5).
 	AnnotationProvisionError = "brewlet.sh/provision-error"
+	// AnnotationProvisionErrorMessage carries free-form human detail for the
+	// failure above. It is explicitly NOT a contract — its wording may change at
+	// any time — so consumers must key off AnnotationProvisionError instead. It
+	// exists so the code can stay parseable without losing operator-facing
+	// context.
+	AnnotationProvisionErrorMessage = "brewlet.sh/provision-error-message"
 	// AnnotationProfile and AnnotationProfileGeneration identify the exact
 	// NodeProfile revision the provisioner successfully applied to a node.
+	// AnnotationProfile is the profile's metadata.name; AnnotationProfileGeneration
+	// is the decimal metadata.generation it was rendered from, so a stale node can
+	// be told apart from an up-to-date one.
 	AnnotationProfile           = "brewlet.sh/profile"
 	AnnotationProfileGeneration = "brewlet.sh/profile-generation"
 )
+
+// FormatProvisionError renders a node's provisioning failure for an event or a
+// status message. The stable reason code comes first so it stays greppable; the
+// optional human message follows. Kept in one place so the operator's node and
+// profile controllers cannot drift.
+func FormatProvisionError(code, message string) string {
+	code = strings.TrimSpace(code)
+	message = strings.TrimSpace(message)
+	switch {
+	case code == "" && message == "":
+		return ""
+	case message == "":
+		return code
+	case code == "":
+		return message
+	default:
+		return code + ": " + message
+	}
+}
 
 // Node-pool vocabulary for the NodeProfile model (§5.6 / proposal 0001).
 const (

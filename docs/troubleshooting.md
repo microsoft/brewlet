@@ -34,8 +34,16 @@ kubectl get node <n> -o jsonpath='{.metadata.labels.brewlet\.sh/provision}{"\n"}
 kubectl get pods -n brewlet -o wide | grep <n>
 kubectl logs -n brewlet <provisioner-pod>
 kubectl get events --field-selector reason=ProvisionFailed
+# The stable reason code, then the human detail:
 kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-error}{"\n"}'
+kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-error-message}{"\n"}'
 ```
+
+`brewlet.sh/provision-error` is a stable code you can alert on; the full
+enumeration is in
+[SPECIFICATION §14.2](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
+`brewlet.sh/provision-error-message` is free-form operator text and is not a
+contract — do not parse it.
 
 **Common causes & fixes:**
 

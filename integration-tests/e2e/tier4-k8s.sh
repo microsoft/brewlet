@@ -45,7 +45,9 @@ _t4_dep_exists()  { kubectl get deploy orders -n "$T4_NS_APP" >/dev/null 2>&1; }
 _t4_svc_exists()  { kubectl get svc orders -n "$T4_NS_APP" >/dev/null 2>&1; }
 _t4_hpa_exists()  { kubectl get hpa orders -n "$T4_NS_APP" >/dev/null 2>&1; }
 _t4_dep_gone()    { ! kubectl get deploy orders -n "$T4_NS_APP" >/dev/null 2>&1; }
-_t4_jdk_set()     { [[ "$(kubectl get javaapplication orders -n "$T4_NS_APP" -o jsonpath='{.status.selectedJdk}' 2>/dev/null)" == "21" ]]; }
+# The descriptor pins jvm.distribution, so the resolved JDK is the exact
+# "<dist>-<feature>" the annotation and node capability labels use.
+_t4_jdk_set()     { [[ "$(kubectl get javaapplication orders -n "$T4_NS_APP" -o jsonpath='{.status.selectedJdk}' 2>/dev/null)" == "temurin-21" ]]; }
 _t4_rc_exists()   { kubectl get runtimeclass brewlet >/dev/null 2>&1; }
 _t4_ds_exists()   { kubectl get daemonset brewlet-node-provisioner-default -n "$T4_NS_OP" >/dev/null 2>&1; }
 _t4_np_assigned() { [[ "$(kubectl get nodeprofile default -o jsonpath='{.status.assignedNodes}' 2>/dev/null)" =~ ^[1-9][0-9]*$ ]]; }
@@ -179,9 +181,9 @@ YAML
   fi
 
   if wait_for _t4_jdk_set; then
-    pass "controller: JavaApplication status reflects selected JDK (21)"
+    pass "controller: JavaApplication status reflects selected JDK (temurin-21)"
   else
-    fail "controller: status.selectedJdk == 21" \
+    fail "controller: status.selectedJdk == temurin-21" \
       "got '$(kubectl get javaapplication orders -n "$T4_NS_APP" -o jsonpath='{.status.selectedJdk}' 2>/dev/null)'"
   fi
 
@@ -272,8 +274,18 @@ YAML
 
   # --- Helm chart packaging -------------------------------------------------
   if have helm; then
+    # The chart ships no default JDK sources (Brewlet has no built-in runtime
+    # catalog, and a chart-pinned digest could never be CVE-patched), so every
+    # render must name one, exactly as an operator would.
+    local -a min_profile=(
+      --set provisioner.pools="{general}"
+      --set provisioner.jdks[0].distribution=temurin
+      --set provisioner.jdks[0].feature=21
+      --set provisioner.jdks[0].source.image=docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+      --set provisioner.jdks[0].source.javaHome=/opt/java/openjdk
+    )
     if helm lint "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-         --set provisioner.pools="{general}" >"$WORK/t4-helm-lint.log" 2>&1; then
+         "${min_profile[@]}" >"$WORK/t4-helm-lint.log" 2>&1; then
       pass "helm: chart lints clean"
     else
       fail "helm: chart lint" "see $WORK/t4-helm-lint.log"
@@ -291,9 +303,20 @@ YAML
         "$failclosed" "provisioner.pools"
     fi
 
+    # Same reasoning for the runtime catalog: §5.3 puts every digest-pinned JDK
+    # build in the platform team's hands, so the chart must not ship one.
+    if failclosed="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+        --set provisioner.pools="{general}" 2>&1)"; then
+      fail "helm: an install without provisioner.jdks fails closed" \
+        "the chart rendered a default NodeProfile with no JDK sources"
+    else
+      assert_contains "helm: an install without provisioner.jdks fails closed" \
+        "$failclosed" "provisioner.jdks"
+    fi
+
     local tmpl
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-        --set provisioner.pools="{general}" 2>>"$WORK/t4-helm-template.log")"; then
+        "${min_profile[@]}" 2>>"$WORK/t4-helm-template.log")"; then
       assert_contains "helm: renders the operator Deployment" "$tmpl" "brewlet-operator"
       assert_contains "helm: renders the admission webhook" "$tmpl" "admission"
       assert_contains "helm: renders provisioner RBAC" "$tmpl" "ServiceAccount"
@@ -335,7 +358,7 @@ YAML
       fail "helm: template render" "see $WORK/t4-helm-template.log"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-          --set provisioner.pools="{general}" \
+          "${min_profile[@]}" \
           --set metrics.enabled=true \
           --set metrics.serviceMonitor.enabled=true \
           --set metrics.grafanaDashboard.enabled=true 2>>"$WORK/t4-helm-template.log")"; then
@@ -345,7 +368,7 @@ YAML
       fail "helm: optional metrics template render" "see $WORK/t4-helm-template.log"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-          --set provisioner.pools="{general}" \
+          "${min_profile[@]}" \
           --set admission.certManager.enabled=true \
           --set admission.certManager.createSelfSignedIssuer=true \
           2>>"$WORK/t4-helm-template.log")"; then
@@ -363,7 +386,7 @@ YAML
       fail "helm: cert-manager template render" "see $WORK/t4-helm-template.log"
     fi
     if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-         --set provisioner.pools="{general}" \
+         "${min_profile[@]}" \
          --set admission.certManager.enabled=true \
          >"$WORK/t4-cert-manager-invalid.log" 2>&1; then
       fail "helm: cert-manager requires an issuer"
@@ -373,7 +396,7 @@ YAML
         "admission.certManager.issuerRef.name is required"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-          --set provisioner.pools="{general}" \
+          "${min_profile[@]}" \
           --set metrics.enabled=true \
           --set networkPolicy.enabled=true \
           --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
@@ -403,7 +426,7 @@ YAML
       fail "helm: NetworkPolicy template render" "see $WORK/t4-helm-template.log"
     fi
     if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-         --set provisioner.pools="{general}" \
+         "${min_profile[@]}" \
          --set networkPolicy.enabled=true \
          --set 'networkPolicy.admission.apiServerCIDRs[0]=10.0.0.0/8' \
          >"$WORK/t4-network-policy-health-invalid.log" 2>&1; then
@@ -414,7 +437,7 @@ YAML
         "networkPolicy.healthProbes.ingressFrom must contain at least one"
     fi
     if helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-         --set provisioner.pools="{general}" \
+         "${min_profile[@]}" \
          --set networkPolicy.enabled=true \
          --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
          >"$WORK/t4-network-policy-invalid.log" 2>&1; then
@@ -425,7 +448,7 @@ YAML
         "networkPolicy.admission.apiServerCIDRs must contain at least one"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-          --set provisioner.pools="{general}" \
+          "${min_profile[@]}" \
           --set security.allowedSourceMirrorHosts[0]=registry.internal \
           --set security.allowedSourceMirrorHosts[1]=mirror.example.com:5000 \
           2>>"$WORK/t4-helm-template.log")"; then
@@ -435,7 +458,7 @@ YAML
       fail "helm: mirror allowlist template render" "see $WORK/t4-helm-template.log"
     fi
     if helm install brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" --dry-run --namespace "$T4_NS_OP" \
-         --set provisioner.pools="{general}" \
+         "${min_profile[@]}" \
          >"$WORK/t4-helm-dryrun.log" 2>&1; then
       pass "helm: install --dry-run succeeds against the cluster"
     else

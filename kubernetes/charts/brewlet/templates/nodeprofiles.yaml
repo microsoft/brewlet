@@ -10,10 +10,19 @@ provisioner DaemonSet scoped to the profile's pool.
 Selecting a pool IS the opt-in. The chart never renders an every-node profile:
 provisioning is privileged and mutates the host, so `provisioner.pools` is
 required whenever the default profile is enabled.
+
+`provisioner.jdks` is required for the same class of reason. Brewlet has no
+built-in runtime catalog (§5.2): the platform team chooses every digest-pinned
+build it runs, and owns its CVE posture (§5.3). A chart-shipped default digest
+would be a JDK nobody chose that can never be patched, so rendering fails rather
+than pinning one.
 */}}
 {{- if .Values.defaultProfile.enabled }}
 {{- if not .Values.provisioner.pools }}
 {{- fail "provisioner.pools is required when defaultProfile.enabled is true: name the node pool(s) the privileged provisioner may mutate, or set defaultProfile.enabled=false and define your own NodeProfiles" }}
+{{- end }}
+{{- if not .Values.provisioner.jdks }}
+{{- fail "provisioner.jdks is required when defaultProfile.enabled is true: Brewlet ships no built-in runtime catalog, so name at least one digest-pinned JDK source (distribution, feature, source.image, source.javaHome), or set defaultProfile.enabled=false and define your own NodeProfiles" }}
 {{- end }}
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
