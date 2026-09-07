@@ -1,21 +1,90 @@
 NOTICES AND INFORMATION
 Do Not Translate or Localize
 
-This project incorporates third-party open source software. Complete license
-and attribution text is generated for each release surface from the dependencies
-actually redistributed by that artifact:
+This file is an index of Brewlet's third-party notices. It is not itself a list
+of attributions, and there is no single aggregated notice file in this
+repository.
 
-- Brewlet CLI archives: NOTICE.txt beside the executable.
-- Operator and admission container images: /NOTICE.txt.
-- Node provisioner container image: /NOTICE.txt.
-- Brewlet Maven plugin: META-INF/NOTICE.txt.
-- Brewlet website and generated documentation: /NOTICE.txt.
+Brewlet incorporates third-party open source software. The complete license and
+attribution text is kept with each release surface and is scoped to the
+dependencies that surface actually redistributes, so build-only and test-only
+dependencies are not presented as shipped software. Some notices are checked in
+here; the rest are generated during the build and only exist inside a built
+artifact.
 
-The generation and verification process is documented in
-docs/third-party-notices.md and enforced by the repository's CI and release
-workflows. The checked-in website and Maven plugin notices are available at
-site/NOTICE.txt and maven-plugin/src/main/resources/META-INF/NOTICE.txt.
+To review every third-party license in scope, read the checked-in files in
+section 1 and generate the files in section 2.
 
-Container images also include Microsoft's container legal notice at
-/CONTAINER-LEGAL-NOTICE.txt. Third-party license files retained in base images
-remain in their original filesystem locations.
+================================================================================
+1. Notices checked into this repository
+================================================================================
+
+site/NOTICE.txt
+    Website and generated documentation (MkDocs/Python and npm dependencies).
+    Published at https://brewlet.sh/NOTICE.txt.
+    https://github.com/microsoft/brewlet/blob/main/site/NOTICE.txt
+
+maven-plugin/src/main/resources/META-INF/NOTICE.txt
+    Brewlet Maven plugin. Packaged into the plugin JAR as META-INF/NOTICE.txt.
+    https://github.com/microsoft/brewlet/blob/main/maven-plugin/src/main/resources/META-INF/NOTICE.txt
+
+legal/CONTAINER-LEGAL-NOTICE.txt
+    Microsoft's container legal notice. Copied into every Brewlet container
+    image as /CONTAINER-LEGAL-NOTICE.txt.
+    https://github.com/microsoft/brewlet/blob/main/legal/CONTAINER-LEGAL-NOTICE.txt
+
+provisioner/cgmanifest.json
+    Registration for the kubectl, ctr, and crictl binaries that the provisioner
+    image downloads directly, because no package-manager manifest in this
+    repository covers them.
+    https://github.com/microsoft/brewlet/blob/main/provisioner/cgmanifest.json
+
+LICENSE.txt is Brewlet's own MIT license, not a third-party notice. It is
+shipped in CLI archives as LICENSE.txt, in container images as /LICENSE.txt, and
+in the Maven plugin JAR as META-INF/LICENSE.txt.
+
+================================================================================
+2. Notices generated at build time (not stored in this repository)
+================================================================================
+
+Go notices are generated from the packages actually linked for the target
+operating system and architecture, so they do not exist until the artifact is
+built. Generation fails when a linked module has no discoverable license or
+attribution file. Run the command shown to produce the same file that ships in
+the artifact.
+
+brewlet CLI archives -> NOTICE.txt beside the executable
+    ./scripts/generate-go-notice.sh core /tmp/cli-notice.txt ./cmd/brewlet
+
+Operator container image -> /NOTICE.txt
+    ./scripts/generate-go-notice.sh kubernetes /tmp/operator-notice.txt \
+      ./cmd/manager
+
+Admission container image -> /NOTICE.txt
+    ./scripts/generate-go-notice.sh kubernetes /tmp/admission-notice.txt \
+      ./cmd/admission
+
+Node provisioner container image -> /NOTICE.txt
+    ./scripts/generate-go-notice.sh core /tmp/provisioner-notice.txt \
+      ./shim/cmd/containerd-shim-brewlet-v2 \
+      ./cmd/brewlet-metrics-exporter \
+      ./cmd/brewlet-source-policy
+    The image build appends the licenses of the downloaded kubectl, ctr, and
+    crictl binaries to that file. See provisioner/Dockerfile.
+
+Helm chart
+    No third-party code is embedded in the chart package, so it ships no notice.
+
+Third-party license files that come from container base images stay in their
+original filesystem locations inside the image and are not copied into
+/NOTICE.txt. See https://aka.ms/mcr/osslinuxmetadata.
+
+================================================================================
+3. Process
+================================================================================
+
+docs/third-party-notices.md documents how each notice is generated, verified,
+and regenerated. The "License and notices" job in .github/workflows/ci.yml and
+the release and GitHub Pages workflows keep the checked-in notices in sync with
+their inputs.
+https://github.com/microsoft/brewlet/blob/main/docs/third-party-notices.md

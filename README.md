@@ -196,10 +196,12 @@ Brewlet is licensed under the [MIT License](LICENSE.txt).
 ## Third-party software
 
 Brewlet builds on third-party open source software. The repository-level
-[NOTICE.txt](NOTICE.txt) describes the attribution approach, and release
-artifacts include the complete notices applicable to the software they
-redistribute. See the [third-party notice documentation](docs/third-party-notices.md)
-for the notice location in each artifact.
+[NOTICE.txt](NOTICE.txt) is an index: it lists the notices checked into this
+repository and the commands that regenerate the notices produced at build time,
+because each release artifact carries only the notices for the software it
+actually redistributes. See the
+[third-party notice documentation](docs/third-party-notices.md) for the same
+breakdown with the notice location in each artifact.
 
 ## Trademarks
 
