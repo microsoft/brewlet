@@ -148,6 +148,19 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+    env:
+      # The chart deliberately ships no default JDK sources (§5.2/§5.3) and
+      # fails closed without one, so every render has to name one exactly as an
+      # operator would. Mirrors HELM_MIN_PROFILE in kubernetes/Makefile; keep
+      # the two in step. `helm lint` does not exercise the guard -- it reports
+      # this chart as passing while `helm template` cannot render it -- so the
+      # lint below is not a safety net for drift here.
+      HELM_MIN_PROFILE: >-
+        --set provisioner.pools={general}
+        --set provisioner.jdks[0].distribution=temurin
+        --set provisioner.jdks[0].feature=21
+        --set provisioner.jdks[0].source.image=docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        --set provisioner.jdks[0].source.javaHome=/opt/java/openjdk
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -193,10 +206,8 @@ jobs:
 
       - name: Package chart
         run: |
-          # The chart fails closed without provisioner.pools, so name one:
-          # this step checks packaging, not the placement guard (which
-          # kubernetes/Makefile helm-scheduling-check covers).
-          helm lint kubernetes/charts/brewlet --set provisioner.pools="{general}"
+          # $HELM_MIN_PROFILE is intentionally unquoted: it is a list of flags.
+          helm lint kubernetes/charts/brewlet $HELM_MIN_PROFILE
           helm package kubernetes/charts/brewlet \
             --version "${{ steps.version.outputs.version }}" \
             --app-version "${{ steps.version.outputs.version }}" \
@@ -206,7 +217,7 @@ jobs:
         shell: bash
         run: |
           helm template brewlet "dist/brewlet-${{ steps.version.outputs.version }}.tgz" \
-            --set provisioner.pools="{general}" \
+            $HELM_MIN_PROFILE \
             > rendered.yaml
           for image in brewlet-operator brewlet-admission brewlet-node-provisioner; do
             grep -Eq "ghcr\.io/microsoft/${image}@sha256:[0-9a-f]{64}" rendered.yaml || {
