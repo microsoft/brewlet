@@ -35,7 +35,7 @@ There are two paths:
 
 Brewlet publishes version-aligned multi-architecture component images and an OCI
 Helm chart. A published chart records the **immutable digest** of each component
-image it was built against, so installing chart `0.3.1` resolves
+image it was built against, so installing chart `0.4.0` resolves
 `ghcr.io/microsoft/brewlet-operator@sha256:…` rather than a tag that could later
 be repointed. Charts packaged from a source checkout have no recorded digests and
 fall back to the shared `images.tag`.
@@ -77,7 +77,7 @@ Verify everything for a release in one step:
 ```bash
 git clone https://github.com/microsoft/brewlet.git
 cd brewlet
-./scripts/verify-release-provenance.sh 0.3.1
+./scripts/verify-release-provenance.sh 0.4.0
 ```
 
 The script checks that each image, the chart, and every release asset was built
@@ -89,12 +89,12 @@ To verify a single artifact directly:
 
 ```bash
 # A component image, straight from the registry.
-gh attestation verify oci://ghcr.io/microsoft/brewlet-operator:0.3.1 \
+gh attestation verify oci://ghcr.io/microsoft/brewlet-operator:0.4.0 \
   --repo microsoft/brewlet \
   --signer-workflow microsoft/brewlet/.github/workflows/release.yml
 
 # A downloaded CLI archive.
-gh attestation verify brewlet_0.3.1_linux_amd64.tar.gz \
+gh attestation verify brewlet_0.4.0_linux_amd64.tar.gz \
   --repo microsoft/brewlet \
   --signer-workflow microsoft/brewlet/.github/workflows/release.yml
 ```
@@ -129,7 +129,7 @@ patched, so the chart ships none.
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.3.1 \
+  --version 0.4.0 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \
@@ -211,7 +211,7 @@ Point the chart at your own registry or image digests if required:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.3.1 \
+  --version 0.4.0 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \
@@ -321,7 +321,7 @@ and admission flags are in [Configuration](configuration.md#operator-flags).
 
 ```bash
 # Install the CLI version that matches the chart, then run the readiness check:
-export BREWLET_VERSION="0.3.1"
+export BREWLET_VERSION="0.4.0"
 curl -fsSL https://brewlet.sh/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 brewlet doctor --namespace default

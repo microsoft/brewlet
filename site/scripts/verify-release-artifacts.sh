@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-version="${1:-0.3.1}"
+version="${1:-0.4.0}"
 # Releases from this version on publish build provenance and a digest-pinned
 # chart. Older releases predate that workflow and are verified by checksum only.
 # Keep this at or below the version the Pages workflow verifies, otherwise

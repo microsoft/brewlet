@@ -30,7 +30,7 @@ approved host-level Brewlet provisioning.
 Set the Brewlet release and application registry used by both workshop parts:
 
 ```bash
-export BREWLET_VERSION="0.3.1"
+export BREWLET_VERSION="0.4.0"
 export BREWLET_REGISTRY="<registry-host>/<team>"
 ```
 
@@ -142,7 +142,7 @@ Give the developer:
 | Namespace | Namespace where the developer may deploy |
 | RuntimeClass | `brewlet` |
 | Supported JDK | `21` in this workshop |
-| Brewlet version | `0.3.1` |
+| Brewlet version | `0.4.0` |
 | Registry prefix | Repository where the developer can push OCI images |
 | Pull secret | Required only when the registry is private |
 

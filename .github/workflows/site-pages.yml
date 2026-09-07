@@ -28,7 +28,12 @@ concurrency:
 
 jobs:
   release-smoke:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.skip_release_smoke }}
+    # The installer, the release downloads, and the chart pull are all
+    # unauthenticated, so this job can only pass once brewlet is public. The
+    # deploy job below already treats a skipped smoke test as non-blocking.
+    if: >-
+      ${{ github.event.repository.visibility == 'public'
+      && (github.event_name != 'workflow_dispatch' || !inputs.skip_release_smoke) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,7 +49,7 @@ jobs:
         # and the script starts calling gh attestation verify.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./site/scripts/verify-release-artifacts.sh 0.3.1
+        run: ./site/scripts/verify-release-artifacts.sh 0.4.0
 
   deploy:
     needs: release-smoke
