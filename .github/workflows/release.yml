@@ -395,7 +395,13 @@ jobs:
 
   provenance-smoke:
     name: Release provenance
-    if: github.ref_type == 'tag'
+    # verify-release-provenance.sh resolves images, the chart, and release
+    # assets anonymously, which a private repository refuses, so the check can
+    # only pass once brewlet is public. Gating on visibility rather than
+    # deleting the job restores the check by itself at that point.
+    if: >-
+      github.ref_type == 'tag'
+      && github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     needs: github-release
     permissions:
