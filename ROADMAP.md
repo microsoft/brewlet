@@ -23,6 +23,14 @@ accepted and implemented.
   and profile cleanup removes a profile's roots. Still to come: collecting roots
   that drop out of a live profile's inventory, which needs real reference
   tracking against running workloads.
+- **Operator-managed webhook certificate rotation.** The dependency-free
+  self-signed serving certificate is minted by Helm at render time, so it is only
+  ever rotated by a `helm upgrade`. The chart now reuses the live certificate
+  until it is close to expiry and records a renewal deadline, but nothing renews
+  it unattended: a cluster that never upgrades will eventually serve an expired
+  certificate, which under the default `failurePolicy: Ignore` degrades silently.
+  cert-manager is the supported auto-renewal path today. Having the operator own
+  and rotate its own webhook certificate would remove that external dependency.
 - **Node profile refinements.** Evaluate profile-managed taints, an
   operator-synthesized default profile (the chart renders one today), and a
   documented bare-metal pool label.

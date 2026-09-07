@@ -183,10 +183,31 @@ admission:
   # Set Fail for synchronous rejection once webhook availability is guaranteed.
   nodeProfileFailurePolicy: Ignore
   port: 9443
+  # Narrow what the cluster-wide pod webhook is consulted for. The default keeps
+  # it off kube-system, where Brewlet workloads never run, so a webhook outage or
+  # slow response cannot affect control-plane pods. Set to {} to match every
+  # namespace. objectSelector is empty by default because a brewlet pod is
+  # identified by runtimeClassName, which a label selector cannot match — set it
+  # only if you label your Brewlet workloads yourself.
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values: ["kube-system"]
+  objectSelector: {}
   selfSigned:
-    # Used by the dependency-free default. Helm creates a fresh certificate on
-    # install/upgrade; use certManager below for automatic renewal.
+    # The dependency-free default. The certificate is reused across upgrades and
+    # only regenerated once it is within renewBeforeDays of expiry.
+    #
+    # NOTE: nothing rotates it on its own. If no `helm upgrade` runs before it
+    # expires, the webhook's TLS handshake starts failing; with the default
+    # failurePolicy: Ignore that degrades silently (pods are admitted without
+    # compatibility checks and without nodeAffinity). Use certManager below for
+    # real auto-renewal on any long-lived cluster.
     validityDays: 90
+    # Regenerate on upgrade once the certificate is within this many days of
+    # expiry. Must be >= 0 and less than validityDays.
+    renewBeforeDays: 30
   certManager:
     # Requires cert-manager and its CA injector to be installed in the cluster.
     enabled: false

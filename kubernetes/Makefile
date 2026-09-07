@@ -10,7 +10,7 @@ ENVTEST_K8S_VERSION ?= 1.31.0
 SETUP_ENVTEST_VERSION ?= v0.0.0-20250308055145-5fe7bb3edc86
 SETUP_ENVTEST ?= $(shell $(GO) env GOPATH)/bin/setup-envtest
 
-.PHONY: all fmt-check vet build test test-envtest ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-scheduling-check helm-check print-setup-envtest-version clean
+.PHONY: all fmt-check vet build test test-envtest ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-check print-setup-envtest-version clean
 
 all: build
 
@@ -139,7 +139,30 @@ helm-scheduling-check:
 		echo "chart and deploy NodeProfile CRDs have diverged"; exit 1; \
 	fi
 
-helm-check: helm-lint helm-template helm-digest-check helm-scheduling-check
+# The pod webhook is cluster-wide on CREATE, so it must stay off kube-system by
+# default, and the self-signed serving certificate must record when it is due for
+# rotation (nothing renews it on its own).
+helm-admission-check:
+	@rendered="$$($(HELM) template brewlet charts/brewlet $(HELM_MIN_PROFILE))"; \
+	if ! printf '%s\n' "$$rendered" | grep -q 'namespaceSelector'; then \
+		echo "pod webhook rendered without a namespaceSelector"; exit 1; \
+	fi; \
+	if ! printf '%s\n' "$$rendered" | grep -q 'kube-system'; then \
+		echo "pod webhook namespaceSelector does not exclude kube-system"; exit 1; \
+	fi; \
+	if ! printf '%s\n' "$$rendered" | grep -q 'brewlet.sh/cert-renew-after'; then \
+		echo "self-signed certificate Secret records no renewal deadline"; exit 1; \
+	fi
+	@if $(HELM) template brewlet charts/brewlet $(HELM_MIN_PROFILE) \
+		--set admission.selfSigned.renewBeforeDays=90 >/dev/null 2>&1; then \
+		echo "chart accepted renewBeforeDays >= validityDays"; exit 1; \
+	fi
+	@if $(HELM) template brewlet charts/brewlet $(HELM_MIN_PROFILE) \
+		--set admission.namespaceSelector=null >/dev/null 2>&1; then :; else \
+		echo "chart could not render with an empty namespaceSelector"; exit 1; \
+	fi
+
+helm-check: helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check
 
 clean:
 	rm -rf bin

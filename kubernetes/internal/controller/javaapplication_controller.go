@@ -212,6 +212,13 @@ func (r *JavaApplicationReconciler) updateStatus(ctx context.Context, app *appsv
 		return depErr
 	}
 
+	// Snapshot before mutating so an unchanged status can skip the write. Without
+	// this, every reconcile issues a Status().Update, whose resourceVersion bump
+	// re-enqueues the object through the controller's own watch — a self-sustaining
+	// reconcile storm that costs API-server writes for no state change. The
+	// NodeProfile controller already guards its writes this way.
+	before := app.Status.DeepCopy()
+
 	app.Status.ObservedGeneration = app.Generation
 	app.Status.ReadyReplicas = dep.Status.ReadyReplicas
 	app.Status.SelectedJdk = selectedJdk(app)
@@ -230,7 +237,32 @@ func (r *JavaApplicationReconciler) updateStatus(ctx context.Context, app *appsv
 	})
 	r.setJVMArgsCondition(app)
 
+	if equalJavaApplicationStatus(before, &app.Status) {
+		return nil
+	}
 	return r.Status().Update(ctx, app)
+}
+
+// equalJavaApplicationStatus compares the fields the reconciler owns. Conditions
+// are compared field-by-field rather than with DeepEqual because
+// meta.SetStatusCondition refreshes LastTransitionTime, which would otherwise
+// make every status look changed and defeat the guard.
+func equalJavaApplicationStatus(a, b *appsv1alpha1.JavaApplicationStatus) bool {
+	if a.ObservedGeneration != b.ObservedGeneration ||
+		a.ReadyReplicas != b.ReadyReplicas ||
+		a.SelectedJdk != b.SelectedJdk ||
+		len(a.Conditions) != len(b.Conditions) {
+		return false
+	}
+	for i := range a.Conditions {
+		ac, bc := a.Conditions[i], b.Conditions[i]
+		if ac.Type != bc.Type || ac.Status != bc.Status ||
+			ac.Reason != bc.Reason || ac.Message != bc.Message ||
+			ac.ObservedGeneration != bc.ObservedGeneration {
+			return false
+		}
+	}
+	return true
 }
 
 // setJVMArgsCondition records how spec.jvm.args reached the JVM. They are always
@@ -254,7 +286,13 @@ func (r *JavaApplicationReconciler) setJVMArgsCondition(app *appsv1alpha1.JavaAp
 		msg = fmt.Sprintf(
 			"%d jvm.args delivered as launcher argv via the %s pod annotation; spec.env also sets %s, which the JVM applies BEFORE argv, so jvm.args win on conflict",
 			len(args), brewlet.AnnotationJVMArgs, envName)
-		r.Recorder.Event(app, corev1.EventTypeWarning, appsv1alpha1.ReasonEnvOptionsOverlap, msg)
+		// Only on entry into the overlap state. Reconciles are frequent and the
+		// overlap is a steady-state property, so emitting unconditionally would
+		// spam the namespace's event stream for as long as the app exists.
+		if prev := meta.FindStatusCondition(app.Status.Conditions, appsv1alpha1.ConditionJVMArgsApplied); prev == nil ||
+			prev.Reason != appsv1alpha1.ReasonEnvOptionsOverlap {
+			r.Recorder.Event(app, corev1.EventTypeWarning, appsv1alpha1.ReasonEnvOptionsOverlap, msg)
+		}
 	}
 
 	meta.SetStatusCondition(&app.Status.Conditions, metav1.Condition{

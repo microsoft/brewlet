@@ -149,6 +149,42 @@ class AppCdsMojoTest {
                 AppCdsMojo.launchSelector(cfg, "app.jar"));
     }
 
+    /**
+     * The JPMS mixed form: module mode additionally permits a supplementary
+     * class path. Training without it would record an archive against a
+     * classpath that does not match production. The {@code -cp} must precede
+     * {@code -p} so {@code -m} stays terminal, mirroring the launch core.
+     */
+    @Test
+    void launchSelector_moduleModeMixedFormIncludesClassPath() {
+        Entry e = new Entry("module");
+        e.setModule("com.acme.app");
+        e.setMainClass("com.acme.app.Main");
+        e.setModulePath(List.of("app.jar", "mods"));
+        e.setClassPath(List.of("lib/*"));
+        JvmConfig cfg = new JvmConfig();
+        cfg.setEntry(e);
+        cfg.setMainJar("app.jar");
+        assertEquals(List.of(
+                "-cp", "lib/*",
+                "-p", "app.jar" + File.pathSeparator + "mods",
+                "-m", "com.acme.app/com.acme.app.Main"),
+                AppCdsMojo.launchSelector(cfg, "app.jar"));
+    }
+
+    @Test
+    void launchSelector_moduleModeEmptyClassPathOmitsCp() {
+        Entry e = new Entry("module");
+        e.setModule("com.acme.app");
+        e.setModulePath(List.of("app.jar"));
+        e.setClassPath(List.of());
+        JvmConfig cfg = new JvmConfig();
+        cfg.setEntry(e);
+        cfg.setMainJar("app.jar");
+        assertEquals(List.of("-p", "app.jar", "-m", "com.acme.app"),
+                AppCdsMojo.launchSelector(cfg, "app.jar"));
+    }
+
     @Test
     void referencesDir_detectsStagingDirs() {
         assertTrue(AppCdsMojo.referencesDir(List.of("app.jar", "lib/*"), "lib"));

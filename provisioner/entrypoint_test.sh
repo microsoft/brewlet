@@ -1311,3 +1311,149 @@ mkdir -p "$cleanup_roots/jdks/temurin-21"
 )
 [[ -e "$cleanup_roots/jdks/temurin-21" ]] \
   || { echo "BREWLET_CLEANUP_RUNTIME_ROOTS=false must retain runtime roots" >&2; exit 1; }
+
+# --- launcher readiness requires an executable REGULAR file (§5.2) ----------
+# -e also accepts a directory and -x on a directory only means "searchable", so
+# a staged launcher that is a directory used to pass validation and fail later at
+# exec time, on the first workload instead of at provisioning.
+launcher_check_root="$(mktemp -d "$TEST_TMP_ROOT/launcher-check.XXXXXX")"
+mkdir -p "$launcher_check_root/launchers/dirlauncher/bin/dirlauncher"
+if output="$(
+  (
+    PREFIX="$launcher_check_root"
+    BREWLET_MODE=cleanup
+    validate_launcher dirlauncher
+  ) 2>&1
+)"; then
+  echo "expected a directory-shaped launcher to fail validation" >&2
+  exit 1
+fi
+grep -Fq "ERROR: launcher-dirlauncher-not-executable" <<<"$output"
+grep -Fq "is not a regular file" <<<"$output"
+
+# A real, executable regular file still passes.
+mkdir -p "$launcher_check_root/launchers/goodlauncher/bin"
+printf '#!/bin/sh\n' >"$launcher_check_root/launchers/goodlauncher/bin/goodlauncher"
+chmod +x "$launcher_check_root/launchers/goodlauncher/bin/goodlauncher"
+(
+  PREFIX="$launcher_check_root"
+  validate_launcher goodlauncher
+) >/dev/null
+
+# A present but non-executable regular file still reports not-executable.
+mkdir -p "$launcher_check_root/launchers/nox/bin"
+printf '#!/bin/sh\n' >"$launcher_check_root/launchers/nox/bin/nox"
+chmod -x "$launcher_check_root/launchers/nox/bin/nox"
+if output="$(
+  (
+    PREFIX="$launcher_check_root"
+    BREWLET_MODE=cleanup
+    validate_launcher nox
+  ) 2>&1
+)"; then
+  echo "expected a non-executable launcher to fail validation" >&2
+  exit 1
+fi
+grep -Fq "is not executable" <<<"$output"
+
+# --- cgroup driver detection is TOML-section aware -------------------------
+# A file-wide grep would inherit SystemdCgroup from an unrelated handler and make
+# brewlet create pod cgroups in the wrong place.
+cgroup_dir="$(mktemp -d "$TEST_TMP_ROOT/cgroup.XXXXXX")"
+cgroup_case() {
+  local body="$1" want="$2" got
+  printf '%s\n' "$body" >"$cgroup_dir/config.toml"
+  got="$(
+    CONTAINERD_CONFIG="$cgroup_dir/config.toml"
+    CONTAINERD_DROPIN_DIR="$cgroup_dir/absent.d"
+    CONTAINERD_DROPIN_FILE="$cgroup_dir/absent.d/99-brewlet.toml"
+    containerd_systemd_cgroup
+  )"
+  [[ "$got" == "$want" ]] || {
+    echo "containerd_systemd_cgroup = '$got', want '$want' for:" >&2
+    printf '%s\n' "$body" >&2
+    exit 1
+  }
+}
+
+# Nothing stated: the container-runtime norm.
+cgroup_case 'version = 2' true
+cgroup_case '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  SystemdCgroup = false' false
+cgroup_case '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  SystemdCgroup = true' true
+# The v3 split-plugin table shape.
+cgroup_case '[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options]
+  SystemdCgroup = false' false
+# A DIFFERENT handler must not decide brewlet'"'"'s driver.
+cgroup_case '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata.options]
+  SystemdCgroup = false
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  SystemdCgroup = true' true
+# ...and a stray value outside any runtime table is ignored.
+cgroup_case '[plugins."io.containerd.grpc.v1.cri"]
+  SystemdCgroup = false
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  SystemdCgroup = true' true
+# Commented-out and trailing-comment forms.
+cgroup_case '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  # SystemdCgroup = false
+  SystemdCgroup = true' true
+cgroup_case '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+  SystemdCgroup = false  # was true' false
+
+# A drop-in is imported after the primary config, so it wins; brewlet'"'"'s own
+# drop-in is skipped because it carries the value being computed.
+mkdir -p "$cgroup_dir/config.toml.d"
+printf 'version = 2\n[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]\n  SystemdCgroup = true\n' >"$cgroup_dir/config.toml"
+printf '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]\n  SystemdCgroup = false\n' >"$cgroup_dir/config.toml.d/10-node.toml"
+printf '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]\n  SystemdCgroup = true\n' >"$cgroup_dir/config.toml.d/99-brewlet.toml"
+[[ "$(
+  CONTAINERD_CONFIG="$cgroup_dir/config.toml"
+  CONTAINERD_DROPIN_DIR="$cgroup_dir/config.toml.d"
+  CONTAINERD_DROPIN_FILE="$cgroup_dir/config.toml.d/99-brewlet.toml"
+  containerd_systemd_cgroup
+)" == "false" ]]
+
+# --- §14: a cgroup v1-only node is refused, not silently provisioned ---------
+# Brewlet requires cgroup v2 because the container-aware JDK reads its heap/CPU
+# limits from the unified hierarchy; on a v1-only node §10's resource semantics
+# cannot be enforced, so the provisioner must exit non-zero and leave the node
+# unready rather than advertise a runtime that would mis-size every JVM.
+cgroup_root="$(mktemp -d "$TEST_TMP_ROOT/cgroup-root.XXXXXX")"
+
+# A v1-only / hybrid root exposes no cgroup.controllers file.
+if output="$(
+  (
+    CGROUP_ROOT="$cgroup_root/v1"
+    BREWLET_MODE=cleanup
+    mkdir -p "$CGROUP_ROOT/memory" "$CGROUP_ROOT/cpu"
+    require_cgroup_v2
+  ) 2>&1
+)"; then
+  echo "expected a cgroup v1-only node to be refused" >&2
+  exit 1
+fi
+grep -Fq "ERROR: cgroup-v2-required" <<<"$output"
+grep -Fq "will not be marked ready" <<<"$output"
+
+# The unified hierarchy is identified by a readable cgroup.controllers at the root.
+(
+  CGROUP_ROOT="$cgroup_root/v2"
+  mkdir -p "$CGROUP_ROOT"
+  printf 'cpuset cpu io memory pids\n' >"$CGROUP_ROOT/cgroup.controllers"
+  require_cgroup_v2
+) >/dev/null
+
+# A completely absent cgroup mount is refused too, rather than assumed healthy.
+if output="$(
+  (
+    CGROUP_ROOT="$cgroup_root/absent"
+    BREWLET_MODE=cleanup
+    require_cgroup_v2
+  ) 2>&1
+)"; then
+  echo "expected an absent cgroup mount to be refused" >&2
+  exit 1
+fi
+grep -Fq "ERROR: cgroup-v2-required" <<<"$output"

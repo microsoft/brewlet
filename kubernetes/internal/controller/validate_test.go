@@ -220,3 +220,85 @@ func TestSelectedJdk(t *testing.T) {
 		})
 	}
 }
+
+// updateStatus must not write when nothing changed: a Status().Update bumps
+// resourceVersion, which re-enqueues the object through the controller's own
+// watch and sustains a reconcile storm.
+func TestEqualJavaApplicationStatus(t *testing.T) {
+	base := func() *appsv1alpha1.JavaApplicationStatus {
+		return &appsv1alpha1.JavaApplicationStatus{
+			ObservedGeneration: 4,
+			ReadyReplicas:      3,
+			SelectedJdk:        "temurin-21",
+			Conditions: []metav1.Condition{{
+				Type:               appsv1alpha1.ConditionReady,
+				Status:             metav1.ConditionTrue,
+				Reason:             appsv1alpha1.ReasonReconciled,
+				Message:            "3/3 replicas ready",
+				ObservedGeneration: 4,
+			}},
+		}
+	}
+
+	if !equalJavaApplicationStatus(base(), base()) {
+		t.Fatal("identical statuses must compare equal")
+	}
+
+	// LastTransitionTime is refreshed by meta.SetStatusCondition and must not
+	// count as a change, or the guard would never fire.
+	withTime := base()
+	withTime.Conditions[0].LastTransitionTime = metav1.Now()
+	if !equalJavaApplicationStatus(base(), withTime) {
+		t.Error("LastTransitionTime must not count as a status change")
+	}
+
+	mutations := map[string]func(*appsv1alpha1.JavaApplicationStatus){
+		"observedGeneration": func(s *appsv1alpha1.JavaApplicationStatus) { s.ObservedGeneration = 5 },
+		"readyReplicas":      func(s *appsv1alpha1.JavaApplicationStatus) { s.ReadyReplicas = 2 },
+		"selectedJdk":        func(s *appsv1alpha1.JavaApplicationStatus) { s.SelectedJdk = "21" },
+		"condition status":   func(s *appsv1alpha1.JavaApplicationStatus) { s.Conditions[0].Status = metav1.ConditionFalse },
+		"condition reason":   func(s *appsv1alpha1.JavaApplicationStatus) { s.Conditions[0].Reason = appsv1alpha1.ReasonProgressing },
+		"condition message":  func(s *appsv1alpha1.JavaApplicationStatus) { s.Conditions[0].Message = "2/3 replicas ready" },
+		"condition observedGeneration": func(s *appsv1alpha1.JavaApplicationStatus) {
+			s.Conditions[0].ObservedGeneration = 5
+		},
+		"condition added": func(s *appsv1alpha1.JavaApplicationStatus) {
+			s.Conditions = append(s.Conditions, metav1.Condition{Type: appsv1alpha1.ConditionJVMArgsApplied})
+		},
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			changed := base()
+			mutate(changed)
+			if equalJavaApplicationStatus(base(), changed) {
+				t.Errorf("a change to %s must be written", name)
+			}
+		})
+	}
+}
+
+// The overlap warning is a steady-state property, so it must be emitted on entry
+// only — otherwise it spams the namespace for as long as the app exists.
+func TestJVMArgsOverlapEventEmittedOnce(t *testing.T) {
+	rec := record.NewFakeRecorder(10)
+	r := &JavaApplicationReconciler{Recorder: rec}
+	app := &appsv1alpha1.JavaApplication{}
+	app.Spec.JVM.Args = []string{"-Xmx1g"}
+	app.Spec.Env = []corev1.EnvVar{{Name: "JDK_JAVA_OPTIONS", Value: "-javaagent:/apm.jar"}}
+
+	for i := 0; i < 5; i++ {
+		r.setJVMArgsCondition(app)
+	}
+	if len(rec.Events) != 1 {
+		t.Fatalf("emitted %d overlap events across 5 reconciles, want 1", len(rec.Events))
+	}
+
+	// Leaving and re-entering the overlap state warns again.
+	app.Spec.Env = nil
+	r.setJVMArgsCondition(app)
+	app.Spec.Env = []corev1.EnvVar{{Name: "JDK_JAVA_OPTIONS", Value: "-javaagent:/apm.jar"}}
+	r.setJVMArgsCondition(app)
+	if len(rec.Events) != 2 {
+		t.Fatalf("re-entering the overlap state emitted %d events total, want 2", len(rec.Events))
+	}
+}

@@ -470,6 +470,18 @@ provenance referrer exists, Brewlet treats the bundle as unsigned. If one or
 more provenance referrers exist, consumers MUST require trust credentials and
 MUST validate at least one complete signature, identity, subject, and predicate
 contract; they MUST NOT silently treat invalid signed provenance as unsigned.
+
+**Why SBOM is stricter than provenance.** The asymmetry is deliberate.
+Provenance is an *assertion about* the bundle, and several are legitimate —
+this contract explicitly allows adding signatures during signer rotation — so
+one fully valid candidate is proof. An SBOM is the *inventory of* the bundle,
+and the bundle manifest is immutable and content-addressed, so exactly one SBOM
+is correct for it. Two are contradictory claims about the same content:
+selecting whichever one happens to validate would let anyone able to push a
+referrer steer which inventory a consumer reads, and would conceal that the
+registry holds a conflicting claim. A stale or malformed *additional* SBOM
+referrer therefore fails the bundle closed. The remedy is under the publisher's
+control: delete the extra referrer.
 CycloneDX is a wire format generated directly from the lock; Brewlet does not
 require a CycloneDX service, SDK, or runtime library. The SBOM MUST have
 `bomFormat: CycloneDX`,
