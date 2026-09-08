@@ -202,12 +202,15 @@ carries it.
   (`-Xshare:dump`). `cds.mode` is **informational only**: consumption is
   identical either way, so an omitted value is not a defect. Any other value is
   rejected, like every other unknown field or mode.
-- `mainJar` and `cds.archive` MUST be bare filenames (no path separator, no
+- Non-empty `mainJar` values and `cds.archive` MUST be bare filenames (no path separator, no
   wildcard, no `..`). Both name files that a node materializes under a per-image
   staging directory and then bind-mounts read-only into the sandbox, so
   producers MUST reject a non-bare value at publish time and consumers MUST
   reject it at load time and confirm the resolved path is contained by the
   staging directory.
+- An omitted or empty `mainJar` means `app.jar` for both publication and
+  consumption, independent of the source JAR's filename. Producers that choose
+  another name MUST record it explicitly in the launch config.
 - The descriptor's launcher selects the JVM launcher that fronts the entrypoint. It is **generic
   and OpenJDK-neutral**: omitted (or `"java"`) means the stock `java` launcher from
   the selected JDK. Brewlet injects **no JVM tuning flags** in either case — the
@@ -1136,6 +1139,11 @@ and builds/runs on Linux:
   and checked against the declaring descriptor before they are read, staged, or
   bind-mounted, so a descriptor inside a tenant-authored manifest can neither
   escape the content store nor substitute unrelated content.
+- Runnable-image staging is immutable after publication. Extraction completes in
+  a private directory before the complete stage becomes visible atomically.
+  Repeated and concurrent resolutions, including separate shim processes, reuse
+  the published stage without truncating or replacing files held by existing
+  workloads. Failed extraction never publishes an incomplete stage.
 
 The workload image reference and manifest digest hints are managed **cluster-side,
 not in the shim**: the `brewlet-admission` webhook (§8.3) overwrites the
@@ -1241,6 +1249,16 @@ Manager, and workload reconciliation analogous to Spin Operator:
     annotation, and `env` wired through verbatim (Brewlet injects no tuning of its own),
   - probes, ports, and env wired through.
 - Owns and continuously reconciles the generated objects (GC via owner refs).
+- Removing a Service (disabled or no ports) or disabling autoscaling deletes only
+  a resource controlled by the current `JavaApplication` UID. Independently
+  managed resources, including those referencing an older same-name application,
+  are preserved. Deletion checks both UID and resource version so concurrent
+  replacement or ownership changes cause a retry, not deletion of the changed object.
+- `env[].valueFrom` preserves Kubernetes Secret, ConfigMap, pod-field, and
+  container-resource references, including selector options. The CRD also
+  preserves `fileKeyRef`; using it requires the corresponding Kubernetes
+  feature support and a volume supplied by the platform. Brewlet does not resolve
+  referenced values or copy secrets into the descriptor.
 
 This is what the prompt calls *“provisioning a container with CPU and Memory limits
 as per deployment descriptor.”* The descriptor is the `JavaApplication`.
@@ -1491,6 +1509,13 @@ injects **no JVM tuning flags**: modern JDKs are container-aware (`cgroup v2`) a
 read the sandbox limits directly. Artifact launch knobs carry app-intrinsic
 correctness flags only; JVM tuning is the **user's** responsibility, set via the
 descriptor's `jvm.args`.
+
+**Standalone bundle inputs.** `brewlet bundle` and the shim's local
+`prepare-bundle` path reject malformed, nonpositive, or overflowing limits before
+writing a bundle. Empty/omitted limits mean unlimited. CPU limits use a 100ms
+period and must be at least `10m` (`0.01` CPU), the minimum supported Linux quota
+for that period. This validation does not alter production CRI resource
+forwarding or Kubernetes resource semantics.
 
 | Descriptor field          | Cgroup effect (via runc)        | JVM effect                                             |
 |---------------------------|---------------------------------|-------------------------------------------------------|

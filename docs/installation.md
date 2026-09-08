@@ -231,8 +231,21 @@ make -C kubernetes helm-template
 
 ### Upgrading
 
-Helm does not upgrade CRDs placed under a chart's `crds/` directory. Before
-upgrading an existing Brewlet installation to a release that requires explicit
+Helm does not upgrade CRDs placed under a chart's `crds/` directory. Apply the
+JavaApplication CRD from the release you are upgrading to before using newly
+supported fields, such as `spec.env[].valueFrom`:
+
+```bash
+RELEASE_VERSION=x.y.z
+kubectl apply -f \
+  "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/javaapplication-crd.yaml"
+```
+
+An older CRD prunes unsupported fields when a resource is saved. Updating the CRD
+cannot restore those values; reapply the original JavaApplication manifests
+afterward.
+
+Before upgrading an existing Brewlet installation to a release that requires explicit
 JDK and launcher sources, plan a maintenance window: the `v1alpha1` launcher
 wire format changed from strings to structured sources, so legacy profiles
 cannot remain present during the control-plane rollout. Delete them while the

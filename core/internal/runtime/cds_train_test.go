@@ -117,6 +117,36 @@ func TestGenerateAppCDSArchiveWritesArchive(t *testing.T) {
 	}
 }
 
+func TestGenerateAppCDSArchiveDefaultsMainJar(t *testing.T) {
+	dir := t.TempDir()
+	fakeJava := filepath.Join(dir, "java")
+	script := "#!/bin/sh\n" +
+		"test -f app.jar && test ! -e orders.jar || exit 1\n" +
+		"printf '%s\\n' \"$@\" > \"$BREWLET_TEST_TRAINING_ARGS\"\n" +
+		"for a in \"$@\"; do\n" +
+		"  case \"$a\" in\n" +
+		"    -XX:ArchiveClassesAtExit=*) echo CDS > \"${a#-XX:ArchiveClassesAtExit=}\" ;;\n" +
+		"  esac\n" +
+		"done\n"
+	if err := os.WriteFile(fakeJava, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jar := filepath.Join(dir, "orders.jar")
+	if err := os.WriteFile(jar, []byte("PK\x03\x04 orders"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	argsPath := filepath.Join(dir, "args")
+	t.Setenv("BREWLET_TEST_TRAINING_ARGS", argsPath)
+	cfg := artifact.JVMConfig{SchemaVersion: 1, Entry: artifact.Entry{Mode: "jar"}}
+	if err := GenerateAppCDSArchive(cfg, jar, fakeJava, filepath.Join(dir, "app.jsa"), 5*time.Second, nil); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil || !strings.Contains(string(args), "-jar\napp.jar\n") {
+		t.Fatalf("training arguments = %q, err=%v; want canonical app.jar", args, err)
+	}
+}
+
 func TestGenerateAppCDSArchiveNoArchiveFails(t *testing.T) {
 	// A "java" that exits 0 but writes nothing must be reported as failure.
 	fakeJava := filepath.Join(t.TempDir(), "java")

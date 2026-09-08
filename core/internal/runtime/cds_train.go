@@ -57,7 +57,7 @@ func AppCDSTrainingArgs(cfg artifact.JVMConfig, jarName, archivePath string, tra
 
 // GenerateAppCDSArchive runs a self-terminating dynamic-CDS training JVM and
 // writes the resulting archive to outArchive. It stages a canonical-mtime copy of
-// jarPath (named after cfg.MainJar, falling back to jarPath's basename) into a
+// jarPath (named after cfg.MainJar, defaulting to app.jar) into a
 // scratch directory and runs the training JVM there with that directory as its
 // working dir, so the JAR classpath entry is recorded as a bare relative token —
 // exactly how the shim presents /app/<jar> at runtime (see CDSModTime and
@@ -69,11 +69,8 @@ func AppCDSTrainingArgs(cfg artifact.JVMConfig, jarName, archivePath string, tra
 // should finish well within it; if it does not, that is reported as an error
 // (long-running servers need the Maven signal mode, not this CLI path).
 func GenerateAppCDSArchive(cfg artifact.JVMConfig, jarPath, javaBin, outArchive string, timeout time.Duration, trainingArgs []string) error {
-	jarName := cfg.MainJar
-	if jarName == "" {
-		jarName = filepath.Base(jarPath)
-	}
-	if err := artifact.ValidateBareFilename("mainJar", jarName); err != nil {
+	jarName, err := artifact.MainJarName(cfg)
+	if err != nil {
 		return err
 	}
 	absOut, err := filepath.Abs(outArchive)

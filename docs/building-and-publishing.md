@@ -47,7 +47,7 @@ you can author it and pass `--config`.
 
 | Field | Meaning |
 |---|---|
-| `mainJar` | The JAR filename inside the artifact (mounted at `/app/<mainJar>`). Must be a bare filename: separators, wildcards and parent references are rejected at publish and load time, since the name is resolved against the node's staging directory and bind-mounted from there. |
+| `mainJar` | The JAR filename inside the artifact (mounted at `/app/<mainJar>`). Defaults to `app.jar` when omitted, regardless of the source JAR's filename. Must be a bare filename: separators, wildcards and parent references are rejected at publish and load time, since the name is resolved against the node's staging directory and bind-mounted from there. |
 | `entry.mode` | `jar` → `java -jar` (default); `classpath` → `java -cp <jar> <mainClass>`; `module` → `java -p <modulePath> -m <module>[/<mainClass>]` (JPMS). |
 | `entry.mainClass` | Required when `entry.mode == "classpath"`; optional in `module` mode. |
 | `entry.classPath` | Optional, ordered `/app`-relative class-path entries (e.g. `["app.jar", "lib/*"]`) used with `entry.mode == "classpath"` for layered deployment. |
@@ -348,6 +348,17 @@ when generating the Kubernetes descriptor:
 mvn brewlet:manifest \
   -Dbrewlet.image=registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST
 ```
+
+Follow-up goals work in a fresh Maven invocation after `mvn package`: for standard
+unclassified JAR projects, the plugin finds
+`${project.build.directory}/${project.build.finalName}.jar` when Maven has not
+associated the packaged artifact with the new session. An explicit
+`-Dbrewlet.jarFile=/path/to/app.jar` takes precedence and is required for custom
+packaging, classifiers, or JAR-plugin output overrides. The plugin does not guess
+among files in `target`.
+
+Generated manifests preserve JVM arguments and environment values as individual
+UTF-8 YAML strings, including quotes, backslashes, line breaks, and empty values.
 
 Goals: `brewlet:config` (generate the launch config), `brewlet:build` (assemble a
 local OCI layout), `brewlet:push` (publish to a registry), `brewlet:manifest`

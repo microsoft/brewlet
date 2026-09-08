@@ -71,7 +71,8 @@ plain OCI images:
 Layer layout:
 
 - **app layer** — a flat tar containing the main JAR (named per `mainJar`, which must
-  be a bare filename) plus an optional AppCDS `.jsa`.
+  be a bare filename and defaults to `app.jar` when omitted) plus an optional
+  AppCDS `.jsa`.
 - **classpath / modulepath layers** — the *same* flat-JAR tars a native artifact would
   ship for [layered classpath](layered-classpath-deployment.md) / [JPMS](jpms-support.md)
   deployments, just gzip-compressed and role-tagged.
@@ -96,8 +97,10 @@ CLI / prepare-bundle workflows only. For a runnable image the shim:
 
 1. follows the image index to the node's **platform** manifest (by `GOARCH`);
 2. decodes the launch config from `brewlet.sh/jvm-config`;
-3. gunzips the app layer to recover the JAR (and any `.jsa`), and gunzips each
-   classpath/modulepath layer to a temporary tar;
+3. recovers the JAR (and any `.jsa`) and classpath/modulepath tars into a
+   manifest-specific immutable stage; extraction is published atomically only
+   after it completes, and later resolutions reuse it without rewriting files
+   already mounted by running workloads;
 4. feeds those tars to the **existing** `StageClasspathLayers` / `StageModulepathLayers`
    bundle-assembly path — so runnable images and native artifacts converge on the same
    `java -jar` / `-cp` / `-p -m` sandbox on the node-resident JDK, under the pod's
@@ -105,6 +108,13 @@ CLI / prepare-bundle workflows only. For a runnable image the shim:
 
 Nothing about JVM launch, cgroup-awareness, JDK/launcher selection, or Brewlet's
 overlay rootfs (shared read-only JDK lower + per-container upper) changes.
+
+New shims publish stages under an `immutable-v1` subdirectory of
+`BREWLET_RUNNABLE_STAGE` (or the default temporary staging root). They leave legacy
+stages untouched because running workloads may still mount those files. Allow
+extra disk capacity during rollout: legacy stages and staging directories left
+by abruptly terminated processes are not automatically garbage-collected.
+Do not remove staging trees while workloads still reference them.
 
 ## 5. Operator & webhook
 

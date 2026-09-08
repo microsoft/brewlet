@@ -94,7 +94,7 @@ func (r *JavaApplicationReconciler) reconcileService(ctx context.Context, app *a
 	desired := buildService(app)
 	if desired == nil {
 		// Service disabled (or no ports): remove any previously managed one.
-		return r.deleteIfExists(ctx, &corev1.Service{}, app.Namespace, app.Name)
+		return r.deleteOwned(ctx, &corev1.Service{}, app)
 	}
 	svc := &corev1.Service{}
 	svc.Name, svc.Namespace = desired.Name, desired.Namespace
@@ -111,7 +111,7 @@ func (r *JavaApplicationReconciler) reconcileService(ctx context.Context, app *a
 func (r *JavaApplicationReconciler) reconcileHPA(ctx context.Context, app *appsv1alpha1.JavaApplication) error {
 	desired := buildHPA(app)
 	if desired == nil {
-		return r.deleteIfExists(ctx, &autoscalingv1.HorizontalPodAutoscaler{}, app.Namespace, app.Name)
+		return r.deleteOwned(ctx, &autoscalingv1.HorizontalPodAutoscaler{}, app)
 	}
 	hpa := &autoscalingv1.HorizontalPodAutoscaler{}
 	hpa.Name, hpa.Namespace = desired.Name, desired.Namespace
@@ -194,14 +194,19 @@ func validateJVMArgs(args []string) error {
 	return nil
 }
 
-// deleteIfExists deletes a managed object by name, ignoring a NotFound.
-func (r *JavaApplicationReconciler) deleteIfExists(ctx context.Context, obj client.Object, namespace, name string) error {
-	obj.SetNamespace(namespace)
-	obj.SetName(name)
-	if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
-		return err
+func (r *JavaApplicationReconciler) deleteOwned(ctx context.Context, obj client.Object, app *appsv1alpha1.JavaApplication) error {
+	key := client.ObjectKeyFromObject(app)
+	if err := r.Get(ctx, key, obj); err != nil {
+		return client.IgnoreNotFound(err)
 	}
-	return nil
+	if !metav1.IsControlledBy(obj, app) {
+		log.FromContext(ctx).V(1).Info("Preserving resource not controlled by JavaApplication",
+			"resource", fmt.Sprintf("%T", obj), "name", key)
+		return nil
+	}
+	// Ownership can change, or the object can be replaced, between Get and Delete.
+	uid, version := obj.GetUID(), obj.GetResourceVersion()
+	return client.IgnoreNotFound(r.Delete(ctx, obj, client.Preconditions{UID: &uid, ResourceVersion: &version}))
 }
 
 // updateStatus refreshes the JavaApplication status from the managed Deployment.

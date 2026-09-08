@@ -215,6 +215,26 @@ func TestPushRunnableImageNonPortableArch(t *testing.T) {
 	}
 }
 
+func TestPushRunnableImageDefaultsMainJarAtPublishAndResolve(t *testing.T) {
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	cfg, err := DecodeConfig([]byte(`{"schemaVersion":1,"entry":{"mode":"jar"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, _, _ := pushRunnableFixture(t, cfg, false)
+	blobs, err := store.ResolveBlobs("demo/orders:1")
+	if err != nil {
+		t.Fatalf("resolve image published from orders.jar: %v", err)
+	}
+	if filepath.Base(blobs.JarHostPath) != DefaultMainJar {
+		t.Fatalf("published jar = %q, want %s", blobs.JarHostPath, DefaultMainJar)
+	}
+	raw, err := os.ReadFile(blobs.JarHostPath)
+	if err != nil || string(raw) != "PK\x03\x04 orders" {
+		t.Fatalf("resolved jar contents = %q, err=%v", raw, err)
+	}
+}
+
 func TestSelectPlatformManifestMatchesOSArchitectureAndVariant(t *testing.T) {
 	target := Platform{OS: "linux", Architecture: "arm", Variant: "v7"}
 	wrongOS := Platform{OS: "windows", Architecture: "arm", Variant: "v7"}

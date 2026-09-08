@@ -114,7 +114,7 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 |---|---|---|---|
 | `image` | `brewlet.image` | — | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2` for `build`/`push` or `registry.example.com/team/app@sha256:…` for `manifest`. **Required for `build`, `push`, and `manifest`; Kubernetes manifests must use the digest-pinned form.** |
 | `format` | `brewlet.format` | `image` | Delivery format for `push`: `image` (runnable, kubelet-pullable OCI image — the default) or `artifact` (native Brewlet OCI artifact). See [Delivery format](#delivery-format-native-artifact-vs-runnable-image). |
-| `jarFile` | `brewlet.jarFile` | project's primary artifact | Path to the fat JAR to publish. |
+| `jarFile` | `brewlet.jarFile` | project's primary artifact | Path to the application JAR to publish. After a separate `mvn package`, standard unclassified `jar`/`maven-plugin` projects can use `${project.build.directory}/${project.build.finalName}.jar`. Custom packaging, classifier, or JAR-plugin output overrides require an explicit `jarFile`; the plugin never searches for a newest or arbitrary JAR. |
 | `mainClass` | `brewlet.mainClass` | inferred from `Main-Class` | Main class to launch. Does **not** by itself set the entry mode — the mode is inferred from the JAR's shape (see `entryMode`). Used in `classpath` mode (the class launched via `-cp`) and optionally in `module` mode (selects `<module>/<mainClass>`); ignored in `jar` mode (uses the manifest's `Main-Class`). |
 | `entryMode` | `brewlet.entryMode` | inferred from manifest | `jar`, `classpath`, or `module` (auto-detected for modular JARs with a root `module-info.class`). |
 | `outputDirectory` | — | `${project.build.directory}/brewlet` | Where generated files land. |

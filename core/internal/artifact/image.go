@@ -155,7 +155,7 @@ func (s Store) PushRunnableImageWithOptions(ref string, cfg JVMConfig, jarPath s
 	if err != nil {
 		return Descriptor{}, err
 	}
-	appLayer, err := s.writeRunnableLayer(appFiles, LayerRoleApp, mainJarName(cfg, jarPath))
+	appLayer, err := s.writeRunnableLayer(appFiles, LayerRoleApp, appFiles[0].name)
 	if err != nil {
 		return Descriptor{}, err
 	}
@@ -402,13 +402,17 @@ type tarEntry struct {
 }
 
 // appLayerFiles gathers the flat files the app layer tar carries: the primary
-// JAR (named cfg.MainJar / the JAR basename) and, when shipped, the CDS archive.
+// JAR (named MainJarName(cfg)) and, when shipped, the CDS archive.
 func appLayerFiles(cfg JVMConfig, jarPath, cdsArchivePath string) ([]tarEntry, error) {
+	jarName, err := MainJarName(cfg)
+	if err != nil {
+		return nil, err
+	}
 	jarBytes, err := os.ReadFile(jarPath)
 	if err != nil {
 		return nil, fmt.Errorf("read jar: %w", err)
 	}
-	files := []tarEntry{{name: mainJarName(cfg, jarPath), content: jarBytes}}
+	files := []tarEntry{{name: jarName, content: jarBytes}}
 	if cdsArchivePath != "" {
 		cdsBytes, err := os.ReadFile(cdsArchivePath)
 		if err != nil {
@@ -421,15 +425,6 @@ func appLayerFiles(cfg JVMConfig, jarPath, cdsArchivePath string) ([]tarEntry, e
 		files = append(files, tarEntry{name: name, content: cdsBytes})
 	}
 	return files, nil
-}
-
-// mainJarName is the filename the primary JAR is materialized as under /app: the
-// launch config's MainJar when set, else the JAR's basename.
-func mainJarName(cfg JVMConfig, jarPath string) string {
-	if cfg.MainJar != "" {
-		return cfg.MainJar
-	}
-	return filepath.Base(jarPath)
 }
 
 // targetArches is the architecture set to publish a runnable image for: the

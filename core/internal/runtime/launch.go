@@ -9,6 +9,8 @@ import (
 	"archive/tar"
 	"fmt"
 	"io"
+	"math"
+	"math/big"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -524,16 +526,19 @@ func parseMemory(s string) (int64, error) {
 	}
 	for _, suf := range []string{"Ki", "Mi", "Gi", "Ti", "K", "M", "G", "k", "m", "g"} {
 		if strings.HasSuffix(s, suf) {
-			n, err := strconv.ParseFloat(strings.TrimSuffix(s, suf), 64)
+			n, err := parseScaledQuantity(strings.TrimSuffix(s, suf), mult[suf])
 			if err != nil {
 				return 0, fmt.Errorf("bad memory %q: %w", s, err)
 			}
-			return int64(n * float64(mult[suf])), nil
+			return n, nil
 		}
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("bad memory %q: %w", s, err)
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("memory must be positive")
 	}
 	return n, nil
 }
@@ -546,11 +551,39 @@ func parseCPU(s string) (int64, error) {
 		if err != nil {
 			return 0, fmt.Errorf("bad cpu %q: %w", s, err)
 		}
+		if n <= 0 {
+			return 0, fmt.Errorf("CPU must be positive")
+		}
 		return n, nil
 	}
-	f, err := strconv.ParseFloat(s, 64)
+	n, err := parseScaledQuantity(s, 1000)
 	if err != nil {
 		return 0, fmt.Errorf("bad cpu %q: %w", s, err)
 	}
-	return int64(f * 1000), nil
+	return n, nil
+}
+
+func parseScaledQuantity(value string, multiplier int64) (int64, error) {
+	f, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(f) || math.IsInf(f, 0) || f <= 0 {
+		return 0, fmt.Errorf("quantity must be finite and positive")
+	}
+	// Scale exactly before truncating so float64 rounding cannot wrap an int64
+	// limit or lose a millicore at a decimal boundary.
+	scaled, ok := new(big.Rat).SetString(value)
+	if !ok {
+		return 0, fmt.Errorf("invalid quantity %q", value)
+	}
+	scaled.Mul(scaled, new(big.Rat).SetInt64(multiplier))
+	if scaled.Cmp(new(big.Rat).SetInt64(math.MaxInt64)) > 0 {
+		return 0, fmt.Errorf("quantity exceeds int64")
+	}
+	n := new(big.Int).Quo(scaled.Num(), scaled.Denom())
+	if n.Sign() <= 0 {
+		return 0, fmt.Errorf("quantity is smaller than one base unit")
+	}
+	return n.Int64(), nil
 }

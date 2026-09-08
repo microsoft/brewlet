@@ -243,7 +243,7 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID
 | Flag | Default | Meaning |
 |---|---|---|
 | `--store` | `./oci` | OCI layout directory to read from. |
-| `--cpu` | *(unlimited)* | CPU limit, e.g. `2` or `500m` → sandbox `cpu.max`. |
+| `--cpu` | *(unlimited)* | CPU limit, e.g. `2` or `500m` → sandbox `cpu.max`. Minimum `10m` (`0.01` CPU), matching Linux's minimum quota for the 100ms period. |
 | `--memory` | *(unlimited)* | Memory limit, e.g. `512Mi` or `1Gi` → sandbox `memory.max`. |
 | `--uid` | `65532` | Trusted runtime process UID (`0`–`4294967294`) written to the OCI bundle. Artifact metadata cannot set it. |
 | `--gid` | `65532` | Trusted runtime process GID (`0`–`4294967294`) written to the OCI bundle. Artifact metadata cannot set it. |
@@ -252,6 +252,11 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID
 | `--launcher-root` | *(none)* | Node launcher-layer root for a custom launcher (e.g. `jaz`). |
 | `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local equivalent of the deployment's `spec.jvm.cds.regenerate`). Bind-mounts only the private local cache entry keyed by `--uid` at `/run/brewlet/cds` and prepends `-XX:+AutoCreateSharedArchive` (JDK 19+). |
 | `--out` | `./bundle` | Output bundle directory. |
+
+Supplied limits must be positive and representable. Malformed values, unsupported
+units such as `512MB`, zero, overflow, and CPU limits below `10m` fail before the
+bundle is written; they do not silently become unlimited. Omit a limit flag to
+leave that resource unconstrained.
 
 ```bash
 brewlet bundle demo/hello:1.0.0 --cpu 2 --memory 512Mi --uid 1000 --gid 1000 --out ./bundle

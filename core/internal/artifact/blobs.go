@@ -185,7 +185,7 @@ func verifiedBlobPaths(src BlobSource, layers []Descriptor, kind string) ([]stri
 
 // ResolveRunnableBlobs resolves a runnable OCI image: the launch config comes
 // from the manifest's brewlet.sh/jvm-config annotation, and the standard
-// tar+gzip layers are staged (gunzipped) into a per-image temp tree the sandbox
+// tar+gzip layers are staged (gunzipped) into an immutable per-image tree the sandbox
 // reads from — the JAR (and optional CDS archive) as files, and the
 // classpath/module layers as uncompressed tars the existing staging path
 // consumes unchanged. Staging is idempotent (keyed on manifestDigest) so
@@ -204,9 +204,72 @@ func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	appDir := filepath.Join(stageDir, "app")
-	if err := extractGzTar(src, appLayer, appDir); err != nil {
+	if _, err := os.Lstat(stageDir); err == nil {
+		return reuseRunnableStage(src, cfg, man, manifestDigest, stageDir)
+	} else if !os.IsNotExist(err) {
+		return ResolvedBlobs{}, fmt.Errorf("read runnable image staging: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(stageDir), 0o755); err != nil {
+		return ResolvedBlobs{}, err
+	}
+	pending, err := os.MkdirTemp(filepath.Dir(stageDir), "."+filepath.Base(stageDir)+"-")
+	if err != nil {
+		return ResolvedBlobs{}, err
+	}
+	defer os.RemoveAll(pending)
+	if err := extractGzTar(src, appLayer, filepath.Join(pending, "app")); err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("stage app layer: %w", err)
+	}
+	if _, err := stageLayerTars(src, man.RunnableClasspathLayers(), pending, "cp"); err != nil {
+		return ResolvedBlobs{}, err
+	}
+	if _, err := stageLayerTars(src, man.RunnableModulepathLayers(), pending, "mp"); err != nil {
+		return ResolvedBlobs{}, err
+	}
+	if _, err := runnableStagedBlobs(cfg, man, manifestDigest, pending); err != nil {
+		return ResolvedBlobs{}, err
+	}
+	if err := os.Chmod(pending, 0o755); err != nil {
+		return ResolvedBlobs{}, err
+	}
+	// A complete, non-empty directory is published in one rename. Competing
+	// processes cannot replace a published non-empty directory; losers discard
+	// their private staging tree and use the winner without modifying its files.
+	if err := os.Rename(pending, stageDir); err != nil {
+		if _, statErr := os.Lstat(stageDir); statErr != nil {
+			return ResolvedBlobs{}, fmt.Errorf("publish runnable image staging: %w", err)
+		}
+		return reuseRunnableStage(src, cfg, man, manifestDigest, stageDir)
+	}
+	return runnableStagedBlobs(cfg, man, manifestDigest, stageDir)
+}
+
+func reuseRunnableStage(src BlobSource, cfg JVMConfig, man Manifest, manifestDigest, stageDir string) (ResolvedBlobs, error) {
+	appLayer, err := man.RunnableAppLayer()
+	if err != nil {
+		return ResolvedBlobs{}, err
+	}
+	layers := append([]Descriptor{appLayer}, man.RunnableClasspathLayers()...)
+	layers = append(layers, man.RunnableModulepathLayers()...)
+	for _, layer := range layers {
+		if _, err := ReadVerifiedBlob(src, layer); err != nil {
+			return ResolvedBlobs{}, fmt.Errorf("verify cached runnable image layer: %w", err)
+		}
+	}
+	return runnableStagedBlobs(cfg, man, manifestDigest, stageDir)
+}
+
+func runnableStagedBlobs(cfg JVMConfig, man Manifest, manifestDigest, stageDir string) (ResolvedBlobs, error) {
+	appDir := filepath.Join(stageDir, "app")
+	for _, dir := range []string{stageDir, appDir} {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return ResolvedBlobs{}, fmt.Errorf("read runnable image staging: %w", err)
+		}
+		if !info.IsDir() {
+			return ResolvedBlobs{}, fmt.Errorf("runnable image staging %q must be a directory, not a link or file", dir)
+		}
 	}
 	jarName, err := MainJarName(cfg)
 	if err != nil {
@@ -216,7 +279,7 @@ func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (
 	if err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("runnable image jar: %w", err)
 	}
-	if _, err := os.Stat(jarPath); err != nil {
+	if err := requireStagedFile(jarPath); err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing jar %q: %w", jarName, err)
 	}
 	var cdsPath string
@@ -225,20 +288,43 @@ func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (
 		if err != nil {
 			return ResolvedBlobs{}, fmt.Errorf("runnable image cds archive: %w", err)
 		}
-		if _, err := os.Stat(cdsPath); err != nil {
+		if err := requireStagedFile(cdsPath); err != nil {
 			return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing cds archive %q: %w", cfg.CDS.Archive, err)
 		}
 	}
 
-	cpPaths, err := stageLayerTars(src, man.RunnableClasspathLayers(), stageDir, "cp")
+	cpPaths, err := stagedLayerPaths(man.RunnableClasspathLayers(), stageDir, "cp")
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	mpPaths, err := stageLayerTars(src, man.RunnableModulepathLayers(), stageDir, "mp")
+	mpPaths, err := stagedLayerPaths(man.RunnableModulepathLayers(), stageDir, "mp")
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
 	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, ManifestDigest: manifestDigest, Format: "image"}, nil
+}
+
+func requireStagedFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%q must be a regular staged file", path)
+	}
+	return nil
+}
+
+func stagedLayerPaths(layers []Descriptor, stageDir, prefix string) ([]string, error) {
+	var paths []string
+	for i := range layers {
+		path := filepath.Join(stageDir, fmt.Sprintf("%s-%d.tar", prefix, i))
+		if err := requireStagedFile(path); err != nil {
+			return nil, fmt.Errorf("read staged %s layer: %w", prefix, err)
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
 }
 
 // stagedPath joins name onto dir and verifies the result is contained by dir.
@@ -274,7 +360,9 @@ func runnableStageDir(manifestDigest string) (string, error) {
 	if base == "" {
 		base = filepath.Join(os.TempDir(), "brewlet-runnable")
 	}
-	return filepath.Join(base, hex), nil
+	// Older shims rewrite <base>/<digest> in place. Never reuse or migrate those
+	// files: they may still be mounted by a running workload during an upgrade.
+	return filepath.Join(base, "immutable-v1", hex), nil
 }
 
 // stageLayerTars gunzips each layer blob to an uncompressed <prefix>-<i>.tar
@@ -317,7 +405,7 @@ func gunzipToFile(src BlobSource, desc Descriptor, dst string) error {
 	if _, err := io.Copy(f, gr); err != nil { //nolint:gosec // trusted layer content
 		return err
 	}
-	return nil
+	return f.Close()
 }
 
 // extractGzTar gunzips the verified tar+gzip blob the descriptor names and
@@ -340,7 +428,8 @@ func extractGzTar(src BlobSource, desc Descriptor, destDir string) error {
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			return nil
+			_, err := io.Copy(io.Discard, gr)
+			return err
 		}
 		if err != nil {
 			return err

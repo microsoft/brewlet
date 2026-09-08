@@ -134,6 +134,49 @@ spec:
                     properties:
                       name: { type: string }
                       value: { type: string }
+                      valueFrom:
+                        type: object
+                        properties:
+                          configMapKeyRef:
+                            type: object
+                            required: [key]
+                            properties:
+                              name: { type: string }
+                              key: { type: string }
+                              optional: { type: boolean }
+                          secretKeyRef:
+                            type: object
+                            required: [key]
+                            properties:
+                              name: { type: string }
+                              key: { type: string }
+                              optional: { type: boolean }
+                          fieldRef:
+                            type: object
+                            required: [fieldPath]
+                            properties:
+                              apiVersion: { type: string }
+                              fieldPath: { type: string }
+                          resourceFieldRef:
+                            type: object
+                            required: [resource]
+                            properties:
+                              containerName: { type: string }
+                              resource: { type: string }
+                              divisor:
+                                anyOf:
+                                  - type: integer
+                                  - type: string
+                                x-kubernetes-int-or-string: true
+                          fileKeyRef:
+                            type: object
+                            description: Requires Kubernetes support for the EnvFiles feature gate.
+                            required: [volumeName, path, key]
+                            properties:
+                              volumeName: { type: string }
+                              path: { type: string }
+                              key: { type: string }
+                              optional: { type: boolean }
                 ports:
                   type: array
                   items:

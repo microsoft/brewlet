@@ -7,12 +7,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.execution.MavenSession;
+import org.apache.maven.model.Plugin;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.settings.Settings;
+import org.codehaus.plexus.util.xml.Xpp3Dom;
 import sh.brewlet.maven.plugin.model.*;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
 import sh.brewlet.maven.plugin.oci.LocalStore;
@@ -322,23 +324,92 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
 
     /**
      * Resolves the effective JAR file: the configured {@link #jarFile} if set,
-     * otherwise the project's primary artifact file.
+     * otherwise the project's primary artifact file, or its conventional packaged
+     * location when a separate Maven invocation has not associated that file yet.
      */
     protected File resolveJarFile() throws MojoExecutionException {
         if (jarFile != null) {
-            if (!jarFile.exists()) {
-                throw new MojoExecutionException(
-                        "Configured jarFile does not exist: " + jarFile.getAbsolutePath()
-                        + "  — run 'mvn package' first.");
+            return requireJarFile(jarFile, "Configured jarFile");
+        }
+        Artifact artifact = project.getArtifact();
+        if (artifact != null && artifact.getFile() != null) {
+            return requireJarFile(artifact.getFile(), "Project artifact");
+        }
+
+        var build = project.getBuild();
+        if (artifact != null && !artifact.hasClassifier()
+                && artifact.getArtifactHandler() != null
+                && "jar".equals(artifact.getArtifactHandler().getExtension())
+                && blankToNull(artifact.getArtifactHandler().getClassifier()) == null
+                && Set.of("jar", "maven-plugin").contains(project.getPackaging())
+                && project.getPackaging().equals(artifact.getType())
+                && build != null && blankToNull(build.getDirectory()) != null
+                && blankToNull(build.getFinalName()) != null
+                && build.getFinalName().indexOf('/') < 0
+                && build.getFinalName().indexOf('\\') < 0
+                && !hasCustomJarOutput()) {
+            File packaged = new File(resolveBuildDirectory(build.getDirectory()),
+                    build.getFinalName() + ".jar");
+            if (packaged.isFile()) {
+                return packaged;
             }
-            return jarFile;
         }
-        File artifact = project.getArtifact().getFile();
-        if (artifact == null || !artifact.exists()) {
-            throw new MojoExecutionException(
-                    "Project artifact not found. Run 'mvn package' before this goal.");
+        throw new MojoExecutionException("Project JAR not found. Run 'mvn package' first. "
+                + "For custom packaging, classifiers, or output paths, set "
+                + "<jarFile> or -Dbrewlet.jarFile to the exact application JAR.");
+    }
+
+    private static File requireJarFile(File file, String description) throws MojoExecutionException {
+        if (!file.isFile()) {
+            throw new MojoExecutionException(description + " is not an existing regular file: "
+                    + file.getAbsolutePath() + " — run 'mvn package' first.");
         }
-        return artifact;
+        return file;
+    }
+
+    private File resolveBuildDirectory(String directory) {
+        File file = new File(directory);
+        return !file.isAbsolute() && project.getBasedir() != null
+                ? new File(project.getBasedir(), directory) : file;
+    }
+
+    private boolean hasCustomJarOutput() {
+        for (Plugin plugin : project.getBuildPlugins()) {
+            if (!"org.apache.maven.plugins:maven-jar-plugin".equals(plugin.getKey())) {
+                continue;
+            }
+            if (hasCustomJarOutput(plugin.getConfiguration())) {
+                return true;
+            }
+            for (var execution : plugin.getExecutions()) {
+                if ((execution.getGoals().contains("jar") || "default-jar".equals(execution.getId()))
+                        && hasCustomJarOutput(execution.getConfiguration())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasCustomJarOutput(Object configuration) {
+        if (!(configuration instanceof Xpp3Dom config)) {
+            return false;
+        }
+        for (String parameter : List.of("classifier", "finalName", "outputDirectory")) {
+            Xpp3Dom child = config.getChild(parameter);
+            String value = child == null ? null : blankToNull(child.getValue());
+            if (value == null) {
+                continue;
+            }
+            if ("classifier".equals(parameter)
+                    || ("finalName".equals(parameter) && !value.equals(project.getBuild().getFinalName()))
+                    || ("outputDirectory".equals(parameter)
+                    && !resolveBuildDirectory(value).toPath().normalize().equals(
+                            resolveBuildDirectory(project.getBuild().getDirectory()).toPath().normalize()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

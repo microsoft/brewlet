@@ -234,6 +234,36 @@ spec:
 The `status` subresource surfaces `readyReplicas`, the `selectedJdk`, and `Ready`
 conditions.
 
+### Environment references and resource ownership
+
+`spec.env` supports literal `value` entries and Kubernetes `valueFrom` references
+to Secrets, ConfigMaps, pod fields, and container resources. References remain
+references in the generated Deployment; Brewlet does not read or embed secret
+values:
+
+```yaml
+spec:
+  env:
+    - name: DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: database
+          key: password
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+```
+
+On an existing installation, update the JavaApplication CRD before applying
+environment references; Helm does not upgrade CRDs automatically. Reapply any
+JavaApplication manifests whose references were pruned by an older CRD.
+
+Disabling `service.enabled` (or removing all ports) and disabling autoscaling
+remove only the corresponding resources controlled by the current
+JavaApplication. Unowned resources, resources controlled by another application,
+and resources belonging to an older same-name application are not deleted.
+
 ### Autoscaling
 
 Set `spec.autoscaling.enabled: true` and the controller manages a

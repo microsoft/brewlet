@@ -4,10 +4,57 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/microsoft/brewlet/internal/artifact"
 	kcruntime "github.com/microsoft/brewlet/internal/runtime"
 )
+
+func TestPrepareBundleRejectsInvalidResourceLimits(t *testing.T) {
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "orders.jar")
+	if err := os.WriteFile(jar, []byte("PK\x03\x04 orders"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := artifact.Store{Root: filepath.Join(dir, "oci")}
+	cfg := artifact.JVMConfig{SchemaVersion: 1, Entry: artifact.Entry{Mode: "jar"}}
+	if _, err := store.PushRunnableImage("orders:test", cfg, jar, nil, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	jdks := filepath.Join(dir, "jdks")
+	mkJDK(t, jdks, "temurin-21")
+	for _, kind := range []string{"CPU", "memory"} {
+		t.Run(kind, func(t *testing.T) {
+			ic := imageConfig{StoreRoot: store.Root, Ref: "orders:test", JDKRootsDir: jdks}
+			if kind == "CPU" {
+				ic.CPULimit = "invalid"
+			} else {
+				ic.MemoryLimit = "512MB"
+			}
+			raw, err := json.Marshal(ic)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input := filepath.Join(t.TempDir(), "image-config.json")
+			if err := os.WriteFile(input, raw, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(t.TempDir(), "bundle")
+			err = prepareBundle([]string{input, out})
+			if err == nil || !strings.Contains(err.Error(), "invalid "+kind+" limit") {
+				t.Fatalf("prepareBundle error = %v, want resource validation failure", err)
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Fatalf("invalid limits wrote bundle: %v", err)
+			}
+		})
+	}
+}
 
 func TestImageConfigProcessIdentity(t *testing.T) {
 	uid := uint32(0)

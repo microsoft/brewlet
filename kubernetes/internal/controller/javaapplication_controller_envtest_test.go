@@ -13,8 +13,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -211,6 +213,197 @@ func TestReconcileHPAAddedThenRemoved(t *testing.T) {
 
 	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: app.Name}, &hpa); !apierrors.IsNotFound(err) {
 		t.Fatalf("HPA get err = %v, want NotFound after disabling autoscaling", err)
+	}
+}
+
+func TestReconcilePreservesExternalResources(t *testing.T) {
+	for _, ownership := range []string{"unowned", "different-owner", "previous-app", "non-controller"} {
+		t.Run(ownership, func(t *testing.T) {
+			c := requireEnvtest(t)
+			ctx := testContext(t)
+			ns := createNamespace(t, ctx, c)
+			r := newJavaAppReconciler(c)
+			app := newJavaApp(ns, "external")
+			disabled := false
+			app.Spec.Service.Enabled = &disabled
+			if err := c.Create(ctx, app); err != nil {
+				t.Fatal(err)
+			}
+
+			var owners []metav1.OwnerReference
+			if ownership != "unowned" {
+				owner := metav1.NewControllerRef(app, appsv1alpha1.GroupVersion.WithKind("JavaApplication"))
+				switch ownership {
+				case "different-owner":
+					owner.Name = "another-application"
+					owner.UID = "another-uid"
+				case "previous-app":
+					owner.UID = "previous-uid"
+				case "non-controller":
+					owner.Controller = &disabled
+				}
+				owners = []metav1.OwnerReference{*owner}
+			}
+			svc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: app.Name, Namespace: ns, OwnerReferences: owners},
+				Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80}}},
+			}
+			hpa := &autoscalingv1.HorizontalPodAutoscaler{
+				ObjectMeta: metav1.ObjectMeta{Name: app.Name, Namespace: ns, OwnerReferences: owners},
+				Spec: autoscalingv1.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv1.CrossVersionObjectReference{
+						APIVersion: "apps/v1", Kind: "Deployment", Name: app.Name,
+					},
+					MaxReplicas: 5,
+				},
+			}
+			for _, obj := range []client.Object{svc, hpa} {
+				if err := c.Create(ctx, obj); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			reconcileJavaApp(t, ctx, r, ns, app.Name)
+			reconcileJavaApp(t, ctx, r, ns, app.Name)
+			for _, obj := range []client.Object{svc, hpa} {
+				uid := obj.GetUID()
+				if err := c.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+					t.Fatalf("external %T was removed: %v", obj, err)
+				}
+				if obj.GetUID() != uid {
+					t.Fatalf("external %T was replaced", obj)
+				}
+			}
+		})
+	}
+}
+
+type interceptDeleteClient struct {
+	client.Client
+	beforeDelete func(context.Context, client.Object) error
+}
+
+func (c interceptDeleteClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	if err := c.beforeDelete(ctx, obj); err != nil {
+		return err
+	}
+	return c.Client.Delete(ctx, obj, opts...)
+}
+
+func TestReconcilePreservesServiceChangedBeforeDelete(t *testing.T) {
+	for _, change := range []string{"ownership", "replacement"} {
+		t.Run(change, func(t *testing.T) {
+			c := requireEnvtest(t)
+			ctx := testContext(t)
+			ns := createNamespace(t, ctx, c)
+			app := newJavaApp(ns, "changing")
+			if err := c.Create(ctx, app); err != nil {
+				t.Fatal(err)
+			}
+			r := newJavaAppReconciler(c)
+			reconcileJavaApp(t, ctx, r, ns, app.Name)
+			disabled := false
+			app.Spec.Service.Enabled = &disabled
+
+			r.Client = interceptDeleteClient{Client: c, beforeDelete: func(ctx context.Context, obj client.Object) error {
+				var svc corev1.Service
+				if err := c.Get(ctx, client.ObjectKeyFromObject(obj), &svc); err != nil {
+					return err
+				}
+				if change == "ownership" {
+					svc.OwnerReferences = nil
+					return c.Update(ctx, &svc)
+				}
+				if err := c.Delete(ctx, &svc); err != nil {
+					return err
+				}
+				return c.Create(ctx, &corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{Name: app.Name, Namespace: ns},
+					Spec:       corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 80}}},
+				})
+			}}
+			if err := r.reconcileService(ctx, app); !apierrors.IsConflict(err) {
+				t.Fatalf("delete after concurrent %s change returned %v, want Conflict", change, err)
+			}
+			r.Client = c
+			if err := r.reconcileService(ctx, app); err != nil {
+				t.Fatalf("retry after concurrent change: %v", err)
+			}
+			var svc corev1.Service
+			if err := c.Get(ctx, client.ObjectKeyFromObject(app), &svc); err != nil {
+				t.Fatalf("changed Service was removed: %v", err)
+			}
+		})
+	}
+}
+
+func TestReconcilePreservesEnvironmentSources(t *testing.T) {
+	c := requireEnvtest(t)
+	ctx := testContext(t)
+	ns := createNamespace(t, ctx, c)
+	app := newJavaApp(ns, "environment")
+	optional := true
+	app.Spec.Env = []corev1.EnvVar{
+		{Name: "LITERAL", Value: "unchanged"},
+		{Name: "PASSWORD", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "database"}, Key: "password", Optional: &optional,
+		}}},
+		{Name: "SETTINGS", ValueFrom: &corev1.EnvVarSource{ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "settings"}, Key: "config", Optional: &optional,
+		}}},
+		{Name: "POD_NAME", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{
+			APIVersion: "v1", FieldPath: "metadata.name",
+		}}},
+		{Name: "CPU_LIMIT", ValueFrom: &corev1.EnvVarSource{ResourceFieldRef: &corev1.ResourceFieldSelector{
+			ContainerName: appContainerName, Resource: "limits.cpu", Divisor: resource.MustParse("1m"),
+		}}},
+	}
+	want := app.DeepCopy().Spec.Env
+	if err := c.Create(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(app), app); err != nil {
+		t.Fatal(err)
+	}
+	if !equality.Semantic.DeepEqual(app.Spec.Env, want) {
+		t.Fatalf("CRD pruned environment sources: got %+v, want %+v", app.Spec.Env, want)
+	}
+	reconcileJavaApp(t, ctx, newJavaAppReconciler(c), ns, app.Name)
+	var dep appsv1.Deployment
+	if err := c.Get(ctx, client.ObjectKeyFromObject(app), &dep); err != nil {
+		t.Fatal(err)
+	}
+	if got := dep.Spec.Template.Spec.Containers[0].Env; !equality.Semantic.DeepEqual(got, want) {
+		t.Fatalf("Deployment environment = %+v, want %+v", got, want)
+	}
+}
+
+func TestJavaApplicationPreservesFileEnvironmentSource(t *testing.T) {
+	c := requireEnvtest(t)
+	ctx := testContext(t)
+	ns := createNamespace(t, ctx, c)
+	app := newJavaApp(ns, "file-environment")
+	optional := true
+	app.Spec.Env = []corev1.EnvVar{{
+		Name: "SETTING",
+		ValueFrom: &corev1.EnvVarSource{FileKeyRef: &corev1.FileKeySelector{
+			VolumeName: "settings", Path: "app.env", Key: "SETTING", Optional: &optional,
+		}},
+	}}
+	want := app.DeepCopy().Spec.Env
+	if err := c.Create(ctx, app); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(app), app); err != nil {
+		t.Fatal(err)
+	}
+	if !equality.Semantic.DeepEqual(app.Spec.Env, want) {
+		t.Fatalf("CRD pruned file environment source: got %+v, want %+v", app.Spec.Env, want)
+	}
+	// The envtest API server predates EnvFiles; check the generated spec without
+	// submitting a Deployment that this Kubernetes version cannot support.
+	if got := buildDeployment(app).Spec.Template.Spec.Containers[0].Env; !equality.Semantic.DeepEqual(got, want) {
+		t.Fatalf("Deployment environment = %+v, want %+v", got, want)
 	}
 }
 

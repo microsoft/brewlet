@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/microsoft/brewlet/internal/artifact"
@@ -117,6 +118,38 @@ func TestManagedDependencyBundleRejectsFatJar(t *testing.T) {
 func TestParseJDKFeaturesRejectsPartialInteger(t *testing.T) {
 	if _, err := parseJDKFeatures("21x"); err == nil {
 		t.Fatal("expected invalid JDK feature")
+	}
+}
+
+func TestBundleCLIRejectsInvalidResourceLimits(t *testing.T) {
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "orders.jar")
+	writeCLIZip(t, jar, "com/example/Orders.class")
+	store := filepath.Join(dir, "oci")
+	config := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(config, []byte(`{"schemaVersion":1,"entry":{"mode":"jar"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdPush([]string{jar, "apps/orders:1", "--store", store, "--config", config}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		flag, value, reason string
+	}{
+		{"--cpu", "invalid", "CPU"},
+		{"--memory", "512MB", "memory"},
+	} {
+		t.Run(tc.flag, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "bundle")
+			err := cmdBundle([]string{"apps/orders:1", "--store", store, "--out", out, tc.flag, tc.value})
+			if err == nil || !strings.Contains(err.Error(), "invalid "+tc.reason+" limit") {
+				t.Fatalf("cmdBundle error = %v, want resource validation failure", err)
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Fatalf("invalid limits wrote bundle: %v", err)
+			}
+		})
 	}
 }
 

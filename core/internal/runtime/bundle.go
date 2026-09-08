@@ -168,6 +168,10 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 // explicit trusted runtime identity. It is used by deployment-side callers such
 // as `brewlet bundle`; artifact metadata is intentionally not consulted.
 func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity, regen CDSRegenOptions) error {
+	resources, err := buildResources(res)
+	if err != nil {
+		return err
+	}
 	if identity.UID > MaxProcessID || identity.GID > MaxProcessID {
 		return fmt.Errorf("process UID/GID must be between 0 and %d", MaxProcessID)
 	}
@@ -381,7 +385,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 				{Type: "pid"}, {Type: "ipc"}, {Type: "uts"},
 				{Type: "mount"}, {Type: "cgroup"},
 			},
-			Resources: buildResources(res),
+			Resources: resources,
 		},
 	}
 
@@ -392,19 +396,29 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	return os.WriteFile(filepath.Join(outDir, "config.json"), b, 0o644)
 }
 
-func buildResources(res Resources) ociResources {
+func buildResources(res Resources) (ociResources, error) {
 	out := ociResources{}
 	if res.MemoryLimit != "" {
-		if bytes, err := parseMemory(res.MemoryLimit); err == nil {
-			out.Memory = &ociMemory{Limit: &bytes}
+		bytes, err := parseMemory(res.MemoryLimit)
+		if err != nil {
+			return ociResources{}, fmt.Errorf("invalid memory limit %q: %w (use bytes, 512Mi, or 1Gi; omit for unlimited)", res.MemoryLimit, err)
 		}
+		out.Memory = &ociMemory{Limit: &bytes}
 	}
 	if res.CPULimit != "" {
-		if millis, err := parseCPU(res.CPULimit); err == nil {
-			period := uint64(100000)
-			quota := int64(math.Round(float64(millis) / 1000.0 * float64(period)))
-			out.CPU = &ociCPU{Quota: &quota, Period: &period}
+		millis, err := parseCPU(res.CPULimit)
+		if err != nil {
+			return ociResources{}, fmt.Errorf("invalid CPU limit %q: %w (use 2 or 500m; omit for unlimited)", res.CPULimit, err)
 		}
+		if millis > math.MaxInt64/100 {
+			return ociResources{}, fmt.Errorf("invalid CPU limit %q: cgroup quota exceeds int64", res.CPULimit)
+		}
+		period := uint64(100000)
+		quota := millis * 100
+		if quota < 1000 {
+			return ociResources{}, fmt.Errorf("invalid CPU limit %q: must be at least 10m (0.01 CPU) for the 100ms cgroup period", res.CPULimit)
+		}
+		out.CPU = &ociCPU{Quota: &quota, Period: &period}
 	}
-	return out
+	return out, nil
 }
