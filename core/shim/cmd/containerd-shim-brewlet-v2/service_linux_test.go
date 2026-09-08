@@ -12,6 +12,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -126,41 +127,80 @@ func TestAssembleBrewletBundleUsesResolvedImageWithoutHints(t *testing.T) {
 	t.Setenv("BREWLET_LAUNCHER_ROOTS", t.TempDir())
 	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
 
-	bundle := t.TempDir()
-	writeSpecJSON(t, bundle, specs.Spec{
-		Annotations: map[string]string{
-			annCRIImageName: "demo/orders@" + targetDigest,
-			annRequestedJDK: "temurin-21",
-		},
-		Process: &specs.Process{},
-	})
-	request := &taskAPI.CreateTaskRequest{ID: "task-1", Bundle: bundle}
-	info, err := assembleBrewletBundle(context.Background(), request, staticImageIdentityResolver{
-		identity: resolvedImageIdentity{
-			ImageName:      "demo/orders@" + targetDigest,
-			TargetDigest:   targetDigest,
-			ManifestDigest: manifestDigest,
-		},
-	})
-	if err != nil {
-		t.Fatalf("assembleBrewletBundle: %v", err)
-	}
-	if info.format != "image" || info.entryMode != "classpath" {
-		t.Fatalf("launch info = %+v", info)
-	}
-	if len(request.Rootfs) != 1 || request.Rootfs[0].Type != "overlay" {
-		t.Fatalf("rootfs = %+v, want Brewlet overlay", request.Rootfs)
-	}
-	raw, err := os.ReadFile(filepath.Join(bundle, "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got specs.Spec
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatal(err)
-	}
-	if args := strings.Join(got.Process.Args, " "); !strings.Contains(args, "com.acme.Main") {
-		t.Fatalf("process args do not come from the resolved runnable image: %q", args)
+	for _, tc := range []struct {
+		name string
+		root *specs.Root
+	}{
+		{"omitted root", nil},
+		{"writable root", &specs.Root{Path: "/cri/rootfs", Readonly: false}},
+		{"readonly root", &specs.Root{Path: "/cri/rootfs", Readonly: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := t.TempDir()
+			tmpMount := specs.Mount{
+				Destination: "/tmp", Type: "tmpfs", Source: "tmpfs",
+				Options: []string{"rw", "nosuid", "nodev", "mode=1777"},
+			}
+			writeSpecJSON(t, bundle, specs.Spec{
+				Root: tc.root,
+				Annotations: map[string]string{
+					annCRIImageName: "demo/orders@" + targetDigest,
+					annRequestedJDK: "temurin-21",
+				},
+				Process: &specs.Process{},
+				Mounts:  []specs.Mount{tmpMount},
+			})
+			request := &taskAPI.CreateTaskRequest{ID: "task-1", Bundle: bundle}
+			info, err := assembleBrewletBundle(context.Background(), request, staticImageIdentityResolver{
+				identity: resolvedImageIdentity{
+					ImageName:      "demo/orders@" + targetDigest,
+					TargetDigest:   targetDigest,
+					ManifestDigest: manifestDigest,
+				},
+			})
+			if err != nil {
+				t.Fatalf("assembleBrewletBundle: %v", err)
+			}
+			if info.format != "image" || info.entryMode != "classpath" {
+				t.Fatalf("launch info = %+v", info)
+			}
+			if len(request.Rootfs) != 1 || request.Rootfs[0].Type != "overlay" {
+				t.Fatalf("rootfs = %+v, want Brewlet overlay", request.Rootfs)
+			}
+			raw, err := os.ReadFile(filepath.Join(bundle, "config.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got specs.Spec
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatal(err)
+			}
+			wantReadonly := tc.root != nil && tc.root.Readonly
+			if got.Root == nil || got.Root.Path != "rootfs" || got.Root.Readonly != wantReadonly {
+				t.Fatalf("root = %+v, want Brewlet path with CRI readonly=%t", got.Root, wantReadonly)
+			}
+			if args := strings.Join(got.Process.Args, " "); !strings.Contains(args, "com.acme.Main") {
+				t.Fatalf("process args do not come from the resolved runnable image: %q", args)
+			}
+			var foundTmp bool
+			for _, mount := range got.Mounts {
+				if mount.Destination == "/tmp" {
+					foundTmp = true
+					if !reflect.DeepEqual(mount, tmpMount) {
+						t.Errorf("CRI writable volume changed: %+v", mount)
+					}
+				}
+				if mount.Destination == "/opt/jdk" || mount.Destination == "/app/app.jar" ||
+					mount.Destination == "/app/lib" {
+					if !hasMountOption(mount.Options, "ro") {
+						t.Errorf("runtime/application mount became writable: %+v", mount)
+					}
+				}
+			}
+			if !foundTmp {
+				t.Error("CRI writable /tmp mount was dropped")
+			}
+		})
 	}
 }
 
@@ -759,6 +799,71 @@ func TestMountModulepathLayersNoop(t *testing.T) {
 		if m.Destination == "/app/mods" {
 			t.Errorf("unexpected /app/mods mount for artifact with no module layers")
 		}
+	}
+}
+
+func TestMountDependencyLayersCDSModTimes(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		shipped    bool
+		regenerate string
+		pin        bool
+	}{
+		{name: "no CDS"},
+		{name: "regeneration disabled", regenerate: "false"},
+		{name: "shipped archive", shipped: true, pin: true},
+		{name: "regeneration only", regenerate: "true", pin: true},
+		{name: "normalized regeneration", regenerate: " TrUe ", pin: true},
+		{name: "shipped plus regeneration", shipped: true, regenerate: "true", pin: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			layer := filepath.Join(t.TempDir(), "deps.tar")
+			writeTar(t, layer, map[string][]byte{"dep.jar": []byte("JAR"), "nested/other.jar": []byte("OTHER")})
+			source, err := os.Stat(layer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ra := testResolved()
+			ra.ClasspathHostPaths = []string{layer}
+			ra.ModulepathHostPaths = []string{layer}
+			if tc.shipped {
+				ra.Config.CDS = &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"}
+			}
+			// Independent container bundles must agree even without a shipped
+			// archive: one may train the node cache and another consume it.
+			for launch := 0; launch < 2; launch++ {
+				bundle := t.TempDir()
+				spec := &specs.Spec{Annotations: map[string]string{annCDSRegenerate: tc.regenerate}}
+				if err := mountClasspathLayers(spec, ra, bundle); err != nil {
+					t.Fatal(err)
+				}
+				if err := mountModulepathLayers(spec, ra, bundle); err != nil {
+					t.Fatal(err)
+				}
+				for _, mount := range spec.Mounts {
+					if !hasMountOption(mount.Options, "ro") {
+						t.Errorf("dependency mount is not read-only: %+v", mount)
+					}
+					for _, jar := range []string{"dep.jar", "nested/other.jar"} {
+						staged, err := os.Stat(filepath.Join(mount.Source, jar))
+						if err != nil {
+							t.Fatal(err)
+						}
+						if canonical := staged.ModTime().Equal(kcruntime.CDSModTime); canonical != tc.pin {
+							t.Errorf("launch %d %s/%s mtime=%v, want canonical=%t",
+								launch, mount.Destination, jar, staged.ModTime(), tc.pin)
+						}
+					}
+				}
+			}
+			after, err := os.Stat(layer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !source.ModTime().Equal(after.ModTime()) {
+				t.Error("staging mutated shared source layer timestamps")
+			}
+		})
 	}
 }
 

@@ -1202,6 +1202,10 @@ bundle and delegates isolation to runc*. This maximizes correctness and reuse.
    - `process.user` from config / pod `securityContext`.
    - `linux.resources` populated from the **pod container resource limits**
      (CPU shares/quota, memory limit) — see §10.
+   - Preserve the CRI root read-only flag when selecting the Brewlet overlay:
+     `readOnlyRootFilesystem: true` remains enforced by runc. Explicit writable
+     volumes remain writable; the shared JDK and application mounts stay
+     read-only independently of the root setting.
    - Standard pod mounts, env, hostname, and the **CNI-provided network namespace**
      injected by the kubelet/containerd (so the pod gets a normal pod IP).
    - For `brewlet.sh/cds-regenerate: "true"`, require the root-owned AppCDS
@@ -1225,8 +1229,14 @@ bundle and delegates isolation to runc*. This maximizes correctness and reuse.
 
 ### 6.3 Why runc-backed (vs. a from-scratch JVM launcher)
 - Reuses battle-tested cgroup v2, namespace, seccomp/AppArmor, and CNI plumbing.
-- Probes (`exec`, `httpGet`, `tcpSocket`), `kubectl exec`, ephemeral debug
-  containers, and metrics-server all behave normally.
+- Probes (`exec`, `httpGet`, `tcpSocket`), `kubectl exec`, and metrics-server use
+  the normal containerd/runc mechanisms.
+- Ordinary-image ephemeral debug containers are not supported by the current
+  Brewlet handler: only the CRI sandbox bypasses JVM-image assembly. A debug
+  container in a Brewlet Pod still inherits that handler. Use `kubectl exec`
+  with tools present in the selected runtime, or debug from a separate
+  ordinary-runtime Pod; do not treat tenant annotations as authority to bypass
+  runnable-image validation.
 - The novel part stays small: artifact disassembly + rootfs assembly + arg building.
 
 ### 6.4 Runtime shim
@@ -1725,8 +1735,9 @@ other, so each shape behaves as plain Kubernetes does:
   duration/backend/format rather than a false cache-hit signal. JDK metrics expose
   exact build/source and node installation time; installation age is not presented
   as the upstream patch release age.
-- **Probes & exec:** `kubectl exec`, ephemeral debug containers, and all probe types
-  work because runc backs the sandbox.
+- **Probes & exec:** `kubectl exec` and all probe types use containerd/runc.
+  Ordinary-image ephemeral debug containers remain unsupported by the Brewlet
+  handler (§6.3).
 - **Upgrades:** JDK roots are versioned and additive on nodes. Rotating a root
   renames the previous one aside (`<root>.retired.<epoch>.<pid>`) rather than
   deleting it, because overlayfs resolves `lowerdir` at mount time — so running

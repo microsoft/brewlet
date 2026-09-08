@@ -57,6 +57,7 @@ tier3_runc() {
   else
     printf '%s\n' "$out" >"$WORK/t3-e2e-linux.log"
     fail "runc: Linux harness" "see $WORK/t3-e2e-linux.log"
+    tail -n 100 "$WORK/t3-e2e-linux.log" >&2
   fi
 
   if out="$(docker run --rm -i --privileged --platform "linux/$arch" --cgroupns=private \
@@ -69,6 +70,7 @@ tier3_runc() {
   else
     printf '%s\n' "$out" >"$WORK/t3-mixed-runc.log"
     fail "runc: mixed Linux harness" "see $WORK/t3-mixed-runc.log"
+    tail -n 100 "$WORK/t3-mixed-runc.log" >&2
   fi
 }
 

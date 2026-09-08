@@ -450,7 +450,10 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 		emitPhaseDuration("bundle_prepare", bundleDuration+time.Since(bundleStart), err)
 		return info, err
 	}
-	spec.Root = &specs.Root{Path: "rootfs", Readonly: false}
+	if spec.Root == nil {
+		spec.Root = &specs.Root{}
+	}
+	spec.Root.Path = "rootfs"
 
 	out, err := json.MarshalIndent(&spec, "", "  ")
 	if err != nil {
@@ -591,7 +594,7 @@ func applyBrewletLaunchWithWriterLease(
 	// pod as brewlet.sh/cds-regenerate (set by the operator from
 	// spec.jvm.cds.regenerate). Suppress the shipped-archive args when it is set;
 	// the regen args are injected below.
-	regenerate := strings.EqualFold(strings.TrimSpace(spec.Annotations[annCDSRegenerate]), "true")
+	regenerate := cdsRegenerationRequested(spec)
 
 	// Deployment tuning (spec.jvm.args on a JavaApplication, or the
 	// brewlet.sh/jvm-args annotation on a raw pod) is delivered as argv rather
@@ -767,6 +770,10 @@ func privateCacheEntry(cacheDir, entry string) bool {
 	return entry != cacheDir && filepath.Dir(entry) == cacheDir
 }
 
+func cdsRegenerationRequested(spec *specs.Spec) bool {
+	return strings.EqualFold(strings.TrimSpace(spec.Annotations[annCDSRegenerate]), "true")
+}
+
 // mountClasspathLayers implements the §6.1 rootfs step for layered-classpath
 // deployment (https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md): it stages each optional
 // classpath.layer.v1+tar into a per-container host dir and bind-mounts it
@@ -783,9 +790,9 @@ func mountClasspathLayers(spec *specs.Spec, ra resolvedArtifact, bundleDir strin
 		return err
 	}
 	// Pin dependency-JAR mtimes to the canonical CDS value when the artifact
-	// ships an AppCDS archive, so each classpath entry matches the archive's
-	// recorded timestamps (see runtime.CDSModTime).
-	if ra.Config.CDS != nil {
+	// ships an archive or requests node-side regeneration, so training and
+	// later consumers agree on every entry (see runtime.CDSModTime).
+	if ra.Config.CDS != nil || cdsRegenerationRequested(spec) {
 		if err := kcruntime.PinCDSModTimesUnder(libHost); err != nil {
 			return err
 		}
@@ -813,7 +820,7 @@ func mountModulepathLayers(spec *specs.Spec, ra resolvedArtifact, bundleDir stri
 	if err := kcruntime.StageModulepathLayers(ra.ModulepathHostPaths, modsHost); err != nil {
 		return err
 	}
-	if ra.Config.CDS != nil {
+	if ra.Config.CDS != nil || cdsRegenerationRequested(spec) {
 		if err := kcruntime.PinCDSModTimesUnder(modsHost); err != nil {
 			return err
 		}

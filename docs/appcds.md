@@ -412,7 +412,12 @@ to the canonical value, and bind-mounts that copy; extracted `lib/`/`mods/` JARs
 are pinned in place. All three JAR-materialization paths implement this
 identically:
 `AssembleSandboxWithCDS` (`run`), `GenerateBundleWithCDS` (`bundle` + harness), and
-the production shim's `applyBrewletLaunch`.
+the production shim's `applyBrewletLaunch`, `mountClasspathLayers`, and
+`mountModulepathLayers`. In particular, regeneration-only layered applications
+normalize both class-path and module-path dependencies on every launch, even
+when the published image contains no CDS archive. This keeps a later cache
+consumer consistent with the container that trained it without modifying shared
+content-store blobs.
 
 ---
 

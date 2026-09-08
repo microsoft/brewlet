@@ -53,8 +53,12 @@ Explicit root therefore requires a trusted deployment/runtime choice,
 such as a raw Pod `securityContext` or standalone `brewlet bundle --uid 0 --gid
 0`; untrusted artifact bytes cannot request it.
 
-The JDK runtime root is mounted **read-only** and shared; only a small per-container
-upper/scratch layer is writable.
+The JDK runtime root and application payloads are mounted **read-only** regardless
+of the container root setting. The shim preserves the CRI root's read-only flag,
+so `readOnlyRootFilesystem: true` also prevents writes to the per-container
+overlay root. Explicit writable mounts remain writable; provide an `emptyDir`
+at `/tmp` or another path if the application needs scratch space. Containers
+without a read-only root setting retain their writable per-container overlay.
 
 Artifact metadata never selects a host path. The `mainJar` and `cds.archive`
 filenames are validated as bare filenames — no path separator, wildcard or parent
