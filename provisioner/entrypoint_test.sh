@@ -10,6 +10,7 @@ source "$repo_root/provisioner/entrypoint.sh"
 TEST_TMP_ROOT="$repo_root/provisioner/.entrypoint-test-tmp.$$"
 mkdir -p "$TEST_TMP_ROOT"
 export TMPDIR="$TEST_TMP_ROOT"
+COMPLETION_FILE="$TEST_TMP_ROOT/completion"
 calls="$(mktemp "$TEST_TMP_ROOT/calls.XXXXXX")"
 dest="$(mktemp -d "$TEST_TMP_ROOT/dest.XXXXXX")"
 source_policy_bin="$(mktemp "$TEST_TMP_ROOT/source-policy.XXXXXX")"
@@ -1457,3 +1458,114 @@ if output="$(
   exit 1
 fi
 grep -Fq "ERROR: cgroup-v2-required" <<<"$output"
+
+# Readiness is a completion signal, not evidence that the script merely started.
+completion_bin="$(mktemp -d "$TEST_TMP_ROOT/completion-bin.XXXXXX")"
+cat >"$completion_bin/sleep" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == infinity ]]
+[[ -f "$BREWLET_TEST_COMPLETION_FILE" ]] || {
+  echo "idle reached without publishing completion" >&2
+  exit 1
+}
+printf 'idle-ready\n' >>"$BREWLET_TEST_COMPLETION_CALLS"
+EOF
+chmod +x "$completion_bin/sleep"
+
+completion_case() (
+  BREWLET_MODE="$1"
+  local failure="${2:-}"
+  NODE_NAME=""
+  export PATH="$completion_bin:$PATH"
+  export BREWLET_TEST_COMPLETION_FILE="$COMPLETION_FILE"
+  export BREWLET_TEST_COMPLETION_CALLS="$calls"
+  : >"$calls"
+  : >"$COMPLETION_FILE"
+
+  completion_step() {
+    [[ ! -e "$COMPLETION_FILE" ]] || {
+      echo "stale or premature readiness during $1" >&2
+      exit 1
+    }
+    printf '%s\n' "$1" >>"$calls"
+    [[ "$1" != "$failure" ]] || exit 42
+  }
+  kubectl() { return 0; }
+  host_arch_oci() { printf 'amd64'; }
+  remove_appcds_regeneration_policy() { completion_step remove-policy; }
+  clear_node_advertisement() { completion_step clear-readiness; }
+  parse_mirrors() { completion_step parse-mirrors; }
+  parse_runtime_sources() { completion_step parse-sources; }
+  require_cgroup_v2() { completion_step require-cgroups; }
+  preflight_sources() { completion_step preflight-sources; }
+  install_shim() { completion_step install-shim; }
+  install_source_mount_traps() { completion_step install-traps; }
+  cleanup_stale_source_mounts() { completion_step cleanup-mounts; }
+  require_containerd_image_identity() { completion_step require-identity; }
+  reclaim_retired_roots() { completion_step reclaim-roots; }
+  install_runtime_sources() { completion_step install-sources; }
+  configure_containerd() { completion_step configure-containerd; }
+  activate_containerd_config() { completion_step activate-containerd; }
+  validate_readiness_after_activation() { completion_step validate-readiness; }
+  verify_shim() { completion_step verify-shim; }
+  verify_profile_identity() { completion_step verify-profile; }
+  configure_appcds_regeneration_policy() { completion_step configure-policy; }
+  label_node() { completion_step label-node; }
+  cleanup_host() { completion_step cleanup-host; }
+  main
+)
+
+for mode in provision cleanup; do
+  completion_case "$mode" >"$TEST_TMP_ROOT/completion-$mode.log" 2>&1 || {
+    cat "$TEST_TMP_ROOT/completion-$mode.log" >&2
+    echo "$mode did not publish completion after all operations succeeded" >&2
+    exit 1
+  }
+  [[ -f "$COMPLETION_FILE" ]]
+  grep -Fxq "idle-ready" "$calls"
+done
+
+for scenario in provision:parse-sources provision:install-sources \
+    provision:activate-containerd provision:label-node \
+    cleanup:cleanup-mounts cleanup:cleanup-host; do
+  if completion_case "${scenario%%:*}" "${scenario#*:}" >/dev/null 2>&1; then
+    echo "expected $scenario failure to stop before readiness" >&2
+    exit 1
+  fi
+  [[ ! -e "$COMPLETION_FILE" ]] || {
+    echo "$scenario failure left a completion marker" >&2
+    exit 1
+  }
+  if grep -Fxq "idle-ready" "$calls"; then
+    echo "$scenario failure reached idle" >&2
+    exit 1
+  fi
+done
+
+if output="$(
+  (
+    COMPLETION_FILE="$TEST_TMP_ROOT/missing-completion-directory/complete"
+    remove_appcds_regeneration_policy() { return 0; }
+    publish_completion
+  ) 2>&1
+)"; then
+  echo "expected completion publication failure to be reported" >&2
+  exit 1
+fi
+grep -Fq "ERROR: completion-state-failed" <<<"$output"
+
+mkdir "$TEST_TMP_ROOT/completion-directory"
+if output="$(
+  (
+    BREWLET_MODE=provision
+    COMPLETION_FILE="$TEST_TMP_ROOT/completion-directory"
+    remove_appcds_regeneration_policy() { return 0; }
+    clear_node_advertisement() { exit 42; }
+    main
+  ) 2>&1
+)"; then
+  echo "expected completion reset failure to stop provisioning" >&2
+  exit 1
+fi
+grep -Fq "ERROR: completion-state-failed" <<<"$output"

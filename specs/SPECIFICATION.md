@@ -745,6 +745,12 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    Their exact keys, token grammar, presence semantics, compatibility guarantees,
    and autoscaler integration are defined by the public
    [capability-label contract](CAPABILITY_LABELS.md).
+9. Publishes the container-local `/tmp/brewlet-complete` marker and idles.
+   Provisioner and cleanup containers have an exec readiness probe for that
+   marker. Each entrypoint invocation removes stale completion state before
+   doing any work; failures do not publish completion. This gate is independent
+   of the optional runtime smoke checks and has no startup deadline that could
+   kill a legitimately slow installation.
 
 The `brewlet.sh/runtime=ready` label is used by the `RuntimeClass` `nodeSelector`
 so workloads only schedule onto provisioned nodes.
@@ -1033,14 +1039,19 @@ spec:
   actionable message. Admission remains an early-feedback layer, not the
   security boundary.
 - **Reversal.** Deleting a NodeProfile does not silently strip nodes. A finalizer
-  (`node.brewlet.sh/cleanup`) holds the object while the operator runs a
+  (`node.brewlet.sh/cleanup`) holds the object while the operator first stops the
+  managed provisioner and waits for its pods, including terminating pods, to be
+  gone. Only then does it run a
   short-lived `brewlet-cleanup-<profile>` DaemonSet (`BREWLET_MODE=cleanup`) that
   restores the containerd config backup, removes the AppCDS authorization
   sentinel, the shim, and the profile's installed JDK/launcher roots (unless
   `BREWLET_CLEANUP_RUNTIME_ROOTS=false`, for nodes whose roots are baked into an
   immutable image), and drops the runtime + capability labels; only once every
-  assigned node is cleaned is the finalizer removed and the object
-  garbage-collected. Exception: if the profile's current
+  assigned node is cleaned does the operator record completion and tear down
+  cleanup. The finalizer remains until the cleanup DaemonSet and its pods are
+  gone, so a replacement profile cannot race an old cleanup process. Recorded
+  completion survives a controller restart; teardown must not create another
+  cleanup DaemonSet. Exception: if the profile's current
   source/mirror/pool policy is invalid, its current pool selector is not trusted
   for privileged cleanup and may overlap another profile. Deletion then
   stops the profile's provisioner and cleanup pods, withdraws advertisements,
@@ -1048,6 +1059,15 @@ spec:
   remain until those pods have terminated so none can republish stale
   capabilities. Repair the profile before deleting it when automatic reversal
   is required; otherwise clean its prior nodes explicitly.
+
+During normal reversal, `CleanupComplete=True` with reason `CleanupSucceeded`
+records completed host work for the current profile UID and
+`observedGeneration`. `Ready=False`, reason `CleanupTeardown`, then denotes
+waiting for the cleanup DaemonSet and all profile pods to disappear. A stale
+checkpoint is not reused for another generation or profile incarnation;
+reappearing provisioners invalidate it before being stopped. Failure to persist
+the checkpoint prevents teardown. `CleanupComplete` is not permission to skip
+the finalizer or start a replacement profile early.
 
 Sample manifests:
 [`deploy/sample-nodeprofile.yaml`](../kubernetes/deploy/sample-nodeprofile.yaml);
@@ -1739,6 +1759,7 @@ repurposed.
 | `invalid-restart-mode` | `rollout.containerdRestart` is not `validated` / `sighup` / `none` |
 | `unsupported-architecture` | The node's architecture is not supported |
 | `host-tooling-missing` | A required host tool (`nsenter`, the host `ctr` helper) is unavailable |
+| `completion-state-failed` | The container-local readiness marker could not be reset or published; the operation exits unsuccessfully |
 | `containerd-version-unavailable` | The host containerd server version could not be queried |
 | `containerd-version-invalid` | The reported containerd server version could not be parsed |
 | `unsupported-containerd-version` | containerd is older than 2.0 (protected CRI requested-image metadata is required) |
@@ -1777,7 +1798,8 @@ reason (§5.5).
 |---|---|---|
 | `JavaApplication` | `Ready` | `Reconciled`, `Progressing`, `ReconcileError` |
 | `JavaApplication` | `JVMArgsApplied` | `ArgsDelivered`, `EnvOptionsOverlap` (§8.2) |
-| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `CleanupPending` |
+| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `CleanupPending`, `CleanupTeardown` |
+| `NodeProfile` | `CleanupComplete` | `CleanupSucceeded` (current-generation host cleanup finished; worker teardown may still be pending) |
 
 Event reasons: `Provisioning`, `NodeReady`, `ProvisionFailed`, `NodeUnmatched`
 (node lifecycle, §8.1); `ReconcileError`, `EnvOptionsOverlap` (`JavaApplication`,

@@ -231,6 +231,13 @@ make -C kubernetes helm-template
 
 ### Upgrading
 
+Upgrade the operator and provisioner images together. The operator's provisioning
+and cleanup readiness probes require the provisioner to publish the
+container-local `/tmp/brewlet-complete` marker after successful work. An older or
+custom image without that protocol stays NotReady and blocks completion rather
+than allowing premature cleanup. Do not bypass a blocked cleanup by removing its
+finalizer; restore compatible images and inspect the provisioner logs.
+
 Helm does not upgrade CRDs placed under a chart's `crds/` directory. Apply the
 JavaApplication CRD from the release you are upgrading to before using newly
 supported fields, such as `spec.env[].valueFrom`:

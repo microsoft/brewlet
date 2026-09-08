@@ -4,6 +4,7 @@
 package controller
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"strconv"
@@ -15,7 +16,10 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/dump"
 )
+
+const cleanupTemplateAnnotation = "brewlet.sh/cleanup-template"
 
 // profileLabels are the pod/selector labels for a profile's managed DaemonSet:
 // the shared provisioner app label (so the node-state reflection and the
@@ -320,6 +324,15 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 							Image:           cfg.ProvisionerImage,
 							SecurityContext: &corev1.SecurityContext{Privileged: &privileged},
 							Env:             env,
+							ReadinessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									Exec: &corev1.ExecAction{Command: []string{"/usr/bin/test", "-f", "/tmp/brewlet-complete"}},
+								},
+								PeriodSeconds:    2,
+								TimeoutSeconds:   1,
+								SuccessThreshold: 1,
+								FailureThreshold: 1,
+							},
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "host-opt", MountPath: "/opt/brewlet"},
 								{Name: "containerd-conf", MountPath: "/etc/containerd"},
@@ -429,5 +442,11 @@ func buildCleanupDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 	// Cleanup never scrapes metrics, so it carries neither the exporter nor its
 	// writable telemetry socket mount.
 	dropMetricsExporter(ds)
+	// DaemonSet readiness can still describe old pods during a rollout. Stamp
+	// the desired template so cleanup completion can verify each current pod.
+	revision := sha256.Sum256([]byte(dump.ForHash(ds.Spec.Template)))
+	ds.Spec.Template.Annotations = map[string]string{
+		cleanupTemplateAnnotation: fmt.Sprintf("%x", revision),
+	}
 	return ds
 }

@@ -18,7 +18,8 @@
 #      JDKs/launchers via annotations.
 #
 # The script is idempotent: it is safe to re-run, and only does work that is
-# still missing. It then sleeps forever so the DaemonSet pod stays Ready.
+# still missing. It publishes a container-local completion marker, then sleeps
+# forever so the DaemonSet readiness probe can observe successful completion.
 #
 # It also runs in a reversal mode (BREWLET_MODE=cleanup): a short-lived
 # brewlet-cleanup DaemonSet the operator launches for a deleted NodeProfile.
@@ -32,9 +33,11 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Configuration (all overridable via the DaemonSet env).
+# Configuration (environment overrides where indicated).
 # ---------------------------------------------------------------------------
 NODE_NAME="${NODE_NAME:-$(hostname)}"
+# Keep this container-local path aligned with the DaemonSet readiness probe.
+COMPLETION_FILE="/tmp/brewlet-complete"
 PREFIX="${BREWLET_PREFIX:-/opt/brewlet}"                 # host-mounted at $PREFIX
 HOST_BIN="${HOST_BIN:-/host/usr/local/bin}"              # host /usr/local/bin (on containerd PATH)
 CONTAINERD_CONFIG="${CONTAINERD_CONFIG:-/etc/containerd/config.toml}"
@@ -1581,11 +1584,17 @@ cleanup_host() {
   unlabel_node
 }
 
+publish_completion() {
+  : >"$COMPLETION_FILE" \
+    || die completion-state-failed "could not publish completion marker ${COMPLETION_FILE}"
+}
+
 cleanup_node() {
   log "cleaning up node ${NODE_NAME} for deleted NodeProfile (BREWLET_MODE=cleanup)"
   install_source_mount_traps
   cleanup_stale_source_mounts
   cleanup_host
+  publish_completion
   log "node ${NODE_NAME} cleanup complete"
 
   # Stay Ready so the operator can observe the cleanup DaemonSet as complete
@@ -1595,6 +1604,9 @@ cleanup_node() {
 }
 
 main() {
+  # A restarted invocation must never inherit readiness from earlier work.
+  rm -f -- "$COMPLETION_FILE" \
+    || die completion-state-failed "could not reset completion marker ${COMPLETION_FILE}"
   if [[ "${BREWLET_MODE}" == "cleanup" ]]; then
     cleanup_node
     return 0
@@ -1626,6 +1638,7 @@ main() {
   # Clear any stale provision-error from a previous failed attempt now we're good.
   command -v kubectl >/dev/null && kubectl annotate node "$NODE_NAME" \
     "${ANNOTATION_PROVISION_ERROR}-" "${ANNOTATION_PROVISION_ERROR_MESSAGE}-" >/dev/null 2>&1 || true
+  publish_completion
   log "node ${NODE_NAME} provisioned successfully"
 
   # Keep provisioning independent from observability. The exporter runs as a

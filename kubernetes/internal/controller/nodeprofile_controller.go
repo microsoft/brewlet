@@ -47,7 +47,9 @@ type NodeProfileReconciler struct {
 // fleet changes so pool membership/readiness is re-evaluated).
 func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var profile nodev1alpha1.NodeProfile
-	if err := r.Get(ctx, req.NamespacedName, &profile); err != nil {
+	// The persisted teardown checkpoint and deletion timestamp must not lag:
+	// a stale profile could recreate writers after cleanup has completed.
+	if err := r.apiReader().Get(ctx, req.NamespacedName, &profile); err != nil {
 		if apierrors.IsNotFound(err) {
 			observability.DeleteNodeProfile(req.Name)
 		}
@@ -76,7 +78,7 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if validationErr != nil {
 			return r.reconcileDeleteInvalid(ctx, &profile, nodes.Items, validationErr)
 		}
-		return r.reconcileDelete(ctx, &profile, resolvedKey, otherPools, nodes.Items)
+		return r.reconcileDelete(ctx, &profile, otherPools)
 	}
 
 	if validationErr != nil {
@@ -214,19 +216,15 @@ func (r *NodeProfileReconciler) reconcileInvalidProfile(
 	return result, nil
 }
 
-func (r *NodeProfileReconciler) deleteProfileDaemonSet(ctx context.Context, profile *nodev1alpha1.NodeProfile) error {
-	_, err := r.deleteProfileDaemonSetIfExists(ctx, profile)
-	return err
-}
-
 func (r *NodeProfileReconciler) deleteProfileDaemonSetIfExists(
 	ctx context.Context,
 	profile *nodev1alpha1.NodeProfile,
 ) (bool, error) {
 	return r.deleteDaemonSetIfExists(
 		ctx,
+		profile,
 		brewlet.ProfileDaemonSetName(profile.Name),
-		"invalid profile",
+		"provisioner",
 	)
 }
 
@@ -259,30 +257,87 @@ func (r *NodeProfileReconciler) withdrawProfileNodeAdvertisements(ctx context.Co
 	return nil
 }
 
-// reconcileDelete launches the cleanup DaemonSet, and only removes the finalizer
-// (unblocking owner-ref GC of the managed provisioner DaemonSet) once cleanup
-// has completed on every assigned node.
-func (r *NodeProfileReconciler) reconcileDelete(ctx context.Context, profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string, nodes []corev1.Node) (ctrl.Result, error) {
+// reconcileDelete stops provisioning before cleanup can mutate the same host
+// paths, and holds the finalizer until cleanup has completed on every node and
+// every profile writer has terminated.
+func (r *NodeProfileReconciler) reconcileDelete(ctx context.Context, profile *nodev1alpha1.NodeProfile, otherPools []string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	if !controllerutil.ContainsFinalizer(profile, brewlet.FinalizerCleanup) {
 		return ctrl.Result{}, nil
 	}
 
-	assigned, _ := r.poolCounts(profile, resolvedKey, otherPools, nodes)
+	provisionerRemains, err := r.profileProvisionerRemains(ctx, profile)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if provisionerRemains {
+		// Invalidate the checkpoint before stopping reappeared writers. If the
+		// operator crashes after their deletion, their mutations still require
+		// a fresh cleanup rather than resuming the previous teardown.
+		if err := r.setDeleting(ctx, profile, false); err != nil {
+			return ctrl.Result{}, err
+		}
+		if _, err := r.deleteProfileDaemonSetIfExists(ctx, profile); err != nil {
+			return ctrl.Result{}, err
+		}
+		// An older operator may already have started cleanup concurrently.
+		// Stop that DaemonSet too; its replacement must wait for all writers.
+		if err := r.deleteCleanupDaemonSet(ctx, profile); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	if cleanupCompleted(profile) {
+		return r.reconcileCleanupTeardown(ctx, profile)
+	}
+	if err := r.setDeleting(ctx, profile, false); err != nil {
+		return ctrl.Result{}, err
+	}
 
-	done, err := r.ensureCleanupComplete(ctx, profile, resolvedKey, otherPools, assigned)
+	// Membership can change while the informer catches up to provisioning or
+	// cleanup events. Do not finalize against a stale assigned-node snapshot.
+	var freshNodes corev1.NodeList
+	if err := r.apiReader().List(ctx, &freshNodes); err != nil {
+		return ctrl.Result{}, fmt.Errorf("listing nodes before profile cleanup: %w", err)
+	}
+	done, err := r.ensureCleanupComplete(ctx, profile, resolvePoolKey(profile, freshNodes.Items), otherPools, freshNodes.Items)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	if !done {
-		r.setDeleting(ctx, profile)
 		logger.Info("cleanup in progress; holding finalizer", "profile", profile.Name)
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
-	// Cleanup finished: tear down the cleanup DaemonSet and release the finalizer.
-	if err := r.deleteCleanupDaemonSet(ctx, profile); err != nil {
+	// Persist completion before deleting any of its evidence. A restarted
+	// reconciler can then resume teardown without recreating cleanup workers.
+	if err := r.setDeleting(ctx, profile, true); err != nil {
 		return ctrl.Result{}, err
+	}
+	return r.reconcileCleanupTeardown(ctx, profile)
+}
+
+func (r *NodeProfileReconciler) reconcileCleanupTeardown(ctx context.Context, profile *nodev1alpha1.NodeProfile) (ctrl.Result, error) {
+	cleanupRemains, err := r.deleteCleanupDaemonSetIfExists(ctx, profile)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	podsRemain, err := r.profilePodsRemain(ctx, profile.Name)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	provisionerRemains, err := r.profileProvisionerRemains(ctx, profile)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if provisionerRemains {
+		if err := r.setDeleting(ctx, profile, false); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	if cleanupRemains || podsRemain {
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 	controllerutil.RemoveFinalizer(profile, brewlet.FinalizerCleanup)
 	if err := r.Update(ctx, profile); err != nil {
@@ -291,17 +346,60 @@ func (r *NodeProfileReconciler) reconcileDelete(ctx context.Context, profile *no
 	return ctrl.Result{}, nil
 }
 
-// ensureCleanupComplete makes sure the cleanup DaemonSet exists and reports
-// whether it has finished on every assigned node. With no assigned nodes there
-// is nothing to clean, so it completes immediately.
-func (r *NodeProfileReconciler) ensureCleanupComplete(ctx context.Context, profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string, assigned int32) (bool, error) {
-	if assigned == 0 {
+func (r *NodeProfileReconciler) profileProvisionerRemains(ctx context.Context, profile *nodev1alpha1.NodeProfile) (bool, error) {
+	var ds appsv1.DaemonSet
+	if err := r.apiReader().Get(ctx, types.NamespacedName{
+		Namespace: r.Config.Namespace, Name: brewlet.ProfileDaemonSetName(profile.Name),
+	}, &ds); err == nil {
 		return true, nil
+	} else if !apierrors.IsNotFound(err) {
+		return false, fmt.Errorf("reading provisioner before cleanup: %w", err)
+	}
+	return r.profilePodsRemain(ctx, profile.Name, brewlet.ProvisionerAppLabel)
+}
+
+func cleanupCompleted(profile *nodev1alpha1.NodeProfile) bool {
+	// Status belongs to the UID-bearing object fetched through APIReader, not
+	// a name-keyed cache entry or the previous incarnation of this profile.
+	condition := meta.FindStatusCondition(profile.Status.Conditions, nodev1alpha1.ConditionCleanupComplete)
+	return condition != nil && condition.Status == metav1.ConditionTrue &&
+		condition.Reason == nodev1alpha1.ReasonCleanupSucceeded &&
+		condition.ObservedGeneration == profile.Generation
+}
+
+// ensureCleanupComplete makes sure the cleanup DaemonSet exists and reports
+// whether its current template has finished on every assigned node.
+func (r *NodeProfileReconciler) ensureCleanupComplete(ctx context.Context, profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string, nodes []corev1.Node) (bool, error) {
+	assigned := make(map[string]bool)
+	for i := range nodes {
+		if r.nodeAssigned(profile, resolvedKey, otherPools, &nodes[i]) {
+			assigned[nodes[i].Name] = false
+		}
+	}
+	if len(assigned) == 0 {
+		remains, err := r.deleteCleanupDaemonSetIfExists(ctx, profile)
+		if err != nil {
+			return false, err
+		}
+		podsRemain, err := r.profilePodsRemain(ctx, profile.Name)
+		return !remains && !podsRemain, err
 	}
 	desired := buildCleanupDaemonSet(r.Config, profile, resolvedKey, otherPools)
 	ds := &appsv1.DaemonSet{}
 	ds.Name = desired.Name
 	ds.Namespace = desired.Namespace
+	if err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(ds), ds); apierrors.IsNotFound(err) {
+		podsRemain, err := r.profilePodsRemain(ctx, profile.Name)
+		if err != nil || podsRemain {
+			return false, err
+		}
+	} else if err != nil {
+		return false, err
+	} else if !metav1.IsControlledBy(ds, profile) {
+		return false, fmt.Errorf("cleanup DaemonSet %q is not controlled by NodeProfile %q (%s)", ds.Name, profile.Name, profile.UID)
+	} else if !ds.DeletionTimestamp.IsZero() {
+		return false, nil
+	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, ds, func() error {
 		if err := controllerutil.SetControllerReference(profile, ds, r.Scheme()); err != nil {
 			return err
@@ -312,11 +410,67 @@ func (r *NodeProfileReconciler) ensureCleanupComplete(ctx context.Context, profi
 	}); err != nil {
 		return false, fmt.Errorf("ensuring cleanup DaemonSet: %w", err)
 	}
-	// Complete once the cleanup DaemonSet has run to ready on all its nodes.
-	if ds.Status.DesiredNumberScheduled > 0 && ds.Status.NumberReady >= ds.Status.DesiredNumberScheduled {
-		return true, nil
+	// Use fresh status and pods: an informer can lag a template update or pod
+	// termination, and aggregate readiness can belong to the previous revision.
+	if err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(ds), ds); err != nil {
+		return false, client.IgnoreNotFound(err)
 	}
-	return false, nil
+	count := int32(len(assigned))
+	revision := desired.Spec.Template.Annotations[cleanupTemplateAnnotation]
+	if !ds.DeletionTimestamp.IsZero() ||
+		ds.Spec.Template.Annotations[cleanupTemplateAnnotation] != revision ||
+		ds.Status.ObservedGeneration != ds.Generation ||
+		ds.Status.DesiredNumberScheduled != count ||
+		ds.Status.CurrentNumberScheduled != count ||
+		ds.Status.UpdatedNumberScheduled != count ||
+		ds.Status.NumberReady != count ||
+		ds.Status.NumberAvailable != count ||
+		ds.Status.NumberUnavailable != 0 ||
+		ds.Status.NumberMisscheduled != 0 {
+		return false, nil
+	}
+	var pods corev1.PodList
+	if err := r.apiReader().List(ctx, &pods,
+		client.InNamespace(ds.Namespace),
+		client.MatchingLabels(ds.Spec.Selector.MatchLabels),
+	); err != nil {
+		return false, fmt.Errorf("listing cleanup pods: %w", err)
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if !metav1.IsControlledBy(pod, ds) {
+			continue
+		}
+		if _, ok := assigned[pod.Spec.NodeName]; !ok ||
+			!pod.DeletionTimestamp.IsZero() ||
+			pod.Annotations[cleanupTemplateAnnotation] != revision ||
+			!cleanupPodReady(pod) {
+			return false, nil
+		}
+		assigned[pod.Spec.NodeName] = true
+	}
+	for _, complete := range assigned {
+		if !complete {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func cleanupPodReady(pod *corev1.Pod) bool {
+	if pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+			for _, status := range pod.Status.ContainerStatuses {
+				if status.Name == "provisioner" && status.Ready && status.State.Running != nil {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (r *NodeProfileReconciler) deleteCleanupDaemonSet(ctx context.Context, profile *nodev1alpha1.NodeProfile) error {
@@ -330,6 +484,7 @@ func (r *NodeProfileReconciler) deleteCleanupDaemonSetIfExists(
 ) (bool, error) {
 	return r.deleteDaemonSetIfExists(
 		ctx,
+		profile,
 		brewlet.CleanupDaemonSetName(profile.Name),
 		"cleanup",
 	)
@@ -337,6 +492,7 @@ func (r *NodeProfileReconciler) deleteCleanupDaemonSetIfExists(
 
 func (r *NodeProfileReconciler) deleteDaemonSetIfExists(
 	ctx context.Context,
+	profile *nodev1alpha1.NodeProfile,
 	name string,
 	kind string,
 ) (bool, error) {
@@ -344,7 +500,20 @@ func (r *NodeProfileReconciler) deleteDaemonSetIfExists(
 		Name:      name,
 		Namespace: r.Config.Namespace,
 	}}
-	if err := r.Delete(ctx, ds, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil && !apierrors.IsNotFound(err) {
+	if err := r.apiReader().Get(ctx, client.ObjectKeyFromObject(ds), ds); err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	if !metav1.IsControlledBy(ds, profile) {
+		return false, fmt.Errorf("refusing to delete %s DaemonSet %q not controlled by NodeProfile %q (%s)", kind, name, profile.Name, profile.UID)
+	}
+	if !ds.DeletionTimestamp.IsZero() {
+		return true, nil
+	}
+	uid, version := ds.UID, ds.ResourceVersion
+	if err := r.Delete(ctx, ds,
+		client.PropagationPolicy(metav1.DeletePropagationForeground),
+		client.Preconditions{UID: &uid, ResourceVersion: &version},
+	); err != nil && !apierrors.IsNotFound(err) {
 		return false, fmt.Errorf("deleting %s DaemonSet: %w", kind, err)
 	} else if apierrors.IsNotFound(err) {
 		return false, nil
@@ -352,15 +521,19 @@ func (r *NodeProfileReconciler) deleteDaemonSetIfExists(
 	return true, nil
 }
 
-func (r *NodeProfileReconciler) profilePodsRemain(ctx context.Context, profileName string) (bool, error) {
+func (r *NodeProfileReconciler) profilePodsRemain(ctx context.Context, profileName string, app ...string) (bool, error) {
 	var pods corev1.PodList
+	labels := client.MatchingLabels{brewlet.LabelNodeProfile: profileName}
+	if len(app) > 0 {
+		labels["app"] = app[0]
+	}
 	if err := r.apiReader().List(
 		ctx,
 		&pods,
 		client.InNamespace(r.Config.Namespace),
-		client.MatchingLabels{brewlet.LabelNodeProfile: profileName},
+		labels,
 	); err != nil {
-		return false, fmt.Errorf("listing pods for invalid profile %q: %w", profileName, err)
+		return false, fmt.Errorf("listing pods for profile %q: %w", profileName, err)
 	}
 	return len(pods.Items) > 0, nil
 }
@@ -490,21 +663,36 @@ func (r *NodeProfileReconciler) assignedNodeFailure(profile *nodev1alpha1.NodePr
 	return false, ""
 }
 
-// setDeleting best-effort marks the profile Ready=False/CleanupPending while its
-// cleanup runs, so `kubectl get nodeprofile` shows the teardown in flight.
-func (r *NodeProfileReconciler) setDeleting(ctx context.Context, profile *nodev1alpha1.NodeProfile) {
+// setDeleting persists the cleanup phase. Completion must be acknowledged by
+// the API before teardown may remove the DaemonSet or its completion evidence.
+func (r *NodeProfileReconciler) setDeleting(ctx context.Context, profile *nodev1alpha1.NodeProfile, complete bool) error {
 	base := profile.DeepCopy()
+	reason, message := nodev1alpha1.ReasonCleanupPending, "waiting for provisioners to stop and host cleanup to complete"
+	if complete {
+		reason, message = nodev1alpha1.ReasonCleanupTeardown, "host cleanup complete; waiting for all profile workers to terminate"
+		meta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
+			Type: nodev1alpha1.ConditionCleanupComplete, Status: metav1.ConditionTrue,
+			Reason: nodev1alpha1.ReasonCleanupSucceeded, ObservedGeneration: profile.Generation,
+			Message: "host cleanup completed on every assigned node",
+		})
+	} else {
+		meta.RemoveStatusCondition(&profile.Status.Conditions, nodev1alpha1.ConditionCleanupComplete)
+	}
+	profile.Status.ObservedGeneration = profile.Generation
 	meta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
 		Type:               nodev1alpha1.ConditionReady,
 		Status:             metav1.ConditionFalse,
-		Reason:             nodev1alpha1.ReasonCleanupPending,
-		Message:            "running host cleanup before deletion",
+		Reason:             reason,
+		Message:            message,
 		ObservedGeneration: profile.Generation,
 	})
 	if equalStatus(&base.Status, &profile.Status) {
-		return
+		return nil
 	}
-	_ = r.Status().Update(ctx, profile)
+	if err := r.Status().Update(ctx, profile); err != nil {
+		return fmt.Errorf("persisting profile cleanup phase: %w", err)
+	}
+	return nil
 }
 
 // namedPoolsExcept returns the union of pool names claimed by every profile

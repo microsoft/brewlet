@@ -512,7 +512,7 @@ func TestNodeProfileFinalizerBlocksGC(t *testing.T) {
 	t.Cleanup(func() { cleanupRuntimeClass(c) })
 
 	poolKey := "cloud.google.com/gke-nodepool"
-	createNode(t, ctx, c, map[string]string{poolKey: "batch"})
+	node := createNode(t, ctx, c, map[string]string{poolKey: "batch"})
 	name := uniqueName("reversal")
 	createProfile(t, ctx, c, name, nodev1alpha1.NodeProfileSpec{
 		NodePool: nodev1alpha1.NodePoolRef{Names: []string{"batch"}, Key: poolKey},
@@ -526,10 +526,12 @@ func TestNodeProfileFinalizerBlocksGC(t *testing.T) {
 		t.Fatalf("finalizer not added: %v", p.Finalizers)
 	}
 
-	// Delete: the finalizer keeps the object alive; cleanup DaemonSet appears.
+	// Stop the provisioner before creating the cleanup DaemonSet.
 	if err := c.Delete(ctx, &p); err != nil {
 		t.Fatalf("deleting profile: %v", err)
 	}
+	reconcileProfile(t, ctx, r, name)
+	completeForegroundDaemonSetDeletion(t, ctx, c, ns, brewlet.ProfileDaemonSetName(name))
 	reconcileProfile(t, ctx, r, name)
 
 	p = getProfile(t, ctx, c, name) // still present: finalizer blocks GC
@@ -542,13 +544,21 @@ func TestNodeProfileFinalizerBlocksGC(t *testing.T) {
 	}
 
 	// Simulate the cleanup DaemonSet finishing on its node.
-	cleanup.Status.DesiredNumberScheduled = 1
-	cleanup.Status.NumberReady = 1
-	if err := c.Status().Update(ctx, &cleanup); err != nil {
-		t.Fatalf("updating cleanup status: %v", err)
-	}
+	pod := createDaemonSetPod(t, ctx, c, &cleanup, node, true)
+	completeCleanupStatus(t, ctx, c, &cleanup, 1)
 
-	// Next reconcile removes the finalizer, so the object can finally be GC'd.
+	// Completion is checkpointed, but the finalizer still protects teardown.
+	reconcileProfile(t, ctx, r, name)
+	p = getProfile(t, ctx, c, name)
+	if !containsString(p.Finalizers, brewlet.FinalizerCleanup) || !cleanupCompleted(&p) {
+		t.Fatal("cleanup completion must persist before releasing the finalizer")
+	}
+	if err := c.Delete(ctx, pod, client.GracePeriodSeconds(0)); err != nil {
+		t.Fatal(err)
+	}
+	completeForegroundDaemonSetDeletion(t, ctx, c, ns, cleanup.Name)
+
+	// Once foreground GC has removed all cleanup workers, finalization is safe.
 	reconcileProfile(t, ctx, r, name)
 	var gone nodev1alpha1.NodeProfile
 	err := c.Get(ctx, types.NamespacedName{Name: name}, &gone)

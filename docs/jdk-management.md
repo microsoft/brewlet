@@ -270,6 +270,27 @@ provisioner:
 Move workloads to feature 21, then remove the feature-17 entry after nothing
 requests it.
 
+### Provisioning completion and deletion
+
+Provisioner pods stay NotReady until installation, containerd activation, and
+readiness publication succeed. The readiness probe checks a container-local
+completion marker, not just whether the script is running. This keeps rolling
+updates from advancing past nodes whose provisioning is still in progress.
+
+Deleting a valid NodeProfile first stops its provisioner and waits for those pods to
+terminate, then starts cleanup. The finalizer remains while cleanup is pending
+or failing. After successful completion on all assigned nodes, the operator
+remembers completion and tears down cleanup; the finalizer remains until that
+DaemonSet and its pods are gone. This also prevents a replacement profile from
+provisioning alongside an old cleanup container. Stale DaemonSet readiness from
+an earlier template does not count.
+
+Move or drain affected workloads before deleting a profile: completion ordering
+prevents that profile's provisioner and cleanup from racing, but it does not
+migrate workloads away from the runtimes being removed. Keep the operator running
+until profile deletion completes. Repair invalid profiles before deleting them
+when automatic host cleanup is required.
+
 ---
 
 ## Known limitations

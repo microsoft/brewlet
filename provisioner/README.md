@@ -190,6 +190,20 @@ expose a writable host bind mount.
 
 ## Readiness validation
 
+The provisioner container becomes Ready only after its script has finished
+successfully. Both provisioning and cleanup publish `/tmp/brewlet-complete`
+inside the container; the DaemonSet's exec readiness probe checks that file.
+Every entrypoint invocation clears stale completion state first. A running or
+sleeping process alone is not evidence of completion, and failed work never
+publishes the marker. There is no startup/liveness timeout for long-running
+installation work.
+
+During valid NodeProfile deletion, the operator stops the provisioner and waits for its
+pods to terminate before starting host cleanup. The cleanup container publishes
+the same completion signal only after reversal has finished. The operator records
+that completion, then waits for the cleanup DaemonSet and its pods to terminate
+before releasing the profile finalizer.
+
 With `BREWLET_VALIDATE=true`, the provisioner validates every configured
 runtime component before it advertises runtime or capability labels:
 
@@ -201,7 +215,7 @@ universal safe probe. A missing/non-executable launcher or failed JDK probe
 leaves the node unready and records a bounded component-specific reason in
 `brewlet.sh/provision-error`. No JDK or launcher capability labels are retained
 after failure. `BREWLET_VALIDATE=false` skips these checks and preserves the
-opt-out behavior.
+opt-out behavior. It does not disable the completion-based readiness gate.
 
 > The provisioner is privileged and host-mutating. Run it only on nodes
 > controlled by the platform team.

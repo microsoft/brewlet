@@ -150,7 +150,8 @@ type NodeProfileStatus struct {
 	ReadyNodes int32 `json:"readyNodes"`
 	// Conditions carries the Ready condition (AllNodesProvisioned) / Degraded
 	// (EmptyPool, InvalidProfile, or a reconfig failure propagated from the
-	// per-node brewlet.sh/provision-error).
+	// per-node brewlet.sh/provision-error), and the CleanupComplete checkpoint
+	// while completed cleanup workers are being torn down.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
@@ -158,6 +159,9 @@ type NodeProfileStatus struct {
 const (
 	// ConditionReady is True once every assigned node is provisioned.
 	ConditionReady = "Ready"
+	// ConditionCleanupComplete checkpoints successful host cleanup for this
+	// object's UID and the condition's observedGeneration, before worker teardown.
+	ConditionCleanupComplete = "CleanupComplete"
 
 	// ReasonAllNodesProvisioned — all assigned nodes advertise the runtime.
 	ReasonAllNodesProvisioned = "AllNodesProvisioned"
@@ -169,8 +173,12 @@ const (
 	ReasonNodeFailure = "NodeFailure"
 	// ReasonInvalidProfile — source trust policy rejected the stored profile.
 	ReasonInvalidProfile = "InvalidProfile"
-	// ReasonCleanupPending — the profile is being deleted; cleanup is running.
+	// ReasonCleanupPending — provisioning must stop or host cleanup is incomplete.
 	ReasonCleanupPending = "CleanupPending"
+	// ReasonCleanupSucceeded — host cleanup completed for the current generation.
+	ReasonCleanupSucceeded = "CleanupSucceeded"
+	// ReasonCleanupTeardown — completed cleanup workers must finish terminating.
+	ReasonCleanupTeardown = "CleanupTeardown"
 )
 
 // NodeProfile binds a node pool to a JDK/launcher inventory (§5.6). Cluster-scoped.

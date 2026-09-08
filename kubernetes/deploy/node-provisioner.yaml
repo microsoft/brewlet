@@ -80,6 +80,13 @@ spec:
           image: ghcr.io/microsoft/brewlet-node-provisioner:0.1.0
           securityContext:
             privileged: true              # required to install shim + edit containerd config
+          readinessProbe:
+            exec:
+              command: ["/usr/bin/test", "-f", "/tmp/brewlet-complete"]
+            periodSeconds: 2
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 1
           env:
             - name: NODE_NAME
               valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
