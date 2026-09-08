@@ -107,6 +107,12 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      - name: Test NodeProfile fixture safeguards
+        if: contains(matrix.tiers, '--tier 4') || contains(matrix.tiers, '--tier 13')
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s integration-tests/e2e -p 'nodeprofile_fixtures_test.py' -v
+
       - name: Set up Helm
         if: matrix.helm
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1

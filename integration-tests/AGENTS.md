@@ -18,7 +18,7 @@ The harness does not switch branches or modify component sources. It uses
 | Tool | Tiers |
 |---|---|
 | Go | all |
-| Python 3 | 2, 12, 16 |
+| Python 3 | 2, 4, 12, 13, 16 |
 | JDK 21+ | 2, 3, 7, 8, 9, 12, 14, 15, 16 |
 | Docker | 3, 6, 7, 8-12, 14, 15, 16 |
 | kubectl and a reachable cluster | 4-16 |
@@ -56,6 +56,20 @@ multi-arch index writer and the strict platform matcher are additionally
 unit-tested in `core/internal/artifact`.
 
 ## Cleanup and diagnostics
+
+Tiers 4 and 13 use invocation-unique, reserved-domain provisioner images that
+must never execute. Their fixture teardown stops and waits for the test manager,
+checks worker identity and execution history, and waits for foreground worker
+deletion before releasing exact fixture-owned claims/finalizers. This is a
+test-only abort, not proof of production host cleanup. Dirty or foreign workers
+leave ownership intact and fail the tier.
+
+Run the fixture safeguards independently with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s integration-tests/e2e -p 'nodeprofile_fixtures_test.py' -v
+```
 
 Run `./e2e/run.sh --reset` before repeating Kubernetes tiers. It removes only
 Brewlet-owned labels, annotations, CRDs, runtime classes, webhook configuration,

@@ -2,342 +2,254 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# Tier 13 — NodeProfile controller against the live cluster (proposal 0001).
-# The brewlet-operator runs OUT-OF-CLUSTER (built binary, using your kubeconfig)
-# so no operator image build/load is needed. This tier proves the profile-driven
-# provisioning model end to end against a real API server:
-#   - a default (catch-all) NodeProfile -> brewlet RuntimeClass + one per-profile
-#     provisioner DaemonSet (brewlet-node-provisioner-default) targeting every node
-#   - a named-pool NodeProfile -> its own DaemonSet (brewlet-node-provisioner-<pool>)
-#     with an `In [pool]` nodeAffinity on the resolved pool key; the default DS
-#     flips to `NotIn [pool]` to stay a non-overlapping catch-all (§5.6)
-#   - status.assignedNodes reflects pool membership on both profiles
-#   - finalizer-driven reversal (§5.6): deleting a named profile holds it in
-#     Terminating behind node.brewlet.sh/cleanup while a brewlet-cleanup-<pool>
-#     DaemonSet is created; the object is GC'd only once the finalizer clears
-#   - the control-plane guard (SECURITY-REVIEW.md finding 10): a profile that
-#     does not set nodePool.includeControlPlane gets DoesNotExist requirements on
-#     both control-plane role labels, no tolerations of its own, and neither
-#     counts nor schedules onto a control-plane node
-# Safety: the provisioner image is a NON-EXISTENT ref so DaemonSet pods can never
-# run host-mutating code. The cleanup finalizer never clears under that bogus
-# image, so this tier force-removes it during teardown. Everything is cleaned up.
-# Prereqs: kubectl + reachable cluster, go
+# Tier 13 — live-API NodeProfile ownership, placement and blocked retirement.
+# Reserved-domain images cannot execute host code. Relabelling an owned node
+# must block handoff, not simulate completed cleanup. Independent placement
+# cases start only after explicitly aborting verified never-started fixtures.
+# Prereqs: kubectl + reachable cluster, go, python3.
 
 T13_NS="brewlet"
 T13_POOL="batch"
-T13_GUARDED="guarded"              # a pool that never opts into the control plane
-T13_POOL_KEY="agentpool"           # a real provider pool key (AKS legacy) so the
-                                   # default profile auto-detects it for exclusion
+T13_GUARDED="guarded"
+T13_POOL_KEY="agentpool"
 T13_MGR_PID=""
 T13_NODE=""
+T13_OLD_POOL=""
+T13_IMAGE=""
+T13_DEFAULT_UID=""
+T13_POOL_UID=""
+T13_GUARDED_UID=""
+
+_t13_stop_manager() {
+  [[ -n "$T13_MGR_PID" ]] && kill "$T13_MGR_PID" 2>/dev/null || true
+  [[ -n "$T13_MGR_PID" ]] && wait "$T13_MGR_PID" 2>/dev/null || true
+  T13_MGR_PID=""
+}
+
+_t13_abort_profiles() {
+  local name uid
+  for name in default "$T13_POOL" "$T13_GUARDED"; do
+    case "$name" in
+      default) uid="$T13_DEFAULT_UID" ;;
+      "$T13_POOL") uid="$T13_POOL_UID" ;;
+      "$T13_GUARDED") uid="$T13_GUARDED_UID" ;;
+    esac
+    [[ -z "$uid" ]] && continue
+    if ! abort_unstarted_profile_fixture "$T13_NS" "$name" "$uid" "$T13_IMAGE" \
+        >>"$WORK/t13-fixture-teardown.log" 2>&1; then
+      fail "tier13: abort never-started $name fixture without leaking ownership" \
+        "see $WORK/t13-fixture-teardown.log; claims/finalizers retained"
+      return 1
+    fi
+    case "$name" in
+      default) T13_DEFAULT_UID="" ;;
+      "$T13_POOL") T13_POOL_UID="" ;;
+      "$T13_GUARDED") T13_GUARDED_UID="" ;;
+    esac
+  done
+}
 
 _t13_cleanup() {
-  info "tier13: cleaning up"
-  [[ -n "$T13_MGR_PID" ]] && kill "$T13_MGR_PID" 2>/dev/null || true
-  force_delete_nodeprofiles
-  kubectl delete daemonset -n "$T13_NS" \
-    brewlet-node-provisioner-default "brewlet-node-provisioner-$T13_POOL" "brewlet-cleanup-$T13_POOL" \
-    "brewlet-node-provisioner-$T13_GUARDED" "brewlet-cleanup-$T13_GUARDED" \
-    --ignore-not-found >/dev/null 2>&1 || true
+  info "tier13: cleaning up never-started fixtures (not verified host cleanup)"
+  _t13_stop_manager
+  _t13_abort_profiles || return
+  if [[ -n "$T13_NODE" ]]; then
+    if [[ -n "$T13_OLD_POOL" ]]; then
+      kubectl label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_OLD_POOL" >/dev/null 2>&1 || true
+    else
+      kubectl label "$T13_NODE" "$T13_POOL_KEY-" >/dev/null 2>&1 || true
+    fi
+  fi
   kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete ns "$T13_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  wait_for bash -c "! kubectl get namespace '$T13_NS' >/dev/null 2>&1" || true
+  wait_for bash -c "! kubectl get namespace '$T13_NS' >/dev/null 2>&1" ||
+    fail "tier13: operator namespace fully removed"
   kubectl delete crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh \
-    --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  if [[ -n "$T13_NODE" ]]; then
-    kubectl label "$T13_NODE" "$T13_POOL_KEY-" brewlet.sh/provision- brewlet.sh/runtime- >/dev/null 2>&1 || true
+    --ignore-not-found --wait=true --timeout=30s >/dev/null 2>&1 || true
+  check "tier13: fixture teardown leaves no owner claims or writers" profile_fixture_preflight
+}
+
+_t13_start_manager() {
+  local probe; probe="$(free_port)"
+  "$WORK/t13-manager" --namespace "$T13_NS" --provisioner-image "$T13_IMAGE" \
+    --leader-elect=false --metrics-bind-address 0 --health-probe-bind-address ":$probe" \
+    >>"$WORK/t13-manager.log" 2>&1 &
+  T13_MGR_PID=$!
+  retry_curl "http://localhost:$probe/readyz" 40 0.5 >/dev/null
+}
+
+# check() captures output in a subshell; these actions must retain their PIDs
+# and newly created profile UIDs in this shell for identity-scoped teardown.
+_t13_action() {
+  local message="$1"; shift
+  if "$@" >>"$WORK/t13-actions.log" 2>&1; then
+    pass "$message"
+  else
+    fail "$message" "see $WORK/t13-actions.log"
+    return 1
   fi
 }
 
-# --- predicate helpers (for wait_for) ------------------------------------
-_t13_rc_exists()      { kubectl get runtimeclass brewlet >/dev/null 2>&1; }
-_t13_default_ds()     { kubectl get ds brewlet-node-provisioner-default -n "$T13_NS" >/dev/null 2>&1; }
-_t13_pool_ds()        { kubectl get ds "brewlet-node-provisioner-$T13_POOL" -n "$T13_NS" >/dev/null 2>&1; }
-_t13_guarded_ds()     { kubectl get ds "brewlet-node-provisioner-$T13_GUARDED" -n "$T13_NS" >/dev/null 2>&1; }
+_t13_create_profile() {
+  local name="$1" opt_in="$2" pool_spec=""
+  if [[ "$name" != default ]]; then
+    pool_spec="key: $T13_POOL_KEY
+    names: [$name]"
+  fi
+  kubectl create -f - >>"$WORK/t13-np.log" 2>&1 <<YAML
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata:
+  name: $name
+spec:
+  nodePool:
+    includeControlPlane: $opt_in
+    $pool_spec
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
+YAML
+  local result=$? uid
+  [[ "$result" -eq 0 ]] || return "$result"
+  uid="$(kubectl get nodeprofile "$name" -o jsonpath='{.metadata.uid}')" || return
+  case "$name" in
+    default) T13_DEFAULT_UID="$uid" ;;
+    "$T13_POOL") T13_POOL_UID="$uid" ;;
+    "$T13_GUARDED") T13_GUARDED_UID="$uid" ;;
+  esac
+}
 
-# _t13_node_is_control_plane NODE_REF ("node/<name>" or "<name>")
+_t13_assigned() {
+  [[ "$(kubectl get nodeprofile "$1" -o jsonpath='{.status.assignedNodes}' 2>/dev/null)" == "$2" ]]
+}
+_t13_condition() {
+  [[ "$(kubectl get nodeprofile "$1" -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}' 2>/dev/null)" == "$2" ]]
+}
+_t13_ds() { kubectl get ds "$1" -n "$T13_NS" >/dev/null 2>&1; }
+_t13_terminating() {
+  [[ -n "$(kubectl get nodeprofile "$T13_POOL" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]]
+}
 _t13_node_is_control_plane() {
   local labels
-  labels="$(kubectl get "$1" -o jsonpath='{.metadata.labels}' 2>/dev/null)"
-  [[ "$labels" == *'node-role.kubernetes.io/control-plane'* ]] \
-    || [[ "$labels" == *'node-role.kubernetes.io/master'* ]]
+  labels="$(kubectl get "$1" -o jsonpath='{.metadata.labels}')"
+  [[ "$labels" == *'node-role.kubernetes.io/control-plane'* ||
+     "$labels" == *'node-role.kubernetes.io/master'* ]]
 }
-_t13_cleanup_ds()     { kubectl get ds "brewlet-cleanup-$T13_POOL" -n "$T13_NS" >/dev/null 2>&1; }
-_t13_pool_np_gone()   { ! kubectl get nodeprofile "$T13_POOL" >/dev/null 2>&1; }
-_t13_pool_terminating() { [[ -n "$(kubectl get nodeprofile "$T13_POOL" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null)" ]]; }
-
-_t13_default_affinity() {
-  # jsonpath of the default DS's first nodeAffinity matchExpression operator; "" if none.
-  kubectl get ds brewlet-node-provisioner-default -n "$T13_NS" \
-    -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].operator}' 2>/dev/null
+_t13_placement() {
+  if wait_for profile_fixture_placement "$T13_NS" "$2" "$3" "${4:-provision}"; then
+    pass "$1"
+  else
+    local log="$WORK/t13-placement-$2-${4:-provision}.log"
+    profile_fixture_placement "$T13_NS" "$2" "$3" "${4:-provision}" >"$log" 2>&1 || true
+    kubectl get nodeprofile "$2" -o json >>"$log" 2>&1 || true
+    fail "$1" "see $log"
+  fi
 }
-_t13_default_excludes_pool() { [[ "$(_t13_default_affinity)" == "NotIn" ]]; }
 
 tier13_nodeprofile() {
   section "Tier 13 — NodeProfile controller (operator out-of-cluster)"
-  if ! have kubectl; then skip "tier13: node profiles" "kubectl not installed"; return 0; fi
-  if ! k8s_reachable; then skip "tier13: node profiles" "no reachable cluster"; return 0; fi
+  if ! have kubectl || ! k8s_reachable; then skip "tier13: node profiles" "no reachable cluster"; return 0; fi
   if ! have go; then skip "tier13: node profiles" "go not installed"; return 0; fi
-
-  info "cluster context: $(kubectl config current-context 2>/dev/null)"
+  check "tier13: no prior host ownership or writer fixtures" profile_fixture_preflight || return 0
   trap _t13_cleanup RETURN
-
-  # --- build the operator manager binary -----------------------------------
-  if ( cd "$BREWLET_KUBERNETES_DIR" && go build -o "$WORK/t13-manager" ./cmd/manager ) \
-       >"$WORK/t13-build.log" 2>&1; then
+  T13_IMAGE="invalid.brewlet-e2e.invalid/provisioner:t13-$(date +%s)-$$"
+  T13_NODE="$(kubectl get nodes -o name | head -1)"
+  T13_OLD_POOL="$(kubectl get "$T13_NODE" -o "jsonpath={.metadata.labels.$T13_POOL_KEY}")"
+  if [[ -n "$T13_OLD_POOL" ]]; then
+    fail "tier13: selected node has no pre-existing test pool label" "$T13_NODE"
+    T13_NODE=""
+    return 0
+  fi
+  if (cd "$BREWLET_KUBERNETES_DIR" && go build -o "$WORK/t13-manager" ./cmd/manager) \
+      >"$WORK/t13-build.log" 2>&1; then
     pass "build brewlet-operator manager"
   else
     fail "build brewlet-operator manager" "see $WORK/t13-build.log"; return 0
   fi
-
-  # --- install the CRDs (both, so the manager's caches can start) ----------
   kubectl create namespace "$T13_NS" >/dev/null 2>&1 || true
-  if kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/nodeprofile-crd.yaml" >"$WORK/t13-crd.log" 2>&1 \
-     && kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/javaapplication-crd.yaml" >>"$WORK/t13-crd.log" 2>&1 \
-     && kubectl wait --for=condition=Established --timeout=30s \
-          crd/nodeprofiles.node.brewlet.sh >>"$WORK/t13-crd.log" 2>&1 \
-     && kubectl wait --for=condition=Established --timeout=30s \
-          crd/javaapplications.apps.brewlet.sh >>"$WORK/t13-crd.log" 2>&1; then
+  check "NodeProfile: provisioner fixture ServiceAccount created" \
+    kubectl create serviceaccount brewlet-node-provisioner -n "$T13_NS" || return 0
+  if kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/nodeprofile-crd.yaml" >"$WORK/t13-crd.log" 2>&1 &&
+     kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/javaapplication-crd.yaml" >>"$WORK/t13-crd.log" 2>&1 &&
+     kubectl wait --for=condition=Established --timeout=30s crd/nodeprofiles.node.brewlet.sh \
+       crd/javaapplications.apps.brewlet.sh >>"$WORK/t13-crd.log" 2>&1; then
     pass "CRD: NodeProfile + JavaApplication installed and Established"
   else
     fail "CRD: NodeProfile + JavaApplication Established" "see $WORK/t13-crd.log"; return 0
   fi
-
-  # --- start the operator out-of-cluster -----------------------------------
-  local probe; probe="$(free_port)"
-  "$WORK/t13-manager" \
-      --namespace "$T13_NS" \
-      --provisioner-image "brewlet-e2e/nonexistent-provisioner:donotpull" \
-      --leader-elect=false \
-      --metrics-bind-address 0 \
-      --health-probe-bind-address ":$probe" \
-      >"$WORK/t13-manager.log" 2>&1 &
-  T13_MGR_PID=$!
-  if retry_curl "http://localhost:$probe/readyz" 40 0.5 >/dev/null; then
-    pass "operator: manager started and healthy (readyz)"
-  else
-    fail "operator: manager readyz" "see $WORK/t13-manager.log"; return 0
-  fi
-
-  # --- (1) default catch-all profile ---------------------------------------
-  # includeControlPlane keeps the catch-all meaning "every node" on the
-  # single-node kind / Docker Desktop clusters this tier runs against, where the
-  # only node carries the control-plane label. Section (4) covers the guarded
-  # default that a real install gets.
-  cat >"$WORK/t13-default.yaml" <<'YAML'
-apiVersion: node.brewlet.sh/v1alpha1
-kind: NodeProfile
-metadata:
-  name: default
-spec:
-  nodePool:
-    includeControlPlane: true
-  jdks:
-    - distribution: temurin
-      feature: 21
-      source:
-        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
-        javaHome: /opt/java/openjdk
-YAML
-  if kubectl apply -f "$WORK/t13-default.yaml" >"$WORK/t13-np.log" 2>&1; then
-    pass "default profile: accepted by the API server"
-  else
-    fail "default profile: apply" "see $WORK/t13-np.log"; return 0
-  fi
-
-  if wait_for _t13_rc_exists; then
-    assert_eq "default profile: reconciler ensured the brewlet RuntimeClass handler" \
-      "$(kubectl get runtimeclass brewlet -o jsonpath='{.handler}')" "brewlet"
-  else
-    fail "default profile: reconciler ensured the brewlet RuntimeClass"
-  fi
-
-  if wait_for _t13_default_ds; then
-    pass "default profile: reconciler created brewlet-node-provisioner-default"
-    assert_eq "default profile: DaemonSet has no restricting nodeAffinity while it is the only profile (control plane opted in)" \
-      "$(kubectl get ds brewlet-node-provisioner-default -n "$T13_NS" -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution}' 2>/dev/null)" ""
-  else
-    fail "default profile: reconciler created brewlet-node-provisioner-default"
-  fi
+  _t13_action "operator: manager started and healthy (readyz)" _t13_start_manager || return 0
 
   local total_nodes
-  total_nodes="$(kubectl get nodes -o name 2>/dev/null | wc -l | tr -d ' ')"
-  if wait_for bash -c "[[ \"\$(kubectl get nodeprofile default -o jsonpath='{.status.assignedNodes}' 2>/dev/null)\" == \"$total_nodes\" ]]"; then
-    pass "default profile: status.assignedNodes == every node ($total_nodes)"
-  else
-    fail "default profile: status.assignedNodes == $total_nodes" \
-      "got '$(kubectl get nodeprofile default -o jsonpath='{.status.assignedNodes}' 2>/dev/null)'"
-  fi
+  total_nodes="$(kubectl get nodes -o name | wc -l | tr -d ' ')"
+  _t13_action "default profile: accepted by the API server" _t13_create_profile default true || return 0
+  check "default profile: reconciler ensured the brewlet RuntimeClass" \
+    wait_for kubectl get runtimeclass brewlet
+  assert_eq "default profile: RuntimeClass handler" \
+    "$(kubectl get runtimeclass brewlet -o jsonpath='{.handler}')" brewlet
+  _t13_placement "default profile: identity fences cover every claimed node" default "$total_nodes"
+  check "default profile: status.assignedNodes == every node ($total_nodes)" \
+    wait_for _t13_assigned default "$total_nodes"
 
-  # --- (2) named-pool profile ----------------------------------------------
-  T13_NODE="$(kubectl get nodes -o name 2>/dev/null | head -1)"
-  if [[ -z "$T13_NODE" ]]; then
-    skip "named-pool profile" "no nodes found"
-  else
-    cat >"$WORK/t13-pool.yaml" <<YAML
-apiVersion: node.brewlet.sh/v1alpha1
-kind: NodeProfile
-metadata:
-  name: $T13_POOL
-spec:
-  nodePool:
-    key: $T13_POOL_KEY
-    names: [$T13_POOL]
-    includeControlPlane: true
-  jdks:
-    - distribution: microsoft
-      feature: 25
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        javaHome: /usr/lib/jvm/msopenjdk-25
-YAML
-    if kubectl apply -f "$WORK/t13-pool.yaml" >>"$WORK/t13-np.log" 2>&1; then
-      pass "named-pool profile: accepted by the API server"
-    else
-      fail "named-pool profile: apply" "see $WORK/t13-np.log"
-    fi
+  _t13_action "named-pool profile: accepted by the API server" _t13_create_profile "$T13_POOL" true || return 0
+  _t13_placement "named-pool profile: empty ledger matches no nodes before pool membership" "$T13_POOL" 0
+  kubectl label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_POOL" >/dev/null
+  check "handoff: catch-all enters retirement after pool membership changes" \
+    wait_for _t13_condition default Retargeting
+  check "handoff: new owner remains blocked until the old owner cleans and drains" \
+    wait_for _t13_condition "$T13_POOL" OwnershipConflict
+  _t13_placement "handoff: cleanup targets the old Node UID despite changed pool membership" default 1 cleanup
+  assert_eq "handoff: node retains its original owner UID while cleanup is unverified" \
+    "$(kubectl get "$T13_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/owner-uid}')" "$T13_DEFAULT_UID"
+  assert_eq "handoff: named profile has no claimed targets" \
+    "$(kubectl get nodeprofile "$T13_POOL" -o jsonpath='{.status.targets[?(@.claimed==true)].name}')" ""
+  assert_not_contains "handoff: bogus cleanup image cannot report successful cleanup" \
+    "$(kubectl get nodeprofile default -o jsonpath='{.status.conditions[?(@.type=="CleanupComplete")].status}')" True
 
-    if wait_for _t13_pool_ds; then
-      pass "named-pool profile: reconciler created brewlet-node-provisioner-$T13_POOL"
-      local aff_op aff_key aff_val
-      aff_op="$(kubectl get ds "brewlet-node-provisioner-$T13_POOL" -n "$T13_NS" -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].operator}' 2>/dev/null)"
-      aff_key="$(kubectl get ds "brewlet-node-provisioner-$T13_POOL" -n "$T13_NS" -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key}' 2>/dev/null)"
-      aff_val="$(kubectl get ds "brewlet-node-provisioner-$T13_POOL" -n "$T13_NS" -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].values[0]}' 2>/dev/null)"
-      assert_eq "named-pool profile: DaemonSet nodeAffinity operator is In" "$aff_op" "In"
-      assert_eq "named-pool profile: DaemonSet nodeAffinity key is the resolved pool key" "$aff_key" "$T13_POOL_KEY"
-      assert_eq "named-pool profile: DaemonSet nodeAffinity value is the pool name" "$aff_val" "$T13_POOL"
-    else
-      fail "named-pool profile: reconciler created brewlet-node-provisioner-$T13_POOL"
-    fi
+  # Abort this negative case, not the retirement protocol. A fresh installation
+  # with the pool already labelled tests non-overlapping placement independently.
+  _t13_stop_manager
+  _t13_abort_profiles || return 0
+  _t13_action "operator: fresh-fixture manager restarted and healthy" _t13_start_manager || return 0
+  _t13_action "named-pool profile: fresh profile accepted for the labelled node" \
+    _t13_create_profile "$T13_POOL" true || return 0
+  _t13_placement "named-pool profile: placement requires pool, owner UID, Node UID and name" "$T13_POOL" 1
+  check "named-pool profile: status.assignedNodes == 1" wait_for _t13_assigned "$T13_POOL" 1
+  _t13_action "default profile: fresh catch-all accepted beside the named pool" _t13_create_profile default true || return 0
+  _t13_placement "default profile: catch-all claimed fleet excludes the named pool" default "$((total_nodes - 1))"
+  check "default profile: assigned count excludes the named pool" wait_for _t13_assigned default "$((total_nodes - 1))"
 
-    # Label a node into the pool. This is a Node event, so the reconciler
-    # re-reconciles EVERY profile: the default recomputes its catch-all
-    # exclusion (NotIn [pool]) and both profiles' assigned counts converge.
-    kubectl label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_POOL" >/dev/null 2>&1
+  kubectl delete nodeprofile "$T13_POOL" --wait=false >/dev/null
+  check "reversal: deleting the named profile holds it in Terminating" wait_for _t13_terminating
+  check "reversal: finalizer blocks GC while cleanup is unverified" kubectl get nodeprofile "$T13_POOL"
+  check "reversal: reconciler launched the cleanup DaemonSet" \
+    wait_for _t13_ds "brewlet-cleanup-$T13_POOL"
+  _t13_placement "reversal: cleanup remains fenced to the recorded owner and node identity" "$T13_POOL" 1 cleanup
+  assert_eq "reversal: unverified cleanup retains the node claim" \
+    "$(kubectl get "$T13_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/owner-uid}')" "$T13_POOL_UID"
+  assert_contains "reversal: cleanup finalizer remains present" \
+    "$(kubectl get nodeprofile "$T13_POOL" -o jsonpath='{.metadata.finalizers}')" "node.brewlet.sh/cleanup"
+  _t13_stop_manager
+  _t13_abort_profiles || return 0
+  check "reversal: test-only abort removes the never-started fixture, not a successful cleanup" \
+    bash -c "! kubectl get nodeprofile '$T13_POOL' >/dev/null 2>&1"
 
-    if wait_for _t13_default_excludes_pool; then
-      local exval
-      exval="$(kubectl get ds brewlet-node-provisioner-default -n "$T13_NS" -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].values[0]}' 2>/dev/null)"
-      assert_eq "default profile: catch-all DaemonSet now excludes the named pool (NotIn value)" "$exval" "$T13_POOL"
-    else
-      fail "default profile: catch-all DaemonSet flips to NotIn [$T13_POOL]" \
-        "got operator '$(_t13_default_affinity)'"
-    fi
-
-    if wait_for bash -c "[[ \"\$(kubectl get nodeprofile $T13_POOL -o jsonpath='{.status.assignedNodes}' 2>/dev/null)\" == \"1\" ]]"; then
-      pass "named-pool profile: status.assignedNodes == 1 (the labelled node)"
-    else
-      fail "named-pool profile: status.assignedNodes == 1" \
-        "got '$(kubectl get nodeprofile "$T13_POOL" -o jsonpath='{.status.assignedNodes}' 2>/dev/null)'"
-    fi
-
-    # --- (3) finalizer-driven reversal (§5.6) ------------------------------
-    kubectl delete nodeprofile "$T13_POOL" --wait=false >/dev/null 2>&1
-    if wait_for _t13_pool_terminating; then
-      pass "reversal: deleting the named profile holds it in Terminating (cleanup finalizer)"
-    else
-      fail "reversal: named profile enters Terminating behind its finalizer"
-    fi
-    # It must NOT be gone yet — the finalizer blocks garbage collection.
-    if _t13_pool_np_gone; then
-      fail "reversal: finalizer must block GC until cleanup is verified" "profile was deleted immediately"
-    else
-      pass "reversal: finalizer blocks GC while cleanup is unverified"
-    fi
-    if wait_for _t13_cleanup_ds; then
-      pass "reversal: reconciler launched the brewlet-cleanup-$T13_POOL DaemonSet"
-    else
-      fail "reversal: reconciler launched the cleanup DaemonSet"
-    fi
-    # Force-remove the finalizer (the bogus image never lets cleanup verify) and
-    # confirm the object is then garbage-collected.
-    kubectl patch nodeprofile "$T13_POOL" --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
-    if wait_for _t13_pool_np_gone; then
-      pass "reversal: profile is garbage-collected once the finalizer clears"
-    else
-      fail "reversal: profile GC'd after finalizer removal"
-    fi
-
-    # --- (4) control-plane guard (SECURITY-REVIEW.md finding 10) -----------
-    # The provisioner is privileged with hostPID and host mounts, so a profile
-    # that has NOT opted in must never be able to land on a control-plane node,
-    # and must never carry a blanket toleration that would defeat its taint.
-    kubectl label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_GUARDED" >/dev/null 2>&1
-    cat >"$WORK/t13-guarded.yaml" <<YAML
-apiVersion: node.brewlet.sh/v1alpha1
-kind: NodeProfile
-metadata:
-  name: $T13_GUARDED
-spec:
-  nodePool:
-    key: $T13_POOL_KEY
-    names: [$T13_GUARDED]
-  jdks:
-    - distribution: temurin
-      feature: 21
-      source:
-        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
-        javaHome: /opt/java/openjdk
-YAML
-    if kubectl apply -f "$WORK/t13-guarded.yaml" >>"$WORK/t13-np.log" 2>&1; then
-      pass "control-plane guard: profile without includeControlPlane accepted"
-    else
-      fail "control-plane guard: apply" "see $WORK/t13-np.log"
-    fi
-
-    if wait_for _t13_guarded_ds; then
-      local exprs tols
-      exprs="$(kubectl get ds "brewlet-node-provisioner-$T13_GUARDED" -n "$T13_NS" \
-        -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions}' 2>/dev/null)"
-      assert_contains "control-plane guard: DaemonSet requires node-role.kubernetes.io/control-plane to be absent" \
-        "$exprs" '"key":"node-role.kubernetes.io/control-plane","operator":"DoesNotExist"'
-      assert_contains "control-plane guard: DaemonSet requires the legacy master label to be absent" \
-        "$exprs" '"key":"node-role.kubernetes.io/master","operator":"DoesNotExist"'
-      # A blanket `operator: Exists` toleration would defeat every taint the
-      # platform team relies on, control-plane included.
-      tols="$(kubectl get ds "brewlet-node-provisioner-$T13_GUARDED" -n "$T13_NS" \
-        -o jsonpath='{.spec.template.spec.tolerations}' 2>/dev/null)"
-      assert_eq "control-plane guard: DaemonSet declares no tolerations of its own" "$tols" ""
-    else
-      fail "control-plane guard: reconciler created brewlet-node-provisioner-$T13_GUARDED"
-    fi
-
-    # Membership must agree with placement, or the profile counts nodes it can
-    # never provision and never reaches Ready.
-    local want_assigned=1
-    if _t13_node_is_control_plane "$T13_NODE"; then want_assigned=0; fi
-    if wait_for bash -c "[[ \"\$(kubectl get nodeprofile $T13_GUARDED -o jsonpath='{.status.assignedNodes}' 2>/dev/null)\" == \"$want_assigned\" ]]"; then
-      pass "control-plane guard: status.assignedNodes == $want_assigned (control-plane node not counted)"
-    else
-      fail "control-plane guard: status.assignedNodes == $want_assigned" \
-        "got '$(kubectl get nodeprofile "$T13_GUARDED" -o jsonpath='{.status.assignedNodes}' 2>/dev/null)'"
-    fi
-
-    # The scheduler's own verdict, on clusters that actually have a distinct
-    # control-plane node. Pods never run (bogus image) but they are scheduled.
-    local cp_nodes
-    cp_nodes="$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o name 2>/dev/null | wc -l | tr -d ' ')"
-    if [[ "$cp_nodes" == "0" ]]; then
-      skip "control-plane guard: no provisioner pod scheduled onto a control-plane node" \
-        "cluster has no control-plane-labelled node"
-    else
-      sleep 3
-      local landed=""
-      landed="$(kubectl get pods -n "$T13_NS" \
-        -l "brewlet.sh/nodeprofile=$T13_GUARDED" \
-        -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' 2>/dev/null || true)"
-      local offender=""
-      local n
-      for n in $landed; do
-        if _t13_node_is_control_plane "node/$n"; then offender="$n"; fi
-      done
-      if [[ -z "$offender" ]]; then
-        pass "control-plane guard: no provisioner pod scheduled onto a control-plane node"
-      else
-        fail "control-plane guard: no provisioner pod scheduled onto a control-plane node" \
-          "pod landed on $offender"
-      fi
-    fi
-  fi
+  kubectl label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_GUARDED" >/dev/null
+  _t13_action "operator: guarded-fixture manager restarted and healthy" _t13_start_manager || return 0
+  _t13_action "control-plane guard: profile without opt-in accepted" _t13_create_profile "$T13_GUARDED" false || return 0
+  local want_assigned=1
+  if _t13_node_is_control_plane "$T13_NODE"; then want_assigned=0; fi
+  _t13_placement "control-plane guard: role-safe identity placement (match-none for an empty ledger), without tolerations" \
+    "$T13_GUARDED" "$want_assigned"
+  check "control-plane guard: status.assignedNodes == $want_assigned" \
+    wait_for _t13_assigned "$T13_GUARDED" "$want_assigned"
+  sleep 3
+  local n offender=""
+  for n in $(kubectl get pods -n "$T13_NS" -l "brewlet.sh/nodeprofile=$T13_GUARDED" \
+      -o jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}'); do
+    if _t13_node_is_control_plane "node/$n"; then offender="$n"; fi
+  done
+  assert_eq "control-plane guard: no provisioner pod scheduled onto a control-plane node" "$offender" ""
 }

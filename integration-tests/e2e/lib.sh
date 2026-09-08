@@ -310,6 +310,22 @@ save_pod_diag() {
   printf '%s' "$out"
 }
 
+# Check placement against durable claims, including adversarial node identities.
+profile_fixture_preflight() {
+  python3 "$E2E_DIR/nodeprofile-fixtures.py" preflight
+}
+
+profile_fixture_placement() {
+  python3 "$E2E_DIR/nodeprofile-fixtures.py" placement "$@"
+}
+
+# Only for stopped out-of-cluster managers with never-executed bogus images.
+# Unlike reset's force deletion, this releases exact fixture-owned fences only
+# after verifying worker provenance and waiting for foreground worker deletion.
+abort_unstarted_profile_fixture() {
+  python3 "$E2E_DIR/nodeprofile-fixtures.py" teardown "$@"
+}
+
 # force_delete_nodeprofiles: delete every NodeProfile, force-removing the
 # node.brewlet.sh/cleanup finalizer first. A NodeProfile holds that finalizer
 # until its cleanup DaemonSet reports Ready on every assigned node (§5.6); with

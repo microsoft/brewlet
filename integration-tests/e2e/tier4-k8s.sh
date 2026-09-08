@@ -14,30 +14,41 @@
 #   - Helm chart packaging (lint / template / dry-run install)
 # Safety: the provisioner image is set to a NON-EXISTENT ref so DaemonSet pods
 # can never actually run host-mutating code on your node. Everything is cleaned up.
-# Prereqs: kubectl + reachable cluster, go
+# Prereqs: kubectl + reachable cluster, go, python3
 
 T4_NS_OP="brewlet"
 T4_NS_APP="brewlet-e2e"
 T4_MGR_PID=""
 T4_NODE=""
+T4_PROFILE_UID=""
+T4_IMAGE=""
 
 _t4_cleanup() {
   info "tier4: cleaning up"
   [[ -n "$T4_MGR_PID" ]] && kill "$T4_MGR_PID" 2>/dev/null || true
-  kubectl delete javaapplication orders -n "$T4_NS_APP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  kubectl delete ns "$T4_NS_APP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  # NodeProfiles hold a cleanup finalizer that never clears under the bogus
-  # provisioner image; strip it before deleting the DaemonSets and CRD.
-  force_delete_nodeprofiles
-  kubectl delete daemonset brewlet-node-provisioner-default -n "$T4_NS_OP" --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete ns "$T4_NS_OP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  kubectl delete crd javaapplications.apps.brewlet.sh --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  kubectl delete crd nodeprofiles.node.brewlet.sh --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  [[ -n "$T4_MGR_PID" ]] && wait "$T4_MGR_PID" 2>/dev/null || true
+  T4_MGR_PID=""
   if [[ -n "$T4_NODE" ]]; then
     kubectl label "$T4_NODE" brewlet.sh/provision- brewlet.sh/runtime- >/dev/null 2>&1 || true
     kubectl annotate "$T4_NODE" brewlet.sh/provision-state- >/dev/null 2>&1 || true
   fi
+  if [[ -n "$T4_PROFILE_UID" ]] &&
+     ! abort_unstarted_profile_fixture "$T4_NS_OP" default "$T4_PROFILE_UID" "$T4_IMAGE" \
+       >"$WORK/t4-fixture-teardown.log" 2>&1; then
+    fail "tier4: abort never-started fixture without leaking ownership" "see $WORK/t4-fixture-teardown.log"
+    return
+  fi
+  kubectl delete javaapplication orders -n "$T4_NS_APP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete ns "$T4_NS_APP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete daemonset brewlet-node-provisioner-default -n "$T4_NS_OP" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete ns "$T4_NS_OP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  wait_for bash -c "! kubectl get namespace '$T4_NS_OP' >/dev/null 2>&1" ||
+    fail "tier4: operator namespace fully removed"
+  kubectl delete crd javaapplications.apps.brewlet.sh nodeprofiles.node.brewlet.sh \
+    --ignore-not-found --wait=true --timeout=30s >/dev/null 2>&1 || true
+  T4_PROFILE_UID=""
+  check "tier4: fixture teardown leaves no owner claims or writers" profile_fixture_preflight
 }
 
 # predicate helpers (for wait_for)
@@ -60,7 +71,9 @@ tier4_k8s() {
   if ! have go; then skip "tier4: k8s control plane" "go not installed"; return 0; fi
 
   info "cluster context: $(kubectl config current-context 2>/dev/null)"
+  check "tier4: no prior host ownership or writer fixtures" profile_fixture_preflight || return 0
   trap _t4_cleanup RETURN
+  T4_IMAGE="invalid.brewlet-e2e.invalid/provisioner:t4-$(date +%s)-$$"
 
   # --- build the operator manager binary -----------------------------------
   if ( cd "$BREWLET_KUBERNETES_DIR" && go build -o "$WORK/t4-manager" ./cmd/manager ) \
@@ -75,6 +88,8 @@ tier4_k8s() {
   # open informers for JavaApplication AND NodeProfile at boot and fail if either
   # CRD is missing.
   kubectl create namespace "$T4_NS_OP" >/dev/null 2>&1 || true
+  check "NodeProfile: provisioner fixture ServiceAccount created" \
+    kubectl create serviceaccount brewlet-node-provisioner -n "$T4_NS_OP" || return 0
   if kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/javaapplication-crd.yaml" >"$WORK/t4-crd.log" 2>&1 \
      && kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/nodeprofile-crd.yaml" >>"$WORK/t4-crd.log" 2>&1 \
      && kubectl wait --for=condition=Established --timeout=30s \
@@ -90,7 +105,7 @@ tier4_k8s() {
   local probe; probe="$(free_port)"
   "$WORK/t4-manager" \
       --namespace "$T4_NS_OP" \
-      --provisioner-image "brewlet-e2e/nonexistent-provisioner:donotpull" \
+      --provisioner-image "$T4_IMAGE" \
       --leader-elect=false \
       --metrics-bind-address 0 \
       --health-probe-bind-address ":$probe" \
@@ -217,7 +232,8 @@ spec:
         image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
         javaHome: /opt/java/openjdk
 YAML
-  if kubectl apply -f "$WORK/t4-nodeprofile.yaml" >"$WORK/t4-np.log" 2>&1; then
+  if kubectl create -f "$WORK/t4-nodeprofile.yaml" >"$WORK/t4-np.log" 2>&1; then
+    T4_PROFILE_UID="$(kubectl get nodeprofile default -o jsonpath='{.metadata.uid}')"
     pass "NodeProfile: default catch-all profile accepted by the API server"
   else
     fail "NodeProfile: apply default profile" "see $WORK/t4-np.log"
@@ -232,10 +248,10 @@ YAML
 
   if wait_for _t4_ds_exists; then
     pass "NodeProfile: reconciler created the per-profile provisioner DaemonSet (brewlet-node-provisioner-default)"
-    # The catch-all default with no sibling named pools and an explicit
-    # control-plane opt-in targets every node, so it carries no nodeAffinity.
-    assert_eq "NodeProfile: default DaemonSet has no restricting nodeAffinity (every node)" \
-      "$(kubectl get ds brewlet-node-provisioner-default -n "$T4_NS_OP" -o jsonpath='{.spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution}' 2>/dev/null)" ""
+    local total_nodes
+    total_nodes="$(kubectl get nodes -o name | wc -l | tr -d ' ')"
+    check "NodeProfile: catch-all placement fences every claimed node by name, Node UID and owner UID" \
+      profile_fixture_placement "$T4_NS_OP" default "$total_nodes"
   else
     fail "NodeProfile: reconciler created the per-profile provisioner DaemonSet"
   fi
