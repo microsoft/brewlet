@@ -23,10 +23,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -57,12 +59,20 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	var nodes corev1.NodeList
-	if err := r.List(ctx, &nodes); err != nil {
+	if err := r.apiReader().List(ctx, &nodes); err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing nodes: %w", err)
 	}
 	var profiles nodev1alpha1.NodeProfileList
-	if err := r.List(ctx, &profiles); err != nil {
+	if err := r.apiReader().List(ctx, &profiles); err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing profiles: %w", err)
+	}
+	// Previously authorized legacy workers must be inventoried before even an
+	// invalid update can stop them and erase the evidence of touched hosts.
+	if controllerutil.ContainsFinalizer(&profile, brewlet.FinalizerCleanup) &&
+		(!profile.Status.OwnershipInitialized || profile.Status.Migrating) {
+		if err := r.initializeOwnership(ctx, &profile, nodes.Items); err != nil {
+			return r.migrationStatus(ctx, &profile, err)
+		}
 	}
 
 	resolvedKey := resolvePoolKey(&profile, nodes.Items)
@@ -72,11 +82,24 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if validationErr == nil {
 		validationErr = ValidateNoPoolConflicts(&profile, profiles.Items)
 	}
+	if validationErr == nil && profile.Status.OwnershipInitialized {
+		if err := unrecordedNodeClaim(&profile, nodes.Items); err != nil {
+			return r.ownershipBlocked(ctx, &profile, nodev1alpha1.ReasonCleanupBlocked, err)
+		}
+	}
 
 	// Deletion: run cleanup behind the finalizer before owner-ref GC (§5.6).
 	if !profile.DeletionTimestamp.IsZero() {
 		if validationErr != nil {
 			return r.reconcileDeleteInvalid(ctx, &profile, nodes.Items, validationErr)
+		}
+		if controllerutil.ContainsFinalizer(&profile, brewlet.FinalizerCleanup) {
+			if err := r.initializeOwnership(ctx, &profile, nodes.Items); err != nil {
+				return r.migrationStatus(ctx, &profile, err)
+			}
+			if profile.Status.Retirement != nil {
+				return r.reconcileRetirement(ctx, &profile)
+			}
 		}
 		return r.reconcileDelete(ctx, &profile, otherPools)
 	}
@@ -94,6 +117,9 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
 		}
 	}
+	if handled, result, err := r.reconcileTargets(ctx, &profile, profiles.Items, nodes.Items); handled || err != nil {
+		return result, err
+	}
 
 	if err := r.ensureRuntimeClass(ctx); err != nil {
 		return ctrl.Result{}, fmt.Errorf("ensuring RuntimeClass: %w", err)
@@ -102,6 +128,9 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("ensuring provisioner DaemonSet: %w", err)
 	}
 
+	if err := r.apiReader().List(ctx, &nodes); err != nil {
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, r.updateStatus(ctx, &profile, resolvedKey, otherPools, nodes.Items)
 }
 
@@ -111,6 +140,29 @@ func (r *NodeProfileReconciler) reconcileDeleteInvalid(
 	nodes []corev1.Node,
 	validationErr error,
 ) (ctrl.Result, error) {
+	writers, err := r.profileProvisionerRemains(ctx, profile)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if writers {
+		invalidated := meta.FindStatusCondition(profile.Status.Conditions, nodev1alpha1.ConditionCleanupComplete) != nil
+		meta.RemoveStatusCondition(&profile.Status.Conditions, nodev1alpha1.ConditionCleanupComplete)
+		if profile.Status.Retirement != nil && profile.Status.Retirement.Phase != nodev1alpha1.RetirementCleaning {
+			profile.Status.Retirement.Phase = nodev1alpha1.RetirementCleaning
+			invalidated = true
+		}
+		if invalidated {
+			if err := r.persistOwnershipStatus(ctx, profile); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+	blocked := fmt.Errorf("invalid deleting profile retains node ownership; repair its spec/source policy or pool conflict so host cleanup can run: %w", validationErr)
+	if invalidProfileHasHostOwnership(profile, nodes) {
+		if _, err := r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, blocked); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	profileDeletionStarted, err := r.deleteProfileDaemonSetIfExists(ctx, profile)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -119,7 +171,7 @@ func (r *NodeProfileReconciler) reconcileDeleteInvalid(
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.withdrawProfileNodeAdvertisements(ctx, profile.Name, nodes); err != nil {
+	if err := r.withdrawProfileNodeAdvertisements(ctx, profile, nodes); err != nil {
 		return ctrl.Result{}, err
 	}
 	if !controllerutil.ContainsFinalizer(profile, brewlet.FinalizerCleanup) {
@@ -136,22 +188,30 @@ func (r *NodeProfileReconciler) reconcileDeleteInvalid(
 	if err := r.apiReader().List(ctx, &freshNodes); err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing nodes before invalid profile finalization: %w", err)
 	}
-	if err := r.withdrawProfileNodeAdvertisements(ctx, profile.Name, freshNodes.Items); err != nil {
+	if err := r.withdrawProfileNodeAdvertisements(ctx, profile, freshNodes.Items); err != nil {
 		return ctrl.Result{}, err
 	}
-
-	// The current pool selector failed validation and may now overlap another
-	// profile. Never run privileged host cleanup against an untrusted selector.
-	// The old provisioner and cleanup pods are gone and readiness was withdrawn
-	// again after they stopped, so removing the finalizer cannot leave a pod that
-	// republishes stale capabilities. This avoids damaging a valid profile's
-	// nodes at the cost of leaving the previously trusted host installation for
-	// the platform team to clean explicitly.
+	if invalidProfileHasHostOwnership(profile, freshNodes.Items) {
+		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, blocked)
+	}
+	// No claimed host, retirement, or remaining writer exists. Clear abandoned
+	// pre-claim intentions durably so admission can permit this narrow exception.
+	if HasNodeProfileCleanupObligations(profile) {
+		profile.Status.Targets = nil
+		meta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
+			Type: nodev1alpha1.ConditionReady, Status: metav1.ConditionFalse,
+			Reason: nodev1alpha1.ReasonInvalidProfile, ObservedGeneration: profile.Generation,
+			Message: "unprovisioned invalid profile has no host ownership; finalizing without cleanup",
+		})
+		if err := r.persistOwnershipStatus(ctx, profile); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	r.Recorder.Eventf(
 		profile,
 		corev1.EventTypeWarning,
 		nodev1alpha1.ReasonInvalidProfile,
-		"skipping host cleanup for invalid profile during deletion: %s",
+		"finalizing unprovisioned invalid profile without host cleanup: %s",
 		validationErr,
 	)
 	controllerutil.RemoveFinalizer(profile, brewlet.FinalizerCleanup)
@@ -169,11 +229,27 @@ func (r *NodeProfileReconciler) reconcileInvalidProfile(
 	nodes []corev1.Node,
 	validationErr error,
 ) (ctrl.Result, error) {
+	if retirement := profile.Status.Retirement; retirement != nil && retirement.Phase == nodev1alpha1.RetirementTeardown {
+		writers, err := r.profileProvisionerRemains(ctx, profile)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if writers {
+			retirement.Phase = nodev1alpha1.RetirementCleaning
+			if err := r.persistOwnershipStatus(ctx, profile); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
 	deletionStarted, err := r.deleteProfileDaemonSetIfExists(ctx, profile)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := r.withdrawProfileNodeAdvertisements(ctx, profile.Name, nodes); err != nil {
+	cleanupDeletionStarted, err := r.deleteCleanupDaemonSetIfExists(ctx, profile)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := r.withdrawProfileNodeAdvertisements(ctx, profile, nodes); err != nil {
 		return ctrl.Result{}, err
 	}
 	podsRemain, err := r.profilePodsRemain(ctx, profile.Name)
@@ -181,14 +257,14 @@ func (r *NodeProfileReconciler) reconcileInvalidProfile(
 		return ctrl.Result{}, err
 	}
 	result := ctrl.Result{}
-	if deletionStarted || podsRemain {
+	if deletionStarted || cleanupDeletionStarted || podsRemain {
 		result.RequeueAfter = time.Second
 	} else {
 		var freshNodes corev1.NodeList
 		if err := r.apiReader().List(ctx, &freshNodes); err != nil {
 			return ctrl.Result{}, fmt.Errorf("listing nodes after invalid profile pod termination: %w", err)
 		}
-		if err := r.withdrawProfileNodeAdvertisements(ctx, profile.Name, freshNodes.Items); err != nil {
+		if err := r.withdrawProfileNodeAdvertisements(ctx, profile, freshNodes.Items); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -210,7 +286,7 @@ func (r *NodeProfileReconciler) reconcileInvalidProfile(
 		return result, nil
 	}
 	r.Recorder.Eventf(profile, corev1.EventTypeWarning, nodev1alpha1.ReasonInvalidProfile, "%s", validationErr)
-	if err := r.Status().Update(ctx, profile); err != nil {
+	if err := r.persistOwnershipStatus(ctx, profile); err != nil {
 		return ctrl.Result{}, fmt.Errorf("updating invalid NodeProfile status: %w", err)
 	}
 	return result, nil
@@ -228,33 +304,41 @@ func (r *NodeProfileReconciler) deleteProfileDaemonSetIfExists(
 	)
 }
 
-func (r *NodeProfileReconciler) withdrawProfileNodeAdvertisements(ctx context.Context, profileName string, nodes []corev1.Node) error {
+func (r *NodeProfileReconciler) withdrawProfileNodeAdvertisements(ctx context.Context, profile *nodev1alpha1.NodeProfile, nodes []corev1.Node) error {
 	for i := range nodes {
 		node := &nodes[i]
-		if node.Annotations[brewlet.AnnotationProfile] != profileName {
+		if node.Annotations[brewlet.AnnotationProfile] != profile.Name {
+			continue
+		}
+		if owner := node.Labels[brewlet.LabelNodeOwner]; owner != "" && owner != string(profile.UID) {
+			continue
+		}
+		if !profile.Status.OwnershipInitialized || !r.nodeAssigned(profile, "", nil, node) {
 			continue
 		}
 		base := node.DeepCopy()
-		for key := range node.Labels {
-			if key == brewlet.LabelRuntimeReady ||
-				strings.HasPrefix(key, brewlet.LabelJDKPrefix) ||
-				strings.HasPrefix(key, brewlet.LabelJDKFeaturePrefix) ||
-				strings.HasPrefix(key, brewlet.LabelLauncherPrefix) {
-				delete(node.Labels, key)
-			}
-		}
-		delete(node.Annotations, brewlet.AnnotationJDKs)
-		delete(node.Annotations, brewlet.AnnotationJDKsInfo)
-		delete(node.Annotations, brewlet.AnnotationLaunchers)
-		delete(node.Annotations, brewlet.AnnotationProfile)
-		delete(node.Annotations, brewlet.AnnotationProfileGeneration)
-		delete(node.Annotations, brewlet.AnnotationProvisionError)
-		delete(node.Annotations, brewlet.AnnotationProvisionErrorMessage)
-		if err := r.Patch(ctx, node, client.MergeFrom(base)); err != nil {
-			return fmt.Errorf("withdrawing invalid profile %q from node %q: %w", profileName, node.Name, err)
+		removeNodeAdvertisements(node)
+		if err := r.Patch(ctx, node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+			return fmt.Errorf("withdrawing invalid profile %q from node %q: %w", profile.Name, node.Name, err)
 		}
 	}
 	return nil
+}
+
+func removeNodeAdvertisements(node *corev1.Node) {
+	for key := range node.Labels {
+		if key == brewlet.LabelRuntimeReady || key == "brewlet.sh/appcds-regeneration" ||
+			strings.HasPrefix(key, brewlet.LabelJDKPrefix) ||
+			strings.HasPrefix(key, brewlet.LabelJDKFeaturePrefix) ||
+			strings.HasPrefix(key, brewlet.LabelLauncherPrefix) {
+			delete(node.Labels, key)
+		}
+	}
+	for _, key := range []string{brewlet.AnnotationJDKs, brewlet.AnnotationJDKsInfo, brewlet.AnnotationLaunchers,
+		brewlet.AnnotationProfile, brewlet.AnnotationProfileGeneration, brewlet.AnnotationProvisionError,
+		brewlet.AnnotationProvisionErrorMessage, brewlet.AnnotationProvisionState} {
+		delete(node.Annotations, key)
+	}
 }
 
 // reconcileDelete stops provisioning before cleanup can mutate the same host
@@ -294,13 +378,17 @@ func (r *NodeProfileReconciler) reconcileDelete(ctx context.Context, profile *no
 		return ctrl.Result{}, err
 	}
 
-	// Membership can change while the informer catches up to provisioning or
-	// cleanup events. Do not finalize against a stale assigned-node snapshot.
-	var freshNodes corev1.NodeList
-	if err := r.apiReader().List(ctx, &freshNodes); err != nil {
-		return ctrl.Result{}, fmt.Errorf("listing nodes before profile cleanup: %w", err)
+	// The durable ledger, not today's pool labels, defines what must be undone.
+	targetNodes, err := r.validateTargetClaims(ctx, profile, profile.Status.Targets)
+	if err != nil {
+		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, err)
 	}
-	done, err := r.ensureCleanupComplete(ctx, profile, resolvePoolKey(profile, freshNodes.Items), otherPools, freshNodes.Items)
+	execution := profile.DeepCopy()
+	if profile.Status.ProvisioningSpec != nil {
+		execution.Spec = *profile.Status.ProvisioningSpec.DeepCopy()
+		execution.Spec.Tolerations = provisioningSnapshot(profile.Status.ProvisioningSpec, &profile.Spec).Tolerations
+	}
+	done, err := r.ensureCleanupComplete(ctx, execution, "", nil, targetNodes)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -338,6 +426,9 @@ func (r *NodeProfileReconciler) reconcileCleanupTeardown(ctx context.Context, pr
 	}
 	if cleanupRemains || podsRemain {
 		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	if err := r.releaseTargetClaims(ctx, profile, profile.Status.Targets); err != nil {
+		return ctrl.Result{}, err
 	}
 	controllerutil.RemoveFinalizer(profile, brewlet.FinalizerCleanup)
 	if err := r.Update(ctx, profile); err != nil {
@@ -401,6 +492,9 @@ func (r *NodeProfileReconciler) ensureCleanupComplete(ctx context.Context, profi
 		return false, nil
 	}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, ds, func() error {
+		if ds.ResourceVersion != "" && !metav1.IsControlledBy(ds, profile) {
+			return fmt.Errorf("refusing to replace cleanup DaemonSet with another controller UID")
+		}
 		if err := controllerutil.SetControllerReference(profile, ds, r.Scheme()); err != nil {
 			return err
 		}
@@ -570,6 +664,9 @@ func (r *NodeProfileReconciler) ensureProfileDaemonSet(ctx context.Context, prof
 	ds.Name = desired.Name
 	ds.Namespace = desired.Namespace
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ds, func() error {
+		if ds.ResourceVersion != "" && !metav1.IsControlledBy(ds, profile) {
+			return fmt.Errorf("refusing to replace provisioner DaemonSet with another controller UID")
+		}
 		if err := controllerutil.SetControllerReference(profile, ds, r.Scheme()); err != nil {
 			return err
 		}
@@ -602,6 +699,14 @@ func (r *NodeProfileReconciler) poolCounts(profile *nodev1alpha1.NodeProfile, re
 
 // nodeAssigned reports whether a node belongs to the given profile.
 func (r *NodeProfileReconciler) nodeAssigned(profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string, node *corev1.Node) bool {
+	if profile.Status.OwnershipInitialized {
+		for _, target := range profile.Status.Targets {
+			if target.Claimed && target.Name == node.Name && nodeClaimedBy(node, profile, target) {
+				return true
+			}
+		}
+		return false
+	}
 	return profileClaimsNode(profile, resolvedKey, otherPools, node)
 }
 
@@ -643,7 +748,7 @@ func (r *NodeProfileReconciler) updateStatus(ctx context.Context, profile *nodev
 	if equalStatus(&base.Status, &profile.Status) {
 		return nil
 	}
-	return r.Status().Update(ctx, profile)
+	return r.persistOwnershipStatus(ctx, profile)
 }
 
 // assignedNodeFailure reports whether any assigned node carries a
@@ -689,7 +794,7 @@ func (r *NodeProfileReconciler) setDeleting(ctx context.Context, profile *nodev1
 	if equalStatus(&base.Status, &profile.Status) {
 		return nil
 	}
-	if err := r.Status().Update(ctx, profile); err != nil {
+	if err := r.persistOwnershipStatus(ctx, profile); err != nil {
 		return fmt.Errorf("persisting profile cleanup phase: %w", err)
 	}
 	return nil
@@ -743,6 +848,8 @@ func (r *NodeProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&nodev1alpha1.NodeProfile{}).
 		Owns(&appsv1.DaemonSet{}).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.nodeToProfiles)).
+		Watches(&nodev1alpha1.NodeProfile{}, handler.EnqueueRequestsFromMapFunc(r.nodeToProfiles),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Named("brewlet-nodeprofile").
 		Complete(r)
 }

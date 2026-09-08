@@ -106,7 +106,7 @@ func main() {
 	})
 	mgr.GetWebhookServer().Register("/validate-nodeprofiles", &admissionpkg.Webhook{
 		Handler: &admission.NodeProfileValidator{
-			Client:  mgr.GetClient(),
+			Client:  mgr.GetAPIReader(),
 			Decoder: decoder,
 			Policy: controller.NodeProfilePolicy{
 				AllowedSourceMirrorHosts: policyHosts,

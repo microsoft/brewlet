@@ -95,8 +95,10 @@ the checksum gate to reject each build.
 | `JDKS` / `LAUNCHERS` | derived | Internal inventories; never accepted as independent input |
 | `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Authorize node-side AppCDS regeneration for the active profile |
 | `NODE_NAME` | downward API | Kubernetes node to label |
-| `BREWLET_PROFILE_UID` | empty | Operator-managed profile UID; when set, readiness is published only while this exact profile still exists |
+| `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID for managed writer authority |
+| `BREWLET_PROFILE_UID` | empty | Operator-managed profile UID bound to durable writer authority |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID` |
+| `BREWLET_REQUIRE_NODE_CLAIM` | `false` standalone; `true` managed | Require matching node/profile UIDs and durable provisioning/retirement authority before host mutation; never disable on managed workers |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host installation prefix |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | containerd configuration |
 | `CONTAINERD_DROPIN_DIR` | `/etc/containerd/config.toml.d` | Host drop-in directory used when the primary config imports it |
@@ -203,6 +205,20 @@ pods to terminate before starting host cleanup. The cleanup container publishes
 the same completion signal only after reversal has finished. The operator records
 that completion, then waits for the cleanup DaemonSet and its pods to terminate
 before releasing the profile finalizer.
+
+Managed workers first verify `brewlet.sh/owner-uid`,
+`brewlet.sh/owner-node-uid`, `brewlet.sh/owner-name`, and the profile's persisted
+target ledger. Cleanup additionally checks its frozen retirement or deletion
+authority and uses that node's recorded containerd cleanup policy. Failed
+initial fences report `ownership-fence-failed` in logs without running
+host-mutating or node-advertisement failure handlers. Claims survive readiness
+withdrawal and are released only after cleanup workers terminate.
+
+Retargeting uses the same stop/cleanup/teardown ordering for departing nodes;
+retained nodes' runtime roots are not removed. Invalid deleting profiles with
+possible host state remain blocked for repair rather than dropping their
+finalizer. The updated NodeProfile CRD and compatible operator/provisioner
+images must be deployed together; missing/pruned ledger fields fail closed.
 
 With `BREWLET_VALIDATE=true`, the provisioner validates every configured
 runtime component before it advertises runtime or capability labels:

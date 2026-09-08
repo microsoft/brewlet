@@ -5,6 +5,35 @@
 {{- default "brewlet" .Values.namespace -}}
 {{- end -}}
 
+{{/* Privileged chart profiles must always name nonempty pools. */}}
+{{- define "brewlet.validatePools" -}}
+{{- if not (kindIs "slice" .value) -}}
+{{- fail (printf "%s must be a nonempty list of named node pools" .field) -}}
+{{- end -}}
+{{- if eq (len .value) 0 -}}
+{{- fail (printf "%s must be a nonempty list of named node pools" .field) -}}
+{{- end -}}
+{{- range $pool := .value -}}
+{{- if or (not (kindIs "string" $pool)) (empty $pool) -}}
+{{- fail (printf "%s must contain only nonempty pool names" $.field) -}}
+{{- end -}}
+{{- if ne $pool (trim $pool) -}}
+{{- fail (printf "%s must not contain whitespace-padded pool names" $.field) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Cluster-scoped hook RBAC must be unique across release namespaces. */}}
+{{- define "brewlet.uninstallName" -}}
+{{- printf "brewlet-uninstall-%s" (printf "%s/%s" .Release.Namespace .Release.Name | sha256sum | trunc 12) -}}
+{{- end -}}
+
+{{- define "brewlet.uninstallAnnotations" -}}
+helm.sh/hook: pre-delete
+helm.sh/hook-weight: {{ . | quote }}
+helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+{{- end -}}
+
 {{/*
 Resolve a component image. Explicit images.<component> overrides everything.
 Otherwise a recorded images.digests.<component> produces an immutable

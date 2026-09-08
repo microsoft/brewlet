@@ -27,6 +27,10 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  # Detect unfenced legacy writers even after an operator namespace change.
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["list"]
   # Record events on nodes.
   - apiGroups: [""]
     resources: ["events"]

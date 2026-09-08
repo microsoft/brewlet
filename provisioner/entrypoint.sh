@@ -104,6 +104,8 @@ BREWLET_VALIDATE="${BREWLET_VALIDATE:-true}"
 BREWLET_PROFILE_NAME="${BREWLET_PROFILE_NAME:-default}"
 BREWLET_PROFILE_UID="${BREWLET_PROFILE_UID:-}"
 BREWLET_PROFILE_GENERATION="${BREWLET_PROFILE_GENERATION:-0}"
+BREWLET_REQUIRE_NODE_CLAIM="${BREWLET_REQUIRE_NODE_CLAIM:-false}"
+NODE_WRITE_AUTHORIZED=false
 BREWLET_APP_CDS_REGENERATION_ENABLED="${BREWLET_APP_CDS_REGENERATION_ENABLED:-false}"
 POLICY_DIR="${POLICY_DIR:-$PREFIX/policy}"
 APP_CDS_REGENERATION_SENTINEL="${APP_CDS_REGENERATION_SENTINEL:-$POLICY_DIR/appcds-regeneration-enabled}"
@@ -140,6 +142,11 @@ die()  {
   local code="$1"; shift
   code="$(normalize_reason_code "$code")"
   printf '[brewlet-provisioner] ERROR: %s: %s\n' "$code" "$*" >&2
+  # Even failure handling mutates host policy and node advertisements. A
+  # container that failed the ownership fence must leave both untouched.
+  if [[ "$BREWLET_REQUIRE_NODE_CLAIM" == "true" && "$NODE_WRITE_AUTHORIZED" != "true" ]]; then
+    exit 1
+  fi
   if command -v remove_appcds_regeneration_policy >/dev/null 2>&1; then
     remove_appcds_regeneration_policy || true
   fi
@@ -1458,6 +1465,7 @@ label_node() {
 }
 
 verify_profile_identity() {
+  verify_node_ownership
   [[ -n "$BREWLET_PROFILE_UID" ]] || return 0
   local identity uid generation deleting
   if ! identity="$(kubectl get nodeprofile "$BREWLET_PROFILE_NAME" \
@@ -1469,6 +1477,49 @@ verify_profile_identity() {
      "$generation" == "$BREWLET_PROFILE_GENERATION" &&
      -z "$deleting" ]] \
     || die profile-changed "profile ${BREWLET_PROFILE_NAME} identity changed before readiness publication"
+}
+
+verify_node_ownership() {
+  [[ "$BREWLET_REQUIRE_NODE_CLAIM" == "true" ]] || return 0
+  NODE_WRITE_AUTHORIZED=false
+  [[ -n "$BREWLET_PROFILE_UID" && -n "$NODE_NAME" ]] \
+    || die ownership-fence-failed "managed writers require profile and node identities"
+  local node_identity node_uid owner_uid owner_node_uid owner_name
+  node_identity="$(kubectl get node "$NODE_NAME" -o \
+    'jsonpath={.metadata.uid}|{.metadata.labels.brewlet\.sh/owner-uid}|{.metadata.labels.brewlet\.sh/owner-node-uid}|{.metadata.annotations.brewlet\.sh/owner-name}')" \
+    || die ownership-fence-failed "could not read the node ownership claim"
+  IFS='|' read -r node_uid owner_uid owner_node_uid owner_name <<<"$node_identity"
+  [[ -n "$node_uid" && "$owner_uid" == "$BREWLET_PROFILE_UID" &&
+     "$owner_node_uid" == "$node_uid" && "$owner_name" == "$BREWLET_PROFILE_NAME" ]] \
+    || die ownership-fence-failed "node identity or ownership no longer authorizes this container"
+  local identity uid generation deleting target_uid claimed retirement_generation retirement_phase retiring_uid retiring_claimed target_restart retiring_restart
+  local query='{.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].uid}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].claimed}|{.status.retirement.generation}|{.status.retirement.phase}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].uid}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].claimed}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].containerdRestart}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].containerdRestart}'
+  identity="$(kubectl get nodeprofile "$BREWLET_PROFILE_NAME" -o "jsonpath=$query")" \
+    || die ownership-fence-failed "could not read the durable target ledger"
+  IFS='|' read -r uid generation deleting target_uid claimed retirement_generation retirement_phase retiring_uid retiring_claimed target_restart retiring_restart <<<"$identity"
+  [[ "$uid" == "$BREWLET_PROFILE_UID" && "$target_uid" == "$node_uid" && "$claimed" == "true" ]] \
+    || die ownership-fence-failed "node target was not durably authorized by this profile incarnation"
+  if [[ "$BREWLET_MODE" == "cleanup" ]]; then
+    if [[ -n "$retirement_phase" ]]; then
+      [[ "$retirement_generation" == "$BREWLET_PROFILE_GENERATION" &&
+         "$retiring_uid" == "$node_uid" && "$retiring_claimed" == "true" ]] \
+        || die ownership-fence-failed "node is not part of this frozen retirement episode"
+      target_restart="$retiring_restart"
+    else
+      [[ -n "$deleting" && "$generation" == "$BREWLET_PROFILE_GENERATION" ]] \
+        || die ownership-fence-failed "cleanup requires a deleting profile at the authorized generation"
+    fi
+    if [[ -n "$target_restart" ]]; then
+      case "$target_restart" in
+        validated|sighup|none) BREWLET_CONTAINERD_RESTART="$target_restart" ;;
+        *) die ownership-fence-failed "invalid per-node cleanup restart policy" ;;
+      esac
+    fi
+  else
+    [[ -z "$deleting" && -z "$retirement_phase" && "$generation" == "$BREWLET_PROFILE_GENERATION" ]] \
+      || die ownership-fence-failed "profile is deleting, retargeting, or has superseded this provisioner"
+  fi
+  NODE_WRITE_AUTHORIZED=true
 }
 
 clear_node_advertisement() {
@@ -1607,10 +1658,12 @@ main() {
   # A restarted invocation must never inherit readiness from earlier work.
   rm -f -- "$COMPLETION_FILE" \
     || die completion-state-failed "could not reset completion marker ${COMPLETION_FILE}"
+  verify_node_ownership
   if [[ "${BREWLET_MODE}" == "cleanup" ]]; then
     cleanup_node
     return 0
   fi
+  verify_profile_identity
 
   log "provisioning node ${NODE_NAME} (arch $(host_arch_oci), copy-from-image)"
   remove_appcds_regeneration_policy \

@@ -102,6 +102,10 @@ const (
 	// record which NodeProfile owns it, so the operator (and operators) can map
 	// a DaemonSet back to its profile.
 	LabelNodeProfile = "brewlet.sh/nodeprofile"
+	// Node claims are optimistic, UID-bound ownership fences, not readiness.
+	LabelNodeOwner      = "brewlet.sh/owner-uid"
+	LabelNodeIdentity   = "brewlet.sh/owner-node-uid"
+	AnnotationNodeOwner = "brewlet.sh/owner-name"
 
 	// FinalizerCleanup gates NodeProfile deletion on host cleanup running before
 	// owner-ref GC drops the managed DaemonSet (§5.6).

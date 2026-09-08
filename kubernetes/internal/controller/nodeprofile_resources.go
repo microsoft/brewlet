@@ -69,9 +69,8 @@ func nodeIsControlPlane(node *corev1.Node) bool {
 
 // profileExcludesNodeRole reports whether a node is off-limits to a profile
 // because it is a control-plane node the profile has not explicitly opted into.
-// It is the scheduling rule in controlPlaneExclusions expressed for the
-// controllers' own node bookkeeping, so status counts, the cleanup wait, and
-// node advertisement agree with where the DaemonSet can actually land.
+// It is the provisioning rule in controlPlaneExclusions expressed for node
+// bookkeeping. Cleanup follows recorded targets even after role changes.
 func profileExcludesNodeRole(profile *nodev1alpha1.NodeProfile, node *corev1.Node) bool {
 	return !profile.Spec.NodePool.IncludeControlPlane && nodeIsControlPlane(node)
 }
@@ -263,10 +262,8 @@ func appCDSRegenerationEnabled(profile *nodev1alpha1.NodeProfile) bool {
 	return profile.Spec.AppCDS != nil && profile.Spec.AppCDS.RegenerationEnabled
 }
 
-// buildProfileDaemonSet returns the provisioner DaemonSet for one profile — the
-// generalized buildDaemonSet: pod nodeAffinity comes from the profile's pool and
-// indexed runtime sources and MIRRORS env come from its inventory (§5.2). Pool disjointness is
-// what enforces single ownership; there is no per-node assignment label.
+// buildProfileDaemonSet constrains provisioning to durably recorded node claims
+// that still match the profile's current pool and role selectors.
 func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string) *appsv1.DaemonSet {
 	privileged := true
 	hostPathSocket := corev1.HostPathSocket
@@ -288,6 +285,9 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		{Name: "BREWLET_PROFILE_UID", Value: string(profile.UID)},
 		{Name: "BREWLET_PROFILE_GENERATION", Value: strconv.FormatInt(profile.Generation, 10)},
 		{Name: "SOURCE_ALLOWED_MIRROR_HOSTS", Value: strings.Join(cfg.AllowedSourceMirrorHosts, ",")},
+	}
+	if profile.UID != "" {
+		env = append(env, corev1.EnvVar{Name: "BREWLET_REQUIRE_NODE_CLAIM", Value: "true"})
 	}
 	env = append(env, jdkSourceEnv(profile)...)
 	env = append(env, launcherSourceEnv(profile)...)
@@ -398,7 +398,46 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 	if !cfg.MetricsEnabled {
 		dropMetricsExporter(ds)
 	}
+	if profile.UID != "" {
+		ds.Spec.Template.Spec.Affinity = claimedTargetAffinity(profile, profile.Status.Targets)
+		for i := range ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
+			term := &ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[i]
+			if len(term.MatchFields) == 0 {
+				continue
+			}
+			term.MatchExpressions = append(term.MatchExpressions, controlPlaneExclusions(profile)...)
+			if !isDefaultProfile(profile) && resolvedKey != "" {
+				term.MatchExpressions = append(term.MatchExpressions, poolRequirement(resolvedKey, corev1.NodeSelectorOpIn, profile.Spec.NodePool.Names))
+			}
+		}
+	}
 	return ds
+}
+
+func claimedTargetAffinity(profile *nodev1alpha1.NodeProfile, targets []nodev1alpha1.NodeTarget) *corev1.Affinity {
+	var terms []corev1.NodeSelectorTerm
+	for _, target := range targets {
+		if !target.Claimed {
+			continue
+		}
+		terms = append(terms, corev1.NodeSelectorTerm{
+			MatchFields: []corev1.NodeSelectorRequirement{{
+				Key: "metadata.name", Operator: corev1.NodeSelectorOpIn, Values: []string{target.Name},
+			}},
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{Key: brewlet.LabelNodeOwner, Operator: corev1.NodeSelectorOpIn, Values: []string{string(profile.UID)}},
+				{Key: brewlet.LabelNodeIdentity, Operator: corev1.NodeSelectorOpIn, Values: []string{string(target.UID)}},
+			},
+		})
+	}
+	// An empty term matches nothing, including a new autoscaled node whose
+	// identity has not yet been durably recorded and claimed.
+	if len(terms) == 0 {
+		terms = []corev1.NodeSelectorTerm{{}}
+	}
+	return &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{NodeSelectorTerms: terms},
+	}}
 }
 
 // metricsSocketVolume is the only host path the metrics exporter may write. It
@@ -425,8 +464,8 @@ func dropMetricsExporter(ds *appsv1.DaemonSet) {
 
 // buildCleanupDaemonSet returns the short-lived brewlet-cleanup DaemonSet the
 // operator launches to reverse host state for a deleted profile (§5.6). It runs
-// the same provisioner image in BREWLET_MODE=cleanup, scoped to the profile's
-// pool, and (following the kata-cleanup pattern) restores containerd config,
+// the same provisioner image in BREWLET_MODE=cleanup, scoped to recorded managed
+// targets, and (following the kata-cleanup pattern) restores containerd config,
 // removes the shim, and drops the runtime + capability labels.
 func buildCleanupDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string) *appsv1.DaemonSet {
 	ds := buildProfileDaemonSet(cfg, profile, resolvedKey, otherPools)
@@ -442,6 +481,11 @@ func buildCleanupDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 	// Cleanup never scrapes metrics, so it carries neither the exporter nor its
 	// writable telemetry socket mount.
 	dropMetricsExporter(ds)
+	if profile.UID != "" {
+		// Retirement must reach the previously authorized node even when its
+		// pool or role labels have changed since provisioning.
+		ds.Spec.Template.Spec.Affinity = claimedTargetAffinity(profile, profile.Status.Targets)
+	}
 	// DaemonSet readiness can still describe old pods during a rollout. Stamp
 	// the desired template so cleanup completion can verify each current pod.
 	revision := sha256.Sum256([]byte(dump.ForHash(ds.Spec.Template)))

@@ -1555,6 +1555,73 @@ if output="$(
 fi
 grep -Fq "ERROR: completion-state-failed" <<<"$output"
 
+# Ownership fencing runs before host mutation, including die()'s cleanup path.
+ownership_case() (
+  BREWLET_MODE="$1"
+  local provided_node_claim="$2" provided_profile_ledger="$3" run_main="${4:-false}" expected_restart="${5:-}"
+  BREWLET_REQUIRE_NODE_CLAIM=true
+  BREWLET_PROFILE_NAME=owner
+  BREWLET_PROFILE_UID=profile-uid
+  BREWLET_PROFILE_GENERATION=3
+  NODE_NAME=node-a
+  NODE_WRITE_AUTHORIZED=false
+  : >"$calls"
+  kubectl() {
+    case "$1 $2" in
+      "get node") printf '%s' "$provided_node_claim" ;;
+      "get nodeprofile") printf '%s' "$provided_profile_ledger" ;;
+      *) printf 'unexpected-api-write\n' >>"$calls"; return 1 ;;
+    esac
+  }
+  remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
+  clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
+  if [[ "$run_main" == true ]]; then
+    main
+  else
+    verify_node_ownership
+    [[ "$NODE_WRITE_AUTHORIZED" == true ]]
+    [[ -z "$expected_restart" || "$BREWLET_CONTAINERD_RESTART" == "$expected_restart" ]]
+  fi
+)
+claim_identity='node-uid|profile-uid|node-uid|owner'
+ownership_case provision "$claim_identity" 'profile-uid|3||node-uid|true||||'
+ownership_case cleanup "$claim_identity" 'profile-uid|3|deleting|node-uid|true||||'
+ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Cleaning|node-uid|true'
+ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Teardown|node-uid|true'
+ownership_case cleanup "$claim_identity" 'profile-uid|3|deleting|node-uid|true|||||none|' false none
+ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Cleaning|node-uid|true|none|validated' false validated
+for mismatch in \
+    'profile-uid|4||node-uid|true||||' \
+    'replacement-profile|3||node-uid|true||||' \
+    'profile-uid|3||replacement-node|true||||' \
+    'profile-uid|3||node-uid|false||||' \
+    'profile-uid|3|deleting|node-uid|true||||' \
+    'profile-uid|3||node-uid|true|3|Cleaning|node-uid|true'; do
+  if ownership_case provision "$claim_identity" "$mismatch" true >/dev/null 2>&1; then
+    echo "expected stale provisioning authority to be rejected" >&2
+    exit 1
+  fi
+  [[ ! -s "$calls" ]] || { echo "ownership failure mutated host/API state" >&2; exit 1; }
+done
+for mismatch in \
+    'profile-uid|3||node-uid|true||||' \
+    'profile-uid|3||node-uid|true|4|Cleaning|node-uid|true' \
+    'profile-uid|3||node-uid|true|3|Cleaning|other-node|true' \
+    'profile-uid|3||node-uid|true|3|Cleaning|node-uid|false'; do
+  if ownership_case cleanup "$claim_identity" "$mismatch" true >/dev/null 2>&1; then
+    echo "expected unauthorized cleanup target to be rejected" >&2
+    exit 1
+  fi
+  [[ ! -s "$calls" ]] || { echo "cleanup fence failure mutated host/API state" >&2; exit 1; }
+done
+for mismatch in 'node-uid|other-owner|node-uid|owner' 'new-node-uid|profile-uid|node-uid|owner'; do
+  if ownership_case provision "$mismatch" 'profile-uid|3||node-uid|true||||' true >/dev/null 2>&1; then
+    echo "expected node owner/UID mismatch to be rejected" >&2
+    exit 1
+  fi
+  [[ ! -s "$calls" ]] || { echo "node fence failure mutated host/API state" >&2; exit 1; }
+done
+
 mkdir "$TEST_TMP_ROOT/completion-directory"
 if output="$(
   (

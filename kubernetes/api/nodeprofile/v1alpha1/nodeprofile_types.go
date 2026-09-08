@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
@@ -139,6 +140,18 @@ const (
 
 // NodeProfileStatus reflects the reconciled state of a profile (§5.6).
 type NodeProfileStatus struct {
+	// Targets is the durable node-identity ledger, written before granting a
+	// scheduling claim. Entries remain until their cleanup workers terminate.
+	Targets              []NodeTarget `json:"targets,omitempty"`
+	OwnershipInitialized bool         `json:"ownershipInitialized,omitempty"`
+	// Migrating drains legacy unfenced workers before activating node claims.
+	Migrating              bool             `json:"migrating,omitempty"`
+	MigrationDaemonSetUIDs []types.UID      `json:"migrationDaemonSetUIDs,omitempty"`
+	ProvisioningGeneration int64            `json:"provisioningGeneration,omitempty"`
+	ProvisioningSpec       *NodeProfileSpec `json:"provisioningSpec,omitempty"`
+	// Retirement freezes departing targets and their last authorized policy;
+	// newer spec generations cannot discard an in-flight cleanup episode.
+	Retirement *NodeRetirement `json:"retirement,omitempty"`
 	// ObservedGeneration is the .metadata.generation the operator last acted on.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// ResolvedPoolKey is the node label key the operator matched the pool on
@@ -154,6 +167,31 @@ type NodeProfileStatus struct {
 	// while completed cleanup workers are being torn down.
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
+
+type NodeTarget struct {
+	Name    string    `json:"name"`
+	UID     types.UID `json:"uid"`
+	Claimed bool      `json:"claimed,omitempty"`
+	// ContainerdRestart preserves this node's cleanup obligation even if later
+	// label-only provisioning is authorized on other targets.
+	ContainerdRestart string `json:"containerdRestart,omitempty"`
+}
+
+type NodeRetirement struct {
+	Targets    []NodeTarget    `json:"targets"`
+	Generation int64           `json:"generation"`
+	Spec       NodeProfileSpec `json:"spec"`
+	Phase      string          `json:"phase"`
+}
+
+const (
+	RetirementCleaning       = "Cleaning"
+	RetirementTeardown       = "Teardown"
+	ReasonOwnershipConflict  = "OwnershipConflict"
+	ReasonOwnershipMigration = "OwnershipMigration"
+	ReasonRetargeting        = "Retargeting"
+	ReasonCleanupBlocked     = "CleanupBlocked"
+)
 
 // Condition types and reasons surfaced on NodeProfile status.
 const (

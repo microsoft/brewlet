@@ -217,6 +217,44 @@ spec:
             status:
               type: object
               properties:
+                ownershipInitialized: { type: boolean }
+                migrating: { type: boolean }
+                migrationDaemonSetUIDs:
+                  type: array
+                  items: { type: string }
+                provisioningGeneration: { type: integer, format: int64 }
+                provisioningSpec:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                targets:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, uid]
+                    properties:
+                      name: { type: string }
+                      uid: { type: string }
+                      claimed: { type: boolean }
+                      containerdRestart: { type: string, enum: [validated, sighup, none] }
+                retirement:
+                  type: object
+                  required: [targets, generation, spec, phase]
+                  properties:
+                    generation: { type: integer, format: int64 }
+                    phase: { type: string, enum: [Cleaning, Teardown] }
+                    spec:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    targets:
+                      type: array
+                      items:
+                        type: object
+                        required: [name, uid]
+                        properties:
+                          name: { type: string }
+                          uid: { type: string }
+                          claimed: { type: boolean }
+                          containerdRestart: { type: string, enum: [validated, sighup, none] }
                 observedGeneration:
                   type: integer
                   format: int64

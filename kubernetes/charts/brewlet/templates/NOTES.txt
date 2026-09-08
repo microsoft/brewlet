@@ -78,3 +78,11 @@ Next steps:
 
      kubectl apply -f deploy/sample-javaapplication.yaml
      kubectl get javaapplication -A
+
+Uninstall safely:
+  Drain Brewlet workloads and pause profile/GitOps writers first.
+  The pre-delete hook waits for profile cleanup before removing the operator.
+  Manually managed/other-release profiles and failed cleanup block uninstall.
+  Do not bypass hooks or finalizers; the component namespace is retained.
+
+    helm uninstall {{ .Release.Name }} --namespace {{ .Release.Namespace }} --timeout {{ add (int64 .Values.uninstall.timeoutSeconds) 60 }}s

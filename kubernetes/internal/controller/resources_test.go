@@ -54,6 +54,14 @@ func TestBuildProfileDaemonSet(t *testing.T) {
 			AppCDS:    &nodev1alpha1.AppCDSSpec{RegenerationEnabled: true},
 			Registry:  &nodev1alpha1.RegistrySpec{Mirrors: map[string]string{"mcr.microsoft.com": "registry.internal/mcr"}},
 		},
+		Status: nodev1alpha1.NodeProfileStatus{
+			OwnershipInitialized:   true,
+			ProvisioningGeneration: 3,
+			Targets: []nodev1alpha1.NodeTarget{{
+				Name: "worker-a", UID: "node-uid", Claimed: true,
+				ContainerdRestart: nodev1alpha1.ContainerdRestartValidated,
+			}},
+		},
 	}
 	ds := buildProfileDaemonSet(cfg, profile, "cloud.google.com/gke-nodepool", nil)
 
@@ -78,14 +86,26 @@ func TestBuildProfileDaemonSet(t *testing.T) {
 		t.Errorf("serviceAccount = %q", spec.ServiceAccountName)
 	}
 
-	// nodeAffinity must select the named pool on the resolved key.
-	term := spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions[0]
-	if term.Key != "cloud.google.com/gke-nodepool" || term.Operator != corev1.NodeSelectorOpIn {
-		t.Fatalf("affinity = %+v, want In on gke-nodepool", term)
+	// Pool selection alone is insufficient: the exact node and owner must
+	// already have a durable scheduling claim.
+	terms := spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	if len(terms) != 1 {
+		t.Fatalf("affinity terms = %+v, want exactly one claimed target", terms)
 	}
-	if len(term.Values) != 1 || term.Values[0] != "general" {
-		t.Fatalf("affinity values = %v, want [general]", term.Values)
+	assertRequirement := func(requirements []corev1.NodeSelectorRequirement, key, value string) {
+		t.Helper()
+		for _, requirement := range requirements {
+			if requirement.Key == key && requirement.Operator == corev1.NodeSelectorOpIn &&
+				len(requirement.Values) == 1 && requirement.Values[0] == value {
+				return
+			}
+		}
+		t.Errorf("affinity lacks %s In [%s]: %+v", key, value, requirements)
 	}
+	assertRequirement(terms[0].MatchFields, "metadata.name", "worker-a")
+	assertRequirement(terms[0].MatchExpressions, brewlet.LabelNodeOwner, "profile-uid")
+	assertRequirement(terms[0].MatchExpressions, brewlet.LabelNodeIdentity, "node-uid")
+	assertRequirement(terms[0].MatchExpressions, "cloud.google.com/gke-nodepool", "general")
 
 	// Inventory + mirror env come from the profile.
 	env := map[string]string{}

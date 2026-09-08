@@ -314,30 +314,33 @@ func validateMirrorTarget(target string) (string, error) {
 	return host, nil
 }
 
-// ValidateNoPoolConflicts rejects a profile that names a pool already claimed by
-// another profile (ambiguous ownership — the pool-model replacement for the old
-// priority tie-break, §5.6/§8.3). others is the set of existing profiles
-// (excluding the one under validation).
+// ValidateNoPoolConflicts rejects ambiguous named selectors and multiple
+// catch-alls, including overlaps possible on future nodes (§5.6/§8.3).
+// Node claims still arbitrate simultaneous admissions.
 func ValidateNoPoolConflicts(profile *nodev1alpha1.NodeProfile, others []nodev1alpha1.NodeProfile) error {
-	claimed := map[string]string{} // pool name -> owning profile
 	for i := range others {
 		o := &others[i]
 		if o.Name == profile.Name {
 			continue
 		}
-		for _, name := range o.Spec.NodePool.Names {
-			claimed[name] = o.Name
+		if isDefaultProfile(profile) && isDefaultProfile(o) {
+			return fmt.Errorf("pool ownership conflict: only one catch-all profile is allowed (already claimed by profile %q)", o.Name)
 		}
-	}
-	var dupes []string
-	for _, name := range profile.Spec.NodePool.Names {
-		if owner, ok := claimed[name]; ok {
-			dupes = append(dupes, fmt.Sprintf("%q (already claimed by profile %q)", name, owner))
+		if isDefaultProfile(profile) || isDefaultProfile(o) {
+			continue
 		}
-	}
-	if len(dupes) > 0 {
-		sort.Strings(dupes)
-		return fmt.Errorf("pool ownership conflict: %v", dupes)
+		// Different keys are independent constraints: a future node can carry
+		// both. Auto-detection can also change when the fleet grows.
+		if profile.Spec.NodePool.Key != o.Spec.NodePool.Key {
+			return fmt.Errorf("pool ownership conflict: profile %q uses a different explicit/auto pool key; future nodes could match both selectors", o.Name)
+		}
+		for _, name := range profile.Spec.NodePool.Names {
+			for _, other := range o.Spec.NodePool.Names {
+				if name == other {
+					return fmt.Errorf("pool ownership conflict: %q already claimed by profile %q", name, o.Name)
+				}
+			}
+		}
 	}
 	return nil
 }

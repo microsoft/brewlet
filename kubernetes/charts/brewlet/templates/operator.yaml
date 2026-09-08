@@ -27,6 +27,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["list"]
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
@@ -77,10 +80,9 @@ subjects:
     namespace: {{ include "brewlet.namespace" . }}
 ---
 {{/*
-The privileged provisioner DaemonSets only ever live in the release namespace,
-so the operator's authority to create them is namespaced rather than
-cluster-wide: a compromised operator token cannot plant a privileged DaemonSet
-in kube-system or any other namespace.
+Managed DaemonSet writes stay in the configured operator namespace. Global
+list-only inventory detects legacy writers elsewhere without granting authority
+to plant privileged DaemonSets outside this namespace.
 */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

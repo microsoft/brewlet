@@ -170,6 +170,14 @@ networkPolicy:
     # entry may use namespaceSelector, podSelector, or ipBlock.
     ingressFrom: []
 
+# Always run finalizer-driven cleanup before Helm removes the operator/RBAC.
+# Drain Brewlet workloads and pause profile/GitOps writers before uninstalling.
+# Helm's --timeout must exceed timeoutSeconds + 30 seconds (startup/termination).
+uninstall:
+  timeoutSeconds: 240
+  # Registry credentials for the hook's dedicated ServiceAccount.
+  imagePullSecrets: []
+
 # The pod admission/scheduling webhook (§8/§14): overwrites image identity
 # compatibility hints and matches a pod's requested JDK/launcher against the
 # ready fleet (NoCompatibleJDK / NoCompatibleLauncher).

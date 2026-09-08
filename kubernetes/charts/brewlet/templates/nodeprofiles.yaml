@@ -10,6 +10,7 @@ provisioner DaemonSet scoped to the profile's pool.
 Selecting a pool IS the opt-in. The chart never renders an every-node profile:
 provisioning is privileged and mutates the host, so `provisioner.pools` is
 required whenever the default profile is enabled.
+Every additional profile must also declare a nonempty pools list.
 
 `provisioner.jdks` is required for the same class of reason. Brewlet has no
 built-in runtime catalog (§5.2): the platform team chooses every digest-pinned
@@ -17,10 +18,13 @@ build it runs, and owns its CVE posture (§5.3). A chart-shipped default digest
 would be a JDK nobody chose that can never be patched, so rendering fails rather
 than pinning one.
 */}}
+{{- $names := dict }}
 {{- if .Values.defaultProfile.enabled }}
+{{- $_ := set $names "default" true }}
 {{- if not .Values.provisioner.pools }}
 {{- fail "provisioner.pools is required when defaultProfile.enabled is true: name the node pool(s) the privileged provisioner may mutate, or set defaultProfile.enabled=false and define your own NodeProfiles" }}
 {{- end }}
+{{- include "brewlet.validatePools" (dict "value" .Values.provisioner.pools "field" "provisioner.pools") }}
 {{- if not .Values.provisioner.jdks }}
 {{- fail "provisioner.jdks is required when defaultProfile.enabled is true: Brewlet ships no built-in runtime catalog, so name at least one digest-pinned JDK source (distribution, feature, source.image, source.javaHome), or set defaultProfile.enabled=false and define your own NodeProfiles" }}
 {{- end }}
@@ -30,6 +34,9 @@ metadata:
   name: default
   labels:
     {{- include "brewlet.labels" . | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace | quote }}
 spec:
   nodePool:
     names:
@@ -75,7 +82,15 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}
-{{- range $p := .Values.profiles }}
+{{- range $i, $p := .Values.profiles }}
+{{- if or (not (kindIs "string" $p.name)) (empty $p.name) }}
+{{- fail (printf "profiles[%d].name must be a nonempty string" $i) }}
+{{- end }}
+{{- if hasKey $names $p.name }}
+{{- fail (printf "duplicate NodeProfile name %q" $p.name) }}
+{{- end }}
+{{- $_ := set $names $p.name true }}
+{{- include "brewlet.validatePools" (dict "value" $p.pools "field" (printf "profiles[%d].pools" $i)) }}
 ---
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
@@ -83,6 +98,9 @@ metadata:
   name: {{ $p.name | quote }}
   labels:
     {{- include "brewlet.labels" $ | nindent 4 }}
+  annotations:
+    meta.helm.sh/release-name: {{ $.Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ $.Release.Namespace | quote }}
 spec:
   nodePool:
     names:

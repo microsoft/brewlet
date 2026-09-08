@@ -7,3 +7,5 @@ metadata:
   name: {{ include "brewlet.namespace" . }}
   labels:
     {{- include "brewlet.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep

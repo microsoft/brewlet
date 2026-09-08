@@ -48,7 +48,7 @@ with `--set key=value` or a values file.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `namespace` | `brewlet` | Namespace all components install into (created by the chart). |
+| `namespace` | `brewlet` | Component namespace, created by the chart and retained on uninstall to protect unrelated objects. May differ from the Helm release namespace. |
 | `images.registry` | `ghcr.io/microsoft` | Registry prefix used to generate component image references. |
 | `images.tag` | chart `appVersion` | Shared component tag. A versioned OCI chart therefore selects matching images automatically. |
 | `images.operator` | generated | Explicit operator image override; supports tags or digests. |
@@ -71,10 +71,12 @@ with `--set key=value` or a values file.
 | `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`); legacy in-place render plus SIGHUP (`sighup`); or no containerd mutation/signal (`none`). Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `provisioner.registry.mirrors` | `{}` | `<upstream-host>: <mirror-host[/path]>` map applied to digest-pinned source pulls. Every destination host must appear in `security.allowedSourceMirrorHosts`. |
 | `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Requires `provisioner.pools`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
-| `profiles` | `[]` | Additional per-pool `NodeProfile` CRs, each binding node pool(s) to their own JDK/launcher inventory plus AppCDS, rollout, and registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
+| `profiles` | `[]` | Additional `NodeProfile` CRs. Each requires a unique name, a nonempty list of named `pools`, and explicit JDK sources; the chart never renders an accidental catch-all. Includes AppCDS, rollout, and registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `operator.replicas` | `1` | Operator replica count. |
 | `operator.leaderElect` | `true` | Enable leader election for HA. |
 | `operator.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Operator pod resources. |
+| `uninstall.timeoutSeconds` | `240` | Pre-delete cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstalling; Helm's `--timeout` must exceed this plus 30 seconds. Failure retains the control plane. See [Uninstall](installation.md#uninstall). |
+| `uninstall.imagePullSecrets` | `[]` | Namespaced registry Secret references for the cleanup Job, which uses the operator image and its own service account. |
 | `metrics.enabled` | `false` | Opt in to Brewlet runtime and control-plane Prometheus endpoints. Enables the operator and admission listeners plus the node exporter sidecar and Services. |
 | `metrics.nodePort` | `9090` | Port exposed by each node-local metrics exporter and the `brewlet-node-metrics` headless Service. |
 | `metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator `ServiceMonitor`. Requires the `monitoring.coreos.com/v1` CRDs. |
@@ -221,6 +223,13 @@ When you install via Helm, the chart populates them for you.
 kubectl apply -f nodeprofile.yaml
 ```
 
+The Helm pre-delete Job selects a separate coordinator-only mode with
+`--uninstall-release-name`, `--uninstall-release-namespace`, and
+`--uninstall-timeout`. Both release identity flags are required. `--namespace`
+still identifies the worker namespace, which may differ from the release
+namespace. This mode does not start controllers or host-mutating workers; see
+[Uninstall](installation.md#uninstall).
+
 ---
 
 ## Node-provisioner environment variables
@@ -243,15 +252,17 @@ only touch them directly if you hand-wire the DaemonSet.
 | `JDKS` / `LAUNCHERS` | derived | Internal comma-separated inventories derived from the indexed entries. They are not accepted as independent inputs. |
 | `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Internal operator-to-provisioner policy transport. When true, atomically creates the root-owned AppCDS authorization sentinel and publishes `brewlet.sh/appcds-regeneration=true`; when false or during cleanup/failure, removes both. Configure `spec.appCDS.regenerationEnabled`, not this variable directly. |
 | `NODE_NAME` | (downward API) | The node to label; injected from `spec.nodeName`. |
-| `BREWLET_PROFILE_UID` | *(empty)* | Operator-managed profile UID used to fence stale provisioners before readiness publication. |
+| `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID in managed worker authority checks. |
+| `BREWLET_PROFILE_UID` | *(empty)* | Operator-managed profile UID paired with node ownership and persisted writer authority. |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID`. |
+| `BREWLET_REQUIRE_NODE_CLAIM` | `false` (standalone), `true` (managed) | Require the node UID/owner labels and durable profile target/retirement authority before host mutation. Set by the operator; never disable it on managed workers. |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host install prefix (`bin/`, `jdks/`, `launchers/`). |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | Primary containerd configuration. Validated mode uses an imported drop-in when supported and otherwise patches this file with a backup. |
 | `CONTAINERD_DROPIN_DIR` | `/etc/containerd/config.toml.d` | Drop-in directory used when the primary config imports `*.toml` from it. |
 | `CONTAINERD_DROPIN_FILE` | `/etc/containerd/config.toml.d/99-brewlet.toml` | Brewlet-managed runtime drop-in. |
 | `CONTAINERD_ADDRESS` | `/run/containerd/containerd.sock` | Host containerd socket (used for copy-from-image). |
 | `CONTAINERD_NAMESPACE` | `k8s.io` | containerd namespace for image pulls. |
-| `BREWLET_MODE` | `provision` | `provision` installs the runtime; `cleanup` reverses it (removes the Brewlet drop-in or restores the primary-config backup, removes the shim, and drops runtime/capability labels) for a deleted `NodeProfile`. The operator sets it on the short-lived `brewlet-cleanup-<profile>` DaemonSet (§5.6). |
+| `BREWLET_MODE` | `provision` | `provision` installs the runtime; `cleanup` reverses recorded host state for a retiring target or deleted profile. Managed cleanup uses the frozen per-node containerd policy and runs in `brewlet-cleanup-<profile>` (§5.6). |
 | `BREWLET_CONTAINERD_RESTART` | `validated` | `validated` smoke-tests the runtime inventory, validates the effective config with `containerd config dump`, restarts the host service only when needed, checks containerd and the live `brewlet` handler, and restores known-good config on activation failure. `sighup` preserves the legacy in-place render/reload path without the config-dump gate. `none` neither mutates nor signals containerd. Rendered from `spec.rollout.containerdRestart`. |
 | `BREWLET_VALIDATE` | `true` | Run `java -version` for every JDK and verify every staged launcher is executable before publishing runtime or capability labels. Arbitrary launchers are not executed. `false` skips both sets of checks. Rendered from `spec.rollout.validate`. |
 | `MIRRORS` | *(empty)* | Strict comma-separated `<upstream-host>=<mirror-host[/path]>` pairs rendered from `spec.registry.mirrors`. Schemes, whitespace, empty entries, duplicates, self-mappings, and unapproved destinations fail closed. |

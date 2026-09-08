@@ -42,7 +42,8 @@ func (v *NodeProfileValidator) Handle(ctx context.Context, req admission.Request
 		if err := v.Decoder.DecodeRaw(req.OldObject, oldProfile); err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
 		}
-		if deletingFinalizersOnlyRemoved(oldProfile, profile) {
+		if deletingFinalizersOnlyRemoved(oldProfile, profile) &&
+			!controller.HasNodeProfileCleanupObligations(oldProfile) {
 			return admission.Allowed("allowing finalizer removal from deleting NodeProfile")
 		}
 	}
@@ -54,11 +55,8 @@ func (v *NodeProfileValidator) Handle(ctx context.Context, req admission.Request
 
 	var existing nodev1alpha1.NodeProfileList
 	if err := v.Client.List(ctx, &existing); err != nil {
-		// Fail open on a read error: the reconcile loop still rejects a conflict
-		// by refusing to double-own a pool, and the webhook must not wedge on a
-		// transient apiserver hiccup.
-		log.Error(err, "listing NodeProfiles for pool-conflict check; allowing")
-		return admission.Allowed("profile list unavailable")
+		log.Error(err, "listing NodeProfiles for ownership check")
+		return admission.Errored(http.StatusServiceUnavailable, err)
 	}
 	if err := controller.ValidateNoPoolConflicts(profile, existing.Items); err != nil {
 		log.Info("rejecting NodeProfile", "name", profile.Name, "reason", err.Error())

@@ -21,7 +21,8 @@ Related: [Installation](installation.md) · [Configuration](configuration.md) ·
 1. A `NodeProfile` selects one or more node pools with `spec.nodePool`, declares
    the JDKs and launchers Brewlet must install, and optionally authorizes AppCDS
    regeneration with `spec.appCDS.regenerationEnabled`.
-2. The operator places the provisioner on matching nodes.
+2. The operator durably records matching node identities, acquires exclusive
+   UID-bound claims, and only then places provisioners on those nodes.
 3. The provisioner installs and validates the inventory, registers the runtime,
    and only then publishes `brewlet.sh/runtime=ready` and the corresponding
    capability labels.
@@ -239,6 +240,35 @@ reject regeneration if only the label exists.
 | Cluster Autoscaler + `NodeProfile` | Synthetic node-template labels matching the profile; provisioner publishes the real labels | No; keep at least one compatible ready node for admission |
 | Karpenter + post-registration `NodeProfile` | Select the Karpenter pool in `NodeProfile.spec.nodePool`; do not template Brewlet readiness labels | No; suitable for nodes created for other demand |
 | Karpenter + pre-baked or pre-registration Brewlet bootstrap | Template the complete labels only after the image/bootstrap makes them true | Not end-to-end with a zero-sized pool while current admission requires a compatible ready node |
+
+## Scale-in, consolidation, and replacement
+
+Scale-out does not establish a safe scale-in workflow. Before removing a managed
+Node or VM, drain its workloads, exclude it from every remaining profile's
+desired targets (including any catch-all), and keep it registered and reachable
+until retirement cleanup, worker teardown, and ownership release finish.
+Cordon/drain alone does not change profile membership. Coordinate any controller
+that would restore pool labels or reclaim the node while retirement is running.
+
+Brewlet does not supply an autoscaler termination hook. Suspend automatic
+scale-in/consolidation or provide external deprovisioning coordination; do not
+assume deleting a Kubernetes Node proves its host was cleaned. Before a durable
+cleanup-completion checkpoint, a missing/reused node UID yields `CleanupBlocked`
+and pauses all provisioner and node-metrics workers for that profile, including
+retained/new-node provisioning and upgrades. Retained hosts' runtime roots and
+capability advertisements are preserved.
+
+There is **no supported in-place recovery for a missing/reused node UID**.
+Recreating the name or asserting that the VM was decommissioned does not advance
+the state machine. A disconnected original host can recover if its Node object
+and UID remain intact. After durable `Teardown` has already proven cleanup,
+later Node disappearance may permit completion once workers are gone. Never
+delete ownership metadata or finalizers to manufacture that proof.
+
+The internal `brewlet.sh/owner-uid`, `brewlet.sh/owner-node-uid`, and
+`brewlet.sh/owner-name` metadata is not a capability template. Never copy it
+into autoscaler templates or pre-baked images. See
+[node ownership and retargeting](jdk-management.md#node-ownership-and-retargeting).
 
 ## Next steps
 

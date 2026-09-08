@@ -10,7 +10,7 @@ ENVTEST_K8S_VERSION ?= 1.31.0
 SETUP_ENVTEST_VERSION ?= v0.0.0-20250308055145-5fe7bb3edc86
 SETUP_ENVTEST ?= $(shell $(GO) env GOPATH)/bin/setup-envtest
 
-.PHONY: all fmt-check vet build test test-envtest ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-check print-setup-envtest-version clean
+.PHONY: all fmt-check vet build test test-envtest ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-lifecycle-check helm-check print-setup-envtest-version clean
 
 all: build
 
@@ -94,8 +94,8 @@ helm-digest-check:
 	fi
 
 # Remediation test for SECURITY-REVIEW.md finding 10: the privileged provisioner
-# must never be rendered as an every-node, every-taint, cluster-wide-RBAC
-# install.
+# must never be rendered as an every-node, every-taint install or receive
+# cluster-wide DaemonSet mutation privileges.
 helm-scheduling-check:
 	@if $(HELM) template brewlet charts/brewlet >/dev/null 2>&1; then \
 		echo "default values rendered a profile without provisioner.pools"; \
@@ -126,9 +126,6 @@ helm-scheduling-check:
 		echo "default profile did not render explicit pool names"; exit 1; \
 	fi
 	@ops="$$($(HELM) template brewlet charts/brewlet $(HELM_MIN_PROFILE) -s templates/operator.yaml)"; \
-	if printf '%s\n' "$$ops" | sed -n '/^kind: ClusterRole$$/,/^---$$/p' | grep -q daemonsets; then \
-		echo "operator ClusterRole still grants cluster-wide DaemonSet access"; exit 1; \
-	fi; \
 	if ! printf '%s\n' "$$ops" | sed -n '/^kind: Role$$/,/^---$$/p' | grep -q daemonsets; then \
 		echo "operator Role does not grant namespaced DaemonSet access"; exit 1; \
 	fi; \
@@ -162,7 +159,10 @@ helm-admission-check:
 		echo "chart could not render with an empty namespaceSelector"; exit 1; \
 	fi
 
-helm-check: helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check
+helm-lifecycle-check:
+	BREWLET_REQUIRE_HELM=true HELM="$(HELM)" $(GO) test -count=1 ./internal/chart
+
+helm-check: helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-lifecycle-check
 
 clean:
 	rm -rf bin

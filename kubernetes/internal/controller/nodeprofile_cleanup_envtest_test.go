@@ -343,25 +343,27 @@ func TestNodeProfileCleanupUpgradeWaitsForCurrentTemplate(t *testing.T) {
 	}
 }
 
-func TestNodeProfileCleanupZeroAssignedWaitsForOldPods(t *testing.T) {
+func TestNodeProfileCleanupMissingAssignedNodeBlocks(t *testing.T) {
 	f := newCleanupFixture(t, 1)
 	ds := f.startCleanup(t)
 	pod := createDaemonSetPod(t, f.ctx, f.client, ds, f.nodes[0], false)
 	if err := f.client.Delete(f.ctx, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: f.nodes[0]}}); err != nil {
 		t.Fatal(err)
 	}
-	f.assertHeld(t)
-	completeForegroundDaemonSetDeletion(t, f.ctx, f.client, f.r.Config.Namespace, ds.Name)
-	f.assertHeld(t)
+	reconcileProfile(t, f.ctx, f.r, f.profile.Name)
+	p := getProfile(t, f.ctx, f.client, f.profile.Name)
+	if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked {
+		t.Fatal("a missing previously claimed node must block cleanup, not count as an empty pool")
+	}
 	if err := f.client.Delete(f.ctx, pod, client.GracePeriodSeconds(0)); err != nil {
 		t.Fatal(err)
 	}
 	reconcileProfile(t, f.ctx, f.r, f.profile.Name)
-	var gone nodev1alpha1.NodeProfile
-	if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(&f.profile), &gone); !apierrors.IsNotFound(err) {
-		t.Fatalf("empty profile should finalize once old pods stop: %v", err)
+	p = getProfile(t, f.ctx, f.client, f.profile.Name)
+	if !containsString(p.Finalizers, brewlet.FinalizerCleanup) || len(p.Status.Targets) != 1 {
+		t.Fatal("missing node identity and finalizer must be retained for recovery")
 	}
-	f.assertNoCleanup(t)
+	f.daemonSet(t, ds.Name)
 }
 
 func TestNodeProfileDeletionPreservesUnownedDaemonSet(t *testing.T) {

@@ -304,3 +304,9 @@ Node inventory annotations such as `brewlet.sh/jdks` and
 `brewlet.sh/launchers` are used by Brewlet admission for current-fleet
 validation. They are not substitutes for the scheduling labels and are not
 part of this public autoscaler-template contract.
+
+The operator's `brewlet.sh/owner-uid` and `brewlet.sh/owner-node-uid` labels and
+`brewlet.sh/owner-name` annotation are internal node-ownership fences, not
+capability labels. They MUST NOT be copied into node templates or images.
+Their lifecycle and safe deprovisioning requirements are defined in
+[SPECIFICATION §5.6](SPECIFICATION.md#56-node-profiles-per-pool-preparation).

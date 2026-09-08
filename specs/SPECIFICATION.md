@@ -994,38 +994,65 @@ spec:
   pool name; when empty the operator auto-detects the provider key by probing the
   fleet for the well-known keys (`cloud.google.com/gke-nodepool`, `agentpool`,
   `eks.amazonaws.com/nodegroup`, `karpenter.sh/nodepool`). Bare-metal/kubeadm
-  clusters with no such label fall back to "every node".
+  clusters with no such label must set an explicit key for named pools. A named
+  pool with no resolved key selects no nodes; it never falls back to every node.
 - **The default profile.** A profile with no `nodePool.names` is the **catch-all
-  default**: it owns every node *not* claimed by a named-pool profile, expressed
-  as a `NotIn [named pools]` nodeAffinity so the pools stay disjoint. The Helm
+  default**: it targets nodes not selected by any named-pool profile. Only one
+  catch-all is allowed. Named profiles must use the same pool-key configuration
+  (all the same explicit key, or all auto-detected) and disjoint pool names.
+  Different named-profile keys, including explicit/auto mixtures, are rejected
+  because a future node could satisfy both selectors. The Helm
   chart renders one from `provisioner.jdks/launchers`, scoped to the pools named
   in the required `provisioner.pools`; the catch-all form remains available to
-  administrators who author a `NodeProfile` directly, which bare-metal clusters
-  with no pool label still need. Two profiles may not name the same pool — the
-  validating webhook (§8.3) rejects the overlap.
-- **Control-plane nodes are excluded.** Every profile's DaemonSet carries
+  administrators who author a `NodeProfile` directly. Additional chart profiles
+  also require nonempty named pools; omitted pools never create a catch-all.
+- **Control-plane nodes are excluded from provisioning.** Every profile's
+  provisioning DaemonSet carries
   required `node-role.kubernetes.io/control-plane` and
   `node-role.kubernetes.io/master` `DoesNotExist` expressions, so a privileged
   provisioner never lands on a control-plane node. This is deliberately a
   *label* rule rather than a taint rule: kind and Docker Desktop label their
   single node as the control plane without tainting it, so the taint alone would
   not have held. `spec.nodePool.includeControlPlane: true` is the only way in.
-  The same rule governs membership (`status.assignedNodes`, the `Ready`
-  condition, the cleanup wait, and node advertisement), so a profile never
-  counts a node it cannot provision.
+  The same rule governs desired membership and normal readiness. Cleanup instead
+  follows recorded node identities: it must still reverse an already-authorized
+  node whose pool or role labels changed after provisioning.
 - **Tolerations are explicit.** The DaemonSet tolerates exactly what
   `spec.tolerations` declares — there is no blanket `operator: Exists` entry —
   plus the node-condition tolerations Kubernetes injects into every DaemonSet.
   Each entry must name a `key`, so "tolerate everything" is not expressible.
 - **One DaemonSet per profile.** The operator's `NodeProfileReconciler` (§8.1)
   reconciles each profile into its own `brewlet-node-provisioner-<profile>`
-  DaemonSet whose pod `nodeAffinity` is the profile's pool. Every JDK is rendered
+  DaemonSet whose pod affinity requires a recorded node name and UID-bound
+  ownership labels, plus applicable provisioning pool/role constraints. Every JDK is rendered
   as indexed `JDK_SOURCE_*` variables; every optional launcher is rendered as
   indexed `LAUNCHER_SOURCE_*` variables.
   `BREWLET_APP_CDS_REGENERATION_ENABLED`, `MIRRORS`,
   `SOURCE_ALLOWED_MIRROR_HOSTS`, and `BREWLET_CONTAINERD_RESTART` come from the
   spec and external policy. `JDKS` and `LAUNCHERS` are derived inside the
   provisioner, preventing source/inventory mismatches.
+- **Exclusive ownership.** Before granting scheduling authority, the operator
+  durably records each target's node name and UID. Optimistic node updates claim
+  `brewlet.sh/owner-uid` (profile UID), `brewlet.sh/owner-node-uid` (node UID),
+  and the `brewlet.sh/owner-name` annotation. A conflicting owner is not
+  overwritten. Claims remain reserved until host cleanup and worker teardown
+  finish, including handoff from a catch-all to a named profile. Admission uses
+  fresh profile reads, but node claims remain authoritative when admissions race.
+  Managed containers set `BREWLET_REQUIRE_NODE_CLAIM=true` and check both the
+  node identity and persisted provisioning/retirement authority before host
+  mutation or readiness publication. A failed initial ownership fence does not
+  run host-mutating or node-advertisement failure handlers.
+- **Retargeting.** Selector edits and node pool/role changes retire departing
+  recorded targets. The operator stops provisioning, freezes the retirement
+  episode, cleans only those departing nodes, then waits for cleanup workers to
+  terminate before releasing their claims and reconciling the latest desired
+  targets. Retained nodes' runtime roots are not cleaned. A later spec edit,
+  deletion request, or controller restart cannot discard an in-flight retirement.
+  Cleanup uses per-node recorded containerd restart policy: prior Brewlet config
+  mutations remain reversible after a later `none` rollout, without removing
+  pre-existing config from newly added `none` nodes. Previously authorized and
+  newly explicit tolerations may be combined to reach a newly tainted old target;
+  no blanket toleration is introduced.
 - **Registry mirrors (air-gap).** `spec.registry.mirrors` maps an upstream
   source host to an approved internal mirror repository prefix. The destination host
   must exactly match the external allowlist, and the provisioner preserves the
@@ -1047,18 +1074,55 @@ spec:
   sentinel, the shim, and the profile's installed JDK/launcher roots (unless
   `BREWLET_CLEANUP_RUNTIME_ROOTS=false`, for nodes whose roots are baked into an
   immutable image), and drops the runtime + capability labels; only once every
-  assigned node is cleaned does the operator record completion and tear down
+  recorded target is cleaned does the operator record completion and tear down
   cleanup. The finalizer remains until the cleanup DaemonSet and its pods are
   gone, so a replacement profile cannot race an old cleanup process. Recorded
   completion survives a controller restart; teardown must not create another
-  cleanup DaemonSet. Exception: if the profile's current
-  source/mirror/pool policy is invalid, its current pool selector is not trusted
-  for privileged cleanup and may overlap another profile. Deletion then
-  stops the profile's provisioner and cleanup pods, withdraws advertisements,
-  and removes the finalizer **without** running host cleanup. The finalizer MUST
-  remain until those pods have terminated so none can republish stale
-  capabilities. Repair the profile before deleting it when automatic reversal
-  is required; otherwise clean its prior nodes explicitly.
+  cleanup DaemonSet. If the current source/mirror/pool policy is invalid,
+  deletion stops provisioning and cleanup workers and withdraws advertisements,
+  but MUST retain both finalizer and claims while recorded or claimed host state
+  may remain. `Ready=False/CleanupBlocked` requires repairing the spec, external
+  source policy, or pool conflict; repairing a deleting profile resumes cleanup.
+  Only proven-unprovisioned invalid profiles may finalize without host cleanup,
+  after direct node/writer checks. Missing ownership records are not proof of
+  successful cleanup.
+
+The operator-owned status ledger contains `targets[]` entries with `name`, `uid`,
+`claimed`, and per-node `containerdRestart`; `ownershipInitialized`, `migrating`,
+and `migrationDaemonSetUIDs` track migration. `provisioningGeneration` and
+`provisioningSpec` retain provisioning policy, while `retirement` freezes
+`targets`, `generation`, `spec`, and `phase` (`Cleaning` or `Teardown`). Target and
+retirement checkpoints MUST survive a fresh API read before dependent actions.
+An older CRD that silently prunes these fields fails closed: apply the updated
+NodeProfile CRD before upgrading operator/provisioner images, not merely the
+Helm values.
+
+Migration drains legacy unfenced workers before activating claims and records
+discoverable potential targets, bound and pending pods, advertisements even
+without a surviving DaemonSet, and exact legacy DaemonSet UIDs. Pending pod
+`metadata.name` affinity contributes possible targets. Observed old-pod restart
+policy is retained per node rather than replaced by a newer template's `none`.
+Migration first fences replacement scheduling with `OnDelete` and the
+`node.brewlet.sh/migration` Pod scheduling gate, confirms the fence and observed
+generation, and durably inventories evidence before draining workers. It
+requires scheduling-gate support; gates must not be removed manually.
+Unverified UID/revision/policy evidence remains durably blocked and cannot
+become safe no-host finalization after advertisements are withdrawn. It cannot
+reconstruct vanished historical hosts with no
+surviving Kubernetes evidence; those require administrator verification.
+Ownership conflicts, missing/reused node identities, and unavailable cleanup
+targets are reported rather than treated as completed reversal.
+Retirement is profile-wide serialized: before successful cleanup is durably
+recorded, an inaccessible/missing/reused departing node pauses all profile
+provisioner and metrics workers and retained/new-node provisioning, while
+preserving retained hosts' runtime roots and advertisements. Recovery is
+supported for a disconnected original Node with its UID intact; missing/reused
+UIDs have no supported in-place recovery. A durable `Teardown` checkpoint is
+different: cleanup is already proven, so later Node disappearance need not block
+release after workers disappear. Planned shrink MUST exclude departing nodes
+from every remaining profile, including catch-alls, and finish cleanup/teardown
+and claim release before deleting the Node/VM. Automatic autoscaler
+scale-in/consolidation requires external coordination; it is not supplied here.
 
 During normal reversal, `CleanupComplete=True` with reason `CleanupSucceeded`
 records completed host work for the current profile UID and
@@ -1068,6 +1132,38 @@ checkpoint is not reused for another generation or profile incarnation;
 reappearing provisioners invalidate it before being stopped. Failure to persist
 the checkpoint prevents teardown. `CleanupComplete` is not permission to skip
 the finalizer or start a replacement profile early.
+Partial retirement uses its own frozen phase, never the full-deletion
+`CleanupComplete` checkpoint.
+
+**Helm uninstall.** A `pre-delete` Job runs the operator image in a separate,
+unprivileged cleanup-coordinator mode. It MUST complete before Helm deletes the
+operator or its RBAC. Release ownership requires both
+`meta.helm.sh/release-name` and `meta.helm.sh/release-namespace`, plus
+`app.kubernetes.io/managed-by=Helm`; instance labels or names alone are not
+authority. The coordinator refuses uninstall while any other NodeProfiles
+exist, requests owned-profile deletion with UID/resource-version preconditions,
+and inventories provisioning/cleanup workers across namespaces. Known workers
+outside the operator namespace and standalone writers must be deprovisioned
+separately; a namespace change cannot hide them. Success requires profiles and
+their workers to disappear. It does
+not remove finalizers or delete workers directly. API errors and bounded
+timeouts fail the hook, retaining the normal control-plane resources so cleanup
+can finish or be repaired. The dedicated hook RBAC permits profile reads/deletes
+and cluster-wide worker lists, not worker mutation, host access, or finalizer
+writes. The operator also has read-only global writer inventory; its DaemonSet
+mutation permissions remain restricted to its configured namespace.
+
+Administrators MUST drain affected workloads and quiesce profile/GitOps writers
+before uninstall. The coordinator rechecks state while waiting; it does not
+atomically lock cluster-wide profile creation. `uninstall.timeoutSeconds`
+defaults to 240 (whole seconds, 1-86400); Helm's timeout must exceed this plus 30
+seconds for Job startup/termination. Failed cleanup Jobs remain for diagnosis
+until retry. Helm may remove earlier successful hook resources on failure;
+retry recreates the dedicated hook RBAC. Successful hook resources are removed.
+The component namespace is retained to protect unrelated objects; CRDs and the
+operator-created shared RuntimeClass are not automatically removed. Existing
+releases without this hook require staged profile deletion before control-plane
+removal.
 
 Sample manifests:
 [`deploy/sample-nodeprofile.yaml`](../kubernetes/deploy/sample-nodeprofile.yaml);
@@ -1245,7 +1341,7 @@ Manager, and workload reconciliation analogous to Spin Operator:
 >   identifies that profile. A
 >   `node.brewlet.sh/cleanup` finalizer holds a deleted profile while a
 >   `brewlet-cleanup-<profile>` DaemonSet reverses host state; the object is only
->   GC'd once cleanup completes.
+>   GC'd once host cleanup and worker teardown complete.
 > - **`NodeReconciler`** is now a per-node *state mirror*: it watches provisioned
 >   nodes (pool membership + the legacy `brewlet.sh/provision` label, gated on the
 >   runtime-ready label) and reflects state via the `brewlet.sh/provision-state`
@@ -1378,8 +1474,9 @@ determine the containerd-resolved image.
 > source, any source not using a canonical SHA-256 digest ref, invalid names or
 > paths, malformed mirror mappings, destinations outside
 > `--allowed-source-mirror-hosts`, an invalid
-> `containerdRestart`, and — after listing existing profiles — two profiles
-> naming the same pool (`PoolConflict`). Unlike the pod webhook it is
+> `containerdRestart`, and — after freshly listing existing profiles — overlapping
+> named pools, incompatible explicit/auto pool keys, or multiple catch-alls
+> (`PoolConflict`). Profile-list errors fail closed. Unlike the pod webhook it is
 > configurable with `admission.nodeProfileFailurePolicy`. It defaults to
 > `Ignore` so certificate bootstrap cannot block profile creation; operators can
 > select `Fail` for synchronous transport-failure rejection once webhook
@@ -1689,8 +1786,9 @@ and JVM features:
 | Node provisioning fails                     | Node not labeled `ready`; operator event `ProvisionFailed`          |
 | Runtime source or mirror preflight fails       | Provisioner performs no pull/mount/copy, publishes no readiness, and records the source-policy error |
 | NodeProfile names a pool with no matching nodes | Profile `Ready=False` reason `EmptyPool`; DaemonSet lands nowhere |
-| NodeProfile has a mutable source, unauthorized mirror, or pool conflict | Rejected at admission when available; reconciliation reports `Ready=False` reason `InvalidProfile`, withholds the DaemonSet, and withdraws profile-owned node advertisements |
-| NodeProfile deleted                         | Held by `node.brewlet.sh/cleanup` finalizer until the cleanup DaemonSet reverses host state |
+| NodeProfile has a mutable source, unauthorized mirror, or pool conflict | Rejected at admission when available; active reconciliation reports `InvalidProfile` and withdraws profile-owned advertisements. Deleting profiles with possible host state retain finalizers/claims with `CleanupBlocked` until repaired |
+| NodeProfile targets change | Retire recorded departing identities; keep their claims until host cleanup and worker teardown finish, then reconcile the latest desired targets |
+| NodeProfile deleted                         | Held by `node.brewlet.sh/cleanup` finalizer until recorded-target cleanup and worker teardown finish; missing identity or ownership evidence blocks completion |
 | Shim crash                                  | containerd reports task failure; pod restarts                       |
 | cgroup v1-only node                         | Provisioner refuses; node not marked ready (cgroup v2 required)     |
 | containerd 1.x node                         | Provisioner refuses; node not marked ready (protected CRI requested-image metadata requires containerd 2.0+) |
@@ -1760,6 +1858,7 @@ repurposed.
 | `unsupported-architecture` | The node's architecture is not supported |
 | `host-tooling-missing` | A required host tool (`nsenter`, the host `ctr` helper) is unavailable |
 | `completion-state-failed` | The container-local readiness marker could not be reset or published; the operation exits unsuccessfully |
+| `ownership-fence-failed` | Node/profile identity or durable writer authority is missing or stale; an initial fence failure leaves host state and node advertisements untouched and is reported in container logs |
 | `containerd-version-unavailable` | The host containerd server version could not be queried |
 | `containerd-version-invalid` | The reported containerd server version could not be parsed |
 | `unsupported-containerd-version` | containerd is older than 2.0 (protected CRI requested-image metadata is required) |
@@ -1798,7 +1897,7 @@ reason (§5.5).
 |---|---|---|
 | `JavaApplication` | `Ready` | `Reconciled`, `Progressing`, `ReconcileError` |
 | `JavaApplication` | `JVMArgsApplied` | `ArgsDelivered`, `EnvOptionsOverlap` (§8.2) |
-| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `CleanupPending`, `CleanupTeardown` |
+| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `OwnershipConflict`, `OwnershipMigration`, `Retargeting`, `CleanupBlocked`, `CleanupPending`, `CleanupTeardown` |
 | `NodeProfile` | `CleanupComplete` | `CleanupSucceeded` (current-generation host cleanup finished; worker teardown may still be pending) |
 
 Event reasons: `Provisioning`, `NodeReady`, `ProvisionFailed`, `NodeUnmatched`

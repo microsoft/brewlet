@@ -6,6 +6,7 @@ package admission
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
@@ -15,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -135,6 +137,54 @@ func TestNodeProfileValidator_AllowsValid(t *testing.T) {
 	res := v.Handle(context.Background(), profileRequest(t, p))
 	if !res.Allowed {
 		t.Fatalf("expected valid profile to be allowed, got %+v", res.Result)
+	}
+}
+
+func TestNodeProfileValidatorRejectsPotentialSelectorOverlaps(t *testing.T) {
+	for _, selector := range []string{"catch-all", "cross-key", "auto-explicit"} {
+		t.Run(selector, func(t *testing.T) {
+			a := &nodev1alpha1.NodeProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "existing"},
+				Spec: nodev1alpha1.NodeProfileSpec{
+					NodePool: nodev1alpha1.NodePoolRef{Key: "agentpool", Names: []string{"a"}},
+					JDKs:     []nodev1alpha1.JDKRef{webhookJDK("temurin", 21)},
+				},
+			}
+			b := a.DeepCopy()
+			b.Name = "candidate"
+			b.Spec.NodePool.Names = []string{"b"}
+			switch selector {
+			case "catch-all":
+				a.Spec.NodePool.Names, b.Spec.NodePool.Names = nil, nil
+			case "cross-key":
+				b.Spec.NodePool.Key = "example.com/pool"
+			case "auto-explicit":
+				b.Spec.NodePool.Key = ""
+			}
+			v := newValidator(t, a)
+			if res := v.Handle(context.Background(), profileRequest(t, b)); res.Allowed {
+				t.Fatal("selector overlap on future nodes must be rejected without a current node intersection")
+			}
+		})
+	}
+}
+
+type failingProfileReader struct{ client.Reader }
+
+func (f failingProfileReader) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return errors.New("profile list unavailable")
+}
+
+func TestNodeProfileValidatorFailsClosedWithoutOwnershipSnapshot(t *testing.T) {
+	v := newValidator(t)
+	v.Client = failingProfileReader{Reader: v.Client}
+	p := &nodev1alpha1.NodeProfile{
+		ObjectMeta: metav1.ObjectMeta{Name: "candidate"},
+		Spec:       nodev1alpha1.NodeProfileSpec{JDKs: []nodev1alpha1.JDKRef{webhookJDK("temurin", 21)}},
+	}
+	res := v.Handle(context.Background(), profileRequest(t, p))
+	if res.Allowed || res.Result.Code != 503 {
+		t.Fatalf("unavailable ownership snapshot must fail closed: %+v", res.Result)
 	}
 }
 
@@ -260,5 +310,37 @@ func TestNodeProfileValidator_RejectsDeletingInvalidProfileMetadataChange(t *tes
 	res := v.Handle(context.Background(), profileUpdateRequest(t, oldProfile, newProfile))
 	if res.Allowed {
 		t.Fatal("expected deleting invalid profile metadata change to be rejected")
+	}
+}
+
+func TestNodeProfileValidatorBlocksInvalidOwnedFinalizerBypassButAllowsRepair(t *testing.T) {
+	for name, status := range map[string]nodev1alpha1.NodeProfileStatus{
+		"unverified-intent": {Targets: []nodev1alpha1.NodeTarget{{Name: "worker", UID: "node-uid"}}},
+		"claimed-host":      {Targets: []nodev1alpha1.NodeTarget{{Name: "worker", UID: "node-uid", Claimed: true}}},
+		"saved-policy":      {ProvisioningSpec: &nodev1alpha1.NodeProfileSpec{}},
+		"saved-generation":  {ProvisioningGeneration: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := newValidator(t)
+			now := metav1.Now()
+			oldProfile := &nodev1alpha1.NodeProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "invalid-owned", DeletionTimestamp: &now, Finalizers: []string{"node.brewlet.sh/cleanup"}},
+				Spec: nodev1alpha1.NodeProfileSpec{
+					JDKs:     []nodev1alpha1.JDKRef{webhookJDK("temurin", 21)},
+					Registry: &nodev1alpha1.RegistrySpec{Mirrors: map[string]string{"docker.io": "unapproved.example/cache"}},
+				},
+				Status: status,
+			}
+			removed := oldProfile.DeepCopy()
+			removed.Finalizers = nil
+			if res := v.Handle(context.Background(), profileUpdateRequest(t, oldProfile, removed)); res.Allowed {
+				t.Fatal("invalid deleting profile with ownership obligations must not bypass validation to remove its finalizer")
+			}
+			repaired := oldProfile.DeepCopy()
+			repaired.Spec.Registry = nil
+			if res := v.Handle(context.Background(), profileUpdateRequest(t, oldProfile, repaired)); !res.Allowed {
+				t.Fatalf("repairing a deleting owned profile must remain possible: %+v", res.Result)
+			}
+		})
 	}
 }

@@ -68,7 +68,7 @@ _t10_cleanup() {
   helm uninstall "$T10_RELEASE" -n "$T10_RELEASE_NS" >/dev/null 2>&1 || true
   force_delete_nodeprofiles
   # helm doesn't manage CRDs in crds/, the operator-created RuntimeClass, or the
-  # chart namespace object left behind if uninstall raced — clean them directly.
+  # intentionally retained chart namespace — clean them directly in this fixture.
   [[ -z "$T10_RC_PREEXISTING" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete crd javaapplications.apps.brewlet.sh --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete crd nodeprofiles.node.brewlet.sh --ignore-not-found >/dev/null 2>&1 || true

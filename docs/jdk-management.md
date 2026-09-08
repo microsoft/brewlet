@@ -270,6 +270,28 @@ provisioner:
 Move workloads to feature 21, then remove the feature-17 entry after nothing
 requests it.
 
+### Node ownership and retargeting
+
+Each managed node is reserved to one profile UID and one node UID before
+provisioning can start. Runtime readiness labels are separate from this
+ownership: removing readiness does not release a node to another profile.
+There may be one manually authored catch-all, excluding named-profile targets.
+Named profiles must use disjoint pool names and the same key configuration:
+either the same explicit key everywhere or auto-detection everywhere.
+
+Changing a selector, pool label, or node role triggers retirement of previously
+recorded targets. All provisioner and node-metrics workers for the profile pause
+while the operator cleans departing nodes and waits for their cleanup workers
+to terminate. Retained nodes' JDK/launcher roots and capability advertisements
+are preserved. Only then are claims released and the latest desired targets
+provisioned. Repeated edits or a controller restart do not cancel a frozen
+retirement episode.
+
+The status ledger records node identities and per-node containerd cleanup
+policy. A later label-only `containerdRestart: none` rollout does not erase an
+earlier obligation to reverse Brewlet's config changes on that node; newly added
+`none` nodes keep their independently managed configuration.
+
 ### Provisioning completion and deletion
 
 Provisioner pods stay NotReady until installation, containerd activation, and
@@ -279,7 +301,7 @@ updates from advancing past nodes whose provisioning is still in progress.
 
 Deleting a valid NodeProfile first stops its provisioner and waits for those pods to
 terminate, then starts cleanup. The finalizer remains while cleanup is pending
-or failing. After successful completion on all assigned nodes, the operator
+or failing. After successful completion on all recorded targets, the operator
 remembers completion and tears down cleanup; the finalizer remains until that
 DaemonSet and its pods are gone. This also prevents a replacement profile from
 provisioning alongside an old cleanup container. Stale DaemonSet readiness from
@@ -288,8 +310,31 @@ an earlier template does not count.
 Move or drain affected workloads before deleting a profile: completion ordering
 prevents that profile's provisioner and cleanup from racing, but it does not
 migrate workloads away from the runtimes being removed. Keep the operator running
-until profile deletion completes. Repair invalid profiles before deleting them
-when automatic host cleanup is required.
+until profile deletion completes. Apply the same workload precautions before
+retargeting or changing node labels/roles.
+
+Invalid deleting profiles with possible host state retain both claims and
+finalizers with `CleanupBlocked`. Repair the spec/source policy or pool conflict
+to resume cleanup; a missing ledger must be restored, not interpreted as an
+empty installation. Unavailable nodes and replaced node UIDs also block cleanup.
+Never clear ownership labels, status, or finalizers as a workaround.
+Missing/reused UIDs before proven cleanup have no supported in-place recovery.
+Coordinate [node decommissioning and autoscaler scale-in](capability-labels-and-autoscaling.md#scale-in-consolidation-and-replacement)
+before removing a Node or VM.
+
+For a fresh Helm installation, the chart installs the CRDs; no prior upgrade or
+legacy migration is needed. Only when updating an existing installation must
+the NodeProfile CRD be upgraded before the operator/provisioner pair. Legacy
+migration can recover surviving worker/advertisement evidence, but cannot prove
+the history of vanished hosts. It inventories pending-node affinity and old-pod
+cleanup policy, even when the current DaemonSet template has changed. Temporary
+`node.brewlet.sh/migration` scheduling gates prevent replacement workers from
+racing that inventory; do not remove them manually. Unverified legacy evidence
+remains blocked rather than being adopted by profile name.
+Inspect `kubectl get nodeprofile <name> -o yaml`
+and operator logs for `OwnershipMigration`, `OwnershipConflict`, `Retargeting`,
+or `CleanupBlocked`. For control-plane removal, follow
+[the gated uninstall procedure](installation.md#uninstall).
 
 ---
 

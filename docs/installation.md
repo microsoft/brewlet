@@ -26,6 +26,7 @@ There are two paths:
 |---|---|
 | Kubernetes with **containerd 2.0 or newer** as the CRI runtime | The Runtime v2 shim requires protected CRI requested-image metadata that containerd 1.x does not preserve. |
 | **cgroup v2** on nodes | Brewlet requires it; the provisioner refuses cgroup v1-only nodes. |
+| Pod scheduling-gate support for legacy migration | Safe migration uses Pod Scheduling Readiness (stable since Kubernetes 1.30). The API server, DaemonSet controller, and scheduler must preserve and honor scheduling gates. |
 | Nodes you control | Provisioning is privileged and host-mutating. |
 | `kubectl` + `helm` (for the Helm path) | To install and manage node provisioning. |
 | A reachable **OCI registry** | Where developers push OCI artifacts (and where component + vendor JDK images live). |
@@ -231,6 +232,12 @@ make -C kubernetes helm-template
 
 ### Upgrading
 
+**Skip this section for a fresh installation.** Helm installs the chart's CRDs
+when they are not already present; there is no separate CRD upgrade or legacy
+migration step before deploying Brewlet for the first time. The following
+guidance applies only when updating an existing installation, including a
+development cluster that retains an older Brewlet release or CRDs.
+
 Upgrade the operator and provisioner images together. The operator's provisioning
 and cleanup readiness probes require the provisioner to publish the
 container-local `/tmp/brewlet-complete` marker after successful work. An older or
@@ -238,12 +245,17 @@ custom image without that protocol stays NotReady and blocks completion rather
 than allowing premature cleanup. Do not bypass a blocked cleanup by removing its
 finalizer; restore compatible images and inspect the provisioner logs.
 
-Helm does not upgrade CRDs placed under a chart's `crds/` directory. Apply the
-JavaApplication CRD from the release you are upgrading to before using newly
-supported fields, such as `spec.env[].valueFrom`:
+Ownership-aware builds also require the operator/provisioner node-claim protocol
+and the new NodeProfile status schema. Apply the matching CRDs **before** rolling
+out the new control plane; Helm does not upgrade CRDs in a chart's `crds/`
+directory. Node ownership and retirement records must not be silently pruned by
+an older schema. Apply the JavaApplication CRD too before using newly supported
+fields such as `spec.env[].valueFrom`:
 
 ```bash
 RELEASE_VERSION=x.y.z
+kubectl apply -f \
+  "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/nodeprofile-crd.yaml"
 kubectl apply -f \
   "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/javaapplication-crd.yaml"
 ```
@@ -251,6 +263,19 @@ kubectl apply -f \
 An older CRD prunes unsupported fields when a resource is saved. Updating the CRD
 cannot restore those values; reapply the original JavaApplication manifests
 afterward.
+
+Legacy ownership migration may pause provisioning while old workers terminate
+and their node ownership is recorded. It temporarily uses `OnDelete` updates and
+the `node.brewlet.sh/migration` scheduling gate to prevent replacement workers
+from running before their possible targets are recorded. Pending pods' node
+affinity and old pods' per-node cleanup policy are part of that inventory; a
+missing DaemonSet does not mean its advertised hosts were cleaned. Do not remove
+migration gates manually. Investigate any `OwnershipMigration`,
+`OwnershipConflict`, or `CleanupBlocked` condition; do not delete ownership
+labels or status records to bypass it. Drain workloads before this maintenance
+operation and retain the original profile manifests for recovery.
+Unverifiable legacy UID, revision, or cleanup-policy evidence remains blocked
+for recovery; matching profile names alone never authorize adoption.
 
 Before upgrading an existing Brewlet installation to a release that requires explicit
 JDK and launcher sources, plan a maintenance window: the `v1alpha1` launcher
@@ -400,22 +425,82 @@ specific JDK/launcher), see [Deploying workloads](deploying-workloads.md).
 
 ## Uninstall
 
+Drain or move Brewlet workloads and pause NodeProfile/GitOps writers first.
+Cleanup does not migrate application Pods, and the uninstall coordinator cannot
+atomically lock out new cluster-wide profile creation. Keep the operator,
+provisioner RBAC, and API access available throughout cleanup.
+
+For a chart containing the pre-delete cleanup hook:
+
 ```bash
-helm uninstall brewlet
+helm uninstall brewlet --namespace brewlet --timeout 5m
 ```
 
-> Uninstalling deletes the control-plane components **and** the chart's `NodeProfile`
-> objects. Each profile carries a `node.brewlet.sh/cleanup` finalizer, so the operator
-> holds the object while a short-lived `brewlet-cleanup-<profile>` DaemonSet
-> (`BREWLET_MODE=cleanup`) removes the Brewlet drop-in or restores the primary-config
-> backup, removes the shim + JDK roots, and drops the runtime + capability labels on
-> every assigned node — reversing host state automatically before the object is
-> garbage-collected (§5.6). Set `BREWLET_CLEANUP_RUNTIME_ROOTS=false` on the
-> provisioner to keep the JDK/launcher roots (for nodes whose roots are baked
-> into an immutable node image). Watch it with
-> `kubectl get daemonset -n brewlet -w`. If a cluster was provisioned the older way (a
-> bare `brewlet.sh/provision=true` node **label** with no profile), drain and clean those
-> nodes (or replace them) to fully reverse provisioning.
+The hook uses the **same operator image**, running a bounded cleanup coordinator
+with a dedicated unprivileged service account. It identifies profiles by both
+Helm release ownership annotations and the `app.kubernetes.io/managed-by=Helm`
+label. It requests deletion with UID/resource-version preconditions and waits
+for profiles and their provisioning/cleanup workers to disappear. It never
+removes finalizers or kills privileged workers to force completion. The operator
+performs the normal stop, host-cleanup, and worker-teardown sequence before Helm
+may remove the control plane.
+
+Any manually managed or other-release NodeProfile blocks uninstall: this
+operator is cluster-wide, so removing it would strand those profiles. Have their
+owners deprovision them safely first, or retain the operator. A cleanup failure,
+unavailable node, API error, or timeout also fails the hook and leaves the
+operator/RBAC available. Repair the cause, let cleanup finish, and retry.
+
+```bash
+kubectl get nodeprofiles
+kubectl get daemonsets,pods -n brewlet
+kubectl get jobs -n brewlet -l app=brewlet-uninstall
+kubectl logs -n brewlet -l app=brewlet-uninstall --all-containers=true
+```
+
+The default coordinator timeout is 240 seconds; the Job allows another 20
+seconds and a 10-second termination grace period. For longer operations, set
+`uninstall.timeoutSeconds` **before** uninstalling and use a Helm `--timeout`
+greater than that value plus 30 seconds. Configure `uninstall.imagePullSecrets`
+when the operator image requires registry credentials. Failed cleanup Jobs
+remain for diagnosis until the next attempt. Helm may remove earlier successful
+hook resources even when the Job fails; retry recreates the dedicated hook RBAC.
+The normal operator/RBAC remain available. Do not use `--no-hooks`, delete the
+namespace, or remove finalizers as a timeout workaround.
+
+The component namespace is retained to avoid cascading deletion of unrelated
+objects. Helm also retains CRDs; the operator-created shared RuntimeClass is not
+a chart-owned resource. Review these leftovers before removing them manually.
+
+### Older charts and manual installations
+
+Hooks are stored with the installed Helm release. Updating a source checkout
+does not add a hook to an existing release; inspect `helm get hooks brewlet -n
+brewlet`. A chart with this hook requires an operator image implementing its
+cleanup mode; do not combine it with an older image.
+
+For a chart without the hook, delete reviewed profiles and wait for their
+finalizers **before** uninstalling the control plane:
+
+```bash
+kubectl get nodeprofiles
+# Replace the placeholder with reviewed profile names after draining workloads.
+kubectl delete nodeprofile <reviewed-profile-names>
+kubectl wait --for=delete nodeprofile <reviewed-profile-names> --timeout=10m
+# Proceed only after all profiles and provisioning/cleanup workers are gone.
+helm uninstall brewlet --namespace brewlet --timeout 5m
+```
+
+Apply the same ordering to raw manifests. Nodes provisioned by a standalone
+`brewlet.sh/provision=true` DaemonSet without a profile require separate
+deprovisioning or replacement. A remaining canonical standalone provisioner
+DaemonSet or Pod blocks the hook before profile deletion; the hook never adopts
+or removes it. Finish standalone deprovisioning and remove those workers before
+uninstalling their shared RBAC.
+Worker inventory is cluster-wide and read-only, so moving the operator namespace
+does not hide an old installation. Known workers outside the configured operator
+namespace block removal until their installation is deprovisioned separately;
+the hook never deletes those workers.
 
 ## Next steps
 

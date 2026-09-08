@@ -402,6 +402,12 @@ func TestDeletingPoolConflictingProfileSkipsHostCleanup(t *testing.T) {
 	}, &secondDS); err != nil {
 		t.Fatalf("valid profile DaemonSet was removed: %v", err)
 	}
+	completeForegroundDaemonSetDeletion(t, ctx, c, ns, brewlet.ProfileDaemonSetName(firstName))
+	reconcileProfile(t, ctx, r, firstName)
+	var gone nodev1alpha1.NodeProfile
+	if err := c.Get(ctx, types.NamespacedName{Name: firstName}, &gone); !apierrors.IsNotFound(err) {
+		t.Fatalf("unprovisioned invalid profile should finalize without cleanup: %v", err)
+	}
 }
 
 func TestDeletingNewlyConflictingProfileWaitsForProvisionerTermination(t *testing.T) {
@@ -484,23 +490,23 @@ func TestDeletingNewlyConflictingProfileWaitsForProvisionerTermination(t *testin
 	markNodeReady(t, ctx, c, nodeName, firstName, first.Generation)
 
 	reconcileProfile(t, ctx, r, firstName)
-	var gone nodev1alpha1.NodeProfile
-	err = c.Get(ctx, types.NamespacedName{Name: firstName}, &gone)
-	if err == nil && containsString(gone.Finalizers, brewlet.FinalizerCleanup) {
-		t.Fatalf("finalizer still present after provisioner termination: %v", gone.Finalizers)
-	}
-	if err != nil && !apierrors.IsNotFound(err) {
-		t.Fatalf("getting profile after invalid deletion: %v", err)
+	first = getProfile(t, ctx, c, firstName)
+	if !containsString(first.Finalizers, brewlet.FinalizerCleanup) ||
+		conditionReason(first.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked {
+		t.Fatalf("dirty invalid profile must remain blocked after worker termination: %+v", first.Status)
 	}
 	var node corev1.Node
 	if err := c.Get(ctx, types.NamespacedName{Name: nodeName}, &node); err != nil {
 		t.Fatalf("getting node after invalid deletion: %v", err)
 	}
 	if _, exists := node.Labels[brewlet.LabelRuntimeReady]; exists {
-		t.Fatal("late provisioner advertisement remained after invalid finalization")
+		t.Fatal("late provisioner advertisement remained during blocked deletion")
 	}
 	if _, exists := node.Annotations[brewlet.AnnotationProfile]; exists {
-		t.Fatal("late provisioner ownership remained after invalid finalization")
+		t.Fatal("late provisioner advertisement remained during blocked deletion")
+	}
+	if node.Labels[brewlet.LabelNodeOwner] != string(first.UID) {
+		t.Fatal("dirty invalid profile lost its node ownership claim")
 	}
 }
 

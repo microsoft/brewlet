@@ -51,7 +51,7 @@ kubectl get nodes -L brewlet.sh/runtime
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `namespace` | `brewlet` | Namespace all components install into (created by the chart). |
+| `namespace` | `brewlet` | Component namespace, created by the chart and retained on uninstall. May differ from the Helm release namespace. |
 | `images.registry` | `ghcr.io/microsoft` | Registry prefix used for generated component image references. |
 | `images.tag` | chart `appVersion` | Shared component tag. |
 | `images.operator` | generated | Explicit operator image override. |
@@ -71,6 +71,9 @@ kubectl get nodes -L brewlet.sh/runtime
 | `provisioner.registry.mirrors` | `{}` | Upstream host → approved mirror host/path map. Rewrites preserve the source digest. |
 | `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the default profile. |
 | `operator.leaderElect` | `true` | Enable operator leader election. |
+| `profiles` | `[]` | Additional profiles, each with a unique name, nonempty named `pools`, and explicit JDK sources. |
+| `uninstall.timeoutSeconds` | `240` | Cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstall; Helm's `--timeout` must exceed this plus 30 seconds. |
+| `uninstall.imagePullSecrets` | `[]` | Registry Secret references for the cleanup Job's dedicated service account. |
 | `metrics.enabled` | `false` | Enable control-plane metrics listeners and the node exporter, and expose scrape Services/ports. |
 | `metrics.nodePort` | `9090` | Port served by the exporter in each provisioner pod. |
 | `metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator `ServiceMonitor`. |
@@ -164,8 +167,9 @@ advertises `brewlet.sh/appcds-regeneration=true`. The webhook requires that
 label when `brewlet.sh/cds-regenerate: "true"` is requested; the shim's sentinel
 check remains authoritative.
 
-> **Upgrades:** Helm installs files under `crds/` only on first install and does
-> not upgrade existing CRDs. Before upgrading an existing Brewlet release to a
+> **Existing installations only:** A fresh Helm install creates the chart's CRDs
+> when absent; no separate upgrade or migration is needed. Helm does not upgrade
+> existing CRDs. Before upgrading an existing Brewlet release to a
 > version that requires explicit runtime sources, use a maintenance window. The
 > `v1alpha1` launcher wire format changed from strings to structured objects, so
 > delete legacy profiles while the old controller can clean their nodes, apply
@@ -184,6 +188,24 @@ check remains authoritative.
 >
 > Existing sources must be migrated to SHA-256 digest references, and mirror
 > destinations require an explicit `security.allowedSourceMirrorHosts` entry.
+
+## Uninstall
+
+Drain Brewlet workloads and pause profile/GitOps writers first. The pre-delete
+Job uses the operator image to delete only profiles owned by this exact Helm
+release and waits for finalizer-driven host cleanup and worker teardown.
+Manually managed or other-release profiles block uninstall rather than being
+silently orphaned. Failures/timeouts keep the operator and RBAC available;
+repair the cause and retry without bypassing hooks or finalizers.
+
+```bash
+helm uninstall brewlet --namespace brewlet --timeout 5m
+```
+
+The namespace and CRDs are retained; the shared RuntimeClass is operator-created,
+not chart-owned. Older installed charts do not acquire this hook automatically.
+See [installation and recovery guidance](../../../docs/installation.md#uninstall),
+including staged uninstall for charts without the hook.
 
 ## Requesting a JDK / launcher
 
