@@ -1,6 +1,6 @@
 # Brewlet — The JVM analogue to SpinKube
 
-**Version:** 0.1
+**Version:** 0.4.0
 
 **Audience:** Platform engineers, Kubernetes operators, JVM platform owners
 
@@ -95,7 +95,7 @@ capability model.
               │               │   brewlet          │           │  │ Sandbox              │  │
               │               └────────────────────┘           │  │ (cgroup + netns)     │  │
               │                                                │  │ java -jar            │  │
-              └─────── shim pulls pod image ──────────────►     │  │ /app/app.jar         │  │
+              └─────── CRI pulls pod image ───────────────►    │  │ /app/app.jar         │  │
                                                                │  │ (node JDK RO)        │  │
                                                                │  └──────────────────────┘  │
                                                                └────────────────────────────┘
@@ -285,6 +285,20 @@ so developers never touch ORAS directly, **including registry publication**. The
 and writes the result to a local **OCI layout**; it has no registry client, so
 publishing to a registry is done by the Maven plugin or ORAS. Registry
 publication from the Go CLI is [roadmap](../ROADMAP.md) work.
+
+**Maven layered Spring Boot payloads.** With `layered=true`, standard Boot
+`JarLauncher`/`launch.JarLauncher` archives are prepared into a deterministic
+thin application JAR from `BOOT-INF/classes/` and byte-identical nested
+`BOOT-INF/lib/*.jar` dependencies. `BOOT-INF/classpath.idx`, when present, must
+list each packaged library exactly once; otherwise ZIP library order applies.
+The emitted classpath preserves that order explicitly. Publication in either
+native or runnable format, config/inspect, and AppCDS training MUST use the same
+prepared payload and dependency bytes. The input archive remains unchanged.
+Verified signed containers yield a new unsigned application JAR; dependency
+signatures remain intact. Unsafe/ambiguous ZIP entries and unsupported
+WAR/custom-loader/custom-path/`requiresUnpack`/ZIP64/prefixed archives fail
+explicitly. Boot `layers.idx` grouping is not interpreted. Plain thin-JAR and
+JPMS layering retain their POM-resolved dependency behavior.
 
 ### 4.4 Runnable-image delivery mode (kubelet-pullable, the SpinKube-style pull path)
 
@@ -1380,6 +1394,23 @@ Manager, and workload reconciliation analogous to Spin Operator:
   managed resources, including those referencing an older same-name application,
   are preserved. Deletion checks both UID and resource version so concurrent
   replacement or ownership changes cause a retry, not deletion of the changed object.
+
+The Maven `brewlet:manifest` goal does not infer `spec.probes` from declared ports
+or detected frameworks. Ports may generate a Service but do not establish an
+HTTP health endpoint. Applications must configure probes explicitly in their
+deployment YAML; no implicit `GET /` readiness or liveness checks are emitted.
+
+Its JDK feature request uses a positive explicit `brewlet.jdkFeature` first,
+then effective main compiler `release`/`target`/`source` settings with Maven
+configuration/property precedence. Test compilation must not select the
+application runtime. Without a declared level, compiler-specific, suitably
+selected session, and main-bound configured toolchains are considered in that
+order; the Maven JVM is a fallback only without other compiler authority.
+Unresolved/malformed settings and ambiguous main compilation must fail with
+explicit-override guidance, not silently select a default feature. This is
+deployment metadata inference, not proof of a minimum compatible runtime or
+per-Pod JDK observation. The detailed supported cases are in the
+[Maven plugin contract](../maven-plugin/README.md#jdk-inference).
 - `env[].valueFrom` preserves Kubernetes Secret, ConfigMap, pod-field, and
   container-resource references, including selector options. The CRD also
   preserves `fileKeyRef`; using it requires the corresponding Kubernetes
@@ -1400,6 +1431,24 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 > live in `api/v1alpha1`; RBAC ships in `config/operator.yaml` and the
 > [`charts/brewlet`](../kubernetes/charts/brewlet)
 > Helm chart (which also installs the CRD).
+>
+> **Rollout readiness.** `Ready=True/Reconciled` requires an owned Deployment
+> matching the reconciled pod template and managed replica target, whose current
+> generation has been observed and whose total, updated, ready, and available
+> replica counts all equal its desired count, with no unavailable replicas.
+> A terminating Deployment is not ready. For incomplete rollouts, a failed
+> `Progressing` condition supplies the diagnostic; an older condition retained
+> by a scaling update does not veto already-completed counts. Direct API reads
+> and comparison with the reconciled revision prevent
+> cached old replicas or concurrent template/ownership changes from certifying a
+> new application generation. `readyReplicas` still reports the owned Deployment's
+> observed ready count, including old replicas; consumers must inspect the Ready
+> condition and its `observedGeneration`, not that count alone.
+>
+> HPA-enabled applications use the live Deployment's replica target. A completed
+> zero-replica rollout is Ready as a desired-state result, not as evidence of a
+> serving endpoint. Incomplete/stalled rollouts retain `Ready=False/Progressing`
+> with generation/count or progress-failure diagnostics.
 >
 > **`jvm.args` delivery (`brewlet.sh/jvm-args`) — public contract.** The value is
 > a **JSON array of strings**, e.g. `["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]`.
@@ -1701,8 +1750,11 @@ other, so each shape behaves as plain Kubernetes does:
   Manager, the node provisioner is privileged and mutates the host. Scope it to
   platform-owned node pools; document the blast radius, and do not use it on
   hostile multi-tenant nodes.
-- **JDK CVE management is centralized.** Patching the node JDK patches *all*
-  workloads at once — a major advantage over per-image JVMs.
+- **JDK CVE management is centralized.** Node runtime updates do not require
+  rebuilding application images, but running JVMs retain their selected roots.
+  A workload rollout or restart is required to use the patched runtime; there
+  is no in-place update of an already-running JVM. Application dependency
+  remediation remains the application's responsibility.
 
 ---
 

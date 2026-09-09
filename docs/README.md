@@ -111,7 +111,7 @@ examples in
 ```mermaid
 flowchart LR
     subgraph dev["Developer / CI"]
-        A["mvn package → app.jar"] --> B["brewlet push (only the JAR)"]
+        A["mvn package → app.jar"] --> B["Maven brewlet:push (application image)"]
     end
     subgraph reg["OCI Registry"]
         R[("OCI artifact + launch config")]
@@ -128,7 +128,7 @@ flowchart LR
     B -->|push| R
     OP -.->|provision| node
     POD -->|scheduled| CD
-    R ==>|shim pulls JAR| SHIM
+    R ==>|CRI pulls runnable image| CD
 ```
 
 See [Concepts & architecture](concepts.md) for the full walkthrough.

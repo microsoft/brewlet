@@ -10,7 +10,7 @@ version="${1:-0.4.0}"
 # Keep this at or below the version the Pages workflow verifies, otherwise
 # has_provenance() silently downgrades the check to checksums.
 min_provenance_version="${BREWLET_MIN_PROVENANCE_VERSION:-0.3.1}"
-work="$(mktemp -d)"
+work="$(mktemp -d "$PWD/.brewlet-release-smoke-XXXXXX")"
 app_pid=""
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repo_root="$(CDPATH= cd -- "$script_dir/../.." && pwd)"
@@ -100,8 +100,47 @@ test -f "$example/target/brewlet/oci/index.json"
 helm pull oci://ghcr.io/microsoft/charts/brewlet \
   --version "$version" \
   --destination "$work"
+
+helm show chart "$work/brewlet-${version}.tgz" > "$work/chart.yaml"
+grep -Eq '^name: ["'\'']?brewlet["'\'']?$' "$work/chart.yaml"
+for field in version appVersion; do
+  actual="$(awk -v field="$field:" '$1 == field {gsub(/["\047]/, "", $2); print $2}' "$work/chart.yaml")"
+  test "$actual" = "$version"
+done
+
+# Render-only fixture, NOT an approved/runtime-fetchable JDK catalog. This
+# smoke test never installs the chart or provisions nodes. A real install must
+# choose its own pools and administrator-approved JDK image digest.
+smoke_jdk="registry.example.com/brewlet-tests/jdk@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+cat > "$work/render-values.yaml" <<EOF
+provisioner:
+  pools: ["release-smoke"]
+  poolKey: brewlet.sh/test-pool
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: $smoke_jdk
+        javaHome: /opt/java/openjdk
+EOF
 helm template brewlet "$work/brewlet-${version}.tgz" \
+  --namespace brewlet \
+  --values "$work/render-values.yaml" \
   > "$work/rendered.yaml"
+
+# Check the actual NodeProfile, not matching strings elsewhere in a manifest.
+awk 'BEGIN {RS="---\n"} /(^|\n)kind: NodeProfile\n/ {print}' \
+  "$work/rendered.yaml" > "$work/profile.yaml"
+test "$(grep -c '^kind: NodeProfile$' "$work/profile.yaml")" = 1
+grep -Fxq 'apiVersion: node.brewlet.sh/v1alpha1' "$work/profile.yaml"
+grep -Fxq '  name: default' "$work/profile.yaml"
+grep -Fxq '    app.kubernetes.io/instance: brewlet' "$work/profile.yaml"
+grep -Fxq '      - "release-smoke"' "$work/profile.yaml"
+grep -Fxq '    key: "brewlet.sh/test-pool"' "$work/profile.yaml"
+grep -Fxq '    - distribution: temurin' "$work/profile.yaml"
+grep -Fxq '      feature: 21' "$work/profile.yaml"
+grep -Fxq "        image: $smoke_jdk" "$work/profile.yaml"
+grep -Fxq '        javaHome: /opt/java/openjdk' "$work/profile.yaml"
 
 if has_provenance; then
   # A published chart must bind each component to the exact image the release

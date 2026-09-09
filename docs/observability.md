@@ -59,11 +59,17 @@ jvm:
 
 ## Probes & exec
 
-All probe types and interactive debugging work because runc backs the sandbox:
+Probe execution and `kubectl exec` use the normal containerd/runc mechanisms:
 
 - readiness / liveness / startup probes: `httpGet`, `tcpSocket`, `exec`;
-- `kubectl exec` into the JVM sandbox;
-- ephemeral debug containers.
+- `kubectl exec` into the JVM sandbox, using tools installed in its runtime.
+
+Ordinary-image ephemeral debug containers are not supported by the Brewlet
+handler. Use a separate ordinary-runtime Pod when those tools are needed.
+
+`brewlet:manifest` does not infer health probes from a port or framework.
+Configure them explicitly for endpoints the application exposes; the following
+Actuator example requires those health endpoints to be enabled:
 
 ```yaml
 readinessProbe: { httpGet: { path: /actuator/health/readiness, port: 8080 } }

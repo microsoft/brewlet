@@ -3,6 +3,7 @@
 
 package sh.brewlet.maven.plugin;
 
+import org.apache.maven.model.Dependency;
 import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Test;
 import sh.brewlet.maven.plugin.model.EnvVar;
@@ -20,6 +21,29 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ManifestMojoTest {
+    @Test
+    void manifestJdkComesFromMainCompilerConfiguration() throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.jdkFeature = null;
+        var compiler = new org.apache.maven.model.Plugin();
+        compiler.setArtifactId("maven-compiler-plugin");
+        compiler.setConfiguration(org.codehaus.plexus.util.xml.Xpp3DomBuilder.build(
+                new java.io.StringReader("<configuration><release>11</release></configuration>")));
+        mojo.project.getBuild().addPlugin(compiler);
+        assertTrue(render(mojo, new JvmConfig()).contains("    version: 11\n"));
+    }
+
+    @Test
+    void explicitFeatureWinsAndInvalidExplicitValuesDoNotTriggerInference() throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.project.getProperties().setProperty("maven.compiler.release", "${unknown}");
+        assertTrue(render(mojo, new JvmConfig()).contains("    version: 17\n"));
+        for (int invalid : List.of(0, -1)) {
+            mojo.jdkFeature = invalid;
+            assertThrows(org.apache.maven.plugin.MojoExecutionException.class, () -> render(mojo, new JvmConfig()));
+        }
+    }
+
     @Test
     void argumentsAndEnvironmentValuesRoundTripExactly() throws Exception {
         List<String> values = List.of("", "plain", "-Dgreeting=\"hello\"",
@@ -106,6 +130,55 @@ class ManifestMojoTest {
         assertThrows(IOException.class, () -> mojo().writeJavaApplicationYaml(writer, new JvmConfig()));
     }
 
+    @Test
+    void configuredPortsDoNotInventHttpHealthEndpoints() throws Exception {
+        for (Port port : List.of(new Port("http", 8080, "TCP"),
+                new Port("grpc", 9090, "TCP"), new Port("metrics", 9100, "TCP"))) {
+            ManifestMojo mojo = mojo();
+            set(mojo, "ports", List.of(port));
+
+            String yaml = render(mojo, new JvmConfig());
+
+            assertTrue(yaml.contains("      containerPort: " + port.getContainerPort() + "\n"));
+            assertTrue(yaml.contains("  service:\n    enabled: true\n"));
+            assertNoInferredProbes(yaml);
+        }
+    }
+
+    @Test
+    void inferredFrameworkPortsDoNotInventHttpHealthEndpoints() throws Exception {
+        for (String[] coordinates : List.of(
+                new String[]{"org.springframework.boot", "spring-boot"},
+                new String[]{"io.quarkus", "quarkus-core"})) {
+            ManifestMojo mojo = mojo();
+            Dependency dependency = new Dependency();
+            dependency.setGroupId(coordinates[0]);
+            dependency.setArtifactId(coordinates[1]);
+            mojo.project.setDependencies(List.of(dependency));
+
+            String yaml = render(mojo, new JvmConfig());
+
+            assertTrue(yaml.contains("      containerPort: 8080\n"));
+            assertTrue(yaml.contains("  service:\n    enabled: true\n"));
+            assertNoInferredProbes(yaml);
+        }
+    }
+
+    @Test
+    void portlessApplicationsRemainWithoutServiceOrProbes() throws Exception {
+        String yaml = render(mojo(), new JvmConfig());
+        assertFalse(yaml.contains("  ports:"));
+        assertFalse(yaml.contains("  service:"));
+        assertNoInferredProbes(yaml);
+    }
+
+    private static void assertNoInferredProbes(String yaml) {
+        assertFalse(yaml.contains("  probes:"), "ports do not declare a health contract");
+        assertFalse(yaml.contains("httpGet:"));
+        assertFalse(yaml.contains("liveness:"));
+        assertFalse(yaml.contains("readiness:"));
+    }
+
     private static ManifestMojo mojo() throws ReflectiveOperationException {
         ManifestMojo mojo = new ManifestMojo();
         mojo.project = new MavenProject();
@@ -129,7 +202,8 @@ class ManifestMojoTest {
         field.set(mojo, value);
     }
 
-    private static String render(ManifestMojo mojo, JvmConfig config) throws IOException {
+    private static String render(ManifestMojo mojo, JvmConfig config) throws IOException,
+            org.apache.maven.plugin.MojoExecutionException {
         StringWriter result = new StringWriter();
         mojo.writeJavaApplicationYaml(new PrintWriter(result), config);
         return result.toString();

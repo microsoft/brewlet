@@ -12,6 +12,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | No compatible JDK on any ready node | Pod stays `Pending`; event `NoCompatibleJDK`; scheduler skips nodes | [→ JDK issues](#pod-is-pending-with-nocompatiblejdk) |
 | Requested launcher not installed | Pod stays `Pending`; event `NoCompatibleLauncher`; scheduler skips nodes | [→ launcher issues](#pod-is-pending-with-nocompatiblelauncher) |
 | OCI artifact missing/unauthorized | `ImagePull`-style failure on the pod | [→ artifact pull](#imagepull-style-failure) |
+| JavaApplication replacement rollout is incomplete | `Ready=False/Progressing` even while old replicas remain ready | [→ rollout status](#javaapplication-is-not-ready-during-a-rollout) |
 | JVM OOM | `ExitOnOutOfMemoryError` → exit → kubelet restart | [→ OOM](#pod-restarts-oomkilled) |
 | Node provisioning fails | Node not labeled `ready`; condition/event `ProvisionFailed` | [→ provisioning](#node-never-becomes-ready) |
 | No provisioner pod on a node at all | Node absent from `status.assignedNodes`; no DaemonSet pod scheduled | [→ placement](#no-provisioner-pod-is-scheduled) |
@@ -19,6 +20,34 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 | containerd 1.x node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
+
+---
+
+## JavaApplication is not Ready during a rollout
+
+Healthy old replicas can keep serving while a replacement image fails to start.
+The JavaApplication remains `Ready=False/Progressing` until the current
+Deployment generation reaches its desired updated, ready, and available counts
+and extra active replicas are gone.
+
+```bash
+kubectl get javaapplication <app> -n <namespace> -o yaml
+kubectl get deployment <app> -n <namespace> -o yaml
+kubectl rollout status deployment/<app> -n <namespace> --timeout=120s
+kubectl get pods -n <namespace> -l app=<app>
+```
+
+Compare Deployment `metadata.generation` with `status.observedGeneration`, then
+inspect `updatedReplicas`, `readyReplicas`, `availableReplicas`, and the
+`Progressing` condition. An `Available=True` Deployment or a high
+JavaApplication `readyReplicas` count alone does not prove that the replacement
+rollout succeeded. Check failing new Pods for image-pull, scheduling, probe, or
+startup errors. Availability may also wait for `minReadySeconds`.
+
+When HPA is enabled, compare with the Deployment's live `spec.replicas`.
+For automation, also require the JavaApplication Ready condition's
+`observedGeneration` to match its current generation. See
+[rollout readiness](deploying-workloads.md#rollout-readiness).
 
 ---
 

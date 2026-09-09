@@ -8,14 +8,14 @@ format directly on a node JDK. The workload image must be digest-pinned
 
 There are two paths:
 
-- **[Helm (recommended)](#helm-recommended)** — the SpinKube-style single-command
-  activation.
+- **[Helm (recommended)](#helm-recommended)** — explicit pool and JDK configuration
+  followed by installation.
 - **[Manual](#manual-without-helm)** — apply the raw manifests yourself.
 
 > ⚠️ **Node provisioning is privileged and mutates the host** (installs a shim
 > and runtime roots, and registers the runtime through containerd configuration).
 > Provision only nodes your platform team controls; on mixed clusters scope with
-> named `NodeProfile`s (§5.6) rather than the all-nodes default profile. See
+> named pools in `NodeProfile`s (§5.6). There is no all-nodes default. See
 > [Security](security.md).
 
 ---
@@ -26,13 +26,24 @@ There are two paths:
 |---|---|
 | Kubernetes with **containerd 2.0 or newer** as the CRI runtime | The Runtime v2 shim requires protected CRI requested-image metadata that containerd 1.x does not preserve. |
 | **cgroup v2** on nodes | Brewlet requires it; the provisioner refuses cgroup v1-only nodes. |
-| Pod scheduling-gate support for legacy migration | Safe migration uses Pod Scheduling Readiness (stable since Kubernetes 1.30). The API server, DaemonSet controller, and scheduler must preserve and honor scheduling gates. |
 | Nodes you control | Provisioning is privileged and host-mutating. |
 | `kubectl` + `helm` (for the Helm path) | To install and manage node provisioning. |
 | A reachable **OCI registry** | Where developers push OCI artifacts (and where component + vendor JDK images live). |
 | Node access to **JDK images** | Vendor JDK/launcher images (Temurin, MS OpenJDK) pulled copy-from-image via the host containerd; mirror them for air-gapped clusters. |
 
 ### Released components
+
+**The current private preview requires repository and package access.** Use your
+authorized Git credential helper or SSH setup for source access, and your
+organization's registry credential mechanism for Helm and component pulls.
+Do not put tokens in command arguments or URLs. The public documentation is
+accessible independently of these private assets. Anonymous installer/download
+commands work only once the relevant release assets are publicly accessible;
+they do not provide an authenticated transport.
+
+Use a disposable evaluation cluster; Brewlet is preproduction software. Start
+with the fresh Helm install below, not the existing-installation migration
+section.
 
 Brewlet publishes version-aligned multi-architecture component images and an OCI
 Helm chart. A published chart records the **immutable digest** of each component
@@ -43,6 +54,8 @@ fall back to the shared `images.tag`.
 
 Every published artifact also carries [SLSA build
 provenance](#verify-a-release) signed by the release workflow.
+That verifies Brewlet's release components, not arbitrary application images:
+general cosign or standard SLSA admission for user workloads is future work.
 
 To build the components from source instead, use the
 [Kubernetes component Makefile](https://github.com/microsoft/brewlet/blob/main/kubernetes/Makefile):
@@ -63,6 +76,9 @@ These commands build multi-arch (`linux/amd64,linux/arm64`) images via `buildx`
 and require a logged-in registry. The provisioner image compiles the shim
 **inside** the build for each target arch, so the installed shim always matches
 the node.
+Use the local chart at `./kubernetes/charts/brewlet` for this path, with explicit
+component image overrides shown below. Configure the nodes and component
+service accounts for access to your registry before installing.
 
 ---
 
@@ -73,7 +89,8 @@ the OCI Helm chart, and every GitHub Release asset. Provenance for images and th
 chart is pushed to GHCR as an OCI referrer, so it can be verified straight from
 the registry without trusting the release page.
 
-Verify everything for a release in one step:
+With repository/package access and the GitHub CLI authenticated through its
+normal credential store, verify everything for a release in one step:
 
 ```bash
 git clone https://github.com/microsoft/brewlet.git
@@ -128,6 +145,24 @@ owns its CVE posture ([§5.2/§5.3](https://github.com/microsoft/brewlet/blob/ma
 A chart-shipped default digest would be a JDK nobody chose that could never be
 patched, so the chart ships none.
 
+Before running Helm, save the following as `my-jdks.yaml`. Replace the
+placeholder with the full lowercase SHA-256 digest of an administrator-approved
+image; confirm the Java feature, architectures, and JDK root in that image.
+This template is not a runtime recommendation or a built-in catalog:
+
+```yaml
+provisioner:
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+```
+
+Choose an existing node pool named `java-workers`, or replace it in the command.
+With chart/package access and registry authentication configured:
+
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.4.0 \
@@ -147,18 +182,13 @@ kubectl get nodes -L brewlet.sh/runtime -w
 it unset on AKS, EKS, and GKE, where the well-known provider label is
 auto-detected; set it explicitly on bare metal or kubeadm.
 
-`my-jdks.yaml` names the runtime inventory. Every entry needs a fully qualified,
-tagless, SHA-256 digest-pinned image and the JDK root inside it:
+Every entry in `my-jdks.yaml` needs a fully qualified, tagless, SHA-256
+digest-pinned image and the JDK root inside it. If required, add a separately
+approved launcher to the same `provisioner` mapping (vanilla `java` is implicit):
 
 ```yaml
 provisioner:
-  jdks:
-    - distribution: temurin
-      feature: 21
-      source:
-        image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
-        javaHome: /opt/java/openjdk
-  # Optional. Vanilla java comes from each JDK and is implicit.
+  # Keep the jdks list from my-jdks.yaml above.
   launchers:
     - name: jaz
       source:
@@ -170,7 +200,7 @@ Pick the digests you intend to patch on your own schedule; see
 [JDK management](jdk-management.md#helm-examples-temurin-and-microsoft) and
 [Launchers](launchers.md#helm-example-jaz).
 
-> Control-plane nodes are excluded by node affinity regardless of taints, and
+> Control-plane nodes are excluded **by default** by node affinity regardless of taints, and
 > the provisioner tolerates only what a profile declares. On a single-node kind
 > or Docker Desktop cluster — whose only node is labelled as the control plane —
 > add `--set provisioner.includeControlPlane=true`, or nothing will be
@@ -208,27 +238,34 @@ image or by another system; the JDK smoke tests and launcher executable checks
 still run.
 See [Configuration](configuration.md#helm-chart-values) for the values.
 
-Point the chart at your own registry or image digests if required:
+For source-built components, use the local chart and pin the images you pushed.
+Replace each placeholder with its actual repository and full manifest digest;
+do not use a mutable tag for these overrides:
 
 ```bash
-helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.4.0 \
+helm upgrade --install brewlet ./kubernetes/charts/brewlet \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \
   --values my-jdks.yaml \
-  --set images.operator=<registry>/operator:<tag> \
-  --set images.provisioner=<registry>/node-provisioner:<tag> \
-  --set images.admission=<registry>/admission:<tag>
+  --set "images.operator=<registry>/operator@sha256:<64-lowercase-hex>" \
+  --set "images.provisioner=<registry>/node-provisioner@sha256:<64-lowercase-hex>" \
+  --set "images.admission=<registry>/admission@sha256:<64-lowercase-hex>"
 ```
 
 Every value is documented in [Configuration](configuration.md#helm-chart-values).
-Lint / preview the rendered manifests before installing:
+Preview with the **same** inventory and pool before installing:
 
 ```bash
-make -C kubernetes helm-lint
-make -C kubernetes helm-template
+helm template brewlet ./kubernetes/charts/brewlet \
+  --namespace brewlet \
+  --set provisioner.pools="{java-workers}" \
+  --values my-jdks.yaml > brewlet-rendered.yaml
 ```
+
+For the source-built path also pass the same component image overrides. The
+Makefile's Helm checks use synthetic test-only sources and are not an approved
+runtime catalog or a replacement for previewing your chosen values.
 
 ### Upgrading
 
@@ -237,6 +274,12 @@ when they are not already present; there is no separate CRD upgrade or legacy
 migration step before deploying Brewlet for the first time. The following
 guidance applies only when updating an existing installation, including a
 development cluster that retains an older Brewlet release or CRDs.
+
+Keep the administrator-selected inventory, pools, and component overrides in
+your reviewed values files; do not replace them with test fixtures or a newly
+copied example. The upgrade examples below use `values.yaml` for your saved
+cluster configuration (including `provisioner.pools`) and `my-jdks.yaml` for
+your chosen runtime inventory.
 
 Upgrade the operator and provisioner images together. The operator's provisioning
 and cleanup readiness probes require the provisioner to publish the
@@ -260,6 +303,23 @@ kubectl apply -f \
   "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/javaapplication-crd.yaml"
 ```
 
+Raw release URLs above also require public availability. During the private
+preview, use the CRDs from your authenticated checkout of the target revision
+instead. For an ordinary upgrade with compatible profiles, after updating CRDs:
+
+```bash
+helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
+  --version "$RELEASE_VERSION" \
+  --namespace brewlet \
+  --values values.yaml \
+  --values my-jdks.yaml \
+  --wait
+```
+
+For source builds, use the local chart instead and retain your digest-pinned
+component overrides. For incompatible legacy profiles, use the maintenance
+sequence below instead of an ordinary upgrade.
+
 An older CRD prunes unsupported fields when a resource is saved. Updating the CRD
 cannot restore those values; reapply the original JavaApplication manifests
 afterward.
@@ -277,6 +337,10 @@ operation and retain the original profile manifests for recovery.
 Unverifiable legacy UID, revision, or cleanup-policy evidence remains blocked
 for recovery; matching profile names alone never authorize adoption.
 
+Only this legacy migration path requires Pod Scheduling Readiness support
+(stable in Kubernetes 1.30): the API server, DaemonSet controller, and scheduler
+must preserve and honor scheduling gates.
+
 Before upgrading an existing Brewlet installation to a release that requires explicit
 JDK and launcher sources, plan a maintenance window: the `v1alpha1` launcher
 wire format changed from strings to structured sources, so legacy profiles
@@ -293,7 +357,7 @@ kubectl wait --for=delete nodeprofiles.node.brewlet.sh --all --timeout=10m
 kubectl apply -f \
   "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/nodeprofile-crd.yaml"
 
-cat >/tmp/brewlet-no-profiles.yaml <<'EOF'
+cat >brewlet-no-profiles.yaml <<'EOF'
 defaultProfile:
   enabled: false
 profiles: []
@@ -301,14 +365,18 @@ EOF
 
 helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$RELEASE_VERSION" \
+  --namespace brewlet \
   -f values.yaml \
-  -f /tmp/brewlet-no-profiles.yaml \
+  -f my-jdks.yaml \
+  -f brewlet-no-profiles.yaml \
   --wait
 
 # Re-enable the migrated, digest-pinned profiles after the new webhook is ready.
 helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$RELEASE_VERSION" \
+  --namespace brewlet \
   -f values.yaml \
+  -f my-jdks.yaml \
   --wait
 ```
 
@@ -324,38 +392,55 @@ helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
 
 ## Manual (without Helm)
 
-If you'd rather not use Helm, apply the raw manifests and run the operator directly.
+Manual deployment is an advanced assembly path, not a second one-command
+installation. Start from an authorized checkout matching your component
+revision, then prepare reviewed manifests:
 
-```bash
-# 1. Namespace + provisioner ServiceAccount/RBAC (and, if you want to hand-wire it,
-#    the provisioner DaemonSet):
-kubectl apply -f kubernetes/deploy/node-provisioner.yaml
+- Apply `kubernetes/deploy/nodeprofile-crd.yaml` and
+  `kubernetes/deploy/javaapplication-crd.yaml` before creating custom resources.
+- Copy the Namespace and provisioner ServiceAccount/RBAC documents from
+  `kubernetes/deploy/node-provisioner.yaml` into your own manifest. **Do not
+  include its standalone DaemonSet** alongside the operator-managed provisioner.
+- Configure `kubernetes/config/operator.yaml` with your approved operator image
+  digest and provisioner image digest. Configure admission, TLS, and its
+  permissions as described in [Configuration](configuration.md#admission-webhook).
+- Create your own `my-nodeprofile.yaml` below, choosing the pool and replacing
+  the JDK digest placeholder. Do not apply the sample profile collection as an
+  approved runtime catalog.
 
-# 2. The operator ServiceAccount + RBAC + Deployment:
-kubectl apply -f kubernetes/config/operator.yaml
-
-# 3. Opt nodes in. The standalone provisioner DaemonSet schedules onto nodes
-#    carrying this LABEL — it drives nodeAffinity, so it must be a label, not an
-#    annotation:
-kubectl label node --all brewlet.sh/provision=true
+```yaml
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata:
+  name: java-workers
+spec:
+  nodePool:
+    names: ["java-workers"]
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+  rollout:
+    validate: true
+    containerdRestart: validated
 ```
 
-You can also run the operator locally against your current kubeconfig (useful
-for debugging). Runtime inventory belongs in `NodeProfile`, not operator flags:
+Use the same administrator-approved source as `my-jdks.yaml`. Set
+`spec.nodePool.key` on bare metal or kubeadm; control-plane provisioning requires
+an explicit `spec.nodePool.includeControlPlane: true` opt-in. Apply this profile
+only after your reviewed namespace/RBAC, operator, and admission manifests are
+installed and healthy:
 
 ```bash
-make -C kubernetes operator-build
-./kubernetes/bin/operator \
-  --namespace=brewlet \
-  --provisioner-image=<registry>/node-provisioner:<tag>
-
-kubectl apply -f kubernetes/deploy/sample-nodeprofile.yaml
+kubectl apply -f my-nodeprofile.yaml
 ```
 
-The RuntimeClass and provisioner DaemonSet the operator generates mirror
-[`deploy/runtimeclass.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/runtimeclass.yaml) and
-[`deploy/node-provisioner.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/node-provisioner.yaml). All operator
-and admission flags are in [Configuration](configuration.md#operator-flags).
+Runtime inventory belongs in `NodeProfile`, not operator flags. The operator
+creates the RuntimeClass and profile-scoped DaemonSets; never opt every node in
+with a blanket label command. All operator and admission flags are in
+[Configuration](configuration.md#operator-flags).
 
 > The operator itself does **not** need to be privileged — it only talks to the API
 > server. The privileged, host-mutating work is done by the DaemonSet it manages.
@@ -365,10 +450,7 @@ and admission flags are in [Configuration](configuration.md#operator-flags).
 ## Verify the installation
 
 ```bash
-# Install the CLI version that matches the chart, then run the readiness check:
-export BREWLET_VERSION="0.4.0"
-curl -fsSL https://brewlet.sh/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
+# Use the CLI from the same authorized source revision or accessible release.
 brewlet doctor --namespace default
 
 # 1. Components are running:
@@ -381,9 +463,9 @@ kubectl get nodes -L brewlet.sh/runtime
 
 # 3. Inspect what a node advertises:
 kubectl get node node-1 -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks}{"\n"}'
-#   temurin-21,microsoft-25
+#   temurin-21             ← must match your chosen inventory
 kubectl get node node-1 -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}{"\n"}'
-#   java,jaz
+#   java                   ← additional launchers only if configured
 
 # 4. The RuntimeClass exists:
 kubectl get runtimeclass brewlet

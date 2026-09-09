@@ -8,10 +8,10 @@ rationale and every edge case, see the [SPECIFICATION](https://github.com/micros
 
 ## The core idea
 
-Shipping a Java service to Kubernetes today forces every developer to also become a
-**container author**: pick a base image, write a `Dockerfile`, patch an OS layer,
-keep a JVM baked into every image, and push hundreds of megabytes — to deliver an
-artifact that is, in reality, a single self-executable (fat/uber) JAR.
+Java container images commonly combine application code with a JVM and an OS
+userland. Tools such as Jib and Buildpacks can automate packaging without a
+Dockerfile, and unchanged layers can be cached. Runtime versions and patches
+still travel with those application images.
 
 WebAssembly already solved this. With [SpinKube](https://www.spinkube.dev/), the
 Wasm *runtime* lives on the node, the developer ships a Wasm/Spin application as
@@ -26,19 +26,23 @@ Kubernetes deployment descriptor.
 
 | You stop owning… | Because… |
 |---|---|
-| Dockerfiles | there is no image build — you push the JAR itself |
+| Dockerfiles | the plugin packages application-only OCI images |
 | OS base layers & their CVEs | there is no OS layer in the artifact |
 | A JVM copy in every image | the JDK installation lives on the node, shared and patched centrally |
-| Multi-hundred-MB pushes | only the JAR moves over the wire |
+| Bundling runtime layers with app releases | the payload contains application code, dependencies, and launch metadata; runtime installation is separate |
 | Per-arch image builds & manifest lists | a JAR is JVM **bytecode — architecture-neutral**, so the *same* artifact runs on any provisioned arch (`amd64`/`arm64`); the node-side JDK is per-arch |
 
-One JDK upgrade on the node pool patches **every** workload at once.
+Updating a node JDK does not change an already-running JVM. Existing workloads
+retain their runtime roots until they stop; roll or restart them to use the
+updated runtime without rebuilding their application images. Each workload
+still has its own JVM and heap. Shared runtime storage is not a guarantee of
+lower memory use or faster startup; measure those outcomes for your workload.
 
-> **Cross-arch for free — with one exception.** Because a JAR is arch-neutral, a
-> mixed `amd64`/`arm64` fleet needs no per-arch artifact. The exception is a
-> **non-portable JAR** that bundles JNI native libraries (e.g. `netty-tcnative`,
-> RocksDB); set its optional `arch` constraint so it schedules only onto
-> compatible nodes. See [multi-arch fleets & non-portable JARs](multi-arch.md).
+> **Portable bytecode, platform-specific dependencies.** Pure Java bytecode can
+> run on compatible `amd64`/`arm64` JDKs. JNI libraries and prebuilt AppCDS
+> archives are platform-specific; account for them when publishing and selecting
+> the deployment's `arch` constraint. See
+> [multi-arch fleets & non-portable JARs](multi-arch.md).
 
 ---
 
@@ -93,7 +97,7 @@ directories. Each implementation maps to a section of the
  Developer / CI                  Control Plane                 Worker Node (provisioned)
  ───────────────                 ─────────────                 ─────────────────────────
   mvn package                ┌──────────────────────┐
-  brewlet push ──► Registry  │  brewlet-operator     │  watches  ┌──────────────────────┐
+  Maven plugin ──► Registry  │  brewlet-operator     │  watches  ┌──────────────────────┐
                     │        │  + admission webhook  │ ────────► │  containerd + shim    │
                     │        └──────────┬───────────┘  annotate  │        │ runc         │
                     │                   │ generates              │        ▼              │
@@ -102,7 +106,7 @@ directories. Each implementation maps to a section of the
                     │           │ runtimeClassName: │            │  │ (cgroup+netns) │   │
                     │           │   brewlet         │            │  │  java -jar     │   │
                     │           └───────────────────┘            │  │  /app/app.jar  │   │
-                    └────────── shim pulls pod image ───────────► │  │  (node JDK RO) │   │
+                    └────────── CRI pulls pod image ────────────► │  │  (node JDK RO) │   │
                                                                  │  └────────────────┘   │
                                                                  └──────────────────────┘
 ```
@@ -176,8 +180,9 @@ cgroups, seccomp/AppArmor, and CNI, it *assembles an OCI runtime bundle and
 delegates isolation to runc* (the same approach [runwasi](https://github.com/containerd/runwasi)
 takes for Wasm). The only novel code is *artifact → bundle → args*. Consequently:
 
-- Probes (`exec`, `httpGet`, `tcpSocket`), `kubectl exec`, ephemeral debug
-  containers, and metrics-server behave normally.
+- Probes (`exec`, `httpGet`, `tcpSocket`), `kubectl exec`, and metrics-server use
+  the normal containerd/runc mechanisms. Ordinary-image ephemeral debug
+  containers are not currently supported by the Brewlet handler.
 - The pod gets a real pod IP via the CNI-provided netns.
 - CPU/memory limits are enforced as ordinary cgroup v2 constraints.
 

@@ -150,9 +150,10 @@ type AutoscalingSpec struct {
 type JavaApplicationStatus struct {
 	// ObservedGeneration is the .metadata.generation the controller last acted on.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// ReadyReplicas mirrors the managed Deployment's readyReplicas.
+	// ReadyReplicas mirrors the owned Deployment's readyReplicas, including old
+	// replicas during a rollout. It is not proof that the current rollout is ready.
 	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
-	// SelectedJdk is the JDK the workload runs on, in the same
+	// SelectedJdk is the descriptor's requested JDK, in the same
 	// "<distribution>-<feature>" form as the brewlet.sh/jdk annotation and the
 	// node capability labels (e.g. "temurin-21"). When jvm.distribution was not
 	// pinned, only the feature is reported (e.g. "21"): the distribution is then
@@ -165,12 +166,13 @@ type JavaApplicationStatus struct {
 
 // Condition types and reasons surfaced on JavaApplication status.
 const (
-	// ConditionReady is True once the managed Deployment has all replicas ready.
+	// ConditionReady is True once the current observed Deployment rollout has
+	// exactly the desired updated, ready, and available replicas.
 	ConditionReady = "Ready"
 
 	// ReasonReconciled — the managed objects were successfully reconciled.
 	ReasonReconciled = "Reconciled"
-	// ReasonProgressing — the Deployment has not yet reached its desired replicas.
+	// ReasonProgressing — the current Deployment rollout is incomplete or stalled.
 	ReasonProgressing = "Progressing"
 	// ReasonReconcileError — reconciling a managed object failed.
 	ReasonReconcileError = "ReconcileError"

@@ -158,6 +158,9 @@ jobs:
       - name: Lint and render chart
         run: make helm-check
 
+      - name: Check site and installation contracts
+        run: make -C .. site-contract-check
+
   supply-chain:
     name: Workflow supply chain
     runs-on: ubuntu-latest
@@ -166,6 +169,9 @@ jobs:
 
       - name: Enforce workflow pinning and permission scoping
         run: make workflow-security-check
+
+      - name: Test release specification version guard
+        run: bash scripts/check-release-version_test.sh
 
   container-security:
     name: Container build integrity
@@ -183,8 +189,12 @@ jobs:
         run: make container-security-test
 
   maven-plugin:
-    name: Maven plugin
+    name: Maven plugin (JDK ${{ matrix.java }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: ["17", "21"]
     defaults:
       run:
         working-directory: maven-plugin
@@ -195,13 +205,13 @@ jobs:
         uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: ${{ matrix.java }}
           cache: maven
           cache-dependency-path: maven-plugin/pom.xml
 
       - name: Build and test
         run: |
-          mvn -B --no-transfer-progress verify
+          mvn -B --no-transfer-progress -Dmaven.compiler.release=17 verify
           scripts/generate-notice.sh --check
           unzip -l target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/NOTICE.txt'
           unzip -l target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/LICENSE.txt'

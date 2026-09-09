@@ -230,4 +230,12 @@ public class JarInspector {
         nested.sort(String::compareTo);
         return nested;
     }
+
+    /** Nested application classes require a container loader even with no nested libraries. */
+    public static boolean hasNestedApplicationClasses(File jarFile) throws IOException {
+        try (JarFile jar = new JarFile(jarFile)) {
+            return jar.stream().anyMatch(entry -> entry.getName().startsWith("BOOT-INF/classes/")
+                    || entry.getName().startsWith("WEB-INF/classes/"));
+        }
+    }
 }

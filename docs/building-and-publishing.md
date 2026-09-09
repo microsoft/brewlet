@@ -148,10 +148,12 @@ final thin-JAR image. See
   "entry": { "mode": "classpath", "mainClass": "com.example.Main", "classPath": ["app.jar", "lib/*"] } }
 ```
 
-**Maven plugin (recommended).** Flip one flag — the plugin resolves the transitive
-dependency tree, packs it into reproducible `classpath.layer.v1+tar` layers, ships a
-thin app JAR, and writes the matching `entry.mode: classpath` / `entry.classPath`
-config for you:
+**Maven plugin (recommended).** Enable layering to publish a thin app JAR and
+reproducible dependency layers with matching `entry.mode: classpath` /
+`entry.classPath`. Plain thin JARs use the resolved POM dependency tree. Standard
+Spring Boot executable JARs are actually unpacked: application classes/resources
+move from `BOOT-INF/classes/` to the app JAR root, and dependencies come from the
+exact packaged `BOOT-INF/lib/*.jar` entries, not a second dependency resolution:
 
 ```bash
 # One-off: enable layering on the command line
@@ -179,6 +181,13 @@ volatile) for finer dedup; set it to `false` to pack all dependencies into one l
 See the [plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#configuration-parameters)
 for the full option reference.
 
+For Boot JARs, `BOOT-INF/classpath.idx` defines library order when present and
+must name every packaged library exactly once; otherwise archive order is used.
+The generated classpath lists dependencies explicitly rather than relying on
+wildcard ordering. Build, push, inspect/config, and AppCDS share the same prepared
+bytes, while the source JAR is left unchanged. See the
+[supported layouts and signature handling](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#layered-spring-boot-jars).
+
 **CLI.** Pre-build the dependency tar(s) yourself and attach them with
 `--classpath-layer` (repeatable):
 
@@ -203,9 +212,10 @@ oras push registry.example.com/team/app:1.4.2 \
 **The resulting artifact** carries a thin `app.jar` as the
 `application/vnd.brewlet.jar.layer.v1+jar` layer plus one or more
 `application/vnd.brewlet.classpath.layer.v1+tar` layers. Each dependency tar is
-unpacked to `/app/lib` in the sandbox and the app launches with
+unpacked to `/app/lib` in the sandbox. The generic thin-JAR example launches with
 `java -cp /app/app.jar:/app/lib/* com.example.Main` (the JVM expands the `lib/*`
-wildcard). `brewlet inspect` lists every layer with its media type and digest so you
+wildcard); prepared Boot images instead name each dependency in order.
+`brewlet inspect` lists every layer with its media type and digest so you
 can see the split:
 
 ```bash
@@ -305,6 +315,13 @@ never touch ORAS or hand-author the launch config. It infers the entry point and
 framework from the project and JAR manifest; its `manifest` goal writes the
 descriptor's JDK feature request and infers the container `ports`.
 
+JDK requests come from an explicit `brewlet.jdkFeature` override or the effective
+main compiler `release`/`target`/`source` configuration. A selected compiler
+toolchain is a fallback when no level is declared, ahead of the in-process Maven
+JDK. Test-only settings are ignored, and ambiguous or unresolved authority fails
+with override guidance instead of silently selecting the build machine's JDK.
+See the [complete inference precedence](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#jdk-inference).
+
 Until the plugin is published to Maven Central, download its JAR and POM from
 the [GitHub release](https://github.com/microsoft/brewlet/releases/tag/v0.4.0) and
 install them once:
@@ -391,8 +408,11 @@ metadata, resolves it directly from the content store, and verifies that the
 selected platform manifest has the config digest CRI recorded for the
 container. Tag-only requests are rejected before launch. The admission webhook
 mirrors the target digest in `brewlet.sh/artifact-digest` only as a
-cross-checked compatibility hint. Digest pinning is also the basis for
-cosign/SLSA supply-chain policy. See [Security](security.md).
+cross-checked compatibility hint. The shipped managed-dependency admission
+example verifies Brewlet DSSE attestations against this immutable image identity.
+General cosign or standard SLSA admission for application images remains roadmap
+work; component-release build provenance is a separate shipped capability.
+See [Security](security.md).
 
 ---
 
@@ -401,7 +421,8 @@ cosign/SLSA supply-chain policy. See [Security](security.md).
 - No `Dockerfile`.
 - No base image to pick, pin, or patch.
 - No JVM copied into an image.
-- No multi-hundred-MB push — **only the JAR moved over the wire**.
+- No OS or JDK layers in the application payload. Transfer size still depends
+  on application dependencies, optional CDS archives, and existing layer caches.
 
 ## Next steps
 

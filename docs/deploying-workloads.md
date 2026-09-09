@@ -68,9 +68,13 @@ kubectl logs -l app=hello
 Because the shim is runc-backed, this pod is a **first-class Kubernetes citizen**:
 
 - real pod IP via CNI → Services/Ingress/NetworkPolicy work;
-- `kubectl logs` / `kubectl exec` / ephemeral debug containers work;
+- `kubectl logs` / `kubectl exec` work;
 - readiness/liveness/startup probes (`httpGet`, `tcpSocket`, `exec`) work;
 - HPA and metrics-server work.
+
+Ordinary-image ephemeral debug containers are not supported by the current
+Brewlet handler. Use `kubectl exec` with tools present in the selected runtime,
+or a separate ordinary-runtime Pod for debugging.
 
 The Pod `securityContext` is the sole source of process UID/GID for raw
 workloads. Brewlet preserves the identity CRI places in the OCI spec; artifact
@@ -233,6 +237,51 @@ spec:
 
 The `status` subresource surfaces `readyReplicas`, the `selectedJdk`, and `Ready`
 conditions.
+
+### Rollout readiness
+
+`Ready=True` with reason `Reconciled` means the controller has observed the
+current Deployment generation, with exactly the desired number of updated,
+ready, and available replicas and no extra active or unavailable replicas.
+Old healthy replicas do not make a failed replacement rollout ready.
+`Ready=False/Progressing` includes rollout counts or the Deployment's
+progress-failure diagnostic; it does not necessarily mean the old Pods stopped
+serving traffic.
+
+`readyReplicas` remains the Deployment's observed ready count, which can include
+old replicas. Do not use that number alone to decide whether a new revision
+succeeded. Status is asynchronous: require the Ready condition's
+`observedGeneration` to match the JavaApplication's `metadata.generation`.
+The controller reads Deployment status directly after reconciliation and does
+not certify a cached previous revision or a concurrently changed pod template.
+
+With autoscaling enabled, readiness uses the live Deployment replica target
+owned by the HPA, not `spec.replicas` on the JavaApplication. A completed
+scale-to-zero operation may be Ready with zero replicas; that means the desired
+state was reached, not that a serving endpoint exists.
+`selectedJdk` describes the requested JDK selector, not a measurement of each
+running JVM's distribution or patch version.
+
+### Generated manifests and health probes
+
+`brewlet:manifest` generates a `JavaApplication` descriptor, but deliberately
+omits `spec.probes`. Neither a configured port nor Spring Boot/Quarkus detection
+establishes an HTTP health contract. In particular, a healthy application may
+return 404 at `/`; a generated liveness probe must not restart it for that.
+
+Add readiness and liveness probes explicitly to the `JavaApplication` YAML
+using endpoints or commands the application actually provides. The Actuator
+paths in the example above are appropriate only when those endpoints are
+enabled. Without a readiness probe, Kubernetes does not wait for
+application-specific readiness. Store reviewed manifests in source control;
+regenerating them overwrites local edits.
+
+The generated `spec.jvm.version` is an explicit `brewlet.jdkFeature` override or
+an inferred request based on effective main compiler settings and toolchain
+selection, not automatically the JVM running Maven. A configured release/target
+takes precedence over the compiler JDK; conflicting or unresolved settings
+require an explicit request. See the
+[Maven inference contract](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#jdk-inference).
 
 ### Environment references and resource ownership
 

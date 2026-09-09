@@ -28,7 +28,10 @@ integration tests, website, and user-facing documentation.
 
 Brewlet is a pre-1.0 preview. It is under active development, and its APIs,
 artifact formats, and operational behavior may change between minor releases.
-Evaluate it carefully before using it for production workloads.
+Use a disposable evaluation environment, not a production or shared cluster.
+The current private preview requires **repository and package access**. The
+public documentation does not grant access to the source, releases, or GHCR
+packages; request access through your preview contact.
 
 - [Documentation](https://brewlet.sh/)
 - [Getting started](https://brewlet.sh/docs/getting-started/)
@@ -101,10 +104,27 @@ Evaluate it carefully before using it for production workloads.
 
 ### Install the CLI
 
-The checksum-verifying installer selects the correct Linux or macOS archive for
-the host. It installs `brewlet` to `$HOME/.local/bin` by default.
+For the private preview, use your authenticated Git credential helper or SSH
+access to obtain the source, then build locally (Go 1.26+):
 
 ```bash
+git clone https://github.com/microsoft/brewlet.git
+cd brewlet
+make binaries
+export PATH="$PWD/bin:$PATH"
+brewlet version
+```
+
+Do not put access tokens in clone URLs or shell history. See
+[Getting started](https://brewlet.sh/docs/getting-started/) for the local
+application example.
+
+**Only when release assets are publicly accessible**, the checksum-verifying
+installer selects the correct Linux or macOS archive and installs `brewlet` to
+`$HOME/.local/bin` by default. It does not authenticate private release downloads:
+
+```bash
+export BREWLET_VERSION="0.4.0"
 curl -fsSL https://brewlet.sh/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 brewlet version
@@ -117,25 +137,46 @@ workflow.
 
 ### Enable a Kubernetes cluster
 
-Brewlet requires containerd, cgroup v2, and permission to run a privileged
+Brewlet requires containerd 2.0+, cgroup v2, and permission to run a privileged
 host-modifying DaemonSet. Because that DaemonSet mutates the host, the chart has
-no every-node default: name the pools it may provision, and it stays off
-control-plane nodes regardless.
+no every-node default or built-in JDK catalog: name the pools it may provision
+and choose the JDK source. Control-plane nodes are excluded by default;
+`provisioner.includeControlPlane=true` is an explicit opt-in for single-node
+development clusters.
+
+Save this as `my-jdks.yaml`, replacing the placeholder with the full digest of
+an administrator-approved JDK image. Verify that the image supports your nodes'
+architectures and contains the given `javaHome`; this is a template, not an
+approved runtime catalog:
+
+```yaml
+provisioner:
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+```
+
+With access to the chart and component packages (and registry authentication
+configured), install on your disposable cluster:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version 0.4.0 \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{java-workers}"
+  --set provisioner.pools="{java-workers}" \
+  --values my-jdks.yaml
 
 kubectl get nodes -L brewlet.sh/runtime
 brewlet doctor --namespace <developer-namespace>
 ```
 
 Follow the [installation guide](https://brewlet.sh/docs/installation/) for
-prerequisites, scoped node profiles, production configuration, upgrades, and
-safe removal.
+source-built component installation, pool labels, scoped node profiles,
+configuration, upgrades, and safe removal. Keep your chosen values for upgrades.
 
 ## Build and test
 
@@ -171,6 +212,10 @@ feature requests. See [SUPPORT.md](SUPPORT.md) for support expectations and
 [SECURITY.md](SECURITY.md) for confidential vulnerability reporting.
 
 ## Releases
+
+Before creating a release tag, update and commit the
+[specification version](specs/README.md#versioning-and-citations) to match the
+release. The release workflow checks this before publishing any artifacts.
 
 Tags matching `v*` publish version-aligned artifacts:
 

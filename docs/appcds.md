@@ -173,9 +173,11 @@ The Maven plugin automates the training run with a dedicated goal:
   entry by basename+size+mtime, not absolute path, and expands `lib/*` in sorted
   order — see §4.4):
   - **fat JAR** (`entry.mode=jar`): `-jar <mainJar>`.
-  - **layered class-path** (`-Dbrewlet.layered=true`, non-modular): the resolved
-    runtime dependencies are staged into `lib/` and trained with
-    `-cp <mainJar>:lib/* <mainClass>`, matching `/app/lib`.
+  - **layered class-path** (`-Dbrewlet.layered=true`, non-modular): plain thin
+    JARs use resolved POM dependencies in `lib/` with
+    `-cp <mainJar>:lib/* <mainClass>`. Standard Boot executable JARs use a
+    prepared thin application JAR and their exact packaged libraries, with
+    explicit `classpath.idx`/archive order matching the published classpath.
   - **JPMS module** (`-Dbrewlet.layered=true`, modular): dependencies staged into
     `mods/`, trained with `-p <mainJar>:mods -m <module>[/<mainClass>]`, matching
     `/app/mods`.
@@ -206,6 +208,17 @@ so the shutdown hook runs and the archive flushes (verified: a `SIGTERM`'d JVM w
 `-XX:ArchiveClassesAtExit` produces an archive that maps cleanly under
 `-Xshare:on`). Signal mode is Unix-oriented and needs the app to shut down
 gracefully on `SIGTERM`.
+
+Signal-mode readiness and settling share `timeoutSeconds`; the configured
+shutdown grace is a separate budget. Timeouts, readiness failures, and
+interruptions terminate and reap the training JVM with bounded cleanup and
+preserved interruption. Output-reader failures fail the attempt, but may be
+reported after an outstanding process wait finishes or times out.
+
+Non-dry-run training clears the configured archive before starting and removes
+partial output on failure. Keep any prebuilt archive that must survive a failed
+attempt at a separate path; stale output is not accepted as fresh training.
+Dry-run does not remove existing archives.
 
 ### 4.3 Node-side regeneration (the durable answer for a patched fleet)
 
@@ -252,12 +265,12 @@ fall back to base CDS through the `skip`/`defer` roles.
 `brewlet bundle` additionally partitions the local cache by its trusted
 `--uid`; the unsandboxed `brewlet run` path uses a host-local identity bucket.
 
-The verified patch-invalidation (§2.1) makes build-time generation structurally at
-odds with Brewlet's core promise — *patch the node JDK once, patch everything*. A
-build-time archive goes stale on the **next** central patch, and a `.jsa` is also
-**arch-specific**, so shipping one breaks the "same artifact runs on any arch"
-property. Node-side regeneration removes both problems by decoupling the archive
-from the shipped artifact entirely.
+The verified patch-invalidation (§2.1) makes build-time archives sensitive to
+independent node JDK updates. A workload restarted on a different JDK build may
+no longer use its old archive, and a `.jsa` is also **arch-specific**. Existing
+JVMs keep their original runtime until they stop; updating the node does not
+patch those processes in place. Node-side regeneration keys new archives to the
+runtime actually selected for a launch, independently of the shipped artifact.
 
 The node generates/refreshes an archive lazily from four trusted identity
 inputs:
@@ -436,9 +449,10 @@ content-store blobs.
 
 ## 6. JDK coupling and safe fallback
 
-Brewlet's value: *patch the node JDK once, patch everything.* An AppCDS archive is
-validated against the JDK's exact build identity (not the feature or patch
-version); after **any** patch it no longer applies (verified, §2.1).
+Brewlet separates node runtime updates from application-image rebuilds. After
+workloads roll onto the updated runtime, their AppCDS archives must match that
+JDK's exact build identity, not just its feature or patch-version label. A
+different build invalidates the prior archive (verified, §2.1).
 
 Mitigations, in order of preference:
 

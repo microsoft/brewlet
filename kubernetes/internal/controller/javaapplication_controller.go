@@ -15,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,8 +35,10 @@ import (
 // garbage-collected with the JavaApplication), and reflects readiness on status.
 type JavaApplicationReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	// APIReader avoids reusing cached rollout status after a Deployment write.
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
+	Recorder  record.EventRecorder
 }
 
 // Reconcile brings the managed objects in line with the JavaApplication and
@@ -52,7 +55,8 @@ func (r *JavaApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.fail(ctx, &app, "validating spec", err)
 	}
 
-	if err := r.reconcileDeployment(ctx, &app); err != nil {
+	deployment, err := r.reconcileDeployment(ctx, &app)
+	if err != nil {
 		return r.fail(ctx, &app, "reconciling Deployment", err)
 	}
 	if err := r.reconcileService(ctx, &app); err != nil {
@@ -62,14 +66,14 @@ func (r *JavaApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.fail(ctx, &app, "reconciling HorizontalPodAutoscaler", err)
 	}
 
-	if err := r.updateStatus(ctx, &app); err != nil {
+	if err := r.updateStatus(ctx, &app, deployment); err != nil {
 		logger.Error(err, "updating JavaApplication status")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
 }
 
-func (r *JavaApplicationReconciler) reconcileDeployment(ctx context.Context, app *appsv1alpha1.JavaApplication) error {
+func (r *JavaApplicationReconciler) reconcileDeployment(ctx context.Context, app *appsv1alpha1.JavaApplication) (*appsv1.Deployment, error) {
 	desired := buildDeployment(app)
 	dep := &appsv1.Deployment{}
 	dep.Name, dep.Namespace = desired.Name, desired.Namespace
@@ -87,7 +91,7 @@ func (r *JavaApplicationReconciler) reconcileDeployment(ctx context.Context, app
 		dep.Spec.Template = desired.Spec.Template
 		return controllerutil.SetControllerReference(app, dep, r.Scheme)
 	})
-	return err
+	return dep, err
 }
 
 func (r *JavaApplicationReconciler) reconcileService(ctx context.Context, app *appsv1alpha1.JavaApplication) error {
@@ -210,9 +214,13 @@ func (r *JavaApplicationReconciler) deleteOwned(ctx context.Context, obj client.
 }
 
 // updateStatus refreshes the JavaApplication status from the managed Deployment.
-func (r *JavaApplicationReconciler) updateStatus(ctx context.Context, app *appsv1alpha1.JavaApplication) error {
+func (r *JavaApplicationReconciler) updateStatus(ctx context.Context, app *appsv1alpha1.JavaApplication, reconciled *appsv1.Deployment) error {
 	var dep appsv1.Deployment
-	depErr := r.Get(ctx, types.NamespacedName{Namespace: app.Namespace, Name: app.Name}, &dep)
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+	depErr := reader.Get(ctx, types.NamespacedName{Namespace: app.Namespace, Name: app.Name}, &dep)
 	if depErr != nil && !apierrors.IsNotFound(depErr) {
 		return depErr
 	}
@@ -225,10 +233,30 @@ func (r *JavaApplicationReconciler) updateStatus(ctx context.Context, app *appsv
 	before := app.Status.DeepCopy()
 
 	app.Status.ObservedGeneration = app.Generation
-	app.Status.ReadyReplicas = dep.Status.ReadyReplicas
+	app.Status.ReadyReplicas = 0
+	owned := depErr == nil && metav1.IsControlledBy(&dep, app)
+	if owned {
+		app.Status.ReadyReplicas = dep.Status.ReadyReplicas
+	}
 	app.Status.SelectedJdk = selectedJdk(app)
 
 	ready, reason, msg := deploymentReady(&dep, depErr == nil)
+	if depErr == nil {
+		var mismatch string
+		switch {
+		case !owned:
+			mismatch = "Deployment ownership changed; waiting for reconciliation"
+		case reconciled == nil || dep.UID != reconciled.UID || dep.Generation < reconciled.Generation:
+			mismatch = "Waiting to observe the reconciled Deployment revision"
+		case !equality.Semantic.DeepEqual(dep.Spec.Template, reconciled.Spec.Template):
+			mismatch = "Deployment pod template changed after reconciliation"
+		case !app.Spec.Autoscaling.Enabled && !equality.Semantic.DeepEqual(dep.Spec.Replicas, reconciled.Spec.Replicas):
+			mismatch = "Deployment replica target changed after reconciliation"
+		}
+		if mismatch != "" {
+			ready, reason, msg = false, appsv1alpha1.ReasonProgressing, mismatch
+		}
+	}
 	status := metav1.ConditionFalse
 	if ready {
 		status = metav1.ConditionTrue
@@ -309,13 +337,11 @@ func (r *JavaApplicationReconciler) setJVMArgsCondition(app *appsv1alpha1.JavaAp
 	})
 }
 
-// selectedJdk renders status.selectedJdk: the JDK the workload will run on, in
-// the same "<distribution>-<feature>" form as the brewlet.sh/jdk annotation and
-// the node capability labels.
+// selectedJdk renders the descriptor's request, not per-pod runtime feedback,
+// using the same "<distribution>-<feature>" form as brewlet.sh/jdk.
 //
-// When the user pinned a distribution, that IS the resolved JDK — admission
-// constrains the pod to nodes carrying brewlet.sh/jdk.<dist>-<feature>, so every
-// replica runs it. When only a feature was requested, the distribution is
+// When the user pins a distribution, admission constrains placement using
+// brewlet.sh/jdk.<dist>-<feature>. When only a feature is requested, distribution is
 // resolved per node by the shim and may legitimately differ between replicas, so
 // a single status field cannot name one; the bare feature is reported instead.
 func selectedJdk(app *appsv1alpha1.JavaApplication) string {
@@ -330,22 +356,41 @@ func selectedJdk(app *appsv1alpha1.JavaApplication) string {
 	return feature
 }
 
-// deploymentReady reports whether the managed Deployment has reached its desired
-// replica count, and a reason/message for the Ready condition.
+// deploymentReady requires the observed rollout to contain only the desired
+// updated, ready, and available replicas, including the scale-to-zero case.
 func deploymentReady(dep *appsv1.Deployment, found bool) (bool, string, string) {
-	if !found {
+	if !found || dep == nil {
 		return false, appsv1alpha1.ReasonProgressing, "Deployment not created yet"
+	}
+	if !dep.DeletionTimestamp.IsZero() {
+		return false, appsv1alpha1.ReasonProgressing, "Deployment is terminating"
 	}
 	want := int32(1)
 	if dep.Spec.Replicas != nil {
 		want = *dep.Spec.Replicas
 	}
-	if dep.Status.ReadyReplicas >= want && dep.Status.ObservedGeneration >= dep.Generation {
+	if dep.Status.ObservedGeneration < dep.Generation {
+		return false, appsv1alpha1.ReasonProgressing,
+			fmt.Sprintf("Waiting for Deployment generation %d (observed %d)", dep.Generation, dep.Status.ObservedGeneration)
+	}
+	if dep.Status.Replicas == want && dep.Status.UpdatedReplicas == want &&
+		dep.Status.ReadyReplicas == want && dep.Status.AvailableReplicas == want &&
+		dep.Status.UnavailableReplicas == 0 {
 		return true, appsv1alpha1.ReasonReconciled,
-			fmt.Sprintf("%d/%d replicas ready", dep.Status.ReadyReplicas, want)
+			fmt.Sprintf("%d/%d replicas updated, ready and available", dep.Status.ReadyReplicas, want)
+	}
+	// Scaling status updates can retain an older Progressing condition. Use
+	// that diagnostic for incomplete rollouts, not to veto completed counts.
+	for _, condition := range dep.Status.Conditions {
+		if condition.Type == appsv1.DeploymentProgressing && condition.Status == corev1.ConditionFalse {
+			return false, appsv1alpha1.ReasonProgressing,
+				fmt.Sprintf("Deployment rollout is not progressing (%s): %s", condition.Reason, condition.Message)
+		}
 	}
 	return false, appsv1alpha1.ReasonProgressing,
-		fmt.Sprintf("%d/%d replicas ready", dep.Status.ReadyReplicas, want)
+		fmt.Sprintf("Deployment generation %d: %d/%d updated, %d/%d ready, %d/%d available; %d total replicas",
+			dep.Generation, dep.Status.UpdatedReplicas, want, dep.Status.ReadyReplicas, want,
+			dep.Status.AvailableReplicas, want, dep.Status.Replicas)
 }
 
 // fail records the error on status/events and returns it so the request requeues.

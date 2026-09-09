@@ -10,7 +10,7 @@ and give application developers a small, explicit platform contract.
 You need:
 
 - cluster-admin access to a disposable Kubernetes cluster;
-- containerd nodes using cgroup v2;
+- containerd 2.0+ nodes using cgroup v2;
 - permission to run privileged DaemonSets and modify the node runtime;
 - `kubectl`, Helm, and `curl`; and
 - an OCI registry repository that Dev participants can push to and cluster
@@ -24,8 +24,11 @@ kubectl get nodes -o custom-columns=NAME:.metadata.name,RUNTIME:.status.nodeInfo
 kubectl auth can-i create customresourcedefinitions.apiextensions.k8s.io
 ```
 
-Do not continue on a production or shared cluster unless its platform owner has
-approved host-level Brewlet provisioning.
+Do not use a production or shared cluster for this preproduction workshop.
+The current private preview requires **repository and package access**; public
+documentation alone does not grant access to release assets or GHCR packages.
+Use an authorized Git credential helper or SSH setup and your organization's
+registry credential mechanism. Never put access tokens in URLs or shell history.
 
 Set the Brewlet release and application registry used by both workshop parts:
 
@@ -36,18 +39,43 @@ export BREWLET_REGISTRY="<registry-host>/<team>"
 
 Authenticate with the registry using your organization's normal mechanism.
 
-Install the released CLI. The installer detects the operating system and
-architecture and verifies the release checksum:
+Build the CLI from an authorized checkout using Go 1.26+ and `make`:
 
 ```bash
-curl -fsSL https://brewlet.sh/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
+git clone https://github.com/microsoft/brewlet.git
+cd brewlet
+make binaries
+export PATH="$PWD/bin:$PATH"
 brewlet version
 ```
 
+Alternatively, **only when release assets are publicly accessible**, the
+[checksum-verifying installer](../getting-started.md#alternative-publicly-accessible-release-assets)
+can install the released CLI. It does not authenticate private downloads.
+Use the same source revision or release as the platform components. If component
+packages are unavailable, follow the [source-build installation path](../installation.md#released-components).
+
 ## 2. Preview the installation
 
-Render and inspect the chart before applying it:
+Choose an administrator-approved JDK 21 image and save `my-jdks.yaml`:
+
+```yaml
+provisioner:
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+```
+
+Replace the placeholder with the **full digest you approved**, checking the
+image's supported node architectures and JDK root. This is a template, not a
+shipped runtime catalog. Keep this file for installation and upgrades. If you
+choose a different Java feature, update `BREWLET_JDK` in the developer handoff.
+
+With access to the chart and component packages, render and inspect the chart
+before applying it:
 
 ```bash
 export BREWLET_POOL="java-workers"
@@ -56,15 +84,17 @@ helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$BREWLET_VERSION" \
   --namespace brewlet \
   --set provisioner.pools="{$BREWLET_POOL}" \
-  > /tmp/brewlet-rendered.yaml
+  --values my-jdks.yaml \
+  > brewlet-rendered.yaml
 ```
 
-The pool name is required. Provisioning is privileged and mutates the host, so
-the chart renders nothing until you say which pools it may touch — leave
-`provisioner.pools` empty and the render fails. Control-plane nodes are excluded
-on top of that, whether or not they are tainted. The default profile contains
-editable, digest-pinned Temurin, Microsoft JDK, and `jaz` sources; review them
-before installation.
+Both the pool name and JDK sources are required: leave `provisioner.pools` or
+`provisioner.jdks` empty and rendering fails. Brewlet has no built-in JDK or
+launcher catalog; vanilla `java` comes from your chosen JDK. Set
+`provisioner.poolKey` for a custom node-pool label on bare metal or kubeadm.
+Control-plane nodes are excluded by default regardless of taints; only for a
+single-node development cluster, add `--set provisioner.includeControlPlane=true`
+to both preview and install. See [pool configuration](../configuration.md#where-the-provisioner-may-run).
 
 ## 3. Install Brewlet
 
@@ -73,7 +103,8 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$BREWLET_VERSION" \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{$BREWLET_POOL}"
+  --set provisioner.pools="{$BREWLET_POOL}" \
+  --values my-jdks.yaml
 ```
 
 The chart installs the operator and admission components. The operator creates
@@ -170,10 +201,10 @@ Continue with [Part 2: Build and deploy a workload](developers.md).
 Complete cleanup only after the Dev workshop:
 
 ```bash
-helm uninstall brewlet -n brewlet
+helm uninstall brewlet -n brewlet --timeout 5m
 kubectl get nodeprofiles -w
 ```
 
 Wait for profile cleanup finalizers to restore node state before deleting the
-cluster. See [Installation](../installation.md) for production installation,
+cluster. See [Installation](../installation.md) for installation details,
 scoping, upgrades, and uninstall behavior.

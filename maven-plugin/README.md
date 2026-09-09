@@ -94,9 +94,9 @@ mvn brewlet:manifest \
 | `brewlet:config` | `package` | Generate `target/brewlet/jvm-config.json` from POM metadata + the JAR manifest. Input for `build`/`push`. |
 | `brewlet:build` | — | Assemble the OCI artifact into a local **OCI image-layout** dir (`target/brewlet/oci`) without pushing. Good for inspection, air-gapped flows, or local-registry tests. |
 | `brewlet:push` | `deploy` | Build and push to the registry in `<image>`. By default (`image` format) this pushes a **runnable OCI image** — a standard, kubelet-pullable image (see [Delivery format](#delivery-format-native-artifact-vs-runnable-image)). With `-Dbrewlet.format=artifact` it pushes the native Brewlet artifact instead (JAR layer + launch-config blob + manifest with `artifactType: application/vnd.brewlet.app.v1+json`). |
-| `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) with a self-terminating fat-JAR training run. Attach it later with `-Dbrewlet.cdsArchive=...`. |
+| `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) from the same fat/thin/Boot/module payload used for publication, using a self-terminating run or explicit signal-mode training. Attach it later with `-Dbrewlet.cdsArchive=...`. |
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
-| `brewlet:manifest` | — | Emit a `JavaApplication` CR (or raw `Deployment`) YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Pass the digest-pinned image reference printed by `brewlet:push`. |
+| `brewlet:manifest` | — | Emit a `JavaApplication` CR YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Pass the digest-pinned image reference printed by `brewlet:push`. Health probes must be configured explicitly in the generated manifest. |
 | `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. |
 
 Run any goal directly, e.g. `mvn brewlet:inspect`.
@@ -120,7 +120,7 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 | `outputDirectory` | — | `${project.build.directory}/brewlet` | Where generated files land. |
 | `skip` | `brewlet.skip` | `false` | Skip all Brewlet goals. |
 | `dryRun` | `brewlet.dryRun` | `false` | Generate + display the config but do not push. |
-| `layered` | `brewlet.layered` | `false` | **Layered deployment.** Ship a thin app JAR plus the resolved (transitive) POM dependency tree packed into reproducible OCI layers, instead of one opaque JAR. In `classpath` mode this produces `classpath.layer.v1+tar` layers unpacked to `/app/lib` and sets `entry.classPath=[mainJar, "lib/*"]`. In `module` mode the dependency modules are packed into a single `modulepath.layer.v1+tar` layer unpacked to `/app/mods` and `entry.modulePath=[mainJar, "mods"]` is set, so the app launches with `java -p /app/<jar>:/app/mods -m ...`. When the mode is not modular, `layered` forces `entry.mode=classpath`. Unchanged dependency layers dedup by digest across rebuilds/apps. See [layered class-path deployment](https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md). |
+| `layered` | `brewlet.layered` | `false` | **Layered deployment.** Plain thin JARs use the resolved POM runtime dependencies and `entry.classPath=[mainJar, "lib/*"]`; standard Spring Boot executable JARs are unpacked into a thin application JAR plus their exact packaged libraries and an explicitly ordered classpath (see below). Modular JARs use dependency modules at `/app/mods` and `entry.modulePath=[mainJar, "mods"]`. Non-modular layering selects `classpath` mode. Unchanged dependency layers dedup by digest. |
 | `splitSnapshotLayers` | `brewlet.splitSnapshotLayers` | `true` | When `layered`, pack released deps and `-SNAPSHOT` deps into separate `deps` / `snapshot-deps` layers (stable→volatile) for finer dedup. |
 | `dependencyBundle` | `brewlet.dependencyBundle` | — | For `push`, a registry reference or local OCI-layout directory containing a managed dependency bundle. The resolved runtime graph must exactly match its lock. Forces thin-JAR classpath launch and requires `mainClass`. |
 | `signingKey` | `brewlet.signingKey` | — | Optional PKCS#8 PEM ECDSA P-256 private key. When present, bundle or final-image provenance is published and must be paired with the corresponding identity. |
@@ -129,6 +129,35 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 | `trustedSignerIdentity` | `brewlet.trustedSignerIdentity` | — | Expected identity in signed bundle provenance. Required when the selected bundle has provenance. |
 | `builderIdentity` | `brewlet.builderIdentity` | — | Application publisher identity asserted in optional final-image provenance. Required with `signingKey` when pushing a managed application. |
 | `cdsArchive` | `brewlet.cdsArchive` | — | Optional prebuilt AppCDS `.jsa` archive to append as a `application/vnd.brewlet.cds.layer.v1+jsa` layer after dependency layers. The archive basename becomes `cds.archive`, is mounted at `/app/<name>`, and launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<name>` as best-effort acceleration. See [AppCDS §4.1](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#41-build-time-archive-layer-recommended-primary). |
+
+### Layered Spring Boot JARs
+
+For a standard Spring Boot executable JAR using `JarLauncher` or
+`launch.JarLauncher`, `layered=true` prepares the **bytes**, not just a different
+launch command:
+
+- `BOOT-INF/classes/` becomes the root of a deterministic thin application JAR,
+  including application resources.
+- Flat `BOOT-INF/lib/*.jar` entries supply the exact dependency bytes. Maven's
+  resolved dependency graph does not replace those packaged libraries.
+- If `BOOT-INF/classpath.idx` exists, it must list every packaged library
+  exactly once. Otherwise ZIP library order is preserved. `entry.classPath`
+  lists the app and each `lib/<name>.jar` explicitly, so layer grouping does not
+  alter class resolution.
+
+Prepared files live under `target/brewlet/prepared/` by default. Build, push,
+config, inspect, and AppCDS training use the same prepared application. The input
+JAR is unchanged, and the plugin does not guess a sibling `.original` file.
+Without `layered=true`, ordinary Boot fat-JAR launching is unchanged.
+
+Valid signed Boot containers produce a new **unsigned application JAR** after
+content verification; signatures invalidated by repackaging are removed.
+Packaged dependency JARs remain byte-for-byte intact, including their signatures.
+WAR/custom-loader/PropertiesLauncher layouts, custom Boot paths, `requiresUnpack`,
+ZIP64, and shell-prefixed executable archives are rejected for layered
+preparation, as are unsafe or ambiguous ZIP entries. Supply a supported standard
+Boot JAR or an explicitly prepared thin JAR rather than relying on silent
+layout conversion. `layers.idx` grouping is not interpreted.
 
 ### Registry transport and credential safety
 
@@ -163,15 +192,59 @@ descriptor. They are **not** serialized into `target/brewlet/jvm-config.json`.
 
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
-| `jdkFeature` | `brewlet.jdkFeature` | inferred from project release/target | JDK feature version written as `spec.jvm.version` (or `brewlet.sh/jdk` for raw Deployments). |
+| `jdkFeature` | `brewlet.jdkFeature` | inferred from the main compiler configuration or toolchain | Positive JDK feature request written as `spec.jvm.version`; an explicit value overrides inference. See the precedence below. |
 | `jdkDistribution` | `brewlet.jdkDistribution` | *(none — any distribution)* | Optional JDK distribution (`temurin`, `microsoft`) written as `spec.jvm.distribution`. With `jdkFeature` it pins an exact `<distribution>-<feature>` node JDK; omit to accept any distribution of that feature. |
-| `launcher` | `brewlet.launcher` | `java` | Launcher written as `spec.jvm.launcher` (or `brewlet.sh/launcher`); use `jaz` for the auto-tuning launcher. |
+| `launcher` | `brewlet.launcher` | `java` | Launcher written as `spec.jvm.launcher`; use `jaz` for the auto-tuning launcher. |
+
+### JDK inference
+
+The plugin selects a **requested deployment JDK feature**, not a measurement of
+the running Pods or a proof of the application's minimum compatible JVM:
+
+1. A positive explicit `<jdkFeature>` / `-Dbrewlet.jdkFeature` wins.
+2. Effective main compiler settings use `release`, then `target`, then `source`.
+   Inherited settings, active profiles, and main compile executions participate.
+   Literal compiler XML takes precedence over its property counterpart;
+   `${...}` expressions are evaluated with Maven's property semantics.
+   Disabled executions and test-only compiler settings do not determine the
+   application request.
+3. Without a declared level, use the compiler's `jdkToolchain`, then a suitable
+   session-selected toolchain, then main-bound legacy toolchains-plugin
+   requirements. Configured matching follows Maven's first-match order,
+   including resolvable version ranges; it does not choose the highest or lowest
+   installed JDK. The selected feature is checked against the JDK's `release`
+   metadata.
+4. Only when no other compiler authority is configured, use the in-process
+   Maven JDK as a fallback. Implicit defaults from every compiler-plugin version
+   are not emulated.
+
+For example, a main compiler `<release>17</release>` requests JDK 17 even when
+Maven or its compiler toolchain runs on JDK 21. A literal `<release>17</release>`
+also remains authoritative over an unrelated `maven.compiler.release=21`
+property; reference that property in the XML if it is intended to control the
+build.
+
+Inference fails with explicit-override guidance for unresolved or malformed
+values, differing main compilation levels, unavailable toolchains, unsupported
+compiler/executable choices, or opaque arguments that could change the target.
+Standalone automatic toolchain discovery and a selection that might belong
+only to test or later build phases are not guessed. Set `brewlet.jdkFeature`
+after reviewing those builds rather than relying on the Maven JVM by accident.
+An execution bound to `compile` can still run after the main compiler in that
+same phase; selections whose ordering cannot establish main-compiler authority
+also require an explicit request.
+Failures occur before writing a guessed manifest, and logs identify the
+compiler setting or fallback toolchain used.
+
+The same request resolution is used when managed-dependency publication checks
+the bundle's compatible JDK features. It remains separate from the artifact's
+launch configuration and does not install or upgrade a node JDK.
 
 ### Runtime shape
 
 | Parameter | Notes |
 |---|---|
-| `ports` | Descriptor `spec.ports` (manifest goal): `<port>` entries (`name`, `containerPort`, `protocol`). Defaults to `8080/http` with a warning for Spring Boot / Quarkus. Not part of the artifact. |
+| `ports` | Descriptor `spec.ports` (manifest goal): `<port>` entries (`name`, `containerPort`, `protocol`). Defaults to `8080/http` with a warning for Spring Boot / Quarkus. Ports enable Service generation but never imply health probes. Not part of the artifact. |
 | `enablePreview` (`brewlet.enablePreview`) | App-intrinsic artifact knob; writes `enablePreview` and expands to `--enable-preview`. |
 | `addModules` / `addOpens` / `addExports` | App-intrinsic artifact lists for JPMS/module access; configure with `<addModule>`, `<addOpen>`, and `<addExport>` entries. |
 | `systemProperties` | App-intrinsic artifact map expanded as sorted `-D<key>=<value>` flags. |
@@ -320,7 +393,7 @@ Parameters:
 |---|---|---|---|
 | `cdsArchiveOutput` | — | `${project.build.directory}/brewlet/app.jsa` | Where `brewlet:appcds` writes the generated dynamic-CDS archive. |
 | `trainingArgs` | `brewlet.appcds.trainingArgs` | — | Extra program args passed after `-jar <mainJar>` during training. Use these to exercise startup paths (and, in `exit` mode, to make the app terminate). |
-| `timeoutSeconds` | `brewlet.appcds.timeoutSeconds` | `120` | Max wait for the app to exit (`exit` mode) or become ready (`signal` mode). |
+| `timeoutSeconds` | `brewlet.appcds.timeoutSeconds` | `120` | Execution budget in `exit` mode; combined readiness and settling budget in `signal` mode. Shutdown grace and failure cleanup are separate bounded waits. |
 | `trainingJavaHome` | `brewlet.appcds.javaHome` | Maven's `java.home` | JDK used for training. Must be JDK 21+ per [AppCDS §2.2](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#22-minimum-jdk-version). |
 | `mode` | `brewlet.appcds.mode` | `exit` | `exit` (self-terminating app) or `signal` (start → wait for readiness → `SIGTERM`). |
 | `readyLog` | `brewlet.appcds.readyLog` | — | `signal` mode: regex matched line-by-line against the app's stdout/stderr; readiness fires on first match. |
@@ -329,13 +402,26 @@ Parameters:
 | `shutdownGraceSeconds` | `brewlet.appcds.shutdownGraceSeconds` | `30` | `signal` mode: time allowed after `SIGTERM` for a graceful shutdown that flushes the archive. |
 | `readyPollMillis` | `brewlet.appcds.readyPollMillis` | `500` | `signal` mode: poll interval for `readyHttp`. |
 
+Every training attempt owns its JVM and output reader through completion.
+Readiness failure, timeout, or interruption triggers bounded termination and
+reaping rather than leaving a server behind. Failure cleanup allows up to five
+seconds for graceful termination and another five for forced reaping, with
+bounded output draining; interruption is preserved. Output-reader errors fail
+the attempt, although a process wait may reach its timeout before reporting them.
+
+Outside dry-run, the configured output archive is cleared before training and
+configuration validation (after protecting the source JAR). Failed attempts
+also remove partial output: an older archive must not masquerade as newly
+trained output. Preserve a prebuilt archive elsewhere if it must survive a
+failed attempt. Dry-run leaves archives untouched.
+
 Layered class-path and JPMS module apps are supported: run `brewlet:appcds` with
-the **same** `-Dbrewlet.layered=true` (and module shape) you push with, so the goal
-stages the resolved runtime dependencies into `lib/` (class-path) or `mods/`
-(module-path) and trains with `-cp <mainJar>:lib/*` / `-p <mainJar>:mods -m …`,
-matching the shim's `/app/lib` and `/app/mods` layout. If you push a fat JAR, train
-a fat JAR — the training layout must match the runtime layout for the archive to
-map.
+the **same** `-Dbrewlet.layered=true` (and module shape) you push with. Plain thin
+JARs use POM runtime dependencies in `lib/`; prepared Boot JARs use the exact
+packaged libraries and explicit classpath order described above. Modular apps
+stage dependencies into `mods/`. Training and publication share the prepared
+payload and its hashes, matching the shim's `/app/lib` or `/app/mods` layout.
+If you push a fat JAR, train a fat JAR; the training layout must match runtime.
 
 Pairing caveat: HotSpot validates dynamic-CDS archives against each app-classpath
 JAR's basename, size, and mtime, and Brewlet nodes pin the app JAR mtime to a
@@ -345,6 +431,29 @@ but the archive is still tied to the exact JDK build and classpath layout. With
 no AppCDS benefit); see [AppCDS §7](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#7-the-jdk-coupling-problem-design-core).
 
 ### `brewlet:manifest` extras
+
+The generated manifest deliberately omits `spec.probes`. A configured or inferred
+port does not prove that HTTP `/` exists, or that it is suitable for liveness.
+An API-only application returning 404 at `/` must not be restarted because of a
+guessed probe.
+
+Add probes to the generated YAML using the application's actual health contract.
+For example, **only if these endpoints are implemented and enabled**:
+
+```yaml
+spec:
+  probes:
+    readiness:
+      httpGet: { path: /actuator/health/readiness, port: 8080 }
+    liveness:
+      httpGet: { path: /actuator/health/liveness, port: 8080 }
+```
+
+TCP or exec probes can be appropriate for non-HTTP services. Without an explicit
+readiness probe, Kubernetes does not wait for application-specific readiness;
+omitting probes is a safe generation default, not a production health policy.
+Keep reviewed deployment YAML in source control: regenerating the manifest
+overwrites local edits.
 
 | Parameter | Property | Default |
 |---|---|---|

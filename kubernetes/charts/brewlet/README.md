@@ -25,12 +25,36 @@ the webhook.
 
 ## Install
 
+The current private preview requires **repository and package access**. Configure
+your authorized Git and registry credential mechanisms first; do not put tokens
+in command arguments or URLs. Public documentation does not make the release
+assets or GHCR packages anonymously accessible. For a source-build path, see
+[Installation](../../../docs/installation.md#released-components).
+Use a disposable evaluation cluster with containerd 2.0+ and cgroup v2.
+
+Save `my-jdks.yaml` with an administrator-chosen runtime source:
+
+```yaml
+provisioner:
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+```
+
+Replace the placeholder with the full digest of an approved image and verify
+its Java feature, architectures, and JDK root. This is a template, not an approved
+runtime catalog. Name the node pool the privileged provisioner may modify:
+
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.1.0 \
+  --version 0.4.0 \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{java-workers}"
+  --set provisioner.pools="{java-workers}" \
+  --values my-jdks.yaml
 
 # The default NodeProfile provisions the named pools (§5.6) — no per-node opt-in
 # step. The operator provisions each node; the provisioner marks it ready.
@@ -40,12 +64,17 @@ kubectl get nodes -L brewlet.sh/runtime
 > Provisioning is privileged and mutates the host. See the
 > [Brewlet specification](../../../specs/SPECIFICATION.md).
 > There is no every-node install: the chart fails to render until
-> `provisioner.pools` names the pools the provisioner may mutate, or
+> `provisioner.pools` names the pools the provisioner may mutate **and**
+> `provisioner.jdks` declares at least one approved digest-pinned source, or
 > `defaultProfile.enabled=false` hands profile authorship to you (§5.6).
-> Control-plane nodes are excluded by node affinity whether or not they are
+> Control-plane nodes are excluded by default by node affinity whether or not they are
 > tainted, and the provisioner tolerates only what a profile declares. On a
 > single-node kind or Docker Desktop cluster, whose one node is labelled as the
 > control plane, add `--set provisioner.includeControlPlane=true`.
+
+On bare metal or kubeadm, also set `provisioner.poolKey` to the node label
+carrying your pool name. Keep `my-jdks.yaml` and the chosen pool configuration
+for upgrades; pass them again rather than substituting example defaults.
 
 ## Values
 
@@ -66,8 +95,8 @@ kubectl get nodes -L brewlet.sh/runtime
 | `provisioner.poolKey` | `""` | Node label carrying the pool name. Empty auto-detects the well-known provider keys. |
 | `provisioner.includeControlPlane` | `false` | Allow the default profile onto control-plane nodes. Needed only on single-node clusters such as kind. |
 | `provisioner.tolerations` | `[]` | Tolerations for the default profile's provisioner pods. Each entry must name a `key`; nothing is tolerated implicitly. |
-| `provisioner.jdks` | structured Temurin 21 and Microsoft 25 examples | Required JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` (§5.3). |
-| `provisioner.launchers` | structured `jaz` example | Optional entries with `name`, digest-pinned `source.image`, and absolute `source.path` (§5.4). Empty = vanilla `java` only. |
+| `provisioner.jdks` | `[]` (**required**) | Administrator-chosen JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` (§5.3). No built-in runtime catalog. |
+| `provisioner.launchers` | `[]` | Optional entries with `name`, digest-pinned `source.image`, and absolute `source.path` (§5.4). Empty = vanilla `java` only. |
 | `provisioner.registry.mirrors` | `{}` | Upstream host → approved mirror host/path map. Rewrites preserve the source digest. |
 | `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the default profile. |
 | `operator.leaderElect` | `true` | Enable operator leader election. |
@@ -104,7 +133,7 @@ provisioner:
     - distribution: zulu
       feature: 21
       source:
-        image: docker.io/library/azul-zulu@sha256:2e230d906cffcc7bb7360ce82836f2ff0e0be74a1d5ebaf929e4e6ac99d61bf2
+        image: docker.io/library/azul-zulu@sha256:<64-lowercase-hex>
         javaHome: /usr/lib/jvm/zulu21
 ```
 
@@ -120,7 +149,7 @@ provisioner:
   launchers:
     - name: jaz
       source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
+        image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
         path: /usr/bin/jaz
 ```
 
@@ -155,7 +184,7 @@ profiles:
       - distribution: temurin
         feature: 21
         source:
-          image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+          image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
           javaHome: /opt/java/openjdk
     appCDS:
       regenerationEnabled: true
@@ -180,11 +209,16 @@ check remains authoritative.
 > kubectl delete nodeprofiles.node.brewlet.sh --all
 > kubectl wait --for=delete nodeprofiles.node.brewlet.sh --all --timeout=10m
 > kubectl apply -f kubernetes/deploy/nodeprofile-crd.yaml
-> printf 'defaultProfile:\n  enabled: false\nprofiles: []\n' >/tmp/brewlet-no-profiles.yaml
+> printf 'defaultProfile:\n  enabled: false\nprofiles: []\n' >brewlet-no-profiles.yaml
 > helm upgrade brewlet ./kubernetes/charts/brewlet \
->   -f values.yaml -f /tmp/brewlet-no-profiles.yaml --wait
-> helm upgrade brewlet ./kubernetes/charts/brewlet -f values.yaml --wait
+>   --namespace brewlet \
+>   -f values.yaml -f my-jdks.yaml -f brewlet-no-profiles.yaml --wait
+> helm upgrade brewlet ./kubernetes/charts/brewlet \
+>   --namespace brewlet -f values.yaml -f my-jdks.yaml --wait
 > ```
+>
+> `values.yaml` must retain your existing pools and other cluster choices;
+> `my-jdks.yaml` must contain your reviewed, migrated runtime inventory.
 >
 > Existing sources must be migrated to SHA-256 digest references, and mirror
 > destinations require an explicit `security.allowedSourceMirrorHosts` entry.
@@ -220,8 +254,11 @@ metadata:
 spec:
   runtimeClassName: brewlet
   containers:
-    - image: registry.example.com/demo/hello:1.0.0
+    - image: registry.example.com/demo/hello@sha256:<64-lowercase-hex>
 ```
+
+Replace the workload digest with the one reported by your image publication.
+It is not a runnable example until you supply that digest.
 
 If no ready node provides a compatible JDK/launcher or authorizes requested
 AppCDS regeneration, the pod is rejected with `NoCompatibleJDK`,

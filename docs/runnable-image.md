@@ -52,9 +52,13 @@ in `image:`.
 ## 3. What `--format=image` publishes
 
 ```bash
-# Same JAR, same launch contract — published as a runnable OCI image.
-brewlet push ./target/app.jar registry.example.com/team/app:1.4.2 --format=image
+# Same JAR and launch contract, packaged into a local runnable-image layout.
+brewlet push ./target/app.jar demo/app:1.4.2 --store ./oci --format=image
 ```
+
+The Go CLI writes the local OCI layout; it does not upload to a registry.
+Use the Maven plugin's `push` goal for registry publication, as described in
+[Building and publishing](building-and-publishing.md).
 
 The result is an ordinary OCI **image index** (multi-arch) whose per-arch manifests are
 plain OCI images:

@@ -35,7 +35,7 @@ public class InspectMojo extends AbstractBrewletMojo {
     @Override
     protected void doExecute() throws MojoExecutionException, MojoFailureException {
         JvmConfig cfg = buildConfig();
-        java.io.File jar = resolveJarFile();
+        java.io.File jar = prepareApplication().jar();
         boolean runnable = "image".equals(format);
 
         getLog().info("== Brewlet inspect ==");

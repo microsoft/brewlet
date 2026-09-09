@@ -12,8 +12,10 @@ import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.settings.Settings;
+import org.apache.maven.toolchain.ToolchainManager;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import sh.brewlet.maven.plugin.model.*;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
@@ -23,6 +25,7 @@ import sh.brewlet.maven.plugin.oci.RegistryTrustPolicy;
 import sh.brewlet.maven.plugin.util.JarInspector;
 import sh.brewlet.maven.plugin.util.JdkVersionResolver;
 import sh.brewlet.maven.plugin.util.LayerBuilder;
+import sh.brewlet.maven.plugin.util.PreparedApplication;
 
 import java.io.File;
 import java.io.IOException;
@@ -52,6 +55,9 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
 
     @Parameter(defaultValue = "${settings}", readonly = true, required = true)
     protected Settings settings;
+
+    @Component
+    protected ToolchainManager toolchainManager;
 
     // -----------------------------------------------------------------------
     // Plugin configuration parameters
@@ -190,6 +196,10 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
      * Enable <strong>layered deployment</strong>: instead of shipping a single
      * opaque fat JAR, the project's resolved runtime dependencies are packed into
      * their own reproducible OCI layer(s) alongside a thin application JAR.
+     * Standard Spring Boot JarLauncher archives are unpacked into a deterministic
+     * thin JAR and their exact nested libraries; Boot's classpath index (or ZIP
+     * order when absent) determines explicit classpath entries. Other thin JARs
+     * continue to use Maven's resolved runtime dependencies.
      *
      * <p>The layer kind follows the entry mode:
      * <ul>
@@ -425,13 +435,15 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
         String manifestEffectiveClass = null;
         String jarModuleName = null;
         String jarModuleMainClass = null;
+        boolean nestedApplicationClasses;
         try {
             manifestMainClass = JarInspector.mainClass(jar);
             manifestEffectiveClass = JarInspector.effectiveMainClass(jar);
             jarModuleName = JarInspector.moduleName(jar);
             jarModuleMainClass = JarInspector.moduleMainClass(jar);
+            nestedApplicationClasses = JarInspector.hasNestedApplicationClasses(jar);
         } catch (IOException e) {
-            getLog().warn("Could not inspect JAR: " + e.getMessage());
+            throw new MojoExecutionException("Could not inspect JAR: " + jar, e);
         }
         boolean modularJar = jarModuleName != null;
 
@@ -496,16 +508,36 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
                     + "Set <mainClass> in the plugin configuration.");
         }
 
+        PreparedApplication payload = prepareApplication();
+        if ("classpath".equals(resolvedEntryMode) && !layered
+                && (nestedApplicationClasses || (manifestMainClass != null
+                    && manifestMainClass.startsWith("org.springframework.boot.loader.")))) {
+            throw new MojoExecutionException("Spring Boot classpath launch requires <layered>true</layered> "
+                    + "to extract BOOT-INF/classes and the packaged libraries. Otherwise use entryMode=jar.");
+        }
+        if (payload.springBoot()) {
+            try (var app = new java.util.jar.JarFile(payload.jar())) {
+                if (resolvedMainClass == null
+                        || app.getJarEntry(resolvedMainClass.replace('.', '/') + ".class") == null) {
+                    throw new MojoExecutionException("Configured mainClass " + resolvedMainClass
+                            + " is not in the prepared Spring Boot application. Select an application "
+                            + "class in BOOT-INF/classes, not a Boot launcher.");
+                }
+            } catch (IOException e) {
+                throw new MojoExecutionException("Could not inspect prepared application", e);
+            }
+        }
+
         JvmConfig cfg = new JvmConfig();
         cfg.setSchemaVersion(1);
         cfg.setMainJar(jar.getName());
 
-        // In layered class-path mode, launch from the thin app JAR plus the
-        // dependency layers unpacked to /app/lib via the JVM's `lib/*` wildcard.
+        // Boot requires explicit dependency order; ordinary thin JARs retain lib/*.
         // (Module mode sets entry.modulePath instead — see below.)
         Entry resolvedEntry = new Entry(resolvedEntryMode);
         if (layered && "classpath".equals(resolvedEntryMode)) {
-            resolvedEntry.setClassPath(List.of(jar.getName(), "lib/*"));
+            resolvedEntry.setClassPath(payload.springBoot()
+                    ? payload.classPath() : List.of(jar.getName(), "lib/*"));
         }
 
         // mainClass lives on the entry and is only meaningful in classpath mode;
@@ -549,7 +581,19 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
             cfg.setArch(arch);
         } else if (detectNativeArch) {
             try {
-                JarInspector.NativeArchScan scan = JarInspector.scanNativeArch(jar);
+                JarInspector.NativeArchScan scan = JarInspector.scanNativeArch(payload.jar());
+                if (payload.springBoot()) {
+                    Set<String> detected = new TreeSet<>(scan.arches());
+                    List<String> unknown = new ArrayList<>(scan.unrecognized());
+                    int nativeLibs = scan.nativeLibs();
+                    for (LayerBuilder.Dep dep : payload.dependencies()) {
+                        JarInspector.NativeArchScan library = JarInspector.scanNativeArch(dep.path().toFile());
+                        detected.addAll(library.arches());
+                        unknown.addAll(library.unrecognized());
+                        nativeLibs += library.nativeLibs();
+                    }
+                    scan = new JarInspector.NativeArchScan(new ArrayList<>(detected), nativeLibs, unknown);
+                }
                 if (!scan.arches().isEmpty()) {
                     cfg.setArch(scan.arches());
                     getLog().info("Detected bundled native libraries -> arch constraint "
@@ -578,16 +622,38 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     }
 
     /**
+     * Prepares the exact app/dependency bytes used by every goal. Boot libraries
+     * come from the repackaged archive, never an inferred .original or Maven graph.
+     */
+    protected PreparedApplication prepareApplication() throws MojoExecutionException {
+        File source = resolveJarFile();
+        java.nio.file.Path output = outputDirectory == null
+                ? source.toPath().toAbsolutePath().getParent().resolve("brewlet")
+                : outputDirectory.toPath();
+        try {
+            return PreparedApplication.prepare(source, layered, output.resolve("prepared"),
+                    collectRuntimeDeps());
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to prepare application payload: " + e.getMessage(), e);
+        }
+    }
+
+    /**
      * Resolves the required JDK feature (major) version for the deployment
      * descriptor's {@code spec.jvm.version}: an explicit {@code <jdkFeature>}
      * wins, otherwise it is inferred from the project's release/target via
      * {@link JdkVersionResolver}. This feeds the CRD/Deployment, not the
      * artifact config.
      */
-    protected int resolveJdkFeature() {
-        return (jdkFeature != null && jdkFeature > 0)
-                ? jdkFeature
-                : JdkVersionResolver.resolve(project);
+    protected int resolveJdkFeature() throws MojoExecutionException {
+        if (jdkFeature != null) {
+            if (jdkFeature <= 0) {
+                throw new MojoExecutionException("brewlet.jdkFeature must be a positive JDK feature number, e.g. 17.");
+            }
+            getLog().info("Brewlet: application JDK " + jdkFeature + " from explicit brewlet.jdkFeature");
+            return jdkFeature;
+        }
+        return JdkVersionResolver.resolve(project, session, toolchainManager, getLog());
     }
 
     /**
@@ -682,8 +748,8 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     }
 
     /**
-     * Builds the ordered dependency layers for the artifact from the project's
-     * resolved runtime dependency tree ({@link MavenProject#getArtifacts()}).
+     * Builds ordered dependency layers from the prepared payload: Boot's nested
+     * libraries or the resolved Maven runtime graph for ordinary thin JARs.
      * Returns an empty list when {@link #layered} is disabled or the project has
      * no runtime dependencies.
      *
@@ -699,7 +765,7 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
             return List.of();
         }
 
-        List<LayerBuilder.Dep> deps = collectRuntimeDeps();
+        List<LayerBuilder.Dep> deps = prepareApplication().dependencies();
         if (deps.isEmpty()) {
             getLog().warn("brewlet.layered=true but the project has no runtime "
                     + "dependencies; shipping the JAR layer only.");
