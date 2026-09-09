@@ -95,7 +95,7 @@ capability model.
               │               │   brewlet          │           │  │ Sandbox              │  │
               │               └────────────────────┘           │  │ (cgroup + netns)     │  │
               │                                                │  │ java -jar            │  │
-              └─────── shim pulls pod image ──────────────►     │  │ /app/app.jar         │  │
+              └─────── shim pulls pod image ──────────────►    │  │ /app/app.jar         │  │
                                                                │  │ (node JDK RO)        │  │
                                                                │  └──────────────────────┘  │
                                                                └────────────────────────────┘
