@@ -46,6 +46,13 @@ final class TestApplications {
                                 Thread.currentThread().interrupt();
                             }
                         }));
+                    if (args.length > 1 && args[1].equals("report-shutdown"))
+                        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                            System.out.println("SERVER STOPPING");
+                            System.err.println("SERVER STDERR STOPPING");
+                            System.out.print("SERVER STOPPED WITHOUT NEWLINE");
+                            System.out.flush();
+                        }));
                     System.out.println("SERVER STARTED");
                     System.out.flush();
                     Thread.sleep(60000);

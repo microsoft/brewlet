@@ -340,9 +340,11 @@ public class AppCdsMojo extends AbstractBrewletMojo {
 
             training.checkOutput();
             getLog().info("  sending SIGTERM to let the app shut down and flush the archive");
-            process.destroy();
+            // Process.destroy() closes the pipes on Linux. Signal the owned child
+            // without closing stdout/stderr so the pump can drain shutdown output.
+            process.toHandle().destroy();
             if (!process.waitFor(shutdownGraceSeconds, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
+                process.toHandle().destroyForcibly();
                 throw new MojoExecutionException("Training JVM did not exit within "
                         + shutdownGraceSeconds + "s of SIGTERM; the archive was likely not flushed. "
                         + "Ensure the app shuts down gracefully on SIGTERM, or raise "
@@ -463,10 +465,10 @@ public class AppCdsMojo extends AbstractBrewletMojo {
             MojoExecutionException failure = null;
             try {
                 if (process.isAlive()) {
-                    process.destroy();
+                    process.toHandle().destroy();
                     interrupted |= waitForCleanup(process, 5);
                     if (process.isAlive()) {
-                        process.destroyForcibly();
+                        process.toHandle().destroyForcibly();
                         interrupted |= waitForCleanup(process, 5);
                     }
                 }

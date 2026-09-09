@@ -98,11 +98,57 @@ class AppCdsLifecycleTest {
         TestApplications.set(mojo, "shutdownGraceSeconds", 10);
         Path archive = root.resolve("signal.jsa");
         List<String> command = command(false);
+        command.add("report-shutdown");
         command.add(1, "-XX:ArchiveClassesAtExit=" + archive);
+        List<String> output = java.util.Collections.synchronizedList(new ArrayList<>());
+        mojo.setLog(new SystemStreamLog() {
+            @Override public void info(CharSequence content) { output.add(content.toString()); }
+        });
         int code = mojo.runSignalTraining(command, root.toFile());
         assertTrue(code == 0 || code == 143);
         assertTrue(Files.size(archive) > 0);
         assertReaped(readPid());
+        for (String message : List.of("SERVER STOPPING", "SERVER STDERR STOPPING",
+                "SERVER STOPPED WITHOUT NEWLINE")) {
+            assertTrue(output.stream().anyMatch(line -> line.contains(message)),
+                    "Training output was closed before shutdown output drained: " + message);
+        }
+    }
+
+    @Test
+    void shutdownOutputFailureIsNotSilentlyIgnored() throws Exception {
+        AppCdsMojo mojo = mojo();
+        TestApplications.set(mojo, "timeoutSeconds", 10);
+        TestApplications.set(mojo, "readyLog", "SERVER STARTED");
+        TestApplications.set(mojo, "shutdownGraceSeconds", 10);
+        List<String> command = command(false);
+        command.add("report-shutdown");
+        mojo.setLog(new SystemStreamLog() {
+            @Override public void info(CharSequence content) {
+                if (content.toString().contains("SERVER STDERR STOPPING")) {
+                    throw new IllegalStateException("failed shutdown log sink");
+                }
+            }
+        });
+        MojoExecutionException failure = assertThrows(MojoExecutionException.class,
+                () -> mojo.runSignalTraining(command, root.toFile()));
+        assertInstanceOf(IllegalStateException.class, failure.getCause());
+        assertReaped(readPid());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Stream closed", "deliberate read failure"})
+    void genuineOutputReadFailuresRemainVisible(String message) throws Exception {
+        var failure = new java.io.IOException(message);
+        var brokenStream = new java.io.InputStream() {
+            @Override public int read() throws java.io.IOException { throw failure; }
+        };
+        AtomicReference<Throwable> observed = new AtomicReference<>();
+        var pump = AppCdsMojo.class.getDeclaredMethod("pumpOutput", java.io.InputStream.class,
+                java.util.regex.Pattern.class, CountDownLatch.class, AtomicReference.class);
+        pump.setAccessible(true);
+        pump.invoke(mojo(), brokenStream, null, null, observed);
+        assertSame(failure, observed.get(), "Real I/O errors must not be suppressed based on their message");
     }
 
     @Test
