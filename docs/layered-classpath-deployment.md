@@ -62,10 +62,10 @@ entire dependency payload too.
 
 | Symptom | Cause |
 |---|---|
-| **Full re-push every build** | One layer, one digest — no sub-part can be deduped. A 5 KB code change re-uploads 150–250 MB. |
-| **Full re-pull on the node** | The containerd content store dedups by layer digest; a new fat-JAR digest is a cache miss, so the shim fetches the whole thing again. |
+| **Whole fat-JAR layer changes** | One layer has one digest: changing a class changes that layer's identity. Transfer size depends on the actual archive; unchanged separate layers can still be reused. |
+| **Changed layer must be pulled** | Containerd CRI pulls missing image layers into its content store; a new fat-JAR layer digest is a cache miss. The shim resolves those local blobs rather than fetching from the registry itself. |
 | **No cross-app sharing** | Two services on the same Spring Boot BOM still store their dependencies twice — the bytes are identical but buried in different fat-JAR digests. |
-| **Slow cold pulls** | Startup latency ([§13](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)) includes pulling the artifact; a smaller changed-layer pull is a faster cold start. |
+| **Artifact-transfer overhead** | Smaller changed layers can reduce transfer work. Overall startup latency ([§13](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)) also depends on JVM startup and application initialization. |
 
 ### 2.3 Prior art: layered JARs
 

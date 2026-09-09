@@ -1,9 +1,14 @@
-# Getting started with the released CLI
+# Getting started locally
 
-In this local quick start you will download Brewlet v0.4.0, build a small Java
+In this local quick start you will obtain Brewlet, build a small Java
 application, package only its JAR into an OCI layout, inspect it, and run it with
-your installed JDK. You do not need Go, Docker, Kubernetes, or a Brewlet source
-build.
+your installed JDK. You do not need Docker or Kubernetes.
+
+**Private preview:** repository and package access are required today. Public
+documentation does not make the repository, release assets, or GHCR packages
+public. Use the source-build path below with an authorized account; the
+unauthenticated installer is an alternative only when release assets are
+publicly accessible.
 
 ## Prerequisites
 
@@ -11,7 +16,8 @@ You need:
 
 - JDK 21 or newer;
 - Maven 3.9 or newer;
-- `curl` and `tar`; and
+- Git, Go 1.26+, and `make` for the source-build path;
+- `curl` (plus `tar` for release downloads); and
 - macOS or Linux on `amd64` or `arm64`.
 
 Confirm the tools before continuing:
@@ -22,9 +28,33 @@ mvn -version
 curl --version
 ```
 
-## 1. Install Brewlet
+## 1. Obtain Brewlet and the example source
 
-Run the installer. It detects macOS or Linux and `amd64` or `arm64`, downloads
+### Private preview: authenticated source checkout
+
+Configure your normal Git credential helper or SSH access first. Never put
+tokens in URLs or shell history. From a directory where you keep projects:
+
+```bash
+git clone https://github.com/microsoft/brewlet.git
+cd brewlet
+make binaries
+export PATH="$PWD/bin:$PATH"
+export BREWLET_WORK="$PWD/target/brewlet-quickstart"
+export BREWLET_REF="demo/hello:local"
+mkdir -p "$BREWLET_WORK"
+brewlet version
+```
+
+The CLI reports the source build's version, which need not be `0.4.0`. Continue
+at step 2 from this checkout.
+
+### Alternative: publicly accessible release assets
+
+Skip this alternative when building from source. It requires no Go toolchain.
+The installer does not authenticate private release downloads: a 404 or access
+error is not solved by retrying anonymously. When the assets are public, it
+detects macOS or Linux and `amd64` or `arm64`, downloads
 the matching release archive, and verifies its SHA-256 checksum before
 installing it:
 
@@ -41,13 +71,12 @@ The last command must print `0.4.0`.
 Without `BREWLET_VERSION`, the installer selects the latest release. Set
 `BREWLET_INSTALL_DIR` to choose a directory other than `$HOME/.local/bin`.
 
-## 2. Build the release example
-
 Download the example source from the matching release tag. This builds the
 application only; it does not build Brewlet.
 
 ```bash
-export BREWLET_WORK="${TMPDIR:-/tmp}/brewlet-quickstart-${BREWLET_VERSION}"
+export BREWLET_WORK="$PWD/brewlet-quickstart-${BREWLET_VERSION}"
+export BREWLET_REF="demo/hello:${BREWLET_VERSION}"
 mkdir -p "$BREWLET_WORK"
 
 curl -fL \
@@ -55,7 +84,13 @@ curl -fL \
   -o "$BREWLET_WORK/source.tar.gz"
 tar -xzf "$BREWLET_WORK/source.tar.gz" -C "$BREWLET_WORK"
 cd "$BREWLET_WORK/brewlet-${BREWLET_VERSION}"
+```
 
+## 2. Build the example
+
+From the source checkout or extracted release source:
+
+```bash
 mvn -f integration-tests/fixtures/demo-app/pom.xml clean package
 test -f integration-tests/fixtures/demo-app/target/app.jar
 ```
@@ -64,10 +99,9 @@ The result is an ordinary executable JAR. It contains neither Linux nor a JDK.
 
 ## 3. Package only the application
 
-Use the released CLI to write a native Brewlet artifact to a local OCI layout:
+Use the CLI to write a native Brewlet artifact to a local OCI layout:
 
 ```bash
-export BREWLET_REF="demo/hello:${BREWLET_VERSION}"
 export BREWLET_STORE="$BREWLET_WORK/oci"
 
 brewlet push \
@@ -134,7 +168,8 @@ and Linux; executing the bundle with `runc` is a Linux node operation.
 
 ## What you proved
 
-- Brewlet itself came from the public v0.4.0 release.
+- Brewlet came from your authorized source checkout or, when accessible, the
+  checksum-verified v0.4.0 release.
 - The application payload contains only the JAR and launch metadata.
 - A node-resident JDK can run the packaged application directly.
 - Brewlet can translate the same artifact into an OCI runtime bundle with

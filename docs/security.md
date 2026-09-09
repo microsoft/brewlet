@@ -145,9 +145,12 @@ be discovered or verified.
 
 ## Centralized JDK CVE management
 
-The single biggest security win: the JVM lives on the node, shared across workloads.
-**Patching the node JDK patches every workload at once** — no rebuilding and
-re-pushing hundreds of images to ship a JVM CVE fix. See
+The platform team controls the node JDK independently of application images.
+Updating that installation makes the new runtime available to subsequent
+launches; **running JVMs are not patched in place**. Roll or restart affected
+workloads to move them off their retained old roots. Application images do not
+need to be rebuilt solely for that JDK update, but their own dependency
+vulnerabilities still require application remediation. See
 [JDK management](jdk-management.md#patching-upgrading-jdks).
 
 ---

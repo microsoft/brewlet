@@ -265,12 +265,12 @@ fall back to base CDS through the `skip`/`defer` roles.
 `brewlet bundle` additionally partitions the local cache by its trusted
 `--uid`; the unsandboxed `brewlet run` path uses a host-local identity bucket.
 
-The verified patch-invalidation (§2.1) makes build-time generation structurally at
-odds with Brewlet's core promise — *patch the node JDK once, patch everything*. A
-build-time archive goes stale on the **next** central patch, and a `.jsa` is also
-**arch-specific**, so shipping one breaks the "same artifact runs on any arch"
-property. Node-side regeneration removes both problems by decoupling the archive
-from the shipped artifact entirely.
+The verified patch-invalidation (§2.1) makes build-time archives sensitive to
+independent node JDK updates. A workload restarted on a different JDK build may
+no longer use its old archive, and a `.jsa` is also **arch-specific**. Existing
+JVMs keep their original runtime until they stop; updating the node does not
+patch those processes in place. Node-side regeneration keys new archives to the
+runtime actually selected for a launch, independently of the shipped artifact.
 
 The node generates/refreshes an archive lazily from four trusted identity
 inputs:
@@ -449,9 +449,10 @@ content-store blobs.
 
 ## 6. JDK coupling and safe fallback
 
-Brewlet's value: *patch the node JDK once, patch everything.* An AppCDS archive is
-validated against the JDK's exact build identity (not the feature or patch
-version); after **any** patch it no longer applies (verified, §2.1).
+Brewlet separates node runtime updates from application-image rebuilds. After
+workloads roll onto the updated runtime, their AppCDS archives must match that
+JDK's exact build identity, not just its feature or patch-version label. A
+different build invalidates the prior archive (verified, §2.1).
 
 Mitigations, in order of preference:
 

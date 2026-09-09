@@ -1,7 +1,7 @@
 <!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 366" role="img" aria-labelledby="ttl desc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
   <title id="ttl">Brewlet high-level architecture</title>
-  <desc id="desc">Two independent sources feed one worker node. In Developer/CI, mvn package and oras push publish an artifact to an OCI Registry. In the control plane, brewlet-operator generates a Deployment/Pod with runtimeClassName brewlet, and schedules and annotates the worker node. On the worker node, the shim pulls the OCI artifact from the registry; containerd-shim-brewlet hands off to runc, which runs the Sandbox (cgroup and netns) as java -jar /app/app.jar with the node JDK mounted read-only.</desc>
+  <desc id="desc">CI publishes a runnable application image to an OCI registry using the Maven plugin. The operator generates a Deployment/Pod with runtimeClassName brewlet and Kubernetes schedules it. On the worker, containerd CRI pulls the image; the shim resolves verified content-store blobs and hands off to runc. The sandbox runs java -jar /app/app.jar with the node JDK mounted read-only.</desc>
   <style>
     .box{fill:#fff;stroke:#e7dcc9;stroke-width:1;filter:url(#sh)}
     .outer{fill:#fbf7f0;stroke:#e7dcc9;stroke-width:1;filter:url(#sh)}
@@ -30,10 +30,10 @@
   <path class="flow" d="M512,96 L654,96" marker-end="url(#ah)"/>
   <text class="flab" x="583" y="86" text-anchor="middle">schedules · annotates</text>
 
-  <!-- OCI Registry -> worker node: shim pulls the artifact (routed along the base) -->
+  <!-- OCI Registry -> worker node: CRI pulls the image (routed along the base) -->
   <path class="flow" d="M122,214 L122,338 Q122,350 134,350 L788,350 Q800,350 800,338 L800,290" marker-end="url(#ah)"/>
   <rect class="mask" x="380" y="339" width="162" height="18"/>
-  <text class="flab" x="461" y="354" text-anchor="middle">shim pulls OCI artifact</text>
+  <text class="flab" x="461" y="354" text-anchor="middle">CRI pulls OCI image</text>
 
   <!-- ============ Developer / CI ============ -->
   <text class="lane" x="122" y="22" text-anchor="middle">DEVELOPER / CI</text>
@@ -41,8 +41,8 @@
   <text class="ttl" x="42" y="65">Build &amp; push</text>
   <rect class="chip" x="42" y="74" width="100" height="20" rx="6"/>
   <text class="mono" x="49" y="88.5">mvn package</text>
-  <rect class="chip" x="42" y="98" width="82" height="20" rx="6"/>
-  <text class="mono" x="49" y="112.5">oras push</text>
+  <rect class="chip" x="42" y="98" width="130" height="20" rx="6"/>
+  <text class="mono" x="49" y="112.5">mvn brewlet:push</text>
   <line class="flow" x1="122" y1="126" x2="122" y2="150" marker-end="url(#ah)"/>
   <rect class="box accent" x="24" y="152" width="196" height="62" rx="10"/>
   <text class="ttl" x="42" y="181">OCI Registry</text>

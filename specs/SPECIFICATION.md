@@ -95,7 +95,7 @@ capability model.
               │               │   brewlet          │           │  │ Sandbox              │  │
               │               └────────────────────┘           │  │ (cgroup + netns)     │  │
               │                                                │  │ java -jar            │  │
-              └─────── shim pulls pod image ──────────────►    │  │ /app/app.jar         │  │
+              └─────── CRI pulls pod image ───────────────►    │  │ /app/app.jar         │  │
                                                                │  │ (node JDK RO)        │  │
                                                                │  └──────────────────────┘  │
                                                                └────────────────────────────┘
@@ -1720,8 +1720,11 @@ other, so each shape behaves as plain Kubernetes does:
   Manager, the node provisioner is privileged and mutates the host. Scope it to
   platform-owned node pools; document the blast radius, and do not use it on
   hostile multi-tenant nodes.
-- **JDK CVE management is centralized.** Patching the node JDK patches *all*
-  workloads at once — a major advantage over per-image JVMs.
+- **JDK CVE management is centralized.** Node runtime updates do not require
+  rebuilding application images, but running JVMs retain their selected roots.
+  A workload rollout or restart is required to use the patched runtime; there
+  is no in-place update of an already-running JVM. Application dependency
+  remediation remains the application's responsibility.
 
 ---
 

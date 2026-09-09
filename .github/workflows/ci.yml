@@ -158,6 +158,9 @@ jobs:
       - name: Lint and render chart
         run: make helm-check
 
+      - name: Check site and installation contracts
+        run: make -C .. site-contract-check
+
   supply-chain:
     name: Workflow supply chain
     runs-on: ubuntu-latest

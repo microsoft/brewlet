@@ -401,8 +401,11 @@ metadata, resolves it directly from the content store, and verifies that the
 selected platform manifest has the config digest CRI recorded for the
 container. Tag-only requests are rejected before launch. The admission webhook
 mirrors the target digest in `brewlet.sh/artifact-digest` only as a
-cross-checked compatibility hint. Digest pinning is also the basis for
-cosign/SLSA supply-chain policy. See [Security](security.md).
+cross-checked compatibility hint. The shipped managed-dependency admission
+example verifies Brewlet DSSE attestations against this immutable image identity.
+General cosign or standard SLSA admission for application images remains roadmap
+work; component-release build provenance is a separate shipped capability.
+See [Security](security.md).
 
 ---
 
@@ -411,7 +414,8 @@ cosign/SLSA supply-chain policy. See [Security](security.md).
 - No `Dockerfile`.
 - No base image to pick, pin, or patch.
 - No JVM copied into an image.
-- No multi-hundred-MB push — **only the JAR moved over the wire**.
+- No OS or JDK layers in the application payload. Transfer size still depends
+  on application dependencies, optional CDS archives, and existing layer caches.
 
 ## Next steps
 

@@ -58,25 +58,27 @@ Next steps:
 
      kubectl get nodes -L brewlet.sh/runtime
 
-3. Deploy a JAR — reference the OCI artifact as the container image and route it
-   with runtimeClassName: brewlet. Optionally request a specific JDK/launcher:
+3. Deploy a runnable OCI image — use the full digest reported when publishing
+   your application (replace the placeholder below), and route it with
+   runtimeClassName: brewlet. Request a JDK installed on your ready nodes:
 
      metadata:
        annotations:
          brewlet.sh/jdk: "21"        # or "temurin-21"; matched against ready nodes
-         brewlet.sh/launcher: "jaz"  # optional; must be installed on a ready node
+         # brewlet.sh/launcher: "jaz"  # only if explicitly installed
      spec:
        runtimeClassName: brewlet
        containers:
-         - image: registry.example.com/demo/hello:1.0.0
+         - image: registry.example.com/demo/hello@sha256:<64-lowercase-hex>
 
-   See deploy/raw-deployment.yaml for a full Deployment + Service + probe.
+   See https://brewlet.sh/docs/deploying-workloads/ for the image publishing
+   and deployment steps. Example manifests must be configured before applying.
 
    …or let the operator do the wiring — apply a JavaApplication descriptor and it
    reconciles the Deployment + Service + HPA for you
    (see https://github.com/microsoft/brewlet/tree/main/specs):
 
-     kubectl apply -f deploy/sample-javaapplication.yaml
+     kubectl apply -f my-javaapplication.yaml
      kubectl get javaapplication -A
 
 Uninstall safely:

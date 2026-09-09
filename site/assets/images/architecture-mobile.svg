@@ -1,7 +1,7 @@
 <!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 486" role="img" aria-labelledby="ttl desc" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
   <title id="ttl">Brewlet high-level architecture</title>
-  <desc id="desc">Two independent sources feed one worker node. Developer/CI runs mvn package and oras push to an OCI Registry. The control plane's brewlet-operator generates a Deployment/Pod and schedules it. The registry artifact and the scheduled pod both converge on the worker node, where containerd-shim-brewlet hands off to runc to run the Sandbox as java -jar /app/app.jar with the node JDK mounted read-only.</desc>
+  <desc id="desc">CI publishes a runnable application image using the Maven plugin. The operator generates a Deployment/Pod and Kubernetes schedules it. Containerd CRI pulls the image on the worker; the shim resolves verified content-store blobs and delegates to runc. The sandbox runs java -jar /app/app.jar with the node JDK mounted read-only.</desc>
   <style>
     .box{fill:#fff;stroke:#e7dcc9;stroke-width:1;filter:url(#sh)}
     .outer{fill:#fbf7f0;stroke:#e7dcc9;stroke-width:1;filter:url(#sh)}
@@ -29,7 +29,7 @@
   <path class="flow" d="M92,170 C 92,206 128,214 168,236" marker-end="url(#ah)"/>
   <path class="flow" d="M268,170 C 268,206 232,214 192,236" marker-end="url(#ah)"/>
   <rect class="mask" x="30" y="188" width="118" height="14"/>
-  <text class="flab" x="90" y="198" text-anchor="middle">shim pulls artifact</text>
+  <text class="flab" x="90" y="198" text-anchor="middle">CRI pulls image</text>
   <rect class="mask" x="238" y="188" width="66" height="14"/>
   <text class="flab" x="270" y="198" text-anchor="middle">schedules</text>
 
@@ -39,8 +39,8 @@
   <text class="ttl" x="24" y="47">Build &amp; push</text>
   <rect class="chip" x="24" y="57" width="78" height="17" rx="4"/>
   <text class="mono" x="29" y="69">mvn package</text>
-  <rect class="chip" x="24" y="79" width="65" height="17" rx="4"/>
-  <text class="mono" x="29" y="91">oras push</text>
+  <rect class="chip" x="24" y="79" width="120" height="17" rx="4"/>
+  <text class="mono" x="29" y="91">mvn brewlet:push</text>
   <line class="flow" x1="92" y1="102" x2="92" y2="118" marker-end="url(#ah)"/>
   <rect class="box accent" x="10" y="120" width="164" height="50" rx="8"/>
   <text class="ttl" x="24" y="143">OCI Registry</text>
