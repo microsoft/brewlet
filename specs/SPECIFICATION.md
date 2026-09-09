@@ -1,6 +1,6 @@
 # Brewlet — The JVM analogue to SpinKube
 
-**Version:** 0.1
+**Version:** 0.4.0
 
 **Audience:** Platform engineers, Kubernetes operators, JVM platform owners
 
@@ -95,7 +95,7 @@ capability model.
               │               │   brewlet          │           │  │ Sandbox              │  │
               │               └────────────────────┘           │  │ (cgroup + netns)     │  │
               │                                                │  │ java -jar            │  │
-              └─────── shim pulls pod image ──────────────►     │  │ /app/app.jar         │  │
+              └─────── shim pulls pod image ──────────────►    │  │ /app/app.jar         │  │
                                                                │  │ (node JDK RO)        │  │
                                                                │  └──────────────────────┘  │
                                                                └────────────────────────────┘
