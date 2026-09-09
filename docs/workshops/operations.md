@@ -25,10 +25,6 @@ kubectl auth can-i create customresourcedefinitions.apiextensions.k8s.io
 ```
 
 Do not use a production or shared cluster for this preproduction workshop.
-The current private preview requires **repository and package access**; public
-documentation alone does not grant access to release assets or GHCR packages.
-Use an authorized Git credential helper or SSH setup and your organization's
-registry credential mechanism. Never put access tokens in URLs or shell history.
 
 Set the Brewlet release and application registry used by both workshop parts:
 
@@ -37,23 +33,23 @@ export BREWLET_VERSION="0.4.0"
 export BREWLET_REGISTRY="<registry-host>/<team>"
 ```
 
-Authenticate with the registry using your organization's normal mechanism.
+Authenticate with your application registry using your organization's normal
+mechanism. Never put access tokens in URLs or shell history. Brewlet's released
+CLI, chart, and component images can be downloaded without registry credentials.
 
-Build the CLI from an authorized checkout using Go 1.26+ and `make`:
+Install the released CLI with the
+[checksum-verifying installer](../getting-started.md#install-the-released-cli-recommended):
 
 ```bash
-git clone https://github.com/microsoft/brewlet.git
-cd brewlet
-make binaries
-export PATH="$PWD/bin:$PATH"
+curl -fsSL https://brewlet.sh/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 brewlet version
 ```
 
-Alternatively, **only when release assets are publicly accessible**, the
-[checksum-verifying installer](../getting-started.md#alternative-publicly-accessible-release-assets)
-can install the released CLI. It does not authenticate private downloads.
-Use the same source revision or release as the platform components. If component
-packages are unavailable, follow the [source-build installation path](../installation.md#released-components).
+The CLI must report the version in `BREWLET_VERSION`, matching the chart and
+components used below. No Go toolchain or source build is required. For custom
+component builds, follow the [source-build installation path](../installation.md#released-components)
+and use the same source revision for the CLI.
 
 ## 2. Preview the installation
 
@@ -74,8 +70,7 @@ image's supported node architectures and JDK root. This is a template, not a
 shipped runtime catalog. Keep this file for installation and upgrades. If you
 choose a different Java feature, update `BREWLET_JDK` in the developer handoff.
 
-With access to the chart and component packages, render and inspect the chart
-before applying it:
+Render and inspect the released chart before applying it:
 
 ```bash
 export BREWLET_POOL="java-workers"

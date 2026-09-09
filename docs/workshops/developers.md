@@ -18,20 +18,18 @@ export BREWLET_VERSION="0.4.0"
 export BREWLET_REGISTRY="<registry-host>/<team>"
 ```
 
-You also need JDK 21+, Maven 3.9+, `kubectl`, `curl`, registry push credentials,
-and source access. **The current private preview requires repository and package
-access** even though the documentation is public. Configure your authorized Git
-credential helper or SSH setup before cloning; never embed tokens in URLs or
-shell history. Use the revision supplied by Ops (or the matching release tag
-when available):
+You also need JDK 21+, Maven 3.9+, Git, `kubectl`, `curl`, `tar`, and credentials
+for your application registry. Clone the example source from the release tag
+matching the platform handoff:
 
 ```bash
-git clone https://github.com/microsoft/brewlet.git
+git clone --depth 1 --branch "v${BREWLET_VERSION}" https://github.com/microsoft/brewlet.git
 cd brewlet
 ```
 
-Check out the source revision supplied by Ops before building. If Ops used
-released components, use the matching `v${BREWLET_VERSION}` tag.
+If Ops used custom source-built components, use the source revision they supply
+instead. Brewlet's source and release downloads do not require repository
+credentials.
 
 The registry repository must be readable by the cluster nodes.
 
@@ -44,17 +42,18 @@ kubectl auth can-i create javaapplications.apps.brewlet.sh -n "$BREWLET_NAMESPAC
 kubectl get runtimeclass brewlet
 ```
 
-Build the CLI from this checkout (Go 1.26+ and `make` required):
+Install the released CLI with the
+[checksum-verifying installer](../getting-started.md#install-the-released-cli-recommended):
 
 ```bash
-make binaries
-export PATH="$PWD/bin:$PATH"
+curl -fsSL https://brewlet.sh/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+brewlet version
 ```
 
-Alternatively, **only when release assets are publicly accessible**, use the
-[checksum-verifying installer](../getting-started.md#alternative-publicly-accessible-release-assets).
-It does not authenticate private downloads. Run the same readiness check used
-by Ops:
+The CLI must report `BREWLET_VERSION`. For custom source-built components, use
+the [matching source-built CLI](../getting-started.md#alternative-build-from-source)
+instead. Run the same readiness check used by Ops:
 
 ```bash
 brewlet doctor \
@@ -84,19 +83,12 @@ The output is an ordinary executable JAR. It contains neither Linux nor a JDK.
 
 ## 3. Install and exercise the Maven plugin
 
-For the private preview, build and install the plugin from the same authorized
-checkout. The source POM may use a snapshot version distinct from the release:
-
-```bash
-mvn -f maven-plugin/pom.xml install
-export PLUGIN_VERSION="$(mvn -q -f maven-plugin/pom.xml help:evaluate \
-  -Dexpression=project.version -DforceStdout)"
-```
-
-Alternatively, **only when release assets are publicly accessible**, the
-released plugin JAR and POM can be downloaded while Maven Central publication
-is being established. Verify the release's checksums and build provenance
-before installing ([release verification](../installation.md#verify-a-release)):
+Download the released plugin JAR and POM from GitHub Releases and install them
+in your local Maven repository. No plugin source build is required. Verify the
+release's checksums and build provenance before installing
+([release verification](../installation.md#verify-a-release)); these verification
+commands require the GitHub CLI installed and authenticated through its normal
+credential store:
 
 ```bash
 mkdir -p target/brewlet-release

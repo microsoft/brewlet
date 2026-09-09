@@ -33,13 +33,11 @@ There are two paths:
 
 ### Released components
 
-**The current private preview requires repository and package access.** Use your
-authorized Git credential helper or SSH setup for source access, and your
-organization's registry credential mechanism for Helm and component pulls.
-Do not put tokens in command arguments or URLs. The public documentation is
-accessible independently of these private assets. Anonymous installer/download
-commands work only once the relevant release assets are publicly accessible;
-they do not provide an authenticated transport.
+Brewlet's source, CLI downloads, component images, and Helm chart are publicly
+available. Install the released CLI with the
+[checksum-verifying installer](getting-started.md#install-the-released-cli-recommended)
+and use the published chart below. Downloading Brewlet releases and pulling its
+chart and component images does not require repository or package credentials.
 
 Use a disposable evaluation cluster; Brewlet is preproduction software. Start
 with the fresh Helm install below, not the existing-installation migration
@@ -89,8 +87,8 @@ the OCI Helm chart, and every GitHub Release asset. Provenance for images and th
 chart is pushed to GHCR as an OCI referrer, so it can be verified straight from
 the registry without trusting the release page.
 
-With repository/package access and the GitHub CLI authenticated through its
-normal credential store, verify everything for a release in one step:
+With the GitHub CLI installed and authenticated through its normal credential
+store, verify everything for a release in one step:
 
 ```bash
 git clone https://github.com/microsoft/brewlet.git
@@ -161,7 +159,7 @@ provisioner:
 ```
 
 Choose an existing node pool named `java-workers`, or replace it in the command.
-With chart/package access and registry authentication configured:
+Install the released chart:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
@@ -303,8 +301,7 @@ kubectl apply -f \
   "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/javaapplication-crd.yaml"
 ```
 
-Raw release URLs above also require public availability. During the private
-preview, use the CRDs from your authenticated checkout of the target revision
+For source-built components, use the CRDs from the matching source revision
 instead. For an ordinary upgrade with compatible profiles, after updating CRDs:
 
 ```bash
@@ -393,7 +390,7 @@ helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
 ## Manual (without Helm)
 
 Manual deployment is an advanced assembly path, not a second one-command
-installation. Start from an authorized checkout matching your component
+installation. Start from a source checkout matching your component
 revision, then prepare reviewed manifests:
 
 - Apply `kubernetes/deploy/nodeprofile-crd.yaml` and
@@ -450,7 +447,7 @@ with a blanket label command. All operator and admission flags are in
 ## Verify the installation
 
 ```bash
-# Use the CLI from the same authorized source revision or accessible release.
+# Use the CLI from the same release or source revision as the cluster components.
 brewlet doctor --namespace default
 
 # 1. Components are running:

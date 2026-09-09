@@ -322,9 +322,9 @@ JDK. Test-only settings are ignored, and ambiguous or unresolved authority fails
 with override guidance instead of silently selecting the build machine's JDK.
 See the [complete inference precedence](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#jdk-inference).
 
-Until the plugin is published to Maven Central, download its JAR and POM from
+Download the released plugin JAR and POM from
 the [GitHub release](https://github.com/microsoft/brewlet/releases/tag/v0.4.0) and
-install them once:
+install them once in your local Maven repository:
 
 ```bash
 curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.4.0/brewlet-maven-plugin-0.4.0.jar
