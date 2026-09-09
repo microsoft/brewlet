@@ -27,6 +27,7 @@ binaries: ## Build the CLI and containerd shim into bin/
 test: ## Run all tests with the race detector
 	go -C core test -race ./...
 	bash provisioner/entrypoint_test.sh
+	bash scripts/check-release-version_test.sh
 
 vet: ## Run Go static analysis
 	go -C core vet ./...

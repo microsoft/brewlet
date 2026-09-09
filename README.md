@@ -172,6 +172,10 @@ feature requests. See [SUPPORT.md](SUPPORT.md) for support expectations and
 
 ## Releases
 
+Before creating a release tag, update and commit the
+[specification version](specs/README.md#versioning-and-citations) to match the
+release. The release workflow checks this before publishing any artifacts.
+
 Tags matching `v*` publish version-aligned artifacts:
 
 | Artifact | Location |
