@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -201,7 +202,9 @@ func (s Store) PushDependencyBundle(ref string, cfg DependencyBundleConfig, lock
 	if err != nil {
 		return Descriptor{}, fmt.Errorf("read dependency classpath layer: %w", err)
 	}
-	if err := validateDependencyTar(tarBytes, lock); err != nil {
+	// Source tars may use formats handled by archive/tar; the published layer
+	// is re-encoded below as USTAR. Consumed bundles require USTAR directly.
+	if err := validateDependencyTarRecords(tarBytes, lock, false); err != nil {
 		return Descriptor{}, err
 	}
 	tarBytes, err = canonicalDependencyTar(tarBytes, lock)
@@ -457,22 +460,54 @@ func (m Manifest) ManagedDependencyEvidence() (ManagedDependencyEvidence, bool, 
 }
 
 func validateDependencyTar(raw []byte, lock DependencyLock) error {
+	return validateDependencyTarRecords(raw, lock, true)
+}
+
+func validateDependencyTarRecords(raw []byte, lock DependencyLock, requireUSTAR bool) error {
+	const block = 512
+	if len(raw) < 2*block || len(raw)%block != 0 {
+		return fmt.Errorf("dependency classpath tar has invalid block framing or is truncated")
+	}
 	expected := make(map[string]string, len(lock.Artifacts))
 	for _, entry := range lock.Artifacts {
 		expected[entry.FileName] = entry.SHA256
 	}
 	seen := map[string]struct{}{}
-	tr := tar.NewReader(bytes.NewReader(raw))
+	input := bytes.NewReader(raw)
+	tr := tar.NewReader(input)
+	nextHeader := 0
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
+			// archive/tar accepts EOF without terminators and ignores bytes
+			// after them. Managed bundles require complete, zero-only framing.
+			if len(raw)-input.Len()-nextHeader < 2*block || !zeroDependencyTarBytes(raw[nextHeader:]) {
+				return fmt.Errorf("dependency classpath tar has missing end blocks or nonzero trailing data")
+			}
 			break
 		}
 		if err != nil {
 			return fmt.Errorf("read dependency classpath tar: %w", err)
 		}
-		if header.Typeflag != tar.TypeReg || filepath.Base(header.Name) != header.Name || !strings.HasSuffix(strings.ToLower(header.Name), ".jar") {
+		if requireUSTAR && header.Format != tar.FormatUSTAR {
+			return fmt.Errorf("dependency classpath layer must use USTAR headers")
+		}
+		if header.Typeflag != tar.TypeReg || !utf8.ValidString(header.Name) ||
+			strings.ContainsAny(header.Name, `/\`) || !strings.HasSuffix(strings.ToLower(header.Name), ".jar") {
 			return fmt.Errorf("dependency classpath layer entry %q must be a flat regular JAR", header.Name)
+		}
+		dataStart := len(raw) - input.Len()
+		if header.Size < 0 || header.Size > int64(len(raw)-dataStart) {
+			return fmt.Errorf("invalid dependency classpath tar size for %q", header.Name)
+		}
+		dataEnd := dataStart + int(header.Size)
+		padding := int((block - header.Size%block) % block)
+		if padding > len(raw)-dataEnd {
+			return fmt.Errorf("truncated dependency classpath tar padding for %q", header.Name)
+		}
+		nextHeader = dataEnd + padding
+		if !zeroDependencyTarBytes(raw[dataEnd:nextHeader]) {
+			return fmt.Errorf("nonzero dependency classpath tar padding for %q", header.Name)
 		}
 		want, ok := expected[header.Name]
 		if !ok {
@@ -502,6 +537,15 @@ func validateDependencyTar(raw []byte, lock DependencyLock) error {
 		return fmt.Errorf("dependency classpath layer is missing locked artifacts: %s", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+func zeroDependencyTarBytes(raw []byte) bool {
+	for _, value := range raw {
+		if value != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func validateMavenCoordinate(value string) error {

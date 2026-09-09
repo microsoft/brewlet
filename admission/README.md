@@ -27,9 +27,11 @@ have a Brewlet **managed-dependency attestation** that:
   dependency bundle, dependency layer, lock, and SBOM; and
 - names the expected application-builder identity **verbatim**.
 
-Anything missing, malformed, signed by the wrong key, naming the wrong identity,
-or bound to a different subject is **denied (fail closed)**. The node shim does
-not add a second signature-verification pass; it executes the same image digest
+Each candidate missing these claims, malformed, signed by the wrong key, naming
+the wrong identity, or bound to a different subject is rejected. The image is
+**denied (fail closed)** unless at least one candidate satisfies the **complete**
+contract; claims are never combined across candidates. The node shim does not
+add a second signature-verification pass; it executes the same image digest
 admitted here.
 
 ## How it works
@@ -115,9 +117,21 @@ Start the Gatekeeper constraint with `enforcementAction: warn` or `dryrun`,
 confirm results, then switch to `deny`.
 
 For non-Kubernetes verification (CI), `deploy/config.json` drives
-`ratify verify -s <image@sha256:...> -c deploy/config.json`. It uses
-`config-policy` because the CLI run registers only this one verifier; in a
-cluster use the Rego policy (`deploy/30`) — see "Verifier selection" below.
+`ratify verify -s <image@sha256:...> -c deploy/config.json`. Ratify v1.4.5's CLI
+supports the built-in `regoPolicy` provider with an inline `policy` and
+`passthroughEnabled: false`. The config uses the same verifier-name-bound rule
+as the cluster policy (`deploy/30`) — see "Verifier selection" below.
+
+**CI must check the JSON decision, not just the process exit status.** Ratify
+v1.4.5 can exit successfully after printing a denied result (with `isSuccess`
+false or omitted). Do not use `--silent` for an enforcement check. For example,
+with `jq` available:
+
+```bash
+set -o pipefail
+ratify verify -s "$IMAGE_DIGEST_REF" -c deploy/config.json |
+  jq -e '.isSuccess == true'
+```
 
 ## Production requirements and limitations
 
@@ -145,25 +159,32 @@ The trust anchor is a bare ECDSA P-256 public key (`trustedPublicKey` inline, or
 transparency log in this Brewlet contract. You must distribute and rotate the
 public key yourself. During rotation, publish attestations under both the old and
 new keys (Brewlet's per-referrer tags preserve multiple signatures) and configure
-the verifier with the currently trusted key. The shipped Rego policy is
-rotation-tolerant: it admits when **at least one** Brewlet attestation verifies
-(matching spec §4.5's "at least one candidate" rule), so a still-present old-key
-attestation neither blocks nor grants admission. (Do **not** use Ratify's
-`config-policy` with `all` for this — it would deny as soon as any old-key
-attestation fails; see the verifier-selection note below.)
+the verifier with the currently trusted key. Both shipped CLI and cluster Rego
+policies are rotation-tolerant: they admit when **at least one** Brewlet
+attestation verifies (matching spec §4.5's "at least one candidate" rule), so a
+still-present old-key attestation neither blocks nor grants admission. (Do
+**not** use Ratify's `config-policy` with `all` for this — it would deny as soon
+as any old-key attestation fails; see the verifier-selection note below.)
 
 ### Verifier selection: use the Rego policy, ban overlapping verifiers
-`deploy/30-ratify-policy.yaml` is a **Rego** policy that admits a subject only
-when the verifier named `brewlet-managed-dependencies` reported success for the
-Brewlet attestation artifact type. This is deliberate and security-relevant:
-Ratify's alternative `config-policy` only asks "did *some* verifier succeed for
-this artifact type?", and its executor runs only the **first** verifier whose
-`CanVerify` matches a referrer (nondeterministic map order) and then stops. If
-the cluster also has a wildcard/overlapping verifier, it could "verify" a Brewlet
-referrer **without running this plugin** — a bypass. The Rego policy runs every
+`deploy/config.json` and `deploy/30-ratify-policy.yaml` use **Rego** policies that
+admit a subject only when the verifier named `brewlet-managed-dependencies`
+reported success for the Brewlet attestation artifact type. This is deliberate
+and security-relevant:
+Ratify's alternative `config-policy` aggregates reports by artifact type, not
+verifier name, and its executor runs only the **first** verifier whose
+`CanVerify` matches a referrer and then stops (cluster ordering can be
+nondeterministic). If the cluster also has a wildcard/overlapping verifier, it
+could "verify" a Brewlet referrer **without running this plugin** — a bypass. The Rego policy runs every
 matching verifier and binds success to *this* verifier by name, closing that
-gap. Regardless, do not register a wildcard (`artifactTypes: "*"`) verifier that
-also claims `application/vnd.brewlet.attestation.v1+json`.
+gap in both CLI and cluster configurations. The CLI no longer depends on a
+single-verifier-only restriction for policy identity binding. The shipped
+config still registers only the Brewlet verifier; do not add a wildcard
+(`artifactTypes: "*"`) or overlapping verifier that also claims
+`application/vnd.brewlet.attestation.v1+json`. Success from another verifier or
+another artifact type cannot substitute for Brewlet verification. A separately
+named verifier cannot block a valid Brewlet candidate merely by reporting
+failure.
 
 ### Plugin delivery integrity
 Ratify executes the external verifier binary it loads (via `source.artifact` or a
@@ -251,18 +272,22 @@ The plugin returns `isSuccess: false` for every one of:
 | Manifest not exactly one DSSE layer | deny |
 | Registry manifest/blob fetch error | deny |
 | Non-digest / unresolved (tag-based) subject | deny |
-| No Brewlet attestation referrer at all | deny (Rego policy) |
+| No Brewlet attestation referrer at all | deny (CLI and cluster Rego policies) |
 | A different/wildcard verifier claims the artifact type | not admitted on its behalf (Rego binds this verifier by name) |
+
+These are per-candidate failures. An image with an additional complete, valid
+candidate is admitted; an image containing only rejected candidates is denied.
 
 ## Smoke test
 
 ```bash
-# Should PASS: an image published with a valid managed-dependency attestation
+# Should report isSuccess: true: an image with a valid managed-dependency attestation
 #   signed by the trusted key/identity.
 ratify verify -s registry.example.com/apps/orders@sha256:<digest> -c deploy/config.json
 
-# Should FAIL (deny): the same image verified against a DIFFERENT trusted key,
+# Should report denial: the same image verified against a DIFFERENT trusted key,
 #   or an image with no Brewlet attestation.
+# CI must enforce the JSON decision as shown above.
 ```
 
 In-cluster, apply the constraint in `deny` mode and confirm that a Brewlet pod
@@ -276,6 +301,14 @@ is admitted.
   interface with a fake store, covering the full fail-closed matrix above, plus
   config parsing.
 - `core/pkg/attest` tests cover the shared DSSE/predicate verification directly.
+- Policy component tests load both deployed policy configurations through
+  Ratify v1.4.5's actual policy factory and executor. An in-memory referrer store
+  and an in-process plugin transport exercise real DSSE verification without a
+  registry or cluster. The matrix covers old/new signer rotation in either
+  order, missing/all-invalid evidence, wrong key/builder/subject, tampered bundle
+  claims, no cross-candidate trust merging, and unrelated/overlapping verifier
+  success in either selection order. These are component tests, not
+  subprocess, registry, or Kubernetes deployment tests.
 
 Run:
 

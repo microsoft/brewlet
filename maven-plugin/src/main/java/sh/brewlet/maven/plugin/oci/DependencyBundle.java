@@ -13,6 +13,9 @@ import sh.brewlet.maven.plugin.model.DependencyLock;
 import java.io.IOException;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +30,8 @@ import java.util.zip.GZIPOutputStream;
 
 /** Builds, validates, and loads Brewlet managed dependency bundles. */
 public final class DependencyBundle {
+    private static final int TAR_BLOCK = 512;
+    private static final byte[] USTAR = {'u', 's', 't', 'a', 'r', 0, '0', '0'};
     private static final ObjectMapper CANONICAL = JsonMapper.builder()
             .enable(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
             .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
@@ -307,16 +312,38 @@ public final class DependencyBundle {
     }
 
     private static void validateLayer(byte[] tar, DependencyLock lock) throws IOException {
+        if (tar.length < 2 * TAR_BLOCK || tar.length % TAR_BLOCK != 0) {
+            throw new IOException("Invalid dependency classpath tar block framing or truncated archive");
+        }
         Map<String, String> expected = new HashMap<>();
         for (DependencyLock.Entry entry : lock.getDependencies()) {
             expected.put(entry.filename(), entry.sha256());
         }
         Set<String> seen = new HashSet<>();
         int offset = 0;
-        while (offset + 512 <= tar.length) {
-            if (allZero(tar, offset, 512)) {
+        boolean terminated = false;
+        while (offset < tar.length) {
+            if (allZero(tar, offset, TAR_BLOCK)) {
+                if (tar.length - offset < 2 * TAR_BLOCK
+                        || !allZero(tar, offset + TAR_BLOCK, TAR_BLOCK)) {
+                    throw new IOException("Dependency classpath tar requires two zero end blocks");
+                }
+                if (!allZero(tar, offset + 2 * TAR_BLOCK, tar.length - offset - 2 * TAR_BLOCK)) {
+                    throw new IOException("Dependency classpath tar contains nonzero trailing data");
+                }
+                terminated = true;
                 break;
             }
+            validateTarChecksum(tar, offset);
+            if (!Arrays.equals(tar, offset + 257, offset + 265, USTAR, 0, USTAR.length)) {
+                throw new IOException("Dependency classpath layer must use USTAR headers");
+            }
+            tarOctal(tar, offset + 100, 8, "mode", false);
+            tarOctal(tar, offset + 108, 8, "uid", false);
+            tarOctal(tar, offset + 116, 8, "gid", false);
+            tarOctal(tar, offset + 136, 12, "mtime", false);
+            tarOctal(tar, offset + 329, 8, "device major", false);
+            tarOctal(tar, offset + 337, 8, "device minor", false);
             String name = tarString(tar, offset, 100);
             String prefix = tarString(tar, offset + 345, 155);
             int type = tar[offset + 156] & 0xff;
@@ -333,17 +360,24 @@ public final class DependencyBundle {
             if (!seen.add(name)) {
                 throw new IOException("Dependency classpath layer contains duplicate entry: " + name);
             }
-            long size = tarOctal(tar, offset + 124, 12);
-            if (size < 0 || size > Integer.MAX_VALUE || offset + 512L + size > tar.length) {
+            long size = tarOctal(tar, offset + 124, 12, "size", false);
+            long dataEnd = offset + (long) TAR_BLOCK + size;
+            long paddedEnd = offset + (long) TAR_BLOCK + ((size + TAR_BLOCK - 1) / TAR_BLOCK) * TAR_BLOCK;
+            if (size > Integer.MAX_VALUE || dataEnd > tar.length || paddedEnd > tar.length) {
                 throw new IOException("Invalid dependency classpath tar size for " + name);
             }
-            byte[] content = Arrays.copyOfRange(tar, offset + 512,
-                    offset + 512 + (int) size);
+            if (!allZero(tar, (int) dataEnd, (int) (paddedEnd - dataEnd))) {
+                throw new IOException("Nonzero dependency classpath tar padding for " + name);
+            }
+            byte[] content = Arrays.copyOfRange(tar, offset + TAR_BLOCK, (int) dataEnd);
             String digest = LocalStore.sha256Hex(content).substring("sha256:".length());
             if (!digest.equals(expected.get(name))) {
                 throw new IOException("Dependency checksum mismatch for " + name);
             }
-            offset += 512 + (int) (((size + 511) / 512) * 512);
+            offset = (int) paddedEnd;
+        }
+        if (!terminated) {
+            throw new IOException("Dependency classpath tar is missing its end blocks");
         }
         if (!seen.equals(expected.keySet())) {
             Set<String> missing = new HashSet<>(expected.keySet());
@@ -362,20 +396,53 @@ public final class DependencyBundle {
         return true;
     }
 
-    private static String tarString(byte[] bytes, int offset, int length) {
+    private static void validateTarChecksum(byte[] bytes, int offset) throws IOException {
+        long expected = tarOctal(bytes, offset + 148, 8, "checksum", true);
+        int unsigned = 0;
+        int signed = 0;
+        for (int i = 0; i < TAR_BLOCK; i++) {
+            int value = i >= 148 && i < 156 ? ' ' : bytes[offset + i];
+            unsigned += value & 0xff;
+            signed += value;
+        }
+        // Go's archive/tar also accepts the historical signed-byte checksum.
+        if (expected != unsigned && expected != signed) {
+            throw new IOException("Invalid dependency classpath tar header checksum");
+        }
+    }
+
+    private static String tarString(byte[] bytes, int offset, int length) throws IOException {
         int end = offset;
         while (end < offset + length && bytes[end] != 0) {
             end++;
         }
-        return new String(bytes, offset, end - offset, StandardCharsets.UTF_8);
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes, offset, end - offset)).toString();
+        } catch (CharacterCodingException e) {
+            throw new IOException("Invalid UTF-8 in dependency classpath tar header", e);
+        }
     }
 
-    private static long tarOctal(byte[] bytes, int offset, int length) throws IOException {
-        String value = tarString(bytes, offset, length).trim();
-        try {
-            return value.isEmpty() ? 0 : Long.parseLong(value, 8);
-        } catch (NumberFormatException e) {
-            throw new IOException("Invalid dependency classpath tar size", e);
+    private static long tarOctal(byte[] bytes, int offset, int length, String field, boolean required)
+            throws IOException {
+        int start = offset;
+        int end = offset + length;
+        while (start < end && (bytes[start] == 0 || bytes[start] == ' ')) start++;
+        while (end > start && (bytes[end - 1] == 0 || bytes[end - 1] == ' ')) end--;
+        if (required && start == end) {
+            throw new IOException("Missing dependency classpath tar " + field);
         }
+        long value = 0;
+        for (int i = start; i < end; i++) {
+            int digit = bytes[i] - '0';
+            if (digit < 0 || digit > 7 || value > (Long.MAX_VALUE - digit) / 8) {
+                throw new IOException("Invalid dependency classpath tar " + field);
+            }
+            value = value * 8 + digit;
+        }
+        return value;
     }
 }

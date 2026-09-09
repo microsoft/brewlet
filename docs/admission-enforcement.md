@@ -67,8 +67,9 @@ Bundle provenance uses the separate predicate type
 final-image statement; bundle-level provenance establishes trust earlier, while
 the application image is composed.
 
-Missing, malformed, wrong-key, wrong-identity, wrong-subject, or incorrectly
-bound evidence is denied.
+Malformed, wrong-key, wrong-identity, wrong-subject, or incorrectly bound
+candidates are rejected. The image is denied unless at least one candidate
+satisfies the complete contract; claims are never combined across candidates.
 
 ---
 
@@ -90,8 +91,8 @@ bound evidence is denied.
     cannot discover the attestation and admission denies the workload.
 
 For private registries, configure the oras store's `authProvider`, such as a
-`k8Secrets` provider backed by a Docker-config Secret. Authentication or blob
-fetch failures deny admission.
+`k8Secrets` provider backed by a Docker-config Secret. Evidence that cannot be
+authenticated or fetched cannot grant admission.
 
 ---
 
@@ -195,20 +196,28 @@ constraint to `enforcementAction: deny`.
 
 The non-Kubernetes
 [`config.json`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/config.json)
-registers only this verifier, so its `config-policy` use is safe for that
-isolated CLI process:
-
-```bash
-ratify verify \
-  -s registry.example.com/apps/orders@sha256:<digest> \
-  -c admission/deploy/config.json
-```
+uses Ratify v1.4.5's inline `regoPolicy` provider with
+`passthroughEnabled: false`. Like the cluster policy, it requires a complete
+valid candidate verified by `brewlet-managed-dependencies`, rather than
+accepting another verifier's success.
 
 Install the plugin at
 `~/.ratify/plugins/brewlet-managed-dependencies`, configure the trusted key path
 and expected identity in `config.json`, and use a Referrers-API-capable
-registry. Test with the trusted key and with a different key or unsigned image
-to confirm the expected pass and fail paths.
+registry.
+
+Ratify v1.4.5 can exit successfully after reporting a denied decision. CI must
+require JSON `isSuccess: true`, not just a zero process exit status. With Bash
+and `jq`, set `IMAGE_DIGEST_REF` to the immutable image reference and enforce:
+
+```bash
+set -o pipefail
+ratify verify -s "$IMAGE_DIGEST_REF" -c admission/deploy/config.json |
+  jq -e '.isSuccess == true'
+```
+
+Do not use `--silent` for enforcement. Test with the trusted key and with a
+different key or unsigned image to confirm the expected pass and fail paths.
 
 ---
 
@@ -220,10 +229,11 @@ The trust anchor is a bare ECDSA P-256 public key. Brewlet does not use
 Fulcio/keyless issuance or a Rekor transparency log for this contract. Key
 distribution and rotation are out of band.
 
-The Rego policy is rotation-tolerant: at least one valid Brewlet attestation is
-enough to admit an image. During rotation, publish attestations under the old
-and new keys and move verifier trust deliberately. A remaining invalid old-key
-attestation neither grants nor blocks admission when another candidate verifies.
+Both shipped CLI and cluster Rego policies are rotation-tolerant: at least one
+valid Brewlet attestation is enough to admit an image. During rotation, publish
+attestations under the old and new keys and move verifier trust deliberately.
+A remaining invalid old-key attestation neither grants nor blocks admission
+when another candidate verifies.
 
 ### Identity is a signed free-form string
 
@@ -266,7 +276,8 @@ restrict who can create pods there.
 
 ## Fail-closed behavior
 
-The integration denies:
+The integration denies images with no complete valid candidate, including when
+the only available evidence has any of these problems:
 
 - missing Brewlet attestation referrers;
 - missing trusted key or a signature from the wrong key;
@@ -279,6 +290,8 @@ The integration denies:
 - registry discovery, authentication, manifest, or blob-fetch failures;
 - tag-based or otherwise unresolved image subjects; and
 - success reported only by another or overlapping verifier.
+
+A rejected extra candidate does not block a complete valid candidate.
 
 Enable the policy only after exercising these failure paths in your environment,
 then keep the constraint in `deny` mode for production workloads.

@@ -381,7 +381,10 @@ Failures include:
 - bundle resolution errors or wrong artifact/config/layer/lock media types and
   schemas;
 - descriptor digest or size mismatches;
-- unsafe tar entries, unexpected files, or individual JAR digest mismatches;
+- invalid USTAR headers/checksums, truncated blocks or file data, nonzero file
+  padding, missing end markers, or data appended after the archive terminator;
+- unsafe tar entries, invalid UTF-8 entry names, unexpected files, or individual
+  JAR digest mismatches;
 - missing, duplicate, or invalid SBOM evidence;
 - graph differences in coordinates, type, classifier, scope, filename, or
   content digest;
@@ -389,6 +392,17 @@ Failures include:
 - an application JDK outside the bundle's compatible-JDK policy; and
 - malformed, untrusted, wrong-identity, wrong-subject, or incorrectly bound
   provenance when provenance is present.
+
+A matching layer digest does not make malformed tar framing valid. Both Go and
+Maven validate the archive structure independently of the layer and per-JAR
+SHA-256 checks. Published layers use flat regular-file USTAR records, zero
+padding to 512-byte boundaries, and two zero end blocks; extra complete zero
+blocks are allowed. Valid permission, owner, and timestamp values need not equal
+the canonical publisher defaults. Header checksums are format checks, not a
+replacement for cryptographic digests or signer verification.
+
+Regenerate a malformed bundle with the approved producer rather than bypassing
+validation or silently reconstructing dependencies from a different graph.
 
 Use `brewlet inspect` to inspect a local bundle or final image and optionally
 verify its attestation with the configured trusted key and identity. Enforce

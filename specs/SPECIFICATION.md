@@ -445,8 +445,20 @@ link, device, and path-traversal entries are forbidden. Each file's bytes MUST
 match its lock digest. Canonical publishers order files by `fileName`, use mode
 `0644`, UID/GID `0`, mtime `0`, and omit build-time timestamps from gzip.
 Consumers MUST validate the safe flat-file shape and contents, but MUST NOT
-depend on tar metadata or compressed-byte identity beyond the digests declared
-by that bundle.
+require canonical metadata values or compressed-byte identity beyond the digests
+declared by that bundle.
+
+Format validation is independent of those cryptographic digests. Bundle
+consumers MUST validate USTAR header magic/version, header checksums, numeric
+fields, and payload bounds. Entry names must be valid UTF-8. Each file's data is
+zero-padded to a 512-byte boundary; two complete zero blocks terminate the
+archive. Additional complete zero blocks are permitted, but truncated blocks,
+nonzero padding, and nonzero data after the terminator MUST be rejected.
+Normal unsigned-byte and historical signed-byte header checksums are accepted.
+These checks do not require canonical permission/owner/timestamp **values** and
+do not replace the layer/lock/JAR SHA-256 or signature checks. The Go bundle
+builder may normalize supported source tars before publication; the published
+bundle layer itself must satisfy the USTAR contract.
 
 The managed layer deliberately uses the standard gzip OCI layer type rather than
 the native artifact's uncompressed

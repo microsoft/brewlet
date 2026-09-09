@@ -4,9 +4,11 @@
     "attestations, e.g. in CI: `ratify verify -s <image@sha256:...> -c config.json`.",
     "The plugin binary must be installed at ~/.ratify/plugins/brewlet-managed-dependencies.",
     "The registry must expose the OCI 1.1 Referrers API, and the image must be digest-pinned.",
-    "This uses config-policy, which is safe HERE only because exactly one verifier is",
-    "registered; in a cluster use the Rego policy in deploy/30-ratify-policy.yaml, which",
-    "binds success to this verifier by name (see admission/README.md, Verifier selection)."
+    "Ratify v1.4.5 supports this inline Rego policy in CLI mode.",
+    "Keep its rule aligned with deploy/30-ratify-policy.yaml: one complete valid",
+    "Brewlet attestation verified by brewlet-managed-dependencies is required.",
+    "Old-key or invalid extra candidates cannot grant or block a valid candidate.",
+    "In CI require the JSON result's isSuccess == true; CLI exit status alone is insufficient."
   ],
   "store": {
     "version": "1.0.0",
@@ -20,11 +22,9 @@
   "policy": {
     "version": "1.0.0",
     "plugin": {
-      "name": "configPolicy",
-      "artifactVerificationPolicies": {
-        "application/vnd.brewlet.attestation.v1+json": "all",
-        "default": "all"
-      }
+      "name": "regoPolicy",
+      "passthroughEnabled": false,
+      "policy": "package ratify.policy\n\ndefault valid := false\n\nvalid {\n  some i\n  report := input.verifierReports[i]\n  report.artifactType == \"application/vnd.brewlet.attestation.v1+json\"\n  some j\n  vr := report.verifierReports[j]\n  vr.verifierName == \"brewlet-managed-dependencies\"\n  vr.isSuccess == true\n}\n"
     }
   },
   "verifier": {
