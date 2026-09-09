@@ -16,7 +16,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | JVM OOM | `ExitOnOutOfMemoryError` → exit → kubelet restart | [→ OOM](#pod-restarts-oomkilled) |
 | Node provisioning fails | Node not labeled `ready`; condition/event `ProvisionFailed` | [→ provisioning](#node-never-becomes-ready) |
 | No provisioner pod on a node at all | Node absent from `status.assignedNodes`; no DaemonSet pod scheduled | [→ placement](#no-provisioner-pod-is-scheduled) |
-| NodeProfile is invalid | `Ready=False`, reason `InvalidProfile`; profile DaemonSet is absent | [→ source policy](#nodeprofile-source-policy-failures) |
+| NodeProfile is invalid | `Ready=False/InvalidProfile`; deletion with possible host state remains `CleanupBlocked` | [→ source policy](#nodeprofile-source-policy-failures) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 | containerd 1.x node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
@@ -156,12 +156,22 @@ The admission webhook validates sources and mirrors for immediate feedback, but
 the reconciler repeats the same checks. A stored invalid profile therefore fails
 closed even if admission is disabled or bypassed: its provisioner DaemonSet is
 withheld/deleted and only that profile's owned node advertisements are removed.
-Repair an invalid profile before deleting it if you need automatic host
-reversal. Its current pool selector is untrusted and may overlap another
-profile, so deletion while `InvalidProfile` deliberately skips the cleanup
-DaemonSet rather than risk deprovisioning another profile's nodes. The operator
-still waits for that profile's provisioner and cleanup pods to terminate before
-withdrawing advertisements one final time and releasing the finalizer.
+
+Repair an invalid profile before requesting deletion. If it is already deleting,
+the operator stops its provisioner and cleanup workers, waits for them to
+terminate, and withdraws its node advertisements. It does not run host cleanup
+under an invalid policy. **If recorded or claimed host state may remain, both
+the cleanup finalizer and node ownership claims are retained**, with
+`Ready=False/CleanupBlocked`, even after all workers are gone.
+
+Repair the profile's spec, source/mirror policy, or pool conflict to resume
+cleanup of its recorded targets. Normal finalization requires successful host
+cleanup and worker teardown. Missing ownership or cleanup-policy records must
+be restored; their absence is not proof that a node was cleaned.
+
+Only an invalid profile proven to be unprovisioned may finalize without host
+cleanup, after fresh node and worker checks. Do not remove finalizers, ownership
+labels, or status records to force deletion.
 
 ```bash
 kubectl get nodeprofile <name> \
