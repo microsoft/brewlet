@@ -12,8 +12,10 @@ import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.settings.Settings;
+import org.apache.maven.toolchain.ToolchainManager;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import sh.brewlet.maven.plugin.model.*;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
@@ -53,6 +55,9 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
 
     @Parameter(defaultValue = "${settings}", readonly = true, required = true)
     protected Settings settings;
+
+    @Component
+    protected ToolchainManager toolchainManager;
 
     // -----------------------------------------------------------------------
     // Plugin configuration parameters
@@ -640,10 +645,15 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
      * {@link JdkVersionResolver}. This feeds the CRD/Deployment, not the
      * artifact config.
      */
-    protected int resolveJdkFeature() {
-        return (jdkFeature != null && jdkFeature > 0)
-                ? jdkFeature
-                : JdkVersionResolver.resolve(project);
+    protected int resolveJdkFeature() throws MojoExecutionException {
+        if (jdkFeature != null) {
+            if (jdkFeature <= 0) {
+                throw new MojoExecutionException("brewlet.jdkFeature must be a positive JDK feature number, e.g. 17.");
+            }
+            getLog().info("Brewlet: application JDK " + jdkFeature + " from explicit brewlet.jdkFeature");
+            return jdkFeature;
+        }
+        return JdkVersionResolver.resolve(project, session, toolchainManager, getLog());
     }
 
     /**

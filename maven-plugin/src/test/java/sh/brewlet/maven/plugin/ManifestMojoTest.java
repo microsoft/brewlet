@@ -22,6 +22,29 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ManifestMojoTest {
     @Test
+    void manifestJdkComesFromMainCompilerConfiguration() throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.jdkFeature = null;
+        var compiler = new org.apache.maven.model.Plugin();
+        compiler.setArtifactId("maven-compiler-plugin");
+        compiler.setConfiguration(org.codehaus.plexus.util.xml.Xpp3DomBuilder.build(
+                new java.io.StringReader("<configuration><release>11</release></configuration>")));
+        mojo.project.getBuild().addPlugin(compiler);
+        assertTrue(render(mojo, new JvmConfig()).contains("    version: 11\n"));
+    }
+
+    @Test
+    void explicitFeatureWinsAndInvalidExplicitValuesDoNotTriggerInference() throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.project.getProperties().setProperty("maven.compiler.release", "${unknown}");
+        assertTrue(render(mojo, new JvmConfig()).contains("    version: 17\n"));
+        for (int invalid : List.of(0, -1)) {
+            mojo.jdkFeature = invalid;
+            assertThrows(org.apache.maven.plugin.MojoExecutionException.class, () -> render(mojo, new JvmConfig()));
+        }
+    }
+
+    @Test
     void argumentsAndEnvironmentValuesRoundTripExactly() throws Exception {
         List<String> values = List.of("", "plain", "-Dgreeting=\"hello\"",
                 "-Dregex=\\d+\\s*", "line one\nline two\r\n\tindented",
@@ -179,7 +202,8 @@ class ManifestMojoTest {
         field.set(mojo, value);
     }
 
-    private static String render(ManifestMojo mojo, JvmConfig config) throws IOException {
+    private static String render(ManifestMojo mojo, JvmConfig config) throws IOException,
+            org.apache.maven.plugin.MojoExecutionException {
         StringWriter result = new StringWriter();
         mojo.writeJavaApplicationYaml(new PrintWriter(result), config);
         return result.toString();

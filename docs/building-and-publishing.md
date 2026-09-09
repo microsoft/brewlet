@@ -315,6 +315,13 @@ never touch ORAS or hand-author the launch config. It infers the entry point and
 framework from the project and JAR manifest; its `manifest` goal writes the
 descriptor's JDK feature request and infers the container `ports`.
 
+JDK requests come from an explicit `brewlet.jdkFeature` override or the effective
+main compiler `release`/`target`/`source` configuration. A selected compiler
+toolchain is a fallback when no level is declared, ahead of the in-process Maven
+JDK. Test-only settings are ignored, and ambiguous or unresolved authority fails
+with override guidance instead of silently selecting the build machine's JDK.
+See the [complete inference precedence](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#jdk-inference).
+
 Until the plugin is published to Maven Central, download its JAR and POM from
 the [GitHub release](https://github.com/microsoft/brewlet/releases/tag/v0.4.0) and
 install them once:

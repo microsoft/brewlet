@@ -1399,6 +1399,18 @@ The Maven `brewlet:manifest` goal does not infer `spec.probes` from declared por
 or detected frameworks. Ports may generate a Service but do not establish an
 HTTP health endpoint. Applications must configure probes explicitly in their
 deployment YAML; no implicit `GET /` readiness or liveness checks are emitted.
+
+Its JDK feature request uses a positive explicit `brewlet.jdkFeature` first,
+then effective main compiler `release`/`target`/`source` settings with Maven
+configuration/property precedence. Test compilation must not select the
+application runtime. Without a declared level, compiler-specific, suitably
+selected session, and main-bound configured toolchains are considered in that
+order; the Maven JVM is a fallback only without other compiler authority.
+Unresolved/malformed settings and ambiguous main compilation must fail with
+explicit-override guidance, not silently select a default feature. This is
+deployment metadata inference, not proof of a minimum compatible runtime or
+per-Pod JDK observation. The detailed supported cases are in the
+[Maven plugin contract](../maven-plugin/README.md#jdk-inference).
 - `env[].valueFrom` preserves Kubernetes Secret, ConfigMap, pod-field, and
   container-resource references, including selector options. The CRD also
   preserves `fileKeyRef`; using it requires the corresponding Kubernetes
@@ -1419,6 +1431,24 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 > live in `api/v1alpha1`; RBAC ships in `config/operator.yaml` and the
 > [`charts/brewlet`](../kubernetes/charts/brewlet)
 > Helm chart (which also installs the CRD).
+>
+> **Rollout readiness.** `Ready=True/Reconciled` requires an owned Deployment
+> matching the reconciled pod template and managed replica target, whose current
+> generation has been observed and whose total, updated, ready, and available
+> replica counts all equal its desired count, with no unavailable replicas.
+> A terminating Deployment is not ready. For incomplete rollouts, a failed
+> `Progressing` condition supplies the diagnostic; an older condition retained
+> by a scaling update does not veto already-completed counts. Direct API reads
+> and comparison with the reconciled revision prevent
+> cached old replicas or concurrent template/ownership changes from certifying a
+> new application generation. `readyReplicas` still reports the owned Deployment's
+> observed ready count, including old replicas; consumers must inspect the Ready
+> condition and its `observedGeneration`, not that count alone.
+>
+> HPA-enabled applications use the live Deployment's replica target. A completed
+> zero-replica rollout is Ready as a desired-state result, not as evidence of a
+> serving endpoint. Incomplete/stalled rollouts retain `Ready=False/Progressing`
+> with generation/count or progress-failure diagnostics.
 >
 > **`jvm.args` delivery (`brewlet.sh/jvm-args`) — public contract.** The value is
 > a **JSON array of strings**, e.g. `["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]`.

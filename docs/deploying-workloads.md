@@ -238,6 +238,30 @@ spec:
 The `status` subresource surfaces `readyReplicas`, the `selectedJdk`, and `Ready`
 conditions.
 
+### Rollout readiness
+
+`Ready=True` with reason `Reconciled` means the controller has observed the
+current Deployment generation, with exactly the desired number of updated,
+ready, and available replicas and no extra active or unavailable replicas.
+Old healthy replicas do not make a failed replacement rollout ready.
+`Ready=False/Progressing` includes rollout counts or the Deployment's
+progress-failure diagnostic; it does not necessarily mean the old Pods stopped
+serving traffic.
+
+`readyReplicas` remains the Deployment's observed ready count, which can include
+old replicas. Do not use that number alone to decide whether a new revision
+succeeded. Status is asynchronous: require the Ready condition's
+`observedGeneration` to match the JavaApplication's `metadata.generation`.
+The controller reads Deployment status directly after reconciliation and does
+not certify a cached previous revision or a concurrently changed pod template.
+
+With autoscaling enabled, readiness uses the live Deployment replica target
+owned by the HPA, not `spec.replicas` on the JavaApplication. A completed
+scale-to-zero operation may be Ready with zero replicas; that means the desired
+state was reached, not that a serving endpoint exists.
+`selectedJdk` describes the requested JDK selector, not a measurement of each
+running JVM's distribution or patch version.
+
 ### Generated manifests and health probes
 
 `brewlet:manifest` generates a `JavaApplication` descriptor, but deliberately
@@ -251,6 +275,13 @@ paths in the example above are appropriate only when those endpoints are
 enabled. Without a readiness probe, Kubernetes does not wait for
 application-specific readiness. Store reviewed manifests in source control;
 regenerating them overwrites local edits.
+
+The generated `spec.jvm.version` is an explicit `brewlet.jdkFeature` override or
+an inferred request based on effective main compiler settings and toolchain
+selection, not automatically the JVM running Maven. A configured release/target
+takes precedence over the compiler JDK; conflicting or unresolved settings
+require an explicit request. See the
+[Maven inference contract](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#jdk-inference).
 
 ### Environment references and resource ownership
 

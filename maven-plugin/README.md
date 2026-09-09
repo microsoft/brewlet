@@ -192,9 +192,53 @@ descriptor. They are **not** serialized into `target/brewlet/jvm-config.json`.
 
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
-| `jdkFeature` | `brewlet.jdkFeature` | inferred from project release/target | JDK feature version written as `spec.jvm.version`. |
+| `jdkFeature` | `brewlet.jdkFeature` | inferred from the main compiler configuration or toolchain | Positive JDK feature request written as `spec.jvm.version`; an explicit value overrides inference. See the precedence below. |
 | `jdkDistribution` | `brewlet.jdkDistribution` | *(none — any distribution)* | Optional JDK distribution (`temurin`, `microsoft`) written as `spec.jvm.distribution`. With `jdkFeature` it pins an exact `<distribution>-<feature>` node JDK; omit to accept any distribution of that feature. |
 | `launcher` | `brewlet.launcher` | `java` | Launcher written as `spec.jvm.launcher`; use `jaz` for the auto-tuning launcher. |
+
+### JDK inference
+
+The plugin selects a **requested deployment JDK feature**, not a measurement of
+the running Pods or a proof of the application's minimum compatible JVM:
+
+1. A positive explicit `<jdkFeature>` / `-Dbrewlet.jdkFeature` wins.
+2. Effective main compiler settings use `release`, then `target`, then `source`.
+   Inherited settings, active profiles, and main compile executions participate.
+   Literal compiler XML takes precedence over its property counterpart;
+   `${...}` expressions are evaluated with Maven's property semantics.
+   Disabled executions and test-only compiler settings do not determine the
+   application request.
+3. Without a declared level, use the compiler's `jdkToolchain`, then a suitable
+   session-selected toolchain, then main-bound legacy toolchains-plugin
+   requirements. Configured matching follows Maven's first-match order,
+   including resolvable version ranges; it does not choose the highest or lowest
+   installed JDK. The selected feature is checked against the JDK's `release`
+   metadata.
+4. Only when no other compiler authority is configured, use the in-process
+   Maven JDK as a fallback. Implicit defaults from every compiler-plugin version
+   are not emulated.
+
+For example, a main compiler `<release>17</release>` requests JDK 17 even when
+Maven or its compiler toolchain runs on JDK 21. A literal `<release>17</release>`
+also remains authoritative over an unrelated `maven.compiler.release=21`
+property; reference that property in the XML if it is intended to control the
+build.
+
+Inference fails with explicit-override guidance for unresolved or malformed
+values, differing main compilation levels, unavailable toolchains, unsupported
+compiler/executable choices, or opaque arguments that could change the target.
+Standalone automatic toolchain discovery and a selection that might belong
+only to test or later build phases are not guessed. Set `brewlet.jdkFeature`
+after reviewing those builds rather than relying on the Maven JVM by accident.
+An execution bound to `compile` can still run after the main compiler in that
+same phase; selections whose ordering cannot establish main-compiler authority
+also require an explicit request.
+Failures occur before writing a guessed manifest, and logs identify the
+compiler setting or fallback toolchain used.
+
+The same request resolution is used when managed-dependency publication checks
+the bundle's compatible JDK features. It remains separate from the artifact's
+launch configuration and does not install or upgrade a node JDK.
 
 ### Runtime shape
 

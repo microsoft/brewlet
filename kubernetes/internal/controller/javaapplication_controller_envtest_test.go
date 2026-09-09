@@ -27,9 +27,10 @@ import (
 // newJavaAppReconciler builds a reconciler bound to the live envtest apiserver.
 func newJavaAppReconciler(c client.Client) *JavaApplicationReconciler {
 	return &JavaApplicationReconciler{
-		Client:   c,
-		Scheme:   testScheme,
-		Recorder: record.NewFakeRecorder(100),
+		Client:    c,
+		APIReader: c,
+		Scheme:    testScheme,
+		Recorder:  record.NewFakeRecorder(100),
 	}
 }
 
