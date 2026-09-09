@@ -1,14 +1,8 @@
 # Getting started locally
 
-In this local quick start you will obtain Brewlet, build a small Java
+In this local quick start you will install the released Brewlet CLI, build a small Java
 application, package only its JAR into an OCI layout, inspect it, and run it with
 your installed JDK. You do not need Docker or Kubernetes.
-
-**Private preview:** repository and package access are required today. Public
-documentation does not make the repository, release assets, or GHCR packages
-public. Use the source-build path below with an authorized account; the
-unauthenticated installer is an alternative only when release assets are
-publicly accessible.
 
 ## Prerequisites
 
@@ -16,9 +10,10 @@ You need:
 
 - JDK 21 or newer;
 - Maven 3.9 or newer;
-- Git, Go 1.26+, and `make` for the source-build path;
 - `curl` (plus `tar` for release downloads); and
 - macOS or Linux on `amd64` or `arm64`.
+
+The optional source-build path also requires Git, Go 1.26+, and `make`.
 
 Confirm the tools before continuing:
 
@@ -30,31 +25,10 @@ curl --version
 
 ## 1. Obtain Brewlet and the example source
 
-### Private preview: authenticated source checkout
+### Install the released CLI (recommended)
 
-Configure your normal Git credential helper or SSH access first. Never put
-tokens in URLs or shell history. From a directory where you keep projects:
-
-```bash
-git clone https://github.com/microsoft/brewlet.git
-cd brewlet
-make binaries
-export PATH="$PWD/bin:$PATH"
-export BREWLET_WORK="$PWD/target/brewlet-quickstart"
-export BREWLET_REF="demo/hello:local"
-mkdir -p "$BREWLET_WORK"
-brewlet version
-```
-
-The CLI reports the source build's version, which need not be `0.4.0`. Continue
-at step 2 from this checkout.
-
-### Alternative: publicly accessible release assets
-
-Skip this alternative when building from source. It requires no Go toolchain.
-The installer does not authenticate private release downloads: a 404 or access
-error is not solved by retrying anonymously. When the assets are public, it
-detects macOS or Linux and `amd64` or `arm64`, downloads
+The installer requires no Go toolchain. It detects macOS or Linux and
+`amd64` or `arm64`, downloads
 the matching release archive, and verifies its SHA-256 checksum before
 installing it:
 
@@ -85,6 +59,27 @@ curl -fL \
 tar -xzf "$BREWLET_WORK/source.tar.gz" -C "$BREWLET_WORK"
 cd "$BREWLET_WORK/brewlet-${BREWLET_VERSION}"
 ```
+
+Continue at step 2 from the extracted release source.
+
+### Alternative: build from source
+
+If you want to develop Brewlet itself, use this path instead of the release
+installation and source download above. From a directory where you keep projects:
+
+```bash
+git clone https://github.com/microsoft/brewlet.git
+cd brewlet
+make binaries
+export PATH="$PWD/bin:$PATH"
+export BREWLET_WORK="$PWD/target/brewlet-quickstart"
+export BREWLET_REF="demo/hello:local"
+mkdir -p "$BREWLET_WORK"
+brewlet version
+```
+
+The CLI reports the source build's version, which need not be `0.4.0`. Continue
+at step 2 from this checkout.
 
 ## 2. Build the example
 
@@ -168,8 +163,8 @@ and Linux; executing the bundle with `runc` is a Linux node operation.
 
 ## What you proved
 
-- Brewlet came from your authorized source checkout or, when accessible, the
-  checksum-verified v0.4.0 release.
+- Brewlet came from the checksum-verified v0.4.0 release or your optional
+  source build.
 - The application payload contains only the JAR and launch metadata.
 - A node-resident JDK can run the packaged application directly.
 - Brewlet can translate the same artifact into an OCI runtime bundle with

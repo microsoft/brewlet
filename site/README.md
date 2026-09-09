@@ -7,6 +7,21 @@ This directory contains the [brewlet.sh](https://brewlet.sh) static website and
 branding assets. User-facing documentation and workshop material live in the
 repository-level [`docs/`](../docs/) directory.
 
+## Content policy
+
+Write the landing page, documentation, and workshops for a public release:
+Brewlet's source, release downloads, Maven plugin, Helm chart, and component
+images are released and accessible. Repository visibility must not change this
+reader-facing assumption. Make released artifacts the default installation
+path and source builds an optional development path.
+
+Keep technical prerequisites, operational safety warnings, and authentication
+requirements for users' own clusters and registries. Do not present roadmap
+items as implemented features.
+
+Use [the GitHub Pages workflow](../.github/workflows/site-pages.yml) as the source
+of truth for building and publishing the landing page and `/docs/`.
+
 ## Contents
 
 | Path | Purpose |
