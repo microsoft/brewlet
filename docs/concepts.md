@@ -176,8 +176,9 @@ cgroups, seccomp/AppArmor, and CNI, it *assembles an OCI runtime bundle and
 delegates isolation to runc* (the same approach [runwasi](https://github.com/containerd/runwasi)
 takes for Wasm). The only novel code is *artifact → bundle → args*. Consequently:
 
-- Probes (`exec`, `httpGet`, `tcpSocket`), `kubectl exec`, ephemeral debug
-  containers, and metrics-server behave normally.
+- Probes (`exec`, `httpGet`, `tcpSocket`), `kubectl exec`, and metrics-server use
+  the normal containerd/runc mechanisms. Ordinary-image ephemeral debug
+  containers are not currently supported by the Brewlet handler.
 - The pod gets a real pod IP via the CNI-provided netns.
 - CPU/memory limits are enforced as ordinary cgroup v2 constraints.
 

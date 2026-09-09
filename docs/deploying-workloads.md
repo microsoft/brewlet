@@ -68,9 +68,13 @@ kubectl logs -l app=hello
 Because the shim is runc-backed, this pod is a **first-class Kubernetes citizen**:
 
 - real pod IP via CNI → Services/Ingress/NetworkPolicy work;
-- `kubectl logs` / `kubectl exec` / ephemeral debug containers work;
+- `kubectl logs` / `kubectl exec` work;
 - readiness/liveness/startup probes (`httpGet`, `tcpSocket`, `exec`) work;
 - HPA and metrics-server work.
+
+Ordinary-image ephemeral debug containers are not supported by the current
+Brewlet handler. Use `kubectl exec` with tools present in the selected runtime,
+or a separate ordinary-runtime Pod for debugging.
 
 The Pod `securityContext` is the sole source of process UID/GID for raw
 workloads. Brewlet preserves the identity CRI places in the OCI spec; artifact
@@ -233,6 +237,20 @@ spec:
 
 The `status` subresource surfaces `readyReplicas`, the `selectedJdk`, and `Ready`
 conditions.
+
+### Generated manifests and health probes
+
+`brewlet:manifest` generates a `JavaApplication` descriptor, but deliberately
+omits `spec.probes`. Neither a configured port nor Spring Boot/Quarkus detection
+establishes an HTTP health contract. In particular, a healthy application may
+return 404 at `/`; a generated liveness probe must not restart it for that.
+
+Add readiness and liveness probes explicitly to the `JavaApplication` YAML
+using endpoints or commands the application actually provides. The Actuator
+paths in the example above are appropriate only when those endpoints are
+enabled. Without a readiness probe, Kubernetes does not wait for
+application-specific readiness. Store reviewed manifests in source control;
+regenerating them overwrites local edits.
 
 ### Environment references and resource ownership
 

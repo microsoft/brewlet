@@ -71,6 +71,7 @@ public final class LayerBuilder {
         if (deps == null || deps.isEmpty()) {
             return layers;
         }
+        validateDependencies(deps);
 
         if (!splitSnapshots) {
             layers.add(pack("deps", deps));
@@ -93,7 +94,23 @@ public final class LayerBuilder {
 
     /** Builds the single deterministic flat classpath layer used by dependency bundles. */
     public static ArtifactLayer buildBundle(List<Dep> deps) throws IOException {
+        validateDependencies(deps);
         return pack("dependencies", deps == null ? List.of() : deps);
+    }
+
+    public static void validateDependencies(List<Dep> deps) throws IOException {
+        if (deps == null) return;
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (Dep dep : deps) {
+            String name = dep.fileName();
+            StrictZip.validateName(name);
+            if (name.contains("/") || !name.endsWith(".jar") || !names.add(name)) {
+                throw new IOException("Dependency names must be unique, flat JAR filenames: " + name);
+            }
+            if (!Files.isRegularFile(dep.path())) {
+                throw new IOException("Dependency is not a regular file: " + dep.path());
+            }
+        }
     }
 
     /** Packs a set of dependencies into a single deterministic tar layer. */
@@ -129,6 +146,7 @@ public final class LayerBuilder {
         if (deps == null || deps.isEmpty()) {
             return new ArrayList<>();
         }
+        validateDependencies(deps);
         List<Dep> sorted = new ArrayList<>(deps);
         sorted.sort(Comparator.comparing(Dep::fileName));
 

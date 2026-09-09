@@ -22,7 +22,7 @@ import java.util.List;
 
 /**
  * <strong>brewlet:manifest</strong> — Emit a {@code JavaApplication} custom
- * resource YAML (or a raw Kubernetes {@code Deployment}) to
+ * resource YAML to
  * {@code target/brewlet/} so developers can apply it with
  * {@code kubectl apply -f target/brewlet/javaapplication.yaml}.
  *
@@ -72,10 +72,11 @@ public class ManifestMojo extends AbstractBrewletMojo {
 
     /**
      * Container ports the application listens on, written to the descriptor's
-     * {@code spec.ports}. This is a DEPLOYMENT concern (Kubernetes Service and
-     * probe wiring) and is intentionally not part of the artifact. If empty and
-     * the framework is Spring Boot or Quarkus, a default of {@code 8080/http} is
-     * used with a warning.
+     * {@code spec.ports}. This is a DEPLOYMENT concern (Kubernetes Service
+     * wiring) and is intentionally not part of the artifact. Ports do not
+     * declare health endpoints; configure {@code spec.probes} explicitly in the
+     * generated manifest. If empty and the framework is Spring Boot or Quarkus,
+     * a default of {@code 8080/http} is used with a warning.
      */
     @Parameter
     private List<Port> ports;
@@ -190,20 +191,11 @@ public class ManifestMojo extends AbstractBrewletMojo {
                 w.println("    - name: " + yamlString(p.getName() != null ? p.getName() : "http"));
                 w.println("      containerPort: " + p.getContainerPort());
             }
-            // Default service and probes for the first port
-            Port firstPort = resolvedPorts.get(0);
             w.println("  service:");
             w.println("    enabled: true");
             w.println("    type: ClusterIP");
-            w.println("  probes:");
-            w.println("    readiness:");
-            w.println("      httpGet:");
-            w.println("        path: /");
-            w.println("        port: " + firstPort.getContainerPort());
-            w.println("    liveness:");
-            w.println("      httpGet:");
-            w.println("        path: /");
-            w.println("        port: " + firstPort.getContainerPort());
+            getLog().warn("Health probes are not inferred from ports or framework. "
+                    + "Configure spec.probes in the generated manifest using the application's health contract.");
         }
         if (w.checkError()) {
             throw new IOException("Failed to write JavaApplication YAML");

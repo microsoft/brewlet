@@ -56,7 +56,7 @@ public class BuildMojo extends AbstractBrewletMojo {
         }
 
         JvmConfig cfg = buildConfig();
-        File jar = resolveJarFile();
+        File jar = prepareApplication().jar();
         File resolvedCdsArchive = applyCdsArchive(cfg);
         validateFinalConfig(cfg);
         validateCdsPairing(cfg, resolvedCdsArchive);

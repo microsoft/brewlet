@@ -173,9 +173,11 @@ The Maven plugin automates the training run with a dedicated goal:
   entry by basename+size+mtime, not absolute path, and expands `lib/*` in sorted
   order — see §4.4):
   - **fat JAR** (`entry.mode=jar`): `-jar <mainJar>`.
-  - **layered class-path** (`-Dbrewlet.layered=true`, non-modular): the resolved
-    runtime dependencies are staged into `lib/` and trained with
-    `-cp <mainJar>:lib/* <mainClass>`, matching `/app/lib`.
+  - **layered class-path** (`-Dbrewlet.layered=true`, non-modular): plain thin
+    JARs use resolved POM dependencies in `lib/` with
+    `-cp <mainJar>:lib/* <mainClass>`. Standard Boot executable JARs use a
+    prepared thin application JAR and their exact packaged libraries, with
+    explicit `classpath.idx`/archive order matching the published classpath.
   - **JPMS module** (`-Dbrewlet.layered=true`, modular): dependencies staged into
     `mods/`, trained with `-p <mainJar>:mods -m <module>[/<mainClass>]`, matching
     `/app/mods`.
@@ -206,6 +208,17 @@ so the shutdown hook runs and the archive flushes (verified: a `SIGTERM`'d JVM w
 `-XX:ArchiveClassesAtExit` produces an archive that maps cleanly under
 `-Xshare:on`). Signal mode is Unix-oriented and needs the app to shut down
 gracefully on `SIGTERM`.
+
+Signal-mode readiness and settling share `timeoutSeconds`; the configured
+shutdown grace is a separate budget. Timeouts, readiness failures, and
+interruptions terminate and reap the training JVM with bounded cleanup and
+preserved interruption. Output-reader failures fail the attempt, but may be
+reported after an outstanding process wait finishes or times out.
+
+Non-dry-run training clears the configured archive before starting and removes
+partial output on failure. Keep any prebuilt archive that must survive a failed
+attempt at a separate path; stale output is not accepted as fresh training.
+Dry-run does not remove existing archives.
 
 ### 4.3 Node-side regeneration (the durable answer for a patched fleet)
 

@@ -94,10 +94,11 @@ public class PushMojo extends AbstractBrewletMojo {
             entryMode = "classpath";
             try {
                 List<String> embedded = JarInspector.embeddedJars(jar);
-                if (!embedded.isEmpty()) {
+                if (!embedded.isEmpty() || JarInspector.hasNestedApplicationClasses(jar)) {
                     throw new MojoExecutionException("Managed dependency bundle mode requires a "
-                            + "thin application JAR, but found embedded JAR "
-                            + embedded.get(0) + ". Disable fat-JAR repackaging.");
+                            + "thin application JAR, but found "
+                            + (embedded.isEmpty() ? "nested application classes" : "embedded JAR " + embedded.get(0))
+                            + ". Disable fat-JAR repackaging.");
                 }
                 verifiedBundle = resolveDependencyBundle(
                         dependencyBundle, expectedBundleSigner, registryTrustPolicy());
@@ -121,6 +122,7 @@ public class PushMojo extends AbstractBrewletMojo {
             }
         }
         JvmConfig cfg = buildConfig();
+        jar = prepareApplication().jar();
         if (managedBundle != null
                 && (cfg.getEntry().getMainClass() == null
                 || cfg.getEntry().getMainClass().isBlank())) {

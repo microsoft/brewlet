@@ -11,27 +11,33 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 import sh.brewlet.maven.plugin.model.Entry;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.util.LayerBuilder;
+import sh.brewlet.maven.plugin.util.PreparedApplication;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
-import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -78,8 +84,13 @@ public class AppCdsMojo extends AbstractBrewletMojo {
     static final String MODE_EXIT = "exit";
     static final String MODE_SIGNAL = "signal";
 
-    static final FileTime CANONICAL_APP_MTIME =
-            FileTime.from(Instant.ofEpochSecond(946684800L));
+    private static final HttpClient READINESS_HTTP_CLIENT = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(2))
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .version(HttpClient.Version.HTTP_1_1)
+            .build();
+
+    static final FileTime CANONICAL_APP_MTIME = PreparedApplication.CANONICAL_MTIME;
 
     /**
      * Output path for the generated dynamic-CDS archive.
@@ -96,7 +107,8 @@ public class AppCdsMojo extends AbstractBrewletMojo {
 
     /**
      * Maximum time to wait for the app to boot, exercise startup paths, and exit
-     * ({@code exit} mode) or become ready ({@code signal} mode).
+     * ({@code exit} mode) or become ready and complete the settle delay
+     * ({@code signal} mode). Shutdown grace is a separate bound.
      */
     @Parameter(property = "brewlet.appcds.timeoutSeconds", defaultValue = "120")
     private int timeoutSeconds;
@@ -155,6 +167,33 @@ public class AppCdsMojo extends AbstractBrewletMojo {
 
     @Override
     protected void doExecute() throws MojoExecutionException, MojoFailureException {
+        Path output = cdsArchiveOutput.toPath().toAbsolutePath().normalize();
+        if (!dryRun) {
+            try {
+                Path source = resolveJarFile().toPath().toAbsolutePath().normalize();
+                if (output.equals(source) || (Files.exists(output) && Files.isSameFile(output, source))) {
+                    throw new MojoExecutionException("AppCDS archive output must not overwrite the input JAR.");
+                }
+                Files.deleteIfExists(output);
+            } catch (IOException e) {
+                throw new MojoExecutionException("Failed to remove previous AppCDS archive output", e);
+            }
+        }
+        try {
+            generateArchive();
+        } catch (MojoExecutionException | RuntimeException e) {
+            if (!dryRun) {
+                try {
+                    Files.deleteIfExists(output);
+                } catch (IOException cleanup) {
+                    e.addSuppressed(cleanup);
+                }
+            }
+            throw e;
+        }
+    }
+
+    private void generateArchive() throws MojoExecutionException {
         if (timeoutSeconds <= 0) {
             throw new MojoExecutionException("brewlet.appcds.timeoutSeconds must be greater than zero.");
         }
@@ -167,8 +206,8 @@ public class AppCdsMojo extends AbstractBrewletMojo {
             }
         }
 
-        File jar = resolveJarFile();
         JvmConfig cfg = buildConfig();
+        PreparedApplication payload = prepareApplication();
         Entry entry = cfg.getEntry();
         String entryMode = entry == null || entry.getMode() == null || entry.getMode().isBlank()
                 ? "jar"
@@ -180,6 +219,10 @@ public class AppCdsMojo extends AbstractBrewletMojo {
         File java = javaBinary(javaHome);
         Path trainingDir = outputDirectory.toPath().resolve("appcds-training");
         File output = cdsArchiveOutput.getAbsoluteFile();
+        if (output.toPath().normalize().startsWith(trainingDir.toAbsolutePath().normalize())) {
+            throw new MojoExecutionException("AppCDS archive output must be outside appcds-training, "
+                    + "which is cleaned before each run.");
+        }
         List<String> command = buildTrainingCommand(java, cfg, output, cfg.getMainJar(), trainingArgs);
 
         if (dryRun) {
@@ -211,7 +254,7 @@ public class AppCdsMojo extends AbstractBrewletMojo {
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to prepare AppCDS archive output", e);
         }
-        Path trainingJar = stageTrainingInputs(cfg, entryMode, jar, trainingDir);
+        Path trainingJar = stageTrainingInputs(cfg, entryMode, payload, trainingDir);
 
         getLog().info("Brewlet: generating AppCDS archive ("
                 + (MODE_SIGNAL.equals(trainingMode) ? "signal mode: readiness → SIGTERM" : "self-terminating training run") + ")");
@@ -233,9 +276,9 @@ public class AppCdsMojo extends AbstractBrewletMojo {
                           + "dynamic CDS can flush the archive; check that SIGTERM triggers a graceful shutdown."
                         : ""));
         }
-        if (exitCode != 0) {
-            getLog().warn("AppCDS training exited with code " + exitCode
-                    + " but produced a non-empty archive; keeping it.");
+        if (exitCode != 0 && !(MODE_SIGNAL.equals(trainingMode) && exitCode == 143)) {
+            throw new MojoExecutionException("AppCDS training failed with exit code " + exitCode
+                    + "; discarding its archive.");
         }
 
         getLog().info("Brewlet: wrote AppCDS archive → " + output.getAbsolutePath());
@@ -244,87 +287,74 @@ public class AppCdsMojo extends AbstractBrewletMojo {
     }
 
     /** {@code exit} mode: run the self-terminating training JVM to completion. */
-    private int runSelfTerminating(List<String> command, File workingDir)
+    int runSelfTerminating(List<String> command, File workingDir)
             throws MojoExecutionException {
-        Process process;
-        try {
-            process = new ProcessBuilder(command).directory(workingDir).inheritIO().start();
+        try (TrainingProcess training = startTraining(command, workingDir, null, null)) {
+            Process process = training.process;
+            if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
+                throw new MojoExecutionException("AppCDS training timed out after " + timeoutSeconds
+                        + "s. This mode expects a self-terminating app: it must boot, exercise startup "
+                        + "paths, and exit. Raise -Dbrewlet.appcds.timeoutSeconds=..., use "
+                        + "-Dbrewlet.appcds.mode=signal for long-running servers, or supply a prebuilt "
+                        + "archive with -Dbrewlet.cdsArchive=...");
+            }
+            training.checkOutput();
+            return process.exitValue();
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to launch AppCDS training JVM", e);
-        }
-
-        boolean finished;
-        try {
-            finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new MojoExecutionException("Interrupted while waiting for AppCDS training JVM", e);
         }
-
-        if (!finished) {
-            destroy(process, 5);
-            throw new MojoExecutionException("AppCDS training timed out after " + timeoutSeconds
-                    + "s. This mode expects a self-terminating app: it must boot, exercise startup "
-                    + "paths, and exit. Raise -Dbrewlet.appcds.timeoutSeconds=..., use "
-                    + "-Dbrewlet.appcds.mode=signal for long-running servers, or supply a prebuilt "
-                    + "archive with -Dbrewlet.cdsArchive=...");
-        }
-        return process.exitValue();
     }
 
     /**
      * {@code signal} mode: start the app, wait for readiness, then {@code SIGTERM}
      * so the JVM shutdown hook runs and dynamic CDS flushes the archive at exit.
      */
-    private int runSignalTraining(List<String> command, File workingDir)
+    int runSignalTraining(List<String> command, File workingDir)
             throws MojoExecutionException {
+        validateReadiness(readyLog, readyHttp, readyDelaySeconds);
+        if (timeoutSeconds <= 0 || shutdownGraceSeconds <= 0 || readyPollMillis <= 0) {
+            throw new MojoExecutionException("AppCDS timeout, shutdown grace, and poll interval must be positive.");
+        }
         CountDownLatch logReady = new CountDownLatch(1);
         Pattern readyPattern = readyLog == null || readyLog.isBlank() ? null : Pattern.compile(readyLog);
 
-        Process process;
-        try {
-            process = new ProcessBuilder(command)
-                    .directory(workingDir)
-                    .redirectErrorStream(true)
-                    .start();
-        } catch (IOException e) {
-            throw new MojoExecutionException("Failed to launch AppCDS training JVM", e);
-        }
-
-        // Tee the app's combined output to the Maven log and, when readyLog is set,
-        // trip the latch on the first matching line.
-        Thread pump = new Thread(() -> pumpOutput(process.getInputStream(), readyPattern, logReady),
-                "brewlet-appcds-training-io");
-        pump.setDaemon(true);
-        pump.start();
-
-        try {
-            awaitReadiness(process, readyPattern, logReady);
+        try (TrainingProcess training = startTraining(command, workingDir, readyPattern, logReady)) {
+            Process process = training.process;
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+            awaitReadiness(training, readyPattern, logReady, deadline);
             if (readyDelaySeconds > 0) {
                 getLog().info("  readiness reached; settling for " + readyDelaySeconds + "s before SIGTERM");
-                if (process.waitFor(readyDelaySeconds, TimeUnit.SECONDS)) {
-                    getLog().warn("Training JVM exited during the settle delay; archive may be incomplete.");
-                    return process.exitValue();
+                long remaining = Math.max(0, deadline - System.nanoTime());
+                long settle = TimeUnit.SECONDS.toNanos(readyDelaySeconds);
+                if (process.waitFor(Math.min(remaining, settle), TimeUnit.NANOSECONDS)) {
+                    throw new MojoExecutionException("Training JVM exited during the readiness/settle delay.");
+                }
+                if (remaining < settle) {
+                    throw new MojoExecutionException("AppCDS readiness/settle delay exceeded timeoutSeconds="
+                            + timeoutSeconds + ". Raise the timeout or reduce readyDelaySeconds.");
                 }
             }
 
+            training.checkOutput();
             getLog().info("  sending SIGTERM to let the app shut down and flush the archive");
             process.destroy();
             if (!process.waitFor(shutdownGraceSeconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
-                process.waitFor(5, TimeUnit.SECONDS);
                 throw new MojoExecutionException("Training JVM did not exit within "
                         + shutdownGraceSeconds + "s of SIGTERM; the archive was likely not flushed. "
                         + "Ensure the app shuts down gracefully on SIGTERM, or raise "
                         + "-Dbrewlet.appcds.shutdownGraceSeconds=...");
             }
+            training.checkOutput();
             return process.exitValue();
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to launch AppCDS training JVM", e);
         } catch (InterruptedException e) {
-            destroy(process, 5);
             Thread.currentThread().interrupt();
             throw new MojoExecutionException("Interrupted while training AppCDS archive", e);
-        } finally {
-            pump.interrupt();
         }
     }
 
@@ -334,22 +364,28 @@ public class AppCdsMojo extends AbstractBrewletMojo {
      * {@code readyDelaySeconds} (handled by the caller). Fails fast if the process
      * dies before becoming ready.
      */
-    private void awaitReadiness(Process process, Pattern readyPattern, CountDownLatch logReady)
+    private void awaitReadiness(TrainingProcess training, Pattern readyPattern, CountDownLatch logReady,
+                                long deadline)
             throws MojoExecutionException, InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
-
+        Process process = training.process;
         if (readyHttp != null && !readyHttp.isBlank()) {
             getLog().info("  waiting for readiness: HTTP 2xx/3xx from " + readyHttp);
             while (System.nanoTime() < deadline) {
+                training.checkOutput();
                 if (!process.isAlive()) {
                     throw new MojoExecutionException("Training JVM exited (code " + process.exitValue()
                             + ") before " + readyHttp + " became ready.");
                 }
-                if (httpReady(readyHttp)) {
+                if (httpReady(readyHttp, deadline) && System.nanoTime() < deadline) {
+                    training.checkOutput();
+                    if (!process.isAlive()) {
+                        throw new MojoExecutionException("Training JVM exited before HTTP readiness completed.");
+                    }
                     getLog().info("  readiness reached via HTTP probe");
                     return;
                 }
-                Thread.sleep(Math.max(50L, readyPollMillis));
+                TimeUnit.NANOSECONDS.sleep(Math.max(0, Math.min(
+                        TimeUnit.MILLISECONDS.toNanos(readyPollMillis), deadline - System.nanoTime())));
             }
             throw new MojoExecutionException("Timed out after " + timeoutSeconds
                     + "s waiting for " + readyHttp + " to become ready.");
@@ -357,17 +393,20 @@ public class AppCdsMojo extends AbstractBrewletMojo {
 
         if (readyPattern != null) {
             getLog().info("  waiting for readiness: log match /" + readyPattern.pattern() + "/");
-            long waitMs = Math.max(0L, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
-            if (!logReady.await(waitMs, TimeUnit.MILLISECONDS)) {
+            while (System.nanoTime() < deadline) {
+                training.checkOutput();
                 if (!process.isAlive()) {
                     throw new MojoExecutionException("Training JVM exited (code " + process.exitValue()
                             + ") before the readyLog pattern matched.");
                 }
-                throw new MojoExecutionException("Timed out after " + timeoutSeconds
-                        + "s waiting for a log line matching /" + readyPattern.pattern() + "/.");
+                if (logReady.await(Math.max(0, Math.min(TimeUnit.MILLISECONDS.toNanos(100),
+                        deadline - System.nanoTime())), TimeUnit.NANOSECONDS)) {
+                    getLog().info("  readiness reached via log match");
+                    return;
+                }
             }
-            getLog().info("  readiness reached via log match");
-            return;
+            throw new MojoExecutionException("Timed out after " + timeoutSeconds
+                    + "s waiting for a log line matching /" + readyPattern.pattern() + "/.");
         }
 
         // readyDelaySeconds-only: readiness is simply "still alive after the delay",
@@ -379,7 +418,8 @@ public class AppCdsMojo extends AbstractBrewletMojo {
     }
 
     /** Reads the process output, echoes each line, and trips {@code ready} on match. */
-    private void pumpOutput(InputStream in, Pattern readyPattern, CountDownLatch ready) {
+    private void pumpOutput(InputStream in, Pattern readyPattern, CountDownLatch ready,
+                            AtomicReference<Throwable> failure) {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -388,45 +428,157 @@ public class AppCdsMojo extends AbstractBrewletMojo {
                     ready.countDown();
                 }
             }
-        } catch (IOException ignored) {
-            // Stream closes when the process exits; nothing actionable.
+        } catch (IOException | RuntimeException e) {
+            failure.compareAndSet(null, e);
         }
     }
 
-    private static void destroy(Process process, int graceSeconds) {
-        process.destroy();
-        try {
-            if (!process.waitFor(graceSeconds, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-            }
-        } catch (InterruptedException e) {
-            process.destroyForcibly();
-            Thread.currentThread().interrupt();
+    private TrainingProcess startTraining(List<String> command, File workingDir, Pattern pattern,
+                                          CountDownLatch ready) throws IOException {
+        Process process = new ProcessBuilder(command).directory(workingDir).redirectErrorStream(true).start();
+        return new TrainingProcess(process, pattern, ready);
+    }
+
+    private final class TrainingProcess implements AutoCloseable {
+        private final Process process;
+        private final Thread pump;
+        private final AtomicReference<Throwable> outputFailure = new AtomicReference<>();
+
+        TrainingProcess(Process process, Pattern pattern, CountDownLatch ready) {
+            this.process = process;
+            pump = new Thread(() -> pumpOutput(process.getInputStream(), pattern, ready, outputFailure),
+                    "brewlet-appcds-training-io-" + process.pid());
+            pump.setDaemon(true);
+            pump.start();
         }
+
+        void checkOutput() throws MojoExecutionException {
+            Throwable failure = outputFailure.get();
+            if (failure != null) throw new MojoExecutionException("Failed to read AppCDS training output", failure);
+        }
+
+        @Override
+        public void close() throws MojoExecutionException {
+            boolean interrupted = Thread.interrupted();
+            MojoExecutionException failure = null;
+            try {
+                if (process.isAlive()) {
+                    process.destroy();
+                    interrupted |= waitForCleanup(process, 5);
+                    if (process.isAlive()) {
+                        process.destroyForcibly();
+                        interrupted |= waitForCleanup(process, 5);
+                    }
+                }
+                if (process.isAlive()) {
+                    failure = new MojoExecutionException("Could not reap AppCDS training JVM PID " + process.pid());
+                }
+                // Let a normally exiting process drain before closing the pipe.
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (pump.isAlive() && System.nanoTime() < deadline) {
+                    try {
+                        pump.join(Math.max(1, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())));
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
+                if (outputFailure.get() != null && failure == null) {
+                    failure = new MojoExecutionException("Failed to read AppCDS training output", outputFailure.get());
+                }
+                for (var stream : List.of(process.getInputStream(), process.getErrorStream(), process.getOutputStream())) {
+                    try {
+                        stream.close();
+                    } catch (IOException e) {
+                        if (failure == null) failure = new MojoExecutionException("Failed to close training JVM streams", e);
+                        else failure.addSuppressed(e);
+                    }
+                }
+                pump.interrupt();
+                deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+                while (pump.isAlive() && System.nanoTime() < deadline) {
+                    try {
+                        pump.join(Math.max(1, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())));
+                    } catch (InterruptedException e) {
+                        interrupted = true;
+                    }
+                }
+                if (pump.isAlive() && failure == null) {
+                    failure = new MojoExecutionException("AppCDS output pump did not stop for PID " + process.pid());
+                }
+                if (interrupted && failure == null) {
+                    failure = new MojoExecutionException("Interrupted while reaping AppCDS training JVM");
+                }
+                if (failure != null) throw failure;
+            } finally {
+                if (interrupted) Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /** Cleanup cannot abandon the child when the caller is already interrupted. */
+    private static boolean waitForCleanup(Process process, int seconds) {
+        boolean interrupted = false;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+        while (process.isAlive() && System.nanoTime() < deadline) {
+            try {
+                process.waitFor(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+        }
+        return interrupted;
     }
 
     /** Returns true when an HTTP(S) GET to {@code url} answers with a 2xx/3xx status. */
-    static boolean httpReady(String url) {
-        HttpURLConnection conn = null;
+    static boolean httpReady(String url) throws MojoExecutionException, InterruptedException {
+        return httpReady(url, System.nanoTime() + TimeUnit.SECONDS.toNanos(2));
+    }
+
+    private static boolean httpReady(String url, long deadline)
+            throws MojoExecutionException, InterruptedException {
+        long now = System.nanoTime();
+        long remaining = Math.min(TimeUnit.SECONDS.toNanos(2), deadline - now);
+        if (remaining <= 0) return false;
+        long probeDeadline = now + remaining;
+        HttpRequest request;
         try {
-            conn = (HttpURLConnection) new URI(url).toURL().openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(2000);
-            conn.setReadTimeout(2000);
-            int code = conn.getResponseCode();
-            return code >= 200 && code < 400;
-        } catch (IOException | URISyntaxException | IllegalArgumentException e) {
-            return false;
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
+            request = HttpRequest.newBuilder(new URI(url))
+                    .timeout(Duration.ofNanos(remaining)).GET().build();
+        } catch (URISyntaxException | IllegalArgumentException e) {
+            throw new MojoExecutionException("Invalid HTTP readiness request: " + url, e);
+        }
+        var response = READINESS_HTTP_CLIENT.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream());
+        // Complete on headers, not on body EOF. Closing here also owns a response
+        // that races with cancellation of the caller's deadline-bounded wait.
+        var status = response.thenApply(value -> {
+            try (InputStream body = value.body()) {
+                return value.statusCode();
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
             }
+        });
+        try {
+            long wait = probeDeadline - System.nanoTime();
+            if (wait <= 0) return false;
+            int code = status.get(wait, TimeUnit.NANOSECONDS);
+            return System.nanoTime() < deadline && System.nanoTime() < probeDeadline
+                    && code >= 200 && code < 400;
+        } catch (TimeoutException e) {
+            return false;
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof IOException || e.getCause() instanceof UncheckedIOException) {
+                return false;
+            }
+            throw new MojoExecutionException("HTTP readiness probe failed", e.getCause());
+        } finally {
+            // Cancel the exchange itself, not just its derived status future.
+            response.cancel(true);
         }
     }
 
     /** Normalizes and validates the training termination mode. */
     static String normalizeMode(String raw) throws MojoExecutionException {
-        String m = raw == null ? MODE_EXIT : raw.trim().toLowerCase();
+        String m = raw == null ? MODE_EXIT : raw.trim().toLowerCase(java.util.Locale.ROOT);
         if (m.isEmpty()) {
             return MODE_EXIT;
         }
@@ -442,10 +594,24 @@ public class AppCdsMojo extends AbstractBrewletMojo {
             throws MojoExecutionException {
         boolean hasLog = readyLog != null && !readyLog.isBlank();
         boolean hasHttp = readyHttp != null && !readyHttp.isBlank();
+        if (readyDelaySeconds < 0) {
+            throw new MojoExecutionException("brewlet.appcds.readyDelaySeconds must not be negative.");
+        }
+        if (hasHttp) {
+            try {
+                URI uri = new URI(readyHttp);
+                if ((!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme()))
+                        || uri.getHost() == null) {
+                    throw new URISyntaxException(readyHttp, "expected an HTTP(S) URL with a host");
+                }
+            } catch (URISyntaxException e) {
+                throw new MojoExecutionException("Invalid brewlet.appcds.readyHttp: " + e.getMessage(), e);
+            }
+        }
         if (hasLog) {
             try {
                 Pattern.compile(readyLog);
-            } catch (RuntimeException e) {
+            } catch (java.util.regex.PatternSyntaxException e) {
                 throw new MojoExecutionException("brewlet.appcds.readyLog is not a valid regex: "
                         + e.getMessage(), e);
             }
@@ -461,18 +627,23 @@ public class AppCdsMojo extends AbstractBrewletMojo {
         if (trainingJavaHome == null) {
             return parseJavaFeatureVersion(System.getProperty("java.version"));
         }
-        Process process;
+        Path versionOutput = outputDirectory.toPath().resolve("appcds-java-version.log");
         try {
-            process = new ProcessBuilder(java.getAbsolutePath(), "-version")
+            Files.createDirectories(versionOutput.toAbsolutePath().getParent());
+            Process process = new ProcessBuilder(java.getAbsolutePath(), "-version")
                     .redirectErrorStream(true)
+                    .redirectOutput(versionOutput.toFile())
                     .start();
-            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                throw new MojoExecutionException("Timed out running " + java.getAbsolutePath()
-                        + " -version to verify the JDK 21+ AppCDS floor.");
+            try (TrainingProcess training = new TrainingProcess(process, null, null)) {
+                if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                    throw new MojoExecutionException("Timed out running " + java.getAbsolutePath()
+                            + " -version to verify the JDK 21+ AppCDS floor.");
+                }
+                if (process.exitValue() != 0) {
+                    throw new MojoExecutionException("Training java -version failed with code " + process.exitValue());
+                }
+                return parseJavaFeatureVersion(Files.readString(versionOutput));
             }
-            return parseJavaFeatureVersion(output);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to run " + java.getAbsolutePath()
                     + " -version to verify the JDK 21+ AppCDS floor", e);
@@ -576,25 +747,40 @@ public class AppCdsMojo extends AbstractBrewletMojo {
      * Every staged file's mtime is pinned to the canonical value so it matches the
      * node-side pinning and the archive maps. Returns the staged app JAR path.
      */
-    private Path stageTrainingInputs(JvmConfig cfg, String entryMode, File jar, Path trainingDir)
+    Path stageTrainingInputs(JvmConfig cfg, String entryMode, PreparedApplication payload, Path trainingDir)
             throws MojoExecutionException {
         try {
+            Path root = trainingDir.toAbsolutePath().normalize();
+            Path realRoot = Files.exists(root) ? root.toRealPath() : root;
+            List<Path> inputs = new ArrayList<>(List.of(resolveJarFile().toPath(), payload.jar().toPath()));
+            for (var dep : payload.dependencies()) inputs.add(dep.path());
+            for (Path input : inputs) {
+                if (input.toAbsolutePath().normalize().startsWith(root) || input.toRealPath().startsWith(realRoot)) {
+                    throw new MojoExecutionException("AppCDS training directory must not contain its input JARs.");
+                }
+            }
+            // A previous wildcard classpath must not inject stale libraries into this training run.
+            if (Files.exists(trainingDir)) {
+                try (var paths = Files.walk(trainingDir)) {
+                    for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
+                }
+            }
             Files.createDirectories(trainingDir);
             Path trainingJar = trainingDir.resolve(cfg.getMainJar());
-            Files.copy(jar.toPath(), trainingJar, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(payload.jar().toPath(), trainingJar, StandardCopyOption.REPLACE_EXISTING);
             Files.setLastModifiedTime(trainingJar, CANONICAL_APP_MTIME);
 
             Entry entry = cfg.getEntry();
             if ("classpath".equals(entryMode) && referencesDir(entry.getClassPath(), "lib")) {
-                stageDeps(trainingDir.resolve("lib"), "class-path");
+                stageDeps(trainingDir.resolve("lib"), payload.dependencies());
             } else if ("module".equals(entryMode)) {
                 if (referencesDir(entry.getModulePath(), "mods")) {
-                    stageDeps(trainingDir.resolve("mods"), "module-path");
+                    stageDeps(trainingDir.resolve("mods"), payload.dependencies());
                 }
                 // The mixed form also carries a class path, whose lib/ entries
                 // must be staged too or the training launch cannot resolve them.
                 if (referencesDir(entry.getClassPath(), "lib")) {
-                    stageDeps(trainingDir.resolve("lib"), "class-path");
+                    stageDeps(trainingDir.resolve("lib"), payload.dependencies());
                 }
             }
             return trainingJar;
@@ -604,13 +790,8 @@ public class AppCdsMojo extends AbstractBrewletMojo {
     }
 
     /** Copies the resolved runtime dependency JARs into {@code dir}, pinning mtimes. */
-    private void stageDeps(Path dir, String kind) throws IOException, MojoExecutionException {
-        List<LayerBuilder.Dep> deps = collectRuntimeDeps();
-        if (deps.isEmpty()) {
-            throw new MojoExecutionException("entry references a " + kind + " directory but the "
-                    + "project has no resolved runtime dependencies to stage; run 'mvn package' "
-                    + "first, or push as a fat JAR.");
-        }
+    private void stageDeps(Path dir, List<LayerBuilder.Dep> deps) throws IOException {
+        LayerBuilder.validateDependencies(deps);
         Files.createDirectories(dir);
         for (LayerBuilder.Dep dep : deps) {
             Path dest = dir.resolve(dep.fileName());

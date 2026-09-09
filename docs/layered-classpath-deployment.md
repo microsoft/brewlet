@@ -321,7 +321,7 @@ Question #3 for the mixed case.
   generic classes/deps split does not need it — see the [PetClinic interop
   walkthrough](spring-petclinic.md#layered-classpath-delivery).
 - **Maven plugin.** Setting `<layered>true</layered>` (or
-  `-Dbrewlet.layered=true`) packs the project's resolved transitive dependency tree
+  `-Dbrewlet.layered=true`) for a plain thin JAR packs its resolved dependency tree
   (`project.getArtifacts()`, compile+runtime scope) into reproducible
   `classpath.layer.v1+tar` layers next to a thin app JAR, split `deps` /
   `snapshot-deps` (`brewlet.splitSnapshotLayers`, default on), and emits
@@ -329,12 +329,22 @@ Question #3 for the mixed case.
   `entry.mainClass` (`Start-Class`/`Main-Class` or `<mainClass>`). Works for both
   `brewlet:build` (local OCI layout) and `brewlet:push`. `JarInspector`
   (`brewlet-maven-plugin/.../util/JarInspector.java`) supplies the main class.
+  Standard **Spring Boot executable JARs** instead have `BOOT-INF/classes/`
+  relocated into a deterministic thin application JAR and their exact packaged
+  `BOOT-INF/lib/*.jar` bytes copied into dependency layers. The generated explicit
+  classpath follows `BOOT-INF/classpath.idx` (which must list every library once),
+  or ZIP library order when no index exists. The source JAR is unchanged, and
+  build/push/config/inspect/AppCDS all share the same prepared payload. Unsupported
+  custom layouts and unsafe ZIP entries fail rather than silently producing an
+  unlaunchable image; see the
+  [plugin contract](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#layered-spring-boot-jars).
   For a **modular** project the same `<layered>true</layered>` flag instead packs
   the resolved runtime module dependencies into a single `modulepath.layer.v1+tar`
   layer (`/app/mods`) and emits `entry.mode=module` with
   `entry.modulePath=["<mainJar>","mods"]` — see [JPMS support](jpms-support.md).
-  (The plugin's split is driven by the resolved POM dependency tree, not by any
-  framework layering manifest; consuming a Spring Boot `layers.idx` is a non-goal.)
+  Dependency-layer grouping does not reinterpret a framework layering manifest;
+  consuming Spring Boot `layers.idx` remains a non-goal. It is distinct from
+  preserving the runtime classpath order in `classpath.idx`.
 - **ORAS (manual).** The multi-layer form is a plain multi-layer OCI push:
 
   ```bash

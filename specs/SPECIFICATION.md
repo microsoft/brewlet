@@ -286,6 +286,20 @@ and writes the result to a local **OCI layout**; it has no registry client, so
 publishing to a registry is done by the Maven plugin or ORAS. Registry
 publication from the Go CLI is [roadmap](../ROADMAP.md) work.
 
+**Maven layered Spring Boot payloads.** With `layered=true`, standard Boot
+`JarLauncher`/`launch.JarLauncher` archives are prepared into a deterministic
+thin application JAR from `BOOT-INF/classes/` and byte-identical nested
+`BOOT-INF/lib/*.jar` dependencies. `BOOT-INF/classpath.idx`, when present, must
+list each packaged library exactly once; otherwise ZIP library order applies.
+The emitted classpath preserves that order explicitly. Publication in either
+native or runnable format, config/inspect, and AppCDS training MUST use the same
+prepared payload and dependency bytes. The input archive remains unchanged.
+Verified signed containers yield a new unsigned application JAR; dependency
+signatures remain intact. Unsafe/ambiguous ZIP entries and unsupported
+WAR/custom-loader/custom-path/`requiresUnpack`/ZIP64/prefixed archives fail
+explicitly. Boot `layers.idx` grouping is not interpreted. Plain thin-JAR and
+JPMS layering retain their POM-resolved dependency behavior.
+
 ### 4.4 Runnable-image delivery mode (kubelet-pullable, the SpinKube-style pull path)
 
 The native artifact above is **registry-native but not runnable by containerd**: its
@@ -1380,6 +1394,11 @@ Manager, and workload reconciliation analogous to Spin Operator:
   managed resources, including those referencing an older same-name application,
   are preserved. Deletion checks both UID and resource version so concurrent
   replacement or ownership changes cause a retry, not deletion of the changed object.
+
+The Maven `brewlet:manifest` goal does not infer `spec.probes` from declared ports
+or detected frameworks. Ports may generate a Service but do not establish an
+HTTP health endpoint. Applications must configure probes explicitly in their
+deployment YAML; no implicit `GET /` readiness or liveness checks are emitted.
 - `env[].valueFrom` preserves Kubernetes Secret, ConfigMap, pod-field, and
   container-resource references, including selector options. The CRD also
   preserves `fileKeyRef`; using it requires the corresponding Kubernetes
