@@ -74,8 +74,9 @@ admission-check: ## Build and test the Ratify managed-dependency verifier plugin
 	go -C admission/ratify-verifier vet ./...
 	go -C admission/ratify-verifier test ./...
 
-site-contract-check: ## Check public examples and offline installation contracts
+site-contract-check: ## Check public examples, benchmark reports and offline installation contracts
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s site/scripts -p 'test_*.py' -v
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/benchmarks -p 'test_*.py' -v
 
 e2e-host: ## Run host-only end-to-end tiers
 	integration-tests/e2e/run.sh --tier 1 --tier 2
