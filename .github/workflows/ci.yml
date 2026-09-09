@@ -167,6 +167,9 @@ jobs:
       - name: Enforce workflow pinning and permission scoping
         run: make workflow-security-check
 
+      - name: Test release specification version guard
+        run: bash scripts/check-release-version_test.sh
+
   container-security:
     name: Container build integrity
     runs-on: ubuntu-latest
