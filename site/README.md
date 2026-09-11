@@ -27,6 +27,7 @@ of truth for building and publishing the landing page and `/docs/`.
 | Path | Purpose |
 |---|---|
 | `index.html`, `assets/` | Static landing page and its visual assets |
+| `index-value-prop.html` | Standalone value-proposition landing page; intentionally not linked from `index.html` |
 | `../docs/` | User and operator documentation |
 | `../docs/workshops/` | Role-based workshop material for operators and developers |
 | `assets/images/` | Brand assets and architecture diagrams |
@@ -42,6 +43,11 @@ python3 -m http.server 8099 --directory site
 ```
 
 Then open <http://localhost:8099>.
+
+The alternate landing page is available directly at
+<http://localhost:8099/index-value-prop.html>. It has isolated styles and does
+not change the primary homepage. It is marked `noindex` to keep this parallel
+version out of search results; the URL remains publicly accessible.
 
 Documentation site (`/docs/` with left navigation):
 
@@ -60,3 +66,7 @@ Pushes to `main` that change the web assets, documentation, or Pages
 workflow build and deploy the static landing page plus a rendered MkDocs site at
 `/docs/`. The workflow regenerates `NOTICE.txt` and fails if the checked-in
 notice is stale.
+
+The same workflow copies `index-value-prop.html` to the publish directory,
+making it available at <https://brewlet.sh/index-value-prop.html> without
+adding a navigation link from the primary homepage.

@@ -25,10 +25,19 @@ class LandingPage(HTMLParser):
         self.blocks = []
         self.links = []
         self.text = []
+        self.ids = []
+        self.resources = []
+        self.metadata = {}
         self.feed(source)
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if "id" in attrs:
+            self.ids.append(attrs["id"])
+        if tag == "img":
+            self.resources.append(attrs.get("src"))
+        if tag == "meta":
+            self.metadata[attrs.get("name") or attrs.get("property")] = attrs.get("content")
         if tag in ("script", "style"):
             self.hidden += 1
         if tag == "section":
@@ -145,7 +154,7 @@ class SiteContractsTest(unittest.TestCase):
         self.assertIn("maven-install-plugin:3.1.4:install-file", developers)
 
     def test_public_content_does_not_condition_release_access_on_repository_visibility(self):
-        paths = [ROOT / "site/index.html", ROOT / "site/README.md",
+        paths = [*sorted((ROOT / "site").glob("index*.html")), ROOT / "site/README.md",
                  *sorted((ROOT / "docs").rglob("*.md"))]
         restrictions = (
             r"\bprivate[\s-]+preview\b",
@@ -194,6 +203,68 @@ class SiteContractsTest(unittest.TestCase):
         for title, directory in (("Core runtime", "core"), ("Site and docs", "site")):
             links = [href for href, text in self.page.links if text.startswith(title)]
             self.assertEqual(links, ["https://github.com/microsoft/brewlet/tree/main/" + directory])
+
+
+class ValuePropositionPageTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (ROOT / "site/index-value-prop.html").read_text(encoding="utf-8")
+        cls.page = LandingPage(cls.source)
+        cls.text = " ".join("".join(cls.page.text).split())
+
+    def test_entry_point_is_independent_and_not_linked_from_homepage(self):
+        homepage = (ROOT / "site/index.html").read_text(encoding="utf-8")
+        self.assertNotIn("index-value-prop.html", homepage)
+        self.assertNotIn("assets/css/styles.css", self.source)
+        self.assertNotIn("assets/js/", self.source)
+        self.assertEqual(self.page.metadata["robots"], "noindex, follow")
+        self.assertEqual(self.page.metadata["og:url"],
+                         "https://brewlet.sh/index-value-prop.html")
+        self.assertIn('<link rel="canonical" href="https://brewlet.sh/index-value-prop.html"',
+                      self.source)
+
+    def test_internal_links_assets_and_workshop_actions_resolve(self):
+        self.assertEqual(len(self.page.ids), len(set(self.page.ids)))
+        for href, _ in self.page.links:
+            with self.subTest(href=href):
+                if href.startswith("#"):
+                    self.assertIn(href[1:], self.page.ids)
+                elif href.startswith("/docs/"):
+                    path = ROOT / "docs" / href.removeprefix("/docs/")
+                    candidates = [path / "index.md", path / "README.md",
+                                  path.with_suffix(".md")]
+                    self.assertTrue(any(candidate.is_file() for candidate in candidates))
+        for resource in self.page.resources:
+            self.assertTrue((ROOT / "site" / resource).is_file())
+        links = {href for href, _ in self.page.links}
+        self.assertIn("/docs/workshops/operations/", links)
+        self.assertIn("/docs/workshops/developers/", links)
+
+    def test_message_distinguishes_lifecycles_from_performance_claims(self):
+        for statement in (
+            "Ship Java applications.",
+            "Govern runtimes centrally.",
+            "without republishing application images for runtime-only updates",
+            "The restarts remain.",
+            "Dependency updates still require new application images",
+            "Performance must be no worse than conventional container deployments",
+            "not a result Brewlet has already established",
+            "21% higher sampled JVM-plus-shim PSS",
+            "automatic per-replica runtime reporting remains",
+            "Jib or buildpacks",
+        ):
+            with self.subTest(statement=statement):
+                self.assertIn(statement, self.text)
+
+    def test_runtime_exhibit_is_explicitly_illustrative_and_keyboard_operable(self):
+        self.assertIn("Illustrative runtime update, not a live deployment", self.text)
+        self.assertIn("Running JVMs retain the old runtime until restarted", self.text)
+        self.assertIn("Same application image digest in both states", self.text)
+        for state in ("before", "after"):
+            self.assertIn(f'type="radio" id="{state}" name="runtime-stage"', self.source)
+            self.assertIn(f'<label for="{state}">', self.source)
+        self.assertIn('#before:checked ~ .after-state', self.source)
+        self.assertIn('#after:checked ~ .before-state', self.source)
 
 
 if __name__ == "__main__":
