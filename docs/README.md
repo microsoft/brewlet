@@ -32,6 +32,7 @@ examples in
 | **Developer** shipping a Java service | [Building & publishing application artifacts](building-and-publishing.md) → [Deploying workloads](deploying-workloads.md) |
 | **Platform / cluster operator** enabling Brewlet on a cluster | [Installation](installation.md) → [Configuration](configuration.md) → [JDK management](jdk-management.md) |
 | **Anyone** who wants to try the released CLI locally | [Getting started](getting-started.md) |
+| **Anyone** who wants to run an app on local Kubernetes | [Local Kubernetes](local-kubernetes.md) |
 | **Someone evaluating** the idea | [Concepts & architecture](concepts.md) |
 | **Someone tracking planned work** | [Roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md) |
 
@@ -46,10 +47,10 @@ examples in
 ### Try it
 - **[Getting started](getting-started.md)** — download the released CLI, build
   the demo JAR, package and inspect it as an OCI artifact, run it with a
-  node-resident JDK, and preview the shim's runtime bundle.
-- **[Example: Spring PetClinic](spring-petclinic.md)** — the same flow with the
-  **real upstream Spring Boot app**: build the fat JAR, ship only the JAR, run it
-  via `shim → runc` under cgroups, and deploy it as a `JavaApplication`.
+  local JDK, and preview the shim's runtime bundle. No Kubernetes required.
+- **[Local Kubernetes](local-kubernetes.md)** — set up Docker Desktop with
+  Kubernetes kind, install Brewlet on a worker, and run Spring PetClinic in
+  your browser. One complete guide, with no registry account required.
 
 ### Run it on a cluster
 - **[Installation](installation.md)** — prerequisites, the SpinKube-style `helm
