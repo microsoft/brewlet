@@ -25,12 +25,12 @@ the webhook.
 
 ## Install
 
-The current private preview requires **repository and package access**. Configure
-your authorized Git and registry credential mechanisms first; do not put tokens
-in command arguments or URLs. Public documentation does not make the release
-assets or GHCR packages anonymously accessible. For a source-build path, see
+Brewlet is a pre-1.0 preview. Use a disposable evaluation cluster with
+containerd 2.0+ and cgroup v2. The published chart and component images are
+intended for anonymous pulls. If GHCR denies access, see
+[package access troubleshooting](../../../docs/installation.md#package-access-troubleshooting).
+For a source-build path, see
 [Installation](../../../docs/installation.md#released-components).
-Use a disposable evaluation cluster with containerd 2.0+ and cgroup v2.
 
 Save `my-jdks.yaml` with an administrator-chosen runtime source:
 

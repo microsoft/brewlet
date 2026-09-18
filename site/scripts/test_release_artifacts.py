@@ -44,6 +44,12 @@ def option(flag):
 def reject():
     raise SystemExit("unexpected offline command: " + repr([name, *args]))
 
+if name in ("curl", "installer"):
+    assert (Path(os.environ["CURL_HOME"]) / ".curlrc").read_text() == ""
+if name in ("helm", "docker", "provenance"):
+    assert json.loads((Path(os.environ["DOCKER_CONFIG"]) / "config.json").read_text()) == {}
+    assert json.loads(Path(os.environ["HELM_REGISTRY_CONFIG"]).read_text()) == {}
+
 if name == "brewlet":
     if args == ["version"]:
         print(version)
@@ -96,6 +102,8 @@ elif name == "helm":
     if args[0] == "pull":
         assert args[1] == "oci://ghcr.io/microsoft/charts/brewlet"
         assert option("--version") == version
+        if mutation == "chart-access-denied":
+            raise SystemExit("denied: requested access to the resource is denied")
         shutil.copy(work / f"brewlet-{version}.tgz", Path(option("--destination")) / f"brewlet-{version}.tgz")
     elif args[0] in ("template", "show"):
         if args[0] == "show" and args[1] != "chart":
@@ -163,6 +171,15 @@ class ReleaseArtifactsTest(unittest.TestCase):
         cls.work = ROOT / (".test-release-smoke-" + uuid.uuid4().hex)
         cls.work.mkdir()
         cls.addClassCleanup(shutil.rmtree, cls.work)
+        credentials = cls.work / "caller-credentials"
+        credentials.mkdir()
+        cls.caller_configs = {
+            ".curlrc": 'header = "Authorization: Bearer fixture"\n',
+            "config.json": '{"credsStore": "must-not-be-used"}',
+            "registry.json": '{"auths": {"ghcr.io": {"auth": "fixture"}}}',
+        }
+        for name, content in cls.caller_configs.items():
+            (credentials / name).write_text(content)
         chart = cls.work / "chart"
         shutil.copytree(ROOT / "kubernetes/charts/brewlet", chart)
         values = (chart / "values.yaml").read_text()
@@ -198,6 +215,9 @@ class ReleaseArtifactsTest(unittest.TestCase):
             (self.work / name).unlink(missing_ok=True)
         env = dict(os.environ, SMOKE_WORK=str(self.work), SMOKE_VERSION=VERSION,
                    SMOKE_MUTATION=mutation, REAL_HELM=self.helm,
+                   CURL_HOME=str(self.work / "caller-credentials"),
+                   DOCKER_CONFIG=str(self.work / "caller-credentials"),
+                   HELM_REGISTRY_CONFIG=str(self.work / "caller-credentials/registry.json"),
                    PATH=str(self.work / "bin") + os.pathsep + os.environ["PATH"])
         env.pop("BREWLET_MIN_PROVENANCE_VERSION", None)
         result = subprocess.run(
@@ -205,7 +225,17 @@ class ReleaseArtifactsTest(unittest.TestCase):
             cwd=self.work, env=env, capture_output=True, text=True, timeout=60,
         )
         self.assertFalse(list(self.work.glob(".brewlet-release-smoke-*")), "Smoke workspace leaked")
+        for name, content in self.caller_configs.items():
+            self.assertEqual((self.work / "caller-credentials" / name).read_text(), content,
+                             "Smoke test changed caller credentials")
         return result
+
+    def test_anonymous_chart_failure_explains_independent_package_visibility(self):
+        result = self.smoke("chart-access-denied")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Anonymous chart pull failed", result.stderr)
+        self.assertIn("making the source repository public does not make its packages public",
+                      result.stderr)
 
     def test_real_chart_renders_with_required_inputs_and_keeps_release_verification(self):
         result = self.smoke()

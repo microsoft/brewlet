@@ -56,8 +56,8 @@ jobs:
           distribution: temurin
           java-version: "21"
       - name: Verify installer, public release, and Getting Started
-        # Needed once the pinned version reaches BREWLET_MIN_PROVENANCE_VERSION
-        # and the script starts calling gh attestation verify.
+        # GitHub CLI uses this for attestations, not artifact downloads or
+        # registry pulls; the smoke script isolates saved registry credentials.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./site/scripts/verify-release-artifacts.sh 0.4.0

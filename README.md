@@ -29,9 +29,8 @@ integration tests, website, and user-facing documentation.
 Brewlet is a pre-1.0 preview. It is under active development, and its APIs,
 artifact formats, and operational behavior may change between minor releases.
 Use a disposable evaluation environment, not a production or shared cluster.
-The current private preview requires **repository and package access**. The
-public documentation does not grant access to the source, releases, or GHCR
-packages; request access through your preview contact.
+The source and GitHub release downloads are public; no repository credentials
+are needed to clone the project or install the CLI.
 
 - [Documentation](https://brewlet.sh/)
 - [Getting started](https://brewlet.sh/docs/getting-started/)
@@ -104,24 +103,9 @@ packages; request access through your preview contact.
 
 ### Install the CLI
 
-For the private preview, use your authenticated Git credential helper or SSH
-access to obtain the source, then build locally (Go 1.26+):
-
-```bash
-git clone https://github.com/microsoft/brewlet.git
-cd brewlet
-make binaries
-export PATH="$PWD/bin:$PATH"
-brewlet version
-```
-
-Do not put access tokens in clone URLs or shell history. See
-[Getting started](https://brewlet.sh/docs/getting-started/) for the local
-application example.
-
-**Only when release assets are publicly accessible**, the checksum-verifying
-installer selects the correct Linux or macOS archive and installs `brewlet` to
-`$HOME/.local/bin` by default. It does not authenticate private release downloads:
+The checksum-verifying installer selects the correct Linux or macOS archive and
+installs `brewlet` to `$HOME/.local/bin` by default. No Go toolchain or GitHub
+authentication is required:
 
 ```bash
 export BREWLET_VERSION="0.4.0"
@@ -131,9 +115,22 @@ brewlet version
 ```
 
 Set `BREWLET_VERSION` to pin a release or `BREWLET_INSTALL_DIR` to choose a
-different destination. See the
+different destination. See [Getting started](https://brewlet.sh/docs/getting-started/)
+for the local application example and the
 [CLI documentation](https://brewlet.sh/docs/cli-reference/) for the artifact
 workflow.
+
+### Alternative: build from source
+
+For Brewlet development, build locally with Go 1.26+ instead:
+
+```bash
+git clone https://github.com/microsoft/brewlet.git
+cd brewlet
+make binaries
+export PATH="$PWD/bin:$PATH"
+brewlet version
+```
 
 ### Enable a Kubernetes cluster
 
@@ -159,8 +156,7 @@ provisioner:
         javaHome: /opt/java/openjdk
 ```
 
-With access to the chart and component packages (and registry authentication
-configured), install on your disposable cluster:
+Install the published chart on your disposable cluster:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
@@ -177,6 +173,9 @@ brewlet doctor --namespace <developer-namespace>
 Follow the [installation guide](https://brewlet.sh/docs/installation/) for
 source-built component installation, pool labels, scoped node profiles,
 configuration, upgrades, and safe removal. Keep your chosen values for upgrades.
+If GHCR denies an anonymous pull, see
+[package access troubleshooting](https://brewlet.sh/docs/installation/#package-access-troubleshooting);
+package visibility is managed separately from repository visibility.
 
 ## Build and test
 
