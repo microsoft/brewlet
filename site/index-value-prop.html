@@ -1,0 +1,484 @@
+<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
+<!--
+THESIS: Independent application and runtime lifecycles, not faster Java.
+OWN-WORLD: Brewlet wordmark and bean, warm neutral surfaces, rose theme tokens,
+system typography, generous spacing, and an isolated stylesheet.
+STORY: Understand who owns each change, compare a JDK patch fairly, then try
+the role-based workshops. Performance parity is a requirement, not a claim.
+FIRST VIEWPORT: Large left-aligned promise and workshop action beside a
+before/after runtime exhibit whose application identity never changes.
+FORM: Brief-directed parallel landing page; no changes or inbound links from
+the existing homepage. The exhibit is illustrative, not a live deployment.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Brewlet | Ship Java applications. Govern runtimes centrally.</title>
+  <meta name="description" content="Separate Java application delivery from runtime maintenance. Publish application payloads through Maven and OCI; govern approved node JDKs without republishing application images for runtime-only updates." />
+  <meta name="robots" content="noindex, follow" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Brewlet | Ship Java applications. Govern runtimes centrally." />
+  <meta property="og:description" content="A JDK patch does not have to become a new application image. Separate application delivery from runtime operations with Brewlet." />
+  <meta property="og:url" content="https://brewlet.sh/index-value-prop.html" />
+  <meta name="twitter:card" content="summary" />
+  <link rel="canonical" href="https://brewlet.sh/index-value-prop.html" />
+  <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml" />
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const theme = param === "light" || param === "dark"
+        ? param
+        : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-padding-top: 2rem; }
+    body {
+      margin: 0;
+      background: var(--cp-bg);
+      color: var(--cp-text);
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 1rem;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--cp-accent); text-underline-offset: 0.2em; }
+    a:hover { color: var(--cp-accent-hover); }
+    :focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 5px; }
+    h1, h2, h3 { line-height: 1.12; text-wrap: balance; }
+    h1, h2 { letter-spacing: -0.035em; }
+    h1 { margin: 0; font-size: clamp(2.75rem, 4.8vw, 4.25rem); font-weight: 750; }
+    h2 { margin: 0 0 1.25rem; font-size: clamp(2rem, 3.4vw, 3rem); }
+    h3 { margin: 0 0 0.75rem; font-size: 1.375rem; }
+    p { margin: 0 0 1.25rem; max-width: 70ch; text-wrap: pretty; }
+    code { font-family: Consolas, "Courier New", Courier, monospace; font-size: 0.9em; overflow-wrap: anywhere; }
+    .container { width: min(100% - 3rem, 75rem); margin-inline: auto; }
+    .skip-link { position: absolute; top: -8rem; left: 1rem; z-index: 2; padding: 0.75rem 1rem; background: var(--cp-surface); }
+    .skip-link:focus { top: 1rem; }
+    .site-header { border-bottom: 1px solid var(--cp-border); }
+    .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; min-height: 5rem; }
+    .brand { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--cp-text); font-size: 1.625rem; font-weight: 750; letter-spacing: -0.035em; text-decoration: none; }
+    .brand img { width: 2rem; height: 2rem; }
+    .brand span { color: var(--cp-accent); }
+    nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1.75rem; }
+    nav a { display: inline-flex; align-items: center; min-height: 2.75rem; color: var(--cp-text); font-size: 0.9375rem; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    .hero { padding-block: clamp(3.5rem, 7vw, 6.5rem) 3rem; }
+    .hero-grid { display: grid; grid-template-columns: 1.1fr 1fr; align-items: center; gap: 4rem; }
+    .hero-copy h1 span { display: block; color: var(--cp-accent); }
+    .lede { margin-top: 1.75rem; font-size: 1.1875rem; color: var(--cp-text-soft); line-height: 1.65; }
+    .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem 1.5rem; margin-block: 2rem 1.5rem; }
+    .button { display: inline-flex; align-items: center; justify-content: center; min-height: 3rem; padding: 0.75rem 1.25rem; border: 1px solid var(--cp-accent); border-radius: 0.625rem; background: var(--cp-accent); color: var(--cp-accent-fg); font-weight: 650; text-decoration: none; }
+    .button:hover { background: var(--cp-accent-hover); border-color: var(--cp-accent-hover); color: var(--cp-accent-fg); }
+    .text-link { display: inline-flex; align-items: center; min-height: 2.75rem; font-weight: 600; }
+    .hero-note, .caption { color: var(--cp-text-soft); font-size: 0.875rem; }
+    .hero-note { margin-bottom: 0; }
+    .runtime-demo { min-width: 0; }
+    .runtime-demo fieldset { min-width: 0; margin: 0; padding: 1.5rem; border: 1px solid var(--cp-border-strong); border-radius: 16px; background: var(--cp-surface); }
+    .runtime-demo legend { padding-inline: 0.5rem; font-weight: 650; font-size: 1rem; }
+    .runtime-demo input { width: 1.125rem; height: 1.125rem; margin: 0 0.375rem 0 0; accent-color: var(--cp-accent); vertical-align: middle; }
+    .runtime-demo label { display: inline-block; min-height: 2.75rem; padding: 0.5rem 0.875rem 0.5rem 0; cursor: pointer; font-size: 0.9375rem; }
+    .runtime-demo input:checked + label { color: var(--cp-accent); font-weight: 700; }
+    .application-identity { margin-top: 1rem; padding-block: 1.5rem; border-block: 1px solid var(--cp-border); }
+    .application-identity .label, .runtime-state .label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: var(--cp-text-soft); }
+    .application-identity code { display: block; font-size: 1.5rem; font-weight: 650; }
+    .unchanged { margin: 0.375rem 0 0; color: var(--cp-accent); font-weight: 600; font-size: 0.9375rem; }
+    .runtime-state { margin-block: 1.5rem 0; padding: 1.25rem; border-radius: 0.625rem; background: var(--cp-accent-soft); }
+    .runtime-state strong { display: block; font-size: 1.25rem; }
+    .runtime-state p { margin: 0.5rem 0 0; font-size: 0.9375rem; }
+    #before:checked ~ .after-state, #after:checked ~ .before-state { display: none; }
+    .runtime-demo .caption { margin: 0.75rem 0 0; }
+    .ownership { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.5rem; margin-top: 4rem; padding-top: 2rem; border-top: 1px solid var(--cp-border-strong); }
+    .ownership h2 { font-size: 1.125rem; letter-spacing: 0; margin-bottom: 0.75rem; }
+    .ownership p { color: var(--cp-text-soft); font-size: 0.9375rem; margin: 0; }
+    .section { padding-block: clamp(3.5rem, 6vw, 5.5rem); }
+    .section-intro { max-width: 48rem; margin-bottom: 2.5rem; }
+    .section-intro p { color: var(--cp-text-soft); font-size: 1.125rem; }
+    .comparison-section { background: var(--cp-bg-elevated); border-block: 1px solid var(--cp-border); }
+    .comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.5rem; }
+    .comparison-path { border-top: 2px solid var(--cp-border-strong); padding-top: 1.5rem; }
+    .comparison-path.brewlet { border-color: var(--cp-accent); }
+    .comparison-path h3 { font-size: 1.5rem; }
+    .comparison-path > p { color: var(--cp-text-soft); font-size: 0.9375rem; }
+    .change-steps { padding-left: 1.5rem; margin: 1.5rem 0 0; }
+    .change-steps li { padding-left: 0.5rem; margin-bottom: 1rem; }
+    .change-steps li::marker { font-weight: 700; color: var(--cp-text-soft); }
+    .change-steps strong { display: block; line-height: 1.4; }
+    .change-steps span { color: var(--cp-text-soft); font-size: 0.9375rem; }
+    .takeaway { margin: 2rem 0 0; padding: 1.5rem 0; border-block: 1px solid var(--cp-border); font-size: clamp(1.375rem, 2.5vw, 2rem); font-weight: 650; letter-spacing: -0.02em; line-height: 1.35; max-width: none; }
+    .takeaway span { color: var(--cp-accent); }
+    details { margin-top: 1.5rem; }
+    summary { padding-block: 0.5rem; color: var(--cp-accent); cursor: pointer; font-weight: 600; }
+    details p { margin: 1rem 0 0; color: var(--cp-text-soft); font-size: 0.9375rem; }
+    .split-section { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 4rem; }
+    .split-section > div > p { color: var(--cp-text-soft); }
+    .workflow { margin: 0; }
+    .workflow > div { display: grid; grid-template-columns: 2.5rem 1fr; gap: 1rem; padding-block: 1.5rem; border-top: 1px solid var(--cp-border); }
+    .workflow > div:first-child { padding-top: 0; border-top: 0; }
+    .workflow dt { grid-column: 1 / -1; display: grid; grid-template-columns: 2.5rem 1fr; gap: 1rem; font-size: 1.125rem; font-weight: 650; }
+    .workflow dd { grid-column: 2; margin: -0.75rem 0 0; color: var(--cp-text-soft); }
+    .step-number { color: var(--cp-accent); font-size: 1.125rem; font-weight: 650; }
+    .governance { background: var(--cp-surface); border-block: 1px solid var(--cp-border); }
+    .control-list { margin: 0; }
+    .control-list > div { display: grid; grid-template-columns: 0.75fr 1.25fr; gap: 2.5rem; border-top: 1px solid var(--cp-border); padding-block: 1.5rem; }
+    .control-list dt { font-weight: 650; font-size: 1.125rem; }
+    .control-list dd { margin: 0; color: var(--cp-text-soft); }
+    .governance-note { margin: 0.5rem 0 0; font-size: 0.9375rem; color: var(--cp-text-soft); }
+    .evidence { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; }
+    .evidence p { color: var(--cp-text-soft); }
+    .evidence-list { margin: 0; padding-left: 1.25rem; }
+    .evidence-list li { padding-left: 0.25rem; margin-bottom: 1.25rem; }
+    .evidence-list strong { display: block; }
+    .evidence-list span { color: var(--cp-text-soft); }
+    .closing { background: var(--cp-accent); color: var(--cp-accent-fg); }
+    .closing .container { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center; }
+    .closing p { margin: 0; }
+    .closing a { color: var(--cp-accent-fg); }
+    .closing .button { background: var(--cp-accent-fg); color: var(--cp-accent); border-color: var(--cp-accent-fg); }
+    .closing .button:hover { text-decoration: underline; }
+    .closing .actions { margin-block: 0 1.25rem; }
+    .closing :focus-visible { outline-color: var(--cp-accent-fg); }
+    footer { padding-block: 2rem; font-size: 0.875rem; }
+    .footer-inner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem 2rem; }
+    footer p { margin: 0; color: var(--cp-text-soft); }
+    footer nav { gap: 1.25rem; }
+    footer a { font-size: 0.875rem; }
+    @media (max-width: 960px) {
+      .hero-grid, .split-section, .evidence, .closing .container { gap: 2.5rem; }
+      .hero-grid { grid-template-columns: 1fr 1fr; }
+      h1 { font-size: clamp(2.5rem, 5vw, 3.5rem); }
+      .runtime-demo fieldset { padding: 1rem; }
+      .runtime-demo label { padding-right: 0.5rem; font-size: 0.875rem; }
+      .ownership { gap: 1.5rem; }
+    }
+    @media (max-width: 720px) {
+      .header-inner { align-items: flex-start; padding-block: 1rem; gap: 0.5rem 1.5rem; flex-wrap: wrap; }
+      nav { gap: 0.25rem 1.25rem; }
+      .hero-grid, .comparison, .split-section, .evidence, .closing .container { grid-template-columns: 1fr; }
+      h1 { font-size: clamp(2.75rem, 8vw, 4rem); max-width: 15ch; }
+      .hero-copy { max-width: 36rem; }
+      .runtime-demo { max-width: 36rem; }
+      .runtime-demo fieldset { padding: 1.5rem; }
+      .ownership { grid-template-columns: 1fr; margin-top: 2.5rem; }
+      .ownership article { max-width: 38rem; }
+      .control-list > div { grid-template-columns: 1fr; gap: 0.5rem; }
+      .comparison-path > p { max-width: 50ch; }
+      .closing .container { gap: 1rem; }
+      .closing .actions { margin-top: 1rem; }
+    }
+    @media (max-width: 380px) {
+      .container { width: calc(100% - 2rem); }
+      .runtime-demo fieldset { padding: 1rem; }
+      h1 { font-size: 2.5rem; }
+    }
+    @media print {
+      .site-header, .actions, footer { display: none; }
+      .section, .hero { padding-block: 2rem; }
+      .hero-grid, .split-section, .evidence { display: block; }
+      .runtime-demo { margin-top: 2rem; }
+      details > p { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="Brewlet home">
+        <img src="assets/images/favicon.svg" width="32" height="32" alt="" />
+        <span>brewlet</span>
+      </a>
+      <nav aria-label="Primary">
+        <a href="#runtime-change">The difference</a>
+        <a href="#governance">Governance</a>
+        <a href="/docs/">Documentation</a>
+        <a href="https://github.com/microsoft/brewlet">GitHub</a>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-heading">
+      <div class="container">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <h1 id="hero-heading">Ship Java applications.<span>Govern runtimes centrally.</span></h1>
+            <p class="lede">
+              Separate application delivery from runtime maintenance.
+              Developers publish application payloads through Maven and OCI.
+              Platform teams manage approved node JDKs without republishing
+              application images for runtime-only updates.
+            </p>
+            <div class="actions">
+              <a class="button" href="/docs/workshops/">Try the workshops</a>
+              <a class="text-link" href="#runtime-change">See a runtime update <span aria-hidden="true">&nbsp;&darr;</span></a>
+            </div>
+            <p class="hero-note">Java on Kubernetes &middot; runc-backed isolation &middot; MIT licensed</p>
+          </div>
+          <div class="runtime-demo">
+            <fieldset aria-describedby="demo-caption">
+              <legend>A runtime changes. Your application stays.</legend>
+              <input type="radio" id="before" name="runtime-stage" checked />
+              <label for="before">Before update</label>
+              <input type="radio" id="after" name="runtime-stage" />
+              <label for="after">After rollout</label>
+              <div class="application-identity">
+                <span class="label">Application release</span>
+                <code>orders / 1.4.2</code>
+                <p class="unchanged">Same application image digest in both states.</p>
+              </div>
+              <div class="runtime-state before-state">
+                <span class="label">Platform-owned node runtime</span>
+                <strong>JDK 21 &middot; approved build A</strong>
+                <p>Application workloads run on the current approved runtime.</p>
+              </div>
+              <div class="runtime-state after-state">
+                <span class="label">Platform-owned node runtime</span>
+                <strong>JDK 21 &middot; approved build B</strong>
+                <p>After the node update and workload rollout, replacement JVMs use the patched runtime.</p>
+              </div>
+            </fieldset>
+            <p class="caption" id="demo-caption">Illustrative runtime update, not a live deployment. Running JVMs retain the old runtime until restarted.</p>
+          </div>
+        </div>
+        <div class="ownership" aria-label="Who owns what">
+          <article>
+            <h2>Developers own the application.</h2>
+            <p>Keep familiar code, dependency, test, and IDE workflows. Publish an application payload, not a runtime maintenance decision.</p>
+          </article>
+          <article>
+            <h2>Platform teams own the runtime.</h2>
+            <p>Choose approved JDK sources for node pools. Maintain them independently of application image publication.</p>
+          </article>
+          <article>
+            <h2>Governance spans both.</h2>
+            <p>Use immutable references and explicit policies for runtime sources and dependency composition. Track the complete execution environment.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section comparison-section" id="runtime-change" aria-labelledby="change-heading">
+      <div class="container">
+        <div class="section-intro">
+          <h2 id="change-heading">A JDK patch should not require a new application image.</h2>
+          <p>Both approaches need approved runtimes and safe rollouts. Brewlet changes which artifacts have to move through your delivery process.</p>
+        </div>
+        <div class="comparison">
+          <div class="comparison-path">
+            <h3>Automated container delivery</h3>
+            <p>A fair baseline: Jib or buildpacks, reusable layers, centralized pipelines, and admission policy.</p>
+            <ol class="change-steps">
+              <li><strong>Approve the runtime update.</strong><span>Review the source and qualify application compatibility.</span></li>
+              <li><strong>Produce updated application images.</strong><span>Reuse compiled code and unchanged layers where possible. Each changed image gets a new digest.</span></li>
+              <li><strong>Publish and update release evidence.</strong><span>Refresh digest-bound signatures and attestations as your policy requires.</span></li>
+              <li><strong>Roll out and confirm adoption.</strong><span>Replace workloads and verify that the intended runtime is running.</span></li>
+            </ol>
+          </div>
+          <div class="comparison-path brewlet">
+            <h3>Application and runtime, separated</h3>
+            <p>The application image remains immutable. The approved runtime changes through the platform.</p>
+            <ol class="change-steps">
+              <li><strong>Approve the runtime update.</strong><span>The same review and compatibility responsibilities apply.</span></li>
+              <li><strong>Update the node runtime sources.</strong><span>Apply reviewed JDK source digests to the relevant node pools.</span></li>
+              <li><strong>Keep application images unchanged.</strong><span>No runtime-only application-image publication. Record and approve the runtime change separately.</span></li>
+              <li><strong>Roll out and confirm adoption.</strong><span>Restart workloads after nodes are ready. Running JVMs are not patched in place.</span></li>
+            </ol>
+          </div>
+        </div>
+        <p class="takeaway">The restarts remain.<br /><span>The runtime-only application-image publication work does not.</span></p>
+        <details>
+          <summary>What about Jib, buildpacks, and rebasing?</summary>
+          <p><a href="https://github.com/GoogleContainerTools/jib">Jib</a> already provides Dockerfile-free, daemonless Java image publication.
+            <a href="https://buildpacks.io/docs/for-app-developers/concepts/rebase/">Buildpack rebasing</a> replaces run-image layers without rebuilding application layers, but still changes the application image digest.
+            In standard Paketo Java images, the <a href="https://github.com/paketo-buildpacks/bellsoft-liberica#behavior">JRE is a buildpack launch layer</a>, so a base-only rebase does not update that JVM.
+            An updated image can be built from a precompiled application. Brewlet's distinction is independent runtime maintenance, not exclusive access to efficient image tooling.</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="section" id="delivery" aria-labelledby="delivery-heading">
+      <div class="container split-section">
+        <div>
+          <h2 id="delivery-heading">A smaller delivery contract.<br />Still Kubernetes.</h2>
+          <p>Keep your application code and dependencies in the application lifecycle.
+            Move JDK selection and maintenance into the platform lifecycle.
+            Publish once, then deploy the same application digest to compatible, prepared nodes.</p>
+          <a class="text-link" href="/docs/workshops/developers/">Follow the developer workflow <span aria-hidden="true">&nbsp;&rarr;</span></a>
+        </div>
+        <dl class="workflow">
+          <div>
+            <dt><span class="step-number" aria-hidden="true">1</span>Build your Java application.</dt>
+            <dd>Use your normal Maven build. Brewlet supports executable JARs, layered classpaths, and JPMS modules.</dd>
+          </div>
+          <div>
+            <dt><span class="step-number" aria-hidden="true">2</span>Publish through the Maven plugin.</dt>
+            <dd>Ship application bytes and launch metadata to an OCI registry. The platform supplies the JDK and its userland.</dd>
+          </div>
+          <div>
+            <dt><span class="step-number" aria-hidden="true">3</span>Declare the workload.</dt>
+            <dd>A <code>JavaApplication</code> describes the image digest, Java requirements, resources, and probes. Its controller manages the Deployment, Service, and optional HPA.</dd>
+          </div>
+          <div>
+            <dt><span class="step-number" aria-hidden="true">4</span>Operate with familiar tools.</dt>
+            <dd>Keep Kubernetes networking, logs, exec, and workload rollouts. The Brewlet runtime uses runc isolation and pod resource limits.</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="section governance" id="governance" aria-labelledby="governance-heading">
+      <div class="container">
+        <div class="section-intro">
+          <h2 id="governance-heading">Make the approved path explicit.</h2>
+          <p>Security responsibilities do not disappear. Brewlet gives platform and application teams distinct places to exercise them.</p>
+        </div>
+        <dl class="control-list">
+          <div>
+            <dt>Approve runtime sources centrally.</dt>
+            <dd><code>NodeProfile</code> resources select node pools and digest-pinned JDK sources.
+              New launches select from the node's active runtime inventory.
+              <a href="/docs/jdk-management/">Runtime management</a></dd>
+          </div>
+          <div>
+            <dt>Verify dependency composition.</dt>
+            <dd>Managed dependency bundles compare the complete resolved Maven runtime graph with an approved lock, including JAR digests.
+              Publication reuses the verified classpath layer.
+              <a href="/docs/managed-dependency-bundles/">Managed bundles</a></dd>
+          </div>
+          <div>
+            <dt>Enforce trusted publication.</dt>
+            <dd>The optional Ratify/Gatekeeper integration requires a trusted final-image managed-dependency attestation.
+              It needs configured keys, policy, and an OCI Referrers-API registry; it is not automatic or general-purpose signature admission.
+              <a href="/docs/admission-enforcement/">Admission enforcement</a></dd>
+          </div>
+          <div>
+            <dt>Audit the complete environment.</dt>
+            <dd>Review application and runtime evidence together, not just the application image.
+              Node inventory reports installed JDK builds; automatic per-replica runtime reporting remains
+              <a href="https://github.com/microsoft/brewlet/blob/main/ROADMAP.md#workload-delivery">planned work</a>.</dd>
+          </div>
+        </dl>
+        <p class="governance-note">Dependency updates still require new application images.
+          Managed mode requires thin JARs. Brewlet retains container-grade isolation; it is not a stronger hostile-tenant sandbox.
+          Read the <a href="/docs/security/">security and privileged-provisioning model</a>.</p>
+      </div>
+    </section>
+
+    <section class="section" id="evaluation" aria-labelledby="evaluation-heading">
+      <div class="container evidence">
+        <div>
+          <h2 id="evaluation-heading">Better operations.<br />Not a faster-Java claim.</h2>
+          <p>The goal is simpler delivery and more governable change.
+            Performance must be no worse than conventional container deployments.
+            That is an acceptance requirement, not a result Brewlet has already established.</p>
+          <p>A recorded PetClinic experiment showed similar warm startup, but approximately
+            21% higher sampled JVM-plus-shim PSS with Brewlet. The runtime stacks used different
+            containerd and Go builds; sustained throughput, tail latency, and cold deployment were not measured.</p>
+          <a class="text-link" href="https://github.com/microsoft/brewlet/tree/main/integration-tests/benchmarks">Inspect the benchmark and recorded results <span aria-hidden="true">&nbsp;&rarr;</span></a>
+        </div>
+        <div>
+          <h3>Evaluate the changes that matter.</h3>
+          <ul class="evidence-list">
+            <li><strong>Demonstrated: independent runtime replacement.</strong><span>The recorded experiment ran the same application image digest on two different JDK builds.</span></li>
+            <li><strong>Measure: less delivery and remediation effort.</strong><span>Compare developer configuration, application publications, approvals, and total operator effort with an automated container platform.</span></li>
+            <li><strong>Demonstrate: application rollback after a JDK patch.</strong><span>Show that an older compatible application can run on the current approved runtime, with traceable runtime identity.</span></li>
+          </ul>
+          <details>
+            <summary>What needs attention in an evaluation?</summary>
+            <p>Brewlet is a pre-1.0 preview. Use a disposable evaluation environment.
+              Privileged node provisioning adds platform responsibilities.
+              Current capability admission does not support waking a completely zero-sized pool;
+              missing node identities can block profile cleanup and upgrades.
+              Ordinary-image ephemeral debug containers are not supported.
+              Review <a href="/docs/capability-labels-and-autoscaling/">node lifecycle constraints</a>
+              and <a href="/docs/deploying-workloads/">workload operations</a> before adoption.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section closing" aria-labelledby="start-heading">
+      <div class="container">
+        <div>
+          <h2 id="start-heading">Try both sides of the handoff.</h2>
+          <p>Prepare a node pool. Publish an application. See where runtime ownership ends and application delivery begins.</p>
+        </div>
+        <div>
+          <div class="actions">
+            <a class="button" href="/docs/workshops/operations/">Enable an evaluation cluster</a>
+            <a class="text-link" href="/docs/workshops/developers/">Build and deploy an application <span aria-hidden="true">&nbsp;&rarr;</span></a>
+          </div>
+          <p>Start with the <a href="/docs/getting-started/">local getting-started guide</a> if you are not ready for a cluster.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer>
+    <div class="container footer-inner">
+      <p>Brewlet &middot; Java applications, platform-managed runtimes.</p>
+      <nav aria-label="Footer">
+        <a href="/docs/">Documentation</a>
+        <a href="https://github.com/microsoft/brewlet">GitHub</a>
+        <a href="/LICENSE.txt">MIT license</a>
+        <a href="/NOTICE.txt">Third-party notices</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
