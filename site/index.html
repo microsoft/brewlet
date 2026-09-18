@@ -441,6 +441,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
        </div>
        <div class="hero-cta center">
           <a class="btn btn-primary" href="/docs/getting-started/">Open the full quick start</a>
+          <a class="btn btn-ghost" href="/docs/local-kubernetes/">Try local Kubernetes</a>
           <a class="btn btn-ghost" href="/docs/">Browse documentation</a>
         </div>
       </div>
@@ -456,7 +457,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
         </details>
         <details>
           <summary>Does Brewlet change how my Java app runs?</summary>
-          <p>Brewlet uses the standard JVM launch mode declared by the artifact: <code>java -jar</code>, a classpath main class, or a JPMS module. It does not replace the JVM. Packaging must match the selected mode; see the <a href="/docs/spring-petclinic/">Spring PetClinic walkthrough</a> for supported Boot layouts.</p>
+          <p>Brewlet uses the standard JVM launch mode declared by the artifact: <code>java -jar</code>, a classpath main class, or a JPMS module. It does not replace the JVM. Run a Spring Boot app with the <a href="/docs/local-kubernetes/">local Kubernetes guide</a>, or see <a href="/docs/building-and-publishing/#layered-thin-jar-apps">supported Boot layouts</a> for packaging options.</p>
         </details>
         <details>
           <summary>How are CPU and memory limits enforced?</summary>

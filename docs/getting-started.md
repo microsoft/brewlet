@@ -172,6 +172,7 @@ and Linux; executing the bundle with `runc` is a Linux node operation.
 
 ## Next steps
 
+- [Run PetClinic on local Kubernetes with Docker Desktop](local-kubernetes.md).
 - [Install Brewlet on a Kubernetes cluster](installation.md).
 - [Build and publish your own application](building-and-publishing.md).
 - [Complete the role-based workshop](workshops/index.md).

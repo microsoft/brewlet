@@ -5,11 +5,16 @@
 
 from html.parser import HTMLParser
 import json
+import os
 from pathlib import Path
 import re
 import shlex
+import subprocess
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+
+from test_installation_examples import blocks
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -138,8 +143,8 @@ class SiteContractsTest(unittest.TestCase):
         self.assertNotIn("bin/brewlet", blocks)
 
     def test_documented_quickstarts_use_the_release_installer_by_default(self):
-        for filename in ("README.md", "docs/getting-started.md", "docs/workshops/operations.md",
-                         "docs/workshops/developers.md"):
+        for filename in ("README.md", "docs/getting-started.md", "docs/local-kubernetes.md",
+                         "docs/workshops/operations.md", "docs/workshops/developers.md"):
             with self.subTest(document=filename):
                 document = (ROOT / filename).read_text(encoding="utf-8")
                 primary_path = document.split("### Alternative: build from source")[0]
@@ -147,7 +152,9 @@ class SiteContractsTest(unittest.TestCase):
                 self.assertIn("curl -fsSL https://brewlet.sh/install.sh | sh", primary_path)
                 self.assertLess(primary_path.index("export BREWLET_VERSION"),
                                 primary_path.index("install.sh"))
-                self.assertIn('export PATH="$HOME/.local/bin:$PATH"', primary_path)
+                path = ('$BREWLET_INSTALL_DIR' if filename == "docs/local-kubernetes.md"
+                        else '$HOME/.local/bin')
+                self.assertIn(f'export PATH="{path}:$PATH"', primary_path)
                 self.assertNotIn("make binaries", primary_path)
         developers = (ROOT / "docs/workshops/developers.md").read_text(encoding="utf-8")
         self.assertIn('git clone --depth 1 --branch "v${BREWLET_VERSION}"', developers)
@@ -204,6 +211,196 @@ class SiteContractsTest(unittest.TestCase):
         for title, directory in (("Core runtime", "core"), ("Site and docs", "site")):
             links = [href for href, text in self.page.links if text.startswith(title)]
             self.assertEqual(links, ["https://github.com/microsoft/brewlet/tree/main/" + directory])
+
+
+class LocalKubernetesGuideTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.document = (ROOT / "docs/local-kubernetes.md").read_text(encoding="utf-8")
+        cls.commands = blocks(cls.document, "bash")
+
+    def test_try_it_navigation_leads_to_the_complete_local_guide(self):
+        config = (ROOT / "site/mkdocs.yml").read_text(encoding="utf-8")
+        try_it = config.split("  - Try it:\n", 1)[1].split("  - Workshops:", 1)[0]
+        self.assertIn("Getting started: getting-started.md", try_it)
+        self.assertIn("Local Kubernetes: local-kubernetes.md", try_it)
+        self.assertNotIn("spring-petclinic.md", try_it)
+        for filename in ("docs/README.md", "docs/getting-started.md",
+                         "docs/installation.md", "docs/spring-petclinic.md"):
+            with self.subTest(document=filename):
+                self.assertIn("(local-kubernetes.md)",
+                              (ROOT / filename).read_text(encoding="utf-8"))
+        page = LandingPage((ROOT / "site/index.html").read_text(encoding="utf-8"))
+        self.assertIn(("/docs/local-kubernetes/", "Try local Kubernetes"), page.links)
+        legacy = (ROOT / "docs/spring-petclinic.md").read_text(encoding="utf-8")
+        self.assertIn("## Layered classpath delivery", legacy)
+
+    def test_preloaded_image_uses_a_digest_and_kubernetes_containerd_store(self):
+        commands = "\n".join(self.commands)
+        self.assertIn('git clone --depth 1 --branch "v${BREWLET_VERSION}"', commands)
+        self.assertIn('"$FIXTURE_DIR/build.sh"', commands)
+        self.assertIn("--format image", commands)
+        self.assertNotIn("--format artifact", commands)
+        self.assertIn('select(.annotations["org.opencontainers.image.ref.name"] == $ref)',
+                      commands)
+        self.assertIn('PETCLINIC_IMAGE="${PETCLINIC_REF%:*}@${PETCLINIC_DIGEST}"', commands)
+        self.assertIn('docker exec -i "$node" ctr -n k8s.io images import --digests -',
+                      commands)
+        self.assertIn('ctr -n k8s.io images tag', commands)
+        self.assertNotIn("--force", commands)
+        self.assertIn('crictl inspecti "$PETCLINIC_IMAGE"', commands)
+        self.assertIn("brewlet.sh/runtime=ready,brewlet.sh/jdk.temurin-21=true", commands)
+        self.assertIn('done <<< "$BREWLET_NODES"', commands)
+        self.assertIn('PETCLINIC_REF="localhost/brewlet/${BREWLET_NAMESPACE}:local"', commands)
+        self.assertIn("    image: ${PETCLINIC_IMAGE}\n    pullPolicy: Never\n", commands)
+        self.assertIn("    version: 21\n    distribution: temurin\n", commands)
+        self.assertIn("  replicas: 1\n", commands)
+        self.assertNotIn("autoscaling:", commands)
+        self.assertIn("path: /actuator/health\n", commands)
+        self.assertIn("port-forward service/petclinic 18080:8080", commands)
+        self.assertNotIn("service/petclinic 8080:80\n", commands)
+        self.assertIn("k wait --for=condition=Ready javaapplication/petclinic", commands)
+
+    def test_existing_installations_are_inspected_not_upgraded_or_reset(self):
+        commands = "\n".join(self.commands)
+        self.assertIn('k() { kubectl --context "$BREWLET_CONTEXT" "$@"; }', commands)
+        self.assertNotIn("kubectl config use-context", commands)
+        self.assertIn('helm list --kube-context "$BREWLET_CONTEXT" --all-namespaces --all',
+                      commands)
+        self.assertIn('find /opt /usr/local/bin /etc/containerd', commands)
+        self.assertIn('sed -n "/brewlet/p" /etc/containerd/config.toml', commands)
+        self.assertIn("helm install brewlet", commands)
+        self.assertNotIn("helm upgrade", commands)
+        self.assertNotIn("--overwrite", commands)
+        self.assertIn('export BREWLET_INSTALLED_HERE=false', commands)
+        self.assertIn('if [ "$BREWLET_INSTALLED_HERE" = true ]; then', commands)
+        self.assertIn('if [ "$BREWLET_POOL_LABEL_ADDED" = true ]; then', commands)
+        self.assertNotIn("delete namespace petclinic", commands)
+        self.assertNotIn("delete crd", commands)
+        self.assertIn('BREWLET_NAMESPACE="petclinic-${BREWLET_RUN}"', commands)
+        self.assertIn('BREWLET_WORK="$(mktemp -d "$PWD/brewlet-local.XXXXXX")"', commands)
+        self.assertIn('export BREWLET_INSTALL_DIR="$BREWLET_WORK/bin"', commands)
+        self.assertIn('env -u DOCKER_DEFAULT_PLATFORM kind create cluster', commands)
+        self.assertIn('.platform.architecture == $arch', commands)
+        self.assertIn('--image "kindest/node@${KIND_DIGEST}"', commands)
+        self.assertIn('--kubeconfig "$BREWLET_WORK/kubeconfig"', commands)
+
+    def test_namespace_cleanup_refuses_foreign_ownership(self):
+        cleanup = next(block for block in self.commands if block.startswith("RUN_OWNER="))
+        harness = """
+set -euo pipefail
+k() {
+  case "$1" in
+    get) printf '%s' "$MOCK_OWNER" ;;
+    delete) printf 'DELETE %s\\n' "$3" ;;
+    *) printf 'Unexpected command\\n' >&2; return 99 ;;
+  esac
+}
+"""
+        for owner in ("run-123", "someone-else", ""):
+            with self.subTest(owner=owner):
+                result = subprocess.run(
+                    ["bash"], input=harness + cleanup, text=True, capture_output=True,
+                    timeout=10, env={**os.environ, "MOCK_OWNER": owner,
+                                     "BREWLET_RUN": "run-123",
+                                     "BREWLET_NAMESPACE": "petclinic-run-123"},
+                )
+                if owner == "run-123":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("DELETE petclinic-run-123", result.stdout)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertNotIn("DELETE", result.stdout)
+                    self.assertIn("not owned by this tutorial run", result.stderr)
+
+    def test_pool_label_is_added_only_when_absent(self):
+        setup = next(block for block in self.commands if block.startswith("POOL_BEFORE="))
+        harness = """
+set -euo pipefail
+export BREWLET_POOL_LABEL_ADDED=false
+k() {
+  case "$1 $2" in
+    "get node") printf '%s' "$MOCK_POOL" ;;
+    "get nodes") printf '%s\\n' "$MOCK_NODES" ;;
+    "label node") printf 'LABEL %s\\n' "$4" ;;
+    *) printf 'Unexpected command\\n' >&2; return 99 ;;
+  esac
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="brewlet-guide-test-") as work:
+            cases = (("", "selected-worker"), ("local-java", "selected-worker"),
+                     ("someone-elses-pool", "selected-worker"),
+                     ("local-java", "selected-worker\nother-worker"))
+            for pool, nodes in cases:
+                with self.subTest(pool=pool, nodes=nodes):
+                    result = subprocess.run(
+                        ["bash"], input=harness + setup + '\nprintf "ADDED=%s\\n" "$BREWLET_POOL_LABEL_ADDED"\n',
+                        text=True, capture_output=True, timeout=10,
+                        env={**os.environ, "MOCK_POOL": pool, "MOCK_NODES": nodes,
+                             "BREWLET_WORK": work,
+                             "BREWLET_NODE": "selected-worker", "JDK_DIGEST": "sha256:" + "a" * 64},
+                    )
+                    if pool == "someone-elses-pool":
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertNotIn("LABEL", result.stdout)
+                        self.assertIn("do not overwrite", result.stderr)
+                    elif nodes != "selected-worker":
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertNotIn("LABEL", result.stdout)
+                        self.assertIn("selects other nodes", result.stderr)
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("ADDED=" + ("false" if pool else "true"), result.stdout)
+                        self.assertEqual("LABEL" in result.stdout, not pool)
+
+    def test_platform_cleanup_preserves_reused_resources_and_stops_on_failure(self):
+        cleanup = next(block for block in self.commands
+                       if block.startswith('if [ "$BREWLET_INSTALLED_HERE" = true ]; then'))
+        harness = """
+set -euo pipefail
+helm() {
+  printf 'UNINSTALL\\n'
+  return "$MOCK_HELM_EXIT"
+}
+k() {
+  case "$1" in
+    get) printf '%s' "$MOCK_POOL" ;;
+    label) printf 'REMOVE_LABEL\\n' ;;
+    *) printf 'Unexpected command\\n' >&2; return 99 ;;
+  esac
+}
+"""
+        cases = (
+            ("false", "false", "local-java", "0", 0, False, False),
+            ("true", "false", "local-java", "0", 0, True, False),
+            ("true", "true", "local-java", "0", 0, True, True),
+            ("true", "true", "local-java", "1", 1, True, False),
+            ("true", "true", "changed-pool", "0", 1, True, False),
+        )
+        for installed, added, pool, helm_exit, exit_code, uninstalled, removed in cases:
+            with self.subTest(installed=installed, added=added, pool=pool, helm_exit=helm_exit):
+                result = subprocess.run(
+                    ["bash"], input=harness + cleanup, text=True, capture_output=True,
+                    timeout=10, env={
+                        **os.environ, "BREWLET_INSTALLED_HERE": installed,
+                        "BREWLET_POOL_LABEL_ADDED": added, "MOCK_POOL": pool,
+                        "MOCK_HELM_EXIT": helm_exit, "BREWLET_CONTEXT": "local-test",
+                        "BREWLET_NODE": "selected-worker",
+                    },
+                )
+                self.assertEqual(result.returncode, exit_code, result.stderr)
+                self.assertEqual("UNINSTALL" in result.stdout, uninstalled)
+                self.assertEqual("REMOVE_LABEL" in result.stdout, removed)
+
+    def test_shell_examples_are_syntactically_valid(self):
+        self.assertGreater(len(self.commands), 10)
+        for number, block in enumerate(self.commands, 1):
+            with self.subTest(block=number):
+                result = subprocess.run(
+                    ["bash", "-n"], input=block, text=True,
+                    capture_output=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class ValuePropositionPageTest(unittest.TestCase):

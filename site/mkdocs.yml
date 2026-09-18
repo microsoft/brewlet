@@ -11,6 +11,7 @@ repo_name: microsoft/brewlet
 edit_uri: https://github.com/microsoft/brewlet/edit/main/docs/
 not_in_nav: |
   logos/README.md
+  spring-petclinic.md
 
 theme:
   name: material
@@ -76,7 +77,7 @@ nav:
       - Roadmap (planned work): https://github.com/microsoft/brewlet/blob/main/ROADMAP.md
   - Try it:
       - Getting started: getting-started.md
-      - Spring PetClinic: spring-petclinic.md
+      - Local Kubernetes: local-kubernetes.md
   - Workshops:
       - Overview: workshops/index.md
       - Part 1 - Enable a cluster: workshops/operations.md

@@ -12,6 +12,9 @@ There are two paths:
   followed by installation.
 - **[Manual](#manual-without-helm)** — apply the raw manifests yourself.
 
+For a complete first run on your laptop, use [Local Kubernetes](local-kubernetes.md)
+to set up Docker Desktop with kind, install Brewlet, and deploy PetClinic.
+
 > ⚠️ **Node provisioning is privileged and mutates the host** (installs a shim
 > and runtime roots, and registers the runtime through containerd configuration).
 > Provision only nodes your platform team controls; on mixed clusters scope with

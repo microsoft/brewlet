@@ -70,12 +70,13 @@ class InstallationExamplesTest(unittest.TestCase):
                 break
             if arg in ("--install", "--create-namespace", "--wait"):
                 continue
-            if arg == "--version":
+            if arg in ("--version", "--kube-context"):
                 next(args)
                 continue
             if arg in ("--values", "-f", "--set", "--set-string", "--set-json", "--namespace"):
                 value = next(args)
                 value = value.replace("$BREWLET_POOL", "java-workers")
+                value = value.replace("$BREWLET_WORK/", "")
                 value = value.replace("<64-lowercase-hex>", DIGEST)
                 value = value.replace("<registry>", "registry.example.com")
                 result.extend((arg, value))
@@ -138,6 +139,40 @@ class InstallationExamplesTest(unittest.TestCase):
                         for image in saved_images.values():
                             self.assertIn(image, result.stdout, "Upgrade lost administrator image choice")
         self.assertGreaterEqual(command_count, 10, "A documented command disappeared from coverage")
+
+    def test_local_kubernetes_preview_and_install_render_the_same_worker_inventory(self):
+        document = (ROOT / "docs/local-kubernetes.md").read_text()
+        match = re.search(
+            r'cat > "\$BREWLET_WORK/brewlet-local.yaml" <<EOF\n(.*?)\nEOF',
+            document, re.DOTALL,
+        )
+        self.assertIsNotNone(match, "Missing local cluster values heredoc")
+        inventory = match.group(1).replace("${JDK_DIGEST}", "sha256:" + DIGEST)
+        (self.work / "brewlet-local.yaml").write_text(inventory)
+        commands = list(helm_commands(document))
+        self.assertEqual(len(commands), 2)
+        profiles = []
+        for command in commands:
+            with self.subTest(command=command):
+                result = self.render(self.render_arguments(command))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                rendered = [doc for doc in result.stdout.split("---\n")
+                            if "\nkind: NodeProfile\n" in doc]
+                self.assertEqual(len(rendered), 1)
+                profile = rendered[0]
+                profiles.append(profile)
+                self.assertIn('- "local-java"', profile)
+                self.assertIn('key: "brewlet.sh/local-pool"', profile)
+                self.assertNotIn("includeControlPlane: true", profile)
+                self.assertNotIn("\n  tolerations:", profile)
+                self.assertIn("feature: 21", profile)
+                self.assertIn(f"docker.io/library/eclipse-temurin@sha256:{DIGEST}", profile)
+                self.assertIn("javaHome: /opt/java/openjdk", profile)
+        self.assertEqual(profiles[0], profiles[1])
+        self.assertIn('k label node "$BREWLET_NODE" brewlet.sh/local-pool=local-java',
+                      document)
+        self.assertIn("!node-role.kubernetes.io/control-plane", document)
+        self.assertIn("!node-role.kubernetes.io/master", document)
 
     def test_missing_pools_and_missing_jdks_fail_in_the_actual_chart(self):
         inventory = self.inventory((ROOT / "README.md").read_text())
