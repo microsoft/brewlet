@@ -28,7 +28,11 @@ DIGEST = "0123456789abcdef" * 4
 
 def blocks(document, language):
     text = re.sub(r"^> ?", "", document, flags=re.MULTILINE)
-    return re.findall(rf"^```{language}\n(.*?)^```", text, re.MULTILINE | re.DOTALL)
+    pattern = rf"^([ \t]*)```{re.escape(language)}\n(.*?)^\1```[ \t]*$"
+    return [
+        "".join(line.removeprefix(indent) for line in body.splitlines(keepends=True))
+        for indent, body in re.findall(pattern, text, re.MULTILINE | re.DOTALL)
+    ]
 
 
 def helm_commands(document):
@@ -36,6 +40,18 @@ def helm_commands(document):
         for line in re.sub(r"\\\n\s*", " ", block).splitlines():
             if re.match(r"^helm (?:template|upgrade|install)\b", line):
                 yield shlex.split(line)
+
+
+class MarkdownBlocksTest(unittest.TestCase):
+    def test_collapsed_blocks_preserve_shell_and_yaml_indentation(self):
+        command = "cat <<'EOF'\nkind: Cluster\nnodes:\n  - role: worker\nEOF\n"
+        for indent in ("", "    "):
+            with self.subTest(indent=indent):
+                fenced = "```bash\n" + command + "```\n"
+                document = "".join(indent + line for line in fenced.splitlines(keepends=True))
+                if indent:
+                    document = '??? note "Optional: preview"\n\n' + document
+                self.assertEqual(blocks(document, "bash"), [command])
 
 
 class InstallationExamplesTest(unittest.TestCase):

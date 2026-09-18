@@ -13,7 +13,9 @@ needed and data resets when the pod is replaced.
 You can start here without completing [Getting started](getting-started.md).
 That guide explores the CLI without Kubernetes; this one runs the full local
 Kubernetes path. No registry account, Maven plugin installation, or Brewlet
-source build is required.
+source build is required. Both guides share the released CLI and one
+`BREWLET_SOURCE` checkout, so you can follow them in either order without
+cloning Brewlet again.
 
 !!! warning "Inspect before installing"
     Brewlet is preproduction software. Its privileged provisioner installs a
@@ -41,19 +43,27 @@ Start with at least 4 CPUs and 8 GiB of memory allocated to Docker Desktop.
 These are suggested development settings, not a measured minimum.
 
 Run the commands in one **Bash** terminal unless instructed otherwise. Keep it
-open so the variables remain available, and stop at any failed command:
+open so the variables remain available, and stop at any failed command. If
+continuing in the Bash terminal from Getting started, skip the `bash` command:
 
 ```bash
 bash
 set -euo pipefail
-java -version
-git --version
-docker info
-docker buildx version
-kubectl version --client
-helm version --short
-jq --version
 ```
+
+??? note "Optional: check installed tools"
+
+    If you are unsure whether the prerequisites are available, check them now:
+
+    ```bash
+    java -version
+    git --version
+    docker info
+    docker buildx version
+    kubectl version --client
+    helm version --short
+    jq --version
+    ```
 
 Ensure `JAVA_HOME` and `java` on `PATH` both select JDK 21.
 For example, if you already use SDKMAN, run `sdk use java <installed-21-id>`
@@ -65,7 +75,6 @@ pins every Kubernetes command to the chosen context without changing your
 global current context:
 
 ```bash
-export BREWLET_VERSION="0.5.0"
 export BREWLET_CONTEXT="docker-desktop"
 export BREWLET_RUN="$(date -u +%Y%m%d%H%M%S)-$$"
 export BREWLET_NAMESPACE="petclinic-${BREWLET_RUN}"
@@ -167,7 +176,7 @@ those policies.
 
 | What you found | Safe path |
 |---|---|
-| A healthy Brewlet 0.5.0 release in namespace `brewlet`, with a ready worker advertising `temurin-21` | Reuse it. Keep its values, JDK digest, profiles, and pool labels unchanged. Skip the fresh-install section; use the readiness checks in step 3. |
+| A healthy Brewlet release in namespace `brewlet`, with a ready worker advertising `temurin-21` | Confirm it matches the latest CLI version in step 2, then reuse it. Keep its values, JDK digest, profiles, and pool labels unchanged. Skip the fresh-install section; use the readiness checks in step 3. |
 | No Brewlet cluster resources, no Brewlet node ownership, and no runtime files/configuration on the selected worker | Follow the fresh-install section in step 3. Existing unrelated namespaces do not need to be deleted. |
 | A failed/pending release, an older or custom installation, resources in another namespace, or a terminating profile | Stop installation. Have its owner follow [upgrade/recovery guidance](installation.md#upgrading), or use an isolated cluster. Do not run `helm upgrade --install` over it. |
 | No release, but `/opt/brewlet`, a Brewlet shim, containerd handler, owner labels, or other Brewlet resources remain | Treat this as an unmanaged or incomplete installation, not a clean node. Preserve the evidence and recover with its owner, or use an isolated cluster. Do not delete files, clear owner labels/finalizers, or mark the node ready manually. |
@@ -186,69 +195,101 @@ k get nodes -l brewlet.sh/runtime=ready \
 Run these commands only if the corresponding release and CRDs exist. A missing
 resource is a reason to classify the installation, not a reason to reinstall it.
 
-### Optional: an isolated kind cluster without resetting Docker Desktop
+??? note "Optional: use an isolated kind cluster"
 
-If the existing cluster cannot be safely reused, the
-[kind CLI](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) can create
-a separate cluster using Docker Desktop's Docker engine. This is **not** the
-Desktop-managed `docker-desktop` cluster. It needs additional CPU and memory.
-Install kind 0.33.0 for the pinned node image below.
-Kind nodes must use the Docker engine's native architecture. A global
-`DOCKER_DEFAULT_PLATFORM=linux/amd64` override on an Apple Silicon machine can
-make the Kubernetes API server fail to start under emulation. Clearing the
-override alone may still reuse a cached AMD64 image. Select the native manifest
-from the pinned image index explicitly:
+    If the existing cluster cannot be safely reused, the
+    [kind CLI](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) can
+    create a separate cluster using Docker Desktop's Docker engine. This is
+    **not** the Desktop-managed `docker-desktop` cluster. It needs additional
+    CPU and memory. Install kind 0.33.0 for the pinned node image below.
+    Kind nodes must use the Docker engine's native architecture. A global
+    `DOCKER_DEFAULT_PLATFORM=linux/amd64` override on an Apple Silicon machine
+    can make the Kubernetes API server fail to start under emulation. Clearing
+    the override alone may still reuse a cached AMD64 image. Select the native
+    manifest from the pinned image index explicitly:
+
+    ```bash
+    cat > "$BREWLET_WORK/kind.yaml" <<'EOF'
+    kind: Cluster
+    apiVersion: kind.x-k8s.io/v1alpha4
+    nodes:
+      - role: control-plane
+      - role: worker
+    EOF
+
+    export BREWLET_KIND_CLUSTER="brewlet-${BREWLET_RUN}"
+    KIND_ARCH="$(docker version --format '{{.Server.Arch}}')"
+    KIND_DIGEST="$(
+      docker buildx imagetools inspect --raw \
+        kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed |
+        jq -er --arg arch "$KIND_ARCH" \
+          '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest'
+    )"
+    env -u DOCKER_DEFAULT_PLATFORM kind create cluster --name "$BREWLET_KIND_CLUSTER" \
+      --image "kindest/node@${KIND_DIGEST}" \
+      --config "$BREWLET_WORK/kind.yaml" \
+      --kubeconfig "$BREWLET_WORK/kubeconfig" --wait 180s
+    export KUBECONFIG="$BREWLET_WORK/kubeconfig"
+    export BREWLET_CONTEXT="kind-${BREWLET_KIND_CLUSTER}"
+    export BREWLET_NODE="${BREWLET_KIND_CLUSTER}-worker"
+    k get nodes -o wide
+    ```
+
+    The separate kubeconfig keeps your usual contexts unchanged. Repeat the
+    worker inspection above with this `BREWLET_NODE`; do not reset it to
+    `desktop-worker`. If creation fails, stop and inspect the kind output
+    rather than changing the original cluster.
+
+## 2. Obtain Brewlet and the example source
+
+### Install or reuse the released CLI
+
+Both local guides install the latest checksum-verified CLI in
+`$HOME/.local/bin`. If you just completed the released-CLI setup in
+[Getting started](getting-started.md#install-the-released-cli-recommended) in
+this terminal, keep that CLI and `BREWLET_VERSION` and skip this block.
+Otherwise, install or update it now; `--version latest` overrides any old
+`BREWLET_VERSION` in the shell:
 
 ```bash
-cat > "$BREWLET_WORK/kind.yaml" <<'EOF'
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-  - role: control-plane
-  - role: worker
-EOF
+curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version latest --install-dir "$HOME/.local/bin"
+export PATH="$HOME/.local/bin:$PATH"
 
-export BREWLET_KIND_CLUSTER="brewlet-${BREWLET_RUN}"
-KIND_ARCH="$(docker version --format '{{.Server.Arch}}')"
-KIND_DIGEST="$(
-  docker buildx imagetools inspect --raw \
-    kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed |
-    jq -er --arg arch "$KIND_ARCH" \
-      '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest'
-)"
-env -u DOCKER_DEFAULT_PLATFORM kind create cluster --name "$BREWLET_KIND_CLUSTER" \
-  --image "kindest/node@${KIND_DIGEST}" \
-  --config "$BREWLET_WORK/kind.yaml" \
-  --kubeconfig "$BREWLET_WORK/kubeconfig" --wait 180s
-export KUBECONFIG="$BREWLET_WORK/kubeconfig"
-export BREWLET_CONTEXT="kind-${BREWLET_KIND_CLUSTER}"
-export BREWLET_NODE="${BREWLET_KIND_CLUSTER}-worker"
-k get nodes -o wide
+BREWLET_VERSION="$(brewlet version)"
+export BREWLET_VERSION
+printf 'Using Brewlet %s\n' "$BREWLET_VERSION"
 ```
 
-The separate kubeconfig keeps your usual contexts unchanged. Repeat the worker
-inspection above with this `BREWLET_NODE`; do not reset it to `desktop-worker`.
-If creation fails, stop and inspect the kind output rather than changing the
-original cluster.
+The resolved `BREWLET_VERSION` selects the chart below, keeping the CLI and
+cluster components aligned without hardcoding a release. If reusing Brewlet,
+compare it with the **APP VERSION** from `helm list` in step 1. If they differ,
+stop and follow the upgrade/recovery guidance or use an isolated cluster;
+do not upgrade an existing installation just for this tutorial.
 
-## 2. Install the Brewlet CLI
+### Get or reuse the example source
 
-Install the checksum-verified release, then download the matching example
-source. This builds PetClinic only, not Brewlet:
+Use the same checkout as Getting started, not a new copy under this run's work
+directory. If you already have Brewlet source (including an extracted release
+archive), set `BREWLET_SOURCE` to its absolute path first. Otherwise, both
+guides default to `$HOME/brewlet-examples`, even in a new terminal:
 
 ```bash
-export BREWLET_INSTALL_DIR="$BREWLET_WORK/bin"
-curl -fsSL https://brewlet.sh/install.sh | sh
-export PATH="$BREWLET_INSTALL_DIR:$PATH"
-brewlet version
-
-git clone --depth 1 --branch "v${BREWLET_VERSION}" \
-  https://github.com/microsoft/brewlet.git "$BREWLET_WORK/source"
+export BREWLET_SOURCE="${BREWLET_SOURCE:-$HOME/brewlet-examples}"
+if [ ! -e "$BREWLET_SOURCE" ]; then
+  git clone --depth 1 --branch "v${BREWLET_VERSION}" \
+    https://github.com/microsoft/brewlet.git "$BREWLET_SOURCE"
+fi
+if [ ! -f "$BREWLET_SOURCE/integration-tests/fixtures/demo-app/pom.xml" ] ||
+   [ ! -f "$BREWLET_SOURCE/integration-tests/fixtures/spring-petclinic/build.sh" ]; then
+  printf 'Stop: BREWLET_SOURCE must point to Brewlet source containing both examples.\n' >&2
+  exit 1
+fi
 ```
 
-The CLI must report `0.5.0`, matching the chart installed or reused below.
-Installing inside this run's work directory leaves an existing CLI untouched.
-The unique directory also avoids collisions with an earlier source checkout.
+A new checkout uses the installed release's tag. Existing source stays
+untouched: no second clone, checkout switch, or pull. If you keep source
+elsewhere, set the same `BREWLET_SOURCE` in each new terminal. Only generated
+cluster files and the local OCI layout belong in this run's `BREWLET_WORK`.
 
 ## 3. Prepare the Brewlet runtime
 
@@ -313,16 +354,21 @@ selected worker**; installing a broader profile would provision other nodes
 too. An existing matching pool label is
 reused, but is not owned by this run and must not be removed during cleanup.
 
-Preview the released chart with that inventory, inspect the rendered resources,
-then install with the same values:
+??? note "Optional: preview the Kubernetes resources"
 
-```bash
-helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$BREWLET_VERSION" \
-  --namespace brewlet \
-  --values "$BREWLET_WORK/brewlet-local.yaml" \
-  > "$BREWLET_WORK/brewlet-rendered.yaml"
-```
+    Render the released chart with your inventory without changing the cluster:
+
+    ```bash
+    helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
+      --version "$BREWLET_VERSION" \
+      --namespace brewlet \
+      --values "$BREWLET_WORK/brewlet-local.yaml" \
+      > "$BREWLET_WORK/brewlet-rendered.yaml"
+    ```
+
+    Open `$BREWLET_WORK/brewlet-rendered.yaml` to inspect the resources.
+
+Install with the selected inventory:
 
 ```bash
 helm install brewlet oci://ghcr.io/microsoft/charts/brewlet \
@@ -346,8 +392,6 @@ k rollout status deployment/brewlet-admission -n brewlet --timeout=5m
 k wait "node/$BREWLET_NODE" \
   --for=jsonpath='{.metadata.labels.brewlet\.sh/runtime}'=ready --timeout=10m
 k get runtimeclass brewlet
-k get nodeprofiles
-k get nodes -l brewlet.sh/runtime=ready -L brewlet.sh/jdk.temurin-21
 ```
 
 Wait until the selected worker reports `brewlet.sh/runtime=ready`. This confirms
@@ -355,27 +399,41 @@ the provisioner installed and validated the node runtime; a successful Helm
 command alone does not. Downloads and the containerd restart may take several
 minutes.
 
+??? note "Optional: inspect the runtime inventory"
+
+    ```bash
+    k get nodeprofiles
+    k get nodes -l brewlet.sh/runtime=ready -L brewlet.sh/jdk.temurin-21
+    ```
+
 ## 4. Build and package PetClinic
 
-The release source includes a script that fetches a pinned upstream PetClinic
+The shared source includes a script that fetches a pinned upstream PetClinic
 revision and builds its executable Spring Boot JAR:
 
 ```bash
-export FIXTURE_DIR="$BREWLET_WORK/source/integration-tests/fixtures/spring-petclinic"
+export FIXTURE_DIR="$BREWLET_SOURCE/integration-tests/fixtures/spring-petclinic"
 "$FIXTURE_DIR/build.sh"
-test -f "$FIXTURE_DIR/target/spring-petclinic.jar"
 
 export BREWLET_STORE="$BREWLET_WORK/oci"
 export PETCLINIC_REF="localhost/brewlet/${BREWLET_NAMESPACE}:local"
 brewlet push "$FIXTURE_DIR/target/spring-petclinic.jar" "$PETCLINIC_REF" \
   --store "$BREWLET_STORE" \
   --format image
-brewlet inspect "$PETCLINIC_REF" --store "$BREWLET_STORE"
 ```
 
-The launch contract should contain `entry.mode: jar` and
-`mainJar: spring-petclinic.jar`. Use **`--format image`** for Kubernetes, not
-the native artifact format used in the CLI-only quick start.
+Use **`--format image`** for Kubernetes, not the native artifact format used
+in the CLI-only quick start.
+
+??? note "Optional: inspect the JAR and launch contract"
+
+    ```bash
+    test -f "$FIXTURE_DIR/target/spring-petclinic.jar"
+    brewlet inspect "$PETCLINIC_REF" --store "$BREWLET_STORE"
+    ```
+
+    The launch contract should contain `entry.mode: jar` and
+    `mainJar: spring-petclinic.jar`.
 
 Despite its name, the Go CLI's `push` command writes a **local OCI layout**; it
 does not upload to a registry. The `localhost/brewlet/...` reference is just the
@@ -418,9 +476,16 @@ while IFS= read -r node; do
     docker exec -i "$node" ctr -n k8s.io images import --digests -
   docker exec "$node" ctr -n k8s.io images tag \
     "$PETCLINIC_REF" "$PETCLINIC_IMAGE"
-  docker exec "$node" crictl inspecti "$PETCLINIC_IMAGE"
 done <<< "$BREWLET_NODES"
 ```
+
+??? note "Optional: verify the imported image through CRI"
+
+    ```bash
+    while IFS= read -r node; do
+      docker exec "$node" crictl inspecti "$PETCLINIC_IMAGE"
+    done <<< "$BREWLET_NODES"
+    ```
 
 Importing into Docker Desktop's ordinary image store is not enough: the kind
 worker has its own containerd store. The explicit `repository@sha256:...` alias
@@ -432,13 +497,18 @@ and use `IfNotPresent` instead of `Never`.
 
 ## 6. Deploy the application
 
-Create an isolated namespace and check the platform:
+Create an isolated namespace:
 
 ```bash
 k create namespace "$BREWLET_NAMESPACE"
 k label namespace "$BREWLET_NAMESPACE" brewlet.sh/tutorial-run="$BREWLET_RUN"
-brewlet doctor --context "$BREWLET_CONTEXT" --namespace "$BREWLET_NAMESPACE"
 ```
+
+??? note "Optional: run platform diagnostics"
+
+    ```bash
+    brewlet doctor --context "$BREWLET_CONTEXT" --namespace "$BREWLET_NAMESPACE"
+    ```
 
 Save and apply the descriptor. It uses the digest from the previous step, the
 node's Temurin 21 JDK, one replica, and a readiness check. There is no autoscaler,
@@ -490,15 +560,22 @@ EOF
 k apply -f "$BREWLET_WORK/petclinic.yaml"
 k wait --for=condition=Ready javaapplication/petclinic \
   -n "$BREWLET_NAMESPACE" --timeout=5m
-k get javaapplication,deployment,pod,service -n "$BREWLET_NAMESPACE" -o wide
-k logs deployment/petclinic -n "$BREWLET_NAMESPACE" --tail=50
-k get deployment petclinic -n "$BREWLET_NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.runtimeClassName}{"\n"}'
 ```
 
-The last command must print `brewlet`. The operator created the Deployment and
-Service; the node-resident JDK runs the application under its pod's resource
-limits. `pullPolicy: Never` is intentional for this preloaded local image.
+The operator creates the Deployment and Service; the node-resident JDK runs
+the application under its pod's resource limits. `pullPolicy: Never` is
+intentional for this preloaded local image.
+
+??? note "Optional: inspect the generated workload and logs"
+
+    ```bash
+    k get javaapplication,deployment,pod,service -n "$BREWLET_NAMESPACE" -o wide
+    k logs deployment/petclinic -n "$BREWLET_NAMESPACE" --tail=50
+    k get deployment petclinic -n "$BREWLET_NAMESPACE" \
+      -o jsonpath='{.spec.template.spec.runtimeClassName}{"\n"}'
+    ```
+
+    The last command must print `brewlet`.
 
 ## 7. Open PetClinic
 
@@ -509,15 +586,21 @@ k -n "$BREWLET_NAMESPACE" port-forward service/petclinic 18080:8080
 ```
 
 Keep that command running. Open <http://localhost:18080> in your browser, then
-choose **Find Owners** to explore the sample data. In a second terminal:
+choose **Find Owners** to explore the sample data.
 
-```bash
-curl -fsS http://127.0.0.1:18080/actuator/health
-```
+??? note "Optional: check the health endpoint"
 
-Expect `"status":"UP"`. You have now run an ordinary Spring Boot application on
-local Kubernetes with Brewlet supplying the node JDK, rather than packaging a
-JDK in every application image.
+    In a second terminal:
+
+    ```bash
+    curl -fsS http://127.0.0.1:18080/actuator/health
+    ```
+
+    Expect `"status":"UP"`.
+
+You have now run an ordinary Spring Boot application on local Kubernetes with
+Brewlet supplying the node JDK, rather than packaging a JDK in every application
+image.
 
 ## If something does not become ready
 
@@ -596,7 +679,7 @@ running. If it fails, stop before removing the pool label and follow
 [uninstall guidance](installation.md#uninstall); do not remove cleanup
 finalizers or delete the Brewlet namespace to force it through.
 
-The downloaded source, local OCI layout, and imported application image remain
+The shared source checkout, local OCI layout, and imported application image remain
 available for inspection. Helm may retain CRDs: their presence on a subsequent
 run is a recovery/reuse decision, not permission to blindly install over them.
 Never use Docker Desktop's **Reset cluster** as tutorial cleanup.
@@ -614,6 +697,8 @@ named isolated cluster, not just PetClinic.
 
 ## Where to go next
 
+- [Explore the CLI without Kubernetes](getting-started.md), reusing this CLI
+  and `BREWLET_SOURCE` checkout.
 - [Build and publish your own application](building-and-publishing.md).
 - [Configure a shared cluster](installation.md) with your own JDK policy.
 - [Split platform and developer responsibilities](workshops/index.md).

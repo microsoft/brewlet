@@ -77,7 +77,7 @@ Before publishing installation guidance, run the same release smoke test as
 the Pages workflow:
 
 ```bash
-./site/scripts/verify-release-artifacts.sh 0.5.0
+./site/scripts/verify-release-artifacts.sh
 ```
 
 It requires `curl`, Maven, JDK 21+, Helm, Docker CLI, and an authenticated
@@ -86,7 +86,10 @@ are anonymous; the script isolates curl, Docker, and Helm configuration so a
 maintainer's saved credentials cannot hide inaccessible packages. It installs
 the CLI into a temporary directory, exercises the local Java example and Maven
 plugin, pulls and renders the chart, and verifies component manifests and
-release provenance. It does not install anything into a cluster.
+release provenance. By default it resolves the latest release through the
+installer and uses that exact version for all subsequent checks. Pass a version
+as the first argument only when investigating a specific release. It does not
+install anything into a cluster.
 
 Making the repository public does not change existing GHCR package visibility.
 A package administrator must separately make `charts/brewlet`,
