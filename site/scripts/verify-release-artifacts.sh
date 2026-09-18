@@ -28,6 +28,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Saved registry credentials must not turn a public-access check into an
+# authenticated pull. Keep GitHub CLI authentication only for attestations.
+export CURL_HOME="$work/curl"
+export DOCKER_CONFIG="$work/docker"
+export HELM_REGISTRY_CONFIG="$work/helm/registry.json"
+mkdir -p "$CURL_HOME" "$DOCKER_CONFIG" "$work/helm"
+: > "$CURL_HOME/.curlrc"
+printf '{}\n' > "$DOCKER_CONFIG/config.json"
+printf '{}\n' > "$HELM_REGISTRY_CONFIG"
+
 base="https://github.com/microsoft/brewlet/releases/download/v${version}"
 
 cat "$script_dir/../install.sh" \
@@ -97,9 +107,15 @@ mvn -q -f "$example/pom.xml" package \
 test -f "$example/target/brewlet/jvm-config.json"
 test -f "$example/target/brewlet/oci/index.json"
 
-helm pull oci://ghcr.io/microsoft/charts/brewlet \
+echo "Verified released CLI, local Java example, and Maven plugin."
+
+if ! helm pull oci://ghcr.io/microsoft/charts/brewlet \
   --version "$version" \
-  --destination "$work"
+  --destination "$work"; then
+  echo "Anonymous chart pull failed. Check GHCR package visibility and registry availability;" >&2
+  echo "making the source repository public does not make its packages public." >&2
+  exit 1
+fi
 
 helm show chart "$work/brewlet-${version}.tgz" > "$work/chart.yaml"
 grep -Eq '^name: ["'\'']?brewlet["'\'']?$' "$work/chart.yaml"

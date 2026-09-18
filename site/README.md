@@ -70,3 +70,32 @@ notice is stale.
 The same workflow copies `index-value-prop.html` to the publish directory,
 making it available at <https://brewlet.sh/index-value-prop.html> without
 adding a navigation link from the primary homepage.
+
+### Public release validation
+
+Before publishing installation guidance, run the same release smoke test as
+the Pages workflow:
+
+```bash
+./site/scripts/verify-release-artifacts.sh 0.4.0
+```
+
+It requires `curl`, Maven, JDK 21+, Helm, Docker CLI, and an authenticated
+GitHub CLI for provenance verification. Artifact downloads and registry pulls
+are anonymous; the script isolates curl, Docker, and Helm configuration so a
+maintainer's saved credentials cannot hide inaccessible packages. It installs
+the CLI into a temporary directory, exercises the local Java example and Maven
+plugin, pulls and renders the chart, and verifies component manifests and
+release provenance. It does not install anything into a cluster.
+
+Making the repository public does not change existing GHCR package visibility.
+A package administrator must separately make `charts/brewlet`,
+`brewlet-operator`, `brewlet-admission`, and `brewlet-node-provisioner` public
+under the `microsoft` organization. Verify anonymous access to all four, not
+just the chart.
+
+Run **Deploy website** with `skip_release_smoke` left **false** to validate the
+public release before deployment. A green deployment with that input enabled
+does not establish that the installation paths work for public users. The
+release workflow's provenance smoke job also runs automatically for public
+tagged releases.

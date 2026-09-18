@@ -138,7 +138,7 @@ class SiteContractsTest(unittest.TestCase):
         self.assertNotIn("bin/brewlet", blocks)
 
     def test_documented_quickstarts_use_the_release_installer_by_default(self):
-        for filename in ("docs/getting-started.md", "docs/workshops/operations.md",
+        for filename in ("README.md", "docs/getting-started.md", "docs/workshops/operations.md",
                          "docs/workshops/developers.md"):
             with self.subTest(document=filename):
                 document = (ROOT / filename).read_text(encoding="utf-8")
@@ -154,7 +154,8 @@ class SiteContractsTest(unittest.TestCase):
         self.assertIn("maven-install-plugin:3.1.4:install-file", developers)
 
     def test_public_content_does_not_condition_release_access_on_repository_visibility(self):
-        paths = [*sorted((ROOT / "site").glob("index*.html")), ROOT / "site/README.md",
+        paths = [ROOT / "README.md", ROOT / "kubernetes/charts/brewlet/README.md",
+                 *sorted((ROOT / "site").glob("index*.html")), ROOT / "site/README.md",
                  *sorted((ROOT / "docs").rglob("*.md"))]
         restrictions = (
             r"\bprivate[\s-]+preview\b",

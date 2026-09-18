@@ -33,11 +33,12 @@ There are two paths:
 
 ### Released components
 
-Brewlet's source, CLI downloads, component images, and Helm chart are publicly
-available. Install the released CLI with the
+Brewlet's source and CLI downloads are publicly available. Install the released
+CLI with the
 [checksum-verifying installer](getting-started.md#install-the-released-cli-recommended)
-and use the published chart below. Downloading Brewlet releases and pulling its
-chart and component images does not require repository or package credentials.
+and use the published chart below. Release installation is intended to work
+without repository or package credentials. If GHCR denies a chart or component
+pull, see [package access troubleshooting](#package-access-troubleshooting).
 
 Use a disposable evaluation cluster; Brewlet is preproduction software. Start
 with the fresh Helm install below, not the existing-installation migration
@@ -77,6 +78,25 @@ the node.
 Use the local chart at `./kubernetes/charts/brewlet` for this path, with explicit
 component image overrides shown below. Configure the nodes and component
 service accounts for access to your registry before installing.
+
+### Package access troubleshooting
+
+GHCR package visibility is independent of GitHub repository visibility. A
+public source repository does not automatically make existing packages public.
+An anonymous `helm pull` or component-image pull returning `401`, `403`, or
+`denied` can therefore indicate a release-publication problem, not a Kubernetes
+configuration error.
+
+For Brewlet's published packages, report the failing reference and version to
+the maintainers. A package administrator must ensure all four packages permit
+anonymous pulls: `microsoft/charts/brewlet`, `microsoft/brewlet-operator`,
+`microsoft/brewlet-admission`, and `microsoft/brewlet-node-provisioner`.
+Repository access alone is not a workaround. The source-build path above is
+available while package access is corrected.
+
+Authentication is still required for your own private registries and mirrors.
+Use their normal credential mechanisms; do not put tokens in URLs or shell
+history.
 
 ---
 
