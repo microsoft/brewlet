@@ -143,8 +143,8 @@ class SiteContractsTest(unittest.TestCase):
         self.assertNotIn("bin/brewlet", blocks)
 
     def test_documented_quickstarts_use_the_release_installer_by_default(self):
-        for filename in ("README.md", "docs/getting-started.md", "docs/local-kubernetes.md",
-                         "docs/workshops/operations.md", "docs/workshops/developers.md"):
+        for filename in ("README.md", "docs/workshops/operations.md",
+                         "docs/workshops/developers.md"):
             with self.subTest(document=filename):
                 document = (ROOT / filename).read_text(encoding="utf-8")
                 primary_path = document.split("### Alternative: build from source")[0]
@@ -152,9 +152,7 @@ class SiteContractsTest(unittest.TestCase):
                 self.assertIn("curl -fsSL https://brewlet.sh/install.sh | sh", primary_path)
                 self.assertLess(primary_path.index("export BREWLET_VERSION"),
                                 primary_path.index("install.sh"))
-                path = ('$BREWLET_INSTALL_DIR' if filename == "docs/local-kubernetes.md"
-                        else '$HOME/.local/bin')
-                self.assertIn(f'export PATH="{path}:$PATH"', primary_path)
+                self.assertIn('export PATH="$HOME/.local/bin:$PATH"', primary_path)
                 self.assertNotIn("make binaries", primary_path)
         developers = (ROOT / "docs/workshops/developers.md").read_text(encoding="utf-8")
         self.assertIn('git clone --depth 1 --branch "v${BREWLET_VERSION}"', developers)
@@ -211,6 +209,210 @@ class SiteContractsTest(unittest.TestCase):
         for title, directory in (("Core runtime", "core"), ("Site and docs", "site")):
             links = [href for href, text in self.page.links if text.startswith(title)]
             self.assertEqual(links, ["https://github.com/microsoft/brewlet/tree/main/" + directory])
+
+
+class LocalGuideSetupTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.documents = {
+            name: (ROOT / f"docs/{name}.md").read_text(encoding="utf-8")
+            for name in ("getting-started", "local-kubernetes")
+        }
+        cls.commands = {name: blocks(document, "bash")
+                        for name, document in cls.documents.items()}
+
+    def setup_commands(self, name):
+        commands = self.commands[name]
+        installer = next(block for block in commands
+                         if block.startswith("curl -fsSL https://brewlet.sh/install.sh"))
+        source = next(block for block in commands
+                      if block.startswith("export BREWLET_SOURCE="))
+        return installer + "\n" + source
+
+    def run_setup(self, name, home, source=None, after=""):
+        harness = r"""
+set -euo pipefail
+curl() {
+  [ "$*" = "-fsSL https://brewlet.sh/install.sh" ] || return 99
+  cat <<'INSTALLER'
+set -eu
+test "$1" = --version
+test "$2" = latest
+test "$3" = --install-dir
+test "$4" = "$HOME/.local/bin"
+test "$#" = 4
+mkdir -p "$4"
+printf '#!/bin/sh\n[ "$1" = version ] || exit 99\nprintf "9.8.7\\n"\n' > "$4/brewlet"
+chmod +x "$4/brewlet"
+INSTALLER
+}
+git() {
+  [ "$#" = 7 ] || return 99
+  [ "$1 $2 $3 $4 $5 $6" = \
+    "clone --depth 1 --branch v9.8.7 https://github.com/microsoft/brewlet.git" ] || return 99
+  printf '%s\n' "$7" >> "$HOME/clones.log"
+  mkdir -p "$7/integration-tests/fixtures/demo-app" \
+    "$7/integration-tests/fixtures/spring-petclinic"
+  touch "$7/integration-tests/fixtures/demo-app/pom.xml" \
+    "$7/integration-tests/fixtures/spring-petclinic/build.sh"
+}
+"""
+        env = {**os.environ, "HOME": str(home), "BREWLET_VERSION": "0.0.0"}
+        env.pop("BREWLET_SOURCE", None)
+        if source is not None:
+            env["BREWLET_SOURCE"] = str(source)
+        return subprocess.run(
+            ["bash"], input=harness + self.setup_commands(name) + "\n" + after,
+            cwd=home, env=env, text=True, capture_output=True, timeout=10,
+        )
+
+    def test_guides_share_latest_installer_and_checkout_commands(self):
+        self.assertEqual(self.setup_commands("getting-started"),
+                         self.setup_commands("local-kubernetes"))
+        for name, document in self.documents.items():
+            with self.subTest(document=name):
+                self.assertNotRegex(document, r'export BREWLET_VERSION="\d')
+                setup = self.setup_commands(name)
+                self.assertIn('--version latest --install-dir "$HOME/.local/bin"', setup)
+                self.assertIn('BREWLET_VERSION="$(brewlet version)"', setup)
+                self.assertLess(setup.index("install.sh"), setup.index("brewlet version"))
+                self.assertLess(setup.index("brewlet version"), setup.index("git clone"))
+                self.assertNotIn("make binaries", setup)
+        workflow = (ROOT / ".github/workflows/site-pages.yml").read_text()
+        self.assertIn("run: ./site/scripts/verify-release-artifacts.sh\n", workflow)
+
+    def test_either_guide_order_clones_once_across_new_terminals(self):
+        for order in (("getting-started", "local-kubernetes"),
+                      ("local-kubernetes", "getting-started")):
+            with self.subTest(order=order), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory) / "home with spaces"
+                home.mkdir()
+                source = home / "brewlet-examples"
+                result = self.run_setup(order[0], home)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("Using Brewlet 9.8.7", result.stdout)
+                marker = source / "local-changes"
+                marker.write_text("keep my work")
+                result = self.run_setup(order[1], home)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual((home / "clones.log").read_text().splitlines(), [str(source)])
+                self.assertEqual(marker.read_text(), "keep my work")
+
+    def test_existing_source_is_reused_without_git_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            source = home / "existing release source"
+            fixtures = []
+            for fixture in ("demo-app/pom.xml", "spring-petclinic/build.sh"):
+                path = source / "integration-tests/fixtures" / fixture
+                path.parent.mkdir(parents=True)
+                path.write_text("existing fixture")
+                fixtures.append(path)
+            for name in self.documents:
+                with self.subTest(document=name):
+                    result = self.run_setup(name, home, source)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse((home / "clones.log").exists())
+                    for path in fixtures:
+                        self.assertEqual(path.read_text(), "existing fixture")
+
+    def test_unrelated_existing_directory_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            source = home / "brewlet-examples"
+            source.mkdir()
+            for name in self.documents:
+                with self.subTest(document=name):
+                    result = self.run_setup(name, home)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("BREWLET_SOURCE must point to Brewlet source", result.stderr)
+                    self.assertFalse((home / "clones.log").exists())
+                    self.assertEqual(list(source.iterdir()), [])
+
+    def test_quickstart_output_does_not_replace_kubernetes_run_state(self):
+        quickstart = next(block for block in self.commands["getting-started"]
+                          if block.startswith("export BREWLET_QUICKSTART_WORK="))
+        quickstart = quickstart.split("\nmvn ", 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            after = r"""
+export BREWLET_WORK="$HOME/kubernetes-run"
+export BREWLET_STORE="$BREWLET_WORK/oci"
+export BREWLET_NAMESPACE="petclinic-existing-run"
+export BREWLET_RUN="existing-run"
+export BREWLET_INSTALLED_HERE=true
+export BREWLET_POOL_LABEL_ADDED=true
+""" + quickstart + r"""
+test "$BREWLET_WORK" = "$HOME/kubernetes-run"
+test "$BREWLET_STORE" = "$HOME/kubernetes-run/oci"
+test "$BREWLET_NAMESPACE" = petclinic-existing-run
+test "$BREWLET_RUN" = existing-run
+test "$BREWLET_INSTALLED_HERE" = true
+test "$BREWLET_POOL_LABEL_ADDED" = true
+test "$BREWLET_QUICKSTART_STORE" != "$BREWLET_STORE"
+test -d "$BREWLET_QUICKSTART_WORK"
+"""
+            result = self.run_setup("getting-started", home, after=after)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        commands = "\n".join(self.commands["getting-started"])
+        self.assertNotRegex(commands, r"\bBREWLET_(WORK|STORE|NAMESPACE|RUN)=")
+
+    def test_getting_started_shell_examples_are_syntactically_valid(self):
+        for number, block in enumerate(self.commands["getting-started"], 1):
+            with self.subTest(block=number):
+                result = subprocess.run(
+                    ["bash", "-n"], input=block, text=True,
+                    capture_output=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_optional_checks_are_collapsed_but_required_steps_remain_visible(self):
+        optional = re.compile(
+            r'^\?\?\? note "Optional: [^"]+"\n((?:[ \t]+[^\n]*\n|\n)*)',
+            re.MULTILINE,
+        )
+        checks = {
+            "getting-started": (
+                "java -version", "brewlet inspect", "brewlet bundle",
+                "curl -f http://127.0.0.1:8080/healthz",
+            ),
+            "local-kubernetes": (
+                "docker info", "helm template", "brewlet inspect", "brewlet doctor",
+                'crictl inspecti "$PETCLINIC_IMAGE"',
+                "k logs deployment/petclinic",
+                "curl -fsS http://127.0.0.1:18080/actuator/health",
+            ),
+        }
+        required = {
+            "getting-started": (
+                "set -euo pipefail", "export BREWLET_SOURCE=", "mvn -f",
+                "brewlet push", "brewlet run",
+                "curl -f http://127.0.0.1:8080/hello",
+            ),
+            "local-kubernetes": (
+                "set -euo pipefail", "export BREWLET_SOURCE=", "export BREWLET_WORK",
+                "helm list", 'find /opt /usr/local/bin /etc/containerd',
+                "POOL_BEFORE=", "POOL_NODES=", "helm install", "k rollout status",
+                'k wait "node/$BREWLET_NODE"', "PETCLINIC_DIGEST=", "BREWLET_NODES=",
+                "images import --digests", "images tag", "k apply",
+                "k wait --for=condition=Ready javaapplication/petclinic",
+                "port-forward service/petclinic", "RUN_OWNER=", "helm uninstall",
+            ),
+        }
+        for name, document in self.documents.items():
+            with self.subTest(document=name):
+                hidden = "\n".join(blocks("\n".join(optional.findall(document)), "bash"))
+                visible = "\n".join(blocks(optional.sub("", document), "bash"))
+                self.assertNotIn("???+", document, "Optional sections should start closed")
+                for command in checks[name]:
+                    self.assertIn(command, hidden)
+                    self.assertNotIn(command, visible)
+                for command in required[name]:
+                    self.assertIn(command, visible)
+        self.assertEqual(
+            re.findall(r"^## (\d+)\.", self.documents["getting-started"], re.MULTILINE),
+            ["1", "2", "3", "4"],
+        )
 
 
 class LocalKubernetesGuideTest(unittest.TestCase):
@@ -279,7 +481,10 @@ class LocalKubernetesGuideTest(unittest.TestCase):
         self.assertNotIn("delete crd", commands)
         self.assertIn('BREWLET_NAMESPACE="petclinic-${BREWLET_RUN}"', commands)
         self.assertIn('BREWLET_WORK="$(mktemp -d "$PWD/brewlet-local.XXXXXX")"', commands)
-        self.assertIn('export BREWLET_INSTALL_DIR="$BREWLET_WORK/bin"', commands)
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', commands)
+        self.assertIn('FIXTURE_DIR="$BREWLET_SOURCE/integration-tests/fixtures/spring-petclinic"',
+                      commands)
+        self.assertNotIn("$BREWLET_WORK/source", commands)
         self.assertIn('env -u DOCKER_DEFAULT_PLATFORM kind create cluster', commands)
         self.assertIn('.platform.architecture == $arch', commands)
         self.assertIn('--image "kindest/node@${KIND_DIGEST}"', commands)

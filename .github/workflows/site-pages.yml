@@ -60,7 +60,7 @@ jobs:
         # registry pulls; the smoke script isolates saved registry credentials.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./site/scripts/verify-release-artifacts.sh 0.5.0
+        run: ./site/scripts/verify-release-artifacts.sh
 
   deploy:
     needs: [release-smoke, site-contracts]

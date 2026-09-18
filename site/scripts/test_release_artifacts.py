@@ -15,7 +15,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 DIGEST = "0123456789abcdef" * 4
-VERSION = "0.5.0"
+VERSION = "9.8.7"
 
 # Transport/workload stand-ins fail on unrecognized commands. Helm still
 # reads/renders the actual packaged chart, with synthetic release image pins.
@@ -153,7 +153,10 @@ elif name == "provenance":
     if mutation == "provenance-failure":
         raise SystemExit(1)
 elif name == "installer":
-    assert os.environ["BREWLET_VERSION"] == version
+    requested = os.environ["BREWLET_VERSION"]
+    assert requested in ("latest", version)
+    with (work / "calls.jsonl").open("a") as log:
+        log.write(json.dumps(["requested-version", requested]) + "\n")
     target = Path(os.environ["BREWLET_INSTALL_DIR"])
     target.mkdir()
     shutil.copy(work / "bin/brewlet", target / "brewlet")
@@ -210,7 +213,7 @@ class ReleaseArtifactsTest(unittest.TestCase):
         provenance.write_text('#!/bin/sh\nexec provenance "$@"\n')
         provenance.chmod(0o755)
 
-    def smoke(self, mutation=""):
+    def smoke(self, mutation="", version=None):
         for name in ("calls.jsonl", "app-running"):
             (self.work / name).unlink(missing_ok=True)
         env = dict(os.environ, SMOKE_WORK=str(self.work), SMOKE_VERSION=VERSION,
@@ -220,8 +223,11 @@ class ReleaseArtifactsTest(unittest.TestCase):
                    HELM_REGISTRY_CONFIG=str(self.work / "caller-credentials/registry.json"),
                    PATH=str(self.work / "bin") + os.pathsep + os.environ["PATH"])
         env.pop("BREWLET_MIN_PROVENANCE_VERSION", None)
+        command = ["bash", str(self.work / "subject/site/scripts/verify-release-artifacts.sh")]
+        if version is not None:
+            command.append(version)
         result = subprocess.run(
-            ["bash", str(self.work / "subject/site/scripts/verify-release-artifacts.sh"), VERSION],
+            command,
             cwd=self.work, env=env, capture_output=True, text=True, timeout=60,
         )
         self.assertFalse(list(self.work.glob(".brewlet-release-smoke-*")), "Smoke workspace leaked")
@@ -242,6 +248,7 @@ class ReleaseArtifactsTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = [json.loads(line) for line in (self.work / "calls.jsonl").read_text().splitlines()]
         self.assertEqual(sum(call[0] == "installer" for call in calls), 1)
+        self.assertIn(["requested-version", "latest"], calls)
         self.assertIn(["provenance", VERSION], calls)
         templates = [call for call in calls if call[:2] == ["helm", "template"]]
         self.assertEqual(len(templates), 1)
@@ -251,6 +258,13 @@ class ReleaseArtifactsTest(unittest.TestCase):
             self.assertIn(["docker", "manifest", "inspect",
                            f"ghcr.io/microsoft/brewlet-{component}@sha256:{DIGEST}"], calls)
         self.assertFalse(any(call[0] == "helm" and call[1] in ("install", "upgrade") for call in calls))
+
+    def test_explicit_release_remains_available_for_diagnostics(self):
+        result = self.smoke(version=VERSION)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = [json.loads(line) for line in (self.work / "calls.jsonl").read_text().splitlines()]
+        self.assertIn(["requested-version", VERSION], calls)
+        self.assertIn(["provenance", VERSION], calls)
 
     def test_wrong_chart_identity_or_rendered_inventory_fails_closed(self):
         for mutation in (

@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-version="${1:-0.5.0}"
+version="${1:-latest}"
 # Releases from this version on publish build provenance and a digest-pinned
 # chart. Older releases predate that workflow and are verified by checksum only.
 # Keep this at or below the version the Pages workflow verifies, otherwise
@@ -38,11 +38,14 @@ mkdir -p "$CURL_HOME" "$DOCKER_CONFIG" "$work/helm"
 printf '{}\n' > "$DOCKER_CONFIG/config.json"
 printf '{}\n' > "$HELM_REGISTRY_CONFIG"
 
-base="https://github.com/microsoft/brewlet/releases/download/v${version}"
-
 cat "$script_dir/../install.sh" \
   | BREWLET_VERSION="$version" BREWLET_INSTALL_DIR="$work/bin" sh
-test "$("$work/bin/brewlet" version)" = "$version"
+installed_version="$("$work/bin/brewlet" version)"
+if [[ "$version" != latest ]]; then
+  test "$installed_version" = "$version"
+fi
+version="$installed_version"
+base="https://github.com/microsoft/brewlet/releases/download/v${version}"
 
 curl -fsSL -o "$work/source.tar.gz" \
   "https://github.com/microsoft/brewlet/archive/refs/tags/v${version}.tar.gz"
