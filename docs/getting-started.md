@@ -33,14 +33,14 @@ the matching release archive, and verifies its SHA-256 checksum before
 installing it:
 
 ```bash
-export BREWLET_VERSION="0.4.0"
+export BREWLET_VERSION="0.5.0"
 curl -fsSL https://brewlet.sh/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
 brewlet version
 ```
 
-The last command must print `0.4.0`.
+The last command must print `0.5.0`.
 
 Without `BREWLET_VERSION`, the installer selects the latest release. Set
 `BREWLET_INSTALL_DIR` to choose a directory other than `$HOME/.local/bin`.
@@ -78,7 +78,7 @@ mkdir -p "$BREWLET_WORK"
 brewlet version
 ```
 
-The CLI reports the source build's version, which need not be `0.4.0`. Continue
+The CLI reports the source build's version, which need not be `0.5.0`. Continue
 at step 2 from this checkout.
 
 ## 2. Build the example
@@ -163,7 +163,7 @@ and Linux; executing the bundle with `runc` is a Linux node operation.
 
 ## What you proved
 
-- Brewlet came from the checksum-verified v0.4.0 release or your optional
+- Brewlet came from the checksum-verified v0.5.0 release or your optional
   source build.
 - The application payload contains only the JAR and launch metadata.
 - A node-resident JDK can run the packaged application directly.

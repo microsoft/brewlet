@@ -50,7 +50,7 @@ runtime catalog. Name the node pool the privileged provisioner may modify:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.4.0 \
+  --version 0.5.0 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \
