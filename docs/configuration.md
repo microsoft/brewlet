@@ -113,7 +113,7 @@ provisioner:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.4.0 -f values-production.yaml
+  --version 0.5.0 -f values-production.yaml
 ```
 
 > JDKs and launchers are always obtained **copy-from-image** from explicit,
@@ -208,7 +208,7 @@ When you install via Helm, the chart populates them for you.
 | Flag | Default | Meaning |
 |---|---|---|
 | `--namespace` | `brewlet` | Namespace the provisioner DaemonSet is managed in. |
-| `--provisioner-image` | `ghcr.io/microsoft/brewlet-node-provisioner:0.4.0` | Image the DaemonSet runs. |
+| `--provisioner-image` | `ghcr.io/microsoft/brewlet-node-provisioner:0.1.0` | Image the DaemonSet runs. Published Helm charts override this with the release image digest. |
 | `--allowed-source-mirror-hosts` | *(empty)* | Comma-separated exact destination registry hosts approved for NodeProfile runtime-source rewrites. Configure the same value on manager and admission; empty disables mirrors. |
 | `--leader-elect` | `false` | Enable leader election for HA. |
 | `--metrics-bind-address` | `0` | Metrics endpoint; `0` disables it. |
@@ -218,7 +218,7 @@ When you install via Helm, the chart populates them for you.
 
 ```bash
 ./bin/operator --namespace=brewlet \
-  --provisioner-image=ghcr.io/microsoft/brewlet-node-provisioner:0.4.0 \
+  --provisioner-image=ghcr.io/microsoft/brewlet-node-provisioner:0.5.0 \
   --allowed-source-mirror-hosts=registry.internal.example.com
 kubectl apply -f nodeprofile.yaml
 ```

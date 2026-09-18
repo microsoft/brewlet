@@ -15,7 +15,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 DIGEST = "0123456789abcdef" * 4
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 # Transport/workload stand-ins fail on unrecognized commands. Helm still
 # reads/renders the actual packaged chart, with synthetic release image pins.

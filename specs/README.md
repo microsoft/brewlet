@@ -16,9 +16,9 @@ requirements by section using the existing `§N` convention (for example, `§4.2
 The `**Version:**` header in `SPECIFICATION.md` tracks the Brewlet release version
 without the `v` prefix, including any prerelease suffix. Before creating a release
 tag or dispatching the release workflow, update and commit this header to match
-the intended release (for example, `0.4.0` for `v0.4.0`). Check it locally with
-`bash scripts/check-release-version.sh 0.4.0` from the repository root, replacing
-`0.4.0` with the intended version. The release workflow refuses to publish if the
+the intended release (for example, `0.5.0` for `v0.5.0`). Check it locally with
+`bash scripts/check-release-version.sh 0.5.0` from the repository root, replacing
+`0.5.0` with the intended version. The release workflow refuses to publish if the
 checked-out specification does not match.
 
 Public reference contracts:

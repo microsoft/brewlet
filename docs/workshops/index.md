@@ -25,7 +25,7 @@ The Ops workshop installs the released chart and CLI directly. The Dev workshop
 uses the example application from the matching release tag:
 
 ```bash
-git clone --depth 1 --branch v0.4.0 https://github.com/microsoft/brewlet.git
+git clone --depth 1 --branch v0.5.0 https://github.com/microsoft/brewlet.git
 cd brewlet
 ```
 

@@ -41,7 +41,7 @@ Install or upgrade Brewlet with the values file:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.4.0 \
+  --version 0.5.0 \
   --values metrics-values.yaml \
   --set provisioner.pools="{java-workers}"
 ```

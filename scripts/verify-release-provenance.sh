@@ -7,7 +7,7 @@
 #
 # Consumers can run this against any published release:
 #
-#   ./scripts/verify-release-provenance.sh 0.4.0
+#   ./scripts/verify-release-provenance.sh 0.5.0
 #
 # It is also the release smoke test: the release workflow runs it against the
 # version it just published, so a release that fails to produce verifiable
@@ -23,7 +23,7 @@ IMAGES=(brewlet-operator brewlet-admission brewlet-node-provisioner)
 
 usage() {
   echo "usage: $0 <version>" >&2
-  echo "  version: release version without the v prefix, e.g. 0.4.0" >&2
+  echo "  version: release version without the v prefix, e.g. 0.5.0" >&2
 }
 
 version="${1:-}"

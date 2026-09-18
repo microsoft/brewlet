@@ -77,7 +77,7 @@ Before publishing installation guidance, run the same release smoke test as
 the Pages workflow:
 
 ```bash
-./site/scripts/verify-release-artifacts.sh 0.4.0
+./site/scripts/verify-release-artifacts.sh 0.5.0
 ```
 
 It requires `curl`, Maven, JDK 21+, Helm, Docker CLI, and an authenticated
