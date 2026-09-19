@@ -7,9 +7,11 @@ contracts. They are not production certification, a performance benchmark, or
 the broader zero-skip rewrite tracked in
 [#13](https://github.com/microsoft/brewlet/issues/13).
 
-**Coverage status:** CPU HPA passed twice on fresh local arm64 clusters with the
-fixed-shim candidate described below. Admission remains pending. The consolidated
-acceptance work remains tracked in
+**Coverage status:** CPU HPA passed twice on fresh local arm64 clusters and
+twice on hosted amd64 with the fixed-shim candidate described below. Admission
+passed its 47-assertion matrix twice on fresh local arm64 clusters with that
+shim and the corrected Verifier manifest. Neither is an unmodified 0.5.0 pass.
+The acceptance work and delivery are tracked in
 [#93](https://github.com/microsoft/brewlet/issues/93),
 [#94](https://github.com/microsoft/brewlet/issues/94), and
 [#95](https://github.com/microsoft/brewlet/issues/95). A harness implementation or
@@ -26,7 +28,7 @@ is the hosted-workflow target; local native Linux/arm64 and macOS Docker Desktop
 are supported fixture targets, not additional architecture acceptance claims.
 Cross-architecture emulation is deliberately not selected.
 
-Required host tools: Python 3, Docker, **kind 0.30.0**, kubectl, Helm, Go
+Required host tools: Python 3.12+, Docker, **kind 0.30.0**, kubectl, Helm, Go
 (the toolchain required by the pinned verifier), JDK 21 or newer, Maven, Git,
 curl, tar, OpenSSL, and `htpasswd` (Apache utilities, for admission's private
 registry fixture). The demo is compiled with `--release 21`. Internet
@@ -167,6 +169,64 @@ an external-HPA ownership mode. Advanced scaling uses separately managed
 ordinary Deployments with `runtimeClassName: brewlet`. Custom metrics, KEDA,
 scale-to-zero, JVM scaling algorithms and node/cluster autoscaling are outside
 this validation.
+
+## Native admission contract and configuration
+
+Scenario A replaces only the empty invocation-owned Distribution registry with
+**Zot 2.1.8**, pinned to
+`sha256:cd2aea942f428630bcb4190542be6abd35e14177aab84fc7ccad0dca8ecb363d`.
+Distribution 3.0.0 was demonstrated to return 404 for the native Referrers API;
+fallback tags cannot substitute for discovery. Zot uses the same private network
+and loopback host port, explicit container identity/ownership and an isolated
+0700 data directory owned by the invoking UID/GID.
+
+The released Maven plugin publishes a signed dependency bundle, a runnable
+thin-JAR application and its native final-image DSSE/in-toto referrer. Negative
+fixtures retain discoverable referrers and exercise wrong key, builder, subject,
+malformed, tampered, incomplete and split-across-candidate evidence. Each
+denial must be the named Gatekeeper policy's response to a valid API request,
+not an invalid object, missing runtime or scheduling failure.
+
+The verifier is compiled from exact Brewlet 0.5.0 source and delivered by the
+documented **baked image** route, over digest-pinned Ratify **1.4.5**. Set
+`RATIFY_CONFIG=/home/nonroot/.ratify` to discover the baked plugin directory.
+Ratify's **1.15.6** chart is read from source commit
+`f5fd56fe58ba0a604eca247276acb7899e026435`. The fixture installs
+digest-pinned Gatekeeper **3.18.3** from commit
+`5be06a95665624a619a8082677dcf942043bf514`. Assertion records capture the exact
+base images, generated image and verifier binary digests.
+
+Live deployment found that the pinned chart CRD rejects `Verifier.spec.type`.
+The shipped resource is corrected to select the same plugin through `spec.name`.
+The scenario starts from the release resources and records that one-field
+candidate correction explicitly; trust, predicate and verifier-identity rules
+are unchanged.
+
+Gatekeeper has external data enabled, cache TTL 0 and validation
+`failurePolicy: Fail`. The Ratify provider timeout is 20 seconds, inside the
+30-second validating webhook timeout. Gatekeeper and Ratify each have bounded
+240-second rollout waits. Ratify uses a test-only `Recreate` rollout; current
+Ready Pods and Service endpoints must agree
+before enforcement tests proceed. Report transport uses a unique fixture CA and
+verified SANs, never `curl --insecure`.
+
+Provider/discovery caches are disabled. The pinned Ratify version also exposed
+concurrent writes to its shared ORAS content-cache index, so this test uses an
+empty root-owned read-only OCI layout for that cache. Every verification still
+fetches and verifies actual registry data. These runs do not establish
+production content-cache concurrency or cache-revocation behavior. Ratify 1.4.5
+omits `errorReason` in its aggregated plugin report; the fixture also captures
+the unchanged plugin's real subprocess output for rejection diagnostics.
+Actual Ratify decisions and actual API admission outcomes remain mandatory.
+
+Current-only and current-plus-obsolete evidence admit the **same subject**;
+obsolete-only evidence denies it. Fresh reports must contain every real
+candidate. Another verifier's success cannot substitute, its failure cannot
+veto a complete valid Brewlet candidate, and partial claims cannot be combined.
+Fresh subjects exercise missing evidence, real registry authentication/fetch
+failures and unavailable Ratify. Valid CREATE/UPDATE requests cover regular and
+init images; ephemeral images use the proper UPDATE subresource. Non-Brewlet
+behavior and all namespace exclusions are checked separately.
 
 ## Evidence and failure diagnosis
 

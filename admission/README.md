@@ -5,13 +5,14 @@ signatures and identities** before a workload runs. It admits a pod on the
 Brewlet runtime only when the Pod image resolves to a digest with a valid,
 trusted final-image managed-dependency attestation.
 
-> **Preview: live admission validation pending.** Evaluate only in a disposable
-> cluster. The component tests below use real verification and policy logic but
-> substitute registry access and plugin transport. Live registry discovery,
-> external plugin execution, Ratify/Gatekeeper wiring, and Kubernetes admission
-> enforcement remain unproven by this suite; see
-> [#95](https://github.com/microsoft/brewlet/issues/95). This is not a
-> production-readiness claim.
+> **Preview: live candidate validation, not production certification.** Two
+> consecutive fresh local arm64 clusters passed the real registry, external
+> verifier, Ratify/Gatekeeper and Kubernetes admission matrix, including serving
+> JavaApplication-generated Pods. These runs use the released 0.5.0 verifier and
+> publisher, a fixed-shim candidate and the corrected Verifier manifest, not
+> unmodified 0.5.0. See [#95](https://github.com/microsoft/brewlet/issues/95) and
+> the [live runbook](../docs/live-validation.md) for evidence and fixture-only
+> cache, registry and TLS configuration. Evaluate only in a disposable cluster.
 
 It provides the cluster-side enforcement that the managed-dependency-bundles
 design (specification §4.5) leaves to admission policy: requiring a valid,
@@ -99,7 +100,10 @@ Deliver the binary to Ratify one of two ways:
    startup.
 2. **Baked image**: place the binary at
    `/home/nonroot/.ratify/plugins/brewlet-managed-dependencies` in a custom
-   Ratify image and drop `spec.source`.
+   Ratify image, set `RATIFY_CONFIG=/home/nonroot/.ratify` so Ratify discovers
+   that plugin directory, and drop `spec.source`. Pin the resulting image by
+   digest from its first deployment. This is the delivery route exercised by
+   the live scenario.
 
 The plugin binary links Ratify's oras store, and therefore its full dependency
 tree (oras-go plus cloud registry auth SDKs). Build it with the same toolchain
@@ -110,6 +114,17 @@ you use for Ratify itself.
 Prerequisites: Ratify v1.4.x installed as a Gatekeeper external-data provider
 (`ratify-provider`), Gatekeeper installed, and a registry that exposes the
 OCI 1.1 Referrers API.
+
+The pinned Ratify v1.4.5 chart CRD selects the plugin through `spec.name`;
+it rejects `Verifier.spec.type`, even though the SDK exposes a Type field.
+The shipped manifest omits that unsupported field.
+
+Enable Gatekeeper external data and configure its validation webhook with
+`failurePolicy: Fail`. Its rules must cover Pod CREATE/UPDATE and the
+`pods/ephemeralcontainers` UPDATE subresource. Provider timeouts must be shorter
+than the webhook timeout; the live fixture uses 20 and 30 seconds respectively.
+`enforcementAction: deny` does not itself make webhook transport errors fail
+closed when the webhook has `failurePolicy: Ignore`.
 
 ```bash
 # 1. Edit deploy/20-ratify-verifier.yaml: set trustedPublicKey and
@@ -317,6 +332,12 @@ is admitted.
   claims, no cross-candidate trust merging, and unrelated/overlapping verifier
   success in either selection order. These are component tests, not
   subprocess, registry, or Kubernetes deployment tests.
+- The independently runnable live scenario uses pinned Zot native referrers,
+  Ratify v1.4.5, Gatekeeper v3.18.3 and the real external verifier. Its 47 required
+  assertions cover trusted serving, all invalid-evidence classes, signer
+  rotation with fresh candidate reports, competing verifiers, regular/init/
+  ephemeral admission requests, exclusions, registry failures and provider
+  outage. It never treats missing prerequisites as a skip.
 
 Run:
 
@@ -324,3 +345,6 @@ Run:
 ( cd core && go test ./pkg/attest/... )
 ( cd admission/ratify-verifier && go test ./... )
 ```
+
+For the live invocation, release/candidate distinction, diagnostics and remaining
+limits, use the [disposable live-validation runbook](../docs/live-validation.md).

@@ -663,9 +663,15 @@ admission — reusing Brewlet's own DSSE/predicate verification through a Ratify
 external verifier plugin and Gatekeeper policy — is provided in
 [`admission/`](../admission/); it requires a registry that exposes the OCI 1.1
 Referrers API. Component tests substitute registry access and external plugin
-transport. Live registry, plugin, Ratify/Gatekeeper, and Kubernetes admission
-validation remains pending in [#95](https://github.com/microsoft/brewlet/issues/95);
-the shipped example is not a production-readiness certification.
+transport. Separate live candidate validation passed twice on fresh local arm64
+clusters, exercising real native referrers, the external verifier subprocess,
+Ratify/Gatekeeper and Kubernetes API enforcement. The runs use the released
+0.5.0 verifier/publisher, the fixed shim and a corrected Verifier manifest
+(`spec.name`, without the `spec.type` rejected by Ratify v1.4.5's chart CRD).
+[#95](https://github.com/microsoft/brewlet/issues/95) and the
+[runbook](../docs/live-validation.md) record fixture-only cache, registry and
+TLS settings. This is not an unmodified 0.5.0 pass, ordinary-image ephemeral
+execution support, or a production-readiness certification.
 
 ---
 

@@ -36,7 +36,7 @@ Implemented functionality and live end-to-end validation are different:
 |---|---|---|
 | Public release access and local use | The Pages release smoke exercises the released CLI, local Java example, Maven plugin, anonymous chart download, component manifest access, and release provenance. | It renders but does not install the chart or provision nodes. |
 | Kubernetes runtime | The source-built E2E tiers exercise provisioning, serving, manual scaling, and runtime telemetry. | These scenarios do not establish the admission or autoscaling loops below, or production readiness. |
-| Managed-dependency admission | Component tests exercise real DSSE verification and Ratify policy logic with substituted registry access and plugin transport. | Live registry discovery, external plugin execution, Ratify/Gatekeeper wiring, and Kubernetes admission outcomes remain pending in [#95](https://github.com/microsoft/brewlet/issues/95). |
+| Managed-dependency admission | Component tests use substituted registry access and plugin transport; two fresh local arm64 clusters additionally passed 47 real registry, external verifier, Ratify/Gatekeeper and API assertions, including serving JavaApplication Pods. | Live candidate validation uses the released verifier/publisher, corrected Verifier manifest, fixed shim and fixture-only uncached settings. It is not an unmodified 0.5.0 pass or ordinary ephemeral-debug execution support; see [#95](https://github.com/microsoft/brewlet/issues/95) and the [runbook](live-validation.md). |
 | CPU autoscaling | Alongside HPA creation and simulated HPA ownership tests, two fresh local arm64 clusters passed real metrics-server-driven 1-to-3-to-1 scaling, Ready Pods, serving endpoints and three ownership reconciliations with a fixed-shim candidate. | Unmodified 0.5.0 exposed a packed-layer GC scale-out failure. The candidate fixes warm reuse, not cold startup after missing-source GC; see [#94](https://github.com/microsoft/brewlet/issues/94) and the [runbook](live-validation.md). |
 
 [The validation tracker (#93)](https://github.com/microsoft/brewlet/issues/93)
@@ -46,8 +46,9 @@ The existing E2E harness permits skips; a successful run alone is not evidence
 that every assertion executed. Broader strict-mode work is tracked in
 [#13](https://github.com/microsoft/brewlet/issues/13).
 
-Admission remains a coverage gap. CPU validation demonstrated both a release
-defect and the scoped candidate correction; it is not an unmodified 0.5.0 pass.
+Admission exposed an unsupported Verifier manifest field; CPU validation exposed
+a packed-layer GC defect. Both passes use explicitly identified candidate
+corrections rather than an unmodified 0.5.0 installation.
 Do not treat component tests or release smoke results as proof of either live loop,
 or these disposable-cluster runs as production certification.
 

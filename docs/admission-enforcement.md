@@ -7,16 +7,17 @@ valid, trusted final-image managed-dependency attestation. It combines a
 verifies Brewlet's native OCI 1.1 referrer in place so the runtime executes that
 same admitted image.
 
-!!! warning "Preview: live admission validation pending"
+!!! warning "Preview: live candidate validation, not production certification"
 
     Brewlet is a pre-1.0 preview; evaluate this integration only in a disposable
-    cluster. Component tests cover real DSSE verification and Ratify policy
-    decisions, but substitute registry access and plugin transport. They do not
-    prove live referrer discovery, external plugin delivery/execution,
-    Ratify/Gatekeeper wiring, or Kubernetes admission enforcement.
-    [Issue #95](https://github.com/microsoft/brewlet/issues/95) tracks that
-    end-to-end evidence. The policy contract below is implemented, not a
-    production-readiness certification.
+    cluster. Two consecutive fresh local arm64 clusters passed live referrer
+    discovery, external plugin execution, Ratify/Gatekeeper enforcement and
+    serving JavaApplication-generated Pods. The candidate uses the released
+    0.5.0 verifier/publisher, the fixed shim and a corrected Verifier manifest;
+    this is not an unmodified 0.5.0 pass.
+    [Issue #95](https://github.com/microsoft/brewlet/issues/95) and the
+    [runbook](live-validation.md) retain the exact evidence and fixture-only
+    cache, registry and TLS settings. This is not production certification.
 
 The plugin verifies Brewlet's native evidence directly, reusing Brewlet's own
 DSSE and predicate verification code instead of requiring evidence to be
@@ -88,7 +89,9 @@ satisfies the complete contract; claims are never combined across candidates.
 
 - Ratify v1.4.x installed as the `ratify-provider` Gatekeeper external-data
   provider.
-- Gatekeeper installed.
+- Gatekeeper installed with external data enabled, validation webhook
+  `failurePolicy: Fail`, and rules covering Pod CREATE/UPDATE and
+  `pods/ephemeralcontainers` UPDATE.
 - A registry that implements the **OCI 1.1 Referrers API**.
 - A digest-pinned Brewlet application image with a signed final-image
   managed-dependency attestation.
@@ -104,6 +107,11 @@ satisfies the complete contract; claims are never combined across candidates.
 For private registries, configure the oras store's `authProvider`, such as a
 `k8Secrets` provider backed by a Docker-config Secret. Evidence that cannot be
 authenticated or fetched cannot grant admission.
+
+Keep provider timeouts shorter than webhook timeouts; the live fixture uses
+20 seconds for the provider and 30 seconds for the validating webhook.
+The constraint's `enforcementAction: deny` cannot compensate for webhook
+`failurePolicy: Ignore` during transport failures.
 
 ---
 
@@ -143,8 +151,10 @@ Choose one delivery model:
     /home/nonroot/.ratify/plugins/brewlet-managed-dependencies
     ```
 
-    Use a digest-pinned custom Ratify image and remove `spec.source` from the
-    Verifier resource.
+    Set `RATIFY_CONFIG=/home/nonroot/.ratify` to select that plugin directory.
+    Use a digest-pinned custom Ratify image from the first deployment and remove
+    `spec.source` from the Verifier resource. The live scenario exercises this
+    delivery route.
 
 The plugin links Ratify's oras store and its registry-auth dependencies. Build
 it with a toolchain compatible with the Ratify installation.
@@ -183,6 +193,10 @@ The resources configure:
 | [`30-ratify-policy.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/30-ratify-policy.yaml) | Ratify Rego Policy | Counts success only from the named `brewlet-managed-dependencies` verifier and admits when at least one attestation verifies. |
 | [`40-gatekeeper-constrainttemplate.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/40-gatekeeper-constrainttemplate.yaml) | Gatekeeper ConstraintTemplate | Sends regular, init, and ephemeral container images from Brewlet-runtime pods to Ratify. |
 | [`50-gatekeeper-constraint.yaml`](https://github.com/microsoft/brewlet/blob/main/admission/deploy/50-gatekeeper-constraint.yaml) | Gatekeeper Constraint | Applies the check to Pod CREATE and UPDATE requests, with explicit namespace exclusions. |
+
+Ratify v1.4.5's shipped chart CRD rejects `Verifier.spec.type`; use `spec.name`
+to select the plugin, as the corrected resource does. This defect was exposed
+by live API deployment and is covered by a manifest regression test.
 
 Observe warnings and test known-good and known-bad images before changing the
 constraint to `enforcementAction: deny`.
@@ -233,6 +247,20 @@ different key or unsigned image to confirm the expected pass and fail paths.
 ---
 
 ## Production trust model and limitations
+
+### Live fixture boundaries
+
+The [live scenario](live-validation.md) disables Gatekeeper response, Ratify
+provider and ORAS discovery caches, and directs the ORAS content cache to an
+immutable empty layout. This makes every candidate fetch real and avoids a
+concurrent content-cache index failure observed with the pinned Ratify version.
+It is a fixture configuration, not validation of production cache concurrency
+or revocation latency. Do not infer a key-rotation or outage guarantee for
+previously cached images from tests of fresh verification requests.
+
+Regular and init image requests and valid ephemeral-container subresource
+updates are exercised at the API boundary. This does **not** establish support
+for running ordinary-image ephemeral debug containers through Brewlet.
 
 ### Key distribution and rotation
 

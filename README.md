@@ -33,12 +33,15 @@ The source and GitHub release downloads are public; no repository credentials
 are needed to clone the project or install the CLI.
 
 Live [Ratify/Gatekeeper enforcement (#95)](https://github.com/microsoft/brewlet/issues/95)
-validation remains pending. Real CPU HPA scale-up/down has passed twice on fresh
-disposable clusters with a **fixed-shim candidate** over the 0.5.0 components.
+passed its required matrix twice on fresh local disposable clusters with the
+released verifier/publisher, a corrected Verifier manifest and the fixed shim.
+Real CPU HPA scale-up/down has also passed twice on fresh disposable clusters
+with a **fixed-shim candidate** over the 0.5.0 components.
 The unmodified release exposed a packed-layer GC failure during scale-out;
 [metrics-driven scaling (#94)](https://github.com/microsoft/brewlet/issues/94)
 and the [live runbook](docs/live-validation.md) distinguish that baseline from
-the candidate and its remaining cold-start limits.
+the candidate, fixture-only admission settings and remaining cold-start limits.
+Neither result is an unmodified 0.5.0 pass or production certification.
 See [preview status and validation](https://brewlet.sh/docs/#preview-status-and-validation)
 for the distinction between release smoke, component, and live cluster coverage.
 
