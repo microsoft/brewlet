@@ -18,6 +18,11 @@ on:
         type: choice
         options: [shim, release]
         default: shim
+      scenario:
+        description: Independently runnable live scenario (ignored by legacy suite)
+        type: choice
+        options: [both, admission, hpa]
+        default: both
 
 concurrency:
   group: e2e-${{ github.workflow }}-${{ github.ref }}
@@ -203,7 +208,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [admission, hpa]
+        scenario: ${{ fromJSON(inputs.scenario == 'hpa' && '["hpa"]' || inputs.scenario == 'admission' && '["admission"]' || '["admission","hpa"]') }}
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       BREWLET_LIVE_OUTPUT: ${{ runner.temp }}/brewlet-live-evidence

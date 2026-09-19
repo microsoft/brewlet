@@ -55,6 +55,8 @@ used. Do not point the legacy tier reset helper at these fixtures.
 The **E2E** workflow remains scheduled/manual-only. Its `live` selection runs
 two separate jobs, each executing its scenario twice consecutively with fresh
 clusters. The first failure stops that job; the other scenario is independent.
+The manual `scenario` selector can run only `hpa` or only `admission`; the
+scheduled default is both.
 Ordinary PR CI executes only offline fixture safeguards, not the live jobs.
 
 ## Release baseline and reproducibility
