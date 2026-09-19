@@ -72,6 +72,10 @@
           <p class="sub" data-reveal data-reveal-delay="2">
             Brewlet brings SpinKube's node-resident runtime model to <strong>Java</strong>.
           </p>
+          <p class="sub">
+            <strong>Public pre-1.0 preview.</strong> Use a disposable evaluation environment.
+            See <a href="/docs/#preview-status-and-validation">validation coverage and remaining gaps</a>.
+          </p>
           <div class="hero-cta" data-reveal data-reveal-delay="3">
             <a class="btn btn-primary" href="#quickstart">Get started</a>
             <a class="btn btn-ghost" href="https://github.com/microsoft/brewlet">View on GitHub</a>
@@ -239,7 +243,9 @@ $ mvn package sh.brewlet:brewlet-maven-plugin:0.5.0:push \
           </div>
         </div>
         <p class="center muted">
-          Real pod IP via CNI, <code>kubectl logs</code>/<code>exec</code>, probes, HPA and Services all work unchanged.
+          Pods use CNI, <code>kubectl logs</code>/<code>exec</code>, probes, and Services.
+          CPU HPA configuration is available;
+          <a href="/docs/deploying-workloads/#autoscaling">live metrics-driven validation is pending</a>.
         </p>
       </div>
     </section>
@@ -325,8 +331,9 @@ $ curl orders:8080/info
         </div>
         <p class="center muted">
           The JVM sees <strong>1 CPU</strong> and a heap bounded under <strong>256Mi</strong> because the
-          containerd shim wires the pod's cgroup limits into the process. Scaling, rolling
-          updates, probes, and Services all behave like any pod. With Brewlet's default
+          containerd shim wires the pod's cgroup limits into the process. Existing E2E
+          coverage exercises manual scaling, not the live CPU autoscaling loop.
+          With Brewlet's default
           runnable-image format, <code>image: &lt;ref&gt;</code> is all the pod needs; kubelet
           pulls it like any container image.
         </p>
@@ -354,7 +361,7 @@ $ curl orders:8080/info
               <tr><th>Runtime location</th><td>inside the image</td><td class="col-highlight"><strong>shared node JDK</strong></td><td>node-installed Wasm runtime</td></tr>
               <tr><th>Patch the runtime</th><td>update images and roll workloads</td><td class="col-highlight"><strong>update node JDKs, then roll workloads</strong></td><td>update node runtime</td></tr>
               <tr><th>Isolation</th><td>namespaces + cgroups (runc)</td><td class="col-highlight"><strong>namespaces + cgroups (runc)</strong></td><td>Wasm sandbox</td></tr>
-              <tr><th>K8s integration</th><td>full</td><td class="col-highlight"><strong>full (Services, probes, HPA, logs)</strong></td><td>full</td></tr>
+              <tr><th>K8s integration</th><td>full</td><td class="col-highlight"><strong>Services, probes, logs</strong>; <a href="/docs/deploying-workloads/#autoscaling">CPU HPA validation pending</a></td><td>full</td></tr>
               <tr><th>Best fit</th><td>general-purpose workloads</td><td class="col-highlight"><strong>JVM compatibility without full images</strong></td><td>small, fast-starting Wasm workloads</td></tr>
             </tbody>
           </table>
@@ -481,7 +488,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
         </details>
         <details>
           <summary>Which supply-chain verification is available?</summary>
-          <p>Component releases carry verifiable build provenance. A managed-dependency admission example verifies Brewlet's DSSE attestations. General cosign or standard SLSA admission for application images is not implemented; see the <a href="/docs/admission-enforcement/">supported admission contract</a>.</p>
+          <p>Component releases carry verifiable build provenance. A managed-dependency admission example verifies Brewlet's DSSE attestations in component tests; live Ratify/Gatekeeper enforcement validation is pending in <a href="https://github.com/microsoft/brewlet/issues/95">#95</a>. General cosign or standard SLSA admission for application images is not implemented; see the <a href="/docs/admission-enforcement/">supported admission contract and limitations</a>.</p>
         </details>
         <details>
           <summary>Can I still use a regular container when I need one?</summary>

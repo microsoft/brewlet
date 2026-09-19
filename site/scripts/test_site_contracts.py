@@ -12,6 +12,7 @@ import shlex
 import subprocess
 import tempfile
 import unittest
+from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
 from test_installation_examples import blocks
@@ -191,6 +192,51 @@ class SiteContractsTest(unittest.TestCase):
         for old_claim in ("Use gVisor/Kata", "Brewlet injects no JVM flags of its own",
                           "shim pulls the artifact directly", "~250 MB"):
             self.assertNotIn(old_claim, self.text)
+
+    def test_landing_pages_link_preview_validation_limits(self):
+        for filename in ("index.html", "index-value-prop.html"):
+            with self.subTest(page=filename):
+                page = LandingPage((ROOT / "site" / filename).read_text(encoding="utf-8"))
+                text = " ".join("".join(page.text).split())
+                self.assertIn("pre-1.0 preview", text)
+                self.assertIn("disposable evaluation environment", text)
+                links = [href for href, _ in page.links]
+                self.assertIn("/docs/#preview-status-and-validation", links)
+                self.assertIn("https://github.com/microsoft/brewlet/issues/95", links)
+                self.assertNotIn("full (Services, probes, HPA, logs)", text)
+                self.assertNotIn("HPA and Services all work unchanged", text)
+
+    def test_validation_status_distinguishes_smoke_component_and_live_coverage(self):
+        document = (ROOT / "docs/README.md").read_text(encoding="utf-8")
+        text = " ".join(document.split())
+        self.assertIn("## Preview status and validation", document)
+        for boundary in ("does not install the chart or provision nodes",
+                         "substituted registry access and plugin transport",
+                         "simulated HPA ownership",
+                         "two consecutive fresh disposable clusters",
+                         "existing E2E harness permits skips"):
+            self.assertIn(boundary, text)
+        for issue in (13, 93, 94, 95):
+            self.assertIn(f"https://github.com/microsoft/brewlet/issues/{issue}", document)
+
+    def test_operational_guides_link_pending_live_validation(self):
+        guides = {
+            "docs/admission-enforcement.md": 95,
+            "admission/README.md": 95,
+            "docs/security.md": 95,
+            "docs/deploying-workloads.md": 94,
+            "docs/observability.md": 94,
+        }
+        for filename, issue in guides.items():
+            with self.subTest(document=filename):
+                text = " ".join((ROOT / filename).read_text(encoding="utf-8").split())
+                self.assertIn(f"https://github.com/microsoft/brewlet/issues/{issue}", text)
+                self.assertIn("pending", text)
+                self.assertIn("disposable", text)
+                self.assertNotIn("production admission integration", text)
+                self.assertNotIn("Production admission policy that", text)
+                self.assertNotIn("HPA and metrics-server work.", text)
+                self.assertNotIn("HPA works against CPU/memory or custom/Prometheus metrics as usual.", text)
 
     def test_architecture_images_attribute_registry_pulls_to_cri(self):
         ns = {"svg": "http://www.w3.org/2000/svg"}
@@ -633,7 +679,7 @@ class ValuePropositionPageTest(unittest.TestCase):
                 if href.startswith("#"):
                     self.assertIn(href[1:], self.page.ids)
                 elif href.startswith("/docs/"):
-                    path = ROOT / "docs" / href.removeprefix("/docs/")
+                    path = ROOT / "docs" / urlsplit(href).path.removeprefix("/docs/")
                     candidates = [path / "index.md", path / "README.md",
                                   path.with_suffix(".md")]
                     self.assertTrue(any(candidate.is_file() for candidate in candidates))

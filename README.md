@@ -32,6 +32,13 @@ Use a disposable evaluation environment, not a production or shared cluster.
 The source and GitHub release downloads are public; no repository credentials
 are needed to clone the project or install the CLI.
 
+In 0.5.0, managed-dependency admission and CPU HPA support are implemented, but
+live end-to-end validation remains pending for
+[Ratify/Gatekeeper enforcement (#95)](https://github.com/microsoft/brewlet/issues/95)
+and [metrics-driven scaling (#94)](https://github.com/microsoft/brewlet/issues/94).
+See [preview status and validation](https://brewlet.sh/docs/#preview-status-and-validation)
+for the distinction between release smoke, component, and live cluster coverage.
+
 - [Documentation](https://brewlet.sh/)
 - [Getting started](https://brewlet.sh/docs/getting-started/)
 - [Ops workshop](https://brewlet.sh/docs/workshops/operations/)

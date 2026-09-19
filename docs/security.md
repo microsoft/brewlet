@@ -135,11 +135,15 @@ upstream while composing the image; the final-image predicate exposes only the
 application-builder identity. Identity values are free-form signed strings
 trusted through the configured key, not OIDC- or Fulcio-issued identities.
 
-Deploy [Ratify/Gatekeeper admission enforcement](admission-enforcement.md) to
-require the final-image attestation for `runtimeClassName: brewlet` pods. It
-requires an OCI 1.1 Referrers-API registry and digest-pinned images, verifies
-the Pod image before admission, and fails closed when trusted evidence cannot
-be discovered or verified.
+The optional [Ratify/Gatekeeper admission integration](admission-enforcement.md)
+provides a policy requiring the final-image attestation for
+`runtimeClassName: brewlet` pods. It requires an OCI 1.1 Referrers-API registry
+and digest-pinned images. Its implemented policy denies images without a
+complete valid candidate, including discovery or verification failures.
+Component coverage is not proof of live cluster enforcement: registry access,
+external plugin execution, and Kubernetes admission outcomes remain pending
+validation in [#95](https://github.com/microsoft/brewlet/issues/95). Evaluate only
+in a disposable cluster; do not treat this preview as a production trust boundary.
 
 ---
 
