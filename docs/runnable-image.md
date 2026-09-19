@@ -19,8 +19,9 @@ shim runs with the node-resident JDK. This page documents the delivery contract 
   payload has to reach the node **out of band**, such as with `ctr images import`.
 - **Runnable-image mode fixes this without changing the native format.** `brewlet push
   --format=image` publishes the *same* JAR as a **standard, kubelet-pullable OCI
-  image**. containerd/kubelet pull + unpack it with no special configuration; the shim
-  recognizes it and runs it on the node-resident JDK.
+  image**. containerd/kubelet pull + unpack it through the standard OCI path; the shim
+  recognizes it and runs it on the node-resident JDK. Keep packed layers available
+  until verified staging completes, as described below.
 - **The developer experience becomes the WASI/SpinKube one:** `image: <ref>` +
   `runtimeClassName: brewlet` and nothing else. kubelet pulls, containerd unpacks, the
   shim launches `java -jar` under the pod's cgroup.
@@ -113,12 +114,22 @@ CLI / prepare-bundle workflows only. For a runnable image the shim:
 Nothing about JVM launch, cgroup-awareness, JDK/launcher selection, or Brewlet's
 overlay rootfs (shared read-only JDK lower + per-container upper) changes.
 
-New shims publish stages under an `immutable-v1` subdirectory of
+New shims publish stages under an `immutable-v2` subdirectory of
 `BREWLET_RUNNABLE_STAGE` (or the default temporary staging root). They leave legacy
 stages untouched because running workloads may still mount those files. Allow
 extra disk capacity during rollout: legacy stages and staging directories left
 by abruptly terminated processes are not automatically garbage-collected.
 Do not remove staging trees while workloads still reference them.
+
+The stage retains descriptor-verified packed layers as well as extracted
+payloads. Every cache reuse verifies those retained bytes against the manifest
+digests. This permits later replicas to start after containerd garbage-collects
+its packed layers (`discard_unpacked_layers=true`) without bypassing blob
+verification. A corrupt source blob that remains present still causes failure.
+Missing or corrupt retained evidence fails closed. A cold launch whose packed
+layers are already missing, or an upgrade with only a legacy stage, requires a
+verified image re-pull; this does not repair missing content from an unpacked
+snapshot. Allow disk capacity for the retained compressed bytes per image.
 
 ## 5. Operator & webhook
 

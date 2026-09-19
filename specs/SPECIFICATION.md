@@ -66,7 +66,9 @@ capability model.
   node, is shared across workloads, and is upgraded independently of app artifacts.
 - **G6 — First-class Kubernetes citizen.** Use standard Kubernetes Services,
   Ingress, probes, autoscaling, logs, and metrics interfaces. Live CPU HPA
-  validation remains pending in [#94](https://github.com/microsoft/brewlet/issues/94).
+  validation passed twice on fresh local arm64 clusters with a fixed-shim
+  candidate over 0.5.0, not the unmodified release; see
+  [#94](https://github.com/microsoft/brewlet/issues/94).
 
 ### 2.2 Non-Goals (for v1)
 - Replacing OCI *images* for apps that legitimately need OS packages/native deps.
@@ -330,7 +332,11 @@ publishes the *same* JAR as a **standard, kubelet-pullable OCI image**:
   portable bytecode JAR, so any provisioned node matches; narrowed to `--arch` for a
   JAR carrying native libraries).
 
-containerd/kubelet pull and unpack this image with **no special configuration**.
+containerd/kubelet pull and unpack this image using the standard OCI image path.
+Packed layers must remain available until the shim publishes a verified stage;
+for reliable cold starts, retain them in the effective containerd configuration
+(`discard_unpacked_layers=false`). An unpacked snapshot alone is not verified
+input to the Brewlet blob resolver.
 Kubernetes execution requires a digest-pinned request. The shim takes that exact
 manifest/index target from protected CRI requested-image metadata, requires the
 containerd-owned `io.kubernetes.cri.image-name` OCI annotation to name the same
@@ -1300,6 +1306,14 @@ and builds/runs on Linux:
   Repeated and concurrent resolutions, including separate shim processes, reuse
   the published stage without truncating or replacing files held by existing
   workloads. Failed extraction never publishes an incomplete stage.
+  The `immutable-v2` stage also retains the exact descriptor-verified packed
+  layers. Cache reuse verifies those retained bytes and tolerates source-layer
+  removal by containerd GC, but not other source I/O errors or present corrupt
+  source bytes. Missing/corrupt retained evidence fails closed. Older stage
+  directories remain untouched during upgrades; a new stage requires available
+  source bytes. This warm-reuse protection does not guarantee cold startup
+  after source-layer GC. Re-pull affected digest-pinned images with packed-layer
+  retention enabled, and allow extra disk capacity for retained layer bytes.
 
 The workload image reference and manifest digest hints are managed **cluster-side,
 not in the shim**: the `brewlet-admission` webhook (§8.3) overwrites the
@@ -1496,7 +1510,10 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 > reference and garbage-collected with the `JavaApplication`.
 >
 > Existing tests cover HPA resource creation, simulated HPA ownership, and manual
-> scaling. Real metrics-server-driven CPU scale-up and scale-down remain pending
+> scaling. Real metrics-server-driven 1-to-3-to-1 scaling passed twice on fresh
+> local arm64 clusters with the fixed-shim candidate over 0.5.0. Unmodified
+> 0.5.0 failed warm scale-out after packed-layer GC; cold missing-source startup
+> remains outside the correction. Evidence and remaining scope are tracked
 > validation in [#94](https://github.com/microsoft/brewlet/issues/94).
 
 ### 8.3 Pod admission/scheduling webhook

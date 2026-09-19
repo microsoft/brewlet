@@ -245,7 +245,7 @@ $ mvn package sh.brewlet:brewlet-maven-plugin:0.5.0:push \
         <p class="center muted">
           Pods use CNI, <code>kubectl logs</code>/<code>exec</code>, probes, and Services.
           CPU HPA configuration is available;
-          <a href="/docs/deploying-workloads/#autoscaling">live metrics-driven validation is pending</a>.
+          <a href="/docs/deploying-workloads/#autoscaling">live validation uses a fixed-shim candidate</a>.
         </p>
       </div>
     </section>
@@ -331,8 +331,9 @@ $ curl orders:8080/info
         </div>
         <p class="center muted">
           The JVM sees <strong>1 CPU</strong> and a heap bounded under <strong>256Mi</strong> because the
-          containerd shim wires the pod's cgroup limits into the process. Existing E2E
-          coverage exercises manual scaling, not the live CPU autoscaling loop.
+          containerd shim wires the pod's cgroup limits into the process.
+          <a href="/docs/live-validation/">Live CPU scaling passed with a fixed-shim candidate</a>;
+          unmodified 0.5.0 exposed a packed-layer GC scale-out failure.
           With Brewlet's default
           runnable-image format, <code>image: &lt;ref&gt;</code> is all the pod needs; kubelet
           pulls it like any container image.
@@ -361,7 +362,7 @@ $ curl orders:8080/info
               <tr><th>Runtime location</th><td>inside the image</td><td class="col-highlight"><strong>shared node JDK</strong></td><td>node-installed Wasm runtime</td></tr>
               <tr><th>Patch the runtime</th><td>update images and roll workloads</td><td class="col-highlight"><strong>update node JDKs, then roll workloads</strong></td><td>update node runtime</td></tr>
               <tr><th>Isolation</th><td>namespaces + cgroups (runc)</td><td class="col-highlight"><strong>namespaces + cgroups (runc)</strong></td><td>Wasm sandbox</td></tr>
-              <tr><th>K8s integration</th><td>full</td><td class="col-highlight"><strong>Services, probes, logs</strong>; <a href="/docs/deploying-workloads/#autoscaling">CPU HPA validation pending</a></td><td>full</td></tr>
+              <tr><th>K8s integration</th><td>full</td><td class="col-highlight"><strong>Services, probes, logs</strong>; <a href="/docs/deploying-workloads/#autoscaling">CPU HPA candidate validated</a></td><td>full</td></tr>
               <tr><th>Best fit</th><td>general-purpose workloads</td><td class="col-highlight"><strong>JVM compatibility without full images</strong></td><td>small, fast-starting Wasm workloads</td></tr>
             </tbody>
           </table>

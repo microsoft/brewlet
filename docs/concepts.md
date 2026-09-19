@@ -152,7 +152,7 @@ directories. Each implementation maps to a section of the
    and hands it to **runc**.
 6. The JVM runs in a pod with a real IP via CNI, `kubectl logs`/`exec`, probes,
    and Services. The controller can also create a CPU HPA;
-   [live metrics-driven scaling validation is pending](deploying-workloads.md#autoscaling).
+   [live validation is scoped to a fixed-shim candidate](deploying-workloads.md#autoscaling).
 
 ```mermaid
 sequenceDiagram

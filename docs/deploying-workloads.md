@@ -71,7 +71,7 @@ Because the shim is runc-backed, this pod is a **first-class Kubernetes citizen*
 - real pod IP via CNI → Services/Ingress/NetworkPolicy work;
 - `kubectl logs` / `kubectl exec` work;
 - readiness/liveness/startup probes (`httpGet`, `tcpSocket`, `exec`) work;
-- CPU HPA configuration is available; [live metrics-driven validation is pending](#autoscaling).
+- CPU HPA configuration is available; [live validation is scoped to the fixed candidate](#autoscaling).
 
 Ordinary-image ephemeral debug containers are not supported by the current
 Brewlet handler. Use `kubectl exec` with tools present in the selected runtime,
@@ -316,14 +316,16 @@ and resources belonging to an older same-name application are not deleted.
 
 ### Autoscaling
 
-!!! warning "Preview: live CPU autoscaling validation pending"
+!!! warning "Preview: fixed-candidate CPU validation, not an unmodified release pass"
 
-    Tests cover HPA resource creation, preserving a simulated HPA-selected replica
-    count, and manual Deployment scaling. They do not yet prove real CPU-driven
-    scale-up and scale-down through metrics-server and the Kubernetes HPA
-    controller. [Issue #94](https://github.com/microsoft/brewlet/issues/94)
-    tracks that loop, including Ready Pods, Service endpoints, and controller
-    ownership across reconciliation cycles. Evaluate only in a disposable cluster.
+    A fixed-shim candidate over 0.5.0 components passed real CPU-driven
+    1-to-3-to-1 scaling twice on fresh local arm64 clusters, including Ready Pods,
+    Service endpoints and ownership across three reconciliation cycles.
+    Unmodified 0.5.0 failed scale-out after containerd discarded packed layers.
+    The candidate repairs verified warm reuse, not cold startup with missing
+    source bytes. See [issue #94](https://github.com/microsoft/brewlet/issues/94)
+    and the [runbook and evidence](live-validation.md). Evaluate only in a
+    disposable cluster; this is not production certification.
 
 Set `spec.autoscaling.enabled: true` and the controller manages a
 `HorizontalPodAutoscaler` (`autoscaling/v1`) targeting the generated Deployment:
@@ -350,6 +352,9 @@ spec:
 Brewlet's runtime exporter is a separate telemetry path; enabling it does not
 provide the Kubernetes resource metrics required by CPU HPA.
 
+Disabling autoscaling resumes Brewlet's replica ownership; it does not safely
+hand a JavaApplication to an external HPA. For advanced scaling, use a separately
+managed ordinary Deployment with `runtimeClassName: brewlet`.
 
 ---
 

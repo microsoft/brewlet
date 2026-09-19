@@ -173,6 +173,11 @@ jobs:
       - name: Test release specification version guard
         run: bash scripts/check-release-version_test.sh
 
+      - name: Test isolated live fixture safeguards (offline)
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s integration-tests/e2e/live -p '*test*.py' -v
+
   container-security:
     name: Container build integrity
     runs-on: ubuntu-latest

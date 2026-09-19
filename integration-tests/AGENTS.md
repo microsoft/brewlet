@@ -1,5 +1,27 @@
 # Brewlet E2E runbook
 
+## Isolated admission and CPU HPA scenarios
+
+The strict scenarios in `e2e/live/` are independent of the legacy tiers below.
+Run `python3 integration-tests/e2e/live/hpa.py` or
+`python3 integration-tests/e2e/live/admission.py` from the repository root.
+They create their own uniquely named clusters and registries; never pass a
+shared kube context or run the tier reset helper for them. Mandatory assertions
+fail instead of skipping. `.github/workflows/e2e.yml` has separate scheduled/manual
+live jobs, each running twice on fresh clusters; it has no push/PR triggers.
+
+See [the live-validation runbook](../docs/live-validation.md) for release pins,
+capacity, load leases, stabilization, fixture-only TLS/HTTP exceptions, evidence,
+cleanup, and the acceptance mapping. Keep component-test and live-run claims
+distinct; preserve the preview limitations until the corresponding runs pass.
+
+Offline safeguard checks:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s integration-tests/e2e/live -p '*test*.py' -v
+```
+
 ## Reliable invocation
 
 Run against the monorepo checkout:

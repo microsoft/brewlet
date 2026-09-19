@@ -6,6 +6,7 @@ package artifact
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -351,6 +352,151 @@ func TestRunnableStageCacheHitStillVerifiesDescriptors(t *testing.T) {
 	if _, err := ResolveRunnableBlobs(store, man, digest); err == nil {
 		t.Fatal("cached stage bypassed descriptor verification")
 	}
+}
+
+func TestRunnableStageSurvivesPackedLayerGC(t *testing.T) {
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	store, man, digest, expected := runnableLayersFixture(t)
+	first, err := ResolveRunnableBlobs(store, man, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appLayer, err := man.RunnableAppLayer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, layer := range runnableLayers(man, appLayer) {
+		path, err := store.BlobPath(layer.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 3 {
+		got, err := ResolveRunnableBlobs(store, man, digest)
+		if err != nil {
+			t.Fatalf("launch after packed-layer GC: %v", err)
+		}
+		if !reflect.DeepEqual(got, first) {
+			t.Fatalf("GC changed immutable stage paths: %+v != %+v", got, first)
+		}
+		checkStagedContents(t, digest, expected)
+	}
+}
+
+func TestRunnableStageRejectsLostOrCorruptRetainedLayers(t *testing.T) {
+	for _, failure := range []string{"missing", "corrupt"} {
+		t.Run(failure, func(t *testing.T) {
+			t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+			store, man, digest, _ := runnableLayersFixture(t)
+			if _, err := ResolveRunnableBlobs(store, man, digest); err != nil {
+				t.Fatal(err)
+			}
+			root, err := runnableStageDir(digest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			layer := man.RunnableClasspathLayers()[0]
+			path, err := (Store{Root: filepath.Join(root, "content")}).BlobPath(layer.Digest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if failure == "missing" {
+				err = os.Remove(path)
+			} else {
+				err = os.WriteFile(path, []byte("corrupt retained bytes"), 0o644)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ResolveRunnableBlobs(store, man, digest); err == nil {
+				t.Fatal("unverifiable retained layer was accepted")
+			}
+		})
+	}
+}
+
+func TestRunnableStageColdMissingLayerFailsClosed(t *testing.T) {
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	store, man, digest, _ := runnableLayersFixture(t)
+	layer, err := man.RunnableAppLayer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := store.BlobPath(layer.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveRunnableBlobs(store, man, digest); err == nil || !strings.Contains(err.Error(), "re-pull the digest-pinned image") {
+		t.Fatalf("cold missing source must fail with repair guidance: %v", err)
+	}
+}
+
+type failingLayerSource struct {
+	BlobSource
+	digest string
+	err    error
+}
+
+func (s failingLayerSource) ReadBlob(digest string) ([]byte, error) {
+	if digest == s.digest {
+		return nil, s.err
+	}
+	return s.BlobSource.ReadBlob(digest)
+}
+
+func TestRunnableStageOnlyToleratesSourceNotExist(t *testing.T) {
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	store, man, digest, _ := runnableLayersFixture(t)
+	if _, err := ResolveRunnableBlobs(store, man, digest); err != nil {
+		t.Fatal(err)
+	}
+	layer := man.RunnableClasspathLayers()[0]
+	for _, sourceErr := range []error{os.ErrPermission, errors.New("I/O failure")} {
+		source := failingLayerSource{store, layer.Digest, sourceErr}
+		if _, err := ResolveRunnableBlobs(source, man, digest); !errors.Is(err, sourceErr) {
+			t.Fatalf("source error was hidden by retained bytes: %v", err)
+		}
+	}
+}
+
+func TestRunnableStageUpgradeLeavesV1StageUntouched(t *testing.T) {
+	stage := t.TempDir()
+	t.Setenv("BREWLET_RUNNABLE_STAGE", stage)
+	store, man, digest, expected := runnableLayersFixture(t)
+	old := filepath.Join(stage, "immutable-v1", strings.TrimPrefix(digest, "sha256:"), "app", "orders.jar")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("already mounted by 0.5.0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	before, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveRunnableBlobs(store, man, digest); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(file)
+	if err != nil || !os.SameFile(before, after) || string(raw) != "already mounted by 0.5.0" {
+		t.Fatalf("upgrade changed an in-use v1 stage: %q, %v", raw, err)
+	}
+	checkStagedContents(t, digest, expected)
 }
 
 func TestRunnableStageRejectsIncompletePublishedTree(t *testing.T) {
