@@ -32,10 +32,13 @@ Use a disposable evaluation environment, not a production or shared cluster.
 The source and GitHub release downloads are public; no repository credentials
 are needed to clone the project or install the CLI.
 
-In 0.5.0, managed-dependency admission and CPU HPA support are implemented, but
-live end-to-end validation remains pending for
-[Ratify/Gatekeeper enforcement (#95)](https://github.com/microsoft/brewlet/issues/95)
-and [metrics-driven scaling (#94)](https://github.com/microsoft/brewlet/issues/94).
+Live [Ratify/Gatekeeper enforcement (#95)](https://github.com/microsoft/brewlet/issues/95)
+validation remains pending. Real CPU HPA scale-up/down has passed twice on fresh
+disposable clusters with a **fixed-shim candidate** over the 0.5.0 components.
+The unmodified release exposed a packed-layer GC failure during scale-out;
+[metrics-driven scaling (#94)](https://github.com/microsoft/brewlet/issues/94)
+and the [live runbook](docs/live-validation.md) distinguish that baseline from
+the candidate and its remaining cold-start limits.
 See [preview status and validation](https://brewlet.sh/docs/#preview-status-and-validation)
 for the distinction between release smoke, component, and live cluster coverage.
 

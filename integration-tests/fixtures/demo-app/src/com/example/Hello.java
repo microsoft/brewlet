@@ -11,12 +11,17 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Minimal dependency-free HTTP server used to prove the Brewlet PoC:
  * it is a self-executable JAR launched via {@code java -jar app.jar}.
  */
 public final class Hello {
+
+    private static final AtomicLong loadUntil = new AtomicLong();
+    private static volatile long loadResult;
 
     public static void main(String[] args) throws IOException {
         int port = Integer.getInteger("server.port", 8080);
@@ -50,6 +55,48 @@ public final class Hello {
         });
 
         server.createContext("/healthz", exchange -> respond(exchange, 200, "ok\n"));
+
+        // Opt-in, leased CPU work: a failed client cannot leave permanent load.
+        if (Boolean.getBoolean("brewlet.test.cpuLoad")) {
+            server.createContext("/load", exchange -> {
+                if (!"POST".equals(exchange.getRequestMethod())) {
+                    respond(exchange, 405, "POST required\n");
+                    return;
+                }
+                String rawQuery = exchange.getRequestURI().getRawQuery();
+                String[] parameters = rawQuery == null ? new String[0] : rawQuery.split("&");
+                String[] leases = Arrays.stream(parameters)
+                        .filter(parameter -> parameter.startsWith("seconds="))
+                        .toArray(String[]::new);
+                String query = leases.length == 1 ? leases[0] : "";
+                if ("seconds=0".equals(query)) {
+                    loadUntil.set(0);
+                } else if ("seconds=20".equals(query)) {
+                    loadUntil.set(System.nanoTime() + 20_000_000_000L);
+                } else {
+                    respond(exchange, 400, "seconds must be 0 or 20\n");
+                    return;
+                }
+                respond(exchange, 200, "ok\n");
+            });
+            Thread.ofPlatform().daemon().name("fixture-cpu-load").start(() -> {
+                long value = 1;
+                while (!Thread.currentThread().isInterrupted()) {
+                    if (System.nanoTime() < loadUntil.get()) {
+                        for (int i = 0; i < 10_000; i++) {
+                            value = value * 2862933555777941757L + 3037000493L;
+                        }
+                        loadResult = value;
+                    } else {
+                        try {
+                            Thread.sleep(50);
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+            });
+        }
 
         server.setExecutor(null);
         System.out.printf("[demo-app] listening on :%d  (pid=%d, java=%s)%n",

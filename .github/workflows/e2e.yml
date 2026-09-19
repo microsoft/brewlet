@@ -7,6 +7,17 @@ on:
   schedule:
     - cron: "30 6 * * *"
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Scenarios to run
+        type: choice
+        options: [all, live, legacy]
+        default: all
+      candidate:
+        description: Live runtime (release reproduces the 0.5.0 packed-layer GC failure)
+        type: choice
+        options: [shim, release]
+        default: shim
 
 concurrency:
   group: e2e-${{ github.workflow }}-${{ github.ref }}
@@ -17,6 +28,7 @@ permissions:
 
 jobs:
   tiers:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite != 'live'
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
@@ -146,6 +158,7 @@ jobs:
   # shim-to-runc sandbox assembly (3), which is where an arch-specific
   # regression would surface.
   arm64:
+    if: github.event_name != 'workflow_dispatch' || inputs.suite != 'live'
     name: "Tier 01-03 on arm64"
     runs-on: ubuntu-24.04-arm
     steps:
@@ -181,3 +194,54 @@ jobs:
 
       - name: Run host-only tiers
         run: integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3
+
+  live:
+    name: "Live ${{ matrix.scenario }} (two fresh clusters)"
+    if: github.event_name != 'workflow_dispatch' || inputs.suite != 'legacy'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [admission, hpa]
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      BREWLET_LIVE_OUTPUT: ${{ runner.temp }}/brewlet-live-evidence
+      BREWLET_LIVE_CANDIDATE: ${{ inputs.candidate || 'shim' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: admission/ratify-verifier/go.mod
+          cache-dependency-path: admission/ratify-verifier/go.sum
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Install pinned kind
+        run: |
+          go install sigs.k8s.io/kind@v0.30.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          if ! command -v htpasswd; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq apache2-utils
+          fi
+      - name: Test strict fixture safeguards
+        run: python3 -m unittest discover -s integration-tests/e2e/live -p '*test*.py' -v
+      - name: Run two consecutive fresh-cluster scenarios
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          python3 "integration-tests/e2e/live/${SCENARIO}.py"
+          python3 "integration-tests/e2e/live/${SCENARIO}.py"
+      - name: Retain redacted evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-${{ matrix.scenario }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/brewlet-live-evidence
+          if-no-files-found: error
+          retention-days: 14

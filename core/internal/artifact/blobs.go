@@ -218,13 +218,28 @@ func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (
 		return ResolvedBlobs{}, err
 	}
 	defer os.RemoveAll(pending)
-	if err := extractGzTar(src, appLayer, filepath.Join(pending, "app")); err != nil {
+	// CRI may discard packed layers after unpacking. Retain verified bytes in
+	// the atomically published stage so later replicas can verify them again.
+	retained := Store{Root: filepath.Join(pending, "content")}
+	for _, layer := range runnableLayers(man, appLayer) {
+		raw, err := ReadVerifiedBlob(src, layer)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return ResolvedBlobs{}, fmt.Errorf("runnable image layer %s is unavailable before verified staging; re-pull the digest-pinned image with packed-layer retention enabled: %w", layer.Digest, err)
+			}
+			return ResolvedBlobs{}, fmt.Errorf("retain runnable image layer: %w", err)
+		}
+		if _, err := retained.writeBlob(raw); err != nil {
+			return ResolvedBlobs{}, fmt.Errorf("retain runnable image layer: %w", err)
+		}
+	}
+	if err := extractGzTar(retained, appLayer, filepath.Join(pending, "app")); err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("stage app layer: %w", err)
 	}
-	if _, err := stageLayerTars(src, man.RunnableClasspathLayers(), pending, "cp"); err != nil {
+	if _, err := stageLayerTars(retained, man.RunnableClasspathLayers(), pending, "cp"); err != nil {
 		return ResolvedBlobs{}, err
 	}
-	if _, err := stageLayerTars(src, man.RunnableModulepathLayers(), pending, "mp"); err != nil {
+	if _, err := stageLayerTars(retained, man.RunnableModulepathLayers(), pending, "mp"); err != nil {
 		return ResolvedBlobs{}, err
 	}
 	if _, err := runnableStagedBlobs(cfg, man, manifestDigest, pending); err != nil {
@@ -250,14 +265,21 @@ func reuseRunnableStage(src BlobSource, cfg JVMConfig, man Manifest, manifestDig
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	layers := append([]Descriptor{appLayer}, man.RunnableClasspathLayers()...)
-	layers = append(layers, man.RunnableModulepathLayers()...)
-	for _, layer := range layers {
-		if _, err := ReadVerifiedBlob(src, layer); err != nil {
+	retained := Store{Root: filepath.Join(stageDir, "content")}
+	for _, layer := range runnableLayers(man, appLayer) {
+		if _, err := ReadVerifiedBlob(retained, layer); err != nil {
+			return ResolvedBlobs{}, fmt.Errorf("verify retained runnable image layer: %w", err)
+		}
+		if _, err := ReadVerifiedBlob(src, layer); err != nil && !os.IsNotExist(err) {
 			return ResolvedBlobs{}, fmt.Errorf("verify cached runnable image layer: %w", err)
 		}
 	}
 	return runnableStagedBlobs(cfg, man, manifestDigest, stageDir)
+}
+
+func runnableLayers(man Manifest, appLayer Descriptor) []Descriptor {
+	layers := append([]Descriptor{appLayer}, man.RunnableClasspathLayers()...)
+	return append(layers, man.RunnableModulepathLayers()...)
 }
 
 func runnableStagedBlobs(cfg JVMConfig, man Manifest, manifestDigest, stageDir string) (ResolvedBlobs, error) {
@@ -360,9 +382,9 @@ func runnableStageDir(manifestDigest string) (string, error) {
 	if base == "" {
 		base = filepath.Join(os.TempDir(), "brewlet-runnable")
 	}
-	// Older shims rewrite <base>/<digest> in place. Never reuse or migrate those
-	// files: they may still be mounted by a running workload during an upgrade.
-	return filepath.Join(base, "immutable-v1", hex), nil
+	// Previous stages may still be mounted and lack retained verification blobs.
+	// Never rewrite or migrate a live stage during an upgrade.
+	return filepath.Join(base, "immutable-v2", hex), nil
 }
 
 // stageLayerTars gunzips each layer blob to an uncompressed <prefix>-<i>.tar
