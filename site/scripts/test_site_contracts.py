@@ -215,13 +215,15 @@ class SiteContractsTest(unittest.TestCase):
                          "simulated HPA ownership",
                          "fixed-shim candidate",
                          "packed-layer GC scale-out failure",
+                         "corrected Verifier manifest",
+                         "47 real registry",
                          "two consecutive fresh disposable clusters",
                          "existing E2E harness permits skips"):
             self.assertIn(boundary, text)
         for issue in (13, 93, 94, 95):
             self.assertIn(f"https://github.com/microsoft/brewlet/issues/{issue}", document)
 
-    def test_operational_guides_distinguish_pending_and_candidate_validation(self):
+    def test_operational_guides_scope_live_candidate_validation(self):
         guides = {
             "docs/admission-enforcement.md": 95,
             "admission/README.md": 95,
@@ -233,11 +235,12 @@ class SiteContractsTest(unittest.TestCase):
             with self.subTest(document=filename):
                 text = " ".join((ROOT / filename).read_text(encoding="utf-8").split())
                 self.assertIn(f"https://github.com/microsoft/brewlet/issues/{issue}", text)
+                self.assertIn("0.5.0", text)
                 if issue == 95:
-                    self.assertIn("pending", text)
+                    self.assertIn("corrected Verifier manifest", text)
+                    self.assertIn("fixture-only", text)
                 else:
                     self.assertIn("fixed-shim candidate", text)
-                    self.assertIn("0.5.0", text)
                     self.assertIn("cold startup", text)
                 self.assertIn("disposable", text)
                 self.assertNotIn("production admission integration", text)

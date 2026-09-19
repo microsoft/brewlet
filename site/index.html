@@ -489,7 +489,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
         </details>
         <details>
           <summary>Which supply-chain verification is available?</summary>
-          <p>Component releases carry verifiable build provenance. A managed-dependency admission example verifies Brewlet's DSSE attestations in component tests; live Ratify/Gatekeeper enforcement validation is pending in <a href="https://github.com/microsoft/brewlet/issues/95">#95</a>. General cosign or standard SLSA admission for application images is not implemented; see the <a href="/docs/admission-enforcement/">supported admission contract and limitations</a>.</p>
+          <p>Component releases carry verifiable build provenance. Managed-dependency admission verifies Brewlet's DSSE attestations; <a href="https://github.com/microsoft/brewlet/issues/95">live candidate validation</a> passed with a corrected Verifier manifest and fixture-only settings, not unmodified 0.5.0. General cosign or standard SLSA admission for application images is not implemented; see the <a href="/docs/admission-enforcement/">supported admission contract and limitations</a>.</p>
         </details>
         <details>
           <summary>Can I still use a regular container when I need one?</summary>
