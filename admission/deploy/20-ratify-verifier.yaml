@@ -36,7 +36,6 @@ metadata:
   name: verifier-brewlet-managed-dependencies
 spec:
   name: brewlet-managed-dependencies
-  type: brewlet-managed-dependencies
   version: 1.0.0
   artifactTypes: application/vnd.brewlet.attestation.v1+json
   # Option 1: download the plugin binary from a registry at startup. Pin by
