@@ -9,8 +9,9 @@ the broader zero-skip rewrite tracked in
 
 **Coverage status:** CPU HPA passed twice on fresh local arm64 clusters and
 twice on hosted amd64 with the fixed-shim candidate described below. Admission
-passed its 47-assertion matrix twice on fresh local arm64 clusters with that
-shim and the corrected Verifier manifest. Neither is an unmodified 0.5.0 pass.
+passed its 47-assertion matrix twice on fresh local arm64 clusters and twice on
+hosted amd64 with that shim and the corrected Verifier manifest. Neither is an
+unmodified 0.5.0 pass.
 The acceptance work and delivery are tracked in
 [#93](https://github.com/microsoft/brewlet/issues/93),
 [#94](https://github.com/microsoft/brewlet/issues/94), and
@@ -24,8 +25,9 @@ coverage boundary.
 Use an otherwise idle Docker engine with at least **4 CPUs and 7 GiB RAM**.
 The fixture bounds its single kind node to 3 CPUs/6 GiB and the registry to
 0.5 CPU/256 MiB. Run the two scenarios sequentially on that host. Linux amd64
-is the hosted-workflow target; local native Linux/arm64 and macOS Docker Desktop
-are supported fixture targets, not additional architecture acceptance claims.
+is the hosted-workflow target; the recorded local runs use Linux/arm64 nodes
+on macOS Docker Desktop. Other host/architecture combinations are fixture
+targets, not additional acceptance claims.
 Cross-architecture emulation is deliberately not selected.
 
 Required host tools: Python 3.12+, Docker, **kind 0.30.0**, kubectl, Helm, Go
@@ -229,6 +231,24 @@ init images; ephemeral images use the proper UPDATE subresource. Non-Brewlet
 behavior and all namespace exclusions are checked separately.
 
 ## Evidence and failure diagnosis
+
+### Recorded hosted acceptance
+
+Both jobs ran twice consecutively on independent fresh clusters from clean
+committed source. The later documentation-only commits do not change the
+archived fixture/runtime source hashes.
+
+| Scenario | Source commit | Hosted evidence | Fresh cluster suffixes | Required assertions |
+|---|---|---|---|---|
+| CPU HPA | `35b7c1c1ee9e7b91ed4665086d8d97a6c09f67e5` | [Run 35419764860](https://github.com/microsoft/brewlet/actions/runs/35419764860), artifact `live-hpa-1` | `b17f0615694a`, `d8482594728a` | 11 per run |
+| Native admission | `b2684abda75c35289096c0dafca1939f770ecdd2` | [Run 35423006340](https://github.com/microsoft/brewlet/actions/runs/35423006340), artifact `live-admission-1` | `c47da5e70141`, `c616823c6d60` | 47 per run |
+
+Both pairs reported successful cleanup with no diagnostic-capture errors.
+The source archives, per-file manifests and identical verifier/shim binary
+hashes within each architecture's pair were checked against the reported
+SHA-256 values. Hosted artifacts follow the workflow's 14-day retention;
+rerun the pinned scenario rather than treating an expired artifact link as
+new evidence.
 
 The printed per-invocation directory contains `versions.json`, owned resource
 identities, `assertions.json`, `result.json`, and failure diagnostics.
