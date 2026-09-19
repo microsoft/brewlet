@@ -65,6 +65,11 @@ Ordinary PR CI executes only offline fixture safeguards, not the live jobs.
 
 ## Release baseline and reproducibility
 
+Brewlet 0.5.1 ships the verified warm-reuse fix and corrected Verifier manifest
+described below. The fixture deliberately retains its 0.5.0 baseline and
+candidate modes to reproduce the original defect; these runs do not establish
+unmodified 0.5.1 live coverage.
+
 Both scenarios begin with the **published 0.5.0** CLI, Maven plugin, chart and
 component images. CLI/plugin/chart bytes are checked against fixed SHA-256
 checksums, and component, kind-node, registry and JDK images are digest-pinned.

@@ -49,7 +49,7 @@ section.
 
 Brewlet publishes version-aligned multi-architecture component images and an OCI
 Helm chart. A published chart records the **immutable digest** of each component
-image it was built against, so installing chart `0.5.0` resolves
+image it was built against, so installing chart `0.5.1` resolves
 `ghcr.io/microsoft/brewlet-operator@sha256:…` rather than a tag that could later
 be repointed. Charts packaged from a source checkout have no recorded digests and
 fall back to the shared `images.tag`.
@@ -116,7 +116,7 @@ store, verify everything for a release in one step:
 ```bash
 git clone https://github.com/microsoft/brewlet.git
 cd brewlet
-./scripts/verify-release-provenance.sh 0.5.0
+./scripts/verify-release-provenance.sh 0.5.1
 ```
 
 The script checks that each image, the chart, and every release asset was built
@@ -128,12 +128,12 @@ To verify a single artifact directly:
 
 ```bash
 # A component image, straight from the registry.
-gh attestation verify oci://ghcr.io/microsoft/brewlet-operator:0.5.0 \
+gh attestation verify oci://ghcr.io/microsoft/brewlet-operator:0.5.1 \
   --repo microsoft/brewlet \
   --signer-workflow microsoft/brewlet/.github/workflows/release.yml
 
 # A downloaded CLI archive.
-gh attestation verify brewlet_0.5.0_linux_amd64.tar.gz \
+gh attestation verify brewlet_0.5.1_linux_amd64.tar.gz \
   --repo microsoft/brewlet \
   --signer-workflow microsoft/brewlet/.github/workflows/release.yml
 ```
@@ -186,7 +186,7 @@ Install the released chart:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.0 \
+  --version 0.5.1 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \

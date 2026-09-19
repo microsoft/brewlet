@@ -42,6 +42,9 @@ The unmodified release exposed a packed-layer GC failure during scale-out;
 and the [live runbook](docs/live-validation.md) distinguish that baseline from
 the candidate, fixture-only admission settings and remaining cold-start limits.
 Neither result is an unmodified 0.5.0 pass or production certification.
+Brewlet 0.5.1 includes the verified warm-reuse fix and corrected Verifier manifest;
+the recorded live evidence retains its explicit 0.5.0 baseline and candidate
+configuration.
 See [preview status and validation](https://brewlet.sh/docs/#preview-status-and-validation)
 for the distinction between release smoke, component, and live cluster coverage.
 
@@ -121,7 +124,7 @@ installs `brewlet` to `$HOME/.local/bin` by default. No Go toolchain or GitHub
 authentication is required:
 
 ```bash
-export BREWLET_VERSION="0.5.0"
+export BREWLET_VERSION="0.5.1"
 curl -fsSL https://brewlet.sh/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 brewlet version
@@ -173,7 +176,7 @@ Install the published chart on your disposable cluster:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.0 \
+  --version 0.5.1 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \

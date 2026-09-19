@@ -25,7 +25,7 @@ examples in
 
 ## Preview status and validation
 
-Brewlet 0.5.0 is a public pre-1.0 preview. Start with the
+Brewlet 0.5.1 is a public pre-1.0 preview. Start with the
 [local CLI example](getting-started.md) or the
 [local Kubernetes guide](local-kubernetes.md), using a disposable evaluation
 environment rather than a production or shared cluster.
@@ -49,6 +49,9 @@ that every assertion executed. Broader strict-mode work is tracked in
 Admission exposed an unsupported Verifier manifest field; CPU validation exposed
 a packed-layer GC defect. Both passes use explicitly identified candidate
 corrections rather than an unmodified 0.5.0 installation.
+Version 0.5.1 ships both corrections. The historical live evidence remains
+pinned to 0.5.0 plus those candidate corrections, rather than being relabeled as
+an unmodified 0.5.1 run.
 Do not treat component tests or release smoke results as proof of either live loop,
 or these disposable-cluster runs as production certification.
 
