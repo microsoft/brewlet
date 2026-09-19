@@ -125,7 +125,7 @@ class SiteContractsTest(unittest.TestCase):
 
     def test_quickstart_uses_released_cli_plugin_and_matching_example_source(self):
         blocks = "\n".join(block for section, block in self.page.blocks if section == "quickstart")
-        self.assertIn('export BREWLET_VERSION="0.5.0"', blocks)
+        self.assertIn('export BREWLET_VERSION="0.5.1"', blocks)
         self.assertIn("curl -fsSL https://brewlet.sh/install.sh | sh", blocks)
         self.assertLess(blocks.index("export BREWLET_VERSION"), blocks.index("install.sh"))
         self.assertIn('export PATH="$HOME/.local/bin:$PATH"', blocks)
@@ -149,7 +149,7 @@ class SiteContractsTest(unittest.TestCase):
             with self.subTest(document=filename):
                 document = (ROOT / filename).read_text(encoding="utf-8")
                 primary_path = document.split("### Alternative: build from source")[0]
-                self.assertIn('export BREWLET_VERSION="0.5.0"', primary_path)
+                self.assertIn('export BREWLET_VERSION="0.5.1"', primary_path)
                 self.assertIn("curl -fsSL https://brewlet.sh/install.sh | sh", primary_path)
                 self.assertLess(primary_path.index("export BREWLET_VERSION"),
                                 primary_path.index("install.sh"))

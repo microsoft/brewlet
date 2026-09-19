@@ -113,7 +113,7 @@ provisioner:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.0 -f values-production.yaml
+  --version 0.5.1 -f values-production.yaml
 ```
 
 > JDKs and launchers are always obtained **copy-from-image** from explicit,
@@ -218,7 +218,7 @@ When you install via Helm, the chart populates them for you.
 
 ```bash
 ./bin/operator --namespace=brewlet \
-  --provisioner-image=ghcr.io/microsoft/brewlet-node-provisioner:0.5.0 \
+  --provisioner-image=ghcr.io/microsoft/brewlet-node-provisioner:0.5.1 \
   --allowed-source-mirror-hosts=registry.internal.example.com
 kubectl apply -f nodeprofile.yaml
 ```
