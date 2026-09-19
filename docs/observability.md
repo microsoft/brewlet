@@ -1,8 +1,8 @@
 # Observability & day‑2 operations
 
-Because the shim is runc-backed and the workload is an ordinary pod, everything you
-already do to observe and operate Kubernetes workloads works unchanged. This page
-covers what to expect and the Brewlet-specific day‑2 tasks.
+The runc-backed shim uses Kubernetes mechanisms for networking, logs, probes,
+and resource accounting. This page covers those interfaces, the remaining
+autoscaling validation gap, and Brewlet-specific day‑2 tasks.
 
 See also [SPECIFICATION §12](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
@@ -39,8 +39,8 @@ kubectl logs <pod> --previous          # after a restart
   a normal sandbox.
 - **JFR (Java Flight Recorder)** can be enabled via `jvm.args`
   (e.g. `-XX:StartFlightRecording=...`).
-- **metrics-server / HPA** work because the sandbox is a real cgroup-backed
-  container.
+- **CPU HPA** requires Kubernetes resource metrics from metrics-server.
+  [Live metrics-driven scaling validation is pending](#autoscaling).
 
 These are application and Kubernetes resource signals. Brewlet's own
 control-plane, launch-path, and node inventory telemetry is a separate,
@@ -93,10 +93,19 @@ kubectl exec -it <pod> -- jcmd 1 VM.flags      # inspect the running JVM
 
 ## Autoscaling
 
-HPA works against CPU/memory or custom/Prometheus metrics as usual. With the
-`JavaApplication` CRD you can declare autoscaling inline and the controller (§8.2)
-creates the `HorizontalPodAutoscaler` for you; with raw Deployments, attach a
-standard `HorizontalPodAutoscaler`.
+The `JavaApplication` controller creates an `autoscaling/v1`
+`HorizontalPodAutoscaler` for CPU utilization and preserves the HPA-owned
+Deployment replica count. It requires metrics-server and CPU requests on the
+workload. Brewlet's runtime exporter is not a replacement for that resource
+metrics path.
+
+Existing coverage exercises HPA creation, simulated replica ownership, and
+manual scaling, not the real CPU-driven scale-up and scale-down loop.
+[Issue #94](https://github.com/microsoft/brewlet/issues/94) tracks live validation.
+See [Autoscaling configuration](deploying-workloads.md#autoscaling) and use a
+disposable evaluation cluster. Memory or custom-metric HPAs require separately
+managed HPA resources and the appropriate metrics providers; they are not
+configured by `JavaApplication` or covered by that validation milestone.
 
 ---
 

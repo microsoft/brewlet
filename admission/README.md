@@ -1,9 +1,17 @@
 # Brewlet admission enforcement (Ratify + Gatekeeper)
 
-Production admission policy that **enforces Brewlet managed-dependency
+Optional admission policy that **enforces Brewlet managed-dependency
 signatures and identities** before a workload runs. It admits a pod on the
 Brewlet runtime only when the Pod image resolves to a digest with a valid,
 trusted final-image managed-dependency attestation.
+
+> **Preview: live admission validation pending.** Evaluate only in a disposable
+> cluster. The component tests below use real verification and policy logic but
+> substitute registry access and plugin transport. Live registry discovery,
+> external plugin execution, Ratify/Gatekeeper wiring, and Kubernetes admission
+> enforcement remain unproven by this suite; see
+> [#95](https://github.com/microsoft/brewlet/issues/95). This is not a
+> production-readiness claim.
 
 It provides the cluster-side enforcement that the managed-dependency-bundles
 design (specification §4.5) leaves to admission policy: requiring a valid,

@@ -64,8 +64,9 @@ capability model.
   a standard pod manifest with `runtimeClassName: brewlet`.
 - **G5 — Shared, patchable JVM.** The JDK is owned by the platform, lives on the
   node, is shared across workloads, and is upgraded independently of app artifacts.
-- **G6 — First-class Kubernetes citizen.** Services, Ingress, probes, HPA, logs,
-  and metrics all work unchanged.
+- **G6 — First-class Kubernetes citizen.** Use standard Kubernetes Services,
+  Ingress, probes, autoscaling, logs, and metrics interfaces. Live CPU HPA
+  validation remains pending in [#94](https://github.com/microsoft/brewlet/issues/94).
 
 ### 2.2 Non-Goals (for v1)
 - Replacing OCI *images* for apps that legitimately need OS packages/native deps.
@@ -655,7 +656,10 @@ A deployable cluster-side enforcement example that verifies this evidence at
 admission — reusing Brewlet's own DSSE/predicate verification through a Ratify
 external verifier plugin and Gatekeeper policy — is provided in
 [`admission/`](../admission/); it requires a registry that exposes the OCI 1.1
-Referrers API.
+Referrers API. Component tests substitute registry access and external plugin
+transport. Live registry, plugin, Ratify/Gatekeeper, and Kubernetes admission
+validation remains pending in [#95](https://github.com/microsoft/brewlet/issues/95);
+the shipped example is not a production-readiness certification.
 
 ---
 
@@ -1490,6 +1494,10 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 > `replicas` so the HPA owns scaling. Disabling autoscaling deletes the managed HPA and
 > restores `spec.replicas` (default `1`). The HPA is owned via a controller
 > reference and garbage-collected with the `JavaApplication`.
+>
+> Existing tests cover HPA resource creation, simulated HPA ownership, and manual
+> scaling. Real metrics-server-driven CPU scale-up and scale-down remain pending
+> validation in [#94](https://github.com/microsoft/brewlet/issues/94).
 
 ### 8.3 Pod admission/scheduling webhook
 

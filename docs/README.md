@@ -23,6 +23,33 @@ examples in
 > the current release. Future work is kept separately in the
 > [roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md).
 
+## Preview status and validation
+
+Brewlet 0.5.0 is a public pre-1.0 preview. Start with the
+[local CLI example](getting-started.md) or the
+[local Kubernetes guide](local-kubernetes.md), using a disposable evaluation
+environment rather than a production or shared cluster.
+
+Implemented functionality and live end-to-end validation are different:
+
+| Area | Existing coverage | Remaining boundary |
+|---|---|---|
+| Public release access and local use | The Pages release smoke exercises the released CLI, local Java example, Maven plugin, anonymous chart download, component manifest access, and release provenance. | It renders but does not install the chart or provision nodes. |
+| Kubernetes runtime | The source-built E2E tiers exercise provisioning, serving, manual scaling, and runtime telemetry. | These scenarios do not establish the admission or autoscaling loops below, or production readiness. |
+| Managed-dependency admission | Component tests exercise real DSSE verification and Ratify policy logic with substituted registry access and plugin transport. | Live registry discovery, external plugin execution, Ratify/Gatekeeper wiring, and Kubernetes admission outcomes remain pending in [#95](https://github.com/microsoft/brewlet/issues/95). |
+| CPU autoscaling | Tests cover HPA resource creation, simulated HPA ownership of replicas, and manual Deployment scaling. | Real metrics-server-driven CPU scale-up and scale-down remain pending in [#94](https://github.com/microsoft/brewlet/issues/94). |
+
+[The validation tracker (#93)](https://github.com/microsoft/brewlet/issues/93)
+requires both live scenarios to succeed on two consecutive fresh disposable
+clusters, with mandatory assertions, failure diagnostics, and bounded cleanup.
+The existing E2E harness permits skips; a successful run alone is not evidence
+that every assertion executed. Broader strict-mode work is tracked in
+[#13](https://github.com/microsoft/brewlet/issues/13).
+
+These are coverage gaps, not confirmed failures of the implemented features.
+Until they are closed, do not treat component tests or release smoke results as
+proof of live admission enforcement or CPU-driven autoscaling.
+
 ---
 
 ## Where to start

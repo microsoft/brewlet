@@ -1,11 +1,22 @@
 # Admission enforcement
 
-Brewlet's production admission integration admits a pod using
+Brewlet's optional managed-dependency admission integration admits a pod using
 `runtimeClassName: brewlet` only when the Pod image resolves to a digest with a
 valid, trusted final-image managed-dependency attestation. It combines a
 **Ratify v1.4.5 external verifier plugin** with a **Gatekeeper policy** and
 verifies Brewlet's native OCI 1.1 referrer in place so the runtime executes that
 same admitted image.
+
+!!! warning "Preview: live admission validation pending"
+
+    Brewlet is a pre-1.0 preview; evaluate this integration only in a disposable
+    cluster. Component tests cover real DSSE verification and Ratify policy
+    decisions, but substitute registry access and plugin transport. They do not
+    prove live referrer discovery, external plugin delivery/execution,
+    Ratify/Gatekeeper wiring, or Kubernetes admission enforcement.
+    [Issue #95](https://github.com/microsoft/brewlet/issues/95) tracks that
+    end-to-end evidence. The policy contract below is implemented, not a
+    production-readiness certification.
 
 The plugin verifies Brewlet's native evidence directly, reusing Brewlet's own
 DSSE and predicate verification code instead of requiring evidence to be
@@ -293,5 +304,8 @@ the only available evidence has any of these problems:
 
 A rejected extra candidate does not block a complete valid candidate.
 
-Enable the policy only after exercising these failure paths in your environment,
-then keep the constraint in `deny` mode for production workloads.
+In a disposable evaluation cluster, exercise these failure paths with the
+constraint in `deny` mode and confirm actual Kubernetes admission outcomes.
+Successful local evaluation does not by itself establish production readiness;
+live regression coverage remains tracked in
+[#95](https://github.com/microsoft/brewlet/issues/95).
