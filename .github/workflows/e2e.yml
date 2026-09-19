@@ -211,9 +211,10 @@ jobs:
         scenario: ${{ fromJSON(inputs.scenario == 'hpa' && '["hpa"]' || inputs.scenario == 'admission' && '["admission"]' || '["admission","hpa"]') }}
     env:
       PYTHONDONTWRITEBYTECODE: "1"
-      BREWLET_LIVE_OUTPUT: ${{ runner.temp }}/brewlet-live-evidence
       BREWLET_LIVE_CANDIDATE: ${{ inputs.candidate || 'shim' }}
     steps:
+      - name: Select isolated evidence directory
+        run: echo "BREWLET_LIVE_OUTPUT=$RUNNER_TEMP/brewlet-live-evidence" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
