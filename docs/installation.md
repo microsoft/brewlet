@@ -49,7 +49,7 @@ section.
 
 Brewlet publishes version-aligned multi-architecture component images and an OCI
 Helm chart. A published chart records the **immutable digest** of each component
-image it was built against, so installing chart `0.5.1` resolves
+image it was built against, so installing a released chart resolves
 `ghcr.io/microsoft/brewlet-operator@sha256:…` rather than a tag that could later
 be repointed. Charts packaged from a source checkout have no recorded digests and
 fall back to the shared `images.tag`.
@@ -182,11 +182,10 @@ provisioner:
 ```
 
 Choose an existing node pool named `java-workers`, or replace it in the command.
-Install the released chart:
+Install the latest chart:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.1 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \
@@ -198,6 +197,12 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
 # handler, and configured readiness probes are healthy. Watch:
 kubectl get nodes -L brewlet.sh/runtime -w
 ```
+
+Omitting `--version` selects the latest released chart; do not pass
+`--version latest`. The chart still pins its component images to immutable
+digests. To reproduce a specific release, add `--version x.y.z`, replacing
+`x.y.z` with that release number. For an existing installation, follow
+[Upgrading](#upgrading) to update matching CRDs and retain your chosen values.
 
 `provisioner.poolKey` pins the node label the pool names are matched on. Leave
 it unset on AKS, EKS, and GKE, where the well-known provider label is

@@ -156,6 +156,28 @@ class InstallationExamplesTest(unittest.TestCase):
                             self.assertIn(image, result.stdout, "Upgrade lost administrator image choice")
         self.assertGreaterEqual(command_count, 10, "A documented command disappeared from coverage")
 
+    def test_fresh_install_guides_default_to_latest_chart(self):
+        for filename in ("README.md", "docs/installation.md",
+                         "kubernetes/charts/brewlet/README.md"):
+            with self.subTest(document=filename):
+                commands = list(helm_commands((ROOT / filename).read_text()))
+                installs = [command for command in commands
+                            if "--install" in command
+                            and "oci://ghcr.io/microsoft/charts/brewlet" in command]
+                self.assertEqual(len(installs), 1)
+                self.assertNotIn("--version", installs[0])
+                self.assertNotIn("--devel", installs[0])
+
+    def test_existing_installation_upgrades_keep_matching_release_pin(self):
+        commands = list(helm_commands((ROOT / "docs/installation.md").read_text()))
+        upgrades = [command for command in commands
+                    if command[1] == "upgrade" and "--install" not in command]
+        self.assertTrue(upgrades)
+        for command in upgrades:
+            with self.subTest(command=command):
+                self.assertIn("--version", command)
+                self.assertEqual(command[command.index("--version") + 1], "$RELEASE_VERSION")
+
     def test_local_kubernetes_preview_and_install_render_the_same_worker_inventory(self):
         document = (ROOT / "docs/local-kubernetes.md").read_text()
         match = re.search(
