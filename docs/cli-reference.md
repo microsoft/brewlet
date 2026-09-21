@@ -6,13 +6,14 @@ artifact and the node-resident JVM runs it (e.g. `java -jar`). Download a
 verified platform archive with the installer:
 
 ```bash
-curl -fsSL https://brewlet.sh/install.sh | sh
+curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version latest --install-dir "$HOME/.local/bin"
 export PATH="$HOME/.local/bin:$PATH"
 brewlet version
 ```
 
-The installer selects the latest release by default. Set `BREWLET_VERSION=0.5.1`
-to pin a release or `BREWLET_INSTALL_DIR=/custom/bin` to change the destination.
+The installer selects the latest release by default; `--version latest` above
+also overrides any previously exported `BREWLET_VERSION`. Replace `latest` with
+a release number to pin it, or change `--install-dir` to choose another destination.
 You can instead build the CLI with `make binaries` (producing `./bin/brewlet`).
 
 ```
@@ -337,7 +338,6 @@ Print the release version embedded in the binary:
 
 ```bash
 brewlet version
-# 0.5.1
 ```
 
 Source builds without release linker flags print `dev`.

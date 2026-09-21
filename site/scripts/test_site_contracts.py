@@ -168,12 +168,20 @@ class SiteContractsTest(unittest.TestCase):
                 document = (ROOT / filename).read_text(encoding="utf-8")
                 primary_path = document.split("### Alternative: build from source")[0]
                 self.assertIn("curl -fsSL https://brewlet.sh/install.sh | sh", primary_path)
-                if filename == "README.md":
+                self.assertNotRegex(primary_path, r'export BREWLET_VERSION="\d')
+                if filename != "docs/workshops/developers.md":
                     self.assertIn('--version latest --install-dir "$HOME/.local/bin"',
                                   primary_path)
-                    self.assertNotRegex(primary_path, r'export BREWLET_VERSION="\d')
+                    if filename == "docs/workshops/operations.md":
+                        self.assertIn('BREWLET_VERSION="$(brewlet version)"', primary_path)
+                        self.assertLess(primary_path.index("install.sh"),
+                                        primary_path.index('BREWLET_VERSION="$(brewlet version)"'))
                 else:
-                    self.assertIn('export BREWLET_VERSION="0.5.1"', primary_path)
+                    self.assertIn('export BREWLET_VERSION="<version-from-ops-handoff>"',
+                                  primary_path)
+                    self.assertIn('--version "$BREWLET_VERSION" --install-dir '
+                                  '"$HOME/.local/bin"', primary_path)
+                    self.assertNotIn("--version latest", primary_path)
                     self.assertLess(primary_path.index("export BREWLET_VERSION"),
                                     primary_path.index("install.sh"))
                 self.assertIn('export PATH="$HOME/.local/bin:$PATH"', primary_path)
@@ -181,6 +189,82 @@ class SiteContractsTest(unittest.TestCase):
         developers = (ROOT / "docs/workshops/developers.md").read_text(encoding="utf-8")
         self.assertIn('git clone --depth 1 --branch "v${BREWLET_VERSION}"', developers)
         self.assertIn("maven-install-plugin:3.1.4:install-file", developers)
+
+    def test_usage_examples_do_not_hardcode_brewlet_release_numbers(self):
+        documents = (
+            "docs/cli-reference.md", "docs/configuration.md", "docs/installation.md",
+            "docs/runtime-metrics.md", "docs/building-and-publishing.md",
+            "docs/managed-dependency-bundles.md", "kubernetes/README.md",
+            "docs/workshops/operations.md", "docs/workshops/developers.md",
+            "docs/workshops/index.md",
+        )
+        release_literal = re.compile(
+            r"(?:releases/(?:tag|download)/v|--version[= ]+[\"']?|--branch[= ]+[\"']?v|"
+            r"BREWLET_VERSION=[\"']?|brewlet-maven-plugin[:_-]|"
+            r"brewlet-(?:operator|admission|node-provisioner):|brewlet_)"
+            r"\d+\.\d+\.\d+"
+        )
+        for filename in documents:
+            with self.subTest(document=filename):
+                document = (ROOT / filename).read_text(encoding="utf-8")
+                for command in blocks(document, "bash"):
+                    self.assertNotRegex(command, release_literal)
+                self.assertNotRegex(document, r"releases/(?:tag|download)/v\d+\.\d+\.\d+")
+
+    def test_maven_examples_use_the_resolved_release_environment(self):
+        count = 0
+        for filename in ("building-and-publishing", "managed-dependency-bundles"):
+            document = (ROOT / f"docs/{filename}.md").read_text(encoding="utf-8")
+            for example in blocks(document, "xml"):
+                root = ET.fromstring(f"<example>{example}</example>")
+                for plugin in root.findall(".//plugin"):
+                    if plugin.findtext("artifactId") == "brewlet-maven-plugin":
+                        count += 1
+                        self.assertEqual(plugin.findtext("version"), "${env.BREWLET_VERSION}")
+            self.assertIn("concrete", document)
+            self.assertIn("reproducible", document)
+        self.assertEqual(count, 4)
+
+    def test_plugin_setup_resolves_latest_once_for_all_artifacts(self):
+        document = (ROOT / "docs/building-and-publishing.md").read_text(encoding="utf-8")
+        commands = blocks(document, "bash")
+        lookup = next(block for block in commands if block.startswith('release_url='))
+        install = next(block for block in commands if block.startswith("export BREWLET_VERSION"))
+        publish = next(block for block in commands if block.startswith("# Build the fat JAR"))
+        harness = r"""
+set -eu
+curl() {
+  printf '%s\n' "$*" >> "$COMMAND_LOG"
+  if [ "$1" = "-fsSL" ]; then
+    printf '%s\n' 'https://github.com/microsoft/brewlet/releases/tag/v9.8.7'
+  elif [ "$1" != "-fLO" ]; then
+    return 99
+  fi
+}
+mvn() {
+  printf '%s\n' "$*" >> "$COMMAND_LOG"
+  test "$BREWLET_VERSION" = 9.8.7
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "commands.log"
+            result = subprocess.run(
+                ["bash"], input=harness + lookup + "\n" + install + "\n" + publish
+                + '\nsh -c \'test "$BREWLET_VERSION" = 9.8.7\'\n',
+                cwd=directory, env={**os.environ, "COMMAND_LOG": str(log),
+                                    "BREWLET_VERSION": "0.0.0"},
+                text=True, capture_output=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            calls = log.read_text().splitlines()
+            self.assertEqual(len(calls), 5)
+            self.assertEqual(calls[0], "-fsSL -o /dev/null -w %{url_effective} "
+                             "https://github.com/microsoft/brewlet/releases/latest")
+            for option, extension, call in zip(("-Dfile", "-DpomFile"), ("jar", "pom"), calls[1:3]):
+                self.assertEqual(call, "-fLO https://github.com/microsoft/brewlet/releases/"
+                                 f"download/v9.8.7/brewlet-maven-plugin-9.8.7.{extension}")
+                self.assertIn(f"{option}=brewlet-maven-plugin-9.8.7.{extension}", calls[3])
+            self.assertIn("sh.brewlet:brewlet-maven-plugin:9.8.7:push", calls[4])
 
     def test_public_content_does_not_condition_release_access_on_repository_visibility(self):
         paths = [ROOT / "README.md", ROOT / "kubernetes/charts/brewlet/README.md",

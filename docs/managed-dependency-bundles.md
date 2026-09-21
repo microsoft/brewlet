@@ -50,6 +50,10 @@ your normal Maven release process; the Brewlet plugin publishes the bundle to
 the OCI registry. The application imports the BOM and declares its dependencies
 normally. Install the Brewlet Maven plugin as described in
 [Building & publishing](building-and-publishing.md#option-c-maven-plugin).
+Keep the concrete `BREWLET_VERSION` exported by that setup (or supplied by your
+platform team) in both projects' build environments. The plugin examples below
+read it through Maven's `${env.BREWLET_VERSION}` property; for reproducible builds,
+pin the resolved version in each POM or CI environment.
 
 ### Example Maven projects
 
@@ -90,7 +94,7 @@ owned by the application team.
         <plugin>
           <groupId>sh.brewlet</groupId>
           <artifactId>brewlet-maven-plugin</artifactId>
-          <version>0.5.1</version>
+          <version>${env.BREWLET_VERSION}</version>
           <configuration>
             <dependencyBundleImage>registry.example.com/platform/java-deps/spring-web:2026.08</dependencyBundleImage>
             <sourceBom>com.example.platform:approved-spring-bom:2026.08</sourceBom>
@@ -130,7 +134,7 @@ owned by the application team.
         <plugin>
           <groupId>sh.brewlet</groupId>
           <artifactId>brewlet-maven-plugin</artifactId>
-          <version>0.5.1</version>
+          <version>${env.BREWLET_VERSION}</version>
           <configuration>
             <image>registry.example.com/apps/orders:${project.version}</image>
             <dependencyBundle>registry.example.com/platform/java-deps/spring-web:2026.08</dependencyBundle>

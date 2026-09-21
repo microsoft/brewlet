@@ -41,10 +41,14 @@ Install or upgrade Brewlet with the values file:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.1 \
   --values metrics-values.yaml \
   --set provisioner.pools="{java-workers}"
 ```
+
+This selects the latest released chart. To retain a specific release, add
+`--version "$BREWLET_VERSION"` with its concrete version. For an existing
+installation, follow [Upgrading](installation.md#upgrading) to update matching
+CRDs and preserve your chosen values.
 
 !!! important
     `metrics.serviceMonitor.enabled=true` requires the

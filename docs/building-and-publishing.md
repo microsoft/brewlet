@@ -155,9 +155,12 @@ Spring Boot executable JARs are actually unpacked: application classes/resources
 move from `BOOT-INF/classes/` to the app JAR root, and dependencies come from the
 exact packaged `BOOT-INF/lib/*.jar` entries, not a second dependency resolution:
 
+First [select and install the released plugin](#option-c-maven-plugin) below.
+Keep its exported `BREWLET_VERSION` for these commands and Maven configuration.
+
 ```bash
 # One-off: enable layering on the command line
-mvn clean package sh.brewlet:brewlet-maven-plugin:0.5.1:push \
+mvn clean package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2 \
   -Dbrewlet.layered=true
 ```
@@ -166,7 +169,7 @@ mvn clean package sh.brewlet:brewlet-maven-plugin:0.5.1:push \
 <plugin>
   <groupId>sh.brewlet</groupId>
   <artifactId>brewlet-maven-plugin</artifactId>
-  <version>0.5.1</version>
+  <version>${env.BREWLET_VERSION}</version>
   <configuration>
     <image>registry.example.com/team/app:${project.version}</image>
     <layered>true</layered>                         <!-- thin JAR + dependency layers -->
@@ -322,31 +325,45 @@ JDK. Test-only settings are ignored, and ambiguous or unresolved authority fails
 with override guidance instead of silently selecting the build machine's JDK.
 See the [complete inference precedence](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#jdk-inference).
 
-Download the released plugin JAR and POM from
-the [GitHub release](https://github.com/microsoft/brewlet/releases/tag/v0.5.1) and
-install them once in your local Maven repository:
+Resolve the [latest GitHub release](https://github.com/microsoft/brewlet/releases/latest)
+once. If your platform team has already supplied a concrete `BREWLET_VERSION`,
+keep that version and skip this lookup so the plugin matches the platform:
 
 ```bash
-curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.5.1/brewlet-maven-plugin-0.5.1.jar
-curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.5.1/brewlet-maven-plugin-0.5.1.pom
+release_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+  https://github.com/microsoft/brewlet/releases/latest)" &&
+BREWLET_VERSION="${release_url##*/}" &&
+BREWLET_VERSION="${BREWLET_VERSION#v}"
+```
+
+Download the matching plugin JAR and POM and install them once in your local
+Maven repository:
+
+```bash
+export BREWLET_VERSION
+curl -fLO "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.jar" &&
+curl -fLO "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.pom" &&
 mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
-  -Dfile=brewlet-maven-plugin-0.5.1.jar \
-  -DpomFile=brewlet-maven-plugin-0.5.1.pom
+  -Dfile="brewlet-maven-plugin-${BREWLET_VERSION}.jar" \
+  -DpomFile="brewlet-maven-plugin-${BREWLET_VERSION}.pom"
 ```
 
 ```bash
 # Build the fat JAR and push it as a Brewlet OCI artifact in one line:
-mvn clean package sh.brewlet:brewlet-maven-plugin:0.5.1:push \
+mvn clean package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 ```
 
-Or configure publishing once in `pom.xml` and bind `push` to the lifecycle:
+Or configure publishing once in `pom.xml` and bind `push` to the lifecycle.
+`${env.BREWLET_VERSION}` reads the concrete version exported above, not a moving
+`latest` alias. For reproducible project builds, pin that resolved version in
+your POM or CI environment instead of resolving latest on every build:
 
 ```xml
 <plugin>
   <groupId>sh.brewlet</groupId>
   <artifactId>brewlet-maven-plugin</artifactId>
-  <version>0.5.1</version>
+  <version>${env.BREWLET_VERSION}</version>
   <configuration>
     <image>registry.example.com/team/app:${project.version}</image>
     <jdkFeature>21</jdkFeature>

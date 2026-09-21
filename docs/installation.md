@@ -113,29 +113,35 @@ chart is pushed to GHCR as an OCI referrer, so it can be verified straight from
 the registry without trusting the release page.
 
 With the GitHub CLI installed and authenticated through its normal credential
-store, verify everything for a release in one step:
+store, resolve the latest release once and verify all of its artifacts:
 
 ```bash
 git clone https://github.com/microsoft/brewlet.git
 cd brewlet
-./scripts/verify-release-provenance.sh 0.5.1
+release_tag="$(gh release view --repo microsoft/brewlet --json tagName --jq .tagName)" &&
+BREWLET_VERSION="${release_tag#v}" &&
+./scripts/verify-release-provenance.sh "$BREWLET_VERSION"
 ```
+
+To verify an installed or pinned release instead, set `BREWLET_VERSION` to its
+concrete version and pass that to the script without repeating the latest-release
+lookup. The script requires a release number, not the literal `latest`.
 
 The script checks that each image, the chart, and every release asset was built
 by `microsoft/brewlet`'s release workflow, and that `checksums.txt` matches the
 published files. The release workflow runs the same script against the version it
 just published, so a release that cannot produce verifiable provenance fails.
 
-To verify a single artifact directly:
+To verify a single artifact directly, reuse the same `BREWLET_VERSION`:
 
 ```bash
 # A component image, straight from the registry.
-gh attestation verify oci://ghcr.io/microsoft/brewlet-operator:0.5.1 \
+gh attestation verify "oci://ghcr.io/microsoft/brewlet-operator:${BREWLET_VERSION}" \
   --repo microsoft/brewlet \
   --signer-workflow microsoft/brewlet/.github/workflows/release.yml
 
 # A downloaded CLI archive.
-gh attestation verify brewlet_0.5.1_linux_amd64.tar.gz \
+gh attestation verify "brewlet_${BREWLET_VERSION}_linux_amd64.tar.gz" \
   --repo microsoft/brewlet \
   --signer-workflow microsoft/brewlet/.github/workflows/release.yml
 ```

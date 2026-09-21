@@ -158,15 +158,25 @@ class InstallationExamplesTest(unittest.TestCase):
 
     def test_fresh_install_guides_default_to_latest_chart(self):
         for filename in ("README.md", "docs/installation.md",
-                         "kubernetes/charts/brewlet/README.md"):
+                         "kubernetes/README.md", "kubernetes/charts/brewlet/README.md",
+                         "docs/runtime-metrics.md", "docs/configuration.md"):
             with self.subTest(document=filename):
                 commands = list(helm_commands((ROOT / filename).read_text()))
                 installs = [command for command in commands
                             if "--install" in command
                             and "oci://ghcr.io/microsoft/charts/brewlet" in command]
-                self.assertEqual(len(installs), 1)
-                self.assertNotIn("--version", installs[0])
-                self.assertNotIn("--devel", installs[0])
+                self.assertTrue(installs)
+                for command in installs:
+                    self.assertNotIn("--version", command)
+                    self.assertNotIn("--devel", command)
+
+    def test_workshop_preview_and_install_share_the_resolved_release(self):
+        commands = list(helm_commands((ROOT / "docs/workshops/operations.md").read_text()))
+        self.assertGreaterEqual(len(commands), 2)
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertIn("--version", command)
+                self.assertEqual(command[command.index("--version") + 1], "$BREWLET_VERSION")
 
     def test_existing_installation_upgrades_keep_matching_release_pin(self):
         commands = list(helm_commands((ROOT / "docs/installation.md").read_text()))

@@ -26,10 +26,9 @@ kubectl auth can-i create customresourcedefinitions.apiextensions.k8s.io
 
 Do not use a production or shared cluster for this preproduction workshop.
 
-Set the Brewlet release and application registry used by both workshop parts:
+Set the application registry used by both workshop parts:
 
 ```bash
-export BREWLET_VERSION="0.5.1"
 export BREWLET_REGISTRY="<registry-host>/<team>"
 ```
 
@@ -37,17 +36,21 @@ Authenticate with your application registry using your organization's normal
 mechanism. Never put access tokens in URLs or shell history. Brewlet's released
 CLI, chart, and component images can be downloaded without registry credentials.
 
-Install the released CLI with the
+Install the latest released CLI with the
 [checksum-verifying installer](../getting-started.md#install-the-released-cli-recommended):
 
 ```bash
-curl -fsSL https://brewlet.sh/install.sh | sh
+curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version latest --install-dir "$HOME/.local/bin"
 export PATH="$HOME/.local/bin:$PATH"
-brewlet version
+BREWLET_VERSION="$(brewlet version)"
+export BREWLET_VERSION
+printf 'Using Brewlet %s\n' "$BREWLET_VERSION"
 ```
 
-The CLI must report the version in `BREWLET_VERSION`, matching the chart and
-components used below. No Go toolchain or source build is required. For custom
+Keep this resolved `BREWLET_VERSION` for the chart, components, and developer
+handoff below; do not resolve latest again partway through the workshop.
+To use a specific release instead, replace `latest` in the installer command
+with its release number. No Go toolchain or source build is required. For custom
 component builds, follow the [source-build installation path](../installation.md#released-components)
 and use the same source revision for the CLI.
 
@@ -168,7 +171,7 @@ Give the developer:
 | Namespace | Namespace where the developer may deploy |
 | RuntimeClass | `brewlet` |
 | Supported JDK | `21` in this workshop |
-| Brewlet version | `0.5.1` |
+| Brewlet version | Resolved `$BREWLET_VERSION` from the CLI installation |
 | Registry prefix | Repository where the developer can push OCI images |
 | Pull secret | Required only when the registry is private |
 
