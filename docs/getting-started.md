@@ -14,17 +14,13 @@ You need:
 - macOS or Linux on `amd64` or `arm64`.
 
 The optional source-build path also requires Go 1.26+ and `make`.
-Use JDK 21 if you also plan to follow [Local Kubernetes](local-kubernetes.md);
-that guide's PetClinic build requires it.
+Use your normal macOS, Linux, or WSL terminal. Keep it open so the variables
+remain available, and stop at any failed command. Do not change shell options
+or switch to a special Bash session.
 
-Run the commands in one **Bash** terminal unless instructed otherwise. Keep it
-open so the variables remain available, and stop at any failed command. If
-continuing in the Bash terminal from Local Kubernetes, skip the `bash` command:
-
-```bash
-bash
-set -euo pipefail
-```
+[Local Kubernetes](local-kubernetes.md) is a separate disposable demo: it builds
+PetClinic in a container and does not require a host JDK or reuse this shell's
+configuration.
 
 ??? note "Optional: check installed tools"
 
@@ -42,11 +38,10 @@ set -euo pipefail
 ### Install the released CLI (recommended)
 
 The installer requires no Go toolchain. It detects your platform, downloads the
-latest release, and verifies its SHA-256 checksum before installing it. Both
-local guides use the same CLI in `$HOME/.local/bin`; running this block updates
-that CLI to the latest release, even if an earlier shell set `BREWLET_VERSION`.
-If you just installed it through [Local Kubernetes](local-kubernetes.md) in
-this terminal, keep that CLI and `BREWLET_VERSION` and skip this block:
+latest release, and verifies its SHA-256 checksum before installing it. This
+guide installs the CLI in `$HOME/.local/bin`; running this block updates that
+CLI to the latest release, even if an earlier shell set `BREWLET_VERSION`.
+The disposable Kubernetes demo uses its own private copy instead.
 
 ```bash
 curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version latest --install-dir "$HOME/.local/bin"
@@ -58,12 +53,12 @@ printf 'Using Brewlet %s\n' "$BREWLET_VERSION"
 ```
 
 `BREWLET_VERSION` now contains the installed release number, not a version to
-choose manually. New example checkouts and the Kubernetes chart use that same
-number. To install elsewhere, change `--install-dir` and the `PATH` entry together.
+choose manually. New example checkouts use that same number.
+To install elsewhere, change `--install-dir` and the `PATH` entry together.
 
 ### Get or reuse the example source
 
-Both guides share **one checkout**, separate from their generated output. If
+This guide reuses **one checkout**, separate from its generated output. If
 you already have Brewlet source (including an extracted release archive), set
 `BREWLET_SOURCE` to its absolute path before this block. Otherwise, the default
 is `$HOME/brewlet-examples`, which is reused even in a new terminal:
@@ -77,9 +72,12 @@ fi
 if [ ! -f "$BREWLET_SOURCE/integration-tests/fixtures/demo-app/pom.xml" ] ||
    [ ! -f "$BREWLET_SOURCE/integration-tests/fixtures/spring-petclinic/build.sh" ]; then
   printf 'Stop: BREWLET_SOURCE must point to Brewlet source containing both examples.\n' >&2
-  exit 1
+  false
 fi
 ```
+
+If the block prints `Stop`, do not continue; choose the correct source directory.
+A failed check does not exit your terminal.
 
 A new checkout uses the installed release's tag. An existing checkout is left
 untouched: no second clone, checkout switch, or pull. If you keep source elsewhere,
@@ -213,7 +211,7 @@ Return to the first terminal and press **Ctrl+C**.
 ## Next steps
 
 - [Run PetClinic on local Kubernetes with Docker Desktop](local-kubernetes.md),
-  reusing this CLI and `BREWLET_SOURCE` checkout.
+  in a disposable cluster without changing this CLI or source checkout.
 - [Install Brewlet on a Kubernetes cluster](installation.md).
 - [Build and publish your own application](building-and-publishing.md).
 - [Complete the role-based workshop](workshops/index.md).

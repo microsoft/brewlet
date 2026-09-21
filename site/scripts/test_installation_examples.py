@@ -178,50 +178,28 @@ class InstallationExamplesTest(unittest.TestCase):
                 self.assertIn("--version", command)
                 self.assertEqual(command[command.index("--version") + 1], "$RELEASE_VERSION")
 
-    def test_local_kubernetes_preview_and_install_render_the_same_worker_inventory(self):
-        document = (ROOT / "docs/local-kubernetes.md").read_text()
+    def test_disposable_demo_chart_renders_the_worker_inventory(self):
+        document = (ROOT / "site/try-brewlet.sh").read_text()
         match = re.search(
-            r'cat > "\$BREWLET_WORK/brewlet-local.yaml" <<EOF\n(.*?)\nEOF',
+            r'cat > "\$work/brewlet-local.yaml" <<EOF\n(.*?)\nEOF',
             document, re.DOTALL,
         )
         self.assertIsNotNone(match, "Missing local cluster values heredoc")
-        inventory = match.group(1).replace("${JDK_DIGEST}", "sha256:" + DIGEST)
+        inventory = match.group(1).replace("${jdk_digest}", "sha256:" + DIGEST)
         (self.work / "brewlet-local.yaml").write_text(inventory)
-        commands = list(helm_commands(document))
-        self.assertEqual(len(commands), 2)
-        profiles = []
-        for command in commands:
-            with self.subTest(command=command):
-                result = self.render(self.render_arguments(command))
-                self.assertEqual(result.returncode, 0, result.stderr)
-                rendered = [doc for doc in result.stdout.split("---\n")
-                            if "\nkind: NodeProfile\n" in doc]
-                self.assertEqual(len(rendered), 1)
-                profile = rendered[0]
-                profiles.append(profile)
-                self.assertIn('- "local-java"', profile)
-                self.assertIn('key: "brewlet.sh/local-pool"', profile)
-                self.assertNotIn("includeControlPlane: true", profile)
-                self.assertNotIn("\n  tolerations:", profile)
-                self.assertIn("feature: 21", profile)
-                self.assertIn(f"docker.io/library/eclipse-temurin@sha256:{DIGEST}", profile)
-                self.assertIn("javaHome: /opt/java/openjdk", profile)
-        self.assertEqual(profiles[0], profiles[1])
-        self.assertIn('k label node "$BREWLET_NODE" brewlet.sh/local-pool=local-java',
-                      document)
-        self.assertIn("!node-role.kubernetes.io/control-plane", document)
-        self.assertIn("!node-role.kubernetes.io/master", document)
-
-    def test_local_kubernetes_helm_inventory_flags_are_supported(self):
-        document = (ROOT / "docs/local-kubernetes.md").read_text()
-        commands = re.sub(r"\\\n\s*", " ", "\n".join(blocks(document, "bash")))
-        command = next(line for line in commands.splitlines() if line.startswith("helm list "))
-        args = [arg.replace("$BREWLET_CONTEXT", "unused-test-context")
-                for arg in shlex.split(command)[1:]]
-        result = subprocess.run(
-            [self.helm, *args, "--help"], text=True, capture_output=True, timeout=10,
-        )
+        result = self.render(["--namespace", "brewlet", "--values", "brewlet-local.yaml"])
         self.assertEqual(result.returncode, 0, result.stderr)
+        profiles = [doc for doc in result.stdout.split("---\n") if "\nkind: NodeProfile\n" in doc]
+        self.assertEqual(len(profiles), 1)
+        profile = profiles[0]
+        self.assertIn('- "local-java"', profile)
+        self.assertIn('key: "brewlet.sh/local-pool"', profile)
+        self.assertNotIn("includeControlPlane: true", profile)
+        self.assertNotIn("\n  tolerations:", profile)
+        self.assertIn("feature: 21", profile)
+        self.assertIn(f"docker.io/library/eclipse-temurin@sha256:{DIGEST}", profile)
+        self.assertIn("javaHome: /opt/java/openjdk", profile)
+        self.assertIn("  - role: worker\n    labels:\n      brewlet.sh/local-pool: local-java", document)
 
     def test_missing_pools_and_missing_jdks_fail_in_the_actual_chart(self):
         inventory = self.inventory((ROOT / "README.md").read_text())

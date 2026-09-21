@@ -1,8 +1,8 @@
 # Example: Spring PetClinic
 
 To run PetClinic on your laptop, start with [Local Kubernetes](local-kubernetes.md).
-That guide covers Docker Desktop's kind cluster, Brewlet installation, and a
-working application. This page is the contributor-oriented integration-test
+That guide uses a disposable kind cluster, without changing Docker Desktop's
+existing Kubernetes cluster. This page is the contributor-oriented integration-test
 and layering reference.
 
 Spring PetClinic proves the Brewlet model with a real, dependency-heavy Spring

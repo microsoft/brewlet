@@ -83,9 +83,9 @@ independent required scenarios, pinned release baseline, evidence and limits.
 - **[Getting started](getting-started.md)** — download the released CLI, build
   the demo JAR, package and inspect it as an OCI artifact, run it with a
   local JDK, and preview the shim's runtime bundle. No Kubernetes required.
-- **[Local Kubernetes](local-kubernetes.md)** — set up Docker Desktop with
-  Kubernetes kind, install Brewlet on a worker, and run Spring PetClinic in
-  your browser. One complete guide, with no registry account required.
+- **[Local Kubernetes](local-kubernetes.md)** — run Spring PetClinic in a
+  disposable kind cluster without changing your existing Kubernetes setup.
+  One demo script handles private tools, setup, and cleanup.
 
 ### Run it on a cluster
 - **[Installation](installation.md)** — prerequisites, the SpinKube-style `helm

@@ -36,6 +36,7 @@ of truth for building and publishing the landing page and `/docs/`.
 | `../docs/workshops/` | Role-based workshop material for operators and developers |
 | `assets/images/` | Brand assets and architecture diagrams |
 | `CNAME` | GitHub Pages custom domain |
+| `try-brewlet.sh` | Disposable kind/PetClinic demo; private tools and kubeconfig, automatic scoped cleanup |
 | `NOTICE.txt` | Browser-delivered third-party license and attribution text |
 
 ## Local preview
@@ -74,6 +75,14 @@ notice is stale.
 The same workflow copies `index-value-prop.html` to the publish directory,
 making it available at <https://brewlet.sh/index-value-prop.html> without
 adding a navigation link from the primary homepage.
+
+It also publishes `try-brewlet.sh` at <https://brewlet.sh/try-brewlet.sh>.
+The script is self-contained: do not make it depend on unpublished working-tree
+files. Run it with `bash site/try-brewlet.sh` for live validation. It downloads
+the released CLI and pinned PetClinic source, creates a uniquely named kind cluster on the
+selected local Docker engine, and deletes only that cluster on exit. All shell
+options and environment changes belong to the child process, never the user's
+interactive terminal. Offline lifecycle regressions run in `make site-contract-check`.
 
 ### Public release validation
 
