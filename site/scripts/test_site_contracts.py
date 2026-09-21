@@ -125,10 +125,15 @@ class SiteContractsTest(unittest.TestCase):
 
     def test_quickstart_uses_released_cli_plugin_and_matching_example_source(self):
         blocks = "\n".join(block for section, block in self.page.blocks if section == "quickstart")
-        self.assertIn('export BREWLET_VERSION="0.5.1"', blocks)
-        self.assertIn("curl -fsSL https://brewlet.sh/install.sh | sh", blocks)
-        self.assertLess(blocks.index("export BREWLET_VERSION"), blocks.index("install.sh"))
+        self.assertIn('curl -fsSL https://brewlet.sh/install.sh | sh -s -- '
+                      '--version latest --install-dir "$HOME/.local/bin"', blocks)
         self.assertIn('export PATH="$HOME/.local/bin:$PATH"', blocks)
+        self.assertIn('BREWLET_VERSION="$(brewlet version)"', blocks)
+        self.assertIn("export BREWLET_VERSION", blocks)
+        self.assertLess(blocks.index("install.sh"), blocks.index("export PATH"))
+        self.assertLess(blocks.index("export PATH"), blocks.index("brewlet version"))
+        self.assertLess(blocks.index("brewlet version"), blocks.index("export BREWLET_VERSION"))
+        self.assertLess(blocks.index("export BREWLET_VERSION"), blocks.index("git clone"))
         self.assertIn('git clone --depth 1 --branch "v${BREWLET_VERSION}" '
                       'https://github.com/microsoft/brewlet.git', blocks)
         self.assertIn("integration-tests/fixtures/demo-app/pom.xml", blocks)
@@ -139,9 +144,21 @@ class SiteContractsTest(unittest.TestCase):
                           + extension, blocks)
         self.assertIn("maven-install-plugin:3.1.4:install-file", blocks)
         self.assertIn('sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:build', blocks)
+        self.assertIn('sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push', self.text)
+        self.assertEqual(blocks.count("demo/hello:local"), 4)
         self.assertNotIn("make binaries", blocks)
         self.assertNotIn("maven-plugin/pom.xml", blocks)
         self.assertNotIn("bin/brewlet", blocks)
+
+    def test_landing_pages_do_not_hardcode_brewlet_release_numbers(self):
+        for filename in ("index.html", "index-value-prop.html"):
+            with self.subTest(page=filename):
+                page = LandingPage((ROOT / "site" / filename).read_text(encoding="utf-8"))
+                text = "".join(page.text)
+                # Application tags and third-party tool versions are not Brewlet releases.
+                text = re.sub(r"(?:app:|demo/hello:|orders / |maven-install-plugin:)"
+                              r"\d+\.\d+\.\d+", "example", text)
+                self.assertEqual(re.findall(r"\b\d+\.\d+\.\d+\b", text), [])
 
     def test_documented_quickstarts_use_the_release_installer_by_default(self):
         for filename in ("README.md", "docs/workshops/operations.md",
@@ -149,10 +166,15 @@ class SiteContractsTest(unittest.TestCase):
             with self.subTest(document=filename):
                 document = (ROOT / filename).read_text(encoding="utf-8")
                 primary_path = document.split("### Alternative: build from source")[0]
-                self.assertIn('export BREWLET_VERSION="0.5.1"', primary_path)
                 self.assertIn("curl -fsSL https://brewlet.sh/install.sh | sh", primary_path)
-                self.assertLess(primary_path.index("export BREWLET_VERSION"),
-                                primary_path.index("install.sh"))
+                if filename == "README.md":
+                    self.assertIn('--version latest --install-dir "$HOME/.local/bin"',
+                                  primary_path)
+                    self.assertNotRegex(primary_path, r'export BREWLET_VERSION="\d')
+                else:
+                    self.assertIn('export BREWLET_VERSION="0.5.1"', primary_path)
+                    self.assertLess(primary_path.index("export BREWLET_VERSION"),
+                                    primary_path.index("install.sh"))
                 self.assertIn('export PATH="$HOME/.local/bin:$PATH"', primary_path)
                 self.assertNotIn("make binaries", primary_path)
         developers = (ROOT / "docs/workshops/developers.md").read_text(encoding="utf-8")
@@ -205,6 +227,11 @@ class SiteContractsTest(unittest.TestCase):
                 self.assertIn("https://github.com/microsoft/brewlet/issues/95", links)
                 self.assertNotIn("full (Services, probes, HPA, logs)", text)
                 self.assertNotIn("HPA and Services all work unchanged", text)
+
+    def test_docs_homepage_describes_zero_x_as_unstable_preview(self):
+        document = (ROOT / "docs/README.md").read_text(encoding="utf-8")
+        self.assertIn("0.x versions are preview releases, not stable releases", document)
+        self.assertNotRegex(document, r"\b\d+\.\d+\.\d+\b")
 
     def test_validation_status_distinguishes_smoke_component_and_live_coverage(self):
         document = (ROOT / "docs/README.md").read_text(encoding="utf-8")

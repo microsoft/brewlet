@@ -50,7 +50,6 @@ runtime catalog. Name the node pool the privileged provisioner may modify:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.1 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \
@@ -60,6 +59,12 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
 # step. The operator provisions each node; the provisioner marks it ready.
 kubectl get nodes -L brewlet.sh/runtime
 ```
+
+With `--version` omitted, Helm installs the latest chart. Component images
+remain pinned to the immutable digests recorded in that chart. To reproduce a
+specific release, add `--version x.y.z` with your chosen release number. For
+existing installations, follow the [upgrade guide](../../../docs/installation.md#upgrading)
+to update matching CRDs before upgrading.
 
 > Provisioning is privileged and mutates the host. See the
 > [Brewlet specification](../../../specs/SPECIFICATION.md).

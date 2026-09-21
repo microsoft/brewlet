@@ -15,6 +15,10 @@ images are released and accessible. Repository visibility must not change this
 reader-facing assumption. Make released artifacts the default installation
 path and source builds an optional development path.
 
+Keep landing pages free of hardcoded Brewlet release numbers. Install the latest
+CLI and read its version with `brewlet version` to select matching example source
+and Maven plugin artifacts. Keep version-specific validation history in the docs.
+
 Keep technical prerequisites, operational safety warnings, and authentication
 requirements for users' own clusters and registries. Do not present roadmap
 items as implemented features.

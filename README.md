@@ -119,19 +119,18 @@ for the distinction between release smoke, component, and live cluster coverage.
 
 ### Install the CLI
 
-The checksum-verifying installer selects the correct Linux or macOS archive and
-installs `brewlet` to `$HOME/.local/bin` by default. No Go toolchain or GitHub
+The checksum-verifying installer selects the latest release's Linux or macOS archive and
+installs `brewlet` to `$HOME/.local/bin`. No Go toolchain or GitHub
 authentication is required:
 
 ```bash
-export BREWLET_VERSION="0.5.1"
-curl -fsSL https://brewlet.sh/install.sh | sh
+curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version latest --install-dir "$HOME/.local/bin"
 export PATH="$HOME/.local/bin:$PATH"
 brewlet version
 ```
 
-Set `BREWLET_VERSION` to pin a release or `BREWLET_INSTALL_DIR` to choose a
-different destination. See [Getting started](https://brewlet.sh/docs/getting-started/)
+Change `--version` to pin a release or `--install-dir` to choose a different
+destination (and update `PATH` to match). See [Getting started](https://brewlet.sh/docs/getting-started/)
 for the local application example and the
 [CLI documentation](https://brewlet.sh/docs/cli-reference/) for the artifact
 workflow.
@@ -172,11 +171,10 @@ provisioner:
         javaHome: /opt/java/openjdk
 ```
 
-Install the published chart on your disposable cluster:
+Install the latest chart on your disposable cluster:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.1 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}" \
@@ -185,6 +183,10 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
 kubectl get nodes -L brewlet.sh/runtime
 brewlet doctor --namespace <developer-namespace>
 ```
+
+Helm selects the latest chart when `--version` is omitted. Add
+`--version x.y.z` to pin a specific release instead; component images remain
+digest-pinned by the published chart.
 
 Follow the [installation guide](https://brewlet.sh/docs/installation/) for
 source-built component installation, pool labels, scoped node profiles,
