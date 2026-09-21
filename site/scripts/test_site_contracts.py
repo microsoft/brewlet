@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -503,40 +504,138 @@ class LocalKubernetesGuideTest(unittest.TestCase):
         self.assertIn("## Layered classpath delivery", legacy)
 
     def test_copy_paste_does_not_reconfigure_or_exit_the_interactive_shell(self):
-        self.assertEqual(len(self.commands), 1)
-        command = self.commands[0]
-        self.assertIn("https://brewlet.sh/try-brewlet.sh", command)
-        self.assertIn("&&", command)
-        self.assertIn("bash ./brewlet-demo.sh", command)
-        for forbidden in ("set -", "export ", "source ", "exit ", "kubectl ", "helm ", "k()"):
-            self.assertNotIn(forbidden, command)
-        for shell in ("sh", "bash"):
-            result = subprocess.run([shell, "-n"], input=command, text=True, capture_output=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreater(len(self.commands), 15)
+        for number, command in enumerate(self.commands):
+            with self.subTest(block=number):
+                for forbidden in ("set -", "export ", "source ", "exit ", "k()", "use-context"):
+                    self.assertNotIn(forbidden, command)
+                self.assertNotIn("try-brewlet.sh", command)
+                self.assertNotRegex(command, r"(?m)^(?:bash|KUBECONFIG=.*)$")
+                for shell in ("sh", "bash"):
+                    result = subprocess.run([shell, "-n"], input=command, text=True, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_demo_is_disposable_and_published_with_the_site(self):
+    def test_walkthrough_teaches_install_then_build_then_deploy(self):
+        headings = re.findall(r"^## (\d+)\. (.+)$", self.document, re.MULTILINE)
+        self.assertEqual(headings, [
+            ("1", "Create a disposable cluster"), ("2", "Install Brewlet"),
+            ("3", "Build PetClinic"), ("4", "Package and load the application"),
+            ("5", "Deploy PetClinic"), ("6", "Open PetClinic"),
+            ("7", "Clean up this cluster"),
+        ])
+        commands = "\n".join(self.commands)
+        stages = ("kind create cluster", "helm install brewlet", "mvn -q -B",
+                  '"$BREWLET_WORK/bin/brewlet" push', "images import --digests",
+                  'apply -f "$BREWLET_WORK/petclinic.yaml"', "port-forward", "kind delete cluster")
+        positions = [commands.index(stage) for stage in stages]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("--version \"$BREWLET_VERSION\"", commands)
+        self.assertIn("pullPolicy: Never", commands)
+        self.assertIn('PETCLINIC_IMAGE="${PETCLINIC_OCI_REF%:*}@$PETCLINIC_DIGEST"', commands)
+        self.assertIn("This does not delete the cluster", self.document)
+        script = (ROOT / "site/try-brewlet.sh").read_text()
+        revision = re.search(r"^PETCLINIC_REVISION=([0-9a-f]{40})$", commands, re.MULTILINE).group(1)
+        self.assertIn("petclinic_revision=" + revision, script)
+
+    def test_image_tag_is_not_interpreted_as_a_zsh_variable_modifier(self):
+        package = next(command for command in self.commands if command.startswith("PETCLINIC_OCI_REF="))
+        assignment = package.splitlines()[0]
+        for shell in ("sh", "bash", "zsh"):
+            if not shutil.which(shell):
+                continue
+            with self.subTest(shell=shell):
+                result = subprocess.run(
+                    [shell], input=assignment + '\nprintf "%s\\n" "$PETCLINIC_OCI_REF"\n',
+                    env={**os.environ, "BREWLET_CLUSTER": "brewlet-lab-test"},
+                    text=True, capture_output=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "localhost/brewlet/brewlet-lab-test:local")
+
+    def test_petclinic_build_uses_local_maven_and_jdk_21(self):
+        self.assertIn("**JDK 21** and **Maven 3.9 or newer**", self.document)
+        self.assertIn("java -version", self.commands[0])
+        self.assertIn("mvn -version", self.commands[0])
+        build = next(command for command in self.commands if command.startswith("mvn -q -B"))
+        self.assertIn('-f "$BREWLET_WORK/petclinic/pom.xml"', build)
+        self.assertIn('cp "$BREWLET_WORK/petclinic/target/"*.jar "$BREWLET_WORK/petclinic.jar"', build)
+        self.assertNotIn("docker", build)
+        self.assertNotIn("MAVEN_CONFIG", build)
+        self.assertNotIn("petclinic-build", self.document)
+        self.assertNotIn("You do not need a host JDK or Maven", self.document)
+
+    def test_private_context_is_explicit_and_automated_demo_is_optional(self):
         self.assertIn("disposable kind cluster", self.document)
         self.assertIn("Windows with WSL 2", self.document)
         self.assertIn("Your existing Kubernetes cluster is not used", self.document)
         self.assertIn("Press **Ctrl+C**", self.document)
         self.assertIn("private kubeconfig", self.document)
+        for command in self.commands[1:]:
+            for invocation in re.findall(r"\bkubectl[^\n]*", command):
+                self.assertIn('kubectl --kubeconfig "$BREWLET_KUBECONFIG"', invocation)
+        commands = "\n".join(self.commands)
+        self.assertIn('--kube-context "kind-$BREWLET_CLUSTER"', commands)
+        self.assertIn("env -u HELM_KUBEAPISERVER HELM_DRIVER=secret", commands)
+        self.assertIn('DOCKER_CONTEXT="$BREWLET_DOCKER_CONTEXT" KIND_EXPERIMENTAL_PROVIDER=docker', commands)
+        self.assertNotIn("docker system prune", commands)
+        self.assertNotIn("helm uninstall", commands)
+        self.assertGreater(self.document.index("optional\n[demo script]"),
+                           self.document.index("## Where to go next"))
         self.assertTrue((ROOT / "site/try-brewlet.sh").is_file())
         workflow = (ROOT / ".github/workflows/site-pages.yml").read_text()
         self.assertIn("site/ site/_site/", workflow)
         self.assertNotIn("--exclude='try-brewlet.sh'", workflow)
 
     def test_failed_download_does_not_run_an_old_copy_or_exit_the_terminal(self):
+        installer = next(command for command in self.commands
+                         if command.startswith("curl -fL https://brewlet.sh/install.sh"))
         for shell in ("sh", "bash"):
             with self.subTest(shell=shell), tempfile.TemporaryDirectory() as directory:
                 work = Path(directory)
-                (work / "brewlet-demo.sh").write_text("touch incorrectly-executed\n")
+                (work / "install.sh").write_text("touch incorrectly-executed\n")
                 result = subprocess.run(
-                    [shell], input="curl() { return 22; }\n" + self.commands[0] + "\necho TERMINAL_OPEN\n",
-                    cwd=work, text=True, capture_output=True, timeout=10,
+                    [shell], input="curl() { return 22; }\n" + installer + "\necho TERMINAL_OPEN\n",
+                    cwd=work, env={**os.environ, "BREWLET_WORK": str(work)},
+                    text=True, capture_output=True, timeout=10,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("TERMINAL_OPEN", result.stdout)
                 self.assertFalse((work / "incorrectly-executed").exists())
+
+    def test_cleanup_refuses_missing_or_foreign_private_context(self):
+        cleanup = next(command for command in self.commands if command.startswith('if [ -n "$BREWLET_CLUSTER" ]'))
+        harness = r"""
+kubectl() {
+  [ "$1" = --kubeconfig ] && [ "$2" = "$BREWLET_KUBECONFIG" ] || return 99
+  printf '%s\n' "$MOCK_CONTEXT"
+}
+env() { printf 'DELETE %s\n' "$*"; }
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / "kubeconfig"
+            for cluster, context, exists, allowed in (
+                ("brewlet-lab-owned", "kind-brewlet-lab-owned", True, True),
+                ("brewlet-lab-owned", "docker-desktop", True, False),
+                ("brewlet-lab-owned", "kind-brewlet-lab-owned", False, False),
+                ("", "kind-", True, False),
+            ):
+                with self.subTest(cluster=cluster, context=context, exists=exists):
+                    if exists:
+                        config.write_text("private context")
+                    else:
+                        config.unlink(missing_ok=True)
+                    result = subprocess.run(
+                        ["sh"], input=harness + cleanup, text=True, capture_output=True,
+                        env={**os.environ, "BREWLET_CLUSTER": cluster,
+                             "BREWLET_KUBECONFIG": str(config), "BREWLET_DOCKER_CONTEXT": "desktop-linux",
+                             "MOCK_CONTEXT": context}, timeout=10,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual("DELETE " in result.stdout, allowed)
+                    if allowed:
+                        self.assertIn("--name brewlet-lab-owned --kubeconfig " + str(config), result.stdout)
+                    else:
+                        self.assertIn("Stop: recover this run", result.stderr)
 
 class ValuePropositionPageTest(unittest.TestCase):
     @classmethod

@@ -85,7 +85,7 @@ independent required scenarios, pinned release baseline, evidence and limits.
   local JDK, and preview the shim's runtime bundle. No Kubernetes required.
 - **[Local Kubernetes](local-kubernetes.md)** — run Spring PetClinic in a
   disposable kind cluster without changing your existing Kubernetes setup.
-  One demo script handles private tools, setup, and cleanup.
+  Follow the commands to install Brewlet, build PetClinic, deploy it, and clean up.
 
 ### Run it on a cluster
 - **[Installation](installation.md)** — prerequisites, the SpinKube-style `helm

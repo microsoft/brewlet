@@ -18,9 +18,9 @@ Use your normal macOS, Linux, or WSL terminal. Keep it open so the variables
 remain available, and stop at any failed command. Do not change shell options
 or switch to a special Bash session.
 
-[Local Kubernetes](local-kubernetes.md) is a separate disposable demo: it builds
-PetClinic in a container and does not require a host JDK or reuse this shell's
-configuration.
+[Local Kubernetes](local-kubernetes.md) also uses local Maven, with JDK 21, to
+build PetClinic before deploying it to a disposable kind cluster. It uses a
+separate workspace and does not reuse this shell's configuration.
 
 ??? note "Optional: check installed tools"
 

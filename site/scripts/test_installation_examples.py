@@ -201,6 +201,26 @@ class InstallationExamplesTest(unittest.TestCase):
         self.assertIn("javaHome: /opt/java/openjdk", profile)
         self.assertIn("  - role: worker\n    labels:\n      brewlet.sh/local-pool: local-java", document)
 
+    def test_step_by_step_tutorial_values_render_the_same_worker_pool(self):
+        document = (ROOT / "docs/local-kubernetes.md").read_text()
+        match = re.search(
+            r'cat > "\$BREWLET_WORK/brewlet-local.yaml" <<EOF\n(.*?)\nEOF',
+            document, re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        (self.work / "walkthrough.yaml").write_text(
+            match.group(1).replace("${JDK_DIGEST}", "sha256:" + DIGEST)
+        )
+        result = self.render(["--namespace", "brewlet", "--values", "walkthrough.yaml"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        profiles = [doc for doc in result.stdout.split("---\n") if "\nkind: NodeProfile\n" in doc]
+        self.assertEqual(len(profiles), 1)
+        self.assertIn('- "local-java"', profiles[0])
+        self.assertIn('key: "brewlet.sh/local-pool"', profiles[0])
+        self.assertNotIn("includeControlPlane: true", profiles[0])
+        self.assertIn("javaHome: /opt/java/openjdk", profiles[0])
+        self.assertIn("  - role: worker\n    labels:\n      brewlet.sh/local-pool: local-java", document)
+
     def test_missing_pools_and_missing_jdks_fail_in_the_actual_chart(self):
         inventory = self.inventory((ROOT / "README.md").read_text())
         (self.work / "my-jdks.yaml").write_text(inventory.replace("<64-lowercase-hex>", DIGEST))

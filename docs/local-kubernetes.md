@@ -1,132 +1,411 @@
 # Local Kubernetes
 
-Try Brewlet with Spring PetClinic in a **disposable kind cluster**. The demo
-creates its own two-node cluster using your local Docker engine, runs the app,
-and removes that cluster when you press **Ctrl+C**.
+Install Brewlet in a **disposable kind cluster**, then build Spring PetClinic
+and deploy its JAR-only image. This walkthrough shows each command: creating
+the cluster, installing the runtime, building the application, and running it.
 
 **Your existing Kubernetes cluster is not used.** If Docker Desktop already
-runs Kubernetes with the kind engine, leave it as it is. Do not reset it,
-change its provisioning method, or uninstall anything.
+runs Kubernetes with the kind engine, leave it alone. We will create a separate
+cluster using the same Docker engine and keep its kubeconfig in a private directory.
 
 ## Before you begin
 
-- Use a normal terminal on **macOS**, **Linux**, or **Windows with WSL 2**.
-  On Windows, run the commands inside your WSL distribution, not PowerShell.
-- Start Docker Desktop with Linux containers and enable its integration with
-  your WSL distribution when applicable. A local Docker Engine with Buildx
-  also works on Linux. Remote Docker engines are not supported by this demo.
-- Have `curl`, Bash, `tar`, and `sha256sum` or `shasum` available. These are
-  standard on macOS and most Linux/WSL installations.
-- Allow at least **4 CPUs and about 8 GiB of Docker memory**, with additional
-  headroom if other workloads are running. The script checks Docker's allocated
-  CPU and memory, not how much is currently free; it never changes the settings.
-- Allow downloads from GitHub, Kubernetes and Helm distribution sites, Docker
-  Hub, GHCR, and Maven Central. The first run downloads tools and build images
-  and can take several minutes.
+Use your normal terminal on **macOS**, **Linux**, or **Windows with WSL 2**.
+On Windows, use a WSL terminal with Docker Desktop's WSL integration enabled,
+not PowerShell. Start Docker Desktop with Linux containers, or a local Docker
+Engine with Buildx on Linux.
 
-You do **not** need to install Java, Maven, kind, kubectl, Helm, or Brewlet.
-The demo downloads checksum-verified tools into a private directory and builds
-PetClinic with JDK 21 in a temporary container. Docker Desktop's built-in
-Kubernetes does not need to be enabled.
+This walkthrough assumes **JDK 21** and **Maven 3.9 or newer** are already
+installed locally.
 
-!!! warning "Local evaluation only"
-    Brewlet is preproduction software. Its privileged provisioner changes
-    containerd and installs a JDK inside the disposable worker node.
-    The demo shares Docker Desktop's CPU, memory, disk, and Docker daemon with
-    your other containers; a separate kind cluster is not a separate machine
-    or a security boundary. Run it only where local development containers
-    and privileged kind nodes are permitted.
+Install these command-line tools if you do not already have them:
 
-## 1. Run the demo
+- [kind 0.33.0](https://kind.sigs.k8s.io/docs/user/quick-start/#installation),
+  matching the node image used below;
+- [kubectl](https://kubernetes.io/docs/tasks/tools/) and
+  [Helm](https://helm.sh/docs/intro/install/);
+- [jq](https://jqlang.org/download/), `curl`, and `tar`.
 
-Copy this block into your existing terminal:
+Allow network access to GitHub, Docker Hub, GHCR, and Maven Central. Allow at
+least 4 CPUs and about 8 GiB of Docker memory, with additional headroom for
+existing workloads.
+
+Check the tools before creating anything:
 
 ```sh
-curl -fL https://brewlet.sh/try-brewlet.sh -o brewlet-demo.sh &&
-  bash ./brewlet-demo.sh
+java -version &&
+mvn -version &&
+docker info &&
+docker buildx version &&
+kind version &&
+kubectl version --client &&
+helm version --short &&
+jq --version
 ```
 
-This saves `brewlet-demo.sh` in the current directory. Use a directory where
-that filename is available. You can also [read the script first](https://brewlet.sh/try-brewlet.sh)
-or download it and inspect it before running `bash ./brewlet-demo.sh`.
+Both `java` and Maven's reported Java runtime must use JDK 21 before continuing.
 
-**Do not source the script.** `bash ./brewlet-demo.sh` runs a child process;
-it does not switch your terminal's shell, enable shell options in it, edit
-startup files, or change your `PATH`. A failed download does not run the script,
-and a failed demo returns you to your terminal rather than closing it.
+Keep this terminal open and run the sections in order. The commands use ordinary
+shell variables to remember this run's names; there are no shell options,
+startup-file changes, helper functions, or special Bash session to configure.
+`&&` stops a block when a command fails without exiting your terminal.
+**If any command fails, stop there** and use the diagnostics or cleanup below.
 
-The script prints its private workspace and unique cluster name, then:
+!!! warning "Local evaluation only"
+    Brewlet's privileged provisioner installs a shim and JDK and changes
+    containerd **inside the disposable worker node**. A separate kind cluster
+    is not a separate machine or security boundary: it shares Docker's CPU,
+    memory, disk, and daemon with your other containers. Do not use a remote
+    or production Docker engine, reset Docker Desktop's cluster, or change
+    an existing cluster's configuration to follow this guide.
 
-1. Downloads the released CLI and matching chart, plus private helper tools.
-2. Builds the pinned PetClinic example without using your source checkouts or
-   Maven cache.
-3. Creates a separate native-architecture kind cluster with a private kubeconfig.
-4. Installs Brewlet on its worker, loads the JAR-only image, and starts PetClinic.
-5. Checks application health before printing a browser URL.
+## 1. Create a disposable cluster
 
-All Kubernetes and Helm operations explicitly target that private kubeconfig.
-The script never switches your current kubectl context or changes your existing
-cluster's namespaces, Helm releases, node labels, JDKs, or registry configuration.
-On Apple Silicon it selects ARM64 nodes, even if your terminal has an AMD64
-Docker platform override.
+Create a private workspace and a unique cluster name. Save the names so you
+can identify this run later. None of these variables changes your current
+Docker or kubectl context.
 
-## 2. Open PetClinic
-
-Wait for:
-
-```text
-PetClinic is ready: http://127.0.0.1:<port>
+```sh
+BREWLET_WORK="$(mktemp -d "${TMPDIR:-/tmp}/brewlet-lab.XXXXXXXX")" &&
+BREWLET_WORK="$(cd "$BREWLET_WORK" && pwd -P)" &&
+BREWLET_CLUSTER="$(basename "$BREWLET_WORK" | tr '[:upper:].' '[:lower:]-')" &&
+BREWLET_KUBECONFIG="$BREWLET_WORK/kubeconfig" &&
+BREWLET_DOCKER_CONTEXT="$(docker context show)" &&
+printf 'Workspace: %s\nCluster: %s\nKubeconfig: %s\nDocker context: %s\n' \
+  "$BREWLET_WORK" "$BREWLET_CLUSTER" "$BREWLET_KUBECONFIG" "$BREWLET_DOCKER_CONTEXT" |
+  tee "$BREWLET_WORK/run.txt"
 ```
 
-Open the **actual URL printed by the script** and choose **Find Owners**.
-The port is chosen automatically, so the demo does not need to stop another
-application using port 8080 or 18080. Keep the terminal running while browsing.
+Confirm this Docker context points to a **local Unix socket**, such as
+`unix:///var/run/docker.sock` or Docker Desktop's local socket:
 
-PetClinic uses an in-memory H2 database. No external database, ingress controller,
-registry account, or application Dockerfile is needed. The JAR-only application
-image uses the worker's Temurin 21 JDK rather than carrying a JDK of its own.
+```sh
+docker context inspect "$BREWLET_DOCKER_CONTEXT" \
+  --format '{{.Endpoints.docker.Host}}'
+```
 
-## 3. Stop and clean up
+If it shows `ssh://` or `tcp://`, stop and select your local Docker engine
+before starting a new run.
 
-Press **Ctrl+C** in the terminal running the demo. It stops port forwarding,
-saves diagnostics, and deletes **only the kind cluster it created**. Your
-terminal stays open and your existing Kubernetes configuration is unchanged.
+Create one control-plane node and one worker. The worker's label will tell
+Brewlet where to install the Java runtime:
 
-The same cleanup runs after an ordinary setup failure. Diagnostics and private
-tool binaries remain in the printed workspace; temporary source/build output
-and the local OCI layout are removed. Docker may retain downloaded images in
-its normal cache. The script never runs `docker system prune` or removes
-unrelated containers or images.
+```sh
+cat > "$BREWLET_WORK/kind.yaml" <<'EOF'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      brewlet.sh/local-pool: local-java
+EOF
+```
 
-If Docker becomes unavailable during cleanup, the script reports the failure
-and prints an exact, run-specific cleanup command. Restore Docker and use that
-command. The command is also saved as `cleanup-command.txt` in the private
-workspace before cluster creation. A forced kill, machine shutdown, or terminal
-crash can prevent any script from running cleanup: retain that workspace and
-inspect the recorded resources before removing them. Do not reset Docker Desktop's
-Kubernetes or delete a cluster based only on a guessed name.
+Select the node image for the Docker engine's native architecture. This avoids
+accidentally running AMD64 Kubernetes under emulation on Apple Silicon:
 
-## If the demo fails
+```sh
+BREWLET_ARCH="$(docker --context "$BREWLET_DOCKER_CONTEXT" version --format '{{.Server.Arch}}')" &&
+BREWLET_KIND_DIGEST="$(
+  docker --context "$BREWLET_DOCKER_CONTEXT" buildx imagetools inspect --raw \
+    kindest/node@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed |
+    jq -er --arg arch "$BREWLET_ARCH" \
+      '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest'
+)" &&
+env -u DOCKER_DEFAULT_PLATFORM \
+  DOCKER_CONTEXT="$BREWLET_DOCKER_CONTEXT" KIND_EXPERIMENTAL_PROVIDER=docker \
+  kind create cluster --name "$BREWLET_CLUSTER" \
+    --image "kindest/node@$BREWLET_KIND_DIGEST" \
+    --config "$BREWLET_WORK/kind.yaml" --kubeconfig "$BREWLET_KUBECONFIG" --wait 180s
+```
 
-Read the printed error and the workspace's `demo.log`. Cluster diagnostics are
-saved under `cluster-logs/` when available; port-forward output is in
-`port-forward.log`. A retry creates a new private workspace and cluster.
+The separate kubeconfig is important: do not run `kubectl config use-context`
+or export `KUBECONFIG`. Every Kubernetes command below names this file explicitly.
 
-| Symptom | Next step |
-|---|---|
-| Docker cannot be reached | Start Docker Desktop or your local Docker Engine; on Windows, check WSL integration. |
-| CPU or memory check fails | Make room for an additional cluster. The demo does not change Docker's settings automatically. |
-| A download, checksum, or image pull fails | Check the reported endpoint and your network/proxy policy. Do not disable verification or alter your existing cluster's mirror configuration. |
-| Brewlet or PetClinic does not become ready | Keep `demo.log` and `cluster-logs/` when reporting the failure. The disposable cluster is cleaned up automatically. |
-| Cleanup fails | Use the exact recovery command printed by this run after restoring Docker. |
+```sh
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" wait nodes --all \
+  --for=condition=Ready --timeout=120s &&
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" get nodes -o wide
+```
 
-The demo avoids Docker Desktop's existing Kubernetes node image store and
-registry-mirror configuration, including the GHCR mirror failure that affected
-the previous walkthrough.
+You should see two Ready nodes with your unique cluster name. Do not proceed
+if cluster creation or either readiness check failed.
+
+## 2. Install Brewlet
+
+Install the latest checksum-verified Brewlet CLI **inside this workspace**,
+without replacing an existing CLI or changing your terminal's `PATH`:
+
+```sh
+curl -fL https://brewlet.sh/install.sh -o "$BREWLET_WORK/install.sh" &&
+sh "$BREWLET_WORK/install.sh" --version latest --install-dir "$BREWLET_WORK/bin" &&
+BREWLET_VERSION="$("$BREWLET_WORK/bin/brewlet" version)" &&
+printf 'Using Brewlet %s\n' "$BREWLET_VERSION"
+```
+
+The installer may suggest adding its directory to `PATH`; skip that suggestion
+here. The commands below use the CLI's full path.
+
+Choose Temurin 21 as the node's JDK. Resolve its image digest once so the
+installation uses an immutable image, not a moving tag:
+
+```sh
+JDK_DIGEST="$(
+  docker --context "$BREWLET_DOCKER_CONTEXT" buildx imagetools inspect \
+    docker.io/library/eclipse-temurin:21-jdk --format '{{.Manifest.Digest}}'
+)" &&
+printf '%s\n' "$JDK_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'
+```
+
+Write the chart values. The `local-java` pool matches only the worker created
+in step 1; the control plane stays excluded:
+
+```sh
+cat > "$BREWLET_WORK/brewlet-local.yaml" <<EOF
+provisioner:
+  pools: [local-java]
+  poolKey: brewlet.sh/local-pool
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@${JDK_DIGEST}
+        javaHome: /opt/java/openjdk
+EOF
+```
+
+Install the chart version matching the CLI. The `env` settings apply only to
+this command and prevent inherited Helm API-server or SQL-storage overrides
+from redirecting the installation:
+
+```sh
+env -u HELM_KUBEAPISERVER HELM_DRIVER=secret \
+  helm install brewlet oci://ghcr.io/microsoft/charts/brewlet \
+    --kubeconfig "$BREWLET_KUBECONFIG" --kube-context "kind-$BREWLET_CLUSTER" \
+    --version "$BREWLET_VERSION" --namespace brewlet --create-namespace \
+    --values "$BREWLET_WORK/brewlet-local.yaml"
+```
+
+Use this guide's commands rather than the chart's generic "Next steps" output:
+the commands here explicitly select the disposable cluster's kubeconfig.
+
+Wait for the operator, admission service, and node runtime. A successful Helm
+command alone does not mean the worker is ready:
+
+```sh
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" rollout status \
+  deployment/brewlet-operator -n brewlet --timeout=5m &&
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" rollout status \
+  deployment/brewlet-admission -n brewlet --timeout=5m &&
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" wait "node/$BREWLET_CLUSTER-worker" \
+  --for=jsonpath='{.metadata.labels.brewlet\.sh/runtime}'=ready --timeout=10m &&
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" get runtimeclass brewlet
+```
+
+At this point, **Brewlet is installed**. Next you will build an application
+separately, then ask Brewlet to run it.
+
+## 3. Build PetClinic
+
+Download a pinned revision of the upstream Spring PetClinic source into the
+workspace. This does not use or modify any of your existing source checkouts:
+
+```sh
+PETCLINIC_REVISION=b3ee2c53e76e9267f03551a7cd36b0983c859c56
+curl -fL \
+  "https://github.com/spring-projects/spring-petclinic/archive/$PETCLINIC_REVISION.tar.gz" \
+  -o "$BREWLET_WORK/petclinic.tar.gz" &&
+mkdir -p "$BREWLET_WORK/petclinic" &&
+tar -xzf "$BREWLET_WORK/petclinic.tar.gz" --strip-components=1 \
+  -C "$BREWLET_WORK/petclinic"
+```
+
+Build the executable Spring Boot JAR using your local Maven and JDK 21.
+Maven uses its normal local dependency cache; the application source and build
+output stay in this run's workspace:
+
+```sh
+mvn -q -B -f "$BREWLET_WORK/petclinic/pom.xml" \
+  -DskipTests -Dcheckstyle.skip=true -Dspotless.check.skip=true \
+  -Denforcer.skip=true package &&
+cp "$BREWLET_WORK/petclinic/target/"*.jar "$BREWLET_WORK/petclinic.jar"
+```
+
+The result is `$BREWLET_WORK/petclinic.jar`: an ordinary Spring Boot JAR,
+not an application container image.
+
+## 4. Package and load the application
+
+Package **only the JAR** as a runnable OCI image. The Go CLI's `push` command
+writes a local OCI layout; it does not upload to a registry. Use `--format image`
+for Kubernetes:
+
+```sh
+PETCLINIC_OCI_REF="localhost/brewlet/${BREWLET_CLUSTER}:local"
+"$BREWLET_WORK/bin/brewlet" push "$BREWLET_WORK/petclinic.jar" "$PETCLINIC_OCI_REF" \
+  --store "$BREWLET_WORK/oci" --format image
+```
+
+Read the image digest, then import the layout into the **worker's** containerd
+store. Importing it into Docker Desktop's ordinary image store would not make
+it available to the Kubernetes node:
+
+```sh
+PETCLINIC_DIGEST="$(
+  jq -er --arg ref "$PETCLINIC_OCI_REF" \
+    '.manifests[] | select(.annotations["org.opencontainers.image.ref.name"] == $ref) | .digest' \
+    "$BREWLET_WORK/oci/index.json"
+)" &&
+PETCLINIC_IMAGE="${PETCLINIC_OCI_REF%:*}@$PETCLINIC_DIGEST"
+```
+
+```sh
+COPYFILE_DISABLE=1 tar -C "$BREWLET_WORK/oci" -cf - oci-layout index.json blobs |
+  docker --context "$BREWLET_DOCKER_CONTEXT" exec -i "$BREWLET_CLUSTER-worker" \
+    ctr -n k8s.io images import --digests - &&
+docker --context "$BREWLET_DOCKER_CONTEXT" exec "$BREWLET_CLUSTER-worker" \
+  ctr -n k8s.io images tag "$PETCLINIC_OCI_REF" "$PETCLINIC_IMAGE"
+```
+
+This cluster has just one Brewlet-enabled worker, so there is only one node to
+load. The `localhost/...` name does not require a registry listening on localhost.
+
+## 5. Deploy PetClinic
+
+Write a `JavaApplication`. It requests the worker's Temurin 21 JDK, one replica,
+a Service, and a health check. `pullPolicy: Never` tells Kubernetes to use the
+image you just loaded rather than contact a registry:
+
+```sh
+cat > "$BREWLET_WORK/petclinic.yaml" <<EOF
+apiVersion: apps.brewlet.sh/v1alpha1
+kind: JavaApplication
+metadata:
+  name: petclinic
+  namespace: petclinic
+spec:
+  artifact:
+    image: ${PETCLINIC_IMAGE}
+    pullPolicy: Never
+  replicas: 1
+  jvm:
+    version: 21
+    distribution: temurin
+    args: ["-XX:MaxRAMPercentage=75.0", "-XX:+ExitOnOutOfMemoryError"]
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits: {cpu: "1", memory: 768Mi}
+  env:
+    - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+      value: health
+  ports:
+    - name: http
+      containerPort: 8080
+  service:
+    enabled: true
+    type: ClusterIP
+  probes:
+    readiness:
+      httpGet: {path: /actuator/health, port: 8080}
+      periodSeconds: 5
+      timeoutSeconds: 3
+EOF
+```
+
+Apply it and wait:
+
+```sh
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" create namespace petclinic &&
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" apply -f "$BREWLET_WORK/petclinic.yaml" &&
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" wait --for=condition=Ready \
+  javaapplication/petclinic -n petclinic --timeout=5m &&
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" get deployment,pod,service -n petclinic
+```
+
+The operator creates the Deployment and Service. The application image has no
+JDK: Brewlet runs the JAR with the JDK installed on the worker.
+
+## 6. Open PetClinic
+
+Forward the Service to your laptop:
+
+```sh
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" -n petclinic \
+  port-forward --address 127.0.0.1 service/petclinic 18080:8080
+```
+
+Keep the command running and open <http://127.0.0.1:18080>. Choose **Find Owners**
+to explore the sample data. PetClinic uses an in-memory H2 database; no external
+database or ingress controller is needed.
+
+If port 18080 is occupied, use `18081:8080` instead and open port 18081. Do not
+stop an unrelated process to reclaim the port.
+
+??? note "Optional: check application health"
+
+    In a second terminal, run:
+
+    ```sh
+    curl -f http://127.0.0.1:18080/actuator/health
+    ```
+
+    Expect `"status":"UP"`.
+
+## 7. Clean up this cluster
+
+Press **Ctrl+C** to stop port forwarding. **This does not delete the cluster.**
+In the original terminal, confirm that the private kubeconfig belongs to this
+run, then delete only the named disposable cluster:
+
+```sh
+if [ -n "$BREWLET_CLUSTER" ] && [ -f "$BREWLET_KUBECONFIG" ] &&
+   [ "$(kubectl --kubeconfig "$BREWLET_KUBECONFIG" config current-context)" = "kind-$BREWLET_CLUSTER" ]; then
+  env DOCKER_CONTEXT="$BREWLET_DOCKER_CONTEXT" KIND_EXPERIMENTAL_PROVIDER=docker \
+    kind delete cluster --name "$BREWLET_CLUSTER" --kubeconfig "$BREWLET_KUBECONFIG"
+else
+  printf 'Stop: recover this run from its workspace/run.txt before deleting anything.\n' >&2
+fi
+```
+
+Deleting this disposable cluster removes its Brewlet installation, JDK, and
+PetClinic together. No Helm uninstall or host-runtime repair is necessary:
+the node containers themselves are discarded. Your existing Kubernetes cluster,
+default kubeconfig, and current kubectl context remain unchanged.
+
+The workspace retains the downloaded CLI, source, JAR, and OCI layout for
+inspection. Remove that exact directory when you no longer need it. Docker may
+keep downloaded images in its cache; do not run a global prune as tutorial cleanup.
+
+## If a step fails
+
+A failure does not close your terminal. Stop before the next section and inspect
+the failing component. For Kubernetes problems, use the private kubeconfig:
+
+```sh
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" get pods -A -o wide
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" get events -A --sort-by=.lastTimestamp
+```
+
+For an application that exits:
+
+```sh
+kubectl --kubeconfig "$BREWLET_KUBECONFIG" logs deployment/petclinic -n petclinic --tail=100
+```
+
+You can discard a successfully created test cluster using step 7 even if
+installation or deployment failed. If cluster creation itself fails,
+inspect kind's error and cleanup output rather than targeting another context.
+
+If you lose the terminal, recover the exact workspace, cluster, Docker context,
+and kubeconfig names from the saved `run.txt`. Do not guess a cluster name or use
+Docker Desktop's **Reset Kubernetes cluster** as cleanup.
 
 ## Where to go next
 
-- [Explore the CLI without Kubernetes](getting-started.md).
 - [Build and publish your own application](building-and-publishing.md).
 - [Install Brewlet in an administrator-managed cluster](installation.md).
-- [Split platform and developer responsibilities](workshops/index.md).
+- [Explore the CLI without Kubernetes](getting-started.md).
+
+For a separate, fully automated demo rather than this walkthrough, the optional
+[demo script](https://brewlet.sh/try-brewlet.sh) remains available.

@@ -76,7 +76,9 @@ The same workflow copies `index-value-prop.html` to the publish directory,
 making it available at <https://brewlet.sh/index-value-prop.html> without
 adding a navigation link from the primary homepage.
 
-It also publishes `try-brewlet.sh` at <https://brewlet.sh/try-brewlet.sh>.
+It also publishes the optional automated demo, `try-brewlet.sh`, at
+<https://brewlet.sh/try-brewlet.sh>. The [local Kubernetes article](../docs/local-kubernetes.md)
+is the step-by-step walkthrough, not a wrapper around this script.
 The script is self-contained: do not make it depend on unpublished working-tree
 files. Run it with `bash site/try-brewlet.sh` for live validation. It downloads
 the released CLI and pinned PetClinic source, creates a uniquely named kind cluster on the
