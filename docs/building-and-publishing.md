@@ -155,7 +155,7 @@ Spring Boot executable JARs are actually unpacked: application classes/resources
 move from `BOOT-INF/classes/` to the app JAR root, and dependencies come from the
 exact packaged `BOOT-INF/lib/*.jar` entries, not a second dependency resolution:
 
-First [select and install the released plugin](#option-c-maven-plugin) below.
+First [select and configure the released plugin](#option-c-maven-plugin) below.
 Keep its exported `BREWLET_VERSION` for these commands and Maven configuration.
 
 ```bash
@@ -336,33 +336,21 @@ BREWLET_VERSION="${release_url##*/}" &&
 BREWLET_VERSION="${BREWLET_VERSION#v}"
 ```
 
-Download the matching plugin JAR and POM and install them once in your local
-Maven repository. If your selected version is already available on
-[Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin),
-skip this installation step: Maven can resolve the fully qualified command
-below directly. To use `mvn brewlet:push`, declare the plugin with that version
-under your application's `<build><plugins>` as shown below. No repository
-configuration or credentials are needed for Central:
+The plugin is published to
+[Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin)
+starting with 0.5.1. Maven downloads it automatically: no manual JAR download,
+`install-file`, custom repository, or GitHub credentials are needed.
 
 ```bash
 export BREWLET_VERSION
-curl -fLO "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.jar" &&
-curl -fLO "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.pom" &&
-mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
-  -Dfile="brewlet-maven-plugin-${BREWLET_VERSION}.jar" \
-  -DpomFile="brewlet-maven-plugin-${BREWLET_VERSION}.pom"
 ```
 
-```bash
-# Build the fat JAR and push it as a Brewlet OCI artifact in one line:
-mvn clean package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
-  -Dbrewlet.image=registry.example.com/team/app:1.4.2
-```
-
-Or configure publishing once in `pom.xml` and bind `push` to the lifecycle.
+Add this declaration to your application's `<build><plugins>` in `pom.xml`.
 `${env.BREWLET_VERSION}` reads the concrete version exported above, not a moving
 `latest` alias. For reproducible project builds, pin that resolved version in
-your POM or CI environment instead of resolving latest on every build:
+your POM or CI environment instead of resolving latest on every build. The
+declaration enables the short `brewlet` prefix without changing the build
+lifecycle:
 
 ```xml
 <plugin>
@@ -374,11 +362,35 @@ your POM or CI environment instead of resolving latest on every build:
     <jdkFeature>21</jdkFeature>
     <ports><port><name>http</name><containerPort>8080</containerPort></port></ports>
   </configuration>
-  <executions>
-    <execution><goals><goal>push</goal></goals></execution>
-  </executions>
 </plugin>
 ```
+
+```bash
+# Build the fat JAR and push it as a Brewlet OCI image in one line:
+mvn clean package brewlet:push \
+  -Dbrewlet.image=registry.example.com/team/app:1.4.2
+```
+
+For a one-off command without editing the application's POM, use the fully
+qualified coordinates instead; Maven still downloads the plugin from Central:
+
+```bash
+mvn clean package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
+  -Dbrewlet.image=registry.example.com/team/app:1.4.2
+```
+
+To bind publishing to `mvn deploy`, optionally add this inside the plugin
+declaration:
+
+```xml
+<executions>
+  <execution><goals><goal>push</goal></goals></execution>
+</executions>
+```
+
+If a newly tagged version is not yet available on Central, wait for its Maven
+Central publishing job and repository propagation; do not silently select a
+different plugin version. Select a release available on Central.
 
 `brewlet:push` prints a digest-pinned `deploy image`. Use that exact reference
 when generating the Kubernetes descriptor:

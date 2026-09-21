@@ -126,7 +126,7 @@ $ docker push registry/app:1.4.2   <span class="c-cm"># unchanged layers are reu
             <pre><code><span class="c-cm"># Package a local OCI image: the Go CLI does not upload to a registry</span>
 $ brewlet push target/app.jar demo/app:1.4.2 --store ./oci --format image
 
-<span class="c-cm"># Publish with the released plugin installed in the quick start below:</span>
+<span class="c-cm"># Publish with the Maven Central plugin; select the release in the quick start below:</span>
 $ mvn package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
     <span class="c-key">-Dbrewlet.image</span>=registry.example.com/team/app:1.4.2
 
@@ -432,17 +432,10 @@ $ brewlet push integration-tests/fixtures/demo-app/target/app.jar \
 $ brewlet inspect demo/hello:local --store ./oci
 $ brewlet run demo/hello:local --store ./oci</code></pre>
         </div>
-       <p class="section-lede" data-reveal>Stop the app with Ctrl+C, then install the released Maven plugin to package a local image. See <a href="/docs/installation/#verify-a-release">release verification</a> for checksums and build provenance. Use the plugin's <code>push</code> goal with a registry you control when you are ready to publish.</p>
+       <p class="section-lede" data-reveal>Stop the app with Ctrl+C, then package a local image with the plugin from <a href="https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin">Maven Central</a>. Maven downloads the matching version automatically, with no manual installation or GitHub credentials. For short <code>mvn brewlet:push</code> commands, <a href="/docs/building-and-publishing/#option-c-maven-plugin">declare the plugin in your POM</a>. Use the <code>push</code> goal with a registry you control when you are ready to publish.</p>
        <div class="code-card wide" data-reveal>
          <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">your project</span></div>
-         <pre><code><span class="c-cm"># Download and install the released plugin</span>
-$ curl -fLO "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.jar"
-$ curl -fLO "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.pom"
-$ mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
-    -Dfile="brewlet-maven-plugin-${BREWLET_VERSION}.jar" \
-    -DpomFile="brewlet-maven-plugin-${BREWLET_VERSION}.pom"
-
-<span class="c-cm"># Build a local OCI layout for the example app</span>
+         <pre><code><span class="c-cm"># Resolve the plugin from Maven Central and build a local OCI layout</span>
 $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
     "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:build" \
     <span class="c-key">-Dbrewlet.image</span>=demo/hello:local</code></pre>

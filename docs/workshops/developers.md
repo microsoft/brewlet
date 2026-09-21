@@ -85,45 +85,36 @@ jar --describe-module \
 
 The output is an ordinary executable JAR. It contains neither Linux nor a JDK.
 
-## 3. Install and exercise the Maven plugin
+## 3. Configure and exercise the Maven plugin
 
-Download the released plugin JAR and POM from GitHub Releases and install them
-in your local Maven repository. No plugin source build is required. Verify the
-release's checksums and build provenance before installing
-([release verification](../installation.md#verify-a-release)); these verification
-commands require the GitHub CLI installed and authenticated through its normal
-credential store:
+Maven downloads the released plugin from
+[Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin).
+No manual installation, plugin source build, GitHub token, or custom repository
+is needed. Use the same concrete `BREWLET_VERSION` exported in the Ops handoff;
+do not resolve a separate latest plugin version.
 
-```bash
-mkdir -p target/brewlet-release
-curl -fL \
-  -o target/brewlet-release/brewlet-maven-plugin.jar \
-  "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.jar"
-curl -fL \
-  -o target/brewlet-release/brewlet-maven-plugin.pom \
-  "https://github.com/microsoft/brewlet/releases/download/v${BREWLET_VERSION}/brewlet-maven-plugin-${BREWLET_VERSION}.pom"
+Add this plugin alongside the existing entries under `<build><plugins>` in
+`integration-tests/fixtures/demo-app/pom.xml`:
 
-./scripts/verify-release-provenance.sh "$BREWLET_VERSION"
-# Verify the downloaded copies too, not only the verifier's own downloads.
-gh attestation verify target/brewlet-release/brewlet-maven-plugin.jar \
-  --repo microsoft/brewlet \
-  --signer-workflow microsoft/brewlet/.github/workflows/release.yml
-gh attestation verify target/brewlet-release/brewlet-maven-plugin.pom \
-  --repo microsoft/brewlet \
-  --signer-workflow microsoft/brewlet/.github/workflows/release.yml
-
-mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
-  -Dfile=target/brewlet-release/brewlet-maven-plugin.jar \
-  -DpomFile=target/brewlet-release/brewlet-maven-plugin.pom
-export PLUGIN_VERSION="$BREWLET_VERSION"
+```xml
+<plugin>
+  <groupId>sh.brewlet</groupId>
+  <artifactId>brewlet-maven-plugin</artifactId>
+  <version>${env.BREWLET_VERSION}</version>
+</plugin>
 ```
+
+This enables `mvn brewlet:...` without binding publishing to the build lifecycle.
+For reproducible builds outside the workshop, pin the handoff version in your
+project POM or CI environment. Use a platform release available on Central
+(starting with 0.5.1). For a just-published release, wait until the matching
+plugin is available on Central rather than changing the plugin version.
 
 Build a registry-free runnable OCI layout first:
 
 ```bash
 mvn -f integration-tests/fixtures/demo-app/pom.xml \
-  "sh.brewlet:brewlet-maven-plugin:${PLUGIN_VERSION}:config" \
-  "sh.brewlet:brewlet-maven-plugin:${PLUGIN_VERSION}:build" \
+  brewlet:config brewlet:build \
   -Dbrewlet.image=demo/hello:workshop
 
 test -f integration-tests/fixtures/demo-app/target/brewlet/jvm-config.json
@@ -144,7 +135,7 @@ export IMAGE_TAG="$BREWLET_REGISTRY/hello:$(date +%Y%m%d%H%M%S)"
 export PUSH_LOG="$PWD/target/brewlet-push.log"
 
 mvn -f integration-tests/fixtures/demo-app/pom.xml \
-  "sh.brewlet:brewlet-maven-plugin:${PLUGIN_VERSION}:push" \
+  brewlet:push \
   -Dbrewlet.image="$IMAGE_TAG" | tee "$PUSH_LOG"
 
 export IMAGE_DIGEST="$(

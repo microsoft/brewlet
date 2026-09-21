@@ -154,7 +154,9 @@ field.
 
 ### 4.2 Turnkey generation in the Maven plugin / CLI
 
-The Maven plugin automates the training run with a dedicated goal:
+First [configure the Maven plugin from Central](building-and-publishing.md#option-c-maven-plugin)
+in your application's POM, using the same release as your platform. It automates
+the training run with a dedicated goal:
 
 - **Maven plugin — `brewlet:appcds`:** stages a copy of the built JAR with a
   canonical mtime (§4.4), then runs a training JVM with

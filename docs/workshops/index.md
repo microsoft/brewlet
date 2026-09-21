@@ -33,7 +33,9 @@ cd brewlet
 
 Do not resolve latest separately for each workshop part: all participants use
 the release Ops selected. No participant needs to build Brewlet's platform
-components or Maven plugin from source.
+components or Maven plugin from source. The developer workshop resolves the
+plugin from Maven Central using that same release version, without a manual
+plugin installation.
 
 ## Maintainer verification
 

@@ -38,6 +38,15 @@ mkdir -p "$CURL_HOME" "$DOCKER_CONFIG" "$work/helm"
 printf '{}\n' > "$DOCKER_CONFIG/config.json"
 printf '{}\n' > "$HELM_REGISTRY_CONFIG"
 
+# A local install or a credentialed mirror must not mask a missing Central release.
+printf '<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"/>\n' \
+  > "$work/maven-settings.xml"
+run_maven() {
+  mvn -q --settings "$work/maven-settings.xml" \
+    --global-settings "$work/maven-settings.xml" \
+    -Dmaven.repo.local="$work/maven-repository" "$@"
+}
+
 cat "$script_dir/../install.sh" \
   | BREWLET_VERSION="$version" BREWLET_INSTALL_DIR="$work/bin" sh
 installed_version="$("$work/bin/brewlet" version)"
@@ -45,14 +54,13 @@ if [[ "$version" != latest ]]; then
   test "$installed_version" = "$version"
 fi
 version="$installed_version"
-base="https://github.com/microsoft/brewlet/releases/download/v${version}"
 
 curl -fsSL -o "$work/source.tar.gz" \
   "https://github.com/microsoft/brewlet/archive/refs/tags/v${version}.tar.gz"
 tar -xzf "$work/source.tar.gz" -C "$work"
 
 example="$work/brewlet-${version}/integration-tests/fixtures/demo-app"
-mvn -q -f "$example/pom.xml" clean package
+run_maven -f "$example/pom.xml" clean package
 test -f "$example/target/app.jar"
 
 ref="demo/hello:${version}"
@@ -93,24 +101,14 @@ app_pid=""
   > "$work/bundle.log"
 test -f "$work/bundle/config.json"
 
-curl -fsSL -o "$work/brewlet-maven-plugin.jar" \
-  "$base/brewlet-maven-plugin-${version}.jar"
-curl -fsSL -o "$work/brewlet-maven-plugin.pom" \
-  "$base/brewlet-maven-plugin-${version}.pom"
-test -s "$work/brewlet-maven-plugin.jar"
-test -s "$work/brewlet-maven-plugin.pom"
-
-mvn -q org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
-  -Dfile="$work/brewlet-maven-plugin.jar" \
-  -DpomFile="$work/brewlet-maven-plugin.pom"
-mvn -q -f "$example/pom.xml" package \
+run_maven -f "$example/pom.xml" package \
   "sh.brewlet:brewlet-maven-plugin:${version}:config" \
   "sh.brewlet:brewlet-maven-plugin:${version}:build" \
   -Dbrewlet.image="demo/hello:${version}"
 test -f "$example/target/brewlet/jvm-config.json"
 test -f "$example/target/brewlet/oci/index.json"
 
-echo "Verified released CLI, local Java example, and Maven plugin."
+echo "Verified released CLI, local Java example, and Maven Central plugin."
 
 if ! helm pull oci://ghcr.io/microsoft/charts/brewlet \
   --version "$version" \

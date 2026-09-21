@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import xml.etree.ElementTree as ET
 
 name = Path(sys.argv[0]).name
 args = sys.argv[1:]
@@ -80,23 +81,29 @@ elif name == "curl":
             entry = tarfile.TarInfo(f"brewlet-{version}/integration-tests/fixtures/demo-app/pom.xml")
             entry.size = len(payload)
             archive.addfile(entry, io.BytesIO(payload))
-    elif url in (
-        f"https://github.com/microsoft/brewlet/releases/download/v{version}/brewlet-maven-plugin-{version}.jar",
-        f"https://github.com/microsoft/brewlet/releases/download/v{version}/brewlet-maven-plugin-{version}.pom",
-    ):
-        Path(option("-o")).write_text("offline fixture")
     else:
         reject()
 elif name == "mvn":
+    settings = Path(option("--settings"))
+    assert option("--global-settings") == str(settings)
+    assert len(ET.parse(settings).getroot()) == 0
+    repository = Path(next(arg.split("=", 1)[1] for arg in args
+                           if arg.startswith("-Dmaven.repo.local=")))
+    assert repository.parent == settings.parent
+    assert repository.parent.name.startswith(".brewlet-release-smoke-")
+    repository.mkdir(exist_ok=True)
     if "-f" in args:
         target = Path(option("-f")).parent / "target"
         target.mkdir(exist_ok=True)
         (target / "app.jar").write_text("fixture")
         if any(arg.endswith(":build") for arg in args):
+            assert f"sh.brewlet:brewlet-maven-plugin:{version}:build" in args
+            if mutation == "central-unavailable":
+                raise SystemExit("Maven Central plugin unavailable")
             (target / "brewlet/oci").mkdir(parents=True)
             (target / "brewlet/jvm-config.json").write_text("{}")
             (target / "brewlet/oci/index.json").write_text("{}")
-    elif not any("maven-install-plugin" in arg for arg in args):
+    else:
         reject()
 elif name == "helm":
     if args[0] == "pull":
@@ -265,6 +272,32 @@ class ReleaseArtifactsTest(unittest.TestCase):
         calls = [json.loads(line) for line in (self.work / "calls.jsonl").read_text().splitlines()]
         self.assertIn(["requested-version", VERSION], calls)
         self.assertIn(["provenance", VERSION], calls)
+
+    def test_maven_uses_central_with_isolated_settings_and_cache(self):
+        result = self.smoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = [json.loads(line) for line in (self.work / "calls.jsonl").read_text().splitlines()]
+        maven = [call for call in calls if call[0] == "mvn"]
+        self.assertEqual(len(maven), 2)
+        repositories = []
+        for call in maven:
+            self.assertIn("--settings", call)
+            self.assertIn("--global-settings", call)
+            repositories.append(next(arg for arg in call if arg.startswith("-Dmaven.repo.local=")))
+            self.assertFalse(any("install-file" in arg for arg in call))
+        self.assertEqual(repositories[0], repositories[1])
+        self.assertIn(f"sh.brewlet:brewlet-maven-plugin:{VERSION}:build", maven[1])
+        self.assertFalse(any(call[0] == "curl" and "brewlet-maven-plugin" in call[-1]
+                             for call in calls))
+
+    def test_missing_central_plugin_fails_without_falling_back(self):
+        result = self.smoke("central-unavailable")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Maven Central plugin unavailable", result.stderr)
+        calls = [json.loads(line) for line in (self.work / "calls.jsonl").read_text().splitlines()]
+        self.assertFalse(any("install-file" in arg for call in calls for arg in call))
+        self.assertFalse(any(call[0] == "curl" and "brewlet-maven-plugin" in call[-1]
+                             for call in calls))
 
     def test_wrong_chart_identity_or_rendered_inventory_fails_closed(self):
         for mutation in (

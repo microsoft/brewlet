@@ -17,7 +17,7 @@ possible (main class, framework, ports) from the project and the built JAR's
 manifest. JDK feature and launcher requests belong to the generated deployment
 descriptor, not the artifact config.
 
-- **Coordinates:** `sh.brewlet:brewlet-maven-plugin:0.1.0`
+- **Coordinates:** `sh.brewlet:brewlet-maven-plugin` on [Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin)
 - **Requires:** Maven 3.9+, JDK 17+ (to run the build). The `appcds`
   training goal requires a JDK 21+ training runtime.
 
@@ -25,58 +25,64 @@ descriptor, not the artifact config.
 
 ## Quick start
 
-For a version published to Maven Central, add the plugin to your application's
-`<build><plugins>` section, pinning that published version:
+The plugin is available from Maven Central starting with 0.5.1. Maven downloads
+it automatically; no manual installation, GitHub credentials, or custom
+repository is needed.
+
+Use the concrete `BREWLET_VERSION` supplied by your platform team. Otherwise,
+resolve the latest Brewlet release once:
+
+```bash
+release_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+  https://github.com/microsoft/brewlet/releases/latest)" &&
+BREWLET_VERSION="${release_url##*/}" &&
+BREWLET_VERSION="${BREWLET_VERSION#v}" &&
+export BREWLET_VERSION
+```
+
+Add the plugin to your application's `<build><plugins>` section. The version
+comes from the exported environment variable, not a moving `latest` alias.
+For reproducible builds, pin the resolved version in your POM or CI environment:
 
 ```xml
 <plugin>
   <groupId>sh.brewlet</groupId>
   <artifactId>brewlet-maven-plugin</artifactId>
-  <version>RELEASE_VERSION</version>
+  <version>${env.BREWLET_VERSION}</version>
 </plugin>
 ```
 
-Replace `RELEASE_VERSION` with a version listed on
-[Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin).
-Then Maven downloads the plugin automatically and resolves the `brewlet` prefix:
+Build the application and publish it using the short `brewlet` prefix:
 
 ```bash
 mvn clean package brewlet:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 ```
 
-No credentials, custom repository, or local installation are needed. Declaring
-the plugin does not bind `push` to the build lifecycle; it only enables direct
-goal invocation. `mvn brewlet:push` alone requires an already packaged application.
+Declaring the plugin does not bind `push` to the build lifecycle; it only enables
+direct goal invocation. `mvn brewlet:push` alone requires an already packaged application.
 
-### GitHub release fallback
-
-For versions not yet published to Maven Central, download the JAR and POM from
-the [v0.1.0 release](https://github.com/microsoft/brewlet/releases/tag/v0.1.0)
-and install them into your local Maven repository:
+For a one-off invocation without editing the application's POM, use the full
+coordinates instead. Maven still resolves the plugin from Central:
 
 ```bash
-curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.1.0/brewlet-maven-plugin-0.1.0.jar
-curl -fLO https://github.com/microsoft/brewlet/releases/download/v0.1.0/brewlet-maven-plugin-0.1.0.pom
-mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file \
-  -Dfile=brewlet-maven-plugin-0.1.0.jar \
-  -DpomFile=brewlet-maven-plugin-0.1.0.pom
-```
-
-Build the fat JAR and push it as a runnable, kubelet-pullable OCI image in one line:
-
-```bash
-mvn clean package sh.brewlet:brewlet-maven-plugin:0.1.0:push \
+mvn clean package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 ```
 
-Or configure publishing once in `pom.xml` and bind `push` to the lifecycle:
+If a newly tagged release has not reached Central yet, wait for its publishing
+job and repository propagation. Do not switch to a different plugin version.
+
+### Optional lifecycle binding
+
+To configure publishing once in `pom.xml` and bind `push` to `mvn deploy`, extend
+the plugin declaration:
 
 ```xml
 <plugin>
   <groupId>sh.brewlet</groupId>
   <artifactId>brewlet-maven-plugin</artifactId>
-  <version>0.1.0</version>
+  <version>${env.BREWLET_VERSION}</version>
   <configuration>
     <image>registry.example.com/team/app:${project.version}</image>
     <jdkFeature>21</jdkFeature>       <!-- written to brewlet:manifest descriptors -->
@@ -503,7 +509,7 @@ overwrites local edits.
 
 ```bash
 # The default push already produces a runnable, kubelet-pullable image:
-mvn clean package sh.brewlet:brewlet-maven-plugin:push \
+mvn clean package brewlet:push \
   -Dbrewlet.image=registry.example.com/team/orders:1.4.2
 
 # Opt into the native artifact instead (registry-native / pre-puller flows):

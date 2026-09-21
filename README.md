@@ -243,8 +243,7 @@ Tags matching `v*` publish version-aligned artifacts:
 | Admission webhook image | `ghcr.io/microsoft/brewlet-admission:<version>` |
 | Node provisioner image | `ghcr.io/microsoft/brewlet-node-provisioner:<version>` |
 | Helm chart | `oci://ghcr.io/microsoft/charts/brewlet` |
-| Maven plugin JAR and POM | [GitHub Releases](https://github.com/microsoft/brewlet/releases) |
-| Maven plugin, sources, Javadoc, and PGP signatures | Maven Central, after the protected publishing job succeeds |
+| Maven plugin, sources, Javadoc, and PGP signatures | [Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin) |
 
 Maven Central publishing requires the `maven-central` GitHub environment,
 Portal token credentials, and a PGP signing key. See the

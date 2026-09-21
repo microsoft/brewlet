@@ -107,7 +107,8 @@ autoscaling.
 
 ## Layered classpath delivery
 
-The Maven plugin can prepare a standard Boot executable JAR directly with
+After [configuring the Maven plugin from Central](building-and-publishing.md#option-c-maven-plugin),
+you can prepare a standard Boot executable JAR directly with
 `-Dbrewlet.layered=true`: it relocates application classes/resources, preserves
 packaged library bytes and classpath order, and shares that preparation with
 AppCDS training. See [building and publishing](building-and-publishing.md#layered-thin-jar-apps).

@@ -48,8 +48,10 @@ For a Maven workflow, one platform POM can define the approved BOM and publish
 its managed dependency bundle. Publish the POM to your Maven repository through
 your normal Maven release process; the Brewlet plugin publishes the bundle to
 the OCI registry. The application imports the BOM and declares its dependencies
-normally. Install the Brewlet Maven plugin as described in
+normally. Configure the Brewlet Maven plugin from Maven Central as described in
 [Building & publishing](building-and-publishing.md#option-c-maven-plugin).
+The plugin declarations below let Maven download it automatically; no manual
+installation or custom plugin repository is needed.
 Keep the concrete `BREWLET_VERSION` exported by that setup (or supplied by your
 platform team) in both projects' build environments. The plugin examples below
 read it through Maven's `${env.BREWLET_VERSION}` property; for reproducible builds,
