@@ -437,6 +437,26 @@ func TestExtractTarRejectsTraversal(t *testing.T) {
 	}
 }
 
+func TestExtractTarRejectsOversizedPayload(t *testing.T) {
+	prev := artifact.MaxLayerDecompressedBytes
+	artifact.MaxLayerDecompressedBytes = 8
+	t.Cleanup(func() { artifact.MaxLayerDecompressedBytes = prev })
+
+	dir := t.TempDir()
+	tarPath := filepath.Join(dir, "big.tar")
+	// Two entries, each within the cap on its own but jointly over it: the
+	// budget is per tar, not per entry.
+	writeTar(t, tarPath, map[string]string{"a.jar": "aaaaa", "b.jar": "bbbbb"})
+
+	err := extractTar(tarPath, filepath.Join(dir, "lib"))
+	if err == nil {
+		t.Fatal("expected extractTar to reject a tar exceeding the decompression cap")
+	}
+	if !strings.Contains(err.Error(), "decompression cap") {
+		t.Fatalf("extractTar error = %v, want decompression cap", err)
+	}
+}
+
 func TestAssembleSandboxWithClasspathLayers(t *testing.T) {
 	dir := t.TempDir()
 	jarSrc := filepath.Join(dir, "app.jar")

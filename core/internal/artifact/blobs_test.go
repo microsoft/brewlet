@@ -4,6 +4,9 @@
 package artifact
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -520,5 +523,100 @@ func TestStagedPathRejectsEscape(t *testing.T) {
 	}
 	if want := filepath.Join(dir, "orders.jar"); got != want {
 		t.Errorf("stagedPath = %q, want %q", got, want)
+	}
+}
+
+// withDecompressionCap lowers the layer decompression cap for the duration of a
+// test so a bomb can be simulated with a few kilobytes.
+func withDecompressionCap(t *testing.T, limit int64) {
+	t.Helper()
+	prev := MaxLayerDecompressedBytes
+	MaxLayerDecompressedBytes = limit
+	t.Cleanup(func() { MaxLayerDecompressedBytes = prev })
+}
+
+func gzipBlob(t *testing.T, payload []byte) (Descriptor, testBlobSource) {
+	t.Helper()
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := gw.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	desc := Descriptor{Digest: digestOf(buf.Bytes()), Size: int64(buf.Len())}
+	return desc, testBlobSource{desc.Digest: buf.Bytes()}
+}
+
+func TestGunzipToFileRejectsDecompressionBomb(t *testing.T) {
+	withDecompressionCap(t, 1024)
+	desc, src := gzipBlob(t, make([]byte, 4096))
+	dst := filepath.Join(t.TempDir(), "layer.tar")
+	if err := gunzipToFile(src, desc, dst); err == nil {
+		t.Fatal("expected gunzipToFile to reject a layer over the decompression cap")
+	} else if !strings.Contains(err.Error(), "decompression cap") {
+		t.Fatalf("gunzipToFile error = %v, want decompression cap", err)
+	}
+}
+
+func TestGunzipToFileAcceptsLayerWithinCap(t *testing.T) {
+	withDecompressionCap(t, 4096)
+	desc, src := gzipBlob(t, make([]byte, 4096))
+	dst := filepath.Join(t.TempDir(), "layer.tar")
+	if err := gunzipToFile(src, desc, dst); err != nil {
+		t.Fatalf("gunzipToFile: %v", err)
+	}
+	fi, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Size() != 4096 {
+		t.Errorf("staged layer size = %d, want 4096", fi.Size())
+	}
+}
+
+func TestExtractGzTarRejectsDecompressionBomb(t *testing.T) {
+	withDecompressionCap(t, 1024)
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+	// Two entries, each within the cap on its own but jointly over it: the
+	// budget is per extraction, not per entry.
+	for _, name := range []string{"a.jar", "b.jar"} {
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name, Mode: 0o644, Size: 800, Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(make([]byte, 800)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	desc := Descriptor{Digest: digestOf(buf.Bytes()), Size: int64(buf.Len())}
+	err := extractGzTar(testBlobSource{desc.Digest: buf.Bytes()}, desc, t.TempDir())
+	if err == nil {
+		t.Fatal("expected extractGzTar to reject entries exceeding the decompression cap")
+	}
+	if !strings.Contains(err.Error(), "decompression cap") {
+		t.Fatalf("extractGzTar error = %v, want decompression cap", err)
+	}
+}
+
+func TestGunzipToFileRemovesPartialOutputOnCapBreach(t *testing.T) {
+	withDecompressionCap(t, 1024)
+	desc, src := gzipBlob(t, make([]byte, 4096))
+	dst := filepath.Join(t.TempDir(), "layer.tar")
+	if err := gunzipToFile(src, desc, dst); err == nil {
+		t.Fatal("expected gunzipToFile to reject a layer over the decompression cap")
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Errorf("half-written layer left behind at %s (stat err %v)", dst, err)
 	}
 }
