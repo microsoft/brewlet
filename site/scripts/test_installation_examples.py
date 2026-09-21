@@ -212,6 +212,17 @@ class InstallationExamplesTest(unittest.TestCase):
         self.assertIn("!node-role.kubernetes.io/control-plane", document)
         self.assertIn("!node-role.kubernetes.io/master", document)
 
+    def test_local_kubernetes_helm_inventory_flags_are_supported(self):
+        document = (ROOT / "docs/local-kubernetes.md").read_text()
+        commands = re.sub(r"\\\n\s*", " ", "\n".join(blocks(document, "bash")))
+        command = next(line for line in commands.splitlines() if line.startswith("helm list "))
+        args = [arg.replace("$BREWLET_CONTEXT", "unused-test-context")
+                for arg in shlex.split(command)[1:]]
+        result = subprocess.run(
+            [self.helm, *args, "--help"], text=True, capture_output=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_missing_pools_and_missing_jdks_fail_in_the_actual_chart(self):
         inventory = self.inventory((ROOT / "README.md").read_text())
         (self.work / "my-jdks.yaml").write_text(inventory.replace("<64-lowercase-hex>", DIGEST))

@@ -102,7 +102,8 @@ kubectl config get-contexts
 k get nodes -o wide
 k get namespaces
 k get deployment,daemonset,pod -A -o wide
-helm list --kube-context "$BREWLET_CONTEXT" --all-namespaces --all
+helm list --kube-context "$BREWLET_CONTEXT" --all-namespaces \
+  --deployed --failed --pending --uninstalling --uninstalled --superseded
 k get runtimeclasses
 k get crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh \
   --ignore-not-found
@@ -110,9 +111,11 @@ k get clusterrole,clusterrolebinding,mutatingwebhookconfiguration,validatingwebh
   -o name | awk '/brewlet/'
 ```
 
-Keep unrelated resources intact. An empty Helm list alone does **not** prove
-Brewlet is absent: earlier manual installs or test runs can leave CRDs, webhooks,
-node labels, shim binaries, JDK directories, or containerd configuration behind.
+The explicit status filters work with both Helm 3 and Helm 4; Helm 4 removed
+`helm list --all`. Keep unrelated resources intact. An empty Helm list alone
+does **not** prove Brewlet is absent: earlier manual installs or test runs can
+leave CRDs, webhooks, node labels, shim binaries, JDK directories, or containerd
+configuration behind.
 
 ### If Docker Desktop has no cluster
 
@@ -295,9 +298,12 @@ cluster files and the local OCI layout belong in this run's `BREWLET_WORK`.
 
 ### Fresh installation only
 
-**Skip this subsection when reusing Brewlet.** Proceed only after step 1 found
-no existing Brewlet installation or unmanaged runtime state. Use `helm install`,
-not an upgrade, so a conflicting release fails rather than changing its values.
+**When reusing Brewlet, skip directly to the
+[readiness checks](#readiness-checks-for-both-fresh-and-reused-installations).**
+The next three subsections are for fresh installations only. Proceed only after
+step 1 found no existing Brewlet installation or unmanaged runtime state.
+Use `helm install`, not an upgrade, so a conflicting release fails rather than
+changing its values.
 
 For this local evaluation, use the Linux Temurin 21 JDK image. Resolve its
 current image-index digest and inspect the available platforms:
@@ -316,25 +322,9 @@ vendor tag once, then pins the installation to that digest. It is an explicit
 evaluation choice, not a Brewlet-provided runtime catalog or a production
 approval policy.
 
-Label only the chosen worker and save its pool and JDK inventory:
+Save the pool and JDK inventory before changing any cluster resources:
 
 ```bash
-POOL_BEFORE="$(k get node "$BREWLET_NODE" \
-  -o jsonpath='{.metadata.labels.brewlet\.sh/local-pool}')"
-if [ -z "$POOL_BEFORE" ]; then
-  k label node "$BREWLET_NODE" brewlet.sh/local-pool=local-java
-  export BREWLET_POOL_LABEL_ADDED=true
-elif [ "$POOL_BEFORE" != local-java ]; then
-  printf 'Stop: worker already belongs to pool %s; do not overwrite it.\n' "$POOL_BEFORE" >&2
-  exit 1
-fi
-POOL_NODES="$(k get nodes -l brewlet.sh/local-pool=local-java \
-  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
-if [ "$POOL_NODES" != "$BREWLET_NODE" ]; then
-  printf 'Stop: local-java selects other nodes; do not provision this pool.\n' >&2
-  exit 1
-fi
-
 cat > "$BREWLET_WORK/brewlet-local.yaml" <<EOF
 provisioner:
   pools: [local-java]
@@ -348,25 +338,76 @@ provisioner:
 EOF
 ```
 
+### Check node image pulls before installing
+
+Render the released chart and pull its three digest-pinned component images
+through the worker's **CRI**, the same image service kubelet uses. This checks
+the node's registry/mirror path before creating a release, webhook, profile,
+or pool label. A successful host-side `docker pull` or chart download does not
+prove that Kubernetes can pull the component images.
+
+```bash
+helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
+  --version "$BREWLET_VERSION" \
+  --namespace brewlet \
+  --values "$BREWLET_WORK/brewlet-local.yaml" \
+  > "$BREWLET_WORK/brewlet-rendered.yaml"
+
+if ! BREWLET_COMPONENT_IMAGES="$(
+  grep -Eo 'ghcr\.io/microsoft/brewlet-(operator|admission|node-provisioner)@sha256:[0-9a-f]{64}' \
+    "$BREWLET_WORK/brewlet-rendered.yaml" | sort -u
+)" || [ "$(printf '%s\n' "$BREWLET_COMPONENT_IMAGES" | wc -l)" -ne 3 ]; then
+  printf 'Stop: expected three digest-pinned component images in the released chart.\n' >&2
+  exit 1
+fi
+while IFS= read -r image; do
+  if ! docker exec "$BREWLET_NODE" crictl pull "$image"; then
+    printf 'Stop: node image pull failed; do not label the worker or install Helm resources.\n' >&2
+    exit 1
+  fi
+done <<< "$BREWLET_COMPONENT_IMAGES"
+```
+
+If this fails, inspect the pull error and see
+[node image-pull failures](#node-image-pull-failures) below. No Brewlet
+Kubernetes resources have been created by this fresh-install path yet.
+On clusters with additional schedulable nodes, check their CRI pulls too:
+the operator and admission deployments are not restricted to the runtime pool.
+
+??? note "Optional: preview the Kubernetes resources"
+
+    Open `$BREWLET_WORK/brewlet-rendered.yaml` to inspect the resources that
+    the preflight rendered. Rendering does not change the cluster.
+
+### Install on the selected worker
+
+**Still fresh installations only.** Check pool ownership before adding a
+label, so a conflicting pool does not leave this worker modified:
+
+```bash
+POOL_BEFORE="$(k get node "$BREWLET_NODE" \
+  -o jsonpath='{.metadata.labels.brewlet\.sh/local-pool}')"
+if [ -n "$POOL_BEFORE" ] && [ "$POOL_BEFORE" != local-java ]; then
+  printf 'Stop: worker already belongs to pool %s; do not overwrite it.\n' "$POOL_BEFORE" >&2
+  exit 1
+fi
+POOL_NODES="$(k get nodes -l brewlet.sh/local-pool=local-java \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')"
+if [ -n "$POOL_NODES" ] && [ "$POOL_NODES" != "$BREWLET_NODE" ]; then
+  printf 'Stop: local-java selects other nodes; do not provision this pool.\n' >&2
+  exit 1
+fi
+if [ -z "$POOL_BEFORE" ]; then
+  k label node "$BREWLET_NODE" brewlet.sh/local-pool=local-java
+  export BREWLET_POOL_LABEL_ADDED=true
+fi
+```
+
 The control plane remains excluded. There is no need to remove its taints or
 enable `includeControlPlane`. The guard requires the pool to contain **only the
 selected worker**; installing a broader profile would provision other nodes
 too. An existing matching pool label is
 reused, but is not owned by this run and must not be removed during cleanup.
-
-??? note "Optional: preview the Kubernetes resources"
-
-    Render the released chart with your inventory without changing the cluster:
-
-    ```bash
-    helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
-      --version "$BREWLET_VERSION" \
-      --namespace brewlet \
-      --values "$BREWLET_WORK/brewlet-local.yaml" \
-      > "$BREWLET_WORK/brewlet-rendered.yaml"
-    ```
-
-    Open `$BREWLET_WORK/brewlet-rendered.yaml` to inspect the resources.
 
 Install with the selected inventory:
 
@@ -411,13 +452,19 @@ minutes.
 The shared source includes a script that fetches a pinned upstream PetClinic
 revision and builds its executable Spring Boot JAR:
 
+The script reserves `PETCLINIC_REF` for an upstream Git revision; keep the OCI
+image name in `PETCLINIC_OCI_REF` instead. If an earlier tutorial exported an
+OCI image name as `PETCLINIC_REF`, run `unset PETCLINIC_REF` **before building**
+to restore the pinned revision. Otherwise, a retry fails with
+`couldn't find remote ref`.
+
 ```bash
 export FIXTURE_DIR="$BREWLET_SOURCE/integration-tests/fixtures/spring-petclinic"
 "$FIXTURE_DIR/build.sh"
 
 export BREWLET_STORE="$BREWLET_WORK/oci"
-export PETCLINIC_REF="localhost/brewlet/${BREWLET_NAMESPACE}:local"
-brewlet push "$FIXTURE_DIR/target/spring-petclinic.jar" "$PETCLINIC_REF" \
+export PETCLINIC_OCI_REF="localhost/brewlet/${BREWLET_NAMESPACE}:local"
+brewlet push "$FIXTURE_DIR/target/spring-petclinic.jar" "$PETCLINIC_OCI_REF" \
   --store "$BREWLET_STORE" \
   --format image
 ```
@@ -429,7 +476,7 @@ in the CLI-only quick start.
 
     ```bash
     test -f "$FIXTURE_DIR/target/spring-petclinic.jar"
-    brewlet inspect "$PETCLINIC_REF" --store "$BREWLET_STORE"
+    brewlet inspect "$PETCLINIC_OCI_REF" --store "$BREWLET_STORE"
     ```
 
     The launch contract should contain `entry.mode: jar` and
@@ -449,11 +496,11 @@ the worker you inspected:
 
 ```bash
 PETCLINIC_DIGEST="$(
-  jq -er --arg ref "$PETCLINIC_REF" \
+  jq -er --arg ref "$PETCLINIC_OCI_REF" \
     '.manifests[] | select(.annotations["org.opencontainers.image.ref.name"] == $ref) | .digest' \
     "$BREWLET_STORE/index.json"
 )"
-export PETCLINIC_IMAGE="${PETCLINIC_REF%:*}@${PETCLINIC_DIGEST}"
+export PETCLINIC_IMAGE="${PETCLINIC_OCI_REF%:*}@${PETCLINIC_DIGEST}"
 
 BREWLET_NODES="$(
   k get nodes -l 'brewlet.sh/runtime=ready,brewlet.sh/jdk.temurin-21=true' \
@@ -475,7 +522,7 @@ while IFS= read -r node; do
   COPYFILE_DISABLE=1 tar -C "$BREWLET_STORE" -cf - oci-layout index.json blobs |
     docker exec -i "$node" ctr -n k8s.io images import --digests -
   docker exec "$node" ctr -n k8s.io images tag \
-    "$PETCLINIC_REF" "$PETCLINIC_IMAGE"
+    "$PETCLINIC_OCI_REF" "$PETCLINIC_IMAGE"
 done <<< "$BREWLET_NODES"
 ```
 
@@ -619,7 +666,7 @@ k get events -n "$BREWLET_NAMESPACE" --sort-by=.lastTimestamp
 | Symptom | What to check |
 |---|---|
 | Worker never gets `brewlet.sh/runtime=ready` | Check the pool label, `brewlet.sh/provision-error` node annotation, provisioner logs, containerd version, and cgroup v2. Do not label the node ready manually. |
-| Brewlet components show `ImagePullBackOff` | Check network access to GHCR and the [released-package access guidance](installation.md#package-access-troubleshooting). |
+| Brewlet components show `ImagePullBackOff` | Read `k describe pods -n brewlet` and `k get events -n brewlet --sort-by=.lastTimestamp`. An `unexpected EOF`/`short read` can come from the node's registry mirror, not package permissions; see [node image-pull failures](#node-image-pull-failures). |
 | PetClinic shows `ErrImageNeverPull` | Inspect the node shown by `k get pods -n "$BREWLET_NAMESPACE" -o wide`. Verify the exact digest-pinned reference with `crictl inspecti` and load the image on all eligible nodes. |
 | Pod stays `Pending` or admission reports `NoCompatibleJDK` | Wait for the worker's Temurin 21 inventory, and check its taints and available CPU/memory. Do not remove control-plane taints to work around a missing worker. |
 | PetClinic exits or readiness keeps failing | Read `k logs deployment/petclinic -n "$BREWLET_NAMESPACE"`; for a restarted container also use `--previous`. Check for `OOMKilled` and available Docker Desktop memory. |
@@ -627,6 +674,51 @@ k get events -n "$BREWLET_NAMESPACE" --sort-by=.lastTimestamp
 | A rerun reports an existing namespace, release, or image alias | Do not add `--force`, overwrite a label, or delete the conflicting resource. Recover this run's variables, or start with a fresh work directory and unique namespace. Reuse a healthy platform rather than reinstalling it. |
 
 See [Troubleshooting](troubleshooting.md) for runtime diagnostics.
+
+### Node image-pull failures
+
+Docker Desktop's kind nodes can use a registry mirror configured under
+`/etc/containerd/certs.d/_default/hosts.toml`. In a reproduced failure, that
+mirror returned an empty GHCR child-manifest response and CRI reported
+`short read: expected 3504 bytes but got 0: unexpected EOF`. The same released
+digest pulled successfully directly from GHCR. Helm still reported the release
+as `deployed`, although neither deployment could start.
+
+Inspect the node configuration without editing it:
+
+```bash
+docker exec "$BREWLET_NODE" sh -c \
+  'find /etc/containerd/certs.d -name hosts.toml -print -exec cat {} \;'
+```
+
+A chart pull checks Helm's registry path; `crictl pull` checks Kubernetes'
+path. Do not reset the cluster, change package visibility, or remove registry
+security controls to fix a truncated response. Repair the mirror with its
+owner, or use the isolated kind cluster from step 1.
+For authorization errors instead, see
+[released-package access troubleshooting](installation.md#package-access-troubleshooting).
+
+On a local development node where direct access to these public registries is
+permitted, you can also preload the **same chart-pinned digests** directly,
+without changing the mirror configuration or the chart:
+
+```bash
+BREWLET_NODE_ARCH="$(k get node "$BREWLET_NODE" \
+  -o jsonpath='{.metadata.labels.kubernetes\.io/arch}')"
+while IFS= read -r image; do
+  docker exec "$BREWLET_NODE" ctr -n k8s.io images pull \
+    --platform "linux/$BREWLET_NODE_ARCH" "$image"
+  docker exec "$BREWLET_NODE" crictl inspecti "$image"
+done <<< "$BREWLET_COMPONENT_IMAGES"
+```
+
+Use the preflight's `BREWLET_COMPONENT_IMAGES`, not guessed tags. Then repeat
+the CRI preflight before installing. For an already failed release, recover its
+exact image references from `helm get manifest` and inspect its state instead
+of installing again. The uninstall hook needs the operator image, and node
+cleanup needs the provisioner image; restore image availability before
+uninstalling. Never bypass hooks or remove finalizers to work around a pull
+failure.
 
 ## Clean up
 
