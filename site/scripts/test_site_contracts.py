@@ -460,7 +460,7 @@ test -d "$BREWLET_QUICKSTART_WORK"
                 "curl -f http://127.0.0.1:8080/healthz",
             ),
             "local-kubernetes": (
-                "docker info", "helm template", "brewlet inspect", "brewlet doctor",
+                "docker info", "brewlet inspect", "brewlet doctor",
                 'crictl inspecti "$PETCLINIC_IMAGE"',
                 "k logs deployment/petclinic",
                 "curl -fsS http://127.0.0.1:18080/actuator/health",
@@ -475,7 +475,8 @@ test -d "$BREWLET_QUICKSTART_WORK"
             "local-kubernetes": (
                 "set -euo pipefail", "export BREWLET_SOURCE=", "export BREWLET_WORK",
                 "helm list", 'find /opt /usr/local/bin /etc/containerd',
-                "POOL_BEFORE=", "POOL_NODES=", "helm install", "k rollout status",
+                "helm template", "crictl pull", "POOL_BEFORE=", "POOL_NODES=",
+                "helm install", "k rollout status",
                 'k wait "node/$BREWLET_NODE"', "PETCLINIC_DIGEST=", "BREWLET_NODES=",
                 "images import --digests", "images tag", "k apply",
                 "k wait --for=condition=Ready javaapplication/petclinic",
@@ -528,7 +529,7 @@ class LocalKubernetesGuideTest(unittest.TestCase):
         self.assertNotIn("--format artifact", commands)
         self.assertIn('select(.annotations["org.opencontainers.image.ref.name"] == $ref)',
                       commands)
-        self.assertIn('PETCLINIC_IMAGE="${PETCLINIC_REF%:*}@${PETCLINIC_DIGEST}"', commands)
+        self.assertIn('PETCLINIC_IMAGE="${PETCLINIC_OCI_REF%:*}@${PETCLINIC_DIGEST}"', commands)
         self.assertIn('docker exec -i "$node" ctr -n k8s.io images import --digests -',
                       commands)
         self.assertIn('ctr -n k8s.io images tag', commands)
@@ -536,7 +537,7 @@ class LocalKubernetesGuideTest(unittest.TestCase):
         self.assertIn('crictl inspecti "$PETCLINIC_IMAGE"', commands)
         self.assertIn("brewlet.sh/runtime=ready,brewlet.sh/jdk.temurin-21=true", commands)
         self.assertIn('done <<< "$BREWLET_NODES"', commands)
-        self.assertIn('PETCLINIC_REF="localhost/brewlet/${BREWLET_NAMESPACE}:local"', commands)
+        self.assertIn('PETCLINIC_OCI_REF="localhost/brewlet/${BREWLET_NAMESPACE}:local"', commands)
         self.assertIn("    image: ${PETCLINIC_IMAGE}\n    pullPolicy: Never\n", commands)
         self.assertIn("    version: 21\n    distribution: temurin\n", commands)
         self.assertIn("  replicas: 1\n", commands)
@@ -550,8 +551,13 @@ class LocalKubernetesGuideTest(unittest.TestCase):
         commands = "\n".join(self.commands)
         self.assertIn('k() { kubectl --context "$BREWLET_CONTEXT" "$@"; }', commands)
         self.assertNotIn("kubectl config use-context", commands)
-        self.assertIn('helm list --kube-context "$BREWLET_CONTEXT" --all-namespaces --all',
-                      commands)
+        listing = next(line for line in re.sub(r"\\\n\s*", " ", commands).splitlines()
+                       if line.startswith("helm list "))
+        flags = shlex.split(listing)
+        self.assertIn("--all-namespaces", flags)
+        self.assertNotIn("--all", flags)
+        for status in ("deployed", "failed", "pending", "uninstalling", "uninstalled", "superseded"):
+            self.assertIn("--" + status, flags)
         self.assertIn('find /opt /usr/local/bin /etc/containerd', commands)
         self.assertIn('sed -n "/brewlet/p" /etc/containerd/config.toml', commands)
         self.assertIn("helm install brewlet", commands)
@@ -616,8 +622,9 @@ k() {
 }
 """
         with tempfile.TemporaryDirectory(prefix="brewlet-guide-test-") as work:
-            cases = (("", "selected-worker"), ("local-java", "selected-worker"),
+            cases = (("", ""), ("local-java", "selected-worker"),
                      ("someone-elses-pool", "selected-worker"),
+                     ("", "other-worker"),
                      ("local-java", "selected-worker\nother-worker"))
             for pool, nodes in cases:
                 with self.subTest(pool=pool, nodes=nodes):
@@ -632,7 +639,7 @@ k() {
                         self.assertNotEqual(result.returncode, 0)
                         self.assertNotIn("LABEL", result.stdout)
                         self.assertIn("do not overwrite", result.stderr)
-                    elif nodes != "selected-worker":
+                    elif nodes and nodes != "selected-worker":
                         self.assertNotEqual(result.returncode, 0)
                         self.assertNotIn("LABEL", result.stdout)
                         self.assertIn("selects other nodes", result.stderr)
@@ -640,6 +647,100 @@ k() {
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertIn("ADDED=" + ("false" if pool else "true"), result.stdout)
                         self.assertEqual("LABEL" in result.stdout, not pool)
+
+    def test_component_pulls_fail_before_pool_labels_or_installation(self):
+        preflight = next(block for block in self.commands if block.startswith("helm template"))
+        pool = next(block for block in self.commands if block.startswith("POOL_BEFORE="))
+        install = next(block for block in self.commands if block.startswith("helm install"))
+        self.assertLess(self.commands.index(preflight), self.commands.index(pool))
+        self.assertLess(self.commands.index(pool), self.commands.index(install))
+        images = [
+            f"ghcr.io/microsoft/brewlet-{component}@sha256:" + digit * 64
+            for component, digit in (("admission", "a"), ("node-provisioner", "b"), ("operator", "c"))
+        ]
+        harness = r"""
+set -euo pipefail
+helm() {
+  case "$1" in
+    template) printf '%s\n' "$MOCK_RENDERED"; return "$MOCK_RENDER_EXIT" ;;
+    install) printf 'INSTALL\n' ;;
+    *) return 99 ;;
+  esac
+}
+docker() {
+  [ "$1 $2 $3 $4" = "exec selected-worker crictl pull" ] || return 99
+  printf 'PULL %s\n' "$5"
+  [ "$5" != "$MOCK_FAILED_IMAGE" ]
+}
+k() {
+  case "$1 $2" in
+    "get node"|"get nodes") printf '' ;;
+    "label node") printf 'LABEL\n' ;;
+    *) return 99 ;;
+  esac
+}
+"""
+        rendered = "\n".join(f'  image: "{image}"' for image in images + [images[2]])
+        cases = [
+            ("success", rendered, "", "0", True, images),
+            ("chart failure", rendered, "", "1", False, []),
+            ("missing image", "\n".join(images[:2]), "", "0", False, []),
+            ("no digests", "image: ghcr.io/microsoft/brewlet-operator:latest", "", "0", False, []),
+        ]
+        for index, image in enumerate(images):
+            cases.append((f"pull failure {index}", rendered, image, "0", False, images[:index + 1]))
+        with tempfile.TemporaryDirectory(prefix="brewlet-preflight-test-") as work:
+            for name, chart, failed, render_exit, succeeds, pulled in cases:
+                with self.subTest(case=name):
+                    result = subprocess.run(
+                        ["bash"], input=harness + preflight + pool + install,
+                        text=True, capture_output=True, timeout=10,
+                        env={**os.environ, "BREWLET_WORK": work, "BREWLET_VERSION": "9.8.7",
+                             "BREWLET_NODE": "selected-worker", "BREWLET_CONTEXT": "local-test",
+                             "MOCK_RENDERED": chart, "MOCK_RENDER_EXIT": render_exit,
+                             "MOCK_FAILED_IMAGE": failed},
+                    )
+                    self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
+                    self.assertEqual("LABEL\n" in result.stdout, succeeds)
+                    self.assertEqual("INSTALL\n" in result.stdout, succeeds)
+                    self.assertEqual(
+                        [line.removeprefix("PULL ") for line in result.stdout.splitlines()
+                         if line.startswith("PULL ")], pulled,
+                    )
+                    if failed:
+                        self.assertIn("node image pull failed", result.stderr)
+                    elif name in ("missing image", "no digests"):
+                        self.assertIn("expected three digest-pinned component images", result.stderr)
+
+    def test_packaging_does_not_override_the_upstream_petclinic_revision_on_retry(self):
+        build = next(block for block in self.commands if block.startswith("export FIXTURE_DIR="))
+        harness = r"""
+set -euo pipefail
+brewlet() {
+  [ "$1" = push ] || return 99
+  [ "$3" = "localhost/brewlet/petclinic-test:local" ] || return 99
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="brewlet-petclinic-test-") as work:
+            fixture = Path(work) / "integration-tests/fixtures/spring-petclinic"
+            fixture.mkdir(parents=True)
+            script = fixture / "build.sh"
+            script.write_text('#!/bin/sh\nprintf "UPSTREAM=%s\\n" "${PETCLINIC_REF:-pinned-default}"\n')
+            script.chmod(0o755)
+            for upstream in ("", "custom-upstream-commit"):
+                with self.subTest(upstream=upstream):
+                    env = {**os.environ, "BREWLET_WORK": work, "BREWLET_SOURCE": work,
+                           "BREWLET_NAMESPACE": "petclinic-test"}
+                    env.pop("PETCLINIC_REF", None)
+                    if upstream:
+                        env["PETCLINIC_REF"] = upstream
+                    result = subprocess.run(
+                        ["bash"], input=harness + build + build, env=env,
+                        text=True, capture_output=True, timeout=10,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout.splitlines(),
+                                     ["UPSTREAM=" + (upstream or "pinned-default")] * 2)
 
     def test_platform_cleanup_preserves_reused_resources_and_stops_on_failure(self):
         cleanup = next(block for block in self.commands
