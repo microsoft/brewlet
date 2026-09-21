@@ -14,9 +14,13 @@ Ask the Ops participant for:
 export BREWLET_CONTEXT="<kubernetes-context>"
 export BREWLET_NAMESPACE="<developer-namespace>"
 export BREWLET_JDK="21"
-export BREWLET_VERSION="0.5.1"
+export BREWLET_VERSION="<version-from-ops-handoff>"
 export BREWLET_REGISTRY="<registry-host>/<team>"
 ```
+
+Use the concrete version Ops resolved during installation, not the literal
+`latest` or a new latest-release lookup. The CLI, example source, Maven plugin,
+and cluster components must use the same release.
 
 You also need JDK 21+, Maven 3.9+, Git, `kubectl`, `curl`, `tar`, and credentials
 for your application registry. Clone the example source from the release tag
@@ -46,7 +50,7 @@ Install the released CLI with the
 [checksum-verifying installer](../getting-started.md#install-the-released-cli-recommended):
 
 ```bash
-curl -fsSL https://brewlet.sh/install.sh | sh
+curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version "$BREWLET_VERSION" --install-dir "$HOME/.local/bin"
 export PATH="$HOME/.local/bin:$PATH"
 brewlet version
 ```

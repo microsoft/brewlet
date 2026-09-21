@@ -21,16 +21,19 @@ privileged and changes the node's containerd configuration.
 
 ## Released tools and example source
 
-The Ops workshop installs the released chart and CLI directly. The Dev workshop
-uses the example application from the matching release tag:
+The Ops workshop installs the latest released CLI, captures its concrete
+`BREWLET_VERSION`, and uses that version for the chart and developer handoff.
+After receiving that handoff, the Dev workshop uses the example application
+from the matching release tag:
 
 ```bash
-git clone --depth 1 --branch v0.5.1 https://github.com/microsoft/brewlet.git
+git clone --depth 1 --branch "v${BREWLET_VERSION}" https://github.com/microsoft/brewlet.git
 cd brewlet
 ```
 
-No participant needs to build Brewlet's platform components or Maven plugin from
-source.
+Do not resolve latest separately for each workshop part: all participants use
+the release Ops selected. No participant needs to build Brewlet's platform
+components or Maven plugin from source.
 
 ## Maintainer verification
 

@@ -19,11 +19,13 @@ documentation lives in [`docs/`](../docs/).
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.1 \
   --namespace brewlet \
   --create-namespace \
   --set provisioner.pools="{java-workers}"
 ```
+
+Omitting `--version` selects the latest released chart. Add `--version x.y.z`
+to pin a specific release; published charts pin their component images by digest.
 
 The chart installs the CRDs, operator, admission webhook, and the RBAC used by
 the operator-managed node provisioner. `provisioner.pools` is required: the

@@ -113,8 +113,13 @@ provisioner:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version 0.5.1 -f values-production.yaml
+  -f values-production.yaml
 ```
+
+This selects the latest released chart. To pin a release, add
+`--version "$BREWLET_VERSION"` with its concrete version, and ensure any
+component-image overrides match it. For an existing installation, follow
+[Upgrading](installation.md#upgrading) to update matching CRDs and retain your values.
 
 > JDKs and launchers are always obtained **copy-from-image** from explicit,
 > tagless SHA-256 digest references. For air-gapped clusters, mirror the exact
@@ -216,9 +221,14 @@ When you install via Helm, the chart populates them for you.
 | `--node-metrics-enabled` | `false` | Run the node-local exporter sidecar in managed provisioner pods. |
 | `--node-metrics-port` | `9090` | Exporter port when node metrics are enabled. |
 
+For a local operator built from the same release as the installed CLI, use that
+CLI's version to select the matching provisioner image. For custom source builds,
+use your own matching provisioner image instead.
+
 ```bash
+BREWLET_VERSION="$(brewlet version)"
 ./bin/operator --namespace=brewlet \
-  --provisioner-image=ghcr.io/microsoft/brewlet-node-provisioner:0.5.1 \
+  --provisioner-image="ghcr.io/microsoft/brewlet-node-provisioner:${BREWLET_VERSION}" \
   --allowed-source-mirror-hosts=registry.internal.example.com
 kubectl apply -f nodeprofile.yaml
 ```
