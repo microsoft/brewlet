@@ -244,6 +244,13 @@ Tags matching `v*` publish version-aligned artifacts:
 | Node provisioner image | `ghcr.io/microsoft/brewlet-node-provisioner:<version>` |
 | Helm chart | `oci://ghcr.io/microsoft/charts/brewlet` |
 | Maven plugin JAR and POM | [GitHub Releases](https://github.com/microsoft/brewlet/releases) |
+| Maven plugin, sources, Javadoc, and PGP signatures | Maven Central, after the protected publishing job succeeds |
+
+Maven Central publishing requires the `maven-central` GitHub environment,
+Portal token credentials, and a PGP signing key. See the
+[plugin publishing guide](maven-plugin/README.md#publishing-the-plugin-to-maven-central)
+for setup and Central-only retries. Older GitHub releases are not automatically
+published to Central.
 
 The Helm chart's `appVersion` selects matching component image tags by default.
 Release images support Linux `amd64` and `arm64`; CLI archives support those

@@ -337,7 +337,12 @@ BREWLET_VERSION="${BREWLET_VERSION#v}"
 ```
 
 Download the matching plugin JAR and POM and install them once in your local
-Maven repository:
+Maven repository. If your selected version is already available on
+[Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin),
+skip this installation step: Maven can resolve the fully qualified command
+below directly. To use `mvn brewlet:push`, declare the plugin with that version
+under your application's `<build><plugins>` as shown below. No repository
+configuration or credentials are needed for Central:
 
 ```bash
 export BREWLET_VERSION

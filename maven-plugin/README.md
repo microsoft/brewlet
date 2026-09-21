@@ -25,7 +25,33 @@ descriptor, not the artifact config.
 
 ## Quick start
 
-Until the plugin is available from Maven Central, download the JAR and POM from
+For a version published to Maven Central, add the plugin to your application's
+`<build><plugins>` section, pinning that published version:
+
+```xml
+<plugin>
+  <groupId>sh.brewlet</groupId>
+  <artifactId>brewlet-maven-plugin</artifactId>
+  <version>RELEASE_VERSION</version>
+</plugin>
+```
+
+Replace `RELEASE_VERSION` with a version listed on
+[Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin).
+Then Maven downloads the plugin automatically and resolves the `brewlet` prefix:
+
+```bash
+mvn clean package brewlet:push \
+  -Dbrewlet.image=registry.example.com/team/app:1.4.2
+```
+
+No credentials, custom repository, or local installation are needed. Declaring
+the plugin does not bind `push` to the build lifecycle; it only enables direct
+goal invocation. `mvn brewlet:push` alone requires an already packaged application.
+
+### GitHub release fallback
+
+For versions not yet published to Maven Central, download the JAR and POM from
 the [v0.1.0 release](https://github.com/microsoft/brewlet/releases/tag/v0.1.0)
 and install them into your local Maven repository:
 
@@ -533,6 +559,117 @@ From the monorepo root:
 ```bash
 mvn -f maven-plugin/pom.xml install
 ```
+
+## Publishing the plugin to Maven Central
+
+The tag release workflow calls
+[Publish Maven Central](../.github/workflows/maven-central.yml) after creating the
+GitHub release, explicitly enabling automatic publication. The publishing job
+checks out the publishing configuration at the workflow's commit and the source
+at the requested release tag into separate directories. It adds missing
+developer/SCM metadata and applies the `central-release` profile to the tagged
+POM, without replacing the tag's dependencies, ordinary build configuration, or
+source files. This also supports older tags that predate Central publishing.
+
+The job checks the specification version, runs the tagged plugin's tests and
+notice checks, and sets the Maven version from the tag without its `v` prefix.
+The release profile attaches sources and Javadoc and signs the JARs and POM with
+PGP. Manual runs default to **validation only**: the Sonatype publisher uploads
+the bundle, waits for **validated**, and leaves it unpublished in the Portal.
+Only `publish=true` automatically publishes and waits for **published**. Either
+mode fails on validation errors. Normal builds do not activate this profile.
+
+### One-time maintainer setup
+
+1. Verify the `sh.brewlet` namespace in the
+   [Central Publisher Portal](https://central.sonatype.com/) and ensure the
+   publishing account is authorized for it.
+2. Create a passphrase-protected PGP signing key, or select an existing release
+   signing key. Publish its **public** key to a
+   [keyserver supported by Central](https://central.sonatype.org/publish/requirements/gpg/#distributing-your-public-key).
+   Keep the private key and passphrase out of source control.
+3. Create the GitHub environment **`maven-central`** in this repository.
+   Configure required reviewers and restrict deployment refs to trusted release
+   tags matching `v*` and trusted workflow branches used for manual backfills
+   (for example `main`). The environment checks the workflow ref, not the tag
+   passed as an input. Store these environment secrets:
+
+   | Secret | Value |
+   | --- | --- |
+   | `MAVEN_CENTRAL_USERNAME` | The **User** from the Portal's generated publishing token, not your account login |
+   | `MAVEN_CENTRAL_PASSWORD` | The **Password** from that same token |
+   | `MAVEN_GPG_KEY` | The ASCII-armored exported private signing key, including its header and footer |
+   | `MAVEN_GPG_PASSPHRASE` | The signing key's passphrase |
+
+The Portal's `Username:Password (base64)` value is not needed; the publisher
+constructs authentication from the two token fields. Do not paste credentials
+into workflow files, POMs, issues, or logs.
+
+The GitHub CLI can prompt for the token fields and passphrase without putting
+their values in command history:
+
+```bash
+gh secret set MAVEN_CENTRAL_USERNAME --repo microsoft/brewlet --env maven-central
+gh secret set MAVEN_CENTRAL_PASSWORD --repo microsoft/brewlet --env maven-central
+gh secret set MAVEN_GPG_PASSPHRASE --repo microsoft/brewlet --env maven-central
+```
+
+Export only the intended signing key directly into the environment secret,
+replacing `YOUR_SIGNING_KEY_FINGERPRINT` with its full fingerprint:
+
+```bash
+gpg --armor --export-secret-keys YOUR_SIGNING_KEY_FINGERPRINT |
+  gh secret set MAVEN_GPG_KEY --repo microsoft/brewlet --env maven-central
+```
+
+The workflow uses the Maven GPG plugin's in-memory Java signer; it does not
+import the private key into the runner's GnuPG keyring. The Central token and
+signing secrets are exposed only to the signing/publishing step.
+
+### Release and retry
+
+Commit the publishing configuration and the matching specification version
+before creating a new release tag. Tag names must be `vMAJOR.MINOR.PATCH`,
+optionally followed by a prerelease suffix such as `-rc.1`. SNAPSHOT versions
+and snapshot dependencies are rejected. Approve the `maven-central` deployment
+when GitHub requests it.
+
+For a Central-only run, use **Publish Maven Central** from the Actions UI.
+Select a trusted ref containing the publishing workflow in **Use workflow from**,
+enter the release tag in `tag`, and leave `publish` unchecked to validate without
+publishing. After the workflow is on `main`, the CLI equivalent for `0.5.1` is:
+
+```bash
+gh workflow run maven-central.yml --repo microsoft/brewlet \
+  --ref main -f tag=v0.5.1 -f publish=false
+```
+
+The tag must exist and its specification version must match, but it does not
+need to contain the new workflow or publishing profile. Do not move an existing
+tag or publish current development sources under an old version.
+
+Open the deployment in the Central Publisher Portal after validation. It can
+be published manually without rebuilding or deleted if this was only a test.
+To automatically publish a new deployment instead, explicitly pass
+`-f publish=true` to the dedicated workflow.
+
+The publishing workflow must first be present on the default branch for GitHub
+to allow manual dispatch. The general Release workflow's version-only manual
+dispatch retains its existing behavior and does not submit to Central.
+
+Central versions are immutable. If a job times out, inspect the deployment in
+the Portal before retrying: it may already be published or still processing.
+Never retry a published version or move its tag; use a new version for changed
+artifacts. Older GitHub releases are not automatically backfilled into Central.
+
+The `central-release` profile itself defaults to `central.autoPublish=false`
+and `central.waitUntil=validated`; the automated tag-release path explicitly
+overrides both properties. Never use `publish=true` for a validation-only test.
+
+CI tests the tagged-POM preparation, runs
+`verify -Pcentral-release -Dgpg.skip=true`, checks the plugin, sources, and Javadoc
+JARs and the `brewlet` prefix, and confirms that SNAPSHOT versions are rejected.
+It never invokes the publishing phase and requires no secrets.
 
 ## License
 

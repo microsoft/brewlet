@@ -435,6 +435,15 @@ jobs:
             dist/brewlet-maven-plugin-*.pom
             dist/checksums.txt
 
+  maven-central:
+    name: Maven Central
+    if: github.ref_type == 'tag'
+    needs: github-release
+    uses: ./.github/workflows/maven-central.yml
+    with:
+      tag: ${{ github.ref_name }}
+      publish: true
+
   provenance-smoke:
     name: Release provenance
     # verify-release-provenance.sh resolves images, the chart, and release

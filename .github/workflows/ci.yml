@@ -221,6 +221,36 @@ jobs:
           unzip -l target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/NOTICE.txt'
           unzip -l target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/LICENSE.txt'
 
+      - name: Validate Central release artifacts without credentials or upload
+        if: matrix.java == '17'
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py' -v
+          mvn -B --no-transfer-progress \
+            org.codehaus.mojo:versions-maven-plugin:2.22.0:set \
+            -DnewVersion=0.0.0-SNAPSHOT -DgenerateBackupPoms=false
+          if mvn -B --no-transfer-progress -Pcentral-release validate >target/snapshot-check.log 2>&1; then
+            echo "The Central release profile must reject SNAPSHOT versions" >&2
+            exit 1
+          fi
+          grep -q 'RequireReleaseVersion failed' target/snapshot-check.log || {
+            cat target/snapshot-check.log >&2
+            exit 1
+          }
+          mvn -B --no-transfer-progress \
+            org.codehaus.mojo:versions-maven-plugin:2.22.0:set \
+            -DnewVersion=0.0.0-ci -DgenerateBackupPoms=false
+          mvn -B --no-transfer-progress -Pcentral-release \
+            -DskipTests -Dgpg.skip=true verify
+          for suffix in .jar -sources.jar -javadoc.jar; do
+            test -s "target/brewlet-maven-plugin-0.0.0-ci${suffix}"
+          done
+          unzip -p target/brewlet-maven-plugin-0.0.0-ci.jar META-INF/maven/plugin.xml \
+            | grep -F '<goalPrefix>brewlet</goalPrefix>' > /dev/null
+          unzip -p target/brewlet-maven-plugin-0.0.0-ci-sources.jar \
+            sh/brewlet/maven/plugin/PushMojo.java > /dev/null
+          unzip -p target/brewlet-maven-plugin-0.0.0-ci-javadoc.jar \
+            sh/brewlet/maven/plugin/PushMojo.html > /dev/null
+
   notices:
     name: License and notices
     runs-on: ubuntu-latest

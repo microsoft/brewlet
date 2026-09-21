@@ -65,6 +65,7 @@ kubernetes-check: ## Run Kubernetes platform CI checks
 	$(MAKE) -C kubernetes ci
 
 maven-plugin-check: ## Run Maven plugin tests
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s maven-plugin/scripts -p 'test_*.py' -v
 	mvn -B --no-transfer-progress -f maven-plugin/pom.xml verify
 	maven-plugin/scripts/generate-notice.sh --check
 	unzip -l maven-plugin/target/brewlet-maven-plugin-*.jar | grep -q 'META-INF/NOTICE.txt'
