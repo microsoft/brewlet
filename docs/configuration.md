@@ -427,11 +427,19 @@ footprint.
 - **JDK selection:** the deployment descriptor is authoritative:
   `spec.jvm.version` (plus optional `spec.jvm.distribution`) on `JavaApplication`,
   or `brewlet.sh/jdk` on raw pods, drives validation, scheduling, and shim launch
-  selection. A bare feature matches any distribution; `<distribution>-<feature>`
-  pins one.
+  selection. A bare feature matches any distribution; the shim chooses the
+  lexicographically first active, compatible inventory entry of that feature on
+  each node. `<distribution>-<feature>` pins one inventory entry, not a patch
+  version. Adding an earlier-sorting name can change future version-only
+  launches, and different node inventories can produce different choices.
+  See [JDK selection and defaults](jdk-management.md#when-distribution-is-omitted).
 - **JDK source selection:** every `spec.jdks[]` entry carries exactly one
   digest-pinned source and Java-home path. Distribution names never resolve to
-  Brewlet-owned images.
+  Brewlet-owned images. Custom names such as `temurin-stable` and `temurin-canary`
+  let two builds of the same feature coexist; define them in
+  `NodeProfile.spec.jdks[].distribution` (or `provisioner.jdks[].distribution`
+  for Helm's default profile). There is no separate patch/build selector in
+  `spec.jvm`; the selected entry's source digest determines the build.
 - **Mirror selection:** a NodeProfile mapping is accepted only when its
   destination host exactly matches the external operator/admission allowlist.
 - **cgroup v2 is mandatory** on nodes; the provisioner refuses cgroup v1-only nodes.
