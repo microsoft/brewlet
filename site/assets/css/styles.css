@@ -367,6 +367,9 @@ code {
   margin: 36px 0 24px;
 }
 .code-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   background: #241814;
   border-radius: var(--radius);
   overflow: hidden;
@@ -397,13 +400,33 @@ code {
   font-family: var(--mono);
 }
 .code-card pre {
+  flex: 1;
   margin: 0;
   padding: 20px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  overflow-x: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: #b9a99a #1b1210;
 }
-.code-card pre::-webkit-scrollbar { display: none; }
+.code-card pre:focus-visible {
+  outline: 2px solid #78b6ff;
+  outline-offset: -4px;
+  box-shadow: none;
+}
+@supports selector(::-webkit-scrollbar) {
+  .code-card pre {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+  .code-card pre::-webkit-scrollbar { height: 12px; }
+  .code-card pre::-webkit-scrollbar-track { background: #1b1210; }
+  .code-card pre::-webkit-scrollbar-thumb {
+    background: #b9a99a;
+    border: 3px solid #1b1210;
+    border-radius: var(--radius-sm);
+  }
+  .code-card pre::-webkit-scrollbar-thumb:hover { background: var(--cream); }
+  .code-card pre::-webkit-scrollbar-thumb:active { background: var(--white); }
+}
 .code-card code {
   background: none;
   color: #e9dfd4;
@@ -479,26 +502,6 @@ code {
   font-size: 0.9rem;
   line-height: 1.5;
 }
-
-/* ---------- Component links ---------- */
-.cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px 28px;
-  margin-top: 44px;
-}
-.card {
-  padding: 4px 0;
-}
-.card[href] {
-  color: inherit;
-}
-.card[href]:hover {
-  color: var(--coffee);
-  text-decoration: none;
-}
-.card h3 { font-size: 1.08rem; margin-bottom: 0.3em; }
-.card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
 
 /* ---------- Steps: connected horizontal flow ---------- */
 .steps {
@@ -667,7 +670,6 @@ details p { padding-bottom: 16px; margin: 0; color: var(--muted); }
   .value-layout { grid-template-columns: 1fr; gap: 34px; }
   .value-intro { position: static; }
   .value-intro h2 { max-width: 18ch; }
-  .cards { grid-template-columns: 1fr 1fr; }
   /* Steps become a vertical connected flow */
   .steps {
     grid-template-columns: 1fr;
@@ -733,7 +735,7 @@ details p { padding-bottom: 16px; margin: 0; color: var(--muted); }
   .nav-links .btn-ghost { margin-top: 10px; justify-content: center; padding: 12px 16px; }
 }
 @media (max-width: 620px) {
-  .cards, .steps { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr; }
   .value-priority { grid-template-columns: 1fr; gap: 8px; }
   .value-secondary { grid-template-columns: 1fr; gap: 20px; }
   .stack-compare { flex-direction: column; }

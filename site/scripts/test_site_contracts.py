@@ -94,7 +94,7 @@ class SiteContractsTest(unittest.TestCase):
         for deployment_field in ("jdk", "launcher", "ports", "jvmArgs", "resources"):
             self.assertNotIn(deployment_field, config)
 
-    def test_complete_workload_descriptor_uses_an_explicit_example_digest(self):
+    def test_complete_workload_descriptor_uses_an_explicit_digest_placeholder(self):
         descriptors = [block for _, block in self.page.blocks
                        if "kind: JavaApplication" in block]
         self.assertEqual(len(descriptors), 1)
@@ -102,9 +102,9 @@ class SiteContractsTest(unittest.TestCase):
         self.assertIn("apiVersion: apps.brewlet.sh/v1alpha1", descriptor)
         images = re.findall(r"^\s*image:\s*(\S+)\s*$", descriptor, re.MULTILINE)
         self.assertEqual(len(images), 1)
-        self.assertRegex(images[0], r"^registry\.example\.com/[\w/-]+@sha256:[0-9a-f]{64}$")
-        self.assertIn("illustrative", descriptor)
-        self.assertIn("Use the digest printed by brewlet:push", descriptor)
+        self.assertEqual(images[0], "registry.example.com/team/app@sha256:<published-digest>")
+        self.assertIn("Replace <published-digest> with the full digest printed by brewlet:push",
+                      descriptor)
 
     def test_cli_examples_explicitly_use_local_stores(self):
         commands = []
@@ -126,24 +126,20 @@ class SiteContractsTest(unittest.TestCase):
 
     def test_quickstart_uses_released_cli_plugin_and_matching_example_source(self):
         blocks = "\n".join(block for section, block in self.page.blocks if section == "quickstart")
-        self.assertIn('curl -fsSL https://brewlet.sh/install.sh | sh -s -- '
-                      '--version latest --install-dir "$HOME/.local/bin"', blocks)
+        self.assertIn('$ curl -fsSL https://brewlet.sh/install.sh | sh\n', blocks)
         self.assertIn('export PATH="$HOME/.local/bin:$PATH"', blocks)
-        self.assertIn('BREWLET_VERSION="$(brewlet version)"', blocks)
-        self.assertIn("export BREWLET_VERSION", blocks)
+        self.assertNotIn("BREWLET_VERSION", self.text)
         self.assertLess(blocks.index("install.sh"), blocks.index("export PATH"))
-        self.assertLess(blocks.index("export PATH"), blocks.index("brewlet version"))
-        self.assertLess(blocks.index("brewlet version"), blocks.index("export BREWLET_VERSION"))
-        self.assertLess(blocks.index("export BREWLET_VERSION"), blocks.index("git clone"))
-        self.assertIn('git clone --depth 1 --branch "v${BREWLET_VERSION}" '
+        self.assertLess(blocks.index("export PATH"), blocks.index("git clone"))
+        self.assertIn('git clone --depth 1 --branch "v$(brewlet version)" '
                       'https://github.com/microsoft/brewlet.git', blocks)
         self.assertIn("integration-tests/fixtures/demo-app/pom.xml", blocks)
         self.assertTrue((ROOT / "integration-tests/fixtures/demo-app/pom.xml").is_file())
         self.assertIn("Maven Central", blocks)
         self.assertNotIn("maven-install-plugin", blocks)
         self.assertNotIn("releases/download", blocks)
-        self.assertIn('sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:build', blocks)
-        self.assertIn('sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push', self.text)
+        self.assertIn('sh.brewlet:brewlet-maven-plugin:$(brewlet version):build', blocks)
+        self.assertIn('sh.brewlet:brewlet-maven-plugin:$(brewlet version):push', self.text)
         self.assertEqual(blocks.count("demo/hello:local"), 4)
         self.assertNotIn("make binaries", blocks)
         self.assertNotIn("maven-plugin/pom.xml", blocks)
@@ -319,14 +315,17 @@ mvn() {
             self.assertNotIn(old_claim, self.text)
 
     def test_landing_pages_link_preview_validation_limits(self):
-        for filename in ("index.html", "index-value-prop.html"):
+        for filename, validation_link in (
+            ("index.html", "/docs/live-validation/"),
+            ("index-value-prop.html", "/docs/#preview-status-and-validation"),
+        ):
             with self.subTest(page=filename):
                 page = LandingPage((ROOT / "site" / filename).read_text(encoding="utf-8"))
                 text = " ".join("".join(page.text).split())
                 self.assertIn("pre-1.0 preview", text)
                 self.assertIn("disposable evaluation environment", text)
                 links = [href for href, _ in page.links]
-                self.assertIn("/docs/#preview-status-and-validation", links)
+                self.assertIn(validation_link, links)
                 self.assertIn("https://github.com/microsoft/brewlet/issues/95", links)
                 self.assertNotIn("full (Services, probes, HPA, logs)", text)
                 self.assertNotIn("HPA and Services all work unchanged", text)
@@ -391,10 +390,11 @@ mvn() {
                 self.assertNotIn("shim pulls", labels)
                 self.assertIn("mvn brewlet:push", labels)
 
-    def test_component_links_point_to_their_actual_subprojects(self):
-        for title, directory in (("Core runtime", "core"), ("Site and docs", "site")):
-            links = [href for href, text in self.page.links if text.startswith(title)]
-            self.assertEqual(links, ["https://github.com/microsoft/brewlet/tree/main/" + directory])
+    def test_in_page_links_point_to_existing_sections(self):
+        for href, text in self.page.links:
+            if href and href.startswith("#"):
+                with self.subTest(link=text):
+                    self.assertIn(href[1:], self.page.ids)
 
 
 class LocalGuideSetupTest(unittest.TestCase):

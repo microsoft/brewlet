@@ -74,7 +74,6 @@
           </p>
           <p class="sub">
             <strong>Public pre-1.0 preview.</strong> Use a disposable evaluation environment.
-            See <a href="/docs/#preview-status-and-validation">validation coverage and remaining gaps</a>.
           </p>
           <div class="hero-cta" data-reveal data-reveal-delay="3">
             <a class="btn btn-primary" href="#quickstart">Get started</a>
@@ -114,7 +113,7 @@
         <div class="code-compare">
           <div class="code-card" data-reveal data-reveal-delay="0">
             <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">Container image — app plus runtime</span></div>
-            <pre><code><span class="c-kw">FROM</span> eclipse-temurin:21-jre   <span class="c-cm"># you own this base + its CVEs</span>
+            <pre tabindex="0"><code><span class="c-kw">FROM</span> eclipse-temurin:21-jre   <span class="c-cm"># you own this base + its CVEs</span>
 <span class="c-kw">COPY</span> target/app.jar /app/app.jar
 <span class="c-kw">ENTRYPOINT</span> ["java","-jar","/app/app.jar"]
 
@@ -123,11 +122,11 @@ $ docker push registry/app:1.4.2   <span class="c-cm"># unchanged layers are reu
           </div>
           <div class="code-card highlight" data-reveal data-reveal-delay="1">
             <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">Brewlet image — just the app</span></div>
-            <pre><code><span class="c-cm"># Package a local OCI image: the Go CLI does not upload to a registry</span>
+            <pre tabindex="0"><code><span class="c-cm"># Package a local OCI image: the Go CLI does not upload to a registry</span>
 $ brewlet push target/app.jar demo/app:1.4.2 --store ./oci --format image
 
-<span class="c-cm"># Publish with the Maven Central plugin; select the release in the quick start below:</span>
-$ mvn package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
+<span class="c-cm"># Publish with the Maven Central plugin matching your installed CLI:</span>
+$ mvn package "sh.brewlet:brewlet-maven-plugin:$(brewlet version):push" \
     <span class="c-key">-Dbrewlet.image</span>=registry.example.com/team/app:1.4.2
 
 <span class="c-cm"># Deploy it — one Brewlet-specific line.</span>
@@ -149,7 +148,7 @@ $ mvn package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
           </p>
           <div class="code-card wide" data-reveal>
             <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">brewlet.json — the launch config</span></div>
-            <pre><code>{
+            <pre tabindex="0"><code>{
   <span class="c-key">"schemaVersion"</span>: <span class="c-val">1</span>,
   <span class="c-key">"mainJar"</span>: <span class="c-val">"app.jar"</span>,
   <span class="c-key">"entry"</span>: { <span class="c-key">"mode"</span>: <span class="c-val">"jar"</span> },
@@ -282,15 +281,15 @@ $ mvn package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
           readings depend on the JDK and deployment settings.
         </p>
         <div class="code-card wide" data-reveal>
-          <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">orders.yaml — replace the example digest</span></div>
-          <pre><code><span class="c-key">apiVersion</span>: <span class="c-val">apps.brewlet.sh/v1alpha1</span>
+          <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">orders.yaml — replace the digest placeholder</span></div>
+          <pre tabindex="0"><code><span class="c-key">apiVersion</span>: <span class="c-val">apps.brewlet.sh/v1alpha1</span>
 <span class="c-key">kind</span>: <span class="c-val">JavaApplication</span>
 <span class="c-key">metadata</span>:
   <span class="c-key">name</span>: <span class="c-val">orders</span>
 <span class="c-key">spec</span>:
   <span class="c-key">artifact</span>:
-    <span class="c-cm"># Use the digest printed by brewlet:push; this digest is illustrative.</span>
-    <span class="c-key">image</span>: <span class="c-val">registry.example.com/team/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</span>
+    <span class="c-cm"># Replace &lt;published-digest&gt; with the full digest printed by brewlet:push.</span>
+    <span class="c-key">image</span>: <span class="c-val">registry.example.com/team/app@sha256:&lt;published-digest&gt;</span>
   <span class="c-key">replicas</span>: <span class="c-val">1</span>
   <span class="c-key">jvm</span>:
     <span class="c-key">version</span>: <span class="c-val">21</span>                    <span class="c-cm"># must match a JDK your nodes offer</span>
@@ -308,7 +307,7 @@ $ mvn package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
         <div class="code-compare">
           <div class="code-card" data-reveal data-reveal-delay="0">
             <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">Local run — macOS</span></div>
-            <pre><code><span class="c-cm"># Run an artifact already packaged in the local OCI store</span>
+            <pre tabindex="0"><code><span class="c-cm"># Run an artifact already packaged in the local OCI store</span>
 $ brewlet run demo/hello:1.0.0 --store ./oci
 <span class="c-cm">→ java -jar /run/brewlet/app.jar   (no container image)</span>
 
@@ -318,7 +317,7 @@ on the node via Brewlet!</code></pre>
           </div>
           <div class="code-card highlight" data-reveal data-reveal-delay="1">
             <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">Real Kubernetes — Deployment + Service</span></div>
-            <pre><code>$ kubectl apply -f orders.yaml
+            <pre tabindex="0"><code>$ kubectl apply -f orders.yaml
 $ kubectl get pod -l app=orders
 <span class="c-key">NAME</span>          <span class="c-key">READY</span>   <span class="c-key">STATUS</span>
 orders-7c9…   <span class="c-val">1/1</span>     <span class="c-val">Running</span>
@@ -344,66 +343,27 @@ $ curl orders:8080/info
     <!-- COMPARE -->
     <section class="section" id="compare">
       <div class="container">
-        <h2 data-reveal>Brewlet vs. containers vs. SpinKube</h2>
+        <h2 data-reveal>Brewlet vs. containers</h2>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th></th>
-                <th>Traditional container</th>
                 <th class="col-highlight">Brewlet (JVM)</th>
-                <th>SpinKube (Wasm)</th>
+                <th>Traditional container</th>
               </tr>
             </thead>
             <tbody>
-              <tr><th>Workload</th><td>any containerized process</td><td class="col-highlight"><strong>existing JVM applications</strong></td><td>Spin-compatible Wasm applications</td></tr>
-              <tr><th>Developer artifact</th><td>full OCI image</td><td class="col-highlight"><strong>JAR, classpath, or JPMS app</strong> in OCI</td><td>Wasm/Spin application in OCI</td></tr>
-              <tr><th>Dockerfile required</th><td>no (for example, Jib or Buildpacks)</td><td class="col-highlight"><strong>no</strong></td><td>no</td></tr>
-              <tr><th>Runtime location</th><td>inside the image</td><td class="col-highlight"><strong>shared node JDK</strong></td><td>node-installed Wasm runtime</td></tr>
-              <tr><th>Patch the runtime</th><td>update images and roll workloads</td><td class="col-highlight"><strong>update node JDKs, then roll workloads</strong></td><td>update node runtime</td></tr>
-              <tr><th>Isolation</th><td>namespaces + cgroups (runc)</td><td class="col-highlight"><strong>namespaces + cgroups (runc)</strong></td><td>Wasm sandbox</td></tr>
-              <tr><th>K8s integration</th><td>full</td><td class="col-highlight"><strong>Services, probes, logs</strong>; <a href="/docs/deploying-workloads/#autoscaling">CPU HPA candidate validated</a></td><td>full</td></tr>
-              <tr><th>Best fit</th><td>general-purpose workloads</td><td class="col-highlight"><strong>JVM compatibility without full images</strong></td><td>small, fast-starting Wasm workloads</td></tr>
+              <tr><th>Workload</th><td class="col-highlight"><strong>existing JVM applications</strong></td><td>any containerized process</td></tr>
+              <tr><th>Developer artifact</th><td class="col-highlight"><strong>JAR, classpath, or JPMS app</strong> in OCI</td><td>full OCI image</td></tr>
+              <tr><th>Dockerfile required</th><td class="col-highlight"><strong>no</strong></td><td>no (for example, Jib or Buildpacks)</td></tr>
+              <tr><th>Runtime location</th><td class="col-highlight"><strong>shared node JDK</strong></td><td>inside the image</td></tr>
+              <tr><th>Patch the runtime</th><td class="col-highlight"><strong>update node JDKs, then roll workloads</strong></td><td>update images and roll workloads</td></tr>
+              <tr><th>Isolation</th><td class="col-highlight"><strong>namespaces + cgroups (runc)</strong></td><td>namespaces + cgroups (runc)</td></tr>
+              <tr><th>K8s integration</th><td class="col-highlight"><strong>Services, probes, logs</strong>; <a href="/docs/deploying-workloads/#autoscaling">CPU HPA candidate validated</a></td><td>full</td></tr>
+              <tr><th>Best fit</th><td class="col-highlight"><strong>JVM compatibility without full images</strong></td><td>general-purpose workloads</td></tr>
             </tbody>
           </table>
-        </div>
-        <p class="center muted">Brewlet favors JVM compatibility; SpinKube favors the smaller footprint and capability model of WebAssembly.</p>
-      </div>
-    </section>
-
-    <!-- COMPONENTS -->
-    <section class="section alt" id="repositories">
-      <div class="container">
-        <h2 data-reveal>One monorepo, focused components</h2>
-        <p class="section-lede" data-reveal>
-          Runtime, Kubernetes, Maven, specifications, and integration tests share
-          one revision and coordinated CI. The website remains separately published.
-        </p>
-        <div class="cards">
-          <a class="card" href="https://github.com/microsoft/brewlet/tree/main/core" data-reveal>
-            <h3>Core runtime</h3>
-            <p>CLI, OCI artifacts, containerd shim, and node provisioner.</p>
-          </a>
-          <a class="card" href="https://github.com/microsoft/brewlet/tree/main/kubernetes" data-reveal>
-            <h3>Kubernetes</h3>
-            <p>Operator, admission webhooks, APIs, manifests, and Helm chart.</p>
-          </a>
-          <a class="card" href="https://github.com/microsoft/brewlet/tree/main/maven-plugin" data-reveal>
-            <h3>Maven plugin</h3>
-            <p>Build and publish Brewlet applications from Maven.</p>
-          </a>
-          <a class="card" href="https://github.com/microsoft/brewlet/tree/main/specs" data-reveal>
-            <h3>Specifications</h3>
-            <p>Architecture contracts and enhancement proposals.</p>
-          </a>
-          <a class="card" href="https://github.com/microsoft/brewlet/tree/main/integration-tests" data-reveal>
-            <h3>Integration tests</h3>
-            <p>Cross-component test orchestration and fixture applications.</p>
-          </a>
-          <a class="card" href="https://github.com/microsoft/brewlet/tree/main/site" data-reveal>
-            <h3>Site and docs</h3>
-            <p>This website, user guides, workshop, and brand assets.</p>
-          </a>
         </div>
       </div>
     </section>
@@ -415,14 +375,12 @@ $ curl orders:8080/info
         <p class="section-lede">Install the released CLI on macOS or Linux, then run a Java application. You need JDK 21+, Maven 3.9+, Git, curl, and tar. No Go toolchain, Docker, or Kubernetes cluster is needed.</p>
         <div class="code-card wide" data-reveal>
           <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">terminal</span></div>
-          <pre><code><span class="c-cm"># Install the CLI (the installer verifies the release checksum)</span>
-$ curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version latest --install-dir "$HOME/.local/bin"
+          <pre tabindex="0"><code><span class="c-cm"># Install the CLI (the installer verifies the release checksum)</span>
+$ curl -fsSL https://brewlet.sh/install.sh | sh
 $ export PATH="$HOME/.local/bin:$PATH"
-$ BREWLET_VERSION="$(brewlet version)"
-$ export BREWLET_VERSION
 
 <span class="c-cm"># Build the example from the matching release tag</span>
-$ git clone --depth 1 --branch "v${BREWLET_VERSION}" https://github.com/microsoft/brewlet.git
+$ git clone --depth 1 --branch "v$(brewlet version)" https://github.com/microsoft/brewlet.git
 $ cd brewlet
 $ mvn -q -f integration-tests/fixtures/demo-app/pom.xml package
 
@@ -435,9 +393,9 @@ $ brewlet run demo/hello:local --store ./oci</code></pre>
        <p class="section-lede" data-reveal>Stop the app with Ctrl+C, then package a local image with the plugin from <a href="https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin">Maven Central</a>. Maven downloads the matching version automatically, with no manual installation or GitHub credentials. For short <code>mvn brewlet:push</code> commands, <a href="/docs/building-and-publishing/#option-c-maven-plugin">declare the plugin in your POM</a>. Use the <code>push</code> goal with a registry you control when you are ready to publish.</p>
        <div class="code-card wide" data-reveal>
          <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">your project</span></div>
-         <pre><code><span class="c-cm"># Resolve the plugin from Maven Central and build a local OCI layout</span>
+         <pre tabindex="0"><code><span class="c-cm"># Resolve the plugin from Maven Central and build a local OCI layout</span>
 $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
-    "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:build" \
+    "sh.brewlet:brewlet-maven-plugin:$(brewlet version):build" \
     <span class="c-key">-Dbrewlet.image</span>=demo/hello:local</code></pre>
        </div>
        <div class="hero-cta center">
@@ -516,7 +474,6 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
       <nav aria-label="Footer">
         <a href="/docs/">Documentation</a>
         <a href="/docs/workshops/">Workshops</a>
-        <a href="#repositories">Components</a>
         <a href="#faq">FAQ</a>
         <a href="https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md">Specification</a>
         <a href="https://github.com/microsoft/brewlet">GitHub</a>
