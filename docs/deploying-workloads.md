@@ -101,10 +101,13 @@ spec:
 For raw Kubernetes workloads, request the JDK/launcher with pod annotations. The
 admission webhook validates them against the ready fleet, injects `nodeAffinity`,
 and the shim reads the propagated JDK/launcher annotations at launch while still
-resolving the workload image digest from containerd metadata. If `brewlet.sh/jdk`
-is absent, the shim defaults to feature 21 and picks the lexically-first
-installed distribution for it; omit `brewlet.sh/launcher` for
-vanilla `java`.
+resolving the workload image digest from containerd metadata. A bare
+`brewlet.sh/jdk: "21"` accepts any distribution of that feature; the shim picks
+the lexicographically first active, compatible inventory name on the selected
+node. If the annotation is absent, the shim defaults to feature 21 and uses the
+same selection rule. Pin a name such as `"temurin-21"` or `"temurin-canary-21"`
+when the choice matters (see [JDK selection](#jdk-selection)).
+Omit `brewlet.sh/launcher` for vanilla `java`.
 
 ```yaml
 apiVersion: apps/v1
@@ -198,6 +201,7 @@ spec:
     limits:   { cpu: "2",    memory: "1Gi" }
   jvm:
     version: 21                  # JDK feature version
+    distribution: temurin        # selects the node's temurin-21 inventory entry
     launcher: java               # vanilla OpenJDK (default); or "jaz"
     args:                        # YOUR tuning — Brewlet injects none
       - "-XX:MaxRAMPercentage=75.0"
@@ -231,7 +235,7 @@ spec:
 | `replicas` / `autoscaling` | Deployment replica count / HPA. |
 | `resources` | Requests → scheduling/HPA; limits → sandbox cgroup ceilings ([Resource requests, limits & JVM tuning](resource-tuning.md)). |
 | `jvm.version` | JDK feature version to run on (e.g. `21`); must match a node-installed JDK. |
-| `jvm.distribution` | Optional JDK distribution (`temurin`, `microsoft`). With `jvm.version` pins an exact `<distribution>-<feature>` node JDK; omit to accept any distribution of that feature. |
+| `jvm.distribution` | Optional administrator-defined inventory name (`temurin`, `microsoft`, `temurin-canary`). With `jvm.version` selects an exact `<distribution>-<feature>` entry; omit to choose the lexicographically first active, compatible entry of that feature on each node. See [JDK selection](#jdk-selection). |
 | `jvm.launcher` | `java` (default) or `jaz` ([Launchers](launchers.md)). |
 | `jvm.args` | Your JVM tuning flags, delivered as argv via the `brewlet.sh/jvm-args` pod annotation and applied after the artifact's own launch knobs (so they win on conflict). May not select the entrypoint (`-jar`, `-cp`, `-p`, `-m`, `@argfile`). Omit under `jaz`. |
 | `jvm.cds.regenerate` | Request **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). Default `false`. Requires an otherwise-compatible ready node whose `NodeProfile.spec.appCDS.regenerationEnabled` is true; otherwise admission denies with `AppCDSRegenerationDisabled`, and the shim independently enforces the host policy. The private cache key includes the trusted namespace, the verified platform manifest derived from the CRI/containerd-resolved image, the JDK build, and the CRI process UID. Any shipped `cds.archive` becomes optional seed data. |
@@ -240,6 +244,26 @@ spec:
 
 The `status` subresource surfaces `readyReplicas`, the `selectedJdk`, and `Ready`
 conditions.
+
+### JDK selection
+
+A pool can install multiple JDKs of the same feature version. Set
+`spec.jvm.distribution` to the name the platform team registered in
+`NodeProfile.spec.jdks[].distribution`, together with `spec.jvm.version`.
+For example, `version: 21` and `distribution: temurin-canary` select
+`temurin-canary-21`, without falling back to another distribution.
+
+Leaving `distribution` unset means **any compatible distribution**, not "stable"
+or "latest". Each node chooses its lexicographically first active, compatible
+inventory entry for the requested feature. Adding `temurin-canary-21` alongside
+`temurin-stable-21` therefore changes the selection for future version-only
+launches to the canary. Replicas may choose differently on nodes with different
+inventories; pin the distribution when that is undesirable.
+
+There is no patch/build selector in `spec.jvm`: `version` is an integer feature
+version, and the platform team's inventory entry pins the source-image digest.
+See [Multiple JDKs of the same feature version](jdk-management.md#multiple-jdks-of-the-same-feature-version)
+for installation and application examples, including two builds from one vendor.
 
 ### Rollout readiness
 

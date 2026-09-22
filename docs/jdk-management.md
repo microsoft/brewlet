@@ -15,7 +15,8 @@ Related: [Configuration](configuration.md) ·
 Brewlet has no built-in JDK catalog and does not map distribution names to
 images. Every `spec.jdks[]` entry requires:
 
-- a stable lowercase `distribution` name used in the node inventory;
+- a stable lowercase `distribution` name used in the node inventory (a DNS-1123
+  label, at most 48 characters);
 - a positive Java `feature` version;
 - a fully qualified, tagless
   `source.image` in `registry/repository@sha256:<64 lowercase hex>` form; and
@@ -91,6 +92,103 @@ spec:
     validate: true
     containerdRestart: validated
 ```
+
+---
+
+## Multiple JDKs of the same feature version
+
+A node pool can have multiple JDK 21 installations **on each node**, not just
+different feature versions. Each installation is identified by its
+`<distribution>-<feature>` inventory token. For example, `temurin-21` and
+`microsoft-21` can coexist.
+
+The `distribution` field is an administrator-defined inventory name, not a fixed
+vendor enum. To install two builds of the same vendor's JDK 21, give them distinct
+names such as `temurin-stable` and `temurin-canary`. Two entries with the same
+`distribution` and `feature` are rejected, even if their source digests differ.
+
+Configure both entries in the pool's `NodeProfile.spec.jdks`. This example uses
+two Temurin builds; replace each digest placeholder with the reviewed
+64-character lowercase SHA-256 digest for that build before applying it:
+
+```yaml
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata:
+  name: java-platform
+spec:
+  nodePool:
+    names: ["java-workers"]
+  jdks:
+    - distribution: temurin-stable
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<stable-64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+    - distribution: temurin-canary
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<canary-64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+  rollout:
+    validate: true
+    containerdRestart: validated
+```
+
+Add these entries to the profile that owns the pool, rather than creating
+overlapping profiles. For Helm's default profile, the equivalent names go in
+`provisioner.jdks[].distribution` in your values file. The resulting roots are
+`/opt/brewlet/jdks/temurin-stable-21/` and
+`/opt/brewlet/jdks/temurin-canary-21/`.
+
+### Selecting an installation from an application
+
+In the application's `JavaApplication` descriptor, set both the feature version
+and the **same inventory name**:
+
+```yaml
+spec:
+  jvm:
+    version: 21
+    distribution: temurin-canary
+```
+
+This selects `temurin-canary-21`; change `distribution` to `temurin-stable` to
+select the other installation. For a raw `Deployment`, the equivalent Pod
+template annotation is `brewlet.sh/jdk: "temurin-canary-21"`.
+
+An explicit distribution request does not fall back to another distribution.
+Admission rejects a request with no compatible ready node as `NoCompatibleJDK`,
+and the shim independently refuses an unavailable or inactive installation.
+
+`spec.jvm.version` is the integer **feature version**, not a patch version.
+There is no separate patch/build or source-digest selector in `spec.jvm`. The
+selected inventory entry's `source.image` controls the exact build. Updating its
+digest replaces that installation for future launches; use distinct inventory
+names when builds must coexist. See [Patching & upgrading JDKs](#patching-upgrading-jdks).
+
+### When distribution is omitted
+
+With only `spec.jvm.version: 21`, any active, compatible JDK 21 is acceptable.
+After scheduling, the shim selects the **lexicographically first matching
+inventory name on that node**, not the newest patch or a preferred vendor.
+The same rule applies to a bare `brewlet.sh/jdk: "21"` annotation; with no JDK
+request, the shim defaults to feature 21 and uses that rule.
+
+| Active, compatible installations on the node | Selected for version 21 alone |
+|---|---|
+| `microsoft-21`, `temurin-21` | `microsoft-21` |
+| `temurin-canary-21`, `temurin-stable-21` | `temurin-canary-21` |
+
+**`stable` and `canary` have no special meaning to Brewlet.** Adding a
+lexicographically earlier name can change the JDK selected by newly launched or
+restarted workloads that omit `distribution`; already-running JVMs are not
+switched. Replicas on nodes with different inventories can select different
+distributions.
+
+Pin both `version` and `distribution` for predictable selection, and keep the
+source digest consistent across the targeted nodes when the exact build matters.
+See [Deploying workloads](deploying-workloads.md#jdk-selection).
 
 ---
 
