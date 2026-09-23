@@ -55,6 +55,13 @@ accepted and implemented.
   [proposal 0005](specs/proposals/0005-replica-coalescing.md).
 - **Gradle plugin.** Provide the artifact build, publish, inspection, and
   manifest workflow currently available through the Maven plugin.
+- **Baked golden-image delivery.** Evaluate an optional publishing mode that
+  appends the application layers onto an operator-approved, digest-pinned golden
+  base image in CI, producing an ordinary image that runs on the stock `runc`
+  RuntimeClass without node-installed JDK roots or the Brewlet shim. It would
+  suit clusters that cannot accept privileged provisioning or that need a
+  VM-isolated sandbox, at the cost of centralized JDK patching. See
+  [proposal 0007](specs/proposals/0007-baked-golden-image-delivery.md).
 - **Registry publication from the Go CLI.** `brewlet push` currently reads and
   writes local OCI layouts through `--store`; direct registry publication and
   referrer consumption are available only through the Maven plugin. A Go
