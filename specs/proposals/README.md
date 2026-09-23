@@ -22,3 +22,5 @@ engineering rationale behind those roadmap items.
   — proposed
 - [0006 — Sandbox isolation tiers](0006-sandbox-isolation-tiers.md)
   — research complete; implementation gated on prototype
+- [0007 — Baked golden-image delivery](0007-baked-golden-image-delivery.md)
+  — proposed as an optional delivery mode, not a replacement
