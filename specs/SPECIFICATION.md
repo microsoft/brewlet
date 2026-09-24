@@ -1,6 +1,6 @@
 # Brewlet — The JVM analogue to SpinKube
 
-**Version:** 0.5.1
+**Version:** 0.6.0
 
 **Audience:** Platform engineers, Kubernetes operators, JVM platform owners
 
