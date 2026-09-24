@@ -89,10 +89,12 @@ jobs:
           setup_envtest="$(go env GOPATH)/bin/setup-envtest"
           echo "KUBEBUILDER_ASSETS=$("$setup_envtest" use 1.31.0 -p path)" >> "$GITHUB_ENV"
 
-      - name: Set up Helm for uninstall lifecycle tests
+      - name: Set up Helm for lifecycle and CLI integration tests
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
       - name: Test
+        env:
+          BREWLET_REQUIRE_CLI_INTEGRATION: "true"
         run: make test
 
   admission:

@@ -53,3 +53,21 @@ an exercised capability fails. The suite covers:
 | 15 | live opt-in Prometheus metrics through Helm, provisioner, shim, and exporter | both + fixtures |
 
 See [AGENTS.md](AGENTS.md) for cluster requirements, cleanup, and troubleshooting.
+
+## Kubernetes CLI API integration
+
+The process/API integration suite lives in the existing Kubernetes Go module
+so it can reuse envtest and the production controllers:
+
+```bash
+make -C kubernetes test-cli-integration
+```
+
+It builds the CLI and invokes real kubectl/Helm against a fresh API server and
+etcd using only private fixture kubeconfigs. No Docker daemon, existing cluster,
+or tier reset is used. Missing prerequisites fail this explicit target. The
+Kubernetes pull-request CI job runs the same tests.
+
+See [CLI integration tests](../kubernetes/README.md#cli-integration-tests) for
+coverage and limitations. In particular, fixture readiness and node inventory
+are simulated; this is not coverage of host provisioning or JVM execution.
