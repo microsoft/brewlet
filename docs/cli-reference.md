@@ -25,6 +25,7 @@ brewlet run     <ref>       [flags]   pull + launch java -jar on this node
 brewlet bundle  <ref>       [flags]   emit an OCI runc bundle (the shim path)
 brewlet jdks                [flags]   list JDKs available across the cluster
 brewlet doctor              [flags]   diagnose cluster and developer readiness
+brewlet k8s <command>        [flags]   manage and inspect Brewlet on Kubernetes
 brewlet version                       print the CLI version
 ```
 
@@ -50,7 +51,7 @@ brewlet keygen --private FILE --public FILE
 ```
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `--private` | *(required)* | Output path for the PKCS#8 PEM private key. |
 | `--public` | *(required)* | Output path for the SubjectPublicKeyInfo PEM public key. |
 
@@ -77,7 +78,7 @@ brewlet dependency-bundle <classpath-tar> <ref> \
 ```
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `--name` | *(required)* | Stable bundle name. |
 | `--version` | *(required)* | Bundle version. |
 | `--source-bom` | *(required)* | Approved Maven BOM in `groupId:artifactId:version` form. |
@@ -126,7 +127,7 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
 ```
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `--format` | `image` | Delivery format: `image` (standard, kubelet-pullable OCI image — the production `runtimeClassName: brewlet` pod image) or `artifact` (native Brewlet OCI artifact for local OCI-layout / CLI / bundle workflows, not the production Kubernetes pod image path). See [runnable-image delivery](runnable-image.md). |
 | `--store` | `./oci` | OCI layout directory to write the artifact into. |
 | `--config` | *(none)* | Path to a `jvm-config.json` to embed verbatim (overrides the generated one). See the [launch config schema](building-and-publishing.md#2-the-launch-config). |
@@ -187,7 +188,7 @@ brewlet inspect <ref> [--store DIR]
 ```
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--trusted-public-key` | *(none)* | ECDSA P-256 public key used to verify managed provenance or attestation; requires `--trusted-signer-identity`. |
 | `--trusted-signer-identity` | *(none)* | Expected signed identity. For a bundle this is its publisher; for a final image this is its application builder. Requires `--trusted-public-key`. |
@@ -211,7 +212,7 @@ brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [--appcds-reg
 ```
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--jdk-root` | *(none)* | Node JDK home to launch with. When unset, falls back to `BREWLET_JDK_HOME`, then `JAVA_HOME`, then `java` on `PATH`. |
 | `--launcher` | `java` | Launcher binary **name** under the selected JDK (or a compatible node-installed launcher name such as `jaz`), resolved on `PATH`. It is a lowercase DNS-1123 token, never a path: separators, `..` and absolute paths are rejected. |
@@ -242,7 +243,7 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID
 ```
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--cpu` | *(unlimited)* | CPU limit, e.g. `2` or `500m` → sandbox `cpu.max`. Minimum `10m` (`0.01` CPU), matching Linux's minimum quota for the 100ms period. |
 | `--memory` | *(unlimited)* | Memory limit, e.g. `512Mi` or `1Gi` → sandbox `memory.max`. |
@@ -281,7 +282,7 @@ brewlet jdks [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--s
 ```
 
 | Flag | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `--output` | `table` | `table` = distinct JDKs across the fleet with a node count; `wide` = one row per node; `json` = machine-readable aggregation (e.g. to drive a CI matrix). |
 | `--kubeconfig` | *(kubectl default)* | Path to a kubeconfig file. |
 | `--context` | *(current)* | kubeconfig context to use. |
@@ -332,13 +333,301 @@ for CI and platform handoff automation.
 
 ---
 
-## `brewlet version`
+## `brewlet k8s`
 
-Print the release version embedded in the binary:
+Brewlet-specific Kubernetes operations, using your installed `kubectl` and
+existing kubeconfig credentials. Installation also requires Helm. No command
+creates a cluster, changes your current context, directly modifies a node, or
+opens a debugger. `brewlet jdks` and `brewlet doctor` remain compatibility
+aliases for `brewlet k8s jdk list` and `brewlet k8s doctor`.
+
+```text
+brewlet k8s jdk list
+brewlet k8s launcher list
+brewlet k8s profile list
+brewlet k8s profile inspect NAME
+brewlet k8s inspect app NAME
+brewlet k8s status
+brewlet k8s doctor
+brewlet k8s install --version X.Y.Z --values FILE
+brewlet k8s jdk add --profile NAME --distribution NAME --feature N --image REF --java-home PATH
+brewlet k8s launcher add --profile NAME --name NAME --image REF --path PATH
+```
+
+**Command verbs describe their effects:** `add` updates the live profile and
+`install` installs Brewlet. `--dry-run` previews those operations without saving
+changes and prints the proposed YAML/JSON only after validation succeeds.
+Failed dry runs exit nonzero with an error on stderr and no rendered output on
+stdout. `list`, `inspect`, `status`, and `doctor` are read-only. Redirecting
+stdout to a file does not change these semantics.
+
+### Connections and output
+
+Common flags may precede the command or follow its full name, for example
+`brewlet k8s --context staging profile inspect java-workers --output json`.
+Flags may also follow positional names.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--kubeconfig FILE` | Tool default | Kubeconfig passed to every Kubernetes/Helm invocation. |
+| `--context NAME` | Current context | Explicit context, without modifying kubeconfig. |
+| `--namespace NAME` | Context namespace | Application inspection namespace. `doctor` preserves its original `default` namespace; installation defaults to `brewlet`. Profiles and node inventories are cluster-scoped. |
+| `--timeout DURATION` | `30s` | Deadline for each kubectl invocation, including credential helpers. |
+| `--output FORMAT` | Command-dependent | Read commands default to `table` and support `json`/`yaml`. JDK/launcher inventory supports `table`/`wide`/`json` instead. `add`, including dry runs, defaults to `yaml` and also supports `json`. Installation prints Helm output after a successful command. |
+
+Inspection's default output is a structured YAML report rather than a flattened
+table. All commands propagate tool/API failures; RBAC-denied reads are not
+reported as empty inventories. Output goes to stdout and mutation notices to
+stderr.
+
+### Inventory, status, and inspection
 
 ```bash
-brewlet version
+brewlet k8s jdk list --output wide
+brewlet k8s launcher list --selector brewlet.sh/runtime=ready
+brewlet k8s profile list --output json
+brewlet k8s profile inspect java-workers
+brewlet k8s status --system-namespace brewlet --output json
+brewlet k8s inspect app orders --namespace my-team
+brewlet k8s doctor --namespace my-team
 ```
+
+JDK inventory reuses the existing [JDK aggregation](#brewlet-jdks), including
+legacy annotation fallback. Launcher inventory aggregates optional launcher
+names from `brewlet.sh/launchers`; the JDK's implicit `java` launcher is not a
+separate entry. Both inventories describe **node-advertised state**, not a
+catalog, a live probe of node files, or proof that a particular Pod uses a JDK.
+Use `--selector` to restrict nodes, such as to runtime-ready nodes.
+
+Profile listing shows **desired** JDK/launcher inventories, pool selection,
+readiness, and node counts. Profile inspection adds the full spec, conditions,
+field-management information, and claimed node summaries. Node identity and
+ownership must match the profile's UID. Missing or stale observed generations
+never count as a current Ready condition.
+
+`status` reports the operator and admission **Deployment rollout state** in
+`--system-namespace` (default `brewlet`), profile conditions, and node readiness
+and provisioning errors. It exits nonzero if either component is absent or
+unready, any profile/node is unready, or there are no profiles or no uncordoned,
+runtime-ready, Kubernetes-ready nodes. An intentionally disabled admission
+Deployment therefore also produces a nonzero result. This is a conservative
+rollout snapshot, not a webhook TLS, certificate, endpoint, or scheduling probe.
+
+Application inspection follows controller ownership from JavaApplication to
+Deployment, ReplicaSets, and Pods, and includes their events. Matching labels
+alone do not establish ownership. Reports distinguish the **requested JDK**
+from the actual per-replica runtime, which Brewlet does not yet report. They
+show Pod placement, restarts, and container failure reasons without dumping
+environment variables or Secrets. Condition/event messages are operator-provided
+text; review them before sharing a report. Inspection succeeds even for an
+unready resource; use `status` or `doctor` for readiness exit codes.
+
+Read permissions are required for the objects each command inspects.
+Application inspection lists Deployments, ReplicaSets, Pods, and Events in its
+namespace; profile inspection reads the profile and lists Nodes. `status` lists
+control-plane Deployments, NodeProfiles, and Nodes.
+
+### Installation
+
+`--values FILE` takes a **Helm values file that you create**, not a Brewlet CLI
+configuration file. `values.yaml` is an example filename, not a file generated
+by the command or automatically loaded from this repository. You may name it
+anything and pass its path with `--values` or `-f`.
+
+#### Draft your values file
+
+For a first installation, save the following as `values.yaml`. This is a
+minimal configuration for one existing worker pool and one JDK; other settings
+inherit the selected chart release's defaults.
+
+```yaml
+provisioner:
+  pools:
+    - java-workers
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
+        javaHome: /opt/java/openjdk
+```
+
+Replace the example choices before running the command:
+
+| Field | What to supply |
+|---|---|
+| `provisioner.pools` | Names of existing node pools Brewlet may provision, not individual node names. The CLI does not create these pools. Replace `java-workers` with a pool you control. |
+| `provisioner.jdks[].distribution` | A lowercase inventory name for the JDK, such as `temurin` or `microsoft`. It does not select or download an image automatically. |
+| `provisioner.jdks[].feature` | The Java feature version actually supplied by your source image, such as `21` or `25`. |
+| `provisioner.jdks[].source.image` | The fully qualified, tagless image reference pinned to the approved manifest or multi-platform index digest. Replace `<64-lowercase-hex>` with all 64 lowercase hexadecimal characters from that digest. |
+| `provisioner.jdks[].source.javaHome` | The absolute JDK home **inside the source image**, not your workstation's `JAVA_HOME`. Confirm that `<javaHome>/bin/java` exists in that image. |
+
+The Temurin entry is an example, not a built-in runtime recommendation. Choose
+an image that supports every architecture in the selected pool; see the
+[JDK source model](jdk-management.md#source-model) for source requirements.
+Pool labels are detected automatically for supported providers. For bare-metal
+or nonstandard labels, set `provisioner.poolKey` as described in
+[pool configuration](configuration.md#where-the-provisioner-may-run).
+
+The chart deliberately leaves `provisioner.pools` and `provisioner.jdks` empty:
+they are required while `defaultProfile.enabled` is true. Copying the chart's
+default file unchanged will therefore fail. You do not need to copy every
+setting into your own file; include your pool, complete JDK inventory, and any
+other overrides you need. Additional JDKs are entries in the same `jdks` list.
+Optional launchers belong in `provisioner.launchers`; omit that list to use the
+JDK's implicit `java` launcher.
+
+The [full Helm values reference](configuration.md#helm-chart-values) and
+[annotated chart defaults](https://github.com/microsoft/brewlet/blob/main/kubernetes/charts/brewlet/values.yaml)
+describe optional settings, including launchers, mirrors, tolerations, rollout
+policy, and additional profiles. Use settings supported by the chart version
+you select. For GitOps-managed profiles, you may instead disable
+`defaultProfile.enabled` and supply your own NodeProfiles; see
+[installation and profile ownership](installation.md#helm-recommended).
+
+#### Preview and install
+
+After saving and reviewing `values.yaml`, replace `x.y.z` with the exact chart
+release you want and `evaluation` with your intended kubeconfig context:
+
+```bash
+# Set this to the exact approved chart release, not "latest".
+RELEASE_VERSION=x.y.z
+
+# Download and render the chart; does not contact the Kubernetes API.
+brewlet k8s install --version "$RELEASE_VERSION" --values values.yaml --dry-run
+
+# Install into a deliberately selected fresh cluster.
+brewlet k8s install --context evaluation --version "$RELEASE_VERSION" \
+  --values values.yaml --namespace brewlet
+```
+
+Preview validates chart rendering, not source image contents or node readiness.
+If it fails, fix the reported values error before installing. Installation is
+privileged and modifies the selected hosts; review the
+[cluster prerequisites](installation.md#prerequisites) first. Control-plane
+nodes and tainted pools require deliberate configuration, not an implicit opt-in.
+
+The CLI invokes `helm install` against
+`oci://ghcr.io/microsoft/charts/brewlet`, creates the namespace, and waits for
+chart resources. `--release` defaults to `brewlet`; `--wait-timeout` defaults to
+`5m`. The Helm process deadline includes that duration plus `--timeout` for
+setup. `--values`/`-f` may be repeated in Helm precedence order. The CLI sets the
+chart's `namespace` value to the selected release namespace so resources and the
+release cannot accidentally land in different namespaces.
+
+Installation refuses existing Brewlet CRDs and Helm refuses an existing release.
+It does **not** upgrade a release or migrate CRDs: follow
+[Upgrading](installation.md#upgrading) for those operations, including clusters
+retaining CRDs after uninstall. Preview uses `helm template --include-crds`; it
+still needs chart registry access, and it is not server-side validation.
+
+Helm readiness is not node provisioning completion. Follow installation with
+`brewlet k8s status` and inventory inspection using the same kubeconfig/context
+and the installation namespace as `--system-namespace`. Sources are never chosen for you,
+control-plane provisioning is never implicitly enabled, and no cleanup or
+uninstall is attempted after a failed installation.
+
+### Safe JDK and launcher additions
+
+`jdk add` and `launcher add` **update the live NodeProfile by default**. They
+always select an existing profile and return its updated declaration. The
+source image must be a fully qualified, tagless SHA-256 digest reference; paths
+and inventory names follow the [JDK](jdk-management.md#source-model) and
+[launcher](launchers.md#launcher-names-are-tokens-not-paths) source contracts.
+
+| Command mode | Effect |
+| --- | --- |
+| `jdk add` / `launcher add` | Persist the inventory change to the live profile. |
+| `add --dry-run` | Validate locally and print the proposed declaration; equivalent to `--dry-run=client`. |
+| `add --dry-run=client` | Validate the requested source and inventory change locally without sending a patch to the API server. |
+| `add --dry-run=server` | Validate the conditional patch through the API server and print the result without saving it. |
+| `add --dry-run --file FILE` | Read a source NodeProfile and validate/generate its proposed update offline. |
+| `add --dry-run --values FILE` | Read complete Helm values and validate/generate their proposed update offline. |
+
+Bare `--dry-run` and `--dry-run=client` still read the live profile unless
+`--file` or `--values` is supplied. They do not validate registry contents, node
+compatibility, or server admission policy. Use `--dry-run=server` when you need
+API-server validation. Invalid modes are rejected; omit `--dry-run` entirely
+to apply changes.
+
+**Validation happens before rendering.** A failed source check, file read,
+inventory update, cluster read, server dry run, or result decode returns an error
+without printing a manifest. There is no fallback from a failed server dry run
+to client-generated output. Shell redirection may still create or truncate its
+destination file before the command runs; always redirect to a different file
+and check the exit status.
+
+Replace the digest placeholders with approved 64-character lowercase digests:
+
+```bash
+# Add a JDK to an unmanaged live profile. This changes the cluster.
+brewlet k8s jdk add --profile java-workers \
+  --distribution temurin --feature 25 \
+  --image 'docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>' \
+  --java-home /opt/java/openjdk
+
+# Validate a launcher addition through the API server without saving it.
+brewlet k8s launcher add --profile java-workers \
+  --name jaz \
+  --image 'mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>' \
+  --path /usr/bin/jaz --dry-run=server
+
+# Validate and print a GitOps change entirely offline from its source manifest.
+brewlet k8s launcher add --dry-run --profile java-workers --file profile.yaml \
+  --name jaz \
+  --image 'mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>' \
+  --path /usr/bin/jaz > profile-next.yaml
+
+# Generate proposed values for a Helm-owned profile; does not deploy them.
+brewlet k8s jdk add --dry-run --profile default --values values.yaml \
+  --distribution temurin --feature 25 \
+  --image 'docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>' \
+  --java-home /opt/java/openjdk > values-next.yaml
+```
+
+`--file` accepts one NodeProfile YAML/JSON document whose name matches
+`--profile`. `--values` accepts one complete Helm values document: `default`
+updates `provisioner`, while other names select an existing entry in `profiles`.
+Other inventories, profiles, rollout policies, and chart settings are retained.
+`--file` and `--values` are mutually exclusive and require client dry-run mode
+(bare `--dry-run` or `--dry-run=client`). They cannot be used for a real update
+or a server dry run. Input files are never overwritten by the CLI; redirect to
+a **different** file, review the diff, and commit the desired source change.
+YAML formatting and comments are not retained. For layered Helm values, use the
+complete inventory-owning values, not a partial list overlay: Helm replaces
+arrays rather than merging entries.
+
+Adding an identical entry is idempotent. Replacing the source for an existing
+distribution/feature or launcher name requires `--replace`. Duplicate identities
+and inventories above the CRD's 32-entry limit are rejected. Local generation
+validates the supplied entry, not registry contents, node architecture
+compatibility, or the cluster's full admission policy.
+
+For an **unmanaged live profile**, append `--dry-run=server` to `add` to validate a
+conditional patch without saving; remove `--dry-run` to persist it.
+There is no `--apply` flag. **`add ... > result.yaml` still changes the cluster**;
+use `add ... --dry-run > proposal.yaml` for a client-validated preview.
+
+Live application rejects terminating profiles, Helm/Argo CD/Flux ownership
+markers, owner references, and unrecognized spec field managers. It never
+forces ownership. The patch changes only the selected inventory and tests both
+the profile UID and resource version; a concurrent change fails without a
+blind retry. These ownership checks also apply to `add --dry-run=server`. Use
+client dry-run mode to prepare Helm/GitOps source changes and deploy them through
+the owning system instead of bypassing those guards. Generation strips
+server-owned status and lifecycle metadata from the emitted manifest; the actual
+API patch leaves them untouched.
+
+A successful patch means **the declaration was accepted**, not that every node
+has installed the source. Inspect the profile, its node generations, and
+advertised inventory before deploying workloads that require the new runtime.
+
+---
+
+## `brewlet version`
+
+Print the release version embedded in the binarybrewlet version
 
 Source builds without release linker flags print `dev`.
 
@@ -347,7 +636,7 @@ Source builds without release linker flags print `dev`.
 ## Environment variables
 
 | Variable | Used by | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `JAVA_HOME` | `run`, `push --appcds` | Default node JDK home if `--jdk-root` is unset (`run`); default training JVM if `--appcds-java` is unset (`push --appcds`). |
 | `BREWLET_JDK_HOME` | `run` | Overrides `JAVA_HOME` for JDK resolution. |
 | `BREWLET_STORE_ROOT` | shim (`layout` resolver) | OCI layout root used by the local layout resolver. |

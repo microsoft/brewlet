@@ -212,6 +212,12 @@ digests. To reproduce a specific release, add `--version x.y.z`, replacing
 `x.y.z` with that release number. For an existing installation, follow
 [Upgrading](#upgrading) to update matching CRDs and retain your chosen values.
 
+For a fresh cluster, the CLI also provides
+[`brewlet k8s install`](cli-reference.md#installation), a version-pinned Helm
+installation wrapper. Put both your pools and runtime sources in a complete
+values file; preview with `--dry-run` before installing. This command refuses
+existing Brewlet CRDs rather than silently skipping their migration.
+
 `provisioner.poolKey` pins the node label the pool names are matched on. Leave
 it unset on AKS, EKS, and GKE, where the well-known provider label is
 auto-detected; set it explicitly on bare metal or kubeadm.
