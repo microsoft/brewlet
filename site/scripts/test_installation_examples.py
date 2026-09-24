@@ -156,6 +156,40 @@ class InstallationExamplesTest(unittest.TestCase):
                             self.assertIn(image, result.stdout, "Upgrade lost administrator image choice")
         self.assertGreaterEqual(command_count, 10, "A documented command disappeared from coverage")
 
+    def test_cli_values_example_is_self_contained_and_renders(self):
+        document = (ROOT / "docs/cli-reference.md").read_text()
+        installation = document.split("### Installation\n", 1)[1].split(
+            "### Safe JDK and launcher additions\n", 1
+        )[0]
+        inventory = self.inventory(installation)
+        self.assertIn("    - java-workers\n", inventory)
+        self.assertIn("@sha256:<64-lowercase-hex>", inventory)
+        self.assertIn("configuration.md#helm-chart-values", installation)
+        self.assertIn("kubernetes/charts/brewlet/values.yaml", installation)
+        self.assertIn("save the following as `values.yaml`", installation)
+        self.assertLess(installation.index("```yaml"), installation.index("brewlet k8s install"))
+        self.assertIn("--values values.yaml --dry-run", installation)
+
+        values = self.work / "cli-values.yaml"
+        values.write_text(inventory.replace("<64-lowercase-hex>", DIGEST))
+        result = self.render(["--values", str(values)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        profiles = [doc for doc in result.stdout.split("---\n")
+                    if "\nkind: NodeProfile\n" in doc]
+        self.assertEqual(len(profiles), 1)
+        profile = profiles[0]
+        self.assertIn("\n  name: default\n", profile)
+        self.assertIn('\n      - "java-workers"\n', profile)
+        self.assertIn("    - distribution: temurin\n", profile)
+        self.assertIn("      feature: 21\n", profile)
+        self.assertIn(
+            f"        image: docker.io/library/eclipse-temurin@sha256:{DIGEST}\n",
+            profile,
+        )
+        self.assertIn("        javaHome: /opt/java/openjdk\n", profile)
+        self.assertNotIn("includeControlPlane: true", profile)
+        self.assertNotIn("\n  launchers:", profile)
+
     def test_fresh_install_guides_default_to_latest_chart(self):
         for filename in ("README.md", "docs/installation.md",
                          "kubernetes/README.md", "kubernetes/charts/brewlet/README.md",

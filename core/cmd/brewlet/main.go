@@ -13,6 +13,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/json"
 	"flag"
@@ -25,8 +26,7 @@ import (
 	"time"
 
 	"github.com/microsoft/brewlet/internal/artifact"
-	"github.com/microsoft/brewlet/internal/doctor"
-	"github.com/microsoft/brewlet/internal/inventory"
+	"github.com/microsoft/brewlet/internal/kube"
 	"github.com/microsoft/brewlet/internal/runtime"
 )
 
@@ -55,6 +55,8 @@ func main() {
 		err = cmdJDKs(os.Args[2:])
 	case "doctor":
 		err = cmdDoctor(os.Args[2:])
+	case "k8s":
+		err = kube.Run(context.Background(), os.Args[2:], os.Stdout, os.Stderr)
 	case "version", "--version":
 		fmt.Println(version)
 		return
@@ -84,6 +86,7 @@ USAGE:
   brewlet bundle  <ref>       [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--out DIR]
   brewlet jdks                [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
   brewlet doctor              [--namespace NS] [--output table|json] [--kubeconfig FILE] [--context CTX]
+  brewlet k8s <command>        inventory, status, inspection, installation and profile updates (see k8s --help)
   brewlet version
 
   <ref> is name:tag, e.g. demo/hello:1.0.0
@@ -800,106 +803,11 @@ func parseProcessIDFlag(name, value string) (uint32, error) {
 	return uint32(id), nil
 }
 
-// cmdJDKs lists the JDKs available across the cluster (vendor, major/minor
-// version, architecture) by reading the inventory each Brewlet node advertises.
-// It shells out to `kubectl get nodes -o json` and renders the result, so it
-// needs a working kubectl/kubeconfig but no in-process Kubernetes client.
+// Preserve the original entry points as aliases for the Kubernetes group.
 func cmdJDKs(args []string) error {
-	fs := flag.NewFlagSet("jdks", flag.ExitOnError)
-	output := fs.String("output", "table", "output format: table (distinct JDKs), wide (per node), or json")
-	kubeconfig := fs.String("kubeconfig", "", "path to kubeconfig (default: kubectl's own resolution)")
-	context := fs.String("context", "", "kubeconfig context to use")
-	selector := fs.String("selector", "", "label selector to filter nodes (kubectl -l)")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	kubeArgs := []string{"get", "nodes", "-o", "json"}
-	if *kubeconfig != "" {
-		kubeArgs = append(kubeArgs, "--kubeconfig", *kubeconfig)
-	}
-	if *context != "" {
-		kubeArgs = append(kubeArgs, "--context", *context)
-	}
-	if *selector != "" {
-		kubeArgs = append(kubeArgs, "-l", *selector)
-	}
-
-	cmd := exec.Command("kubectl", kubeArgs...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return fmt.Errorf("kubectl get nodes failed: %s", msg)
-		}
-		return fmt.Errorf("running kubectl (is it installed and configured?): %w", err)
-	}
-
-	nodes, err := inventory.ParseNodes(out)
-	if err != nil {
-		return err
-	}
-
-	switch *output {
-	case "table":
-		inventory.RenderTable(os.Stdout, nodes)
-	case "wide":
-		inventory.RenderByNode(os.Stdout, nodes)
-	case "json":
-		return inventory.RenderJSON(os.Stdout, nodes)
-	default:
-		return fmt.Errorf("unknown --output %q (want table, wide, or json)", *output)
-	}
-	return nil
+	return kube.Run(context.Background(), append([]string{"jdk", "list"}, args...), os.Stdout, os.Stderr)
 }
 
 func cmdDoctor(args []string) error {
-	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
-	namespace := fs.String("namespace", "default", "namespace where the developer will create JavaApplication resources")
-	output := fs.String("output", "table", "output format: table or json")
-	kubeconfig := fs.String("kubeconfig", "", "path to kubeconfig (default: kubectl's own resolution)")
-	context := fs.String("context", "", "kubeconfig context to use")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	executor := func(kubectlArgs ...string) ([]byte, error) {
-		cmd := exec.Command("kubectl", kubectlArgs...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			if _, lookupErr := exec.LookPath("kubectl"); lookupErr != nil {
-				return out, fmt.Errorf("kubectl is not installed or not on PATH")
-			}
-		}
-		return out, err
-	}
-	report := doctor.Run(executor, doctor.Options{
-		Kubeconfig: *kubeconfig,
-		Context:    *context,
-		Namespace:  *namespace,
-	})
-
-	switch *output {
-	case "table":
-		for _, check := range report.Checks {
-			fmt.Printf("[%-4s] %-20s %s\n", strings.ToUpper(string(check.Status)), check.Name, check.Detail)
-			if check.Remediation != "" && check.Status != doctor.Pass {
-				fmt.Printf("       fix: %s\n", check.Remediation)
-			}
-		}
-	case "json":
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(report); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("unknown --output %q (want table or json)", *output)
-	}
-
-	if !report.OK() {
-		return fmt.Errorf("doctor found one or more blocking checks")
-	}
-	return nil
+	return kube.Run(context.Background(), append([]string{"doctor"}, args...), os.Stdout, os.Stderr)
 }

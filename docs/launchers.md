@@ -21,6 +21,15 @@ When a workload omits its launcher or requests `java`, Brewlet executes:
 Do not add `java` to `spec.launchers`. It comes from every declared JDK and is a
 reserved launcher name.
 
+Use `brewlet k8s launcher list` to aggregate optional launchers advertised by
+nodes, or `--output wide` for per-node rows. The
+[`launcher add` workflow](cli-reference.md#safe-jdk-and-launcher-additions)
+updates the live NodeProfile by default. `--dry-run` validates locally and prints
+the proposal; `--dry-run=server` validates through the API server without saving.
+If validation fails, no rendered output is printed. Client dry-run mode also
+supports offline `--file` and `--values` inputs. The CLI never installs a
+launcher directly onto a node; the operator provisions it after a profile update.
+
 ## Launcher names are tokens, not paths
 
 A launcher name identifies a node-installed launcher layer directory

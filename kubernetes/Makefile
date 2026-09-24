@@ -10,7 +10,7 @@ ENVTEST_K8S_VERSION ?= 1.31.0
 SETUP_ENVTEST_VERSION ?= v0.0.0-20250308055145-5fe7bb3edc86
 SETUP_ENVTEST ?= $(shell $(GO) env GOPATH)/bin/setup-envtest
 
-.PHONY: all fmt-check vet build test test-envtest ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-lifecycle-check helm-check print-setup-envtest-version clean
+.PHONY: all fmt-check vet build test test-envtest test-cli-integration ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-lifecycle-check helm-check print-setup-envtest-version clean
 
 all: build
 
@@ -39,6 +39,10 @@ print-setup-envtest-version:
 
 test-envtest: $(SETUP_ENVTEST)
 	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GO) test -race ./...
+
+test-cli-integration: $(SETUP_ENVTEST)
+	KUBEBUILDER_ASSETS="$${KUBEBUILDER_ASSETS:-$$($(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)}" \
+		BREWLET_REQUIRE_CLI_INTEGRATION=true $(GO) test -race -count=1 -v ./internal/cli
 
 ci: fmt-check vet build test-envtest helm-check
 

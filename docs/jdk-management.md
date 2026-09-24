@@ -47,6 +47,15 @@ Mutable tags are intentionally rejected. A tag may resolve to different bytes
 between reviews or nodes; a digest identifies the exact OCI manifest or
 multi-platform index the administrator approved.
 
+The CLI's [`brewlet k8s jdk add`](cli-reference.md#safe-jdk-and-launcher-additions)
+updates an unmanaged live NodeProfile by default. `--dry-run` validates locally
+and prints the proposed change; `--dry-run=server` validates through the API
+server without saving. Failed dry runs print no rendered output. Use client
+dry-run mode with `--file` or `--values` for offline source changes.
+Live additions and server dry runs reject Helm/GitOps ownership. Use
+`brewlet k8s profile list` for desired inventory and `brewlet k8s jdk list` for
+node-advertised inventory; they are not interchangeable.
+
 ---
 
 ## Helm examples: Temurin and Microsoft

@@ -104,6 +104,38 @@ make -C kubernetes test-envtest
 make -C kubernetes helm-check
 ```
 
+### CLI integration tests
+
+With Go and Helm installed, run the built CLI against an isolated API server:
+
+```bash
+make -C kubernetes test-cli-integration
+```
+
+This target obtains the pinned envtest assets (kube-apiserver, etcd, and kubectl)
+and runs `internal/cli` without contacting your configured cluster. It builds
+`core/cmd/brewlet`, uses real kubectl and Helm subprocesses, and installs the
+shipped CRDs in a fresh disposable API server with RBAC enabled. Its private
+kubeconfigs deliberately have an invalid default context so explicit connection
+and namespace handling are exercised. The existing Kubernetes CI test job runs
+the suite with prerequisites required, rather than silently skipping it.
+
+Coverage includes inventory/status/doctor and compatibility aliases; profile
+and application inspection; persistent JDK/launcher additions and replacement;
+non-persisting client/server dry runs; failed dry runs with empty stdout;
+admission and RBAC rejection; Helm ownership and offline values; stale
+resource-version/recreated-UID conflicts; and the existing-CRD install guard.
+Real profile and application reconciliation verifies that CLI writes feed the
+controller's desired resources. Helm renders generated values using the local
+chart, without downloading a released chart.
+
+These are API/process integration tests, not node-runtime E2E. Fixture node
+inventory and readiness statuses are explicitly simulated: envtest has no
+kubelet, scheduler, or Deployment controller. The suite does not prove a fresh
+`brewlet k8s install` completes, download JDK images, execute privileged
+provisioners, or launch a JVM. See the
+[E2E runbook](../integration-tests/AGENTS.md) for the separate live-node tiers.
+
 Build the component images from the repository root so the image also receives
 the shared license and notice-generation inputs:
 
