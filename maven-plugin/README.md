@@ -577,6 +577,12 @@ developer/SCM metadata and applies the `central-release` profile to the tagged
 POM, without replacing the tag's dependencies, ordinary build configuration, or
 source files. This also supports older tags that predate Central publishing.
 
+The release caller must set `secrets: inherit` on the reusable-workflow job.
+The called job still selects the `maven-central` environment; without inheritance,
+its environment secrets can resolve to empty values even when they are configured.
+Keep the credentials in that environment rather than copying them to repository
+secrets.
+
 The job checks the specification version, runs the tagged plugin's tests and
 notice checks, and sets the Maven version from the tag without its `v` prefix.
 The release profile attaches sources and Javadoc and signs the JARs and POM with
@@ -667,6 +673,11 @@ Central versions are immutable. If a job times out, inspect the deployment in
 the Portal before retrying: it may already be published or still processing.
 Never retry a published version or move its tag; use a new version for changed
 artifacts. Older GitHub releases are not automatically backfilled into Central.
+
+If the signing step fails its required-secret checks before Maven runs, no
+Central submission was attempted. Verify the environment secrets and the caller's
+`secrets: inherit`, then use the Central-only workflow above with the existing tag.
+Rerunning the original tag workflow does not pick up fixes made after that tag.
 
 The `central-release` profile itself defaults to `central.autoPublish=false`
 and `central.waitUntil=validated`; the automated tag-release path explicitly
