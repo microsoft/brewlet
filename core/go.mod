@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/containerd/containerd/api v1.10.0
+	github.com/containerd/containerd/api v1.12.0
 	github.com/containerd/containerd/v2 v2.2.8
 	github.com/containerd/platforms v1.0.0-rc.5
 	github.com/containerd/plugin v1.1.0
@@ -14,7 +14,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/opencontainers/runtime-spec v1.3.0
 	github.com/prometheus/client_golang v1.24.1
-	go.yaml.in/yaml/v3 v3.0.4
+	go.yaml.in/yaml/v3 v3.0.5
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -49,7 +49,7 @@ require (
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
-	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/sirupsen/logrus v1.10.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/exp v0.0.0-20241108190413-2d47ceb2692f // indirect
 	golang.org/x/net v0.58.0 // indirect
