@@ -440,6 +440,8 @@ jobs:
     if: github.ref_type == 'tag'
     needs: github-release
     uses: ./.github/workflows/maven-central.yml
+    # Required for the called job to resolve its maven-central environment secrets.
+    secrets: inherit
     with:
       tag: ${{ github.ref_name }}
       publish: true
