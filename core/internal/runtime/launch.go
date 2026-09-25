@@ -472,6 +472,7 @@ func extractTar(tarPath, destDir string) error {
 	}
 	defer f.Close()
 	tr := tar.NewReader(f)
+	budget := artifact.MaxLayerDecompressedBytes
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -505,7 +506,9 @@ func extractTar(tarPath, destDir string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // trusted layer content
+			n, err := artifact.CopyBounded(out, tr, budget)
+			budget -= n
+			if err != nil {
 				out.Close()
 				return err
 			}

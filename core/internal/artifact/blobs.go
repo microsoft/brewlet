@@ -408,6 +408,27 @@ func stageLayerTars(src BlobSource, layers []Descriptor, stageDir, prefix string
 	return out, nil
 }
 
+// MaxLayerDecompressedBytes caps how many bytes a single layer may expand to
+// during staging. Layer content is publisher-supplied and only digest-verified,
+// so a gzip or sparse-tar bomb would otherwise fill the shared staging root.
+// The ceiling is deliberately generous; it exists to bound the damage, not to
+// constrain legitimate payloads. Tests may lower it.
+var MaxLayerDecompressedBytes int64 = 8 << 30
+
+// CopyBounded copies src into dst, failing once more than limit bytes have been
+// written rather than expanding a decompression bomb without bound. It returns
+// the number of bytes copied (at most limit+1 on a cap breach).
+func CopyBounded(dst io.Writer, src io.Reader, limit int64) (int64, error) {
+	n, err := io.Copy(dst, io.LimitReader(src, limit+1))
+	if err != nil {
+		return n, err
+	}
+	if n > limit {
+		return n, fmt.Errorf("layer exceeds decompression cap of %d bytes", MaxLayerDecompressedBytes)
+	}
+	return n, nil
+}
+
 // gunzipToFile decompresses the verified gzip blob the descriptor names into dst.
 func gunzipToFile(src BlobSource, desc Descriptor, dst string) error {
 	raw, err := ReadVerifiedBlob(src, desc)
@@ -424,7 +445,9 @@ func gunzipToFile(src BlobSource, desc Descriptor, dst string) error {
 		return err
 	}
 	defer f.Close()
-	if _, err := io.Copy(f, gr); err != nil { //nolint:gosec // trusted layer content
+	if _, err := CopyBounded(f, gr, MaxLayerDecompressedBytes); err != nil {
+		f.Close()
+		os.Remove(dst) // never leave a half-written layer behind
 		return err
 	}
 	return f.Close()
@@ -447,10 +470,11 @@ func extractGzTar(src BlobSource, desc Descriptor, destDir string) error {
 		return err
 	}
 	tr := tar.NewReader(gr)
+	budget := MaxLayerDecompressedBytes
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
-			_, err := io.Copy(io.Discard, gr)
+			_, err := CopyBounded(io.Discard, gr, budget)
 			return err
 		}
 		if err != nil {
@@ -481,7 +505,9 @@ func extractGzTar(src BlobSource, desc Descriptor, destDir string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil { //nolint:gosec // trusted layer content
+			n, err := CopyBounded(out, tr, budget)
+			budget -= n
+			if err != nil {
 				out.Close()
 				return err
 			}
