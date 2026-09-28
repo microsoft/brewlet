@@ -27,6 +27,7 @@ import (
 
 	"github.com/microsoft/brewlet/internal/artifact"
 	"github.com/microsoft/brewlet/internal/kube"
+	"github.com/microsoft/brewlet/internal/runnablestage"
 	"github.com/microsoft/brewlet/internal/runtime"
 )
 
@@ -55,6 +56,8 @@ func main() {
 		err = cmdJDKs(os.Args[2:])
 	case "doctor":
 		err = cmdDoctor(os.Args[2:])
+	case "stage-gc":
+		err = cmdStageGC(os.Args[2:])
 	case "k8s":
 		err = kube.Run(context.Background(), os.Args[2:], os.Stdout, os.Stderr)
 	case "version", "--version":
@@ -86,6 +89,7 @@ USAGE:
   brewlet bundle  <ref>       [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--out DIR]
   brewlet jdks                [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
   brewlet doctor              [--namespace NS] [--output table|json] [--kubeconfig FILE] [--context CTX]
+  brewlet stage-gc            [--stage-root DIR] [--address SOCKET] [--min-age 24h] [--dry-run]
   brewlet k8s <command>        inventory, status, inspection, installation and profile updates (see k8s --help)
   brewlet version
 
@@ -674,6 +678,11 @@ func cmdRun(args []string) error {
 	}
 	ref := pos[0]
 
+	guard, err := runnablestage.Acquire(runnablestage.Root())
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
 	s := artifact.Store{Root: *store}
 	blobs, err := s.ResolveBlobs(ref)
 	if err != nil {
@@ -736,6 +745,8 @@ func cmdRun(args []string) error {
 	fmt.Printf("[brewlet] sandbox  : %s\n", sandbox)
 	fmt.Printf("[brewlet] launch   : %s\n", plan.CommandLine())
 	fmt.Printf("[brewlet] ----- JVM output below -----\n")
+	// The sandbox and optional CDS cache now own all payloads.
+	_ = guard.Close()
 	return plan.Run()
 }
 
@@ -766,21 +777,35 @@ func cmdBundle(args []string) error {
 	if err != nil {
 		return err
 	}
+	guard, err := runnablestage.Acquire(runnablestage.Root())
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
 	s := artifact.Store{Root: *store}
 	blobs, err := s.ResolveBlobs(pos[0])
+	if err != nil {
+		return err
+	}
+	res := runtime.Resources{CPULimit: *cpu, MemoryLimit: *mem}
+	if err := res.Validate(); err != nil {
+		return err
+	}
+	cleanup, err := retainBundlePayloads(&blobs, *out)
 	if err != nil {
 		return err
 	}
 	cfg := blobs.Config
 	cdsSrc := blobs.CDSHostPath
 	if err := runtime.GenerateBundleWithIdentityAndRegen(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
-		runtime.Resources{CPULimit: *cpu, MemoryLimit: *mem}, nil, runtime.ProcessIdentity{UID: uid, GID: gid},
+		res, nil, runtime.ProcessIdentity{UID: uid, GID: gid},
 		runtime.CDSRegenOptions{
 			Regenerate:     *appcdsRegen,
 			CacheScope:     "local",
 			ArtifactDigest: blobs.ManifestDigest,
 			CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
 		}); err != nil {
+		cleanup()
 		return err
 	}
 	fmt.Printf("wrote OCI runtime bundle to %s/config.json\n", *out)

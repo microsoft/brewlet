@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/microsoft/brewlet/internal/runnablestage"
 )
 
 // ResolvedBlobs is an artifact after separating the JVM launch config from its
@@ -189,8 +191,15 @@ func verifiedBlobPaths(src BlobSource, layers []Descriptor, kind string) ([]stri
 // reads from — the JAR (and optional CDS archive) as files, and the
 // classpath/module layers as uncompressed tars the existing staging path
 // consumes unchanged. Staging is idempotent (keyed on manifestDigest) so
-// repeated resolutions of the same image reuse it.
+// repeated resolutions of the same image reuse it. Callers must hold a
+// runnablestage.Acquire guard until the returned paths have been copied or
+// mounted; the guard here protects resolution itself.
 func ResolveRunnableBlobs(src BlobSource, man Manifest, manifestDigest string) (ResolvedBlobs, error) {
+	guard, err := runnablestage.Acquire(runnablestage.Root())
+	if err != nil {
+		return ResolvedBlobs{}, err
+	}
+	defer guard.Close()
 	cfg, err := man.RunnableConfig()
 	if err != nil {
 		return ResolvedBlobs{}, err
@@ -378,10 +387,7 @@ func runnableStageDir(manifestDigest string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("runnable image staging: %w", err)
 	}
-	base := os.Getenv("BREWLET_RUNNABLE_STAGE")
-	if base == "" {
-		base = filepath.Join(os.TempDir(), "brewlet-runnable")
-	}
+	base := runnablestage.Root()
 	// Previous stages may still be mounted and lack retained verification blobs.
 	// Never rewrite or migrate a live stage during an upgrade.
 	return filepath.Join(base, "immutable-v2", hex), nil

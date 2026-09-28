@@ -36,6 +36,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/microsoft/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/runnablestage"
 	kcruntime "github.com/microsoft/brewlet/internal/runtime"
 	"github.com/microsoft/brewlet/internal/telemetry"
 )
@@ -175,6 +176,12 @@ func (s *brewletTaskService) Create(ctx context.Context, r *taskAPI.CreateTaskRe
 		return nil, err
 	}
 	if !sandbox {
+		// Hold the stage guard until runc has installed the workload's mounts.
+		guard, err := runnablestage.Acquire(runnablestage.Root())
+		if err != nil {
+			return nil, err
+		}
+		defer guard.Close()
 		info, err := assembleBrewletBundle(ctx, r, s.imageIdentity)
 		if err != nil {
 			emitLaunch(info, err)

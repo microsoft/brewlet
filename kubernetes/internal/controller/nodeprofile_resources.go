@@ -346,6 +346,7 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 							Command: []string{"/opt/brewlet-dist/brewlet-metrics-exporter"},
 							Args: []string{
 								"--root=/opt/brewlet",
+								"--stage-root=/tmp/brewlet-runnable",
 								fmt.Sprintf("--listen-address=:%d", metricsPort),
 							},
 							Ports: []corev1.ContainerPort{{
@@ -368,6 +369,7 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 								// nested bind mount lands on an existing path.
 								{Name: "host-opt", MountPath: "/opt/brewlet", ReadOnly: true},
 								{Name: metricsSocketVolume, MountPath: "/opt/brewlet/metrics"},
+								{Name: "runnable-stage", MountPath: "/tmp/brewlet-runnable", ReadOnly: true},
 							},
 						},
 					},
@@ -381,6 +383,7 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 						// writable, and only when the sidecar is scheduled;
 						// dropMetricsExporter removes it otherwise.
 						hostPathVolume(metricsSocketVolume, "/opt/brewlet/metrics", &hostPathDirOrCreate),
+						hostPathVolume("runnable-stage", "/tmp/brewlet-runnable", &hostPathDirOrCreate),
 						hostPathVolume("containerd-conf", "/etc/containerd", &hostPathDir),
 						hostPathVolume("host-bin", "/usr/local/bin", &hostPathDir),
 						hostPathVolume("containerd-sock", "/run/containerd/containerd.sock", &hostPathSocket),
@@ -454,7 +457,7 @@ func dropMetricsExporter(ds *appsv1.DaemonSet) {
 	spec.Containers = spec.Containers[:1]
 	kept := spec.Volumes[:0]
 	for _, vol := range spec.Volumes {
-		if vol.Name == metricsSocketVolume {
+		if vol.Name == metricsSocketVolume || vol.Name == "runnable-stage" {
 			continue
 		}
 		kept = append(kept, vol)

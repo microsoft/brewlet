@@ -118,7 +118,7 @@ New shims publish stages under an `immutable-v2` subdirectory of
 `BREWLET_RUNNABLE_STAGE` (or the default temporary staging root). They leave legacy
 stages untouched because running workloads may still mount those files. Allow
 extra disk capacity during rollout: legacy stages and staging directories left
-by abruptly terminated processes are not automatically garbage-collected.
+by abruptly terminated processes are not removed by the stage reaper.
 Do not remove staging trees while workloads still reference them.
 
 The stage retains descriptor-verified packed layers as well as extracted
@@ -130,6 +130,57 @@ Missing or corrupt retained evidence fails closed. A cold launch whose packed
 layers are already missing, or an upgrade with only a legacy stage, requires a
 verified image re-pull; this does not repair missing content from an unpacked
 snapshot. Allow disk capacity for the retained compressed bytes per image.
+
+### Reclaiming unused stages
+
+Run the Linux node command as root, in the host PID and mount namespaces, with
+access to the host's `/proc` and containerd socket:
+
+```sh
+sudo brewlet stage-gc --dry-run
+sudo brewlet stage-gc --min-age 24h
+# Non-default locations (use the same stage root as the shim):
+sudo brewlet stage-gc --stage-root /var/lib/brewlet/runnable \
+  --address /run/containerd/containerd.sock --min-age 48h
+```
+
+`--stage-root` defaults to `BREWLET_RUNNABLE_STAGE`, then
+`os.TempDir()/brewlet-runnable`. `--min-age` must be positive and defaults to
+24 hours. Keep the stage root administrator-owned and do not rename or replace
+it while launchers or cleanup are running. Only published
+`immutable-v2/<manifest-hex>` directories older than
+that floor are eligible. The command preserves stages whose manifest remains
+in containerd image or content metadata in **any namespace**, including platform
+manifests referenced by image indexes. Removing an image alone may not free its
+stage until containerd also garbage-collects the manifest content.
+
+The reaper checks live references across process mount namespaces, including
+read-only bind mounts of individual staged files. It fails closed if it cannot
+establish that reference information is complete. A shared staging guard covers
+resolution and workload mount creation; cleanup takes the exclusive guard and
+fails if a launch is in progress. Retry on the next scheduled run rather than
+removing trees manually. Running workloads do not need to stop.
+
+Use an operator-managed timer or root cron job to bound accumulation, for
+example an hourly invocation of `/usr/local/bin/brewlet stage-gc --min-age 24h`.
+Cleanup is not automatically enabled by installing the shim. Before first
+enabling cleanup during an upgrade, finish or quiesce launches from older shims
+that do not participate in the guard. Legacy trees and abandoned pending trees
+remain outside automated eviction. Previously exported OCI bundles may also
+name stage paths: retire or regenerate those bundles before enabling cleanup.
+New `brewlet bundle` outputs retain their own runnable payloads.
+External consumers that read stages without mounts must participate in the
+staging guard or be stopped during cleanup; open file descriptors alone are
+not tracked.
+
+The metrics exporter exposes `brewlet_runnable_stage_bytes`, the logical size
+of regular files remaining under its stage root (including legacy and pending
+trees, without following symlinks). This is not filesystem-allocated space or
+free disk space. It is refreshed on each scrape; inspection errors fail the
+scrape rather than reporting a misleading zero. The operator's exporter mounts
+the default host stage root read-only. For a custom staging location, configure
+the exporter's `--stage-root` and its read-only host mount to point to that same
+location. Alert on sustained growth and monitor node filesystem free space too.
 
 ## 5. Operator & webhook
 

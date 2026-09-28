@@ -166,8 +166,8 @@ func TestProvisionerHostMountsMinimizeWrite(t *testing.T) {
 	// The metrics exporter only reads what the provisioner wrote, except for
 	// the one directory holding the telemetry socket it must bind.
 	exporter := spec.Containers[1]
-	if len(exporter.VolumeMounts) != 2 {
-		t.Fatalf("metrics-exporter mounts = %+v, want the read-only tree plus the socket directory", exporter.VolumeMounts)
+	if len(exporter.VolumeMounts) != 3 {
+		t.Fatalf("metrics-exporter mounts = %+v, want read-only inventory and stages plus the socket directory", exporter.VolumeMounts)
 	}
 	// The read-only parent must be listed first so the nested socket mount
 	// lands on a path that already exists inside it.
@@ -176,6 +176,9 @@ func TestProvisionerHostMountsMinimizeWrite(t *testing.T) {
 	}
 	if exporter.VolumeMounts[1].MountPath != "/opt/brewlet/metrics" || exporter.VolumeMounts[1].ReadOnly {
 		t.Errorf("second exporter mount = %+v, want a writable /opt/brewlet/metrics", exporter.VolumeMounts[1])
+	}
+	if exporter.VolumeMounts[2].MountPath != "/tmp/brewlet-runnable" || !exporter.VolumeMounts[2].ReadOnly {
+		t.Errorf("third exporter mount = %+v, want read-only runnable staging", exporter.VolumeMounts[2])
 	}
 	if exporter.SecurityContext == nil ||
 		exporter.SecurityContext.ReadOnlyRootFilesystem == nil ||
@@ -193,6 +196,7 @@ func TestProvisionerHostMountsMinimizeWrite(t *testing.T) {
 	wantTypes := map[string]corev1.HostPathType{
 		"/opt/brewlet":                    corev1.HostPathDirectoryOrCreate,
 		"/opt/brewlet/metrics":            corev1.HostPathDirectoryOrCreate,
+		"/tmp/brewlet-runnable":           corev1.HostPathDirectoryOrCreate,
 		"/etc/containerd":                 corev1.HostPathDirectory,
 		"/usr/local/bin":                  corev1.HostPathDirectory,
 		"/run/containerd/containerd.sock": corev1.HostPathSocket,
@@ -215,6 +219,13 @@ func TestProvisionerHostMountsMinimizeWrite(t *testing.T) {
 	for _, mount := range spec.Containers[0].VolumeMounts {
 		if mount.MountPath == "/opt/brewlet/metrics" {
 			t.Error("provisioner must not carry the exporter's socket mount")
+		}
+	}
+	cfg.MetricsEnabled = false
+	withoutMetrics := buildProfileDaemonSet(cfg, &p, "agentpool", nil).Spec.Template.Spec
+	for _, volume := range withoutMetrics.Volumes {
+		if volume.Name == "runnable-stage" {
+			t.Error("disabled metrics must not mount the staging tree")
 		}
 	}
 }
