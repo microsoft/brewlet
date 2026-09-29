@@ -4,6 +4,9 @@
 package controller
 
 import (
+	"fmt"
+	"time"
+
 	"brewlet-operator/internal/brewlet"
 
 	corev1 "k8s.io/api/core/v1"
@@ -24,10 +27,29 @@ type Config struct {
 	MetricsPort int
 	// MetricsEnabled controls whether managed provisioner pods run the node-local
 	// metrics exporter sidecar.
-	MetricsEnabled bool
+	MetricsEnabled  bool
+	StageGCEnabled  bool
+	StageGCInterval time.Duration
+	StageGCMinAge   time.Duration
+	// StageGCUpgradeAcknowledged authorizes activation on previously provisioned
+	// nodes after the administrator has retired unguarded stage consumers.
+	StageGCUpgradeAcknowledged bool
 	// AllowedSourceMirrorHosts is the exact operator-level allowlist for registry
 	// mirror destination hosts, including any explicit port.
 	AllowedSourceMirrorHosts []string
+}
+
+// ValidateStageGC keeps the duration-to-shell-seconds conversion exact and bounded.
+func (c Config) ValidateStageGC() error {
+	for name, value := range map[string]time.Duration{
+		"stage-gc-interval": c.StageGCInterval,
+		"stage-gc-min-age":  c.StageGCMinAge,
+	} {
+		if value < time.Second || value%time.Second != 0 || value/time.Second > 2147483647 {
+			return fmt.Errorf("%s must be a positive whole number of seconds, at most 2147483647s", name)
+		}
+	}
+	return nil
 }
 
 // buildRuntimeClass returns the desired brewlet RuntimeClass: it schedules only

@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
 	appsv1alpha1 "brewlet-operator/api/v1alpha1"
@@ -57,6 +58,10 @@ func main() {
 	flag.StringVar(&cfg.ProvisionerImage, "provisioner-image", "ghcr.io/microsoft/brewlet-node-provisioner:0.1.0", "brewlet-node-provisioner image to run")
 	flag.IntVar(&cfg.MetricsPort, "node-metrics-port", 9090, "node provisioner metrics exporter port")
 	flag.BoolVar(&cfg.MetricsEnabled, "node-metrics-enabled", false, "run the node-local metrics exporter in provisioner pods")
+	flag.BoolVar(&cfg.StageGCEnabled, "stage-gc-enabled", true, "periodically reclaim unreferenced runnable-image stages")
+	flag.DurationVar(&cfg.StageGCInterval, "stage-gc-interval", 5*time.Minute, "stage GC interval (positive whole seconds)")
+	flag.DurationVar(&cfg.StageGCMinAge, "stage-gc-min-age", 24*time.Hour, "minimum stage age (positive whole seconds)")
+	flag.BoolVar(&cfg.StageGCUpgradeAcknowledged, "stage-gc-upgrade-acknowledged", false, "confirm older unguarded shims and stage-dependent exported bundles have been retired")
 	flag.StringVar(&allowedMirrors, "allowed-source-mirror-hosts", "", "comma-separated exact registry hosts approved as runtime source mirror destinations")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "address the metric endpoint binds to; 0 disables metrics")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "address the health probe endpoint binds to")
@@ -82,6 +87,10 @@ func main() {
 	cfg.AllowedSourceMirrorHosts, err = controller.ParseAllowedSourceMirrorHosts(allowedMirrors)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid --allowed-source-mirror-hosts: %v\n", err)
+		os.Exit(1)
+	}
+	if err := cfg.ValidateStageGC(); err != nil {
+		fmt.Fprintf(os.Stderr, "invalid stage GC configuration: %v\n", err)
 		os.Exit(1)
 	}
 

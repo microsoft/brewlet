@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/microsoft/brewlet/internal/runnablestage"
 	"github.com/microsoft/brewlet/internal/telemetry"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -245,10 +246,12 @@ func main() {
 		root       string
 		listenAddr string
 		socketPath string
+		stageRoot  string
 	)
 	flag.StringVar(&root, "root", "/opt/brewlet", "Brewlet host-state root")
 	flag.StringVar(&listenAddr, "listen-address", ":9090", "HTTP metrics listen address")
 	flag.StringVar(&socketPath, "socket-path", "", "shim telemetry Unix datagram socket")
+	flag.StringVar(&stageRoot, "stage-root", runnablestage.Root(), "runnable staging root (BREWLET_RUNNABLE_STAGE)")
 	flag.Parse()
 	if socketPath == "" {
 		socketPath = filepath.Join(root, "metrics", "telemetry.sock")
@@ -261,6 +264,7 @@ func main() {
 	registry.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
 	events := newEventMetrics(registry)
 	registry.MustRegister(newInventoryCollector(root))
+	registry.MustRegister(newStageCollector(stageRoot))
 
 	server := &http.Server{
 		Addr:              listenAddr,

@@ -104,6 +104,10 @@ for upgrades; pass them again rather than substituting example defaults.
 | `provisioner.launchers` | `[]` | Optional entries with `name`, digest-pinned `source.image`, and absolute `source.path` (§5.4). Empty = vanilla `java` only. |
 | `provisioner.registry.mirrors` | `{}` | Upstream host → approved mirror host/path map. Rewrites preserve the source digest. |
 | `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the default profile. |
+| `stageGC.enabled` | `true` | Automatically reclaim orphaned runnable-image stages on managed nodes, independently of metrics. |
+| `stageGC.interval` | `5m` | Time between sweeps, plus up to 10% jitter. |
+| `stageGC.minAge` | `24h` | Minimum stage directory age, not time since last use or loss of references. |
+| `stageGC.upgradeAcknowledged` | `false` | Confirm older unguarded shims and stage-dependent bundles have been retired across the managed fleet. Reset after rollout. |
 | `operator.leaderElect` | `true` | Enable operator leader election. |
 | `profiles` | `[]` | Additional profiles, each with a unique name, nonempty named `pools`, and explicit JDK sources. |
 | `uninstall.timeoutSeconds` | `240` | Cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstall; Helm's `--timeout` must exceed this plus 30 seconds. |
@@ -127,6 +131,29 @@ for upgrades; pass them again rather than substituting example defaults.
 | `admission.certManager.duration` | `2160h` | Requested serving certificate lifetime. |
 | `admission.certManager.renewBefore` | `720h` | How early cert-manager renews the serving certificate. |
 | `admission.certManager.caRenewBefore` | `2160h` | How early a chart-managed CA renews; must exceed the serving certificate renewal interval. |
+
+### Automatic stage cleanup
+
+Stage GC settings are operator-wide defaults for **all** managed NodeProfiles,
+including profiles created outside Helm. Fresh nodes activate after successful
+provisioning; no extra DaemonSet, CronJob, kubelet access, or RBAC is needed.
+The provisioner cleans only eligible unreferenced, unmounted stages; kubelet and
+containerd remain responsible for image retention and content reclamation.
+Durations must be positive whole seconds (Go duration syntax, at most
+`2147483647s`); invalid settings are rejected by the operator.
+
+Existing nodes without a matching compatibility record log `stage GC blocked`
+and continue serving workloads. First retire older unguarded shims and exported
+bundles that reference the stage cache across the selected fleet. Then include
+`--set stageGC.upgradeAcknowledged=true` in your normal Helm upgrade. Reset it
+to `false` after the rollout; compatible nodes remember activation. Installing
+the new shim alone is not proof that older consumers have stopped.
+To opt out, set `stageGC.enabled=false`.
+
+See [runnable stage cleanup](../../../docs/runnable-image.md#reclaiming-unused-stages)
+for safety constraints, migration details, and observability. These settings do
+not copy or alter kubelet image GC thresholds, and reclamation may lag
+containerd content GC.
 
 All JDK distributions use the structured inventory form:
 

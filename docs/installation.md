@@ -359,6 +359,11 @@ For source builds, use the local chart instead and retain your digest-pinned
 component overrides. For incompatible legacy profiles, use the maintenance
 sequence below instead of an ordinary upgrade.
 
+An upgrade that introduces automatic runnable-stage GC can leave existing nodes
+Ready while cleanup remains blocked pending migration acknowledgment.
+`helm upgrade --wait` does not prove GC is active. After the runtime rollout,
+follow [Activating runnable-stage GC](#activating-runnable-stage-gc).
+
 An older CRD prunes unsupported fields when a resource is saved. Updating the CRD
 cannot restore those values; reapply the original JavaApplication manifests
 afterward.
@@ -418,6 +423,68 @@ helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
   -f my-jdks.yaml \
   --wait
 ```
+
+#### Activating runnable-stage GC
+
+Fresh nodes enable periodic cleanup automatically. On an existing installation,
+the default `stageGC.upgradeAcknowledged=false` keeps cleanup blocked unless
+the node has a matching compatibility record. A blocked node continues serving
+workloads and logs `stage GC blocked`.
+
+First roll out the matching operator and provisioner, then retire older
+unguarded shims and finish or quiesce their launches. Merely replacing the shim
+binary does not retire already running shim processes; use your workload
+restart/drain procedure where needed. Retire or regenerate exported OCI bundles
+that point into the stage cache, and stop or upgrade other unguarded stage
+consumers. Complete these prerequisites across **all operator-managed nodes**,
+including externally managed NodeProfiles, before acknowledging migration:
+
+```bash
+helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
+  --version "$RELEASE_VERSION" \
+  --namespace brewlet \
+  --values values.yaml \
+  --values my-jdks.yaml \
+  --set stageGC.upgradeAcknowledged=true \
+  --wait
+```
+
+Keep `stageGC.enabled=true` for activation. For source builds, use the local chart
+and retain the matching component overrides as above. Check the provisioner
+logs for each managed node, not just pod readiness:
+
+```bash
+kubectl get pods -n brewlet -l app=brewlet-node-provisioner -o wide
+kubectl logs -n brewlet <provisioner-pod> -c provisioner --tail=100
+```
+
+Look for `stage GC: successful_sweeps=...` with a recent `last_success` timestamp;
+zero removed stages is a valid successful sweep. `last_success=never` with
+failed attempts means cleanup has not succeeded. Investigate inspection,
+namespace, socket-access, and lock errors; do not bypass them by deleting stage
+directories. Neither GC failure counters nor compatibility blocking are part of
+the pod readiness gate.
+
+After the rollout, reset the fleet-wide acknowledgment:
+
+```bash
+helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
+  --version "$RELEASE_VERSION" \
+  --namespace brewlet \
+  --values values.yaml \
+  --values my-jdks.yaml \
+  --set stageGC.upgradeAcknowledged=false \
+  --wait
+```
+
+Compatible nodes retain their approval, tied to the installed shims and stage
+path. Disable automatic GC with `stageGC.enabled=false` before manually rolling
+back shims or introducing unguarded consumers. Do not add a separate timer or
+invoke destructive manual cleanup to bypass blocked activation: manual commands
+do not enforce the provisioner's migration gate. See
+[Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages) for the
+reclamation rules and [Configuration](configuration.md#runnable-image-stage-cleanup)
+for all settings.
 
 ### What the chart deploys vs. what the operator creates
 

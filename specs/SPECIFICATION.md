@@ -787,15 +787,72 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    Their exact keys, token grammar, presence semantics, compatibility guarantees,
    and autoscaler integration are defined by the public
    [capability-label contract](CAPABILITY_LABELS.md).
-9. Publishes the container-local `/tmp/brewlet-complete` marker and idles.
+9. Publishes the container-local `/tmp/brewlet-complete` marker, then runs
+   periodic runnable-stage cleanup when enabled and compatible (§5.2.1).
+   Disabled provisioners and completed cleanup-mode workers idle instead.
    Provisioner and cleanup containers have an exec readiness probe for that
    marker. Each entrypoint invocation removes stale completion state before
    doing any work; failures do not publish completion. This gate is independent
    of the optional runtime smoke checks and has no startup deadline that could
    kill a legitimately slow installation.
+   Readiness certifies provisioning, not GC activation or successful sweeps.
 
 The `brewlet.sh/runtime=ready` label is used by the `RuntimeClass` `nodeSelector`
 so workloads only schedule onto provisioned nodes.
+
+#### 5.2.1 Runnable-stage cleanup lifecycle
+
+The existing provisioner owns the automatic stage-GC loop; no additional
+DaemonSet, CronJob, or kubelet API access is required. Policy is operator-wide,
+including externally managed NodeProfiles, and is independent of
+`metrics.enabled`:
+
+| Helm setting | Default | Contract |
+|---|---|---|
+| `stageGC.enabled` | `true` | Enable automatic sweeps after successful provisioning and compatibility checks |
+| `stageGC.interval` | `5m` | Delay after each attempt, plus up to 10% jitter; sweeps do not overlap |
+| `stageGC.minAge` | `24h` | Minimum published stage directory age, not unused age or time since references disappeared |
+| `stageGC.upgradeAcknowledged` | `false` | Confirm retirement of older unguarded shims, stage-dependent exported bundles, and other unguarded consumers across the managed fleet |
+
+Durations must resolve to positive whole seconds, at most `2147483647s`.
+The operator validates and passes them to the provisioner; this is not a
+per-profile `spec` field. The complete flags and environment mapping is in
+[Configuration](../docs/configuration.md#runnable-image-stage-cleanup).
+
+Fresh installations with no installed shim copies and an absent or empty stage
+root activate automatically. Existing installations need a matching saved
+compatibility record or explicit migration acknowledgment. The root-owned
+record (§14.5) binds approval to both installed shim copies and the stage path,
+is invalidated before replacement, and is renewed only for a compatible
+installation. It is maintained even when sweeps are disabled. A detected
+identity/path change or interrupted installation can require acknowledgment
+again at startup. Reset the fleet-wide acknowledgment after rollout; compatible
+nodes retain approval. Installing new binaries alone does not prove that older
+running shim processes or exported bundles have been retired.
+
+Each managed sweep rechecks node/profile ownership before invoking the reaper
+in the host PID and mount namespaces; `nsenter` MUST fork so the reaper itself
+joins the host PID namespace, and each sweep runs in its own process group. A
+successful read showing loss of authority stops the worker; an unreadable node
+or NodeProfile (API timeout or outage) skips that sweep without exiting or
+changing node advertisements;
+cleanup-mode workers never start this loop. Reference-inspection errors and
+lock contention are logged and retried at the next interval, without treating a
+failed sweep as a provisioning failure. Blocked compatibility also leaves the
+node provisioned but logs `stage GC blocked`. TERM/INT signals the active
+sweep's whole process group, or the timer, before supervisor exit. Each reaper uses a five-minute context deadline;
+filesystem operations already in progress may take longer to return.
+
+Kubelet and containerd remain responsible for image eviction and content
+reclamation. Brewlet neither deletes their images nor reads, copies, or changes
+kubelet GC configuration. It follows released references through eventual
+orphan reclamation (§6.3), not a second disk-pressure eviction policy.
+There is no guarantee of immediate disk relief or a bounded total stage size.
+
+Manual `stage-gc` invocations apply the same reaper safety checks but do not
+enforce the provisioner's enablement, ownership, or migration gate. Do not
+schedule a second timer on managed nodes or use manual deletion to bypass
+blocked activation. See the [upgrade procedure](../docs/installation.md#activating-runnable-stage-gc).
 
 ### 5.3 Installing JDK runtime roots on nodes
 
@@ -948,11 +1005,15 @@ directory (`Dockerfile` + `entrypoint.sh`) and deployed by
 [`deploy/node-provisioner.yaml`](../kubernetes/deploy/node-provisioner.yaml):
 
 - **Image** — a multi-stage build that compiles
-  `containerd-shim-brewlet-v2` and `brewlet-source-policy` from the
+  `containerd-shim-brewlet-v2`, `brewlet`, `brewlet-source-policy`, and
+  `brewlet-metrics-exporter` from the
   [core runtime](https://github.com/microsoft/brewlet) for the target architecture
   (so installed binaries always match the node arch), then assembles a small
-  Debian-based runtime carrying the entrypoint, source-policy validator, and
-  `bash`/`curl`/`kubectl`. Build with `make provisioner-image`
+  Debian-based runtime carrying the entrypoint, compiled binaries, and host
+  tools including `bash`, `kubectl`, `ctr`, `crictl`, and `nsenter`.
+  The CLI is installed on the host as `/usr/local/bin/brewlet-stage-gc` for
+  one-shot sweeps; it is invoked with the `stage-gc` subcommand.
+  Build with `make provisioner-image`
   (single arch) or `make provisioner-image-push` (multi-arch via buildx).
 - **Entrypoint** — an idempotent script that performs all §5.2 steps:
   validates all indexed JDK/launcher sources before host mutation; installs
@@ -969,7 +1030,8 @@ directory (`Dockerfile` + `entrypoint.sh`) and deployed by
   annotates the installed JDKs/launchers, and emits the per-capability scheduling
   labels the admission webhook uses (`brewlet.sh/jdk.*`, `brewlet.sh/jdk-feature.*`,
   `brewlet.sh/launcher.*`). The manifest ships the `ServiceAccount` + `ClusterRole`/binding
-  (`get`/`patch` on nodes) the labelling step needs.
+  (`get`/`patch` on nodes) the labelling step needs. After publishing completion,
+  the provisioner continues with the cleanup lifecycle in §5.2.1.
 
 Node provisioning is driven by the **operator** (§8.1) and admission is handled
 by the **pod webhook** (§8.3). The whole set is packaged by
@@ -1320,6 +1382,25 @@ and builds/runs on Linux:
   source bytes. This warm-reuse protection does not guarantee cold startup
   after source-layer GC. Re-pull affected digest-pinned images with packed-layer
   retention enabled, and allow extra disk capacity for retained layer bytes.
+- Runnable-stage reclamation is reference-aware and Linux-only. Only canonical
+  published `immutable-v2/<manifest-hex>` directories with modification times
+  older than the positive age floor are eligible. Containerd image targets,
+  index-referenced platform manifests, content records and content-reference
+  labels in **any namespace** protect their stages. Removing an image record
+  alone may not release a stage until containerd also collects its content.
+  Live mounts across process mount namespaces, including individual file bind
+  mounts, protect the corresponding stage.
+  Launchers hold a shared staging guard through resolution and mount creation
+  (or direct execution); cleanup requires the exclusive guard. Reclamation
+  requires complete reference inspection in the initial host PID/user and host
+  mount namespaces with a complete `/proc`; ambiguous or unreadable evidence
+  prevents deletion. The root is administrator-owned and must not be renamed
+  or replaced while consumers or cleanup run. Legacy and abandoned pending
+  trees remain outside automated eviction. Open file descriptors alone are
+  not tracked: direct readers must hold the guard or be stopped. New exported
+  runnable-image bundles retain their own payload copies rather than depend on
+  the evictable stage; legacy bundles require migration before GC activation.
+  These rules govern both automatic and manual sweeps.
 
 The workload image reference and manifest digest hints are managed **cluster-side,
 not in the shim**: the `brewlet-admission` webhook (§8.3) overwrites the
@@ -1820,6 +1901,14 @@ other, so each shape behaves as plain Kubernetes does:
   NodeProfile readiness/provisioning metrics and admission outcomes (including
   `NoCompatibleJDK`, `NoCompatibleLauncher`, and `NoCompatibleArch`) to their
   controller-runtime endpoints.
+- **Stage cleanup observability:** the optional exporter exposes
+  `brewlet_runnable_stage_bytes` from a read-only host stage mount. It measures
+  logical regular-file bytes, including legacy and pending trees, not allocated
+  space, free space, or reclaimable bytes. It does not follow symlinks; inspection
+  errors fail the scrape rather than report zero. Automatic cleanup runs
+  independently of metrics. Removed stage counts/bytes, process-local
+  success/failure counters, and last-success timestamps are provisioner logs,
+  not additional Prometheus GC metrics. Monitor filesystem free space as well.
 - **Metric discovery:** with `metrics.enabled=true`, the Helm chart creates
   Services for node, operator, and admission metrics.
   `metrics.serviceMonitor.enabled` and
@@ -1961,6 +2050,8 @@ repurposed.
 | `invalid-jdk-source` | A JDK source entry is missing fields, has a malformed `<distribution>-<feature>` token, or is duplicated |
 | `invalid-launcher-source` | A launcher source entry is missing fields, has a malformed or reserved name, or is duplicated |
 | `invalid-restart-mode` | `rollout.containerdRestart` is not `validated` / `sighup` / `none` |
+| `invalid-stage-gc-config` | Provisioner GC booleans, integer-second durations, or the host staging path are invalid |
+| `stage-gc-state-failed` | GC compatibility inspection/recording or helper installation failed; distinct from a periodic sweep failure, which is logged and retried |
 | `unsupported-architecture` | The node's architecture is not supported |
 | `host-tooling-missing` | A required host tool (`nsenter`, the host `ctr` helper) is unavailable |
 | `completion-state-failed` | The container-local readiness marker could not be reset or published; the operation exits unsuccessfully |
@@ -1969,7 +2060,7 @@ repurposed.
 | `containerd-version-invalid` | The reported containerd server version could not be parsed |
 | `unsupported-containerd-version` | containerd is older than 2.0 (protected CRI requested-image metadata is required) |
 | `cgroup-v2-required` | The node is cgroup-v1 only |
-| `shim-image-incomplete` | The provisioner image is missing the shim / `ctr` / `crictl` binary |
+| `shim-image-incomplete` | The provisioner image is missing the shim / `ctr` / `crictl` binary or stage-GC CLI |
 | `shim-install-failed` | The shim was not present after installation |
 | `jdk-source-missing` | No configured source exists for a requested JDK token (there is no built-in catalog — §5.2) |
 | `jdk-install-failed` | Mounting, copying, activating, or retaining a JDK root failed |
@@ -2024,6 +2115,7 @@ All are opt-in (`metrics.enabled=true`) and bounded-cardinality.
 | `brewlet_artifact_resolution_duration_seconds` | Shim → node exporter |
 | `brewlet_cds_regeneration_decisions_total`, `brewlet_cds_archive_mapped` | Shim → node exporter |
 | `brewlet_jdk_info`, `brewlet_jdk_installed_timestamp_seconds`, `brewlet_launcher_info` | Node exporter |
+| `brewlet_runnable_stage_bytes` | Node exporter; logical regular-file bytes under the host stage root, refreshed per scrape, with no metric-specific labels |
 | `brewlet_telemetry_events_invalid_total` | Node exporter |
 | `brewlet_node_provision_transitions_total` | Operator |
 | `brewlet_nodeprofile_condition`, `brewlet_nodeprofile_nodes` | Operator |
@@ -2047,6 +2139,23 @@ read-only mounts §6.1 describes.
 | `metrics/telemetry.sock` | Unix datagram socket the shim writes best-effort telemetry to |
 | `<root>.retired.<epoch>.<pid>/` | A rotated-out JDK/launcher root, retained while live mounts may reference it (§12) |
 | `.image-mount-*` | Transient source-image mount points; reclaimed on the next pass |
+| `.stage-gc-compatible` | Root-owned record binding GC compatibility to the installed shim copies and stage path; checked at provisioner startup, invalidated before replacing binaries, and removed during teardown |
+
+Related host paths outside this prefix:
+
+| Path | Contents |
+|---|---|
+| `/usr/local/bin/brewlet-stage-gc` | Provisioner-installed CLI helper, invoked as `brewlet-stage-gc stage-gc`; removed during teardown |
+| `/tmp/brewlet-runnable/immutable-v2/<manifest-hex>/` | Published immutable runnable-image stages eligible for reference-aware reclamation (§6.3) |
+
+The provisioner's default host stage root is `/tmp/brewlet-runnable`, overridden
+by `BREWLET_RUNNABLE_STAGE`. When that variable is unset, the shim and the
+standalone CLI on Linux use the same fixed `/tmp/brewlet-runnable`, ignoring
+`TMPDIR` so that a containerd service `TMPDIR` cannot diverge the shim's root
+from the reaper's; on other platforms the CLI uses
+`os.TempDir()/brewlet-runnable`. A custom root must
+be configured consistently for the shim, GC, and the exporter's read-only host
+mount; configuring the provisioner alone does not reconfigure other processes.
 
 ---
 

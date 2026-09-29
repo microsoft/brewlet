@@ -465,6 +465,8 @@ if (
   parse_runtime_sources() { return 0; }
   require_cgroup_v2() { return 0; }
   preflight_sources() { return 0; }
+  prepare_stage_gc() { return 0; }
+  install_stage_gc() { return 0; }
   install_shim() { printf 'install-shim\n' >>"$calls"; }
   install_source_mount_traps() { printf 'install-mount-traps\n' >>"$calls"; }
   cleanup_stale_source_mounts() { printf 'cleanup-stale-mounts\n' >>"$calls"; }
@@ -1499,6 +1501,8 @@ completion_case() (
   parse_runtime_sources() { completion_step parse-sources; }
   require_cgroup_v2() { completion_step require-cgroups; }
   preflight_sources() { completion_step preflight-sources; }
+  prepare_stage_gc() { completion_step prepare-stage-gc; }
+  install_stage_gc() { completion_step install-stage-gc; }
   install_shim() { completion_step install-shim; }
   install_source_mount_traps() { completion_step install-traps; }
   cleanup_stale_source_mounts() { completion_step cleanup-mounts; }
@@ -1513,6 +1517,11 @@ completion_case() (
   configure_appcds_regeneration_policy() { completion_step configure-policy; }
   label_node() { completion_step label-node; }
   cleanup_host() { completion_step cleanup-host; }
+  run_stage_gc_loop() {
+    [[ -f "$COMPLETION_FILE" ]] || exit 1
+    printf 'gc-ready\n' >>"$calls"
+    exec sleep infinity
+  }
   main
 )
 
@@ -1524,9 +1533,15 @@ for mode in provision cleanup; do
   }
   [[ -f "$COMPLETION_FILE" ]]
   grep -Fxq "idle-ready" "$calls"
+  if [[ "$mode" == provision ]]; then
+    grep -Fxq "gc-ready" "$calls"
+  elif grep -Fq "stage-gc" "$calls" || grep -Fxq "gc-ready" "$calls"; then
+    echo "cleanup mode must not install or start stage GC" >&2
+    exit 1
+  fi
 done
 
-for scenario in provision:parse-sources provision:install-sources \
+for scenario in provision:parse-sources provision:prepare-stage-gc provision:install-stage-gc provision:install-sources \
     provision:activate-containerd provision:label-node \
     cleanup:cleanup-mounts cleanup:cleanup-host; do
   if completion_case "${scenario%%:*}" "${scenario#*:}" >/dev/null 2>&1; then
@@ -1636,3 +1651,5 @@ if output="$(
   exit 1
 fi
 grep -Fq "ERROR: completion-state-failed" <<<"$output"
+
+bash "$repo_root/provisioner/stage_gc_test.sh"

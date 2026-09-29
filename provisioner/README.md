@@ -32,7 +32,7 @@ make provisioner-image PROVISIONER_IMAGE=ghcr.io/acme/brewlet-provisioner:1.2.3
 ```
 
 The multi-stage Docker build compiles `containerd-shim-brewlet-v2`,
-`brewlet-source-policy`, and `brewlet-metrics-exporter` for the target Linux
+`brewlet`, `brewlet-source-policy`, and `brewlet-metrics-exporter` for the target Linux
 architecture and packages them with the entrypoint.
 
 ## Runtime source model
@@ -94,6 +94,11 @@ the checksum gate to reject each build.
 | `LAUNCHER_SOURCE_<n>_PATH` | required per entry | Clean absolute binary path inside that image |
 | `JDKS` / `LAUNCHERS` | derived | Internal inventories; never accepted as independent input |
 | `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Authorize node-side AppCDS regeneration for the active profile |
+| `BREWLET_STAGE_GC_ENABLED` | `true` | Periodically reclaim unreferenced runnable-image stages after successful provisioning |
+| `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Positive whole seconds between sweeps, plus up to 10% jitter |
+| `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age, not unused age; positive whole seconds |
+| `BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED` | `false` | Confirm all older unguarded shims and stage-dependent exported bundles have been retired |
+| `BREWLET_RUNNABLE_STAGE` | `/tmp/brewlet-runnable` | Host staging path for GC; must match the shim's staging root |
 | `NODE_NAME` | downward API | Kubernetes node to label |
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID for managed writer authority |
 | `BREWLET_PROFILE_UID` | empty | Operator-managed profile UID bound to durable writer authority |
@@ -129,6 +134,30 @@ root-owned, mode `0444`
 `brewlet.sh/appcds-regeneration=true`. Disabling the policy, cleanup, or any
 provisioning failure removes both. The node label is a scheduling hint; the shim
 checks the sentinel authoritatively.
+
+After readiness, the provisioner runs `brewlet stage-gc` through the installed
+`/usr/local/bin/brewlet-stage-gc` helper in the host PID/mount namespaces. It
+rechecks managed node/profile ownership before every sweep and stops when a
+successful read shows loss of authority; if the API is unreachable, it skips
+that sweep and retries. Cleanup mode never starts this loop. Failures, including lock
+contention, are logged and retried; successful runs report logical bytes
+reclaimed, and every attempt reports process-local counters and last success.
+TERM/INT stops the active sweep's process group, or the timer, before the
+provisioner exits.
+This is independent of the optional metrics exporter.
+
+Fresh nodes activate automatically. Existing shim installations or nonempty
+staging roots require migration acknowledgment unless a saved
+`$PREFIX/.stage-gc-compatible` record matches both installed shims and the stage
+path. Compatibility is recorded even when GC is disabled so later enabling it
+on a fresh, guarded installation needs no migration acknowledgment. The record
+is invalidated before replacing binaries and removed on teardown. Never
+acknowledge an upgrade until older unguarded shims and stage-dependent exported
+bundles have been retired; reset the acknowledgment after rollout.
+See [runnable stage cleanup](../docs/runnable-image.md#reclaiming-unused-stages).
+The shim's environment and metrics exporter's stage mount must also be aligned
+when using a nondefault staging location; setting the provisioner variable alone
+does not configure those processes.
 
 Mirror destinations are approved outside `NodeProfile` by the manager/admission
 `--allowed-source-mirror-hosts` setting and passed into each provisioner pod.

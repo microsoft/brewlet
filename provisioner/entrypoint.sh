@@ -18,8 +18,8 @@
 #      JDKs/launchers via annotations.
 #
 # The script is idempotent: it is safe to re-run, and only does work that is
-# still missing. It publishes a container-local completion marker, then sleeps
-# forever so the DaemonSet readiness probe can observe successful completion.
+# still missing. It publishes a container-local completion marker, then runs
+# reference-aware stage GC while the DaemonSet stays Ready.
 #
 # It also runs in a reversal mode (BREWLET_MODE=cleanup): a short-lived
 # brewlet-cleanup DaemonSet the operator launches for a deleted NodeProfile.
@@ -57,6 +57,20 @@ JDK_ACTIVE_INVENTORY=".brewlet-active"
 LAUNCHER_SOURCE_METADATA=".brewlet-source"
 LAUNCHER_ACTIVE_INVENTORY=".brewlet-active"
 SOURCE_POLICY_BIN="${SOURCE_POLICY_BIN:-/opt/brewlet-dist/brewlet-source-policy}"
+STAGE_GC_SRC="${STAGE_GC_SRC:-/opt/brewlet-dist/brewlet}"
+HOST_STAGE_GC_PATH="${HOST_STAGE_GC_PATH:-/usr/local/bin/brewlet-stage-gc}"
+STAGE_GC_ENABLED="${BREWLET_STAGE_GC_ENABLED:-true}"
+STAGE_GC_INTERVAL_SECONDS="${BREWLET_STAGE_GC_INTERVAL_SECONDS:-300}"
+STAGE_GC_MIN_AGE_SECONDS="${BREWLET_STAGE_GC_MIN_AGE_SECONDS:-86400}"
+STAGE_GC_UPGRADE_ACKNOWLEDGED="${BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED:-false}"
+STAGE_GC_ROOT="${BREWLET_RUNNABLE_STAGE:-/tmp/brewlet-runnable}"
+STAGE_GC_COMPATIBLE=false
+STAGE_GC_CHILD=""
+STAGE_GC_GROUP=""
+# Never add --no-fork: setns(CLONE_NEWPID) only affects children. The pod is
+# hostPID today, but the reaper must not depend on that to join the host PID
+# namespace it verifies.
+STAGE_GC_NSENTER_FLAGS=(--mount --pid)
 # How long a rotated-out JDK/launcher root must age before it may be reclaimed.
 # Belt-and-braces alongside the live-mount check in reclaim_retired_roots.
 RETIRED_GRACE_SECONDS="${BREWLET_RETIRED_GRACE_SECONDS:-3600}"
@@ -537,6 +551,151 @@ install_shim() {
   install -m 0755 "$CTR_SRC" "$HOST_CTR"
   install -m 0755 "$CRICTL_SRC" "$HOST_CRICTL"
   log "installed shim and host containerd/CRI helpers"
+}
+
+stage_gc_identity() {
+  printf '%s\n' "$STAGE_GC_ROOT"
+  sha256sum "$HOST_BIN/$SHIM_NAME" "$PREFIX/bin/$SHIM_NAME"
+}
+
+prepare_stage_gc() {
+  local value contents identity
+  for value in "$STAGE_GC_ENABLED" "$STAGE_GC_UPGRADE_ACKNOWLEDGED"; do
+    case "$value" in
+      true|false) ;;
+      *) die invalid-stage-gc-config "stage GC booleans must be true or false" ;;
+    esac
+  done
+  for value in "$STAGE_GC_INTERVAL_SECONDS" "$STAGE_GC_MIN_AGE_SECONDS"; do
+    [[ "$value" =~ ^[1-9][0-9]{0,9}$ ]] && (( value <= 2147483647 )) \
+      || die invalid-stage-gc-config "stage GC durations must be 1..2147483647 whole seconds"
+  done
+  [[ "$STAGE_GC_ROOT" == /* && "$STAGE_GC_ROOT" != *$'\n'* ]] \
+    || die invalid-stage-gc-config "stage root must be an absolute single-line host path"
+  STAGE_GC_COMPATIBLE=false
+  if [[ "$STAGE_GC_UPGRADE_ACKNOWLEDGED" == true ]]; then
+    STAGE_GC_COMPATIBLE=true
+  elif [[ -f "$PREFIX/.stage-gc-compatible" && ! -L "$PREFIX/.stage-gc-compatible" &&
+          -f "$HOST_BIN/$SHIM_NAME" && -f "$PREFIX/bin/$SHIM_NAME" ]]; then
+    identity="$(stage_gc_identity)" \
+      || die stage-gc-state-failed "could not verify installed shim identities"
+    contents="$(cat "$PREFIX/.stage-gc-compatible")" \
+      || die stage-gc-state-failed "could not read stage GC compatibility record"
+    [[ "$contents" != "$identity" ]] || STAGE_GC_COMPATIBLE=true
+  elif [[ ! -e "$HOST_BIN/$SHIM_NAME" && ! -L "$HOST_BIN/$SHIM_NAME" &&
+          ! -e "$PREFIX/bin/$SHIM_NAME" && ! -L "$PREFIX/bin/$SHIM_NAME" &&
+          ! -e "$PREFIX/.stage-gc-compatible" && ! -L "$PREFIX/.stage-gc-compatible" ]]; then
+    contents="$(host_exec sh -c '
+      if [ -L "$1" ]; then exit 1
+      elif [ -d "$1" ]; then find "$1" -mindepth 1 -maxdepth 1 -print -quit
+      elif [ -e "$1" ]; then exit 1
+      fi
+    ' sh "$STAGE_GC_ROOT")" \
+      || die stage-gc-state-failed "could not inspect the host stage root before installation"
+    [[ -n "$contents" ]] || STAGE_GC_COMPATIBLE=true
+  fi
+  # Invalidate before replacing binaries: an interrupted upgrade must not leave
+  # an approval associated with a different shim installation.
+  rm -f "$PREFIX/.stage-gc-compatible" \
+    || die stage-gc-state-failed "could not invalidate stage GC compatibility record"
+}
+
+install_stage_gc() {
+  local tmp
+  [[ -x "$STAGE_GC_SRC" ]] \
+    || die shim-image-incomplete "stage GC CLI not found in image at $STAGE_GC_SRC"
+  tmp="$(mktemp "$HOST_BIN/.brewlet-stage-gc.XXXXXX")" \
+    || die stage-gc-state-failed "could not stage GC executable"
+  if ! install -m 0755 "$STAGE_GC_SRC" "$tmp" ||
+      ! mv -f "$tmp" "$HOST_BIN/brewlet-stage-gc"; then
+    rm -f "$tmp"
+    die stage-gc-state-failed "could not install GC executable"
+  fi
+  if [[ "$STAGE_GC_COMPATIBLE" == true ]]; then
+    tmp="$(mktemp "$PREFIX/.stage-gc-compatible.XXXXXX")" \
+      || die stage-gc-state-failed "could not stage compatibility record"
+    if ! stage_gc_identity >"$tmp" || ! mv -f "$tmp" "$PREFIX/.stage-gc-compatible"; then
+      rm -f "$tmp"
+      die stage-gc-state-failed "could not record stage GC compatibility"
+    fi
+  fi
+}
+
+# Each sweep runs as the leader of its own session so shutdown can signal the
+# whole tree, including the reaper that nsenter forks.
+stop_stage_gc_child() {
+  local pid="$STAGE_GC_CHILD" group="$STAGE_GC_GROUP" attempt
+  STAGE_GC_CHILD=""
+  STAGE_GC_GROUP=""
+  [[ -n "$pid" ]] || return 0
+  if [[ -n "$group" ]]; then
+    kill -TERM -- "-$group" 2>/dev/null || true
+  else
+    kill -TERM "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
+  [[ -n "$group" ]] || return 0
+  for attempt in {1..50}; do
+    kill -0 -- "-$group" 2>/dev/null || return 0
+    command sleep 0.1
+  done
+  kill -KILL -- "-$group" 2>/dev/null || true
+}
+
+stop_stage_gc() {
+  stop_stage_gc_child
+  exit "$1"
+}
+
+run_stage_gc_sweep() {
+  setsid nsenter --target 1 "${STAGE_GC_NSENTER_FLAGS[@]}" -- "$HOST_STAGE_GC_PATH" stage-gc \
+    --stage-root "$STAGE_GC_ROOT" --address "$CONTAINERD_ADDRESS" \
+    --min-age "${STAGE_GC_MIN_AGE_SECONDS}s" &
+  STAGE_GC_CHILD=$!
+  # Without job control, a background child is never a group leader, so
+  # setsid execs in place and the child PID is also the new group ID.
+  STAGE_GC_GROUP="$STAGE_GC_CHILD"
+  local status=0
+  wait "$STAGE_GC_CHILD" || status=$?
+  # Reap anything the sweep left behind before the next interval.
+  stop_stage_gc_child
+  return "$status"
+}
+
+run_stage_gc_loop() {
+  if [[ "$STAGE_GC_ENABLED" != true ]]; then
+    log "stage GC disabled"
+    exec sleep infinity
+  fi
+  local successes=0 failures=0 last_success=never delay ownership
+  trap 'stop_stage_gc 143' TERM
+  trap 'stop_stage_gc 130' INT
+  while true; do
+    # Recheck authority after every wait and before any sweep. The operator
+    # drains this worker before allowing a replacement owner or cleanup worker.
+    # A failed API read skips this sweep; only a proven loss of authority exits.
+    ownership=0
+    verify_node_ownership --allow-inconclusive || ownership=$?
+    if (( ownership != 0 )); then
+      log "WARN: stage GC skipped: could not verify node ownership; retrying next interval"
+    elif [[ "$STAGE_GC_COMPATIBLE" != true ]]; then
+      log "WARN: stage GC blocked: retire older unguarded shims and stage-dependent bundles, then set stageGC.upgradeAcknowledged=true"
+    else
+      if run_stage_gc_sweep; then
+        successes=$((successes + 1))
+        last_success="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      else
+        failures=$((failures + 1))
+        log "WARN: stage GC attempt failed (including lock contention); retrying next interval"
+      fi
+      log "stage GC: successful_sweeps=$successes failed_attempts=$failures last_success=$last_success"
+    fi
+    delay=$((STAGE_GC_INTERVAL_SECONDS + RANDOM % (STAGE_GC_INTERVAL_SECONDS / 10 + 1)))
+    sleep "$delay" &
+    STAGE_GC_CHILD=$!
+    wait "$STAGE_GC_CHILD"
+    STAGE_GC_CHILD=""
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -1479,23 +1638,38 @@ verify_profile_identity() {
     || die profile-changed "profile ${BREWLET_PROFILE_NAME} identity changed before readiness publication"
 }
 
+# With --allow-inconclusive, a failed API read restores the previous authority
+# and returns 75 instead of dying. Only a successful read can revoke authority,
+# so a transient control-plane outage cannot crash a provisioned worker.
 verify_node_ownership() {
   [[ "$BREWLET_REQUIRE_NODE_CLAIM" == "true" ]] || return 0
+  local allow_inconclusive=false previous_authorization="$NODE_WRITE_AUTHORIZED"
+  [[ "${1:-}" != "--allow-inconclusive" ]] || allow_inconclusive=true
   NODE_WRITE_AUTHORIZED=false
   [[ -n "$BREWLET_PROFILE_UID" && -n "$NODE_NAME" ]] \
     || die ownership-fence-failed "managed writers require profile and node identities"
   local node_identity node_uid owner_uid owner_node_uid owner_name
   node_identity="$(kubectl get node "$NODE_NAME" -o \
-    'jsonpath={.metadata.uid}|{.metadata.labels.brewlet\.sh/owner-uid}|{.metadata.labels.brewlet\.sh/owner-node-uid}|{.metadata.annotations.brewlet\.sh/owner-name}')" \
-    || die ownership-fence-failed "could not read the node ownership claim"
+    'jsonpath={.metadata.uid}|{.metadata.labels.brewlet\.sh/owner-uid}|{.metadata.labels.brewlet\.sh/owner-node-uid}|{.metadata.annotations.brewlet\.sh/owner-name}' --request-timeout=10s)" || {
+    if [[ "$allow_inconclusive" == true ]]; then
+      NODE_WRITE_AUTHORIZED="$previous_authorization"
+      return 75
+    fi
+    die ownership-fence-failed "could not read the node ownership claim"
+  }
   IFS='|' read -r node_uid owner_uid owner_node_uid owner_name <<<"$node_identity"
   [[ -n "$node_uid" && "$owner_uid" == "$BREWLET_PROFILE_UID" &&
      "$owner_node_uid" == "$node_uid" && "$owner_name" == "$BREWLET_PROFILE_NAME" ]] \
     || die ownership-fence-failed "node identity or ownership no longer authorizes this container"
   local identity uid generation deleting target_uid claimed retirement_generation retirement_phase retiring_uid retiring_claimed target_restart retiring_restart
   local query='{.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].uid}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].claimed}|{.status.retirement.generation}|{.status.retirement.phase}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].uid}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].claimed}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].containerdRestart}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].containerdRestart}'
-  identity="$(kubectl get nodeprofile "$BREWLET_PROFILE_NAME" -o "jsonpath=$query")" \
-    || die ownership-fence-failed "could not read the durable target ledger"
+  identity="$(kubectl get nodeprofile "$BREWLET_PROFILE_NAME" -o "jsonpath=$query" --request-timeout=10s)" || {
+    if [[ "$allow_inconclusive" == true ]]; then
+      NODE_WRITE_AUTHORIZED="$previous_authorization"
+      return 75
+    fi
+    die ownership-fence-failed "could not read the durable target ledger"
+  }
   IFS='|' read -r uid generation deleting target_uid claimed retirement_generation retirement_phase retiring_uid retiring_claimed target_restart retiring_restart <<<"$identity"
   [[ "$uid" == "$BREWLET_PROFILE_UID" && "$target_uid" == "$node_uid" && "$claimed" == "true" ]] \
     || die ownership-fence-failed "node target was not durably authorized by this profile incarnation"
@@ -1595,7 +1769,7 @@ unpatch_containerd() {
 
 remove_shim() {
   rm -f "$PREFIX/bin/$SHIM_NAME" "$HOST_BIN/$SHIM_NAME" \
-    "$HOST_CTR" "$HOST_CRICTL"
+    "$HOST_CTR" "$HOST_CRICTL" "$HOST_BIN/brewlet-stage-gc" "$PREFIX/.stage-gc-compatible"
   log "removed shim binaries and host containerd/CRI helpers"
 }
 
@@ -1673,7 +1847,9 @@ main() {
   parse_runtime_sources
   require_cgroup_v2
   preflight_sources
+  prepare_stage_gc
   install_shim
+  install_stage_gc
   install_source_mount_traps
   cleanup_stale_source_mounts
   require_containerd_image_identity
@@ -1696,8 +1872,7 @@ main() {
 
   # Keep provisioning independent from observability. The exporter runs as a
   # sidecar in the same pod, so an exporter failure cannot reprovision the node.
-  log "entering idle loop; the pod stays Ready to keep the node provisioned"
-  exec sleep infinity
+  run_stage_gc_loop
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

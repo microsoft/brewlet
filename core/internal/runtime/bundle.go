@@ -396,6 +396,12 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	return os.WriteFile(filepath.Join(outDir, "config.json"), b, 0o644)
 }
 
+// Validate checks resource limits before a caller creates bundle-owned files.
+func (res Resources) Validate() error {
+	_, err := buildResources(res)
+	return err
+}
+
 func buildResources(res Resources) (ociResources, error) {
 	out := ociResources{}
 	if res.MemoryLimit != "" {

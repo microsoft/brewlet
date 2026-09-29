@@ -27,7 +27,7 @@ only inside a built artifact and cannot be browsed in the source tree.
 | `brewlet` CLI archive | `NOTICE.txt` beside the executable | `./scripts/generate-go-notice.sh core /tmp/cli-notice.txt ./cmd/brewlet` |
 | Operator image | `/NOTICE.txt` | `./scripts/generate-go-notice.sh kubernetes /tmp/operator-notice.txt ./cmd/manager` |
 | Admission image | `/NOTICE.txt` | `./scripts/generate-go-notice.sh kubernetes /tmp/admission-notice.txt ./cmd/admission` |
-| Node provisioner image | `/NOTICE.txt` | `./scripts/generate-go-notice.sh core /tmp/provisioner-notice.txt ./shim/cmd/containerd-shim-brewlet-v2 ./cmd/brewlet-metrics-exporter ./cmd/brewlet-source-policy` |
+| Node provisioner image | `/NOTICE.txt` | `./scripts/generate-go-notice.sh core /tmp/provisioner-notice.txt ./shim/cmd/containerd-shim-brewlet-v2 ./cmd/brewlet-metrics-exporter ./cmd/brewlet-source-policy ./cmd/brewlet` |
 | Helm chart | No third-party code is embedded in the chart package | — |
 
 The provisioner image build appends the `kubectl`, `ctr`, and `crictl` licenses

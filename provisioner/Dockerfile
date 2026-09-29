@@ -46,11 +46,15 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
  && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags='-s -w' \
     -o /out/brewlet-source-policy ./cmd/brewlet-source-policy \
+ && CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags='-s -w' \
+    -o /out/brewlet ./cmd/brewlet \
  && GOOS=linux GOARCH=${TARGETARCH} \
     /usr/local/bin/generate-go-notice /src /out/NOTICE.txt \
       ./shim/cmd/containerd-shim-brewlet-v2 \
       ./cmd/brewlet-metrics-exporter \
-      ./cmd/brewlet-source-policy
+      ./cmd/brewlet-source-policy \
+      ./cmd/brewlet
 
 # ---- stage 2: download and verify remote assets ----------------------------
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171 AS downloaded-assets
@@ -163,6 +167,7 @@ COPY --from=verified-assets /verified/NOTICE.txt /NOTICE.txt
 COPY --from=shim /out/containerd-shim-brewlet-v2 /opt/brewlet-dist/containerd-shim-brewlet-v2
 COPY --from=shim /out/brewlet-metrics-exporter /opt/brewlet-dist/brewlet-metrics-exporter
 COPY --from=shim /out/brewlet-source-policy /opt/brewlet-dist/brewlet-source-policy
+COPY --from=shim /out/brewlet /opt/brewlet-dist/brewlet
 COPY LICENSE.txt /LICENSE.txt
 COPY legal/CONTAINER-LEGAL-NOTICE.txt /CONTAINER-LEGAL-NOTICE.txt
 COPY provisioner/entrypoint.sh /usr/local/bin/brewlet-provision
