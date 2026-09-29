@@ -11,27 +11,152 @@ documentation, and issue reports are welcome.
 - Report security vulnerabilities privately as described in
   [SECURITY.md](SECURITY.md).
 
+## Local prerequisites
+
+Run commands from the repository root unless noted. For core development,
+install [Go 1.26+](https://go.dev/dl/), GNU Make, and Bash. The
+`go.mod` files specify the minimum Go version. For the full `make check-all`
+path, also install [Python 3](https://www.python.org/downloads/),
+[Maven 3.9+](https://maven.apache.org/download.cgi),
+a full [JDK 21+](https://adoptium.net/), [Helm](https://helm.sh/docs/intro/install/),
+and `unzip`. Maven itself supports building the plugin on JDK 17+, but JDK
+21+ also covers the host-only JVM integration tiers. Ensure `java`, `javac`,
+and `mvn` use the intended JDK (`JAVA_HOME` if necessary). Go, Maven, and
+envtest fetch dependencies and test binaries on their first run; allow network
+access for initial setup.
+
+Confirm the toolchain before running the full suite:
+
+```bash
+go version
+java -version
+javac -version
+mvn -version
+helm version --short
+python3 --version
+```
+
+Install tools as needed for the area you change:
+
+| Work | Additional software |
+| --- | --- |
+| Core CLI and Go unit tests | Go 1.26+; no cluster or Docker daemon |
+| Kubernetes control-plane tests and chart | Helm; `make -C kubernetes test-envtest` downloads the pinned `setup-envtest` tool and Kubernetes API server/etcd assets |
+| Node provisioner and component container images | [Docker](https://docs.docker.com/get-docker/) with Buildx; multi-architecture build tests also need working QEMU/Buildx support |
+| Cluster-dependent integration tiers | [`kubectl`](https://kubernetes.io/docs/tasks/tools/), a reachable **disposable** Kubernetes cluster (such as [kind](https://kind.sigs.k8s.io/)), and, for node-side tiers, Docker, containerd 2.0+, cgroup v2, and a Linux node; some tiers need OpenSSL and cert-manager |
+| Website preview | Python 3 and the packages in `site/requirements.txt`; [Node.js 24](https://nodejs.org/en/download) and npm for notice generation |
+
+macOS is suitable for builds and host-only tests, but it cannot execute the
+Linux containerd shim or node-side cluster tests natively. Do not run the
+privileged provisioner on a shared or production cluster: it changes the host's
+containerd configuration. See the [E2E runbook](integration-tests/AGENTS.md)
+for prerequisites and scoped cleanup before running cluster tiers.
+
+## Monorepo map
+
+This is **not** one Go workspace: run Go commands in the owning module (or use
+`go -C <module>`). In particular, `go test ./...` at the repository root does
+not test all components.
+
+| Path | Ownership and entry points |
+| --- | --- |
+| [`core/`](core/) | Go module for `cmd/brewlet` (CLI), `shim/cmd/containerd-shim-brewlet-v2` (node runtime), `cmd/brewlet-metrics-exporter`, `cmd/brewlet-source-policy`, and shared artifact/runtime packages. |
+| [`kubernetes/`](kubernetes/) | Separate Go module for `cmd/manager` (operator), `cmd/admission` (webhook), APIs and controllers in `api/` and `internal/`, raw manifests in `deploy/`, and Helm chart in `charts/brewlet/`. Its own `Makefile` owns envtest and chart checks. |
+| [`provisioner/`](provisioner/) | Privileged node-installation scripts and Dockerfile; its image builds the shim and helpers from `core/`. |
+| [`admission/`](admission/) | Optional Ratify/Gatekeeper policies and a separate Go module in `ratify-verifier/`; the verifier uses `core/pkg/attest` via a local module replacement. |
+| [`maven-plugin/`](maven-plugin/) | Maven plugin (`pom.xml`, `src/`) for building/publishing application artifacts and generating workload manifests. |
+| [`integration-tests/`](integration-tests/) | Cross-component E2E harness, Java fixtures, and benchmarks; read its `AGENTS.md` before running cluster tiers. |
+| [`specs/`](specs/) | Authoritative architecture, artifact, and API contracts; proposals live in `specs/proposals/`. |
+| [`docs/`](docs/) and [`site/`](site/) | User/operator documentation and workshops; website assets, MkDocs configuration, installer, and site checks. |
+| [`scripts/`](scripts/) and [`.github/workflows/`](.github/workflows/) | Repository-wide policy, release, license/notice checks, and CI jobs. |
+
+The [specification](specs/SPECIFICATION.md) is the source of truth when a
+change crosses modules. Keep implementations, CRDs, chart templates, examples,
+tests, and user documentation consistent. In particular, the chart and raw
+`NodeProfile` CRDs must remain in sync (`make -C kubernetes helm-check` checks
+this).
+
+## Build and test locally
+
+For a first pass, build the CLI and shim, confirm the CLI starts, and run the
+core checks (no Maven, Helm, or cluster required):
+
+```bash
+make binaries                 # outputs bin/brewlet and bin/containerd-shim-brewlet-v2
+./bin/brewlet version
+make check                    # core build, race tests, vet, formatting and policy checks
+```
+
+`bin/` is local build output, not a source directory. The shim can be built on
+macOS, but executing it requires Linux/containerd. For a change spanning
+components, run all non-cluster checks:
+
+```bash
+make check-all
+```
+
+`check-all` adds Kubernetes envtest and Helm checks, Maven plugin verification,
+Ratify verifier checks, site contracts, and host-only E2E tiers 1-2. The E2E
+runner may skip optional tier-2 cases (for example, registry/referrer tests
+without Docker and Maven); inspect its PASS/SKIP summary rather than treating
+a zero exit as complete coverage. It does **not** prove that the shim or
+provisioner works on a real node. Run focused checks while developing:
+
+```bash
+go -C core test ./...                         # core only
+make -C kubernetes operator-build admission-build
+make -C kubernetes ci                         # Go, envtest, Helm chart
+make -C kubernetes test-cli-integration        # CLI against isolated envtest API
+make maven-plugin-check
+make admission-check
+make site-contract-check
+bash provisioner/entrypoint_test.sh
+make container-security-check
+```
+
+The explicit Kubernetes CLI integration target requires Go and Helm and runs
+with a private envtest API server, not your current kube context. For image
+changes, use `make provisioner-image` and, with a configured Docker Buildx
+builder, `make container-security-test`. For a quick documentation preview, see
+[`site/README.md`](site/README.md#local-preview).
+
+To exercise a particular E2E tier, first read the
+[harness runbook](integration-tests/AGENTS.md) and list the current tiers:
+
+```bash
+integration-tests/e2e/run.sh --list
+integration-tests/e2e/run.sh --tier 1 --tier 2  # host-only, no cluster
+```
+
+Cluster tiers require an explicitly selected disposable context and may skip
+when prerequisites are missing; a successful run with skips is not a live
+validation pass. The separate `integration-tests/e2e/live/` scenarios have
+stricter requirements and their own cluster lifecycle; follow
+[`docs/live-validation.md`](docs/live-validation.md) instead of using the
+legacy tier reset helper for them.
+
 ## Development workflow
 
-Development requires Go 1.26 or newer. Maven plugin development requires Maven
-3.9 and JDK 17 or newer. Docker with Buildx is required for provisioner images.
-Additional environment requirements are documented in the
-[README](README.md#build-and-test).
+1. Fork the repository and create a focused branch. Search existing issues and
+   pull requests, and discuss substantial behavioral or architectural changes
+   in an issue first.
+2. Make the smallest coherent change, with tests and documentation for changed
+   behavior. Keep changes in their owning component; do not duplicate contracts
+   or verification logic across modules.
+3. Run the relevant component checks above, then `make check-all` when your
+   local prerequisites allow it. State which commands ran and any skipped or
+   unavailable checks in the pull request.
+4. Open a pull request using the repository
+   [template](.github/PULL_REQUEST_TEMPLATE.md), including compatibility,
+   security, and operational impact.
 
-1. Fork the repository and create a focused branch.
-2. Make the smallest coherent change that solves the issue.
-3. Add or update tests and documentation for changed behavior.
-4. Run the repository checks:
-
-   ```bash
-   make check-all
-   ```
-
-5. Open a pull request that explains the problem, the solution, and any
-   compatibility or operational impact.
-
-Cluster-dependent end-to-end tests are documented in
-[`integration-tests/AGENTS.md`](integration-tests/AGENTS.md).
+For automated agents as well as human contributors: inspect the owning module's
+README and scripts before editing; run commands from the intended directory;
+never assume a skipped E2E tier passed; avoid mutating a user's Kubernetes
+context or deploying the privileged provisioner without an isolated disposable
+cluster. Do not commit generated build outputs, credentials, or local test
+artifacts. For changes to public behavior, use the specification and existing
+tests as the contract, not an unimplemented roadmap proposal.
 
 ## Changing GitHub Actions workflows
 
