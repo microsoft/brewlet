@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -32,9 +33,16 @@ type Result struct {
 // ErrBusy means a launcher or another reaper holds the staging root lock.
 var ErrBusy = errors.New("runnable staging root is busy")
 
+// LinuxDefaultRoot is fixed rather than derived from TMPDIR so the shim, which
+// inherits containerd's environment, and the provisioner's reaper agree.
+const LinuxDefaultRoot = "/tmp/brewlet-runnable"
+
 func Root() string {
 	if root := os.Getenv("BREWLET_RUNNABLE_STAGE"); root != "" {
 		return root
+	}
+	if runtime.GOOS == "linux" {
+		return LinuxDefaultRoot
 	}
 	return filepath.Join(os.TempDir(), "brewlet-runnable")
 }

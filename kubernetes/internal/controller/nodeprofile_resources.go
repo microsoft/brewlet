@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
 	"brewlet-operator/internal/brewlet"
@@ -285,6 +286,10 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		{Name: "BREWLET_PROFILE_UID", Value: string(profile.UID)},
 		{Name: "BREWLET_PROFILE_GENERATION", Value: strconv.FormatInt(profile.Generation, 10)},
 		{Name: "SOURCE_ALLOWED_MIRROR_HOSTS", Value: strings.Join(cfg.AllowedSourceMirrorHosts, ",")},
+		{Name: "BREWLET_STAGE_GC_ENABLED", Value: strconv.FormatBool(cfg.StageGCEnabled)},
+		{Name: "BREWLET_STAGE_GC_INTERVAL_SECONDS", Value: strconv.FormatInt(int64(cfg.StageGCInterval/time.Second), 10)},
+		{Name: "BREWLET_STAGE_GC_MIN_AGE_SECONDS", Value: strconv.FormatInt(int64(cfg.StageGCMinAge/time.Second), 10)},
+		{Name: "BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED", Value: strconv.FormatBool(cfg.StageGCUpgradeAcknowledged)},
 	}
 	if profile.UID != "" {
 		env = append(env, corev1.EnvVar{Name: "BREWLET_REQUIRE_NODE_CLAIM", Value: "true"})

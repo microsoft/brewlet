@@ -133,19 +133,35 @@ snapshot. Allow disk capacity for the retained compressed bytes per image.
 
 ### Reclaiming unused stages
 
-Run the Linux node command as root, in the host PID and mount namespaces, with
-access to the host's `/proc` and containerd socket:
+Run the Linux node command as root, in the host PID, mount, and initial user
+namespaces, with complete visibility of the host's `/proc` and access to the
+containerd socket. On nodes installed by the provisioner, use its host helper:
+
+```sh
+sudo /usr/local/bin/brewlet-stage-gc stage-gc --dry-run
+```
+
+If you installed the standalone `brewlet` CLI on the host, use:
 
 ```sh
 sudo brewlet stage-gc --dry-run
+# Only after completing the migration prerequisites below:
 sudo brewlet stage-gc --min-age 24h
 # Non-default locations (use the same stage root as the shim):
 sudo brewlet stage-gc --stage-root /var/lib/brewlet/runnable \
   --address /run/containerd/containerd.sock --min-age 48h
 ```
 
+Manual commands do not enforce `stageGC.enabled`, migration acknowledgment,
+node ownership, or the provisioner's compatibility record. The reaper's
+reference, mount, and locking checks still apply, but they cannot make
+unguarded legacy consumers safe. Do not use a manual deletion or an additional
+timer to bypass blocked automatic activation.
+
 `--stage-root` defaults to `BREWLET_RUNNABLE_STAGE`, then
-`os.TempDir()/brewlet-runnable`. `--min-age` must be positive and defaults to
+`/tmp/brewlet-runnable` on Linux (independent of `TMPDIR`, so it matches the
+shim even when containerd sets `TMPDIR`) or `os.TempDir()/brewlet-runnable`
+elsewhere. `--min-age` must be positive and defaults to
 24 hours. Keep the stage root administrator-owned and do not rename or replace
 it while launchers or cleanup are running. Only published
 `immutable-v2/<manifest-hex>` directories older than
@@ -161,17 +177,75 @@ resolution and workload mount creation; cleanup takes the exclusive guard and
 fails if a launch is in progress. Retry on the next scheduled run rather than
 removing trees manually. Running workloads do not need to stop.
 
-Use an operator-managed timer or root cron job to bound accumulation, for
-example an hourly invocation of `/usr/local/bin/brewlet stage-gc --min-age 24h`.
-Cleanup is not automatically enabled by installing the shim. Before first
-enabling cleanup during an upgrade, finish or quiesce launches from older shims
-that do not participate in the guard. Legacy trees and abandoned pending trees
-remain outside automated eviction. Previously exported OCI bundles may also
-name stage paths: retire or regenerate those bundles before enabling cleanup.
-New `brewlet bundle` outputs retain their own runnable payloads.
+The Helm chart enables periodic cleanup by default on fresh nodes through the
+existing provisioner, independently of `metrics.enabled`. The global settings
+apply to every operator-managed NodeProfile, including externally managed CRs:
+
+```yaml
+stageGC:
+  enabled: true
+  interval: 5m
+  minAge: 24h
+  upgradeAcknowledged: false
+```
+
+The provisioner enters the host PID and mount namespaces for each sweep and
+rechecks node/profile ownership before it runs. If the Kubernetes API cannot be
+read, that sweep is skipped and retried; the worker exits only when a successful
+read shows it no longer owns the node. Sweeps start after successful
+provisioning, do not overlap, and wait the configured interval plus up to 10%
+jitter between attempts. Each attempt has a five-minute context deadline;
+filesystem operations already in progress may take longer to return. Lock contention
+or inspection failures are logged and retried on the next interval; shutdown
+signals cancel the active reaper. Logs include removed stage counts, logical
+bytes, process-local success/failure counters, and the last successful sweep.
+GC never runs in the provisioner's teardown mode. Disable it with
+`--set stageGC.enabled=false`.
+
+This follows kubelet's image-retention decisions rather than competing with
+them: kubelet removes unused image records via CRI, containerd eventually
+releases unreferenced content, and Brewlet reclaims the orphaned stages. Brewlet
+does not delete containerd images, read or modify kubelet configuration, or apply
+another set of disk-pressure thresholds. The `minAge` floor measures stage
+directory age, **not** time since last use or since becoming unreferenced, and
+is not kubelet's `imageMinimumGCAge` or `imageMaximumGCAge`. This is eventual
+orphan reclamation, not guaranteed immediate disk-pressure relief.
+
+### Upgrading existing nodes
+
+Existing installations without a matching compatibility record stay provisioned
+but log `stage GC blocked` instead of deleting stages. Before acknowledging the
+migration, retire older shims that do not participate in the guard, finish or
+quiesce their launches, and retire or regenerate previously exported OCI bundles
+that name stage paths. Merely installing a new shim does not retire already
+running older shims. New `brewlet bundle` outputs retain their own payloads.
+Then upgrade with `stageGC.upgradeAcknowledged=true` in addition to your normal
+release values. This acknowledges those prerequisites for **all managed nodes**;
+do not set it before the whole selected fleet is ready.
+
+After the rollout, reset `stageGC.upgradeAcknowledged=false`. Each compatible
+node retains a root-owned `/opt/brewlet/.stage-gc-compatible` record tied to both
+installed shim copies and the staging path. A changed shim identity or path
+without a matching record blocks activation again at provisioner startup. An interrupted installation
+can also require acknowledgment again. Disable GC before manually rolling back
+shims or introducing consumers that do not participate in the guard.
+Earlier Linux shims derived their default stage root from `TMPDIR`. If
+containerd set a non-default `TMPDIR`, stages created before the upgrade remain
+under that old location; new launches use `/tmp/brewlet-runnable`. Automatic GC
+does not sweep the old location. Remove it manually only after the migration
+checks above confirm nothing still references it.
+For complete Helm commands and per-node activation checks, see
+[Activating runnable-stage GC](installation.md#activating-runnable-stage-gc).
+
+Standalone shim installation still does not schedule GC. Outside the provisioner,
+use a host timer or root cron job, such as an hourly invocation of
+`/usr/local/bin/brewlet stage-gc --min-age 24h`, after the same migration checks.
+Legacy trees and abandoned pending trees remain outside automated eviction.
 External consumers that read stages without mounts must participate in the
 staging guard or be stopped during cleanup; open file descriptors alone are
 not tracked.
+
+### Observing stage usage and cleanup
 
 The metrics exporter exposes `brewlet_runnable_stage_bytes`, the logical size
 of regular files remaining under its stage root (including legacy and pending
@@ -181,6 +255,9 @@ scrape rather than reporting a misleading zero. The operator's exporter mounts
 the default host stage root read-only. For a custom staging location, configure
 the exporter's `--stage-root` and its read-only host mount to point to that same
 location. Alert on sustained growth and monitor node filesystem free space too.
+Sweep success/failure counters and last-success timestamps are currently
+provisioner logs, not Prometheus metrics. See the
+[metric catalog](runtime-metrics.md#runtime-and-node-metrics).
 
 ## 5. Operator & webhook
 

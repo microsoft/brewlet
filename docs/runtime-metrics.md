@@ -105,7 +105,8 @@ observability must never block or fail workload launch.
 The `metrics-exporter` sidecar runs in every profile-managed provisioner
 DaemonSet. It receives shim events, exposes them as Prometheus counters and
 histograms, and derives inventory gauges from the node's active JDK and launcher
-state under `/opt/brewlet`.
+state under `/opt/brewlet`. It also measures runnable-image stage bytes through
+a read-only host mount of `/tmp/brewlet-runnable`.
 
 The sidecar is deliberately narrow: it runs with a read-only root filesystem,
 all capabilities dropped, and no privilege escalation, and it mounts
@@ -113,6 +114,9 @@ all capabilities dropped, and no privilege escalation, and it mounts
 `DirectoryOrCreate` mount of `/opt/brewlet/metrics`, which exists solely so the
 exporter can bind the telemetry socket. That volume is present only when the
 sidecar itself is — a metrics-disabled or cleanup DaemonSet carries neither.
+The read-only stage volume is also omitted without the exporter. Automatic
+stage GC runs separately in the provisioner through the host namespaces and
+does not depend on exporter mounts or `metrics.enabled`.
 
 The operator and admission webhook use controller-runtime's Prometheus registry.
 Their endpoints include standard controller-runtime/process metrics alongside
@@ -205,6 +209,19 @@ If you changed `metrics.nodePort`, replace `9090` with that value.
 | `brewlet_jdk_info` | Gauge | `distribution`, `feature`, `version`, `vendor`, `arch`, `source` | Value `1` identifies each active JDK build on a node. |
 | `brewlet_jdk_installed_timestamp_seconds` | Gauge | `distribution`, `feature`, `version` | Unix timestamp when that JDK root was installed on the node. It is **not** the upstream JDK patch release date. |
 | `brewlet_launcher_info` | Gauge | `launcher` | Value `1` identifies an available launcher. Vanilla `java` is always emitted; additional installed launchers such as `jaz` are also reported. |
+| `brewlet_runnable_stage_bytes` | Gauge | None | Logical regular-file bytes under the host staging root, including legacy and pending stages. Refreshed on each scrape without following symlinks. This is not allocated disk space, free space, or reclaimable bytes. |
+
+Stage inspection errors fail the scrape instead of reporting a misleading zero.
+Monitor node filesystem free space alongside stage usage; protected, legacy,
+and pending trees can keep the gauge high even when GC is working correctly.
+The exporter's `--stage-root` and read-only host mount must match the shim for a
+custom stage location.
+
+Sweep success/failure counters and last-success timestamps are currently
+reported in **provisioner logs**, not Prometheus metrics. The exporter only
+observes usage; it never deletes stages. See
+[Runnable stage cleanup](runnable-image.md#observing-stage-usage-and-cleanup)
+and the [activation checks](installation.md#activating-runnable-stage-gc).
 
 `brewlet_sandbox_launches_total` uses these bounded failure reasons:
 `NoCompatibleJDK`, `NoCompatibleLauncher`, `NoCompatibleArch`,

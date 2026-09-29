@@ -23,6 +23,7 @@ brewlet keygen              [flags]   generate an ECDSA P-256 key pair
 brewlet inspect <ref>       [flags]   show the artifact manifest + config
 brewlet run     <ref>       [flags]   pull + launch java -jar on this node
 brewlet bundle  <ref>       [flags]   emit an OCI runc bundle (the shim path)
+brewlet stage-gc            [flags]   reclaim orphaned runnable-image stages (Linux)
 brewlet jdks                [flags]   list JDKs available across the cluster
 brewlet doctor              [flags]   diagnose cluster and developer readiness
 brewlet k8s <command>        [flags]   manage and inspect Brewlet on Kubernetes
@@ -266,6 +267,56 @@ cat ./bundle/config.json
 # On a Linux node the shim runs the equivalent of:
 #   runc run -b ./bundle brewlet-<id>
 ```
+
+---
+
+## `brewlet stage-gc`
+
+Perform one reference-aware cleanup sweep on a Linux node. Run as root in the
+host PID, mount, and initial user namespaces, with complete host `/proc`
+visibility and access to containerd.
+
+```text
+brewlet stage-gc [--stage-root DIR] [--address SOCKET] [--min-age DURATION] [--dry-run]
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--stage-root` | `BREWLET_RUNNABLE_STAGE`, otherwise `/tmp/brewlet-runnable` on Linux (ignores `TMPDIR`) or `os.TempDir()/brewlet-runnable` elsewhere | Administrator-owned staging root; must match the shim. |
+| `--address` | `/run/containerd/containerd.sock` | containerd endpoint; references are checked across all namespaces. |
+| `--min-age` | `24h` | Positive Go duration. Only published stages with directory modification times older than this floor are eligible; this is not time since last use. |
+| `--dry-run` | `false` | Apply the same eligibility checks and report candidates without deleting them. |
+
+On a node installed by the provisioner, the CLI is packaged under a helper name:
+
+```bash
+sudo /usr/local/bin/brewlet-stage-gc stage-gc --dry-run
+```
+
+With the standalone `brewlet` CLI installed on the host:
+
+```bash
+sudo brewlet stage-gc --dry-run
+# Only after completing the migration prerequisites:
+sudo brewlet stage-gc --min-age 24h
+```
+
+Only canonical `immutable-v2/<manifest-hex>` directories are considered. Image
+and content references, live mounts, or an active staging guard prevent
+reclamation. Incomplete reference inspection fails closed; legacy and abandoned
+pending directories are not removed. The command reports stage counts, logical
+bytes reclaimed (or eligible in dry-run), and remaining logical stage bytes.
+In dry-run, remaining bytes describe the current tree, not projected usage.
+Errors, including lock contention, exit nonzero. A five-minute context deadline
+and TERM/INT cancellation bound cooperative work; filesystem operations already
+in progress may take longer to return.
+
+**Manual invocation does not check `stageGC.enabled`, migration acknowledgment,
+node ownership, or the provisioner's compatibility record.** Complete the
+[migration prerequisites](runnable-image.md#upgrading-existing-nodes) before
+deleting anything. Helm-managed nodes already have a periodic loop; do not add
+a second timer. For standalone installations only, arrange a host timer after
+those checks. See [Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
 ---
 

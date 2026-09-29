@@ -6,6 +6,7 @@ package runnablestage
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -17,8 +18,13 @@ func TestRootAndBytes(t *testing.T) {
 		t.Fatal("environment override not used")
 	}
 	t.Setenv("BREWLET_RUNNABLE_STAGE", "")
-	if Root() != filepath.Join(os.TempDir(), "brewlet-runnable") {
-		t.Fatal("incorrect default root")
+	t.Setenv("TMPDIR", t.TempDir())
+	want := filepath.Join(os.TempDir(), "brewlet-runnable")
+	if runtime.GOOS == "linux" {
+		want = "/tmp/brewlet-runnable"
+	}
+	if Root() != want {
+		t.Fatalf("default root = %q, want %q", Root(), want)
 	}
 	for name, data := range map[string]string{
 		"legacy/app.jar":                                       "123",

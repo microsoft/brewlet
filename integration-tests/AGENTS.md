@@ -40,15 +40,15 @@ The harness does not switch branches or modify component sources. It uses
 | Tool | Tiers |
 |---|---|
 | Go | all |
-| Python 3 | 2, 4, 12, 13, 16 |
-| JDK 21+ | 2, 3, 7, 8, 9, 12, 14, 15, 16 |
-| Docker | 3, 6, 7, 8-12, 14, 15, 16 |
-| kubectl and a reachable cluster | 4-16 |
-| Helm | 4 (optional), 10, 15 |
+| Python 3 | 2, 4, 12, 13, 16, 17 |
+| JDK 21+ | 2, 3, 7, 8, 9, 12, 14, 15, 16, 17 |
+| Docker | 3, 6, 7, 8-12, 14-17 |
+| kubectl and a reachable cluster | 4-17 |
+| Helm | 4 (optional), 10, 15, 17 |
 | OpenSSL | 4, 5, 6, 10, 11 |
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
-behavior. Tiers 6, 8-12, 14, 15, and 16 require local containerd nodes that
+behavior. Tiers 6, 8-12, and 14-17 require local containerd nodes that
 Docker can enter, such as kind. Managed clusters skip those node-side paths. Tier 13
 also proves the control-plane guard: a NodeProfile that does not set
 `nodePool.includeControlPlane` never counts or schedules onto a control-plane
@@ -69,6 +69,15 @@ a silently non-running pod. It moves the node's shim aside for the last case and
 it both inline and from its cleanup trap. §14's remaining row, the cgroup-v1
 refusal, cannot be produced on a cgroup-v2 CI node and is covered
 deterministically by `provisioner/entrypoint_test.sh` over `require_cgroup_v2`.
+Tier 17 installs the chart with default `stageGC` values, verifies they reach
+the provisioner DaemonSet without the metrics exporter, and proves the upgrade
+gate blocks GC on a node whose stage root already holds data. It then
+acknowledges the upgrade with `interval=5s` and `minAge=1s`, resets the
+acknowledgment to prove the per-node compatibility record persists, and shows
+that a runnable-image stage survives while its pod runs and while containerd
+still holds the image, then is reclaimed after the image is removed. Once GC is
+active, it may also reclaim unreferenced stages left on the node by earlier
+tiers.
 
 **Architecture coverage.** Tiers pick up the node's architecture automatically,
 but hosted runners are amd64, so `.github/workflows/e2e.yml` runs the host-only
@@ -106,7 +115,7 @@ Common environment-specific skips:
 
 - Tier 5 skips when a cluster cannot reach a host-bound webhook; tier 6 covers
   the same assertions in-cluster.
-- Tiers 8, 9, 12, 14, 15, and 16 skip if no schedulable local containerd node
+- Tiers 8, 9, 12, and 14-17 skip if no schedulable local containerd node
   can be provisioned.
 - Tier 12 skips when the node's `ctr` supports neither `images unpack` nor
   import-time unpack; tier 16 applies the same rule.

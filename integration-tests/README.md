@@ -7,7 +7,7 @@ manifests, and specifications remain in their owning monorepo directories.
 ## Layout
 
 ```text
-e2e/       runner, reset helper, shared library, and tiers 1-15
+e2e/       runner, reset helper, shared library, and tiers 1-17
 fixtures/  harness-owned Java demo applications and PetClinic build fixture
 ```
 
@@ -26,7 +26,7 @@ testing external checkouts.
 ## Running
 
 ```bash
-integration-tests/e2e/run.sh                 # all 15 tiers
+integration-tests/e2e/run.sh                 # all 17 tiers
 integration-tests/e2e/run.sh --list          # tier catalog
 integration-tests/e2e/run.sh --tier 4        # one tier
 integration-tests/e2e/run.sh --reset         # remove Brewlet test state
@@ -51,6 +51,8 @@ an exercised capability fails. The suite covers:
 | 13 | NodeProfile lifecycle | Kubernetes |
 | 14 | custom JDK + jaz NodeProfile, live workload, and broken-launcher readiness failure | both + fixtures |
 | 15 | live opt-in Prometheus metrics through Helm, provisioner, shim, and exporter | both + fixtures |
+| 16 | SPECIFICATION §14 failure modes on a live node | core + fixtures |
+| 17 | default-enabled runnable-stage GC: chart defaults, upgrade gate, reference protection, and reclamation | both + fixtures |
 
 See [AGENTS.md](AGENTS.md) for cluster requirements, cleanup, and troubleshooting.
 

@@ -8,7 +8,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/microsoft/brewlet/internal/artifact"
@@ -30,7 +32,9 @@ func cmdStageGC(args []string) error {
 	if fs.NArg() != 0 || *age <= 0 {
 		return fmt.Errorf("usage: stage-gc [--stage-root DIR] [--address SOCKET] [--min-age positive-duration] [--dry-run]")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	result, err := runnablestage.Reap(ctx, *address, runnablestage.Options{
 		Root: *root, MinAge: *age, DryRun: *dryRun,
