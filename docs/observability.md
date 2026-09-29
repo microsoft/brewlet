@@ -36,7 +36,8 @@ kubectl logs <pod> --previous          # after a restart
 ## Metrics & tracing
 
 - **JMX, Micrometer, OpenTelemetry** work as usual — the JVM is a normal process in
-  a normal sandbox.
+  a normal sandbox. For where the OpenTelemetry Java agent should live and how
+  to pass `-javaagent`, see [OpenTelemetry for Java workloads](opentelemetry.md).
 - **JFR (Java Flight Recorder)** can be enabled via `jvm.args`
   (e.g. `-XX:StartFlightRecording=...`).
 - **CPU HPA** requires Kubernetes resource metrics from metrics-server.

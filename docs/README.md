@@ -111,6 +111,9 @@ independent required scenarios, pinned release baseline, evidence and limits.
   integrity, and the sharp edge of privileged node provisioning.
 - **[Observability & day‑2](observability.md)** — networking, logs, metrics,
   probes, JDK upgrades, and multi-arch operations.
+- **[OpenTelemetry for Java workloads](opentelemetry.md)** — where to put the
+  Java agent, how to pass `-javaagent`, and which injection patterns do not
+  apply to Brewlet pods.
 - **[Runtime metrics and Grafana dashboards](runtime-metrics.md)** — enable and
   scrape Brewlet's control-plane and runtime telemetry, use the bundled
   dashboard, and troubleshoot missing targets or inventory.
