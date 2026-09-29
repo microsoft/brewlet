@@ -97,6 +97,7 @@ nav:
       - Security: security.md
       - Admission enforcement: admission-enforcement.md
       - Observability: observability.md
+      - OpenTelemetry: opentelemetry.md
       - Runtime metrics and Grafana dashboards: runtime-metrics.md
       - Disposable live validation: live-validation.md
       - Multi-architecture fleets: multi-arch.md
