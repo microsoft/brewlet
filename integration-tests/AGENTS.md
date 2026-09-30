@@ -41,14 +41,14 @@ The harness does not switch branches or modify component sources. It uses
 |---|---|
 | Go | all |
 | Python 3 | 2, 4, 12, 13, 16, 17 |
-| JDK 21+ | 2, 3, 7, 8, 9, 12, 14, 15, 16, 17 |
-| Docker | 3, 6, 7, 8-12, 14-17 |
-| kubectl and a reachable cluster | 4-17 |
+| JDK 21+ | 2, 3, 7, 8, 9, 12, 14-18 |
+| Docker | 3, 6, 7, 8-12, 14-18 |
+| kubectl and a reachable cluster | 4-18 |
 | Helm | 4 (optional), 10, 15, 17 |
 | OpenSSL | 4, 5, 6, 10, 11 |
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
-behavior. Tiers 6, 8-12, and 14-17 require local containerd nodes that
+behavior. Tiers 6, 8-12, and 14-18 require local containerd nodes that
 Docker can enter, such as kind. Managed clusters skip those node-side paths. Tier 13
 also proves the control-plane guard: a NodeProfile that does not set
 `nodePool.includeControlPlane` never counts or schedules onto a control-plane
@@ -78,6 +78,15 @@ that a runnable-image stage survives while its pod runs and while containerd
 still holds the image, then is reclaimed after the image is removed. Once GC is
 active, it may also reclaim unreferenced stages left on the node by earlier
 tiers.
+Tier 18 covers a patched-JDK rollout. It provisions a Temurin 21 digest,
+runs a Brewlet workload on it, then replaces the NodeProfile digest with a
+patched release. It asserts that the node re-advertises the new version for
+the new profile generation, that the DaemonSet and `.brewlet-source` carry the
+new digest, and that the previous root is retired rather than deleted. It also
+checks that the running pod keeps its original JDK and container, and that a
+retired-root sweep keeps the root that pod still uses. Finally, it asserts
+that `kubectl rollout restart` moves the same application image onto the
+patched JDK, after which an idle sweep reclaims the retired root.
 
 **Architecture coverage.** Tiers pick up the node's architecture automatically,
 but hosted runners are amd64, so `.github/workflows/e2e.yml` runs the host-only
@@ -115,7 +124,7 @@ Common environment-specific skips:
 
 - Tier 5 skips when a cluster cannot reach a host-bound webhook; tier 6 covers
   the same assertions in-cluster.
-- Tiers 8, 9, 12, and 14-17 skip if no schedulable local containerd node
+- Tiers 8, 9, 12, and 14-18 skip if no schedulable local containerd node
   can be provisioned.
 - Tier 12 skips when the node's `ctr` supports neither `images unpack` nor
   import-time unpack; tier 16 applies the same rule.
