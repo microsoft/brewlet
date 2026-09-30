@@ -952,9 +952,13 @@ PROC_ROOT="${BREWLET_PROC_ROOT:-/proc}"
 
 # Print "<major>:<minor> <path relative to its filesystem root>" for a host
 # path, resolved through the host mount namespace's (PID 1) mount table.
+path_device_number() {
+  stat -c %d -- "$1" 2>/dev/null || stat -f %d -- "$1" 2>/dev/null
+}
+
 mount_identity() {
   local path="$1" dev major minor
-  dev="$(stat -c %d -- "$path" 2>/dev/null)" || return 1
+  dev="$(path_device_number "$path")" || return 1
   [[ "$dev" =~ ^[0-9]+$ ]] || return 1
   major=$(( ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff) ))
   minor=$(( (dev & 0xff) | ((dev >> 12) & ~0xff) ))
@@ -980,45 +984,61 @@ mount_identity() {
   ' "$PROC_ROOT/1/mountinfo" 2>/dev/null
 }
 
+# Write "<major:minor> <mount root>" for every mount in every mount namespace
+# to $1, reading each namespace once per sweep. A namespace only counts as
+# seen once one of its PIDs yielded a mount table, so a PID exiting mid-scan
+# cannot hide a namespace that other PIDs still hold. Fails if no mount table
+# was readable, so callers can fail safe.
+snapshot_mount_roots() {
+  local out="$1" file ns seen=" "
+  : >"$out" || return 1
+  for file in "$PROC_ROOT"/[0-9]*/mountinfo; do
+    ns="$(readlink "${file%/mountinfo}/ns/mnt" 2>/dev/null || printf '%s' "$file")"
+    [[ "$seen" != *" $ns "* ]] || continue
+    if awk '{ print $3 " " $4; n++ } END { exit n ? 0 : 1 }' "$file" >>"$out" 2>/dev/null; then
+      seen+="$ns "
+    fi
+  done
+  [[ "$seen" != " " ]]
+}
+
+# Succeeds when a mount in the snapshot is backed by the root (or anything
+# beneath it); an unresolvable root or missing snapshot counts as referenced.
 root_referenced_by_mount() {
-  local root="$1" identity dev relative file ns seen=" " read_any=false
+  local root="$1" snapshot="$2" identity dev relative
+  [[ -n "$snapshot" && -s "$snapshot" ]] || return 0
   identity="$(mount_identity "$root")" || return 0
   dev="${identity%% *}"
   relative="${identity#* }"
-  for file in "$PROC_ROOT"/[0-9]*/mountinfo; do
-    [[ -r "$file" ]] || continue
-    ns="$(readlink "${file%/mountinfo}/ns/mnt" 2>/dev/null || printf '%s' "$file")"
-    [[ "$seen" != *" $ns "* ]] || continue
-    seen+="$ns "
-    awk -v dev="$dev" -v relative="$relative" '
-      function unescape(s) {
-        gsub(/\\040/, " ", s); gsub(/\\011/, "\t", s)
-        gsub(/\\012/, "\n", s); gsub(/\\134/, "\\", s)
-        return s
-      }
-      { read_any = 1 }
-      $3 == dev {
-        root = unescape($4)
-        if (root == relative || index(root, relative "/") == 1) { hit = 1; exit }
-      }
-      END { if (hit) exit 0; if (read_any) exit 1; exit 2 }
-    ' "$file" 2>/dev/null
-    case $? in
-      0) return 0 ;;
-      1) read_any=true ;;
-    esac
-  done
-  [[ "$read_any" == true ]] || return 0
-  return 1
+  awk -v dev="$dev" -v relative="$relative" '
+    function unescape(s) {
+      gsub(/\\040/, " ", s); gsub(/\\011/, "\t", s)
+      gsub(/\\012/, "\n", s); gsub(/\\134/, "\\", s)
+      return s
+    }
+    $1 == dev {
+      root = unescape($2)
+      if (root == relative || index(root, relative "/") == 1) { hit = 1; exit }
+    }
+    END { exit hit ? 0 : 1 }
+  ' "$snapshot"
 }
 
 reclaim_retired_roots() {
-  local now dir age mtime
+  local now dir age mtime snapshot="" snapshot_taken=false
   now="$(date +%s)"
 
   while IFS= read -r dir; do
     [[ -n "$dir" && -d "$dir" ]] || continue
-    if root_referenced_by_mount "$dir"; then
+    if [[ "$snapshot_taken" == false ]]; then
+      snapshot_taken=true
+      snapshot="$(mktemp "${TMPDIR:-/tmp}/brewlet-mounts.XXXXXX")" || snapshot=""
+      if [[ -n "$snapshot" ]] && ! snapshot_mount_roots "$snapshot"; then
+        rm -f -- "$snapshot"
+        snapshot=""
+      fi
+    fi
+    if root_referenced_by_mount "$dir" "$snapshot"; then
       log "retaining retired root $dir (still referenced by a live mount)"
       continue
     fi
@@ -1032,6 +1052,7 @@ reclaim_retired_roots() {
     chmod -R u+w "$dir" 2>/dev/null || true
     rm -rf "$dir" || log "WARN: could not reclaim retired root $dir"
   done < <(find "$PREFIX/jdks" "$PREFIX/launchers" -maxdepth 1 -type d -name '*.retired.*' 2>/dev/null)
+  [[ -z "$snapshot" ]] || rm -f -- "$snapshot"
 
   # Staging directories are only ever visible mid-install, so one left behind
   # belongs to an interrupted run and is never referenced by a sandbox.

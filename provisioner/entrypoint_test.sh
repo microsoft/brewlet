@@ -1237,7 +1237,7 @@ new_retired() {
 # rotation is the ACTIVE root -- while its /opt/jdk bind mount's root field
 # follows the rename, as the kernel renders it from the live dentry.
 fake_proc="$TEST_TMP_ROOT/proc"
-reclaim_dev="$(stat -c %d "$reclaim_root")"
+reclaim_dev="$(path_device_number "$reclaim_root")"
 reclaim_majmin="$(( ((reclaim_dev >> 8) & 0xfff) | ((reclaim_dev >> 32) & ~0xfff) )):$(( (reclaim_dev & 0xff) | ((reclaim_dev >> 12) & ~0xff) ))"
 set_container_mounts() {
   rm -rf "$fake_proc"
@@ -1278,6 +1278,24 @@ set_container_mounts "$kept/home"
 [[ -e "$kept" ]] || { echo "retired root still used by a container mount must be retained" >&2; exit 1; }
 [[ ! -e "$sibling" ]] || { echo "path-prefix sibling of a used root should have been reclaimed" >&2; exit 1; }
 rm -rf "$kept"
+
+# A PID that exits mid-scan must not hide its mount namespace: PID 41 shares
+# the container's namespace but its mount table is gone, so the sweep must
+# still read the namespace through PID 42.
+raced="$(new_retired "$reclaim_root/jdks/temurin-21.retired.250.25")"
+set_container_mounts "$raced/home"
+mkdir -p "$fake_proc/41/ns" "$fake_proc/42/ns"
+: >"$fake_proc/41/mountinfo"
+ln -s 'mnt:[4026532000]' "$fake_proc/41/ns/mnt"
+ln -s 'mnt:[4026532000]' "$fake_proc/42/ns/mnt"
+(
+  PREFIX="$reclaim_root"
+  PROC_ROOT="$fake_proc"
+  RETIRED_GRACE_SECONDS=0
+  reclaim_retired_roots
+)
+[[ -e "$raced" ]] || { echo "an exited PID must not hide a live mount namespace" >&2; exit 1; }
+rm -rf "$raced"
 
 # Within the grace period: retained, so a sandbox being created right now
 # cannot race the sweep.
