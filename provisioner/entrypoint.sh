@@ -38,6 +38,8 @@ set -euo pipefail
 NODE_NAME="${NODE_NAME:-$(hostname)}"
 # Keep this container-local path aligned with the DaemonSet readiness probe.
 COMPLETION_FILE="/tmp/brewlet-complete"
+SERVICE_ACCOUNT_DIR="${SERVICE_ACCOUNT_DIR:-/var/run/secrets/kubernetes.io/serviceaccount}"
+IN_CLUSTER_KUBECONFIG="${IN_CLUSTER_KUBECONFIG:-/tmp/brewlet-kubeconfig}"
 PREFIX="${BREWLET_PREFIX:-/opt/brewlet}"                 # host-mounted at $PREFIX
 HOST_BIN="${HOST_BIN:-/host/usr/local/bin}"              # host /usr/local/bin (on containerd PATH)
 CONTAINERD_CONFIG="${CONTAINERD_CONFIG:-/etc/containerd/config.toml}"
@@ -931,27 +933,112 @@ preflight_sources() {
 # references them.
 #
 # Two independent gates, both must pass:
-#   1. no current mount entry mentions the path (fail safe: if the mount table
-#      cannot be read, the root is treated as referenced and kept);
+#   1. no mount in any mount namespace is backed by the root (fail safe: if
+#      the mount tables cannot be read, the root is treated as referenced);
 #   2. the root has aged past a grace period, so a sandbox being created right
 #      now cannot race the sweep.
 #
+# Mount *option strings* cannot answer gate 1: overlay lowerdir= and
+# /proc/mounts keep the path the root had when the sandbox started, which after
+# rotation is the NEW root's name. Every Brewlet sandbox also bind-mounts its
+# JDK home (and launcher root) from inside the runtime root, and the kernel
+# renders a bind mount's mountinfo "root" field from the live dentry, so it
+# follows the rename. Matching that field plus the device number identifies a
+# retired root that a running container still uses.
+#
 # This runs BEFORE new roots are copied so a node that is already tight on disk
 # reclaims space ahead of a multi-hundred-megabyte copy-from-image.
+PROC_ROOT="${BREWLET_PROC_ROOT:-/proc}"
+
+# Print "<major>:<minor> <path relative to its filesystem root>" for a host
+# path, resolved through the host mount namespace's (PID 1) mount table.
+path_device_number() {
+  stat -c %d -- "$1" 2>/dev/null || stat -f %d -- "$1" 2>/dev/null
+}
+
+mount_identity() {
+  local path="$1" dev major minor
+  dev="$(path_device_number "$path")" || return 1
+  [[ "$dev" =~ ^[0-9]+$ ]] || return 1
+  major=$(( ((dev >> 8) & 0xfff) | ((dev >> 32) & ~0xfff) ))
+  minor=$(( (dev & 0xff) | ((dev >> 12) & ~0xff) ))
+  awk -v dev="$major:$minor" -v path="$path" '
+    function unescape(s) {
+      gsub(/\\040/, " ", s); gsub(/\\011/, "\t", s)
+      gsub(/\\012/, "\n", s); gsub(/\\134/, "\\", s)
+      return s
+    }
+    $3 == dev {
+      mountpoint = unescape($5)
+      if (mountpoint == "/") rest = path
+      else if (path == mountpoint) rest = ""
+      else if (index(path, mountpoint "/") == 1) rest = substr(path, length(mountpoint) + 1)
+      else next
+      if (found && length(mountpoint) <= best) next
+      found = 1; best = length(mountpoint)
+      root = unescape($4)
+      relative = (root == "/" ? "" : root) rest
+      if (relative == "") relative = "/"
+    }
+    END { if (!found) exit 1; print dev " " relative }
+  ' "$PROC_ROOT/1/mountinfo" 2>/dev/null
+}
+
+# Write "<major:minor> <mount root>" for every mount in every mount namespace
+# to $1, reading each namespace once per sweep. A namespace only counts as
+# seen once one of its PIDs yielded a mount table, so a PID exiting mid-scan
+# cannot hide a namespace that other PIDs still hold. Fails if no mount table
+# was readable, so callers can fail safe.
+snapshot_mount_roots() {
+  local out="$1" file ns seen=" "
+  : >"$out" || return 1
+  for file in "$PROC_ROOT"/[0-9]*/mountinfo; do
+    ns="$(readlink "${file%/mountinfo}/ns/mnt" 2>/dev/null || printf '%s' "$file")"
+    [[ "$seen" != *" $ns "* ]] || continue
+    if awk '{ print $3 " " $4; n++ } END { exit n ? 0 : 1 }' "$file" >>"$out" 2>/dev/null; then
+      seen+="$ns "
+    fi
+  done
+  [[ "$seen" != " " ]]
+}
+
+# Succeeds when a mount in the snapshot is backed by the root (or anything
+# beneath it); an unresolvable root or missing snapshot counts as referenced.
 root_referenced_by_mount() {
-  local root="$1" mounts
-  mounts="$(host_exec cat /proc/mounts 2>/dev/null || true)"
-  [[ -n "$mounts" ]] || return 0
-  grep -Fq -- "$root" <<<"$mounts"
+  local root="$1" snapshot="$2" identity dev relative
+  [[ -n "$snapshot" && -s "$snapshot" ]] || return 0
+  identity="$(mount_identity "$root")" || return 0
+  dev="${identity%% *}"
+  relative="${identity#* }"
+  awk -v dev="$dev" -v relative="$relative" '
+    function unescape(s) {
+      gsub(/\\040/, " ", s); gsub(/\\011/, "\t", s)
+      gsub(/\\012/, "\n", s); gsub(/\\134/, "\\", s)
+      return s
+    }
+    $1 == dev {
+      root = unescape($2)
+      if (root == relative || index(root, relative "/") == 1) { hit = 1; exit }
+    }
+    END { exit hit ? 0 : 1 }
+  ' "$snapshot"
 }
 
 reclaim_retired_roots() {
-  local now dir age mtime
+  local now dir age mtime snapshot="" snapshot_taken=false
   now="$(date +%s)"
 
   while IFS= read -r dir; do
     [[ -n "$dir" && -d "$dir" ]] || continue
-    if root_referenced_by_mount "$dir"; then
+    if [[ "$snapshot_taken" == false ]]; then
+      snapshot_taken=true
+      snapshot="$(mktemp "${TMPDIR:-/tmp}/brewlet-mounts.XXXXXX")" || snapshot=""
+      if [[ -n "$snapshot" ]] && ! snapshot_mount_roots "$snapshot"; then
+        rm -f -- "$snapshot"
+        snapshot=""
+      fi
+    fi
+    if root_referenced_by_mount "$dir" "$snapshot"; then
       log "retaining retired root $dir (still referenced by a live mount)"
       continue
     fi
@@ -965,6 +1052,7 @@ reclaim_retired_roots() {
     chmod -R u+w "$dir" 2>/dev/null || true
     rm -rf "$dir" || log "WARN: could not reclaim retired root $dir"
   done < <(find "$PREFIX/jdks" "$PREFIX/launchers" -maxdepth 1 -type d -name '*.retired.*' 2>/dev/null)
+  [[ -z "$snapshot" ]] || rm -f -- "$snapshot"
 
   # Staging directories are only ever visible mid-install, so one left behind
   # belongs to an interrupted run and is never referenced by a sandbox.
@@ -1828,10 +1916,46 @@ cleanup_node() {
   exec sleep infinity
 }
 
+# kubectl only falls back to in-cluster config when the client config is
+# otherwise default; any explicit flag such as --request-timeout makes it use
+# the empty default (localhost:8080) instead. An explicit kubeconfig that
+# reads the projected service-account token keeps such flags working and
+# still picks up token rotation.
+ensure_in_cluster_kubeconfig() {
+  [[ -z "${KUBECONFIG:-}" && -n "${KUBERNETES_SERVICE_HOST:-}" ]] || return 0
+  [[ -r "$SERVICE_ACCOUNT_DIR/token" && -r "$SERVICE_ACCOUNT_DIR/ca.crt" ]] || return 0
+  local host="$KUBERNETES_SERVICE_HOST"
+  [[ "$host" != *:* ]] || host="[$host]"
+  if ! cat >"$IN_CLUSTER_KUBECONFIG" <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+- name: in-cluster
+  cluster:
+    server: https://${host}:${KUBERNETES_SERVICE_PORT:-443}
+    certificate-authority: ${SERVICE_ACCOUNT_DIR}/ca.crt
+users:
+- name: service-account
+  user:
+    tokenFile: ${SERVICE_ACCOUNT_DIR}/token
+contexts:
+- name: in-cluster
+  context:
+    cluster: in-cluster
+    user: service-account
+current-context: in-cluster
+EOF
+  then
+    die kubeconfig-failed "could not write in-cluster kubeconfig ${IN_CLUSTER_KUBECONFIG}"
+  fi
+  export KUBECONFIG="$IN_CLUSTER_KUBECONFIG"
+}
+
 main() {
   # A restarted invocation must never inherit readiness from earlier work.
   rm -f -- "$COMPLETION_FILE" \
     || die completion-state-failed "could not reset completion marker ${COMPLETION_FILE}"
+  ensure_in_cluster_kubeconfig
   verify_node_ownership
   if [[ "${BREWLET_MODE}" == "cleanup" ]]; then
     cleanup_node

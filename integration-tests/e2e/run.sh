@@ -32,7 +32,7 @@ mkdir -p "$WORK"
 for arg in "$@"; do
   case "$arg" in
     --list)
-      printf '1 unit  2 cli  3 runc  4 k8s  5 webhook(host)  6 webhook(in-cluster)  7 petclinic  8 appcds(in-cluster)  9 serving(in-cluster)  10 helm(in-cluster)  11 webhook-resilience  12 runnable-image(in-cluster)  13 nodeprofile  14 custom-jdk(in-cluster)  15 metrics(in-cluster)  16 failure-modes(in-cluster)  17 stage-gc(in-cluster)\n'
+      printf '1 unit  2 cli  3 runc  4 k8s  5 webhook(host)  6 webhook(in-cluster)  7 petclinic  8 appcds(in-cluster)  9 serving(in-cluster)  10 helm(in-cluster)  11 webhook-resilience  12 runnable-image(in-cluster)  13 nodeprofile  14 custom-jdk(in-cluster)  15 metrics(in-cluster)  16 failure-modes(in-cluster)  17 stage-gc(in-cluster)  18 jdk-patch(in-cluster)\n'
       exit 0
       ;;
   esac
@@ -98,6 +98,7 @@ source "$E2E_DIR/tier14-custom-jdk.sh"
 source "$E2E_DIR/tier15-metrics-incluster.sh"
 source "$E2E_DIR/tier16-failure-modes.sh"
 source "$E2E_DIR/tier17-stage-gc.sh"
+source "$E2E_DIR/tier18-jdk-patch.sh"
 
 declare -a TIERS=()
 DO_RESET=0
@@ -107,7 +108,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tier) TIERS+=("$2"); shift 2 ;;
     --reset) DO_RESET=1; shift ;;
-    --list) printf '1 unit  2 cli  3 runc  4 k8s  5 webhook(host)  6 webhook(in-cluster)  7 petclinic  8 appcds(in-cluster)  9 serving(in-cluster)  10 helm(in-cluster)  11 webhook-resilience  12 runnable-image(in-cluster)  13 nodeprofile  14 custom-jdk(in-cluster)  15 metrics(in-cluster)  16 failure-modes(in-cluster)  17 stage-gc(in-cluster)\n'; exit 0 ;;
+    --list) printf '1 unit  2 cli  3 runc  4 k8s  5 webhook(host)  6 webhook(in-cluster)  7 petclinic  8 appcds(in-cluster)  9 serving(in-cluster)  10 helm(in-cluster)  11 webhook-resilience  12 runnable-image(in-cluster)  13 nodeprofile  14 custom-jdk(in-cluster)  15 metrics(in-cluster)  16 failure-modes(in-cluster)  17 stage-gc(in-cluster)  18 jdk-patch(in-cluster)\n'; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) warn "unknown arg: $1"; usage; exit 2 ;;
   esac
@@ -120,7 +121,7 @@ if [[ "$DO_RESET" -eq 1 ]]; then
   [[ ${#TIERS[@]} -eq 0 ]] && exit 0
 fi
 
-[[ ${#TIERS[@]} -eq 0 ]] && TIERS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17)
+[[ ${#TIERS[@]} -eq 0 ]] && TIERS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18)
 
 section "Brewlet E2E — environment"
 info "harness   : $REPO_DIR"
@@ -179,6 +180,7 @@ for t in "${TIERS[@]}"; do
     15) tier15_metrics_incluster ;;
     16) tier16_failure_modes ;;
     17) tier17_stage_gc ;;
+    18) tier18_jdk_patch ;;
     *) warn "no such tier: $t" ;;
   esac
 done
