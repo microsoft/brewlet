@@ -40,15 +40,15 @@ The harness does not switch branches or modify component sources. It uses
 | Tool | Tiers |
 |---|---|
 | Go | all |
-| Python 3 | 2, 4, 12, 13, 16, 17 |
-| JDK 21+ | 2, 3, 7, 8, 9, 12, 14, 15, 16, 17 |
-| Docker | 3, 6, 7, 8-12, 14-17 |
-| kubectl and a reachable cluster | 4-17 |
+| Python 3 | 2, 4, 12, 13, 16, 17, 18 |
+| JDK 21+ | 2, 3, 7, 8, 9, 12, 14, 15, 16, 17, 18 |
+| Docker | 3, 6, 7, 8-12, 14-18 |
+| kubectl and a reachable cluster | 4-18 |
 | Helm | 4 (optional), 10, 15, 17 |
 | OpenSSL | 4, 5, 6, 10, 11 |
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
-behavior. Tiers 6, 8-12, and 14-17 require local containerd nodes that
+behavior. Tiers 6, 8-12, and 14-18 require local containerd nodes that
 Docker can enter, such as kind. Managed clusters skip those node-side paths. Tier 13
 also proves the control-plane guard: a NodeProfile that does not set
 `nodePool.includeControlPlane` never counts or schedules onto a control-plane
@@ -78,6 +78,18 @@ that a runnable-image stage survives while its pod runs and while containerd
 still holds the image, then is reclaimed after the image is removed. Once GC is
 active, it may also reclaim unreferenced stages left on the node by earlier
 tiers.
+Tier 18 rehearses a critical CVE in a library shipped by a managed dependency
+bundle. It publishes a bundle with a stub `log4j-core` 2.14.1, composes three
+thin-JAR apps (two on that bundle, one control on an unrelated bundle), and
+deploys them to a prod and a staging namespace. `e2e/cve_sweep.py` then traces
+every running Brewlet pod from its digest-pinned image through `brewlet inspect`
+evidence to the bundle's CycloneDX SBOM. It flags exactly the affected prod
+workloads and fails closed on images it cannot trace. The tier publishes a
+patched bundle (2.17.1) and recomposes the *unchanged* thin JARs onto it,
+asserting that only the classpath layer changed. It rolls the Deployments by
+digest (`maxUnavailable: 0`) while a client polls the Service, and asserts that
+no request was dropped and that the post-remediation prod sweep is clean. There
+is no in-place JVM swap: a "hot" redeploy is a recompose plus a rolling update.
 
 **Architecture coverage.** Tiers pick up the node's architecture automatically,
 but hosted runners are amd64, so `.github/workflows/e2e.yml` runs the host-only
@@ -102,6 +114,13 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s integration-tests/e2e -p 'nodeprofile_fixtures_test.py' -v
 ```
 
+Run tier 18's SBOM sweep logic offline (fake CLI, no cluster) with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s integration-tests/e2e -p 'cve_sweep_test.py' -v
+```
+
 Run `./e2e/run.sh --reset` before repeating Kubernetes tiers. It removes only
 Brewlet-owned labels, annotations, CRDs, runtime classes, webhook configuration,
 RBAC, and fixed test namespaces. It does not delete application workloads outside
@@ -115,7 +134,7 @@ Common environment-specific skips:
 
 - Tier 5 skips when a cluster cannot reach a host-bound webhook; tier 6 covers
   the same assertions in-cluster.
-- Tiers 8, 9, 12, and 14-17 skip if no schedulable local containerd node
+- Tiers 8, 9, 12, and 14-18 skip if no schedulable local containerd node
   can be provisioned.
 - Tier 12 skips when the node's `ctr` supports neither `images unpack` nor
   import-time unpack; tier 16 applies the same rule.
