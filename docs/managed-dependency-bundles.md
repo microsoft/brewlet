@@ -377,6 +377,35 @@ layout and cache behavior.
 
 ---
 
+## Responding to a dependency CVE
+
+When a bundled library (for example `log4j-core`) receives a critical CVE:
+
+1. **Identify affected workloads from what is running.** Brewlet does not track
+   bundles on `JavaApplication` or on pods. Instead, map each running pod's
+   digest-pinned image to its managed-dependency evidence with
+   `brewlet inspect`. That evidence names the bundle and SBOM digests. Read the
+   components and purls from the bundle's CycloneDX SBOM referrer. Treat any
+   image you cannot trace to an SBOM as unverified, not clean.
+2. **Publish a patched bundle** from the updated BOM under a new version or tag.
+   Bundles are immutable, and publishing one does not change running
+   applications.
+3. **Recompose and roll out.** Run `brewlet push` again with the *same* thin
+   application JAR, `--dependency-bundle` pointing at the patched bundle, and
+   its lock. No application rebuild is required. The application layer and
+   `applicationJarDigest` stay the same, and only the managed classpath layer
+   changes. Then roll each workload to the new image digest with a
+   zero-downtime rolling update (for example, `maxUnavailable: 0`). Brewlet does
+   not swap classpath layers inside a running JVM, so a new pod on the new digest
+   is the unit of remediation.
+4. **Verify** by repeating step 1 against the running pods.
+
+E2E tier 19 (`integration-tests/e2e/tier19-cve-remediation.sh`) runs this
+procedure end to end. It uses `integration-tests/e2e/cve_sweep.py` as the
+reference SBOM sweep.
+
+---
+
 ## Failure behavior
 
 Managed publication fails closed. It does not silently rebuild dependency

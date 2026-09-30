@@ -112,6 +112,11 @@ jobs:
             java: true
             cluster: true
             helm: false
+          - name: "Tier 19: Dependency CVE remediation"
+            tiers: --tier 19
+            java: true
+            cluster: true
+            helm: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -135,6 +140,12 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 -m unittest discover -s integration-tests/e2e -p 'nodeprofile_fixtures_test.py' -v
+
+      - name: Test CVE sweep logic
+        if: contains(matrix.tiers, '--tier 19')
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s integration-tests/e2e -p 'cve_sweep_test.py' -v
 
       - name: Set up Helm
         if: matrix.helm
