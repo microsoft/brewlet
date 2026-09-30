@@ -1927,8 +1927,11 @@ other, so each shape behaves as plain Kubernetes does:
   deleting it, because overlayfs resolves `lowerdir` at mount time — so running
   pods keep the root they started with. A later provisioning pass reclaims a
   rotated-out root once no live mount references it *and* it has aged past a
-  grace period (`BREWLET_RETIRED_GRACE_SECONDS`, default 1h); if the mount table
-  cannot be read the root is retained. Deleting a `NodeProfile` removes the
+  grace period (`BREWLET_RETIRED_GRACE_SECONDS`, default 1h). Mount option
+  strings keep the pre-rename path, so references are found by device number
+  and the mountinfo root field of each sandbox's JDK/launcher bind mount, which
+  the kernel renders from the renamed directory, across every mount namespace.
+  If the mount tables cannot be read, the root is retained. Deleting a `NodeProfile` removes the
   profile's installed roots during cleanup unless
   `BREWLET_CLEANUP_RUNTIME_ROOTS=false`. Roots that merely drop out of a
   profile's inventory while the profile still exists are not yet reclaimed —

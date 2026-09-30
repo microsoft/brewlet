@@ -1231,45 +1231,91 @@ new_retired() {
   printf '%s' "$path"
 }
 
+# Gate 1 reads mountinfo from every mount namespace. Model a host whose PID 1
+# sees the test filesystem at "/", and a container (PID 42) whose overlay
+# lowerdir still names the path the root had at sandbox start -- which after
+# rotation is the ACTIVE root -- while its /opt/jdk bind mount's root field
+# follows the rename, as the kernel renders it from the live dentry.
+fake_proc="$TEST_TMP_ROOT/proc"
+reclaim_dev="$(path_device_number "$reclaim_root")"
+reclaim_majmin="$(( ((reclaim_dev >> 8) & 0xfff) | ((reclaim_dev >> 32) & ~0xfff) )):$(( (reclaim_dev & 0xff) | ((reclaim_dev >> 12) & ~0xff) ))"
+set_container_mounts() {
+  rm -rf "$fake_proc"
+  mkdir -p "$fake_proc/1" "$fake_proc/42"
+  printf '1 0 %s / / rw,relatime - ext4 /dev/root rw\n' "$reclaim_majmin" >"$fake_proc/1/mountinfo"
+  {
+    printf '600 500 0:99 / / rw,relatime - overlay overlay rw,lowerdir=%s/jdks/temurin-21,upperdir=/u,workdir=/w\n' "$reclaim_root"
+    local root
+    for root in "$@"; do
+      printf '601 600 %s %s /opt/jdk ro,relatime - ext4 /dev/root rw\n' "$reclaim_majmin" "$root"
+    done
+  } >"$fake_proc/42/mountinfo"
+}
+
 # Unreferenced and past the grace period: reclaimed.
 gone="$(new_retired "$reclaim_root/jdks/temurin-21.retired.100.1")"
+set_container_mounts "$reclaim_root/jdks/temurin-21/home"
 (
   PREFIX="$reclaim_root"
+  PROC_ROOT="$fake_proc"
   RETIRED_GRACE_SECONDS=0
-  host_exec() { printf 'overlay / overlay rw,lowerdir=/opt/brewlet/jdks/temurin-25\n'; }
   reclaim_retired_roots
 )
 [[ ! -e "$gone" ]] || { echo "unreferenced retired root should have been reclaimed" >&2; exit 1; }
 
-# Referenced by a live overlay mount: retained even though it is past grace.
+# Used by a running container whose bind mount followed the rename: retained
+# even though it is past grace and no mount option string names it.
 kept="$(new_retired "$reclaim_root/jdks/temurin-21.retired.200.2")"
+# A sibling whose name merely extends the used root's name is not protected.
+sibling="$(new_retired "$reclaim_root/jdks/temurin-21.retired.200.20")"
+set_container_mounts "$kept/home"
 (
   PREFIX="$reclaim_root"
+  PROC_ROOT="$fake_proc"
   RETIRED_GRACE_SECONDS=0
-  host_exec() { printf 'overlay / overlay rw,lowerdir=%s\n' "$kept"; }
   reclaim_retired_roots
 )
-[[ -e "$kept" ]] || { echo "retired root still referenced by a mount must be retained" >&2; exit 1; }
+[[ -e "$kept" ]] || { echo "retired root still used by a container mount must be retained" >&2; exit 1; }
+[[ ! -e "$sibling" ]] || { echo "path-prefix sibling of a used root should have been reclaimed" >&2; exit 1; }
 rm -rf "$kept"
+
+# A PID that exits mid-scan must not hide its mount namespace: PID 41 shares
+# the container's namespace but its mount table is gone, so the sweep must
+# still read the namespace through PID 42.
+raced="$(new_retired "$reclaim_root/jdks/temurin-21.retired.250.25")"
+set_container_mounts "$raced/home"
+mkdir -p "$fake_proc/41/ns" "$fake_proc/42/ns"
+: >"$fake_proc/41/mountinfo"
+ln -s 'mnt:[4026532000]' "$fake_proc/41/ns/mnt"
+ln -s 'mnt:[4026532000]' "$fake_proc/42/ns/mnt"
+(
+  PREFIX="$reclaim_root"
+  PROC_ROOT="$fake_proc"
+  RETIRED_GRACE_SECONDS=0
+  reclaim_retired_roots
+)
+[[ -e "$raced" ]] || { echo "an exited PID must not hide a live mount namespace" >&2; exit 1; }
+rm -rf "$raced"
 
 # Within the grace period: retained, so a sandbox being created right now
 # cannot race the sweep.
 fresh="$(new_retired "$reclaim_root/jdks/temurin-21.retired.300.3")"
+set_container_mounts
 (
   PREFIX="$reclaim_root"
+  PROC_ROOT="$fake_proc"
   RETIRED_GRACE_SECONDS=99999
-  host_exec() { printf 'overlay / overlay rw,lowerdir=/opt/brewlet/jdks/temurin-25\n'; }
   reclaim_retired_roots
 )
 [[ -e "$fresh" ]] || { echo "retired root within grace must be retained" >&2; exit 1; }
 rm -rf "$fresh"
 
-# Mount table unreadable: fail safe and keep the root.
+# Mount tables unreadable: fail safe and keep the root.
 unknown="$(new_retired "$reclaim_root/jdks/temurin-21.retired.400.4")"
 (
   PREFIX="$reclaim_root"
+  PROC_ROOT="$TEST_TMP_ROOT/missing-proc"
   RETIRED_GRACE_SECONDS=0
-  host_exec() { return 1; }
   reclaim_retired_roots
 )
 [[ -e "$unknown" ]] || { echo "unreadable mount table must fail safe and retain the root" >&2; exit 1; }
@@ -1279,10 +1325,11 @@ rm -rf "$unknown"
 launcher_gone="$(new_retired "$reclaim_root/launchers/jaz.retired.100.5")"
 # A staging directory only exists mid-install, so one left behind is orphaned.
 staging="$(new_retired "$reclaim_root/jdks/temurin-21.staging.999")"
+set_container_mounts
 (
   PREFIX="$reclaim_root"
+  PROC_ROOT="$fake_proc"
   RETIRED_GRACE_SECONDS=0
-  host_exec() { printf 'overlay / overlay rw,lowerdir=/opt/brewlet/jdks/temurin-25\n'; }
   reclaim_retired_roots
 )
 [[ ! -e "$launcher_gone" ]] || { echo "retired launcher root should have been reclaimed" >&2; exit 1; }
@@ -1651,5 +1698,39 @@ if output="$(
   exit 1
 fi
 grep -Fq "ERROR: completion-state-failed" <<<"$output"
+
+# In-cluster kubectl calls pass explicit flags (--request-timeout), which
+# disable kubectl's implicit in-cluster fallback, so the provisioner must
+# point KUBECONFIG at the projected service-account credentials.
+sa_dir="$TEST_TMP_ROOT/serviceaccount"
+mkdir -p "$sa_dir"
+: >"$sa_dir/token"
+: >"$sa_dir/ca.crt"
+(
+  unset KUBECONFIG
+  SERVICE_ACCOUNT_DIR="$sa_dir"
+  IN_CLUSTER_KUBECONFIG="$TEST_TMP_ROOT/in-cluster-kubeconfig"
+  KUBERNETES_SERVICE_HOST=fd00::1
+  KUBERNETES_SERVICE_PORT=6443
+  ensure_in_cluster_kubeconfig
+  [[ "$KUBECONFIG" == "$IN_CLUSTER_KUBECONFIG" ]]
+  grep -Fxq "    server: https://[fd00::1]:6443" "$KUBECONFIG"
+  grep -Fxq "    certificate-authority: $sa_dir/ca.crt" "$KUBECONFIG"
+  grep -Fxq "    tokenFile: $sa_dir/token" "$KUBECONFIG"
+)
+(
+  KUBECONFIG=/explicit/kubeconfig
+  SERVICE_ACCOUNT_DIR="$sa_dir"
+  IN_CLUSTER_KUBECONFIG="$TEST_TMP_ROOT/unused-kubeconfig"
+  KUBERNETES_SERVICE_HOST=10.96.0.1
+  ensure_in_cluster_kubeconfig
+  [[ "$KUBECONFIG" == /explicit/kubeconfig && ! -e "$IN_CLUSTER_KUBECONFIG" ]]
+)
+(
+  unset KUBECONFIG KUBERNETES_SERVICE_HOST
+  IN_CLUSTER_KUBECONFIG="$TEST_TMP_ROOT/out-of-cluster-kubeconfig"
+  ensure_in_cluster_kubeconfig
+  [[ -z "${KUBECONFIG:-}" && ! -e "$IN_CLUSTER_KUBECONFIG" ]]
+)
 
 bash "$repo_root/provisioner/stage_gc_test.sh"

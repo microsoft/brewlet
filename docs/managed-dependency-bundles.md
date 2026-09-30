@@ -400,7 +400,7 @@ When a bundled library (for example `log4j-core`) receives a critical CVE:
    is the unit of remediation.
 4. **Verify** by repeating step 1 against the running pods.
 
-E2E tier 18 (`integration-tests/e2e/tier18-cve-remediation.sh`) runs this
+E2E tier 19 (`integration-tests/e2e/tier19-cve-remediation.sh`) runs this
 procedure end to end. It uses `integration-tests/e2e/cve_sweep.py` as the
 reference SBOM sweep.
 
