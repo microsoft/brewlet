@@ -278,6 +278,7 @@ visibility and access to containerd.
 
 ```text
 brewlet stage-gc [--stage-root DIR] [--address SOCKET] [--min-age DURATION] [--dry-run]
+                 [--allow-nested-pid-namespace]
 ```
 
 | Flag | Default | Meaning |
@@ -286,6 +287,7 @@ brewlet stage-gc [--stage-root DIR] [--address SOCKET] [--min-age DURATION] [--d
 | `--address` | `/run/containerd/containerd.sock` | containerd endpoint; references are checked across all namespaces. |
 | `--min-age` | `24h` | Positive Go duration. Only published stages with directory modification times older than this floor are eligible; this is not time since last use. |
 | `--dry-run` | `false` | Apply the same eligibility checks and report candidates without deleting them. |
+| `--allow-nested-pid-namespace` | `false` | Test-only. Accept a non-initial PID namespace when the reaper shares it with that namespace's PID 1, for nodes that are themselves containers (kind). Processes outside that namespace are not inspected; never use on real nodes. |
 
 On a node installed by the provisioner, the CLI is packaged under a helper name:
 

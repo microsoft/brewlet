@@ -141,6 +141,10 @@ stageGC:
   # bundles that point into the stage cache. Fresh nodes activate automatically.
   # Reset to false after the rollout; compatible nodes remember activation.
   upgradeAcknowledged: false
+  # Test-only. Lets the reaper run where each node is itself a container with a
+  # private PID namespace (kind). The reaper then sees only that node's processes,
+  # so never enable it on real nodes.
+  allowNestedPIDNamespace: false
 
 operator:
   replicas: 1

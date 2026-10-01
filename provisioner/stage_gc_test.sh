@@ -21,6 +21,7 @@ fixture() {
   STAGE_GC_INTERVAL_SECONDS=1
   STAGE_GC_MIN_AGE_SECONDS=86400
   STAGE_GC_UPGRADE_ACKNOWLEDGED=false
+  STAGE_GC_ALLOW_NESTED_PID_NAMESPACE=false
   STAGE_GC_COMPATIBLE=false
   STAGE_GC_CHILD=""
   STAGE_GC_GROUP=""
@@ -103,7 +104,7 @@ for changed in host-shim prefix-shim root; do
   )
 done
 
-for invalid in zero negative fractional overflow boolean age inspection symlink; do
+for invalid in zero negative fractional overflow boolean nested age inspection symlink; do
   if (
     fixture
     case "$invalid" in
@@ -112,6 +113,7 @@ for invalid in zero negative fractional overflow boolean age inspection symlink;
       fractional) STAGE_GC_INTERVAL_SECONDS=1.5 ;;
       overflow) STAGE_GC_INTERVAL_SECONDS=2147483648 ;;
       boolean) STAGE_GC_ENABLED=yes ;;
+      nested) STAGE_GC_ALLOW_NESTED_PID_NAMESPACE=1 ;;
       age) STAGE_GC_MIN_AGE_SECONDS=0 ;;
       inspection) host_exec() { return 1; } ;;
       symlink) ln -s "$PREFIX" "$STAGE_GC_ROOT" ;;
@@ -135,6 +137,7 @@ done
       grep -Fq -- '--target 1 --mount --pid -- /usr/local/bin/brewlet-stage-gc stage-gc' "$calls"
       ! grep -Fq -- '--no-fork' "$calls"
       grep -Fq -- "--stage-root $STAGE_GC_ROOT --address $CONTAINERD_ADDRESS --min-age 86400s" "$calls"
+      ! grep -Fq -- '--allow-nested-pid-namespace' "$calls"
       exit 0
     fi
   }
@@ -146,6 +149,15 @@ done
   run_stage_gc_loop
 ) >"$work/loop.log"
 grep -Eq 'successful_sweeps=1 failed_attempts=1 last_success=[0-9]{4}-' "$work/loop.log"
+
+# The test-only nested PID namespace opt-in reaches the reaper.
+(
+  fixture
+  STAGE_GC_ALLOW_NESTED_PID_NAMESPACE=true
+  nsenter() { printf 'sweep %s\n' "$*" >>"$calls"; }
+  run_stage_gc_sweep
+  grep -Fq -- "--min-age 86400s --allow-nested-pid-namespace" "$calls"
+)
 
 (
   fixture

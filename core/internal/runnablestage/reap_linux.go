@@ -18,7 +18,7 @@ import (
 
 type dependencies struct {
 	references func(context.Context, string) (map[string]bool, error)
-	mounts     func(context.Context) (mountSnapshot, error)
+	mounts     func(context.Context, bool) (mountSnapshot, error)
 	now        func() time.Time
 }
 
@@ -104,7 +104,7 @@ func reap(ctx context.Context, address string, opts Options, deps dependencies) 
 	if err != nil {
 		return result, err
 	}
-	mounts, err := deps.mounts(ctx)
+	mounts, err := deps.mounts(ctx, opts.AllowNestedPIDNamespace)
 	if err != nil {
 		return result, err
 	}

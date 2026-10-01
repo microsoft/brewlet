@@ -39,6 +39,7 @@ func TestStageGCProvisionerConfiguration(t *testing.T) {
 			cfg.StageGCInterval = 7 * time.Minute
 			cfg.StageGCMinAge = 48 * time.Hour
 			cfg.StageGCUpgradeAcknowledged = true
+			cfg.StageGCAllowNestedPIDNamespace = enabled
 			p := profileNamed("external", []string{"java"}, jdk("temurin", 21))
 			ds := buildProfileDaemonSet(cfg, &p, "agentpool", nil)
 			env := map[string]string{}
@@ -50,10 +51,11 @@ func TestStageGCProvisionerConfiguration(t *testing.T) {
 				wantEnabled = "true"
 			}
 			for key, want := range map[string]string{
-				"BREWLET_STAGE_GC_ENABLED":              wantEnabled,
-				"BREWLET_STAGE_GC_INTERVAL_SECONDS":     "420",
-				"BREWLET_STAGE_GC_MIN_AGE_SECONDS":      "172800",
-				"BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED": "true",
+				"BREWLET_STAGE_GC_ENABLED":                    wantEnabled,
+				"BREWLET_STAGE_GC_INTERVAL_SECONDS":           "420",
+				"BREWLET_STAGE_GC_MIN_AGE_SECONDS":            "172800",
+				"BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED":       "true",
+				"BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE": wantEnabled,
 			} {
 				if env[key] != want {
 					t.Errorf("metrics=%t GC=%t: %s=%q, want %q", metrics, enabled, key, env[key], want)

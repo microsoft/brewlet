@@ -65,6 +65,8 @@ STAGE_GC_ENABLED="${BREWLET_STAGE_GC_ENABLED:-true}"
 STAGE_GC_INTERVAL_SECONDS="${BREWLET_STAGE_GC_INTERVAL_SECONDS:-300}"
 STAGE_GC_MIN_AGE_SECONDS="${BREWLET_STAGE_GC_MIN_AGE_SECONDS:-86400}"
 STAGE_GC_UPGRADE_ACKNOWLEDGED="${BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED:-false}"
+# Test-only: kind nodes are containers with a private PID namespace.
+STAGE_GC_ALLOW_NESTED_PID_NAMESPACE="${BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE:-false}"
 STAGE_GC_ROOT="${BREWLET_RUNNABLE_STAGE:-/tmp/brewlet-runnable}"
 STAGE_GC_COMPATIBLE=false
 STAGE_GC_CHILD=""
@@ -562,7 +564,7 @@ stage_gc_identity() {
 
 prepare_stage_gc() {
   local value contents identity
-  for value in "$STAGE_GC_ENABLED" "$STAGE_GC_UPGRADE_ACKNOWLEDGED"; do
+  for value in "$STAGE_GC_ENABLED" "$STAGE_GC_UPGRADE_ACKNOWLEDGED" "$STAGE_GC_ALLOW_NESTED_PID_NAMESPACE"; do
     case "$value" in
       true|false) ;;
       *) die invalid-stage-gc-config "stage GC booleans must be true or false" ;;
@@ -650,9 +652,11 @@ stop_stage_gc() {
 }
 
 run_stage_gc_sweep() {
+  local -a extra=()
+  [[ "$STAGE_GC_ALLOW_NESTED_PID_NAMESPACE" != true ]] || extra+=(--allow-nested-pid-namespace)
   setsid nsenter --target 1 "${STAGE_GC_NSENTER_FLAGS[@]}" -- "$HOST_STAGE_GC_PATH" stage-gc \
     --stage-root "$STAGE_GC_ROOT" --address "$CONTAINERD_ADDRESS" \
-    --min-age "${STAGE_GC_MIN_AGE_SECONDS}s" &
+    --min-age "${STAGE_GC_MIN_AGE_SECONDS}s" ${extra[@]+"${extra[@]}"} &
   STAGE_GC_CHILD=$!
   # Without job control, a background child is never a group leader, so
   # setsid execs in place and the child PID is also the new group ID.

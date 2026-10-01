@@ -41,7 +41,7 @@ func fakeDependencies(t *testing.T, root string) dependencies {
 	base := mount{device: fmt.Sprintf("%d:%d", unix.Major(uint64(stat.Dev)), unix.Minor(uint64(stat.Dev))), root: "/", point: "/"}
 	return dependencies{
 		references: func(context.Context, string) (map[string]bool, error) { return map[string]bool{}, nil },
-		mounts: func(context.Context) (mountSnapshot, error) {
+		mounts: func(context.Context, bool) (mountSnapshot, error) {
 			return mountSnapshot{current: []mount{base}, all: []mount{base}}, nil
 		},
 		now: time.Now,
@@ -76,11 +76,11 @@ func TestReapFiltersAndDryRun(t *testing.T) {
 			deps.references = func(context.Context, string) (map[string]bool, error) {
 				return map[string]bool{names[1]: true, names[2]: true}, nil
 			}
-			snapshot, _ := deps.mounts(context.Background())
+			snapshot, _ := deps.mounts(context.Background(), false)
 			snapshot.all = append(snapshot.all, mount{device: snapshot.current[0].device, root: filepath.Join(mounted, "app", "app.jar"), point: "/app/app.jar"})
 			snapshot.all = append(snapshot.all, mount{device: snapshot.current[0].device, root: root, point: "/exporter-stage"})
 			snapshot.current = append(snapshot.current, mount{device: "99:9", root: "/", point: filepath.Join(inside, "nested")})
-			deps.mounts = func(context.Context) (mountSnapshot, error) { return snapshot, nil }
+			deps.mounts = func(context.Context, bool) (mountSnapshot, error) { return snapshot, nil }
 			result, err := reap(context.Background(), "fake", Options{Root: root, MinAge: DefaultMinAge, DryRun: dry}, deps)
 			if err != nil {
 				t.Fatal(err)
@@ -117,11 +117,11 @@ func TestReapFailClosed(t *testing.T) {
 					return nil, errors.New("containerd unavailable")
 				}
 			case "mounts":
-				deps.mounts = func(context.Context) (mountSnapshot, error) {
+				deps.mounts = func(context.Context, bool) (mountSnapshot, error) {
 					return mountSnapshot{}, os.ErrPermission
 				}
 			case "mapping":
-				deps.mounts = func(context.Context) (mountSnapshot, error) {
+				deps.mounts = func(context.Context, bool) (mountSnapshot, error) {
 					return mountSnapshot{}, nil
 				}
 			case "cancelled":
@@ -290,5 +290,25 @@ func TestLockInterprocess(t *testing.T) {
 	}
 	if _, err := Reap(context.Background(), "", Options{Root: root, MinAge: DefaultMinAge}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("cross-process reaper lock: %v", err)
+	}
+}
+
+func TestReapPassesNestedPIDOptIn(t *testing.T) {
+	for _, allow := range []bool{false, true} {
+		root := t.TempDir()
+		createStage(t, root, strings.Repeat("a", 64), 48*time.Hour)
+		deps := fakeDependencies(t, root)
+		inner := deps.mounts
+		var got *bool
+		deps.mounts = func(ctx context.Context, nested bool) (mountSnapshot, error) {
+			got = &nested
+			return inner(ctx, nested)
+		}
+		if _, err := reap(context.Background(), "", Options{Root: root, MinAge: time.Hour, DryRun: true, AllowNestedPIDNamespace: allow}, deps); err != nil {
+			t.Fatal(err)
+		}
+		if got == nil || *got != allow {
+			t.Fatalf("mount reader received nested=%v, want %t", got, allow)
+		}
 	}
 }

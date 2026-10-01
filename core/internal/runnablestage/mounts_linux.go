@@ -47,23 +47,35 @@ func (p procFS) Readlink(name string) (string, error) {
 	return os.Readlink(filepath.Join(string(p), name))
 }
 
-func hostMounts(ctx context.Context) (mountSnapshot, error) {
-	return readMounts(ctx, procFS("/proc"))
+func hostMounts(ctx context.Context, allowNestedPID bool) (mountSnapshot, error) {
+	return readMounts(ctx, procFS("/proc"), allowNestedPID)
 }
 
-func readMounts(ctx context.Context, proc procReader) (mountSnapshot, error) {
+func readMounts(ctx context.Context, proc procReader, allowNestedPID bool) (mountSnapshot, error) {
 	// Linux reserves these inode numbers for the initial PID/user namespaces.
-	// Merely comparing self with PID 1 would accept a container's private proc.
-	for name, expected := range map[string]string{
+	// Merely comparing self with PID 1 would accept a container's private proc,
+	// so that weaker check requires the explicit nested-PID opt-in.
+	expected := map[string]string{
 		"self/ns/pid":  "pid:[4026531836]",
 		"1/ns/pid":     "pid:[4026531836]",
 		"self/ns/user": "user:[4026531837]",
-	} {
+	}
+	if allowNestedPID {
+		pid, err := proc.Readlink("1/ns/pid")
+		if err != nil {
+			return mountSnapshot{}, fmt.Errorf("verify host namespace 1/ns/pid: %w", err)
+		}
+		expected["1/ns/pid"], expected["self/ns/pid"] = pid, pid
+	}
+	for name, want := range expected {
 		value, err := proc.Readlink(name)
 		if err != nil {
 			return mountSnapshot{}, fmt.Errorf("verify host namespace %s: %w", name, err)
 		}
-		if value != expected {
+		if value != want {
+			if allowNestedPID {
+				return mountSnapshot{}, fmt.Errorf("reaper requires the node init's PID namespace and the initial user namespace")
+			}
 			return mountSnapshot{}, fmt.Errorf("reaper requires the initial host PID and user namespaces")
 		}
 	}
@@ -190,8 +202,14 @@ func parseMounts(raw []byte) ([]mount, error) {
 				return nil, fmt.Errorf("malformed mountinfo device")
 			}
 		}
-		root, err := mountPath(fields[3])
-		if err != nil {
+		filesystem := fields[separator+1]
+		var root string
+		var err error
+		if filesystem == "nsfs" && namespaceRoot(fields[3]) {
+			// Namespace bind mounts (e.g. CNI's /run/netns/*) report the
+			// namespace identity, not a path, as their root.
+			root = fields[3]
+		} else if root, err = mountPath(fields[3]); err != nil {
 			return nil, err
 		}
 		point, err := mountPath(fields[4])
@@ -200,7 +218,7 @@ func parseMounts(raw []byte) ([]mount, error) {
 		}
 		result = append(result, mount{
 			device: fields[2], root: root, point: point,
-			filesystem: fields[separator+1], options: fields[5] + "," + fields[separator+3],
+			filesystem: filesystem, options: fields[5] + "," + fields[separator+3],
 		})
 	}
 	if err := scanner.Err(); err != nil {
@@ -210,6 +228,20 @@ func parseMounts(raw []byte) ([]mount, error) {
 		return nil, fmt.Errorf("empty mountinfo")
 	}
 	return result, nil
+}
+
+// namespaceRoot reports whether value is an nsfs identity such as "net:[4026532282]".
+func namespaceRoot(value string) bool {
+	kind, rest, ok := strings.Cut(value, ":[")
+	if !ok || kind == "" || !strings.HasSuffix(rest, "]") {
+		return false
+	}
+	for _, c := range kind {
+		if (c < 'a' || c > 'z') && c != '_' {
+			return false
+		}
+	}
+	return decimal(strings.TrimSuffix(rest, "]"))
 }
 
 func mountPath(value string) (string, error) {

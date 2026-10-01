@@ -146,6 +146,7 @@ spec:
             - {{ printf "--stage-gc-interval=%v" .Values.stageGC.interval | quote }}
             - {{ printf "--stage-gc-min-age=%v" .Values.stageGC.minAge | quote }}
             - {{ printf "--stage-gc-upgrade-acknowledged=%v" .Values.stageGC.upgradeAcknowledged | quote }}
+            - {{ printf "--stage-gc-allow-nested-pid-namespace=%v" .Values.stageGC.allowNestedPIDNamespace | quote }}
             - {{ printf "--allowed-source-mirror-hosts=%s" (join "," .Values.security.allowedSourceMirrorHosts) | quote }}
             {{- if .Values.metrics.enabled }}
             - --metrics-bind-address=:8080

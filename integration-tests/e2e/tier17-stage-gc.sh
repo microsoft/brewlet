@@ -50,6 +50,7 @@ T17_JDK_ACTIVE_PREEXISTING=""
 T17_RECORD_PREEXISTING=""
 T17_SENTINEL_CREATED=""
 T17_IMAGE_DIGEST=""
+T17_IMPORT_DIGEST=""
 declare -a T17_LOADED_NODES=()
 declare -a T17_BUILT_IMAGES=()
 
@@ -102,9 +103,22 @@ _t17_image_refs() {
 _t17_remove_image() {
   local refs
   refs="$(_t17_image_refs "$1")"
-  [[ -z "$refs" ]] && return 0
-  # shellcheck disable=SC2086
-  docker exec "$T17_NODE" ctr -n k8s.io images rm --sync $refs >>"$WORK/t17-app.log" 2>&1
+  if [[ -n "$refs" ]]; then
+    # shellcheck disable=SC2086
+    docker exec "$T17_NODE" ctr -n k8s.io images rm --sync $refs >>"$WORK/t17-app.log" 2>&1 ||
+      return 1
+  fi
+  # `ctr images import --digests` also records `import-<date>@<layout index>`,
+  # whose target (the layout's index.json) still references the image's
+  # manifests; the reaper rightly treats that record as a live reference.
+  if [[ -n "$T17_IMPORT_DIGEST" ]]; then
+    refs="$(_t17_image_refs "$T17_IMPORT_DIGEST")"
+    if [[ -n "$refs" ]]; then
+      # shellcheck disable=SC2086
+      docker exec "$T17_NODE" ctr -n k8s.io images rm --sync $refs >>"$WORK/t17-app.log" 2>&1 ||
+        return 1
+    fi
+  fi
 }
 
 _t17_cleanup() {
@@ -242,6 +256,40 @@ _t17_wait_sweeps() {
   return 1
 }
 
+# _t17_sweep_diag POD STAGE NAME: distinguish a deleted stage from stalled sweeps.
+_t17_sweep_diag() {
+  local present=present
+  docker exec "$T17_NODE" test -d "$2" || present=missing
+  _t17_logs "$1" >"$WORK/$3-provisioner.log" 2>&1 || true
+  printf 'stage=%s; last: %s; see %s' "$present" \
+    "$(grep -E 'stage GC|stage-gc|Error|error' "$WORK/$3-provisioner.log" | tail -2 | tr '\n' ' ')" \
+    "$WORK/$3-provisioner.log"
+}
+
+# _t17_reclaim_diag POD STAGE: print why a stage was not reclaimed straight
+# into the job log (the $WORK diag files are not uploaded as artifacts).
+_t17_reclaim_diag() {
+  local key="${2##*/}"
+  {
+    echo "=== tier17 reclaim diag: stage=$2 ==="
+    docker exec "$T17_NODE" ls -la "$2" 2>&1 | head -5
+    echo "--- provisioner log (tail) ---"
+    _t17_logs "$1" 2>&1 | tail -40
+    echo "--- containerd namespaces / images / content / leases ---"
+    for ns in $(docker exec "$T17_NODE" ctr ns ls -q 2>/dev/null); do
+      echo "[ns $ns] images:"
+      docker exec "$T17_NODE" ctr -n "$ns" images ls 2>&1 | grep -F "${key:0:12}" || true
+      echo "[ns $ns] content:"
+      docker exec "$T17_NODE" ctr -n "$ns" content ls 2>&1 | grep -F "${key:0:12}" || true
+      echo "[ns $ns] leases:"
+      docker exec "$T17_NODE" ctr -n "$ns" leases ls 2>&1 | head -10
+    done
+    echo "--- mountinfo references ---"
+    docker exec "$T17_NODE" sh -c 'grep -l "brewlet-runnable" /proc/[0-9]*/mountinfo 2>/dev/null | head -20' 2>&1
+    docker exec "$T17_NODE" sh -c "grep -h -F '${key:0:12}' /proc/[0-9]*/mountinfo 2>/dev/null | sort -u | head -20" 2>&1
+  } | sed 's/^/    /' >&2
+}
+
 _t17_ds_env() {
   kubectl get ds "brewlet-node-provisioner-$T17_PROFILE" -n "$T17_NS" \
     -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name==\"$1\")].value}" 2>/dev/null
@@ -360,6 +408,7 @@ tier17_stage_gc() {
     fail "tier17: import runnable image into node" "see $WORK/t17-app.log"; return 0
   fi
   T17_IMAGE_DIGEST="$digest"
+  T17_IMPORT_DIGEST="sha256:$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$store/index.json")"
 
   # --- (1)+(2): chart defaults, blocked on an upgraded node -----------------
   info "tier17: installing the chart with default stageGC values"
@@ -372,6 +421,7 @@ tier17_stage_gc() {
       --set images.pullPolicy=IfNotPresent \
       --set defaultProfile.enabled=false \
       --set operator.leaderElect=false \
+      --set stageGC.allowNestedPIDNamespace=true \
       --wait --timeout 180s >"$WORK/t17-install.log" 2>&1; then
     save_pod_diag t17-install "$T17_NS" >>"$WORK/t17-install.log" 2>&1 || true
     fail "tier17: install chart" "see $WORK/t17-install.log"; return 0
@@ -415,6 +465,10 @@ YAML
   assert_eq "tier17: default minimum age is 24h" "$(_t17_ds_env BREWLET_STAGE_GC_MIN_AGE_SECONDS)" "86400"
   assert_eq "tier17: upgrade acknowledgment defaults off" \
     "$(_t17_ds_env BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED)" "false"
+  # kind nodes are containers with a private PID namespace; the reaper refuses
+  # them unless this test-only opt-in is set.
+  assert_eq "tier17: nested PID namespace opt-in reaches the provisioner" \
+    "$(_t17_ds_env BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE)" "true"
   assert_eq "tier17: GC runs without the metrics exporter sidecar" \
     "$(kubectl get ds "$ds" -n "$T17_NS" -o jsonpath='{.spec.template.spec.containers[*].name}')" \
     "provisioner"
@@ -537,7 +591,8 @@ YAML
      docker exec "$T17_NODE" test -d "$stage"; then
     pass "tier17: stage of a running, referenced image survives sweeps"
   else
-    fail "tier17: stage of a running, referenced image survives sweeps"; return 0
+    fail "tier17: stage of a running, referenced image survives sweeps" \
+      "$(_t17_sweep_diag "$pod" "$stage" t17-running)"; return 0
   fi
 
   kubectl delete deploy "$T17_APP" -n "$T17_APP_NS" --wait=true --timeout=60s \
@@ -555,16 +610,19 @@ YAML
      docker exec "$T17_NODE" test -d "$stage"; then
     pass "tier17: stage survives while containerd still holds its image"
   else
-    fail "tier17: stage survives while containerd still holds its image"; return 0
+    fail "tier17: stage survives while containerd still holds its image" \
+      "$(_t17_sweep_diag "$pod" "$stage" t17-held)"; return 0
   fi
 
   # --- (5): image removal makes the stage an orphan -------------------------
-  if ! _t17_remove_image "$T17_IMAGE_DIGEST" || [[ -n "$(_t17_image_refs "$T17_IMAGE_DIGEST")" ]]; then
+  if ! _t17_remove_image "$T17_IMAGE_DIGEST" || [[ -n "$(_t17_image_refs "$T17_IMAGE_DIGEST")" ]] ||
+     [[ -n "$T17_IMPORT_DIGEST" && -n "$(_t17_image_refs "$T17_IMPORT_DIGEST")" ]]; then
     fail "tier17: remove the workload image from containerd" "see $WORK/t17-app.log"; return 0
   fi
   if wait_for_seconds 120 docker exec "$T17_NODE" test ! -e "$stage"; then
     pass "tier17: sweep reclaims the stage after its image is removed"
   else
+    _t17_reclaim_diag "$pod" "$stage"
     fail "tier17: sweep reclaims the stage after its image is removed" \
       "diag: $(save_pod_diag t17-reclaim "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
     return 0

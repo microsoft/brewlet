@@ -18,12 +18,12 @@ func TestStageGCOperatorArguments(t *testing.T) {
 	}{
 		{
 			name: "defaults without metrics or chart-managed profiles",
-			want: []string{"--stage-gc-enabled=true", "--stage-gc-interval=5m", "--stage-gc-min-age=24h", "--stage-gc-upgrade-acknowledged=false", "--node-metrics-enabled=false"},
+			want: []string{"--stage-gc-enabled=true", "--stage-gc-interval=5m", "--stage-gc-min-age=24h", "--stage-gc-upgrade-acknowledged=false", "--stage-gc-allow-nested-pid-namespace=false", "--node-metrics-enabled=false"},
 		},
 		{
 			name: "overrides",
-			args: []string{"--set", "stageGC.enabled=false", "--set", "stageGC.interval=10m", "--set", "stageGC.minAge=48h", "--set", "stageGC.upgradeAcknowledged=true"},
-			want: []string{"--stage-gc-enabled=false", "--stage-gc-interval=10m", "--stage-gc-min-age=48h", "--stage-gc-upgrade-acknowledged=true"},
+			args: []string{"--set", "stageGC.enabled=false", "--set", "stageGC.interval=10m", "--set", "stageGC.minAge=48h", "--set", "stageGC.upgradeAcknowledged=true", "--set", "stageGC.allowNestedPIDNamespace=true"},
+			want: []string{"--stage-gc-enabled=false", "--stage-gc-interval=10m", "--stage-gc-min-age=48h", "--stage-gc-upgrade-acknowledged=true", "--stage-gc-allow-nested-pid-namespace=true"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

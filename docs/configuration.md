@@ -81,6 +81,7 @@ with `--set key=value` or a values file.
 | `stageGC.interval` | `5m` | Delay after each attempt, plus up to 10% jitter. Sweeps do not overlap. |
 | `stageGC.minAge` | `24h` | Minimum stage directory age, not time since last use or since becoming unreferenced. |
 | `stageGC.upgradeAcknowledged` | `false` | Confirm older unguarded shims and stage-dependent exported bundles have been retired across all managed nodes. Reset after the rollout; compatible nodes retain their approval. |
+| `stageGC.allowNestedPIDNamespace` | `false` | Test-only. Let the reaper run on nodes that are themselves containers with a private PID namespace (kind). Never enable on real nodes. |
 | `uninstall.timeoutSeconds` | `240` | Pre-delete cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstalling; Helm's `--timeout` must exceed this plus 30 seconds. Failure retains the control plane. See [Uninstall](installation.md#uninstall). |
 | `uninstall.imagePullSecrets` | `[]` | Namespaced registry Secret references for the cleanup Job, which uses the operator image and its own service account. |
 | `metrics.enabled` | `false` | Opt in to Brewlet runtime and control-plane Prometheus endpoints. Enables the operator and admission listeners plus the node exporter sidecar and Services. |
@@ -251,6 +252,7 @@ When you install via Helm, the chart populates them for you.
 | `--stage-gc-interval` | `5m` | Delay between GC attempts, plus jitter; positive whole seconds in Go duration syntax. |
 | `--stage-gc-min-age` | `24h` | Minimum stage directory age; positive whole seconds in Go duration syntax. |
 | `--stage-gc-upgrade-acknowledged` | `false` | Acknowledge retirement of unguarded stage consumers across the managed fleet. Reset after rollout. |
+| `--stage-gc-allow-nested-pid-namespace` | `false` | Test-only. Let the reaper run on nodes with a private PID namespace (kind). |
 
 For a local operator built from the same release as the installed CLI, use that
 CLI's version to select the matching provisioner image. For custom source builds,
@@ -296,6 +298,7 @@ only touch them directly if you hand-wire the DaemonSet.
 | `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Delay between GC attempts, plus up to 10% jitter; integer seconds in `1..2147483647`. |
 | `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age; integer seconds in `1..2147483647`. |
 | `BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED` | `false` | Confirm older unguarded shims and stage-dependent exported bundles have been retired; rendered from operator-wide policy. |
+| `BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE` | `false` | Test-only. Pass `--allow-nested-pid-namespace` to the reaper on kind nodes; rendered from operator-wide policy. |
 | `BREWLET_RUNNABLE_STAGE` | `/tmp/brewlet-runnable` (provisioner) | Host stage root used by automatic GC. A custom location must also be configured separately for the shim and exporter's read-only mount; this variable does not reconfigure those processes. |
 | `NODE_NAME` | (downward API) | The node to label; injected from `spec.nodeName`. |
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID in managed worker authority checks. |

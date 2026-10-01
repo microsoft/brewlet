@@ -22,6 +22,10 @@ type Options struct {
 	Root   string
 	MinAge time.Duration
 	DryRun bool
+	// AllowNestedPIDNamespace accepts a non-initial PID namespace when the
+	// reaper shares it with that namespace's PID 1. Only for nodes that are
+	// themselves containers (kind) whose stage root is private to the node.
+	AllowNestedPIDNamespace bool
 }
 
 type Result struct {
