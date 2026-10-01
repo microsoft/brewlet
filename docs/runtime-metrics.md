@@ -42,7 +42,7 @@ Install or upgrade Brewlet with the values file:
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --values metrics-values.yaml \
-  --set provisioner.pools="{java-workers}"
+  --set provisioner.pools="{javaworkers}"
 ```
 
 This selects the latest released chart. To retain a specific release, add

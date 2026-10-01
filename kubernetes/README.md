@@ -21,7 +21,7 @@ documentation lives in [`docs/`](../docs/).
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{java-workers}"
+  --set provisioner.pools="{javaworkers}"
 ```
 
 Omitting `--version` selects the latest released chart. Add `--version x.y.z`
@@ -59,7 +59,7 @@ metadata:
   name: zulu
 spec:
   nodePool:
-    names: ["zulu-workers"]
+    names: ["zuluworkers"]
   jdks:
     - distribution: zulu
       feature: 21

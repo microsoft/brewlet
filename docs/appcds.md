@@ -236,7 +236,7 @@ metadata:
   name: appcds-builders
 spec:
   nodePool:
-    names: ["appcds-builders"]
+    names: ["cdsbuilders"]
   jdks:
     - { distribution: temurin, feature: 21 }
   appCDS:

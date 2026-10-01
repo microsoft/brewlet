@@ -57,7 +57,7 @@ metadata:
   name: zulu
 spec:
   nodePool:
-    names: ["zulu-workers"]
+    names: ["zuluworkers"]
   jdks:
     - distribution: zulu
       feature: 21

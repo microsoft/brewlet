@@ -494,7 +494,7 @@ inherit the selected chart release's defaults.
 ```yaml
 provisioner:
   pools:
-    - java-workers
+    - javaworkers
   jdks:
     - distribution: temurin
       feature: 21
@@ -507,7 +507,7 @@ Replace the example choices before running the command:
 
 | Field | What to supply |
 |---|---|
-| `provisioner.pools` | Names of existing node pools Brewlet may provision, not individual node names. The CLI does not create these pools. Replace `java-workers` with a pool you control. |
+| `provisioner.pools` | Names of existing node pools Brewlet may provision, not individual node names. The CLI does not create these pools. Replace `javaworkers` with a pool you control; AKS pool names are lowercase alphanumeric only (no dashes). |
 | `provisioner.jdks[].distribution` | A lowercase inventory name for the JDK, such as `temurin` or `microsoft`. It does not select or download an image automatically. |
 | `provisioner.jdks[].feature` | The Java feature version actually supplied by your source image, such as `21` or `25`. |
 | `provisioner.jdks[].source.image` | The fully qualified, tagless image reference pinned to the approved manifest or multi-platform index digest. Replace `<64-lowercase-hex>` with all 64 lowercase hexadecimal characters from that digest. |

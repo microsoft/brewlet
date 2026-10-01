@@ -191,14 +191,17 @@ provisioner:
         javaHome: /opt/java/openjdk
 ```
 
-Choose an existing node pool named `java-workers`, or replace it in the command.
+Choose an existing node pool named `javaworkers`, or replace it in the command.
+Use the pool's real name as your provider reports it. AKS pool names are
+lowercase alphanumeric only (no dashes; at most 12 characters for Linux and 6
+for Windows pools), so names such as `java-workers` are not valid there.
 Install the latest chart:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{java-workers}" \
+  --set provisioner.pools="{javaworkers}" \
   --values my-jdks.yaml
 
 # The chart renders a default NodeProfile scoped to those pools (§5.6) — there
@@ -285,7 +288,7 @@ do not use a mutable tag for these overrides:
 helm upgrade --install brewlet ./kubernetes/charts/brewlet \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{java-workers}" \
+  --set provisioner.pools="{javaworkers}" \
   --values my-jdks.yaml \
   --set "images.operator=<registry>/operator@sha256:<64-lowercase-hex>" \
   --set "images.provisioner=<registry>/node-provisioner@sha256:<64-lowercase-hex>" \
@@ -298,7 +301,7 @@ Preview with the **same** inventory and pool before installing:
 ```bash
 helm template brewlet ./kubernetes/charts/brewlet \
   --namespace brewlet \
-  --set provisioner.pools="{java-workers}" \
+  --set provisioner.pools="{javaworkers}" \
   --values my-jdks.yaml > brewlet-rendered.yaml
 ```
 
@@ -523,12 +526,12 @@ clean up after a failed installation.
 
 The CLI takes complete Helm values files, so put your node pools in a file
 instead of `--set`. Save the following as `my-pools.yaml`, replacing
-`java-workers` with an existing node pool you control:
+`javaworkers` with an existing node pool you control:
 
 ```yaml
 provisioner:
   pools:
-    - java-workers
+    - javaworkers
 ```
 
 Combine it with the `my-jdks.yaml` inventory from the [Helm](#helm-recommended)
@@ -603,7 +606,7 @@ metadata:
   name: java-workers
 spec:
   nodePool:
-    names: ["java-workers"]
+    names: ["javaworkers"]
   jdks:
     - distribution: temurin
       feature: 21

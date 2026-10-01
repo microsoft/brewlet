@@ -76,7 +76,7 @@ choose a different Java feature, update `BREWLET_JDK` in the developer handoff.
 Render and inspect the released chart before applying it:
 
 ```bash
-export BREWLET_POOL="java-workers"
+export BREWLET_POOL="javaworkers"
 
 helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --version "$BREWLET_VERSION" \
