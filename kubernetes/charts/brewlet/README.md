@@ -52,7 +52,7 @@ runtime catalog. Name the node pool the privileged provisioner may modify:
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{java-workers}" \
+  --set provisioner.pools="{javaworkers}" \
   --values my-jdks.yaml
 
 # The default NodeProfile provisions the named pools (§5.6) — no per-node opt-in
@@ -211,7 +211,7 @@ defaultProfile:
   enabled: false
 profiles:
   - name: appcds-builders
-    pools: ["appcds-builders"]
+    pools: ["cdsbuilders"]
     jdks:
       - distribution: temurin
         feature: 21

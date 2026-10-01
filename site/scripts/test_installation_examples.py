@@ -91,7 +91,7 @@ class InstallationExamplesTest(unittest.TestCase):
                 continue
             if arg in ("--values", "-f", "--set", "--set-string", "--set-json", "--namespace"):
                 value = next(args)
-                value = value.replace("$BREWLET_POOL", "java-workers")
+                value = value.replace("$BREWLET_POOL", "javaworkers")
                 value = value.replace("$BREWLET_WORK/", "")
                 value = value.replace("<64-lowercase-hex>", DIGEST)
                 value = value.replace("<registry>", "registry.example.com")
@@ -119,7 +119,7 @@ class InstallationExamplesTest(unittest.TestCase):
             saved_images = {name: f"registry.example.com/private/{name}@sha256:{DIGEST}"
                             for name in ("operator", "admission", "provisioner")}
             (self.work / "values.yaml").write_text(json.dumps({
-                "provisioner": {"pools": ["existing-workers"]},
+                "provisioner": {"pools": ["existingpool"]},
                 "images": saved_images,
             }))
             (self.work / "brewlet-no-profiles.yaml").write_text(json.dumps({
@@ -142,7 +142,7 @@ class InstallationExamplesTest(unittest.TestCase):
                         profile = profiles[0]
                         self.assertIn("apiVersion: node.brewlet.sh/v1alpha1\n", profile)
                         self.assertIn("\n  name: default\n", profile)
-                        pool = "existing-workers" if "values.yaml" in args else "java-workers"
+                        pool = "existingpool" if "values.yaml" in args else "javaworkers"
                         self.assertIn(f'\n      - "{pool}"\n', profile)
                         self.assertIn("    - distribution: temurin\n", profile)
                         self.assertIn("      feature: 21\n", profile)
@@ -162,7 +162,7 @@ class InstallationExamplesTest(unittest.TestCase):
             "### Safe JDK and launcher additions\n", 1
         )[0]
         inventory = self.inventory(installation)
-        self.assertIn("    - java-workers\n", inventory)
+        self.assertIn("    - javaworkers\n", inventory)
         self.assertIn("@sha256:<64-lowercase-hex>", inventory)
         self.assertIn("configuration.md#helm-chart-values", installation)
         self.assertIn("kubernetes/charts/brewlet/values.yaml", installation)
@@ -179,7 +179,7 @@ class InstallationExamplesTest(unittest.TestCase):
         self.assertEqual(len(profiles), 1)
         profile = profiles[0]
         self.assertIn("\n  name: default\n", profile)
-        self.assertIn('\n      - "java-workers"\n', profile)
+        self.assertIn('\n      - "javaworkers"\n', profile)
         self.assertIn("    - distribution: temurin\n", profile)
         self.assertIn("      feature: 21\n", profile)
         self.assertIn(
@@ -271,7 +271,7 @@ class InstallationExamplesTest(unittest.TestCase):
         for args, expected in (
             ([], "provisioner.pools is required"),
             (["--values", "my-jdks.yaml"], "provisioner.pools is required"),
-            (["--set", "provisioner.pools={java-workers}"], "provisioner.jdks is required"),
+            (["--set", "provisioner.pools={javaworkers}"], "provisioner.jdks is required"),
         ):
             with self.subTest(args=args):
                 result = self.render(args)
@@ -282,7 +282,7 @@ class InstallationExamplesTest(unittest.TestCase):
         inventory = self.inventory((ROOT / "README.md").read_text())
         (self.work / "my-jdks.yaml").write_text(inventory.replace("<64-lowercase-hex>", DIGEST))
         result = self.render(["--values", "my-jdks.yaml",
-                              "--set", "provisioner.pools={java-workers}",
+                              "--set", "provisioner.pools={javaworkers}",
                               "--set", "provisioner.includeControlPlane=true"])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("    includeControlPlane: true\n", result.stdout)

@@ -61,7 +61,7 @@ with `--set key=value` or a values file.
 | `images.digests.admission` | recorded at release | Immutable digest for the admission webhook image. |
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
 | `security.allowedSourceMirrorHosts` | `[]` | Exact registry destination hosts, including explicit ports, that NodeProfiles may use for JDK/launcher mirrors. Empty disables mirrors. The chart passes the same list to manager and admission. |
-| `provisioner.pools` | `[]` (**required**) | Node pool names the chart-managed default `NodeProfile` may provision. The privileged provisioner is never cluster-wide by default: rendering fails when `defaultProfile.enabled` is `true` and this is empty. |
+| `provisioner.pools` | `[]` (**required**) | Node pool names the chart-managed default `NodeProfile` may provision. Use names exactly as your provider reports them (AKS pool names are lowercase alphanumeric, with no dashes). The privileged provisioner is never cluster-wide by default: rendering fails when `defaultProfile.enabled` is `true` and this is empty. |
 | `provisioner.poolKey` | `""` | Node label carrying the pool name. Empty auto-detects the well-known provider keys (AKS, EKS, GKE); set it explicitly on bare metal or kubeadm. |
 | `provisioner.includeControlPlane` | `false` | Allow the default profile onto control-plane nodes. Off by default, and only needed on single-node clusters such as kind or Docker Desktop, which label their node as the control plane without tainting it. |
 | `provisioner.tolerations` | `[]` | Tolerations for the default profile's provisioner pods. Standard Kubernetes toleration entries; each must name a `key`. Nothing is tolerated implicitly. |
@@ -106,7 +106,7 @@ images:
   admission: registry.example.com/brewlet/admission@sha256:<digest>
 provisioner:
   # The privileged provisioner only ever touches the pools you name here.
-  pools: ["java-workers"]
+  pools: ["javaworkers"]
   poolKey: agentpool
   jdks:
     - distribution: platform
@@ -158,7 +158,7 @@ AppCDS regeneration is default-deny. Enable it for the default profile with
 ```yaml
 profiles:
   - name: appcds-builders
-    pools: ["appcds-builders"]
+    pools: ["cdsbuilders"]
     jdks:
       - distribution: temurin
         feature: 21
@@ -205,7 +205,7 @@ To provision a tainted pool, name the taint:
 
 ```yaml
 provisioner:
-  pools: ["java-workers"]
+  pools: ["javaworkers"]
   poolKey: agentpool
   tolerations:
     - key: workload

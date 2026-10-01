@@ -90,7 +90,7 @@ metadata:
   name: java-platform
 spec:
   nodePool:
-    names: ["java-workers"]
+    names: ["javaworkers"]
   jdks:
     - distribution: temurin
       feature: 21
@@ -127,7 +127,7 @@ metadata:
   name: java-platform
 spec:
   nodePool:
-    names: ["java-workers"]
+    names: ["javaworkers"]
   jdks:
     - distribution: temurin-stable
       feature: 21

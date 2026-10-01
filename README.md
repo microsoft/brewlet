@@ -177,7 +177,7 @@ Install the latest chart on your disposable cluster:
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet \
   --create-namespace \
-  --set provisioner.pools="{java-workers}" \
+  --set provisioner.pools="{javaworkers}" \
   --values my-jdks.yaml
 
 kubectl get nodes -L brewlet.sh/runtime
