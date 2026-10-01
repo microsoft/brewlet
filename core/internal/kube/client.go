@@ -89,6 +89,13 @@ func (c *client) list(resource string, extra ...string) ([]object, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		for _, arg := range extra {
+			if arg == "--ignore-not-found" {
+				return []object{}, nil
+			}
+		}
+	}
 	var list struct {
 		Items []object `json:"items"`
 	}
