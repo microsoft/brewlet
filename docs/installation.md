@@ -6,10 +6,12 @@ provisioner, and the admission webhook. After this, any pod with
 format directly on a node JDK. The workload image must be digest-pinned
 (`repo@sha256:…`); native artifacts remain for local OCI-layout / CLI workflows.
 
-There are two paths:
+There are three paths:
 
 - **[Helm (recommended)](#helm-recommended)** — explicit pool and JDK configuration
   followed by installation.
+- **[Brewlet CLI](#brewlet-cli-brewlet-k8s-install)** — `brewlet k8s install`, a
+  version-pinned wrapper around the same Helm chart for fresh clusters.
 - **[Manual](#manual-without-helm)** — apply the raw manifests yourself.
 
 For a first run on your laptop, use [Local Kubernetes](local-kubernetes.md)
@@ -212,11 +214,8 @@ digests. To reproduce a specific release, add `--version x.y.z`, replacing
 `x.y.z` with that release number. For an existing installation, follow
 [Upgrading](#upgrading) to update matching CRDs and retain your chosen values.
 
-For a fresh cluster, the CLI also provides
-[`brewlet k8s install`](cli-reference.md#installation), a version-pinned Helm
-installation wrapper. Put both your pools and runtime sources in a complete
-values file; preview with `--dry-run` before installing. This command refuses
-existing Brewlet CRDs rather than silently skipping their migration.
+For a fresh cluster, you can instead install the same chart with
+[`brewlet k8s install`](#brewlet-cli-brewlet-k8s-install).
 
 `provisioner.poolKey` pins the node label the pool names are matched on. Leave
 it unset on AKS, EKS, and GKE, where the well-known provider label is
@@ -493,6 +492,89 @@ for all settings.
 | `brewlet-operator` Deployment + RBAC | `brewlet-node-provisioner` DaemonSet |
 | Node-provisioner `ServiceAccount` + `ClusterRole` | The `brewlet` `RuntimeClass` |
 | `brewlet-admission` webhook + serving cert | (tracks node readiness, emits events) |
+
+---
+
+## Brewlet CLI (`brewlet k8s install`)
+
+The [released `brewlet` CLI](getting-started.md#install-the-released-cli-recommended)
+can install Brewlet on a **fresh** cluster. It is a thin, version-pinned wrapper
+around the [Helm chart](#helm-recommended): it runs `helm install` against
+`oci://ghcr.io/microsoft/charts/brewlet` with your kubeconfig, so it deploys
+exactly the same components and requires the same
+[prerequisites](#prerequisites), including `kubectl` and `helm` on your `PATH`.
+
+Compared with calling Helm directly, the CLI:
+
+- requires an **exact chart version** (`--version x.y.z`; never `latest` or a range);
+- requires at least one **values file** (`--values`/`-f`) — pools and runtime
+  sources are never chosen for you;
+- **refuses to run if Brewlet CRDs already exist**, rather than silently skipping
+  their migration;
+- creates the namespace (default `brewlet`) and sets the chart's `namespace`
+  value to match, so the release and its resources cannot land in different
+  namespaces;
+- waits for the chart's rollout (`--wait-timeout`, default `5m`).
+
+It does not create a cluster or node pools, upgrade an existing release, or
+clean up after a failed installation.
+
+### Prepare values
+
+The CLI takes complete Helm values files, so put your node pools in a file
+instead of `--set`. Save the following as `my-pools.yaml`, replacing
+`java-workers` with an existing node pool you control:
+
+```yaml
+provisioner:
+  pools:
+    - java-workers
+```
+
+Combine it with the `my-jdks.yaml` inventory from the [Helm](#helm-recommended)
+section, or put both lists in a single file. Any other chart values — launchers,
+`provisioner.poolKey`, `provisioner.includeControlPlane`, mirrors, or your own
+profiles with `defaultProfile.enabled=false` — go in the same files. See
+[Configuration](configuration.md#helm-chart-values) for every setting.
+
+### Preview and install
+
+Set `RELEASE_VERSION` to the exact chart release you want (for example, the
+version of your `brewlet` CLI from `brewlet version`) and `evaluation` to the
+kubeconfig context of the target cluster:
+
+```bash
+# Exact approved chart release, not "latest".
+RELEASE_VERSION=x.y.z
+
+# Render the chart locally (helm template --include-crds); does not contact the cluster.
+brewlet k8s install --version "$RELEASE_VERSION" \
+  --values my-pools.yaml --values my-jdks.yaml --dry-run
+
+# Install into a deliberately selected fresh cluster.
+brewlet k8s install --context evaluation --version "$RELEASE_VERSION" \
+  --values my-pools.yaml --values my-jdks.yaml --namespace brewlet
+
+# Helm readiness is not node provisioning; check rollout and node inventory.
+brewlet k8s status --context evaluation --system-namespace brewlet
+brewlet k8s jdk list --context evaluation --output wide
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--version X.Y.Z` | *(required)* | Exact chart release to install. |
+| `--values FILE`, `-f FILE` | *(required)* | Helm values file; repeatable, applied in Helm precedence order. |
+| `--namespace NAME` | `brewlet` | Release and component namespace (created if missing). |
+| `--release NAME` | `brewlet` | Helm release name. |
+| `--wait-timeout DURATION` | `5m` | Helm rollout deadline. Node provisioning continues afterwards. |
+| `--dry-run` | `false` | Render manifests locally instead of installing. |
+| `--kubeconfig FILE`, `--context NAME` | kubectl/Helm defaults | Target cluster, without changing your current context. |
+
+The dry run validates chart rendering only, not image contents or node
+readiness, and still needs access to the chart registry. Installation is
+privileged and mutates the selected nodes. To upgrade later, or if Brewlet CRDs
+remain from a previous installation, follow [Upgrading](#upgrading) with Helm.
+See the [CLI reference](cli-reference.md#installation) for full details.
 
 ---
 
