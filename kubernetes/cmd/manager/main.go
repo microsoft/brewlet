@@ -62,6 +62,7 @@ func main() {
 	flag.DurationVar(&cfg.StageGCInterval, "stage-gc-interval", 5*time.Minute, "stage GC interval (positive whole seconds)")
 	flag.DurationVar(&cfg.StageGCMinAge, "stage-gc-min-age", 24*time.Hour, "minimum stage age (positive whole seconds)")
 	flag.BoolVar(&cfg.StageGCUpgradeAcknowledged, "stage-gc-upgrade-acknowledged", false, "confirm older unguarded shims and stage-dependent exported bundles have been retired")
+	flag.BoolVar(&cfg.StageGCAllowNestedPIDNamespace, "stage-gc-allow-nested-pid-namespace", false, "test-only: let stage GC run on nodes that are containers with a private PID namespace (kind)")
 	flag.StringVar(&allowedMirrors, "allowed-source-mirror-hosts", "", "comma-separated exact registry hosts approved as runtime source mirror destinations")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "address the metric endpoint binds to; 0 disables metrics")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "address the health probe endpoint binds to")

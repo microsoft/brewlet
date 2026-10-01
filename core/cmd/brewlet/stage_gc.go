@@ -23,6 +23,7 @@ func cmdStageGC(args []string) error {
 	address := fs.String("address", "/run/containerd/containerd.sock", "containerd socket; all namespaces are checked")
 	age := fs.Duration("min-age", runnablestage.DefaultMinAge, "minimum stage age (must be positive)")
 	dryRun := fs.Bool("dry-run", false, "report eligible trees without deleting them")
+	nested := fs.Bool("allow-nested-pid-namespace", false, "accept the node init's non-initial PID namespace (test nodes such as kind only)")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return nil
@@ -30,14 +31,14 @@ func cmdStageGC(args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 || *age <= 0 {
-		return fmt.Errorf("usage: stage-gc [--stage-root DIR] [--address SOCKET] [--min-age positive-duration] [--dry-run]")
+		return fmt.Errorf("usage: stage-gc [--stage-root DIR] [--address SOCKET] [--min-age positive-duration] [--dry-run] [--allow-nested-pid-namespace]")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	result, err := runnablestage.Reap(ctx, *address, runnablestage.Options{
-		Root: *root, MinAge: *age, DryRun: *dryRun,
+		Root: *root, MinAge: *age, DryRun: *dryRun, AllowNestedPIDNamespace: *nested,
 	})
 	if err != nil {
 		return err

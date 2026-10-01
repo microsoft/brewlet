@@ -703,18 +703,22 @@ YAML
   assert_eq "tier15: exporter sidecar exposes the configured node metrics port" \
     "$(kubectl get ds "$ds" -n "$T15_NS" \
       -o jsonpath='{.spec.template.spec.containers[1].ports[0].containerPort}')" "9090"
-  # The runtime tree stays read-only; only the telemetry socket directory is
-  # writable, so a live socket cannot come back by widening host access.
-  assert_eq "tier15: exporter mounts the runtime tree and the socket directory in order" \
+  # The runtime tree and runnable stage root stay read-only; only the telemetry
+  # socket directory is writable, so a live socket cannot come back by widening
+  # host access.
+  assert_eq "tier15: exporter mounts the runtime tree, socket directory, and stage root in order" \
     "$(kubectl get ds "$ds" -n "$T15_NS" \
       -o jsonpath='{range .spec.template.spec.containers[1].volumeMounts[*]}{.mountPath}{","}{end}')" \
-    "/opt/brewlet,/opt/brewlet/metrics,"
+    "/opt/brewlet,/opt/brewlet/metrics,/tmp/brewlet-runnable,"
   assert_eq "tier15: exporter keeps the runtime tree read-only" \
     "$(kubectl get ds "$ds" -n "$T15_NS" \
       -o jsonpath='{.spec.template.spec.containers[1].volumeMounts[0].readOnly}')" "true"
   assert_eq "tier15: exporter can write only the telemetry socket directory" \
     "$(kubectl get ds "$ds" -n "$T15_NS" \
       -o jsonpath='{.spec.template.spec.containers[1].volumeMounts[1].readOnly}')" ""
+  assert_eq "tier15: exporter keeps the stage root read-only" \
+    "$(kubectl get ds "$ds" -n "$T15_NS" \
+      -o jsonpath='{.spec.template.spec.containers[1].volumeMounts[2].readOnly}')" "true"
 
   if ! kubectl rollout status ds/"$ds" -n "$T15_NS" --timeout=300s \
       >>"$WORK/t15-profile.log" 2>&1; then

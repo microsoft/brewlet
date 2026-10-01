@@ -108,6 +108,7 @@ for upgrades; pass them again rather than substituting example defaults.
 | `stageGC.interval` | `5m` | Time between sweeps, plus up to 10% jitter. |
 | `stageGC.minAge` | `24h` | Minimum stage directory age, not time since last use or loss of references. |
 | `stageGC.upgradeAcknowledged` | `false` | Confirm older unguarded shims and stage-dependent bundles have been retired across the managed fleet. Reset after rollout. |
+| `stageGC.allowNestedPIDNamespace` | `false` | Test-only. Let the reaper run on nodes that are themselves containers with a private PID namespace (kind). Never enable on real nodes. |
 | `operator.leaderElect` | `true` | Enable operator leader election. |
 | `profiles` | `[]` | Additional profiles, each with a unique name, nonempty named `pools`, and explicit JDK sources. |
 | `uninstall.timeoutSeconds` | `240` | Cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstall; Helm's `--timeout` must exceed this plus 30 seconds. |

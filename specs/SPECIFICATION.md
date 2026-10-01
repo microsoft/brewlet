@@ -813,6 +813,7 @@ including externally managed NodeProfiles, and is independent of
 | `stageGC.interval` | `5m` | Delay after each attempt, plus up to 10% jitter; sweeps do not overlap |
 | `stageGC.minAge` | `24h` | Minimum published stage directory age, not unused age or time since references disappeared |
 | `stageGC.upgradeAcknowledged` | `false` | Confirm retirement of older unguarded shims, stage-dependent exported bundles, and other unguarded consumers across the managed fleet |
+| `stageGC.allowNestedPIDNamespace` | `false` | Test-only: accept a node's non-initial PID namespace (kind nodes are containers) |
 
 Durations must resolve to positive whole seconds, at most `2147483647s`.
 The operator validates and passes them to the provisioner; this is not a
@@ -1394,7 +1395,8 @@ and builds/runs on Linux:
   (or direct execution); cleanup requires the exclusive guard. Reclamation
   requires complete reference inspection in the initial host PID/user and host
   mount namespaces with a complete `/proc`; ambiguous or unreadable evidence
-  prevents deletion. The root is administrator-owned and must not be renamed
+  prevents deletion. A test-only opt-in relaxes only the PID namespace check to
+  the node init's namespace, for nodes that are themselves containers (kind). The root is administrator-owned and must not be renamed
   or replaced while consumers or cleanup run. Legacy and abandoned pending
   trees remain outside automated eviction. Open file descriptors alone are
   not tracked: direct readers must hold the guard or be stopped. New exported

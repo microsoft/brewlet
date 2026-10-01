@@ -50,7 +50,7 @@ func newProc() fakeProc {
 		files: fstest.MapFS{
 			"self/mountinfo": {Data: []byte(hostMountinfo)},
 			"1/mountinfo":    {Data: []byte(hostMountinfo)},
-			"42/mountinfo":   {Data: []byte("3 0 8:1 /stage/immutable-v2/hash/app/app.jar /app/app.jar ro - ext4 /dev/root rw\n")},
+			"42/mountinfo":   {Data: []byte("3 0 8:1 /stage/immutable-v2/hash/app/app.jar /app/app.jar ro - ext4 /dev/root rw\n4 0 0:4 net:[4026532282] /run/netns/cni-1 rw - nsfs nsfs rw\n")},
 		},
 		links: map[string]string{
 			"self/ns/pid": "pid:[4026531836]", "1/ns/pid": "pid:[4026531836]",
@@ -61,7 +61,7 @@ func newProc() fakeProc {
 
 func TestMountsAcrossProcesses(t *testing.T) {
 	proc := newProc()
-	snapshot, err := readMounts(context.Background(), proc)
+	snapshot, err := readMounts(context.Background(), proc, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestProcFailClosed(t *testing.T) {
 			case "namespace-permission":
 				proc.fail = "1/ns/mnt"
 			}
-			if _, err := readMounts(context.Background(), proc); err == nil {
+			if _, err := readMounts(context.Background(), proc, false); err == nil {
 				t.Fatal("accepted incomplete mount snapshot")
 			}
 		})
@@ -155,7 +155,7 @@ func TestExitedProcesses(t *testing.T) {
 				delete(proc.files, "42/mountinfo")
 				proc.files["42"] = &fstest.MapFile{Mode: fs.ModeDir}
 			}
-			if _, err := readMounts(context.Background(), proc); err != nil {
+			if _, err := readMounts(context.Background(), proc, false); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -167,14 +167,56 @@ func TestMountinfoParsing(t *testing.T) {
 	if err != nil || mounts[0].root != "/stage root/app\\name" || mounts[0].point != "/app\tjar" {
 		t.Fatalf("escaped mount paths: %+v %v", mounts, err)
 	}
+	// CNI network namespace bind mounts are present on every node running pods.
+	mounts, err = parseMounts([]byte("963 1078 0:4 net:[4026532282] /run/netns/cni-1 rw shared:9 - nsfs nsfs rw\n"))
+	if err != nil || mounts[0].root != "net:[4026532282]" || mounts[0].point != "/run/netns/cni-1" {
+		t.Fatalf("nsfs mount: %+v %v", mounts, err)
+	}
 	for _, line := range []string{
 		"", "broken", "1 0 8:1 / / rw - ext4 source", "x 0 8:1 / / rw - ext4 source rw",
 		"1 0 bad / / rw - ext4 source rw", "1 0 8:x / / rw - ext4 source rw",
 		"1 0 8:1 relative / rw - ext4 source rw", `1 0 8:1 /bad\777 / rw - ext4 source rw`,
 		"1 0 8:1 /bad/../path / rw - ext4 source rw",
+		"1 0 8:1 net:[4026532282] / rw - ext4 source rw",
+		"1 0 0:4 net:[x] / rw - nsfs nsfs rw", "1 0 0:4 Net:[1] / rw - nsfs nsfs rw",
+		"1 0 0:4 relative / rw - nsfs nsfs rw",
 	} {
 		if _, err := parseMounts([]byte(line)); err == nil {
 			t.Errorf("accepted malformed mountinfo %q", line)
 		}
+	}
+}
+
+func TestNestedPIDNamespaceOptIn(t *testing.T) {
+	nested := func() fakeProc {
+		proc := newProc()
+		proc.links["self/ns/pid"] = "pid:[4026533705]"
+		proc.links["1/ns/pid"] = "pid:[4026533705]"
+		return proc
+	}
+	if _, err := readMounts(context.Background(), nested(), false); err == nil {
+		t.Fatal("accepted nested PID namespace without opt-in")
+	}
+	if _, err := readMounts(context.Background(), nested(), true); err != nil {
+		t.Fatalf("rejected nested PID namespace with opt-in: %v", err)
+	}
+	if _, err := readMounts(context.Background(), newProc(), true); err != nil {
+		t.Fatalf("opt-in rejected the initial PID namespace: %v", err)
+	}
+	for _, failure := range []string{"self-differs", "userns", "unreadable"} {
+		t.Run(failure, func(t *testing.T) {
+			proc := nested()
+			switch failure {
+			case "self-differs":
+				proc.links["self/ns/pid"] = "pid:[4026533706]"
+			case "userns":
+				proc.links["self/ns/user"] = "user:[999]"
+			case "unreadable":
+				proc.fail = "1/ns/pid"
+			}
+			if _, err := readMounts(context.Background(), proc, true); err == nil {
+				t.Fatal("accepted mismatched namespaces with opt-in")
+			}
+		})
 	}
 }

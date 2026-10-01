@@ -34,6 +34,9 @@ type Config struct {
 	// StageGCUpgradeAcknowledged authorizes activation on previously provisioned
 	// nodes after the administrator has retired unguarded stage consumers.
 	StageGCUpgradeAcknowledged bool
+	// StageGCAllowNestedPIDNamespace is test-only: it lets the reaper run on
+	// nodes that are themselves containers (kind) with a private PID namespace.
+	StageGCAllowNestedPIDNamespace bool
 	// AllowedSourceMirrorHosts is the exact operator-level allowlist for registry
 	// mirror destination hosts, including any explicit port.
 	AllowedSourceMirrorHosts []string

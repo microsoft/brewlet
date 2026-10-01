@@ -98,6 +98,7 @@ the checksum gate to reject each build.
 | `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Positive whole seconds between sweeps, plus up to 10% jitter |
 | `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age, not unused age; positive whole seconds |
 | `BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED` | `false` | Confirm all older unguarded shims and stage-dependent exported bundles have been retired |
+| `BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE` | `false` | Test-only: let the reaper run on kind nodes, whose PID namespace is not the initial one |
 | `BREWLET_RUNNABLE_STAGE` | `/tmp/brewlet-runnable` | Host staging path for GC; must match the shim's staging root |
 | `NODE_NAME` | downward API | Kubernetes node to label |
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID for managed writer authority |

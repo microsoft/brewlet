@@ -90,6 +90,7 @@ USAGE:
   brewlet jdks                [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
   brewlet doctor              [--namespace NS] [--output table|json] [--kubeconfig FILE] [--context CTX]
   brewlet stage-gc            [--stage-root DIR] [--address SOCKET] [--min-age 24h] [--dry-run]
+                              [--allow-nested-pid-namespace]
   brewlet k8s <command>        inventory, status, inspection, installation and profile updates (see k8s --help)
   brewlet version
 
