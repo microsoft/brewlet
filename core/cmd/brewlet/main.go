@@ -27,6 +27,7 @@ import (
 
 	"github.com/microsoft/brewlet/internal/artifact"
 	"github.com/microsoft/brewlet/internal/kube"
+	"github.com/microsoft/brewlet/internal/progress"
 	"github.com/microsoft/brewlet/internal/runnablestage"
 	"github.com/microsoft/brewlet/internal/runtime"
 )
@@ -353,8 +354,16 @@ func cmdPush(args []string) error {
 		archiveName := strings.TrimSuffix(filepath.Base(jarPath), ".jar") + ".jsa"
 		genArchive := filepath.Join(genDir, archiveName)
 		fmt.Printf("  training AppCDS archive with %s (timeout %ds)...\n", javaBin, *appcdsTimeout)
-		if err := runtime.GenerateAppCDSArchive(cfg, jarPath, javaBin, genArchive, time.Duration(*appcdsTimeout)*time.Second, appcdsArgs); err != nil {
-			return fmt.Errorf("--appcds: %w", err)
+		// The training JVM shares the terminal, so report plain heartbeat lines
+		// rather than redrawing a spinner over its output.
+		start := time.Now()
+		if err := progress.Plain(os.Stderr).Await("training AppCDS archive", nil, func() error {
+			return runtime.GenerateAppCDSArchive(cfg, jarPath, javaBin, genArchive, time.Duration(*appcdsTimeout)*time.Second, appcdsArgs)
+		}); err != nil {
+			return fmt.Errorf("--appcds: %w (after %s)", err, progress.FormatElapsed(time.Since(start)))
+		}
+		if info, err := os.Stat(genArchive); err == nil {
+			fmt.Printf("  trained AppCDS archive %s (%d KiB) in %s\n", archiveName, info.Size()/1024, progress.FormatElapsed(time.Since(start)))
 		}
 		*cdsArchive = genArchive
 	}

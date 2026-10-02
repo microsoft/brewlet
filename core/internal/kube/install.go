@@ -8,7 +8,10 @@ import (
 	"flag"
 	"fmt"
 	"regexp"
+	"strconv"
 	"time"
+
+	"github.com/microsoft/brewlet/internal/progress"
 )
 
 const chart = "oci://ghcr.io/microsoft/charts/brewlet"
@@ -64,7 +67,16 @@ func (c *client) install(i installOptions) error {
 	if err := validateToken(ns, 63); err != nil {
 		return fmt.Errorf("--namespace: %w", err)
 	}
+	var p *progress.Reporter
 	if !i.dryRun {
+		p = progress.New(c.err)
+		target := "current context"
+		if c.opts.context != "" {
+			target = "context " + strconv.Quote(c.opts.context)
+		}
+		p.Logf("Installing Brewlet chart %s as release %q in namespace %q (%s)", i.version, i.release, ns, target)
+		p.Logf("[1/3] Validated %d values file(s)", len(i.values))
+		p.Logf("[2/3] Checking the cluster for existing Brewlet CRDs...")
 		existing, err := c.list("customresourcedefinitions", profilesResource, appsResource, "--ignore-not-found")
 		if err != nil {
 			return fmt.Errorf("check for existing Brewlet CRDs: %w", err)
@@ -72,6 +84,8 @@ func (c *client) install(i installOptions) error {
 		if len(existing) != 0 {
 			return fmt.Errorf("Brewlet CRDs already exist; install is fresh-install-only. Follow the documented CRD migration and Helm upgrade procedure")
 		}
+		p.Logf("      none found; cluster is eligible for a fresh install")
+		p.Logf("[3/3] Pulling %s and waiting for rollout (timeout %s)...", chart, i.waitTimeout)
 	}
 	args := []string{"install", i.release, chart, "--create-namespace", "--wait", "--timeout", i.waitTimeout.String()}
 	if i.dryRun {
@@ -91,9 +105,23 @@ func (c *client) install(i installOptions) error {
 	args = append(args, "--set-string", "namespace="+ns)
 	ctx, cancel := context.WithTimeout(c.ctx, i.waitTimeout+c.opts.timeout)
 	defer cancel()
-	result, err := c.exec(ctx, "helm", args, nil)
-	if err != nil {
+	var result []byte
+	helm := func() (err error) {
+		result, err = c.exec(ctx, "helm", args, nil)
 		return err
+	}
+	if i.dryRun {
+		if err := helm(); err != nil {
+			return err
+		}
+	} else {
+		start := time.Now()
+		poll := func(pollCtx context.Context) string { return c.rolloutStatus(pollCtx, ns, i.release) }
+		if err := p.Await("installing", poll, helm); err != nil {
+			p.Logf("      failed after %s; inspect with: brewlet k8s status --system-namespace %s", progress.FormatElapsed(time.Since(start)), ns)
+			return err
+		}
+		p.Logf("      Helm release %q deployed and rolled out in %s", i.release, progress.FormatElapsed(time.Since(start)))
 	}
 	if _, err := c.out.Write(result); err != nil {
 		return err

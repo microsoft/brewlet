@@ -45,6 +45,9 @@ type Options struct {
 	Kubeconfig string
 	Context    string
 	Namespace  string
+	// OnCheck, when set, is called as soon as each check completes so callers
+	// can stream results instead of waiting for every kubectl call.
+	OnCheck func(Check)
 }
 
 // Executor runs kubectl with the supplied arguments and returns combined output.
@@ -55,6 +58,14 @@ func Run(exec Executor, opts Options) Report {
 		opts.Namespace = "default"
 	}
 	var checks []Check
+	add := func(added ...Check) {
+		checks = append(checks, added...)
+		if opts.OnCheck != nil {
+			for _, check := range added {
+				opts.OnCheck(check)
+			}
+		}
+	}
 
 	run := func(args ...string) ([]byte, error) {
 		base := make([]string, 0, 4+len(args))
@@ -69,7 +80,7 @@ func Run(exec Executor, opts Options) Report {
 
 	contextOut, err := run("config", "current-context")
 	if err != nil {
-		checks = append(checks, failed("cluster-context", err,
+		add(failed("cluster-context", err,
 			"Install kubectl and select a valid Kubernetes context."))
 		return Report{Checks: checks}
 	}
@@ -77,52 +88,52 @@ func Run(exec Executor, opts Options) Report {
 	if opts.Context != "" {
 		context = opts.Context
 	}
-	checks = append(checks, Check{Name: "cluster-context", Status: Pass, Detail: context})
+	add(Check{Name: "cluster-context", Status: Pass, Detail: context})
 
 	if out, err := run("get", "--raw=/readyz"); err != nil {
-		checks = append(checks, failed("api-server", commandError(out, err),
+		add(failed("api-server", commandError(out, err),
 			"Check cluster connectivity and kubeconfig credentials."))
 		return Report{Checks: checks}
 	} else {
-		checks = append(checks, Check{Name: "api-server", Status: Pass, Detail: strings.TrimSpace(string(out))})
+		add(Check{Name: "api-server", Status: Pass, Detail: strings.TrimSpace(string(out))})
 	}
 
 	if out, err := run("get", "runtimeclass", "brewlet", "-o", "name"); err != nil {
-		checks = append(checks, failed("runtimeclass", commandError(out, err),
+		add(failed("runtimeclass", commandError(out, err),
 			"Ask the platform team to install Brewlet and create RuntimeClass brewlet."))
 	} else {
-		checks = append(checks, Check{Name: "runtimeclass", Status: Pass, Detail: strings.TrimSpace(string(out))})
+		add(Check{Name: "runtimeclass", Status: Pass, Detail: strings.TrimSpace(string(out))})
 	}
 
 	if out, err := run("get", "crd", "javaapplications.apps.brewlet.sh", "-o", "name"); err != nil {
-		checks = append(checks, failed("javaapplication-crd", commandError(out, err),
+		add(failed("javaapplication-crd", commandError(out, err),
 			"Install or upgrade the Brewlet Helm chart."))
 	} else {
-		checks = append(checks, Check{Name: "javaapplication-crd", Status: Pass, Detail: strings.TrimSpace(string(out))})
+		add(Check{Name: "javaapplication-crd", Status: Pass, Detail: strings.TrimSpace(string(out))})
 	}
 
 	nodesOut, nodesErr := run("get", "nodes", "-o", "json")
 	if nodesErr != nil {
-		checks = append(checks, failed("brewlet-nodes", commandError(nodesOut, nodesErr),
+		add(failed("brewlet-nodes", commandError(nodesOut, nodesErr),
 			"Grant node read access or ask Ops to run brewlet doctor."))
 	} else {
 		nodeCheck, inventoryCheck := diagnoseNodes(nodesOut)
-		checks = append(checks, nodeCheck, inventoryCheck)
+		add(nodeCheck, inventoryCheck)
 	}
 
 	canIOut, err := run("auth", "can-i", "create", "javaapplications.apps.brewlet.sh", "-n", opts.Namespace)
 	if err != nil {
-		checks = append(checks, failed("developer-rbac", commandError(canIOut, err),
+		add(failed("developer-rbac", commandError(canIOut, err),
 			"Ask Ops for permission to create JavaApplication resources in the target namespace."))
 	} else if strings.TrimSpace(string(canIOut)) != "yes" {
-		checks = append(checks, Check{
+		add(Check{
 			Name:        "developer-rbac",
 			Status:      Fail,
 			Detail:      fmt.Sprintf("cannot create JavaApplication resources in namespace %q", opts.Namespace),
 			Remediation: "Ask Ops for the application-developer role in this namespace.",
 		})
 	} else {
-		checks = append(checks, Check{
+		add(Check{
 			Name:   "developer-rbac",
 			Status: Pass,
 			Detail: fmt.Sprintf("can create JavaApplication resources in namespace %q", opts.Namespace),

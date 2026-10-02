@@ -5,6 +5,7 @@ package doctor
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -42,12 +43,16 @@ func TestRunHealthyCluster(t *testing.T) {
 		}
 	}
 
-	report := Run(exec, Options{Namespace: "apps"})
+	var streamed []Check
+	report := Run(exec, Options{Namespace: "apps", OnCheck: func(check Check) { streamed = append(streamed, check) }})
 	if !report.OK() {
 		t.Fatalf("report should be healthy: %+v", report)
 	}
 	if len(report.Checks) != 7 {
 		t.Fatalf("checks = %d, want 7", len(report.Checks))
+	}
+	if !reflect.DeepEqual(streamed, report.Checks) {
+		t.Fatalf("OnCheck must stream every check in report order: %+v", streamed)
 	}
 }
 
