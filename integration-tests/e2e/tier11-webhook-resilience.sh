@@ -85,7 +85,7 @@ tier11_webhook_resilience() {
   if ! have go; then skip "tier11: webhook resilience" "go not installed (needed to build image)"; return 0; fi
 
   local nodes n
-  nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
+  nodes="$(ready_node_names)"
   if [[ -z "$nodes" ]]; then skip "tier11: webhook resilience" "no nodes"; return 0; fi
   for n in $nodes; do
     if ! node_provisionable "$n"; then

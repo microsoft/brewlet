@@ -102,6 +102,7 @@ e2e_reset() {
   fi
   info "reset: scrubbing brewlet state on cluster '$(kubectl config current-context 2>/dev/null)'"
   scrub_node_labels
+  e2e_unpin_nodes
   scrub_cluster_objects
   local left; left="$(detect_leftovers)"
   if [[ -n "$left" ]]; then

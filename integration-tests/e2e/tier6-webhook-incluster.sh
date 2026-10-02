@@ -50,7 +50,7 @@ tier6_webhook_incluster() {
 
   # --- every node must be a local docker container we can side-load into ----
   local nodes n
-  nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
+  nodes="$(ready_node_names)"
   if [[ -z "$nodes" ]]; then skip "tier6: in-cluster webhook" "no nodes"; return 0; fi
   for n in $nodes; do
     if ! node_provisionable "$n"; then

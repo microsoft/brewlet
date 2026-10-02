@@ -76,6 +76,7 @@ with `--set key=value` or a values file.
 | `profiles` | `[]` | Additional `NodeProfile` CRs. Each requires a unique name, a nonempty list of named `pools`, and explicit JDK sources; the chart never renders an accidental catch-all. Includes AppCDS, rollout, and registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `operator.replicas` | `1` | Operator replica count. |
 | `operator.leaderElect` | `true` | Enable leader election for HA. |
+| `operator.nodeSelector` | `{}` | Node labels the operator pod must match (for example, to keep it on a system pool). |
 | `operator.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Operator pod resources. |
 | `stageGC.enabled` | `true` | Run periodic orphaned runnable-image stage cleanup in every managed provisioner, independently of metrics. Fresh nodes activate automatically; existing installations require a matching compatibility record or migration acknowledgment. |
 | `stageGC.interval` | `5m` | Delay after each attempt, plus up to 10% jitter. Sweeps do not overlap. |
@@ -84,6 +85,7 @@ with `--set key=value` or a values file.
 | `stageGC.allowNestedPIDNamespace` | `false` | Test-only. Let the reaper run on nodes that are themselves containers with a private PID namespace (kind). Never enable on real nodes. |
 | `uninstall.timeoutSeconds` | `240` | Pre-delete cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstalling; Helm's `--timeout` must exceed this plus 30 seconds. Failure retains the control plane. See [Uninstall](installation.md#uninstall). |
 | `uninstall.imagePullSecrets` | `[]` | Namespaced registry Secret references for the cleanup Job, which uses the operator image and its own service account. |
+| `uninstall.nodeSelector` | `{}` | Extra node labels for the cleanup Job pod; `kubernetes.io/os: linux` is always set. |
 | `metrics.enabled` | `false` | Opt in to Brewlet runtime and control-plane Prometheus endpoints. Enables the operator and admission listeners plus the node exporter sidecar and Services. |
 | `metrics.nodePort` | `9090` | Port exposed by each node-local metrics exporter and the `brewlet-node-metrics` headless Service. |
 | `metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator `ServiceMonitor`. Requires the `monitoring.coreos.com/v1` CRDs. |
@@ -94,6 +96,7 @@ with `--set key=value` or a values file.
 | `admission.enabled` | `true` | Deploy the admission/scheduling webhook. Set `false` to skip it; the shim still enforces runtime image identity and JDK compatibility. |
 | `admission.replicas` | `1` | Webhook replica count. |
 | `admission.failurePolicy` | `Ignore` | Webhook failure policy. `Ignore` keeps availability high, but runtime identity resolution still fails closed in the shim if containerd metadata cannot be resolved. |
+| `admission.nodeSelector` | `{}` | Node labels the admission webhook pods must match. |
 | `admission.port` | `9443` | Webhook server port. |
 | `admission.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Webhook pod resources. |
 

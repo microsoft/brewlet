@@ -166,6 +166,10 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: brewlet-admission
+      {{- with .Values.admission.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
       containers:

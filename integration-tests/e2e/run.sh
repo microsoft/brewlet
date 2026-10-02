@@ -128,9 +128,13 @@ if [[ -n "${E2E_KUBE_CONTEXT:-}" ]]; then
   chmod 600 "$WORK/kubeconfig"
   export KUBECONFIG="$WORK/kubeconfig"
 fi
+_e2e_exit() {
+  [[ "$E2E_NODE_ACCESS" == "kubectl" ]] && nodeshell_cleanup
+  e2e_pinned && e2e_unpin_nodes
+  return 0
+}
 case "$E2E_NODE_ACCESS" in
-  docker) ;;
-  kubectl) trap nodeshell_cleanup EXIT ;;
+  docker|kubectl) trap _e2e_exit EXIT ;;
   *) printf 'ERROR: E2E_NODE_ACCESS must be docker or kubectl (got %s)\n' "$E2E_NODE_ACCESS" >&2; exit 2 ;;
 esac
 
@@ -155,6 +159,15 @@ info "kubectl   : $(have kubectl && (k8s_reachable && kubectl config current-con
 info "helm      : $(have helm && helm version --short 2>/dev/null || echo 'absent')"
 info "nodes     : access=$E2E_NODE_ACCESS selector=${E2E_NODE_SELECTOR:-<all>}"
 
+# Pool pinning: label the E2E_POOLS nodes so every test pod can select them.
+if e2e_pinned && have kubectl && k8s_reachable; then
+  if [[ -z "$(e2e_pool_nodes)" ]]; then
+    printf 'ERROR: no nodes match %s in (%s)\n' "$E2E_POOL_KEY" "$E2E_POOLS" >&2; exit 2
+  fi
+  e2e_pin_nodes || { printf 'ERROR: could not label the E2E_POOLS nodes\n' >&2; exit 2; }
+  info "nodes     : pinned to $E2E_POOL_KEY in ($E2E_POOLS); ready: $(ready_node_names | tr '\n' ' ')"
+fi
+
 # Remote nodes may not share the host's architecture (an arm64 laptop driving
 # an amd64 AKS pool). Default image builds to the selected nodes' platform;
 # tiers that already pass --platform are unaffected.
@@ -177,7 +190,7 @@ _runs_k8s=0
 for t in "${TIERS[@]}"; do [[ "$t" =~ ^[0-9]+$ && "$t" -ge 4 ]] && _runs_k8s=1; done
 if [[ "$_runs_k8s" -eq 1 ]] && have kubectl && k8s_reachable; then
   profile="$(cluster_profile)"
-  nodecount="$(kubectl get nodes -o name 2>/dev/null | wc -l | tr -d ' ')"
+  nodecount="$(e2e_pool_nodes | wc -l | tr -d ' ')"
   schedulable="$(pick_provisionable_node 2>/dev/null || true)"
   info "cluster   : profile=$profile nodes=$nodecount provisionable-schedulable-node=${schedulable:-none}"
   [[ "$profile" == "docker-desktop" ]] && \

@@ -76,7 +76,7 @@ spec:
       restartPolicy: Never
       terminationGracePeriodSeconds: 10
       nodeSelector:
-        kubernetes.io/os: linux
+        {{- toYaml (merge (dict "kubernetes.io/os" "linux") (.Values.uninstall.nodeSelector | default dict)) | nindent 8 }}
       {{- with .Values.uninstall.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

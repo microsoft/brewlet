@@ -328,7 +328,7 @@ tier17_stage_gc() {
   if ! have python3; then skip "tier17: stage GC" "python3 not installed"; return 0; fi
 
   local nodes n
-  nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
+  nodes="$(ready_node_names)"
   for n in $nodes; do
     if ! node_provisionable "$n"; then
       skip "tier17: stage GC" "node '$n' is not a local containerd docker container"; return 0

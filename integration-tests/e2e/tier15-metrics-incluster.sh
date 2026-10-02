@@ -468,7 +468,7 @@ tier15_metrics_incluster() {
   if ! have python3; then skip "tier15: live metrics" "python3 not installed"; return 0; fi
 
   local nodes n
-  nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
+  nodes="$(ready_node_names)"
   if [[ -z "$nodes" ]]; then skip "tier15: live metrics" "no nodes"; return 0; fi
   for n in $nodes; do
     if ! node_provisionable "$n"; then
