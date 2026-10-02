@@ -6,6 +6,7 @@ package sh.brewlet.maven.plugin;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import sh.brewlet.maven.plugin.model.EnvVar;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.model.Port;
@@ -15,6 +16,8 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -170,6 +173,78 @@ class ManifestMojoTest {
         assertFalse(yaml.contains("  ports:"));
         assertFalse(yaml.contains("  service:"));
         assertNoInferredProbes(yaml);
+    }
+
+    @Test
+    void digestPinnedImageIsUsedDirectly(@TempDir Path dir) throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.outputDirectory = dir.toFile();
+        assertEquals(mojo.image, mojo.resolveDeployImage());
+    }
+
+    @Test
+    void lastPushIsUsedWhenNoDigestIsConfigured(@TempDir Path dir) throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.outputDirectory = dir.toFile();
+        mojo.image = null;
+        String pinned = "myacr.azurecr.io/orders@sha256:" + "2".repeat(64);
+        writeLastPush(dir, "myacr.azurecr.io/orders:1.0", pinned);
+
+        assertEquals(pinned, mojo.resolveDeployImage());
+
+        mojo.image = "myacr.azurecr.io/orders:1.0";
+        assertEquals(pinned, mojo.resolveDeployImage());
+    }
+
+    @Test
+    void lastPushMustMatchTheConfiguredImage(@TempDir Path dir) throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.outputDirectory = dir.toFile();
+        mojo.project.setArtifactId("orders");
+        mojo.image = null;
+        mojo.registry = "myacr.azurecr.io";
+        writeLastPush(dir, "myacr.azurecr.io/orders:0.9", "myacr.azurecr.io/orders@sha256:" + "3".repeat(64));
+
+        var failure = assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
+                mojo::resolveDeployImage);
+        assertTrue(failure.getMessage().contains("myacr.azurecr.io/orders:1.0"), failure.getMessage());
+    }
+
+    @Test
+    void missingPushResultExplainsWhatToRun(@TempDir Path dir) throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.outputDirectory = dir.toFile();
+        mojo.image = "myacr.azurecr.io/orders:1.0";
+
+        var failure = assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
+                mojo::resolveDeployImage);
+        assertTrue(failure.getMessage().contains("brewlet:push"), failure.getMessage());
+    }
+
+    @Test
+    void writeManifestRejectsTagReferences(@TempDir Path dir) throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.outputDirectory = dir.toFile();
+        assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
+                () -> mojo.writeManifest("myacr.azurecr.io/orders:1.0"));
+    }
+
+    @Test
+    void registryDerivesTheImageFromProjectCoordinates() throws Exception {
+        ManifestMojo mojo = mojo();
+        mojo.project.setArtifactId("orders");
+        mojo.image = null;
+        assertNull(mojo.resolveImage());
+        mojo.registry = "https://myacr.azurecr.io/team/";
+        assertEquals("myacr.azurecr.io/team/orders:1.0", mojo.resolveImage());
+        mojo.image = " other.example.com/x:2 ";
+        assertEquals("other.example.com/x:2", mojo.resolveImage());
+    }
+
+    private static void writeLastPush(Path dir, String image, String deployImage) throws IOException {
+        Files.writeString(dir.resolve(AbstractPushMojo.PUSH_RESULT_FILE),
+                "{\"image\":\"" + image + "\",\"digest\":\"" + deployImage.substring(deployImage.indexOf('@') + 1)
+                        + "\",\"deployImage\":\"" + deployImage + "\",\"format\":\"image\"}");
     }
 
     private static void assertNoInferredProbes(String yaml) {

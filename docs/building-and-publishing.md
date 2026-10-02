@@ -392,13 +392,28 @@ If a newly tagged version is not yet available on Central, wait for its Maven
 Central publishing job and repository propagation; do not silently select a
 different plugin version. Select a release available on Central.
 
-`brewlet:push` prints a digest-pinned `deploy image`. Use that exact reference
-when generating the Kubernetes descriptor:
+`brewlet:push` prints a digest-pinned `deploy image` and records it in
+`target/brewlet/push.json`, so `brewlet:manifest` picks it up without copying
+the digest:
 
 ```bash
-mvn brewlet:manifest \
-  -Dbrewlet.image=registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST
+mvn package brewlet:push brewlet:manifest -Dbrewlet.registry=registry.example.com/team
+kubectl apply -f target/brewlet/javaapplication.yaml
 ```
+
+Or do all of it — push, generate the manifest, `kubectl apply`, and wait until
+the `JavaApplication` is Ready, with progress — in one goal:
+
+```bash
+mvn package brewlet:deploy -Dbrewlet.registry=registry.example.com/team
+```
+
+`<registry>` derives the image as `<registry>/${project.artifactId}:${project.version}`;
+a full `<image>` still works. References without a registry host (for example
+`app:1.0`) are rejected instead of silently targeting Docker Hub. An explicit
+digest such as
+`-Dbrewlet.image=registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST`
+still overrides the recorded push for `brewlet:manifest`.
 
 Follow-up goals work in a fresh Maven invocation after `mvn package`: for standard
 unclassified JAR projects, the plugin finds
@@ -413,7 +428,8 @@ UTF-8 YAML strings, including quotes, backslashes, line breaks, and empty values
 
 Goals: `brewlet:config` (generate the launch config), `brewlet:build` (assemble a
 local OCI layout), `brewlet:push` (publish to a registry), `brewlet:manifest`
-(emit a `JavaApplication`/Deployment YAML), `brewlet:inspect` (dry-run preview),
+(emit a `JavaApplication`/Deployment YAML), `brewlet:deploy` (push, apply, and
+wait for Ready), `brewlet:inspect` (dry-run preview),
 and `brewlet:appcds` (generate an AppCDS startup archive — see [AppCDS](appcds.md)).
 See the [plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md) for the full goal and
 parameter reference.
@@ -423,7 +439,10 @@ registry's own origin. Plain HTTP is allowed only for exact loopback registries
 such as `localhost:5000`, so publishing to an internal plaintext registry
 (`registry.internal:5000`) fails until you list its authority in
 `insecureRegistries`; a registry that answers with a cross-origin bearer token
-realm likewise fails until you list that realm in `allowedTokenRealms`. See
+realm likewise fails until you list that realm in `allowedTokenRealms`.
+Credentials stored by `docker login` or `az acr login` — including Docker
+credential helpers (`credsStore`/`credHelpers`) and identity tokens — are used
+automatically. See
 [publish-time registry credentials](security.md#publish-time-registry-credentials).
 
 ---

@@ -105,6 +105,70 @@ class RegistryClientAuthTest {
     }
 
     @Test
+    void exchangesAnIdentityTokenWithARefreshTokenGrant() throws Exception {
+        AtomicReference<String> realmMethod = new AtomicReference<>();
+        AtomicReference<String> realmAuthorization = new AtomicReference<>();
+        AtomicReference<String> realmBody = new AtomicReference<>();
+        AtomicReference<String> manifestAuthorization = new AtomicReference<>();
+        AtomicReference<String> firstAuthorization = new AtomicReference<>();
+        AtomicInteger manifestRequests = new AtomicInteger();
+
+        registryServer = server("localhost");
+        registryServer.createContext("/oauth2/token", exchange -> {
+            realmMethod.set(exchange.getRequestMethod());
+            realmAuthorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            realmBody.set(new String(exchange.getRequestBody().readAllBytes(),
+                    StandardCharsets.UTF_8));
+            respond(exchange, 200, "{\"access_token\":\"access\"}", null);
+        });
+        registryServer.createContext("/v2/repo/manifests/latest", exchange -> {
+            String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+            if (manifestRequests.incrementAndGet() == 1) {
+                firstAuthorization.set(authorization);
+                respond(exchange, 401, "{}", bearerChallenge(registryOrigin() + "/oauth2/token"));
+                return;
+            }
+            manifestAuthorization.set(authorization);
+            respond(exchange, 200, MANIFEST, null);
+        });
+        registryServer.start();
+
+        RegistryClient client = client(Credential.identityToken("refresh/+="),
+                RegistryTrustPolicy.secureDefault());
+
+        assertEquals(MANIFEST, new String(client.pullManifest("latest"), StandardCharsets.UTF_8));
+        assertNull(firstAuthorization.get(), "identity tokens are never sent as Basic credentials");
+        assertEquals("POST", realmMethod.get());
+        assertNull(realmAuthorization.get());
+        assertTrue(realmBody.get().contains("grant_type=refresh_token"), realmBody.get());
+        assertTrue(realmBody.get().contains("refresh_token=refresh%2F%2B%3D"), realmBody.get());
+        assertTrue(realmBody.get().contains("service=registry"), realmBody.get());
+        assertTrue(realmBody.get().contains("scope=repository%3Arepo%3Apull"), realmBody.get());
+        assertEquals("Bearer access", manifestAuthorization.get());
+    }
+
+    @Test
+    void refusesToSendAnIdentityTokenToACrossOriginRealm() throws Exception {
+        foreignServer = server("127.0.0.1");
+        foreignServer.createContext("/token", exchange -> {
+            recordForeign(exchange);
+            respond(exchange, 200, "{\"access_token\":\"stolen\"}", null);
+        });
+        foreignServer.start();
+
+        registryServer = server("localhost");
+        registryServer.createContext("/v2/repo/manifests/latest", exchange ->
+                respond(exchange, 401, "{}", bearerChallenge(foreignOrigin() + "/token")));
+        registryServer.start();
+
+        RegistryClient client = client(Credential.identityToken("refresh"),
+                RegistryTrustPolicy.secureDefault());
+
+        assertThrows(IOException.class, () -> client.pullManifest("latest"));
+        assertEquals(0, foreignRequests.get());
+    }
+
+    @Test
     void sendsCredentialsToAnExplicitlyAllowlistedCrossOriginRealm() throws Exception {
         foreignServer = server("127.0.0.1");
         foreignServer.createContext("/token", exchange -> {

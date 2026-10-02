@@ -1,0 +1,400 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+package sh.brewlet.maven.plugin;
+
+import org.apache.maven.plugin.MojoExecutionException;
+import org.apache.maven.plugin.MojoFailureException;
+import sh.brewlet.maven.plugin.model.JvmConfig;
+import sh.brewlet.maven.plugin.model.ManagedDependencyEvidence;
+import sh.brewlet.maven.plugin.oci.ArtifactLayer;
+import sh.brewlet.maven.plugin.oci.Credential;
+import sh.brewlet.maven.plugin.oci.DependencyBundle;
+import sh.brewlet.maven.plugin.oci.LocalStore;
+import sh.brewlet.maven.plugin.oci.MediaTypes;
+import sh.brewlet.maven.plugin.oci.RegistryClient;
+import sh.brewlet.maven.plugin.oci.RegistryTrustPolicy;
+import sh.brewlet.maven.plugin.util.CredentialResolver;
+import sh.brewlet.maven.plugin.util.JarInspector;
+import sh.brewlet.maven.plugin.supplychain.BundleProvenance;
+import sh.brewlet.maven.plugin.supplychain.ManagedProvenance;
+import sh.brewlet.maven.plugin.oci.OciDescriptor;
+import sh.brewlet.maven.plugin.oci.OciReferrer;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.security.GeneralSecurityException;
+
+/**
+ * Shared build-and-push logic for {@code brewlet:push}, {@code brewlet:manifest}
+ * and {@code brewlet:deploy}.
+ */
+public abstract class AbstractPushMojo extends AbstractBrewletMojo {
+
+    /** File in {@link #outputDirectory} recording the last successful push. */
+    static final String PUSH_RESULT_FILE = "push.json";
+
+    /**
+     * Outcome of a successful push.
+     *
+     * @param image       the reference that was pushed (tag form)
+     * @param digest      the pushed index (runnable image) or manifest (artifact) digest
+     * @param deployImage the digest-pinned reference to deploy
+     * @param format      {@code image} or {@code artifact}
+     */
+    public record PushResult(String image, String digest, String deployImage, String format) {}
+
+
+    /**
+     * Builds and pushes the application, records the result in
+     * {@code target/brewlet/push.json} for {@code brewlet:manifest}, and returns
+     * it. Returns {@code null} in dry-run mode.
+     */
+    protected PushResult pushApplication(String goal)
+            throws MojoExecutionException, MojoFailureException {
+        image = requirePushImage(goal);
+        File pushResultFile = new File(outputDirectory, PUSH_RESULT_FILE);
+        if (pushResultFile.exists() && !pushResultFile.delete()) {
+            throw new MojoExecutionException("Failed to delete stale " + pushResultFile);
+        }
+
+        java.io.File jar = resolveJarFile();
+        VerifiedBundle verifiedBundle = null;
+        DependencyBundle.Content managedBundle = null;
+        String expectedBundleSigner = trustedSignerIdentity;
+        String applicationBuilder = builderIdentity;
+        if (dependencyBundle != null && !dependencyBundle.isBlank()) {
+            if ((signingKey == null) !=
+                    (applicationBuilder == null || applicationBuilder.isBlank())) {
+                throw new MojoExecutionException(
+                        "signingKey and builderIdentity must be configured together");
+            }
+            if (!"image".equals(format)) {
+                throw new MojoExecutionException("Managed dependency bundles require "
+                        + "<format>image</format> so the approved OCI layer is reused unchanged.");
+            }
+            layered = true;
+            entryMode = "classpath";
+            try {
+                List<String> embedded = JarInspector.embeddedJars(jar);
+                if (!embedded.isEmpty() || JarInspector.hasNestedApplicationClasses(jar)) {
+                    throw new MojoExecutionException("Managed dependency bundle mode requires a "
+                            + "thin application JAR, but found "
+                            + (embedded.isEmpty() ? "nested application classes" : "embedded JAR " + embedded.get(0))
+                            + ". Disable fat-JAR repackaging.");
+                }
+                verifiedBundle = resolveDependencyBundle(
+                        dependencyBundle, expectedBundleSigner, registryTrustPolicy());
+                managedBundle = verifiedBundle.bundle();
+                DependencyBundle.verifyGraph(managedBundle.lock(),
+                        collectRuntimeDependencyLock());
+                List<Integer> compatibleJdks = managedBundle.config().getCompatibleJdks();
+                if (compatibleJdks != null && !compatibleJdks.isEmpty()
+                        && !compatibleJdks.contains(resolveJdkFeature())) {
+                    throw new MojoExecutionException("Dependency bundle supports JDKs "
+                            + compatibleJdks + " but this project requests JDK "
+                            + resolveJdkFeature());
+                }
+            } catch (IOException | GeneralSecurityException e) {
+                throw new MojoExecutionException("Invalid dependency bundle "
+                        + dependencyBundle + ": " + e.getMessage(), e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new MojoExecutionException("Interrupted while pulling dependency bundle "
+                        + dependencyBundle, e);
+            }
+        }
+        JvmConfig cfg = buildConfig();
+        jar = prepareApplication().jar();
+        if (managedBundle != null
+                && (cfg.getEntry().getMainClass() == null
+                || cfg.getEntry().getMainClass().isBlank())) {
+            throw new MojoExecutionException("Managed dependency bundle mode requires mainClass "
+                    + "for thin classpath launch. Configure <mainClass>.");
+        }
+        java.io.File resolvedCdsArchive = applyCdsArchive(cfg);
+        validateFinalConfig(cfg);
+        validateCdsPairing(cfg, resolvedCdsArchive);
+
+        String[] parts = RegistryClient.splitRef(image);
+        String registry = parts[0];
+        String repository = parts[1];
+        String tag = RegistryClient.extractTag(image);
+
+        Credential credential = CredentialResolver.resolve(registry, settings,
+                message -> getLog().warn(message));
+
+        boolean runnable = "image".equals(format);
+        if (!"artifact".equals(format) && !runnable) {
+            throw new MojoExecutionException("Invalid <format> \"" + format
+                    + "\": expected \"artifact\" or \"image\".");
+        }
+
+        if (dryRun) {
+            getLog().info("Brewlet: dry-run mode — would push to " + image
+                    + " (format=" + format + ")");
+            try {
+                getLog().info(MAPPER.writeValueAsString(cfg));
+            } catch (IOException ignored) {}
+            return null;
+        }
+
+        getLog().info("Brewlet: pushing " + (runnable ? "runnable image" : "artifact")
+                + " to " + image + " ...");
+        getLog().info("  registry: " + registry);
+        getLog().info("  repository: " + repository);
+        getLog().info("  tag: " + tag);
+        getLog().info("  jar: " + jar.getName() + " (" + jar.length() + " bytes)");
+        if (cfg.getCds() != null) {
+            getLog().info("  cds archive: " + cfg.getCds().getArchive()
+                    + " (mounted /app/" + cfg.getCds().getArchive()
+                    + "; -Xshare:auto, best-effort)");
+        }
+        if (credential != null) {
+            getLog().info("  auth: credentials resolved for " + registry);
+        } else {
+            getLog().info("  auth: anonymous");
+        }
+
+        RegistryClient client = new RegistryClient(registry, repository, credential,
+                registryTrustPolicy());
+        Map<String, String> annotations = buildAnnotations();
+        annotations.put("org.opencontainers.image.ref.name", image);
+        List<ArtifactLayer> managedLayers = managedBundle == null
+                ? null : List.of(new ArtifactLayer(
+                        "dependencies", managedBundle.uncompressedLayer()));
+        if (managedBundle != null) {
+            try {
+                ManagedDependencyEvidence evidence = new ManagedDependencyEvidence(
+                        1, true,
+                        LocalStore.sha256Hex(Files.readAllBytes(jar.toPath())),
+                        managedBundle.manifestDigest(),
+                        managedBundle.config().getLayerDigest(),
+                        managedBundle.config().getLockDigest(),
+                        verifiedBundle.sbomDigest(),
+                        managedBundle.config().getSourceBom(),
+                        signingKey == null ? null : applicationBuilder);
+                annotations.put(MediaTypes.MANAGED_DEPENDENCY_EVIDENCE_ANNOTATION,
+                        DependencyBundle.canonicalJson(evidence));
+            } catch (IOException e) {
+                throw new MojoExecutionException("Failed to serialize managed dependency evidence", e);
+            }
+        }
+
+        if (runnable) {
+            // Runnable image: the CDS archive is folded INTO the app layer (not a
+            // separate layer), so pass only the class-path / module-path layers.
+            try {
+                String indexDigest;
+                if (managedBundle != null) {
+                    String sourceRepository = managedBundleSourceRepository(
+                            dependencyBundle, registry);
+                    indexDigest = client.pushRunnableImage(
+                            tag, cfg, jar.toPath(), managedBundle,
+                            resolvedCdsArchive != null ? resolvedCdsArchive.toPath() : null,
+                            annotations, sourceRepository);
+                } else {
+                    indexDigest = client.pushRunnableImage(
+                            tag, cfg, jar.toPath(),
+                            buildArtifactLayers(cfg.getEntry().getMode()),
+                            resolvedCdsArchive != null ? resolvedCdsArchive.toPath() : null,
+                            annotations);
+                }
+                if (managedBundle != null && signingKey != null) {
+                    byte[] indexBytes = client.pullManifest(indexDigest);
+                    OciReferrer.Content attestation = ManagedProvenance.create(
+                            image, indexDigest, indexBytes.length,
+                            LocalStore.sha256Hex(Files.readAllBytes(jar.toPath())),
+                            managedBundle.manifestDigest(),
+                            managedBundle.config().getLayerDigest(),
+                            managedBundle.config().getLockDigest(),
+                            verifiedBundle.sbomDigest(), managedBundle.config().getSourceBom(),
+                            applicationBuilder, signingKey.toPath());
+                    client.pushReferrer(attestation);
+                    getLog().info("  managed dependency attestation: "
+                            + attestation.manifestDigest());
+                }
+                getLog().info("Brewlet: pushed " + image + " (runnable OCI image — kubelet-pullable)");
+                getLog().info("  index: " + indexDigest);
+                getLog().info("  platforms: "
+                        + sh.brewlet.maven.plugin.oci.RunnableImageBuilder.targetArches(cfg));
+                String pinnedImage = RegistryClient.pinReference(image, indexDigest);
+                getLog().info("  deploy image: " + pinnedImage);
+                getLog().info("  developer shipped ONLY the JAR; no Dockerfile, no base image.");
+                return recordPush(new PushResult(image, indexDigest, pinnedImage, format));
+            } catch (IOException | InterruptedException | GeneralSecurityException e) {
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                throw new MojoExecutionException("Failed to push runnable image to " + image, e);
+            }
+        }
+
+        List<ArtifactLayer> classpathLayers = new ArrayList<>(managedLayers != null
+                ? managedLayers : buildArtifactLayers(cfg.getEntry().getMode()));
+        ArtifactLayer cdsLayer = cdsLayer(resolvedCdsArchive);
+        if (cdsLayer != null) {
+            classpathLayers.add(cdsLayer);
+        }
+
+        try {
+            String manifestDigest = client.push(tag, cfg, jar.toPath(), classpathLayers, annotations);
+            getLog().info("Brewlet: pushed " + image);
+            getLog().info("  manifest: " + manifestDigest);
+            getLog().info("  artifactType: " + sh.brewlet.maven.plugin.oci.MediaTypes.ARTIFACT_TYPE);
+            getLog().info("  developer shipped ONLY the JAR; no Dockerfile, no base image.");
+            return recordPush(new PushResult(image, manifestDigest,
+                    RegistryClient.pinReference(image, manifestDigest), format));
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new MojoExecutionException("Failed to push artifact to " + image, e);
+        }
+    }
+
+    /**
+     * Resolves the image to push and rejects references that silently fall back
+     * to Docker Hub, which is almost never the intended target.
+     */
+    private String requirePushImage(String goal) throws MojoExecutionException {
+        String ref = resolveImage();
+        if (ref == null) {
+            throw new MojoExecutionException("brewlet:" + goal + " requires a target registry. "
+                    + "Configure <registry>myregistry.example.com</registry> (the image becomes "
+                    + "<registry>/" + project.getArtifactId() + ":" + project.getVersion()
+                    + ") or a full <image>, e.g. -Dbrewlet.registry=myregistry.azurecr.io");
+        }
+        if (!RegistryClient.hasExplicitRegistry(ref)) {
+            throw new MojoExecutionException("Image \"" + ref + "\" has no registry host, so it "
+                    + "would be pushed to Docker Hub. Prefix it with your registry "
+                    + "(e.g. myregistry.azurecr.io/" + ref + "), set <registry>, or use "
+                    + "docker.io/<user>/... to target Docker Hub explicitly.");
+        }
+        return ref;
+    }
+
+    private PushResult recordPush(PushResult result) throws IOException {
+        outputDirectory.mkdirs();
+        MAPPER.writerWithDefaultPrettyPrinter()
+                .writeValue(new File(outputDirectory, PUSH_RESULT_FILE), result);
+        return result;
+    }
+
+    /**
+     * Reads the result of the last successful push from
+     * {@code target/brewlet/push.json}, or {@code null} if there is none.
+     */
+    protected PushResult readLastPush() throws MojoExecutionException {
+        File file = new File(outputDirectory, PUSH_RESULT_FILE);
+        if (!file.isFile()) {
+            return null;
+        }
+        try {
+            PushResult result = MAPPER.readValue(file, PushResult.class);
+            if (result.deployImage() == null
+                    || !RegistryClient.isDigestPinnedReference(result.deployImage())) {
+                throw new MojoExecutionException("Invalid " + file + ": missing a digest-pinned "
+                        + "deployImage. Run brewlet:push again.");
+            }
+            return result;
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to read " + file
+                    + ". Run brewlet:push again.", e);
+        }
+    }
+
+    private VerifiedBundle resolveDependencyBundle(String reference, String expectedBundleSigner,
+                                                  RegistryTrustPolicy trustPolicy)
+            throws IOException, InterruptedException, GeneralSecurityException {
+        try {
+            Path path = Path.of(reference);
+            if (Files.isDirectory(path)) {
+                DependencyBundle.Content bundle = DependencyBundle.loadLayout(path);
+                LocalStore store = new LocalStore(path);
+                List<OciDescriptor> sbomRefs = store.referrers(bundle.manifestDigest(),
+                        MediaTypes.CYCLONEDX_ARTIFACT_TYPE);
+                List<OciDescriptor> provenanceRefs = store.referrers(bundle.manifestDigest(),
+                        MediaTypes.DSSE_ARTIFACT_TYPE);
+                return verifyBundleReferrers(bundle, sbomRefs, provenanceRefs,
+                        store::readReferrerDocument, expectedBundleSigner);
+            }
+        } catch (InvalidPathException ignored) {
+            // A registry reference is not required to be a valid local path.
+        }
+        String[] parts = RegistryClient.splitRef(reference);
+        Credential bundleCredential = CredentialResolver.resolve(parts[0], settings);
+        RegistryClient client = new RegistryClient(parts[0], parts[1], bundleCredential,
+                trustPolicy);
+        DependencyBundle.Content bundle =
+                client.pullDependencyBundle(RegistryClient.extractTag(reference));
+        List<OciDescriptor> sbomRefs = client.discoverReferrers(bundle.manifestDigest(),
+                MediaTypes.CYCLONEDX_ARTIFACT_TYPE);
+        List<OciDescriptor> provenanceRefs = client.discoverReferrers(bundle.manifestDigest(),
+                MediaTypes.DSSE_ARTIFACT_TYPE);
+        return verifyBundleReferrers(bundle, sbomRefs, provenanceRefs,
+                descriptor -> client.pullReferrerDocument(
+                        descriptor, bundle.manifestDigest(),
+                        bundle.manifestBytes().length), expectedBundleSigner);
+    }
+
+    private VerifiedBundle verifyBundleReferrers(DependencyBundle.Content bundle,
+                                                  List<OciDescriptor> sbomRefs,
+                                                  List<OciDescriptor> provenanceRefs,
+                                                  ReferrerReader reader,
+                                                  String expectedBundleSigner)
+            throws IOException, InterruptedException, GeneralSecurityException {
+        if (sbomRefs.size() != 1) {
+            throw new GeneralSecurityException(
+                    "Managed bundle requires exactly one SBOM referrer");
+        }
+        byte[] sbom = reader.read(sbomRefs.get(0));
+        if (provenanceRefs.isEmpty()) {
+            return new VerifiedBundle(bundle, BundleProvenance.validateSbom(bundle, sbom));
+        }
+        if (trustedPublicKey == null || expectedBundleSigner == null
+                || expectedBundleSigner.isBlank()) {
+            throw new GeneralSecurityException("Bundle provenance is present; "
+                    + "trustedPublicKey and trustedSignerIdentity are required");
+        }
+        GeneralSecurityException rejection = null;
+        for (OciDescriptor provenanceRef : provenanceRefs) {
+            try {
+                byte[] envelope = reader.read(provenanceRef);
+                String digest = BundleProvenance.verify(bundle, sbom, envelope,
+                        trustedPublicKey.toPath(), expectedBundleSigner);
+                return new VerifiedBundle(bundle, digest);
+            } catch (GeneralSecurityException | IOException e) {
+                rejection = new GeneralSecurityException(
+                        "Rejected dependency-bundle provenance referrer "
+                                + provenanceRef.getDigest(), e);
+            }
+        }
+        throw new GeneralSecurityException(
+                "No dependency-bundle provenance referrer was signed by the trusted signer",
+                rejection);
+    }
+
+    private record VerifiedBundle(DependencyBundle.Content bundle, String sbomDigest) {}
+
+    @FunctionalInterface
+    private interface ReferrerReader {
+        byte[] read(OciDescriptor descriptor) throws IOException, InterruptedException;
+    }
+
+    private static String managedBundleSourceRepository(String reference,
+                                                        String targetRegistry) {
+        try {
+            if (Files.isDirectory(Path.of(reference))) {
+                return null;
+            }
+        } catch (InvalidPathException ignored) {
+            // Continue parsing the registry reference.
+        }
+        String[] parts = RegistryClient.splitRef(reference);
+        return targetRegistry.equals(parts[0]) ? parts[1] : null;
+    }
+
+}

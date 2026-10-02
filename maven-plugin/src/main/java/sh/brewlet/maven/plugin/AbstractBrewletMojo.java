@@ -66,10 +66,20 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     /**
      * OCI image reference to push to, e.g.
      * {@code registry.example.com/team/orders-api:${project.version}}.
-     * Required for {@code brewlet:push}; optional for {@code brewlet:config}.
+     * When unset, {@code brewlet:push}/{@code brewlet:deploy} derive it from
+     * {@link #registry} as {@code <registry>/${project.artifactId}:${project.version}}.
      */
     @Parameter(property = "brewlet.image")
     protected String image;
+
+    /**
+     * Registry (optionally with a repository prefix) to publish to when
+     * {@link #image} is not set, e.g. {@code myregistry.azurecr.io} or
+     * {@code registry.example.com/team}. The image becomes
+     * {@code <registry>/${project.artifactId}:${project.version}}.
+     */
+    @Parameter(property = "brewlet.registry")
+    protected String registry;
 
     /**
      * Path to the JAR file to push. Defaults to the project's primary artifact.
@@ -883,6 +893,23 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
         ann.put(MediaTypes.ANNOTATION_VERSION, project.getVersion());
         ann.put(MediaTypes.ANNOTATION_CREATED, Instant.now().toString());
         return ann;
+    }
+
+    /**
+     * Returns the configured {@link #image}, or one derived from
+     * {@link #registry} as {@code <registry>/<artifactId>:<version>}; {@code null}
+     * when neither is set.
+     */
+    protected String resolveImage() {
+        if (image != null && !image.isBlank()) {
+            return image.trim();
+        }
+        if (registry == null || registry.isBlank()) {
+            return null;
+        }
+        String prefix = registry.trim().replaceFirst("^[A-Za-z][A-Za-z0-9+.-]*://", "")
+                .replaceAll("/+$", "");
+        return prefix + "/" + project.getArtifactId() + ":" + project.getVersion();
     }
 
     @Override
