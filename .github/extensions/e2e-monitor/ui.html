@@ -99,7 +99,10 @@ Licensed under the MIT License.
 <div class="app">
   <aside>
     <div>
-      <h2>Environment</h2>
+      <div class="row" style="justify-content:space-between;margin-bottom:6px">
+        <h2 style="margin:0">Environment</h2>
+        <button id="reloadEnv" class="small" title="Re-read kubectl context, node pools, preflight checks and runs">↻ Reload</button>
+      </div>
       <div id="preflight" class="chips"><span class="muted small">checking…</span></div>
     </div>
     <div class="card">
@@ -170,6 +173,7 @@ async function boot() {
     $("#tiers").querySelectorAll("input").forEach((i) => i.checked = p === "all" || (p === "host" && +i.value <= 3));
   });
   $("#start").onclick = start;
+  $("#reloadEnv").onclick = reloadEnv;
   api("/api/preflight").then(renderPreflight).catch(() => {});
   loadContexts();
   await refreshRuns();
@@ -232,8 +236,22 @@ async function loadContexts() {
     $("#ddNote").textContent = k.dockerDesktop ? (k.current === "docker-desktop" ? "(same as current)" : "") : "— not found; enable Kubernetes in Docker Desktop";
     if (!k.dockerDesktop && dd.checked) document.querySelector('input[name=cluster][value=kubectl]').checked = true;
     document.querySelectorAll("input[name=cluster]").forEach((r) => r.onchange = loadPools);
-    loadPools();
+    await loadPools();
   } catch { $("#curCtx").textContent = "(kubectl unavailable)"; }
+}
+
+async function reloadEnv() {
+  const btn = $("#reloadEnv");
+  btn.disabled = true;
+  $("#preflight").innerHTML = `<span class="muted small">checking…</span>`;
+  $("#curCtx").textContent = "…";
+  try {
+    await Promise.all([
+      api("/api/preflight").then(renderPreflight).catch((e) => { $("#preflight").innerHTML = `<span class="err small">${esc(e.message)}</span>`; }),
+      loadContexts(),
+      refreshRuns().catch(() => {}),
+    ]);
+  } finally { btn.disabled = false; }
 }
 
 const selectedCluster = () => document.querySelector("input[name=cluster]:checked")?.value || "kubectl";
