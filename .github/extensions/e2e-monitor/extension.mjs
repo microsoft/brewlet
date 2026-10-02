@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { RunManager, SUITES, TIERS, preflight } from "./runner.mjs";
+import { RunManager, SUITES, TIERS, CLUSTER_TARGETS, kubeContexts, preflight } from "./runner.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../../..");
@@ -73,7 +73,9 @@ async function handle(req, res) {
         }
         switch (url.pathname) {
             case "/api/meta":
-                return sendJson(res, 200, { suites: SUITES, tiers: TIERS, repoRoot: REPO_ROOT });
+                return sendJson(res, 200, { suites: SUITES, tiers: TIERS, clusters: CLUSTER_TARGETS, repoRoot: REPO_ROOT });
+            case "/api/kube-contexts":
+                return sendJson(res, 200, await kubeContexts());
             case "/api/preflight":
                 return sendJson(res, 200, await preflight(REPO_ROOT, manager.runningPids()));
             case "/api/runs":
@@ -134,6 +136,11 @@ const actions = [
                 suite: { type: "string", enum: Object.keys(SUITES) },
                 tiers: { type: "array", items: { type: "integer", minimum: 1, maximum: 19 }, description: "Tiers for the legacy suite (1-19)." },
                 reset: { type: "boolean", description: "legacy only: pass --reset before running tiers." },
+                cluster: {
+                    type: "string",
+                    enum: Object.keys(CLUSTER_TARGETS),
+                    description: "legacy/reset only: kubectl = the current kubectl context (default); docker-desktop = Docker Desktop's local Kubernetes. The run uses a pinned kubeconfig and never changes the user's current context.",
+                },
                 env: { type: "object", additionalProperties: { type: "string" }, description: "Extra environment variables, e.g. JAVA_HOME." },
                 allowConcurrent: { type: "boolean" },
             },
@@ -158,6 +165,11 @@ const actions = [
         name: "list_runs",
         description: "List all runs (newest first) with status, counts, and progress.",
         handler: wrap(async () => ({ runs: manager.list() })),
+    },
+    {
+        name: "list_kube_contexts",
+        description: "List kubectl contexts, the current context, and whether Docker Desktop's context is available.",
+        handler: wrap(async () => kubeContexts()),
     },
     {
         name: "wait_for_run",

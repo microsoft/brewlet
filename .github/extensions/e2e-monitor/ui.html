@@ -106,6 +106,11 @@ Licensed under the MIT License.
       <h2>New run</h2>
       <select id="suite"></select>
       <div id="suiteDesc" class="muted small" style="margin:4px 0"></div>
+      <div id="clusterPicker" style="margin:6px 0">
+        <div class="small muted">Run against</div>
+        <label class="row small"><input type="radio" name="cluster" value="kubectl" checked /> <span>kubectl context <b id="curCtx" class="mono">…</b></span></label>
+        <label class="row small" id="ddLabel"><input type="radio" name="cluster" value="docker-desktop" /> <span>Docker Desktop (local) <span id="ddNote" class="muted"></span></span></label>
+      </div>
       <div id="tierPicker">
         <div class="row small">
           <a data-pick="host">host-only (1-3)</a> · <a data-pick="all">all</a> · <a data-pick="none">none</a>
@@ -161,6 +166,7 @@ async function boot() {
   });
   $("#start").onclick = start;
   api("/api/preflight").then(renderPreflight).catch(() => {});
+  loadContexts();
   await refreshRuns();
   if (!SEL && RUNS[0]) SEL = RUNS[0].id;
   if (SEL) await select(SEL);
@@ -175,7 +181,21 @@ function onSuite() {
   const s = META.suites[$("#suite").value];
   $("#suiteDesc").textContent = s.description;
   $("#tierPicker").style.display = s.usesTiers ? "" : "none";
+  $("#clusterPicker").style.display = s.usesCluster ? "" : "none";
 }
+
+async function loadContexts() {
+  try {
+    const k = await api("/api/kube-contexts");
+    $("#curCtx").textContent = k.current || "(none)";
+    const dd = $("#ddLabel input");
+    dd.disabled = !k.dockerDesktop;
+    $("#ddNote").textContent = k.dockerDesktop ? (k.current === "docker-desktop" ? "(same as current)" : "") : "— not found; enable Kubernetes in Docker Desktop";
+    if (!k.dockerDesktop && dd.checked) document.querySelector('input[name=cluster][value=kubectl]').checked = true;
+  } catch { $("#curCtx").textContent = "(kubectl unavailable)"; }
+}
+
+const selectedCluster = () => document.querySelector("input[name=cluster]:checked")?.value || "kubectl";
 
 function renderPreflight(p) {
   $("#preflight").innerHTML = Object.entries(p).map(([k, v]) =>
@@ -193,7 +213,7 @@ async function start() {
   }
   $("#start").disabled = true;
   try {
-    const run = await api("/api/start", { suite, tiers, reset: $("#reset").checked, env });
+    const run = await api("/api/start", { suite, tiers, reset: $("#reset").checked, env, cluster: selectedCluster() });
     await refreshRuns();
     await select(run.id);
   } catch (e) { $("#startErr").textContent = e.message; }
@@ -266,7 +286,7 @@ function render(soft) {
       </div>
     </div>
     <div class="mono muted small" style="margin-top:4px">$ ${esc(r.command)}</div>
-    <div class="muted small">${esc(r.id)} · pid ${r.pid} · started ${fmtTime(r.startedAt)}${r.endedAt ? ` · ended ${fmtTime(r.endedAt)}` : ""}</div>
+    <div class="muted small">${esc(r.id)} · pid ${r.pid} · started ${fmtTime(r.startedAt)}${r.endedAt ? ` · ended ${fmtTime(r.endedAt)}` : ""}${r.kubeContext ? ` · cluster <b class="mono">${esc(r.kubeContext)}</b>` : ""}</div>
     ${running && r.stopRequestedAt ? `<div class="small" style="color:var(--yellow)">Stop requested ${fmtTime(r.stopRequestedAt)} — waiting for cleanup traps…</div>` : ""}
     <div style="margin-top:12px">
       <div class="row small" style="justify-content:space-between;margin-bottom:4px">
@@ -298,7 +318,7 @@ function render(soft) {
   $("#main").querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { TAB = b.dataset.tab; render(); });
   const stop = $("#stop"); if (stop) stop.onclick = async () => { stop.disabled = true; await api("/api/stop", { id: r.id }).catch((e) => alert(e.message)); };
   const rerun = $("#rerun"); if (rerun) rerun.onclick = async () => {
-    try { const n = await api("/api/start", { suite: r.suite, tiers: r.tiers, reset: r.reset, env: r.env || {} }); await refreshRuns(); select(n.id); }
+    try { const n = await api("/api/start", { suite: r.suite, tiers: r.tiers, reset: r.reset, env: r.env || {}, ...(r.cluster ? { cluster: r.cluster } : {}) }); await refreshRuns(); select(n.id); }
     catch (e) { alert(e.message); }
   };
   if (!keepTab) renderTab();
