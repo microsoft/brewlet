@@ -56,6 +56,42 @@ def install_metrics(fixture):
                    "downscaleStabilizationSeconds": 60, "hpaSyncSeconds": 10})
 
 
+def runnable_layers(fixture, image):
+    """Resolve the node-platform manifest and its layer digests from the registry."""
+    repository, digest = image.split("/", 1)[1].split("@")
+
+    def manifest(digest):
+        request = Request(f"http://{fixture.registry}/v2/{repository}/manifests/{digest}",
+                          headers={"Accept": "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"})
+        with urlopen(request, timeout=10) as response:
+            raw = response.read()
+        if "sha256:" + hashlib.sha256(raw).hexdigest() != digest:
+            raise AssertionError("Registry returned a mismatched manifest")
+        return json.loads(raw)
+
+    index = manifest(digest)
+    matches = [entry for entry in index["manifests"]
+               if entry.get("platform", {}).get("architecture") == fixture.arch]
+    if len(matches) != 1:
+        raise AssertionError("Expected one platform manifest for the fixture node")
+    selected = matches[0]["digest"]
+    layers = [entry["digest"] for entry in manifest(selected)["layers"]]
+    if not layers or any(not re.fullmatch(r"sha256:[a-f0-9]{64}", d) for d in layers):
+        raise AssertionError("Invalid runnable layer descriptors")
+    return selected, layers
+
+
+def assert_cold_start_retention(fixture, image):
+    # Fails if the GC deferral did not apply, instead of leaving the cold start
+    # to win a race against containerd's collector.
+    selected, layers = runnable_layers(fixture, image)
+    missing = [d for d in layers if not fixture.node_blob_present(d)]
+    if missing:
+        raise AssertionError(f"Packed source layers collected before GC was requested: {missing}")
+    fixture.record("cold-start-source-layers-retained",
+                   {"platformManifest": selected, "presentSourceLayers": layers})
+
+
 class Scaling:
     def __init__(self, fixture):
         self.f = fixture
@@ -139,34 +175,14 @@ class Scaling:
                 self.f.ready(APP, 1))
 
     def observe_source_gc(self, image):
-        repository, digest = image.split("/", 1)[1].split("@")
-
-        def manifest(digest):
-            request = Request(f"http://{self.f.registry}/v2/{repository}/manifests/{digest}",
-                              headers={"Accept": "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json"})
-            with urlopen(request, timeout=10) as response:
-                raw = response.read()
-            if "sha256:" + hashlib.sha256(raw).hexdigest() != digest:
-                raise AssertionError("Registry returned a mismatched manifest")
-            return json.loads(raw)
-
-        index = manifest(digest)
-        matches = [entry for entry in index["manifests"]
-                   if entry.get("platform", {}).get("architecture") == self.f.arch]
-        if len(matches) != 1:
-            raise AssertionError("Expected one platform manifest for the fixture node")
-        selected = matches[0]["digest"]
-        layers = [entry["digest"] for entry in manifest(selected)["layers"]]
-        if not layers or any(not re.fullmatch(r"sha256:[a-f0-9]{64}", d) for d in layers):
-            raise AssertionError("Invalid runnable layer descriptors")
-        self.f.own_container(self.f.node)
+        selected, layers = runnable_layers(self.f, image)
+        # Automatic GC is deferred on this node so the cold start keeps its packed
+        # layers; ask containerd's own collector to run now.
+        lease = self.f.request_containerd_gc()
 
         def collected():
-            return all(self.f.run([
-                "docker", "exec", self.f.node_id, "test", "!", "-e",
-                "/var/lib/containerd/io.containerd.content.v1.content/blobs/sha256/" + d[7:]],
-                check=False).returncode == 0 for d in layers)
-        wait("containerd naturally discards unpacked source layers", collected, timeout=180)
+            return not any(self.f.node_blob_present(d) for d in layers)
+        wait("containerd collects unpacked source layers after the requested GC", collected, timeout=180)
         if self.f.candidate == "shim":
             for layer in layers:
                 path = (f"/tmp/brewlet-runnable/immutable-v2/{selected[7:]}/content/"
@@ -176,6 +192,7 @@ class Scaling:
                     raise AssertionError("Retained layer no longer matches its descriptor")
         self.f.record("post-unpack-source-gc-observed",
                       {"platformManifest": selected, "missingSourceLayers": layers,
+                       "gcRequestLease": lease,
                        "retainedBytesVerified": self.f.candidate == "shim"})
 
     def up(self):
@@ -253,6 +270,7 @@ def main():
         if "Hello from a JAR" not in fixture.service_get(APP):
             raise AssertionError("Ready workload did not serve through its Service")
         fixture.record("initial-serving-brewlet-workload", {"image": image})
+        assert_cold_start_retention(fixture, image)
         Scaling(fixture).execute(image)
 
 
