@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { joinSession, createCanvas, CanvasError } from "@github/copilot-sdk/extension";
-import { RunManager, SUITES, TIERS, CLUSTER_TARGETS, kubeContexts, preflight } from "./runner.mjs";
+import { RunManager, SUITES, TIERS, CLUSTER_TARGETS, DEFAULT_NODE_POOL, kubeContexts, nodePools, preflight } from "./runner.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "../../..");
@@ -73,9 +73,11 @@ async function handle(req, res) {
         }
         switch (url.pathname) {
             case "/api/meta":
-                return sendJson(res, 200, { suites: SUITES, tiers: TIERS, clusters: CLUSTER_TARGETS, repoRoot: REPO_ROOT });
+                return sendJson(res, 200, { suites: SUITES, tiers: TIERS, clusters: CLUSTER_TARGETS, defaultNodePool: DEFAULT_NODE_POOL, repoRoot: REPO_ROOT });
             case "/api/kube-contexts":
                 return sendJson(res, 200, await kubeContexts());
+            case "/api/node-pools":
+                return sendJson(res, 200, await nodePools(q.get("cluster") || "kubectl"));
             case "/api/preflight":
                 return sendJson(res, 200, await preflight(REPO_ROOT, manager.runningPids()));
             case "/api/runs":
@@ -139,7 +141,11 @@ const actions = [
                 cluster: {
                     type: "string",
                     enum: Object.keys(CLUSTER_TARGETS),
-                    description: "legacy/reset only: kubectl = the current kubectl context (default); docker-desktop = Docker Desktop's local Kubernetes. The run uses a pinned kubeconfig and never changes the user's current context.",
+                    description: "legacy/reset only: kubectl = the current kubectl context (default); docker-desktop = Docker Desktop's local Kubernetes. The run uses a pinned kubeconfig and never changes the user's current context. A context that is not local (Docker Desktop, kind, k3d, minikube…) is a live cluster: the run reaches nodes via kubectl and is pinned to nodePool.",
+                },
+                nodePool: {
+                    type: "string",
+                    description: `legacy/reset on a live cluster only: node pool(s) the tests may use, comma-separated (sets E2E_POOLS). Defaults to "${DEFAULT_NODE_POOL}". See list_node_pools.`,
                 },
                 env: { type: "object", additionalProperties: { type: "string" }, description: "Extra environment variables, e.g. JAVA_HOME." },
                 allowConcurrent: { type: "boolean" },
@@ -168,8 +174,14 @@ const actions = [
     },
     {
         name: "list_kube_contexts",
-        description: "List kubectl contexts, the current context, and whether Docker Desktop's context is available.",
+        description: "List kubectl contexts, the current context, whether it is a live cluster, and whether Docker Desktop's context is available.",
         handler: wrap(async () => kubeContexts()),
+    },
+    {
+        name: "list_node_pools",
+        description: "List the node pools (with node and Ready counts) of a cluster target. Live clusters only; local clusters return no pools.",
+        inputSchema: { type: "object", additionalProperties: false, properties: { cluster: { type: "string", enum: Object.keys(CLUSTER_TARGETS) } } },
+        handler: wrap(async ({ cluster = "kubectl" } = {}) => nodePools(cluster)),
     },
     {
         name: "wait_for_run",

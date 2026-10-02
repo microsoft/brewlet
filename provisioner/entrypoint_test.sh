@@ -688,6 +688,23 @@ if grep -Fq 'plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet' \
   exit 1
 fi
 
+# AKS ships `version = 2` configs that already use the split CRI tables; the
+# brewlet runtime must follow that schema or containerd 2 drops it on migration.
+aks_dir="$(new_containerd_test_dir 2)"
+printf '[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc]\n  runtime_type = "io.containerd.runc.v2"\n' \
+  >>"$aks_dir/config.toml"
+[[ "$(containerd_runtime_plugin_for_config "$aks_dir/config.toml")" == "io.containerd.cri.v1.runtime" ]] || {
+  echo "expected a version-2 config with split CRI tables to use io.containerd.cri.v1.runtime" >&2
+  exit 1
+}
+legacy_dir="$(new_containerd_test_dir 2)"
+printf '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]\n  runtime_type = "io.containerd.runc.v2"\n' \
+  >>"$legacy_dir/config.toml"
+[[ "$(containerd_runtime_plugin_for_config "$legacy_dir/config.toml")" == "io.containerd.grpc.v1.cri" ]] || {
+  echo "expected a legacy version-2 config to keep io.containerd.grpc.v1.cri" >&2
+  exit 1
+}
+
 # containerd 2 normalizes a version-2 source config into the version-3 split
 # CRI plugin schema in `config dump`; validate the migrated effective handler.
 normalized_dump_dir="$(new_containerd_test_dir)"

@@ -11,7 +11,13 @@
 T13_NS="brewlet"
 T13_POOL="batch"
 T13_GUARDED="guarded"
-T13_POOL_KEY="agentpool"
+# Override on clusters whose provider owns `agentpool` (AKS): the tier relabels
+# the selected node. Use a key without dots or slashes (it feeds a jsonpath).
+if [[ "${E2E_NODE_ACCESS:-docker}" == "kubectl" ]]; then
+  T13_POOL_KEY="${E2E_T13_POOL_KEY:-brewlet-e2e-pool}"
+else
+  T13_POOL_KEY="${E2E_T13_POOL_KEY:-agentpool}"
+fi
 T13_MGR_PID=""
 T13_NODE=""
 T13_OLD_POOL=""
@@ -19,6 +25,12 @@ T13_IMAGE=""
 T13_DEFAULT_UID=""
 T13_POOL_UID=""
 T13_GUARDED_UID=""
+# Pinned to E2E_POOLS, a real catch-all would claim every node in the cluster.
+# Instead "default" is a named profile over T13_DEFAULT_POOL, which only the
+# pinned nodes carry; relabelling T13_NODE out of it mirrors the catch-all
+# yielding a node to a named pool.
+T13_DEFAULT_POOL="e2e-default"
+T13_LABELLED=""
 
 _t13_stop_manager() {
   [[ -n "$T13_MGR_PID" ]] && kill "$T13_MGR_PID" 2>/dev/null || true
@@ -53,6 +65,11 @@ _t13_cleanup() {
   info "tier13: cleaning up never-started fixtures (not verified host cleanup)"
   _t13_stop_manager
   _t13_abort_profiles || return
+  local n
+  for n in $T13_LABELLED; do
+    kubectl label "node/$n" "$T13_POOL_KEY-" >/dev/null 2>&1 || true
+  done
+  T13_LABELLED=""
   if [[ -n "$T13_NODE" ]]; then
     if [[ -n "$T13_OLD_POOL" ]]; then
       kubectl label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_OLD_POOL" >/dev/null 2>&1 || true
@@ -91,10 +108,11 @@ _t13_action() {
 }
 
 _t13_create_profile() {
-  local name="$1" opt_in="$2" pool_spec=""
-  if [[ "$name" != default ]]; then
+  local name="$1" opt_in="$2" pool_spec="" pool="$1"
+  [[ "$name" == default ]] && { e2e_pinned && pool="$T13_DEFAULT_POOL" || pool=""; }
+  if [[ -n "$pool" ]]; then
     pool_spec="key: $T13_POOL_KEY
-    names: [$name]"
+    names: [$pool]"
   fi
   kubectl create -f - >>"$WORK/t13-np.log" 2>&1 <<YAML
 apiVersion: node.brewlet.sh/v1alpha1
@@ -156,7 +174,7 @@ tier13_nodeprofile() {
   check "tier13: no prior host ownership or writer fixtures" profile_fixture_preflight || return 0
   trap _t13_cleanup RETURN
   T13_IMAGE="invalid.brewlet-e2e.invalid/provisioner:t13-$(date +%s)-$$"
-  T13_NODE="$(kubectl get nodes -o name | head -1)"
+  T13_NODE="node/$(e2e_node_names | head -1)"
   T13_OLD_POOL="$(kubectl get "$T13_NODE" -o "jsonpath={.metadata.labels.$T13_POOL_KEY}")"
   if [[ -n "$T13_OLD_POOL" ]]; then
     fail "tier13: selected node has no pre-existing test pool label" "$T13_NODE"
@@ -182,8 +200,20 @@ tier13_nodeprofile() {
   fi
   _t13_action "operator: manager started and healthy (readyz)" _t13_start_manager || return 0
 
-  local total_nodes
-  total_nodes="$(kubectl get nodes -o name | wc -l | tr -d ' ')"
+  local total_nodes n
+  total_nodes="$(e2e_pool_nodes | wc -l | tr -d ' ')"
+  if e2e_pinned; then
+    for n in $(e2e_pool_nodes); do
+      [[ "node/$n" == "$T13_NODE" ]] && continue
+      if [[ -n "$(kubectl get "node/$n" -o "jsonpath={.metadata.labels.$T13_POOL_KEY}")" ]]; then
+        fail "tier13: pinned node has no pre-existing test pool label" "$n"; return 0
+      fi
+    done
+    for n in $(e2e_pool_nodes); do
+      kubectl label --overwrite "node/$n" "$T13_POOL_KEY=$T13_DEFAULT_POOL" >/dev/null || return 0
+      [[ "node/$n" == "$T13_NODE" ]] || T13_LABELLED="$T13_LABELLED $n"
+    done
+  fi
   _t13_action "default profile: accepted by the API server" _t13_create_profile default true || return 0
   check "default profile: reconciler ensured the brewlet RuntimeClass" \
     wait_for kubectl get runtimeclass brewlet

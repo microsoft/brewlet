@@ -110,9 +110,11 @@ for upgrades; pass them again rather than substituting example defaults.
 | `stageGC.upgradeAcknowledged` | `false` | Confirm older unguarded shims and stage-dependent bundles have been retired across the managed fleet. Reset after rollout. |
 | `stageGC.allowNestedPIDNamespace` | `false` | Test-only. Let the reaper run on nodes that are themselves containers with a private PID namespace (kind). Never enable on real nodes. |
 | `operator.leaderElect` | `true` | Enable operator leader election. |
+| `operator.nodeSelector` | `{}` | Node labels the operator pod must match. |
 | `profiles` | `[]` | Additional profiles, each with a unique name, nonempty named `pools`, and explicit JDK sources. |
 | `uninstall.timeoutSeconds` | `240` | Cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstall; Helm's `--timeout` must exceed this plus 30 seconds. |
 | `uninstall.imagePullSecrets` | `[]` | Registry Secret references for the cleanup Job's dedicated service account. |
+| `uninstall.nodeSelector` | `{}` | Extra node labels for the cleanup Job pod; `kubernetes.io/os: linux` is always set. |
 | `metrics.enabled` | `false` | Enable control-plane metrics listeners and the node exporter, and expose scrape Services/ports. |
 | `metrics.nodePort` | `9090` | Port served by the exporter in each provisioner pod. |
 | `metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator `ServiceMonitor`. |
@@ -123,6 +125,7 @@ for upgrades; pass them again rather than substituting example defaults.
 | `networkPolicy.metrics.ingressFrom` | `[]` | NetworkPolicy peers permitted to scrape enabled metrics endpoints. |
 | `admission.enabled` | `true` | Deploy the admission/scheduling webhook. |
 | `admission.failurePolicy` | `Ignore` | Webhook failure policy — `Ignore` never blocks workloads on a webhook outage. |
+| `admission.nodeSelector` | `{}` | Node labels the admission webhook pods must match. |
 | `admission.nodeProfileFailurePolicy` | `Ignore` | Transport-error policy for NodeProfile validation. The reconciler independently enforces the same rules before privileged work. |
 | `admission.port` | `9443` | Webhook server port. |
 | `admission.selfSigned.validityDays` | `90` | Lifetime of the dependency-free Helm-generated serving certificate. |

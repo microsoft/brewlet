@@ -153,12 +153,368 @@ cluster_profile() {
   esac
 }
 
-# node_provisionable NODE: true if the node is a local containerd docker
-# container we can `docker exec` into (kind nodes, Docker Desktop nodes) — the
-# prerequisite for tiers that install the shim / JDK / brewlet runtime on it.
+# --- node access ---------------------------------------------------------
+# Node-side tiers run commands in a node's host context. E2E_NODE_ACCESS picks
+# the transport:
+#   docker  (default) `docker exec`/`docker cp` into local containerd node
+#           containers (kind, Docker Desktop). Other nodes are not provisionable.
+#   kubectl a privileged, hostPID "node-shell" pod per node (in
+#           $E2E_NODESHELL_NS) that enters the host's namespaces with
+#           `chroot /host nsenter -t 1`. Works on real VMs such as AKS nodes.
+# Live clusters (E2E_NODE_ACCESS=kubectl) are shared, so the suite is always
+# confined to named node pools there: E2E_POOLS (comma-separated, default
+# "javaworkers"). run.sh labels those nodes $E2E_PIN_LABEL=true, every test pod
+# (and the Helm-installed control plane) gets a matching nodeSelector,
+# catch-all NodeProfiles are narrowed to the pools, and images are side-loaded
+# only there; nothing lands on other pools. E2E_POOL_KEY is the node label
+# naming the pool; run.sh detects it (AKS, GKE, EKS, Karpenter) when unset.
+# E2E_NODE_SELECTOR (a kubectl label selector, default: the pools) further
+# restricts which pool nodes the provisioning tiers may pick.
+E2E_NODE_ACCESS="${E2E_NODE_ACCESS:-docker}"
+E2E_POOL_KEY="${E2E_POOL_KEY:-}"
+if [[ "$E2E_NODE_ACCESS" == "kubectl" ]]; then
+  E2E_POOLS="${E2E_POOLS:-javaworkers}"
+else
+  E2E_POOLS="${E2E_POOLS:-}"
+fi
+E2E_PIN_LABEL="e2e.brewlet.sh/node"
+E2E_POOL_KEYS_KNOWN="kubernetes.azure.com/agentpool cloud.google.com/gke-nodepool eks.amazonaws.com/nodegroup karpenter.sh/nodepool agentpool"
+_E2E_NODE_SELECTOR_USER="${E2E_NODE_SELECTOR:-}"
+E2E_NODE_SELECTOR="$_E2E_NODE_SELECTOR_USER"
+E2E_RUN_PIN=()
+E2E_HELM_PIN=()
+
+# e2e_detect_pool_key: print the first known pool label key that names one of
+# E2E_POOLS on some node.
+e2e_detect_pool_key() {
+  local k
+  for k in $E2E_POOL_KEYS_KNOWN; do
+    if [[ -n "$(kubectl get nodes -l "$k in ($E2E_POOLS)" -o name 2>/dev/null | head -1)" ]]; then
+      printf '%s' "$k"; return 0
+    fi
+  done
+  return 1
+}
+
+# e2e_pin_config: derive the selector and the `kubectl run` / Helm pin args
+# from E2E_POOL_KEY + E2E_POOLS. run.sh calls it again after detecting the key.
+# E2E_RUN_PIN / E2E_HELM_PIN expand with ${A[@]+"${A[@]}"}.
+e2e_pin_config() {
+  E2E_RUN_PIN=(); E2E_HELM_PIN=()
+  E2E_NODE_SELECTOR="$_E2E_NODE_SELECTOR_USER"
+  [[ -n "$E2E_POOLS" && -n "$E2E_POOL_KEY" ]] || return 0
+  [[ -n "$E2E_NODE_SELECTOR" ]] || E2E_NODE_SELECTOR="$E2E_POOL_KEY in ($E2E_POOLS)"
+  E2E_RUN_PIN=(--overrides "{\"apiVersion\":\"v1\",\"spec\":{\"nodeSelector\":{\"$E2E_PIN_LABEL\":\"true\"}}}")
+  local k="${E2E_PIN_LABEL//./\\.}"
+  E2E_HELM_PIN=(--set-string "operator.nodeSelector.$k=true"
+                --set-string "admission.nodeSelector.$k=true"
+                --set-string "uninstall.nodeSelector.$k=true")
+}
+e2e_pin_config
+E2E_NODESHELL_NS="${E2E_NODESHELL_NS:-brewlet-e2e-nodeshell}"
+E2E_NODESHELL_IMAGE="${E2E_NODESHELL_IMAGE:-mcr.microsoft.com/cbl-mariner/busybox:2.0}"
+
+# _nodes_with_ready [kubectl args]: print "name ReadyStatus" per node.
+_nodes_with_ready() {
+  kubectl get nodes "$@" -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' 2>/dev/null
+}
+
+# e2e_pinned: true when the suite is confined to E2E_POOLS.
+e2e_pinned() { [[ -n "$E2E_POOLS" ]]; }
+
+# e2e_pool_nodes: every node the suite may touch (Ready or not), one per line —
+# the E2E_POOLS nodes when pinned, otherwise the whole cluster.
+e2e_pool_nodes() {
+  if e2e_pinned; then
+    kubectl get nodes -l "$E2E_POOL_KEY in ($E2E_POOLS)" -o name 2>/dev/null | sed 's#node/##'
+  else
+    kubectl get nodes -o name 2>/dev/null | sed 's#node/##'
+  fi
+}
+
+# e2e_node_names: print the Ready nodes the provisioning tiers may use, one per
+# line, honouring E2E_NODE_SELECTOR (and E2E_POOLS when pinned).
+e2e_node_names() {
+  local -a sel=()
+  [[ -n "$E2E_NODE_SELECTOR" ]] && sel=(-l "$E2E_NODE_SELECTOR")
+  local rows
+  rows="$(_nodes_with_ready ${sel[@]+"${sel[@]}"})"
+  if e2e_pinned; then
+    awk 'NR==FNR { ok[$1]=1; next } $2 == "True" && ok[$1] { print $1 }' \
+      <(e2e_pool_nodes) - <<<"$rows"
+  else
+    awk '$2 == "True" { print $1 }' <<<"$rows"
+  fi
+}
+
+# e2e_pin_nodes / e2e_unpin_nodes: add/remove $E2E_PIN_LABEL on the pool nodes.
+e2e_pin_nodes() {
+  e2e_pinned || return 0
+  local n
+  for n in $(e2e_pool_nodes); do
+    kubectl label node "$n" --overwrite "$E2E_PIN_LABEL=true" >/dev/null || return 1
+  done
+}
+e2e_unpin_nodes() {
+  local n
+  for n in $(kubectl get nodes -l "$E2E_PIN_LABEL" -o name 2>/dev/null); do
+    kubectl label "$n" "$E2E_PIN_LABEL-" >/dev/null 2>&1 || true
+  done
+}
+
+# e2e_pod_pin INDENT: print a pod-spec `nodeSelector:` block (at INDENT spaces)
+# confining the pod to the pinned pools; nothing when not pinned.
+# e2e_pod_pin_entry INDENT: just the selector entry, for an existing block.
+e2e_pod_pin() {
+  e2e_pinned || return 0
+  printf '%*snodeSelector:\n' "$1" ''
+  e2e_pod_pin_entry "$(($1 + 2))"
+}
+e2e_pod_pin_entry() {
+  e2e_pinned || return 0
+  printf '%*s%s: "true"\n' "$1" '' "$E2E_PIN_LABEL"
+}
+
+# e2e_rc_pin: RuntimeClass `scheduling:` block for the bare brewlet
+# RuntimeClass tiers create; the RuntimeClass admission plugin merges it into
+# every brewlet pod's nodeSelector. Nothing when not pinned.
+e2e_rc_pin() {
+  e2e_pinned || return 0
+  printf 'scheduling:\n  nodeSelector:\n'
+  e2e_pod_pin_entry 4
+}
+
+# e2e_profile_pool INDENT: nodePool key/names that narrow a catch-all
+# NodeProfile to the pinned pools; nothing when not pinned.
+e2e_profile_pool() {
+  e2e_pinned || return 0
+  printf '%*skey: %s\n%*snames: [%s]\n' "$1" '' "$E2E_POOL_KEY" "$1" '' "$E2E_POOLS"
+}
+
+_nodeshell_pod() { printf 'nodeshell-%s' "${1#node/}"; }
+
+# _nodeshell_ensure NODE: create (if needed) and wait for the node-shell pod.
+_nodeshell_ensure() {
+  local n="${1#node/}" pod
+  pod="$(_nodeshell_pod "$n")"
+  [[ "$(kubectl get pod -n "$E2E_NODESHELL_NS" "$pod" \
+    -o jsonpath='{.status.phase}' 2>/dev/null)" == "Running" ]] && return 0
+  kubectl get node "$n" >/dev/null 2>&1 || return 1
+  kubectl get namespace "$E2E_NODESHELL_NS" >/dev/null 2>&1 ||
+    kubectl create namespace "$E2E_NODESHELL_NS" >/dev/null 2>&1 || true
+  kubectl apply -f - >/dev/null 2>&1 <<YAML || return 1
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $pod
+  namespace: $E2E_NODESHELL_NS
+  labels: {app.kubernetes.io/name: brewlet-e2e-nodeshell}
+spec:
+  nodeName: $n
+  hostPID: true
+  hostNetwork: true
+  hostIPC: true
+  automountServiceAccountToken: false
+  terminationGracePeriodSeconds: 0
+  tolerations: [{operator: Exists}]
+  containers:
+  - name: shell
+    image: $E2E_NODESHELL_IMAGE
+    command: ["sleep", "2147483647"]
+    securityContext: {privileged: true}
+    volumeMounts: [{name: host, mountPath: /host, mountPropagation: HostToContainer}]
+  volumes: [{name: host, hostPath: {path: /}}]
+YAML
+  kubectl wait -n "$E2E_NODESHELL_NS" --for=condition=Ready "pod/$pod" --timeout=120s >/dev/null 2>&1
+}
+
+# nodeshell_cleanup: delete every node-shell pod (and their namespace).
+nodeshell_cleanup() {
+  [[ "$E2E_NODE_ACCESS" == "kubectl" ]] || return 0
+  kubectl delete namespace "$E2E_NODESHELL_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+}
+
+# node_exec [-i] NODE CMD...: run CMD in NODE's host context, like
+# `docker exec [-i] NODE CMD...`. -i forwards stdin.
+node_exec() {
+  local interactive=0 n
+  if [[ "${1:-}" == "-i" ]]; then interactive=1; shift; fi
+  n="${1#node/}"; shift
+  if [[ "$E2E_NODE_ACCESS" == "kubectl" ]]; then
+    _nodeshell_ensure "$n" || { echo "node_exec: node-shell for '$n' is not ready" >&2; return 125; }
+    # E2E_EXEC_TIMEOUT=SECS bounds one exec (a dropped API-server stream can
+    # otherwise hang forever); perl's alarm survives exec, macOS has no timeout(1).
+    local -a limit=()
+    [[ -n "${E2E_EXEC_TIMEOUT:-}" ]] && limit=(perl -e 'alarm shift; exec @ARGV' "$E2E_EXEC_TIMEOUT")
+    if (( interactive )); then
+      ${limit[@]+"${limit[@]}"} kubectl exec -i -n "$E2E_NODESHELL_NS" "$(_nodeshell_pod "$n")" -- \
+        chroot /host nsenter -t 1 -m -u -i -n -p -- "$@"
+    else
+      ${limit[@]+"${limit[@]}"} kubectl exec -n "$E2E_NODESHELL_NS" "$(_nodeshell_pod "$n")" -- \
+        chroot /host nsenter -t 1 -m -u -i -n -p -- "$@" </dev/null
+    fi
+  elif (( interactive )); then
+    docker exec -i "$n" "$@"
+  else
+    docker exec "$n" "$@"
+  fi
+}
+
+# _node_upload NODE SRC PATH MODE: upload one file. Over kubectl the file is
+# sent in small chunks, each bounded by a timeout and retried, then reassembled
+# and sha256-checked on the node: remote exec streams through a managed API
+# server drop often enough that one multi-MB stream regularly fails.
+_node_upload() {
+  local n="$1" src="$2" path="$3" mode="$4"
+  if [[ "$E2E_NODE_ACCESS" != "kubectl" ]]; then
+    node_exec -i "$n" sh -c '
+      dst="$1"; [ -d "$dst" ] && dst="$dst/$3"
+      tmp="$dst.e2e-upload.$$"
+      cat >"$tmp" && chmod "$2" "$tmp" && mv -f "$tmp" "$dst" || { rm -f "$tmp"; exit 1; }
+    ' sh "$path" "$mode" "$(basename "$src")" <"$src"
+    return
+  fi
+  local dst stage parts part idx=0 try sum rc=0
+  dst="$(E2E_EXEC_TIMEOUT=60 node_exec "$n" sh -c '[ -d "$1" ] && echo "$1/$2" || echo "$1"' sh "$path" "$(basename "$src")")" || return 1
+  stage="$dst.e2e-upload.$$"
+  sum="$(shasum -a 256 "$src" | awk '{print $1}')" || return 1
+  parts="$(mktemp -d "${TMPDIR:-/tmp}/e2e-upload.XXXXXX")" || return 1
+  split -b "${E2E_UPLOAD_CHUNK:-2m}" "$src" "$parts/p." || { rm -rf "$parts"; return 1; }
+  E2E_EXEC_TIMEOUT=60 node_exec "$n" mkdir -p "$stage.d" || { rm -rf "$parts"; return 1; }
+  for part in "$parts"/p.*; do
+    idx=$((idx + 1))
+    for try in 1 2 3 4 5; do
+      E2E_EXEC_TIMEOUT="${E2E_UPLOAD_CHUNK_TIMEOUT:-120}" node_exec -i "$n" \
+        sh -c 'cat > "$1"' sh "$stage.d/$(printf '%06d' "$idx")" <"$part" && break
+      (( try == 5 )) && { rc=1; break 2; }
+      echo "node_cp: chunk $idx to $n failed (attempt $try), retrying" >&2
+      sleep $((try * 2))
+    done
+  done
+  rm -rf "$parts"
+  if (( rc == 0 )); then
+    E2E_EXEC_TIMEOUT=300 node_exec "$n" sh -c '
+      cat "$1.d"/* >"$1" && [ "$(sha256sum "$1" | cut -d" " -f1)" = "$2" ] &&
+        chmod "$3" "$1" && mv -f "$1" "$4"' sh "$stage" "$sum" "$mode" "$dst" || rc=1
+  fi
+  E2E_EXEC_TIMEOUT=60 node_exec "$n" rm -rf "$stage" "$stage.d" >/dev/null 2>&1 || true
+  return "$rc"
+}
+
+# node_import_image NODE TARBALL: import an image archive into the node's
+# containerd (k8s.io namespace), uploading it with node_cp's retrying transfer.
+node_import_image() {
+  local n="$1" tarball="$2" remote
+  if [[ "$E2E_NODE_ACCESS" != "kubectl" ]]; then
+    node_exec -i "$n" ctr -n k8s.io images import - <"$tarball"
+    return
+  fi
+  remote="/var/tmp/brewlet-e2e-import-$$-$(basename "$tarball")"
+  node_cp "$tarball" "$n:$remote" || return 1
+  local rc=0
+  E2E_EXEC_TIMEOUT=600 node_exec "$n" ctr -n k8s.io images import "$remote" || rc=$?
+  E2E_EXEC_TIMEOUT=60 node_exec "$n" rm -f "$remote" >/dev/null 2>&1 || true
+  return "$rc"
+}
+
+# node_cp SRC DST: copy one regular file between the host and a node, like
+# `docker cp`. Exactly one side is NODE:/absolute/path. Uploads replace the
+# destination atomically and keep the source's permission bits.
+node_cp() {
+  local src="$1" dst="$2" n path mode
+  if [[ "$E2E_NODE_ACCESS" != "kubectl" ]]; then
+    docker cp "$src" "$dst"
+    return
+  fi
+  if [[ "$dst" == *:/* && ! -e "$dst" ]]; then
+    n="${dst%%:/*}"; path="/${dst#*:/}"
+    [[ -f "$src" ]] || { echo "node_cp: $src is not a regular file" >&2; return 1; }
+    mode="$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o7777)[2:])' "$src")" || return 1
+    _node_upload "$n" "$src" "$path" "$mode"
+  elif [[ "$src" == *:/* && ! -e "$src" ]]; then
+    n="${src%%:/*}"; path="/${src#*:/}"
+    [[ -d "$dst" ]] && dst="$dst/$(basename "$path")"
+    node_exec "$n" sh -c 'test -f "$1" && cat "$1"' sh "$path" >"$dst" || { rm -f "$dst"; return 1; }
+  else
+    echo "node_cp: expected exactly one NODE:/path operand" >&2
+    return 1
+  fi
+}
+
+# node_provisionable NODE: true if we can run commands in the node's host
+# context and it has containerd's `ctr` — the prerequisite for tiers that
+# install the shim / JDK / brewlet runtime on it. With the default docker
+# transport that means a local containerd docker container (kind, Docker
+# Desktop); with E2E_NODE_ACCESS=kubectl any Linux node qualifies.
 node_provisionable() {
-  local n="$1"
-  docker inspect "$n" >/dev/null 2>&1 && docker exec "$n" ctr --version >/dev/null 2>&1
+  local n="${1#node/}"
+  if [[ "$E2E_NODE_ACCESS" == "kubectl" ]]; then
+    node_exec "$n" ctr --version >/dev/null 2>&1
+  else
+    docker inspect "$n" >/dev/null 2>&1 && docker exec "$n" ctr --version >/dev/null 2>&1
+  fi
+}
+
+# ready_node_names: the Ready nodes test pods may land on (the E2E_POOLS nodes
+# when pinned). Tiers that side-load images onto "all nodes" use this; a
+# NotReady node (e.g. a deallocated VM) can't run a pod anyway.
+ready_node_names() {
+  if e2e_pinned; then
+    awk 'NR==FNR { ok[$1]=1; next } $2 == "True" && ok[$1] { print $1 }' \
+      <(e2e_pool_nodes) <(_nodes_with_ready)
+  else
+    _nodes_with_ready | awk '$2 == "True" { print $1 }'
+  fi
+}
+
+# node_stage_image_rootfs NODE ARCH IMAGE DEST [LOG]: have the node's containerd
+# pull IMAGE (linux/ARCH) from its registry and copy the image's rootfs into
+# DEST on the node, so large userlands (e.g. a ~0.5 GB JDK) never stream over
+# the exec transport. The work runs as a transient systemd unit when available
+# and is polled, so a dropped exec stream cannot abort it. Returns non-zero if
+# the node cannot pull (e.g. no egress); callers fall back to uploading.
+node_stage_image_rootfs() {
+  local n="$1" arch="$2" image="$3" dest="$4" log="${5:-/dev/null}"
+  local ref="$image" first="${image%%/*}" tag unit status i
+  if [[ "$image" != */* ]]; then
+    ref="docker.io/library/$image"
+  elif [[ "$first" != *.* && "$first" != *:* && "$first" != localhost ]]; then
+    ref="docker.io/$image"
+  fi
+  [[ "${ref##*/}" == *[:@]* ]] || ref="$ref:latest"
+  tag="$(date +%s)-$$"
+  unit="brewlet-e2e-stage-$tag"
+  status="/run/brewlet-e2e-stage-$tag.status"
+  node_exec -i "$n" sh -c 'cat > "$1" && chmod 0755 "$1"' sh "/run/$unit.sh" >>"$log" 2>&1 <<EOF || return 1
+#!/bin/sh
+set -u
+mnt="\$(mktemp -d /run/brewlet-e2e-mnt.XXXXXX)"
+rc=0
+{
+  ctr -n k8s.io images pull --platform "linux/$arch" "$ref" >/dev/null &&
+  ctr -n k8s.io images mount --platform "linux/$arch" "$ref" "\$mnt" &&
+  mkdir -p "$dest" && cp -a "\$mnt/." "$dest/"
+} || rc=\$?
+ctr -n k8s.io images unmount --rm "\$mnt" >/dev/null 2>&1 || umount "\$mnt" >/dev/null 2>&1 || true
+rmdir "\$mnt" 2>/dev/null || true
+echo "\$rc" > "$status"
+EOF
+  if node_exec "$n" sh -c 'command -v systemd-run' >/dev/null 2>&1; then
+    node_exec "$n" systemd-run --unit="$unit" --collect "/run/$unit.sh" >>"$log" 2>&1 || return 1
+    for ((i = 0; i < 120; i++)); do
+      node_exec "$n" test -f "$status" >/dev/null 2>&1 && break
+      sleep 5
+    done
+  else
+    node_exec "$n" "/run/$unit.sh" >>"$log" 2>&1 || true
+  fi
+  local rc
+  rc="$(node_exec "$n" cat "$status" 2>/dev/null)"
+  node_exec "$n" rm -f "$status" "/run/$unit.sh" >/dev/null 2>&1 || true
+  if [[ "$rc" != "0" ]]; then
+    echo "node_stage_image_rootfs: node-side pull of $ref failed (status '${rc:-timeout}')" >>"$log"
+    return 1
+  fi
 }
 
 # node_schedulable NODE: true if the node carries no NoSchedule/NoExecute taint.
@@ -193,7 +549,7 @@ annotate_node() {
 # exit means no provisionable node exists at all.
 pick_provisionable_node() {
   local nodes n first_prov=""
-  nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
+  nodes="$(e2e_node_names)"
   for n in $nodes; do
     if node_provisionable "$n"; then
       [[ -z "$first_prov" ]] && first_prov="$n"
@@ -209,7 +565,7 @@ pick_provisionable_node() {
 # omit the subcommand tier 12 relies on.
 ctr_supports_unpack() {
   local n="$1"
-  docker exec "$n" ctr images unpack --help >/dev/null 2>&1
+  node_exec "$n" ctr images unpack --help >/dev/null 2>&1
 }
 
 # oci_layout_digest STORE REF: print the descriptor digest associated with REF
@@ -252,9 +608,9 @@ cri_image_ref() {
 import_oci_layout() {
   local node="$1" store="$2" log="$3"
   if ! (cd "$store" && tar -cf - .) |
-      docker exec -i "$node" ctr -n k8s.io images import --digests - >>"$log" 2>&1; then
+      node_exec -i "$node" ctr -n k8s.io images import --digests - >>"$log" 2>&1; then
     (cd "$store" && tar -cf - .) |
-      docker exec -i "$node" ctr -n k8s.io images import - >>"$log" 2>&1
+      node_exec -i "$node" ctr -n k8s.io images import - >>"$log" 2>&1
   fi
 }
 
@@ -264,9 +620,9 @@ tag_image_for_cri() {
   local node="$1" ref="$2" log="$3" normalized
   normalized="$(cri_image_ref "$ref")"
   if [[ "$normalized" != "$ref" ]]; then
-    if ! docker exec "$node" ctr -n k8s.io images tag --force "$ref" "$normalized" >>"$log" 2>&1; then
-      docker exec "$node" ctr -n k8s.io images rm "$normalized" >>"$log" 2>&1 || true
-      docker exec "$node" ctr -n k8s.io images tag "$ref" "$normalized" >>"$log" 2>&1 || return 1
+    if ! node_exec "$node" ctr -n k8s.io images tag --force "$ref" "$normalized" >>"$log" 2>&1; then
+      node_exec "$node" ctr -n k8s.io images rm "$normalized" >>"$log" 2>&1 || true
+      node_exec "$node" ctr -n k8s.io images tag "$ref" "$normalized" >>"$log" 2>&1 || return 1
     fi
   fi
   printf '%s' "$normalized"
@@ -282,9 +638,9 @@ pin_image_for_cri() {
     repository="${repository%:*}"
   fi
   pinned="$repository@$digest"
-  if ! docker exec "$node" ctr -n k8s.io images tag --force "$normalized" "$pinned" >>"$log" 2>&1; then
-    docker exec "$node" ctr -n k8s.io images rm "$pinned" >>"$log" 2>&1 || true
-    docker exec "$node" ctr -n k8s.io images tag "$normalized" "$pinned" >>"$log" 2>&1 || return 1
+  if ! node_exec "$node" ctr -n k8s.io images tag --force "$normalized" "$pinned" >>"$log" 2>&1; then
+    node_exec "$node" ctr -n k8s.io images rm "$pinned" >>"$log" 2>&1 || true
+    node_exec "$node" ctr -n k8s.io images tag "$normalized" "$pinned" >>"$log" 2>&1 || return 1
   fi
   printf '%s' "$pinned"
 }
@@ -341,6 +697,28 @@ force_delete_nodeprofiles() {
     kubectl patch "$np" --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
   done
   kubectl delete nodeprofiles.node.brewlet.sh --all --ignore-not-found --wait=false >/dev/null 2>&1 || true
+}
+
+# nodeprofile_uids: print the UIDs of every NodeProfile (empty when the CRD is gone).
+nodeprofile_uids() {
+  kubectl get nodeprofiles.node.brewlet.sh -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' 2>/dev/null || true
+}
+
+# release_profile_node_claims UID...: drop the owner fence (owner-uid,
+# owner-node-uid, owner-name, provision-state) from nodes claimed by exactly
+# these profile UIDs. Only for fixtures whose provisioner image can never run,
+# after the operator has been stopped; foreign owners are left untouched.
+release_profile_node_claims() {
+  (( $# )) || return 0
+  local node owner uid
+  while IFS=$'\t' read -r node owner; do
+    [[ -n "$owner" ]] || continue
+    for uid in "$@"; do
+      [[ "$owner" == "$uid" ]] || continue
+      kubectl label node "$node" brewlet.sh/owner-uid- brewlet.sh/owner-node-uid- >/dev/null 2>&1 || true
+      kubectl annotate node "$node" brewlet.sh/owner-name- brewlet.sh/provision-state- >/dev/null 2>&1 || true
+    done
+  done < <(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.brewlet\.sh/owner-uid}{"\n"}{end}' 2>/dev/null)
 }
 
 # --- summary -------------------------------------------------------------

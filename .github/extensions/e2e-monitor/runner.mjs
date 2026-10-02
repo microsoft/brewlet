@@ -90,6 +90,16 @@ const TOOL_PATH = () => {
     return [...extra, process.env.PATH].filter(Boolean).join(":");
 };
 
+// Contexts whose nodes are local Docker containers; run.sh drives them with
+// `docker exec`. Anything else is a live cluster that needs kubectl node
+// access and must be pinned to a node pool.
+const LOCAL_CONTEXT = /^(docker-desktop|kind-.+|k3d-.+|minikube|rancher-desktop|orbstack|colima.*)$/;
+export const isLiveContext = (context) => !!context && !LOCAL_CONTEXT.test(context);
+export const DEFAULT_NODE_POOL = "javaworkers";
+
+// Same keys (and order) as E2E_POOL_KEYS_KNOWN in integration-tests/e2e/lib.sh.
+const POOL_KEYS = ["kubernetes.azure.com/agentpool", "cloud.google.com/gke-nodepool", "eks.amazonaws.com/nodegroup", "karpenter.sh/nodepool", "agentpool"];
+
 function kubectl(args, { timeout = 8000, maxBuffer = 4 * 1024 * 1024 } = {}) {
     return new Promise((resolve, reject) => {
         execFile("kubectl", args, { timeout, maxBuffer, env: { ...process.env, PATH: TOOL_PATH() } }, (err, stdout, stderr) =>
@@ -102,16 +112,48 @@ export async function kubeContexts() {
         kubectl(["config", "current-context"]).then((s) => s.trim()).catch(() => null),
         kubectl(["config", "get-contexts", "-o", "name"]).then((s) => s.split("\n").map((l) => l.trim()).filter(Boolean)).catch(() => []),
     ]);
-    return { current, contexts: names, dockerDesktop: names.includes(CLUSTER_TARGETS["docker-desktop"].context) };
+    return {
+        current,
+        contexts: names,
+        dockerDesktop: names.includes(CLUSTER_TARGETS["docker-desktop"].context),
+        live: isLiveContext(current),
+        defaultNodePool: DEFAULT_NODE_POOL,
+    };
+}
+
+function resolveContext(cluster, current) {
+    const def = CLUSTER_TARGETS[cluster];
+    if (!def) throw new Error(`unknown cluster target "${cluster}"; expected one of ${Object.keys(CLUSTER_TARGETS).join(", ")}`);
+    return def.context ?? current;
+}
+
+// Node pools of a cluster target, grouped by the first known pool label key.
+export async function nodePools(cluster = "kubectl") {
+    const { current } = await kubeContexts();
+    const context = resolveContext(cluster, current);
+    if (!context) throw new Error("kubectl has no current context");
+    const live = isLiveContext(context);
+    if (!live) return { context, live, key: null, pools: [], defaultNodePool: null };
+    const nodes = JSON.parse(await kubectl(["--context", context, "get", "nodes", "-o", "json", "--request-timeout=10s"], { timeout: 15000, maxBuffer: 32 * 1024 * 1024 })).items;
+    const key = POOL_KEYS.find((k) => nodes.some((n) => n.metadata.labels?.[k]));
+    const byPool = new Map();
+    for (const n of key ? nodes : []) {
+        const name = n.metadata.labels?.[key];
+        if (!name) continue;
+        const p = byPool.get(name) ?? { name, nodes: 0, ready: 0 };
+        p.nodes++;
+        if (n.status?.conditions?.some((c) => c.type === "Ready" && c.status === "True")) p.ready++;
+        byPool.set(name, p);
+    }
+    const pools = [...byPool.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return { context, live, key: key ?? null, pools, defaultNodePool: DEFAULT_NODE_POOL };
 }
 
 // Write a self-contained kubeconfig pinned to one context so the run never
 // depends on (or mutates) the user's current-context.
 async function pinKubeconfig(cluster, file) {
-    const def = CLUSTER_TARGETS[cluster];
-    if (!def) throw new Error(`unknown cluster target "${cluster}"; expected one of ${Object.keys(CLUSTER_TARGETS).join(", ")}`);
     const { current, contexts } = await kubeContexts();
-    const context = def.context ?? current;
+    const context = resolveContext(cluster, current);
     if (!context) throw new Error("kubectl has no current context; pick Docker Desktop or set one with `kubectl config use-context`");
     if (!contexts.includes(context)) {
         throw new Error(cluster === "docker-desktop"
@@ -169,13 +211,16 @@ export class RunManager extends EventEmitter {
         clearInterval(this.timer);
     }
 
-    async start({ suite, tiers = [], reset = false, env = {}, cluster = "kubectl", allowConcurrent = false }) {
+    async start({ suite, tiers = [], reset = false, env = {}, cluster = "kubectl", nodePool, allowConcurrent = false }) {
         if (!SUITES[suite]) throw new Error(`unknown suite "${suite}"; expected one of ${Object.keys(SUITES).join(", ")}`);
         const def = SUITES[suite];
         const tierList = [...new Set(tiers.map(Number))].filter((t) => TIERS.some((x) => x.n === t)).sort((a, b) => a - b);
         if (def.usesTiers && tierList.length === 0) throw new Error("select at least one tier");
         for (const k of Object.keys(env)) {
             if (!/^[A-Z_][A-Z0-9_]*$/.test(k)) throw new Error(`invalid environment variable name: ${k}`);
+        }
+        if (nodePool != null && !/^[A-Za-z0-9][A-Za-z0-9._-]*(,[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(String(nodePool))) {
+            throw new Error(`invalid node pool "${nodePool}"; use a pool name or a comma-separated list`);
         }
         if (!CLUSTER_TARGETS[cluster]) throw new Error(`unknown cluster target "${cluster}"; expected one of ${Object.keys(CLUSTER_TARGETS).join(", ")}`);
         if (!allowConcurrent) {
@@ -200,6 +245,14 @@ export class RunManager extends EventEmitter {
                 throw e;
             }
             pinEnv.KUBECONFIG = kubeconfig;
+        }
+        // Live clusters: reach nodes through kubectl and only ever use the
+        // chosen node pool(s). Explicit env overrides still win.
+        let pools = null;
+        if (def.usesCluster && isLiveContext(kubeContext)) {
+            pools = env.E2E_POOLS || String(nodePool || "").trim() || DEFAULT_NODE_POOL;
+            pinEnv.E2E_NODE_ACCESS = "kubectl";
+            pinEnv.E2E_POOLS = pools;
         }
         const logPath = path.join(dir, "output.log");
         const exitFile = path.join(dir, "exit_code");
@@ -235,6 +288,7 @@ export class RunManager extends EventEmitter {
             env,
             cluster: def.usesCluster ? cluster : null,
             kubeContext,
+            nodePool: pools,
             command,
             cwd: this.repoRoot,
             dir,
@@ -251,7 +305,7 @@ export class RunManager extends EventEmitter {
         const run = { meta, parse: createParseState(), offset: 0 };
         this.runs.set(id, run);
         await this.#save(run);
-        this.log(`E2E run ${id} started: ${command}${kubeContext ? ` (kube context: ${kubeContext})` : ""}`);
+        this.log(`E2E run ${id} started: ${command}${kubeContext ? ` (kube context: ${kubeContext})` : ""}${pools ? ` [node pool: ${pools}]` : ""}`);
         this.emit("change", id);
         return this.summary(run);
     }
@@ -373,6 +427,7 @@ export class RunManager extends EventEmitter {
             reset: meta.reset,
             cluster: meta.cluster ?? null,
             kubeContext: meta.kubeContext ?? null,
+            nodePool: meta.nodePool ?? null,
             command: meta.command,
             startedAt: meta.startedAt,
             endedAt: meta.endedAt,

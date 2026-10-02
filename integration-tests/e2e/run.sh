@@ -116,6 +116,28 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --reset with no tiers = scrub-and-exit; --reset with tiers = scrub-then-run.
+# Pin the kube context into a private kubeconfig so a concurrent
+# `kubectl config use-context` elsewhere cannot redirect a running suite.
+if [[ -n "${E2E_KUBE_CONTEXT:-}" ]]; then
+  if ! kubectl config view --raw --minify --flatten --context "$E2E_KUBE_CONTEXT" \
+      >"$WORK/kubeconfig" 2>"$WORK/kubeconfig.err"; then
+    printf 'ERROR: cannot pin kube context %s: %s\n' "$E2E_KUBE_CONTEXT" \
+      "$(tail -1 "$WORK/kubeconfig.err")" >&2
+    exit 2
+  fi
+  chmod 600 "$WORK/kubeconfig"
+  export KUBECONFIG="$WORK/kubeconfig"
+fi
+_e2e_exit() {
+  [[ "$E2E_NODE_ACCESS" == "kubectl" ]] && nodeshell_cleanup
+  e2e_pinned && e2e_unpin_nodes
+  return 0
+}
+case "$E2E_NODE_ACCESS" in
+  docker|kubectl) trap _e2e_exit EXIT ;;
+  *) printf 'ERROR: E2E_NODE_ACCESS must be docker or kubectl (got %s)\n' "$E2E_NODE_ACCESS" >&2; exit 2 ;;
+esac
+
 if [[ "$DO_RESET" -eq 1 ]]; then
   section "Brewlet E2E — reset"
   e2e_reset
@@ -135,6 +157,37 @@ info "java      : $(have java && java -version 2>&1 | head -1 | tr -d '"' || ech
 info "docker    : $(have docker && (docker info >/dev/null 2>&1 && echo up || echo 'installed, daemon down') || echo 'absent')"
 info "kubectl   : $(have kubectl && (k8s_reachable && kubectl config current-context 2>/dev/null || echo 'no cluster') || echo 'absent')"
 info "helm      : $(have helm && helm version --short 2>/dev/null || echo 'absent')"
+info "nodes     : access=$E2E_NODE_ACCESS pools=${E2E_POOLS:-<all>} selector=${E2E_NODE_SELECTOR:-<pools>}"
+
+# Pool pinning: label the E2E_POOLS nodes so every test pod can select them.
+if e2e_pinned && have kubectl && k8s_reachable; then
+  if [[ -z "$E2E_POOL_KEY" ]]; then
+    if ! E2E_POOL_KEY="$(e2e_detect_pool_key)"; then
+      printf 'ERROR: no node is in pool(s) "%s" under any known pool label (%s).\n' "$E2E_POOLS" "$E2E_POOL_KEYS_KNOWN" >&2
+      printf '       Set E2E_POOLS to the node pool(s) to test on, and E2E_POOL_KEY if the pool label is custom.\n' >&2
+      exit 2
+    fi
+  fi
+  e2e_pin_config
+  if [[ -z "$(e2e_pool_nodes)" ]]; then
+    printf 'ERROR: no nodes match %s in (%s)\n' "$E2E_POOL_KEY" "$E2E_POOLS" >&2; exit 2
+  fi
+  e2e_pin_nodes || { printf 'ERROR: could not label the E2E_POOLS nodes\n' >&2; exit 2; }
+  info "nodes     : pinned to $E2E_POOL_KEY in ($E2E_POOLS); ready: $(ready_node_names | tr '\n' ' ')"
+fi
+
+# Remote nodes may not share the host's architecture (an arm64 laptop driving
+# an amd64 AKS pool). Default image builds to the selected nodes' platform;
+# tiers that already pass --platform are unaffected.
+if [[ "$E2E_NODE_ACCESS" == "kubectl" && -z "${DOCKER_DEFAULT_PLATFORM:-}" ]] && have kubectl; then
+  _first_node="$(e2e_node_names | head -1)"
+  _node_arch="$([[ -n "$_first_node" ]] && kubectl get node "$_first_node" \
+    -o jsonpath='{.metadata.labels.kubernetes\.io/arch}' 2>/dev/null)"
+  if [[ -n "$_node_arch" ]]; then
+    export DOCKER_DEFAULT_PLATFORM="linux/$_node_arch"
+    info "docker    : DOCKER_DEFAULT_PLATFORM=$DOCKER_DEFAULT_PLATFORM (from node $_first_node)"
+  fi
+fi
 
 # Cluster topology profile + preflight. The K8s tiers (>=4) are sensitive to
 # leftover state and to node topology, so profile the cluster and auto-scrub
@@ -145,7 +198,7 @@ _runs_k8s=0
 for t in "${TIERS[@]}"; do [[ "$t" =~ ^[0-9]+$ && "$t" -ge 4 ]] && _runs_k8s=1; done
 if [[ "$_runs_k8s" -eq 1 ]] && have kubectl && k8s_reachable; then
   profile="$(cluster_profile)"
-  nodecount="$(kubectl get nodes -o name 2>/dev/null | wc -l | tr -d ' ')"
+  nodecount="$(e2e_pool_nodes | wc -l | tr -d ' ')"
   schedulable="$(pick_provisionable_node 2>/dev/null || true)"
   info "cluster   : profile=$profile nodes=$nodecount provisionable-schedulable-node=${schedulable:-none}"
   [[ "$profile" == "docker-desktop" ]] && \

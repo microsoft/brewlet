@@ -131,6 +131,10 @@ spec:
         app: brewlet-operator
     spec:
       serviceAccountName: brewlet-operator
+      {{- with .Values.operator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
       containers:

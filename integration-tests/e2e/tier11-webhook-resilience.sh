@@ -38,8 +38,8 @@ _t11_cleanup() {
   kubectl delete clusterrole "$T11_SVC" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete clusterrolebinding "$T11_SVC" --ignore-not-found >/dev/null 2>&1 || true
   [[ -n "$T11_RC_CREATED" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
-  for n in "${T11_LOADED_NODES[@]}"; do
-    docker exec "$n" ctr -n k8s.io images rm "$T11_IMG" >/dev/null 2>&1 || true
+  for n in ${T11_LOADED_NODES[@]+"${T11_LOADED_NODES[@]}"}; do
+    node_exec "$n" ctr -n k8s.io images rm "$T11_IMG" >/dev/null 2>&1 || true
   done
   docker rmi "$T11_IMG" >/dev/null 2>&1 || true
 }
@@ -85,10 +85,10 @@ tier11_webhook_resilience() {
   if ! have go; then skip "tier11: webhook resilience" "go not installed (needed to build image)"; return 0; fi
 
   local nodes n
-  nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
+  nodes="$(ready_node_names)"
   if [[ -z "$nodes" ]]; then skip "tier11: webhook resilience" "no nodes"; return 0; fi
   for n in $nodes; do
-    if ! docker inspect "$n" >/dev/null 2>&1 || ! docker exec "$n" ctr --version >/dev/null 2>&1; then
+    if ! node_provisionable "$n"; then
       skip "tier11: webhook resilience" "node '$n' is not a local containerd docker container (can't side-load image)"
       return 0
     fi
@@ -112,7 +112,7 @@ tier11_webhook_resilience() {
     fail "webhook(resilience): docker save image" "see $WORK/t11-load.log"; return 0
   fi
   for n in $nodes; do
-    if ! docker exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t11-load.log" 2>&1; then
+    if ! node_import_image "$n" "$tarball" >>"$WORK/t11-load.log" 2>&1; then
       skip "tier11: webhook resilience" "could not import image into node '$n' (see $WORK/t11-load.log)"; return 0
     fi
     T11_LOADED_NODES+=("$n")
@@ -121,11 +121,12 @@ tier11_webhook_resilience() {
 
   # --- RuntimeClass + namespaces --------------------------------------------
   if ! kubectl get runtimeclass brewlet >/dev/null 2>&1; then
-    kubectl create -f - >/dev/null 2>&1 <<'YAML'
+    kubectl create -f - >/dev/null 2>&1 <<YAML
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata: { name: brewlet }
 handler: brewlet
+$(e2e_rc_pin)
 YAML
     T11_RC_CREATED=1
   fi
@@ -187,6 +188,7 @@ spec:
     metadata: { labels: { app: $T11_SVC } }
     spec:
       serviceAccountName: $T11_SVC
+$(e2e_pod_pin 6)
       securityContext: { runAsNonRoot: true }
       containers:
         - name: webhook

@@ -152,6 +152,8 @@ operator:
   resources:
     requests: { cpu: "50m", memory: "64Mi" }
     limits: { cpu: "200m", memory: "128Mi" }
+  # Node labels the operator pod must match (e.g. to keep it on a system pool).
+  nodeSelector: {}
 
 metrics:
   # Opt in to Brewlet runtime and control-plane Prometheus endpoints.
@@ -192,6 +194,8 @@ uninstall:
   timeoutSeconds: 240
   # Registry credentials for the hook's dedicated ServiceAccount.
   imagePullSecrets: []
+  # Extra node labels for the hook's Job pod (kubernetes.io/os: linux is always set).
+  nodeSelector: {}
 
 # The pod admission/scheduling webhook (§8/§14): overwrites image identity
 # compatibility hints and matches a pod's requested JDK/launcher against the
@@ -206,6 +210,8 @@ admission:
   # Set Fail for synchronous rejection once webhook availability is guaranteed.
   nodeProfileFailurePolicy: Ignore
   port: 9443
+  # Node labels the admission webhook pods must match.
+  nodeSelector: {}
   # Narrow what the cluster-wide pod webhook is consulted for. The default keeps
   # it off kube-system, where Brewlet workloads never run, so a webhook outage or
   # slow response cannot affect control-plane pods. Set to {} to match every

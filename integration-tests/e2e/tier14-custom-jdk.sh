@@ -57,46 +57,46 @@ _t14_cleanup() {
     --ignore-not-found --wait=false >/dev/null 2>&1 || true
   if [[ -n "$T14_NODE" ]]; then
     if [[ -n "$T14_CONTAINERD_SNAPSHOT" && -f "$T14_CONTAINERD_SNAPSHOT" ]]; then
-      docker cp "$T14_CONTAINERD_SNAPSHOT" \
+      node_cp "$T14_CONTAINERD_SNAPSHOT" \
         "$T14_NODE:/etc/containerd/config.toml" >/dev/null 2>&1 || true
-      docker exec "$T14_NODE" systemctl restart containerd >/dev/null 2>&1 || true
-      docker exec "$T14_NODE" rm -f \
+      node_exec "$T14_NODE" systemctl restart containerd >/dev/null 2>&1 || true
+      node_exec "$T14_NODE" rm -f \
         /etc/containerd/config.toml.brewlet.bak \
         /usr/local/bin/brewlet-ctr-rollback-probe \
         /usr/local/bin/brewlet-crictl-rollback-probe >/dev/null 2>&1 || true
     fi
-    docker exec "$T14_NODE" sh -c \
+    node_exec "$T14_NODE" sh -c \
       'chmod -R u+w "$1" "$2" 2>/dev/null || true; rm -rf "$1" "$2"' \
       sh "/opt/brewlet/jdks/$T14_JDK" "/opt/brewlet/launchers/$T14_LAUNCHER" \
       >/dev/null 2>&1 || true
     if [[ -n "$T14_LAUNCHER_SNAPSHOT" && -f "$T14_LAUNCHER_SNAPSHOT" ]]; then
-      docker exec "$T14_NODE" mkdir -p /opt/brewlet/launchers >/dev/null 2>&1 || true
-      docker exec -i "$T14_NODE" tar -C /opt/brewlet/launchers -xf - \
+      node_exec "$T14_NODE" mkdir -p /opt/brewlet/launchers >/dev/null 2>&1 || true
+      node_exec -i "$T14_NODE" tar -C /opt/brewlet/launchers -xf - \
         <"$T14_LAUNCHER_SNAPSHOT" >/dev/null 2>&1 || true
     fi
     if [[ -n "$T14_JDK_SNAPSHOT" && -f "$T14_JDK_SNAPSHOT" ]]; then
-      docker exec "$T14_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
-      docker exec -i "$T14_NODE" tar -C /opt/brewlet/jdks -xf - \
+      node_exec "$T14_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
+      node_exec -i "$T14_NODE" tar -C /opt/brewlet/jdks -xf - \
         <"$T14_JDK_SNAPSHOT" >/dev/null 2>&1 || true
     fi
-    docker exec "$T14_NODE" mkdir -p /opt/brewlet/jdks /opt/brewlet/launchers >/dev/null 2>&1 || true
+    node_exec "$T14_NODE" mkdir -p /opt/brewlet/jdks /opt/brewlet/launchers >/dev/null 2>&1 || true
     case "$T14_JDK_ACTIVE_STATE" in
       present)
-        docker cp "$T14_JDK_ACTIVE_SNAPSHOT" \
+        node_cp "$T14_JDK_ACTIVE_SNAPSHOT" \
           "$T14_NODE:/opt/brewlet/jdks/.brewlet-active.t14" >/dev/null 2>&1 || true
-        docker exec "$T14_NODE" mv \
+        node_exec "$T14_NODE" mv \
           /opt/brewlet/jdks/.brewlet-active.t14 /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
       absent)
-        docker exec "$T14_NODE" rm -f /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
+        node_exec "$T14_NODE" rm -f /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
     esac
     case "$T14_LAUNCHER_ACTIVE_STATE" in
       present)
-        docker cp "$T14_LAUNCHER_ACTIVE_SNAPSHOT" \
+        node_cp "$T14_LAUNCHER_ACTIVE_SNAPSHOT" \
           "$T14_NODE:/opt/brewlet/launchers/.brewlet-active.t14" >/dev/null 2>&1 || true
-        docker exec "$T14_NODE" mv \
+        node_exec "$T14_NODE" mv \
           /opt/brewlet/launchers/.brewlet-active.t14 /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
       absent)
-        docker exec "$T14_NODE" rm -f /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
+        node_exec "$T14_NODE" rm -f /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
     esac
     label_node "$T14_NODE" "$T14_POOL_KEY-" brewlet.sh/runtime- \
       "brewlet.sh/jdk.$T14_JDK-" "brewlet.sh/jdk-feature.${T14_JDK##*-}-" \
@@ -104,7 +104,7 @@ _t14_cleanup() {
       >/dev/null 2>&1 || true
     annotate_node "$T14_NODE" brewlet.sh/jdks- brewlet.sh/jdks-info- \
       brewlet.sh/launchers- brewlet.sh/provision-error- >/dev/null 2>&1 || true
-    docker exec "$T14_NODE" ctr -n k8s.io images rm "$T14_PROVISIONER_IMAGE" \
+    node_exec "$T14_NODE" ctr -n k8s.io images rm "$T14_PROVISIONER_IMAGE" \
       >/dev/null 2>&1 || true
   fi
   docker rmi "$T14_PROVISIONER_IMAGE" >/dev/null 2>&1 || true
@@ -172,13 +172,13 @@ _t14_prove_restart_rollback() {
   local after="$WORK/t14-containerd-after.toml"
   local error ready logs failed=0
 
-  if docker exec "$T14_NODE" grep -q \
-      'io.containerd.grpc.v1.cri".containerd.runtimes.brewlet' /etc/containerd/config.toml; then
+  if node_exec "$T14_NODE" grep -qE \
+      'io\.containerd\.(grpc\.v1\.cri|cri\.v1\.runtime)"\.containerd\.runtimes\.brewlet' /etc/containerd/config.toml; then
     skip "tier14: induced post-restart failure rolls back containerd" \
       "node already had a Brewlet-managed runtime block"
     return 0
   fi
-  docker cp "$T14_NODE:/etc/containerd/config.toml" "$before" >/dev/null
+  node_cp "$T14_NODE:/etc/containerd/config.toml" "$before" >/dev/null
   T14_CONTAINERD_SNAPSHOT="$before"
 
   kubectl apply -f - >"$WORK/t14-rollback.log" 2>&1 <<YAML
@@ -244,7 +244,7 @@ YAML
     "runtime-handler-health-check-failed: configuration rolled back and containerd recovered" \
     || failed=1
 
-  docker cp "$T14_NODE:/etc/containerd/config.toml" "$after" >/dev/null
+  node_cp "$T14_NODE:/etc/containerd/config.toml" "$after" >/dev/null
   if cmp -s "$before" "$after"; then
     pass "tier14: failed post-restart activation restored containerd config"
   else
@@ -252,7 +252,7 @@ YAML
     failed=1
   fi
   check "tier14: containerd recovered after rollback" \
-    docker exec "$T14_NODE" ctr version || failed=1
+    node_exec "$T14_NODE" ctr version || failed=1
 
   ready="$(kubectl get node "$T14_NODE" \
     -o jsonpath='{.metadata.labels.brewlet\.sh/runtime}' 2>/dev/null || true)"
@@ -266,7 +266,7 @@ YAML
   kubectl delete pod -n "$T14_NS_OP" "$T14_ROLLBACK_POD" \
     --ignore-not-found --wait=true >/dev/null 2>&1 || true
   annotate_node "$T14_NODE" brewlet.sh/provision-error- >/dev/null 2>&1 || true
-  docker exec "$T14_NODE" rm -f \
+  node_exec "$T14_NODE" rm -f \
     /etc/containerd/config.toml.brewlet.bak \
     /usr/local/bin/brewlet-ctr-rollback-probe \
     /usr/local/bin/brewlet-crictl-rollback-probe >/dev/null 2>&1 || true
@@ -290,9 +290,9 @@ tier14_custom_jdk() {
   local arch; arch="$(_t9_node_arch "$T14_NODE")"
   if [[ -z "$arch" ]]; then skip "tier14: custom JDK" "unknown node architecture"; return 0; fi
   info "tier14: node=$T14_NODE arch=$arch"
-  if docker exec "$T14_NODE" test -f /opt/brewlet/jdks/.brewlet-active; then
+  if node_exec "$T14_NODE" test -f /opt/brewlet/jdks/.brewlet-active; then
     T14_JDK_ACTIVE_SNAPSHOT="$WORK/t14-jdk-active-before"
-    if docker cp "$T14_NODE:/opt/brewlet/jdks/.brewlet-active" \
+    if node_cp "$T14_NODE:/opt/brewlet/jdks/.brewlet-active" \
         "$T14_JDK_ACTIVE_SNAPSHOT" >/dev/null 2>&1; then
       T14_JDK_ACTIVE_STATE=present
     else
@@ -302,9 +302,9 @@ tier14_custom_jdk() {
   else
     T14_JDK_ACTIVE_STATE=absent
   fi
-  if docker exec "$T14_NODE" test -f /opt/brewlet/launchers/.brewlet-active; then
+  if node_exec "$T14_NODE" test -f /opt/brewlet/launchers/.brewlet-active; then
     T14_LAUNCHER_ACTIVE_SNAPSHOT="$WORK/t14-launcher-active-before"
-    if docker cp "$T14_NODE:/opt/brewlet/launchers/.brewlet-active" \
+    if node_cp "$T14_NODE:/opt/brewlet/launchers/.brewlet-active" \
         "$T14_LAUNCHER_ACTIVE_SNAPSHOT" >/dev/null 2>&1; then
       T14_LAUNCHER_ACTIVE_STATE=present
     else
@@ -314,24 +314,24 @@ tier14_custom_jdk() {
   else
     T14_LAUNCHER_ACTIVE_STATE=absent
   fi
-  if docker exec "$T14_NODE" test -e "/opt/brewlet/jdks/$T14_JDK"; then
+  if node_exec "$T14_NODE" test -e "/opt/brewlet/jdks/$T14_JDK"; then
     T14_JDK_SNAPSHOT="$WORK/t14-jdk-before.tar"
-    if ! docker exec "$T14_NODE" tar -C /opt/brewlet/jdks -cf - "$T14_JDK" \
+    if ! node_exec "$T14_NODE" tar -C /opt/brewlet/jdks -cf - "$T14_JDK" \
         >"$T14_JDK_SNAPSHOT" 2>/dev/null; then
       fail "tier14: snapshot existing JDK directory"
       return 0
     fi
   fi
-  if docker exec "$T14_NODE" test -e "/opt/brewlet/launchers/$T14_LAUNCHER"; then
+  if node_exec "$T14_NODE" test -e "/opt/brewlet/launchers/$T14_LAUNCHER"; then
     T14_LAUNCHER_SNAPSHOT="$WORK/t14-launcher-before.tar"
-    if ! docker exec "$T14_NODE" tar -C /opt/brewlet/launchers -cf - "$T14_LAUNCHER" \
+    if ! node_exec "$T14_NODE" tar -C /opt/brewlet/launchers -cf - "$T14_LAUNCHER" \
         >"$T14_LAUNCHER_SNAPSHOT" 2>/dev/null; then
       fail "tier14: snapshot existing launcher directory"
       return 0
     fi
   fi
   trap _t14_cleanup RETURN
-  docker exec "$T14_NODE" sh -c \
+  node_exec "$T14_NODE" sh -c \
     'chmod -R u+w "$1" "$2" 2>/dev/null || true; rm -rf "$1" "$2"' \
     sh "/opt/brewlet/jdks/$T14_JDK" "/opt/brewlet/launchers/$T14_LAUNCHER" \
     >/dev/null 2>&1 || true
@@ -348,9 +348,10 @@ tier14_custom_jdk() {
     docker run --rm --platform "linux/$arch" --entrypoint /usr/bin/test \
       "$T14_PROVISIONER_IMAGE" -x /opt/brewlet-dist/brewlet-source-policy \
       >>"$WORK/t14-provisioner-build.log" 2>&1 &&
-    docker save "$T14_PROVISIONER_IMAGE" |
-      docker exec -i "$T14_NODE" ctr -n k8s.io images import - \
-        >"$WORK/t14-provisioner-import.log" 2>&1; then
+    docker save "$T14_PROVISIONER_IMAGE" -o "$WORK/t14-provisioner.tar" \
+        >"$WORK/t14-provisioner-import.log" 2>&1 &&
+    node_import_image "$T14_NODE" "$WORK/t14-provisioner.tar" \
+        >>"$WORK/t14-provisioner-import.log" 2>&1; then
     pass "tier14: built and loaded the real node provisioner"
   else
     fail "tier14: build/load node provisioner" "see t14-provisioner-build.log and t14-provisioner-import.log"
@@ -542,11 +543,11 @@ YAML
     "$(kubectl get node "$T14_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}')" \
     "jaz"
   check "tier14: installed jaz version probe succeeds" \
-    docker exec "$T14_NODE" env JAZ_PRINT_VERSION=1 JAZ_EXIT_WITHOUT_FLUSH=1 \
+    node_exec "$T14_NODE" env JAZ_PRINT_VERSION=1 JAZ_EXIT_WITHOUT_FLUSH=1 \
     "/opt/brewlet/launchers/$T14_LAUNCHER/bin/$T14_LAUNCHER"
 
   local node_vendor
-  node_vendor="$(docker exec "$T14_NODE" sh -c \
+  node_vendor="$(node_exec "$T14_NODE" sh -c \
     'mount -t proc proc "$1/proc" &&
      trap '\''umount "$1/proc"'\'' EXIT
      chroot "$1" "$2/bin/java" -XshowSettings:properties -version' \
@@ -619,7 +620,7 @@ spec:
   selector: { app: $T14_APP }
   ports: [{ port: $T14_PORT, targetPort: $T14_PORT }]
 YAML
-  kubectl run t14-client -n "$T14_NS_APP" --image=busybox:1.36 --restart=Never \
+  kubectl run t14-client -n "$T14_NS_APP" --image=busybox:1.36 --restart=Never ${E2E_RUN_PIN[@]+"${E2E_RUN_PIN[@]}"} \
     --command -- sleep 3600 >>"$WORK/t14-app.log" 2>&1 || true
 
   if ! kubectl rollout status -n "$T14_NS_APP" deploy/"$T14_APP" --timeout=180s >>"$WORK/t14-app.log" 2>&1; then

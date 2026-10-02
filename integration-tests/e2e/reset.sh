@@ -31,7 +31,7 @@ fi
 # Fixed namespaces the tiers use for their fixtures. Throwaway per-run
 # namespaces (tiers 5/6/10/11) are random and self-cleaned by their RETURN
 # traps; we only need to sweep the deterministic ones here.
-E2E_FIXED_NS=(brewlet brewlet-e2e brewlet-e2e-app brewlet-custom-jdk brewlet-metrics-e2e brewlet-stagegc-e2e brewlet-jdk-patch brewlet-cve-prod brewlet-cve-staging)
+E2E_FIXED_NS=(brewlet brewlet-e2e brewlet-e2e-app brewlet-custom-jdk brewlet-metrics-e2e brewlet-stagegc-e2e brewlet-jdk-patch brewlet-cve-prod brewlet-cve-staging "${E2E_NODESHELL_NS:-brewlet-e2e-nodeshell}")
 
 # scrub_node_labels: remove every brewlet.sh/* label and annotation from every
 # node. These are advertised by the provisioner (or simulated by tiers) and are
@@ -102,6 +102,7 @@ e2e_reset() {
   fi
   info "reset: scrubbing brewlet state on cluster '$(kubectl config current-context 2>/dev/null)'"
   scrub_node_labels
+  e2e_unpin_nodes
   scrub_cluster_objects
   local left; left="$(detect_leftovers)"
   if [[ -n "$left" ]]; then

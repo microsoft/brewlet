@@ -286,19 +286,19 @@ tier12_runnable_image() {
   # 1.x exposes a separate unpack command; containerd 2.x unpacks during import
   # by default and exposes --no-unpack only to opt out.
   if ctr_supports_unpack "$T12_NODE"; then
-    if docker exec "$T12_NODE" ctr -n k8s.io images unpack \
+    if node_exec "$T12_NODE" ctr -n k8s.io images unpack \
         --platform "linux/$arch" "$signed_image_ref" >>"$WORK/t12-import.log" 2>&1; then
       pass "tier12: containerd UNPACKED the brewlet image (standard tar+gzip layers) — the step that ImagePullBackOffs for a native artifact"
     else
       fail "tier12: containerd unpack of the runnable image" "see $WORK/t12-import.log"; return 0
     fi
-  elif docker exec "$T12_NODE" ctr -n k8s.io images import --help 2>/dev/null | grep -- "--no-unpack" >/dev/null; then
+  elif node_exec "$T12_NODE" ctr -n k8s.io images import --help 2>/dev/null | grep -- "--no-unpack" >/dev/null; then
     pass "tier12: containerd import UNPACKED the brewlet image by default (containerd 2.x)"
   else
     fail "tier12: containerd unpack capability" "node ctr supports neither explicit unpack nor import-time unpack"; return 0
   fi
-  if docker exec "$T12_NODE" crictl inspecti "$signed_image_ref" >/dev/null 2>&1 \
-      && docker exec "$T12_NODE" crictl inspecti "$unsigned_image_ref" >/dev/null 2>&1; then
+  if node_exec "$T12_NODE" crictl inspecti "$signed_image_ref" >/dev/null 2>&1 \
+      && node_exec "$T12_NODE" crictl inspecti "$unsigned_image_ref" >/dev/null 2>&1; then
     pass "tier12: signed and unsigned runnable images registered with CRI"
   else
     fail "tier12: runnable images registered with CRI" \
@@ -307,9 +307,9 @@ tier12_runnable_image() {
   fi
 
   # --- provision the node (reuse tier 9's generic helpers) ------------------
-  docker cp "$shimbin" "$T12_NODE":"$T9_SHIM_DST" >>"$WORK/t12-prov.log" 2>&1
-  docker exec "$T12_NODE" chmod +x "$T9_SHIM_DST" >>"$WORK/t12-prov.log" 2>&1
-  docker exec "$T12_NODE" mkdir -p "$T9_CACHE" >>"$WORK/t12-prov.log" 2>&1
+  node_cp "$shimbin" "$T12_NODE":"$T9_SHIM_DST" >>"$WORK/t12-prov.log" 2>&1
+  node_exec "$T12_NODE" chmod +x "$T9_SHIM_DST" >>"$WORK/t12-prov.log" 2>&1
+  node_exec "$T12_NODE" mkdir -p "$T9_CACHE" >>"$WORK/t12-prov.log" 2>&1
   if ! _t9_stage_jdk "$T12_NODE" "$arch"; then
     skip "tier12: runnable image pulled by kubelet" "could not stage temurin JDK userland (see $WORK/t9-jdk.log)"; return 0
   fi
@@ -324,16 +324,17 @@ tier12_runnable_image() {
 
   # --- RuntimeClass + namespace + in-cluster curl client --------------------
   if ! kubectl get runtimeclass brewlet >/dev/null 2>&1; then
-    kubectl create -f - >/dev/null 2>&1 <<'YAML'
+    kubectl create -f - >/dev/null 2>&1 <<YAML
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata: { name: brewlet }
 handler: brewlet
+$(e2e_rc_pin)
 YAML
     T12_RC_CREATED=1
   fi
   kubectl create namespace "$T12_NS" >/dev/null 2>&1 || true
-  kubectl run t12-client -n "$T12_NS" --image=busybox:1.36 --restart=Never \
+  kubectl run t12-client -n "$T12_NS" --image=busybox:1.36 --restart=Never ${E2E_RUN_PIN[@]+"${E2E_RUN_PIN[@]}"} \
     --command -- sleep 3600 >>"$WORK/t12-deploy.log" 2>&1 || true
 
   # --- attack regression: attested image + conflicting executable hint -------
