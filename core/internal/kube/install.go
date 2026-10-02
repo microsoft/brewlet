@@ -118,7 +118,7 @@ func (c *client) install(i installOptions) error {
 		start := time.Now()
 		poll := func(pollCtx context.Context) string { return c.rolloutStatus(pollCtx, ns, i.release) }
 		if err := p.Await("installing", poll, helm); err != nil {
-			p.Logf("      failed after %s; inspect with: brewlet k8s status --system-namespace %s", progress.FormatElapsed(time.Since(start)), ns)
+			p.Logf("      failed after %s; inspect with: brewlet k8s status --namespace %s", progress.FormatElapsed(time.Since(start)), ns)
 			return err
 		}
 		p.Logf("      Helm release %q deployed and rolled out in %s", i.release, progress.FormatElapsed(time.Since(start)))
@@ -127,7 +127,7 @@ func (c *client) install(i installOptions) error {
 		return err
 	}
 	if !i.dryRun {
-		fmt.Fprintf(c.err, "Helm release is ready. Node provisioning is separate; run brewlet k8s status --system-namespace %s with the same kubeconfig/context and inspect advertised JDK/launcher inventory.\n", ns)
+		fmt.Fprintf(c.err, "Helm release is ready. Node provisioning is separate; run brewlet k8s status --namespace %s with the same kubeconfig/context and inspect advertised JDK/launcher inventory.\n", ns)
 	}
 	return nil
 }

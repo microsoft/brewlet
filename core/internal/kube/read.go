@@ -255,13 +255,68 @@ func summarizeDeployment(obj object) (deploymentSummary, error) {
 
 type statusReport struct {
 	Healthy    bool                `json:"healthy"`
+	Namespace  string              `json:"namespace"`
 	Components []deploymentSummary `json:"components"`
 	Profiles   []profileSummary    `json:"profiles"`
 	Nodes      []nodeSummary       `json:"nodes"`
 }
 
+const defaultControlPlaneNamespace = "brewlet"
+
+var controlPlaneDeployments = []string{"brewlet-operator", "brewlet-admission"}
+
+// controlPlaneNamespace returns the explicit --namespace or discovers the
+// namespace holding Brewlet's control-plane Deployments across the cluster.
+func (c *client) controlPlaneNamespace() (string, error) {
+	if c.opts.namespace != "" {
+		if err := validateToken(c.opts.namespace, 63); err != nil {
+			return "", fmt.Errorf("--namespace: %w", err)
+		}
+		return c.opts.namespace, nil
+	}
+	deployments, err := c.list("deployments", "--all-namespaces", "--selector", "app.kubernetes.io/name=brewlet")
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "forbidden") {
+			return defaultControlPlaneNamespace, nil
+		}
+		return "", fmt.Errorf("discover Brewlet control plane: %w", err)
+	}
+	// Prefer live control planes so a terminating old install doesn't look like
+	// a second one; still report a lone terminating install.
+	active, terminating := map[string]bool{}, map[string]bool{}
+	for _, obj := range deployments {
+		if oneOf(obj.Metadata.Name, controlPlaneDeployments...) && obj.Metadata.Namespace != "" {
+			if obj.Metadata.DeletionTimestamp == "" {
+				active[obj.Metadata.Namespace] = true
+			} else {
+				terminating[obj.Metadata.Namespace] = true
+			}
+		}
+	}
+	found := active
+	if len(found) == 0 {
+		found = terminating
+	}
+	namespaces := make([]string, 0, len(found))
+	for ns := range found {
+		namespaces = append(namespaces, ns)
+	}
+	sort.Strings(namespaces)
+	switch len(namespaces) {
+	case 0:
+		return defaultControlPlaneNamespace, nil
+	case 1:
+		return namespaces[0], nil
+	}
+	return "", fmt.Errorf("multiple Brewlet control planes found in namespaces %s; pass --namespace", strings.Join(namespaces, ", "))
+}
+
 func (c *client) status() error {
-	deployments, err := c.list("deployments", "--namespace", c.opts.systemNamespace)
+	namespace, err := c.controlPlaneNamespace()
+	if err != nil {
+		return err
+	}
+	deployments, err := c.list("deployments", "--namespace", namespace)
 	if err != nil {
 		return err
 	}
@@ -277,8 +332,9 @@ func (c *client) status() error {
 	if err != nil {
 		return err
 	}
-	report := statusReport{Healthy: true, Profiles: []profileSummary{}, Nodes: nodes}
-	for _, name := range []string{"brewlet-operator", "brewlet-admission"} {
+	report := statusReport{Healthy: true, Namespace: namespace, Profiles: []profileSummary{}, Nodes: nodes}
+	present := 0
+	for _, name := range controlPlaneDeployments {
 		component := deploymentSummary{Name: name}
 		for _, obj := range deployments {
 			if obj.Metadata.Name == name {
@@ -290,6 +346,9 @@ func (c *client) status() error {
 			}
 		}
 		report.Components = append(report.Components, component)
+		if component.Present {
+			present++
+		}
 		if !component.Ready {
 			report.Healthy = false
 		}
@@ -311,6 +370,7 @@ func (c *client) status() error {
 	}
 	report.Healthy = report.Healthy && len(profiles) > 0 && readyNodes > 0
 	if c.opts.output == "table" {
+		fmt.Fprintf(c.out, "namespace: %s\n", report.Namespace)
 		for _, component := range report.Components {
 			fmt.Fprintf(c.out, "%s: present=%t ready=%t updated=%d/%d available=%d\n",
 				component.Name, component.Present, component.Ready, component.Updated, component.Desired, component.Available)
@@ -323,6 +383,9 @@ func (c *client) status() error {
 		}
 	} else if err := encode(c.out, report, c.opts.output); err != nil {
 		return err
+	}
+	if present == 0 {
+		return fmt.Errorf("no Brewlet control plane found in namespace %q; pass --namespace", namespace)
 	}
 	if !report.Healthy {
 		return fmt.Errorf("Brewlet is not ready: inspect component rollouts, profile conditions and node failures (an intentionally disabled admission deployment is also reported as not ready)")

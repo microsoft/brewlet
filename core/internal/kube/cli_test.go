@@ -270,7 +270,7 @@ func TestStatusDistinguishesOldReplicasAndMissingComponents(t *testing.T) {
 			if state == "node failed" {
 				node.Metadata.Annotations = map[string]string{"brewlet.sh/provision-error": "jdk-copy-failed"}
 			}
-			out, _, err := runTest(t, []string{"status", "--output", "json", "--system-namespace", "runtime-system"},
+			out, _, err := runTest(t, []string{"status", "--output", "json", "--namespace", "runtime-system"},
 				func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
 					switch {
 					case hasArgs(args, "get", "deployments"):
@@ -307,6 +307,9 @@ func TestStatusDistinguishesOldReplicasAndMissingComponents(t *testing.T) {
 			}
 			if state == "admission missing" && report.Components[1].Present {
 				t.Fatal("absent admission should be explicit")
+			}
+			if report.Namespace != "runtime-system" {
+				t.Fatalf("report namespace = %q", report.Namespace)
 			}
 		})
 	}
@@ -808,7 +811,7 @@ func TestInstallReportsStepsAndRolloutProgress(t *testing.T) {
 		if helmErr == nil && (err != nil || !strings.Contains(stderr, `Helm release "rel" deployed and rolled out in`)) {
 			t.Fatalf("install: %s %v", stderr, err)
 		}
-		if helmErr != nil && (err == nil || !strings.Contains(stderr, "inspect with: brewlet k8s status --system-namespace sys")) {
+		if helmErr != nil && (err == nil || !strings.Contains(stderr, "inspect with: brewlet k8s status --namespace sys")) {
 			t.Fatalf("failed install should point at status: %s %v", stderr, err)
 		}
 	}
@@ -999,5 +1002,114 @@ profiles:
 		if !strings.Contains(out, text) {
 			t.Fatalf("Helm render missing %q", text)
 		}
+	}
+}
+
+func TestStatusResolvesControlPlaneNamespace(t *testing.T) {
+	controlPlane := func(name, namespace string) object {
+		dep := healthyDeployment(t)
+		dep.Metadata.Name = name
+		dep.Metadata.Namespace = namespace
+		return dep
+	}
+	terminatingControlPlane := func(name, namespace string) object {
+		dep := controlPlane(name, namespace)
+		dep.Metadata.DeletionTimestamp = "2026-10-01T00:00:00Z"
+		return dep
+	}
+	node := objectJSON(t, `{"kind":"Node","metadata":{"name":"worker","labels":{"brewlet.sh/runtime":"ready"}},
+		"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`)
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		discovered []object
+		discover   error
+		want       string
+		wantErr    string
+	}{
+		{name: "explicit", args: []string{"--namespace", "devoxx"}, want: "devoxx"},
+		{name: "explicit before command", args: []string{"--namespace", "devoxx"}, want: "devoxx"},
+		{name: "discovered", want: "devoxx", discovered: []object{
+			controlPlane("brewlet-operator", "devoxx"), controlPlane("brewlet-admission", "devoxx"),
+			controlPlane("brewlet", "apps")}},
+		{name: "terminating ignored", want: "new", discovered: []object{
+			terminatingControlPlane("brewlet-operator", "old"), controlPlane("brewlet-operator", "new")}},
+		{name: "only terminating", want: "old", discovered: []object{terminatingControlPlane("brewlet-operator", "old")}},
+		{name: "none discovered", want: "brewlet", wantErr: `no Brewlet control plane found in namespace "brewlet"; pass --namespace`},
+		{name: "forbidden", want: "brewlet", discover: errors.New(`kubectl: exit status 1: Error from server (Forbidden): deployments.apps is forbidden`)},
+		{name: "multiple", wantErr: "multiple Brewlet control planes found in namespaces a, b; pass --namespace", discovered: []object{
+			controlPlane("brewlet-operator", "b"), controlPlane("brewlet-operator", "a")}},
+		{name: "discovery failure", wantErr: "discover Brewlet control plane: boom", discover: errors.New("boom")},
+		{name: "invalid", args: []string{"--namespace", "Bad_NS"}, wantErr: "--namespace:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{"status", "--output", "json"}, tc.args...)
+			if tc.name == "explicit before command" {
+				args = append(append([]string{}, tc.args...), "status", "--output", "json")
+			}
+			out, _, err := runTest(t, args, func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
+				switch {
+				case hasArgs(args, "get", "deployments") && hasArgs(args, "--all-namespaces"):
+					if len(tc.args) > 0 {
+						t.Fatal("explicit namespace must skip discovery")
+					}
+					if !hasArgs(args, "--selector", "app.kubernetes.io/name=brewlet") {
+						t.Fatalf("discovery selector missing: %v", args)
+					}
+					if tc.discover != nil {
+						return nil, tc.discover
+					}
+					return listJSON(t, tc.discovered...), nil
+				case hasArgs(args, "get", "deployments"):
+					if !hasArgs(args, "--namespace", tc.want) {
+						t.Fatalf("wrong control-plane namespace: %v", args)
+					}
+					if tc.name == "none discovered" {
+						return listJSON(t), nil
+					}
+					return listJSON(t, controlPlane("brewlet-operator", tc.want), controlPlane("brewlet-admission", tc.want)), nil
+				case hasArgs(args, "get", profilesResource):
+					return listJSON(t, objectJSON(t, fixtureProfile())), nil
+				default:
+					return listJSON(t, node), nil
+				}
+			})
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("status: %v: %s", err, out)
+			}
+			var report statusReport
+			if err := json.Unmarshal([]byte(out), &report); err != nil || report.Namespace != tc.want || !report.Healthy {
+				t.Fatalf("report: %v %s", err, out)
+			}
+		})
+	}
+}
+
+func TestClusterScopedCommandsRejectNamespace(t *testing.T) {
+	fail := func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
+		t.Fatalf("unexpected kubectl call: %v", args)
+		return nil, nil
+	}
+	for _, args := range [][]string{
+		{"jdk", "list", "--namespace", "x"},
+		{"--namespace", "x", "launcher", "list"},
+		{"profile", "list", "--namespace", "x"},
+		{"profile", "inspect", "workers", "--namespace", "x"},
+		addArgs("--namespace", "x"),
+		{"launcher", "add", "--profile", "workers", "--name", "jaz", "--image", testImage, "--path", "/usr/bin/jaz", "--namespace", "x"},
+	} {
+		_, _, err := runTest(t, args, fail)
+		if err == nil || !strings.Contains(err.Error(), "--namespace is not supported") || !strings.Contains(err.Error(), "cluster-scoped") {
+			t.Fatalf("%v: err = %v", args, err)
+		}
+	}
+	if _, _, err := runTest(t, []string{"status", "--system-namespace", "x"}, fail); err == nil {
+		t.Fatal("--system-namespace must be rejected")
 	}
 }

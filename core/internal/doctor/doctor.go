@@ -54,9 +54,6 @@ type Options struct {
 type Executor func(args ...string) ([]byte, error)
 
 func Run(exec Executor, opts Options) Report {
-	if opts.Namespace == "" {
-		opts.Namespace = "default"
-	}
 	var checks []Check
 	add := func(added ...Check) {
 		checks = append(checks, added...)
@@ -89,6 +86,15 @@ func Run(exec Executor, opts Options) Report {
 		context = opts.Context
 	}
 	add(Check{Name: "cluster-context", Status: Pass, Detail: context})
+
+	if opts.Namespace == "" {
+		// Like kubectl, default to the selected context's namespace.
+		out, err := run("config", "view", "--minify", "-o", "jsonpath={.contexts[0].context.namespace}")
+		opts.Namespace = strings.TrimSpace(string(out))
+		if err != nil || opts.Namespace == "" {
+			opts.Namespace = "default"
+		}
+	}
 
 	if out, err := run("get", "--raw=/readyz"); err != nil {
 		add(failed("api-server", commandError(out, err),

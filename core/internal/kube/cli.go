@@ -38,13 +38,18 @@ COMMANDS:
 COMMON FLAGS (before the command or after its full name):
   --kubeconfig FILE   kubeconfig path (otherwise kubectl/Helm defaults)
   --context NAME     context to use without changing kubeconfig
-  --namespace NAME   application namespace (current context); doctor defaults to default; install to brewlet
   --timeout 30s      per-kubectl-command deadline
+
+NAMESPACE (--namespace NAME, the namespace the command operates on):
+  status       Brewlet control-plane namespace (default: auto-discovered, else brewlet)
+  install      control-plane and Helm release namespace (default brewlet)
+  inspect app  application namespace (default: current context namespace)
+  doctor       application namespace (default: current context namespace)
+  jdk, launcher and profile commands are cluster-scoped and reject --namespace.
 
 READ FLAGS:
   --output table|json|yaml  default table (inventory also supports wide, not yaml)
   --selector LABELS        node selector for inventory
-  --system-namespace NAME  status control-plane namespace (default brewlet)
 
 PROFILE ADD FLAGS:
   --profile NAME     existing target profile
@@ -86,12 +91,12 @@ func Run(ctx context.Context, args []string, out, stderr io.Writer) error {
 func commonFlags(fs *flag.FlagSet, opts *options) {
 	fs.StringVar(&opts.kubeconfig, "kubeconfig", opts.kubeconfig, "kubeconfig path")
 	fs.StringVar(&opts.context, "context", opts.context, "Kubernetes context")
-	fs.StringVar(&opts.namespace, "namespace", opts.namespace, "namespace (defaults to current context)")
+	fs.StringVar(&opts.namespace, "namespace", opts.namespace, "namespace the command operates on")
 	fs.DurationVar(&opts.timeout, "timeout", opts.timeout, "per-command kubectl timeout")
 }
 
 func run(ctx context.Context, args []string, out, stderr io.Writer, exec executor) error {
-	opts := options{timeout: 30 * time.Second, systemNamespace: "brewlet"}
+	opts := options{timeout: 30 * time.Second}
 	root := flag.NewFlagSet("k8s", flag.ContinueOnError)
 	root.SetOutput(stderr)
 	// Keep usage/validation failures off stdout so redirected previews stay empty.
@@ -129,10 +134,7 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	case "jdk list", "launcher list":
 		fs.StringVar(&opts.output, "output", "table", "table, wide, or json")
 		fs.StringVar(&opts.selector, "selector", "", "node label selector")
-	case "status":
-		fs.StringVar(&opts.systemNamespace, "system-namespace", "brewlet", "Brewlet control-plane namespace")
-		fallthrough
-	case "profile list", "profile inspect", "inspect app", "doctor":
+	case "status", "profile list", "profile inspect", "inspect app", "doctor":
 		fs.StringVar(&opts.output, "output", "table", "table, json, or yaml")
 	case "jdk add", "launcher add":
 		update.flags(fs, command == "jdk add")
@@ -149,6 +151,9 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	}
 	if err != nil {
 		return err
+	}
+	if clusterScoped(command) && (flagSet(root, "namespace") || flagSet(fs, "namespace")) {
+		return fmt.Errorf("--namespace is not supported by %q: node inventories and NodeProfiles are cluster-scoped", command)
 	}
 	expected := 0
 	if command == "profile inspect" || command == "inspect app" {
@@ -217,6 +222,20 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 		}
 	}
 	return pos, nil
+}
+
+func clusterScoped(command string) bool {
+	return oneOf(command, "jdk list", "launcher list", "profile list", "profile inspect", "jdk add", "launcher add")
+}
+
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
 }
 
 func oneOf(value string, choices ...string) bool {

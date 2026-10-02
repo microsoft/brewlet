@@ -22,9 +22,9 @@ const profilesResource = "nodeprofiles.node.brewlet.sh"
 const appsResource = "javaapplications.apps.brewlet.sh"
 
 type options struct {
-	kubeconfig, context, namespace, systemNamespace string
-	output, selector                                string
-	timeout                                         time.Duration
+	kubeconfig, context, namespace string
+	output, selector               string
+	timeout                        time.Duration
 }
 
 type executor func(context.Context, string, []string, []byte) ([]byte, error)

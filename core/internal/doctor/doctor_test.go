@@ -69,6 +69,8 @@ func TestRunReportsMissingPlatform(t *testing.T) {
 			return []byte("not found"), errors.New("exit status 1")
 		case "get nodes -o json":
 			return []byte(`{"items":[]}`), nil
+		case "config view --minify -o jsonpath={.contexts[0].context.namespace}":
+			return nil, nil
 		case "auth can-i create javaapplications.apps.brewlet.sh -n default":
 			return []byte("no\n"), nil
 		default:
@@ -123,4 +125,36 @@ func TestRunPassesKubectlOptions(t *testing.T) {
 
 func command(args []string) string {
 	return strings.Join(args, " ")
+}
+
+func TestRunDefaultsToContextNamespace(t *testing.T) {
+	for _, tc := range []struct {
+		name, namespace, want string
+		err                   error
+	}{
+		{name: "context namespace", namespace: "apps\n", want: "apps"},
+		{name: "unset", want: "default"},
+		{name: "lookup failure", err: errors.New("exit status 1"), want: "default"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var canI string
+			exec := func(args ...string) ([]byte, error) {
+				switch got := command(args); {
+				case got == "config view --minify -o jsonpath={.contexts[0].context.namespace}":
+					return []byte(tc.namespace), tc.err
+				case strings.HasPrefix(got, "auth can-i"):
+					canI = got
+					return []byte("yes\n"), nil
+				case got == "get nodes -o json":
+					return []byte(`{"items":[]}`), nil
+				default:
+					return []byte("ok\n"), nil
+				}
+			}
+			Run(exec, Options{})
+			if want := "auth can-i create javaapplications.apps.brewlet.sh -n " + tc.want; canI != want {
+				t.Fatalf("can-i = %q, want %q", canI, want)
+			}
+		})
+	}
 }
