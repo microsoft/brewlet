@@ -37,6 +37,32 @@ class RegistryClientRefParsingTest {
     }
 
     @Test
+    void splitRef_dockerHubAliasesUseTheRegistryEndpoint() {
+        assertEquals("registry-1.docker.io", RegistryClient.splitRef("docker.io/me/app:1")[0]);
+        assertEquals("registry-1.docker.io", RegistryClient.splitRef("index.docker.io/me/app:1")[0]);
+        assertEquals("me/app", RegistryClient.splitRef("docker.io/me/app:1")[1]);
+    }
+
+    @Test
+    void splitRef_bareLocalhostIsARegistry() {
+        String[] parts = RegistryClient.splitRef("localhost/app:1");
+        assertEquals("localhost", parts[0]);
+        assertEquals("app", parts[1]);
+    }
+
+    @Test
+    void hasExplicitRegistry() {
+        assertTrue(RegistryClient.hasExplicitRegistry("myregistry.azurecr.io/app:1.0"));
+        assertTrue(RegistryClient.hasExplicitRegistry("localhost:5000/app"));
+        assertTrue(RegistryClient.hasExplicitRegistry("localhost/app"));
+        assertTrue(RegistryClient.hasExplicitRegistry("docker.io/me/app"));
+        assertFalse(RegistryClient.hasExplicitRegistry("app:1.0"));
+        assertFalse(RegistryClient.hasExplicitRegistry("showmyjvm-springboot:1.0.0-SNAPSHOT"));
+        assertFalse(RegistryClient.hasExplicitRegistry("team/app@sha256:" + "a".repeat(64)));
+        assertFalse(RegistryClient.hasExplicitRegistry(null));
+    }
+
+    @Test
     void extractTag_explicitTag() {
         assertEquals("1.0.0", RegistryClient.extractTag("registry.example.com/team/app:1.0.0"));
     }

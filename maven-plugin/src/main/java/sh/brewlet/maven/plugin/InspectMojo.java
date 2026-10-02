@@ -39,7 +39,8 @@ public class InspectMojo extends AbstractBrewletMojo {
         boolean runnable = "image".equals(format);
 
         getLog().info("== Brewlet inspect ==");
-        getLog().info("  image: " + (image != null ? image : "(not set)"));
+        String resolvedImage = resolveImage();
+        getLog().info("  image: " + (resolvedImage != null ? resolvedImage : "(not set)"));
         getLog().info("  jar: " + jar.getAbsolutePath() + " (" + jar.length() + " bytes)");
         getLog().info("  format: " + format
                 + (runnable ? " (standard, kubelet-pullable OCI image)"

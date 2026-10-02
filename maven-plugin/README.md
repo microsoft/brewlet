@@ -57,6 +57,9 @@ Build the application and publish it using the short `brewlet` prefix:
 ```bash
 mvn clean package brewlet:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
+
+# or derive the image (<registry>/${artifactId}:${version}) from a registry:
+mvn clean package brewlet:push -Dbrewlet.registry=registry.example.com/team
 ```
 
 Declaring the plugin does not bind `push` to the build lifecycle; it only enables
@@ -109,13 +112,46 @@ the plugin declaration:
 </plugin>
 ```
 
-With that, `mvn deploy` publishes the runnable OCI image and prints its
-digest-pinned `deploy image`. Pass that exact reference to the manifest goal:
+With that, `mvn deploy` publishes the runnable OCI image, prints its
+digest-pinned `deploy image`, and records it in `target/brewlet/push.json`. The
+manifest goal picks it up automatically:
 
 ```bash
-mvn brewlet:manifest \
-  -Dbrewlet.image=registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST
+mvn brewlet:manifest
 ```
+
+### Push, apply, and wait in one step
+
+Set `<registry>` once and let `brewlet:deploy` do the rest:
+
+```xml
+<configuration>
+  <registry>myregistry.azurecr.io</registry>   <!-- image: <registry>/${artifactId}:${version} -->
+  <namespace>default</namespace>
+</configuration>
+```
+
+```bash
+az acr login -n myregistry     # or docker login; credential helpers are supported
+mvn package brewlet:deploy
+```
+
+`brewlet:deploy` pushes the runnable image, writes
+`target/brewlet/javaapplication.yaml` with the digest-pinned image, runs
+`kubectl apply`, and waits for the `JavaApplication` to report `Ready`, printing
+status changes as the rollout progresses. It uses your current `kubectl`
+context unless `kubeconfig` / `kubeContext` are set.
+
+| Parameter | Property | Default | Notes |
+|---|---|---|---|
+| `kubeconfig` | `brewlet.kubeconfig` | kubectl default | kubeconfig file passed to `kubectl --kubeconfig`. |
+| `kubeContext` | `brewlet.kubeContext` | current context | Passed to `kubectl --context`. |
+| `kubectl` | `brewlet.kubectl` | `kubectl` | kubectl executable. |
+| `wait` | `brewlet.wait` | `true` | Wait for `Ready=True` on the current generation. |
+| `waitTimeout` | `brewlet.waitTimeout` | `300` | Seconds to wait before failing with the last status. |
+
+All `brewlet:manifest` parameters (`namespace`, `appName`, `replicas`, `ports`,
+resources, …) apply.
 
 ---
 
@@ -128,7 +164,8 @@ mvn brewlet:manifest \
 | `brewlet:push` | `deploy` | Build and push to the registry in `<image>`. By default (`image` format) this pushes a **runnable OCI image** — a standard, kubelet-pullable image (see [Delivery format](#delivery-format-native-artifact-vs-runnable-image)). With `-Dbrewlet.format=artifact` it pushes the native Brewlet artifact instead (JAR layer + launch-config blob + manifest with `artifactType: application/vnd.brewlet.app.v1+json`). |
 | `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) from the same fat/thin/Boot/module payload used for publication, using a self-terminating run or explicit signal-mode training. Attach it later with `-Dbrewlet.cdsArchive=...`. |
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
-| `brewlet:manifest` | — | Emit a `JavaApplication` CR YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Pass the digest-pinned image reference printed by `brewlet:push`. Health probes must be configured explicitly in the generated manifest. |
+| `brewlet:manifest` | — | Emit a `JavaApplication` CR YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Uses a digest-pinned `<image>` when given, otherwise the deploy image recorded by the last `brewlet:push` (`target/brewlet/push.json`). Health probes must be configured explicitly in the generated manifest. |
+| `brewlet:deploy` | — | `push` + `manifest` + `kubectl apply`, then wait for the `JavaApplication` to become Ready with progress output. See [Push, apply, and wait in one step](#push-apply-and-wait-in-one-step). |
 | `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. |
 
 Run any goal directly, e.g. `mvn brewlet:inspect`.
@@ -144,7 +181,8 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
-| `image` | `brewlet.image` | — | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2` for `build`/`push` or `registry.example.com/team/app@sha256:…` for `manifest`. **Required for `build`, `push`, and `manifest`; Kubernetes manifests must use the digest-pinned form.** |
+| `image` | `brewlet.image` | `<registry>/${project.artifactId}:${project.version}` | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2`. `push` and `deploy` reject refs without a registry host instead of defaulting to Docker Hub (use `docker.io/<user>/app` to target Docker Hub). `manifest` accepts a digest-pinned `…@sha256:…` ref, or uses the last push. |
+| `registry` | `brewlet.registry` | — | Registry (optionally with a repository prefix, e.g. `registry.example.com/team`) used to derive `image` when it is not set. |
 | `format` | `brewlet.format` | `image` | Delivery format for `push`: `image` (runnable, kubelet-pullable OCI image — the default) or `artifact` (native Brewlet OCI artifact). See [Delivery format](#delivery-format-native-artifact-vs-runnable-image). |
 | `jarFile` | `brewlet.jarFile` | project's primary artifact | Path to the application JAR to publish. After a separate `mvn package`, standard unclassified `jar`/`maven-plugin` projects can use `${project.build.directory}/${project.build.finalName}.jar`. Custom packaging, classifier, or JAR-plugin output overrides require an explicit `jarFile`; the plugin never searches for a newest or arbitrary JAR. |
 | `mainClass` | `brewlet.mainClass` | inferred from `Main-Class` | Main class to launch. Does **not** by itself set the entry mode — the mode is inferred from the JAR's shape (see `entryMode`). Used in `classpath` mode (the class launched via `-cp`) and optionally in `module` mode (selects `<module>/<mainClass>`); ignored in `jar` mode (uses the manifest's `Main-Class`). |
@@ -193,9 +231,15 @@ layout conversion. `layers.idx` grouping is not interpreted.
 
 ### Registry transport and credential safety
 
-Registry credentials are resolved from `settings.xml`, `~/.docker/config.json`,
-or `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD`, and the plugin
-keeps them scoped to the registry you configured:
+Registry credentials are resolved from, in order: a `settings.xml` `<server>`
+whose `<id>` is the registry host; the Docker config (`$DOCKER_CONFIG` or
+`~/.docker/config.json`) read like the Docker CLI does — per-registry
+`credHelpers`, inline `auths` (`auth` or `identitytoken`), then the default
+`credsStore` (`docker-credential-<name>`, e.g. `osxkeychain`, `desktop`,
+`wincred`); and finally `BREWLET_REGISTRY_USERNAME` /
+`BREWLET_REGISTRY_PASSWORD`. So after `docker login` or `az acr login` no further
+setup is needed; identity tokens are exchanged with an OAuth2 refresh-token
+grant. The plugin keeps credentials scoped to the registry you configured:
 
 - **HTTPS is required** for every registry except exact loopback authorities
   (`localhost`, `127.0.0.0/8`, `::1`, with or without a port). Matching is exact,
@@ -543,8 +587,10 @@ shape (media types, `jvm-config` annotation, platforms). See
 - `target/brewlet/app.jsa` — optional AppCDS archive from `brewlet:appcds`.
 - `target/brewlet/oci/` — a local OCI image-layout (from `brewlet:build`); readable
   with `brewlet inspect` or pushable with `oras push`.
+- `target/brewlet/push.json` — the last successful push (`image`, `digest`,
+  `deployImage`, `format`), consumed by `brewlet:manifest`.
 - `target/brewlet/javaapplication.yaml` — the CR/Deployment manifest (from
-  `brewlet:manifest`).
+  `brewlet:manifest` / `brewlet:deploy`).
 
 The published artifact uses the Brewlet [media types](https://github.com/microsoft/brewlet/blob/main/docs/reference.md#oci-media-types),
 which mark it as an OCI artifact rather than a container image.

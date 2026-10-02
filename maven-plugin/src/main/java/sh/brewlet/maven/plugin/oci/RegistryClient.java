@@ -771,7 +771,8 @@ public class RegistryClient {
         }
         if (bearerToken != null) {
             builder.header("Authorization", "Bearer " + bearerToken);
-        } else if (credential != null && credential.getUsername() != null) {
+        } else if (credential != null && credential.getUsername() != null
+                && !credential.isIdentityToken()) {
             builder.header("Authorization", "Basic " + basicCredentials());
         }
         return builder.build();
@@ -808,25 +809,37 @@ public class RegistryClient {
                 throw new IOException(e.getMessage(), e);
             }
 
-            String separator = realmUri.getRawQuery() == null ? "?" : "&";
-            StringBuilder tokenUrl = new StringBuilder(realmUri.toString())
-                    .append(separator)
-                    .append("service=").append(URLEncoder.encode(service, StandardCharsets.UTF_8))
-                    .append("&scope=").append(URLEncoder.encode(scope, StandardCharsets.UTF_8));
-
-            HttpRequest.Builder tokenReqBuilder = HttpRequest.newBuilder(URI.create(tokenUrl.toString()))
-                    .GET();
             boolean haveCredentials = credential != null && credential.getUsername() != null;
-            if (haveCredentials) {
-                if (!trustPolicy.allowsCredentials(registryUri("/"), realmUri)) {
-                    throw new IOException("Registry " + registry + " requested a token from "
-                            + realmUri.getScheme() + "://" + realmUri.getAuthority()
-                            + ", which is not the registry origin. Registry credentials were "
-                            + "not sent. Add that host to <allowedTokenRealms> "
-                            + "(-Dbrewlet.allowedTokenRealms) only if you trust it with your "
-                            + "registry credentials.");
+            if (haveCredentials && !trustPolicy.allowsCredentials(registryUri("/"), realmUri)) {
+                throw new IOException("Registry " + registry + " requested a token from "
+                        + realmUri.getScheme() + "://" + realmUri.getAuthority()
+                        + ", which is not the registry origin. Registry credentials were "
+                        + "not sent. Add that host to <allowedTokenRealms> "
+                        + "(-Dbrewlet.allowedTokenRealms) only if you trust it with your "
+                        + "registry credentials.");
+            }
+
+            HttpRequest.Builder tokenReqBuilder;
+            if (haveCredentials && credential.isIdentityToken()) {
+                // OAuth2 refresh-token grant (docker login identity tokens, e.g. ACR).
+                String form = "grant_type=refresh_token"
+                        + "&refresh_token=" + URLEncoder.encode(credential.getPassword(),
+                                StandardCharsets.UTF_8)
+                        + "&service=" + URLEncoder.encode(service, StandardCharsets.UTF_8)
+                        + "&scope=" + URLEncoder.encode(scope, StandardCharsets.UTF_8)
+                        + "&client_id=brewlet";
+                tokenReqBuilder = HttpRequest.newBuilder(realmUri)
+                        .header("Content-Type", "application/x-www-form-urlencoded")
+                        .POST(HttpRequest.BodyPublishers.ofString(form));
+            } else {
+                String separator = realmUri.getRawQuery() == null ? "?" : "&";
+                String tokenUrl = realmUri + separator
+                        + "service=" + URLEncoder.encode(service, StandardCharsets.UTF_8)
+                        + "&scope=" + URLEncoder.encode(scope, StandardCharsets.UTF_8);
+                tokenReqBuilder = HttpRequest.newBuilder(URI.create(tokenUrl)).GET();
+                if (haveCredentials) {
+                    tokenReqBuilder.header("Authorization", "Basic " + basicCredentials());
                 }
-                tokenReqBuilder.header("Authorization", "Basic " + basicCredentials());
             }
             HttpResponse<String> tokenResp = httpClient.send(tokenReqBuilder.build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -921,14 +934,32 @@ public class RegistryClient {
         // Remove tag or digest suffix first
         String withoutTag = imageRef.replaceFirst("[:@][^/]*$", "");
         int firstSlash = withoutTag.indexOf('/');
-        if (firstSlash < 0 || (!withoutTag.substring(0, firstSlash).contains(".")
-                && !withoutTag.substring(0, firstSlash).contains(":"))) {
+        if (firstSlash < 0 || !isRegistryHost(withoutTag.substring(0, firstSlash))) {
             // No explicit registry — default to docker.io. Use the tag/digest-free
             // repository so it never leaks into /v2/{repository}/... URLs.
             return new String[]{"registry-1.docker.io", withoutTag};
         }
-        return new String[]{withoutTag.substring(0, firstSlash),
-                withoutTag.substring(firstSlash + 1)};
+        String host = withoutTag.substring(0, firstSlash);
+        if (host.equals("docker.io") || host.equals("index.docker.io")) {
+            host = "registry-1.docker.io";
+        }
+        return new String[]{host, withoutTag.substring(firstSlash + 1)};
+    }
+
+    /**
+     * Returns whether {@code imageRef} names its registry explicitly (e.g.
+     * {@code myregistry.azurecr.io/app:1.0}) rather than relying on the
+     * implicit Docker Hub default (e.g. {@code app:1.0} or {@code team/app}).
+     */
+    public static boolean hasExplicitRegistry(String imageRef) {
+        if (imageRef == null) return false;
+        String withoutTag = imageRef.replaceFirst("[:@][^/]*$", "");
+        int firstSlash = withoutTag.indexOf('/');
+        return firstSlash > 0 && isRegistryHost(withoutTag.substring(0, firstSlash));
+    }
+
+    private static boolean isRegistryHost(String component) {
+        return component.contains(".") || component.contains(":") || component.equals("localhost");
     }
 
     /**

@@ -50,9 +50,10 @@ public class BuildMojo extends AbstractBrewletMojo {
 
     @Override
     protected void doExecute() throws MojoExecutionException, MojoFailureException {
-        if (image == null || image.isBlank()) {
+        image = resolveImage();
+        if (image == null) {
             throw new MojoExecutionException(
-                    "brewlet:build requires <image> to be set (used as the OCI ref name).");
+                    "brewlet:build requires <image> (or <registry>) to be set (used as the OCI ref name).");
         }
 
         JvmConfig cfg = buildConfig();

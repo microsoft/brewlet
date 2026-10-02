@@ -29,30 +29,34 @@ import java.util.List;
  * <p>The generated CR uses the JavaApplication schema and examples maintained in
  * https://github.com/microsoft/brewlet/tree/main/kubernetes.
  *
+ * <p>The image is the digest-pinned {@code <image>} when one is configured,
+ * otherwise the deploy image recorded by the last {@code brewlet:push} in
+ * {@code target/brewlet/push.json}.
+ *
  * <p>Example:
  * <pre>
- * mvn brewlet:manifest
+ * mvn package brewlet:push brewlet:manifest
  * kubectl apply -f target/brewlet/javaapplication.yaml
  * </pre>
  */
 @Mojo(name = "manifest",
       requiresProject = true,
       threadSafe = true)
-public class ManifestMojo extends AbstractBrewletMojo {
+public class ManifestMojo extends AbstractPushMojo {
 
     /**
      * Kubernetes namespace for the generated manifest.
      * Defaults to {@code default}.
      */
     @Parameter(property = "brewlet.namespace", defaultValue = "default")
-    private String namespace;
+    String namespace;
 
     /**
      * Application name for the {@code JavaApplication} resource.
      * Defaults to {@code ${project.artifactId}}.
      */
     @Parameter(property = "brewlet.appName", defaultValue = "${project.artifactId}")
-    private String appName;
+    String appName;
 
     /**
      * Number of replicas. Defaults to {@code 1}.
@@ -107,16 +111,44 @@ public class ManifestMojo extends AbstractBrewletMojo {
 
     @Override
     protected void doExecute() throws MojoExecutionException, MojoFailureException {
-        if (image == null || image.isBlank()) {
-            throw new MojoExecutionException(
-                    "brewlet:manifest requires <image> to be configured.");
+        File outputFile = writeManifest(resolveDeployImage());
+        getLog().info("  Apply with: kubectl apply -f " + outputFile.getPath()
+                + " (or run brewlet:deploy to push, apply and wait in one step)");
+    }
+
+    /**
+     * Returns the digest-pinned image for the manifest: a digest-pinned
+     * {@code <image>}, or the deploy image recorded by the last
+     * {@code brewlet:push} for the same image.
+     */
+    String resolveDeployImage() throws MojoExecutionException {
+        String configured = resolveImage();
+        if (configured != null && RegistryClient.isDigestPinnedReference(configured)) {
+            return configured;
         }
-        if (!RegistryClient.isDigestPinnedReference(image)) {
+        PushResult last = readLastPush();
+        if (last == null) {
+            throw new MojoExecutionException("brewlet:manifest needs a digest-pinned image. "
+                    + "Run brewlet:push first (e.g. mvn package brewlet:push brewlet:manifest), "
+                    + "use brewlet:deploy, or pass -Dbrewlet.image=repo@sha256:<digest>.");
+        }
+        if (configured != null && !configured.equals(last.image())) {
+            throw new MojoExecutionException("The last brewlet:push in " + outputDirectory
+                    + " was for " + last.image() + ", not " + configured
+                    + ". Run brewlet:push for " + configured + " first.");
+        }
+        getLog().info("Brewlet: using image from the last brewlet:push: " + last.deployImage());
+        return last.deployImage();
+    }
+
+    /** Writes {@code javaapplication.yaml} for {@code deployImage} and returns the file. */
+    File writeManifest(String deployImage) throws MojoExecutionException {
+        if (!RegistryClient.isDigestPinnedReference(deployImage)) {
             throw new MojoExecutionException(
                     "brewlet:manifest requires a digest-pinned <image> (repo@sha256:<64 lowercase hex>); "
                             + "use the deploy image printed by brewlet:push.");
         }
-
+        image = deployImage;
         JvmConfig cfg = buildConfig();
         int feature = resolveJdkFeature();
         outputDirectory.mkdirs();
@@ -130,7 +162,7 @@ public class ManifestMojo extends AbstractBrewletMojo {
         }
 
         getLog().info("Brewlet: wrote JavaApplication manifest → " + outputFile.getPath());
-        getLog().info("  Apply with: kubectl apply -f " + outputFile.getPath());
+        return outputFile;
     }
 
     void writeJavaApplicationYaml(PrintWriter w, JvmConfig cfg) throws IOException, MojoExecutionException {
