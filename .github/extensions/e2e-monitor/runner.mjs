@@ -26,13 +26,13 @@ const UNITTEST = (dir, pattern) =>
 export const SUITES = {
     legacy: {
         label: "Tiered E2E (run.sh)",
-        description: "integration-tests/e2e/run.sh — tiers 1-19 against the local toolchain and current kube context.",
+        description: "integration-tests/e2e/run.sh — tiers 1-19 against the local toolchain and the selected cluster.",
         usesTiers: true,
         usesCluster: true,
     },
     reset: {
         label: "Reset cluster state",
-        description: "integration-tests/e2e/run.sh --reset — scrub Brewlet-owned objects from the current kube context.",
+        description: "integration-tests/e2e/run.sh --reset — scrub Brewlet-owned objects from the selected cluster.",
         usesCluster: true,
     },
     "live-hpa": {
@@ -78,6 +78,49 @@ function buildCommand(suite, opts, run) {
         default:
             throw new Error(`unknown suite: ${suite}`);
     }
+}
+
+export const CLUSTER_TARGETS = {
+    kubectl: { label: "Current kubectl context" },
+    "docker-desktop": { label: "Docker Desktop (local)", context: "docker-desktop" },
+};
+
+const TOOL_PATH = () => {
+    const extra = ["/opt/homebrew/bin", "/usr/local/bin"].filter((p) => !(process.env.PATH || "").split(":").includes(p));
+    return [...extra, process.env.PATH].filter(Boolean).join(":");
+};
+
+function kubectl(args, { timeout = 8000, maxBuffer = 4 * 1024 * 1024 } = {}) {
+    return new Promise((resolve, reject) => {
+        execFile("kubectl", args, { timeout, maxBuffer, env: { ...process.env, PATH: TOOL_PATH() } }, (err, stdout, stderr) =>
+            err ? reject(new Error((stderr || err.message).trim().split("\n")[0])) : resolve(stdout));
+    });
+}
+
+export async function kubeContexts() {
+    const [current, names] = await Promise.all([
+        kubectl(["config", "current-context"]).then((s) => s.trim()).catch(() => null),
+        kubectl(["config", "get-contexts", "-o", "name"]).then((s) => s.split("\n").map((l) => l.trim()).filter(Boolean)).catch(() => []),
+    ]);
+    return { current, contexts: names, dockerDesktop: names.includes(CLUSTER_TARGETS["docker-desktop"].context) };
+}
+
+// Write a self-contained kubeconfig pinned to one context so the run never
+// depends on (or mutates) the user's current-context.
+async function pinKubeconfig(cluster, file) {
+    const def = CLUSTER_TARGETS[cluster];
+    if (!def) throw new Error(`unknown cluster target "${cluster}"; expected one of ${Object.keys(CLUSTER_TARGETS).join(", ")}`);
+    const { current, contexts } = await kubeContexts();
+    const context = def.context ?? current;
+    if (!context) throw new Error("kubectl has no current context; pick Docker Desktop or set one with `kubectl config use-context`");
+    if (!contexts.includes(context)) {
+        throw new Error(cluster === "docker-desktop"
+            ? "no docker-desktop kube context; enable Kubernetes in Docker Desktop settings"
+            : `kube context "${context}" not found`);
+    }
+    const yaml = await kubectl(["config", "view", "--raw", "--minify", "--flatten", "--context", context]);
+    await fsp.writeFile(file, yaml, { mode: 0o600 });
+    return context;
 }
 
 function pidAlive(pid) {
@@ -126,7 +169,7 @@ export class RunManager extends EventEmitter {
         clearInterval(this.timer);
     }
 
-    async start({ suite, tiers = [], reset = false, env = {}, allowConcurrent = false }) {
+    async start({ suite, tiers = [], reset = false, env = {}, cluster = "kubectl", allowConcurrent = false }) {
         if (!SUITES[suite]) throw new Error(`unknown suite "${suite}"; expected one of ${Object.keys(SUITES).join(", ")}`);
         const def = SUITES[suite];
         const tierList = [...new Set(tiers.map(Number))].filter((t) => TIERS.some((x) => x.n === t)).sort((a, b) => a - b);
@@ -134,6 +177,7 @@ export class RunManager extends EventEmitter {
         for (const k of Object.keys(env)) {
             if (!/^[A-Z_][A-Z0-9_]*$/.test(k)) throw new Error(`invalid environment variable name: ${k}`);
         }
+        if (!CLUSTER_TARGETS[cluster]) throw new Error(`unknown cluster target "${cluster}"; expected one of ${Object.keys(CLUSTER_TARGETS).join(", ")}`);
         if (!allowConcurrent) {
             const busy = [...this.runs.values()].find((r) => r.meta.status === "running");
             if (busy) throw new Error(`run ${busy.meta.id} is still running; stop it first or pass allowConcurrent`);
@@ -143,18 +187,32 @@ export class RunManager extends EventEmitter {
         const dir = path.join(this.runsDir, id);
         const workDir = path.join(dir, "work");
         await fsp.mkdir(workDir, { recursive: true });
+
+        // Live suites create their own kind clusters, and env KUBECONFIG is an explicit override.
+        let kubeContext = null;
+        const pinEnv = {};
+        if (def.usesCluster && !env.KUBECONFIG) {
+            const kubeconfig = path.join(dir, "kubeconfig");
+            try {
+                kubeContext = await pinKubeconfig(cluster, kubeconfig);
+            } catch (e) {
+                await fsp.rm(dir, { recursive: true, force: true });
+                throw e;
+            }
+            pinEnv.KUBECONFIG = kubeconfig;
+        }
         const logPath = path.join(dir, "output.log");
         const exitFile = path.join(dir, "exit_code");
         const command = buildCommand(suite, { tiers: tierList, reset }, id);
 
-        const extraPath = ["/opt/homebrew/bin", "/usr/local/bin"].filter((p) => !(process.env.PATH || "").split(":").includes(p));
         const childEnv = {
             ...process.env,
-            PATH: [...extraPath, process.env.PATH].filter(Boolean).join(":"),
+            PATH: TOOL_PATH(),
             PYTHONDONTWRITEBYTECODE: "1",
             PYTHONUNBUFFERED: "1",
             E2E_WORK: workDir,
             BREWLET_LIVE_OUTPUT: workDir,
+            ...pinEnv,
             ...env,
         };
         const script = `rc=0; ${command}; rc=$(( rc > $? ? rc : $? )); printf '%s' "$rc" > "$E2E_MONITOR_EXIT"; exit "$rc"`;
@@ -175,6 +233,8 @@ export class RunManager extends EventEmitter {
             tiers: tierList,
             reset: !!reset,
             env,
+            cluster: def.usesCluster ? cluster : null,
+            kubeContext,
             command,
             cwd: this.repoRoot,
             dir,
@@ -191,7 +251,7 @@ export class RunManager extends EventEmitter {
         const run = { meta, parse: createParseState(), offset: 0 };
         this.runs.set(id, run);
         await this.#save(run);
-        this.log(`E2E run ${id} started: ${command}`);
+        this.log(`E2E run ${id} started: ${command}${kubeContext ? ` (kube context: ${kubeContext})` : ""}`);
         this.emit("change", id);
         return this.summary(run);
     }
@@ -311,6 +371,8 @@ export class RunManager extends EventEmitter {
             exitCode: meta.exitCode,
             tiers: meta.tiers,
             reset: meta.reset,
+            cluster: meta.cluster ?? null,
+            kubeContext: meta.kubeContext ?? null,
             command: meta.command,
             startedAt: meta.startedAt,
             endedAt: meta.endedAt,
