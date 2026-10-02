@@ -92,7 +92,7 @@ USAGE:
   brewlet doctor              [--namespace NS] [--output table|json] [--kubeconfig FILE] [--context CTX]
   brewlet stage-gc            [--stage-root DIR] [--address SOCKET] [--min-age 24h] [--dry-run]
                               [--allow-nested-pid-namespace]
-  brewlet k8s <command>        inventory, status, inspection, installation and profile updates (see k8s --help)
+  brewlet k8s <command>        inventory, status, inspection, app readiness/wait, installation and profile updates (see k8s --help)
   brewlet version
 
   <ref> is name:tag, e.g. demo/hello:1.0.0
