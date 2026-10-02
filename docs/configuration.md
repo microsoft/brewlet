@@ -415,11 +415,28 @@ networkPolicy:
             app.kubernetes.io/name: prometheus
 ```
 
-The chart requires explicit kubelet health-probe peers, API-server CIDRs, and
+The chart requires explicit kubelet health-probe peers, API-server sources, and
 metrics peers rather than guessing cluster-specific identities. Determine the
 source CIDRs used by your nodes and control plane, then verify health probes and
 webhook connectivity before rolling this setting into production.
 NetworkPolicies require a CNI that enforces the Kubernetes `NetworkPolicy` API.
+
+When the API server reaches webhooks through in-cluster proxy pods, CIDRs alone
+may not match. For example, AKS dials pods through `konnectivity-agent` pods in
+`kube-system`, and Azure CNI powered by Cilium never applies `ipBlock` rules to
+in-cluster pods. Add those pods with `networkPolicy.admission.ingressFrom`:
+
+```yaml
+networkPolicy:
+  admission:
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            app: konnectivity-agent
+```
 
 Pod-side annotations the webhook reads (developer-facing) — see
 [Deploying workloads](deploying-workloads.md):

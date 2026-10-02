@@ -588,6 +588,18 @@ tier15_metrics_incluster() {
   T15_IMAGE_DIGEST="$digest"
   pass "tier15: built and imported a real Brewlet workload image ($T15_IMAGE_REF)"
 
+  # Managed control planes such as AKS dial webhooks through konnectivity-agent
+  # pods; CNIs like Cilium never match in-cluster pods with ipBlock rules, so
+  # the 0.0.0.0/0 API-server CIDR alone would drop those calls.
+  local -a t15_admission_peers=()
+  if [[ -n "$(kubectl get pods -n kube-system -l app=konnectivity-agent \
+        -o name 2>/dev/null)" ]]; then
+    t15_admission_peers=(
+      --set 'networkPolicy.admission.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=kube-system'
+      --set 'networkPolicy.admission.ingressFrom[0].podSelector.matchLabels.app=konnectivity-agent'
+    )
+  fi
+
   info "tier15: installing the shipped chart with metrics and NetworkPolicies enabled"
   T15_HELM_INSTALLED=1
   if ! helm install "$T15_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
@@ -604,6 +616,7 @@ tier15_metrics_incluster() {
       --set networkPolicy.enabled=true \
       --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=0.0.0.0/0' \
       --set 'networkPolicy.admission.apiServerCIDRs[0]=0.0.0.0/0' \
+      ${t15_admission_peers[@]+"${t15_admission_peers[@]}"} \
       --set "networkPolicy.metrics.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\\.io/metadata\\.name=$T15_APP_NS" \
       --wait --timeout 180s >"$WORK/t15-install.log" 2>&1; then
     save_pod_diag t15-install "$T15_NS" >>"$WORK/t15-install.log" 2>&1 || true

@@ -122,6 +122,7 @@ for upgrades; pass them again rather than substituting example defaults.
 | `networkPolicy.enabled` | `false` | Create ingress NetworkPolicies for admission and enabled metrics endpoints. |
 | `networkPolicy.healthProbes.ingressFrom` | `[]` | NetworkPolicy peers used by kubelets to reach control-plane health endpoints on port 8081. |
 | `networkPolicy.admission.apiServerCIDRs` | `[]` | API-server source CIDRs permitted to call the admission webhook when NetworkPolicies are enabled. |
+| `networkPolicy.admission.ingressFrom` | `[]` | Additional NetworkPolicy peers permitted to call the admission webhook, such as API-server proxy pods that CIDR rules do not match. At least one entry in it or `apiServerCIDRs` is required. |
 | `networkPolicy.metrics.ingressFrom` | `[]` | NetworkPolicy peers permitted to scrape enabled metrics endpoints. |
 | `admission.enabled` | `true` | Deploy the admission/scheduling webhook. |
 | `admission.failurePolicy` | `Ignore` | Webhook failure policy — `Ignore` never blocks workloads on a webhook outage. |
@@ -394,8 +395,8 @@ preferred.
 
 NetworkPolicies are disabled by default because the API-server source addresses
 and Prometheus identity are cluster-specific. When enabled, the chart requires
-both the API-server CIDRs needed by admission and, when metrics are enabled,
-explicit metrics peers:
+the API-server sources needed by admission (`apiServerCIDRs` and/or
+`ingressFrom` peers) and, when metrics are enabled, explicit metrics peers:
 
 ```yaml
 metrics:
@@ -427,3 +428,21 @@ kubelet peers, and enabled metrics ports; egress is unchanged. Confirm both the
 API-server and kubelet source addresses used by your managed Kubernetes service
 and CNI before enabling the policies. Incorrect peers can block webhook calls or
 make healthy pods fail their probes.
+
+Some managed services reach webhooks through in-cluster proxy pods rather than
+from a host address. On AKS the API server dials pods through
+`konnectivity-agent` pods in `kube-system`, and CNIs such as Azure CNI powered
+by Cilium never match in-cluster pods with `ipBlock` rules. Allow those pods
+with a selector peer:
+
+```yaml
+networkPolicy:
+  admission:
+    ingressFrom:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: kube-system
+        podSelector:
+          matchLabels:
+            app: konnectivity-agent
+```
