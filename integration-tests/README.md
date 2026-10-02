@@ -65,6 +65,12 @@ per-tier progress and ETA, assertion results, failures, a live log, and the
 `E2E_WORK` artifacts. Run records are kept in the session's state directory
 under `e2e-runs/`, so they survive extension reloads.
 
+When the selected kube context is a live cluster (anything other than Docker
+Desktop, kind, k3d, minikube, Rancher Desktop, OrbStack or Colima), the canvas
+shows a **Node pool** picker listing the cluster's pools and their Ready nodes,
+defaulting to `javaworkers`. The run gets `E2E_NODE_ACCESS=kubectl` and
+`E2E_POOLS=<pool>` automatically. Values set in **Environment overrides** win.
+
 ## Kubernetes CLI API integration
 
 The process/API integration suite lives in the existing Kubernetes Go module
