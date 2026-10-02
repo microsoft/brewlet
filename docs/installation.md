@@ -561,7 +561,7 @@ brewlet k8s install --context evaluation --version "$RELEASE_VERSION" \
   --values my-pools.yaml --values my-jdks.yaml --namespace brewlet
 
 # Helm readiness is not node provisioning; check rollout and node inventory.
-brewlet k8s status --context evaluation --system-namespace brewlet
+brewlet k8s status --context evaluation --namespace brewlet
 brewlet k8s jdk list --context evaluation --output wide
 ```
 

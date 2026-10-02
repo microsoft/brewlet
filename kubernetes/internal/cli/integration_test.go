@@ -366,7 +366,7 @@ func (f *fixture) testReadCommands(t *testing.T) {
 	if !profile.Profile.Ready || len(profile.Nodes) != 1 || profile.Nodes[0].Name != "inventory-node" {
 		t.Fatalf("profile inspection: %+v", profile)
 	}
-	statusArgs := []string{"status", "--system-namespace", "runtime-system", "--output", "json"}
+	statusArgs := []string{"status", "--namespace", "runtime-system", "--output", "json"}
 	status := decode[struct{ Healthy bool }](t, f.cli(t, statusArgs...).success(t))
 	if !status.Healthy {
 		t.Fatal("ready fixtures reported unhealthy")

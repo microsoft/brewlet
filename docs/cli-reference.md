@@ -374,7 +374,8 @@ brewlet doctor [--namespace NS] [--output table|json]
 The command checks the selected context, API connectivity, the `brewlet`
 RuntimeClass, the `JavaApplication` CRD, schedulable Brewlet-ready containerd
 nodes, advertised JDK inventory, and create permission in the selected
-namespace. Failed checks include a remediation hint. In table output each
+namespace. Without `--namespace`, it uses the selected context's namespace, or
+`default` when the context sets none. Failed checks include a remediation hint. In table output each
 check is printed as soon as it completes, with a progress indicator on stderr
 while the next `kubectl` call runs.
 
@@ -427,9 +428,21 @@ Flags may also follow positional names.
 | --- | --- | --- |
 | `--kubeconfig FILE` | Tool default | Kubeconfig passed to every Kubernetes/Helm invocation. |
 | `--context NAME` | Current context | Explicit context, without modifying kubeconfig. |
-| `--namespace NAME` | Context namespace | Application inspection namespace. `doctor` preserves its original `default` namespace; installation defaults to `brewlet`. Profiles and node inventories are cluster-scoped. |
+| `--namespace NAME` | Command-dependent | The namespace the command operates on, as in `kubectl`. See [Namespaces](#namespaces). |
 | `--timeout DURATION` | `30s` | Deadline for each kubectl invocation, including credential helpers. |
 | `--output FORMAT` | Command-dependent | Read commands default to `table` and support `json`/`yaml`. JDK/launcher inventory supports `table`/`wide`/`json` instead. `add`, including dry runs, defaults to `yaml` and also supports `json`. Installation reports step-by-step progress and live rollout status on stderr (a spinner on terminals, periodic lines otherwise) and prints Helm output to stdout after a successful command. |
+
+### Namespaces
+
+`--namespace` always selects the namespace the command operates on:
+
+| Command | Meaning | Default |
+| --- | --- | --- |
+| `status` | Brewlet control-plane namespace | Auto-discovered; `brewlet` if none is found or discovery is forbidden |
+| `install` | Control-plane and Helm release namespace | `brewlet` |
+| `inspect app` | Application namespace | Current context namespace |
+| `doctor` | Application namespace for the permission check | Current context namespace, else `default` |
+| `jdk list`, `launcher list`, `profile list`, `profile inspect`, `jdk add`, `launcher add` | Not applicable: these resources are cluster-scoped | Rejected with an error |
 
 Inspection's default output is a structured YAML report rather than a flattened
 table. All commands propagate tool/API failures; RBAC-denied reads are not
@@ -443,7 +456,7 @@ brewlet k8s jdk list --output wide
 brewlet k8s launcher list --selector brewlet.sh/runtime=ready
 brewlet k8s profile list --output json
 brewlet k8s profile inspect java-workers
-brewlet k8s status --system-namespace brewlet --output json
+brewlet k8s status --namespace brewlet --output json
 brewlet k8s inspect app orders --namespace my-team
 brewlet k8s doctor --namespace my-team
 ```
@@ -462,8 +475,16 @@ ownership must match the profile's UID. Missing or stale observed generations
 never count as a current Ready condition.
 
 `status` reports the operator and admission **Deployment rollout state** in
-`--system-namespace` (default `brewlet`), profile conditions, and node readiness
-and provisioning errors. It exits nonzero if either component is absent or
+the control-plane namespace, profile conditions, and node readiness and
+provisioning errors. Without `--namespace`, it lists Deployments labeled
+`app.kubernetes.io/name=brewlet` across all namespaces and uses the namespace
+holding `brewlet-operator`/`brewlet-admission`. It stops and lists the
+candidates when more than one namespace matches, and falls back to `brewlet`
+when none matches or the cluster-wide list is forbidden. When neither component
+exists in the selected namespace, it fails with
+`no Brewlet control plane found in namespace "NAME"; pass --namespace`. The
+selected namespace is printed first in table output and as `namespace` in
+JSON/YAML. It exits nonzero if either component is absent or
 unready, any profile/node is unready, or there are no profiles or no uncordoned,
 runtime-ready, Kubernetes-ready nodes. An intentionally disabled admission
 Deployment therefore also produces a nonzero result. This is a conservative
@@ -481,7 +502,8 @@ unready resource; use `status` or `doctor` for readiness exit codes.
 Read permissions are required for the objects each command inspects.
 Application inspection lists Deployments, ReplicaSets, Pods, and Events in its
 namespace; profile inspection reads the profile and lists Nodes. `status` lists
-control-plane Deployments, NodeProfiles, and Nodes.
+control-plane Deployments (cluster-wide when discovering the namespace),
+NodeProfiles, and Nodes.
 
 ### Installation
 
@@ -580,7 +602,7 @@ still needs chart registry access, and it is not server-side validation.
 
 Helm readiness is not node provisioning completion. Follow installation with
 `brewlet k8s status` and inventory inspection using the same kubeconfig/context
-and the installation namespace as `--system-namespace`. Sources are never chosen for you,
+and the installation namespace as `--namespace`. Sources are never chosen for you,
 control-plane provisioning is never implicitly enabled, and no cleanup or
 uninstall is attempted after a failed installation.
 
