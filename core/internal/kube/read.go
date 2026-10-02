@@ -431,16 +431,7 @@ func (c *client) inspectApp(name string) error {
 	if err != nil {
 		return err
 	}
-	if app.Metadata.UID == "" || app.Metadata.Namespace == "" {
-		return fmt.Errorf("application %s has no UID or namespace", name)
-	}
-	nsArgs := []string{"--namespace", app.Metadata.Namespace}
-	selector := "app.kubernetes.io/name=" + name + ",app.kubernetes.io/managed-by=brewlet-operator"
-	workloads, err := c.list("deployments,replicasets,pods", append(nsArgs, "--selector", selector)...)
-	if err != nil {
-		return err
-	}
-	events, err := c.list("events", nsArgs...)
+	owned, err := c.appOwnedObjects(app)
 	if err != nil {
 		return err
 	}
@@ -473,67 +464,33 @@ func (c *client) inspectApp(name string) error {
 			report.JDKRequest = spec.JVM.Distribution + "-" + report.JDKRequest
 		}
 	}
-	uids := map[string]bool{app.Metadata.UID: true}
-	// Traverse controller ownership, not just labels: old ReplicaSets belong,
-	// but a similarly labelled Pod from another application does not.
-	for _, kind := range []string{"Deployment", "ReplicaSet", "Pod"} {
-		for _, obj := range workloads {
-			if obj.Kind != kind || !ownedBy(obj, uids) || obj.Metadata.UID == "" {
-				continue
-			}
-			uids[obj.Metadata.UID] = true
-			switch kind {
-			case "Deployment":
-				deployment, err := summarizeDeployment(obj)
-				if err != nil {
-					return err
-				}
-				report.Deployments = append(report.Deployments, deployment)
-				if report.Ready && !deployment.Ready {
-					report.Reason = "DeploymentNotReady"
-				}
-				report.Ready = report.Ready && deployment.Ready
-			case "Pod":
-				var podSpec struct {
-					NodeName string `json:"nodeName"`
-				}
-				if err := json.Unmarshal(obj.Spec, &podSpec); err != nil {
-					return fmt.Errorf("decode pod %s: %w", obj.Metadata.Name, err)
-				}
-				pod := podSummary{
-					Name: obj.Metadata.Name, Node: podSpec.NodeName, Phase: obj.Status.Phase,
-					Problems: []string{}, JDKRequest: obj.Metadata.Annotations["brewlet.sh/jdk"],
-					Launcher: obj.Metadata.Annotations["brewlet.sh/launcher"],
-				}
-				for _, cond := range obj.Status.Conditions {
-					if cond.Type == "Ready" {
-						pod.Ready = cond.Status == "True" && obj.Metadata.DeletionTimestamp == ""
-					}
-				}
-				for _, container := range obj.Status.ContainerStatuses {
-					pod.Restarts += container.RestartCount
-					if container.State.Waiting != nil {
-						pod.Problems = append(pod.Problems, container.Name+": "+container.State.Waiting.Reason)
-					}
-					if term := container.State.Terminated; term != nil && term.ExitCode != 0 {
-						pod.Problems = append(pod.Problems, fmt.Sprintf("%s: %s (exit %d)", container.Name, term.Reason, term.ExitCode))
-					}
-				}
-				report.Pods = append(report.Pods, pod)
-			}
+	for _, obj := range owned.deployments {
+		deployment, err := summarizeDeployment(obj)
+		if err != nil {
+			return err
 		}
+		report.Deployments = append(report.Deployments, deployment)
+		if report.Ready && !deployment.Ready {
+			report.Reason = "DeploymentNotReady"
+		}
+		report.Ready = report.Ready && deployment.Ready
+	}
+	for _, obj := range owned.pods {
+		pod, err := summarizePod(obj)
+		if err != nil {
+			return err
+		}
+		report.Pods = append(report.Pods, pod)
 	}
 	report.Ready = report.Ready && len(report.Deployments) > 0
 	if len(report.Deployments) == 0 {
 		report.Reason = "DeploymentMissing"
 	}
-	for _, event := range events {
-		if uids[event.InvolvedObject.UID] {
-			report.Events = append(report.Events, eventSummary{
-				Object: event.InvolvedObject.Kind + "/" + event.InvolvedObject.Name,
-				Type:   event.Type, Reason: event.Reason, Message: event.Message,
-			})
-		}
+	for _, event := range owned.events {
+		report.Events = append(report.Events, eventSummary{
+			Object: event.InvolvedObject.Kind + "/" + event.InvolvedObject.Name,
+			Type:   event.Type, Reason: event.Reason, Message: event.Message,
+		})
 	}
 	sort.Slice(report.Deployments, func(i, j int) bool { return report.Deployments[i].Name < report.Deployments[j].Name })
 	sort.Slice(report.Pods, func(i, j int) bool { return report.Pods[i].Name < report.Pods[j].Name })

@@ -153,6 +153,11 @@ context unless `kubeconfig` / `kubeContext` are set.
 All `brewlet:manifest` parameters (`namespace`, `appName`, `replicas`, `ports`,
 resources, …) apply.
 
+Deploying without Maven (Gradle, `kubectl apply`, GitOps, CI)? The CLI applies
+the same readiness rule: `brewlet k8s app wait <appName> --namespace <ns>`
+waits for `Ready`, and `brewlet k8s app status <appName>` explains why an app
+is not ready.
+
 ---
 
 ## Goals
