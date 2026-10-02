@@ -164,7 +164,7 @@ resources, …) apply.
 | `brewlet:push` | `deploy` | Build and push to the registry in `<image>`. By default (`image` format) this pushes a **runnable OCI image** — a standard, kubelet-pullable image (see [Delivery format](#delivery-format-native-artifact-vs-runnable-image)). With `-Dbrewlet.format=artifact` it pushes the native Brewlet artifact instead (JAR layer + launch-config blob + manifest with `artifactType: application/vnd.brewlet.app.v1+json`). |
 | `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) from the same fat/thin/Boot/module payload used for publication, using a self-terminating run or explicit signal-mode training. Attach it later with `-Dbrewlet.cdsArchive=...`. |
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
-| `brewlet:manifest` | — | Emit a `JavaApplication` CR YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Uses a digest-pinned `<image>` when given, otherwise the deploy image recorded by the last `brewlet:push` (`target/brewlet/push.json`). Health probes must be configured explicitly in the generated manifest. |
+| `brewlet:manifest` | — | Emit a `JavaApplication` CR YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Uses a digest-pinned `<image>` when given, otherwise the deploy image recorded by the last `brewlet:push` (`target/brewlet/push.json`). Health probes come only from `<probes>` (or `-Dbrewlet.readinessPath`/`livenessPath`); none are inferred. |
 | `brewlet:deploy` | — | `push` + `manifest` + `kubectl apply`, then wait for the `JavaApplication` to become Ready with progress output. See [Push, apply, and wait in one step](#push-apply-and-wait-in-one-step). |
 | `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. |
 
@@ -320,7 +320,7 @@ launch configuration and does not install or upgrade a node JDK.
 
 | Parameter | Notes |
 |---|---|
-| `ports` | Descriptor `spec.ports` (manifest goal): `<port>` entries (`name`, `containerPort`, `protocol`). Defaults to `8080/http` with a warning for Spring Boot / Quarkus. Ports enable Service generation but never imply health probes. Not part of the artifact. |
+| `ports` | Descriptor `spec.ports` (manifest goal): `<port>` entries (`name`, `containerPort`, `protocol`). Defaults to `8080/http` with a warning for Spring Boot / Quarkus. Ports enable Service generation but never imply health probes; declare those with `probes` (see [`brewlet:manifest` extras](#brewletmanifest-extras)). Not part of the artifact. |
 | `enablePreview` (`brewlet.enablePreview`) | App-intrinsic artifact knob; writes `enablePreview` and expands to `--enable-preview`. |
 | `addModules` / `addOpens` / `addExports` | App-intrinsic artifact lists for JPMS/module access; configure with `<addModule>`, `<addOpen>`, and `<addExport>` entries. |
 | `systemProperties` | App-intrinsic artifact map expanded as sorted `-D<key>=<value>` flags. |
@@ -508,28 +508,48 @@ no AppCDS benefit); see [AppCDS §7](https://github.com/microsoft/brewlet/blob/m
 
 ### `brewlet:manifest` extras
 
-The generated manifest deliberately omits `spec.probes`. A configured or inferred
-port does not prove that HTTP `/` exists, or that it is suitable for liveness.
-An API-only application returning 404 at `/` must not be restarted because of a
-guessed probe.
+Health probes are never guessed: a configured or inferred port does not prove
+that HTTP `/` exists, or that it is suitable for liveness, and an API-only
+application returning 404 at `/` must not be restarted because of a guessed
+probe. Declare the application's actual health contract with `<probes>`:
 
-Add probes to the generated YAML using the application's actual health contract.
-For example, **only if these endpoints are implemented and enabled**:
-
-```yaml
-spec:
-  probes:
-    readiness:
-      httpGet: { path: /actuator/health/readiness, port: 8080 }
-    liveness:
-      httpGet: { path: /actuator/health/liveness, port: 8080 }
+```xml
+<configuration>
+  <ports>
+    <port><name>http</name><containerPort>8080</containerPort></port>
+  </ports>
+  <probes>
+    <readiness>
+      <path>/actuator/health/readiness</path>   <!-- HTTP GET -->
+      <periodSeconds>5</periodSeconds>
+    </readiness>
+    <liveness>
+      <path>/actuator/health/liveness</path>
+      <port>http</port>                         <!-- port name or number; defaults to the first port -->
+      <failureThreshold>3</failureThreshold>
+    </liveness>
+  </probes>
+</configuration>
 ```
 
-TCP or exec probes can be appropriate for non-HTTP services. Without an explicit
-readiness probe, Kubernetes does not wait for application-specific readiness;
-omitting probes is a safe generation default, not a production health policy.
-Keep reviewed deployment YAML in source control: regenerating the manifest
-overwrites local edits.
+Each probe is an **HTTP GET** when `<path>` is set (optional `<scheme>` `HTTP` or
+`HTTPS`), an **exec** probe when `<command>` is set
+(`<command><arg>sh</arg><arg>-c</arg><arg>…</arg></command>`), and otherwise a
+**TCP socket** check on `<port>`. Optional timings: `<initialDelaySeconds>`,
+`<periodSeconds>`, `<timeoutSeconds>`, `<failureThreshold>`. Invalid
+combinations, relative paths, and port names that don't match `<ports>` fail
+the build.
+
+For a quick HTTP probe without editing the POM, use
+`-Dbrewlet.readinessPath=/healthz` and `-Dbrewlet.livenessPath=/livez`
+(applied against the first port, ignored when the corresponding `<probes>`
+entry is configured).
+
+When ports are generated but no readiness probe is configured, the plugin
+warns, and suggests the Spring Boot Actuator
+(`/actuator/health/readiness`) or Quarkus SmallRye Health (`/q/health/ready`)
+paths when those dependencies are declared. Without a readiness probe,
+Kubernetes does not wait for application-specific readiness.
 
 | Parameter | Property | Default |
 |---|---|---|
@@ -537,6 +557,9 @@ overwrites local edits.
 | `appName` | `brewlet.appName` | `${project.artifactId}` |
 | `replicas` | `brewlet.replicas` | `1` |
 | CPU/memory requests & limits | `brewlet.resources.*` | `500m` / `256Mi` req, `2` / `512Mi` limit |
+| `probes` | — | none (see above) |
+| `readinessPath` | `brewlet.readinessPath` | none |
+| `livenessPath` | `brewlet.livenessPath` | none |
 
 ---
 

@@ -83,6 +83,22 @@ public class FrameworkDetector {
         return hasDependency(project, "io.quarkus", "quarkus-core");
     }
 
+    /**
+     * Returns the {readiness, liveness} health paths exposed by a declared
+     * health module (Spring Boot Actuator, Quarkus SmallRye Health), or
+     * {@code null}. Used only to suggest probes; never applied implicitly.
+     */
+    public static String[] suggestedHealthPaths(MavenProject project) {
+        if (hasDependency(project, "org.springframework.boot", "spring-boot-starter-actuator")
+                || hasDependency(project, "org.springframework.boot", "spring-boot-actuator")) {
+            return new String[]{"/actuator/health/readiness", "/actuator/health/liveness"};
+        }
+        if (hasDependency(project, "io.quarkus", "quarkus-smallrye-health")) {
+            return new String[]{"/q/health/ready", "/q/health/live"};
+        }
+        return null;
+    }
+
     private static boolean hasDependency(MavenProject project, String groupId, String artifactId) {
         List<Dependency> deps = project.getDependencies();
         if (deps == null) return false;

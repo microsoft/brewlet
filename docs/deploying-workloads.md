@@ -199,9 +199,9 @@ mvn package brewlet:deploy \
 
 It uses the current `kubectl` context unless `-Dbrewlet.kubeconfig` or
 `-Dbrewlet.kubeContext` is set. The generated manifest includes a ClusterIP
-Service when `<ports>` are configured, but never infers health probes (see
-[below](#generated-manifests-and-health-probes)). To review or extend the YAML
-(for example, to add probes) before applying it, run
+Service when `<ports>` are configured and the probes declared in `<probes>`
+(see [below](#generated-manifests-and-health-probes)). To review or extend the
+YAML before applying it, run
 `mvn package brewlet:push brewlet:manifest` instead. `brewlet:manifest` reads
 the digest that `brewlet:push` recorded in `target/brewlet/push.json` and
 writes `target/brewlet/javaapplication.yaml`. See
@@ -316,17 +316,29 @@ running JVM's distribution or patch version.
 
 ### Generated manifests and health probes
 
-`brewlet:manifest` generates a `JavaApplication` descriptor, but deliberately
-omits `spec.probes`. Neither a configured port nor Spring Boot/Quarkus detection
-establishes an HTTP health contract. In particular, a healthy application may
-return 404 at `/`; a generated liveness probe must not restart it for that.
+`brewlet:manifest` and `brewlet:deploy` never infer `spec.probes`. Neither a
+configured port nor Spring Boot/Quarkus detection establishes an HTTP health
+contract. In particular, a healthy application may return 404 at `/`; a
+generated liveness probe must not restart it for that.
 
-Add readiness and liveness probes explicitly to the `JavaApplication` YAML
-using endpoints or commands the application actually provides. The Actuator
-paths in the example above are appropriate only when those endpoints are
-enabled. Without a readiness probe, Kubernetes does not wait for
-application-specific readiness. Store reviewed manifests in source control;
-regenerating them overwrites local edits.
+Declare probes that match endpoints or commands the application actually
+provides with `<probes>` in the plugin configuration:
+
+```xml
+<probes>
+  <readiness><path>/actuator/health/readiness</path></readiness>
+  <liveness><path>/actuator/health/liveness</path></liveness>
+</probes>
+```
+
+`<path>` produces an HTTP GET against the first configured port (or `<port>`),
+`<command>` an exec probe, and a bare `<port>` a TCP check. For a one-off HTTP
+probe, pass `-Dbrewlet.readinessPath=/healthz`. When no readiness probe is
+configured, the plugin warns and points at the Actuator or Quarkus health paths
+if those modules are on the classpath. See the
+[plugin reference](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#brewletmanifest-extras).
+Without a readiness probe, Kubernetes does not wait for application-specific
+readiness.
 
 The generated `spec.jvm.version` is an explicit `brewlet.jdkFeature` override or
 an inferred request based on effective main compiler settings and toolchain

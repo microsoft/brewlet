@@ -186,7 +186,7 @@ class SiteContractsTest(unittest.TestCase):
         self.assertIn("Maven Central", developers)
         self.assertNotIn("maven-install-plugin", developers)
         self.assertIn("brewlet:config brewlet:build", developers)
-        self.assertIn("  brewlet:push", developers)
+        self.assertIn("  brewlet:deploy", developers)
         self.assertLess(developers.index("<artifactId>brewlet-maven-plugin</artifactId>"),
                         developers.index("brewlet:config brewlet:build"))
 

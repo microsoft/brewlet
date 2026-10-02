@@ -10,6 +10,8 @@ import org.junit.jupiter.api.io.TempDir;
 import sh.brewlet.maven.plugin.model.EnvVar;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.model.Port;
+import sh.brewlet.maven.plugin.model.Probe;
+import sh.brewlet.maven.plugin.model.Probes;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -173,6 +175,159 @@ class ManifestMojoTest {
         assertFalse(yaml.contains("  ports:"));
         assertFalse(yaml.contains("  service:"));
         assertNoInferredProbes(yaml);
+    }
+
+    @Test
+    void httpProbesDefaultToTheFirstPortName() throws Exception {
+        ManifestMojo mojo = mojo();
+        set(mojo, "ports", List.of(new Port("web", 8080, "TCP"), new Port("admin", 9090, "TCP")));
+        Probe readiness = Probe.httpGet("/healthz");
+        readiness.setPeriodSeconds(5);
+        readiness.setInitialDelaySeconds(0);
+        Probe liveness = Probe.httpGet("/livez");
+        liveness.setPort("admin");
+        liveness.setScheme("https");
+        liveness.setFailureThreshold(3);
+        set(mojo, "probes", new Probes(readiness, liveness));
+
+        String yaml = render(mojo, new JvmConfig());
+
+        assertTrue(yaml.endsWith("""
+                  probes:
+                    readiness:
+                      httpGet:
+                        path: "/healthz"
+                        port: "web"
+                      initialDelaySeconds: 0
+                      periodSeconds: 5
+                    liveness:
+                      httpGet:
+                        path: "/livez"
+                        port: "admin"
+                        scheme: "HTTPS"
+                      failureThreshold: 3
+                """), yaml);
+    }
+
+    @Test
+    void numericTcpAndExecProbesAreRendered() throws Exception {
+        ManifestMojo mojo = mojo();
+        Probe readiness = new Probe();
+        readiness.setPort("8080");
+        Probe liveness = new Probe();
+        liveness.setCommand(List.of("sh", "-c", "test -f /tmp/alive"));
+        liveness.setTimeoutSeconds(2);
+        set(mojo, "probes", new Probes(readiness, liveness));
+
+        String yaml = render(mojo, new JvmConfig());
+
+        assertTrue(yaml.endsWith("""
+                  probes:
+                    readiness:
+                      tcpSocket:
+                        port: 8080
+                    liveness:
+                      exec:
+                        command:
+                          - "sh"
+                          - "-c"
+                          - "test -f /tmp/alive"
+                      timeoutSeconds: 2
+                """), yaml);
+    }
+
+    @Test
+    void pathShorthandsApplyOnlyWhenTheProbeIsNotConfigured() throws Exception {
+        ManifestMojo mojo = mojo();
+        set(mojo, "ports", List.of(new Port(null, 8080, "TCP")));
+        set(mojo, "readinessPath", " /ready ");
+        set(mojo, "livenessPath", "/ignored");
+        set(mojo, "probes", new Probes(null, Probe.httpGet("/live")));
+
+        String yaml = render(mojo, new JvmConfig());
+
+        assertTrue(yaml.contains("    readiness:\n      httpGet:\n        path: \"/ready\"\n        port: \"http\"\n"), yaml);
+        assertTrue(yaml.contains("    liveness:\n      httpGet:\n        path: \"/live\"\n"), yaml);
+        assertFalse(yaml.contains("/ignored"));
+    }
+
+    @Test
+    void invalidProbesFailWithActionableMessages() throws Exception {
+        Probe both = Probe.httpGet("/x");
+        both.setCommand(List.of("true"));
+        Probe relative = Probe.httpGet("healthz");
+        Probe unknownName = Probe.httpGet("/x");
+        unknownName.setPort("grpc");
+        Probe outOfRange = new Probe();
+        outOfRange.setPort("70000");
+        Probe badScheme = Probe.httpGet("/x");
+        badScheme.setScheme("ftp");
+        Probe tcpScheme = new Probe();
+        tcpScheme.setScheme("HTTPS");
+        Probe execPort = new Probe();
+        execPort.setCommand(List.of("true"));
+        execPort.setPort("http");
+        Probe badPeriod = Probe.httpGet("/x");
+        badPeriod.setPeriodSeconds(0);
+
+        for (Object[] c : List.of(
+                new Object[]{both, "choose one"},
+                new Object[]{relative, "must start with '/'"},
+                new Object[]{unknownName, "does not match a configured port name (http)"},
+                new Object[]{outOfRange, "must be 1-65535"},
+                new Object[]{badScheme, "must be HTTP or HTTPS"},
+                new Object[]{tcpScheme, "applies only to HTTP probes"},
+                new Object[]{execPort, "do not apply"},
+                new Object[]{badPeriod, "<periodSeconds> must be >= 1"})) {
+            ManifestMojo mojo = mojo();
+            set(mojo, "ports", List.of(new Port("http", 8080, "TCP")));
+            set(mojo, "probes", new Probes((Probe) c[0], null));
+            var e = assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
+                    () -> render(mojo, new JvmConfig()));
+            assertTrue(e.getMessage().startsWith("<probes><readiness>"), e.getMessage());
+            assertTrue(e.getMessage().contains((String) c[1]), e.getMessage());
+        }
+    }
+
+    @Test
+    void networkProbesNeedAPortWhenNoPortsAreConfigured() throws Exception {
+        ManifestMojo mojo = mojo();
+        set(mojo, "readinessPath", "/healthz");
+        var e = assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
+                () -> render(mojo, new JvmConfig()));
+        assertTrue(e.getMessage().contains("needs a <port>"), e.getMessage());
+
+        Probe numeric = Probe.httpGet("/healthz");
+        numeric.setPort("8081");
+        set(mojo, "readinessPath", null);
+        set(mojo, "probes", new Probes(numeric, null));
+        assertTrue(render(mojo, new JvmConfig()).contains("        port: 8081\n"));
+    }
+
+    @Test
+    void healthModulesAreSuggestedButNeverApplied() throws Exception {
+        for (String[] c : List.of(
+                new String[]{"org.springframework.boot", "spring-boot-starter-actuator", "/actuator/health/readiness"},
+                new String[]{"io.quarkus", "quarkus-smallrye-health", "/q/health/ready"})) {
+            ManifestMojo mojo = mojo();
+            Dependency dependency = new Dependency();
+            dependency.setGroupId(c[0]);
+            dependency.setArtifactId(c[1]);
+            mojo.project.setDependencies(List.of(dependency));
+            set(mojo, "ports", List.of(new Port("http", 8080, "TCP")));
+            List<String> warnings = new ArrayList<>();
+            mojo.setLog(new org.apache.maven.plugin.logging.SystemStreamLog() {
+                @Override
+                public void warn(CharSequence content) {
+                    warnings.add(content.toString());
+                }
+            });
+
+            String yaml = render(mojo, new JvmConfig());
+
+            assertNoInferredProbes(yaml);
+            assertTrue(warnings.stream().anyMatch(w -> w.contains("-Dbrewlet.readinessPath=" + c[2])), warnings.toString());
+        }
     }
 
     @Test

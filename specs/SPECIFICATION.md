@@ -1516,7 +1516,8 @@ Manager, and workload reconciliation analogous to Spin Operator:
 
 The Maven `brewlet:manifest` goal does not infer `spec.probes` from declared ports
 or detected frameworks. Ports may generate a Service but do not establish an
-HTTP health endpoint. Applications must configure probes explicitly in their
+HTTP health endpoint. Applications declare probes explicitly through the
+plugin's `<probes>` configuration (HTTP GET, exec, or TCP) or in their
 deployment YAML; no implicit `GET /` readiness or liveness checks are emitted.
 
 Its JDK feature request uses a positive explicit `brewlet.jdkFeature` first,
