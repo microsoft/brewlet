@@ -225,9 +225,11 @@ Change the response in
 tag, then repeat the package, push, and apply steps. Kubernetes rolls out the new
 artifact like any other application update.
 
-For your own applications, when the generated `JavaApplication` is enough (no
-Service or probes), `brewlet:deploy` pushes, generates the manifest, applies it,
-and waits until it is Ready in one step. Run it from your project directory:
+For your own applications, `brewlet:deploy` pushes, generates the
+`JavaApplication`, applies it, and waits until it is Ready in one step. The
+generated manifest includes a ClusterIP Service for configured `<ports>`, but no
+health probes, because the plugin cannot know your application's health
+endpoint. Run it from your project directory:
 
 ```bash
 mvn package brewlet:deploy \

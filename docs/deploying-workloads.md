@@ -198,8 +198,10 @@ mvn package brewlet:deploy \
 ```
 
 It uses the current `kubectl` context unless `-Dbrewlet.kubeconfig` or
-`-Dbrewlet.kubeContext` is set. To review or extend the YAML (for example, to
-add a Service or probes) before applying it, run
+`-Dbrewlet.kubeContext` is set. The generated manifest includes a ClusterIP
+Service when `<ports>` are configured, but never infers health probes (see
+[below](#generated-manifests-and-health-probes)). To review or extend the YAML
+(for example, to add probes) before applying it, run
 `mvn package brewlet:push brewlet:manifest` instead. `brewlet:manifest` reads
 the digest that `brewlet:push` recorded in `target/brewlet/push.json` and
 writes `target/brewlet/javaapplication.yaml`. See
