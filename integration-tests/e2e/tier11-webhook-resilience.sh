@@ -38,8 +38,8 @@ _t11_cleanup() {
   kubectl delete clusterrole "$T11_SVC" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete clusterrolebinding "$T11_SVC" --ignore-not-found >/dev/null 2>&1 || true
   [[ -n "$T11_RC_CREATED" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
-  for n in "${T11_LOADED_NODES[@]}"; do
-    docker exec "$n" ctr -n k8s.io images rm "$T11_IMG" >/dev/null 2>&1 || true
+  for n in ${T11_LOADED_NODES[@]+"${T11_LOADED_NODES[@]}"}; do
+    node_exec "$n" ctr -n k8s.io images rm "$T11_IMG" >/dev/null 2>&1 || true
   done
   docker rmi "$T11_IMG" >/dev/null 2>&1 || true
 }
@@ -88,7 +88,7 @@ tier11_webhook_resilience() {
   nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
   if [[ -z "$nodes" ]]; then skip "tier11: webhook resilience" "no nodes"; return 0; fi
   for n in $nodes; do
-    if ! docker inspect "$n" >/dev/null 2>&1 || ! docker exec "$n" ctr --version >/dev/null 2>&1; then
+    if ! node_provisionable "$n"; then
       skip "tier11: webhook resilience" "node '$n' is not a local containerd docker container (can't side-load image)"
       return 0
     fi
@@ -112,7 +112,7 @@ tier11_webhook_resilience() {
     fail "webhook(resilience): docker save image" "see $WORK/t11-load.log"; return 0
   fi
   for n in $nodes; do
-    if ! docker exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t11-load.log" 2>&1; then
+    if ! node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t11-load.log" 2>&1; then
       skip "tier11: webhook resilience" "could not import image into node '$n' (see $WORK/t11-load.log)"; return 0
     fi
     T11_LOADED_NODES+=("$n")

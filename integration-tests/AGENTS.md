@@ -31,6 +31,40 @@ integration-tests/e2e/run.sh --reset
 integration-tests/e2e/run.sh
 ```
 
+Set `E2E_KUBE_CONTEXT` to pin the run to one context: the harness writes a
+private, minified kubeconfig into the work directory and exports `KUBECONFIG`,
+so a concurrent `kubectl config use-context` cannot redirect a running suite.
+
+### Managed clusters (AKS and other real VMs)
+
+By default the node-side tiers reach nodes with `docker exec`/`docker cp`, so
+only kind/Docker Desktop nodes are provisionable. To run them on real nodes:
+
+```bash
+E2E_KUBE_CONTEXT=my-aks \
+E2E_NODE_ACCESS=kubectl \
+E2E_NODE_SELECTOR=kubernetes.azure.com/agentpool=javaworkers \
+E2E_T13_POOL_KEY=brewlet-e2e-pool \
+integration-tests/e2e/run.sh --reset --tier 1 --tier 2  # ...or list every tier
+```
+
+- `E2E_NODE_ACCESS=kubectl` runs node commands through a privileged, hostPID
+  node-shell pod per node in `brewlet-e2e-nodeshell` (`chroot /host nsenter
+  -t 1`). The namespace is deleted on exit and by `--reset`. Override the image
+  with `E2E_NODESHELL_IMAGE`; it needs only `chroot` and `sleep`.
+- `E2E_NODE_SELECTOR` restricts which nodes the provisioning tiers (and the
+  single-node checks in tiers 4 and 13) may pick. Tiers that side-load
+  control-plane images, and the NodeProfile catch-all assertions, still cover
+  every node, so a node shell is created on each node.
+- `E2E_T13_POOL_KEY` replaces tier 13's `agentpool` key, which AKS owns. Use a
+  key without dots or slashes.
+- `DOCKER_DEFAULT_PLATFORM` defaults to the selected nodes' architecture, so an
+  arm64 workstation builds amd64 images for an amd64 pool.
+- Node-side tiers really modify the selected node: they install the shim,
+  JDKs and launchers under `/opt/brewlet`, rewrite and restore
+  `/etc/containerd/config.toml`, and restart containerd. Use a dedicated pool.
+- Tier 5 still skips because the cluster cannot reach a host-bound webhook.
+
 The harness does not switch branches or modify component sources. It uses
 `core/` and `kubernetes/` by default. Override `BREWLET_CORE_DIR` or
 `BREWLET_KUBERNETES_DIR` only when testing an external checkout.
@@ -48,8 +82,10 @@ The harness does not switch branches or modify component sources. It uses
 | OpenSSL | 4, 5, 6, 10, 11 |
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
-behavior. Tiers 6, 8-12, and 14-19 require local containerd nodes that
-Docker can enter, such as kind. Managed clusters skip those node-side paths. Tier 13
+behavior. Tiers 6, 8-12, and 14-19 require containerd nodes the harness can
+enter: local kind nodes by default, or any Linux node with
+`E2E_NODE_ACCESS=kubectl` (see "Managed clusters"). Otherwise managed clusters
+skip those node-side paths. Tier 13
 also proves the control-plane guard: a NodeProfile that does not set
 `nodePool.includeControlPlane` never counts or schedules onto a control-plane
 node. Because kind and Docker Desktop label their single node as the control
@@ -143,8 +179,8 @@ Common environment-specific skips:
 
 - Tier 5 skips when a cluster cannot reach a host-bound webhook; tier 6 covers
   the same assertions in-cluster.
-- Tiers 8, 9, 12, and 14-19 skip if no schedulable local containerd node
-  can be provisioned.
+- Tiers 8, 9, 12, and 14-19 skip if no schedulable containerd node can be
+  provisioned (on managed clusters, set `E2E_NODE_ACCESS=kubectl`).
 - Tier 12 skips when the node's `ctr` supports neither `images unpack` nor
   import-time unpack; tier 16 applies the same rule.
 

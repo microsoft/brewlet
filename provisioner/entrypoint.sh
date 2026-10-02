@@ -1163,7 +1163,12 @@ containerd_runtime_plugin_for_config() {
       }
     ' "$config"
   )"
+  # Some distros (e.g. AKS) ship `version = 2` while already using containerd 2's
+  # split CRI tables; containerd then drops a legacy grpc.v1.cri runtime table
+  # during migration, so follow the schema the config actually uses.
   if [[ "$version" =~ ^[0-9]+$ ]] && (( version >= 3 )); then
+    printf 'io.containerd.cri.v1.runtime'
+  elif grep -Eq "^[[:space:]]*\\[plugins\\.[\"']io\\.containerd\\.cri\\.v1\\.runtime[\"']" "$config"; then
     printf 'io.containerd.cri.v1.runtime'
   else
     printf 'io.containerd.grpc.v1.cri'

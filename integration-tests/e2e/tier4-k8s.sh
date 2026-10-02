@@ -264,7 +264,7 @@ YAML
   fi
 
   # --- Node lifecycle controller: state transitions ------------------------
-  T4_NODE="$(kubectl get nodes -o name 2>/dev/null | head -1)"
+  T4_NODE="$(e2e_node_names | head -1)"; T4_NODE="${T4_NODE:+node/$T4_NODE}"
   if [[ -z "$T4_NODE" ]]; then
     skip "node lifecycle: opt-in flow" "no nodes found"
   else

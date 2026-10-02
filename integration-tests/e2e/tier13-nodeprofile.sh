@@ -11,7 +11,9 @@
 T13_NS="brewlet"
 T13_POOL="batch"
 T13_GUARDED="guarded"
-T13_POOL_KEY="agentpool"
+# Override on clusters whose provider owns `agentpool` (AKS): the tier relabels
+# the selected node. Use a key without dots or slashes (it feeds a jsonpath).
+T13_POOL_KEY="${E2E_T13_POOL_KEY:-agentpool}"
 T13_MGR_PID=""
 T13_NODE=""
 T13_OLD_POOL=""
@@ -156,7 +158,7 @@ tier13_nodeprofile() {
   check "tier13: no prior host ownership or writer fixtures" profile_fixture_preflight || return 0
   trap _t13_cleanup RETURN
   T13_IMAGE="invalid.brewlet-e2e.invalid/provisioner:t13-$(date +%s)-$$"
-  T13_NODE="$(kubectl get nodes -o name | head -1)"
+  T13_NODE="node/$(e2e_node_names | head -1)"
   T13_OLD_POOL="$(kubectl get "$T13_NODE" -o "jsonpath={.metadata.labels.$T13_POOL_KEY}")"
   if [[ -n "$T13_OLD_POOL" ]]; then
     fail "tier13: selected node has no pre-existing test pool label" "$T13_NODE"

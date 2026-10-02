@@ -39,7 +39,7 @@ _t16_cleanup() {
   # Always put the shim back, even if an assertion aborted mid-test: a missing
   # shim would break every later tier on this node.
   if [[ -n "$T16_NODE" ]]; then
-    docker exec "$T16_NODE" sh -c \
+    node_exec "$T16_NODE" sh -c \
       "[ -f '$T16_SHIM_BACKUP' ] && mv -f '$T16_SHIM_BACKUP' '$T9_SHIM_DST' && chmod +x '$T9_SHIM_DST'" \
       >/dev/null 2>&1 || true
   fi
@@ -229,22 +229,22 @@ tier16_failure_modes() {
   # than skipping when the explicit subcommand is absent — kind's trimmed ctr
   # takes the import-time path.
   if ctr_supports_unpack "$T16_NODE"; then
-    docker exec "$T16_NODE" ctr -n k8s.io images unpack \
+    node_exec "$T16_NODE" ctr -n k8s.io images unpack \
       --platform "linux/$arch" "$T16_OOM_REF" >>"$WORK/t16-import.log" 2>&1 || true
-  elif ! docker exec "$T16_NODE" ctr -n k8s.io images import --help 2>/dev/null | grep -- "--no-unpack" >/dev/null; then
+  elif ! node_exec "$T16_NODE" ctr -n k8s.io images import --help 2>/dev/null | grep -- "--no-unpack" >/dev/null; then
     skip "tier16: failure modes" "node ctr supports neither explicit unpack nor import-time unpack"; return 0
   fi
   local oom_digest oom_image
   oom_digest="$(oci_layout_digest "$store" "$T16_OOM_REF")"
   oom_image="$(pin_image_for_cri "$T16_NODE" "$T16_OOM_REF" "$oom_digest" "$WORK/t16-import.log")"
-  if [[ -z "$oom_image" ]] || ! docker exec "$T16_NODE" crictl inspecti "$oom_image" >/dev/null 2>&1; then
+  if [[ -z "$oom_image" ]] || ! node_exec "$T16_NODE" crictl inspecti "$oom_image" >/dev/null 2>&1; then
     fail "tier16: register the OOM image with CRI" "see $WORK/t16-import.log"; return 0
   fi
 
   # --- provision the node (tier 9's generic helpers) ------------------------
-  docker cp "$shimbin" "$T16_NODE":"$T9_SHIM_DST" >>"$WORK/t16-prov.log" 2>&1
-  docker exec "$T16_NODE" chmod +x "$T9_SHIM_DST" >>"$WORK/t16-prov.log" 2>&1
-  docker exec "$T16_NODE" mkdir -p "$T9_CACHE" >>"$WORK/t16-prov.log" 2>&1
+  node_cp "$shimbin" "$T16_NODE":"$T9_SHIM_DST" >>"$WORK/t16-prov.log" 2>&1
+  node_exec "$T16_NODE" chmod +x "$T9_SHIM_DST" >>"$WORK/t16-prov.log" 2>&1
+  node_exec "$T16_NODE" mkdir -p "$T9_CACHE" >>"$WORK/t16-prov.log" 2>&1
   if ! _t9_stage_jdk "$T16_NODE" "$arch"; then
     skip "tier16: failure modes" "could not stage the temurin JDK userland (see $WORK/t9-jdk.log)"; return 0
   fi
@@ -312,7 +312,7 @@ YAML
   # Move the shim aside so containerd cannot start the task. This is the same
   # observable as a shim that crashes during Create: the container never runs
   # and the kubelet reports a create/run error instead of silently succeeding.
-  if ! docker exec "$T16_NODE" sh -c "mv -f '$T9_SHIM_DST' '$T16_SHIM_BACKUP'" >>"$WORK/t16-prov.log" 2>&1; then
+  if ! node_exec "$T16_NODE" sh -c "mv -f '$T9_SHIM_DST' '$T16_SHIM_BACKUP'" >>"$WORK/t16-prov.log" 2>&1; then
     fail "tier16: stage a shim failure" "could not move the shim aside on $T16_NODE"
   else
     _t16_apply_pod t16-shim-crash "$oom_image"
@@ -331,7 +331,7 @@ YAML
     kubectl delete pod t16-shim-crash -n "$T16_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
     # Restore immediately so a later assertion failure cannot leave the node
     # broken; _t16_cleanup repeats this defensively.
-    docker exec "$T16_NODE" sh -c \
+    node_exec "$T16_NODE" sh -c \
       "mv -f '$T16_SHIM_BACKUP' '$T9_SHIM_DST' && chmod +x '$T9_SHIM_DST'" >>"$WORK/t16-prov.log" 2>&1 \
       && pass "tier16: shim restored on $T16_NODE"
   fi

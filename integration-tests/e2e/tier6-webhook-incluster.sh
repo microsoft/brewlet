@@ -34,8 +34,8 @@ _t6_cleanup() {
     kubectl annotate "$WH_NODE" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
   fi
   # Best-effort: drop the side-loaded image from each node and the host.
-  for n in "${T6_LOADED_NODES[@]}"; do
-    docker exec "$n" ctr -n k8s.io images rm "$T6_IMG" >/dev/null 2>&1 || true
+  for n in ${T6_LOADED_NODES[@]+"${T6_LOADED_NODES[@]}"}; do
+    node_exec "$n" ctr -n k8s.io images rm "$T6_IMG" >/dev/null 2>&1 || true
   done
   docker rmi "$T6_IMG" >/dev/null 2>&1 || true
 }
@@ -53,7 +53,7 @@ tier6_webhook_incluster() {
   nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
   if [[ -z "$nodes" ]]; then skip "tier6: in-cluster webhook" "no nodes"; return 0; fi
   for n in $nodes; do
-    if ! docker inspect "$n" >/dev/null 2>&1 || ! docker exec "$n" ctr --version >/dev/null 2>&1; then
+    if ! node_provisionable "$n"; then
       skip "tier6: in-cluster webhook" "node '$n' is not a local containerd docker container (can't side-load image)"
       return 0
     fi
@@ -83,7 +83,7 @@ tier6_webhook_incluster() {
     fail "webhook(in-cluster): docker save image" "see $WORK/t6-load.log"; return 0
   fi
   for n in $nodes; do
-    if ! docker exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t6-load.log" 2>&1; then
+    if ! node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t6-load.log" 2>&1; then
       skip "tier6: in-cluster webhook" "could not import image into node '$n' (see $WORK/t6-load.log)"; return 0
     fi
     T6_LOADED_NODES+=("$n")

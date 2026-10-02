@@ -59,8 +59,8 @@ declare -a T17_BUILT_IMAGES=()
 _t17_snapshot_file() {
   local path="$1" out="$2"
   rm -f "$out" "$out.present"
-  if docker exec "$T17_NODE" test -f "$path" >/dev/null 2>&1; then
-    docker exec "$T17_NODE" cat "$path" >"$out" || return 1
+  if node_exec "$T17_NODE" test -f "$path" >/dev/null 2>&1; then
+    node_exec "$T17_NODE" cat "$path" >"$out" || return 1
     : >"$out.present"
   else
     : >"$out"
@@ -71,10 +71,10 @@ _t17_restore_file() {
   local path="$1" snapshot="$2"
   [[ -f "$snapshot" ]] || return 0
   if [[ -f "$snapshot.present" ]]; then
-    docker exec "$T17_NODE" mkdir -p "$(dirname "$path")" >/dev/null 2>&1 &&
-      docker exec -i "$T17_NODE" sh -c 'cat > "$1"' sh "$path" <"$snapshot" >/dev/null 2>&1
+    node_exec "$T17_NODE" mkdir -p "$(dirname "$path")" >/dev/null 2>&1 &&
+      node_exec -i "$T17_NODE" sh -c 'cat > "$1"' sh "$path" <"$snapshot" >/dev/null 2>&1
   else
-    docker exec "$T17_NODE" rm -f "$path" >/dev/null 2>&1
+    node_exec "$T17_NODE" rm -f "$path" >/dev/null 2>&1
   fi
 }
 
@@ -83,20 +83,20 @@ _t17_restore_containerd() {
   _t17_restore_file /etc/containerd/config.toml "$WORK/t17-containerd.toml" || return 1
   _t17_restore_file /etc/containerd/config.toml.brewlet.bak "$WORK/t17-containerd-bak.toml" || return 1
   _t17_restore_file /etc/containerd/config.toml.d/99-brewlet.toml "$WORK/t17-containerd-dropin.toml" || return 1
-  docker exec "$T17_NODE" sh -c \
+  node_exec "$T17_NODE" sh -c \
     'cat /etc/containerd/config.toml /etc/containerd/config.toml.d/99-brewlet.toml 2>/dev/null' \
     >"$after" 2>/dev/null || true
   cmp -s "$before" "$after" && return 0
-  docker exec "$T17_NODE" systemctl restart containerd >/dev/null 2>&1 || return 1
+  node_exec "$T17_NODE" systemctl restart containerd >/dev/null 2>&1 || return 1
   while (( tries-- > 0 )); do
-    docker exec "$T17_NODE" ctr version >/dev/null 2>&1 && return 0
+    node_exec "$T17_NODE" ctr version >/dev/null 2>&1 && return 0
     sleep 1
   done
   return 1
 }
 
 _t17_image_refs() {
-  docker exec "$T17_NODE" ctr -n k8s.io images ls 2>/dev/null |
+  node_exec "$T17_NODE" ctr -n k8s.io images ls 2>/dev/null |
     awk -v d="$1" 'NR > 1 && $3 == d { print $1 }'
 }
 
@@ -105,7 +105,7 @@ _t17_remove_image() {
   refs="$(_t17_image_refs "$1")"
   if [[ -n "$refs" ]]; then
     # shellcheck disable=SC2086
-    docker exec "$T17_NODE" ctr -n k8s.io images rm --sync $refs >>"$WORK/t17-app.log" 2>&1 ||
+    node_exec "$T17_NODE" ctr -n k8s.io images rm --sync $refs >>"$WORK/t17-app.log" 2>&1 ||
       return 1
   fi
   # `ctr images import --digests` also records `import-<date>@<layout index>`,
@@ -115,7 +115,7 @@ _t17_remove_image() {
     refs="$(_t17_image_refs "$T17_IMPORT_DIGEST")"
     if [[ -n "$refs" ]]; then
       # shellcheck disable=SC2086
-      docker exec "$T17_NODE" ctr -n k8s.io images rm --sync $refs >>"$WORK/t17-app.log" 2>&1 ||
+      node_exec "$T17_NODE" ctr -n k8s.io images rm --sync $refs >>"$WORK/t17-app.log" 2>&1 ||
         return 1
     fi
   fi
@@ -132,7 +132,7 @@ _t17_cleanup() {
     kubectl delete nodeprofile "$T17_PROFILE" --wait=false >/dev/null 2>&1 || true
     if ! wait_for_seconds 120 bash -c "! kubectl get nodeprofile '$T17_PROFILE'"; then
       warn "tier17: profile cleanup did not finish; removing the test finalizer"
-      docker exec "$T17_NODE" rm -f /opt/brewlet/bin/containerd-shim-brewlet-v2 \
+      node_exec "$T17_NODE" rm -f /opt/brewlet/bin/containerd-shim-brewlet-v2 \
         /usr/local/bin/containerd-shim-brewlet-v2 /usr/local/bin/brewlet-ctr \
         /usr/local/bin/brewlet-stage-gc "$T17_RECORD" >/dev/null 2>&1 || true
       kubectl patch nodeprofile "$T17_PROFILE" --type=merge \
@@ -159,7 +159,7 @@ _t17_cleanup() {
       _t17_restore_file "$T17_RECORD" "$WORK/t17-record" || true
     fi
     [[ -n "$T17_SENTINEL_CREATED" ]] &&
-      docker exec "$T17_NODE" rm -rf "$T17_SENTINEL" >/dev/null 2>&1 || true
+      node_exec "$T17_NODE" rm -rf "$T17_SENTINEL" >/dev/null 2>&1 || true
     label_node "$T17_NODE" "$T17_POOL_KEY-" brewlet.sh/provision- \
       brewlet.sh/runtime- "brewlet.sh/jdk.$T17_JDK-" \
       "brewlet.sh/jdk-feature.${T17_JDK##*-}-" brewlet.sh/launcher.java- \
@@ -168,7 +168,7 @@ _t17_cleanup() {
       brewlet.sh/launchers- brewlet.sh/profile- brewlet.sh/profile-generation- \
       brewlet.sh/provision-state- brewlet.sh/provision-error- >/dev/null 2>&1 || true
     if [[ -z "$T17_JDK_PREEXISTING" ]]; then
-      docker exec "$T17_NODE" sh -c \
+      node_exec "$T17_NODE" sh -c \
         'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
         sh "/opt/brewlet/jdks/$T17_JDK" >/dev/null 2>&1 || true
     fi
@@ -178,7 +178,7 @@ _t17_cleanup() {
 
   local n
   for n in ${T17_LOADED_NODES[@]+"${T17_LOADED_NODES[@]}"}; do
-    docker exec "$n" ctr -n k8s.io images rm \
+    node_exec "$n" ctr -n k8s.io images rm \
       "$T17_OP_IMG" "$T17_ADM_IMG" "$T17_PROV_IMG" >/dev/null 2>&1 || true
   done
   if [[ -n "${T17_BUILT_IMAGES[*]-}" ]]; then
@@ -197,7 +197,7 @@ _t17_build_load() {
   T17_BUILT_IMAGES+=("$image")
   docker save "$image" -o "$tarball" >>"$WORK/t17-load.log" 2>&1 || return 1
   for n in $nodes; do
-    docker exec -i "$n" ctr -n k8s.io images import - <"$tarball" \
+    node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" \
       >>"$WORK/t17-load.log" 2>&1 || return 1
   done
 }
@@ -259,7 +259,7 @@ _t17_wait_sweeps() {
 # _t17_sweep_diag POD STAGE NAME: distinguish a deleted stage from stalled sweeps.
 _t17_sweep_diag() {
   local present=present
-  docker exec "$T17_NODE" test -d "$2" || present=missing
+  node_exec "$T17_NODE" test -d "$2" || present=missing
   _t17_logs "$1" >"$WORK/$3-provisioner.log" 2>&1 || true
   printf 'stage=%s; last: %s; see %s' "$present" \
     "$(grep -E 'stage GC|stage-gc|Error|error' "$WORK/$3-provisioner.log" | tail -2 | tr '\n' ' ')" \
@@ -272,21 +272,21 @@ _t17_reclaim_diag() {
   local key="${2##*/}"
   {
     echo "=== tier17 reclaim diag: stage=$2 ==="
-    docker exec "$T17_NODE" ls -la "$2" 2>&1 | head -5
+    node_exec "$T17_NODE" ls -la "$2" 2>&1 | head -5
     echo "--- provisioner log (tail) ---"
     _t17_logs "$1" 2>&1 | tail -40
     echo "--- containerd namespaces / images / content / leases ---"
-    for ns in $(docker exec "$T17_NODE" ctr ns ls -q 2>/dev/null); do
+    for ns in $(node_exec "$T17_NODE" ctr ns ls -q 2>/dev/null); do
       echo "[ns $ns] images:"
-      docker exec "$T17_NODE" ctr -n "$ns" images ls 2>&1 | grep -F "${key:0:12}" || true
+      node_exec "$T17_NODE" ctr -n "$ns" images ls 2>&1 | grep -F "${key:0:12}" || true
       echo "[ns $ns] content:"
-      docker exec "$T17_NODE" ctr -n "$ns" content ls 2>&1 | grep -F "${key:0:12}" || true
+      node_exec "$T17_NODE" ctr -n "$ns" content ls 2>&1 | grep -F "${key:0:12}" || true
       echo "[ns $ns] leases:"
-      docker exec "$T17_NODE" ctr -n "$ns" leases ls 2>&1 | head -10
+      node_exec "$T17_NODE" ctr -n "$ns" leases ls 2>&1 | head -10
     done
     echo "--- mountinfo references ---"
-    docker exec "$T17_NODE" sh -c 'grep -l "brewlet-runnable" /proc/[0-9]*/mountinfo 2>/dev/null | head -20' 2>&1
-    docker exec "$T17_NODE" sh -c "grep -h -F '${key:0:12}' /proc/[0-9]*/mountinfo 2>/dev/null | sort -u | head -20" 2>&1
+    node_exec "$T17_NODE" sh -c 'grep -l "brewlet-runnable" /proc/[0-9]*/mountinfo 2>/dev/null | head -20' 2>&1
+    node_exec "$T17_NODE" sh -c "grep -h -F '${key:0:12}' /proc/[0-9]*/mountinfo 2>/dev/null | sort -u | head -20" 2>&1
   } | sed 's/^/    /' >&2
 }
 
@@ -349,7 +349,7 @@ tier17_stage_gc() {
   fi
 
   # --- snapshot and prepare host state --------------------------------------
-  docker exec "$T17_NODE" test -e "/opt/brewlet/jdks/$T17_JDK" >/dev/null 2>&1 &&
+  node_exec "$T17_NODE" test -e "/opt/brewlet/jdks/$T17_JDK" >/dev/null 2>&1 &&
     T17_JDK_PREEXISTING=1
   if ! _t17_snapshot_file /etc/containerd/config.toml "$WORK/t17-containerd.toml" ||
      ! _t17_snapshot_file /etc/containerd/config.toml.brewlet.bak "$WORK/t17-containerd-bak.toml" ||
@@ -358,7 +358,7 @@ tier17_stage_gc() {
      ! _t17_snapshot_file "$T17_RECORD" "$WORK/t17-record"; then
     fail "tier17: snapshot node state"; return 0
   fi
-  docker exec "$T17_NODE" sh -c \
+  node_exec "$T17_NODE" sh -c \
     'cat /etc/containerd/config.toml /etc/containerd/config.toml.d/99-brewlet.toml 2>/dev/null' \
     >"$WORK/t17-containerd-state-before" 2>/dev/null || true
   [[ -f "$WORK/t17-record.present" ]] && T17_RECORD_PREEXISTING=1
@@ -367,9 +367,9 @@ tier17_stage_gc() {
 
   # An existing, record-less stage root makes this an "upgraded" node. The
   # sentinel is a non-canonical tree, which the reaper must never delete.
-  docker exec "$T17_NODE" rm -f "$T17_RECORD" >/dev/null 2>&1 || true
-  if ! docker exec "$T17_NODE" test -e "$T17_SENTINEL" >/dev/null 2>&1; then
-    docker exec "$T17_NODE" sh -c 'mkdir -p "$1" && echo keep >"$1/app.jar"' sh "$T17_SENTINEL" \
+  node_exec "$T17_NODE" rm -f "$T17_RECORD" >/dev/null 2>&1 || true
+  if ! node_exec "$T17_NODE" test -e "$T17_SENTINEL" >/dev/null 2>&1; then
+    node_exec "$T17_NODE" sh -c 'mkdir -p "$1" && echo keep >"$1/app.jar"' sh "$T17_SENTINEL" \
       >/dev/null 2>&1 || { fail "tier17: plant pre-existing stage data"; return 0; }
     T17_SENTINEL_CREATED=1
   fi
@@ -488,9 +488,9 @@ YAML
   assert_not_contains "tier17: blocked node never invokes the reaper" \
     "$(_t17_logs "$pod")" "stage GC: successful_sweeps="
   check "tier17: blocked node writes no compatibility record" \
-    docker exec "$T17_NODE" test ! -e "$T17_RECORD"
+    node_exec "$T17_NODE" test ! -e "$T17_RECORD"
   check "tier17: helper is installed on the host" \
-    docker exec "$T17_NODE" test -x /usr/local/bin/brewlet-stage-gc
+    node_exec "$T17_NODE" test -x /usr/local/bin/brewlet-stage-gc
 
   # --- (3): acknowledge, then reset -----------------------------------------
   info "tier17: acknowledging the upgrade with a short interval and minimum age"
@@ -512,7 +512,7 @@ YAML
     return 0
   fi
   check "tier17: compatible node persists its compatibility record" \
-    docker exec "$T17_NODE" test -f "$T17_RECORD"
+    node_exec "$T17_NODE" test -f "$T17_RECORD"
 
   if ! helm upgrade "$T17_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
       --namespace "$T17_RELEASE_NS" --reuse-values \
@@ -580,7 +580,7 @@ YAML
       "diag: $(save_pod_diag t17-workload "$T17_APP_NS" "app=$T17_APP")"
     return 0
   fi
-  if ! docker exec "$T17_NODE" test -d "$stage"; then
+  if ! node_exec "$T17_NODE" test -d "$stage"; then
     fail "tier17: workload published its runnable stage" "missing $stage"
     return 0
   fi
@@ -588,7 +588,7 @@ YAML
 
   sweeps="$(_t17_last_sweeps "$pod")"
   if _t17_wait_sweeps "$pod" $(( ${sweeps:-0} + 2 )) &&
-     docker exec "$T17_NODE" test -d "$stage"; then
+     node_exec "$T17_NODE" test -d "$stage"; then
     pass "tier17: stage of a running, referenced image survives sweeps"
   else
     fail "tier17: stage of a running, referenced image survives sweeps" \
@@ -599,15 +599,15 @@ YAML
     >>"$WORK/t17-app.log" 2>&1 || true
   wait_for_seconds 60 bash -c "[[ -z \"\$(kubectl get pods -n '$T17_APP_NS' -o name)\" ]]" || true
   local containers
-  containers="$(docker exec "$T17_NODE" crictl ps -a -q \
+  containers="$(node_exec "$T17_NODE" crictl ps -a -q \
     --label "io.kubernetes.pod.namespace=$T17_APP_NS" 2>/dev/null || true)"
   if [[ -n "$containers" ]]; then
     # shellcheck disable=SC2086
-    docker exec "$T17_NODE" crictl rm $containers >>"$WORK/t17-app.log" 2>&1 || true
+    node_exec "$T17_NODE" crictl rm $containers >>"$WORK/t17-app.log" 2>&1 || true
   fi
   sweeps="$(_t17_last_sweeps "$pod")"
   if _t17_wait_sweeps "$pod" $(( ${sweeps:-0} + 2 )) &&
-     docker exec "$T17_NODE" test -d "$stage"; then
+     node_exec "$T17_NODE" test -d "$stage"; then
     pass "tier17: stage survives while containerd still holds its image"
   else
     fail "tier17: stage survives while containerd still holds its image" \
@@ -619,7 +619,7 @@ YAML
      [[ -n "$T17_IMPORT_DIGEST" && -n "$(_t17_image_refs "$T17_IMPORT_DIGEST")" ]]; then
     fail "tier17: remove the workload image from containerd" "see $WORK/t17-app.log"; return 0
   fi
-  if wait_for_seconds 120 docker exec "$T17_NODE" test ! -e "$stage"; then
+  if wait_for_seconds 120 node_exec "$T17_NODE" test ! -e "$stage"; then
     pass "tier17: sweep reclaims the stage after its image is removed"
   else
     _t17_reclaim_diag "$pod" "$stage"
@@ -634,5 +634,5 @@ YAML
     fail "tier17: provisioner logs the reclaimed stage"
   fi
   check "tier17: non-canonical stage data is never reclaimed" \
-    docker exec "$T17_NODE" test -f "$T17_SENTINEL/app.jar"
+    node_exec "$T17_NODE" test -f "$T17_SENTINEL/app.jar"
 }

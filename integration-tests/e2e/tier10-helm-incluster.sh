@@ -64,9 +64,17 @@ _t10_cleanup() {
   # finalizer that never clears under the bogus provisioner image. Strip it
   # before AND after `helm uninstall`: before so uninstall isn't wedged, after
   # to clear a finalizer the still-running operator may have re-added mid-uninstall.
+  # Stop the operator first so it cannot re-stamp node claims, and remember the
+  # profile UIDs: force-deleting a profile skips the operator's claim release.
+  local uids
+  uids="$(nodeprofile_uids)"
+  kubectl scale deployment -n "$T10_NS" -l app=brewlet-operator --replicas=0 >/dev/null 2>&1 || true
+  kubectl wait --for=delete pod -n "$T10_NS" -l app=brewlet-operator --timeout=60s >/dev/null 2>&1 || true
   force_delete_nodeprofiles
   helm uninstall "$T10_RELEASE" -n "$T10_RELEASE_NS" >/dev/null 2>&1 || true
   force_delete_nodeprofiles
+  # shellcheck disable=SC2086 # one UID per word
+  release_profile_node_claims $uids
   # helm doesn't manage CRDs in crds/, the operator-created RuntimeClass, or the
   # intentionally retained chart namespace — clean them directly in this fixture.
   [[ -z "$T10_RC_PREEXISTING" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
@@ -79,8 +87,8 @@ _t10_cleanup() {
   if [[ -n "$T10_NODE" ]]; then
     label_node "$T10_NODE" brewlet.sh/provision- >/dev/null 2>&1 || true
   fi
-  for n in "${T10_LOADED_NODES[@]}"; do
-    docker exec "$n" ctr -n k8s.io images rm "$T10_OP_IMG" "$T10_ADM_IMG" >/dev/null 2>&1 || true
+  for n in ${T10_LOADED_NODES[@]+"${T10_LOADED_NODES[@]}"}; do
+    node_exec "$n" ctr -n k8s.io images rm "$T10_OP_IMG" "$T10_ADM_IMG" >/dev/null 2>&1 || true
   done
   docker rmi "$T10_OP_IMG" "$T10_ADM_IMG" >/dev/null 2>&1 || true
 }
@@ -100,7 +108,7 @@ _t10_build_load() {
   tarball="$WORK/t10-$cmd.tar"
   docker save "$img" -o "$tarball" 2>>"$WORK/t10-load.log" || return 2
   for n in $nodes; do
-    docker exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t10-load.log" 2>&1 || return 3
+    node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t10-load.log" 2>&1 || return 3
   done
   return 0
 }
@@ -134,7 +142,7 @@ tier10_helm_incluster() {
   nodes="$(kubectl get nodes -o name 2>/dev/null | sed 's#node/##')"
   if [[ -z "$nodes" ]]; then skip "tier10: helm install" "no nodes"; return 0; fi
   for n in $nodes; do
-    if ! docker inspect "$n" >/dev/null 2>&1 || ! docker exec "$n" ctr --version >/dev/null 2>&1; then
+    if ! node_provisionable "$n"; then
       skip "tier10: helm install" "node '$n' is not a local containerd docker container (can't side-load images)"
       return 0
     fi
@@ -182,7 +190,7 @@ tier10_helm_incluster() {
         --set defaultProfile.enabled=false \
         --set operator.leaderElect=false \
         --set admission.nodeProfileFailurePolicy=Fail \
-        "${certificate_args[@]}" \
+        ${certificate_args[@]+"${certificate_args[@]}"} \
         --wait --timeout 180s >"$WORK/t10-install.log" 2>&1; then
     kubectl get pods -n "$T10_NS" >>"$WORK/t10-install.log" 2>&1 || true
     kubectl logs -n "$T10_NS" -l app=brewlet-operator --tail=50 >>"$WORK/t10-install.log" 2>&1 || true

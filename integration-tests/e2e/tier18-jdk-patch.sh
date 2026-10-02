@@ -64,37 +64,37 @@ _t18_cleanup() {
     --ignore-not-found --wait=false >/dev/null 2>&1 || true
   if [[ -n "$T18_NODE" ]]; then
     if [[ -n "$T18_CONTAINERD_SNAPSHOT" && -f "$T18_CONTAINERD_SNAPSHOT" ]] &&
-      docker cp "$T18_NODE:/etc/containerd/config.toml" "$WORK/t18-containerd-after.toml" >/dev/null 2>&1 &&
+      node_cp "$T18_NODE:/etc/containerd/config.toml" "$WORK/t18-containerd-after.toml" >/dev/null 2>&1 &&
       ! cmp -s "$T18_CONTAINERD_SNAPSHOT" "$WORK/t18-containerd-after.toml"; then
-      docker cp "$T18_CONTAINERD_SNAPSHOT" \
+      node_cp "$T18_CONTAINERD_SNAPSHOT" \
         "$T18_NODE:/etc/containerd/config.toml" >/dev/null 2>&1 || true
-      docker exec "$T18_NODE" systemctl restart containerd >/dev/null 2>&1 || true
+      node_exec "$T18_NODE" systemctl restart containerd >/dev/null 2>&1 || true
     fi
-    docker exec "$T18_NODE" rm -f /etc/containerd/config.toml.brewlet.bak >/dev/null 2>&1 || true
+    node_exec "$T18_NODE" rm -f /etc/containerd/config.toml.brewlet.bak >/dev/null 2>&1 || true
     # Remove the root and any retired copies this tier created; keep pre-existing ones.
     local dir
     while IFS= read -r dir; do
       [[ -n "$dir" ]] || continue
       grep -Fxq -- "$dir" <<<"$T18_PRE_RETIRED" && continue
-      docker exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
+      node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
         sh "$dir" >/dev/null 2>&1 || true
     done < <(_t18_retired_roots)
-    docker exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
+    node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
       sh "/opt/brewlet/jdks/$T18_JDK" >/dev/null 2>&1 || true
     if [[ -n "$T18_JDK_SNAPSHOT" && -f "$T18_JDK_SNAPSHOT" ]]; then
-      docker exec "$T18_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
-      docker exec -i "$T18_NODE" tar -C /opt/brewlet/jdks -xf - \
+      node_exec "$T18_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
+      node_exec -i "$T18_NODE" tar -C /opt/brewlet/jdks -xf - \
         <"$T18_JDK_SNAPSHOT" >/dev/null 2>&1 || true
     fi
-    docker exec "$T18_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
+    node_exec "$T18_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
     case "$T18_JDK_ACTIVE_STATE" in
       present)
-        docker cp "$T18_JDK_ACTIVE_SNAPSHOT" \
+        node_cp "$T18_JDK_ACTIVE_SNAPSHOT" \
           "$T18_NODE:/opt/brewlet/jdks/.brewlet-active.t18" >/dev/null 2>&1 || true
-        docker exec "$T18_NODE" mv \
+        node_exec "$T18_NODE" mv \
           /opt/brewlet/jdks/.brewlet-active.t18 /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
       absent)
-        docker exec "$T18_NODE" rm -f /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
+        node_exec "$T18_NODE" rm -f /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
     esac
     label_node "$T18_NODE" "$T18_POOL_KEY-" brewlet.sh/runtime- \
       "brewlet.sh/jdk.$T18_JDK-" "brewlet.sh/jdk-feature.${T18_JDK##*-}-" \
@@ -102,14 +102,14 @@ _t18_cleanup() {
     annotate_node "$T18_NODE" brewlet.sh/jdks- brewlet.sh/jdks-info- \
       brewlet.sh/launchers- brewlet.sh/profile- brewlet.sh/profile-generation- \
       brewlet.sh/provision-error- >/dev/null 2>&1 || true
-    docker exec "$T18_NODE" ctr -n k8s.io images rm "$T18_PROVISIONER_IMAGE" \
+    node_exec "$T18_NODE" ctr -n k8s.io images rm "$T18_PROVISIONER_IMAGE" \
       >/dev/null 2>&1 || true
   fi
   docker rmi "$T18_PROVISIONER_IMAGE" >/dev/null 2>&1 || true
 }
 
 _t18_retired_roots() {
-  docker exec "$T18_NODE" sh -c \
+  node_exec "$T18_NODE" sh -c \
     'for d in /opt/brewlet/jdks/"$1".retired.*; do [ -d "$d" ] && echo "$d"; done; true' \
     sh "$T18_JDK" 2>/dev/null
 }
@@ -218,12 +218,12 @@ tier18_jdk_patch() {
 
   # Snapshot node state this tier replaces so cleanup can restore it.
   T18_CONTAINERD_SNAPSHOT="$WORK/t18-containerd-before.toml"
-  if ! docker cp "$T18_NODE:/etc/containerd/config.toml" "$T18_CONTAINERD_SNAPSHOT" >/dev/null 2>&1; then
+  if ! node_cp "$T18_NODE:/etc/containerd/config.toml" "$T18_CONTAINERD_SNAPSHOT" >/dev/null 2>&1; then
     fail "tier18: snapshot containerd config"; return 0
   fi
-  if docker exec "$T18_NODE" test -f /opt/brewlet/jdks/.brewlet-active; then
+  if node_exec "$T18_NODE" test -f /opt/brewlet/jdks/.brewlet-active; then
     T18_JDK_ACTIVE_SNAPSHOT="$WORK/t18-jdk-active-before"
-    if docker cp "$T18_NODE:/opt/brewlet/jdks/.brewlet-active" \
+    if node_cp "$T18_NODE:/opt/brewlet/jdks/.brewlet-active" \
         "$T18_JDK_ACTIVE_SNAPSHOT" >/dev/null 2>&1; then
       T18_JDK_ACTIVE_STATE=present
     else
@@ -232,16 +232,16 @@ tier18_jdk_patch() {
   else
     T18_JDK_ACTIVE_STATE=absent
   fi
-  if docker exec "$T18_NODE" test -e "/opt/brewlet/jdks/$T18_JDK"; then
+  if node_exec "$T18_NODE" test -e "/opt/brewlet/jdks/$T18_JDK"; then
     T18_JDK_SNAPSHOT="$WORK/t18-jdk-before.tar"
-    if ! docker exec "$T18_NODE" tar -C /opt/brewlet/jdks -cf - "$T18_JDK" \
+    if ! node_exec "$T18_NODE" tar -C /opt/brewlet/jdks -cf - "$T18_JDK" \
         >"$T18_JDK_SNAPSHOT" 2>/dev/null; then
       fail "tier18: snapshot existing JDK directory"; return 0
     fi
   fi
   T18_PRE_RETIRED="$(_t18_retired_roots)"
   trap _t18_cleanup RETURN
-  docker exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
+  node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
     sh "/opt/brewlet/jdks/$T18_JDK" >/dev/null 2>&1 || true
 
   # Build the real provisioner and load it into the node's k8s.io namespace.
@@ -253,7 +253,7 @@ tier18_jdk_patch() {
       -f "$MONOREPO_DIR/provisioner/Dockerfile" "$MONOREPO_DIR" \
       >"$WORK/t18-provisioner-build.log" 2>&1 &&
     docker save "$T18_PROVISIONER_IMAGE" |
-      docker exec -i "$T18_NODE" ctr -n k8s.io images import - \
+      node_exec -i "$T18_NODE" ctr -n k8s.io images import - \
         >"$WORK/t18-provisioner-import.log" 2>&1; then
     pass "tier18: built and loaded the real node provisioner"
   else
@@ -355,7 +355,7 @@ YAML
     return 0
   fi
   assert_eq "tier18: installed root records the original source digest" \
-    "$(docker exec "$T18_NODE" head -n 1 "/opt/brewlet/jdks/$T18_JDK/.brewlet-source" 2>/dev/null)" \
+    "$(node_exec "$T18_NODE" head -n 1 "/opt/brewlet/jdks/$T18_JDK/.brewlet-source" 2>/dev/null)" \
     "$T18_OLD_IMAGE"
 
   # --- 2. Run a workload on the older build -------------------------------
@@ -468,14 +468,14 @@ YAML
       -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="JDK_SOURCE_0_IMAGE")].value}')" \
     "$T18_NEW_IMAGE"
   assert_eq "tier18: active root records the patched source digest" \
-    "$(docker exec "$T18_NODE" head -n 1 "/opt/brewlet/jdks/$T18_JDK/.brewlet-source" 2>/dev/null)" \
+    "$(node_exec "$T18_NODE" head -n 1 "/opt/brewlet/jdks/$T18_JDK/.brewlet-source" 2>/dev/null)" \
     "$T18_NEW_IMAGE"
 
   local retired="" dir
   while IFS= read -r dir; do
     [[ -n "$dir" ]] || continue
     grep -Fxq -- "$dir" <<<"$T18_PRE_RETIRED" && continue
-    if [[ "$(docker exec "$T18_NODE" head -n 1 "$dir/.brewlet-source" 2>/dev/null)" == "$T18_OLD_IMAGE" ]]; then
+    if [[ "$(node_exec "$T18_NODE" head -n 1 "$dir/.brewlet-source" 2>/dev/null)" == "$T18_OLD_IMAGE" ]]; then
       retired="$dir"
     fi
   done < <(_t18_retired_roots)
@@ -501,7 +501,7 @@ YAML
 
   if [[ -n "$retired" ]]; then
     if _t18_sweep "$WORK/t18-sweep-live.log"; then
-      if docker exec "$T18_NODE" test -d "$retired"; then
+      if node_exec "$T18_NODE" test -d "$retired"; then
         pass "tier18: retired-root sweep kept the root a running pod still uses"
       else
         fail "tier18: retired-root sweep kept the root a running pod still uses" \
@@ -542,9 +542,9 @@ YAML
   fi
 
   # --- 6. Unused retired roots are reclaimed ------------------------------
-  if [[ -n "$retired" ]] && docker exec "$T18_NODE" test -d "$retired"; then
+  if [[ -n "$retired" ]] && node_exec "$T18_NODE" test -d "$retired"; then
     if _t18_sweep "$WORK/t18-sweep-idle.log"; then
-      if docker exec "$T18_NODE" test -d "$retired"; then
+      if node_exec "$T18_NODE" test -d "$retired"; then
         fail "tier18: sweep reclaimed the retired root after its pod stopped" \
           "$retired remains; see $WORK/t18-sweep-idle.log"
       else
@@ -554,6 +554,6 @@ YAML
       fail "tier18: run the retired-root sweep after restart" "see $WORK/t18-sweep-idle.log"
     fi
     check "tier18: patched root is still usable after the sweep" \
-      docker exec "$T18_NODE" test -x "/opt/brewlet/jdks/$T18_JDK$T18_JAVA_HOME/bin/java"
+      node_exec "$T18_NODE" test -x "/opt/brewlet/jdks/$T18_JDK$T18_JAVA_HOME/bin/java"
   fi
 }

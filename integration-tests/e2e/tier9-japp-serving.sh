@@ -59,26 +59,17 @@ _t9_cleanup() {
 
 # _t9_node_arch NODE -> prints go-style arch (amd64|arm64) for the node.
 _t9_node_arch() {
-  case "$(docker exec "$1" uname -m 2>/dev/null)" in
+  case "$(node_exec "$1" uname -m 2>/dev/null)" in
     aarch64|arm64) echo arm64 ;;
     x86_64|amd64)  echo amd64 ;;
     *)             echo "" ;;
   esac
 }
 
-# _t9_stage_jdk NODE ARCH: export a self-contained temurin userland into the node
-# at $T9_JDK_ROOT (the shim needs the ELF interpreter + libc at the root, so a
-# bare JDK home is not enough). Idempotent: skips if already staged.
-_t9_stage_jdk() {
+# _t9_upload_jdk NODE ARCH: fallback for nodes without registry egress —
+# export the temurin rootfs locally and stream it to the node.
+_t9_upload_jdk() {
   local node="$1" arch="$2"
-  if docker exec "$node" chroot "$T9_JDK_ROOT" /bin/java -version >/dev/null 2>&1; then
-    printf '%s\n' "$T9_JDK" | docker exec -i "$node" sh -c \
-      'cat > /opt/brewlet/jdks/.brewlet-active'
-    return 0
-  fi
-  # A provisioner-created bare JDK home can execute from the host while still
-  # lacking the ELF loader and libc required when it becomes the sandbox root.
-  docker exec "$node" rm -rf "$T9_JDK_ROOT" >/dev/null 2>&1 || return 1
   local cid tarball="$WORK/t9-jdk-$arch.tar"
   if [[ ! -f "$tarball" ]]; then
     docker pull --platform "linux/$arch" "$T9_TEMURIN_IMG" >>"$WORK/t9-jdk.log" 2>&1 || return 1
@@ -86,18 +77,39 @@ _t9_stage_jdk() {
     docker export "$cid" -o "$tarball" 2>>"$WORK/t9-jdk.log" || { docker rm -f "$cid" >/dev/null 2>&1; return 1; }
     docker rm -f "$cid" >/dev/null 2>&1 || true
   fi
-  docker exec "$node" mkdir -p "$T9_JDK_ROOT" >/dev/null 2>&1
-  docker cp "$tarball" "$node":/opt/brewlet/jdk-root.tar >>"$WORK/t9-jdk.log" 2>&1 || return 1
-  docker exec "$node" tar -xf /opt/brewlet/jdk-root.tar -C "$T9_JDK_ROOT" >>"$WORK/t9-jdk.log" 2>&1 || return 1
-  docker exec "$node" rm -f /opt/brewlet/jdk-root.tar >/dev/null 2>&1 || true
+  node_exec "$node" mkdir -p "$T9_JDK_ROOT" >/dev/null 2>&1
+  node_cp "$tarball" "$node":/opt/brewlet/jdk-root.tar >>"$WORK/t9-jdk.log" 2>&1 || return 1
+  node_exec "$node" tar -xf /opt/brewlet/jdk-root.tar -C "$T9_JDK_ROOT" >>"$WORK/t9-jdk.log" 2>&1 || return 1
+  node_exec "$node" rm -f /opt/brewlet/jdk-root.tar >/dev/null 2>&1 || true
+}
+
+# _t9_stage_jdk NODE ARCH: export a self-contained temurin userland into the node
+# at $T9_JDK_ROOT (the shim needs the ELF interpreter + libc at the root, so a
+# bare JDK home is not enough). Idempotent: skips if already staged.
+_t9_stage_jdk() {
+  local node="$1" arch="$2"
+  if node_exec "$node" chroot "$T9_JDK_ROOT" /bin/java -version >/dev/null 2>&1; then
+    printf '%s\n' "$T9_JDK" | node_exec -i "$node" sh -c \
+      'cat > /opt/brewlet/jdks/.brewlet-active'
+    return 0
+  fi
+  # A provisioner-created bare JDK home can execute from the host while still
+  # lacking the ELF loader and libc required when it becomes the sandbox root.
+  node_exec "$node" rm -rf "$T9_JDK_ROOT" >/dev/null 2>&1 || return 1
+  # Prefer a node-side pull; streaming the ~0.5 GB rootfs over a remote exec
+  # transport is slow and fails on flaky API-server connections.
+  if ! node_stage_image_rootfs "$node" "$arch" "$T9_TEMURIN_IMG" "$T9_JDK_ROOT" "$WORK/t9-jdk.log"; then
+    node_exec "$node" rm -rf "$T9_JDK_ROOT" >/dev/null 2>&1 || return 1
+    _t9_upload_jdk "$node" "$arch" || return 1
+  fi
   # temurin puts the JDK at /opt/java/openjdk; the shim's selectJDK does
   # os.Stat(<root>/bin/java). Debian usrmerge means /bin -> usr/bin, so create a
   # RELATIVE symlink at usr/bin/java (absolute ones dangle on the host).
-  docker exec "$node" sh -c \
+  node_exec "$node" sh -c \
     "test -e '$T9_JDK_ROOT/bin/java' || ln -sf ../../opt/java/openjdk/bin/java '$T9_JDK_ROOT/usr/bin/java'" \
     >>"$WORK/t9-jdk.log" 2>&1 || return 1
-  docker exec "$node" test -x "$T9_JDK_ROOT/bin/java" || return 1
-  printf '%s\n' "$T9_JDK" | docker exec -i "$node" sh -c \
+  node_exec "$node" test -x "$T9_JDK_ROOT/bin/java" || return 1
+  printf '%s\n' "$T9_JDK" | node_exec -i "$node" sh -c \
     'cat > /opt/brewlet/jdks/.brewlet-active'
 }
 
@@ -106,13 +118,16 @@ _t9_stage_jdk() {
 _t9_patch_containerd() {
   local node="$1"
   local systemd=true plugin=io.containerd.grpc.v1.cri
-  docker exec "$node" grep -qE '^[[:space:]]*version[[:space:]]*=[[:space:]]*3([[:space:]]|$)' /etc/containerd/config.toml 2>/dev/null \
+  node_exec "$node" grep -qE '^[[:space:]]*version[[:space:]]*=[[:space:]]*3([[:space:]]|$)' /etc/containerd/config.toml 2>/dev/null \
     && plugin=io.containerd.cri.v1.runtime
-  if docker exec "$node" grep -Fq "[plugins.\"${plugin}\".containerd.runtimes.brewlet]" /etc/containerd/config.toml 2>/dev/null; then
+  # version-2 configs that already use containerd 2's split CRI tables (AKS).
+  node_exec "$node" grep -qF '[plugins."io.containerd.cri.v1.runtime"' /etc/containerd/config.toml 2>/dev/null \
+    && plugin=io.containerd.cri.v1.runtime
+  if node_exec "$node" grep -Fq "[plugins.\"${plugin}\".containerd.runtimes.brewlet]" /etc/containerd/config.toml 2>/dev/null; then
     return 0
   fi
-  docker exec "$node" grep -qiE '^[[:space:]]*SystemdCgroup[[:space:]]*=[[:space:]]*false' /etc/containerd/config.toml 2>/dev/null && systemd=false
-  docker exec -i "$node" sh -c "cat >>/etc/containerd/config.toml" <<EOF
+  node_exec "$node" grep -qiE '^[[:space:]]*SystemdCgroup[[:space:]]*=[[:space:]]*false' /etc/containerd/config.toml 2>/dev/null && systemd=false
+  node_exec -i "$node" sh -c "cat >>/etc/containerd/config.toml" <<EOF
 
 # --- added by e2e tier9 (mirrors microsoft/brewlet provisioner/entrypoint.sh) ---
 [plugins."${plugin}".containerd.runtimes.brewlet]
@@ -122,11 +137,11 @@ _t9_patch_containerd() {
     SystemdCgroup = ${systemd}
 # --- end brewlet ---
 EOF
-  docker exec "$node" grep -q 'containerd.runtimes.brewlet\]' /etc/containerd/config.toml 2>/dev/null || return 1
-  docker exec "$node" systemctl restart containerd >>"$WORK/t9-containerd.log" 2>&1 || return 1
+  node_exec "$node" grep -q 'containerd.runtimes.brewlet\]' /etc/containerd/config.toml 2>/dev/null || return 1
+  node_exec "$node" systemctl restart containerd >>"$WORK/t9-containerd.log" 2>&1 || return 1
   local tries=20
   while (( tries-- > 0 )); do
-    docker exec "$node" ctr version >/dev/null 2>&1 && return 0
+    node_exec "$node" ctr version >/dev/null 2>&1 && return 0
     sleep 0.5
   done
   return 1
@@ -308,9 +323,9 @@ tier9_serving() {
   pass "tier9: pushed + imported runnable images ($T9_IMAGE_REF)"
 
   # --- provision the node: shim binary, JDK userland, containerd runtime -----
-  docker cp "$shimbin" "$T9_NODE":"$T9_SHIM_DST" >>"$WORK/t9-prov.log" 2>&1
-  docker exec "$T9_NODE" chmod +x "$T9_SHIM_DST" >>"$WORK/t9-prov.log" 2>&1
-  docker exec "$T9_NODE" mkdir -p "$T9_CACHE" >>"$WORK/t9-prov.log" 2>&1
+  node_cp "$shimbin" "$T9_NODE":"$T9_SHIM_DST" >>"$WORK/t9-prov.log" 2>&1
+  node_exec "$T9_NODE" chmod +x "$T9_SHIM_DST" >>"$WORK/t9-prov.log" 2>&1
+  node_exec "$T9_NODE" mkdir -p "$T9_CACHE" >>"$WORK/t9-prov.log" 2>&1
   if ! _t9_stage_jdk "$T9_NODE" "$arch"; then
     skip "tier9: serving on a real node" "could not stage temurin JDK userland (see $WORK/t9-jdk.log)"; return 0
   fi

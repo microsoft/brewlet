@@ -25,7 +25,7 @@
 # Unlike tier6 (which only side-loads a normal image), this tier provisions the
 # whole Brewlet runtime by hand — equivalent to the core provisioner — so it
 # only runs where the nodes are local containerd docker containers we can reach
-# with `docker exec` (kind / CI). It SKIPs everywhere else.
+# with `node_exec` (kind / CI). It SKIPs everywhere else.
 #
 # Prereqs: kubectl + reachable cluster, docker (nodes are local containers), go,
 # python3, a JDK 21+ ($JAVA_HOME) to build the demo JAR, and network access to
@@ -57,7 +57,7 @@ _t8_cleanup() {
     label_node "$n" brewlet.sh/runtime- brewlet.sh/appcds-regeneration- >/dev/null 2>&1 || true
     annotate_node "$n" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
   done
-  [[ -n "$T8_NODE" ]] && docker exec "$T8_NODE" rm -f "$T8_POLICY" >/dev/null 2>&1 || true
+  [[ -n "$T8_NODE" ]] && node_exec "$T8_NODE" rm -f "$T8_POLICY" >/dev/null 2>&1 || true
   # We intentionally leave the node's shim binary / JDK root / config.toml patch
   # in place: they are cheap, idempotent, and reused on a re-run. The disposable
   # cluster is torn down by the operator anyway.
@@ -65,26 +65,17 @@ _t8_cleanup() {
 
 # _t8_node_arch NODE -> prints go-style arch (amd64|arm64) for the node.
 _t8_node_arch() {
-  case "$(docker exec "$1" uname -m 2>/dev/null)" in
+  case "$(node_exec "$1" uname -m 2>/dev/null)" in
     aarch64|arm64) echo arm64 ;;
     x86_64|amd64)  echo amd64 ;;
     *)             echo "" ;;
   esac
 }
 
-# _t8_stage_jdk NODE ARCH: export a self-contained temurin userland into the
-# node at $T8_JDK_ROOT (§5.3 needs the ELF interpreter + libc at the root, so a
-# bare JDK home is not enough). Idempotent: skips if already staged.
-_t8_stage_jdk() {
+# _t8_upload_jdk NODE ARCH: fallback for nodes without registry egress —
+# export the temurin rootfs locally and stream it to the node.
+_t8_upload_jdk() {
   local node="$1" arch="$2"
-  if docker exec "$node" chroot "$T8_JDK_ROOT" /bin/java -version >/dev/null 2>&1; then
-    printf '%s\n' "$T8_JDK" | docker exec -i "$node" sh -c \
-      'cat > /opt/brewlet/jdks/.brewlet-active'
-    return 0
-  fi
-  # A provisioner-created bare JDK home can execute from the host while still
-  # lacking the ELF loader and libc required when it becomes the sandbox root.
-  docker exec "$node" rm -rf "$T8_JDK_ROOT" >/dev/null 2>&1 || return 1
   local cid tarball="$WORK/t8-jdk-$arch.tar"
   if [[ ! -f "$tarball" ]]; then
     docker pull --platform "linux/$arch" "$T8_TEMURIN_IMG" >>"$WORK/t8-jdk.log" 2>&1 || return 1
@@ -92,18 +83,39 @@ _t8_stage_jdk() {
     docker export "$cid" -o "$tarball" 2>>"$WORK/t8-jdk.log" || { docker rm -f "$cid" >/dev/null 2>&1; return 1; }
     docker rm -f "$cid" >/dev/null 2>&1 || true
   fi
-  docker exec "$node" mkdir -p "$T8_JDK_ROOT" >/dev/null 2>&1
-  docker cp "$tarball" "$node":/opt/brewlet/jdk-root.tar >>"$WORK/t8-jdk.log" 2>&1 || return 1
-  docker exec "$node" tar -xf /opt/brewlet/jdk-root.tar -C "$T8_JDK_ROOT" >>"$WORK/t8-jdk.log" 2>&1 || return 1
-  docker exec "$node" rm -f /opt/brewlet/jdk-root.tar >/dev/null 2>&1 || true
+  node_exec "$node" mkdir -p "$T8_JDK_ROOT" >/dev/null 2>&1
+  node_cp "$tarball" "$node":/opt/brewlet/jdk-root.tar >>"$WORK/t8-jdk.log" 2>&1 || return 1
+  node_exec "$node" tar -xf /opt/brewlet/jdk-root.tar -C "$T8_JDK_ROOT" >>"$WORK/t8-jdk.log" 2>&1 || return 1
+  node_exec "$node" rm -f /opt/brewlet/jdk-root.tar >/dev/null 2>&1 || true
+}
+
+# _t8_stage_jdk NODE ARCH: export a self-contained temurin userland into the
+# node at $T8_JDK_ROOT (§5.3 needs the ELF interpreter + libc at the root, so a
+# bare JDK home is not enough). Idempotent: skips if already staged.
+_t8_stage_jdk() {
+  local node="$1" arch="$2"
+  if node_exec "$node" chroot "$T8_JDK_ROOT" /bin/java -version >/dev/null 2>&1; then
+    printf '%s\n' "$T8_JDK" | node_exec -i "$node" sh -c \
+      'cat > /opt/brewlet/jdks/.brewlet-active'
+    return 0
+  fi
+  # A provisioner-created bare JDK home can execute from the host while still
+  # lacking the ELF loader and libc required when it becomes the sandbox root.
+  node_exec "$node" rm -rf "$T8_JDK_ROOT" >/dev/null 2>&1 || return 1
+  # Prefer a node-side pull; streaming the ~0.5 GB rootfs over a remote exec
+  # transport is slow and fails on flaky API-server connections.
+  if ! node_stage_image_rootfs "$node" "$arch" "$T8_TEMURIN_IMG" "$T8_JDK_ROOT" "$WORK/t8-jdk.log"; then
+    node_exec "$node" rm -rf "$T8_JDK_ROOT" >/dev/null 2>&1 || return 1
+    _t8_upload_jdk "$node" "$arch" || return 1
+  fi
   # temurin puts the JDK at /opt/java/openjdk; the shim's selectJDK does
   # os.Stat(<root>/bin/java). Debian usrmerge means /bin -> usr/bin, so create a
   # RELATIVE symlink at usr/bin/java (absolute ones dangle on the host).
-  docker exec "$node" sh -c \
+  node_exec "$node" sh -c \
     "test -e '$T8_JDK_ROOT/bin/java' || ln -sf ../../opt/java/openjdk/bin/java '$T8_JDK_ROOT/usr/bin/java'" \
     >>"$WORK/t8-jdk.log" 2>&1 || return 1
-  docker exec "$node" test -x "$T8_JDK_ROOT/bin/java" || return 1
-  printf '%s\n' "$T8_JDK" | docker exec -i "$node" sh -c \
+  node_exec "$node" test -x "$T8_JDK_ROOT/bin/java" || return 1
+  printf '%s\n' "$T8_JDK" | node_exec -i "$node" sh -c \
     'cat > /opt/brewlet/jdks/.brewlet-active'
 }
 
@@ -113,13 +125,16 @@ _t8_stage_jdk() {
 _t8_patch_containerd() {
   local node="$1"
   local systemd=true plugin=io.containerd.grpc.v1.cri
-  docker exec "$node" grep -qE '^[[:space:]]*version[[:space:]]*=[[:space:]]*3([[:space:]]|$)' /etc/containerd/config.toml 2>/dev/null \
+  node_exec "$node" grep -qE '^[[:space:]]*version[[:space:]]*=[[:space:]]*3([[:space:]]|$)' /etc/containerd/config.toml 2>/dev/null \
     && plugin=io.containerd.cri.v1.runtime
-  if docker exec "$node" grep -Fq "[plugins.\"${plugin}\".containerd.runtimes.brewlet]" /etc/containerd/config.toml 2>/dev/null; then
+  # version-2 configs that already use containerd 2's split CRI tables (AKS).
+  node_exec "$node" grep -qF '[plugins."io.containerd.cri.v1.runtime"' /etc/containerd/config.toml 2>/dev/null \
+    && plugin=io.containerd.cri.v1.runtime
+  if node_exec "$node" grep -Fq "[plugins.\"${plugin}\".containerd.runtimes.brewlet]" /etc/containerd/config.toml 2>/dev/null; then
     return 0
   fi
-  docker exec "$node" grep -qiE '^[[:space:]]*SystemdCgroup[[:space:]]*=[[:space:]]*false' /etc/containerd/config.toml 2>/dev/null && systemd=false
-  docker exec -i "$node" sh -c "cat >>/etc/containerd/config.toml" <<EOF
+  node_exec "$node" grep -qiE '^[[:space:]]*SystemdCgroup[[:space:]]*=[[:space:]]*false' /etc/containerd/config.toml 2>/dev/null && systemd=false
+  node_exec -i "$node" sh -c "cat >>/etc/containerd/config.toml" <<EOF
 
 # --- added by e2e tier8 (mirrors microsoft/brewlet provisioner/entrypoint.sh) ---
 [plugins."${plugin}".containerd.runtimes.brewlet]
@@ -129,12 +144,12 @@ _t8_patch_containerd() {
     SystemdCgroup = ${systemd}
 # --- end brewlet ---
 EOF
-  docker exec "$node" grep -q 'containerd.runtimes.brewlet\]' /etc/containerd/config.toml 2>/dev/null || return 1
-  docker exec "$node" systemctl restart containerd >>"$WORK/t8-containerd.log" 2>&1 || return 1
+  node_exec "$node" grep -q 'containerd.runtimes.brewlet\]' /etc/containerd/config.toml 2>/dev/null || return 1
+  node_exec "$node" systemctl restart containerd >>"$WORK/t8-containerd.log" 2>&1 || return 1
   # containerd needs a moment to come back and re-register CRI.
   local tries=20
   while (( tries-- > 0 )); do
-    docker exec "$node" ctr version >/dev/null 2>&1 && return 0
+    node_exec "$node" ctr version >/dev/null 2>&1 && return 0
     sleep 0.5
   done
   return 1
@@ -223,11 +238,11 @@ tier8_appcds_incluster() {
   pass "tier8: pushed + imported runnable image ($image_ref)"
 
   # --- provision the node: shim binary, JDK userland, containerd runtime -----
-  docker cp "$shimbin" "$T8_NODE":"$T8_SHIM_DST" >>"$WORK/t8-prov.log" 2>&1
-  docker exec "$T8_NODE" chmod +x "$T8_SHIM_DST" >>"$WORK/t8-prov.log" 2>&1
+  node_cp "$shimbin" "$T8_NODE":"$T8_SHIM_DST" >>"$WORK/t8-prov.log" 2>&1
+  node_exec "$T8_NODE" chmod +x "$T8_SHIM_DST" >>"$WORK/t8-prov.log" 2>&1
   if ! {
-    docker exec "$T8_NODE" mkdir -p "$T8_CACHE" "$(dirname "$T8_POLICY")" &&
-      printf 'enabled\n' | docker exec -i "$T8_NODE" sh -c \
+    node_exec "$T8_NODE" mkdir -p "$T8_CACHE" "$(dirname "$T8_POLICY")" &&
+      printf 'enabled\n' | node_exec -i "$T8_NODE" sh -c \
         "rm -f '$T8_POLICY' && cat > '$T8_POLICY' && chmod 0444 '$T8_POLICY'"
   } >>"$WORK/t8-prov.log" 2>&1; then
     fail "tier8: install AppCDS regeneration policy" "see $WORK/t8-prov.log"; return 0
@@ -309,7 +324,7 @@ YAML
   # --- ROLLOUT 1: writer -----------------------------------------------------
   # Start from a clean cache so rollout 1 deterministically elects a WRITER
   # (a leftover archive from a previous run would make it a consumer instead).
-  docker exec "$T8_NODE" sh -c \
+  node_exec "$T8_NODE" sh -c \
     "find '$T8_CACHE' -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +" || true
   info "tier8: deploying WRITE rollout (regen-writer)"
   _t8_apply_pod "$T8_NS" regen-writer
@@ -326,11 +341,11 @@ YAML
   kubectl delete -n "$T8_NS" pod/regen-writer --grace-period=30 --wait=true >>"$WORK/t8-pod.log" 2>&1 || true
 
   local victim_jsa
-  if wait_for docker exec "$T8_NODE" sh -c \
+  if wait_for node_exec "$T8_NODE" sh -c \
     "find '$T8_CACHE' -mindepth 2 -maxdepth 2 -type f -name archive.jsa | grep -q ."; then
-    victim_jsa="$(docker exec "$T8_NODE" sh -c \
+    victim_jsa="$(node_exec "$T8_NODE" sh -c \
       "find '$T8_CACHE' -mindepth 2 -maxdepth 2 -type f -name archive.jsa | head -1" | tr -d '\r')"
-    local sz; sz="$(docker exec "$T8_NODE" sh -c "wc -c < '$victim_jsa' 2>/dev/null" | tr -d '[:space:]')"
+    local sz; sz="$(node_exec "$T8_NODE" sh -c "wc -c < '$victim_jsa' 2>/dev/null" | tr -d '[:space:]')"
     if [[ "${sz:-0}" -gt 0 ]]; then
       pass "tier8: writer dumped AppCDS archive to private node cache (${sz} bytes)"
     else
@@ -360,7 +375,7 @@ YAML
   local victim_entry victim_key victim_sum
   victim_entry="$(dirname "$victim_jsa")"
   victim_key="$(basename "$victim_entry")"
-  victim_sum="$(docker exec "$T8_NODE" sha256sum "$victim_jsa" | awk '{print $1}' | tr -d '\r')"
+  victim_sum="$(node_exec "$T8_NODE" sha256sum "$victim_jsa" | awk '{print $1}' | tr -d '\r')"
 
   info "tier8: deploying attacker writer in a separate namespace"
   _t8_apply_pod "$T8_ATTACKER_NS" regen-attacker
@@ -376,7 +391,7 @@ YAML
     -o jsonpath='{.status.containerStatuses[0].containerID}' | sed 's#^containerd://##')"
   attacker_bundle="/run/containerd/io.containerd.runtime.v2.task/k8s.io/${attacker_cid}/config.json"
   attacker_config="$WORK/t8-attacker-config.json"
-  if ! docker exec "$T8_NODE" cat "$attacker_bundle" >"$attacker_config"; then
+  if ! node_exec "$T8_NODE" cat "$attacker_bundle" >"$attacker_config"; then
     fail "tier8: inspect attacker runtime bundle" "missing $attacker_bundle"
     return 0
   fi
@@ -423,7 +438,7 @@ PY
     return 0
   fi
   local victim_sum_after
-  victim_sum_after="$(docker exec "$T8_NODE" sha256sum "$victim_jsa" | awk '{print $1}' | tr -d '\r')"
+  victim_sum_after="$(node_exec "$T8_NODE" sha256sum "$victim_jsa" | awk '{print $1}' | tr -d '\r')"
   if [[ "$victim_sum_after" != "$victim_sum" ]]; then
     fail "tier8: attacker cannot modify or replace victim archive" "victim checksum changed"
     return 0
