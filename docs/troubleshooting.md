@@ -320,10 +320,15 @@ containerd --config /etc/containerd/config.toml config dump | grep -A4 runtimes.
   With cert-manager enabled, inspect `Certificate`, `CertificateRequest`, and
   issuer readiness plus the `cert-manager.io/inject-ca-from` annotations.
 - **Webhook timeouts after enabling NetworkPolicies** usually mean
-  `networkPolicy.admission.apiServerCIDRs` does not match the source addresses
-  used by the control plane. Temporarily disable the policies, confirm those
-  addresses with your Kubernetes provider/CNI documentation, and re-enable with
-  the corrected CIDRs.
+  `networkPolicy.admission.apiServerCIDRs` and `networkPolicy.admission.ingressFrom`
+  do not match the sources used by the control plane. Temporarily disable the
+  policies, confirm those sources with your Kubernetes provider/CNI
+  documentation, and re-enable with corrected peers. On AKS, an error such as
+  `proxy error from localhost:9443 while dialing <pod-ip>:9443, code 504` means
+  the `konnectivity-agent` pods in `kube-system` cannot reach the webhook. CNIs
+  such as Azure CNI powered by Cilium never match those pods with CIDRs, even
+  `0.0.0.0/0`, so add them as a namespace+pod selector in
+  `networkPolicy.admission.ingressFrom`.
 - **Control-plane pods fail readiness after enabling NetworkPolicies** when
   `networkPolicy.healthProbes.ingressFrom` does not match the source addresses
   used by kubelets. Configure the cluster's node CIDRs or equivalent trusted

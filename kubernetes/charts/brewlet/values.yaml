@@ -182,6 +182,12 @@ networkPolicy:
     # Source CIDRs used by the Kubernetes API server when calling admission
     # webhooks. These vary by cluster and CNI.
     apiServerCIDRs: []
+    # Additional NetworkPolicy peers allowed to call the admission webhook.
+    # Use this when the API server reaches pods through in-cluster proxy pods,
+    # which CIDR rules may not match (for example AKS konnectivity-agent pods
+    # under Azure CNI powered by Cilium). At least one entry in apiServerCIDRs
+    # or ingressFrom is required when admission is enabled.
+    ingressFrom: []
   metrics:
     # Kubernetes NetworkPolicy peers allowed to scrape Brewlet metrics. Each
     # entry may use namespaceSelector, podSelector, or ipBlock.

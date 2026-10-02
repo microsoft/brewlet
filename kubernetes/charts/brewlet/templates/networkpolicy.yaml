@@ -4,12 +4,13 @@
 {{- if .Values.networkPolicy.enabled }}
 {{- $healthPeers := .Values.networkPolicy.healthProbes.ingressFrom -}}
 {{- $admissionPeers := .Values.networkPolicy.admission.apiServerCIDRs -}}
+{{- $admissionExtraPeers := .Values.networkPolicy.admission.ingressFrom | default list -}}
 {{- $metricsPeers := .Values.networkPolicy.metrics.ingressFrom -}}
 {{- if and (or .Values.admission.enabled .Values.metrics.enabled) (eq (len $healthPeers) 0) -}}
 {{- fail "networkPolicy.healthProbes.ingressFrom must contain at least one kubelet peer when NetworkPolicies protect control-plane pods" -}}
 {{- end -}}
-{{- if and .Values.admission.enabled (eq (len $admissionPeers) 0) -}}
-{{- fail "networkPolicy.admission.apiServerCIDRs must contain at least one API-server source CIDR when NetworkPolicies and admission are enabled" -}}
+{{- if and .Values.admission.enabled (eq (add (len $admissionPeers) (len $admissionExtraPeers)) 0) -}}
+{{- fail "networkPolicy.admission.apiServerCIDRs or networkPolicy.admission.ingressFrom must contain at least one API-server source when NetworkPolicies and admission are enabled" -}}
 {{- end -}}
 {{- if and .Values.metrics.enabled (eq (len $metricsPeers) 0) -}}
 {{- fail "networkPolicy.metrics.ingressFrom must contain at least one trusted peer when NetworkPolicies and metrics are enabled" -}}
@@ -34,6 +35,9 @@ spec:
         {{- range $cidr := $admissionPeers }}
         - ipBlock:
             cidr: {{ $cidr | quote }}
+        {{- end }}
+        {{- with $admissionExtraPeers }}
+        {{- toYaml . | nindent 8 }}
         {{- end }}
       ports:
         - protocol: TCP

@@ -458,11 +458,23 @@ YAML
          --set networkPolicy.enabled=true \
          --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
          >"$WORK/t4-network-policy-invalid.log" 2>&1; then
-      fail "helm: NetworkPolicies require API-server CIDRs"
+      fail "helm: NetworkPolicies require API-server sources"
     else
-      assert_contains "helm: NetworkPolicies report missing API-server CIDRs" \
+      assert_contains "helm: NetworkPolicies report missing API-server sources" \
         "$(cat "$WORK/t4-network-policy-invalid.log")" \
-        "networkPolicy.admission.apiServerCIDRs must contain at least one"
+        "networkPolicy.admission.apiServerCIDRs or networkPolicy.admission.ingressFrom must contain at least one"
+    fi
+    if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+          "${min_profile[@]}" \
+          --set networkPolicy.enabled=true \
+          --set 'networkPolicy.healthProbes.ingressFrom[0].ipBlock.cidr=10.1.0.0/16' \
+          --set 'networkPolicy.admission.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=kube-system' \
+          --set 'networkPolicy.admission.ingressFrom[0].podSelector.matchLabels.app=konnectivity-agent' \
+          2>>"$WORK/t4-helm-template.log")"; then
+      assert_contains "helm: admission NetworkPolicy accepts selector peers without CIDRs" \
+        "$tmpl" "app: konnectivity-agent"
+    else
+      fail "helm: admission NetworkPolicy renders selector peers" "see $WORK/t4-helm-template.log"
     fi
     if tmpl="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
           "${min_profile[@]}" \
