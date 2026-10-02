@@ -239,9 +239,10 @@ owned by the application team.
 !!! warning "Go CLI boundary"
 
     The Go CLI consumes managed bundles from its `--store` OCI layout and
-    requires caller-supplied canonical `--lock` files. Use the Maven plugin for
-    BOM import, Maven graph derivation, and direct registry publication or
-    consumption.
+    requires caller-supplied canonical `--lock` files. `brewlet push` can upload
+    ordinary images to a registry, but not images composed with
+    `--dependency-bundle`. Use the Maven plugin for BOM import, Maven graph
+    derivation, and direct registry publication or consumption of managed bundles.
 
 Every valid bundle includes an SBOM. Bundle provenance is optional: omitting
 both signing options publishes an unsigned bundle, while supplying them

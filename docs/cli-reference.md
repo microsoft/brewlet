@@ -17,7 +17,7 @@ a release number to pin it, or change `--install-dir` to choose another destinat
 You can instead build the CLI with `make binaries` (producing `./bin/brewlet`).
 
 ```
-brewlet push    <jar> <ref> [flags]   publish a JAR as an OCI artifact
+brewlet push    <jar> <ref> [flags]   publish a JAR to a registry or local OCI layout
 brewlet dependency-bundle <tar> <ref> publish an approved dependency bundle
 brewlet keygen              [flags]   generate an ECDSA P-256 key pair
 brewlet inspect <ref>       [flags]   show the artifact manifest + config
@@ -110,8 +110,8 @@ registry publication or consumption. See
 
 ## `brewlet push`
 
-Publish a JAR to an OCI registry (generates a minimal launch config, or embeds one
-you provide). By default it publishes a **runnable, kubelet-pullable OCI image**;
+Publish a JAR to an OCI registry or a local OCI layout (generates a minimal launch
+config, or embeds one you provide). By default it publishes a **runnable, kubelet-pullable OCI image**;
 pass `--format=artifact` only for the native Brewlet artifact path used by local
 OCI-layout / CLI / bundle workflows (see [runnable-image delivery](runnable-image.md)).
 
@@ -125,12 +125,45 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
                           [--signing-key PEM --builder-identity IDENTITY]]
                          [--appcds-archive JSA | --appcds [--appcds-java JAVA]
                           [--appcds-timeout SEC] [--appcds-arg ARG ...]]
+                         [--push-result FILE]
+                         [--insecure-registry HOST[:PORT] ...]
+                         [--allowed-token-realm HOST[:PORT] ...]
 ```
+
+**Where it publishes.** When `<ref>` names a registry host — its first path
+component contains `.` or `:` or is `localhost` (e.g.
+`myacr.azurecr.io/team/app:1.4.2`, `localhost:5000/app:1`) — `push` uploads the
+image straight to that registry and prints the digest-pinned deploy image. A ref
+without a host (`demo/hello:1.0.0`) is written to the local `--store` layout and
+**never** defaults to Docker Hub; use `docker.io/<user>/app:tag` to target Docker
+Hub explicitly. Passing `--store` explicitly keeps a host-qualified ref local, so
+existing `--store` workflows are unchanged.
+
+Registry pushes use the same credential chain and trust policy as the
+[Maven plugin](building-and-publishing.md#option-c-maven-plugin) (minus
+`settings.xml`):
+
+1. Docker config (`$DOCKER_CONFIG/config.json` or `~/.docker/config.json`): a
+   per-registry `credHelpers` entry, then an inline `auths` entry (`identitytoken`
+   or `auth`), then the default `credsStore`. Helpers run as
+   `docker-credential-<name> get` — so `docker login` and `az acr login` just work.
+2. `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD`.
+3. Otherwise anonymous.
+
+Identity tokens (e.g. from `az acr login`) are exchanged with an OAuth2
+refresh-token grant and are never sent as Basic credentials. Registry credentials
+are only sent to the registry origin or its token service on the same origin;
+a token realm on another origin receives them only if listed with
+`--allowed-token-realm` (Docker Hub's `auth.docker.io` is built in). Plain HTTP is
+used only for loopback registries and `--insecure-registry` entries. Blobs the
+registry already has are skipped, and upload progress is reported on stderr.
+`--dependency-bundle` is not supported for registry pushes — use the Maven plugin
+or build into a local layout with `--store`.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--format` | `image` | Delivery format: `image` (standard, kubelet-pullable OCI image — the production `runtimeClassName: brewlet` pod image) or `artifact` (native Brewlet OCI artifact for local OCI-layout / CLI / bundle workflows, not the production Kubernetes pod image path). See [runnable-image delivery](runnable-image.md). |
-| `--store` | `./oci` | OCI layout directory to write the artifact into. |
+| `--store` | `./oci` | OCI layout directory to write the artifact into. Setting it explicitly keeps a registry-hosted `<ref>` local instead of uploading it. |
 | `--config` | *(none)* | Path to a `jvm-config.json` to embed verbatim (overrides the generated one). See the [launch config schema](building-and-publishing.md#2-the-launch-config). |
 | `--arch` | *(auto-detected)* | Comma-separated architecture constraint (e.g. `amd64` or `amd64,arm64`) for a **non-portable (JNI) JAR**: injects `kubernetes.io/arch` nodeAffinity and denies scheduling with `NoCompatibleArch` when no ready node matches. Overrides native-library auto-detection. Omit for arch-neutral bytecode (the default). See [multi-arch](multi-arch.md). |
 | `--no-arch` | `false` | Disable native-library auto-detection and publish with **no** arch constraint (force arch-neutral), even when bundled natives are found. |
@@ -148,6 +181,9 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
 | `--appcds-java` | *(auto)* | `java` executable (or a `JAVA_HOME` directory) used for `--appcds` training. Defaults to `$JAVA_HOME/bin/java`, then `java` on `PATH`. |
 | `--appcds-timeout` | `120` | Seconds to wait for the `--appcds` training JVM to self-terminate. |
 | `--appcds-arg` | *(none)* | Workload argument passed to the `--appcds` training JVM to drive class loading (repeatable). |
+| `--push-result` | *(none)* | Registry push only: write a `push.json` handoff — `{"image","digest","deployImage","format"}`, the same schema as the Maven plugin's `target/brewlet/push.json` — to this file. |
+| `--insecure-registry` | *(none)* | Registry push only: `HOST[:PORT]` that may be reached (and whose token realm may be reached) over plain HTTP (repeatable). Loopback registries always may. |
+| `--allowed-token-realm` | *(none)* | Registry push only: `HOST[:PORT]` of a cross-origin token service trusted to receive registry credentials (repeatable). |
 
 By default `push` scans the JAR for bundled native libraries and sets the `arch`
 constraint automatically for non-portable artifacts (pass `--arch` to override, or
@@ -158,6 +194,8 @@ least every 30 seconds and reports the archive size and training time when done.
 
 ```bash
 brewlet push ./target/app.jar demo/hello:1.0.0                        # runnable image (default)
+brewlet push ./target/app.jar myacr.azurecr.io/team/hello:1.0.0       # straight to a registry
+brewlet push ./target/app.jar localhost:5000/hello:1 --push-result push.json
 brewlet push ./target/app.jar demo/hello:1.0.0 --format artifact      # native artifact
 brewlet push ./target/app.jar demo/hello:1.0.0 --config ./jvm-config.json
 brewlet push ./target/app.jar demo/hello:1.0.0 --config ./cfg.json --classpath-layer deps.tar
@@ -175,6 +213,8 @@ brewlet push ./target/orders.jar apps/orders:1.4.2 \
 Output confirms the pushed digest and store (for a runnable image, the multi-arch index
 digest and target platforms; for a native artifact, the manifest digest and
 `artifactType`) — and reminds you that you shipped **only the JAR**, no Dockerfile.
+A registry push prints the registry, how many blobs were uploaded or already
+present, and the digest-pinned `deploy image:` to use in Kubernetes manifests.
 
 ---
 

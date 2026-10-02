@@ -62,11 +62,11 @@ accepted and implemented.
   suit clusters that cannot accept privileged provisioning or that need a
   VM-isolated sandbox, at the cost of centralized JDK patching. See
   [proposal 0007](specs/proposals/0007-baked-golden-image-delivery.md).
-- **Registry publication from the Go CLI.** `brewlet push` currently reads and
-  writes local OCI layouts through `--store`; direct registry publication and
-  referrer consumption are available only through the Maven plugin. A Go
-  registry client would close that gap, at the cost of a second implementation
-  of trust-critical referrer and auth handling.
+- **Managed bundles and referrers from the Go CLI.** `brewlet push` uploads
+  ordinary images directly to a registry, but managed dependency bundles and
+  referrer consumption still go through `--store` layouts or the Maven plugin.
+  Extending the Go registry client would close that gap, at the cost of a second
+  implementation of trust-critical referrer handling.
 - **Additional multi-architecture guardrails.** Expand architecture coverage
   observability and safeguards for workloads with accelerator or native-library
   constraints.

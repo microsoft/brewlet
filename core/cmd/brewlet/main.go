@@ -4,7 +4,7 @@
 // brewlet is a Phase-0 PoC CLI proving the Brewlet model: a developer ships
 // ONLY a JAR (as an OCI artifact); the node-resident JVM runs it with java -jar.
 //
-//	brewlet push    <jar> <ref> [flags]   publish a JAR as an OCI artifact
+//	brewlet push    <jar> <ref> [flags]   publish a JAR as an OCI artifact (local layout or registry)
 //	brewlet inspect <ref>                 show the artifact manifest + config
 //	brewlet run     <ref> [flags]         pull + launch java -jar on this node
 //	brewlet bundle  <ref> [flags]         emit an OCI runc bundle (shim path)
@@ -82,7 +82,7 @@ func usage() {
 	fmt.Print(`Brewlet PoC — the JVM analogue to SpinKube
 
 USAGE:
-  brewlet push    <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE] [--arch amd64,arm64] [--no-arch] [--classpath-layer TAR ...] [--dependency-bundle REF --dependency-lock FILE [--trusted-public-key PEM --trusted-signer-identity IDENTITY] [--signing-key PEM --builder-identity IDENTITY]] [--main-class CLASS] [--module-layer TAR ...] [--appcds-archive JSA]
+  brewlet push    <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE] [--arch amd64,arm64] [--no-arch] [--classpath-layer TAR ...] [--dependency-bundle REF --dependency-lock FILE [--trusted-public-key PEM --trusted-signer-identity IDENTITY] [--signing-key PEM --builder-identity IDENTITY]] [--main-class CLASS] [--module-layer TAR ...] [--appcds-archive JSA] [--push-result FILE] [--insecure-registry HOST[:PORT] ...] [--allowed-token-realm HOST[:PORT] ...]
   brewlet dependency-bundle <classpath-tar> <ref> --name NAME --version VERSION --source-bom G:A:V --lock FILE [--signing-key PEM --signer-identity IDENTITY] [--compatible-jdks 21,25] [--store DIR]
   brewlet keygen --private FILE --public FILE
   brewlet inspect <ref>       [--store DIR] [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
@@ -95,7 +95,10 @@ USAGE:
   brewlet k8s <command>        inventory, status, inspection, installation and profile updates (see k8s --help)
   brewlet version
 
-  <ref> is name:tag, e.g. demo/hello:1.0.0
+  <ref> is name:tag, e.g. demo/hello:1.0.0. For push, a ref that names a registry
+  host (myacr.azurecr.io/team/app:1.0.0, localhost:5000/app:1) is uploaded to that
+  registry unless --store is given; a ref without a host is written to the local
+  --store layout and never defaults to Docker Hub.
 `)
 }
 
@@ -155,7 +158,7 @@ func (s *stringSlice) Set(v string) error {
 
 func cmdPush(args []string) error {
 	fs := flag.NewFlagSet("push", flag.ExitOnError)
-	store := fs.String("store", "./oci", "OCI layout directory")
+	store := fs.String("store", "./oci", "OCI layout directory (push: setting it explicitly keeps a registry-hosted ref local)")
 	cfgFile := fs.String("config", "", "optional jvm-config.json to embed")
 	archFlag := fs.String("arch", "", "constrain scheduling to these architectures for a NON-portable (JNI) JAR, comma-separated (amd64,arm64); overrides auto-detection. Omit for arch-neutral (default)")
 	noArch := fs.Bool("no-arch", false, "disable native-library auto-detection; publish with no arch constraint (arch-neutral)")
@@ -177,6 +180,10 @@ func cmdPush(args []string) error {
 	format := fs.String("format", "image", "delivery format: \"image\" (default; a standard, kubelet-pullable OCI image — a runtimeClassName: brewlet pod can set image: <ref> and containerd/kubelet pull+unpack it as SpinKube does for a Spin-compatible Wasm application) or \"artifact\" (native Brewlet OCI artifact, custom media types — registry-native, delivered to nodes out of band). See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md")
 	var appcdsArgs stringSlice
 	fs.Var(&appcdsArgs, "appcds-arg", "workload argument passed to the --appcds training JVM to drive class loading (repeatable)")
+	pushResult := fs.String("push-result", "", "registry push only: write a push.json handoff ({image, digest, deployImage, format}) to this file")
+	var insecureRegistries, allowedTokenRealms stringSlice
+	fs.Var(&insecureRegistries, "insecure-registry", "registry push only: HOST[:PORT] reachable over plain HTTP (repeatable; loopback registries always are)")
+	fs.Var(&allowedTokenRealms, "allowed-token-realm", "registry push only: HOST[:PORT] of a cross-origin token service trusted with registry credentials (repeatable)")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
@@ -185,6 +192,22 @@ func cmdPush(args []string) error {
 		return fmt.Errorf("usage: push <jar> <ref>")
 	}
 	jarPath, ref := pos[0], pos[1]
+
+	remote, err := resolvePushTarget(ref, flagWasSet(fs, "store"), *pushResult, insecureRegistries, allowedTokenRealms)
+	if err != nil {
+		return err
+	}
+	if remote != nil {
+		if *dependencyBundle != "" {
+			return fmt.Errorf("--dependency-bundle is not supported when pushing to a registry; use the Maven plugin (brewlet:push -Dbrewlet.dependencyBundle=...), or pass --store to build into a local OCI layout")
+		}
+		tmp, err := os.MkdirTemp("", "brewlet-push-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(tmp)
+		*store = tmp
+	}
 
 	explicitArch := splitArchFlag(*archFlag)
 
@@ -387,6 +410,15 @@ func cmdPush(args []string) error {
 		if err != nil {
 			return err
 		}
+		if remote != nil {
+			res, err := pushToRegistry(remote, s, ref, "artifact", *pushResult)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("pushed %s\n  manifest: %s (%d bytes)\n  artifactType: %s\n  registry: %s (%d blob(s) uploaded, %d already present)\n  deploy image: %s\n",
+				remote.target, res.Digest, res.Size, artifact.ArtifactType, remote.target.Registry, res.BlobsUploaded, res.BlobsSkipped, remote.target.Pinned(res.Digest))
+			break
+		}
 		fmt.Printf("pushed %s\n  manifest: %s (%d bytes)\n  artifactType: %s\n  store: %s\n",
 			ref, desc.Digest, desc.Size, artifact.ArtifactType, *store)
 	case "image", "":
@@ -410,6 +442,15 @@ func cmdPush(args []string) error {
 			if _, err := s.PublishManagedAttestation(desc, predicate, managedSigningKey); err != nil {
 				return fmt.Errorf("publish final-image managed-dependency attestation: %w", err)
 			}
+		}
+		if remote != nil {
+			res, err := pushToRegistry(remote, s, ref, "image", *pushResult)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("pushed %s (runnable OCI image — kubelet-pullable)\n  index: %s (%d bytes)\n  platforms: %v\n  registry: %s (%d blob(s) uploaded, %d already present)\n  deploy image: %s\n",
+				remote.target, res.Digest, res.Size, artifact.RunnableArches(cfg), remote.target.Registry, res.BlobsUploaded, res.BlobsSkipped, remote.target.Pinned(res.Digest))
+			break
 		}
 		fmt.Printf("pushed %s (runnable OCI image — kubelet-pullable)\n  index: %s (%d bytes)\n  platforms: %v\n  store: %s\n",
 			ref, desc.Digest, desc.Size, artifact.RunnableArches(cfg), *store)
