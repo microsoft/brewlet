@@ -106,7 +106,12 @@ func (p TrustPolicy) AllowsPlaintext(registry string) bool {
 		return false
 	}
 	u, _ := url.Parse("//" + norm)
-	return IsLoopbackHost(u.Hostname()) || p.insecure[norm]
+	if IsLoopbackHost(u.Hostname()) || p.insecure[norm] {
+		return true
+	}
+	// host and host:80 are the same plain-HTTP origin; any other port must
+	// be listed explicitly.
+	return u.Port() == "80" && p.insecure[authority(u.Hostname(), "")]
 }
 
 // Scheme returns the URL scheme to use for registry.

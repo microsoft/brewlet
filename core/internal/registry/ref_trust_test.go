@@ -76,7 +76,7 @@ func TestParseReferenceRejects(t *testing.T) {
 }
 
 func TestTrustPolicyPlaintext(t *testing.T) {
-	p, err := NewTrustPolicy([]string{"registry.internal:5000"}, nil)
+	p, err := NewTrustPolicy([]string{"registry.internal:5000", "plain.internal"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -78,9 +78,9 @@ func pushToRegistry(rp *remotePush, store artifact.Store, localRef, format, push
 		Diagnostics: func(msg string) { fmt.Fprintln(os.Stderr, "  warning:", msg) },
 	}.Resolve(t.Registry)
 	if cred != nil {
-		fmt.Printf("  credentials: %s\n", cred.Source)
+		fmt.Fprintf(os.Stderr, "  credentials: %s\n", cred.Source)
 	} else {
-		fmt.Printf("  credentials: none found for %s (anonymous)\n", t.Registry)
+		fmt.Fprintf(os.Stderr, "  credentials: none found for %s (anonymous)\n", t.Registry)
 	}
 	client, err := registry.NewClient(t.Registry, t.Repository, cred, rp.policy, nil)
 	if err != nil {
