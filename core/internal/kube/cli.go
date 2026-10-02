@@ -15,6 +15,7 @@ import (
 
 	"github.com/microsoft/brewlet/internal/doctor"
 	"github.com/microsoft/brewlet/internal/inventory"
+	"github.com/microsoft/brewlet/internal/progress"
 )
 
 const help = `Brewlet Kubernetes operations
@@ -254,18 +255,28 @@ func (c *client) jdks() error {
 }
 
 func (c *client) doctor() error {
-	report := doctor.Run(func(args ...string) ([]byte, error) {
-		return c.kubectl(nil, args...)
-	}, doctor.Options{Context: c.opts.context, Namespace: c.opts.namespace})
-	if c.opts.output == "table" {
-		for _, check := range report.Checks {
-			fmt.Fprintf(c.out, "[%-4s] %-20s %s\n", strings.ToUpper(string(check.Status)), check.Name, check.Detail)
-			if check.Remediation != "" && check.Status != doctor.Pass {
-				fmt.Fprintf(c.out, "       fix: %s\n", check.Remediation)
-			}
+	p := progress.New(c.err)
+	printCheck := func(check doctor.Check) {
+		p.Emit(c.out, "[%-4s] %-20s %s", strings.ToUpper(string(check.Status)), check.Name, check.Detail)
+		if check.Remediation != "" && check.Status != doctor.Pass {
+			p.Emit(c.out, "       fix: %s", check.Remediation)
 		}
-	} else if err := encode(c.out, report, c.opts.output); err != nil {
-		return err
+	}
+	opts := doctor.Options{Context: c.opts.context, Namespace: c.opts.namespace}
+	if c.opts.output == "table" {
+		opts.OnCheck = printCheck
+	}
+	var report doctor.Report
+	_ = p.Await("running readiness checks", nil, func() error {
+		report = doctor.Run(func(args ...string) ([]byte, error) {
+			return c.kubectl(nil, args...)
+		}, opts)
+		return nil
+	})
+	if c.opts.output != "table" {
+		if err := encode(c.out, report, c.opts.output); err != nil {
+			return err
+		}
 	}
 	if !report.OK() {
 		return fmt.Errorf("doctor found one or more blocking checks")

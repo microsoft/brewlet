@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/microsoft/brewlet/internal/progress"
 )
 
 const testImage = "docker.io/library/eclipse-temurin@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -751,6 +753,64 @@ func TestInstallDelegatesToPinnedHelmChart(t *testing.T) {
 		})
 	if err == nil || !strings.Contains(err.Error(), "CRDs already exist") {
 		t.Fatal("existing CRDs were not protected", err)
+	}
+}
+
+func TestInstallReportsStepsAndRolloutProgress(t *testing.T) {
+	saved := progress.PollInterval
+	progress.PollInterval = 5 * time.Millisecond
+	t.Cleanup(func() { progress.PollInterval = saved })
+	file := writeFixture(t, "provisioner:\n  pools: [workers]\n  jdks: []\n")
+	rollout := listJSON(t,
+		objectJSON(t, `{"kind":"Deployment","metadata":{"name":"brewlet-operator","generation":1},
+		  "spec":{"replicas":1},"status":{"observedGeneration":1,"replicas":1,"updatedReplicas":1,"readyReplicas":1,"availableReplicas":1}}`),
+		objectJSON(t, `{"kind":"Deployment","metadata":{"name":"brewlet-admission","generation":1},
+		  "spec":{"replicas":2},"status":{"observedGeneration":1,"replicas":2,"updatedReplicas":2}}`),
+		objectJSON(t, `{"kind":"Pod","metadata":{"name":"brewlet-admission-abc"},
+		  "status":{"containerStatuses":[{"name":"webhook","state":{"waiting":{"reason":"ImagePullBackOff"}}}]}}`))
+	for _, helmErr := range []error{nil, errors.New("helm: context deadline exceeded")} {
+		polled := make(chan struct{}, 1)
+		_, stderr, err := runTest(t, []string{"install", "--version", "1.2.3", "-f", file, "--release", "rel", "--namespace", "sys"},
+			func(ctx context.Context, program string, args []string, _ []byte) ([]byte, error) {
+				if program == "kubectl" && hasArgs(args, "get", "customresourcedefinitions") {
+					return nil, nil
+				}
+				if program == "kubectl" {
+					if !hasArgs(args, "get", "deployments,pods") || !hasArgs(args, "--namespace", "sys") ||
+						!hasArgs(args, "--selector", "app.kubernetes.io/name=brewlet,app.kubernetes.io/instance=rel") {
+						t.Errorf("unexpected rollout poll: %v", args)
+					}
+					select {
+					case polled <- struct{}{}:
+					default:
+					}
+					return rollout, nil
+				}
+				// Keep Helm "waiting" until the rollout has been polled and reported.
+				<-polled
+				time.Sleep(50 * time.Millisecond)
+				return []byte("helm output\n"), helmErr
+			})
+		for _, want := range []string{
+			`Installing Brewlet chart 1.2.3 as release "rel" in namespace "sys" (current context)`,
+			"[1/3] Validated 1 values file(s)",
+			"[2/3] Checking the cluster for existing Brewlet CRDs...",
+			"[3/3] Pulling " + chart + " and waiting for rollout (timeout 5m0s)...",
+			"1/2 deployments ready (brewlet-operator 1/1 available, brewlet-admission 0/2 available); brewlet-admission-abc: ImagePullBackOff",
+		} {
+			if !strings.Contains(stderr, want) {
+				t.Errorf("stderr missing %q:\n%s", want, stderr)
+			}
+		}
+		if strings.Contains(stderr, "\r") {
+			t.Errorf("non-terminal progress must not redraw lines: %q", stderr)
+		}
+		if helmErr == nil && (err != nil || !strings.Contains(stderr, `Helm release "rel" deployed and rolled out in`)) {
+			t.Fatalf("install: %s %v", stderr, err)
+		}
+		if helmErr != nil && (err == nil || !strings.Contains(stderr, "inspect with: brewlet k8s status --system-namespace sys")) {
+			t.Fatalf("failed install should point at status: %s %v", stderr, err)
+		}
 	}
 }
 

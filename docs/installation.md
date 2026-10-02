@@ -517,7 +517,9 @@ Compared with calling Helm directly, the CLI:
 - creates the namespace (default `brewlet`) and sets the chart's `namespace`
   value to match, so the release and its resources cannot land in different
   namespaces;
-- waits for the chart's rollout (`--wait-timeout`, default `5m`).
+- waits for the chart's rollout (`--wait-timeout`, default `5m`), reporting
+  each step and live Deployment readiness and pod problems (for example
+  `ImagePullBackOff`) on stderr while Helm waits.
 
 It does not create a cluster or node pools, upgrade an existing release, or
 clean up after a failed installation.

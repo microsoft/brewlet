@@ -54,6 +54,10 @@ func execute(ctx context.Context, program string, args []string, input []byte) (
 }
 
 func (c *client) kubectl(input []byte, args ...string) ([]byte, error) {
+	return c.kubectlContext(c.ctx, input, args...)
+}
+
+func (c *client) kubectlContext(parent context.Context, input []byte, args ...string) ([]byte, error) {
 	base := []string{"--request-timeout", c.opts.timeout.String()}
 	if c.opts.kubeconfig != "" {
 		base = append(base, "--kubeconfig", c.opts.kubeconfig)
@@ -61,7 +65,7 @@ func (c *client) kubectl(input []byte, args ...string) ([]byte, error) {
 	if c.opts.context != "" {
 		base = append(base, "--context", c.opts.context)
 	}
-	ctx, cancel := context.WithTimeout(c.ctx, c.opts.timeout)
+	ctx, cancel := context.WithTimeout(parent, c.opts.timeout)
 	defer cancel()
 	return c.exec(ctx, "kubectl", append(base, args...), input)
 }
@@ -84,8 +88,12 @@ func (c *client) get(resource, name string, extra ...string) (object, error) {
 }
 
 func (c *client) list(resource string, extra ...string) ([]object, error) {
+	return c.listContext(c.ctx, resource, extra...)
+}
+
+func (c *client) listContext(ctx context.Context, resource string, extra ...string) ([]object, error) {
 	args := append([]string{"get", resource, "-o", "json"}, extra...)
-	raw, err := c.kubectl(nil, args...)
+	raw, err := c.kubectlContext(ctx, nil, args...)
 	if err != nil {
 		return nil, err
 	}

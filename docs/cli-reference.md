@@ -153,7 +153,8 @@ By default `push` scans the JAR for bundled native libraries and sets the `arch`
 constraint automatically for non-portable artifacts (pass `--arch` to override, or
 `--no-arch` to opt out). AppCDS is opt-in: ship a prebuilt archive with
 `--appcds-archive`, or let the CLI build one with `--appcds` (the two are mutually
-exclusive).
+exclusive). During `--appcds` training the CLI prints a heartbeat to stderr at
+least every 30 seconds and reports the archive size and training time when done.
 
 ```bash
 brewlet push ./target/app.jar demo/hello:1.0.0                        # runnable image (default)
@@ -373,7 +374,9 @@ brewlet doctor [--namespace NS] [--output table|json]
 The command checks the selected context, API connectivity, the `brewlet`
 RuntimeClass, the `JavaApplication` CRD, schedulable Brewlet-ready containerd
 nodes, advertised JDK inventory, and create permission in the selected
-namespace. Failed checks include a remediation hint.
+namespace. Failed checks include a remediation hint. In table output each
+check is printed as soon as it completes, with a progress indicator on stderr
+while the next `kubectl` call runs.
 
 ```bash
 brewlet doctor --namespace my-team
@@ -426,7 +429,7 @@ Flags may also follow positional names.
 | `--context NAME` | Current context | Explicit context, without modifying kubeconfig. |
 | `--namespace NAME` | Context namespace | Application inspection namespace. `doctor` preserves its original `default` namespace; installation defaults to `brewlet`. Profiles and node inventories are cluster-scoped. |
 | `--timeout DURATION` | `30s` | Deadline for each kubectl invocation, including credential helpers. |
-| `--output FORMAT` | Command-dependent | Read commands default to `table` and support `json`/`yaml`. JDK/launcher inventory supports `table`/`wide`/`json` instead. `add`, including dry runs, defaults to `yaml` and also supports `json`. Installation prints Helm output after a successful command. |
+| `--output FORMAT` | Command-dependent | Read commands default to `table` and support `json`/`yaml`. JDK/launcher inventory supports `table`/`wide`/`json` instead. `add`, including dry runs, defaults to `yaml` and also supports `json`. Installation reports step-by-step progress and live rollout status on stderr (a spinner on terminals, periodic lines otherwise) and prints Helm output to stdout after a successful command. |
 
 Inspection's default output is a structured YAML report rather than a flattened
 table. All commands propagate tool/API failures; RBAC-denied reads are not
