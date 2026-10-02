@@ -56,6 +56,15 @@ an exercised capability fails. The suite covers:
 
 See [AGENTS.md](AGENTS.md) for cluster requirements, cleanup, and troubleshooting.
 
+### Monitoring runs from the GitHub Copilot app
+
+The project extension in `.github/extensions/e2e-monitor/` adds an
+**Integration tests** canvas. It starts `run.sh` tiers, the live HPA/admission
+scenarios, or the offline safeguard tests as detached processes, and shows
+per-tier progress and ETA, assertion results, failures, a live log, and the
+`E2E_WORK` artifacts. Run records are kept in the session's state directory
+under `e2e-runs/`, so they survive extension reloads.
+
 ## Kubernetes CLI API integration
 
 The process/API integration suite lives in the existing Kubernetes Go module
