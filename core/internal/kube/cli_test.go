@@ -711,7 +711,8 @@ func TestInstallDelegatesToPinnedHelmChart(t *testing.T) {
 						!hasArgs(args, profilesResource, appsResource, "--ignore-not-found") {
 						t.Fatalf("unexpected install preflight: %v", args)
 					}
-					return listJSON(t), nil
+					// kubectl writes no JSON when all explicitly named resources are absent.
+					return nil, nil
 				}
 				if program != "helm" || !hasArgs(args, "--version", "0.1.0-rc.1") ||
 					!hasArgs(args, "--namespace", "runtime-system") || !hasArgs(args, "--set-string", "namespace=runtime-system") ||

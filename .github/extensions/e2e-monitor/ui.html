@@ -1,0 +1,415 @@
+<!doctype html>
+<!--
+Copyright (c) Microsoft Corporation.
+Licensed under the MIT License.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Brewlet integration tests</title>
+<style>
+  :root {
+    --bg: var(--background-color-default, #fff);
+    --fg: var(--text-color-default, #1f2328);
+    --muted: var(--text-color-muted, #656d76);
+    --border: var(--border-color-default, #d0d7de);
+    --green: var(--true-color-green, #1a7f37);
+    --red: var(--true-color-red, #cf222e);
+    --yellow: var(--true-color-yellow, #9a6700);
+    --blue: var(--true-color-blue, #0969da);
+    --green-m: var(--true-color-green-muted, rgba(26,127,55,.12));
+    --red-m: var(--true-color-red-muted, rgba(207,34,46,.12));
+    --yellow-m: var(--true-color-yellow-muted, rgba(154,103,0,.14));
+    --blue-m: var(--true-color-blue-muted, rgba(9,105,218,.12));
+    --panel: color-mix(in srgb, var(--fg) 4%, var(--bg));
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+    font-size: var(--text-body-medium, 13px); line-height: var(--leading-body-medium, 19px); }
+  code, pre, .mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--blue); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+  button.danger { color: var(--red); }
+  select, input[type=text], textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px; width: 100%; }
+  .app { display: grid; grid-template-columns: 290px 1fr; height: 100vh; }
+  aside { border-right: 1px solid var(--border); overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 14px; }
+  main { overflow: auto; padding: 14px 18px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--panel); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--muted); }
+  .small { font-size: 11px; }
+  .tiers { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 8px; margin: 6px 0; }
+  .tiers label { display: flex; gap: 4px; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tiers .k8s::after { content: "k8s"; font-size: 9px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 3px; margin-left: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { border-radius: 10px; padding: 1px 8px; font-size: 11px; border: 1px solid var(--border); }
+  .chip.ok { background: var(--green-m); border-color: transparent; }
+  .chip.bad { background: var(--red-m); border-color: transparent; }
+  .runs { display: flex; flex-direction: column; gap: 4px; }
+  .run { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+  .run.sel { border-color: var(--blue); background: var(--blue-m); }
+  .badge { display: inline-block; border-radius: 10px; padding: 0 8px; font-size: 11px; font-weight: 600; }
+  .s-running { background: var(--blue-m); color: var(--blue); }
+  .s-passed { background: var(--green-m); color: var(--green); }
+  .s-failed, .s-lost { background: var(--red-m); color: var(--red); }
+  .s-stopped { background: var(--yellow-m); color: var(--yellow); }
+  .counts span { margin-right: 8px; font-variant-numeric: tabular-nums; }
+  .c-pass { color: var(--green); } .c-fail { color: var(--red); } .c-skip { color: var(--yellow); }
+  .bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
+  .bar > div { height: 100%; background: var(--blue); transition: width .4s; }
+  .bar.indet > div { width: 30% !important; animation: slide 1.4s infinite ease-in-out; }
+  @keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 14px 0 10px; }
+  .tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 6px 12px; }
+  .tabs button.on { border-bottom-color: var(--blue); font-weight: 600; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 10px 0; }
+  .stat { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 20px; line-height: 26px; font-variant-numeric: tabular-nums; }
+  .timeline { display: flex; flex-direction: column; gap: 4px; }
+  .sec { border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; }
+  .sec.running { border-color: var(--blue); }
+  .sec.hasfail { border-left: 3px solid var(--red); }
+  .sec summary { cursor: pointer; display: flex; gap: 10px; align-items: center; list-style: none; }
+  .sec summary::-webkit-details-marker { display: none; }
+  .sec .title { flex: 1; }
+  .tierbox { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 8px; }
+  .tierbox div { width: 28px; height: 22px; border-radius: 4px; display: grid; place-items: center; font-size: 11px; border: 1px solid var(--border); }
+  .t-done { background: var(--green-m); } .t-fail { background: var(--red-m); } .t-run { background: var(--blue-m); border-color: var(--blue) !important; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; }
+  pre.log { margin: 0; padding: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; height: calc(100vh - 290px); min-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+  pre.log .l-pass { color: var(--green); } pre.log .l-fail { color: var(--red); font-weight: 600; } pre.log .l-skip { color: var(--yellow); }
+  pre.log .l-sec { color: var(--blue); font-weight: 600; } pre.log .l-warn { color: var(--yellow); }
+  .spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--blue); border-right-color: transparent; border-radius: 50%; animation: r 0.8s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .failbox { border: 1px solid var(--red); background: var(--red-m); border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  a { color: var(--blue); cursor: pointer; text-decoration: none; }
+  .err { color: var(--red); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div>
+      <h2>Environment</h2>
+      <div id="preflight" class="chips"><span class="muted small">checking…</span></div>
+    </div>
+    <div class="card">
+      <h2>New run</h2>
+      <select id="suite"></select>
+      <div id="suiteDesc" class="muted small" style="margin:4px 0"></div>
+      <div id="clusterPicker" style="margin:6px 0">
+        <div class="small muted">Run against</div>
+        <label class="row small"><input type="radio" name="cluster" value="kubectl" checked /> <span>kubectl context <b id="curCtx" class="mono">…</b></span></label>
+        <label class="row small" id="ddLabel"><input type="radio" name="cluster" value="docker-desktop" /> <span>Docker Desktop (local) <span id="ddNote" class="muted"></span></span></label>
+      </div>
+      <div id="tierPicker">
+        <div class="row small">
+          <a data-pick="host">host-only (1-3)</a> · <a data-pick="all">all</a> · <a data-pick="none">none</a>
+        </div>
+        <div id="tiers" class="tiers"></div>
+        <label class="row small"><input type="checkbox" id="reset" /> reset cluster state first (<code>--reset</code>)</label>
+      </div>
+      <details style="margin-top:6px">
+        <summary class="small muted">Environment overrides</summary>
+        <textarea id="env" rows="3" class="mono" placeholder="JAVA_HOME=/path/to/jdk&#10;BREWLET_LIVE_CANDIDATE=shim"></textarea>
+      </details>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" id="start">▶ Start</button>
+        <span id="startErr" class="err small"></span>
+      </div>
+    </div>
+    <div>
+      <h2>Runs</h2>
+      <div id="runs" class="runs"><span class="muted small">No runs yet.</span></div>
+    </div>
+  </aside>
+  <main id="main"><div class="empty">Start a run or select one from the list.</div></main>
+</div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmtDur = (ms) => {
+  if (ms == null) return "—";
+  const s = Math.max(0, Math.round(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return h ? `${h}h ${m}m` : m ? `${m}m ${String(r).padStart(2, "0")}s` : `${r}s`;
+};
+const fmtTime = (t) => t ? new Date(t).toLocaleTimeString() : "—";
+const fmtSize = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+const api = async (p, body) => {
+  const r = await fetch(p, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+};
+
+let META = null, RUNS = [], SEL = new URLSearchParams(location.search).get("run"), RUN = null;
+let TAB = "overview", RESULT_FILTER = "all", LOG = [], LOG_FILTER = "", FOLLOW = true, ARTS = null, ART_VIEW = null;
+
+async function boot() {
+  META = await api("/api/meta");
+  $("#suite").innerHTML = Object.entries(META.suites).map(([k, v]) => `<option value="${k}">${esc(v.label)}</option>`).join("");
+  $("#tiers").innerHTML = META.tiers.map((t) =>
+    `<label title="Tier ${t.n} — ${esc(t.label)}" class="${t.cluster ? "k8s" : ""}"><input type="checkbox" value="${t.n}" ${t.n <= 3 ? "checked" : ""}/> ${t.n} ${esc(t.label)}</label>`).join("");
+  $("#suite").onchange = onSuite; onSuite();
+  document.querySelectorAll("[data-pick]").forEach((a) => a.onclick = () => {
+    const p = a.dataset.pick;
+    $("#tiers").querySelectorAll("input").forEach((i) => i.checked = p === "all" || (p === "host" && +i.value <= 3));
+  });
+  $("#start").onclick = start;
+  api("/api/preflight").then(renderPreflight).catch(() => {});
+  loadContexts();
+  await refreshRuns();
+  if (!SEL && RUNS[0]) SEL = RUNS[0].id;
+  if (SEL) await select(SEL);
+  const es = new EventSource("/events");
+  es.addEventListener("change", (e) => onChange(JSON.parse(e.data)));
+  es.addEventListener("lines", (e) => onLines(JSON.parse(e.data)));
+  es.addEventListener("select", (e) => select(JSON.parse(e.data).runId));
+  setInterval(tickClock, 1000);
+}
+
+function onSuite() {
+  const s = META.suites[$("#suite").value];
+  $("#suiteDesc").textContent = s.description;
+  $("#tierPicker").style.display = s.usesTiers ? "" : "none";
+  $("#clusterPicker").style.display = s.usesCluster ? "" : "none";
+}
+
+async function loadContexts() {
+  try {
+    const k = await api("/api/kube-contexts");
+    $("#curCtx").textContent = k.current || "(none)";
+    const dd = $("#ddLabel input");
+    dd.disabled = !k.dockerDesktop;
+    $("#ddNote").textContent = k.dockerDesktop ? (k.current === "docker-desktop" ? "(same as current)" : "") : "— not found; enable Kubernetes in Docker Desktop";
+    if (!k.dockerDesktop && dd.checked) document.querySelector('input[name=cluster][value=kubectl]').checked = true;
+  } catch { $("#curCtx").textContent = "(kubectl unavailable)"; }
+}
+
+const selectedCluster = () => document.querySelector("input[name=cluster]:checked")?.value || "kubectl";
+
+function renderPreflight(p) {
+  $("#preflight").innerHTML = Object.entries(p).map(([k, v]) =>
+    `<span class="chip ${v.ok ? "ok" : "bad"}" title="${esc(v.out)}">${v.ok ? "✓" : "✗"} ${esc(k)}${k === "kube context" && v.ok ? ": " + esc(v.out) : ""}</span>`).join("");
+}
+
+async function start() {
+  $("#startErr").textContent = "";
+  const suite = $("#suite").value;
+  const tiers = [...$("#tiers").querySelectorAll("input:checked")].map((i) => +i.value);
+  const env = {};
+  for (const line of $("#env").value.split("\n")) {
+    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
+    if (m) env[m[1]] = m[2];
+  }
+  $("#start").disabled = true;
+  try {
+    const run = await api("/api/start", { suite, tiers, reset: $("#reset").checked, env, cluster: selectedCluster() });
+    await refreshRuns();
+    await select(run.id);
+  } catch (e) { $("#startErr").textContent = e.message; }
+  finally { $("#start").disabled = false; }
+}
+
+async function refreshRuns() {
+  RUNS = (await api("/api/runs")).runs;
+  renderRuns();
+}
+
+function renderRuns() {
+  if (!RUNS.length) return;
+  $("#runs").innerHTML = RUNS.map((r) => `
+    <div class="run ${r.id === SEL ? "sel" : ""}" data-id="${r.id}">
+      <div class="row"><span class="badge s-${r.status}">${r.status}</span><b class="small">${esc(r.label)}</b></div>
+      <div class="small muted">${new Date(r.startedAt).toLocaleString()} · ${fmtDur(r.elapsedMs)}</div>
+      <div class="small counts"><span class="c-pass">✓${r.counts.pass}</span><span class="c-fail">✗${r.counts.fail}</span><span class="c-skip">⤼${r.counts.skip}</span>
+      ${r.progress.kind === "tiers" ? `<span class="muted">tiers ${r.progress.completed}/${r.progress.total}</span>` : ""}</div>
+    </div>`).join("");
+  $("#runs").querySelectorAll(".run").forEach((el) => el.onclick = () => select(el.dataset.id));
+}
+
+async function select(id) {
+  SEL = id; ARTS = null; ART_VIEW = null;
+  history.replaceState(null, "", `?run=${encodeURIComponent(id)}`);
+  renderRuns();
+  RUN = await api(`/api/run?id=${encodeURIComponent(id)}`);
+  LOG = (await api(`/api/log?id=${encodeURIComponent(id)}&tail=3000`)).lines;
+  render();
+}
+
+let pending = null;
+function onChange({ runId }) {
+  clearTimeout(pending);
+  pending = setTimeout(async () => {
+    await refreshRuns();
+    if (runId === SEL) { RUN = await api(`/api/run?id=${encodeURIComponent(SEL)}`); render(true); }
+  }, 200);
+}
+
+function onLines({ runId, lines }) {
+  if (runId !== SEL) return;
+  LOG.push(...lines);
+  if (LOG.length > 6000) LOG = LOG.slice(-5000);
+  if (TAB === "log") appendLog(lines);
+}
+
+function tickClock() {
+  if (!RUN || RUN.status !== "running") return;
+  const el = $("#elapsed"); if (el) el.textContent = fmtDur(Date.now() - RUN.startedAt);
+  const q = $("#quiet"); if (q && RUN.lastLineAt) {
+    const ms = Date.now() - RUN.lastLineAt;
+    q.textContent = fmtDur(ms); q.style.color = ms > 180000 ? "var(--red)" : ms > 60000 ? "var(--yellow)" : "";
+  }
+}
+
+function render(soft) {
+  if (!RUN) return;
+  const r = RUN, running = r.status === "running";
+  const p = r.progress;
+  const scroll = $("main").scrollTop;
+  const keepTab = soft && $("#tab") && (TAB === "log" || TAB === "artifacts");
+  if (!keepTab) $("#main").innerHTML = `<div id="hdr"></div><div id="tab"></div>`;
+  $("#hdr").innerHTML = `
+    <div class="row" style="justify-content:space-between">
+      <div class="row"><h1>${esc(r.label)}</h1><span class="badge s-${r.status}">${r.status}${r.exitCode != null ? ` · exit ${r.exitCode}` : ""}</span></div>
+      <div class="row">
+        ${running ? `<button class="danger" id="stop">${r.stopRequestedAt ? "Stop again (SIGTERM)" : "■ Stop"}</button>` : `<button id="rerun">↻ Re-run</button>`}
+      </div>
+    </div>
+    <div class="mono muted small" style="margin-top:4px">$ ${esc(r.command)}</div>
+    <div class="muted small">${esc(r.id)} · pid ${r.pid} · started ${fmtTime(r.startedAt)}${r.endedAt ? ` · ended ${fmtTime(r.endedAt)}` : ""}${r.kubeContext ? ` · cluster <b class="mono">${esc(r.kubeContext)}</b>` : ""}</div>
+    ${running && r.stopRequestedAt ? `<div class="small" style="color:var(--yellow)">Stop requested ${fmtTime(r.stopRequestedAt)} — waiting for cleanup traps…</div>` : ""}
+    <div style="margin-top:12px">
+      <div class="row small" style="justify-content:space-between;margin-bottom:4px">
+        <span>${p.kind === "tiers" ? `<b>${p.completed}/${p.total}</b> tiers complete (${p.percent}%)` : running ? "In progress" : "Finished"}
+          ${r.currentSection ? ` · now: <b>${esc(r.currentSection)}</b>` : ""}</span>
+        <span class="muted">${p.etaMs != null ? `ETA ~${fmtDur(p.etaMs)}` : running && p.kind === "tiers" ? "ETA after first complete run" : ""}</span>
+      </div>
+      <div class="bar ${p.kind !== "tiers" && running ? "indet" : ""}"><div style="width:${p.kind === "tiers" ? p.percent : running ? 30 : 100}%"></div></div>
+      ${p.kind === "tiers" ? `<div class="tierbox">${r.tiers.map((t) => {
+        const secs = r.sections.filter((s) => s.tier === t);
+        const cls = p.currentTier === t ? "t-run" : secs.some((s) => s.counts.fail) ? "t-fail" : secs.length ? "t-done" : "";
+        const tip = secs.length ? secs.map((s) => `${s.title}: ${s.counts.pass}✓ ${s.counts.fail}✗ ${s.counts.skip}⤼ (${fmtDur(s.durationMs)})`).join("\n") : `Tier ${t} — pending`;
+        return `<div class="${cls}" title="${esc(tip)}">${t}</div>`;
+      }).join("")}</div>` : ""}
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="muted small">Elapsed</span><b id="elapsed">${fmtDur(r.elapsedMs)}</b></div>
+      <div class="stat"><span class="muted small">Passed</span><b class="c-pass">${r.counts.pass}</b></div>
+      <div class="stat"><span class="muted small">Failed</span><b class="c-fail">${r.counts.fail}</b></div>
+      <div class="stat"><span class="muted small">Skipped</span><b class="c-skip">${r.counts.skip}</b></div>
+      ${running ? `<div class="stat"><span class="muted small">Quiet for</span><b id="quiet">—</b></div>` : ""}
+      <div class="stat"><span class="muted small">Output lines</span><b>${r.lineCount}</b></div>
+    </div>
+    ${running && r.lastLine ? `<div class="mono small muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(r.lastLine)}">› ${esc(r.lastLine)}</div>` : ""}
+    <div class="tabs">
+      ${[["overview", "Overview"], ["results", `Results (${r.results.length})`], ["log", "Live log"], ["artifacts", "Artifacts"]]
+        .map(([k, l]) => `<button data-tab="${k}" class="${TAB === k ? "on" : ""}">${l}</button>`).join("")}
+    </div>`;
+  $("#main").querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { TAB = b.dataset.tab; render(); });
+  const stop = $("#stop"); if (stop) stop.onclick = async () => { stop.disabled = true; await api("/api/stop", { id: r.id }).catch((e) => alert(e.message)); };
+  const rerun = $("#rerun"); if (rerun) rerun.onclick = async () => {
+    try { const n = await api("/api/start", { suite: r.suite, tiers: r.tiers, reset: r.reset, env: r.env || {}, ...(r.cluster ? { cluster: r.cluster } : {}) }); await refreshRuns(); select(n.id); }
+    catch (e) { alert(e.message); }
+  };
+  if (!keepTab) renderTab();
+  tickClock();
+  if (soft) $("main").scrollTop = scroll;
+}
+
+function renderTab() {
+  const el = $("#tab"), r = RUN;
+  if (TAB === "overview") {
+    const fails = r.failures.map((f) => `<div class="failbox"><b>${esc(f.name)}</b> <span class="muted small">· ${esc(f.section)}</span>
+      ${f.detail ? `<div class="mono small">${esc(f.detail)}</div>` : ""}${f.logPath ? `<a class="small" data-art="${esc(f.logPath)}">open log ↗</a>` : ""}</div>`).join("");
+    el.innerHTML = `
+      ${fails ? `<h2>Failures</h2>${fails}` : ""}
+      ${r.errorTail?.length ? `<h2>Last traceback</h2><pre class="mono failbox" style="white-space:pre-wrap">${esc(r.errorTail.join("\n"))}</pre>` : ""}
+      ${r.warnings.length ? `<h2>Warnings</h2>${r.warnings.map((w) => `<div class="small" style="color:var(--yellow)">!! ${esc(w.text)} <span class="muted">${esc(w.section || "")}</span></div>`).join("")}<br>` : ""}
+      ${r.evidence.length ? `<h2>Evidence</h2>${r.evidence.map((e) => `<div class="mono small">${esc(e)}</div>`).join("")}<br>` : ""}
+      <h2>Timeline</h2>
+      <div class="timeline">${r.sections.length ? r.sections.map((s) => `
+        <details class="sec ${s.running ? "running" : ""} ${s.counts.fail ? "hasfail" : ""}" ${s.running || s.counts.fail ? "open" : ""}>
+          <summary>${s.running ? `<span class="spin"></span>` : s.counts.fail ? "✗" : "✓"}
+            <span class="title">${esc(s.title)}</span>
+            <span class="counts small"><span class="c-pass">✓${s.counts.pass}</span><span class="c-fail">✗${s.counts.fail}</span><span class="c-skip">⤼${s.counts.skip}</span></span>
+            <span class="muted small mono">${fmtDur(s.durationMs)}</span></summary>
+          <div class="small" style="margin-top:6px">
+            ${s.info.map((i) => `<div class="muted mono">-- ${esc(i)}</div>`).join("")}
+            ${r.results.filter((x) => x.section === s.title).map((x) => `<div class="mono"><span class="c-${x.status.toLowerCase()}">${x.status}</span> ${esc(x.name)}${x.detail ? ` <span class="muted">— ${esc(x.detail)}</span>` : ""}</div>`).join("")}
+          </div>
+        </details>`).join("") : `<div class="muted">Waiting for output…</div>`}</div>
+      <div class="muted small" style="margin-top:12px">Work dir: <span class="mono">${esc(r.workDir)}</span></div>`;
+  } else if (TAB === "results") {
+    const rows = r.results.filter((x) => RESULT_FILTER === "all" || x.status === RESULT_FILTER);
+    el.innerHTML = `<div class="row" style="margin-bottom:8px">${["all", "FAIL", "SKIP", "PASS"].map((f) => `<button data-f="${f}" class="${RESULT_FILTER === f ? "primary" : ""}">${f}</button>`).join("")}</div>
+      <table><tr><th>Status</th><th>Assertion</th><th>Section</th><th>Time</th></tr>
+      ${rows.map((x) => `<tr><td class="c-${x.status.toLowerCase()}"><b>${x.status}</b></td><td>${esc(x.name)}${x.detail ? `<div class="muted small mono">${esc(x.detail)}</div>` : ""}${x.logPath ? `<a class="small" data-art="${esc(x.logPath)}">open log ↗</a>` : ""}</td><td class="small">${esc(x.section)}</td><td class="small muted">${fmtTime(x.at)}</td></tr>`).join("")}</table>`;
+    el.querySelectorAll("[data-f]").forEach((b) => b.onclick = () => { RESULT_FILTER = b.dataset.f; renderTab(); });
+  } else if (TAB === "log") {
+    el.innerHTML = `<div class="row" style="margin-bottom:6px"><input type="text" id="lf" placeholder="Filter (regex)" value="${esc(LOG_FILTER)}" style="max-width:300px"/>
+      <label class="row small"><input type="checkbox" id="follow" ${FOLLOW ? "checked" : ""}/> follow</label>
+      <span class="muted small mono">${esc(r.logPath)}</span></div><pre class="log" id="log"></pre>`;
+    $("#lf").oninput = (e) => { LOG_FILTER = e.target.value; drawLog(); };
+    $("#follow").onchange = (e) => { FOLLOW = e.target.checked; };
+    drawLog();
+  } else if (TAB === "artifacts") {
+    el.innerHTML = `<div class="muted">Loading…</div>`;
+    loadArtifacts();
+  }
+  el.querySelectorAll("[data-art]").forEach((a) => a.onclick = () => { TAB = "artifacts"; ART_VIEW = a.dataset.art; render(); });
+}
+
+function logClass(l) {
+  if (/^== .* ==/.test(l)) return "l-sec";
+  if (/^\s*FAIL\b|\.\.\. (FAIL|ERROR)$|^Traceback|Error:/.test(l)) return "l-fail";
+  if (/^\s*PASS\b|^PASS:|\.\.\. ok$/.test(l)) return "l-pass";
+  if (/^\s*SKIP\b|\.\.\. skipped/.test(l)) return "l-skip";
+  if (/^!! /.test(l)) return "l-warn";
+  return "";
+}
+function logHtml(lines) {
+  let re = null; try { re = LOG_FILTER ? new RegExp(LOG_FILTER, "i") : null; } catch {}
+  return lines.filter((l) => !re || re.test(l)).map((l) => { const c = logClass(l); return c ? `<span class="${c}">${esc(l)}</span>` : esc(l); }).join("\n");
+}
+function drawLog() { const el = $("#log"); if (!el) return; el.innerHTML = logHtml(LOG); if (FOLLOW) el.scrollTop = el.scrollHeight; }
+function appendLog(lines) {
+  const el = $("#log"); if (!el) return;
+  const h = logHtml(lines); if (!h) return;
+  el.insertAdjacentHTML("beforeend", (el.innerHTML ? "\n" : "") + h);
+  if (FOLLOW) el.scrollTop = el.scrollHeight;
+}
+
+async function loadArtifacts() {
+  const id = SEL;
+  try {
+    ARTS = await api(`/api/artifacts?id=${encodeURIComponent(id)}`);
+    let view = null;
+    if (ART_VIEW) view = await api(`/api/artifact?id=${encodeURIComponent(id)}&path=${encodeURIComponent(ART_VIEW)}&tail=1500`).catch((e) => ({ error: e.message }));
+    if (SEL !== id || TAB !== "artifacts") return;
+    const rel = (p) => { for (const r of ARTS.roots) if (p.startsWith(r + "/")) return p.slice(r.length + 1); return p; };
+    $("#tab").innerHTML = `
+      <div class="row" style="justify-content:space-between"><span class="muted small">${ARTS.files.length} files under ${ARTS.roots.map((r) => `<span class="mono">${esc(r)}</span>`).join(", ")}</span><button id="artRefresh">Refresh</button></div>
+      ${view ? `<div class="card" style="margin:8px 0"><div class="row" style="justify-content:space-between"><b class="mono small">${esc(view.path || ART_VIEW)}</b><a id="artClose">close</a></div>
+        ${view.error ? `<div class="err">${esc(view.error)}</div>` : `<div class="muted small">${fmtSize(view.size)}${view.truncated ? " · showing tail" : ""}</div><pre class="log" style="height:360px">${logHtml(view.lines)}</pre>`}</div>` : ""}
+      <table><tr><th>File</th><th>Size</th><th>Modified</th></tr>
+      ${ARTS.files.map((f) => `<tr><td><a class="mono small" data-view="${esc(f.path)}">${esc(rel(f.path))}</a></td><td class="small">${fmtSize(f.size)}</td><td class="small muted">${fmtTime(f.mtime)}</td></tr>`).join("")}</table>`;
+    $("#artRefresh").onclick = loadArtifacts;
+    const c = $("#artClose"); if (c) c.onclick = () => { ART_VIEW = null; loadArtifacts(); };
+    $("#tab").querySelectorAll("[data-view]").forEach((a) => a.onclick = () => { ART_VIEW = a.dataset.view; loadArtifacts(); });
+  } catch (e) { $("#tab").innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+boot().catch((e) => { document.body.innerHTML = `<pre class="err">${esc(e.stack || e)}</pre>`; });
+</script>
+</body>
+</html>
