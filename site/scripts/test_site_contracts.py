@@ -103,7 +103,7 @@ class SiteContractsTest(unittest.TestCase):
         images = re.findall(r"^\s*image:\s*(\S+)\s*$", descriptor, re.MULTILINE)
         self.assertEqual(len(images), 1)
         self.assertEqual(images[0], "registry.example.com/team/app@sha256:<published-digest>")
-        self.assertIn("Replace <published-digest> with the full digest printed by brewlet:push",
+        self.assertIn("Use the deploy image brewlet:push prints (also in target/brewlet/push.json)",
                       descriptor)
 
     def test_cli_examples_explicitly_use_local_stores(self):
@@ -139,7 +139,8 @@ class SiteContractsTest(unittest.TestCase):
         self.assertNotIn("maven-install-plugin", blocks)
         self.assertNotIn("releases/download", blocks)
         self.assertIn('sh.brewlet:brewlet-maven-plugin:$(brewlet version):build', blocks)
-        self.assertIn('sh.brewlet:brewlet-maven-plugin:$(brewlet version):push', self.text)
+        self.assertIn('sh.brewlet:brewlet-maven-plugin:$(brewlet version):deploy', self.text)
+        self.assertIn('-Dbrewlet.registry=registry.example.com/team', self.text)
         self.assertEqual(blocks.count("demo/hello:local"), 4)
         self.assertNotIn("make binaries", blocks)
         self.assertNotIn("maven-plugin/pom.xml", blocks)

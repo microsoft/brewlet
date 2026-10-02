@@ -10,7 +10,9 @@ Two ways to deploy:
   RuntimeClass.
 - **[`JavaApplication` CRD](#javaapplication-crd)** — a higher-level descriptor;
   the controller reconciles it into a
-  `Deployment` (+ `Service`, + optional `HPA`).
+  `Deployment` (+ `Service`, + optional `HPA`). Maven projects can push, apply,
+  and wait for one in a single step with
+  [`brewlet:deploy`](#deploy-from-maven).
 
 The optional [managed-dependency admission integration](admission-enforcement.md)
 provides a policy for gating either form in a disposable evaluation cluster. The
@@ -181,6 +183,27 @@ spec:
 The generated Deployment defaults to `runAsNonRoot: true` with UID/GID
 `65532:65532`, `RuntimeDefault` seccomp, privilege escalation disabled, and all
 Linux capabilities dropped.
+
+### Deploy from Maven
+
+Maven projects don't need to write this manifest or copy the digest by hand.
+`brewlet:deploy` pushes the runnable image, generates a `JavaApplication` with
+the digest-pinned image, runs `kubectl apply`, and waits until the application
+is Ready, printing progress:
+
+```bash
+mvn package brewlet:deploy \
+  -Dbrewlet.registry=registry.example.com/team \
+  -Dbrewlet.namespace=payments
+```
+
+It uses the current `kubectl` context unless `-Dbrewlet.kubeconfig` or
+`-Dbrewlet.kubeContext` is set. To review or extend the YAML (for example, to
+add a Service or probes) before applying it, run
+`mvn package brewlet:push brewlet:manifest` instead. `brewlet:manifest` reads
+the digest that `brewlet:push` recorded in `target/brewlet/push.json` and
+writes `target/brewlet/javaapplication.yaml`. See
+[Building & publishing](building-and-publishing.md#option-c-maven-plugin).
 
 ### Full example
 

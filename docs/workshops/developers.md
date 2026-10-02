@@ -130,25 +130,30 @@ platform manifest carries the Brewlet launch contract in
 Choose a unique tag and push it to the registry supplied by Ops:
 
 ```bash
-mkdir -p target
 export IMAGE_TAG="$BREWLET_REGISTRY/hello:$(date +%Y%m%d%H%M%S)"
-export PUSH_LOG="$PWD/target/brewlet-push.log"
 
 mvn -f integration-tests/fixtures/demo-app/pom.xml \
   brewlet:push \
-  -Dbrewlet.image="$IMAGE_TAG" | tee "$PUSH_LOG"
+  -Dbrewlet.image="$IMAGE_TAG"
 
-export IMAGE_DIGEST="$(
-  sed -n 's/.*index: \(sha256:[0-9a-f]\{64\}\).*/\1/p' "$PUSH_LOG" | tail -1
+export IMAGE="$(
+  sed -n 's/.*"deployImage" *: *"\([^"]*\)".*/\1/p' \
+    integration-tests/fixtures/demo-app/target/brewlet/push.json
 )"
-test -n "$IMAGE_DIGEST"
-export IMAGE="${IMAGE_TAG%:*}@$IMAGE_DIGEST"
-rm -f "$PUSH_LOG"
+test -n "$IMAGE"
 ```
 
-Use your normal registry login mechanism before this command. Private registry
-authentication can be configured with `spec.artifact.pullSecrets`; this
-workshop assumes the nodes can read the selected repository directly.
+`brewlet:push` records the digest-pinned deploy image in
+`target/brewlet/push.json`, so there is no need to copy the digest from the log.
+The image reference must include the registry host; references such as
+`hello:1.0` are rejected instead of silently targeting Docker Hub.
+
+Log in with your normal registry tooling first, for example `docker login` or
+`az acr login --name <registry>`. The plugin reads `~/.docker/config.json`,
+including credential helpers (`credsStore`/`credHelpers`) and identity tokens,
+so no extra environment variables are needed. Private registry pull
+authentication for the nodes can be configured with `spec.artifact.pullSecrets`;
+this workshop assumes the nodes can read the selected repository directly.
 
 ## 5. Deploy with `JavaApplication`
 
@@ -219,6 +224,20 @@ Change the response in
 `integration-tests/fixtures/demo-app/src/com/example/Hello.java`, choose a new
 tag, then repeat the package, push, and apply steps. Kubernetes rolls out the new
 artifact like any other application update.
+
+For your own applications, when the generated `JavaApplication` is enough (no
+Service or probes), `brewlet:deploy` pushes, generates the manifest, applies it,
+and waits until it is Ready in one step. Run it from your project directory:
+
+```bash
+mvn package brewlet:deploy \
+  -Dbrewlet.registry="$BREWLET_REGISTRY" \
+  -Dbrewlet.namespace="$BREWLET_NAMESPACE" \
+  -Dbrewlet.kubeContext="$BREWLET_CONTEXT"
+```
+
+The image defaults to `$BREWLET_REGISTRY/<artifactId>:<version>` and the
+application name to the project's `artifactId`.
 
 ## Cleanup
 
