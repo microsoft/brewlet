@@ -261,10 +261,13 @@ dependency layers after a managed-bundle error.
 See [Managed dependency bundles](managed-dependency-bundles.md) for the Ops and
 developer workflows, signing options, trust roles, and Go CLI boundary.
 
-### Option A — the `brewlet` CLI (writes a local OCI layout)
+### Option A — the `brewlet` CLI
 
 ```bash
-brewlet push ./target/app.jar registry.example.com/team/app:1.4.2 --store ./oci
+az acr login --name myacr          # or: docker login registry.example.com
+brewlet push ./target/app.jar myacr.azurecr.io/team/app:1.4.2 --push-result push.json
+# pushed myacr.azurecr.io/team/app:1.4.2 (runnable OCI image — kubelet-pullable)
+#   deploy image: myacr.azurecr.io/team/app@sha256:...
 ```
 
 - Ships **only the JAR** — no Dockerfile, no base image, no OS or JVM layers.
@@ -276,12 +279,19 @@ brewlet push ./target/app.jar registry.example.com/team/app:1.4.2 --store ./oci
   startup (mounted at `/app/app.jsa`, launched with `-Xshare:auto`). See [AppCDS](appcds.md).
 - Full flags: [CLI reference](cli-reference.md#brewlet-push).
 
-> **The Go CLI does not talk to a registry.** `brewlet push` reads and writes a
-> local **OCI layout** (`--store`, default `./oci`); the reference it takes names
-> the image *within* that layout. To publish to a registry, use the
-> [Maven plugin](#option-c-maven-plugin) or ORAS (below), then push the layout
-> with a tool such as `oras cp`. Registry publication from the Go CLI is
-> [roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md) work.
+- A `<ref>` that names a registry host is uploaded directly to that registry using
+  your Docker credentials (`credHelpers`, `auths`, `credsStore`) or
+  `BREWLET_REGISTRY_USERNAME`/`BREWLET_REGISTRY_PASSWORD` — the same chain and
+  trust policy as the Maven plugin. A ref without a host never defaults to Docker Hub.
+- `--push-result FILE` writes the same `push.json` handoff as the Maven plugin.
+
+To build into a local **OCI layout** instead (for `brewlet inspect`, `run`, or
+`bundle`), pass `--store` explicitly; the ref then names the image *within* that
+layout:
+
+```bash
+brewlet push ./target/app.jar registry.example.com/team/app:1.4.2 --store ./oci
+```
 
 Inspect what you built:
 

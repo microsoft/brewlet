@@ -97,7 +97,8 @@ image manifest. `brewlet inspect` displays the source BOM, bundle, layer, lock,
 and application JAR digests.
 
 These Go CLI commands read and write OCI layouts through `--store`; they do not
-pull managed bundles directly from a registry. The Go CLI also does not resolve a
+pull managed bundles directly from a registry (a plain `brewlet push` to a
+registry-hosted ref uploads directly, but not with `--dependency-bundle`). The Go CLI also does not resolve a
 Maven graph: callers must supply the canonical lock with `--lock` or
 `--dependency-lock`. Use the Maven plugin for BOM import, Maven graph resolution,
 and direct registry publication/consumption.
