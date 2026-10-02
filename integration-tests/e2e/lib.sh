@@ -161,23 +161,56 @@ cluster_profile() {
 #   kubectl a privileged, hostPID "node-shell" pod per node (in
 #           $E2E_NODESHELL_NS) that enters the host's namespaces with
 #           `chroot /host nsenter -t 1`. Works on real VMs such as AKS nodes.
-# E2E_NODE_SELECTOR (a kubectl label selector) restricts which nodes the
-# provisioning tiers may pick. Tiers that intentionally cover every node (the
-# NodeProfile catch-all assertions, side-loading control-plane images) still
-# see the whole cluster.
-# E2E_POOL_KEY + E2E_POOLS (comma-separated) confine the whole suite to those
-# node pools on a shared cluster: run.sh labels their nodes $E2E_PIN_LABEL=true,
-# every test pod (and the Helm-installed control plane) gets a matching
-# nodeSelector, catch-all NodeProfiles are narrowed to the pools, and images are
-# side-loaded only there. E2E_NODE_SELECTOR defaults to those pools.
+# Live clusters (E2E_NODE_ACCESS=kubectl) are shared, so the suite is always
+# confined to named node pools there: E2E_POOLS (comma-separated, default
+# "javaworkers"). run.sh labels those nodes $E2E_PIN_LABEL=true, every test pod
+# (and the Helm-installed control plane) gets a matching nodeSelector,
+# catch-all NodeProfiles are narrowed to the pools, and images are side-loaded
+# only there; nothing lands on other pools. E2E_POOL_KEY is the node label
+# naming the pool; run.sh detects it (AKS, GKE, EKS, Karpenter) when unset.
+# E2E_NODE_SELECTOR (a kubectl label selector, default: the pools) further
+# restricts which pool nodes the provisioning tiers may pick.
 E2E_NODE_ACCESS="${E2E_NODE_ACCESS:-docker}"
 E2E_POOL_KEY="${E2E_POOL_KEY:-}"
-E2E_POOLS="${E2E_POOLS:-}"
-E2E_PIN_LABEL="e2e.brewlet.sh/node"
-if [[ -n "$E2E_POOLS" && -z "$E2E_POOL_KEY" ]]; then
-  echo "E2E_POOLS requires E2E_POOL_KEY (e.g. kubernetes.azure.com/agentpool)" >&2; exit 2
+if [[ "$E2E_NODE_ACCESS" == "kubectl" ]]; then
+  E2E_POOLS="${E2E_POOLS:-javaworkers}"
+else
+  E2E_POOLS="${E2E_POOLS:-}"
 fi
-E2E_NODE_SELECTOR="${E2E_NODE_SELECTOR:-${E2E_POOLS:+$E2E_POOL_KEY in ($E2E_POOLS)}}"
+E2E_PIN_LABEL="e2e.brewlet.sh/node"
+E2E_POOL_KEYS_KNOWN="kubernetes.azure.com/agentpool cloud.google.com/gke-nodepool eks.amazonaws.com/nodegroup karpenter.sh/nodepool agentpool"
+_E2E_NODE_SELECTOR_USER="${E2E_NODE_SELECTOR:-}"
+E2E_NODE_SELECTOR="$_E2E_NODE_SELECTOR_USER"
+E2E_RUN_PIN=()
+E2E_HELM_PIN=()
+
+# e2e_detect_pool_key: print the first known pool label key that names one of
+# E2E_POOLS on some node.
+e2e_detect_pool_key() {
+  local k
+  for k in $E2E_POOL_KEYS_KNOWN; do
+    if [[ -n "$(kubectl get nodes -l "$k in ($E2E_POOLS)" -o name 2>/dev/null | head -1)" ]]; then
+      printf '%s' "$k"; return 0
+    fi
+  done
+  return 1
+}
+
+# e2e_pin_config: derive the selector and the `kubectl run` / Helm pin args
+# from E2E_POOL_KEY + E2E_POOLS. run.sh calls it again after detecting the key.
+# E2E_RUN_PIN / E2E_HELM_PIN expand with ${A[@]+"${A[@]}"}.
+e2e_pin_config() {
+  E2E_RUN_PIN=(); E2E_HELM_PIN=()
+  E2E_NODE_SELECTOR="$_E2E_NODE_SELECTOR_USER"
+  [[ -n "$E2E_POOLS" && -n "$E2E_POOL_KEY" ]] || return 0
+  [[ -n "$E2E_NODE_SELECTOR" ]] || E2E_NODE_SELECTOR="$E2E_POOL_KEY in ($E2E_POOLS)"
+  E2E_RUN_PIN=(--overrides "{\"apiVersion\":\"v1\",\"spec\":{\"nodeSelector\":{\"$E2E_PIN_LABEL\":\"true\"}}}")
+  local k="${E2E_PIN_LABEL//./\\.}"
+  E2E_HELM_PIN=(--set-string "operator.nodeSelector.$k=true"
+                --set-string "admission.nodeSelector.$k=true"
+                --set-string "uninstall.nodeSelector.$k=true")
+}
+e2e_pin_config
 E2E_NODESHELL_NS="${E2E_NODESHELL_NS:-brewlet-e2e-nodeshell}"
 E2E_NODESHELL_IMAGE="${E2E_NODESHELL_IMAGE:-mcr.microsoft.com/cbl-mariner/busybox:2.0}"
 
@@ -242,25 +275,21 @@ e2e_pod_pin_entry() {
   printf '%*s%s: "true"\n' "$1" '' "$E2E_PIN_LABEL"
 }
 
+# e2e_rc_pin: RuntimeClass `scheduling:` block for the bare brewlet
+# RuntimeClass tiers create; the RuntimeClass admission plugin merges it into
+# every brewlet pod's nodeSelector. Nothing when not pinned.
+e2e_rc_pin() {
+  e2e_pinned || return 0
+  printf 'scheduling:\n  nodeSelector:\n'
+  e2e_pod_pin_entry 4
+}
+
 # e2e_profile_pool INDENT: nodePool key/names that narrow a catch-all
 # NodeProfile to the pinned pools; nothing when not pinned.
 e2e_profile_pool() {
   e2e_pinned || return 0
   printf '%*skey: %s\n%*snames: [%s]\n' "$1" '' "$E2E_POOL_KEY" "$1" '' "$E2E_POOLS"
 }
-
-# E2E_RUN_PIN / E2E_HELM_PIN: extra args pinning `kubectl run` pods and the
-# chart's operator/admission/uninstall pods. Expand with ${A[@]+"${A[@]}"}.
-E2E_RUN_PIN=()
-E2E_HELM_PIN=()
-if [[ -n "$E2E_POOLS" ]]; then
-  E2E_RUN_PIN=(--overrides "{\"apiVersion\":\"v1\",\"spec\":{\"nodeSelector\":{\"$E2E_PIN_LABEL\":\"true\"}}}")
-  _pin_key="${E2E_PIN_LABEL//./\\.}"
-  E2E_HELM_PIN=(--set-string "operator.nodeSelector.$_pin_key=true"
-                --set-string "admission.nodeSelector.$_pin_key=true"
-                --set-string "uninstall.nodeSelector.$_pin_key=true")
-  unset _pin_key
-fi
 
 _nodeshell_pod() { printf 'nodeshell-%s' "${1#node/}"; }
 

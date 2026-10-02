@@ -324,16 +324,17 @@ tier12_runnable_image() {
 
   # --- RuntimeClass + namespace + in-cluster curl client --------------------
   if ! kubectl get runtimeclass brewlet >/dev/null 2>&1; then
-    kubectl create -f - >/dev/null 2>&1 <<'YAML'
+    kubectl create -f - >/dev/null 2>&1 <<YAML
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata: { name: brewlet }
 handler: brewlet
+$(e2e_rc_pin)
 YAML
     T12_RC_CREATED=1
   fi
   kubectl create namespace "$T12_NS" >/dev/null 2>&1 || true
-  kubectl run t12-client -n "$T12_NS" --image=busybox:1.36 --restart=Never \
+  kubectl run t12-client -n "$T12_NS" --image=busybox:1.36 --restart=Never ${E2E_RUN_PIN[@]+"${E2E_RUN_PIN[@]}"} \
     --command -- sleep 3600 >>"$WORK/t12-deploy.log" 2>&1 || true
 
   # --- attack regression: attested image + conflicting executable hint -------

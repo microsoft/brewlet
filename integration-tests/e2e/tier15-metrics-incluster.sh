@@ -380,7 +380,7 @@ _t15_build_load_kubernetes_image() {
   T15_BUILT_IMAGES+=("$image")
   docker save "$image" -o "$tarball" >>"$WORK/t15-load.log" 2>&1 || return 1
   for n in $nodes; do
-    node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" \
+    node_import_image "$n" "$tarball" \
       >>"$WORK/t15-load.log" 2>&1 || return 1
   done
 }
@@ -405,7 +405,7 @@ _t15_build_load_provisioner() {
     -x /opt/brewlet-dist/brewlet-metrics-exporter || return 2
   docker save "$T15_PROV_IMG" -o "$tarball" >>"$WORK/t15-load.log" 2>&1 || return 1
   for n in $nodes; do
-    node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" \
+    node_import_image "$n" "$tarball" \
       >>"$WORK/t15-load.log" 2>&1 || return 1
   done
 }
@@ -591,6 +591,7 @@ tier15_metrics_incluster() {
   info "tier15: installing the shipped chart with metrics and NetworkPolicies enabled"
   T15_HELM_INSTALLED=1
   if ! helm install "$T15_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+      ${E2E_HELM_PIN[@]+"${E2E_HELM_PIN[@]}"} \
       --namespace "$T15_RELEASE_NS" \
       --set images.operator="$T15_OP_IMG" \
       --set images.admission="$T15_ADM_IMG" \
@@ -637,7 +638,7 @@ tier15_metrics_incluster() {
 
   T15_APP_NS_CREATED=1
   kubectl create namespace "$T15_APP_NS" >/dev/null 2>&1 || true
-  kubectl run t15-client -n "$T15_APP_NS" --image=busybox:1.36 --restart=Never \
+  kubectl run t15-client -n "$T15_APP_NS" --image=busybox:1.36 --restart=Never ${E2E_RUN_PIN[@]+"${E2E_RUN_PIN[@]}"} \
     --command -- sleep 3600 >>"$WORK/t15-app.log" 2>&1 || true
   if ! kubectl wait -n "$T15_APP_NS" --for=condition=Ready pod/t15-client \
       --timeout=60s >>"$WORK/t15-app.log" 2>&1; then
@@ -646,7 +647,7 @@ tier15_metrics_incluster() {
   fi
   T15_DENY_NS_CREATED=1
   kubectl create namespace "$T15_DENY_NS" >/dev/null 2>&1 || true
-  kubectl run t15-denied-client -n "$T15_DENY_NS" --image=busybox:1.36 --restart=Never \
+  kubectl run t15-denied-client -n "$T15_DENY_NS" --image=busybox:1.36 --restart=Never ${E2E_RUN_PIN[@]+"${E2E_RUN_PIN[@]}"} \
     --command -- sleep 3600 >>"$WORK/t15-app.log" 2>&1 || true
   if ! kubectl wait -n "$T15_DENY_NS" --for=condition=Ready pod/t15-denied-client \
       --timeout=60s >>"$WORK/t15-app.log" 2>&1; then

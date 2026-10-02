@@ -258,11 +258,12 @@ tier16_failure_modes() {
   pass "tier16: provisioned + advertised node ($T16_NODE)"
 
   if ! kubectl get runtimeclass brewlet >/dev/null 2>&1; then
-    kubectl create -f - >/dev/null 2>&1 <<'YAML'
+    kubectl create -f - >/dev/null 2>&1 <<YAML
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata: { name: brewlet }
 handler: brewlet
+$(e2e_rc_pin)
 YAML
     T16_RC_CREATED=1
   fi

@@ -348,9 +348,10 @@ tier14_custom_jdk() {
     docker run --rm --platform "linux/$arch" --entrypoint /usr/bin/test \
       "$T14_PROVISIONER_IMAGE" -x /opt/brewlet-dist/brewlet-source-policy \
       >>"$WORK/t14-provisioner-build.log" 2>&1 &&
-    docker save "$T14_PROVISIONER_IMAGE" |
-      node_exec -i "$T14_NODE" ctr -n k8s.io images import - \
-        >"$WORK/t14-provisioner-import.log" 2>&1; then
+    docker save "$T14_PROVISIONER_IMAGE" -o "$WORK/t14-provisioner.tar" \
+        >"$WORK/t14-provisioner-import.log" 2>&1 &&
+    node_import_image "$T14_NODE" "$WORK/t14-provisioner.tar" \
+        >>"$WORK/t14-provisioner-import.log" 2>&1; then
     pass "tier14: built and loaded the real node provisioner"
   else
     fail "tier14: build/load node provisioner" "see t14-provisioner-build.log and t14-provisioner-import.log"
@@ -619,7 +620,7 @@ spec:
   selector: { app: $T14_APP }
   ports: [{ port: $T14_PORT, targetPort: $T14_PORT }]
 YAML
-  kubectl run t14-client -n "$T14_NS_APP" --image=busybox:1.36 --restart=Never \
+  kubectl run t14-client -n "$T14_NS_APP" --image=busybox:1.36 --restart=Never ${E2E_RUN_PIN[@]+"${E2E_RUN_PIN[@]}"} \
     --command -- sleep 3600 >>"$WORK/t14-app.log" 2>&1 || true
 
   if ! kubectl rollout status -n "$T14_NS_APP" deploy/"$T14_APP" --timeout=180s >>"$WORK/t14-app.log" 2>&1; then

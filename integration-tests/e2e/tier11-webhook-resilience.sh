@@ -112,7 +112,7 @@ tier11_webhook_resilience() {
     fail "webhook(resilience): docker save image" "see $WORK/t11-load.log"; return 0
   fi
   for n in $nodes; do
-    if ! node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t11-load.log" 2>&1; then
+    if ! node_import_image "$n" "$tarball" >>"$WORK/t11-load.log" 2>&1; then
       skip "tier11: webhook resilience" "could not import image into node '$n' (see $WORK/t11-load.log)"; return 0
     fi
     T11_LOADED_NODES+=("$n")
@@ -121,11 +121,12 @@ tier11_webhook_resilience() {
 
   # --- RuntimeClass + namespaces --------------------------------------------
   if ! kubectl get runtimeclass brewlet >/dev/null 2>&1; then
-    kubectl create -f - >/dev/null 2>&1 <<'YAML'
+    kubectl create -f - >/dev/null 2>&1 <<YAML
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata: { name: brewlet }
 handler: brewlet
+$(e2e_rc_pin)
 YAML
     T11_RC_CREATED=1
   fi
@@ -187,6 +188,7 @@ spec:
     metadata: { labels: { app: $T11_SVC } }
     spec:
       serviceAccountName: $T11_SVC
+$(e2e_pod_pin 6)
       securityContext: { runAsNonRoot: true }
       containers:
         - name: webhook

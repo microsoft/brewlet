@@ -142,7 +142,8 @@ YAML
   # Mark one node ready and advertise two JDK roots on it (as the provisioner
   # would with JDKS=temurin-21,microsoft-25). That one node must then satisfy
   # pods requesting either JDK, and reject a JDK it does not have.
-  WH_NODE="$(kubectl get nodes -o name 2>/dev/null | head -1)"
+  WH_NODE="$(ready_node_names | head -1)"
+  [[ -n "$WH_NODE" ]] && WH_NODE="node/$WH_NODE"
   if [[ -z "$WH_NODE" ]]; then
     skip "$label: multi-JDK on a single node" "no nodes found"
     return 0

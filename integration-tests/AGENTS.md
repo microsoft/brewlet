@@ -43,21 +43,36 @@ only kind/Docker Desktop nodes are provisionable. To run them on real nodes:
 ```bash
 E2E_KUBE_CONTEXT=my-aks \
 E2E_NODE_ACCESS=kubectl \
-E2E_NODE_SELECTOR=kubernetes.azure.com/agentpool=javaworkers \
-E2E_T13_POOL_KEY=brewlet-e2e-pool \
+E2E_POOLS=javaworkers \
 integration-tests/e2e/run.sh --reset --tier 1 --tier 2  # ...or list every tier
 ```
 
+- Live clusters are shared, so with `E2E_NODE_ACCESS=kubectl` the suite is
+  always confined to the node pool(s) in `E2E_POOLS` (comma-separated, default
+  `javaworkers`). run.sh labels those nodes `e2e.brewlet.sh/node=true` (removed
+  on exit and by `--reset`) and nothing lands on other pools:
+  - test pods, `kubectl run` clients, the webhook Deployments and the
+    Helm-installed operator/admission/uninstall pods get a matching
+    `nodeSelector`, and the bare `brewlet` RuntimeClass the tiers create carries
+    it in `scheduling.nodeSelector`;
+  - catch-all NodeProfiles (tiers 4, 10, 13) are narrowed to the pools, and
+    tier 13 emulates its catch-all with a named profile over the pinned nodes;
+  - images are side-loaded and node shells created only on Ready pool nodes.
+- `E2E_POOL_KEY` is the node label naming the pool. It is detected from
+  `kubernetes.azure.com/agentpool` (AKS), `cloud.google.com/gke-nodepool`
+  (GKE), `eks.amazonaws.com/nodegroup` (EKS), `karpenter.sh/nodepool` or
+  `agentpool`; set it for a custom label. The run aborts if no node is in
+  `E2E_POOLS`.
 - `E2E_NODE_ACCESS=kubectl` runs node commands through a privileged, hostPID
   node-shell pod per node in `brewlet-e2e-nodeshell` (`chroot /host nsenter
   -t 1`). The namespace is deleted on exit and by `--reset`. Override the image
-  with `E2E_NODESHELL_IMAGE`; it needs only `chroot` and `sleep`.
-- `E2E_NODE_SELECTOR` restricts which nodes the provisioning tiers (and the
-  single-node checks in tiers 4 and 13) may pick. Tiers that side-load
-  control-plane images, and the NodeProfile catch-all assertions, still cover
-  every node, so a node shell is created on each node.
-- `E2E_T13_POOL_KEY` replaces tier 13's `agentpool` key, which AKS owns. Use a
-  key without dots or slashes.
+  with `E2E_NODESHELL_IMAGE`; it needs only `chroot` and `sleep`. Uploads go in
+  retried, checksum-verified chunks (`E2E_UPLOAD_CHUNK`, default `2m`) because
+  API-server exec streams can time out.
+- `E2E_NODE_SELECTOR` (a label selector, default: the pools) further restricts
+  which pool nodes the provisioning tiers may pick.
+- Tier 13 relabels nodes with `E2E_T13_POOL_KEY` (default `brewlet-e2e-pool`
+  in kubectl mode, `agentpool` otherwise). Use a key without dots or slashes.
 - `DOCKER_DEFAULT_PLATFORM` defaults to the selected nodes' architecture, so an
   arm64 workstation builds amd64 images for an amd64 pool.
 - Node-side tiers really modify the selected node: they install the shim,

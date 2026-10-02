@@ -215,7 +215,7 @@ YAML
   # RuntimeClass + provisioner-DaemonSet creation (the node annotation no longer
   # does). The DaemonSet references the bogus provisioner image, so its pods
   # never run host-mutating code.
-  cat >"$WORK/t4-nodeprofile.yaml" <<'YAML'
+  cat >"$WORK/t4-nodeprofile.yaml" <<YAML
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
@@ -225,6 +225,7 @@ spec:
     # A single-node kind / Docker Desktop cluster labels its only node as the
     # control plane, which the provisioner declines unless asked explicitly.
     includeControlPlane: true
+$(e2e_profile_pool 4)
   jdks:
     - distribution: temurin
       feature: 21
@@ -249,7 +250,7 @@ YAML
   if wait_for _t4_ds_exists; then
     pass "NodeProfile: reconciler created the per-profile provisioner DaemonSet (brewlet-node-provisioner-default)"
     local total_nodes
-    total_nodes="$(kubectl get nodes -o name | wc -l | tr -d ' ')"
+    total_nodes="$(e2e_pool_nodes | wc -l | tr -d ' ')"
     check "NodeProfile: catch-all placement fences every claimed node by name, Node UID and owner UID" \
       profile_fixture_placement "$T4_NS_OP" default "$total_nodes"
   else

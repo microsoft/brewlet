@@ -252,9 +252,10 @@ tier18_jdk_patch() {
   if docker build "${build_args[@]}" \
       -f "$MONOREPO_DIR/provisioner/Dockerfile" "$MONOREPO_DIR" \
       >"$WORK/t18-provisioner-build.log" 2>&1 &&
-    docker save "$T18_PROVISIONER_IMAGE" |
-      node_exec -i "$T18_NODE" ctr -n k8s.io images import - \
-        >"$WORK/t18-provisioner-import.log" 2>&1; then
+    docker save "$T18_PROVISIONER_IMAGE" -o "$WORK/t18-provisioner.tar" \
+        >"$WORK/t18-provisioner-import.log" 2>&1 &&
+    node_import_image "$T18_NODE" "$WORK/t18-provisioner.tar" \
+        >>"$WORK/t18-provisioner-import.log" 2>&1; then
     pass "tier18: built and loaded the real node provisioner"
   else
     fail "tier18: build/load node provisioner" "see t18-provisioner-build.log and t18-provisioner-import.log"
@@ -421,7 +422,7 @@ spec:
   selector: { app: $T18_APP }
   ports: [{ port: $T18_PORT, targetPort: $T18_PORT }]
 YAML
-  kubectl run t18-client -n "$T18_NS_APP" --image=busybox:1.36 --restart=Never \
+  kubectl run t18-client -n "$T18_NS_APP" --image=busybox:1.36 --restart=Never ${E2E_RUN_PIN[@]+"${E2E_RUN_PIN[@]}"} \
     --command -- sleep 3600 >>"$WORK/t18-app.log" 2>&1 || true
   if ! kubectl rollout status -n "$T18_NS_APP" deploy/"$T18_APP" --timeout=180s >>"$WORK/t18-app.log" 2>&1; then
     fail "tier18: workload became Ready on the older JDK" "diag: $(save_pod_diag "$T18_APP" "$T18_NS_APP" "app=$T18_APP")"

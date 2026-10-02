@@ -108,7 +108,7 @@ _t10_build_load() {
   tarball="$WORK/t10-$cmd.tar"
   docker save "$img" -o "$tarball" 2>>"$WORK/t10-load.log" || return 2
   for n in $nodes; do
-    node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" >>"$WORK/t10-load.log" 2>&1 || return 3
+    node_import_image "$n" "$tarball" >>"$WORK/t10-load.log" 2>&1 || return 3
   done
   return 0
 }
@@ -182,6 +182,7 @@ tier10_helm_incluster() {
   fi
   info "tier10: helm install $T10_RELEASE"
   if ! helm install "$T10_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+        ${E2E_HELM_PIN[@]+"${E2E_HELM_PIN[@]}"} \
         --namespace "$T10_RELEASE_NS" \
         --set images.operator="$T10_OP_IMG" \
         --set images.admission="$T10_ADM_IMG" \
@@ -295,7 +296,7 @@ tier10_helm_incluster() {
   info "tier10: apply default NodeProfile and converge RuntimeClass + per-profile DaemonSet"
   local npboot
   for _ in 1 2 3 4 5 6 7 8; do
-    npboot="$(kubectl apply -f - 2>&1 <<'YAML'
+    npboot="$(kubectl apply -f - 2>&1 <<YAML
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
@@ -305,6 +306,7 @@ spec:
     # Single-node kind / Docker Desktop clusters label their only node as the
     # control plane, and the provisioner refuses those unless asked explicitly.
     includeControlPlane: true
+$(e2e_profile_pool 4)
   jdks:
     - distribution: temurin
       feature: 21
@@ -457,16 +459,20 @@ YAML
   fi
 
   # (b) a pool conflict: two profiles claiming the same named pool -> PoolConflict.
-  # The first (valid) profile is accepted; the second collides.
-  if kubectl apply -f - >"$WORK/t10-np-a.log" 2>&1 <<'YAML'
+  # The first (valid) profile is accepted; the second collides. When pinned,
+  # the default profile is named on E2E_POOL_KEY, so use that key (a different
+  # key would be rejected for ambiguity) and a pool no node is in.
+  local T10_CONFLICT_KEY=agentpool T10_CONFLICT_POOL=batch
+  if e2e_pinned; then T10_CONFLICT_KEY="$E2E_POOL_KEY"; T10_CONFLICT_POOL=brewlet-e2e-batch; fi
+  if kubectl apply -f - >"$WORK/t10-np-a.log" 2>&1 <<YAML
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
   name: e2e-pool-a
 spec:
   nodePool:
-    key: agentpool
-    names: [batch]
+    key: $T10_CONFLICT_KEY
+    names: [$T10_CONFLICT_POOL]
   jdks:
     - distribution: temurin
       feature: 21
@@ -480,15 +486,15 @@ YAML
     fail "helm(in-cluster): NodeProfile webhook admits a valid named-pool profile" "see $WORK/t10-np-a.log"
   fi
   local npconf
-  npconf="$(kubectl apply -f - 2>&1 <<'YAML'
+  npconf="$(kubectl apply -f - 2>&1 <<YAML
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
   name: e2e-pool-b
 spec:
   nodePool:
-    key: agentpool
-    names: [batch]
+    key: $T10_CONFLICT_KEY
+    names: [$T10_CONFLICT_POOL]
   jdks:
     - distribution: temurin
       feature: 21

@@ -197,7 +197,7 @@ _t17_build_load() {
   T17_BUILT_IMAGES+=("$image")
   docker save "$image" -o "$tarball" >>"$WORK/t17-load.log" 2>&1 || return 1
   for n in $nodes; do
-    node_exec -i "$n" ctr -n k8s.io images import - <"$tarball" \
+    node_import_image "$n" "$tarball" \
       >>"$WORK/t17-load.log" 2>&1 || return 1
   done
 }
@@ -414,6 +414,7 @@ tier17_stage_gc() {
   info "tier17: installing the chart with default stageGC values"
   T17_HELM_INSTALLED=1
   if ! helm install "$T17_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+      ${E2E_HELM_PIN[@]+"${E2E_HELM_PIN[@]}"} \
       --namespace "$T17_RELEASE_NS" \
       --set images.operator="$T17_OP_IMG" \
       --set images.admission="$T17_ADM_IMG" \

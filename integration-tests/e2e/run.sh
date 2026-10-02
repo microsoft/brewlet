@@ -157,10 +157,18 @@ info "java      : $(have java && java -version 2>&1 | head -1 | tr -d '"' || ech
 info "docker    : $(have docker && (docker info >/dev/null 2>&1 && echo up || echo 'installed, daemon down') || echo 'absent')"
 info "kubectl   : $(have kubectl && (k8s_reachable && kubectl config current-context 2>/dev/null || echo 'no cluster') || echo 'absent')"
 info "helm      : $(have helm && helm version --short 2>/dev/null || echo 'absent')"
-info "nodes     : access=$E2E_NODE_ACCESS selector=${E2E_NODE_SELECTOR:-<all>}"
+info "nodes     : access=$E2E_NODE_ACCESS pools=${E2E_POOLS:-<all>} selector=${E2E_NODE_SELECTOR:-<pools>}"
 
 # Pool pinning: label the E2E_POOLS nodes so every test pod can select them.
 if e2e_pinned && have kubectl && k8s_reachable; then
+  if [[ -z "$E2E_POOL_KEY" ]]; then
+    if ! E2E_POOL_KEY="$(e2e_detect_pool_key)"; then
+      printf 'ERROR: no node is in pool(s) "%s" under any known pool label (%s).\n' "$E2E_POOLS" "$E2E_POOL_KEYS_KNOWN" >&2
+      printf '       Set E2E_POOLS to the node pool(s) to test on, and E2E_POOL_KEY if the pool label is custom.\n' >&2
+      exit 2
+    fi
+  fi
+  e2e_pin_config
   if [[ -z "$(e2e_pool_nodes)" ]]; then
     printf 'ERROR: no nodes match %s in (%s)\n' "$E2E_POOL_KEY" "$E2E_POOLS" >&2; exit 2
   fi

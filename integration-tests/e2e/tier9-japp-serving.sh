@@ -340,11 +340,12 @@ tier9_serving() {
 
   # --- RuntimeClass + namespace + in-cluster curl client ---------------------
   if ! kubectl get runtimeclass brewlet >/dev/null 2>&1; then
-    kubectl create -f - >/dev/null 2>&1 <<'YAML'
+    kubectl create -f - >/dev/null 2>&1 <<YAML
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata: { name: brewlet }
 handler: brewlet
+$(e2e_rc_pin)
 YAML
     T9_RC_CREATED=1
   fi
@@ -358,12 +359,13 @@ YAML
 
   # A plain (non-brewlet) client pod we exec `wget` from, to hit the Service over
   # the real in-cluster network — proving Service routing, not just a local port.
-  kubectl apply -n "$T9_NS" -f - >>"$WORK/t9-deploy.log" 2>&1 <<'YAML'
+  kubectl apply -n "$T9_NS" -f - >>"$WORK/t9-deploy.log" 2>&1 <<YAML
 apiVersion: v1
 kind: Pod
 metadata: { name: t9-client }
 spec:
   restartPolicy: Never
+$(e2e_pod_pin 2)
   securityContext:
     runAsNonRoot: true
     runAsUser: 1000
