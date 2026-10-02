@@ -10,7 +10,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -238,20 +237,8 @@ func (c *client) deleteWithPreconditions(live object, serverDryRun bool) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.CreateTemp("", "brewlet-profile-delete-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	if _, err := file.Write(input); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
 	path := "/apis/node.brewlet.sh/v1alpha1/nodeprofiles/" + live.Metadata.Name
-	if _, err := c.kubectl(nil, "delete", "--raw", path, "-f", file.Name()); err != nil {
+	if _, err := c.kubectl(input, "delete", "--raw", path, "-f", "-"); err != nil {
 		return fmt.Errorf("profile deletion failed (if the profile changed since it was read, re-inspect it and retry): %w", err)
 	}
 	return nil
@@ -419,6 +406,8 @@ func (c *client) waitForDeletion(report *deleteReport, claimed []string, timeout
 	states := map[string]string{}
 	var lastErr error
 	work := func() error {
+		ticker := time.NewTicker(progress.PollInterval)
+		defer ticker.Stop()
 		for {
 			profile, err := c.getProfileContext(ctx, name)
 			switch {
@@ -463,7 +452,7 @@ func (c *client) waitForDeletion(report *deleteReport, claimed []string, timeout
 				return fmt.Errorf("timed out after %s waiting for NodeProfile %q to be deleted (last state %s); "+
 					"cleanup continues in the background. Rerun brewlet k8s profile delete %s --wait or see %s",
 					timeout, name, last, name, cleanupTroubleshooting)
-			case <-time.After(progress.PollInterval):
+			case <-ticker.C:
 			}
 		}
 	}
@@ -492,6 +481,8 @@ func (c *client) renderDeleteReport(report deleteReport) error {
 	switch {
 	case report.DryRun != "":
 		action = report.DryRun + " dry run (not deleted)"
+	case report.Deleted:
+		action = "deleted"
 	case report.AlreadyDeleting:
 		action = "already deleting"
 	}

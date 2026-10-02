@@ -1131,7 +1131,7 @@ func deletingProfile(reason, message string, extra string) string {
 	    "conditions":[{"type":"Ready","status":"False","reason":"` + reason + `","message":"` + message + `"}]}}`
 }
 
-func (f *deleteCluster) exec(_ context.Context, program string, args []string, _ []byte) ([]byte, error) {
+func (f *deleteCluster) exec(_ context.Context, program string, args []string, input []byte) ([]byte, error) {
 	t := f.t
 	if program != "kubectl" {
 		t.Fatalf("unexpected %s %v", program, args)
@@ -1163,12 +1163,11 @@ func (f *deleteCluster) exec(_ context.Context, program string, args []string, _
 		}
 		return listJSON(t, f.cleanup...), nil
 	case hasArgs(args, "delete", "--raw", "/apis/node.brewlet.sh/v1alpha1/nodeprofiles/workers"):
-		raw, err := os.ReadFile(flagValue(t, args, "-f"))
-		if err != nil {
-			t.Fatal(err)
+		if flagValue(t, args, "-f") != "-" {
+			t.Errorf("delete options must be passed on stdin: %v", args)
 		}
 		var body map[string]any
-		if err := json.Unmarshal(raw, &body); err != nil {
+		if err := json.Unmarshal(input, &body); err != nil {
 			t.Fatal(err)
 		}
 		f.deletes = append(f.deletes, body)
@@ -1291,6 +1290,11 @@ func TestProfileDeleteWaitFollowsCleanup(t *testing.T) {
 	var report deleteReport
 	if err := json.Unmarshal([]byte(out), &report); err != nil || !report.Deleted {
 		t.Fatalf("report: %s %v", out, err)
+	}
+	f.snapshots, f.deletes = []string{""}, nil
+	out, _, err = runTest(t, []string{"profile", "delete", "workers", "--wait"}, f.exec)
+	if err != nil || !strings.Contains(out, "action: deleted\nstate: deleted") {
+		t.Fatalf("table after wait: %v\n%s", err, out)
 	}
 	if got := summarizeCleanup("CleanupPending", "", []cleanupNode{{Name: "a", State: "cleaned"}, {Name: "b", State: "cleaning", Detail: "ImagePullBackOff"}}); got != "CleanupPending: 1/2 nodes cleaned (b: ImagePullBackOff)" {
 		t.Fatalf("summary: %q", got)
