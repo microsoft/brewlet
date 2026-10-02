@@ -8,8 +8,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from common import Fixture, owned_container, redact, wait
-from hpa import cpu_millicores, hpa_cpu_utilization
+from common import GC_STARTUP_DELAY, Fixture, kind_config, owned_container, redact, wait
+from hpa import assert_cold_start_retention, cpu_millicores, hpa_cpu_utilization
 
 
 class FixtureSafetyTests(unittest.TestCase):
@@ -54,6 +54,42 @@ class FixtureSafetyTests(unittest.TestCase):
         self.assertEqual(hpa_cpu_utilization({"currentMetrics": [
             {"resource": {"name": "cpu", "current": {"averageUtilization": 70}}}]}), 70)
         self.assertEqual(hpa_cpu_utilization({"currentMetrics": [{"type": ""}]}), 0)
+
+    def test_kind_config_defers_containerd_gc_and_keeps_registry_patch(self):
+        config = kind_config("owned")
+        self.assertIn('[plugins."io.containerd.gc.v1.scheduler"]', config)
+        self.assertIn(f'startup_delay = "{GC_STARTUP_DELAY}"', config)
+        self.assertIn("deletion_threshold = 0", config)
+        self.assertIn('config_path = "/etc/containerd/certs.d"', config)
+        self.assertIn("sh.brewlet/live-owner: owned", config)
+        self.assertIn('horizontal-pod-autoscaler-sync-period: "10s"', config)
+
+    def test_gc_request_uses_containerd_collector_on_owned_node(self):
+        fixture = Fixture.__new__(Fixture)
+        fixture.node, fixture.node_id = "owned-node", "node-id"
+        with patch.object(fixture, "own_container") as owned, \
+                patch.object(fixture, "run") as execute:
+            lease = fixture.request_containerd_gc()
+            owned.assert_called_once_with("owned-node")
+        prefix = ["docker", "exec", "node-id", "ctr", "-n", "k8s.io", "leases"]
+        self.assertEqual([c.args[0] for c in execute.call_args_list], [
+            [*prefix, "create", "--id", lease],
+            [*prefix, "delete", "--sync", lease],
+        ])
+        self.assertTrue(lease.startswith("brewlet-live-gc-"))
+
+    def test_cold_start_retention_fails_when_layers_were_collected(self):
+        fixture = Mock()
+        fixture.node_blob_present.side_effect = lambda d: d == "sha256:" + "a" * 64
+        layers = ["sha256:" + "a" * 64, "sha256:" + "b" * 64]
+        with patch("hpa.runnable_layers", return_value=("sha256:" + "c" * 64, layers)):
+            with self.assertRaisesRegex(AssertionError, "b" * 64):
+                assert_cold_start_retention(fixture, "registry:5000/apps/demo@sha256:x")
+            fixture.record.assert_not_called()
+            fixture.node_blob_present.side_effect = None
+            fixture.node_blob_present.return_value = True
+            assert_cold_start_retention(fixture, "registry:5000/apps/demo@sha256:x")
+            fixture.record.assert_called_once()
 
     def test_cleanup_refuses_replaced_container(self):
         fixture = Fixture.__new__(Fixture)

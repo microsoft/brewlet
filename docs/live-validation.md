@@ -110,9 +110,18 @@ shim**, not unmodified release validation.
 The candidate retains descriptor-verified compressed layers in an atomically
 published `immutable-v2` stage and verifies them on reuse. Only missing source
 bytes can use the retained evidence; present-but-corrupt source bytes and other
-I/O errors still fail. The HPA scenario explicitly waits for natural
-containerd source-layer GC and checks retained hashes before applying load.
+I/O errors still fail. The HPA scenario then requests a containerd
+source-layer GC and waits for it, and checks retained hashes before applying load.
 It never deletes source blobs to manufacture this condition.
+
+The fixture node keeps `discard_unpacked_layers=true` but sets the containerd GC
+scheduler's `startup_delay` to `24h`. With the stock `100ms` delay, containerd
+can collect the packed layers within about a second of the CRI pull. That races
+the first Pod's cold start, which fails closed (see below) and made the scenario
+flaky. With the longer delay, the cold start finds its layers. The scenario
+asserts this (`cold-start-source-layers-retained`), then triggers containerd's
+own collector by creating a lease and deleting it with `ctr leases delete --sync`
+(`gcRequestLease`). After that, scale-out exercises only the warm-reuse path.
 
 This is a **warm-reuse fix**, not a complete packed-layer retention policy.
 Cold startup when the source has already disappeared and no verified v2 stage

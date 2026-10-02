@@ -38,6 +38,7 @@ ASSETS = {
     "linux_amd64": "888fc032fc5f3a773585f014ddf23695ee63e97cb9dbf54b56884e7000385ed1",
 }
 OWNER_LABEL = "sh.brewlet.live-owner"
+GC_STARTUP_DELAY = "24h"
 
 
 def redact(text):
@@ -90,6 +91,37 @@ def download(url, path, digest):
          "--retry", "3", "--max-time", "180", url, "-o", path])
     if sha256(path) != digest:
         raise RuntimeError(f"Checksum mismatch: {path.name}")
+
+
+def kind_config(name):
+    # Stock kind discards packed layers after unpack, and containerd collects them
+    # within about a second of a pull. A cold runnable-image start needs them until
+    # the shim publishes its verified stage (docs/live-validation.md), so defer
+    # automatic GC on this disposable node. Fixture.request_containerd_gc() later
+    # runs containerd's own collector, after which periodic GC resumes.
+    return f"""kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    config_path = "/etc/containerd/certs.d"
+- |-
+  [plugins."io.containerd.gc.v1.scheduler"]
+    deletion_threshold = 0
+    startup_delay = "{GC_STARTUP_DELAY}"
+nodes:
+- role: control-plane
+  labels:
+    sh.brewlet/live-owner: {name}
+  kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        horizontal-pod-autoscaler-downscale-stabilization: "60s"
+        horizontal-pod-autoscaler-sync-period: "10s"
+        horizontal-pod-autoscaler-cpu-initialization-period: "30s"
+"""
 
 
 def owned_container(info, identifier, label, owner):
@@ -253,25 +285,7 @@ class Fixture:
             ["curl", "-fsS", "--max-time", "5", f"http://{self.registry}/v2/"],
             check=False).returncode == 0, timeout=60)
         config = self.private / "kind.yaml"
-        config.write_text(f"""kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry]
-    config_path = "/etc/containerd/certs.d"
-nodes:
-- role: control-plane
-  labels:
-    sh.brewlet/live-owner: {self.name}
-  kubeadmConfigPatches:
-  - |
-    kind: ClusterConfiguration
-    controllerManager:
-      extraArgs:
-        horizontal-pod-autoscaler-downscale-stabilization: "60s"
-        horizontal-pod-autoscaler-sync-period: "10s"
-        horizontal-pod-autoscaler-cpu-initialization-period: "30s"
-""")
+        config.write_text(kind_config(self.name))
         try:
             result = self.run(["kind", "create", "cluster", "--name", self.name,
                                "--kubeconfig", self.kubeconfig, "--image", KIND_IMAGE,
@@ -441,6 +455,21 @@ nodes:
         }
         self.save("versions.json", versions)
         return pinned
+
+    def node_blob_present(self, digest):
+        self.own_container(self.node)
+        return self.run(["docker", "exec", self.node_id, "test", "-e",
+                         "/var/lib/containerd/io.containerd.content.v1.content/blobs/sha256/"
+                         + digest.removeprefix("sha256:")], check=False).returncode == 0
+
+    def request_containerd_gc(self):
+        """Run containerd's own collector once; it never deletes blobs directly."""
+        self.own_container(self.node)
+        lease = f"brewlet-live-gc-{uuid.uuid4().hex[:12]}"
+        ctr = ["docker", "exec", self.node_id, "ctr", "-n", "k8s.io", "leases"]
+        self.run([*ctr, "create", "--id", lease])
+        self.run([*ctr, "delete", "--sync", lease], timeout=120)
+        return lease
 
     def load_image(self, ref):
         self.own_container(self.node)
