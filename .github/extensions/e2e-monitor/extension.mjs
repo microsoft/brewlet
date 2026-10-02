@@ -233,7 +233,7 @@ const session = await joinSession({
     canvases: [
         createCanvas({
             id: "integration-tests",
-            displayName: "Integration tests",
+            displayName: "Brewlet E2E Tests",
             description: "Start Brewlet integration-test runs (run.sh tiers, live HPA/admission, offline safeguards) and monitor progress, assertions, logs, and artifacts in detail.",
             inputSchema: {
                 type: "object",
@@ -247,7 +247,7 @@ const session = await joinSession({
                 const runId = ctx.input?.runId;
                 if (runId) manager.get(runId);
                 return {
-                    title: "Integration tests",
+                    title: "Brewlet E2E Tests",
                     url: runId ? `${url}?run=${encodeURIComponent(runId)}` : url,
                 };
             },
