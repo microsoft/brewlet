@@ -403,6 +403,7 @@ brewlet k8s jdk list
 brewlet k8s launcher list
 brewlet k8s profile list
 brewlet k8s profile inspect NAME
+brewlet k8s profile delete NAME [--wait] [--wait-timeout 10m] [--yes]
 brewlet k8s inspect app NAME
 brewlet k8s status
 brewlet k8s doctor
@@ -411,8 +412,8 @@ brewlet k8s jdk add --profile NAME --distribution NAME --feature N --image REF -
 brewlet k8s launcher add --profile NAME --name NAME --image REF --path PATH
 ```
 
-**Command verbs describe their effects:** `add` updates the live profile and
-`install` installs Brewlet. `--dry-run` previews those operations without saving
+**Command verbs describe their effects:** `add` updates the live profile,
+`profile delete` deletes it, and `install` installs Brewlet. `--dry-run` previews those operations without saving
 changes and prints the proposed YAML/JSON only after validation succeeds.
 Failed dry runs exit nonzero with an error on stderr and no rendered output on
 stdout. `list`, `inspect`, `status`, and `doctor` are read-only. Redirecting
@@ -442,7 +443,7 @@ Flags may also follow positional names.
 | `install` | Control-plane and Helm release namespace | `brewlet` |
 | `inspect app` | Application namespace | Current context namespace |
 | `doctor` | Application namespace for the permission check | Current context namespace, else `default` |
-| `jdk list`, `launcher list`, `profile list`, `profile inspect`, `jdk add`, `launcher add` | Not applicable: these resources are cluster-scoped | Rejected with an error |
+| `jdk list`, `launcher list`, `profile list`, `profile inspect`, `profile delete`, `jdk add`, `launcher add` | Not applicable: these resources are cluster-scoped | Rejected with an error |
 
 Inspection's default output is a structured YAML report rather than a flattened
 table. All commands propagate tool/API failures; RBAC-denied reads are not
@@ -700,6 +701,76 @@ API patch leaves them untouched.
 A successful patch means **the declaration was accepted**, not that every node
 has installed the source. Inspect the profile, its node generations, and
 advertised inventory before deploying workloads that require the new runtime.
+
+### Deleting a profile
+
+`profile delete NAME` deletes an unmanaged live NodeProfile and, with `--wait`,
+follows the operator's host cleanup until the profile is gone. **Deletion is
+destructive:** the operator removes the profile's JDK/launcher runtimes,
+shim, and runtime labels from every node it claimed (see
+[provisioning completion and deletion](jdk-management.md#provisioning-completion-and-deletion)).
+
+```bash
+# Preview: run every guard and print the plan without deleting.
+brewlet k8s profile delete java-workers --dry-run
+
+# Delete and follow per-node cleanup, failing after 15 minutes.
+brewlet k8s profile delete java-workers --wait --wait-timeout 15m
+
+# Follow a deletion that is already in progress (no new request is sent).
+brewlet k8s profile delete java-workers --wait --output json
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--wait` | Off | Report per-node cleanup progress on stderr until the profile no longer exists. |
+| `--wait-timeout DURATION` | `10m` | Overall `--wait` deadline. Requires `--wait`. `--timeout` remains the per-kubectl-call deadline. |
+| `--yes` | Off | Delete even though Java workloads still run on the profile's claimed nodes. |
+| `--dry-run[=client]` | Off | Run all guards and print the plan; nothing is sent to the API server. |
+| `--dry-run=server` | Off | Also validate the conditional deletion through the API server without deleting. |
+| `--output FORMAT` | `table` | `table`, `json`, or `yaml` result report on stdout. |
+
+Guards run before anything is deleted:
+
+- **Ownership.** Profiles with Helm, Argo CD, or Flux markers, owner
+  references, or unrecognized spec field managers are refused, as for `add`.
+  Remove the profile from its source of truth instead: for Helm, drop it from
+  `provisioner.pools`/`profiles` (or set `defaultProfile.enabled=false`) and run
+  `helm upgrade`; for GitOps, remove it from the repository. You can then run
+  `profile delete NAME --wait` to follow the cleanup, because attaching to a
+  deletion that is already in progress changes nothing.
+- **Java workloads.** Claimed nodes are the profile's recorded targets plus nodes
+  labelled `brewlet.sh/owner-uid=<profile UID>`. Running Pods with
+  `runtimeClassName: brewlet` on those nodes block deletion unless you pass
+  `--yes`. If Pods cannot be listed across namespaces, deletion fails closed
+  unless you pass `--yes`.
+- **Concurrent changes.** The delete request carries UID and resourceVersion
+  preconditions. A profile edited or recreated under the same name since it
+  was read is not deleted; re-inspect it and retry.
+
+Without `--wait`, the command returns once the API server accepts the
+deletion; cleanup continues asynchronously. With `--wait`, it shows a spinner
+on terminals and periodic heartbeat lines otherwise, plus a line whenever a
+node's state changes: `pending` (no cleanup worker yet), `cleaning` (with any
+container problem such as `ImagePullBackOff`), `cleaned` (its cleanup worker
+reports completion), or `released` (its ownership claim was removed).
+Per-node progress reads the `brewlet-cleanup` worker Pods in the control-plane
+namespace (auto-discovered as for `status`). The overall result comes from the
+profile itself.
+
+The command exits nonzero when a guard refuses the deletion, when the profile
+reports `Ready=False/CleanupBlocked` (the condition message and a
+[troubleshooting](troubleshooting.md#nodeprofile-deletion-does-not-finish)
+link are printed), or when `--wait-timeout` expires. A timeout does not cancel
+cleanup. Without `--wait`, a profile that is already deleting and blocked also
+exits nonzero. The CLI **never removes finalizers, ownership labels, or
+status** to force deletion.
+
+Required permissions: `get` and `delete` on `nodeprofiles.node.brewlet.sh`,
+`list` on Nodes and on Pods in all namespaces (the workload guard), and,
+for `--wait` progress, `list` on Deployments across namespaces to discover the
+control-plane namespace (`brewlet` is assumed when that list is forbidden) and
+on Pods in that namespace.
 
 ---
 

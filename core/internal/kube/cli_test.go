@@ -1113,3 +1113,226 @@ func TestClusterScopedCommandsRejectNamespace(t *testing.T) {
 		t.Fatal("--system-namespace must be rejected")
 	}
 }
+
+type deleteCluster struct {
+	t         *testing.T
+	profile   string
+	snapshots []string
+	pods      []object
+	podsErr   error
+	cleanup   []object
+	deletes   []map[string]any
+}
+
+func deletingProfile(reason, message string, extra string) string {
+	return `{"apiVersion":"node.brewlet.sh/v1alpha1","kind":"NodeProfile",
+	  "metadata":{"name":"workers","uid":"profile-uid","resourceVersion":"43","deletionTimestamp":"2026-01-01T00:00:00Z"},
+	  "status":{"targets":[{"name":"node-a","uid":"a"},{"name":"node-b","uid":"b"}]` + extra + `,
+	    "conditions":[{"type":"Ready","status":"False","reason":"` + reason + `","message":"` + message + `"}]}}`
+}
+
+func (f *deleteCluster) exec(_ context.Context, program string, args []string, _ []byte) ([]byte, error) {
+	t := f.t
+	if program != "kubectl" {
+		t.Fatalf("unexpected %s %v", program, args)
+	}
+	switch {
+	case hasArgs(args, "get", profilesResource, "workers", "-o", "json", "--show-managed-fields=true"):
+		return []byte(f.profile), nil
+	case hasArgs(args, "get", profilesResource, "workers", "-o", "json", "--ignore-not-found"):
+		if len(f.snapshots) == 0 {
+			t.Fatal("unexpected profile poll")
+		}
+		next := f.snapshots[0]
+		if len(f.snapshots) > 1 {
+			f.snapshots = f.snapshots[1:]
+		}
+		return []byte(next), nil
+	case hasArgs(args, "get", "nodes") && hasArgs(args, "--selector", "brewlet.sh/owner-uid=profile-uid"):
+		return listJSON(t, objectJSON(t, `{"kind":"Node","metadata":{"name":"node-a"}}`)), nil
+	case hasArgs(args, "get", "pods", "-o", "json", "--all-namespaces"):
+		if f.podsErr != nil {
+			return nil, f.podsErr
+		}
+		return listJSON(t, f.pods...), nil
+	case hasArgs(args, "get", "deployments") && hasArgs(args, "--all-namespaces"):
+		return listJSON(t, objectJSON(t, `{"kind":"Deployment","metadata":{"name":"brewlet-operator","namespace":"brewlet-system"}}`)), nil
+	case hasArgs(args, "get", "pods") && hasArgs(args, "--namespace", "brewlet-system"):
+		if !hasArgs(args, "--selector", "app=brewlet-cleanup,brewlet.sh/nodeprofile=workers") {
+			t.Errorf("unexpected cleanup pod selector: %v", args)
+		}
+		return listJSON(t, f.cleanup...), nil
+	case hasArgs(args, "delete", "--raw", "/apis/node.brewlet.sh/v1alpha1/nodeprofiles/workers"):
+		raw, err := os.ReadFile(flagValue(t, args, "-f"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatal(err)
+		}
+		f.deletes = append(f.deletes, body)
+		return []byte(f.profile), nil
+	}
+	t.Fatalf("unexpected kubectl %v", args)
+	return nil, nil
+}
+
+func javaPod(t *testing.T, name, node string) object {
+	return objectJSON(t, `{"kind":"Pod","metadata":{"name":"`+name+`","namespace":"shop"},
+	  "spec":{"nodeName":"`+node+`","runtimeClassName":"brewlet"},"status":{"phase":"Running"}}`)
+}
+
+func fastPolling(t *testing.T) {
+	saved := progress.PollInterval
+	progress.PollInterval = 2 * time.Millisecond
+	t.Cleanup(func() { progress.PollInterval = saved })
+}
+
+func TestProfileDeleteValidation(t *testing.T) {
+	for _, args := range [][]string{
+		{"profile", "delete"},
+		{"profile", "delete", "Bad_Name"},
+		{"profile", "delete", "workers", "--namespace", "x"},
+		{"profile", "delete", "workers", "--wait-timeout", "1m"},
+		{"profile", "delete", "workers", "--wait", "--dry-run"},
+		{"profile", "delete", "workers", "--wait", "--wait-timeout", "0s"},
+		{"profile", "delete", "workers", "--output", "wide"},
+	} {
+		if _, _, err := runTest(t, args, noExecution(t)); err == nil {
+			t.Errorf("%v: expected validation error", args)
+		}
+	}
+}
+
+func TestProfileDeleteRefusesManagedProfiles(t *testing.T) {
+	for _, meta := range []string{
+		`"labels":{"app.kubernetes.io/managed-by":"Helm"}`,
+		`"annotations":{"argocd.argoproj.io/tracking-id":"x"}`,
+		`"ownerReferences":[{"uid":"owner"}]`,
+	} {
+		f := &deleteCluster{t: t, profile: `{"apiVersion":"node.brewlet.sh/v1alpha1","kind":"NodeProfile",
+		  "metadata":{"name":"workers","uid":"profile-uid","resourceVersion":"42",` + meta + `}}`}
+		_, _, err := runTest(t, []string{"profile", "delete", "workers"}, f.exec)
+		if err == nil || !strings.Contains(err.Error(), "source of truth") || len(f.deletes) != 0 {
+			t.Fatalf("%s: managed profile was not refused: %v %v", meta, err, f.deletes)
+		}
+	}
+}
+
+func TestProfileDeleteWorkloadGuardAndPreconditions(t *testing.T) {
+	profile := `{"apiVersion":"node.brewlet.sh/v1alpha1","kind":"NodeProfile",
+	  "metadata":{"name":"workers","uid":"profile-uid","resourceVersion":"42"},
+	  "status":{"targets":[{"name":"node-b","uid":"b"}],"conditions":[{"type":"Ready","status":"True","reason":"AllNodesProvisioned"}]}}`
+	other := objectJSON(t, `{"kind":"Pod","metadata":{"name":"plain","namespace":"shop"},"spec":{"nodeName":"node-a"},"status":{"phase":"Running"}}`)
+	elsewhere := javaPod(t, "elsewhere", "node-z")
+	f := &deleteCluster{t: t, profile: profile, pods: []object{javaPod(t, "api", "node-a"), javaPod(t, "batch", "node-b"), other, elsewhere}}
+	_, _, err := runTest(t, []string{"profile", "delete", "workers"}, f.exec)
+	if err == nil || !strings.Contains(err.Error(), "2 Java workload pod(s)") || !strings.Contains(err.Error(), "shop/api (node node-a)") ||
+		strings.Contains(err.Error(), "elsewhere") || len(f.deletes) != 0 {
+		t.Fatalf("workloads did not block deletion: %v", err)
+	}
+	f.podsErr = errors.New("pods is forbidden")
+	if _, _, err = runTest(t, []string{"profile", "delete", "workers"}, f.exec); err == nil ||
+		!strings.Contains(err.Error(), "cannot verify") || len(f.deletes) != 0 {
+		t.Fatalf("pod list failure must fail closed: %v", err)
+	}
+	f.podsErr = nil
+	out, stderr, err := runTest(t, []string{"profile", "delete", "workers", "--yes", "--output", "json"}, f.exec)
+	if err != nil || len(f.deletes) != 1 || !strings.Contains(stderr, "Warning") || !strings.Contains(stderr, "asynchronous") {
+		t.Fatalf("--yes deletion: %v %q %v", err, stderr, f.deletes)
+	}
+	pre := f.deletes[0]["preconditions"].(map[string]any)
+	if pre["uid"] != "profile-uid" || pre["resourceVersion"] != "42" || f.deletes[0]["dryRun"] != nil {
+		t.Fatalf("missing preconditions: %v", f.deletes[0])
+	}
+	var report deleteReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil || !report.DeletionRequested || report.Deleted ||
+		!reflect.DeepEqual(report.ClaimedNodes, []string{"node-a", "node-b"}) || len(report.JavaWorkloads) != 2 || report.Reason != "" {
+		t.Fatalf("unexpected report: %s %v", out, err)
+	}
+
+	f = &deleteCluster{t: t, profile: profile}
+	out, stderr, err = runTest(t, []string{"profile", "delete", "workers", "--dry-run"}, f.exec)
+	if err != nil || len(f.deletes) != 0 || !strings.Contains(out, "client dry run") || !strings.Contains(stderr, "not deleted") {
+		t.Fatalf("client dry run: %q %q %v", out, stderr, err)
+	}
+	_, _, err = runTest(t, []string{"profile", "delete", "workers", "--dry-run=server"}, f.exec)
+	if err != nil || len(f.deletes) != 1 || !reflect.DeepEqual(f.deletes[0]["dryRun"], []any{"All"}) {
+		t.Fatalf("server dry run: %v %v", err, f.deletes)
+	}
+}
+
+func TestProfileDeleteWaitFollowsCleanup(t *testing.T) {
+	fastPolling(t)
+	profile := `{"apiVersion":"node.brewlet.sh/v1alpha1","kind":"NodeProfile",
+	  "metadata":{"name":"workers","uid":"profile-uid","resourceVersion":"42"}}`
+	cleanPod := func(node string, ready bool, waiting string) object {
+		status := `"phase":"Running","conditions":[{"type":"Ready","status":"True"}]`
+		if !ready {
+			status = `"phase":"Pending","containerStatuses":[{"name":"c","state":{"waiting":{"reason":"` + waiting + `"}}}]`
+		}
+		return objectJSON(t, `{"kind":"Pod","metadata":{"name":"cleanup-`+node+`"},"spec":{"nodeName":"`+node+`"},"status":{`+status+`}}`)
+	}
+	f := &deleteCluster{t: t, profile: profile, snapshots: []string{
+		deletingProfile("CleanupPending", "waiting for host cleanup", ""),
+		deletingProfile("CleanupTeardown", "host cleanup complete", ""),
+		"",
+	}, cleanup: []object{cleanPod("node-a", true, ""), cleanPod("node-b", false, "ImagePullBackOff")}}
+	out, stderr, err := runTest(t, []string{"profile", "delete", "workers", "--wait", "--output", "json"}, f.exec)
+	if err != nil || len(f.deletes) != 1 {
+		t.Fatalf("wait failed: %v %s", err, stderr)
+	}
+	for _, want := range []string{`Waiting for NodeProfile "workers"`, "node-a: cleaned", "node-b: cleaning (ImagePullBackOff)", `NodeProfile "workers" deleted`} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+	var report deleteReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil || !report.Deleted {
+		t.Fatalf("report: %s %v", out, err)
+	}
+	if got := summarizeCleanup("CleanupPending", "", []cleanupNode{{Name: "a", State: "cleaned"}, {Name: "b", State: "cleaning", Detail: "ImagePullBackOff"}}); got != "CleanupPending: 1/2 nodes cleaned (b: ImagePullBackOff)" {
+		t.Fatalf("summary: %q", got)
+	}
+
+	// A profile recreated under the same name means the original is gone.
+	f = &deleteCluster{t: t, profile: profile, snapshots: []string{strings.Replace(deletingProfile("CleanupPending", "", ""), "profile-uid", "new-uid", 1)}}
+	if _, _, err := runTest(t, []string{"profile", "delete", "workers", "--wait"}, f.exec); err != nil {
+		t.Fatalf("UID change: %v", err)
+	}
+}
+
+func TestProfileDeleteWaitFailures(t *testing.T) {
+	fastPolling(t)
+	profile := `{"apiVersion":"node.brewlet.sh/v1alpha1","kind":"NodeProfile",
+	  "metadata":{"name":"workers","uid":"profile-uid","resourceVersion":"42"}}`
+	f := &deleteCluster{t: t, profile: profile, snapshots: []string{deletingProfile("CleanupBlocked", "invalid source policy", "")}}
+	out, _, err := runTest(t, []string{"profile", "delete", "workers", "--wait"}, f.exec)
+	if err == nil || !strings.Contains(err.Error(), "invalid source policy") || !strings.Contains(err.Error(), "troubleshooting.md") ||
+		!strings.Contains(err.Error(), "Never remove finalizers") || !strings.Contains(out, "CleanupBlocked") {
+		t.Fatalf("blocked cleanup: %q %v", out, err)
+	}
+	f = &deleteCluster{t: t, profile: profile, snapshots: []string{deletingProfile("CleanupPending", "", "")}}
+	_, _, err = runTest(t, []string{"profile", "delete", "workers", "--wait", "--wait-timeout", "30ms"}, f.exec)
+	if err == nil || !strings.Contains(err.Error(), "timed out") || !strings.Contains(err.Error(), "CleanupPending") {
+		t.Fatalf("timeout: %v", err)
+	}
+}
+
+func TestProfileDeleteAttachesToTerminatingProfile(t *testing.T) {
+	fastPolling(t)
+	// Helm-owned but already deleting: following cleanup mutates nothing.
+	terminating := strings.Replace(deletingProfile("CleanupPending", "", ""), `"resourceVersion":"43"`,
+		`"resourceVersion":"43","labels":{"app.kubernetes.io/managed-by":"Helm"}`, 1)
+	f := &deleteCluster{t: t, profile: terminating, snapshots: []string{""}, podsErr: errors.New("must not list pods")}
+	_, stderr, err := runTest(t, []string{"profile", "delete", "workers", "--wait"}, f.exec)
+	if err != nil || len(f.deletes) != 0 || !strings.Contains(stderr, "already deleting") {
+		t.Fatalf("attach: %v %q %v", err, stderr, f.deletes)
+	}
+	f = &deleteCluster{t: t, profile: deletingProfile("CleanupBlocked", "pool conflict", "")}
+	out, _, err := runTest(t, []string{"profile", "delete", "workers"}, f.exec)
+	if err == nil || !strings.Contains(err.Error(), "pool conflict") || len(f.deletes) != 0 || !strings.Contains(out, "already deleting") {
+		t.Fatalf("blocked terminating profile: %q %v", out, err)
+	}
+}

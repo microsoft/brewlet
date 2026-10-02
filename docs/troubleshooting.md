@@ -17,6 +17,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | Node provisioning fails | Node not labeled `ready`; condition/event `ProvisionFailed` | [→ provisioning](#node-never-becomes-ready) |
 | No provisioner pod on a node at all | Node absent from `status.assignedNodes`; no DaemonSet pod scheduled | [→ placement](#no-provisioner-pod-is-scheduled) |
 | NodeProfile is invalid | `Ready=False/InvalidProfile`; deletion with possible host state remains `CleanupBlocked` | [→ source policy](#nodeprofile-source-policy-failures) |
+| NodeProfile deletion does not finish | Profile stays with `Ready=False/CleanupPending`, `CleanupTeardown`, or `CleanupBlocked` | [→ deletion](#nodeprofile-deletion-does-not-finish) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 | containerd 1.x node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
@@ -203,6 +204,32 @@ An air-gapped mirror must preserve the referenced OCI manifest/index bytes and
 digest.
 
 ---
+
+## NodeProfile deletion does not finish
+
+A deleted NodeProfile stays until the operator has stopped its provisioner,
+run host cleanup on every recorded target, and torn down the cleanup workers.
+Follow progress per node:
+
+```bash
+brewlet k8s profile delete <name> --wait --wait-timeout 15m
+```
+
+- **`CleanupPending` with nodes stuck in `pending` or `cleaning`.** Check the
+  cleanup worker Pods (`kubectl get pods -n brewlet -l app=brewlet-cleanup,brewlet.sh/nodeprofile=<name> -o wide`)
+  for image-pull or scheduling problems, and make sure every target node is
+  Ready and the operator is running.
+- **`CleanupTeardown`.** Cleanup finished; the operator is waiting for the
+  cleanup workers to terminate.
+- **`CleanupBlocked`.** The profile's spec, source/mirror policy, or pool
+  ownership is invalid, or a target node is unavailable or was replaced. Read
+  the condition message, then repair the cause as described in
+  [source-policy failures](#nodeprofile-source-policy-failures); repairing a
+  deleting profile resumes cleanup.
+
+Never remove the `node.brewlet.sh/cleanup` finalizer, ownership labels, or
+status to force deletion: that leaves runtimes and containerd changes on nodes
+with no record of them.
 
 ## Pod is Pending with `NoCompatibleJDK`
 

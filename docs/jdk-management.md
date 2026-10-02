@@ -414,6 +414,19 @@ DaemonSet and its pods are gone. This also prevents a replacement profile from
 provisioning alongside an old cleanup container. Stale DaemonSet readiness from
 an earlier template does not count.
 
+Delete an unmanaged profile and follow its cleanup with the CLI:
+
+```bash
+brewlet k8s profile delete java-workers --dry-run   # guards only
+brewlet k8s profile delete java-workers --wait      # per-node cleanup progress
+```
+
+The command refuses Helm/GitOps-owned profiles (remove those from
+`provisioner.pools`/`profiles` or the GitOps source, then run the same command
+with `--wait` to follow cleanup). It requires `--yes` while Java workloads still
+run on the profile's claimed nodes, and exits nonzero on `CleanupBlocked` or
+`--wait-timeout`. See [`brewlet k8s profile delete`](cli-reference.md#deleting-a-profile).
+
 Move or drain affected workloads before deleting a profile: completion ordering
 prevents that profile's provisioner and cleanup from racing, but it does not
 migrate workloads away from the runtimes being removed. Keep the operator running
