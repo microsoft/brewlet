@@ -101,10 +101,27 @@ Add this plugin alongside the existing entries under `<build><plugins>` in
   <groupId>sh.brewlet</groupId>
   <artifactId>brewlet-maven-plugin</artifactId>
   <version>${env.BREWLET_VERSION}</version>
+  <configuration>
+    <appName>hello</appName>
+    <ports>
+      <port><name>http</name><containerPort>8080</containerPort></port>
+    </ports>
+    <probes>
+      <readiness><path>/healthz</path></readiness>
+    </probes>
+    <cpuRequest>100m</cpuRequest>
+    <memoryRequest>128Mi</memoryRequest>
+    <cpuLimit>1</cpuLimit>
+    <memoryLimit>256Mi</memoryLimit>
+  </configuration>
 </plugin>
 ```
 
 This enables `mvn brewlet:...` without binding publishing to the build lifecycle.
+The `<configuration>` describes how the application runs on Kubernetes: its
+name, the port it listens on, the endpoint that reports readiness, and its
+CPU and memory requests and limits. The plugin never guesses health probes; it
+uses only the ones declared here.
 For reproducible builds outside the workshop, pin the handoff version in your
 project POM or CI environment. Use a platform release available on Central
 (starting with 0.5.1). For a just-published release, wait until the matching
@@ -125,70 +142,45 @@ The image layout contains standard OCI layers for `amd64` and `arm64`. Each
 platform manifest carries the Brewlet launch contract in
 `brewlet.sh/jvm-config`; the image does not contain a base image.
 
-## 4. Publish the application
+## 4. Publish and deploy
 
-Choose a unique tag and push it to the registry supplied by Ops:
+Log in with your normal registry tooling first, for example `docker login` or
+`az acr login --name <registry>`. The plugin reads `~/.docker/config.json`,
+including credential helpers (`credsStore`/`credHelpers`) and identity tokens,
+so no extra environment variables are needed.
+
+Then push, generate the `JavaApplication`, apply it, and wait until it is Ready
+in one step:
 
 ```bash
-mkdir -p target
-export IMAGE_TAG="$BREWLET_REGISTRY/hello:$(date +%Y%m%d%H%M%S)"
-export PUSH_LOG="$PWD/target/brewlet-push.log"
-
 mvn -f integration-tests/fixtures/demo-app/pom.xml \
-  brewlet:push \
-  -Dbrewlet.image="$IMAGE_TAG" | tee "$PUSH_LOG"
-
-export IMAGE_DIGEST="$(
-  sed -n 's/.*index: \(sha256:[0-9a-f]\{64\}\).*/\1/p' "$PUSH_LOG" | tail -1
-)"
-test -n "$IMAGE_DIGEST"
-export IMAGE="${IMAGE_TAG%:*}@$IMAGE_DIGEST"
-rm -f "$PUSH_LOG"
+  brewlet:deploy \
+  -Dbrewlet.registry="$BREWLET_REGISTRY" \
+  -Dbrewlet.namespace="$BREWLET_NAMESPACE" \
+  -Dbrewlet.kubeContext="$BREWLET_CONTEXT" \
+  -Dbrewlet.jdkFeature="$BREWLET_JDK"
 ```
 
-Use your normal registry login mechanism before this command. Private registry
-authentication can be configured with `spec.artifact.pullSecrets`; this
-workshop assumes the nodes can read the selected repository directly.
-
-## 5. Deploy with `JavaApplication`
+The image defaults to `$BREWLET_REGISTRY/<artifactId>:<version>`. The plugin
+pushes it, records the digest-pinned deploy image in
+`target/brewlet/push.json`, and writes the applied manifest to
+`target/brewlet/`. It includes the port, a ClusterIP Service, and the
+readiness probe from the POM:
 
 ```bash
-cat <<EOF | kubectl apply -n "$BREWLET_NAMESPACE" -f -
-apiVersion: apps.brewlet.sh/v1alpha1
-kind: JavaApplication
-metadata:
-  name: hello
-spec:
-  artifact:
-    image: ${IMAGE}
-  jvm:
-    version: ${BREWLET_JDK}
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: "1"
-      memory: 256Mi
-  ports:
-    - name: http
-      containerPort: 8080
-  service:
-    enabled: true
-    type: ClusterIP
-  probes:
-    readiness:
-      httpGet:
-        path: /healthz
-        port: 8080
-EOF
+cat integration-tests/fixtures/demo-app/target/brewlet/javaapplication.yaml
 ```
+
+Private registry pull authentication for the nodes can be configured with
+`spec.artifact.pullSecrets`; this workshop assumes the nodes can read the
+selected repository directly.
+
+## 5. Inspect what was deployed
 
 Watch the higher-level resource and the Kubernetes objects it owns:
 
 ```bash
 kubectl get javaapplication,deployment,pod,service -n "$BREWLET_NAMESPACE"
-kubectl rollout status deployment/hello -n "$BREWLET_NAMESPACE" --timeout=5m
 kubectl logs deployment/hello -n "$BREWLET_NAMESPACE"
 ```
 
@@ -200,7 +192,7 @@ launches the JAR directly under the pod's CPU and memory cgroups.
 In one terminal:
 
 ```bash
-kubectl port-forward service/hello 8080:80 -n "$BREWLET_NAMESPACE"
+kubectl port-forward service/hello 8080:8080 -n "$BREWLET_NAMESPACE"
 ```
 
 In another:
@@ -216,9 +208,14 @@ limits observed by the JVM.
 ## 7. Make and deploy a change
 
 Change the response in
-`integration-tests/fixtures/demo-app/src/com/example/Hello.java`, choose a new
-tag, then repeat the package, push, and apply steps. Kubernetes rolls out the new
-artifact like any other application update.
+`integration-tests/fixtures/demo-app/src/com/example/Hello.java`, then run the
+same `brewlet:deploy` command again. The new push produces a new digest, so
+Kubernetes rolls out the updated artifact like any other application update.
+
+Your own applications work the same way: add the plugin with a
+`<configuration>` that declares their ports and health endpoints (for example
+`/actuator/health/readiness` with Spring Boot Actuator), then run
+`mvn package brewlet:deploy` with the same `-Dbrewlet.*` properties.
 
 ## Cleanup
 

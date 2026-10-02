@@ -214,6 +214,7 @@ Return to the first terminal and press **Ctrl+C**.
   in a disposable cluster without changing this CLI or source checkout.
 - [Install Brewlet on a Kubernetes cluster](installation.md).
 - [Configure the Maven Central plugin](building-and-publishing.md#option-c-maven-plugin)
-  to publish with `mvn brewlet:push`, without manually installing the plugin.
+  to publish and deploy with `mvn brewlet:deploy`, without manually installing
+  the plugin.
 - [Complete the role-based workshop](workshops/index.md).
 - [Understand the architecture](concepts.md).
