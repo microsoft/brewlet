@@ -351,6 +351,10 @@ func (c *client) appWait(name string, timeout time.Duration) error {
 	start := time.Now()
 	lastKey, lastDetail := "", "no status reported yet"
 	var final appState
+	// One timer, reset per poll, avoids allocating a new timer each iteration.
+	timer := time.NewTimer(progress.PollInterval)
+	timer.Stop()
+	defer timer.Stop()
 	err := p.Await("waiting for "+name+" to become Ready", nil, func() error {
 		for {
 			app, err := c.getContext(ctx, appsResource, name, c.namespaceArgs()...)
@@ -377,10 +381,11 @@ func (c *client) appWait(name string, timeout time.Duration) error {
 					lastKey = lastDetail
 				}
 			}
+			timer.Reset(progress.PollInterval)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(progress.PollInterval):
+			case <-timer.C:
 			}
 		}
 	})
@@ -412,15 +417,35 @@ func qualified(namespace, name string) string {
 func (c *client) describeHint(namespace, name string) string {
 	var conn string
 	if c.opts.kubeconfig != "" {
-		conn += " --kubeconfig " + c.opts.kubeconfig
+		conn += " --kubeconfig " + shellQuote(c.opts.kubeconfig)
 	}
 	if c.opts.context != "" {
-		conn += " --context " + c.opts.context
+		conn += " --context " + shellQuote(c.opts.context)
 	}
-	ns := ""
+	kubectlNS, brewletNS := "", ""
 	if namespace != "" {
-		ns = " -n " + namespace
+		kubectlNS = " -n " + shellQuote(namespace)
+		brewletNS = " --namespace " + shellQuote(namespace)
 	}
 	return fmt.Sprintf("kubectl%s describe javaapplication %s%s (or brewlet k8s%s app status %s%s)",
-		conn, name, ns, conn, name, strings.Replace(ns, "-n", "--namespace", 1))
+		conn, shellQuote(name), kubectlNS, conn, shellQuote(name), brewletNS)
+}
+
+// shellQuote makes a value copy/paste-safe for POSIX shells, leaving common
+// path, context and Kubernetes name characters unquoted.
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	safe := true
+	for _, r := range value {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./:@=+,", r)) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }

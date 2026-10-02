@@ -245,6 +245,19 @@ func TestAppWaitTimesOutWithLastStatusAndDescribeHint(t *testing.T) {
 	}
 }
 
+func TestDescribeHintQuotesValues(t *testing.T) {
+	c := &client{opts: options{kubeconfig: "/tmp/my kube/config", context: "it's prod"}}
+	got := c.describeHint("apps", "orders")
+	want := `kubectl --kubeconfig '/tmp/my kube/config' --context 'it'"'"'s prod' describe javaapplication orders -n apps` +
+		` (or brewlet k8s --kubeconfig '/tmp/my kube/config' --context 'it'"'"'s prod' app status orders --namespace apps)`
+	if got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+	if shellQuote("arn:aws:eks:us-east-1:1:cluster/a_b") != "arn:aws:eks:us-east-1:1:cluster/a_b" {
+		t.Fatal("safe values should stay unquoted")
+	}
+}
+
 func TestAppWaitStopsOnCancellation(t *testing.T) {
 	fastProgress(t)
 	ctx, cancel := context.WithCancel(context.Background())
