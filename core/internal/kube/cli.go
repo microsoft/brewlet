@@ -28,6 +28,7 @@ COMMANDS:
   launcher list                  advertised optional launchers (table, wide, json)
   profile list                   desired inventories and profile readiness
   profile inspect NAME           profile configuration and its claimed nodes
+  profile delete NAME            delete an unmanaged profile; --wait follows host cleanup
   inspect app NAME               application, owned workloads, pods and events
   status                         control-plane rollouts, profiles and node failures
   doctor                         developer and cluster readiness checks
@@ -72,6 +73,18 @@ OFFLINE INPUT (requires --dry-run or --dry-run=client):
   --file FILE        read a single NodeProfile YAML/JSON file instead of the cluster
   --values FILE      read complete Helm values and emit updated values
   Input files are never overwritten.
+
+PROFILE DELETE FLAGS:
+  Deletion is asynchronous: the operator removes the profile's JDK/launcher
+  runtimes from its nodes before releasing the cleanup finalizer.
+  --wait             follow per-node cleanup until the profile is gone
+  --wait-timeout 10m overall --wait deadline (requires --wait)
+  --yes              delete even though Java workloads still run on claimed nodes
+  --dry-run          run all guards and print the plan without deleting (same as client)
+  --dry-run=server   also validate the deletion through the API server
+  --output table|json|yaml  default table
+  Helm/GitOps-owned profiles are refused: remove them from their source of truth.
+  Exits non-zero on CleanupBlocked or timeout; finalizers are never removed.
 
 INSTALL FLAGS:
   --values FILE, -f FILE  complete Helm values (repeatable, at least one required)
@@ -130,6 +143,7 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	commonFlags(fs, &opts)
 	var update updateOptions
 	var install installOptions
+	var del deleteOptions
 	switch command {
 	case "jdk list", "launcher list":
 		fs.StringVar(&opts.output, "output", "table", "table, wide, or json")
@@ -139,6 +153,9 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	case "jdk add", "launcher add":
 		update.flags(fs, command == "jdk add")
 		fs.StringVar(&opts.output, "output", "yaml", "yaml or json")
+	case "profile delete":
+		del.flags(fs)
+		fs.StringVar(&opts.output, "output", "table", "table, json, or yaml")
 	case "install":
 		install.flags(fs)
 	default:
@@ -156,7 +173,7 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 		return fmt.Errorf("--namespace is not supported by %q: node inventories and NodeProfiles are cluster-scoped", command)
 	}
 	expected := 0
-	if command == "profile inspect" || command == "inspect app" {
+	if command == "profile inspect" || command == "profile delete" || command == "inspect app" {
 		expected = 1
 	}
 	if len(pos) != expected {
@@ -192,6 +209,9 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 		return c.profiles()
 	case "profile inspect":
 		return c.inspectProfile(pos[0])
+	case "profile delete":
+		del.waitTimeoutSet = flagSet(fs, "wait-timeout")
+		return c.deleteProfile(pos[0], del)
 	case "inspect app":
 		return c.inspectApp(pos[0])
 	case "status":
@@ -225,7 +245,7 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 }
 
 func clusterScoped(command string) bool {
-	return oneOf(command, "jdk list", "launcher list", "profile list", "profile inspect", "jdk add", "launcher add")
+	return oneOf(command, "jdk list", "launcher list", "profile list", "profile inspect", "profile delete", "jdk add", "launcher add")
 }
 
 func flagSet(fs *flag.FlagSet, name string) bool {
