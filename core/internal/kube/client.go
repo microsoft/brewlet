@@ -161,6 +161,7 @@ type metadata struct {
 	Generation        int64             `json:"generation"`
 	CreationTimestamp string            `json:"creationTimestamp,omitempty"`
 	DeletionTimestamp string            `json:"deletionTimestamp,omitempty"`
+	Finalizers        []string          `json:"finalizers,omitempty"`
 	Labels            map[string]string `json:"labels"`
 	Annotations       map[string]string `json:"annotations"`
 	OwnerReferences   []ownerReference  `json:"ownerReferences"`
@@ -174,6 +175,11 @@ type metadata struct {
 type ownerReference struct {
 	UID        string `json:"uid"`
 	Controller bool   `json:"controller"`
+}
+
+type nodeTarget struct {
+	Name string `json:"name"`
+	UID  string `json:"uid"`
 }
 
 type condition struct {
@@ -190,17 +196,22 @@ type object struct {
 	Metadata   metadata        `json:"metadata"`
 	Spec       json.RawMessage `json:"spec"`
 	Status     struct {
-		ObservedGeneration int64       `json:"observedGeneration"`
-		Conditions         []condition `json:"conditions"`
-		AssignedNodes      int         `json:"assignedNodes"`
-		ReadyNodes         int         `json:"readyNodes"`
-		Replicas           int         `json:"replicas"`
-		UpdatedReplicas    int         `json:"updatedReplicas"`
-		ReadyReplicas      int         `json:"readyReplicas"`
-		SelectedJDK        string      `json:"selectedJdk"`
-		AvailableReplicas  int         `json:"availableReplicas"`
-		Phase              string      `json:"phase"`
-		ContainerStatuses  []struct {
+		ObservedGeneration int64        `json:"observedGeneration"`
+		Conditions         []condition  `json:"conditions"`
+		AssignedNodes      int          `json:"assignedNodes"`
+		ReadyNodes         int          `json:"readyNodes"`
+		Replicas           int          `json:"replicas"`
+		UpdatedReplicas    int          `json:"updatedReplicas"`
+		ReadyReplicas      int          `json:"readyReplicas"`
+		SelectedJDK        string       `json:"selectedJdk"`
+		AvailableReplicas  int          `json:"availableReplicas"`
+		Phase              string       `json:"phase"`
+		Targets            []nodeTarget `json:"targets"`
+		Retirement         *struct {
+			Phase   string       `json:"phase"`
+			Targets []nodeTarget `json:"targets"`
+		} `json:"retirement"`
+		ContainerStatuses []struct {
 			Name         string `json:"name"`
 			Ready        bool   `json:"ready"`
 			RestartCount int    `json:"restartCount"`
