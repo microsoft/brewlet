@@ -444,6 +444,8 @@ brewlet k8s launcher list
 brewlet k8s profile list
 brewlet k8s profile inspect NAME
 brewlet k8s inspect app NAME
+brewlet k8s app status NAME
+brewlet k8s app wait NAME [--wait-timeout 5m]
 brewlet k8s status
 brewlet k8s doctor
 brewlet k8s install --version X.Y.Z --values FILE
@@ -455,7 +457,7 @@ brewlet k8s launcher add --profile NAME --name NAME --image REF --path PATH
 `install` installs Brewlet. `--dry-run` previews those operations without saving
 changes and prints the proposed YAML/JSON only after validation succeeds.
 Failed dry runs exit nonzero with an error on stderr and no rendered output on
-stdout. `list`, `inspect`, `status`, and `doctor` are read-only. Redirecting
+stdout. `list`, `inspect`, `status`, `app status`, `app wait`, and `doctor` are read-only. Redirecting
 stdout to a file does not change these semantics.
 
 ### Connections and output
@@ -481,6 +483,7 @@ Flags may also follow positional names.
 | `status` | Brewlet control-plane namespace | Auto-discovered; `brewlet` if none is found or discovery is forbidden |
 | `install` | Control-plane and Helm release namespace | `brewlet` |
 | `inspect app` | Application namespace | Current context namespace |
+| `app status`, `app wait` | Application namespace | Current context namespace |
 | `doctor` | Application namespace for the permission check | Current context namespace, else `default` |
 | `jdk list`, `launcher list`, `profile list`, `profile inspect`, `jdk add`, `launcher add` | Not applicable: these resources are cluster-scoped | Rejected with an error |
 
@@ -539,7 +542,44 @@ environment variables or Secrets. Condition/event messages are operator-provided
 text; review them before sharing a report. Inspection succeeds even for an
 unready resource; use `status` or `doctor` for readiness exit codes.
 
+### Application readiness and waiting
+
+```bash
+brewlet k8s app status orders --namespace my-team
+brewlet k8s app status orders --namespace my-team --output json
+
+# After kubectl apply, a GitOps sync, or in a CI script:
+kubectl apply -f orders.yaml -n my-team
+brewlet k8s app wait orders --namespace my-team --wait-timeout 5m
+```
+
+`app status` is a concise readiness view of a JavaApplication: its phase
+(`Ready`, `Pending`, `Progressing`, `Failed` for `ReconcileError`, or
+`Terminating`), the `Ready` reason and message, `metadata.generation` versus
+`status.observedGeneration`, ready replicas, the selected JDK
+(`status.selectedJdk`), the nodes running its Pods with their per-Pod JDK
+request, conditions, and up to 10 most recent events for the application and
+the objects it owns. Ownership is traversed as in `inspect app`. `--output`
+accepts `table` (default), `json`, or `yaml`. It exits zero for an unready
+application; use `app wait` for a readiness exit code.
+
+`app wait` polls the JavaApplication every 3 seconds until its `Ready`
+condition is `True` **for the current generation**: a `Ready=True` condition
+whose `observedGeneration` is older than `metadata.generation` does not count.
+This is the same rule the Maven plugin's `brewlet:deploy` goal uses, so both
+tools report the same thing. Each status change (`Reason: message`) is printed
+to stderr with the elapsed time; a spinner (terminals) or a periodic heartbeat
+(CI, pipes) shows it is still waiting. A missing application or a failed
+`kubectl` call is reported and retried, so you can start waiting before a GitOps
+sync has created the object. On success it prints
+`NAME is Ready in namespace NS (JDK temurin-21)` to stdout and exits zero. When
+`--wait-timeout` (default `5m`) expires it exits nonzero with the last status
+and a `kubectl describe javaapplication NAME -n NS` hint. `--timeout` remains
+the per-kubectl-call deadline.
+
 Read permissions are required for the objects each command inspects.
+`app wait` only gets the JavaApplication; `app status` also lists the same
+objects as application inspection.
 Application inspection lists Deployments, ReplicaSets, Pods, and Events in its
 namespace; profile inspection reads the profile and lists Nodes. `status` lists
 control-plane Deployments (cluster-wide when discovering the namespace),

@@ -37,7 +37,7 @@ go -C core test ./...
 ## Kubernetes operations
 
 `brewlet k8s` provides JDK/launcher inventory, profile and application inspection,
-control-plane/node status, readiness checks, fresh Helm installation, and safe
+application readiness status and waiting, control-plane/node status, readiness checks, fresh Helm installation, and safe
 profile additions. It uses installed `kubectl`/Helm binaries and existing
 kubeconfig credentials rather than embedding a Kubernetes client.
 
@@ -46,6 +46,8 @@ brewlet k8s --context staging jdk list
 brewlet k8s profile list
 brewlet k8s status
 brewlet k8s inspect app orders --namespace my-team
+brewlet k8s app status orders --namespace my-team
+brewlet k8s app wait orders --namespace my-team --wait-timeout 5m
 ```
 
 `jdk add` and `launcher add` update live profiles by default; use `--dry-run`
