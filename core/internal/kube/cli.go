@@ -30,6 +30,8 @@ COMMANDS:
   profile inspect NAME           profile configuration and its claimed nodes
   profile delete NAME            delete an unmanaged profile; --wait follows host cleanup
   inspect app NAME               application, owned workloads, pods and events
+  app status NAME                application readiness, JDK, nodes and recent events
+  app wait NAME                  wait until the application is Ready for its current generation
   status                         control-plane rollouts, profiles and node failures
   doctor                         developer and cluster readiness checks
   install --version X.Y.Z -f FILE install the released Helm chart on a fresh cluster
@@ -45,12 +47,17 @@ NAMESPACE (--namespace NAME, the namespace the command operates on):
   status       Brewlet control-plane namespace (default: auto-discovered, else brewlet)
   install      control-plane and Helm release namespace (default brewlet)
   inspect app  application namespace (default: current context namespace)
+  app          application namespace (default: current context namespace)
   doctor       application namespace (default: current context namespace)
   jdk, launcher and profile commands are cluster-scoped and reject --namespace.
 
 READ FLAGS:
   --output table|json|yaml  default table (inventory also supports wide, not yaml)
   --selector LABELS        node selector for inventory
+
+APP WAIT FLAGS:
+  --wait-timeout 5m  overall readiness deadline; exits non-zero with a describe hint on timeout
+  Prints status changes and a heartbeat on stderr and the final Ready line on stdout.
 
 PROFILE ADD FLAGS:
   --profile NAME     existing target profile
@@ -129,7 +136,7 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	}
 	command := args[0]
 	args = args[1:]
-	if command == "jdk" || command == "launcher" || command == "profile" || command == "inspect" {
+	if command == "jdk" || command == "launcher" || command == "profile" || command == "inspect" || command == "app" {
 		if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 			_, err := fmt.Fprint(out, help)
 			return err
@@ -144,12 +151,15 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	var update updateOptions
 	var install installOptions
 	var del deleteOptions
+	var waitTimeout time.Duration
 	switch command {
 	case "jdk list", "launcher list":
 		fs.StringVar(&opts.output, "output", "table", "table, wide, or json")
 		fs.StringVar(&opts.selector, "selector", "", "node label selector")
-	case "status", "profile list", "profile inspect", "inspect app", "doctor":
+	case "status", "profile list", "profile inspect", "inspect app", "app status", "doctor":
 		fs.StringVar(&opts.output, "output", "table", "table, json, or yaml")
+	case "app wait":
+		fs.DurationVar(&waitTimeout, "wait-timeout", 5*time.Minute, "overall readiness deadline")
 	case "jdk add", "launcher add":
 		update.flags(fs, command == "jdk add")
 		fs.StringVar(&opts.output, "output", "yaml", "yaml or json")
@@ -173,7 +183,7 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 		return fmt.Errorf("--namespace is not supported by %q: node inventories and NodeProfiles are cluster-scoped", command)
 	}
 	expected := 0
-	if command == "profile inspect" || command == "profile delete" || command == "inspect app" {
+	if oneOf(command, "profile inspect", "profile delete", "inspect app", "app status", "app wait") {
 		expected = 1
 	}
 	if len(pos) != expected {
@@ -181,6 +191,9 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	}
 	if opts.timeout <= 0 {
 		return fmt.Errorf("--timeout must be positive")
+	}
+	if command == "app wait" && waitTimeout <= 0 {
+		return fmt.Errorf("--wait-timeout must be positive")
 	}
 	if expected == 1 {
 		if err := validateName(pos[0], 253); err != nil {
@@ -193,7 +206,7 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 		allowed = []string{"table", "wide", "json"}
 	case "jdk add", "launcher add":
 		allowed = []string{"yaml", "json"}
-	case "install":
+	case "install", "app wait":
 		allowed = []string{""}
 	}
 	if !oneOf(opts.output, allowed...) {
@@ -214,6 +227,10 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 		return c.deleteProfile(pos[0], del)
 	case "inspect app":
 		return c.inspectApp(pos[0])
+	case "app status":
+		return c.appStatus(pos[0])
+	case "app wait":
+		return c.appWait(pos[0], waitTimeout)
 	case "status":
 		return c.status()
 	case "doctor":

@@ -17,7 +17,7 @@ a release number to pin it, or change `--install-dir` to choose another destinat
 You can instead build the CLI with `make binaries` (producing `./bin/brewlet`).
 
 ```
-brewlet push    <jar> <ref> [flags]   publish a JAR as an OCI artifact
+brewlet push    <jar> <ref> [flags]   publish a JAR to a registry or local OCI layout
 brewlet dependency-bundle <tar> <ref> publish an approved dependency bundle
 brewlet keygen              [flags]   generate an ECDSA P-256 key pair
 brewlet inspect <ref>       [flags]   show the artifact manifest + config
@@ -110,8 +110,8 @@ registry publication or consumption. See
 
 ## `brewlet push`
 
-Publish a JAR to an OCI registry (generates a minimal launch config, or embeds one
-you provide). By default it publishes a **runnable, kubelet-pullable OCI image**;
+Publish a JAR to an OCI registry or a local OCI layout (generates a minimal launch
+config, or embeds one you provide). By default it publishes a **runnable, kubelet-pullable OCI image**;
 pass `--format=artifact` only for the native Brewlet artifact path used by local
 OCI-layout / CLI / bundle workflows (see [runnable-image delivery](runnable-image.md)).
 
@@ -125,12 +125,45 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
                           [--signing-key PEM --builder-identity IDENTITY]]
                          [--appcds-archive JSA | --appcds [--appcds-java JAVA]
                           [--appcds-timeout SEC] [--appcds-arg ARG ...]]
+                         [--push-result FILE]
+                         [--insecure-registry HOST[:PORT] ...]
+                         [--allowed-token-realm HOST[:PORT] ...]
 ```
+
+**Where it publishes.** When `<ref>` names a registry host — its first path
+component contains `.` or `:` or is `localhost` (e.g.
+`myacr.azurecr.io/team/app:1.4.2`, `localhost:5000/app:1`) — `push` uploads the
+image straight to that registry and prints the digest-pinned deploy image. A ref
+without a host (`demo/hello:1.0.0`) is written to the local `--store` layout and
+**never** defaults to Docker Hub; use `docker.io/<user>/app:tag` to target Docker
+Hub explicitly. Passing `--store` explicitly keeps a host-qualified ref local, so
+existing `--store` workflows are unchanged.
+
+Registry pushes use the same credential chain and trust policy as the
+[Maven plugin](building-and-publishing.md#option-c-maven-plugin) (minus
+`settings.xml`):
+
+1. Docker config (`$DOCKER_CONFIG/config.json` or `~/.docker/config.json`): a
+   per-registry `credHelpers` entry, then an inline `auths` entry (`identitytoken`
+   or `auth`), then the default `credsStore`. Helpers run as
+   `docker-credential-<name> get` — so `docker login` and `az acr login` just work.
+2. `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD`.
+3. Otherwise anonymous.
+
+Identity tokens (e.g. from `az acr login`) are exchanged with an OAuth2
+refresh-token grant and are never sent as Basic credentials. Registry credentials
+are only sent to the registry origin or its token service on the same origin;
+a token realm on another origin receives them only if listed with
+`--allowed-token-realm` (Docker Hub's `auth.docker.io` is built in). Plain HTTP is
+used only for loopback registries and `--insecure-registry` entries. Blobs the
+registry already has are skipped, and upload progress is reported on stderr.
+`--dependency-bundle` is not supported for registry pushes — use the Maven plugin
+or build into a local layout with `--store`.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--format` | `image` | Delivery format: `image` (standard, kubelet-pullable OCI image — the production `runtimeClassName: brewlet` pod image) or `artifact` (native Brewlet OCI artifact for local OCI-layout / CLI / bundle workflows, not the production Kubernetes pod image path). See [runnable-image delivery](runnable-image.md). |
-| `--store` | `./oci` | OCI layout directory to write the artifact into. |
+| `--store` | `./oci` | OCI layout directory to write the artifact into. Setting it explicitly keeps a registry-hosted `<ref>` local instead of uploading it. |
 | `--config` | *(none)* | Path to a `jvm-config.json` to embed verbatim (overrides the generated one). See the [launch config schema](building-and-publishing.md#2-the-launch-config). |
 | `--arch` | *(auto-detected)* | Comma-separated architecture constraint (e.g. `amd64` or `amd64,arm64`) for a **non-portable (JNI) JAR**: injects `kubernetes.io/arch` nodeAffinity and denies scheduling with `NoCompatibleArch` when no ready node matches. Overrides native-library auto-detection. Omit for arch-neutral bytecode (the default). See [multi-arch](multi-arch.md). |
 | `--no-arch` | `false` | Disable native-library auto-detection and publish with **no** arch constraint (force arch-neutral), even when bundled natives are found. |
@@ -148,6 +181,9 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
 | `--appcds-java` | *(auto)* | `java` executable (or a `JAVA_HOME` directory) used for `--appcds` training. Defaults to `$JAVA_HOME/bin/java`, then `java` on `PATH`. |
 | `--appcds-timeout` | `120` | Seconds to wait for the `--appcds` training JVM to self-terminate. |
 | `--appcds-arg` | *(none)* | Workload argument passed to the `--appcds` training JVM to drive class loading (repeatable). |
+| `--push-result` | *(none)* | Registry push only: write a `push.json` handoff — `{"image","digest","deployImage","format"}`, the same schema as the Maven plugin's `target/brewlet/push.json` — to this file. |
+| `--insecure-registry` | *(none)* | Registry push only: `HOST[:PORT]` that may be reached (and whose token realm may be reached) over plain HTTP (repeatable). Loopback registries always may. |
+| `--allowed-token-realm` | *(none)* | Registry push only: `HOST[:PORT]` of a cross-origin token service trusted to receive registry credentials (repeatable). |
 
 By default `push` scans the JAR for bundled native libraries and sets the `arch`
 constraint automatically for non-portable artifacts (pass `--arch` to override, or
@@ -158,6 +194,8 @@ least every 30 seconds and reports the archive size and training time when done.
 
 ```bash
 brewlet push ./target/app.jar demo/hello:1.0.0                        # runnable image (default)
+brewlet push ./target/app.jar myacr.azurecr.io/team/hello:1.0.0       # straight to a registry
+brewlet push ./target/app.jar localhost:5000/hello:1 --push-result push.json
 brewlet push ./target/app.jar demo/hello:1.0.0 --format artifact      # native artifact
 brewlet push ./target/app.jar demo/hello:1.0.0 --config ./jvm-config.json
 brewlet push ./target/app.jar demo/hello:1.0.0 --config ./cfg.json --classpath-layer deps.tar
@@ -175,6 +213,8 @@ brewlet push ./target/orders.jar apps/orders:1.4.2 \
 Output confirms the pushed digest and store (for a runnable image, the multi-arch index
 digest and target platforms; for a native artifact, the manifest digest and
 `artifactType`) — and reminds you that you shipped **only the JAR**, no Dockerfile.
+A registry push prints the registry, how many blobs were uploaded or already
+present, and the digest-pinned `deploy image:` to use in Kubernetes manifests.
 
 ---
 
@@ -405,6 +445,8 @@ brewlet k8s profile list
 brewlet k8s profile inspect NAME
 brewlet k8s profile delete NAME [--wait] [--wait-timeout 10m] [--yes]
 brewlet k8s inspect app NAME
+brewlet k8s app status NAME
+brewlet k8s app wait NAME [--wait-timeout 5m]
 brewlet k8s status
 brewlet k8s doctor
 brewlet k8s install --version X.Y.Z --values FILE
@@ -416,7 +458,7 @@ brewlet k8s launcher add --profile NAME --name NAME --image REF --path PATH
 `profile delete` deletes it, and `install` installs Brewlet. `--dry-run` previews those operations without saving
 changes and prints the proposed YAML/JSON only after validation succeeds.
 Failed dry runs exit nonzero with an error on stderr and no rendered output on
-stdout. `list`, `inspect`, `status`, and `doctor` are read-only. Redirecting
+stdout. `list`, `inspect`, `status`, `app status`, `app wait`, and `doctor` are read-only. Redirecting
 stdout to a file does not change these semantics.
 
 ### Connections and output
@@ -442,6 +484,7 @@ Flags may also follow positional names.
 | `status` | Brewlet control-plane namespace | Auto-discovered; `brewlet` if none is found or discovery is forbidden |
 | `install` | Control-plane and Helm release namespace | `brewlet` |
 | `inspect app` | Application namespace | Current context namespace |
+| `app status`, `app wait` | Application namespace | Current context namespace |
 | `doctor` | Application namespace for the permission check | Current context namespace, else `default` |
 | `jdk list`, `launcher list`, `profile list`, `profile inspect`, `profile delete`, `jdk add`, `launcher add` | Not applicable: these resources are cluster-scoped | Rejected with an error |
 
@@ -500,7 +543,44 @@ environment variables or Secrets. Condition/event messages are operator-provided
 text; review them before sharing a report. Inspection succeeds even for an
 unready resource; use `status` or `doctor` for readiness exit codes.
 
+### Application readiness and waiting
+
+```bash
+brewlet k8s app status orders --namespace my-team
+brewlet k8s app status orders --namespace my-team --output json
+
+# After kubectl apply, a GitOps sync, or in a CI script:
+kubectl apply -f orders.yaml -n my-team
+brewlet k8s app wait orders --namespace my-team --wait-timeout 5m
+```
+
+`app status` is a concise readiness view of a JavaApplication: its phase
+(`Ready`, `Pending`, `Progressing`, `Failed` for `ReconcileError`, or
+`Terminating`), the `Ready` reason and message, `metadata.generation` versus
+`status.observedGeneration`, ready replicas, the selected JDK
+(`status.selectedJdk`), the nodes running its Pods with their per-Pod JDK
+request, conditions, and up to 10 most recent events for the application and
+the objects it owns. Ownership is traversed as in `inspect app`. `--output`
+accepts `table` (default), `json`, or `yaml`. It exits zero for an unready
+application; use `app wait` for a readiness exit code.
+
+`app wait` polls the JavaApplication every 3 seconds until its `Ready`
+condition is `True` **for the current generation**: a `Ready=True` condition
+whose `observedGeneration` is older than `metadata.generation` does not count.
+This is the same rule the Maven plugin's `brewlet:deploy` goal uses, so both
+tools report the same thing. Each status change (`Reason: message`) is printed
+to stderr with the elapsed time; a spinner (terminals) or a periodic heartbeat
+(CI, pipes) shows it is still waiting. A missing application or a failed
+`kubectl` call is reported and retried, so you can start waiting before a GitOps
+sync has created the object. On success it prints
+`NAME is Ready in namespace NS (JDK temurin-21)` to stdout and exits zero. When
+`--wait-timeout` (default `5m`) expires it exits nonzero with the last status
+and a `kubectl describe javaapplication NAME -n NS` hint. `--timeout` remains
+the per-kubectl-call deadline.
+
 Read permissions are required for the objects each command inspects.
+`app wait` only gets the JavaApplication; `app status` also lists the same
+objects as application inspection.
 Application inspection lists Deployments, ReplicaSets, Pods, and Events in its
 namespace; profile inspection reads the profile and lists Nodes. `status` lists
 control-plane Deployments (cluster-wide when discovering the namespace),

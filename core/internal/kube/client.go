@@ -71,8 +71,12 @@ func (c *client) kubectlContext(parent context.Context, input []byte, args ...st
 }
 
 func (c *client) get(resource, name string, extra ...string) (object, error) {
+	return c.getContext(c.ctx, resource, name, extra...)
+}
+
+func (c *client) getContext(ctx context.Context, resource, name string, extra ...string) (object, error) {
 	args := []string{"get", resource, name, "-o", "json"}
-	raw, err := c.kubectl(nil, append(args, extra...)...)
+	raw, err := c.kubectlContext(ctx, nil, append(args, extra...)...)
 	if err != nil {
 		return object{}, err
 	}
@@ -155,6 +159,7 @@ type metadata struct {
 	UID               string            `json:"uid"`
 	ResourceVersion   string            `json:"resourceVersion"`
 	Generation        int64             `json:"generation"`
+	CreationTimestamp string            `json:"creationTimestamp,omitempty"`
 	DeletionTimestamp string            `json:"deletionTimestamp,omitempty"`
 	Finalizers        []string          `json:"finalizers,omitempty"`
 	Labels            map[string]string `json:"labels"`
@@ -198,6 +203,7 @@ type object struct {
 		Replicas           int          `json:"replicas"`
 		UpdatedReplicas    int          `json:"updatedReplicas"`
 		ReadyReplicas      int          `json:"readyReplicas"`
+		SelectedJDK        string       `json:"selectedJdk"`
 		AvailableReplicas  int          `json:"availableReplicas"`
 		Phase              string       `json:"phase"`
 		Targets            []nodeTarget `json:"targets"`
@@ -225,10 +231,13 @@ type object struct {
 		Name string `json:"name"`
 		Kind string `json:"kind"`
 	} `json:"involvedObject"`
-	Type    string `json:"type"`
-	Reason  string `json:"reason"`
-	Message string `json:"message"`
-	raw     json.RawMessage
+	Type          string `json:"type"`
+	Reason        string `json:"reason"`
+	Message       string `json:"message"`
+	Count         int    `json:"count"`
+	LastTimestamp string `json:"lastTimestamp"`
+	EventTime     string `json:"eventTime"`
+	raw           json.RawMessage
 }
 
 func readyCondition(obj object) (bool, string) {

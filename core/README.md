@@ -37,7 +37,7 @@ go -C core test ./...
 ## Kubernetes operations
 
 `brewlet k8s` provides JDK/launcher inventory, profile and application inspection,
-control-plane/node status, readiness checks, fresh Helm installation, and safe
+application readiness status and waiting, control-plane/node status, readiness checks, fresh Helm installation, and safe
 profile additions. It uses installed `kubectl`/Helm binaries and existing
 kubeconfig credentials rather than embedding a Kubernetes client.
 
@@ -46,6 +46,8 @@ brewlet k8s --context staging jdk list
 brewlet k8s profile list
 brewlet k8s status
 brewlet k8s inspect app orders --namespace my-team
+brewlet k8s app status orders --namespace my-team
+brewlet k8s app wait orders --namespace my-team --wait-timeout 5m
 ```
 
 `jdk add` and `launcher add` update live profiles by default; use `--dry-run`
@@ -97,7 +99,8 @@ image manifest. `brewlet inspect` displays the source BOM, bundle, layer, lock,
 and application JAR digests.
 
 These Go CLI commands read and write OCI layouts through `--store`; they do not
-pull managed bundles directly from a registry. The Go CLI also does not resolve a
+pull managed bundles directly from a registry (a plain `brewlet push` to a
+registry-hosted ref uploads directly, but not with `--dependency-bundle`). The Go CLI also does not resolve a
 Maven graph: callers must supply the canonical lock with `--lock` or
 `--dependency-lock`. Use the Maven plugin for BOM import, Maven graph resolution,
 and direct registry publication/consumption.
