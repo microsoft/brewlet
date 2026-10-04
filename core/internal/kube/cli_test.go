@@ -1182,6 +1182,11 @@ func javaPod(t *testing.T, name, node string) object {
 	  "spec":{"nodeName":"`+node+`","runtimeClassName":"brewlet"},"status":{"phase":"Running"}}`)
 }
 
+func terminatingJavaPod(t *testing.T, name, node string) object {
+	return objectJSON(t, `{"kind":"Pod","metadata":{"name":"`+name+`","namespace":"shop","deletionTimestamp":"2026-10-04T19:00:00Z"},
+	  "spec":{"nodeName":"`+node+`","runtimeClassName":"brewlet"},"status":{"phase":"Running"}}`)
+}
+
 func fastPolling(t *testing.T) {
 	saved := progress.PollInterval
 	progress.PollInterval = 2 * time.Millisecond
@@ -1225,9 +1230,10 @@ func TestProfileDeleteWorkloadGuardAndPreconditions(t *testing.T) {
 	  "status":{"targets":[{"name":"node-b","uid":"b"}],"conditions":[{"type":"Ready","status":"True","reason":"AllNodesProvisioned"}]}}`
 	other := objectJSON(t, `{"kind":"Pod","metadata":{"name":"plain","namespace":"shop"},"spec":{"nodeName":"node-a"},"status":{"phase":"Running"}}`)
 	elsewhere := javaPod(t, "elsewhere", "node-z")
-	f := &deleteCluster{t: t, profile: profile, pods: []object{javaPod(t, "api", "node-a"), javaPod(t, "batch", "node-b"), other, elsewhere}}
+	f := &deleteCluster{t: t, profile: profile, pods: []object{javaPod(t, "api", "node-a"), javaPod(t, "batch", "node-b"), terminatingJavaPod(t, "shutdown", "node-b"), other, elsewhere}}
 	_, _, err := runTest(t, []string{"profile", "delete", "workers"}, f.exec)
-	if err == nil || !strings.Contains(err.Error(), "2 Java workload pod(s)") || !strings.Contains(err.Error(), "shop/api (node node-a)") ||
+	if err == nil || !strings.Contains(err.Error(), "3 Java workload pod(s)") || !strings.Contains(err.Error(), "shop/api (node node-a)") ||
+		!strings.Contains(err.Error(), "shop/shutdown (node node-b, terminating)") ||
 		strings.Contains(err.Error(), "elsewhere") || len(f.deletes) != 0 {
 		t.Fatalf("workloads did not block deletion: %v", err)
 	}
@@ -1247,7 +1253,8 @@ func TestProfileDeleteWorkloadGuardAndPreconditions(t *testing.T) {
 	}
 	var report deleteReport
 	if err := json.Unmarshal([]byte(out), &report); err != nil || !report.DeletionRequested || report.Deleted ||
-		!reflect.DeepEqual(report.ClaimedNodes, []string{"node-a", "node-b"}) || len(report.JavaWorkloads) != 2 || report.Reason != "" {
+		!reflect.DeepEqual(report.ClaimedNodes, []string{"node-a", "node-b"}) || len(report.JavaWorkloads) != 3 ||
+		!report.JavaWorkloads[2].Terminating || report.Reason != "" {
 		t.Fatalf("unexpected report: %s %v", out, err)
 	}
 

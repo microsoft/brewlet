@@ -820,10 +820,11 @@ Guards run before anything is deleted:
   `profile delete NAME --wait` to follow the cleanup, because attaching to a
   deletion that is already in progress changes nothing.
 - **Java workloads.** Claimed nodes are the profile's recorded targets plus nodes
-  labelled `brewlet.sh/owner-uid=<profile UID>`. Running Pods with
+  labelled `brewlet.sh/owner-uid=<profile UID>`. Non-terminal Pods with
   `runtimeClassName: brewlet` on those nodes block deletion unless you pass
-  `--yes`. If Pods cannot be listed across namespaces, deletion fails closed
-  unless you pass `--yes`.
+  `--yes`, including Pods with a deletion timestamp that may still be running
+  through their grace period or `preStop` hook. If Pods cannot be listed across
+  namespaces, deletion fails closed unless you pass `--yes`.
 - **Concurrent changes.** The delete request carries UID and resourceVersion
   preconditions. A profile edited or recreated under the same name since it
   was read is not deleted; re-inspect it and retry.

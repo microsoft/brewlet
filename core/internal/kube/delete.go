@@ -39,9 +39,10 @@ func (d *deleteOptions) flags(fs *flag.FlagSet) {
 }
 
 type workloadRef struct {
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
-	Node      string `json:"node"`
+	Namespace   string `json:"namespace"`
+	Name        string `json:"name"`
+	Node        string `json:"node"`
+	Terminating bool   `json:"terminating,omitempty"`
 }
 
 type cleanupNode struct {
@@ -113,11 +114,11 @@ func (c *client) deleteProfile(name string, d deleteOptions) error {
 		}
 		report.JavaWorkloads = workloads
 		if len(workloads) > 0 && !d.yes {
-			return fmt.Errorf("%d Java workload pod(s) still run on nodes claimed by profile %q and would lose their runtime: %s; "+
+			return fmt.Errorf("%d Java workload pod(s) still run or are terminating on nodes claimed by profile %q and would lose their runtime: %s; "+
 				"drain or move them first, or pass --yes to delete anyway", len(workloads), name, describeWorkloads(workloads))
 		}
 		if len(workloads) > 0 {
-			fmt.Fprintf(c.err, "Warning: deleting profile %q removes the runtime under %d Java workload pod(s): %s\n",
+			fmt.Fprintf(c.err, "Warning: deleting profile %q removes the runtime under %d Java workload pod(s) that still run or are terminating: %s\n",
 				name, len(workloads), describeWorkloads(workloads))
 		}
 	}
@@ -198,11 +199,15 @@ func (c *client) javaWorkloads(nodes []string) ([]workloadRef, error) {
 		if err := json.Unmarshal(pod.Spec, &spec); err != nil {
 			return workloads, fmt.Errorf("decode pod %s/%s: %w", pod.Metadata.Namespace, pod.Metadata.Name, err)
 		}
-		if spec.RuntimeClassName != brewletRuntimeClass || !onNode[spec.NodeName] ||
-			pod.Metadata.DeletionTimestamp != "" || oneOf(pod.Status.Phase, "Succeeded", "Failed") {
+		if spec.RuntimeClassName != brewletRuntimeClass || !onNode[spec.NodeName] || oneOf(pod.Status.Phase, "Succeeded", "Failed") {
 			continue
 		}
-		workloads = append(workloads, workloadRef{Namespace: pod.Metadata.Namespace, Name: pod.Metadata.Name, Node: spec.NodeName})
+		workloads = append(workloads, workloadRef{
+			Namespace:   pod.Metadata.Namespace,
+			Name:        pod.Metadata.Name,
+			Node:        spec.NodeName,
+			Terminating: pod.Metadata.DeletionTimestamp != "",
+		})
 	}
 	sort.Slice(workloads, func(i, j int) bool {
 		a, b := workloads[i], workloads[j]
@@ -218,7 +223,11 @@ func describeWorkloads(workloads []workloadRef) string {
 			parts = append(parts, fmt.Sprintf("+%d more", len(workloads)-i))
 			break
 		}
-		parts = append(parts, fmt.Sprintf("%s/%s (node %s)", w.Namespace, w.Name, w.Node))
+		suffix := ""
+		if w.Terminating {
+			suffix = ", terminating"
+		}
+		parts = append(parts, fmt.Sprintf("%s/%s (node %s%s)", w.Namespace, w.Name, w.Node, suffix))
 	}
 	return strings.Join(parts, ", ")
 }
