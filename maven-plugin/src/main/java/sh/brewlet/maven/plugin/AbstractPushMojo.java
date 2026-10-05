@@ -54,13 +54,13 @@ public abstract class AbstractPushMojo extends AbstractBrewletMojo {
     /**
      * Builds and pushes the application, records the result in
      * {@code target/brewlet/push.json} for {@code brewlet:manifest}, and returns
-     * it. Returns {@code null} in dry-run mode.
+     * it. Returns {@code null} in dry-run mode without changing any prior result.
      */
     protected PushResult pushApplication(String goal)
             throws MojoExecutionException, MojoFailureException {
         image = requirePushImage(goal);
         File pushResultFile = new File(outputDirectory, PUSH_RESULT_FILE);
-        if (pushResultFile.exists() && !pushResultFile.delete()) {
+        if (!dryRun && pushResultFile.exists() && !pushResultFile.delete()) {
             throw new MojoExecutionException("Failed to delete stale " + pushResultFile);
         }
 

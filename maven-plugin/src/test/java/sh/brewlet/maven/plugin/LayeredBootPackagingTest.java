@@ -169,7 +169,19 @@ class LayeredBootPackagingTest {
             String registry = "127.0.0.1:" + server.getAddress().getPort();
             push.image = registry + "/app:1";
             push.insecureRegistries = List.of(registry);
+            Files.createDirectories(push.outputDirectory.toPath());
+            Path handoff = push.outputDirectory.toPath().resolve(AbstractPushMojo.PUSH_RESULT_FILE);
+            String oldDigest = "sha256:" + "1".repeat(64);
+            JSON.writeValue(handoff.toFile(), new AbstractPushMojo.PushResult(
+                    push.image, oldDigest, registry + "/app@" + oldDigest, format));
+
             push.execute();
+
+            String digest = JSON.readTree(layout.resolve("index.json").toFile())
+                    .path("manifests").get(0).path("digest").asText();
+            assertNotEquals(oldDigest, digest);
+            assertEquals(new AbstractPushMojo.PushResult(
+                    push.image, digest, registry + "/app@" + digest, format), push.readLastPush());
             Path deployed = root.resolve("pushed");
             JvmConfig config = unpack(layout, deployed);
             assertEquals(List.of("boot.jar", "lib/z-SNAPSHOT.jar", "lib/a.jar"), config.getEntry().getClassPath());

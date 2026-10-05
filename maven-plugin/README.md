@@ -120,6 +120,15 @@ manifest goal picks it up automatically:
 mvn brewlet:manifest
 ```
 
+With `-Dbrewlet.dryRun=true`, `brewlet:push` and `brewlet:deploy` preserve any
+existing `target/brewlet/push.json` byte-for-byte, including when dry-run validation
+fails. They do not create a handoff if none exists. A later `brewlet:manifest`
+can still use the last successful push's digest-pinned image, provided it matches
+the configured image; the dry run does not publish the current application.
+Real pushes still clear the previous handoff after validating the target registry
+and before preparing or publishing the application, so a failed push cannot leave
+that stale result available to `brewlet:manifest`.
+
 ### Push, apply, and wait in one step
 
 Set `<registry>` once and let `brewlet:deploy` do the rest:
@@ -200,7 +209,7 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 | `entryMode` | `brewlet.entryMode` | inferred from manifest | `jar`, `classpath`, or `module` (auto-detected for modular JARs with a root `module-info.class`). |
 | `outputDirectory` | — | `${project.build.directory}/brewlet` | Where generated files land. |
 | `skip` | `brewlet.skip` | `false` | Skip all Brewlet goals. |
-| `dryRun` | `brewlet.dryRun` | `false` | Generate + display the config but do not push. |
+| `dryRun` | `brewlet.dryRun` | `false` | Generate + display the config but do not push. `push` and `deploy` leave any existing `push.json` unchanged and do not create one; `deploy` also skips manifest generation and kubectl. |
 | `layered` | `brewlet.layered` | `false` | **Layered deployment.** Plain thin JARs use the resolved POM runtime dependencies and `entry.classPath=[mainJar, "lib/*"]`; standard Spring Boot executable JARs are unpacked into a thin application JAR plus their exact packaged libraries and an explicitly ordered classpath (see below). Modular JARs use dependency modules at `/app/mods` and `entry.modulePath=[mainJar, "mods"]`. Non-modular layering selects `classpath` mode. Unchanged dependency layers dedup by digest. |
 | `splitSnapshotLayers` | `brewlet.splitSnapshotLayers` | `true` | When `layered`, pack released deps and `-SNAPSHOT` deps into separate `deps` / `snapshot-deps` layers (stable→volatile) for finer dedup. |
 | `dependencyBundle` | `brewlet.dependencyBundle` | — | For `push`, a registry reference or local OCI-layout directory containing a managed dependency bundle. The resolved runtime graph must exactly match its lock. Forces thin-JAR classpath launch and requires `mainClass`. |
