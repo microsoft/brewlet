@@ -96,7 +96,8 @@ make check-all
 ```
 
 `check-all` adds Kubernetes envtest and Helm checks, Maven plugin verification,
-Ratify verifier checks, site contracts, and host-only E2E tiers 1-2. The E2E
+Ratify verifier checks, site contracts, offline E2E suite contracts (Node 24+
+and Python 3), and host-only E2E tiers 1-2. The E2E
 runner may skip optional tier-2 cases (for example, registry/referrer tests
 without Docker and Maven); inspect its PASS/SKIP summary rather than treating
 a zero exit as complete coverage. It does **not** prove that the shim or
@@ -110,6 +111,7 @@ make -C kubernetes test-cli-integration        # CLI against isolated envtest AP
 make maven-plugin-check
 make admission-check
 make site-contract-check
+make e2e-contract-check                      # routing and monitor history; no cluster
 bash provisioner/entrypoint_test.sh
 make container-security-check
 ```
@@ -133,7 +135,10 @@ when prerequisites are missing; a successful run with skips is not a live
 validation pass. The separate `integration-tests/e2e/live/` scenarios have
 stricter requirements and their own cluster lifecycle; follow
 [`docs/live-validation.md`](docs/live-validation.md) instead of using the
-legacy tier reset helper for them.
+tiered suite's reset helper for them. The E2E workflow accepts `suite: all`,
+`tiers`, or `live`; `tiers` preserves all 19 tiers and arm64 coverage. The
+`scenario` selector applies only to live jobs. Update callers of the former
+`legacy` selector to `tiers`; see the harness runbook for saved monitor history.
 
 ### Registry conformance (Go and Maven)
 

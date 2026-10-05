@@ -129,23 +129,23 @@ const actions = [
     {
         name: "start_run",
         description:
-            "Start an integration-test run in the background. suite: legacy (run.sh tiers; requires tiers), reset (run.sh --reset), live-hpa, live-admission, offline (python unit safeguards). Refuses if another run is active unless allowConcurrent.",
+            "Start an integration-test run in the background. suite: tiers (run.sh tiers; requires tiers), reset (run.sh --reset), live-hpa, live-admission, offline (python unit safeguards). Refuses if another run is active unless allowConcurrent.",
         inputSchema: {
             type: "object",
             required: ["suite"],
             additionalProperties: false,
             properties: {
                 suite: { type: "string", enum: Object.keys(SUITES) },
-                tiers: { type: "array", items: { type: "integer", minimum: 1, maximum: 19 }, description: "Tiers for the legacy suite (1-19)." },
-                reset: { type: "boolean", description: "legacy only: pass --reset before running tiers." },
+                tiers: { type: "array", items: { type: "integer", minimum: 1, maximum: 19 }, description: "Tiers for the tiers suite (1-19)." },
+                reset: { type: "boolean", description: "tiers only: pass --reset before running tiers." },
                 cluster: {
                     type: "string",
                     enum: Object.keys(CLUSTER_TARGETS),
-                    description: "legacy/reset only: kubectl = the current kubectl context (default); docker-desktop = Docker Desktop's local Kubernetes. The run uses a pinned kubeconfig and never changes the user's current context. A context that is not local (Docker Desktop, kind, k3d, minikube…) is a live cluster: the run reaches nodes via kubectl and is pinned to nodePool.",
+                    description: "tiers/reset only: kubectl = the current kubectl context (default); docker-desktop = Docker Desktop's local Kubernetes. The run uses a pinned kubeconfig and never changes the user's current context. A context that is not local (Docker Desktop, kind, k3d, minikube…) is a live cluster: the run reaches nodes via kubectl and is pinned to nodePool.",
                 },
                 nodePool: {
                     type: "string",
-                    description: `legacy/reset on a live cluster only: node pool(s) the tests may use, comma-separated (sets E2E_POOLS). Defaults to "${DEFAULT_NODE_POOL}". See list_node_pools.`,
+                    description: `tiers/reset on a live cluster only: node pool(s) the tests may use, comma-separated (sets E2E_POOLS). Defaults to "${DEFAULT_NODE_POOL}". See list_node_pools.`,
                 },
                 env: { type: "object", additionalProperties: { type: "string" }, description: "Extra environment variables, e.g. JAVA_HOME." },
                 allowConcurrent: { type: "boolean" },

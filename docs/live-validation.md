@@ -57,15 +57,24 @@ python3 integration-tests/e2e/live/workflows.py
 The output directory must not exist as an invocation directory: each invocation
 creates its own random child. Keep evidence out of commits. No `--reset`, current
 kube context, existing cluster, existing registry, or pre-existing runtime is
-used. Do not point the legacy tier reset helper at these fixtures.
+used. Do not point the tiered suite's reset helper at these fixtures.
 
-The **E2E** workflow remains scheduled/manual-only. Its `live` selection runs
+The **E2E** workflow remains scheduled/manual-only. Select `suite: tiers` for
+tiers 1-19 and the arm64 host-only coverage, `live` for isolated live scenarios,
+or `all` (the default) for both. Scheduled runs execute both suites; `scenario`
+is ignored when selecting `tiers`. Automation using the former `legacy`
+selector must switch to `tiers`.
+
+Its `live` selection runs
 two separate jobs, each executing its scenario twice consecutively with fresh
 clusters. The first failure stops that job; the other scenario is independent.
 The manual `scenario` selector can run only `hpa`, only `admission` or only
 `workflows`; the scheduled default (`both`) runs every live scenario. The
 `workflows` job runs as two matrix entries, each on a fresh runner and cluster.
-Ordinary PR CI executes only offline fixture safeguards, not the live jobs.
+Ordinary PR CI executes offline fixture safeguards and suite routing/monitor
+contracts (`make e2e-contract-check`), not the live jobs. Saved monitor history
+is normalized without renaming run IDs or evidence; see the
+[harness runbook](../integration-tests/AGENTS.md).
 
 ## Release baseline and reproducibility
 
