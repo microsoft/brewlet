@@ -114,7 +114,7 @@ func TestCLIIntegration(t *testing.T) {
 	})
 	api, err := client.New(config, client.Options{Scheme: scheme})
 	must(t, err)
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 	t.Cleanup(cancel)
 	f := &fixture{ctx: ctx, api: api, scheme: scheme, config: config, server: server,
 		work: work, binary: binary, helm: helm}
@@ -142,6 +142,7 @@ func TestCLIIntegration(t *testing.T) {
 	t.Run("admission-denied-dry-run", f.testAdmission)
 	t.Run("concurrent-updates", f.testConflicts)
 	t.Run("application-inspection", f.testAppInspection)
+	t.Run("profile-deletion", f.testProfileDeletion)
 	t.Run("install-refuses-existing-crds", f.testInstallGuard)
 	unchanged, err := os.ReadFile(poison)
 	must(t, err)
