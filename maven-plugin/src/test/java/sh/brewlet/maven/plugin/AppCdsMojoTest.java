@@ -27,7 +27,7 @@ class AppCdsMojoTest {
     }
 
     @Test
-    void parseJavaFeatureVersion_legacyJava8() {
+    void parseJavaFeatureVersion_java8VersionString() {
         assertEquals(8, AppCdsMojo.parseJavaFeatureVersion("java version \"1.8.0_402\""));
     }
 

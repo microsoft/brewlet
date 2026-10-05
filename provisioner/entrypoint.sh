@@ -1160,7 +1160,7 @@ containerd_runtime_plugin_for_config() {
     ' "$config"
   )"
   # Some distros (e.g. AKS) ship `version = 2` while already using containerd 2's
-  # split CRI tables; containerd then drops a legacy grpc.v1.cri runtime table
+  # split CRI tables; containerd then drops an io.containerd.grpc.v1.cri runtime table
   # during migration, so follow the schema the config actually uses.
   if [[ "$version" =~ ^[0-9]+$ ]] && (( version >= 3 )); then
     printf 'io.containerd.cri.v1.runtime'
@@ -1361,7 +1361,7 @@ validate_containerd_config() {
     return 1
   fi
   if ! containerd_dump_has_runtime_handler "$dump"; then
-    # containerd 2 delegates the legacy CRI plugin to an external binary, so
+    # containerd 2 delegates io.containerd.grpc.v1.cri to an external binary, so
     # `containerd config dump` warns about and omits its runtime tables. Validate
     # the rendered source here; the post-restart CRI health check remains the
     # authoritative proof that the handler loaded successfully.

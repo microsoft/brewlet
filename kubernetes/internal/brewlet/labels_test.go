@@ -20,7 +20,7 @@ func TestFormatProvisionError(t *testing.T) {
 		{"code only", "rollback-failed", "", "rollback-failed"},
 		{"code only, blank message", "rollback-failed", "   ", "rollback-failed"},
 		// A node annotated by an older provisioner has no message annotation.
-		{"legacy prose in the code slot", "", "some older free-form failure", "some older free-form failure"},
+		{"free-form message without a reason code", "", "some older free-form failure", "some older free-form failure"},
 		{"neither", "", "", ""},
 		{"whitespace trimmed", "  jdk-install-failed  ", "  copy failed  ", "jdk-install-failed: copy failed"},
 	}

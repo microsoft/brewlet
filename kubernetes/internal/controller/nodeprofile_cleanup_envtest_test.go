@@ -182,7 +182,7 @@ func TestNodeProfileDeletionWaitsForRunningAndTerminatingProvisioners(t *testing
 	f.daemonSet(t, brewlet.CleanupDaemonSetName(f.profile.Name))
 }
 
-func TestNodeProfileDeletionStopsLegacyConcurrentCleanup(t *testing.T) {
+func TestNodeProfileDeletionStopsCleanupConcurrentWithProvisioner(t *testing.T) {
 	f := newCleanupFixture(t, 1)
 	provisioner := f.daemonSet(t, brewlet.ProfileDaemonSetName(f.profile.Name))
 	provisionerPod := createDaemonSetPod(t, f.ctx, f.client, provisioner, f.nodes[0], false)
@@ -197,7 +197,7 @@ func TestNodeProfileDeletionStopsLegacyConcurrentCleanup(t *testing.T) {
 	}
 	f.assertHeld(t)
 	if got := f.daemonSet(t, cleanup.Name); got.DeletionTimestamp.IsZero() {
-		t.Fatal("legacy concurrent cleanup was not stopped")
+		t.Fatal("cleanup concurrent with the provisioner was not stopped")
 	}
 	completeForegroundDaemonSetDeletion(t, f.ctx, f.client, f.r.Config.Namespace, provisioner.Name)
 	completeForegroundDaemonSetDeletion(t, f.ctx, f.client, f.r.Config.Namespace, cleanup.Name)

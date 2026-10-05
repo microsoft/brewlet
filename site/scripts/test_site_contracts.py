@@ -685,8 +685,8 @@ class LocalKubernetesGuideTest(unittest.TestCase):
                               (ROOT / filename).read_text(encoding="utf-8"))
         page = LandingPage((ROOT / "site/index.html").read_text(encoding="utf-8"))
         self.assertIn(("/docs/local-kubernetes/", "Try local Kubernetes"), page.links)
-        legacy = (ROOT / "docs/spring-petclinic.md").read_text(encoding="utf-8")
-        self.assertIn("## Layered classpath delivery", legacy)
+        petclinic = (ROOT / "docs/spring-petclinic.md").read_text(encoding="utf-8")
+        self.assertIn("## Layered classpath delivery", petclinic)
 
     def test_copy_paste_does_not_reconfigure_or_exit_the_interactive_shell(self):
         self.assertGreater(len(self.commands), 15)

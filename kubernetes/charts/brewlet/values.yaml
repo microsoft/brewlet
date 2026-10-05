@@ -54,8 +54,8 @@ provisioner:
   # Empty means every taint is respected. Each entry must name a key, e.g.
   #   - { key: "workload", operator: Equal, value: "java", effect: NoSchedule }
   tolerations: []
-  # Provision nodes labelled node-role.kubernetes.io/control-plane (or the
-  # legacy .../master). Control-plane nodes are excluded by default even when
+  # Provision nodes labelled node-role.kubernetes.io/control-plane or
+  # node-role.kubernetes.io/master. Control-plane nodes are excluded even when
   # untainted; enable this only for single-node development clusters (kind,
   # Docker Desktop) where the only node is the control plane.
   includeControlPlane: false

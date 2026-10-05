@@ -65,7 +65,7 @@ func locateJDK(t *testing.T) (javaBin, javacBin, jarBin string) {
 		t.Skipf("AppCDS integration test: could not parse java version from %q; skipping", strings.TrimSpace(string(out)))
 	}
 	feature, _ := strconv.Atoi(m[1])
-	if feature == 1 { // legacy "1.8" scheme
+	if feature == 1 { // Historical JDK version string, such as "1.8".
 		feature, _ = strconv.Atoi(m[2])
 	}
 	if feature < 17 {

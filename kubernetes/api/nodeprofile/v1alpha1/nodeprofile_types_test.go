@@ -18,7 +18,7 @@ func TestNodeProfileOwnershipStatusDeepCopy(t *testing.T) {
 	profile := NodeProfile{Status: NodeProfileStatus{
 		Targets:                []NodeTarget{{Name: "worker", UID: types.UID("node-uid"), Claimed: true}},
 		Migrating:              true,
-		MigrationDaemonSetUIDs: []types.UID{"legacy-uid"},
+		MigrationDaemonSetUIDs: []types.UID{"pre-claim-worker-uid"},
 		ProvisioningSpec:       &NodeProfileSpec{NodePool: NodePoolRef{Names: []string{"old"}}},
 		Retirement: &NodeRetirement{
 			Targets: []NodeTarget{{Name: "worker", UID: types.UID("node-uid"), Claimed: true}},
@@ -33,7 +33,7 @@ func TestNodeProfileOwnershipStatusDeepCopy(t *testing.T) {
 	copy.Status.Retirement.Targets[0].Name = "different"
 	copy.Status.Retirement.Spec.Tolerations[0].Key = "different"
 	if profile.Status.Targets[0].UID != "node-uid" ||
-		profile.Status.MigrationDaemonSetUIDs[0] != "legacy-uid" ||
+		profile.Status.MigrationDaemonSetUIDs[0] != "pre-claim-worker-uid" ||
 		profile.Status.ProvisioningSpec.NodePool.Names[0] != "old" ||
 		profile.Status.Retirement.Targets[0].Name != "worker" ||
 		profile.Status.Retirement.Spec.Tolerations[0].Key != "dedicated" {
@@ -43,7 +43,7 @@ func TestNodeProfileOwnershipStatusDeepCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{`"targets":[{"name":"worker","uid":"node-uid","claimed":true}]`, `"phase":"Cleaning"`, `"generation":3`, `"migrating":true`, `"migrationDaemonSetUIDs":["legacy-uid"]`} {
+	for _, fragment := range []string{`"targets":[{"name":"worker","uid":"node-uid","claimed":true}]`, `"phase":"Cleaning"`, `"generation":3`, `"migrating":true`, `"migrationDaemonSetUIDs":["pre-claim-worker-uid"]`} {
 		if !strings.Contains(string(encoded), fragment) {
 			t.Fatalf("missing ownership protocol %s in %s", fragment, encoded)
 		}

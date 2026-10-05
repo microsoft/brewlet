@@ -350,7 +350,7 @@ public final class JdkVersionResolver {
             throw cannotInfer("No configured JDK toolchain matches " + basis + " " + requirements
                     + "; provide Maven toolchains.xml (or -t) for standalone invocation");
         }
-        // Both compiler:jdkToolchain and the legacy toolchains:toolchain goal
+        // Both compiler:jdkToolchain and the toolchains:toolchain goal
         // select the first matching configured toolchain, not the largest version.
         return new ToolchainSelection(matches.get(0), basis + " " + requirements + " (Maven first match)");
     }

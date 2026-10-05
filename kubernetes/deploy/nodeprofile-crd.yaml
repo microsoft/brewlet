@@ -68,7 +68,7 @@ spec:
                       default: false
                       description: |
                         Provision nodes labelled node-role.kubernetes.io/control-plane
-                        (or the legacy .../master). Default false: the privileged
+                        or node-role.kubernetes.io/master. Default false: the privileged
                         provisioner never lands on a control-plane node, even an
                         untainted one, unless explicitly opted in.
                 jdks:

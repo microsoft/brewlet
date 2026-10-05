@@ -243,8 +243,8 @@ func TestValidate(t *testing.T) {
 		{"classpath refs mismatched top-level jar", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "classpath", MainClass: "M", ClassPath: []string{"app.jar", "lib/*"}}}, true},
 		{"module refs matching mainJar", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "module", Module: "com.acme.orders", ModulePath: []string{"orders.jar", "mods"}}}, false},
 		{"module refs mismatched top-level jar", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "module", Module: "com.acme.orders", ModulePath: []string{"app.jar", "mods"}}}, true},
-		{"mixed refs mismatched top-level jar", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "module", Module: "com.acme.orders", ModulePath: []string{"orders.jar", "mods"}, ClassPath: []string{"legacy.jar"}}}, true},
-		{"nested jar under lib is not a top-level ref", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "classpath", MainClass: "M", ClassPath: []string{"orders.jar", "lib/legacy.jar"}}}, false},
+		{"mixed refs mismatched top-level jar", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "module", Module: "com.acme.orders", ModulePath: []string{"orders.jar", "mods"}, ClassPath: []string{"classpath-helper.jar"}}}, true},
+		{"nested jar under lib is not a top-level ref", JVMConfig{MainJar: "orders.jar", Entry: Entry{Mode: "classpath", MainClass: "M", ClassPath: []string{"orders.jar", "lib/classpath-helper.jar"}}}, false},
 		{"mismatch ignored when mainJar unset", JVMConfig{Entry: Entry{Mode: "classpath", MainClass: "M", ClassPath: []string{"orders.jar", "lib/*"}}}, false},
 		// mainJar is joined onto the staging directory and the result becomes a
 		// root bind-mount source, so anything but a bare filename is a host

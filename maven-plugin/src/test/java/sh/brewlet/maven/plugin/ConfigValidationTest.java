@@ -151,7 +151,7 @@ class ConfigValidationTest {
         Entry e = new Entry("module");
         e.setModule("com.acme.orders");
         e.setModulePath(List.of("orders.jar", "mods"));
-        e.setClassPath(List.of("legacy.jar"));
+        e.setClassPath(List.of("classpath-helper.jar"));
         assertThrows(IllegalStateException.class, () -> withEntry("orders.jar", e).validate());
     }
 
@@ -159,7 +159,7 @@ class ConfigValidationTest {
     void classpathMode_nestedJarUnderLib_ok() {
         Entry e = new Entry("classpath");
         e.setMainClass("com.acme.Main");
-        e.setClassPath(List.of("orders.jar", "lib/legacy.jar"));
+        e.setClassPath(List.of("orders.jar", "lib/classpath-helper.jar"));
         assertDoesNotThrow(() -> withEntry("orders.jar", e).validate());
     }
 

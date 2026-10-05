@@ -5,7 +5,7 @@
 # Tier 2 — local developer experience: the CLI + node-resident JVM path.
 # Covers: push (OCI artifact, no Dockerfile), inspect, run (java -jar + live curl),
 # bundle (resource->JVM/cgroup mapping in config.json), layered classpath, and
-# modular (JPMS) apps (entry.mode=module + module layer -> java -p ... -m ...).
+# modular (JPMS) apps, including supplementary non-modular class-path helpers.
 # Prereqs: go, java, python3
 
 tier2_cli() {
@@ -441,8 +441,9 @@ tier2_cli() {
   # the same push/inspect/run/bundle path to prove `java -p ... -m ...`.
   if "$FIXTURES_DIR/demo-module-app/build.sh" >"$WORK/t2-module-app.log" 2>&1 \
        && [[ -f "$FIXTURES_DIR/demo-module-app/target/orders.jar" ]] \
-       && [[ -f "$FIXTURES_DIR/demo-module-app/target/mods.tar" ]]; then
-    pass "module: build modular demo (orders.jar + mods.tar, JDK only)"
+       && [[ -f "$FIXTURES_DIR/demo-module-app/target/mods.tar" ]] \
+       && [[ -f "$FIXTURES_DIR/demo-module-app/target/classpath.tar" ]]; then
+    pass "module: build modular demo and non-modular helper (JDK only)"
   else
     fail "module: build modular demo app" "see $WORK/t2-module-app.log"; return 0
   fi
@@ -480,6 +481,7 @@ tier2_cli() {
     assert_contains "module: /hello served by the library module on the module path" "$body" "MODULAR"
     body="$(curl -s "http://localhost:$mport/info" 2>/dev/null)"
     assert_contains "module: /info confirms the library module resolved" "$body" "greeter.module     = com.example.greeter"
+    assert_contains "module: pure module path has no supplementary helper" "$body" "classpath.helper   = (none)"
   else
     fail "module: modular JVM answers /healthz" "see $WORK/t2-module-run.log"
   fi
@@ -502,4 +504,66 @@ tier2_cli() {
     assert_contains "module: bundle mounts the module layer at /app/mods" "$mcfg" "\"/app/mods\""
   fi
 
+  # --- mixed JPMS + class path: resolve the helper only from the extra layer ---
+  local ctar="$FIXTURES_DIR/demo-module-app/target/classpath.tar"
+  local helperjar="$FIXTURES_DIR/demo-module-app/target/lib/classpath-helper.jar"
+  if out="$(jar --list --file "$helperjar" 2>&1)"; then
+    assert_contains "mixed: helper JAR contains the renamed class" "$out" "com/example/classpath/ClasspathHelper.class"
+    assert_not_contains "mixed: helper JAR is non-modular" "$out" "module-info.class"
+  else
+    fail "mixed: read helper JAR" "$out"; return 0
+  fi
+  if out="$(tar -tf "$ctar" 2>&1)"; then
+    assert_contains "mixed: classpath archive contains the helper JAR" "$out" "classpath-helper.jar"
+  else
+    fail "mixed: read classpath archive" "$out"; return 0
+  fi
+
+  local mixedref="demo/orders-mixed:1.0.0" mixedport
+  mixedport="$(free_port)"
+  if [[ ! "$mixedport" =~ ^[0-9]+$ ]] || (( mixedport < 1 || mixedport > 65535 )); then
+    fail "mixed: select a test port" "invalid free port: $mixedport"; return 0
+  fi
+  if out="$("$bin" push "$mjar" "$mixedref" --store "$store" --module-layer "$mtar" \
+      --classpath-layer "$ctar" --format=artifact 2>&1)"; then
+    assert_contains "mixed: push attaches the module layer" "$out" "modulepath layers: 1"
+    assert_contains "mixed: push attaches the classpath layer" "$out" "classpath layers: 1"
+  else
+    fail "mixed: push modular JAR with classpath helper" "$out"; return 0
+  fi
+  if out="$("$bin" inspect "$mixedref" --store "$store" 2>&1)"; then
+    assert_contains "mixed: inspect retains module mode" "$out" "\"mode\": \"module\""
+    assert_contains "mixed: inspect records the supplementary class path" "$out" "\"lib/*\""
+  else
+    fail "mixed: inspect artifact" "$out"; return 0
+  fi
+
+  "$bin" run "$mixedref" --store "$store" -- -Dserver.port=$mixedport >"$WORK/t2-mixed-run.log" 2>&1 &
+  local mixed_pid=$!
+  if body="$(retry_curl "http://localhost:$mixedport/healthz" 40 0.5)"; then
+    body="$(curl -s "http://localhost:$mixedport/hello" 2>/dev/null)"
+    assert_contains "mixed: /hello served through the greeter module" "$body" \
+      "MIXED: Hello from a MODULAR JPMS app on the module path via Brewlet!"
+    body="$(curl -s "http://localhost:$mixedport/info" 2>/dev/null)"
+    assert_contains "mixed: named greeter module still resolves" "$body" "greeter.module     = com.example.greeter"
+    assert_contains "mixed: supplementary helper loads from the class path" "$body" \
+      "classpath.helper   = present (com.example.classpath.ClasspathHelper on -cp)"
+  else
+    fail "mixed: JVM answers /healthz" "see $WORK/t2-mixed-run.log"
+  fi
+  kill "$mixed_pid" 2>/dev/null || true
+  wait "$mixed_pid" 2>/dev/null || true
+
+  local mixedbdir="$WORK/bundle-mixed"
+  if "$bin" bundle "$mixedref" --store "$store" --out "$mixedbdir" \
+       >"$WORK/t2-mixed-bundle.log" 2>&1 && [[ -f "$mixedbdir/config.json" ]]; then
+    local mixedcfg; mixedcfg="$(cat "$mixedbdir/config.json")"
+    assert_contains "mixed: bundle includes -cp" "$mixedcfg" "\"-cp\""
+    assert_contains "mixed: bundle includes the supplementary class path" "$mixedcfg" "/app/lib/*"
+    assert_contains "mixed: bundle retains the module path" "$mixedcfg" "/app/orders.jar:/app/mods"
+    assert_contains "mixed: bundle targets the modular main class" "$mixedcfg" "com.example.orders/com.example.orders.OrdersApp"
+    assert_contains "mixed: bundle mounts the classpath layer" "$mixedcfg" "\"/app/lib\""
+  else
+    fail "mixed: emit OCI runtime bundle" "see $WORK/t2-mixed-bundle.log"
+  fi
 }

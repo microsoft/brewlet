@@ -238,7 +238,7 @@ class JdkVersionResolverTest {
     }
 
     @Test
-    void standaloneManifestCanResolveConfiguredLegacyToolchainsRequirements() throws Exception {
+    void standaloneManifestCanResolveConfiguredToolchainGoalRequirements() throws Exception {
         MavenProject project = project("");
         Plugin toolchains = toolchains(project);
         toolchains.setConfiguration(xml("<toolchains><jdk><version>${compiler.jdk}</version>"

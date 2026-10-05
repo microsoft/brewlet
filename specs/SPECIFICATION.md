@@ -278,7 +278,7 @@ a backward-compatibility format: superseded config fields remain rejected.
   publish and launch time; unknown JSON *fields* are additionally rejected by the
   launch core, which parses configs with strict field checking (publish and launch
   time). Because unknown fields are rejected, old artifacts whose `jvm-config.json`
-  still contains `jdk`, `launcher`, `labels`, or legacy free-form JVM args must be
+  still contains `jdk`, `launcher`, `labels`, or removed free-form JVM args must be
   re-pushed. The Maven plugin
   generates the config from typed models, so it validates mode/field consistency
   rather than parsing arbitrary JSON.

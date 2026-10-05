@@ -612,7 +612,7 @@ func parseFeature(v string) int {
 		return 0
 	}
 	if comps[0] == "1" && len(comps) > 1 {
-		// Legacy 1.x.y scheme (1.8 => 8).
+		// Historical JDK version string (for example, 1.8.0_412 => Java 8).
 		if n, err := strconv.Atoi(leadingDigits(comps[1])); err == nil {
 			return n
 		}

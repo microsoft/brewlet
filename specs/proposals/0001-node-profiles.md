@@ -210,7 +210,7 @@ node label. The operator auto-detects the key by probing known ones on the fleet
 | Provider | Pool label key |
 |---|---|
 | GKE | `cloud.google.com/gke-nodepool` |
-| AKS | `kubernetes.azure.com/agentpool` (legacy `agentpool`) |
+| AKS | `kubernetes.azure.com/agentpool` or unqualified `agentpool` |
 | EKS (managed node groups) | `eks.amazonaws.com/nodegroup` |
 | Karpenter | `karpenter.sh/nodepool` |
 
@@ -359,7 +359,7 @@ spec:
 
 The one-command install retains the same targeting behavior: an empty `nodePool`
 means "every node." The values are structured because every source and path is
-mandatory; legacy comma-separated inventories are rejected. When a user later adds an
+mandatory; comma-separated source inventories are rejected. When a user later adds an
 explicit pool-scoped profile, they narrow the default (or delete it) — because pools are
 disjoint there is no priority to reason about; a node is either in a named pool or falls
 through to the empty-pool default. The operator has no JDK or launcher inventory

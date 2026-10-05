@@ -309,6 +309,15 @@ With the CLI this is `brewlet push app.jar ref --classpath-layer deps.tar
 or any config supplied via `--config`. This closes SPECIFICATION §16 Open
 Question #3 for the mixed case.
 
+The integration fixture in `integration-tests/fixtures/demo-module-app` builds
+`orders.jar`, `mods.tar`, and `classpath.tar`. The supplementary archive contains
+the non-modular `classpath-helper.jar`, whose
+`com.example.classpath.ClasspathHelper` lives in the unnamed module. In mixed
+mode, the demo's `/info` reports
+`classpath.helper   = present (com.example.classpath.ClasspathHelper on -cp)`;
+without the supplementary layer it reports `classpath.helper   = (none)`.
+Both modes still resolve the named `com.example.greeter` module.
+
 ---
 
 ## 9. Tooling implications

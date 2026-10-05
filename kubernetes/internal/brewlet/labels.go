@@ -109,8 +109,8 @@ const (
 // node. The privileged provisioner is kept off every node carrying one of them
 // unless a profile sets spec.nodePool.includeControlPlane, so an untainted
 // control-plane node (single-node kind / Docker Desktop, for example) is not
-// provisioned by accident. The legacy "master" label is included because
-// clusters upgraded from <1.24 still carry it.
+// provisioned by accident. The node-role.kubernetes.io/master label is included
+// because clusters upgraded from <1.24 still carry it.
 var ControlPlaneRoleLabels = []string{
 	"node-role.kubernetes.io/control-plane",
 	"node-role.kubernetes.io/master",
@@ -123,7 +123,7 @@ var ControlPlaneRoleLabels = []string{
 var ProviderPoolKeys = []string{
 	"cloud.google.com/gke-nodepool",  // GKE
 	"kubernetes.azure.com/agentpool", // AKS
-	"agentpool",                      // AKS (legacy)
+	"agentpool",                      // AKS (unqualified pool label)
 	"eks.amazonaws.com/nodegroup",    // EKS managed node groups
 	"karpenter.sh/nodepool",          // Karpenter
 }
