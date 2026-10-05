@@ -65,6 +65,21 @@ python3 -m mkdocs serve -f site/mkdocs.yml
 
 Then open <http://localhost:8000/docs/>.
 
+## Validation
+
+After installing the documentation dependencies above, run the same strict
+build used by PR CI and deployment:
+
+```bash
+python3 -m mkdocs build --strict -f site/mkdocs.yml
+```
+
+The CI **License and notices** job runs this build after verifying the website
+notice, so broken documentation links fail before merge. Keep links to files
+outside `docs/` as GitHub URLs: those files are not published by MkDocs.
+Run `make site-contract-check` for the existing offline site and installation
+contracts as well.
+
 ## Deployment
 
 Pushes to `main` that change the web assets, documentation, or Pages
