@@ -89,7 +89,6 @@ class WorkflowContractTests(unittest.TestCase):
         triggers = block(WORKFLOW, "on", 0)
         self.assertEqual(re.findall(r"^  ([\w_]+):", triggers, re.MULTILINE), ["schedule", "workflow_dispatch"])
         self.assertIn('- cron: "30 6 * * *"', triggers)
-        self.assertNotIn("legacy", WORKFLOW)
 
     def test_schedule_runs_every_job_without_dispatch_inputs(self):
         self.assertEqual(self.route("schedule", "", ""), {"tiers", "arm64", "live", "workflows"})

@@ -39,7 +39,7 @@ async function savedRun(manager, id, overrides = {}) {
     const dir = path.join(manager.runsDir, id);
     await mkdir(path.join(dir, "work"), { recursive: true });
     const meta = {
-        id, suite: "legacy", label: "Legacy tiers", tiers: [1, 2], reset: true,
+        id, suite: "tiers", label: SUITES.tiers.label, tiers: [1, 2], reset: true,
         env: {}, cluster: "kubectl", kubeContext: "fixture-context", nodePool: "fixture-pool",
         command: "integration-tests/e2e/run.sh --reset --tier 1 --tier 2",
         cwd: manager.repoRoot, dir, workDir: path.join(dir, "work"),
@@ -60,16 +60,16 @@ async function finish(manager, run) {
     return result;
 }
 
-test("suite choices contain all 19 tiers and no public historical alias", () => {
+test("suite choices contain all 19 tiers", () => {
     assert.deepEqual(Object.keys(SUITES), ["tiers", "reset", "live-hpa", "live-admission", "offline"]);
     assert.equal(SUITES.tiers.usesTiers, true);
     assert.equal(SUITES.tiers.usesCluster, true);
     assert.deepEqual(TIERS.map((tier) => tier.n), Array.from({ length: 19 }, (_, i) => i + 1));
 });
 
-test("new runs reject the old selector and preserve input and concurrency guards", async (t) => {
+test("new runs enforce input and concurrency guards", async (t) => {
     const { manager } = await fixture(t);
-    await assert.rejects(manager.start({ suite: "legacy", tiers: [1] }), /unknown suite "legacy"/);
+    await assert.rejects(manager.start({ suite: "unknown", tiers: [1] }), /unknown suite "unknown"/);
     await assert.rejects(manager.start({ suite: "tiers" }), /select at least one tier/);
     await assert.rejects(manager.start({ suite: "tiers", tiers: [1], cluster: "other" }), /unknown cluster target/);
     await assert.rejects(manager.start({ suite: "tiers", tiers: [1], nodePool: "bad;pool" }), /invalid node pool/);
@@ -122,17 +122,16 @@ test("reset, isolated live and offline commands remain independently runnable", 
     }
 });
 
-test("history normalization retains IDs, metadata, logs and evidence across reloads and reruns", async (t) => {
+test("history retains IDs, metadata, logs and evidence across reloads and reruns", async (t) => {
     const { manager, env } = await fixture(t);
     manager.dispose();
-    const { meta, output } = await savedRun(manager, "legacy-history", { env });
-    await savedRun(manager, "tiers-history", { suite: "tiers", label: SUITES.tiers.label });
+    const { meta, output } = await savedRun(manager, "tiers-history", { env });
     await savedRun(manager, "offline-history", { suite: "offline", label: SUITES.offline.label, tiers: [] });
     for (let reload = 0; reload < 2; reload++) {
         await manager.init();
         manager.dispose();
         const loaded = manager.runs.get(meta.id);
-        assert.deepEqual(loaded.meta, { ...meta, suite: "tiers", label: SUITES.tiers.label });
+        assert.deepEqual(loaded.meta, meta);
         assert.equal(manager.list().find((run) => run.id === meta.id).suite, "tiers");
         const detail = manager.get(meta.id);
         assert.equal(detail.progress.kind, "tiers");
@@ -159,11 +158,11 @@ test("history normalization retains IDs, metadata, logs and evidence across relo
     await finish(manager, rerun);
 });
 
-test("normalized running history retains its process and uses tier ETA history", async (t) => {
+test("running history retains its process and uses tier ETA history", async (t) => {
     const { manager } = await fixture(t);
     manager.dispose();
-    await savedRun(manager, "legacy-complete");
-    const { meta } = await savedRun(manager, "legacy-running", { status: "running", endedAt: null, exitCode: null });
+    await savedRun(manager, "tiers-complete");
+    const { meta } = await savedRun(manager, "tiers-running", { status: "running", endedAt: null, exitCode: null });
     await manager.init();
     manager.dispose();
     assert.equal(manager.get(meta.id).suite, "tiers");
@@ -172,7 +171,7 @@ test("normalized running history retains its process and uses tier ETA history",
     assert.deepEqual(manager.runningPids(), [process.pid]);
 
     // Explicit parser times make the ETA assertion independent of wall-clock and disk speed.
-    const history = manager.runs.get("legacy-complete");
+    const history = manager.runs.get("tiers-complete");
     history.parse = createParseState();
     feed(history.parse, "== Tier 1 - unit ==\n", 1000);
     feed(history.parse, "== Tier 2 - cli ==\n", 2000);

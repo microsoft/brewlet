@@ -20,8 +20,7 @@ CLI and read its version with `brewlet version` to select matching example sourc
 and Maven plugin artifacts. Keep version-specific validation history in the docs.
 
 Use current CLI commands in landing-page examples, including inline FAQ commands.
-`make site-contract-check` rejects removed top-level CLI aliases in those examples.
-Documentation migration tables and validation history are outside that check's scope.
+Describe supported behavior rather than maintaining notices for removed features.
 
 Keep technical prerequisites, operational safety warnings, and authentication
 requirements for users' own clusters and registries. Do not present roadmap

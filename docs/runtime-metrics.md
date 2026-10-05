@@ -125,30 +125,6 @@ The operator and admission webhook use controller-runtime's Prometheus registry.
 Their endpoints include standard controller-runtime/process metrics alongside
 the Brewlet-specific collectors described below.
 
-### Breaking change: textfile output removed
-
-`BREWLET_METRICS_DIR` no longer produces per-launch `.prom` files. Runtime
-telemetry uses only Unix datagrams to the node exporter; no supported external
-integration requires retaining the alternate textfile path. Under the
-[pre-GA compatibility policy](compatibility.md), this removal has no deprecation
-window and does not affect either the capability-label contract or required
-external platform interoperability.
-
-External textfile collectors must remove the obsolete environment setting and
-collection configuration, enable the supported exporter, and scrape it using
-the surfaces below. Replace queries for the removed
-`brewlet_cds_archive_mapped{role}` gauge with queries for
-`brewlet_cds_regeneration_decisions_total{role}`. For example, the `consume`
-series counts decisions to reuse an archive. It is a cumulative decision
-counter, not a per-launch 0/1 gauge or proof that the JVM mapped an archive.
-Existing exporter metric names, labels, and launch behavior are unchanged.
-
-Brewlet does not delete old textfiles as part of this removal. Retire old
-producers and consumers, verify ownership and that files are unused, and reclaim
-only individually reviewed paths. Do not purge the metrics directory: it may
-contain the live telemetry socket or unrelated files. Release replacement must
-still follow the teardown/reinstallation guidance above.
-
 ---
 
 ## Scrape surfaces
@@ -231,7 +207,7 @@ If you changed `metrics.nodePort`, replace `9090` with that value.
 | `brewlet_sandbox_launch_duration_seconds` | Histogram | `phase`, `outcome` | Time spent in bounded launch phases: `artifact_resolve`, `bundle_prepare`, `overlay_setup`, `runc_create`, and `process_start`; outcome is `success` or `error`. |
 | `brewlet_sandbox_launches_total` | Counter | `outcome`, `reason`, `entry_mode`, `artifact_format` | Completed launch results. Entry mode is `jar`, `classpath`, `module`, or `unknown`; format is `native`, `image`, or `unknown`. Failure reasons use a fixed vocabulary rather than raw error text. |
 | `brewlet_artifact_resolution_duration_seconds` | Histogram | `backend`, `artifact_format`, `outcome` | Time spent resolving content already available to the shim. Backend is `layout` or `containerd`; this is **not** registry pull or cache timing. |
-| `brewlet_cds_regeneration_decisions_total` | Counter | `role` | AppCDS decisions: `consume`, `write`, `defer`, or `skip`. |
+| `brewlet_cds_regeneration_decisions_total` | Counter | `role` | AppCDS decisions: `consume`, `write`, `defer`, or `skip`. Counts decisions, not proof that the JVM mapped an archive. |
 | `brewlet_telemetry_events_invalid_total` | Counter | None | Malformed, unknown-version, or unsupported shim datagrams rejected by the exporter. |
 | `brewlet_jdk_info` | Gauge | `distribution`, `feature`, `version`, `vendor`, `arch`, `source` | Value `1` identifies each active JDK build on a node. |
 | `brewlet_jdk_installed_timestamp_seconds` | Gauge | `distribution`, `feature`, `version` | Unix timestamp when that JDK root was installed on the node. It is **not** the upstream JDK patch release date. |

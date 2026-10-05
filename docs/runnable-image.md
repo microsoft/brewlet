@@ -51,8 +51,7 @@ bespoke `+jar`/`+tar` media types so the artifact stays self-describing and
 registry-native — but that is precisely what makes `crictl`/kubelet unable to unpack
 them. The pull fails long before the shim is ever consulted.
 
-Native artifacts are used for local OCI-layout / CLI / `prepare-bundle` workflows,
-not as a backward-compatibility format; superseded config fields remain rejected.
+Native artifacts are used for local OCI-layout / CLI / `prepare-bundle` workflows.
 A Pod cannot *name* the native artifact as its image. Kubernetes workloads use the
 runnable-image format so `runtimeClassName: brewlet` pods name the actual runnable image
 in `image:`.

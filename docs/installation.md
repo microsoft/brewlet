@@ -316,10 +316,6 @@ runtime catalog or a replacement for previewing your chosen values.
 
 ### Upgrading
 
-When updating the CLI, also update scripts using the
-[removed top-level CLI aliases](cli-reference.md#removed-cli-aliases).
-Use `brewlet k8s jdk list` for inventory and `brewlet k8s doctor` for readiness.
-
 **Skip this section for a fresh installation.** Helm installs the chart's CRDs
 when they are not already present; there is no separate CRD upgrade or
 migration step before deploying Brewlet for the first time. The following

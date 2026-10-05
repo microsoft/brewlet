@@ -137,8 +137,7 @@ stricter requirements and their own cluster lifecycle; follow
 [`docs/live-validation.md`](docs/live-validation.md) instead of using the
 tiered suite's reset helper for them. The E2E workflow accepts `suite: all`,
 `tiers`, or `live`; `tiers` preserves all 19 tiers and arm64 coverage. The
-`scenario` selector applies only to live jobs. Update callers of the former
-`legacy` selector to `tiers`; see the harness runbook for saved monitor history.
+`scenario` selector applies only to live jobs.
 
 ### Registry conformance (Go and Maven)
 
