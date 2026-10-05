@@ -229,7 +229,8 @@ class RegistryDiscoveryTests(unittest.TestCase):
 class DiagnosticCaptureTests(unittest.TestCase):
     def fixture(self):
         return SimpleNamespace(
-            registry="localhost:5000", registry_id="owned-registry", candidate="release",
+            registry="localhost:5000", registry_id="owned-registry",
+            source_revision="checkout-commit", plugin_version="9.9.9-test",
             record=Mock(), save=Mock(), own_container=Mock(),
             run=Mock(return_value=completed(0, "")),
             kube=Mock(return_value=completed(0, "")))
