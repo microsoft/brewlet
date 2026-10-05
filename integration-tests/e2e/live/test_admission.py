@@ -4,7 +4,10 @@
 """CI-discoverable offline safeguards; not a replacement for the live scenario."""
 
 import copy
+import json
+from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
@@ -285,6 +288,70 @@ class StatementFixtureTests(unittest.TestCase):
         self.assertNotEqual(BUILDER,
                             variant_statement(original, subject, "wrong-builder")["predicate"]["builderIdentity"])
         self.assertEqual(original, before)
+
+
+class RatifyInstallationTests(unittest.TestCase):
+    def setUp(self):
+        from admission import Admission
+        private = tempfile.TemporaryDirectory()
+        self.addCleanup(private.cleanup)
+        self.fixture = SimpleNamespace(
+            registry="localhost:5000", registry_internal="owned-registry:5000",
+            private=Path(private.name), kubeconfig=Path(private.name) / "kubeconfig",
+            context="kind-owned", kube=Mock(), record=Mock(),
+            get=Mock(side_effect=AssertionError("must not fetch a Deployment snapshot")),
+            apply=Mock(side_effect=AssertionError("must not reapply a Deployment snapshot")))
+        self.admission = Admission(self.fixture)
+        self.admission.baked_repository = "brewlet.local/ratify"
+        self.admission.baked_digest = CURRENT
+        self.admission.baked_image = "brewlet.local/ratify@" + CURRENT
+        self.admission.registry_ip = "172.18.0.2"
+        self.admission.certificates = Mock(return_value={})
+        self.admission.command = Mock()
+        for target, kwargs in [
+            ("admission.download", {"return_value": "archive-checksum"}),
+            ("admission.tarfile.open", {}),
+            ("admission.wait", {}),
+        ]:
+            patcher = patch(target, **kwargs)
+            mocked = patcher.start()
+            self.addCleanup(patcher.stop)
+            if target == "admission.wait":
+                self.wait = mocked
+
+    def test_install_patches_only_intended_spec_fields_then_waits(self):
+        self.admission.install_ratify()
+        calls = self.fixture.kube.call_args_list
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0].args[:-1], (
+            "patch", "deployment", "ratify", "-n", "ratify-service",
+            "--type=strategic", "-p"))
+        self.assertEqual(json.loads(calls[0].args[-1]), {
+            "spec": {
+                "strategy": {"type": "Recreate", "rollingUpdate": None},
+                "template": {"spec": {
+                    "containers": [{"name": "ratify", "image": self.admission.baked_image}],
+                    "hostAliases": [{"ip": "172.18.0.2", "hostnames": ["owned-registry"]}],
+                }},
+            },
+        })
+        self.assertEqual(calls[1].args, (
+            "-n", "ratify-service", "rollout", "status", "deployment/ratify",
+            "--timeout=240s"))
+        self.wait.assert_called_once_with(
+            "Ratify current Pod and Service endpoints agree",
+            self.admission.ratify_endpoints_ready, timeout=120, interval=1)
+        self.fixture.record.assert_called_once()
+        self.fixture.get.assert_not_called()
+        self.fixture.apply.assert_not_called()
+
+    def test_patch_failure_aborts_before_readiness_or_success(self):
+        self.fixture.kube.side_effect = RuntimeError("deployment patch failed")
+        with self.assertRaisesRegex(RuntimeError, "deployment patch failed"):
+            self.admission.install_ratify()
+        self.fixture.kube.assert_called_once()
+        self.wait.assert_not_called()
+        self.fixture.record.assert_not_called()
 
 
 class RatifyReadinessTests(unittest.TestCase):

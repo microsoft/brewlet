@@ -340,13 +340,18 @@ class Admission:
             self.f.context, "upgrade", "--install", "ratify", str(chart),
             "--namespace", "ratify-service", "--create-namespace",
             "--values", str(valuefile), "--timeout", "240s"], timeout=300)
-        deployment = self.f.get("deployment", "ratify", "-n", "ratify-service")
-        deployment["spec"]["strategy"] = {"type": "Recreate", "rollingUpdate": None}
-        podspec = deployment["spec"]["template"]["spec"]
-        podspec["containers"][0]["image"] = self.baked_image
-        podspec["hostAliases"] = [
-            {"ip": self.registry_ip, "hostnames": [self.f.registry_internal.split(":")[0]]}]
-        self.f.apply(deployment)
+        # Patch only fixture-owned fields, not a snapshot that races controller updates.
+        deployment_patch = {"spec": {
+            "strategy": {"type": "Recreate", "rollingUpdate": None},
+            "template": {"spec": {
+                "containers": [{"name": "ratify", "image": self.baked_image}],
+                "hostAliases": [
+                    {"ip": self.registry_ip,
+                     "hostnames": [self.f.registry_internal.split(":")[0]]}],
+            }},
+        }}
+        self.f.kube("patch", "deployment", "ratify", "-n", "ratify-service",
+                    "--type=strategic", "-p", json.dumps(deployment_patch))
         self.f.kube("-n", "ratify-service", "rollout", "status", "deployment/ratify",
                     "--timeout=240s", timeout=260)
         wait("Ratify current Pod and Service endpoints agree", self.ratify_endpoints_ready,
