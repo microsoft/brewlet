@@ -340,8 +340,8 @@ They also publish `brewlet.sh/jdks-info`, populated from the installed JDK:
 ]
 ```
 
-Use `brewlet jdks`, `brewlet jdks --output wide`, or
-`brewlet jdks --output json` to aggregate this data across the fleet.
+Use `brewlet k8s jdk list`, `brewlet k8s jdk list --output wide`, or
+`brewlet k8s jdk list --output json` to aggregate this data across the fleet.
 
 ---
 

@@ -134,7 +134,7 @@ kubectl rollout status daemonset -n brewlet \
 kubectl get pods -n brewlet
 kubectl get runtimeclass brewlet
 kubectl get nodes -L brewlet.sh/runtime
-brewlet doctor \
+brewlet k8s doctor \
   --context "$BREWLET_CONTEXT" \
   --namespace "$BREWLET_NAMESPACE"
 ```

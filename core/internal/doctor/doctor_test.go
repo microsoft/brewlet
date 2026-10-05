@@ -94,6 +94,29 @@ func TestRunReportsMissingPlatform(t *testing.T) {
 	}
 }
 
+func TestRunNodeReadFailureSuggestsCanonicalDoctor(t *testing.T) {
+	report := Run(func(args ...string) ([]byte, error) {
+		switch command(args) {
+		case "get nodes -o json":
+			return []byte("Forbidden"), errors.New("exit status 1")
+		case "auth can-i create javaapplications.apps.brewlet.sh -n apps":
+			return []byte("yes"), nil
+		default:
+			return []byte("ok"), nil
+		}
+	}, Options{Namespace: "apps"})
+	for _, check := range report.Checks {
+		if check.Name == "brewlet-nodes" {
+			if check.Status != Fail || !strings.Contains(check.Detail, "Forbidden") ||
+				check.Remediation != "Grant node read access or ask Ops to run brewlet k8s doctor." {
+				t.Fatalf("node read failure: %+v", check)
+			}
+			return
+		}
+	}
+	t.Fatal("missing node read failure")
+}
+
 func TestRunPassesKubectlOptions(t *testing.T) {
 	exec := func(args ...string) ([]byte, error) {
 		prefix := "--kubeconfig /tmp/k --context prod "

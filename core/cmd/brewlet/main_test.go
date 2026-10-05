@@ -7,16 +7,95 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/microsoft/brewlet/internal/artifact"
 )
+
+func TestMainCommandSurface(t *testing.T) {
+	if os.Getenv("BREWLET_TEST_MAIN_CHILD") == "true" {
+		_, args := splitDoubleDash(os.Args)
+		os.Args = append([]string{"brewlet"}, args...)
+		main()
+		os.Exit(0)
+	}
+
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "kubectl-called")
+	if err := os.WriteFile(filepath.Join(dir, "kubectl"),
+		[]byte("#!/bin/sh\n: > \"$BREWLET_TEST_KUBECTL_MARKER\"\nexit 99\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(t *testing.T, args []string) (string, string, int) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestMainCommandSurface$", "--"}, args...)...)
+		cmd.Env = append(os.Environ(), "BREWLET_TEST_MAIN_CHILD=true", "PATH="+dir,
+			"BREWLET_TEST_KUBECTL_MARKER="+marker, "KUBECONFIG="+filepath.Join(dir, "missing-config"))
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		if ctx.Err() != nil {
+			t.Fatalf("CLI timed out: %v", ctx.Err())
+		}
+		code := 0
+		if err != nil {
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) {
+				t.Fatal(err)
+			}
+			code = exit.ExitCode()
+		}
+		if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("CLI must not invoke kubectl: marker stat = %v", err)
+		}
+		return stdout.String(), stderr.String(), code
+	}
+
+	for _, command := range []struct {
+		name, replacement string
+		flags             []string
+	}{
+		{"jdks", "brewlet k8s jdk list", []string{"--selector", "pool=java"}},
+		{"doctor", "brewlet k8s doctor", []string{"--namespace", "team"}},
+	} {
+		for _, flags := range [][]string{nil, {"--help"}, append([]string{
+			"--kubeconfig", filepath.Join(dir, "missing-config"), "--context", "staging", "--output", "json",
+		}, command.flags...)} {
+			args := append([]string{command.name}, flags...)
+			t.Run(strings.Join(args, " "), func(t *testing.T) {
+				out, stderr, code := run(t, args)
+				if code != 2 || out != "" || !strings.Contains(stderr, "has been removed") ||
+					!strings.Contains(stderr, `use "`+command.replacement+`" instead`) {
+					t.Fatalf("removed command: exit=%d stdout=%q stderr=%q", code, out, stderr)
+				}
+			})
+		}
+	}
+	for _, args := range [][]string{{"--help"}, {"k8s", "--help"}, {"k8s", "jdk", "list", "--help"}, {"k8s", "doctor", "--help"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			out, stderr, code := run(t, args)
+			if code != 0 || stderr != "" || !strings.Contains(out, "USAGE:") ||
+				strings.Contains(out, "brewlet jdks") || strings.Contains(out, "brewlet doctor") {
+				t.Fatalf("help: exit=%d stdout=%q stderr=%q", code, out, stderr)
+			}
+			if len(args) == 1 && (!strings.Contains(out, "brewlet k8s jdk list") || !strings.Contains(out, "brewlet k8s doctor")) {
+				t.Fatalf("root help missing canonical commands: %s", out)
+			}
+		})
+	}
+}
 
 func TestManagedDependencyBundleCLIFlow(t *testing.T) {
 	dir := t.TempDir()

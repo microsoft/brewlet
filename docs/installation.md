@@ -316,6 +316,10 @@ runtime catalog or a replacement for previewing your chosen values.
 
 ### Upgrading
 
+When updating the CLI, also update scripts using the
+[removed top-level CLI aliases](cli-reference.md#removed-cli-aliases).
+Use `brewlet k8s jdk list` for inventory and `brewlet k8s doctor` for readiness.
+
 **Skip this section for a fresh installation.** Helm installs the chart's CRDs
 when they are not already present; there is no separate CRD upgrade or
 migration step before deploying Brewlet for the first time. The following
@@ -715,7 +719,7 @@ with a blanket label command. All operator and admission flags are in
 
 ```bash
 # Use the CLI from the same release or source revision as the cluster components.
-brewlet doctor --namespace default
+brewlet k8s doctor --namespace default
 
 # 1. Components are running:
 kubectl get pods -n brewlet

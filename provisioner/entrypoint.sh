@@ -1657,7 +1657,7 @@ label_node() {
   launcher_ann="java${LAUNCHERS:+,${LAUNCHERS}}"
   IFS=',' read -ra _jdks <<<"$JDKS"
   # Rich, developer-facing inventory (vendor, major, minor version, arch) so
-  # devs can inspect prod JDKs via `kubectl get nodes` or `brewlet jdks`.
+  # devs can inspect prod JDKs via `kubectl get nodes` or `brewlet k8s jdk list`.
   jdks_info="$(jdks_info_json "${_jdks[@]}")"
   log "labelling node ${NODE_NAME} ready; jdks=${jdk_ann} launchers=${launcher_ann}"
   log "advertising jdks-info=${jdks_info}"
