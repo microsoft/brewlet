@@ -192,7 +192,7 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
-| `image` | `brewlet.image` | `<registry>/${project.artifactId}:${project.version}` | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2`. `push` and `deploy` reject refs without a registry host instead of defaulting to Docker Hub (use `docker.io/<user>/app` to target Docker Hub). `manifest` accepts a digest-pinned `…@sha256:…` ref, or uses the last push. |
+| `image` | `brewlet.image` | `<registry>/${project.artifactId}:${project.version}` | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2`. `push` and `deploy` reject refs without a registry host instead of defaulting to Docker Hub (use `docker.io/<user>/app` to target Docker Hub). Publishing requires a mutable tag (implicit `latest` when omitted), not `repo@digest` or `repo:tag@digest`, even in dry-run mode. `manifest` accepts a digest-pinned `…@sha256:…` ref, or uses the last push. |
 | `registry` | `brewlet.registry` | — | Registry (optionally with a repository prefix, e.g. `registry.example.com/team`) used to derive `image` when it is not set. |
 | `format` | `brewlet.format` | `image` | Delivery format for `push`: `image` (runnable, kubelet-pullable OCI image — the default) or `artifact` (native Brewlet OCI artifact). See [Delivery format](#delivery-format-native-artifact-vs-runnable-image). |
 | `jarFile` | `brewlet.jarFile` | project's primary artifact | Path to the application JAR to publish. After a separate `mvn package`, standard unclassified `jar`/`maven-plugin` projects can use `${project.build.directory}/${project.build.finalName}.jar`. Custom packaging, classifier, or JAR-plugin output overrides require an explicit `jarFile`; the plugin never searches for a newest or arbitrary JAR. |
@@ -369,6 +369,10 @@ as an integer list. The goal always writes a local OCI layout
 to `target/brewlet/dependency-bundle-oci`; `-Dbrewlet.dryRun=true` skips registry
 publication.
 
+The destination `dependencyBundleImage` (or fallback `image`) must use a mutable
+tag, with implicit `latest` when omitted. Digest-pinned destinations, including
+`repo:tag@digest`, are rejected before writing the layout, even in dry-run mode.
+
 The bundle layout and registry repository always receive a CycloneDX 1.5 SBOM
 referrer. Supplying `signingKey` and `signerIdentity` additionally publishes a
 DSSE-signed in-toto bundle-provenance referrer; omitting both publishes an
@@ -395,7 +399,8 @@ mvn package brewlet:push \
   -Dbrewlet.builderIdentity=https://ci.example.com/builders/apps
 ```
 
-`dependencyBundle` may instead name the local OCI-layout directory. The plugin
+The source `dependencyBundle` accepts a tag, a digest-pinned registry reference
+(`repo@sha256:...` or `repo:tag@sha256:...`), or a local OCI-layout directory. The plugin
 verifies artifact/config/lock/layer media types, all descriptor sizes and
 SHA-256 digests, and exact GAV/type/classifier/scope/filename/file-hash agreement
 with the current resolved runtime graph. It always requires and validates the

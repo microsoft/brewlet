@@ -22,6 +22,7 @@ import sh.brewlet.maven.plugin.model.*;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
 import sh.brewlet.maven.plugin.oci.LocalStore;
 import sh.brewlet.maven.plugin.oci.MediaTypes;
+import sh.brewlet.maven.plugin.oci.RegistryClient;
 import sh.brewlet.maven.plugin.oci.RegistryTrustPolicy;
 import sh.brewlet.maven.plugin.util.JarInspector;
 import sh.brewlet.maven.plugin.util.JdkVersionResolver;
@@ -914,6 +915,16 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
         String prefix = registry.trim().replaceFirst("^[A-Za-z][A-Za-z0-9+.-]*://", "")
                 .replaceAll("/+$", "");
         return prefix + "/" + project.getArtifactId() + ":" + project.getVersion();
+    }
+
+    /** Publishing updates a tag; digest-pinned references are only read inputs. */
+    protected static void requirePushTag(String ref) throws MojoExecutionException {
+        if (ref.indexOf('@') >= 0) {
+            String[] parts = RegistryClient.splitRef(ref);
+            throw new MojoExecutionException("Image \"" + ref + "\" is digest-pinned; "
+                    + "push needs a tag (e.g. " + parts[0] + "/" + parts[1]
+                    + ":1.0.0) and prints the pinned digest afterwards.");
+        }
     }
 
     @Override
