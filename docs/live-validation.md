@@ -79,8 +79,8 @@ and scenario runs; each workflows job has 90 minutes. Tier jobs have 60 minutes,
 and the arm64 host-only job has 30 minutes. Tier jobs retain selected redacted
 logs on success or failure; private work directories are never uploaded.
 Ordinary PR CI executes offline fixture safeguards and suite routing/monitor
-contracts (`make e2e-contract-check`), not the live jobs. Saved monitor history
-is normalized without renaming run IDs or evidence; see the
+contracts (`make e2e-contract-check`), not the live jobs. Saved monitor runs retain
+their metadata, logs, and evidence across reloads; see the
 [harness runbook](https://github.com/microsoft/brewlet/blob/main/integration-tests/AGENTS.md).
 
 ## Checkout builds and reproducibility
