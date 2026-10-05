@@ -15,6 +15,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.settings.Settings;
+import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.apache.maven.toolchain.ToolchainManager;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import sh.brewlet.maven.plugin.model.*;
@@ -55,6 +56,9 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
 
     @Parameter(defaultValue = "${settings}", readonly = true, required = true)
     protected Settings settings;
+
+    @Component
+    protected SettingsDecrypter settingsDecrypter;
 
     @Component
     protected ToolchainManager toolchainManager;

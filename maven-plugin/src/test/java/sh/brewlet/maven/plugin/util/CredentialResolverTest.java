@@ -3,10 +3,15 @@
 
 package sh.brewlet.maven.plugin.util;
 
+import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.settings.Server;
 import org.apache.maven.settings.Settings;
+import org.apache.maven.settings.crypto.DefaultSettingsDecrypter;
+import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.sonatype.plexus.components.cipher.DefaultPlexusCipher;
+import org.sonatype.plexus.components.sec.dispatcher.DefaultSecDispatcher;
 import sh.brewlet.maven.plugin.oci.Credential;
 
 import java.io.IOException;
@@ -22,6 +27,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CredentialResolverTest {
@@ -34,9 +40,15 @@ class CredentialResolverTest {
     private final Map<String, String> helperOutput = new HashMap<>();
     private final List<String> diagnostics = new ArrayList<>();
 
-    private Credential resolve(String registry, Settings settings) {
+    private SettingsDecrypter decrypter() {
+        return new DefaultSettingsDecrypter(new DefaultSecDispatcher(
+                new DefaultPlexusCipher(), Map.of(),
+                dockerConfig.resolve("settings-security.xml").toString()));
+    }
+
+    private Credential resolve(String registry, Settings settings) throws MojoExecutionException {
         env.putIfAbsent("DOCKER_CONFIG", dockerConfig.toString());
-        return CredentialResolver.resolve(registry, settings, diagnostics::add, env::get,
+        return CredentialResolver.resolve(registry, settings, decrypter(), diagnostics::add, env::get,
                 (helper, serverUrl) -> {
                     helperCalls.add(helper + " " + serverUrl);
                     return helperOutput.get(helper + " " + serverUrl);
@@ -53,7 +65,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void settingsServerWins() throws IOException {
+    void settingsServerWins() throws Exception {
         config("{\"credsStore\":\"desktop\"}");
         Settings settings = new Settings();
         Server server = new Server();
@@ -65,11 +77,89 @@ class CredentialResolverTest {
         Credential credential = resolve("reg.example.com", settings);
 
         assertEquals("maven", credential.getUsername());
+        assertEquals("pw", credential.getPassword());
         assertTrue(helperCalls.isEmpty());
     }
 
     @Test
-    void inlineAuthIsDecoded() throws IOException {
+    void encryptedSettingsPasswordIsDecryptedWithoutMutatingSettings() throws Exception {
+        DefaultPlexusCipher cipher = new DefaultPlexusCipher();
+        String encryptedMaster = cipher.encryptAndDecorate("test-master", "settings.security");
+        Files.writeString(dockerConfig.resolve("settings-security.xml"),
+                "<settingsSecurity><master>" + encryptedMaster + "</master></settingsSecurity>");
+        String encryptedPassword = cipher.encryptAndDecorate("registry-secret", "test-master");
+        Settings settings = settings(encryptedPassword);
+        config("{\"credsStore\":\"desktop\"}");
+        env.put("BREWLET_REGISTRY_USERNAME", "ci");
+
+        Credential credential = resolve("reg.example.com", settings);
+
+        assertEquals("maven", credential.getUsername());
+        assertEquals("registry-secret", credential.getPassword());
+        assertEquals(encryptedPassword, settings.getServer("reg.example.com").getPassword());
+        assertTrue(helperCalls.isEmpty());
+        assertTrue(diagnostics.isEmpty());
+    }
+
+    @Test
+    void missingMasterPasswordFailsWithoutFallbackOrSecretDisclosure() throws Exception {
+        String encryptedPassword = new DefaultPlexusCipher()
+                .encryptAndDecorate("registry-secret", "test-master");
+        assertDecryptionFailure(encryptedPassword);
+    }
+
+    @Test
+    void invalidEncryptedPasswordFailsWithoutFallbackOrSecretDisclosure() throws Exception {
+        assertDecryptionFailure("{not-valid-ciphertext}");
+    }
+
+    private void assertDecryptionFailure(String encryptedPassword) throws Exception {
+        config("{\"credsStore\":\"desktop\"}");
+        env.put("BREWLET_REGISTRY_USERNAME", "ci");
+        env.put("BREWLET_REGISTRY_PASSWORD", "ci-secret");
+
+        MojoExecutionException error = assertThrows(MojoExecutionException.class,
+                () -> resolve("reg.example.com", settings(encryptedPassword)));
+
+        assertTrue(error.getMessage().contains("reg.example.com"));
+        assertTrue(error.getMessage().contains("settings-security.xml"));
+        assertFalse(error.getMessage().contains(encryptedPassword));
+        assertFalse(error.getMessage().contains("registry-secret"));
+        assertNull(error.getCause());
+        assertTrue(helperCalls.isEmpty());
+        assertTrue(diagnostics.isEmpty());
+    }
+
+    @Test
+    void unrelatedEncryptedServerIsNotDecrypted() throws Exception {
+        config("{\"auths\":{\"other.example.com\":{\"auth\":\"" + auth("docker", "pw") + "\"}}}");
+
+        Credential credential = resolve("other.example.com", settings("{invalid}"));
+
+        assertEquals("docker", credential.getUsername());
+        assertEquals("pw", credential.getPassword());
+    }
+
+    @Test
+    void missingSettingsDecrypterFailsExplicitly() {
+        MojoExecutionException error = assertThrows(MojoExecutionException.class,
+                () -> CredentialResolver.resolve("reg.example.com", settings("pw"), null));
+
+        assertTrue(error.getMessage().contains("SettingsDecrypter is unavailable"));
+    }
+
+    private static Settings settings(String password) {
+        Settings settings = new Settings();
+        Server server = new Server();
+        server.setId("reg.example.com");
+        server.setUsername("maven");
+        server.setPassword(password);
+        settings.addServer(server);
+        return settings;
+    }
+
+    @Test
+    void inlineAuthIsDecoded() throws Exception {
         config("{\"auths\":{\"reg.example.com\":{\"auth\":\"" + auth("user", "p:w") + "\"}}}");
 
         Credential credential = resolve("reg.example.com", null);
@@ -80,7 +170,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void inlineIdentityTokenIsUsedAsRefreshToken() throws IOException {
+    void inlineIdentityTokenIsUsedAsRefreshToken() throws Exception {
         config("{\"auths\":{\"myacr.azurecr.io\":{\"auth\":\"\",\"identitytoken\":\"refresh\"}}}");
 
         Credential credential = resolve("myacr.azurecr.io", null);
@@ -90,7 +180,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void credsStoreHelperIsQueriedWithTheRegistry() throws IOException {
+    void credsStoreHelperIsQueriedWithTheRegistry() throws Exception {
         config("{\"auths\":{\"myacr.azurecr.io\":{}},\"credsStore\":\"osxkeychain\"}");
         helperOutput.put("osxkeychain myacr.azurecr.io",
                 "{\"ServerURL\":\"myacr.azurecr.io\",\"Username\":\"00000000-0000-0000-0000-000000000000\","
@@ -105,7 +195,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void helperTokenUsernameMeansIdentityToken() throws IOException {
+    void helperTokenUsernameMeansIdentityToken() throws Exception {
         config("{\"credsStore\":\"desktop\"}");
         helperOutput.put("desktop reg.example.com", "{\"Username\":\"<token>\",\"Secret\":\"refresh\"}");
 
@@ -116,7 +206,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void perRegistryCredHelperTakesPrecedenceOverInlineAuthAndCredsStore() throws IOException {
+    void perRegistryCredHelperTakesPrecedenceOverInlineAuthAndCredsStore() throws Exception {
         config("{\"auths\":{\"reg.example.com\":{\"auth\":\"" + auth("inline", "x") + "\"}},"
                 + "\"credHelpers\":{\"reg.example.com\":\"ecr-login\"},\"credsStore\":\"desktop\"}");
         helperOutput.put("ecr-login reg.example.com", "{\"Username\":\"AWS\",\"Secret\":\"pw\"}");
@@ -128,7 +218,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void dockerHubUsesTheLegacyIndexKey() throws IOException {
+    void dockerHubUsesTheLegacyIndexKey() throws Exception {
         config("{\"credsStore\":\"desktop\"}");
         helperOutput.put("desktop https://index.docker.io/v1/", "{\"Username\":\"me\",\"Secret\":\"pw\"}");
 
@@ -138,7 +228,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void authsKeysMustMatchTheRegistryExactly() throws IOException {
+    void authsKeysMustMatchTheRegistryExactly() throws Exception {
         config("{\"auths\":{\"https://evil-reg.example.com.attacker.example/v1/\":{\"auth\":\""
                 + auth("user", "pw") + "\"}}}");
 
@@ -146,14 +236,14 @@ class CredentialResolverTest {
     }
 
     @Test
-    void urlStyleAuthsKeysMatchByAuthority() throws IOException {
+    void urlStyleAuthsKeysMatchByAuthority() throws Exception {
         config("{\"auths\":{\"https://reg.example.com/v1/\":{\"auth\":\"" + auth("user", "pw") + "\"}}}");
 
         assertEquals("user", resolve("reg.example.com", null).getUsername());
     }
 
     @Test
-    void missingHelperCredentialsFallBackToEnvironment() throws IOException {
+    void missingHelperCredentialsFallBackToEnvironment() throws Exception {
         config("{\"credsStore\":\"desktop\"}");
         env.put("BREWLET_REGISTRY_USERNAME", "ci");
         env.put("BREWLET_REGISTRY_PASSWORD", "secret");
@@ -165,9 +255,9 @@ class CredentialResolverTest {
     }
 
     @Test
-    void helperFailureIsReportedWithoutSecrets() throws IOException {
+    void helperFailureIsReportedWithoutSecrets() throws Exception {
         config("{\"credsStore\":\"broken\"}");
-        Credential credential = CredentialResolver.resolve("reg.example.com", null, diagnostics::add,
+        Credential credential = CredentialResolver.resolve("reg.example.com", null, decrypter(), diagnostics::add,
                 name -> "DOCKER_CONFIG".equals(name) ? dockerConfig.toString() : null,
                 (helper, serverUrl) -> {
                     throw new IOException("Cannot run program \"docker-credential-broken\"");
@@ -179,7 +269,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void invalidHelperNamesAreNeverExecuted() throws IOException {
+    void invalidHelperNamesAreNeverExecuted() throws Exception {
         config("{\"credsStore\":\"../../bin/sh\"}");
 
         assertNull(resolve("reg.example.com", null));

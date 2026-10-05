@@ -127,7 +127,7 @@ public abstract class AbstractPushMojo extends AbstractBrewletMojo {
         String repository = parts[1];
         String tag = RegistryClient.extractTag(image);
 
-        Credential credential = CredentialResolver.resolve(registry, settings,
+        Credential credential = CredentialResolver.resolve(registry, settings, settingsDecrypter,
                 message -> getLog().warn(message));
 
         boolean runnable = "image".equals(format);
@@ -308,7 +308,7 @@ public abstract class AbstractPushMojo extends AbstractBrewletMojo {
 
     private VerifiedBundle resolveDependencyBundle(String reference, String expectedBundleSigner,
                                                   RegistryTrustPolicy trustPolicy)
-            throws IOException, InterruptedException, GeneralSecurityException {
+            throws IOException, InterruptedException, GeneralSecurityException, MojoExecutionException {
         try {
             Path path = Path.of(reference);
             if (Files.isDirectory(path)) {
@@ -325,7 +325,7 @@ public abstract class AbstractPushMojo extends AbstractBrewletMojo {
             // A registry reference is not required to be a valid local path.
         }
         String[] parts = RegistryClient.splitRef(reference);
-        Credential bundleCredential = CredentialResolver.resolve(parts[0], settings);
+        Credential bundleCredential = CredentialResolver.resolve(parts[0], settings, settingsDecrypter);
         RegistryClient client = new RegistryClient(parts[0], parts[1], bundleCredential,
                 trustPolicy);
         DependencyBundle.Content bundle =

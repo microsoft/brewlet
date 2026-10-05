@@ -5,8 +5,13 @@ package sh.brewlet.maven.plugin.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.settings.Server;
 import org.apache.maven.settings.Settings;
+import org.apache.maven.settings.building.SettingsProblem;
+import org.apache.maven.settings.crypto.DefaultSettingsDecryptionRequest;
+import org.apache.maven.settings.crypto.SettingsDecrypter;
+import org.apache.maven.settings.crypto.SettingsDecryptionResult;
 import sh.brewlet.maven.plugin.oci.Credential;
 
 import java.io.ByteArrayOutputStream;
@@ -72,10 +77,13 @@ public class CredentialResolver {
      *
      * @param registry registry hostname, e.g. {@code "registry.example.com"}
      * @param settings Maven settings (for {@code settings.xml} {@code <server>} lookup)
+     * @param decrypter Maven's injected settings decrypter
      * @return resolved {@link Credential}, or {@code null} for anonymous access
+     * @throws MojoExecutionException if the matching server cannot be decrypted
      */
-    public static Credential resolve(String registry, Settings settings) {
-        return resolve(registry, settings, message -> { });
+    public static Credential resolve(String registry, Settings settings,
+                                     SettingsDecrypter decrypter) throws MojoExecutionException {
+        return resolve(registry, settings, decrypter, message -> { });
     }
 
     /**
@@ -83,19 +91,34 @@ public class CredentialResolver {
      * configured credential source could not be used to {@code diagnostics}.
      * Diagnostics never contain secrets.
      */
-    public static Credential resolve(String registry, Settings settings,
-                                     Consumer<String> diagnostics) {
-        return resolve(registry, settings, diagnostics, System::getenv,
+    public static Credential resolve(String registry, Settings settings, SettingsDecrypter decrypter,
+                                     Consumer<String> diagnostics) throws MojoExecutionException {
+        return resolve(registry, settings, decrypter, diagnostics, System::getenv,
                 CredentialResolver::runHelper);
     }
 
-    static Credential resolve(String registry, Settings settings, Consumer<String> diagnostics,
-                              Function<String, String> env, HelperRunner helpers) {
+    static Credential resolve(String registry, Settings settings, SettingsDecrypter decrypter,
+                              Consumer<String> diagnostics, Function<String, String> env,
+                              HelperRunner helpers) throws MojoExecutionException {
         // 1. settings.xml <server>
         if (settings != null) {
             Server server = settings.getServer(registry);
             if (server != null && server.getUsername() != null) {
-                return new Credential(server.getUsername(), server.getPassword());
+                if (decrypter == null) {
+                    throw new MojoExecutionException("Maven SettingsDecrypter is unavailable for registry "
+                            + registry + ". Run this goal through Maven.");
+                }
+                SettingsDecryptionResult result =
+                        decrypter.decrypt(new DefaultSettingsDecryptionRequest(server));
+                if (result.getProblems().stream().anyMatch(problem ->
+                        problem.getSeverity() == SettingsProblem.Severity.ERROR
+                                || problem.getSeverity() == SettingsProblem.Severity.FATAL)) {
+                    // Maven's problem messages and causes can contain encrypted secrets.
+                    throw new MojoExecutionException("Cannot decrypt settings.xml credentials for registry "
+                            + registry + ". Check the server password and Maven settings-security.xml.");
+                }
+                Server decrypted = result.getServer();
+                return new Credential(decrypted.getUsername(), decrypted.getPassword());
             }
         }
 

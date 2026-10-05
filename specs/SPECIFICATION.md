@@ -282,12 +282,49 @@ oras push registry.example.com/team/app:1.4.2 \
   target/app.jar:application/vnd.brewlet.jar.layer.v1+jar
 ```
 
-The [Brewlet Maven plugin](../maven-plugin) (`mvn brewlet:push`) wraps steps 2–3
-so developers never touch ORAS directly, **including registry publication**. The
-`brewlet` CLI (`brewlet push ./target/app.jar <ref> --store ./oci`) wraps step 2
-and writes the result to a local **OCI layout**; it has no registry client, so
-publishing to a registry is done by the Maven plugin or ORAS. Registry
-publication from the Go CLI is [roadmap](../ROADMAP.md) work.
+The [Brewlet Maven plugin](../maven-plugin) (`mvn brewlet:push`) and the
+`brewlet` CLI (`brewlet push ./target/app.jar <ref>`) wrap steps 2–3, including
+direct registry publication, without requiring ORAS. Both default to a runnable
+OCI image (§4.4); use `--format=artifact` (Maven: `brewlet.format=artifact`) for
+the native artifact shown above.
+
+**CLI publication target.** A reference whose first path component contains
+`.` or `:`, or is `localhost`, selects a remote registry, for example
+`registry.example.com/team/app:1.4.2`. Remote push targets require a tag, not a
+digest; an omitted tag defaults to `latest`. References without a registry host
+are written to the local `./oci` layout and MUST NOT implicitly target Docker
+Hub; use `docker.io/<user>/app:tag` explicitly. Passing `--store DIR` explicitly
+keeps even a host-qualified reference local, preserving local-layout workflows.
+
+**Registry output and handoff.** Remote CLI pushes print the digest-pinned deploy
+image and report upload progress on stderr. Optional `--push-result FILE` writes
+a JSON handoff after a successful push with `image`, `digest`, `deployImage`, and
+`format` fields, matching the Maven plugin's `target/brewlet/push.json` schema.
+`--push-result`, `--insecure-registry`, and `--allowed-token-realm` are
+registry-only flags and MUST be rejected for local-layout pushes.
+
+**Credentials and trust.** The Go CLI resolves Docker credentials from
+`$DOCKER_CONFIG/config.json` or `~/.docker/config.json`: a matching `credHelpers`
+entry is authoritative within Docker config; otherwise it tries inline `auths`
+(`identitytoken` or `auth`), then `credsStore`. If no Docker credentials are
+available, it tries `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD`,
+then anonymous access. The Maven plugin additionally checks the matching
+`settings.xml` server first, using Maven's settings decrypter for encrypted
+passwords. Identity tokens are exchanged using an OAuth2 refresh-token grant,
+not sent as Basic credentials.
+
+Registry transport defaults to HTTPS. Plain HTTP is permitted only for exact
+loopback hosts or explicitly configured `--insecure-registry HOST[:PORT]`
+authorities. Registry credentials MUST remain scoped to their origin; a
+cross-origin token realm receives them only when explicitly allowed with
+`--allowed-token-realm HOST[:PORT]` or by the built-in Docker Hub token-service
+allowlist. See the [CLI reference](../docs/cli-reference.md#brewlet-push) for
+options and examples.
+
+**Managed dependency bundles.** Remote CLI pushes do not support
+`--dependency-bundle`. Use the Maven plugin for registry-backed bundle
+publication/consumption, or use the CLI with an explicit `--store` for local
+bundle workflows.
 
 **Maven layered Spring Boot payloads.** With `layered=true`, standard Boot
 `JarLauncher`/`launch.JarLauncher` archives are prepared into a deterministic

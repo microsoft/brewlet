@@ -236,6 +236,13 @@ layout conversion. `layers.idx` grouping is not interpreted.
 
 ### Registry transport and credential safety
 
+Passwords in the matching Maven `settings.xml` server may be plaintext or
+encrypted with Maven's password-encryption tooling. The plugin uses Maven's
+settings decrypter and `settings-security.xml` configuration for push, deploy,
+and dependency-bundle registry access. Decryption errors fail the goal with an
+actionable message, without logging credentials or falling back to a different
+credential source.
+
 Registry credentials are resolved from, in order: a `settings.xml` `<server>`
 whose `<id>` is the registry host; the Docker config (`$DOCKER_CONFIG` or
 `~/.docker/config.json`) read like the Docker CLI does — per-registry
