@@ -38,7 +38,7 @@ import (
 // cleanup lifecycle on a real node is proven by integration-tests/e2e/live/workflows.py.
 
 type profileDeleteReport struct {
-	Profile, UID, DryRun, Reason                string
+	Profile, UID, DryRun, Reason, Message       string
 	AlreadyDeleting, DeletionRequested, Deleted bool
 	ClaimedNodes                                []string
 	JavaWorkloads                               []struct {
@@ -53,6 +53,7 @@ func (f *fixture) testProfileDeletion(t *testing.T) {
 	t.Run("restricted-pod-list", f.testDeleteRestricted)
 	t.Run("uid-resource-version-preconditions", f.testDeletePreconditions)
 	t.Run("blocked-timeout-and-attach", f.testDeleteLifecycle)
+	t.Run("unsupported-pre-claim-refusal", f.testDeleteUnsupportedPreClaim)
 }
 
 func deleteArgs(name string, extra ...string) []string {
@@ -353,6 +354,46 @@ func (f *fixture) cleanupProfile(t *testing.T, name string) (*nodeapi.NodeProfil
 	must(t, f.api.Status().Update(f.ctx, p))
 	f.setReady(t, name, nodeapi.ReasonAllNodesProvisioned, "fixture readiness")
 	return f.getProfile(t, name), node
+}
+
+func (f *fixture) testDeleteUnsupportedPreClaim(t *testing.T) {
+	p, node := f.cleanupProfile(t, "delete-pre-claim")
+	must(t, f.api.Delete(f.ctx, p))
+	message := "restore the original release to finish cleanup"
+	f.setReady(t, p.Name, nodeapi.ReasonUnsupportedPreClaimState, message)
+	before := f.getProfile(t, p.Name)
+	evidence := f.deletionState(t, p.Name, node.Name)
+	for _, flags := range [][]string{nil, {"--wait", "--wait-timeout", "20s"}} {
+		start := time.Now()
+		r := f.cli(t, deleteArgs(p.Name, append(flags, "--output", "json")...)...)
+		if r.code != 1 || !strings.Contains(r.stderr, "cleanup is blocked (Ready=False/UnsupportedPreClaimState)") {
+			t.Fatalf("pre-claim refusal %v: %+v", flags, r)
+		}
+		for _, want := range []string{message, "Restore the original release's compatible", "Never remove finalizers"} {
+			if !strings.Contains(r.stderr, want) {
+				t.Errorf("pre-claim refusal %v missing %q: %+v", flags, want, r)
+			}
+		}
+		for _, unwanted := range []string{"timed out", "cleanup continues in the background", "Repair the profile spec", "Ready=False/CleanupBlocked", "Follow cleanup with"} {
+			if strings.Contains(r.stderr, unwanted) {
+				t.Errorf("pre-claim refusal %v has misleading %q: %+v", flags, unwanted, r)
+			}
+		}
+		if elapsed := time.Since(start); elapsed > 15*time.Second {
+			t.Fatalf("pre-claim refusal was not reported promptly: %s", elapsed)
+		}
+		report := decode[profileDeleteReport](t, r.stdout)
+		if report.Reason != nodeapi.ReasonUnsupportedPreClaimState || report.Message != message ||
+			!report.AlreadyDeleting || report.DeletionRequested || report.Deleted {
+			t.Fatalf("pre-claim refusal report: %+v", report)
+		}
+		if after := f.getProfile(t, p.Name); !reflect.DeepEqual(after, before) {
+			t.Fatalf("pre-claim refusal mutated the profile:\nbefore %+v\nafter %+v", before, after)
+		}
+		if after := f.deletionState(t, p.Name, node.Name); !reflect.DeepEqual(after, evidence) {
+			t.Fatalf("pre-claim refusal changed cleanup evidence:\nbefore %+v\nafter %+v", evidence, after)
+		}
+	}
 }
 
 func (f *fixture) testDeleteLifecycle(t *testing.T) {

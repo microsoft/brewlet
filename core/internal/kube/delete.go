@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	cleanupBlockedReason   = "CleanupBlocked"
-	cleanupTroubleshooting = "https://github.com/microsoft/brewlet/blob/main/docs/troubleshooting.md#nodeprofile-deletion-does-not-finish"
-	brewletRuntimeClass    = "brewlet"
-	maxListedWorkloads     = 10
+	cleanupBlockedReason      = "CleanupBlocked"
+	unsupportedPreClaimReason = "UnsupportedPreClaimState"
+	cleanupTroubleshooting    = "https://github.com/microsoft/brewlet/blob/main/docs/troubleshooting.md#nodeprofile-deletion-does-not-finish"
+	brewletRuntimeClass       = "brewlet"
+	maxListedWorkloads        = 10
 )
 
 type deleteOptions struct {
@@ -132,8 +133,8 @@ func (c *client) deleteProfile(name string, d deleteOptions) error {
 		}
 	}
 	var waitErr error
-	if !d.wait && report.AlreadyDeleting && report.Reason == cleanupBlockedReason {
-		waitErr = blockedError(name, report.Message)
+	if !d.wait && report.AlreadyDeleting {
+		waitErr = blockedError(name, report.Reason, report.Message)
 	}
 	if d.wait {
 		if report.AlreadyDeleting {
@@ -143,6 +144,9 @@ func (c *client) deleteProfile(name string, d deleteOptions) error {
 	}
 	if err := c.renderDeleteReport(report); err != nil {
 		return err
+	}
+	if waitErr != nil {
+		return waitErr
 	}
 	switch {
 	case d.dryRun == dryRunClient:
@@ -154,7 +158,7 @@ func (c *client) deleteProfile(name string, d deleteOptions) error {
 	case !d.wait:
 		fmt.Fprintf(c.err, "Deletion requested; host cleanup is asynchronous. Follow it with brewlet k8s profile delete %s --wait or brewlet k8s profile inspect %s.\n", name, name)
 	}
-	return waitErr
+	return nil
 }
 
 // claimedNodes returns the nodes recorded or labelled as owned by the profile.
@@ -425,6 +429,9 @@ func (c *client) waitForDeletion(report *deleteReport, claimed []string, timeout
 				return nil
 			case err == nil:
 				report.Reason, report.Message = profileReadyReason(*profile)
+				if err := blockedError(name, report.Reason, report.Message); err != nil {
+					return err
+				}
 				nodes, perr := c.cleanupProgress(ctx, namespace, *profile, claimed)
 				if perr == nil {
 					report.Nodes = nodes
@@ -442,9 +449,6 @@ func (c *client) waitForDeletion(report *deleteReport, claimed []string, timeout
 					lastErr = perr
 				}
 				setStatus(summarizeCleanup(report.Reason, report.Message, report.Nodes))
-				if report.Reason == cleanupBlockedReason {
-					return blockedError(name, report.Message)
-				}
 			case ctx.Err() == nil:
 				lastErr = err
 				setStatus("read failed, retrying: " + err.Error())
@@ -472,11 +476,23 @@ func (c *client) waitForDeletion(report *deleteReport, claimed []string, timeout
 	return err
 }
 
-func blockedError(name, message string) error {
-	return fmt.Errorf("NodeProfile %q cleanup is blocked (Ready=False/CleanupBlocked): %s\n"+
-		"Repair the profile spec, source/mirror policy or pool conflict to resume cleanup. "+
+func blockedError(name, reason, message string) error {
+	var recovery string
+	switch reason {
+	case cleanupBlockedReason:
+		recovery = "Repair the profile spec, source/mirror policy or pool conflict to resume cleanup."
+	case unsupportedPreClaimReason:
+		recovery = "Pre-claim state is not migrated by this release; ordinary spec repair cannot resume cleanup. " +
+			"Save original manifests and evidence, pause automation, and drain or move workloads. " +
+			"Restore the original release's compatible operator, provisioner, CRDs, RBAC, and API access " +
+			"to finish cleanup and worker teardown before reinstalling. " +
+			"Preserve refusal conditions, pre-claim records, and any existing scheduling gates."
+	default:
+		return nil
+	}
+	return fmt.Errorf("NodeProfile %q cleanup is blocked (Ready=False/%s): %s\n%s "+
 		"Never remove finalizers, ownership labels or status to force deletion. See %s",
-		name, message, cleanupTroubleshooting)
+		name, reason, message, recovery, cleanupTroubleshooting)
 }
 
 func (c *client) renderDeleteReport(report deleteReport) error {

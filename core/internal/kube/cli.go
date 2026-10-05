@@ -91,7 +91,9 @@ PROFILE DELETE FLAGS:
   --dry-run=server   also validate the deletion through the API server
   --output table|json|yaml  default table
   Helm/GitOps-owned profiles are refused: remove them from their source of truth.
-  Exits non-zero on CleanupBlocked or timeout; finalizers are never removed.
+  Exits non-zero on CleanupBlocked, UnsupportedPreClaimState, or timeout.
+  UnsupportedPreClaimState requires original-release cleanup, not spec repair.
+  Finalizers are never removed.
 
 INSTALL FLAGS:
   --values FILE, -f FILE  complete Helm values (repeatable, at least one required)
