@@ -226,6 +226,11 @@ Ready Pods and Service endpoints must agree
 before enforcement tests proceed. Report transport uses a unique fixture CA and
 verified SANs, never `curl --insecure`.
 
+After Helm installation, the fixture uses a spec-only strategic-merge patch for
+Ratify's rollout strategy, named container image, and registry host alias. It
+does not reapply a fetched Deployment's resource version or status, avoiding
+conflicts with concurrent controller updates while preserving other chart fields.
+
 Provider/discovery caches are disabled. The pinned Ratify version also exposed
 concurrent writes to its shared ORAS content-cache index, so this test uses an
 empty root-owned read-only OCI layout for that cache. Every verification still
