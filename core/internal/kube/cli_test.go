@@ -1174,6 +1174,7 @@ type deleteCluster struct {
 	podsErr   error
 	cleanup   []object
 	deletes   []map[string]any
+	polls     int
 }
 
 func deletingProfile(reason, message string, extra string) string {
@@ -1192,6 +1193,7 @@ func (f *deleteCluster) exec(_ context.Context, program string, args []string, i
 	case hasArgs(args, "get", profilesResource, "workers", "-o", "json", "--show-managed-fields=true"):
 		return []byte(f.profile), nil
 	case hasArgs(args, "get", profilesResource, "workers", "-o", "json", "--ignore-not-found"):
+		f.polls++
 		if len(f.snapshots) == 0 {
 			t.Fatal("unexpected profile poll")
 		}
@@ -1246,6 +1248,10 @@ func fastPolling(t *testing.T) {
 }
 
 func TestProfileDeleteValidation(t *testing.T) {
+	out, _, err := runTest(t, []string{"profile", "delete", "--help"}, noExecution(t))
+	if err != nil || !strings.Contains(out, "UnsupportedPreClaimState requires original-release cleanup, not spec repair.") {
+		t.Fatalf("delete help missing pre-claim recovery: %q, %v", out, err)
+	}
 	for _, args := range [][]string{
 		{"profile", "delete"},
 		{"profile", "delete", "Bad_Name"},
@@ -1360,9 +1366,11 @@ func TestProfileDeleteWaitFollowsCleanup(t *testing.T) {
 	}
 
 	// A profile recreated under the same name means the original is gone.
-	f = &deleteCluster{t: t, profile: profile, snapshots: []string{strings.Replace(deletingProfile("CleanupPending", "", ""), "profile-uid", "new-uid", 1)}}
-	if _, _, err := runTest(t, []string{"profile", "delete", "workers", "--wait"}, f.exec); err != nil {
-		t.Fatalf("UID change: %v", err)
+	for _, reason := range []string{"CleanupPending", "CleanupBlocked", "UnsupportedPreClaimState"} {
+		f = &deleteCluster{t: t, profile: profile, snapshots: []string{strings.Replace(deletingProfile(reason, "", ""), "profile-uid", "new-uid", 1)}}
+		if _, _, err := runTest(t, []string{"profile", "delete", "workers", "--wait"}, f.exec); err != nil {
+			t.Fatalf("UID change (%s): %v", reason, err)
+		}
 	}
 }
 
@@ -1380,6 +1388,61 @@ func TestProfileDeleteWaitFailures(t *testing.T) {
 	_, _, err = runTest(t, []string{"profile", "delete", "workers", "--wait", "--wait-timeout", "30ms"}, f.exec)
 	if err == nil || !strings.Contains(err.Error(), "timed out") || !strings.Contains(err.Error(), "CleanupPending") {
 		t.Fatalf("timeout: %v", err)
+	}
+}
+
+func TestProfileDeleteBlockedReasons(t *testing.T) {
+	fastPolling(t)
+	for _, tc := range []struct {
+		reason, message, recovery string
+	}{
+		{"CleanupBlocked", "invalid source policy", "Repair the profile spec"},
+		{"UnsupportedPreClaimState", "restore the original release to finish cleanup", "Restore the original release's compatible"},
+	} {
+		for _, mode := range []string{"attach", "attach-wait", "delete-wait"} {
+			t.Run(tc.reason+"/"+mode, func(t *testing.T) {
+				blocked := deletingProfile(tc.reason, tc.message, "")
+				f := &deleteCluster{t: t, profile: blocked, snapshots: []string{blocked}}
+				args := []string{"profile", "delete", "workers", "--output", "json"}
+				wantDeletes, wantPolls := 0, 0
+				if mode != "attach" {
+					args = append(args, "--wait", "--wait-timeout", "30ms")
+					wantPolls = 1
+				}
+				if mode == "delete-wait" {
+					f.profile = `{"apiVersion":"node.brewlet.sh/v1alpha1","kind":"NodeProfile",
+					  "metadata":{"name":"workers","uid":"profile-uid","resourceVersion":"42"}}`
+					wantDeletes = 1
+				}
+				out, stderr, err := runTest(t, args, f.exec)
+				if err == nil {
+					t.Fatalf("expected refusal, got success: %s\n%s", out, stderr)
+				}
+				for _, want := range []string{"Ready=False/" + tc.reason, tc.message, tc.recovery, "Never remove finalizers", cleanupTroubleshooting} {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error missing %q: %v", want, err)
+					}
+				}
+				for _, unwanted := range []string{"timed out", "cleanup continues in the background", "Follow cleanup with"} {
+					if strings.Contains(err.Error()+stderr, unwanted) {
+						t.Errorf("misleading diagnostic %q: %v\n%s", unwanted, err, stderr)
+					}
+				}
+				if tc.reason == "UnsupportedPreClaimState" &&
+					(strings.Contains(err.Error(), "Repair the profile spec") || strings.Contains(err.Error(), "Ready=False/CleanupBlocked")) {
+					t.Errorf("unsupported state described as repairable CleanupBlocked: %v", err)
+				}
+				var report deleteReport
+				if decodeErr := json.Unmarshal([]byte(out), &report); decodeErr != nil ||
+					report.Reason != tc.reason || report.Message != tc.message || report.Deleted ||
+					report.AlreadyDeleting != (mode != "delete-wait") || report.DeletionRequested != (mode == "delete-wait") {
+					t.Errorf("refusal report: %s (%v)", out, decodeErr)
+				}
+				if len(f.deletes) != wantDeletes || f.polls != wantPolls {
+					t.Errorf("expected %d deletes and %d polls, got %d and %d", wantDeletes, wantPolls, len(f.deletes), f.polls)
+				}
+			})
+		}
 	}
 }
 

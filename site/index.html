@@ -433,7 +433,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
         </details>
         <details>
           <summary>Which JDKs can I target?</summary>
-          <p>Whatever your nodes offer. Run <code>brewlet jdks</code> to list the JDK distributions and versions available across the cluster before you pick one in the deployment descriptor. Asking for a JDK no node provides fails fast with a <code>NoCompatibleJDK</code> admission error.</p>
+          <p>Whatever your nodes offer. Run <code>brewlet k8s jdk list</code> to list the JDK distributions and versions available across the cluster before you pick one in the deployment descriptor. Asking for a JDK no node provides fails fast with a <code>NoCompatibleJDK</code> admission error.</p>
         </details>
         <details>
           <summary>Is Brewlet secure for multi-tenant clusters?</summary>

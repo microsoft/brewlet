@@ -450,8 +450,10 @@ brewlet k8s profile delete java-workers --wait      # per-node cleanup progress
 The command refuses Helm/GitOps-owned profiles (remove those from
 `provisioner.pools`/`profiles` or the GitOps source, then run the same command
 with `--wait` to follow cleanup). It requires `--yes` while Java workloads still
-run on the profile's claimed nodes, and exits nonzero on `CleanupBlocked` or
-`--wait-timeout`. See [`brewlet k8s profile delete`](cli-reference.md#deleting-a-profile).
+run on the profile's claimed nodes, and exits nonzero on `CleanupBlocked`,
+`UnsupportedPreClaimState`, or `--wait-timeout`. Unsupported pre-claim state
+requires original-release cleanup, not ordinary spec repair. See
+[`brewlet k8s profile delete`](cli-reference.md#deleting-a-profile).
 
 Move or drain affected workloads before deleting a profile: completion ordering
 prevents that profile's provisioner and cleanup from racing, but it does not

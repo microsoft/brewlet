@@ -19,6 +19,10 @@ Keep landing pages free of hardcoded Brewlet release numbers. Install the latest
 CLI and read its version with `brewlet version` to select matching example source
 and Maven plugin artifacts. Keep version-specific validation history in the docs.
 
+Use current CLI commands in landing-page examples, including inline FAQ commands.
+`make site-contract-check` rejects removed top-level CLI aliases in those examples.
+Documentation migration tables and validation history are outside that check's scope.
+
 Keep technical prerequisites, operational safety warnings, and authentication
 requirements for users' own clusters and registries. Do not present roadmap
 items as implemented features.
@@ -64,6 +68,21 @@ python3 -m mkdocs serve -f site/mkdocs.yml
 ```
 
 Then open <http://localhost:8000/docs/>.
+
+## Validation
+
+After installing the documentation dependencies above, run the same strict
+build used by PR CI and deployment:
+
+```bash
+python3 -m mkdocs build --strict -f site/mkdocs.yml
+```
+
+The CI **License and notices** job runs this build after verifying the website
+notice, so broken documentation links fail before merge. Keep links to files
+outside `docs/` as GitHub URLs: those files are not published by MkDocs.
+Run `make site-contract-check` for the existing offline site and installation
+contracts as well.
 
 ## Deployment
 

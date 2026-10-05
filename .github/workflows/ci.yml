@@ -311,3 +311,6 @@ jobs:
           npm ci --ignore-scripts --prefix site/notices
           python site/scripts/generate-notice.py
           git diff --exit-code -- site/NOTICE.txt
+
+      - name: Build documentation with strict link validation
+        run: python -m mkdocs build --strict -f site/mkdocs.yml

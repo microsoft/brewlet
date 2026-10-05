@@ -38,6 +38,13 @@ registry fixture). The demo is compiled with `--release 21`. Internet
 access to GitHub release assets, GHCR, Docker Hub, registry.k8s.io, and Maven
 Central is required. Missing prerequisites fail; mandatory cases never skip.
 
+The executable-workflows stalled-process check supports Linux and macOS hosts
+using `/bin/ps` with a bounded timeout, full command arguments, and zombie-state
+checks. An absent PID must also be confirmed by a signal-0 probe; unavailable,
+denied, or malformed inspection fails rather than reporting no orphans.
+Unsupported host platforms fail this mandatory check. The injected stub uses
+the fixture's Python interpreter for portable wall-clock timestamps.
+
 From a checkout of the source to validate:
 
 ```bash
@@ -75,7 +82,7 @@ logs on success or failure; private work directories are never uploaded.
 Ordinary PR CI executes offline fixture safeguards and suite routing/monitor
 contracts (`make e2e-contract-check`), not the live jobs. Saved monitor history
 is normalized without renaming run IDs or evidence; see the
-[harness runbook](../integration-tests/AGENTS.md).
+[harness runbook](https://github.com/microsoft/brewlet/blob/main/integration-tests/AGENTS.md).
 
 ## Checkout builds and reproducibility
 
