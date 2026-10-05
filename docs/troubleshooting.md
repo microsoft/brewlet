@@ -17,7 +17,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | Node provisioning fails | Node not labeled `ready`; condition/event `ProvisionFailed` | [→ provisioning](#node-never-becomes-ready) |
 | No provisioner pod on a node at all | Node absent from `status.assignedNodes`; no DaemonSet pod scheduled | [→ placement](#no-provisioner-pod-is-scheduled) |
 | NodeProfile is invalid | `Ready=False/InvalidProfile`; deletion with possible host state remains `CleanupBlocked` | [→ source policy](#nodeprofile-source-policy-failures) |
-| NodeProfile deletion does not finish | Profile stays with `Ready=False/CleanupPending`, `CleanupTeardown`, or `CleanupBlocked` | [→ deletion](#nodeprofile-deletion-does-not-finish) |
+| NodeProfile deletion does not finish | Profile stays with `Ready=False/CleanupPending`, `CleanupTeardown`, `CleanupBlocked`, or `UnsupportedPreClaimState` | [→ deletion](#nodeprofile-deletion-does-not-finish) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 | containerd 1.x node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
@@ -226,6 +226,18 @@ brewlet k8s profile delete <name> --wait --wait-timeout 15m
   the condition message, then repair the cause as described in
   [source-policy failures](#nodeprofile-source-policy-failures); repairing a
   deleting profile resumes cleanup.
+- **`UnsupportedPreClaimState`.** This release permanently refuses unsupported
+  pre-claim state; ordinary spec repair cannot migrate it or resume cleanup.
+  Both attaching without `--wait` and waiting exit nonzero as soon as this
+  reason is observed, printing the condition message rather than waiting for a
+  timeout or claiming cleanup continues in the background. Save original
+  manifests and evidence, pause automation, and drain or move workloads.
+  Restore the original release's compatible operator, provisioner, CRDs, RBAC,
+  and API access to finish cleanup and worker teardown before reinstalling.
+  Follow [pre-claim recovery](installation.md#unsupported-pre-claim-workers);
+  if recovery is blocked, preserve the installation and its obligations and
+  use a separate fresh environment. Do not clear refusal conditions, pre-claim
+  records, or scheduling gates to bypass the refusal.
 
 Never remove the `node.brewlet.sh/cleanup` finalizer, ownership labels, or
 status to force deletion: that leaves runtimes and containerd changes on nodes
