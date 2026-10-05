@@ -280,8 +280,7 @@ The default rollout is fail-safe:
   `brewlet.sh/provision-error-message`). The codes are enumerated in
   [SPECIFICATION §14](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
-Use `containerdRestart: sighup` only for the in-place SIGHUP path. Use
-`containerdRestart: none` when containerd registration is managed in the node
+Use `containerdRestart: none` when containerd registration is managed in the node
 image or by another system; the JDK smoke tests and launcher executable checks
 still run.
 See [Configuration](configuration.md#helm-chart-values) for the values.
@@ -317,6 +316,10 @@ runtime catalog or a replacement for previewing your chosen values.
 
 ### Upgrading
 
+When updating the CLI, also update scripts using the
+[removed top-level CLI aliases](cli-reference.md#removed-cli-aliases).
+Use `brewlet k8s jdk list` for inventory and `brewlet k8s doctor` for readiness.
+
 **Skip this section for a fresh installation.** Helm installs the chart's CRDs
 when they are not already present; there is no separate CRD upgrade or
 migration step before deploying Brewlet for the first time. The following
@@ -331,6 +334,17 @@ the source and target releases, covered components/state, prerequisites,
 validation evidence, and recovery limits. The conditional procedures below do
 not establish such a decision; this guide declares no supported in-place
 release pairs.
+
+**Removed activation policy:** `containerdRestart: sighup` (and
+`BREWLET_CONTAINERD_RESTART=sighup`) is no longer supported. Choose `validated`
+or `none` for new profiles. For existing installations, follow the procedure
+below before replacing components or CRDs; this removal introduces no in-place
+upgrade exception. The old policy may remain in provisioning snapshots,
+per-node targets, retirement records, or worker environments even after the
+current spec changes. The new release refuses these cleanup obligations rather
+than silently restarting containerd or erasing them. Preserve the original
+records and compatible-release recovery evidence if cleanup is blocked; do not
+edit ledgers, remove finalizers, or assume a downgrade is supported.
 
 1. Save your reviewed values, profile and workload manifests, and recovery
    evidence. Pause NodeProfile/GitOps writers and drain or move Brewlet workloads.
@@ -685,7 +699,7 @@ with a blanket label command. All operator and admission flags are in
 
 ```bash
 # Use the CLI from the same release or source revision as the cluster components.
-brewlet doctor --namespace default
+brewlet k8s doctor --namespace default
 
 # 1. Components are running:
 kubectl get pods -n brewlet

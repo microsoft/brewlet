@@ -88,6 +88,6 @@ deletion. See [Uninstall](installation.md#uninstall) and
 [runnable-stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
 Describe current capabilities by function (for example, standalone provisioning,
-in-place SIGHUP activation, or Prometheus textfile collection). Reserve historical
+validated containerd activation, or Prometheus textfile collection). Reserve historical
 terms such as "legacy" for precise old-state or migration descriptions; neither
 that label nor its removal decides whether an interface is supported.

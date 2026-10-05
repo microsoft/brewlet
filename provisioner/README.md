@@ -111,7 +111,7 @@ the checksum gate to reject each build.
 | `CONTAINERD_ADDRESS` | `/run/containerd/containerd.sock` | containerd socket |
 | `CONTAINERD_NAMESPACE` | `k8s.io` | containerd namespace |
 | `BREWLET_MODE` | `provision` | `provision` installs; `cleanup` reverses it |
-| `BREWLET_CONTAINERD_RESTART` | `validated` | `validated`, `sighup`, or `none` |
+| `BREWLET_CONTAINERD_RESTART` | `validated` | `validated` or `none` |
 | `BREWLET_VALIDATE` | `true` | Run JDK smoke tests and launcher executable checks before readiness |
 | `MIRRORS` | empty | Strict comma-separated `<upstream-host>=<mirror-host[/path]>` mappings |
 | `SOURCE_ALLOWED_MIRROR_HOSTS` | empty | Comma-separated exact destination registry hosts; empty disables mirrors |
@@ -202,10 +202,17 @@ leaves the node unready, and sets an actionable
 `rollback-failed`.
 
 Re-running an unchanged valid render still verifies the effective configuration
-and health-checks containerd without an unnecessary restart. `sighup` retains
-the in-place render and reload behavior without the config-dump gate,
-while `none` is the immutable-image mode and does not mutate or signal
-containerd.
+and health-checks containerd without an unnecessary restart. `none` is the
+immutable-image mode and does not mutate or signal containerd during
+provisioning or cleanup.
+
+The `sighup` policy has been removed and is rejected before host operations,
+including when read from a managed node's cleanup ledger. It is never converted
+to a service restart or to `none`. Existing installations must follow
+[safe teardown/reinstallation](../docs/installation.md#upgrading), completing
+their installed release's cleanup before replacement. Keep blocked cleanup
+evidence and ownership records; changing the live profile does not discharge
+an old cleanup obligation.
 
 When Helm runtime metrics are enabled, the profile-managed DaemonSet includes a
 best-effort exporter sidecar that serves `/metrics` and listens for shim

@@ -9,7 +9,7 @@
 //	brewlet run     <ref> [flags]         pull + launch java -jar on this node
 //	brewlet bundle  <ref> [flags]         emit an OCI runc bundle (shim path)
 //	brewlet dependency-bundle <tar> <ref> publish an approved dependency bundle
-//	brewlet jdks    [flags]               list JDKs available across the cluster
+//	brewlet k8s jdk list [flags]          list JDKs available across the cluster
 package main
 
 import (
@@ -53,10 +53,13 @@ func main() {
 		err = cmdDependencyBundle(os.Args[2:])
 	case "keygen":
 		err = cmdKeygen(os.Args[2:])
-	case "jdks":
-		err = cmdJDKs(os.Args[2:])
-	case "doctor":
-		err = cmdDoctor(os.Args[2:])
+	case "jdks", "doctor":
+		replacement := "brewlet k8s doctor"
+		if os.Args[1] == "jdks" {
+			replacement = "brewlet k8s jdk list"
+		}
+		fmt.Fprintf(os.Stderr, "command %q has been removed; use %q instead\n", "brewlet "+os.Args[1], replacement)
+		os.Exit(2)
 	case "stage-gc":
 		err = cmdStageGC(os.Args[2:])
 	case "k8s":
@@ -88,8 +91,8 @@ USAGE:
   brewlet inspect <ref>       [--store DIR] [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
   brewlet run     <ref>       [--store DIR] [--jdk-root DIR] [--launcher NAME] [-- <extra jvm args>]
   brewlet bundle  <ref>       [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--out DIR]
-  brewlet jdks                [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
-  brewlet doctor              [--namespace NS] [--output table|json] [--kubeconfig FILE] [--context CTX]
+  brewlet k8s jdk list        [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
+  brewlet k8s doctor          [--namespace NS] [--output table|json|yaml] [--kubeconfig FILE] [--context CTX]
   brewlet stage-gc            [--stage-root DIR] [--address SOCKET] [--min-age 24h] [--dry-run]
                               [--allow-nested-pid-namespace]
   brewlet k8s <command>        inventory, status, inspection, app readiness/wait, installation and profile updates (see k8s --help)
@@ -876,13 +879,4 @@ func parseProcessIDFlag(name, value string) (uint32, error) {
 		return 0, fmt.Errorf("--%s must be an integer between 0 and %d: %q", name, runtime.MaxProcessID, value)
 	}
 	return uint32(id), nil
-}
-
-// Preserve the original entry points as aliases for the Kubernetes group.
-func cmdJDKs(args []string) error {
-	return kube.Run(context.Background(), append([]string{"jdk", "list"}, args...), os.Stdout, os.Stderr)
-}
-
-func cmdDoctor(args []string) error {
-	return kube.Run(context.Background(), append([]string{"doctor"}, args...), os.Stdout, os.Stderr)
 }

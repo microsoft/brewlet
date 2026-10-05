@@ -60,7 +60,7 @@ the [matching source-built CLI](../getting-started.md#alternative-build-from-sou
 instead. Run the same readiness check used by Ops:
 
 ```bash
-brewlet doctor \
+brewlet k8s doctor \
   --context "$BREWLET_CONTEXT" \
   --namespace "$BREWLET_NAMESPACE"
 ```

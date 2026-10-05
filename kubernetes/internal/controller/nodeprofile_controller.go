@@ -58,6 +58,22 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Check retained authority before migration or reconciliation can overwrite
+	// a policy, stop its evidence-bearing workers, or release a cleanup claim.
+	if err := validateStoredContainerdPolicies(&profile); err != nil {
+		r.Recorder.Eventf(&profile, corev1.EventTypeWarning, nodev1alpha1.ReasonCleanupBlocked, "%s", err)
+		result, persistErr := r.ownershipBlocked(ctx, &profile, nodev1alpha1.ReasonCleanupBlocked, err)
+		if persistErr != nil {
+			return result, fmt.Errorf("%v; recording blocked cleanup: %w", err, persistErr)
+		}
+		return result, nil
+	}
+	if profile.Status.OwnershipInitialized && !profile.Status.Migrating {
+		if err := r.profileWriterBarrier(ctx, &profile, false); err != nil {
+			return r.migrationStatus(ctx, &profile, err)
+		}
+	}
+
 	var nodes corev1.NodeList
 	if err := r.apiReader().List(ctx, &nodes); err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing nodes: %w", err)

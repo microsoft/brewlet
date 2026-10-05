@@ -24,8 +24,8 @@ brewlet inspect <ref>       [flags]   show the artifact manifest + config
 brewlet run     <ref>       [flags]   pull + launch java -jar on this node
 brewlet bundle  <ref>       [flags]   emit an OCI runc bundle (the shim path)
 brewlet stage-gc            [flags]   reclaim orphaned runnable-image stages (Linux)
-brewlet jdks                [flags]   list JDKs available across the cluster
-brewlet doctor              [flags]   diagnose cluster and developer readiness
+brewlet k8s jdk list        [flags]   list JDKs available across the cluster
+brewlet k8s doctor          [flags]   diagnose cluster and developer readiness
 brewlet k8s <command>        [flags]   manage and inspect Brewlet on Kubernetes
 brewlet version                       print the CLI version
 ```
@@ -369,7 +369,26 @@ See [Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
 ---
 
-## `brewlet jdks`
+## Removed CLI aliases
+
+**Pre-GA breaking change ([#183](https://github.com/microsoft/brewlet/issues/183)):**
+the original top-level aliases are no longer supported. Update scripts and
+saved commands using these replacements:
+
+| Removed command | Supported replacement |
+| --- | --- |
+| `brewlet jdks` | `brewlet k8s jdk list` |
+| `brewlet doctor` | `brewlet k8s doctor` |
+
+Keep applicable flags after the replacement command, including `--kubeconfig`,
+`--context`, `--output`, the inventory's `--selector`, and doctor's `--namespace`.
+Inventory and readiness checks retain their behavior and output formats.
+The removed forms exit with status 2, print the replacement hint to stderr,
+leave stdout empty, and do not contact the cluster, even with `--help`.
+This follows the [pre-GA compatibility policy](compatibility.md); there is no
+automatic forwarding or deprecation window.
+
+## `brewlet k8s jdk list`
 
 List the JDKs available across the cluster — **vendor, major version, minor
 version, and architecture** — so you can match your dev and CI toolchains to
@@ -378,7 +397,7 @@ node advertises, via `kubectl get nodes` (no in-process Kubernetes client, so it
 uses your existing kubeconfig/context).
 
 ```
-brewlet jdks [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
+brewlet k8s jdk list [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
 ```
 
 | Flag | Default | Meaning |
@@ -389,32 +408,36 @@ brewlet jdks [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--s
 | `--selector` | *(none)* | Label selector to filter nodes (passed to `kubectl -l`). |
 
 ```bash
-brewlet jdks
+brewlet k8s jdk list
 # VENDOR             DISTRIBUTION   MAJOR   VERSION   ARCH    NODES
 # Microsoft          microsoft      25      25        amd64   3
 # Eclipse Adoptium   temurin        21      21.0.5    amd64   3
 # Eclipse Adoptium   temurin        21      21.0.5    arm64   2
 
-brewlet jdks --output wide                      # per-node breakdown
-brewlet jdks --output json                      # for scripting / CI matrices
-brewlet jdks --selector brewlet.sh/runtime=ready
+brewlet k8s jdk list --output wide              # per-node breakdown
+brewlet k8s jdk list --output json              # for scripting / CI matrices
+brewlet k8s jdk list --selector brewlet.sh/runtime=ready
 ```
 
-Nodes provisioned before the rich annotation existed fall back to the coarse
-`brewlet.sh/jdks` list (distribution + major only). See
+Only structured `brewlet.sh/jdks-info` entries are listed. Nodes with absent,
+blank, or empty structured inventory are omitted, even if they advertise
+`brewlet.sh/jdks` compact tokens. An empty result succeeds with an explanatory
+message in table/wide output or `[]` in JSON. Malformed nonblank structured
+metadata fails explicitly with the node and annotation name; compact data
+never substitutes for it. See
 [JDK management → Inspecting the JDKs available](jdk-management.md#inspecting-the-jdks-available-on-the-cluster)
-for the equivalent plain-`kubectl` queries.
+for plain-`kubectl` queries and guidance for compact-only nodes.
 
 ---
 
-## `brewlet doctor`
+## `brewlet k8s doctor`
 
 Check whether a cluster is ready to accept Brewlet workloads and whether the
 current identity can deploy a `JavaApplication` in a target namespace.
 
 ```
-brewlet doctor [--namespace NS] [--output table|json]
-               [--kubeconfig FILE] [--context CTX]
+brewlet k8s doctor [--namespace NS] [--output table|json|yaml]
+                   [--kubeconfig FILE] [--context CTX]
 ```
 
 The command checks the selected context, API connectivity, the `brewlet`
@@ -426,13 +449,20 @@ check is printed as soon as it completes, with a progress indicator on stderr
 while the next `kubectl` call runs.
 
 ```bash
-brewlet doctor --namespace my-team
-brewlet doctor --context staging --namespace my-team
-brewlet doctor --namespace my-team --output json
+brewlet k8s doctor --namespace my-team
+brewlet k8s doctor --context staging --namespace my-team
+brewlet k8s doctor --namespace my-team --output json
 ```
 
 The command exits non-zero when a blocking check fails. JSON output is suitable
 for CI and platform handoff automation.
+
+The JDK inventory check uses only `brewlet.sh/jdks-info`. It fails if no
+structured JDK entries are advertised anywhere or if structured metadata is
+malformed. It does not require every node to advertise structured inventory.
+If only compact `brewlet.sh/jdks` tokens are present, check current
+node-provisioner publication as well as the active NodeProfile's configuration;
+desired JDK configuration alone does not prove that diagnostic metadata exists.
 
 ---
 
@@ -441,8 +471,7 @@ for CI and platform handoff automation.
 Brewlet-specific Kubernetes operations, using your installed `kubectl` and
 existing kubeconfig credentials. Installation also requires Helm. No command
 creates a cluster, changes your current context, directly modifies a node, or
-opens a debugger. `brewlet jdks` and `brewlet doctor` remain compatibility
-aliases for `brewlet k8s jdk list` and `brewlet k8s doctor`.
+opens a debugger.
 
 ```text
 brewlet k8s jdk list
@@ -511,8 +540,8 @@ brewlet k8s inspect app orders --namespace my-team
 brewlet k8s doctor --namespace my-team
 ```
 
-JDK inventory reuses the existing [JDK aggregation](#brewlet-jdks), including
-annotation fallback. Launcher inventory aggregates optional launcher
+JDK inventory uses [structured-only JDK aggregation](#brewlet-k8s-jdk-list).
+Launcher inventory aggregates optional launcher
 names from `brewlet.sh/launchers`; the JDK's implicit `java` launcher is not a
 separate entry. Both inventories describe **node-advertised state**, not a
 catalog, a live probe of node files, or proof that a particular Pod uses a JDK.

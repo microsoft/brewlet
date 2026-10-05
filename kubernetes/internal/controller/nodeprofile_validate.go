@@ -104,12 +104,40 @@ func (policy NodeProfilePolicy) Validate(profile *nodev1alpha1.NodeProfile) erro
 	if err := validateRegistryMirrors(profile.Spec.Registry, allowedMirrors); err != nil {
 		return err
 	}
-	switch profile.Spec.Rollout.ContainerdRestart {
-	case "", nodev1alpha1.ContainerdRestartValidated,
-		nodev1alpha1.ContainerdRestartSIGHUP, nodev1alpha1.ContainerdRestartNone:
+	return validateContainerdRestart("spec.rollout.containerdRestart", profile.Spec.Rollout.ContainerdRestart)
+}
+
+func validateContainerdRestart(field, mode string) error {
+	switch mode {
+	case "", nodev1alpha1.ContainerdRestartValidated, nodev1alpha1.ContainerdRestartNone:
+		return nil
+	case "sighup":
+		return fmt.Errorf("%s %q has been removed; use validated or none for new profiles; existing installations must complete cleanup with their compatible release before teardown/reinstallation (docs/installation.md#upgrading); do not rewrite stored cleanup policies", field, mode)
 	default:
-		return fmt.Errorf("spec.rollout.containerdRestart %q is invalid; want one of validated|sighup|none",
-			profile.Spec.Rollout.ContainerdRestart)
+		return fmt.Errorf("%s %q is invalid; want one of validated|none", field, mode)
+	}
+}
+
+func validateStoredContainerdPolicies(profile *nodev1alpha1.NodeProfile) error {
+	if spec := profile.Status.ProvisioningSpec; spec != nil {
+		if err := validateContainerdRestart("status.provisioningSpec.rollout.containerdRestart", spec.Rollout.ContainerdRestart); err != nil {
+			return err
+		}
+	}
+	for i, target := range profile.Status.Targets {
+		if err := validateContainerdRestart(fmt.Sprintf("status.targets[%d].containerdRestart", i), target.ContainerdRestart); err != nil {
+			return err
+		}
+	}
+	if retirement := profile.Status.Retirement; retirement != nil {
+		if err := validateContainerdRestart("status.retirement.spec.rollout.containerdRestart", retirement.Spec.Rollout.ContainerdRestart); err != nil {
+			return err
+		}
+		for i, target := range retirement.Targets {
+			if err := validateContainerdRestart(fmt.Sprintf("status.retirement.targets[%d].containerdRestart", i), target.ContainerdRestart); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

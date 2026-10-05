@@ -323,7 +323,7 @@ func (f *fixture) readyDeployment(t *testing.T, d *appsv1.Deployment) {
 
 func (f *fixture) testReadCommands(t *testing.T) {
 	p := f.profile(t, "inventory")
-	f.node(t, p)
+	node := f.node(t, p)
 	p.Status = nodeapi.NodeProfileStatus{ObservedGeneration: p.Generation, AssignedNodes: 1, ReadyNodes: 1,
 		Conditions: []metav1.Condition{{Type: "Ready", Status: metav1.ConditionTrue, Reason: "AllNodesProvisioned",
 			Message: "fixture readiness", ObservedGeneration: p.Generation, LastTransitionTime: metav1.Now()}}}
@@ -339,10 +339,10 @@ func (f *fixture) testReadCommands(t *testing.T) {
 		rows[0].Arch != "amd64" || !reflect.DeepEqual(rows[0].Nodes, []string{"inventory-node"}) {
 		t.Fatalf("unexpected advertised inventory: %s", jdks)
 	}
-	aliases := f.command(t, f.binary, "jdks", "--kubeconfig", f.kubeconfig, "--context", "selected",
-		"--selector", "example.com/pool=inventory", "--output", "json").success(t)
-	if aliases != jdks {
-		t.Fatal("legacy jdks alias differs from k8s inventory")
+	removed := f.command(t, f.binary, "jdks", "--kubeconfig", f.kubeconfig, "--context", "selected",
+		"--selector", "example.com/pool=inventory", "--output", "json")
+	if removed.code != 2 || removed.stdout != "" || !strings.Contains(removed.stderr, `use "brewlet k8s jdk list" instead`) {
+		t.Fatalf("removed jdks command must fail with replacement hint: %+v", removed)
 	}
 	empty := f.cli(t, "jdk", "list", "--selector", "example.com/pool=absent", "--output", "json").success(t)
 	if len(decode[[]json.RawMessage](t, empty)) != 0 {
@@ -373,8 +373,35 @@ func (f *fixture) testReadCommands(t *testing.T) {
 		t.Fatal("ready fixtures reported unhealthy")
 	}
 	f.cli(t, "doctor", "--namespace", "team", "--output", "json").success(t)
-	f.command(t, f.binary, "doctor", "--kubeconfig", f.kubeconfig, "--context", "selected",
-		"--namespace", "team", "--output", "json").success(t)
+	info := node.Annotations["brewlet.sh/jdks-info"]
+	delete(node.Annotations, "brewlet.sh/jdks-info")
+	must(t, f.api.Update(f.ctx, node))
+	compactOnly := f.cli(t, "jdk", "list", "--selector", "example.com/pool=inventory", "--output", "json").success(t)
+	if strings.TrimSpace(compactOnly) != "[]" {
+		t.Fatalf("compact-only node produced detailed inventory: %s", compactOnly)
+	}
+	diagnosis := f.cli(t, "doctor", "--namespace", "team", "--output", "json")
+	if diagnosis.code != 1 || !strings.Contains(diagnosis.stdout, "brewlet.sh/jdks-info") {
+		t.Fatalf("compact-only doctor must fail with structured-inventory context: %+v", diagnosis)
+	}
+	for _, args := range [][]string{statusArgs, {"profile", "inspect", p.Name, "--output", "json"}} {
+		report := decode[struct {
+			Nodes []struct {
+				JDKs string `json:"advertisedJdks"`
+			}
+		}](t, f.cli(t, args...).success(t))
+		if len(report.Nodes) != 1 || report.Nodes[0].JDKs != "temurin-21" {
+			t.Fatalf("%v lost compact inventory: %+v", args, report)
+		}
+	}
+	node.Annotations["brewlet.sh/jdks-info"] = info
+	must(t, f.api.Update(f.ctx, node))
+	f.cli(t, "doctor", "--namespace", "team", "--output", "json").success(t)
+	removed = f.command(t, f.binary, "doctor", "--kubeconfig", f.kubeconfig, "--context", "selected",
+		"--namespace", "team", "--output", "json")
+	if removed.code != 2 || removed.stdout != "" || !strings.Contains(removed.stderr, `use "brewlet k8s doctor" instead`) {
+		t.Fatalf("removed doctor command must fail with replacement hint: %+v", removed)
+	}
 
 	operator.Status.UpdatedReplicas = 0
 	must(t, f.api.Status().Update(f.ctx, operator))
