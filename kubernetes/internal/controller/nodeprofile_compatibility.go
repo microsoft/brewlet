@@ -99,6 +99,11 @@ func (r *NodeProfileReconciler) profileWriterBarrier(ctx context.Context, profil
 		if relevant && !claimFenced(ds) {
 			return &preClaimStateError{evidence: fmt.Sprintf("pre-claim DaemonSet %s/%s (%s) conflicts with profile %s", ds.Namespace, ds.Name, ds.UID, profile.Name)}
 		}
+		if isOwned && claimFenced(ds) {
+			if err := validateWorkerContainerdPolicy(&ds.Spec.Template.Spec); err != nil {
+				return fmt.Errorf("DaemonSet %s/%s: %w", ds.Namespace, ds.Name, err)
+			}
+		}
 		if isOwned && ds.Namespace != r.Config.Namespace {
 			conflict = fmt.Errorf("profile writer DaemonSet %s/%s is outside the operator namespace; its original owner must finish teardown before provisioning or cleanup", ds.Namespace, ds.Name)
 		} else if relevant && (!canonical || !isOwned) {
@@ -121,6 +126,11 @@ func (r *NodeProfileReconciler) profileWriterBarrier(ctx context.Context, profil
 		relevant := knownOwner || namedOwner || (uid != "" && uid == string(profile.UID)) || pod.Labels[brewlet.LabelNodeProfile] == profile.Name
 		if relevant && !claimFencedPod(&pod.Spec) {
 			return &preClaimStateError{evidence: fmt.Sprintf("pre-claim pod %s/%s (%s) conflicts with profile %s", pod.Namespace, pod.Name, pod.UID, profile.Name)}
+		}
+		if relevant && claimFencedPod(&pod.Spec) {
+			if err := validateWorkerContainerdPolicy(&pod.Spec); err != nil {
+				return fmt.Errorf("pod %s/%s: %w", pod.Namespace, pod.Name, err)
+			}
 		}
 		if relevant && pod.Namespace != r.Config.Namespace {
 			conflict = fmt.Errorf("profile writer pod %s/%s is outside the operator namespace; its original owner must finish teardown before provisioning or cleanup", pod.Namespace, pod.Name)
@@ -145,6 +155,14 @@ func (r *NodeProfileReconciler) profileWriterBarrier(ctx context.Context, profil
 		}
 	}
 	return nil
+}
+
+func validateWorkerContainerdPolicy(spec *corev1.PodSpec) error {
+	mode, ok := literalProvisionerEnv(spec, "BREWLET_CONTAINERD_RESTART")
+	if !ok {
+		return fmt.Errorf("worker has unverifiable cleanup restart policy; preserve its evidence and recover with compatible components")
+	}
+	return validateContainerdRestart("worker BREWLET_CONTAINERD_RESTART", mode)
 }
 
 func literalProvisionerEnv(spec *corev1.PodSpec, name string) (string, bool) {

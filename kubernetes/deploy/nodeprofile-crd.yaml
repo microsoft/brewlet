@@ -179,7 +179,7 @@ spec:
                       description: Gate readiness on the 0002 smoke test (default true).
                     containerdRestart:
                       type: string
-                      enum: [validated, sighup, none]
+                      enum: [validated, none]
                       description: How the provisioner restarts containerd; "none" is label-only / immutable-image mode.
                 tolerations:
                   type: array
@@ -238,7 +238,7 @@ spec:
                       name: { type: string }
                       uid: { type: string }
                       claimed: { type: boolean }
-                      containerdRestart: { type: string, enum: [validated, sighup, none] }
+                      containerdRestart: { type: string, enum: [validated, none] }
                 retirement:
                   type: object
                   required: [targets, generation, spec, phase]
@@ -257,7 +257,7 @@ spec:
                           name: { type: string }
                           uid: { type: string }
                           claimed: { type: boolean }
-                          containerdRestart: { type: string, enum: [validated, sighup, none] }
+                          containerdRestart: { type: string, enum: [validated, none] }
                 observedGeneration:
                   type: integer
                   format: int64

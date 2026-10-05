@@ -26,10 +26,6 @@ import (
 // inventory to (a JSON array of JDKInfo).
 const Annotation = "brewlet.sh/jdks-info"
 
-// LegacyAnnotation is the original coarse inventory annotation
-// (`temurin-21,microsoft-25`); parsed as a fallback when the rich one is absent.
-const LegacyAnnotation = "brewlet.sh/jdks"
-
 // JDKInfo describes a single JDK runtime root installed on a node.
 type JDKInfo struct {
 	Distribution string `json:"distribution"` // brewlet token, e.g. "temurin"
@@ -67,9 +63,9 @@ type nodeList struct {
 }
 
 // ParseNodes parses `kubectl get nodes -o json` output into per-node JDK lists.
-// Nodes that advertise no Brewlet JDK inventory are omitted. It reads the rich
-// brewlet.sh/jdks-info annotation, falling back to the legacy brewlet.sh/jdks
-// list when only that is present.
+// It reads only brewlet.sh/jdks-info. Nodes with absent, blank, or empty
+// structured inventory are omitted; the compact brewlet.sh/jdks annotation
+// used by admission and status readers cannot supply detailed JDK metadata.
 func ParseNodes(kubectlJSON []byte) ([]NodeJDKs, error) {
 	var nl nodeList
 	if err := json.Unmarshal(kubectlJSON, &nl); err != nil {
@@ -98,30 +94,7 @@ func parseNodeAnnotations(ann map[string]string) ([]JDKInfo, error) {
 		}
 		return jdks, nil
 	}
-	// Fallback: the coarse "<dist>-<feature>,..." list (no vendor/minor/arch).
-	if raw, ok := ann[LegacyAnnotation]; ok && strings.TrimSpace(raw) != "" {
-		return parseLegacy(raw), nil
-	}
 	return nil, nil
-}
-
-// parseLegacy turns "temurin-21,microsoft-25" into JDKInfo with only the fields
-// the coarse annotation carries (distribution + feature).
-func parseLegacy(raw string) []JDKInfo {
-	var jdks []JDKInfo
-	for _, tok := range strings.Split(raw, ",") {
-		tok = strings.TrimSpace(tok)
-		if tok == "" {
-			continue
-		}
-		dist, feature := tok, 0
-		if i := strings.LastIndex(tok, "-"); i >= 0 {
-			dist = tok[:i]
-			fmt.Sscanf(tok[i+1:], "%d", &feature)
-		}
-		jdks = append(jdks, JDKInfo{Distribution: dist, Feature: feature})
-	}
-	return jdks
 }
 
 // Aggregate collapses per-node JDKs into the distinct set available across the
@@ -193,8 +166,7 @@ func majorStr(feature int) string {
 func RenderTable(w io.Writer, nodes []NodeJDKs) {
 	agg := Aggregate(nodes)
 	if len(agg) == 0 {
-		fmt.Fprintln(w, "No Brewlet JDK inventory found on any node.")
-		fmt.Fprintln(w, "(Nodes advertise JDKs once the node-provisioner has run; see https://github.com/microsoft/brewlet/blob/main/docs/jdk-management.md.)")
+		renderEmpty(w)
 		return
 	}
 	rows := [][]string{{"VENDOR", "DISTRIBUTION", "MAJOR", "VERSION", "ARCH", "NODES"}}
@@ -214,7 +186,7 @@ func RenderTable(w io.Writer, nodes []NodeJDKs) {
 // RenderByNode writes a per-node listing of the JDKs each node advertises.
 func RenderByNode(w io.Writer, nodes []NodeJDKs) {
 	if len(nodes) == 0 {
-		fmt.Fprintln(w, "No Brewlet JDK inventory found on any node.")
+		renderEmpty(w)
 		return
 	}
 	rows := [][]string{{"NODE", "VENDOR", "DISTRIBUTION", "MAJOR", "VERSION", "ARCH"}}
@@ -233,6 +205,12 @@ func RenderByNode(w io.Writer, nodes []NodeJDKs) {
 		}
 	}
 	writeTable(w, rows)
+}
+
+func renderEmpty(w io.Writer) {
+	fmt.Fprintf(w, "No Brewlet JDK inventory found in %s on the selected nodes.\n", Annotation)
+	fmt.Fprintln(w, "Check the current node-provisioner's inventory publication; compact brewlet.sh/jdks data is not used here.")
+	fmt.Fprintln(w, "See https://github.com/microsoft/brewlet/blob/main/docs/jdk-management.md.")
 }
 
 // RenderJSON writes the aggregated inventory as indented JSON.

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
@@ -138,6 +139,31 @@ func TestNodeProfileValidator_AllowsValid(t *testing.T) {
 	res := v.Handle(context.Background(), profileRequest(t, p))
 	if !res.Allowed {
 		t.Fatalf("expected valid profile to be allowed, got %+v", res.Result)
+	}
+}
+
+func TestNodeProfileValidatorContainerdRestart(t *testing.T) {
+	for _, mode := range []string{"", "validated", "none", "sighup", "reboot"} {
+		t.Run(mode, func(t *testing.T) {
+			p := &nodev1alpha1.NodeProfile{
+				ObjectMeta: metav1.ObjectMeta{Name: "restart-policy"},
+				Spec: nodev1alpha1.NodeProfileSpec{
+					JDKs: []nodev1alpha1.JDKRef{webhookJDK("temurin", 21)},
+				},
+			}
+			old := p.DeepCopy()
+			p.Spec.Rollout.ContainerdRestart = mode
+			for _, req := range []admission.Request{profileRequest(t, p), profileUpdateRequest(t, old, p)} {
+				res := newValidator(t).Handle(context.Background(), req)
+				want := mode == "" || mode == "validated" || mode == "none"
+				if res.Allowed != want {
+					t.Fatalf("%s mode %q allowed=%v: %+v", req.Operation, mode, res.Allowed, res.Result)
+				}
+				if mode == "sighup" && (res.Result == nil || !strings.Contains(res.Result.Message, "teardown/reinstallation")) {
+					t.Fatalf("missing removed-policy guidance: %+v", res.Result)
+				}
+			}
+		})
 	}
 }
 

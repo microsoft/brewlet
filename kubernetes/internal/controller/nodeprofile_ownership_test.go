@@ -159,6 +159,72 @@ func TestNodeProfileCleanupPolicyRetainsPriorHostMutationObligations(t *testing.
 	}
 }
 
+func TestWorkerContainerdPolicyRejectsUnsupportedEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		env     []corev1.EnvVar
+		wantErr bool
+	}{
+		{"missing", nil, true},
+		{"validated", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "validated"}}, false},
+		{"none", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "none"}}, false},
+		{"sighup", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "sighup"}}, true},
+		{"unknown", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "reboot"}}, true},
+		{"duplicate", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "validated"}, {Name: "BREWLET_CONTAINERD_RESTART", Value: "none"}}, true},
+		{"indirect", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", ValueFrom: &corev1.EnvVarSource{}}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := corev1.PodSpec{Containers: []corev1.Container{{Name: "provisioner", Env: tc.env}}}
+			if err := validateWorkerContainerdPolicy(&spec); (err != nil) != tc.wantErr {
+				t.Fatalf("worker policy error = %v, want error %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestStoredContainerdPolicies(t *testing.T) {
+	for _, mode := range []string{"", "validated", "none", "sighup", "reboot"} {
+		for _, field := range []string{"provisioningSpec", "targets", "retirement.spec", "retirement.targets"} {
+			t.Run(field+"/"+mode, func(t *testing.T) {
+				p := profileNamed("owner", []string{"pool"}, jdk("temurin", 21))
+				p.Spec.Rollout.ContainerdRestart = "none"
+				setStoredRestartPolicy(&p, field, mode)
+				err := validateStoredContainerdPolicies(&p)
+				wantErr := mode == "sighup" || mode == "reboot"
+				if (err != nil) != wantErr {
+					t.Fatalf("policy %q: %v", mode, err)
+				}
+				if err != nil && !strings.Contains(err.Error(), field) {
+					t.Fatalf("error does not identify stored policy: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func setStoredRestartPolicy(p *nodev1alpha1.NodeProfile, field, mode string) {
+	if len(p.Status.Targets) == 0 {
+		p.Status.Targets = []nodev1alpha1.NodeTarget{{Name: "worker", UID: "node-uid", Claimed: true}}
+	}
+	switch field {
+	case "provisioningSpec":
+		p.Status.ProvisioningSpec = p.Spec.DeepCopy()
+		p.Status.ProvisioningSpec.Rollout.ContainerdRestart = mode
+	case "targets":
+		p.Status.Targets[0].ContainerdRestart = mode
+	case "retirement.spec", "retirement.targets":
+		p.Status.Retirement = &nodev1alpha1.NodeRetirement{
+			Spec: *p.Spec.DeepCopy(), Targets: append([]nodev1alpha1.NodeTarget(nil), p.Status.Targets...),
+			Generation: p.Generation, Phase: nodev1alpha1.RetirementCleaning,
+		}
+		if field == "retirement.spec" {
+			p.Status.Retirement.Spec.Rollout.ContainerdRestart = mode
+		} else {
+			p.Status.Retirement.Targets[0].ContainerdRestart = mode
+		}
+	}
+}
+
 func TestNodeProfileOwnershipFenceJSONPathMatchesDurableAPI(t *testing.T) {
 	script, err := os.ReadFile("../../../provisioner/entrypoint.sh")
 	if err != nil {

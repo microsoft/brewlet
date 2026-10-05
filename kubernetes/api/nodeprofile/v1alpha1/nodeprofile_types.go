@@ -126,7 +126,7 @@ type RolloutSpec struct {
 	// ready (defaults to true).
 	Validate *bool `json:"validate,omitempty"`
 	// ContainerdRestart selects how the provisioner restarts containerd after a
-	// config change: "validated", "sighup", or "none" (label-only /
+	// config change: "validated" or "none" (label-only /
 	// immutable-image mode). Empty defaults to "validated" (proposal 0002).
 	ContainerdRestart string `json:"containerdRestart,omitempty"`
 }
@@ -134,7 +134,6 @@ type RolloutSpec struct {
 // Valid values for RolloutSpec.ContainerdRestart.
 const (
 	ContainerdRestartValidated = "validated"
-	ContainerdRestartSIGHUP    = "sighup"
 	ContainerdRestartNone      = "none"
 )
 

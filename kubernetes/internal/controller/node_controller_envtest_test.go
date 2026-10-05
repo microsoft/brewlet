@@ -5,6 +5,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"brewlet-operator/internal/brewlet"
@@ -133,6 +134,17 @@ func TestNodeReconcileReadyNode(t *testing.T) {
 		brewlet.LabelProvision:    "true",
 		brewlet.LabelRuntimeReady: brewlet.ValueReady,
 	})
+	var node corev1.Node
+	if err := c.Get(ctx, types.NamespacedName{Name: name}, &node); err != nil {
+		t.Fatal(err)
+	}
+	patch := client.MergeFrom(node.DeepCopy())
+	node.Annotations = map[string]string{brewlet.AnnotationJDKs: "temurin-21,microsoft-25"}
+	if err := c.Patch(ctx, &node, patch); err != nil {
+		t.Fatal(err)
+	}
+	recorder := record.NewFakeRecorder(10)
+	r.Recorder = recorder
 	reconcileNode(t, ctx, r, name)
 
 	var got corev1.Node
@@ -141,6 +153,14 @@ func TestNodeReconcileReadyNode(t *testing.T) {
 	}
 	if s := got.Annotations[brewlet.AnnotationProvisionState]; s != brewlet.StateReady {
 		t.Fatalf("provision-state = %q, want %q", s, brewlet.StateReady)
+	}
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, brewlet.ReasonNodeReady) || !strings.Contains(event, "JDKs=[temurin-21, microsoft-25]") {
+			t.Fatalf("ready event lost compact inventory: %s", event)
+		}
+	default:
+		t.Fatal("missing NodeReady event")
 	}
 }
 

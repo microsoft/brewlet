@@ -20,7 +20,7 @@ the [specification](../SPECIFICATION.md).
 The following parts have shipped:
 
 - `NodeProfile.spec.rollout.validate` and `containerdRestart`, including the
-  `validated` (default), `sighup`, and `none` modes and their provisioner
+  `validated` (default) and `none` modes and their provisioner
   environment wiring.
 - A post-install `java -version` smoke test for every configured JDK root before
   the node is labelled `brewlet.sh/runtime=ready`.
@@ -38,7 +38,10 @@ The following parts have shipped:
   checks, and automatic known-good configuration recovery after activation
   failures.
 
-The proposal is fully implemented.
+The proposal is implemented. Its original optional `sighup` activation mode
+has since been removed; only `validated` and `none` are supported. Old policies
+are rejected, not converted. Release replacement follows
+[safe teardown/reinstallation](../../docs/installation.md#upgrading).
 
 ---
 
@@ -52,18 +55,18 @@ launcher is installed, an executable-file check) run against each installed
 root. On any failure the node is left in its prior state and reported `Failed`
 instead of half-provisioned.
 
-## 2. Motivation — what today's provisioner does and doesn't guarantee
+## 2. Historical motivation — behavior before this proposal
 
-`entrypoint.sh` already does more than "file exists":
+Before this proposal, `entrypoint.sh` did more than "file exists":
 
 - It runs `java -version` while installing each root (`install_jdk`) and reads
   `-XshowSettings:properties` to build `brewlet.sh/jdks-info`.
 - It writes a backup of `config.toml` to `config.toml.brewlet.bak` before appending
   the `runtimes.brewlet` block.
 
-But two real gaps remain:
+But two gaps remained:
 
-| Gap | Today | Why it hurts |
+| Gap | Behavior before this proposal | Why it hurts |
 |---|---|---|
 | **Non-reversible restart** | The block is appended directly to `config.toml`; containerd is reloaded via `SIGHUP` to the host process (`reload_containerd`). A backup is written but **nothing restores it** on a bad edit, and `SIGHUP` is unreliable on some distros. | A malformed edit or a distro that ignores `SIGHUP` can disturb `runc` workloads on the node with no automatic recovery. |
 | **Ready label not gated on final validation** | `java -version` runs at *install* time, but the terminal `label_node` step flips `brewlet.sh/runtime=ready` without re-verifying the JDK executes or checking staged launcher executability. | A root that installs but can't execute (or a broken launcher layer) still advertises the node as ready, and the RuntimeClass schedules onto it. |
@@ -87,8 +90,6 @@ default `validated`):
   4. **On any failure, restore the backup / remove the drop-in, restart containerd
      back to the known-good config,** and exit non-zero so the node is **not**
      marked ready. This is the runtime-class-manager pattern.
-- **`sighup`**: today's behavior, retained for environments where a full restart is
-  undesirable.
 - **`none`**: skip host reconfiguration entirely (the runtime is baked into the node
   image); run only the smoke gate and labelling. This is the label-only / immutable
   path 0001 selects via `rollout.containerdRestart: none`.
@@ -127,7 +128,7 @@ reason explicit in the `ProvisionFailed` event (§14) instead of only inferring
 
 - **`systemctl restart` heavier than `SIGHUP`.** Mitigate: it only runs on the first
   successful reconfig (idempotent skip afterwards), restart is validated + reversible,
-  and `sighup`/`none` remain available.
+  and `none` remains available when another system owns containerd registration.
 - **Drop-in support varies by distro.** Mitigate: fall back to validated in-place
   append; the `config dump` gate + backup restore apply either way.
 

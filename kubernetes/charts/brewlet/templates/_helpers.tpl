@@ -5,6 +5,20 @@
 {{- default "brewlet" .Values.namespace -}}
 {{- end -}}
 
+{{- define "brewlet.validateContainerdRestart" -}}
+{{- if not (kindIs "invalid" .value) -}}
+{{- if not (kindIs "string" .value) -}}
+{{- fail (printf "%s must be validated or none" .field) -}}
+{{- end -}}
+{{- if eq .value "sighup" -}}
+{{- fail (printf "%s: sighup has been removed; use validated or none for new profiles; existing installations must complete their installed release's cleanup before teardown/reinstallation; do not rewrite stored cleanup policies (docs/installation.md#upgrading)" .field) -}}
+{{- end -}}
+{{- if not (has .value (list "" "validated" "none")) -}}
+{{- fail (printf "%s must be validated or none" .field) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Privileged chart profiles must always name nonempty pools. */}}
 {{- define "brewlet.validatePools" -}}
 {{- if not (kindIs "slice" .value) -}}

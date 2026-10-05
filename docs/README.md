@@ -125,7 +125,7 @@ independent required scenarios, pinned release baseline, evidence and limits.
   and how to fix them.
 
 ### Reference
-- **[CLI reference](cli-reference.md)** — `brewlet push / inspect / run / bundle / jdks`.
+- **[CLI reference](cli-reference.md)** — `brewlet push / inspect / run / bundle / k8s`.
 - **[Reference](reference.md)** — labels & annotations, OCI media types, the
   artifact & launch-config schema, well-known paths, and a glossary.
 - **[JPMS support](jpms-support.md)** — how Brewlet runs modular

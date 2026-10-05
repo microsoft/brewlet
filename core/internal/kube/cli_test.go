@@ -187,10 +187,18 @@ func TestInventoryAndConnectionFlags(t *testing.T) {
 		})
 	}
 	for _, format := range []string{"table", "wide"} {
-		out, _, err := runTest(t, []string{"launcher", "list", "--output", format},
-			func(context.Context, string, []string, []byte) ([]byte, error) { return listJSON(t, node), nil })
-		if err != nil || !strings.Contains(out, "jaz") || !strings.Contains(out, "LAUNCHER") {
-			t.Fatalf("launcher %s = %s %v", format, out, err)
+		for _, command := range []struct{ name, value, header string }{
+			{"launcher", "jaz", "LAUNCHER"},
+			{"jdk", "temurin", "DISTRIBUTION"},
+		} {
+			out, _, err := runTest(t, []string{command.name, "list", "--output", format},
+				func(context.Context, string, []string, []byte) ([]byte, error) { return listJSON(t, node), nil })
+			if err != nil || !strings.Contains(out, command.value) || !strings.Contains(out, command.header) {
+				t.Fatalf("%s %s = %s %v", command.name, format, out, err)
+			}
+			if format == "wide" && !strings.Contains(out, "worker-a") {
+				t.Fatalf("%s wide inventory missing node: %s", command.name, out)
+			}
 		}
 	}
 }
@@ -208,6 +216,42 @@ func TestReadErrorsAreNotEmptySuccess(t *testing.T) {
 			return nil, errors.New("Forbidden: RBAC denied")
 		}); err == nil || !strings.Contains(err.Error(), "Forbidden") {
 			t.Fatalf("%v hid API failure: %v", command, err)
+		}
+	}
+}
+
+func TestJDKListRequiresStructuredInventory(t *testing.T) {
+	for _, format := range []string{"table", "wide", "json"} {
+		for _, raw := range []string{"", " \t", "[]", "null", "{broken", `[{"feature":"21"}]`} {
+			t.Run(format+"/"+raw, func(t *testing.T) {
+				node := objectJSON(t, `{"kind":"Node","metadata":{"name":"compact-node","annotations":{"brewlet.sh/jdks":"temurin-21"}}}`)
+				if raw != "" {
+					node.Metadata.Annotations["brewlet.sh/jdks-info"] = raw
+				}
+				out, _, err := runTest(t, []string{"jdk", "list", "--output", format},
+					func(context.Context, string, []string, []byte) ([]byte, error) { return listJSON(t, node), nil })
+				if raw == "{broken" || raw == `[{"feature":"21"}]` {
+					if err == nil || !strings.Contains(err.Error(), `node "compact-node"`) ||
+						!strings.Contains(err.Error(), "brewlet.sh/jdks-info") || out != "" {
+						t.Fatalf("malformed metadata must fail without output: %q, %v", out, err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if format == "json" {
+					if strings.TrimSpace(out) != "[]" {
+						t.Fatalf("empty JSON inventory = %q", out)
+					}
+				} else if !strings.Contains(out, "No Brewlet JDK inventory") ||
+					!strings.Contains(out, "brewlet.sh/jdks-info") || !strings.Contains(out, "node-provisioner") {
+					t.Fatalf("missing structured-inventory guidance: %q", out)
+				}
+				if strings.Contains(out, "temurin") || strings.Contains(out, "compact-node") {
+					t.Fatalf("fabricated detailed inventory: %q", out)
+				}
+			})
 		}
 	}
 }
@@ -251,6 +295,9 @@ func TestProfileInspectionAndStaleReadiness(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil || len(report.Nodes) != 1 || !report.Profile.Ready {
 		t.Fatalf("profile report = %s %v", out, err)
 	}
+	if report.Nodes[0].JDKs != "temurin-21" {
+		t.Fatalf("compact inventory missing from profile inspection: %s", out)
+	}
 }
 
 func healthyDeployment(t *testing.T) object {
@@ -265,7 +312,8 @@ func TestStatusDistinguishesOldReplicasAndMissingComponents(t *testing.T) {
 			if state == "old replicas" {
 				dep.Status.UpdatedReplicas = 0
 			}
-			node := objectJSON(t, `{"kind":"Node","metadata":{"name":"worker","labels":{"brewlet.sh/runtime":"ready"}},
+			node := objectJSON(t, `{"kind":"Node","metadata":{"name":"worker","labels":{"brewlet.sh/runtime":"ready"},
+				"annotations":{"brewlet.sh/jdks":"temurin-21"}},
 				"spec":{},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`)
 			if state == "node failed" {
 				node.Metadata.Annotations = map[string]string{"brewlet.sh/provision-error": "jdk-copy-failed"}
@@ -304,6 +352,9 @@ func TestStatusDistinguishesOldReplicasAndMissingComponents(t *testing.T) {
 			}
 			if report.Healthy != (state == "ready") || (err == nil) != report.Healthy {
 				t.Fatalf("status %s: %s, %v", state, out, err)
+			}
+			if state == "ready" && (len(report.Nodes) != 1 || report.Nodes[0].JDKs != "temurin-21") {
+				t.Fatalf("compact inventory missing from status: %s", out)
 			}
 			if state == "admission missing" && report.Components[1].Present {
 				t.Fatal("absent admission should be explicit")
@@ -831,17 +882,18 @@ func TestExecuteErrorsAndCancellation(t *testing.T) {
 func TestDoctorDelegatesChecksAndPropagatesFailure(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		for _, format := range []string{"table", "json", "yaml"} {
-			out, _, err := runTest(t, []string{"doctor", "--context", "staging", "--namespace", "team", "--output", format},
+			out, _, err := runTest(t, []string{"--kubeconfig", "/config with spaces", "doctor", "--context", "staging", "--namespace", "team", "--output", format},
 				func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
-					if !hasArgs(args, "--context", "staging") {
-						t.Fatalf("context missing: %v", args)
+					if !hasArgs(args, "--context", "staging") || !hasArgs(args, "--kubeconfig", "/config with spaces") {
+						t.Fatalf("connection flags missing: %v", args)
 					}
 					switch {
 					case hasArgs(args, "config", "current-context"):
 						return []byte("staging"), nil
 					case hasArgs(args, "get", "nodes"):
 						return []byte(`{"items":[{"metadata":{"name":"node","labels":{"brewlet.sh/runtime":"ready"},
-								"annotations":{"brewlet.sh/jdks":"temurin-21"}},"spec":{},
+								"annotations":{"brewlet.sh/jdks":"temurin-21",
+								"brewlet.sh/jdks-info":"[{\"distribution\":\"temurin\",\"vendor\":\"Adoptium\",\"feature\":21,\"version\":\"21.0.5\",\"arch\":\"amd64\"}]"}},"spec":{},
 								"status":{"nodeInfo":{"containerRuntimeVersion":"containerd://2.0.0"}}}]}`), nil
 					case hasArgs(args, "auth", "can-i"):
 						if !hasArgs(args, "-n", "team") {

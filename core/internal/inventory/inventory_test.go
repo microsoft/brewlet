@@ -6,6 +6,7 @@ package inventory
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
@@ -30,7 +31,7 @@ const nodesJSON = `{
     },
     {
       "metadata": {
-        "name": "node-legacy",
+        "name": "node-compact",
         "annotations": {
           "brewlet.sh/jdks": "temurin-17,microsoft-25"
         }
@@ -50,17 +51,18 @@ func TestParseNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseNodes: %v", err)
 	}
-	// node-none is omitted (no inventory).
-	if len(nodes) != 3 {
-		t.Fatalf("want 3 nodes with inventory, got %d: %+v", len(nodes), nodes)
+	if len(nodes) != 2 {
+		t.Fatalf("want 2 nodes with structured inventory, got %d: %+v", len(nodes), nodes)
 	}
 
 	byName := map[string][]JDKInfo{}
 	for _, n := range nodes {
 		byName[n.Node] = n.JDKs
 	}
-	if _, ok := byName["node-none"]; ok {
-		t.Errorf("node-none should be omitted")
+	for _, name := range []string{"node-none", "node-compact"} {
+		if _, ok := byName[name]; ok {
+			t.Errorf("%s should be omitted", name)
+		}
 	}
 
 	a := byName["node-a"]
@@ -69,15 +71,6 @@ func TestParseNodes(t *testing.T) {
 	}
 	if a[0].Vendor != "Eclipse Adoptium" || a[0].Version != "21.0.5" || a[0].Arch != "amd64" || a[0].Feature != 21 {
 		t.Errorf("node-a[0] unexpected: %+v", a[0])
-	}
-
-	// Legacy annotation yields distribution+feature only.
-	l := byName["node-legacy"]
-	if len(l) != 2 {
-		t.Fatalf("node-legacy: want 2 jdks, got %d", len(l))
-	}
-	if l[0].Distribution != "temurin" || l[0].Feature != 17 || l[0].Vendor != "" {
-		t.Errorf("node-legacy[0] unexpected: %+v", l[0])
 	}
 }
 
@@ -88,10 +81,8 @@ func TestAggregate(t *testing.T) {
 	}
 	agg := Aggregate(nodes)
 
-	// Distinct JDKs: temurin-17(legacy), temurin-21(amd64), microsoft-25(node-a rich),
-	// microsoft-25(node-legacy coarse — different key: no vendor/arch).
-	if len(agg) != 4 {
-		t.Fatalf("want 4 distinct jdks, got %d: %+v", len(agg), agg)
+	if len(agg) != 2 {
+		t.Fatalf("want 2 distinct jdks, got %d: %+v", len(agg), agg)
 	}
 
 	// temurin-21 must be provided by node-a AND node-b.
@@ -129,11 +120,19 @@ func TestRenderTable(t *testing.T) {
 	}
 }
 
-func TestRenderTableEmpty(t *testing.T) {
+func TestRenderEmpty(t *testing.T) {
+	for _, render := range []func(io.Writer, []NodeJDKs){RenderTable, RenderByNode} {
+		var buf bytes.Buffer
+		render(&buf, nil)
+		for _, want := range []string{"No Brewlet JDK inventory", Annotation, "node-provisioner", "docs/jdk-management.md"} {
+			if !strings.Contains(buf.String(), want) {
+				t.Errorf("empty render missing %q: %s", want, buf.String())
+			}
+		}
+	}
 	var buf bytes.Buffer
-	RenderTable(&buf, nil)
-	if !strings.Contains(buf.String(), "No Brewlet JDK inventory") {
-		t.Errorf("empty render missing message: %s", buf.String())
+	if err := RenderJSON(&buf, nil); err != nil || buf.String() != "[]\n" {
+		t.Fatalf("empty JSON = %q, %v", buf.String(), err)
 	}
 }
 
@@ -142,8 +141,8 @@ func TestRenderByNode(t *testing.T) {
 	var buf bytes.Buffer
 	RenderByNode(&buf, nodes)
 	out := buf.String()
-	if !strings.Contains(out, "node-a") || !strings.Contains(out, "node-b") || !strings.Contains(out, "node-legacy") {
-		t.Errorf("by-node output missing a node:\n%s", out)
+	if !strings.Contains(out, "node-a") || !strings.Contains(out, "node-b") || strings.Contains(out, "node-compact") {
+		t.Errorf("by-node output must include only nodes with structured inventory:\n%s", out)
 	}
 }
 
@@ -157,8 +156,8 @@ func TestRenderJSON(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &agg); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
-	if len(agg) != 4 {
-		t.Errorf("want 4 aggregated jdks in JSON, got %d", len(agg))
+	if len(agg) != 2 {
+		t.Errorf("want 2 aggregated jdks in JSON, got %d", len(agg))
 	}
 }
 
@@ -168,9 +167,64 @@ func TestParseNodesBadJSON(t *testing.T) {
 	}
 }
 
-func TestParseNodesBadAnnotation(t *testing.T) {
-	bad := `{"items":[{"metadata":{"name":"n","annotations":{"brewlet.sh/jdks-info":"{not-an-array"}}}]}`
-	if _, err := ParseNodes([]byte(bad)); err == nil {
-		t.Errorf("expected error for malformed annotation JSON")
+func TestParseNodesStructuredInventory(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		raw     string
+		present bool
+		want    int
+		wantErr bool
+	}{
+		{name: "compact only"},
+		{name: "blank", present: true},
+		{name: "whitespace", present: true, raw: " \n\t"},
+		{name: "empty array", present: true, raw: "[]"},
+		{name: "null", present: true, raw: "null"},
+		{name: "structured overrides compact", present: true, raw: `[{"distribution":"microsoft","vendor":"Microsoft","feature":25,"version":"25.0.1","arch":"arm64"}]`, want: 1},
+		{name: "malformed", present: true, raw: "{not-an-array", wantErr: true},
+		{name: "object", present: true, raw: "{}", wantErr: true},
+		{name: "wrong field type", present: true, raw: `[{"feature":"21"}]`, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ann := map[string]string{"brewlet.sh/jdks": "temurin-21"}
+			if tc.present {
+				ann[Annotation] = tc.raw
+			}
+			annotations, err := json.Marshal(ann)
+			if err != nil {
+				t.Fatal(err)
+			}
+			items := []json.RawMessage{
+				json.RawMessage(`{"metadata":{"name":"worker","annotations":` + string(annotations) + `}}`),
+			}
+			if tc.wantErr {
+				items = append([]json.RawMessage{
+					json.RawMessage(`{"metadata":{"name":"valid","annotations":{"brewlet.sh/jdks-info":"[{\"distribution\":\"temurin\",\"feature\":21,\"vendor\":\"Adoptium\",\"version\":\"21.0.5\",\"arch\":\"amd64\"}]"}}}`),
+				}, items...)
+			}
+			raw, err := json.Marshal(struct {
+				Items []json.RawMessage `json:"items"`
+			}{items})
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes, err := ParseNodes(raw)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), `node "worker"`) || !strings.Contains(err.Error(), Annotation) || nodes != nil {
+					t.Fatalf("want contextual error and no partial inventory, got %v, %v", nodes, err)
+				}
+				return
+			}
+			if err != nil || len(nodes) != tc.want {
+				t.Fatalf("inventory = %+v, %v", nodes, err)
+			}
+			if tc.want != 0 {
+				if len(nodes[0].JDKs) != 1 || nodes[0].JDKs[0] != (JDKInfo{
+					Distribution: "microsoft", Vendor: "Microsoft", Feature: 25, Version: "25.0.1", Arch: "arm64",
+				}) {
+					t.Fatalf("structured metadata changed: %+v", nodes)
+				}
+			}
+		})
 	}
 }

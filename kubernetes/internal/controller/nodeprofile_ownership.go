@@ -160,7 +160,7 @@ func unrecordedNodeClaim(profile *nodev1alpha1.NodeProfile, nodes []corev1.Node)
 
 func (r *NodeProfileReconciler) ownershipBlocked(ctx context.Context, profile *nodev1alpha1.NodeProfile, reason string, cause error) (ctrl.Result, error) {
 	var unsupported *preClaimStateError
-	if errors.As(cause, &unsupported) {
+	if errors.As(cause, &unsupported) || HasUnsupportedPreClaimState(profile) {
 		reason = nodev1alpha1.ReasonUnsupportedPreClaimState
 	}
 	base := profile.DeepCopy()
