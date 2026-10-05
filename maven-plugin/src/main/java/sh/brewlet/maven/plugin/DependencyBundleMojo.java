@@ -53,6 +53,7 @@ public class DependencyBundleMojo extends AbstractBrewletMojo {
             throw new MojoExecutionException("brewlet:dependency-bundle requires "
                     + "<dependencyBundleImage> (or <image>) with an OCI reference.");
         }
+        requirePushTag(ref);
         validateSourceBom(sourceBom);
         if ((signingKey == null) != (signerIdentity == null || signerIdentity.isBlank())) {
             throw new MojoExecutionException(

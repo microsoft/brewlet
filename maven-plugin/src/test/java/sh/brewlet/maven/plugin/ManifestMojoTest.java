@@ -334,7 +334,18 @@ class ManifestMojoTest {
     void digestPinnedImageIsUsedDirectly(@TempDir Path dir) throws Exception {
         ManifestMojo mojo = mojo();
         mojo.outputDirectory = dir.toFile();
-        assertEquals(mojo.image, mojo.resolveDeployImage());
+        Path jar = dir.resolve("app.jar");
+        Files.write(jar, TestApplications.zip(java.util.Map.of(
+                "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMain-Class: app.Main\n\n"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        mojo.jarFile = jar.toFile();
+        for (String name : List.of("registry.example.com/app", "localhost:5000/team/app:1")) {
+            mojo.image = name + "@sha256:" + "1".repeat(64);
+            mojo.execute();
+            assertEquals(mojo.image, mojo.resolveDeployImage());
+            assertTrue(Files.readString(dir.resolve("javaapplication.yaml"))
+                    .contains("    image: \"" + mojo.image + "\""));
+        }
     }
 
     @Test
