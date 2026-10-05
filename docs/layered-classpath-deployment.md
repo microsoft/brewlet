@@ -28,7 +28,7 @@ the same layering idea for the **module path** (`-p`).
   `application/vnd.brewlet.classpath.layer.v1+tar` as an *optional* layer "for
   classpath mode": a tar of JARs unpacked to `/app/lib`, driven
   by the existing `entry.mode: "classpath"` plus an optional `entry.classPath`.
-- **This is additive and fully backward compatible.** A single fat JAR
+- **Layering is optional in the current format.** A single fat JAR
   (`entry.mode: jar`) stays the default and the recommended path for most teams. Layer
   splitting is an opt-in optimization for large or frequently-rebuilt services.
 - **Per-application `jlink`/`jmod` payloads remain out of scope.** Layering is

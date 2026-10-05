@@ -368,8 +368,10 @@ spec:
           fieldPath: metadata.name
 ```
 
-On an existing installation, update the JavaApplication CRD before applying
-environment references; Helm does not upgrade CRDs automatically. Reapply any
+Environment references require the matching JavaApplication CRD. For release
+changes, follow the [pre-GA update policy](installation.md#upgrading). During an
+explicitly supported in-place transition or recovery, update that CRD before
+applying references; Helm does not upgrade CRDs automatically. Reapply any
 JavaApplication manifests whose references were pruned by an older CRD.
 
 Disabling `service.enabled` (or removing all ports) and disabling autoscaling

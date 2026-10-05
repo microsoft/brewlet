@@ -190,7 +190,8 @@ digest-pinned by the published chart.
 
 Follow the [installation guide](https://brewlet.sh/docs/installation/) for
 source-built component installation, pool labels, scoped node profiles,
-configuration, upgrades, and safe removal. Keep your chosen values for upgrades.
+configuration, release replacement, and safe removal. Keep your reviewed values
+for reuse after adapting them to the target release.
 If GHCR denies an anonymous pull, see
 [package access troubleshooting](https://brewlet.sh/docs/installation/#package-access-troubleshooting);
 package visibility is managed separately from repository visibility.
@@ -229,6 +230,10 @@ feature requests. See [SUPPORT.md](SUPPORT.md) for support expectations and
 [SECURITY.md](SECURITY.md) for confidential vulnerability reporting.
 
 ## Releases
+
+Brewlet is pre-GA. [Compatibility policy](docs/compatibility.md) defines the
+explicit promises and exceptions; release updates default to safe
+teardown/reinstallation, not in-place upgrades.
 
 Before creating a release tag, update and commit the
 [specification version](specs/README.md#versioning-and-citations) to match the

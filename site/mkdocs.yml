@@ -74,6 +74,7 @@ nav:
   - Understand:
       - Home: README.md
       - Concepts & architecture: concepts.md
+      - Pre-GA compatibility policy: compatibility.md
       - Roadmap (planned work): https://github.com/microsoft/brewlet/blob/main/ROADMAP.md
   - Try it:
       - Getting started: getting-started.md

@@ -8,9 +8,14 @@ reviewable design in [`proposals/`](proposals/) and remain on the
 
 ## Versioning and citations
 
-The specification is a living, versioned contract. Backward-incompatible
-changes require an explicit version transition, while compatible clarifications
-and additions may land incrementally. Brewlet components and documentation cite
+The specification is a living, versioned contract for the current release.
+The [pre-GA compatibility policy](../docs/compatibility.md) governs cross-release
+promises: superseded Brewlet interfaces have no automatic retention obligation,
+and release updates default to safe teardown/reinstallation. Incompatible changes
+must be documented explicitly; versioned contracts require explicit transitions,
+not an assumed migration period unless a named exception requires one.
+Compatible clarifications and additions may land incrementally.
+Brewlet components and documentation cite
 requirements by section using the existing `§N` convention (for example, `§4.2`).
 
 The `**Version:**` header in `SPECIFICATION.md` tracks the Brewlet release version
@@ -25,7 +30,9 @@ not match.
 Public reference contracts:
 
 - [Capability labels](CAPABILITY_LABELS.md) — stable node scheduling labels,
-  admission affinity semantics, and autoscaler recipes.
+  admission affinity semantics, and autoscaler recipes. Its contract versioning
+  and dual-publication migration period remain an explicit pre-GA exception,
+  not a general installation-upgrade promise.
 
 ## Implementations
 

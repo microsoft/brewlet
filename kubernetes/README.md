@@ -17,6 +17,10 @@ documentation lives in [`docs/`](../docs/).
 
 ## Install with Helm
 
+Use a fresh evaluation environment. Pre-GA release updates default to
+[safe teardown/reinstallation](../docs/installation.md#upgrading); the command
+below does not establish in-place upgrade support.
+
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet \
@@ -39,7 +43,7 @@ kubectl get nodes -L brewlet.sh/runtime
 ```
 
 See the [Brewlet installation guide](../docs/installation.md) for
-cluster prerequisites and production configuration.
+cluster prerequisites and reviewed runtime configuration.
 
 The public [capability-label reference](../specs/CAPABILITY_LABELS.md) defines
 the node labels emitted from `NodeProfile` inventories, the affinity injected

@@ -241,8 +241,14 @@ from the checked-out commit.
 ## Pull request requirements
 
 - Keep commits and pull requests focused.
-- Preserve backward compatibility unless the change is explicitly approved as
-  breaking.
+- Follow the [pre-GA compatibility policy](docs/compatibility.md). Superseded
+  Brewlet interfaces have no automatic compatibility obligation; retaining an
+  alternative requires a current use case and documented maintainer support
+  decision. Propose removals explicitly, document incompatible changes and
+  operator actions, and preserve named exceptions and operational safeguards.
+- Pre-GA release updates default to safe teardown/reinstallation. An in-place
+  exception must name its source/target releases, scope, prerequisites,
+  validation evidence, and recovery limits; migration code alone is not a promise.
 - Do not include credentials, proprietary data, or unrelated generated files.
 - Ensure commits contain only work that you have the right to contribute.
 - Add the language-appropriate Microsoft MIT copyright header to every new

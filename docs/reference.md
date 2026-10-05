@@ -19,7 +19,7 @@ grammar, and compatibility guarantees. JDK and launcher capabilities are
 boolean-presence labels: admission matches their keys with `Operator: Exists`,
 not by requiring the current value `true`.
 
-`brewlet.sh/provision=true` is the legacy activation label for the standalone
+`brewlet.sh/provision=true` is the activation label for the standalone
 provisioner manifest. Operator-managed installations select nodes through
 `NodeProfile.spec.nodePool`; they do not require that label. See
 [Capability labels and autoscaling](capability-labels-and-autoscaling.md) for

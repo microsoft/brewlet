@@ -90,6 +90,8 @@ independent required scenarios, pinned release baseline, evidence and limits.
 ### Run it on a cluster
 - **[Installation](installation.md)** — prerequisites, the SpinKube-style `helm
   install`, the manual (no-Helm) path, and how to verify the fleet is ready.
+- **[Pre-GA compatibility policy](compatibility.md)** — explicit promises,
+  release replacement, support decisions, and required safety protections.
 - **[Configuration](configuration.md)** — every knob: Helm values, provisioner
   env vars, operator/admission flags, the RuntimeClass, and precedence rules.
 - **[JDK management](jdk-management.md)** — installing, versioning, patching, and
