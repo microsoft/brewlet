@@ -20,7 +20,7 @@ fixture() {
   STAGE_GC_ENABLED=true
   STAGE_GC_INTERVAL_SECONDS=1
   STAGE_GC_MIN_AGE_SECONDS=86400
-  STAGE_GC_UPGRADE_ACKNOWLEDGED=false
+  unset BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED
   STAGE_GC_ALLOW_NESTED_PID_NAMESPACE=false
   STAGE_GC_COMPATIBLE=false
   STAGE_GC_CHILD=""
@@ -62,33 +62,37 @@ for root in absent empty; do
   )
 done
 
-# Existing shims or any retained staging tree require explicit acknowledgment.
-for existing in shim stage; do
+# Existing shims and unmanaged or current stage data cannot establish safety.
+for existing in host-shim prefix-shim current-stage unmanaged-stage pending-stage; do
   (
     fixture
-    if [[ "$existing" == shim ]]; then
-      printf 'old-shim\n' >"$HOST_BIN/$SHIM_NAME"
-    else
-      mkdir -p "$STAGE_GC_ROOT/immutable-v2/retained"
+    case "$existing" in
+      host-shim) printf 'unguarded-shim\n' >"$HOST_BIN/$SHIM_NAME" ;;
+      prefix-shim) printf 'unguarded-shim\n' >"$PREFIX/bin/$SHIM_NAME" ;;
+      current-stage) mkdir -p "$STAGE_GC_ROOT/immutable-v2/$(printf 'a%.0s' {1..64})" ;;
+      unmanaged-stage) mkdir -p "$STAGE_GC_ROOT/immutable-v1/retained" ;;
+      pending-stage) mkdir -p "$STAGE_GC_ROOT/immutable-v2/.pending" ;;
+    esac
+    if [[ "$existing" == *-stage ]]; then
+      printf 'preserve\n' >"$STAGE_GC_ROOT/evidence"
     fi
-    prepare_stage_gc
-    [[ "$STAGE_GC_COMPATIBLE" == false ]]
-    install_fixture
-    [[ ! -e "$PREFIX/.stage-gc-compatible" ]]
-    prepare_stage_gc
-    [[ "$STAGE_GC_COMPATIBLE" == false ]]
-    STAGE_GC_UPGRADE_ACKNOWLEDGED=true
-    prepare_stage_gc
-    [[ "$STAGE_GC_COMPATIBLE" == true ]]
-    install_fixture
-    STAGE_GC_UPGRADE_ACKNOWLEDGED=false
-    prepare_stage_gc
-    [[ "$STAGE_GC_COMPATIBLE" == true ]]
+    for enabled in true false true; do
+      STAGE_GC_ENABLED="$enabled"
+      prepare_stage_gc
+      [[ "$STAGE_GC_COMPATIBLE" == false ]]
+      install_fixture
+      [[ ! -e "$PREFIX/.stage-gc-compatible" ]]
+      if [[ "$existing" == *-stage ]]; then
+        [[ "$(cat "$STAGE_GC_ROOT/evidence")" == preserve ]]
+      else
+        [[ ! -e "$STAGE_GC_ROOT" ]]
+      fi
+    done
   )
 done
 
 # A rollback or changed staging location invalidates previously saved approval.
-for changed in host-shim prefix-shim root; do
+for changed in host-shim prefix-shim root missing-record mismatched-record symlink-record interrupted; do
   (
     fixture
     prepare_stage_gc
@@ -97,10 +101,40 @@ for changed in host-shim prefix-shim root; do
       host-shim) printf 'old-shim\n' >"$HOST_BIN/$SHIM_NAME" ;;
       prefix-shim) printf 'old-shim\n' >"$PREFIX/bin/$SHIM_NAME" ;;
       root) STAGE_GC_ROOT="$STAGE_GC_ROOT/other" ;;
+      missing-record) rm "$PREFIX/.stage-gc-compatible" ;;
+      mismatched-record) printf 'not-this-installation\n' >"$PREFIX/.stage-gc-compatible" ;;
+      symlink-record)
+        mv "$PREFIX/.stage-gc-compatible" "$PREFIX/saved-record"
+        ln -s "$PREFIX/saved-record" "$PREFIX/.stage-gc-compatible"
+        ;;
+      interrupted) prepare_stage_gc ;;
     esac
     prepare_stage_gc
     [[ "$STAGE_GC_COMPATIBLE" == false ]]
     [[ ! -e "$PREFIX/.stage-gc-compatible" ]]
+    install_fixture
+    prepare_stage_gc
+    [[ "$STAGE_GC_COMPATIBLE" == false ]]
+  )
+done
+
+# Obsolete input is rejected before host access, including false and empty values.
+for value in true false ""; do
+  (
+    fixture
+    BREWLET_MODE=provision
+    BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED="$value"
+    COMPLETION_FILE="$PREFIX/complete"
+    : >"$COMPLETION_FILE"
+    ensure_in_cluster_kubeconfig() { echo unexpected-host-access >>"$calls"; }
+    verify_node_ownership() { echo unexpected-host-access >>"$calls"; }
+    remove_appcds_regeneration_policy() { echo unexpected-host-access >>"$calls"; }
+    if main >"$PREFIX/error" 2>&1; then
+      echo "accepted removed acknowledgment" >&2
+      exit 1
+    fi
+    grep -Fq 'BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED has been removed' "$PREFIX/error"
+    [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]]
   )
 done
 

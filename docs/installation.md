@@ -428,8 +428,8 @@ For source builds, use the local chart instead and retain your digest-pinned
 component overrides. For incompatible legacy profiles, use the maintenance
 sequence below within that transition instead of the direct upgrade command.
 
-An upgrade that introduces automatic runnable-stage GC can leave existing nodes
-Ready while cleanup remains blocked pending migration acknowledgment.
+Unverified runnable-stage installations can leave nodes
+Ready while automatic cleanup remains blocked by installation safety checks.
 `helm upgrade --wait` does not prove GC is active. After the runtime rollout,
 follow [Activating runnable-stage GC](#activating-runnable-stage-gc).
 
@@ -496,37 +496,29 @@ helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
 
 #### Activating runnable-stage GC
 
-These safety requirements apply whenever existing state is encountered, including
-recovery or an explicitly supported in-place transition. They do not grant
-release-update support. For configuration maintenance, set `RELEASE_VERSION`
-to the installed chart version and retain its component choices.
+Fresh nodes enable periodic cleanup automatically after successful provisioning.
+Fresh means no installed shim copies or safety record and an absent or empty
+stage root. Existing installations require a matching
+`/opt/brewlet/.stage-gc-compatible` record bound to both installed shim copies and
+the stage path. This is local safety evidence, not an in-place upgrade promise.
+It is preserved across ordinary current-release maintenance, including disabling
+and re-enabling GC. A missing or mismatched record keeps GC blocked without
+preventing runtime readiness.
 
-Fresh nodes enable periodic cleanup automatically. On an existing installation,
-the default `stageGC.upgradeAcknowledged=false` keeps cleanup blocked unless
-the node has a matching compatibility record. A blocked node continues serving
-workloads and logs `stage GC blocked`.
+There is no acknowledgment override for blocked nodes. Follow the
+[default teardown/reinstallation procedure](#default-safe-teardown-and-reinstallation)
+using the installed release's cleanup path. Retire unguarded shims, finish their
+launches, and retire or regenerate exported bundles that reference stage files.
+Replacing the shim binary alone does not stop existing shim processes.
+Review retained stage roots and their consumers before reinstalling: uninstall
+does not remove these trees or establish that they are unused. Do not forge
+records, rename retained roots, bypass finalizers, or delete in-use files.
+Use a safely prepared or replacement node when safety cannot be established.
 
-First roll out the matching operator and provisioner, then retire older
-unguarded shims and finish or quiesce their launches. Merely replacing the shim
-binary does not retire already running shim processes; use your workload
-restart/drain procedure where needed. Retire or regenerate exported OCI bundles
-that point into the stage cache, and stop or upgrade other unguarded stage
-consumers. Complete these prerequisites across **all operator-managed nodes**,
-including externally managed NodeProfiles, before acknowledging migration:
-
-```bash
-helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$RELEASE_VERSION" \
-  --namespace brewlet \
-  --values values.yaml \
-  --values my-jdks.yaml \
-  --set stageGC.upgradeAcknowledged=true \
-  --wait
-```
-
-Keep `stageGC.enabled=true` for activation. For source builds, use the local chart
-and retain the matching component overrides as above. Check the provisioner
-logs for each managed node, not just pod readiness:
+Keep `stageGC.enabled=true` for activation on verified installations. For
+current-release configuration maintenance, pin the installed chart version and
+retain its component choices. Check the provisioner logs for each managed node,
+not just pod readiness:
 
 ```bash
 kubectl get pods -n brewlet -l app=brewlet-node-provisioner -o wide
@@ -537,26 +529,14 @@ Look for `stage GC: successful_sweeps=...` with a recent `last_success` timestam
 zero removed stages is a valid successful sweep. `last_success=never` with
 failed attempts means cleanup has not succeeded. Investigate inspection,
 namespace, socket-access, and lock errors; do not bypass them by deleting stage
-directories. Neither GC failure counters nor compatibility blocking are part of
+directories. Neither GC failure counters nor installation safety blocking are part of
 the pod readiness gate.
 
-After the rollout, reset the fleet-wide acknowledgment:
-
-```bash
-helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$RELEASE_VERSION" \
-  --namespace brewlet \
-  --values values.yaml \
-  --values my-jdks.yaml \
-  --set stageGC.upgradeAcknowledged=false \
-  --wait
-```
-
-Compatible nodes retain their approval, tied to the installed shims and stage
-path. Disable automatic GC with `stageGC.enabled=false` before manually rolling
-back shims or introducing unguarded consumers. Do not add a separate timer or
+Disable automatic GC with `stageGC.enabled=false` before introducing unguarded
+consumers; this does not make rollback or mixed-version operation supported.
+Do not add a separate timer or
 invoke destructive manual cleanup to bypass blocked activation: manual commands
-do not enforce the provisioner's migration gate. See
+do not enforce the provisioner's installation safety gate. See
 [Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages) for the
 reclamation rules and [Configuration](configuration.md#runnable-image-stage-cleanup)
 for all settings.

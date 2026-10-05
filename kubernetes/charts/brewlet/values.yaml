@@ -137,10 +137,8 @@ stageGC:
   interval: 5m
   # Stage directory age, not time since last use or since becoming unreferenced.
   minAge: 24h
-  # On existing installations, first retire older unguarded shims and exported
-  # bundles that point into the stage cache. Fresh nodes activate automatically.
-  # Reset to false after the rollout; compatible nodes remember activation.
-  upgradeAcknowledged: false
+  # Fresh nodes activate automatically. Unverified installations stay blocked;
+  # there is no override for the per-node installation safety check.
   # Test-only. Lets the reaper run where each node is itself a container with a
   # private PID namespace (kind). The reaper then sees only that node's processes,
   # so never enable it on real nodes.

@@ -25,7 +25,7 @@ type dependencies struct {
 // Reap removes only old, unreferenced immutable-v2 digest directories. MinAge
 // must be strictly positive. Metadata and every visible process's mounts
 // must be readable before any deletion. Run in the host namespaces with a
-// complete proc mount; concurrent legacy launchers must be quiesced.
+// complete proc mount; unguarded consumers must be retired before cleanup.
 func Reap(ctx context.Context, address string, opts Options) (Result, error) {
 	return reap(ctx, address, opts, dependencies{containerReferences, hostMounts, time.Now})
 }

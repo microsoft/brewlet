@@ -97,7 +97,6 @@ the checksum gate to reject each build.
 | `BREWLET_STAGE_GC_ENABLED` | `true` | Periodically reclaim unreferenced runnable-image stages after successful provisioning |
 | `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Positive whole seconds between sweeps, plus up to 10% jitter |
 | `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age, not unused age; positive whole seconds |
-| `BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED` | `false` | Confirm all older unguarded shims and stage-dependent exported bundles have been retired |
 | `BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE` | `false` | Test-only: let the reaper run on kind nodes, whose PID namespace is not the initial one |
 | `BREWLET_RUNNABLE_STAGE` | `/tmp/brewlet-runnable` | Host staging path for GC; must match the shim's staging root |
 | `NODE_NAME` | downward API | Kubernetes node to label |
@@ -148,13 +147,16 @@ provisioner exits.
 This is independent of the optional metrics exporter.
 
 Fresh nodes activate automatically. Existing shim installations or nonempty
-staging roots require migration acknowledgment unless a saved
+staging roots stay provisioned with `stage GC blocked` unless a saved
 `$PREFIX/.stage-gc-compatible` record matches both installed shims and the stage
-path. Compatibility is recorded even when GC is disabled so later enabling it
-on a fresh, guarded installation needs no migration acknowledgment. The record
-is invalidated before replacing binaries and removed on teardown. Never
-acknowledge an upgrade until older unguarded shims and stage-dependent exported
-bundles have been retired; reset the acknowledgment after rollout.
+path. This is installation safety evidence, not cross-release compatibility.
+It is recorded even when GC is disabled, invalidated before replacing binaries,
+and removed on teardown. A missing or mismatched record cannot be repaired merely
+by installing new shims or toggling GC. There is no acknowledgment override.
+Use safe teardown/reinstallation to retire unguarded shims and stage-dependent
+exported bundles. Teardown leaves stage trees for reviewed host cleanup; it does
+not prove that retained files are unused. Do not forge records or rename roots
+to activate GC. Use a replacement node if safety cannot be established.
 See [runnable stage cleanup](../docs/runnable-image.md#reclaiming-unused-stages).
 The shim's environment and metrics exporter's stage mount must also be aligned
 when using a nondefault staging location; setting the provisioner variable alone

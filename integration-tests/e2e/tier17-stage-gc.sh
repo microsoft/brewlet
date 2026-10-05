@@ -6,22 +6,20 @@
 # operator, provisioner DaemonSet, shim, kubelet, and containerd.
 #
 # What this tier proves on a local containerd node (kind/CI):
-#   (1) the chart's defaults enable GC and propagate interval/min-age/ack to the
+#   (1) the chart's defaults enable GC and propagate interval/min-age to the
 #       provisioner DaemonSet without the metrics exporter;
-#   (2) the upgrade gate blocks GC on a node whose stage root already holds data
-#       and no compatibility record exists, and never deletes anything;
-#   (3) stageGC.upgradeAcknowledged=true activates sweeps and writes the per-node
-#       compatibility record, which keeps GC active after the acknowledgment is
-#       reset;
+#   (2) a fresh installation establishes a per-node safety record and activates sweeps;
+#   (3) current-release maintenance preserves safety across worker replacement;
 #   (4) a stage stays while its image is referenced by containerd and mounted by
 #       a running pod, and still stays after the pod is gone but the image
 #       remains;
 #   (5) once the image is removed and containerd collects its content, a sweep
-#       deletes the orphaned stage and leaves non-canonical trees alone.
+#       deletes the orphaned stage and leaves unmanaged/pending trees alone;
+#   (6) removing this fixture's safety record while GC is disabled blocks later
+#       activation without failing runtime readiness or reclaiming any stages.
 #
 # The tier uses minAge=1s and interval=5s to finish quickly. With GC activated,
-# the reaper may also remove other unreferenced canonical stages left on the
-# test node by earlier tiers; that is exactly its production behavior.
+# this tier requires a dedicated fresh node, not retained state from other tiers.
 
 T17_RELEASE="brewlet-stagegc-e2e"
 T17_RELEASE_NS="default"
@@ -38,7 +36,8 @@ T17_ADM_IMG="brewlet.local/brewlet-admission:stagegc-e2e"
 T17_PROV_IMG="brewlet.local/brewlet-node-provisioner:stagegc-e2e"
 T17_STAGE_ROOT="/tmp/brewlet-runnable"
 T17_RECORD="/opt/brewlet/.stage-gc-compatible"
-T17_SENTINEL="$T17_STAGE_ROOT/t17-legacy-sentinel"
+T17_SENTINEL="$T17_STAGE_ROOT/t17-unmanaged-sentinel"
+T17_PENDING="$T17_STAGE_ROOT/immutable-v2/.t17-pending"
 T17_NODE=""
 T17_ARCH=""
 T17_HELM_INSTALLED=""
@@ -47,7 +46,6 @@ T17_APP_NS_CREATED=""
 T17_NODE_TOUCHED=""
 T17_JDK_PREEXISTING=""
 T17_JDK_ACTIVE_PREEXISTING=""
-T17_RECORD_PREEXISTING=""
 T17_SENTINEL_CREATED=""
 T17_IMAGE_DIGEST=""
 T17_IMPORT_DIGEST=""
@@ -124,23 +122,23 @@ _t17_remove_image() {
 _t17_cleanup() {
   info "tier17: cleaning up"
   if [[ -n "$T17_APP_NS_CREATED" ]]; then
-    kubectl delete ns "$T17_APP_NS" --ignore-not-found --wait=true --timeout=120s \
-      >/dev/null 2>&1 || true
+    if ! kubectl delete ns "$T17_APP_NS" --ignore-not-found --wait=true --timeout=120s; then
+      fail "tier17: workload cleanup blocked; preserving node and recovery evidence"
+      return 1
+    fi
   fi
-  if [[ -n "$T17_PROFILE_CREATED" ]] &&
-     kubectl get nodeprofile "$T17_PROFILE" >/dev/null 2>&1; then
-    kubectl delete nodeprofile "$T17_PROFILE" --wait=false >/dev/null 2>&1 || true
-    if ! wait_for_seconds 120 bash -c "! kubectl get nodeprofile '$T17_PROFILE'"; then
-      warn "tier17: profile cleanup did not finish; removing the test finalizer"
-      node_exec "$T17_NODE" rm -f /opt/brewlet/bin/containerd-shim-brewlet-v2 \
-        /usr/local/bin/containerd-shim-brewlet-v2 /usr/local/bin/brewlet-ctr \
-        /usr/local/bin/brewlet-stage-gc "$T17_RECORD" >/dev/null 2>&1 || true
-      kubectl patch nodeprofile "$T17_PROFILE" --type=merge \
-        -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+  if [[ -n "$T17_PROFILE_CREATED" ]]; then
+    if ! kubectl delete nodeprofile "$T17_PROFILE" --ignore-not-found --wait=true --timeout=300s; then
+      fail "tier17: profile cleanup blocked; preserving finalizers, workers, and host evidence" \
+        "diag: $(save_pod_diag t17-cleanup "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
+      return 1
     fi
   fi
   if [[ -n "$T17_HELM_INSTALLED" ]]; then
-    helm uninstall "$T17_RELEASE" -n "$T17_RELEASE_NS" >/dev/null 2>&1 || true
+    if ! helm uninstall "$T17_RELEASE" -n "$T17_RELEASE_NS" --wait --timeout 300s; then
+      fail "tier17: chart cleanup blocked; preserving recovery evidence"
+      return 1
+    fi
     kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
     kubectl delete crd javaapplications.apps.brewlet.sh nodeprofiles.node.brewlet.sh \
       --ignore-not-found --wait=false >/dev/null 2>&1 || true
@@ -155,11 +153,8 @@ _t17_cleanup() {
   if [[ -n "$T17_NODE_TOUCHED" ]]; then
     _t17_restore_containerd ||
       fail "tier17: restore the node's original containerd configuration"
-    if [[ -n "$T17_RECORD_PREEXISTING" ]]; then
-      _t17_restore_file "$T17_RECORD" "$WORK/t17-record" || true
-    fi
     [[ -n "$T17_SENTINEL_CREATED" ]] &&
-      node_exec "$T17_NODE" rm -rf "$T17_SENTINEL" >/dev/null 2>&1 || true
+      node_exec "$T17_NODE" rm -rf "$T17_SENTINEL" "$T17_PENDING" >/dev/null 2>&1 || true
     label_node "$T17_NODE" "$T17_POOL_KEY-" brewlet.sh/provision- \
       brewlet.sh/runtime- "brewlet.sh/jdk.$T17_JDK-" \
       "brewlet.sh/jdk-feature.${T17_JDK##*-}-" brewlet.sh/launcher.java- \
@@ -295,19 +290,34 @@ _t17_ds_env() {
     -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name==\"$1\")].value}" 2>/dev/null
 }
 
-# _t17_wait_rollout ACK: after a Helm change, wait for the operator to render ACK
-# into the DaemonSet, the rollout to finish, and the new pod to provision.
+# Wait for rendered settings, observed rollout, and a ready replacement worker.
 _t17_wait_rollout() {
-  local ack="$1" ds="brewlet-node-provisioner-$T17_PROFILE" pod
-  wait_for_seconds 180 bash -c \
-    "[[ \"\$(kubectl get ds '$ds' -n '$T17_NS' -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED\")].value}')\" == '$ack' ]]" ||
-    return 1
+  local enabled="$1" interval="$2" age="$3" previous="${4:-}"
+  local ds="brewlet-node-provisioner-$T17_PROFILE" pod
+  local key value
+  for key in ENABLED INTERVAL_SECONDS MIN_AGE_SECONDS; do
+    case "$key" in
+      ENABLED) value="$enabled" ;;
+      INTERVAL_SECONDS) value="$interval" ;;
+      MIN_AGE_SECONDS) value="$age" ;;
+    esac
+    wait_for_seconds 180 bash -c \
+      "[[ \"\$(kubectl get ds '$ds' -n '$T17_NS' -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name==\"BREWLET_STAGE_GC_$key\")].value}')\" == '$value' ]]" ||
+      return 1
+  done
   kubectl rollout status ds/"$ds" -n "$T17_NS" --timeout=300s >>"$WORK/t17-profile.log" 2>&1 ||
     return 1
   local deadline=$(( $(date +%s) + 180 ))
   while (( $(date +%s) < deadline )); do
     pod="$(_t17_provisioner_pod)"
-    if [[ -n "$pod" ]] && _t17_logs "$pod" | grep -Fq "node ${T17_NODE} provisioned successfully"; then
+    if [[ -n "$pod" && "$pod" != "$previous" ]] &&
+       _t17_logs "$pod" | grep -Fq "node ${T17_NODE} provisioned successfully"; then
+      kubectl wait -n "$T17_NS" --for=condition=Ready pod/"$pod" --timeout=120s \
+        >>"$WORK/t17-profile.log" 2>&1 || return 1
+      if [[ -n "$previous" ]]; then
+        kubectl wait -n "$T17_NS" --for=delete pod/"$previous" --timeout=120s \
+          >>"$WORK/t17-profile.log" 2>&1 || return 1
+      fi
       printf '%s' "$pod"
       return 0
     fi
@@ -347,6 +357,23 @@ tier17_stage_gc() {
     fail "tier17: clean Brewlet cluster state" "run ./run.sh --reset before tier 17"
     return 0
   fi
+  if ! node_exec "$T17_NODE" sh -eu -c '
+    for path in /opt/brewlet/bin/containerd-shim-brewlet-v2 \
+        /usr/local/bin/containerd-shim-brewlet-v2 "$1"; do
+      [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1
+    done
+    [ ! -L "$2" ] || exit 1
+    if [ -d "$2" ]; then
+      entries="$(find "$2" -mindepth 1 -maxdepth 1 -print -quit)"
+      [ -z "$entries" ]
+    else
+      [ ! -e "$2" ]
+    fi
+  ' sh "$T17_RECORD" "$T17_STAGE_ROOT"; then
+    fail "tier17: requires a dedicated fresh node" \
+      "existing shim, record, or stage state was preserved; a Kubernetes reset does not make the node fresh"
+    return 0
+  fi
 
   # --- snapshot and prepare host state --------------------------------------
   node_exec "$T17_NODE" test -e "/opt/brewlet/jdks/$T17_JDK" >/dev/null 2>&1 &&
@@ -354,25 +381,14 @@ tier17_stage_gc() {
   if ! _t17_snapshot_file /etc/containerd/config.toml "$WORK/t17-containerd.toml" ||
      ! _t17_snapshot_file /etc/containerd/config.toml.brewlet.bak "$WORK/t17-containerd-bak.toml" ||
      ! _t17_snapshot_file /etc/containerd/config.toml.d/99-brewlet.toml "$WORK/t17-containerd-dropin.toml" ||
-     ! _t17_snapshot_file /opt/brewlet/jdks/.brewlet-active "$WORK/t17-jdk-active" ||
-     ! _t17_snapshot_file "$T17_RECORD" "$WORK/t17-record"; then
+     ! _t17_snapshot_file /opt/brewlet/jdks/.brewlet-active "$WORK/t17-jdk-active"; then
     fail "tier17: snapshot node state"; return 0
   fi
   node_exec "$T17_NODE" sh -c \
     'cat /etc/containerd/config.toml /etc/containerd/config.toml.d/99-brewlet.toml 2>/dev/null' \
     >"$WORK/t17-containerd-state-before" 2>/dev/null || true
-  [[ -f "$WORK/t17-record.present" ]] && T17_RECORD_PREEXISTING=1
   T17_NODE_TOUCHED=1
   trap _t17_cleanup RETURN
-
-  # An existing, record-less stage root makes this an "upgraded" node. The
-  # sentinel is a non-canonical tree, which the reaper must never delete.
-  node_exec "$T17_NODE" rm -f "$T17_RECORD" >/dev/null 2>&1 || true
-  if ! node_exec "$T17_NODE" test -e "$T17_SENTINEL" >/dev/null 2>&1; then
-    node_exec "$T17_NODE" sh -c 'mkdir -p "$1" && echo keep >"$1/app.jar"' sh "$T17_SENTINEL" \
-      >/dev/null 2>&1 || { fail "tier17: plant pre-existing stage data"; return 0; }
-    T17_SENTINEL_CREATED=1
-  fi
 
   # --- build and load images ------------------------------------------------
   for n in $nodes; do T17_LOADED_NODES+=("$n"); done
@@ -410,7 +426,7 @@ tier17_stage_gc() {
   T17_IMAGE_DIGEST="$digest"
   T17_IMPORT_DIGEST="sha256:$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$store/index.json")"
 
-  # --- (1)+(2): chart defaults, blocked on an upgraded node -----------------
+  # --- (1)+(2): chart defaults, fresh installation ---------------------------
   info "tier17: installing the chart with default stageGC values"
   T17_HELM_INSTALLED=1
   if ! helm install "$T17_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
@@ -421,7 +437,6 @@ tier17_stage_gc() {
       --set images.provisioner="$T17_PROV_IMG" \
       --set images.pullPolicy=IfNotPresent \
       --set defaultProfile.enabled=false \
-      --set operator.leaderElect=false \
       --set stageGC.allowNestedPIDNamespace=true \
       --wait --timeout 180s >"$WORK/t17-install.log" 2>&1; then
     save_pod_diag t17-install "$T17_NS" >>"$WORK/t17-install.log" 2>&1 || true
@@ -464,8 +479,8 @@ YAML
   assert_eq "tier17: GC is enabled by default" "$(_t17_ds_env BREWLET_STAGE_GC_ENABLED)" "true"
   assert_eq "tier17: default interval is 5m" "$(_t17_ds_env BREWLET_STAGE_GC_INTERVAL_SECONDS)" "300"
   assert_eq "tier17: default minimum age is 24h" "$(_t17_ds_env BREWLET_STAGE_GC_MIN_AGE_SECONDS)" "86400"
-  assert_eq "tier17: upgrade acknowledgment defaults off" \
-    "$(_t17_ds_env BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED)" "false"
+  assert_eq "tier17: removed acknowledgment is not emitted" \
+    "$(_t17_ds_env BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED)" ""
   # kind nodes are containers with a private PID namespace; the reaper refuses
   # them unless this test-only opt-in is set.
   assert_eq "tier17: nested PID namespace opt-in reaches the provisioner" \
@@ -473,61 +488,45 @@ YAML
   assert_eq "tier17: GC runs without the metrics exporter sidecar" \
     "$(kubectl get ds "$ds" -n "$T17_NS" -o jsonpath='{.spec.template.spec.containers[*].name}')" \
     "provisioner"
-  if ! pod="$(_t17_wait_rollout false)"; then
+  if ! pod="$(_t17_wait_rollout true 300 86400)"; then
     fail "tier17: provisioner provisioned the node" \
       "diag: $(save_pod_diag t17-provisioner "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
     return 0
   fi
-  if wait_for_seconds 60 bash -c \
-      "kubectl logs '$pod' -n '$T17_NS' -c provisioner | grep -Fq 'stage GC blocked'"; then
-    pass "tier17: upgraded node without a compatibility record blocks GC"
-  else
-    fail "tier17: upgraded node without a compatibility record blocks GC" \
-      "diag: $(save_pod_diag t17-blocked "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
+  if ! _t17_wait_sweeps "$pod" 1 ||
+     ! node_exec "$T17_NODE" test -s "$T17_RECORD"; then
+    fail "tier17: fresh installation activates GC and writes its safety record" \
+      "diag: $(save_pod_diag t17-fresh "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
     return 0
   fi
-  assert_not_contains "tier17: blocked node never invokes the reaper" \
-    "$(_t17_logs "$pod")" "stage GC: successful_sweeps="
-  check "tier17: blocked node writes no compatibility record" \
-    node_exec "$T17_NODE" test ! -e "$T17_RECORD"
+  pass "tier17: fresh installation activates GC and writes its safety record"
   check "tier17: helper is installed on the host" \
     node_exec "$T17_NODE" test -x /usr/local/bin/brewlet-stage-gc
 
-  # --- (3): acknowledge, then reset -----------------------------------------
-  info "tier17: acknowledging the upgrade with a short interval and minimum age"
+  T17_SENTINEL_CREATED=1
+  if ! node_exec "$T17_NODE" sh -eu -c '
+    mkdir -p "$1" "$2"
+    echo keep >"$1/app.jar"
+    echo pending >"$2/app.jar"
+  ' sh "$T17_SENTINEL" "$T17_PENDING"; then
+    fail "tier17: create unmanaged and pending fixtures"; return 0
+  fi
+
+  # --- (3): current-installation maintenance retains safety ------------------
+  info "tier17: configuring a short interval and minimum age"
   if ! helm upgrade "$T17_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
       --namespace "$T17_RELEASE_NS" --reuse-values \
       --set stageGC.interval=5s --set stageGC.minAge=1s \
-      --set stageGC.upgradeAcknowledged=true \
       --wait --timeout 180s >>"$WORK/t17-install.log" 2>&1 ||
-     ! pod="$(_t17_wait_rollout true)"; then
-    fail "tier17: roll out upgradeAcknowledged=true" \
-      "diag: $(save_pod_diag t17-ack "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
+     ! pod="$(_t17_wait_rollout true 5 1 "$pod")"; then
+    fail "tier17: configure current installation" \
+      "diag: $(save_pod_diag t17-config "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
     return 0
   fi
   if _t17_wait_sweeps "$pod" 1; then
-    pass "tier17: acknowledgment activates periodic sweeps"
+    pass "tier17: safety record keeps GC active after worker replacement"
   else
-    fail "tier17: acknowledgment activates periodic sweeps" \
-      "diag: $(save_pod_diag t17-ack-sweep "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
-    return 0
-  fi
-  check "tier17: compatible node persists its compatibility record" \
-    node_exec "$T17_NODE" test -f "$T17_RECORD"
-
-  if ! helm upgrade "$T17_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
-      --namespace "$T17_RELEASE_NS" --reuse-values \
-      --set stageGC.upgradeAcknowledged=false \
-      --wait --timeout 180s >>"$WORK/t17-install.log" 2>&1 ||
-     ! pod="$(_t17_wait_rollout false)"; then
-    fail "tier17: roll out upgradeAcknowledged=false" \
-      "diag: $(save_pod_diag t17-reset "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
-    return 0
-  fi
-  if _t17_wait_sweeps "$pod" 1; then
-    pass "tier17: compatibility record keeps GC active after resetting the acknowledgment"
-  else
-    fail "tier17: compatibility record keeps GC active after resetting the acknowledgment" \
+    fail "tier17: safety record keeps GC active after worker replacement" \
       "diag: $(save_pod_diag t17-reset-sweep "$T17_NS" "brewlet.sh/nodeprofile=$T17_PROFILE")"
     return 0
   fi
@@ -636,4 +635,38 @@ YAML
   fi
   check "tier17: non-canonical stage data is never reclaimed" \
     node_exec "$T17_NODE" test -f "$T17_SENTINEL/app.jar"
+  check "tier17: pending stage data is never reclaimed" \
+    node_exec "$T17_NODE" test -f "$T17_PENDING/app.jar"
+
+  # --- (6): loss of installation evidence blocks activation -----------------
+  if ! helm upgrade "$T17_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+      --namespace "$T17_RELEASE_NS" --reuse-values --set stageGC.enabled=false \
+      --wait --timeout 180s >>"$WORK/t17-install.log" 2>&1 ||
+     ! pod="$(_t17_wait_rollout false 5 1 "$pod")"; then
+    fail "tier17: stop GC before invalidating fixture evidence"; return 0
+  fi
+  if ! node_exec "$T17_NODE" sh -eu -c '
+    rm "$1"
+    mkdir -p "$2/app"
+    echo keep >"$2/app/app.jar"
+    touch -d "2 days ago" "$2"
+  ' sh "$T17_RECORD" "$stage"; then
+    fail "tier17: prepare record-less fixture"; return 0
+  fi
+  if ! helm upgrade "$T17_RELEASE" "$BREWLET_KUBERNETES_DIR/charts/brewlet" \
+      --namespace "$T17_RELEASE_NS" --reuse-values --set stageGC.enabled=true \
+      --wait --timeout 180s >>"$WORK/t17-install.log" 2>&1 ||
+     ! pod="$(_t17_wait_rollout true 5 1 "$pod")"; then
+    fail "tier17: record-less installation retains runtime readiness"; return 0
+  fi
+  if ! wait_for_seconds 60 bash -c \
+      "[[ \$(kubectl logs '$pod' -n '$T17_NS' -c provisioner | grep -c 'stage GC blocked') -ge 2 ]]"; then
+    fail "tier17: record-less installation blocks repeated attempts"; return 0
+  fi
+  assert_not_contains "tier17: blocked worker never invokes the reaper" \
+    "$(_t17_logs "$pod")" "stage GC: successful_sweeps="
+  check "tier17: blocked worker cannot mint a safety record" \
+    node_exec "$T17_NODE" test ! -e "$T17_RECORD"
+  check "tier17: otherwise eligible stage survives blocked attempts" \
+    node_exec "$T17_NODE" test -f "$stage/app/app.jar"
 }

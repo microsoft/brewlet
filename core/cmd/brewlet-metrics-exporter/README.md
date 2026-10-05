@@ -9,14 +9,15 @@ installed JDK and launcher inventory, and runnable-image staging usage.
 `--stage-root` (default: `BREWLET_RUNNABLE_STAGE`, or `/tmp/brewlet-runnable`
 on Linux regardless of `TMPDIR`). The directory must be the host's actual staging
 root; a containerized exporter needs a read-only host mount. The operator
-provides that mount for the default location. The gauge includes legacy and
-pending stages, does not follow symlinks, and refreshes on every scrape.
+provides that mount for the default location. The gauge includes non-evictable
+unmanaged layouts and pending trees, does not follow symlinks, and refreshes on every scrape.
+It is not a measure of allocated disk space, free space, or reclaimable bytes.
 Inspection errors fail the scrape instead of reporting zero.
 
 On Helm-managed nodes, the provisioner already schedules stage GC by default,
 independently of whether this exporter is enabled. The exporter never deletes
 stages. Do not add a second timer: it would run outside the operator's
-`stageGC.enabled` setting and migration gate.
+`stageGC.enabled` setting and installation safety gate.
 
 To inspect eligibility on a managed Linux node, run the installed helper as
 root in the host namespaces:
@@ -26,11 +27,12 @@ sudo /usr/local/bin/brewlet-stage-gc stage-gc --dry-run
 ```
 
 Manual invocations retain the reaper's reference and mount checks but do not
-consult the provisioner's compatibility record or upgrade acknowledgment.
+consult the provisioner's installation safety record. There is no acknowledgment
+override, and manual deletion must not bypass blocked automatic GC.
 Outside the provisioner, install the standalone `brewlet` CLI and arrange a
-host timer only after completing the same migration prerequisites.
+host timer only after establishing the same consumer-safety prerequisites.
 See [stage cleanup](../../../docs/runnable-image.md#reclaiming-unused-stages)
-for reference checks and rollout precautions.
+for reference checks and recovery precautions.
 
 ## Screenshots
 

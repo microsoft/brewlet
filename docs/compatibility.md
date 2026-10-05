@@ -79,8 +79,11 @@ Ownership fences, live-reference checks, integrity verification, and cleanup
 obligations remain mandatory. Preserve evidence needed to recover or clean old
 state even if the runtime no longer consumes its format. Do not delete in-use
 files, abandon host state, bypass migration gates or finalizers, discard
-ownership records, or acknowledge stage-GC migration before retiring unguarded
-consumers. A blocked cleanup requires investigation and recovery, not forced
+ownership records, or enable stage GC on unverified installations.
+Stage GC has no migration-acknowledgment override: its per-node safety record
+does not establish a supported release transition. Retire unguarded consumers
+through safe teardown and review retained files before reinstallation.
+A blocked cleanup requires investigation and recovery, not forced
 deletion. See [Uninstall](installation.md#uninstall) and
 [runnable-stage cleanup](runnable-image.md#reclaiming-unused-stages).
 

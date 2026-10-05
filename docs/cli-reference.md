@@ -349,13 +349,13 @@ With the standalone `brewlet` CLI installed on the host:
 
 ```bash
 sudo brewlet stage-gc --dry-run
-# Only after completing the migration prerequisites:
+# Only on a safely established installation with no unguarded consumers:
 sudo brewlet stage-gc --min-age 24h
 ```
 
 Only canonical `immutable-v2/<manifest-hex>` directories are considered. Image
 and content references, live mounts, or an active staging guard prevent
-reclamation. Incomplete reference inspection fails closed; legacy and abandoned
+reclamation. Incomplete reference inspection fails closed; unmanaged layouts and abandoned
 pending directories are not removed. The command reports stage counts, logical
 bytes reclaimed (or eligible in dry-run), and remaining logical stage bytes.
 In dry-run, remaining bytes describe the current tree, not projected usage.
@@ -363,12 +363,13 @@ Errors, including lock contention, exit nonzero. A five-minute context deadline
 and TERM/INT cancellation bound cooperative work; filesystem operations already
 in progress may take longer to return.
 
-**Manual invocation does not check `stageGC.enabled`, migration acknowledgment,
-node ownership, or the provisioner's compatibility record.** Complete the
-[migration prerequisites](runnable-image.md#upgrading-existing-nodes) before
+**Manual invocation does not check `stageGC.enabled`, node ownership, or the
+provisioner's installation safety record.** Establish the
+[consumer-safety prerequisites](runnable-image.md#existing-installations-and-unguarded-consumers) before
 deleting anything. Helm-managed nodes already have a periodic loop; do not add
 a second timer. For standalone installations only, arrange a host timer after
-those checks. See [Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages).
+those checks. Manual cleanup is not a workaround for blocked automatic GC.
+See [Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
 ---
 

@@ -236,10 +236,10 @@ If you changed `metrics.nodePort`, replace `9090` with that value.
 | `brewlet_jdk_info` | Gauge | `distribution`, `feature`, `version`, `vendor`, `arch`, `source` | Value `1` identifies each active JDK build on a node. |
 | `brewlet_jdk_installed_timestamp_seconds` | Gauge | `distribution`, `feature`, `version` | Unix timestamp when that JDK root was installed on the node. It is **not** the upstream JDK patch release date. |
 | `brewlet_launcher_info` | Gauge | `launcher` | Value `1` identifies an available launcher. Vanilla `java` is always emitted; additional installed launchers such as `jaz` are also reported. |
-| `brewlet_runnable_stage_bytes` | Gauge | None | Logical regular-file bytes under the host staging root, including legacy and pending stages. Refreshed on each scrape without following symlinks. This is not allocated disk space, free space, or reclaimable bytes. |
+| `brewlet_runnable_stage_bytes` | Gauge | None | Logical regular-file bytes under the host staging root, including non-evictable unmanaged layouts and pending trees. Refreshed on each scrape without following symlinks. This is not allocated disk space, free space, or reclaimable bytes. |
 
 Stage inspection errors fail the scrape instead of reporting a misleading zero.
-Monitor node filesystem free space alongside stage usage; protected, legacy,
+Monitor node filesystem free space alongside stage usage; protected, unmanaged,
 and pending trees can keep the gauge high even when GC is working correctly.
 The exporter's `--stage-root` and read-only host mount must match the shim for a
 custom stage location.

@@ -108,7 +108,6 @@ for upgrades; pass them again rather than substituting example defaults.
 | `stageGC.enabled` | `true` | Automatically reclaim orphaned runnable-image stages on managed nodes, independently of metrics. |
 | `stageGC.interval` | `5m` | Time between sweeps, plus up to 10% jitter. |
 | `stageGC.minAge` | `24h` | Minimum stage directory age, not time since last use or loss of references. |
-| `stageGC.upgradeAcknowledged` | `false` | Confirm older unguarded shims and stage-dependent bundles have been retired across the managed fleet. Reset after rollout. |
 | `stageGC.allowNestedPIDNamespace` | `false` | Test-only. Let the reaper run on nodes that are themselves containers with a private PID namespace (kind). Never enable on real nodes. |
 | `operator.leaderElect` | `true` | Enable operator leader election. |
 | `operator.nodeSelector` | `{}` | Node labels the operator pod must match. |
@@ -148,16 +147,17 @@ containerd remain responsible for image retention and content reclamation.
 Durations must be positive whole seconds (Go duration syntax, at most
 `2147483647s`); invalid settings are rejected by the operator.
 
-Existing nodes without a matching compatibility record log `stage GC blocked`
-and continue serving workloads. First retire older unguarded shims and exported
-bundles that reference the stage cache across the selected fleet. Then include
-`--set stageGC.upgradeAcknowledged=true` in your normal Helm upgrade. Reset it
-to `false` after the rollout; compatible nodes remember activation. Installing
-the new shim alone is not proof that older consumers have stopped.
+Existing nodes without a matching installation safety record log `stage GC blocked`
+and continue serving workloads. The record binds both installed shim copies and
+the stage path; it is not a cross-release compatibility promise.
+There is no acknowledgment override.
+Recover through safe teardown/reinstallation, retiring unguarded shims and
+stage-dependent bundles and reviewing retained host state before reinstalling.
+Installing new shims or renaming stage roots does not prove consumers have stopped.
 To opt out, set `stageGC.enabled=false`.
 
 See [runnable stage cleanup](../../../docs/runnable-image.md#reclaiming-unused-stages)
-for safety constraints, migration details, and observability. These settings do
+for safety constraints, recovery guidance, and observability. These settings do
 not copy or alter kubelet image GC thresholds, and reclamation may lag
 containerd content GC.
 
