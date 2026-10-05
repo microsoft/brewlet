@@ -131,8 +131,8 @@ def owned_container(info, identifier, label, owner):
 
 class Fixture:
     def __init__(self, scenario):
-        if scenario not in ("hpa", "admission"):
-            raise ValueError("scenario must be hpa or admission")
+        if scenario not in ("hpa", "admission", "workflows"):
+            raise ValueError("scenario must be hpa, admission or workflows")
         self.candidate = os.environ.get("BREWLET_LIVE_CANDIDATE", "release")
         if self.candidate not in ("release", "shim"):
             raise ValueError("BREWLET_LIVE_CANDIDATE must be release or shim")
@@ -153,6 +153,8 @@ class Fixture:
         self.network_id = None
         self.candidate_image_id = None
         self.children = []
+        # Extra invocation-owned cleanup callables, run before the node is removed.
+        self.cleanups = []
         self.evidence = []
         self.env = dict(os.environ, KUBECONFIG=str(self.kubeconfig),
                         KIND_EXPERIMENTAL_DOCKER_NETWORK=self.name)
@@ -379,10 +381,14 @@ class Fixture:
             "jdkImage": JDK_IMAGE, "hostJava": self.run(["java", "-version"]).stderr,
         })
 
-    def provision(self):
+    def component_images(self):
         images = dict(COMPONENTS)
         if self.candidate == "shim":
             images["provisioner"] = self.build_candidate_shim()
+        return images
+
+    def provision(self):
+        images = self.component_images()
         values = {"defaultProfile": {"enabled": False},
                   "images": images,
                   "operator": {"leaderElect": False},
@@ -596,6 +602,11 @@ class Fixture:
             self.diagnostics()
         except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
             errors.append(f"diagnostics: {error}")
+        for cleanup in reversed(getattr(self, "cleanups", [])):
+            try:
+                cleanup()
+            except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
+                errors.append(f"cleanup: {error}")
         for name, identifier in ((self.node, self.node_id),
                                  (getattr(self, "registry_name", ""), self.registry_id)):
             if identifier:
