@@ -414,13 +414,4 @@ public final class JdkVersionResolver {
     public static int runningJdkFeature() {
         return Runtime.version().feature();
     }
-
-    /** General-purpose legacy helper; inference uses strict validation instead. */
-    public static int parseFeature(String version) {
-        try {
-            return strictFeature(version, "version");
-        } catch (MojoExecutionException e) {
-            return 17;
-        }
-    }
 }

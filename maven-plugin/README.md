@@ -353,6 +353,13 @@ build.
 Inference fails with explicit-override guidance for unresolved or malformed
 values, differing main compilation levels, unavailable toolchains, unsupported
 compiler/executable choices, or opaque arguments that could change the target.
+Unknown or malformed selected-JDK versions never default to Java 17 or the
+Maven JVM. Brewlet JDK selection uses only a major (feature) version, such as
+`17` or `21`, optionally qualified by a distribution, such as `temurin-21`.
+`jdkFeature` and the emitted `spec.jvm.version` do not accept patch versions,
+build numbers, or early-access/vendor suffixes. Full versions read from external
+JDK metadata are used only to infer the major version: for example,
+`21.0.8+9-LTS` becomes `21` and legacy `1.8.0_391` becomes `8`.
 Standalone automatic toolchain discovery and a selection that might belong
 only to test or later build phases are not guessed. Set `brewlet.jdkFeature`
 after reviewing those builds rather than relying on the Maven JVM by accident.
