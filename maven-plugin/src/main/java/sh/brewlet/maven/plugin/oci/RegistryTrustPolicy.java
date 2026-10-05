@@ -162,7 +162,9 @@ public final class RegistryTrustPolicy {
             return false;
         }
         return isLoopbackHost(uri.getHost())
-                || insecureRegistries.contains(authority(uri.getHost(), uri.getPort()));
+                || insecureRegistries.contains(authority(uri.getHost(), uri.getPort()))
+                || (uri.getPort() == 80
+                    && insecureRegistries.contains(authority(uri.getHost(), -1)));
     }
 
     /** Returns the URL scheme to use for the given registry authority. */

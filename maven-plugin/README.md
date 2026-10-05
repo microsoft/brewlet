@@ -199,6 +199,12 @@ property. Values configured in `<configuration>` and CLI properties can be mixed
 
 ### Core
 
+Publishing rejects malformed repository paths and tags before preparing
+artifacts, including uppercase repository components, empty tags, and embedded
+URL schemes or query strings in `image`. Docker Hub references such as
+`docker.io/alpine:3` and `index.docker.io/alpine:3` use the registry API endpoint
+`registry-1.docker.io` and repository `library/alpine`.
+
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
 | `image` | `brewlet.image` | `<registry>/${project.artifactId}:${project.version}` | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2`. `push` and `deploy` reject refs without a registry host instead of defaulting to Docker Hub (use `docker.io/<user>/app` to target Docker Hub). Publishing requires a mutable tag (implicit `latest` when omitted), not `repo@digest` or `repo:tag@digest`, even in dry-run mode. `manifest` accepts a digest-pinned `…@sha256:…` ref, or uses the last push. |
@@ -291,7 +297,14 @@ credentials scoped to the registry you configured:
   authorities) with no embedded credentials. Credentials are exchanged only with
   a same-origin realm, Docker Hub's built-in `auth.docker.io` realm, or a realm
   you explicitly allowlisted; any other realm fails the build rather than
-  forwarding your credentials.
+  forwarding your credentials. Token exchanges never follow redirects, even
+  from a trusted realm: a redirect could otherwise replay an identity-token
+  request body at another origin.
+
+Insecure registry entries match the configured authority; a bare `host` entry
+also permits `host:80`. Other ports must be listed explicitly.
+Registry redirects also obey this plaintext policy and
+never carry registry credentials to a different origin.
 
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
@@ -440,6 +453,13 @@ The bundle config records both `layerDigest` (the compressed blob digest) and
 `layerDiffId` (the uncompressed tar digest). Runnable images reuse the standard gzip
 blob and descriptor unchanged and append that exact `diffId` to
 `rootfs.diff_ids`, enabling registry deduplication and cross-repository mounting.
+If the destination already has the blob, no mount or upload is needed. A
+successful mount (`201`) transfers no layer body; a declined mount (`202`)
+completes the upload session at the registry's returned `Location`, preserving
+its query parameters. Registries that reject the mount operation with `400`,
+`404`, or `405` use a fresh blob upload instead. Authentication and server
+errors abort publication rather than being treated as missing blobs or
+successful mounts.
 The custom `application/vnd.brewlet.classpath.layer.v1+tar` media type remains
 only for native/legacy Brewlet artifacts because container runtimes cannot
 unpack it as a runnable image layer.

@@ -103,6 +103,18 @@
   </dependencies>
 
   <build>
+    <testResources>
+      <testResource>
+        <directory>src/test/resources</directory>
+      </testResource>
+      <testResource>
+        <directory>${project.basedir}/../core/internal/registry/testdata</directory>
+        <targetPath>registry-conformance</targetPath>
+        <includes>
+          <include>conformance.json</include>
+        </includes>
+      </testResource>
+    </testResources>
     <resources>
       <resource>
         <directory>src/main/resources</directory>

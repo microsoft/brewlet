@@ -925,6 +925,9 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
                     + "push needs a tag (e.g. " + parts[0] + "/" + parts[1]
                     + ":1.0.0) and prints the pinned digest afterwards.");
         }
+        if (!RegistryClient.isValidTaggedReference(ref)) {
+            throw new MojoExecutionException("Image \"" + ref + "\" is not a valid tagged image reference.");
+        }
     }
 
     @Override

@@ -135,6 +135,61 @@ stricter requirements and their own cluster lifecycle; follow
 [`docs/live-validation.md`](docs/live-validation.md) instead of using the
 legacy tier reset helper for them.
 
+### Registry conformance (Go and Maven)
+
+`core/internal/registry/testdata/conformance.json` is the shared, table-driven
+contract for the Go registry publisher and Maven registry client. Add overlapping
+cases there rather than copying expected datasets between languages. Go embeds
+the file in its test binary; Maven copies that same file onto the test classpath
+via `${project.basedir}`. Both consumers run in the standard component suites,
+independent of the invocation directory. Missing or malformed fixtures fail the
+tests.
+
+The cases cover publishing-reference validation and defaults, Docker Hub
+normalization, Docker-config/helper/environment credential selection, identity
+tokens, exact insecure authorities, token-realm trust, and request-level
+credential scoping across redirects. The request tests use ephemeral loopback
+HTTP servers; credential tests use temporary Docker configs and injected
+environment/helper inputs, never the developer's login or credential helpers.
+No external registry, Docker daemon, or cluster is required.
+
+Run the focused suites from the repository root:
+
+```bash
+go -C core test ./internal/registry/...
+mvn -B --no-transfer-progress -f maven-plugin/pom.xml -Dmaven.compiler.release=17 \
+  '-Dtest=*ConformanceTest,RegistryClient*Test,RegistryTrustPolicyTest,CredentialResolverTest,PublishingReferenceTest' test
+```
+
+Then verify the owning components:
+
+```bash
+go -C core test -race ./internal/registry/...
+go -C core build ./...
+mvn -B --no-transfer-progress -f maven-plugin/pom.xml -Dmaven.compiler.release=17 verify
+```
+
+`RegistryClientMountTest` publishes a real managed runnable image to a local
+request-recording registry. It checks mount success without body upload,
+declined mounts reusing returned upload locations (relative, absolute, and
+cross-origin), unsupported-mount fallback, source/destination authentication
+scopes, existing blobs, child manifests before the tagged index, and mount,
+upload, token, blob-check, and manifest errors. Existing `PublishingReferenceTest`
+retains the broader digest-destination, digest-source, and publishing-default
+regressions; `CredentialResolverTest` retains Maven settings decryption coverage.
+
+Intentional boundaries are not parity failures:
+
+| Surface | Contract |
+| --- | --- |
+| Maven settings | Maven checks `settings.xml` first and fails explicitly on decryption errors; Go has no Maven settings source. Shared credential cases exercise the Docker/helper/environment chain without settings. |
+| Remote application destination | Both publishers require an explicit registry and a mutable tag (omitting the tag means `latest`). Maven can derive the destination from `registry` and project coordinates. |
+| Bundle/local references | Maven's dependency-bundle goal and low-level reference helpers retain implicit Docker Hub defaults; Go's remote push parser does not. Digest source references and child-manifest addresses remain valid, unlike top-level publish destinations. |
+| Managed bundles | Maven can consume registry-hosted managed bundles and mount their layers. Go's managed-bundle composition remains local-layout-only; its remote publisher does not gain bundle consumption or mounting. |
+
+This is a bounded Brewlet contract, not a claim of complete OCI Distribution
+conformance or interchangeable parsers for every possible registry authority.
+
 ## Development workflow
 
 1. Fork the repository and create a focused branch. Search existing issues and
