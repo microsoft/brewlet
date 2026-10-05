@@ -33,7 +33,7 @@ class RegistryClientRefParsingTest {
         String[] parts = RegistryClient.splitRef("myimage:latest");
         assertEquals("registry-1.docker.io", parts[0]);
         // Repository must not carry the tag, or it corrupts /v2/{repository}/... URLs
-        assertEquals("myimage", parts[1]);
+        assertEquals("library/myimage", parts[1]);
     }
 
     @Test

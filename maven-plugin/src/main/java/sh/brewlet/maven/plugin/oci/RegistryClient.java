@@ -84,7 +84,7 @@ public class RegistryClient {
         this.credential = credential;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
-                .followRedirects(HttpClient.Redirect.NORMAL)
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
     }
 
@@ -268,7 +268,7 @@ public class RegistryClient {
             if (!blobExists(blob.digest())) {
                 boolean mounted = blob.digest().equals(managedLayerDigest)
                         && sourceRepository != null
-                        && mountBlob(blob.digest(), sourceRepository);
+                        && mountOrUploadBlob(blob.digest(), sourceRepository, blob.data());
                 if (!mounted) {
                     pushBlob(blob.digest(), blob.data());
                 }
@@ -283,10 +283,10 @@ public class RegistryClient {
 
     /**
      * Attempts an OCI cross-repository blob mount. A 202 response means the
-     * registry declined the mount and opened an upload, so the caller falls back
-     * to the normal monolithic upload.
+     * registry declined the mount and opened an upload; complete that session
+     * using its Location rather than abandoning it and starting another upload.
      */
-    boolean mountBlob(String digest, String sourceRepository)
+    private boolean mountOrUploadBlob(String digest, String sourceRepository, byte[] content)
             throws IOException, InterruptedException {
         String query = "?mount=" + URLEncoder.encode(digest, StandardCharsets.UTF_8)
                 + "&from=" + URLEncoder.encode(sourceRepository, StandardCharsets.UTF_8);
@@ -294,19 +294,23 @@ public class RegistryClient {
         HttpRequest request = authedRequest(uri, HttpRequest.newBuilder(uri)
                 .POST(HttpRequest.BodyPublishers.noBody()));
         HttpResponse<Void> response =
-                httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+                send(request, HttpResponse.BodyHandlers.discarding());
         if (response.statusCode() == 401) {
             negotiate(response);
             request = authedRequest(uri, HttpRequest.newBuilder(uri)
                     .POST(HttpRequest.BodyPublishers.noBody()));
-            response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            response = send(request, HttpResponse.BodyHandlers.discarding());
         }
         if (response.statusCode() == 201) {
             LOG.info("Mounted managed dependency blob " + digest + " from "
                     + sourceRepository);
             return true;
         }
-        if (response.statusCode() == 202 || response.statusCode() == 400
+        if (response.statusCode() == 202) {
+            completeUpload(response, digest, content);
+            return true;
+        }
+        if (response.statusCode() == 400
                 || response.statusCode() == 404 || response.statusCode() == 405) {
             return false;
         }
@@ -369,11 +373,11 @@ public class RegistryClient {
             }
             HttpRequest request = authedRequest(next, HttpRequest.newBuilder(next).GET()
                     .header("Accept", MediaTypes.OCI_INDEX_MEDIA_TYPE));
-            HttpResponse<byte[]> response = httpClient.send(
+            HttpResponse<byte[]> response = send(
                     request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() == 401) {
                 negotiate(response);
-                response = httpClient.send(authedRequest(next, HttpRequest.newBuilder(next).GET()
+                response = send(authedRequest(next, HttpRequest.newBuilder(next).GET()
                                 .header("Accept", MediaTypes.OCI_INDEX_MEDIA_TYPE)),
                         HttpResponse.BodyHandlers.ofByteArray());
             }
@@ -471,11 +475,11 @@ public class RegistryClient {
             }
             HttpRequest request = authedRequest(next, HttpRequest.newBuilder(next).GET()
                     .header("Accept", "application/json"));
-            HttpResponse<byte[]> response = httpClient.send(
+            HttpResponse<byte[]> response = send(
                     request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() == 401) {
                 negotiate(response);
-                response = httpClient.send(authedRequest(next, HttpRequest.newBuilder(next).GET()
+                response = send(authedRequest(next, HttpRequest.newBuilder(next).GET()
                                 .header("Accept", "application/json")),
                         HttpResponse.BodyHandlers.ofByteArray());
             }
@@ -645,13 +649,15 @@ public class RegistryClient {
     boolean blobExists(String digest) throws IOException, InterruptedException {
         URI uri = registryUri("/v2/" + repository + "/blobs/" + digest);
         HttpRequest req = authedRequest(uri, HttpRequest.newBuilder(uri).method("HEAD", HttpRequest.BodyPublishers.noBody()));
-        HttpResponse<Void> resp = httpClient.send(req, HttpResponse.BodyHandlers.discarding());
+        HttpResponse<Void> resp = send(req, HttpResponse.BodyHandlers.discarding());
         if (resp.statusCode() == 401) {
             negotiate(resp);
             req = authedRequest(uri, HttpRequest.newBuilder(uri).method("HEAD", HttpRequest.BodyPublishers.noBody()));
-            resp = httpClient.send(req, HttpResponse.BodyHandlers.discarding());
+            resp = send(req, HttpResponse.BodyHandlers.discarding());
         }
-        return resp.statusCode() == 200;
+        if (resp.statusCode() == 200) return true;
+        if (resp.statusCode() == 404) return false;
+        throw new IOException("Failed to check blob " + digest + ": HTTP " + resp.statusCode());
     }
 
     /**
@@ -664,10 +670,10 @@ public class RegistryClient {
         HttpRequest initReq = authedRequest(initiateUri,
                 HttpRequest.newBuilder(initiateUri)
                         .POST(HttpRequest.BodyPublishers.noBody()));
-        HttpResponse<String> initResp = httpClient.send(initReq, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> initResp = send(initReq, HttpResponse.BodyHandlers.ofString());
         if (initResp.statusCode() == 401) {
             negotiate(initResp);
-            initResp = httpClient.send(
+            initResp = send(
                     authedRequest(initiateUri, HttpRequest.newBuilder(initiateUri)
                             .POST(HttpRequest.BodyPublishers.noBody())),
                     HttpResponse.BodyHandlers.ofString());
@@ -678,17 +684,21 @@ public class RegistryClient {
                     + "\n" + initResp.body());
         }
 
-        // Resolve upload URL from Location header
-        String location = initResp.headers().firstValue("Location")
+        completeUpload(initResp, digest, content);
+    }
+
+    private void completeUpload(HttpResponse<?> initiation, String digest, byte[] content)
+            throws IOException, InterruptedException {
+        String location = initiation.headers().firstValue("Location")
                 .orElseThrow(() -> new IOException("No Location header in upload initiation response"));
-        URI uploadUri = resolveLocation(location, digest);
+        URI uploadUri = resolveLocation(initiation.uri(), location, digest);
 
         // PUT the blob
         HttpRequest putReq = authedRequest(uploadUri,
                 HttpRequest.newBuilder(uploadUri)
                         .PUT(HttpRequest.BodyPublishers.ofByteArray(content))
                         .header("Content-Type", "application/octet-stream"));
-        HttpResponse<String> putResp = httpClient.send(putReq, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> putResp = send(putReq, HttpResponse.BodyHandlers.ofString());
         if (putResp.statusCode() != 201) {
             throw new IOException("Failed to push blob " + digest + ": HTTP " + putResp.statusCode()
                     + "\n" + putResp.body());
@@ -701,7 +711,7 @@ public class RegistryClient {
         if (accept != null) {
             builder.header("Accept", accept);
         }
-        HttpResponse<byte[]> response = httpClient.send(
+        HttpResponse<byte[]> response = send(
                 authedRequest(uri, builder), HttpResponse.BodyHandlers.ofByteArray());
         if (response.statusCode() == 401) {
             negotiate(response);
@@ -709,7 +719,7 @@ public class RegistryClient {
             if (accept != null) {
                 builder.header("Accept", accept);
             }
-            response = httpClient.send(
+            response = send(
                     authedRequest(uri, builder), HttpResponse.BodyHandlers.ofByteArray());
         }
         if (response.statusCode() != 200) {
@@ -738,10 +748,10 @@ public class RegistryClient {
                 HttpRequest.newBuilder(uri)
                         .PUT(HttpRequest.BodyPublishers.ofByteArray(manifestBytes))
                         .header("Content-Type", contentType));
-        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp = send(req, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() == 401) {
             negotiate(resp);
-            resp = httpClient.send(
+            resp = send(
                     authedRequest(uri, HttpRequest.newBuilder(uri)
                             .PUT(HttpRequest.BodyPublishers.ofByteArray(manifestBytes))
                             .header("Content-Type", contentType)),
@@ -776,6 +786,31 @@ public class RegistryClient {
             builder.header("Authorization", "Basic " + basicCredentials());
         }
         return builder.build();
+    }
+
+    /** Follow registry redirects with explicit transport and credential scoping. */
+    private <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> handler)
+            throws IOException, InterruptedException {
+        for (int redirects = 0; ; redirects++) {
+            HttpResponse<T> response = httpClient.send(request, handler);
+            int status = response.statusCode();
+            if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
+                return response;
+            }
+            if (redirects >= 10) {
+                throw new IOException("Registry request exceeded 10 redirects");
+            }
+            String location = response.headers().firstValue("Location")
+                    .orElseThrow(() -> new IOException("Registry redirect did not provide a Location"));
+            URI target = resolveRegistryLocation(response.uri(), location);
+            HttpRequest.Builder next = HttpRequest.newBuilder(request,
+                    (name, value) -> !name.equalsIgnoreCase("Authorization")).uri(target);
+            if ((status == 303 && !request.method().equals("HEAD"))
+                    || ((status == 301 || status == 302) && request.method().equals("POST"))) {
+                next.GET();
+            }
+            request = authedRequest(target, next);
+        }
     }
 
     private String basicCredentials() {
@@ -841,6 +876,8 @@ public class RegistryClient {
                     tokenReqBuilder.header("Authorization", "Basic " + basicCredentials());
                 }
             }
+            // Never follow token redirects: a 307/308 could replay a refresh
+            // token body at a different origin, even if Authorization is stripped.
             HttpResponse<String> tokenResp = httpClient.send(tokenReqBuilder.build(),
                     HttpResponse.BodyHandlers.ofString());
             if (tokenResp.statusCode() != 200) {
@@ -891,30 +928,30 @@ public class RegistryClient {
      * legitimately hand back a signed URL on storage infrastructure; such a URL
      * is followed, but {@link #authedRequest} withholds credentials from it.
      */
-    private URI resolveLocation(String location, String digest) throws IOException {
+    private URI resolveLocation(URI base, String location, String digest) throws IOException {
         String encodedDigest = URLEncoder.encode(digest, StandardCharsets.UTF_8);
-        if (!location.startsWith("http")) {
-            // Relative URL — make it absolute, honoring the registry's scheme
-            // (HTTP for insecure localhost registries) so the follow-up PUT
-            // targets the correct endpoint.
-            location = scheme() + "://" + registry + location;
-        }
-        String separator = location.contains("?") ? "&" : "?";
+        URI resolved = resolveRegistryLocation(base, location);
+        String separator = resolved.getRawQuery() == null ? "?" : "&";
+        return URI.create(resolved + separator + "digest=" + encodedDigest);
+    }
+
+    private URI resolveRegistryLocation(URI base, String location) throws IOException {
         URI resolved;
         try {
-            resolved = URI.create(location + separator + "digest=" + encodedDigest);
+            resolved = base.resolve(location);
         } catch (IllegalArgumentException e) {
-            throw new IOException("Registry returned an invalid upload Location URL", e);
+            throw new IOException("Registry returned an invalid Location URL", e);
         }
-        if (!resolved.isAbsolute() || resolved.getHost() == null
+        if (location.isBlank() || !resolved.isAbsolute() || resolved.getHost() == null
+                || resolved.getFragment() != null
                 || resolved.getUserInfo() != null
                 || !("https".equalsIgnoreCase(resolved.getScheme())
                         || "http".equalsIgnoreCase(resolved.getScheme()))) {
-            throw new IOException("Registry returned an unusable upload Location URL");
+            throw new IOException("Registry returned an unusable Location URL");
         }
         if ("http".equalsIgnoreCase(resolved.getScheme())
                 && !trustPolicy.allowsPlaintext(resolved.getAuthority())) {
-            throw new IOException("Registry upload Location uses plaintext HTTP: "
+            throw new IOException("Registry Location uses plaintext HTTP: "
                     + resolved.getScheme() + "://" + resolved.getAuthority());
         }
         return resolved;
@@ -937,13 +974,45 @@ public class RegistryClient {
         if (firstSlash < 0 || !isRegistryHost(withoutTag.substring(0, firstSlash))) {
             // No explicit registry — default to docker.io. Use the tag/digest-free
             // repository so it never leaks into /v2/{repository}/... URLs.
-            return new String[]{"registry-1.docker.io", withoutTag};
+            return new String[]{"registry-1.docker.io",
+                    withoutTag.contains("/") ? withoutTag : "library/" + withoutTag};
         }
         String host = withoutTag.substring(0, firstSlash);
+        String repository = withoutTag.substring(firstSlash + 1);
         if (host.equals("docker.io") || host.equals("index.docker.io")) {
             host = "registry-1.docker.io";
+            if (!repository.contains("/")) {
+                repository = "library/" + repository;
+            }
         }
-        return new String[]{host, withoutTag.substring(firstSlash + 1)};
+        return new String[]{host, repository};
+    }
+
+    /**
+     * Validates a mutable publishing reference without requiring an explicit
+     * registry (local bundle publication also uses this contract). Remote
+     * application publishing separately requires {@link #hasExplicitRegistry}.
+     */
+    public static boolean isValidTaggedReference(String ref) {
+        if (ref == null || ref.isEmpty() || ref.indexOf('@') >= 0) return false;
+        int colon = ref.lastIndexOf(':');
+        String name = colon > ref.lastIndexOf('/') ? ref.substring(0, colon) : ref;
+        String host = "docker.io";
+        String repository = name;
+        int slash = name.indexOf('/');
+        if (slash > 0 && isRegistryHost(name.substring(0, slash))) {
+            host = name.substring(0, slash);
+            repository = name.substring(slash + 1);
+        }
+        if (!RegistryTrustPolicy.isBareAuthority(host)) return false;
+        if (host.equals("index.docker.io")) host = "docker.io";
+        if (host.equals("docker.io") && !repository.contains("/")) {
+            repository = "library/" + repository;
+        }
+        String component = "[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*";
+        if (!repository.matches(component + "(?:/" + component + ")*")) return false;
+        if (host.length() + 1 + repository.length() > 255) return false;
+        return extractTag(ref).matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}");
     }
 
     /**
