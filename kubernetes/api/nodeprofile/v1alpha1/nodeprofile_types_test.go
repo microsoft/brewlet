@@ -6,6 +6,7 @@ package v1alpha1
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -16,6 +17,7 @@ import (
 func TestNodeProfileOwnershipStatusDeepCopy(t *testing.T) {
 	profile := NodeProfile{Status: NodeProfileStatus{
 		Targets:                []NodeTarget{{Name: "worker", UID: types.UID("node-uid"), Claimed: true}},
+		Migrating:              true,
 		MigrationDaemonSetUIDs: []types.UID{"legacy-uid"},
 		ProvisioningSpec:       &NodeProfileSpec{NodePool: NodePoolRef{Names: []string{"old"}}},
 		Retirement: &NodeRetirement{
@@ -41,10 +43,17 @@ func TestNodeProfileOwnershipStatusDeepCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{`"targets":[{"name":"worker","uid":"node-uid","claimed":true}]`, `"phase":"Cleaning"`, `"generation":3`} {
+	for _, fragment := range []string{`"targets":[{"name":"worker","uid":"node-uid","claimed":true}]`, `"phase":"Cleaning"`, `"generation":3`, `"migrating":true`, `"migrationDaemonSetUIDs":["legacy-uid"]`} {
 		if !strings.Contains(string(encoded), fragment) {
 			t.Fatalf("missing ownership protocol %s in %s", fragment, encoded)
 		}
+	}
+	var decoded NodeProfileStatus
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, profile.Status) {
+		t.Fatal("status round-trip lost ownership or inert pre-claim evidence")
 	}
 }
 

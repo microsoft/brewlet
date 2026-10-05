@@ -1268,8 +1268,11 @@ spec:
   successful cleanup.
 
 The operator-owned status ledger contains `targets[]` entries with `name`, `uid`,
-`claimed`, and per-node `containerdRestart`; `ownershipInitialized`, `migrating`,
-and `migrationDaemonSetUIDs` track migration. `provisioningGeneration` and
+`claimed`, and per-node `containerdRestart`; `ownershipInitialized` records
+initialization of current UID-bound ownership. `migrating` and
+`migrationDaemonSetUIDs` are inert pre-claim evidence retained solely for refusal
+and original-release recovery. The current controller MUST NOT populate,
+advance, clear, or use them to authorize migration. `provisioningGeneration` and
 `provisioningSpec` retain provisioning policy, while `retirement` freezes
 `targets`, `generation`, `spec`, and `phase` (`Cleaning` or `Teardown`). Target and
 retirement checkpoints MUST survive a fresh API read before dependent actions.
@@ -1277,19 +1280,28 @@ An older CRD that silently prunes these fields fails closed: apply the updated
 NodeProfile CRD before upgrading operator/provisioner images, not merely the
 Helm values.
 
-Migration drains legacy unfenced workers before activating claims and records
-discoverable potential targets, bound and pending pods, advertisements even
-without a surviving DaemonSet, and exact legacy DaemonSet UIDs. Pending pod
-`metadata.name` affinity contributes possible targets. Observed old-pod restart
-policy is retained per node rather than replaced by a newer template's `none`.
-Migration first fences replacement scheduling with `OnDelete` and the
-`node.brewlet.sh/migration` Pod scheduling gate, confirms the fence and observed
-generation, and durably inventories evidence before draining workers. It
-requires scheduling-gate support; gates must not be removed manually.
-Unverified UID/revision/policy evidence remains durably blocked and cannot
-become safe no-host finalization after advertisements are withdrawn. It cannot
-reconstruct vanished historical hosts with no
-surviving Kubernetes evidence; those require administrator verification.
+Automatic migration of workers predating UID-bound node claims is unsupported.
+The controller MUST refuse incompatible workers, unfenced advertisements, and
+unresolved pre-claim records before invalid-spec handling, deletion, or
+retirement can erase evidence. `Ready=False/UnsupportedPreClaimState` is durable
+and MUST NOT automatically clear after workers or advertisements disappear.
+Names, labels, pod affinity, and environment may identify a conflict but MUST
+NOT confer adoption or host-cleanup authority. The controller does not infer
+historical Node UIDs or policies, fence scheduling, drain pre-claim workers, or
+convert their state into claims. Only current recorded UID-bound targets may
+authorize host cleanup.
+
+The original release's compatible components must complete host cleanup and
+worker teardown before safe reinstallation. Keep its evidence, finalizers, and
+any existing scheduling gates intact; do not apply target-release schemas over
+unresolved old state as a shortcut. Retaining evidence fields is a safety
+obligation, not in-place upgrade support. Standalone and foreign-namespace
+writers remain subject to cluster-wide read-only conflict detection without
+adoption or cross-namespace mutation authority. Unresolved pre-claim obligations
+block new ownership conservatively when their affected hosts cannot be bounded.
+The current controller creates no ownership-migration scheduling gates.
+Historical hosts without surviving Kubernetes evidence still require
+administrator verification; worker disappearance does not establish cleanup.
 Ownership conflicts, missing/reused node identities, and unavailable cleanup
 targets are reported rather than treated as completed reversal.
 Retirement is profile-wide serialized: before successful cleanup is durably
@@ -2204,7 +2216,7 @@ reason (§5.5).
 |---|---|---|
 | `JavaApplication` | `Ready` | `Reconciled`, `Progressing`, `ReconcileError` |
 | `JavaApplication` | `JVMArgsApplied` | `ArgsDelivered`, `EnvOptionsOverlap` (§8.2) |
-| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `OwnershipConflict`, `OwnershipMigration`, `Retargeting`, `CleanupBlocked`, `CleanupPending`, `CleanupTeardown` |
+| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `OwnershipConflict`, `UnsupportedPreClaimState`, `Retargeting`, `CleanupBlocked`, `CleanupPending`, `CleanupTeardown` |
 | `NodeProfile` | `CleanupComplete` | `CleanupSucceeded` (current-generation host cleanup finished; worker teardown may still be pending) |
 
 Event reasons: `Provisioning`, `NodeReady`, `ProvisionFailed`, `NodeUnmatched`

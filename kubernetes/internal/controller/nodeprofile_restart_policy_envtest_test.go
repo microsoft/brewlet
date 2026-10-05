@@ -197,12 +197,41 @@ func TestContainerdRestartCRDValidation(t *testing.T) {
 	}
 }
 
+func TestRemovedPolicyCannotClearPreClaimRefusal(t *testing.T) {
+	f := newCleanupFixture(t, 0)
+	p := getProfile(t, f.ctx, f.client, f.profile.Name)
+	p.Status.Conditions[0].Reason = nodev1alpha1.ReasonUnsupportedPreClaimState
+	p.Status.Conditions[0].Message = "original release must finish pre-claim cleanup"
+	p.Status.ProvisioningSpec = p.Spec.DeepCopy()
+	p.Status.ProvisioningSpec.Rollout.ContainerdRestart = "sighup"
+	if err := f.client.Status().Update(f.ctx, &p); err != nil {
+		t.Fatal(err)
+	}
+	reconcileProfile(t, f.ctx, f.r, p.Name)
+	p = getProfile(t, f.ctx, f.client, p.Name)
+	if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonUnsupportedPreClaimState {
+		t.Fatal("removed restart policy erased the durable pre-claim refusal")
+	}
+	// Even repairing the policy cannot prove the unrelated pre-claim cleanup.
+	p.Status.ProvisioningSpec = nil
+	if err := f.client.Status().Update(f.ctx, &p); err != nil {
+		t.Fatal(err)
+	}
+	reconcileProfile(t, f.ctx, f.r, p.Name)
+	p = getProfile(t, f.ctx, f.client, p.Name)
+	if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonUnsupportedPreClaimState ||
+		!containsString(p.Finalizers, brewlet.FinalizerCleanup) {
+		t.Fatal("policy repair bypassed unresolved pre-claim evidence")
+	}
+	f.assertNoCleanup(t)
+}
+
 func TestFencedWorkerRemovedPolicyBlocksCleanup(t *testing.T) {
 	for _, worker := range []string{"daemonset", "pod"} {
 		t.Run(worker, func(t *testing.T) {
 			f := newCleanupFixture(t, 1)
 			ds := f.daemonSet(t, brewlet.ProfileDaemonSetName(f.profile.Name))
-			legacyEnv(&ds.Spec.Template.Spec, "BREWLET_CONTAINERD_RESTART", "sighup")
+			preClaimEnv(&ds.Spec.Template.Spec, "BREWLET_CONTAINERD_RESTART", "sighup")
 			var pod *corev1.Pod
 			if worker == "daemonset" {
 				if err := f.client.Update(f.ctx, ds); err != nil {

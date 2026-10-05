@@ -472,16 +472,15 @@ For a fresh Helm installation, the chart installs the CRDs; no prior upgrade or
 migration is needed. Brewlet release changes default to
 [safe teardown/reinstallation](installation.md#upgrading), distinct from JDK
 rotation within the installed release. For an explicitly supported in-place
-transition or recovery, update the NodeProfile CRD before the matching
-operator/provisioner pair. Legacy migration can recover surviving
-worker/advertisement evidence, but cannot prove
-the history of vanished hosts. It inventories pending-node affinity and old-pod
-cleanup policy, even when the current DaemonSet template has changed. Temporary
-`node.brewlet.sh/migration` scheduling gates prevent replacement workers from
-racing that inventory; do not remove them manually. Unverified legacy evidence
-remains blocked rather than being adopted by profile name.
+transition or recovery, use matching CRDs and operator/provisioner components.
+Workers predating UID-bound node claims are refused, not inventoried, drained,
+or adopted. Finish cleanup using the original release's compatible components
+before reinstalling; see [pre-claim recovery](installation.md#unsupported-pre-claim-workers).
+Retained migration markers and refusal conditions are evidence, not permission
+to migrate. Keep them, finalizers, and any scheduling gates left by an older
+release intact. Vanished workers or advertisements do not prove host cleanup.
 Inspect `kubectl get nodeprofile <name> -o yaml`
-and operator logs for `OwnershipMigration`, `OwnershipConflict`, `Retargeting`,
+and operator logs for `UnsupportedPreClaimState`, `OwnershipConflict`, `Retargeting`,
 or `CleanupBlocked`. For control-plane removal, follow
 [the gated uninstall procedure](installation.md#uninstall).
 

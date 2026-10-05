@@ -19,6 +19,54 @@ import (
 	"k8s.io/client-go/util/jsonpath"
 )
 
+func templateMatchesNode(spec *corev1.PodSpec, node *corev1.Node) bool {
+	if spec.NodeName != "" && spec.NodeName != node.Name {
+		return false
+	}
+	for key, value := range spec.NodeSelector {
+		if node.Labels[key] != value {
+			return false
+		}
+	}
+	if spec.Affinity == nil || spec.Affinity.NodeAffinity == nil ||
+		spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		return true
+	}
+	for _, term := range spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
+		matches := len(term.MatchExpressions)+len(term.MatchFields) > 0
+		for _, req := range term.MatchExpressions {
+			value, exists := node.Labels[req.Key]
+			found := false
+			for _, candidate := range req.Values {
+				found = found || value == candidate
+			}
+			switch req.Operator {
+			case corev1.NodeSelectorOpIn:
+				matches = matches && exists && found
+			case corev1.NodeSelectorOpNotIn:
+				matches = matches && (!exists || !found)
+			case corev1.NodeSelectorOpExists:
+				matches = matches && exists
+			case corev1.NodeSelectorOpDoesNotExist:
+				matches = matches && !exists
+			}
+		}
+		for _, req := range term.MatchFields {
+			if req.Key == "metadata.name" && req.Operator == corev1.NodeSelectorOpIn {
+				found := false
+				for _, candidate := range req.Values {
+					found = found || node.Name == candidate
+				}
+				matches = matches && found
+			}
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
+}
+
 func TestNodeProfileSelectorsExcludeFutureOverlaps(t *testing.T) {
 	for _, tc := range []struct {
 		name, aKey, bKey string
@@ -78,13 +126,13 @@ func TestNodeProfileClaimAffinityNeverMatchesUnrecordedNodes(t *testing.T) {
 		node := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: tc.name, Labels: map[string]string{
 			"agentpool": "pool", brewlet.LabelNodeOwner: tc.owner, brewlet.LabelNodeIdentity: tc.uid,
 		}}}
-		if got := legacyTemplateMatches(&ds.Spec.Template.Spec, &node); got != tc.want {
+		if got := templateMatchesNode(&ds.Spec.Template.Spec, &node); got != tc.want {
 			t.Fatalf("node %+v matched=%v, want %v", node.Labels, got, tc.want)
 		}
 	}
 	p.Status.Targets = nil
 	ds = buildProfileDaemonSet(testConfig(), &p, "agentpool", nil)
-	if legacyTemplateMatches(&ds.Spec.Template.Spec, &corev1.Node{}) {
+	if templateMatchesNode(&ds.Spec.Template.Spec, &corev1.Node{}) {
 		t.Fatal("empty ledger must schedule no privileged workers")
 	}
 }
@@ -111,23 +159,26 @@ func TestNodeProfileCleanupPolicyRetainsPriorHostMutationObligations(t *testing.
 	}
 }
 
-func TestMergeLegacyModeRejectsUnsupportedEvidence(t *testing.T) {
-	for _, unsupported := range []string{"", "sighup", "reboot"} {
-		for _, other := range []string{"validated", "none", unsupported} {
-			if mergeLegacyMode(unsupported, other) != "" || mergeLegacyMode(other, unsupported) != "" {
-				t.Fatalf("unsupported policy %q was merged into %q", unsupported, other)
-			}
-		}
-	}
-	for _, tc := range []struct{ prior, next, want string }{
-		{"none", "none", "none"},
-		{"validated", "none", "validated"},
-		{"none", "validated", "validated"},
-		{"validated", "validated", "validated"},
+func TestWorkerContainerdPolicyRejectsUnsupportedEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		env     []corev1.EnvVar
+		wantErr bool
+	}{
+		{"missing", nil, true},
+		{"validated", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "validated"}}, false},
+		{"none", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "none"}}, false},
+		{"sighup", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "sighup"}}, true},
+		{"unknown", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "reboot"}}, true},
+		{"duplicate", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", Value: "validated"}, {Name: "BREWLET_CONTAINERD_RESTART", Value: "none"}}, true},
+		{"indirect", []corev1.EnvVar{{Name: "BREWLET_CONTAINERD_RESTART", ValueFrom: &corev1.EnvVarSource{}}}, true},
 	} {
-		if got := mergeLegacyMode(tc.prior, tc.next); got != tc.want {
-			t.Fatalf("merge(%q, %q) = %q, want %q", tc.prior, tc.next, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			spec := corev1.PodSpec{Containers: []corev1.Container{{Name: "provisioner", Env: tc.env}}}
+			if err := validateWorkerContainerdPolicy(&spec); (err != nil) != tc.wantErr {
+				t.Fatalf("worker policy error = %v, want error %v", err, tc.wantErr)
+			}
+		})
 	}
 }
 

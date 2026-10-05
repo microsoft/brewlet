@@ -74,14 +74,14 @@ func TestNodeProfileRetargetCleansOnlyDepartingNodesAcrossRestart(t *testing.T) 
 	})
 	reconcileProfile(t, f.ctx, f.r, p.Name)
 	cleanup := f.daemonSet(t, brewlet.CleanupDaemonSetName(p.Name))
-	if !legacyTemplateMatches(&cleanup.Spec.Template.Spec, &oldNode) {
+	if !templateMatchesNode(&cleanup.Spec.Template.Spec, &oldNode) {
 		t.Fatal("cleanup lost the departing node after pool/role relabeling")
 	}
 	var kept corev1.Node
 	if err := f.client.Get(f.ctx, types.NamespacedName{Name: f.nodes[1]}, &kept); err != nil {
 		t.Fatal(err)
 	}
-	if legacyTemplateMatches(&cleanup.Spec.Template.Spec, &kept) {
+	if templateMatchesNode(&cleanup.Spec.Template.Spec, &kept) {
 		t.Fatal("cleanup must never include retained targets")
 	}
 	cleanupPod := createDaemonSetPod(t, f.ctx, f.client, cleanup, f.nodes[0], true)
@@ -243,9 +243,9 @@ func TestNodeProfileConcurrentClaimsUseNodeResourceVersion(t *testing.T) {
 	competing := newProfileReconciler(f.client, f.r.Config.Namespace)
 	competing.APIReader = f.client
 	f.r.Client = interceptNodePatchClient{Client: f.client, before: func(ctx context.Context, obj client.Object) error {
-		return competing.claimTarget(ctx, other, target, false)
+		return competing.claimTarget(ctx, other, target)
 	}}
-	if err := f.r.claimTarget(f.ctx, &p, target, false); !apierrors.IsConflict(err) {
+	if err := f.r.claimTarget(f.ctx, &p, target); !apierrors.IsConflict(err) {
 		t.Fatalf("stale claim must conflict instead of overwriting ownership: %v", err)
 	}
 	if err := f.client.Get(f.ctx, types.NamespacedName{Name: name}, &node); err != nil {
@@ -288,9 +288,9 @@ func TestNodeProfileTargetLedgerFailurePreventsClaimsAndWorkers(t *testing.T) {
 	f.assertNoCleanup(t)
 }
 
-func TestNodeProfileMigratesLegacyUnadvertisedPodBeforeClaiming(t *testing.T) {
+func TestNodeProfileRefusesPreClaimUnadvertisedPod(t *testing.T) {
 	f := newCleanupFixture(t, 1)
-	cleanupLegacyDaemonSets(t, f.client, f.r.Config.Namespace)
+	cleanupTestDaemonSets(t, f.client, f.r.Config.Namespace)
 	ds := f.daemonSet(t, brewlet.ProfileDaemonSetName(f.profile.Name))
 	var env []corev1.EnvVar
 	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
@@ -303,7 +303,7 @@ func TestNodeProfileMigratesLegacyUnadvertisedPodBeforeClaiming(t *testing.T) {
 	if err := f.client.Update(f.ctx, ds); err != nil {
 		t.Fatal(err)
 	}
-	pod := createLegacyDaemonSetPod(t, f.ctx, f.client, ds, f.nodes[0], false)
+	pod := createDaemonSetPod(t, f.ctx, f.client, ds, f.nodes[0], false)
 	updateTargetNode(t, f, f.nodes[0], func(n *corev1.Node) {
 		delete(n.Labels, brewlet.LabelNodeOwner)
 		delete(n.Labels, brewlet.LabelNodeIdentity)
@@ -317,21 +317,21 @@ func TestNodeProfileMigratesLegacyUnadvertisedPodBeforeClaiming(t *testing.T) {
 	}
 	reconcileProfile(t, f.ctx, f.r, p.Name)
 	p = getProfile(t, f.ctx, f.client, p.Name)
-	if !p.Status.Migrating || len(p.Status.Targets) != 1 || p.Status.Targets[0].Name != f.nodes[0] {
-		t.Fatalf("legacy in-flight target not captured before draining: %+v", p.Status)
+	if p.Status.Migrating || len(p.Status.Targets) != 0 ||
+		conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonUnsupportedPreClaimState {
+		t.Fatalf("pre-claim worker must be refused, not inventoried or migrated: %+v", p.Status)
 	}
-	observeLegacyFence(t, f, ds.Name)
-	reconcileProfile(t, f.ctx, f.r, p.Name)
-	completeForegroundDaemonSetDeletion(t, f.ctx, f.client, ds.Namespace, ds.Name)
 	reconcileProfile(t, f.ctx, f.r, p.Name)
 	f.assertNoCleanup(t)
-	if err := f.client.Delete(f.ctx, pod, client.GracePeriodSeconds(0)); err != nil {
+	if current := f.daemonSet(t, ds.Name); current.ResourceVersion != ds.ResourceVersion {
+		t.Fatal("refusal must not fence, delete, or update pre-claim workers")
+	}
+	var currentPod corev1.Pod
+	if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(pod), &currentPod); err != nil {
 		t.Fatal(err)
 	}
-	reconcileProfile(t, f.ctx, f.r, p.Name)
-	p = getProfile(t, f.ctx, f.client, p.Name)
-	if p.Status.Migrating || p.Status.Retirement == nil || !p.Status.Targets[0].Claimed {
-		t.Fatalf("drained legacy target did not enter fenced retirement: %+v", p.Status)
+	if currentPod.ResourceVersion != pod.ResourceVersion {
+		t.Fatal("refusal must preserve pod evidence")
 	}
 }
 
@@ -551,7 +551,7 @@ func TestNodeProfileUnavailableRetirementPausesWholeProfileAndPreservesRetainedN
 			}
 			reconcileProfile(t, f.ctx, f.r, p.Name)
 			cleanup := f.daemonSet(t, brewlet.CleanupDaemonSetName(p.Name))
-			if !legacyTemplateMatches(&cleanup.Spec.Template.Spec, &old) || legacyTemplateMatches(&cleanup.Spec.Template.Spec, &kept) {
+			if !templateMatchesNode(&cleanup.Spec.Template.Spec, &old) || templateMatchesNode(&cleanup.Spec.Template.Spec, &kept) {
 				t.Fatal("recovered cleanup must target only the original departing node")
 			}
 			cleanupPod := createDaemonSetPod(t, f.ctx, f.client, cleanup, old.Name, true)
@@ -609,7 +609,7 @@ func TestNodeProfileDeletionFinishesFrozenRetirementBeforeRemainingTargets(t *te
 			if err := f.client.Get(f.ctx, types.NamespacedName{Name: f.nodes[0]}, &old); err != nil {
 				t.Fatal(err)
 			}
-			if legacyTemplateMatches(&cleanup.Spec.Template.Spec, &old) {
+			if templateMatchesNode(&cleanup.Spec.Template.Spec, &old) {
 				t.Fatal("full deletion tried to clean an already released retirement target")
 			}
 			pod := createDaemonSetPod(t, f.ctx, f.client, cleanup, f.nodes[1], true)
@@ -645,7 +645,7 @@ func TestNodeProfileOldCRDPruningBlocksOwnershipActivation(t *testing.T) {
 	reconcileProfile(t, f.ctx, f.r, p.Name)
 	p = getProfile(t, f.ctx, f.client, p.Name)
 	if !containsString(p.Finalizers, brewlet.FinalizerCleanup) ||
-		conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonOwnershipMigration ||
+		conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked ||
 		!strings.Contains(p.Status.Conditions[0].Message, "CRD") {
 		t.Fatalf("old CRD pruning must hold deletion with an upgrade instruction: %+v", p.Status)
 	}

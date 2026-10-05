@@ -244,6 +244,9 @@ check remains authoritative.
 > Preserve reviewed pools and component choices. Recreated sources require
 > SHA-256 digest references, and mirror destinations require an explicit
 > `security.allowedSourceMirrorHosts` entry.
+> Pre-claim NodeProfile workers are refused with `UnsupportedPreClaimState`, not
+> migrated. Preserve their evidence and finish cleanup using the original
+> release before reinstalling; see [pre-claim recovery](../../../docs/installation.md#unsupported-pre-claim-workers).
 
 ## Uninstall
 

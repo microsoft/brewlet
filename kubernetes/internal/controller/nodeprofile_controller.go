@@ -58,7 +58,7 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Check retained authority before migration or reconciliation can overwrite
+	// Check retained authority before reconciliation can overwrite
 	// a policy, stop its evidence-bearing workers, or release a cleanup claim.
 	if err := validateStoredContainerdPolicies(&profile); err != nil {
 		r.Recorder.Eventf(&profile, corev1.EventTypeWarning, nodev1alpha1.ReasonCleanupBlocked, "%s", err)
@@ -68,12 +68,6 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return result, nil
 	}
-	if profile.Status.OwnershipInitialized && !profile.Status.Migrating {
-		if err := r.profileWriterBarrier(ctx, &profile, false); err != nil {
-			return r.migrationStatus(ctx, &profile, err)
-		}
-	}
-
 	var nodes corev1.NodeList
 	if err := r.apiReader().List(ctx, &nodes); err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing nodes: %w", err)
@@ -82,13 +76,9 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.apiReader().List(ctx, &profiles); err != nil {
 		return ctrl.Result{}, fmt.Errorf("listing profiles: %w", err)
 	}
-	// Previously authorized legacy workers must be inventoried before even an
-	// invalid update can stop them and erase the evidence of touched hosts.
-	if controllerutil.ContainsFinalizer(&profile, brewlet.FinalizerCleanup) &&
-		(!profile.Status.OwnershipInitialized || profile.Status.Migrating) {
-		if err := r.initializeOwnership(ctx, &profile, nodes.Items); err != nil {
-			return r.migrationStatus(ctx, &profile, err)
-		}
+	// Refuse unsupported state before invalidation or deletion can erase evidence.
+	if err := r.checkOwnershipCompatibility(ctx, &profile, nodes.Items); err != nil {
+		return r.compatibilityStatus(ctx, &profile, err)
 	}
 
 	resolvedKey := resolvePoolKey(&profile, nodes.Items)
@@ -111,7 +101,7 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		if controllerutil.ContainsFinalizer(&profile, brewlet.FinalizerCleanup) {
 			if err := r.initializeOwnership(ctx, &profile, nodes.Items); err != nil {
-				return r.migrationStatus(ctx, &profile, err)
+				return r.compatibilityStatus(ctx, &profile, err)
 			}
 			if profile.Status.Retirement != nil {
 				return r.reconcileRetirement(ctx, &profile)
@@ -714,7 +704,7 @@ func (r *NodeProfileReconciler) poolCounts(profile *nodev1alpha1.NodeProfile, re
 }
 
 // nodeAssigned reports whether a node belongs to the given profile.
-func (r *NodeProfileReconciler) nodeAssigned(profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string, node *corev1.Node) bool {
+func (r *NodeProfileReconciler) nodeAssigned(profile *nodev1alpha1.NodeProfile, _ string, _ []string, node *corev1.Node) bool {
 	if profile.Status.OwnershipInitialized {
 		for _, target := range profile.Status.Targets {
 			if target.Claimed && target.Name == node.Name && nodeClaimedBy(node, profile, target) {
@@ -723,7 +713,7 @@ func (r *NodeProfileReconciler) nodeAssigned(profile *nodev1alpha1.NodeProfile, 
 		}
 		return false
 	}
-	return profileClaimsNode(profile, resolvedKey, otherPools, node)
+	return false
 }
 
 // updateStatus recomputes assigned/ready counts and the Ready condition, and

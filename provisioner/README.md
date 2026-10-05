@@ -235,6 +235,11 @@ For Brewlet release changes, follow the
 [pre-GA update policy](../docs/installation.md#upgrading): safe
 teardown/reinstallation is the default. The protocols below remain mandatory
 for cleanup and recovery; they do not promise arbitrary in-place upgrades.
+Managed workers predating UID-bound node claims are refused by the current
+operator, not automatically migrated. Complete their cleanup with the original
+release's compatible components before reinstallation; see
+[pre-claim recovery](../docs/installation.md#unsupported-pre-claim-workers).
+Standalone workers likewise must be separately deprovisioned, not adopted.
 
 The provisioner container becomes Ready only after its script has finished
 successfully. Both provisioning and cleanup publish `/tmp/brewlet-complete`

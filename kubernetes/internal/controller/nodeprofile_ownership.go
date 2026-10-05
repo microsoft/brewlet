@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -109,7 +110,7 @@ func nodeClaimedBy(node *corev1.Node, profile *nodev1alpha1.NodeProfile, target 
 func HasNodeProfileCleanupObligations(profile *nodev1alpha1.NodeProfile) bool {
 	condition := meta.FindStatusCondition(profile.Status.Conditions, nodev1alpha1.ConditionReady)
 	return len(profile.Status.Targets) > 0 || profile.Status.Retirement != nil ||
-		hasProvisioningHistory(profile) || profile.Status.Migrating ||
+		hasProvisioningHistory(profile) || HasUnsupportedPreClaimState(profile) ||
 		(condition != nil && condition.Reason == nodev1alpha1.ReasonCleanupBlocked)
 }
 
@@ -126,7 +127,7 @@ func invalidProfileHasHostOwnership(profile *nodev1alpha1.NodeProfile, nodes []c
 			return true
 		}
 	}
-	if profile.Status.Retirement != nil || (profile.Status.Migrating && len(profile.Status.Targets) > 0) {
+	if profile.Status.Retirement != nil || HasUnsupportedPreClaimState(profile) {
 		return true
 	}
 	for _, node := range nodes {
@@ -158,6 +159,10 @@ func unrecordedNodeClaim(profile *nodev1alpha1.NodeProfile, nodes []corev1.Node)
 }
 
 func (r *NodeProfileReconciler) ownershipBlocked(ctx context.Context, profile *nodev1alpha1.NodeProfile, reason string, cause error) (ctrl.Result, error) {
+	var unsupported *preClaimStateError
+	if errors.As(cause, &unsupported) || HasUnsupportedPreClaimState(profile) {
+		reason = nodev1alpha1.ReasonUnsupportedPreClaimState
+	}
 	base := profile.DeepCopy()
 	profile.Status.ObservedGeneration = profile.Generation
 	profile.Status.ReadyNodes = 0
@@ -175,7 +180,7 @@ func (r *NodeProfileReconciler) ownershipBlocked(ctx context.Context, profile *n
 
 func (r *NodeProfileReconciler) reconcileTargets(ctx context.Context, profile *nodev1alpha1.NodeProfile, profiles []nodev1alpha1.NodeProfile, nodes []corev1.Node) (bool, ctrl.Result, error) {
 	if err := r.initializeOwnership(ctx, profile, nodes); err != nil {
-		result, err := r.migrationStatus(ctx, profile, err)
+		result, err := r.compatibilityStatus(ctx, profile, err)
 		return true, result, err
 	}
 	if err := unrecordedNodeClaim(profile, nodes); err != nil {
@@ -234,7 +239,7 @@ func (r *NodeProfileReconciler) reconcileTargets(ctx context.Context, profile *n
 		}
 	}
 	for i := range profile.Status.Targets {
-		if err := r.claimTarget(ctx, profile, profile.Status.Targets[i], false); err != nil {
+		if err := r.claimTarget(ctx, profile, profile.Status.Targets[i]); err != nil {
 			result, err := r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonOwnershipConflict, err)
 			return true, result, err
 		}
@@ -279,8 +284,8 @@ func provisioningSnapshot(prior, current *nodev1alpha1.NodeProfileSpec) *nodev1a
 	return snapshot
 }
 
-func (r *NodeProfileReconciler) claimTarget(ctx context.Context, profile *nodev1alpha1.NodeProfile, target nodev1alpha1.NodeTarget, migrating bool) error {
-	if err := r.profileWriterBarrier(ctx, profile, true); err != nil {
+func (r *NodeProfileReconciler) claimTarget(ctx context.Context, profile *nodev1alpha1.NodeProfile, target nodev1alpha1.NodeTarget) error {
+	if err := r.profileWriterBarrier(ctx, profile); err != nil {
 		return err
 	}
 	var node corev1.Node
@@ -311,15 +316,14 @@ func (r *NodeProfileReconciler) claimTarget(ctx context.Context, profile *nodev1
 			continue
 		}
 		for _, prior := range other.Status.Targets {
-			if prior.Name == node.Name && (prior.Claimed || other.Status.Migrating) {
+			if prior.Name == node.Name && (prior.Claimed || HasUnsupportedPreClaimState(&other)) {
 				return fmt.Errorf("node name %s is still recorded by profile %s (%s); its prior identity must finish cleanup first", node.Name, other.Name, other.UID)
 			}
 		}
 	}
 	advertised := node.Annotations[brewlet.AnnotationProfile]
-	if (advertised != "" || node.Labels[brewlet.LabelRuntimeReady] != "") &&
-		(!migrating || advertised != profile.Name) {
-		return fmt.Errorf("node %s has unfenced runtime state from %q; drain and migrate its existing owner first", node.Name, advertised)
+	if advertised != "" || node.Labels[brewlet.LabelRuntimeReady] != "" {
+		return &preClaimStateError{evidence: fmt.Sprintf("node %s has unfenced runtime state from %q", node.Name, advertised)}
 	}
 	var pods corev1.PodList
 	if err := r.apiReader().List(ctx, &pods); err != nil {
@@ -353,66 +357,8 @@ func claimFenced(ds *appsv1.DaemonSet) bool {
 }
 
 func claimFencedPod(spec *corev1.PodSpec) bool {
-	for _, c := range spec.Containers {
-		if c.Name == "provisioner" {
-			for _, e := range c.Env {
-				if e.Name == "BREWLET_REQUIRE_NODE_CLAIM" && e.Value == "true" {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-func legacyTemplateMatches(spec *corev1.PodSpec, node *corev1.Node) bool {
-	if spec.NodeName != "" && spec.NodeName != node.Name {
-		return false
-	}
-	for key, value := range spec.NodeSelector {
-		if node.Labels[key] != value {
-			return false
-		}
-	}
-	if spec.Affinity == nil || spec.Affinity.NodeAffinity == nil ||
-		spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
-		return true
-	}
-	for _, term := range spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
-		matches := len(term.MatchExpressions)+len(term.MatchFields) > 0
-		for _, req := range term.MatchExpressions {
-			value, exists := node.Labels[req.Key]
-			found := false
-			for _, candidate := range req.Values {
-				found = found || value == candidate
-			}
-			switch req.Operator {
-			case corev1.NodeSelectorOpIn:
-				matches = matches && exists && found
-			case corev1.NodeSelectorOpNotIn:
-				matches = matches && (!exists || !found)
-			case corev1.NodeSelectorOpExists:
-				matches = matches && exists
-			case corev1.NodeSelectorOpDoesNotExist:
-				matches = matches && !exists
-			default:
-				// Unknown legacy constraints must not undercount potential targets.
-			}
-		}
-		for _, req := range term.MatchFields {
-			if req.Key == "metadata.name" && req.Operator == corev1.NodeSelectorOpIn {
-				found := false
-				for _, candidate := range req.Values {
-					found = found || node.Name == candidate
-				}
-				matches = matches && found
-			}
-		}
-		if matches {
-			return true
-		}
-	}
-	return false
+	value, unique := literalProvisionerEnv(spec, "BREWLET_REQUIRE_NODE_CLAIM")
+	return unique && value == "true"
 }
 
 func (r *NodeProfileReconciler) validateTargetClaims(ctx context.Context, profile *nodev1alpha1.NodeProfile, targets []nodev1alpha1.NodeTarget) ([]corev1.Node, error) {

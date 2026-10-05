@@ -218,9 +218,12 @@ spec:
               type: object
               properties:
                 ownershipInitialized: { type: boolean }
-                migrating: { type: boolean }
+                migrating:
+                  type: boolean
+                  description: Inert pre-claim evidence; blocks automatic adoption and must be preserved for original-release cleanup.
                 migrationDaemonSetUIDs:
                   type: array
+                  description: Inert pre-claim worker identities; retained for refusal and original-release recovery, not automatic migration.
                   items: { type: string }
                 provisioningGeneration: { type: integer, format: int64 }
                 provisioningSpec:

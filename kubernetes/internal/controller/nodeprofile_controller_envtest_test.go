@@ -238,20 +238,11 @@ func TestNodeProfileInvalidUpdateWithdrawsProvisioning(t *testing.T) {
 	if err := c.Update(ctx, &p); err != nil {
 		t.Fatalf("updating profile with bypassed invalid policy: %v", err)
 	}
-	pod := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      uniqueName("invalid-profile-provisioner"),
-			Namespace: ns,
-			Labels:    profileLabels(name),
-		},
-		Spec: corev1.PodSpec{Containers: []corev1.Container{{
-			Name:  "provisioner",
-			Image: "ghcr.io/microsoft/brewlet-node-provisioner:test",
-		}}},
+	var worker appsv1.DaemonSet
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: brewlet.ProfileDaemonSetName(name)}, &worker); err != nil {
+		t.Fatal(err)
 	}
-	if err := c.Create(ctx, &pod); err != nil {
-		t.Fatalf("creating lingering provisioner pod: %v", err)
-	}
+	pod := createDaemonSetPod(t, ctx, c, &worker, nodeName, false)
 	result := reconcileProfile(t, ctx, r, name)
 	if result.RequeueAfter == 0 {
 		t.Fatal("expected invalid profile reconciliation to wait for provisioner termination")
@@ -279,7 +270,7 @@ func TestNodeProfileInvalidUpdateWithdrawsProvisioning(t *testing.T) {
 		t.Fatal("expected invalid profile reconciliation to wait while a provisioner pod remains")
 	}
 	markNodeReady(t, ctx, c, nodeName, name, p.Generation)
-	if err := c.Delete(ctx, &pod); err != nil {
+	if err := c.Delete(ctx, pod, client.GracePeriodSeconds(0)); err != nil {
 		t.Fatalf("deleting lingering provisioner pod: %v", err)
 	}
 	reconcileProfile(t, ctx, r, name)
@@ -432,20 +423,11 @@ func TestDeletingNewlyConflictingProfileWaitsForProvisionerTermination(t *testin
 	reconcileProfile(t, ctx, r, firstName)
 	reconcileProfile(t, ctx, r, secondName)
 
-	pod := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      uniqueName("old-provisioner"),
-			Namespace: ns,
-			Labels:    profileLabels(firstName),
-		},
-		Spec: corev1.PodSpec{Containers: []corev1.Container{{
-			Name:  "provisioner",
-			Image: "ghcr.io/microsoft/brewlet-node-provisioner:test",
-		}}},
+	var worker appsv1.DaemonSet
+	if err := c.Get(ctx, types.NamespacedName{Namespace: ns, Name: brewlet.ProfileDaemonSetName(firstName)}, &worker); err != nil {
+		t.Fatal(err)
 	}
-	if err := c.Create(ctx, &pod); err != nil {
-		t.Fatalf("creating old provisioner pod: %v", err)
-	}
+	pod := createDaemonSetPod(t, ctx, c, &worker, nodeName, false)
 
 	first := getProfile(t, ctx, c, firstName)
 	first.Spec.NodePool.Names = []string{"second"}
@@ -483,7 +465,7 @@ func TestDeletingNewlyConflictingProfileWaitsForProvisionerTermination(t *testin
 	if !containsString(first.Finalizers, brewlet.FinalizerCleanup) {
 		t.Fatalf("finalizer released while provisioner pod remained: %v", first.Finalizers)
 	}
-	if err := c.Delete(ctx, &pod); err != nil {
+	if err := c.Delete(ctx, pod, client.GracePeriodSeconds(0)); err != nil {
 		t.Fatalf("deleting old provisioner pod: %v", err)
 	}
 	first = getProfile(t, ctx, c, firstName)
