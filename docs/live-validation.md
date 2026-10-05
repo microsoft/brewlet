@@ -74,7 +74,7 @@ The manual `scenario` selector can run only `hpa`, only `admission` or only
 Ordinary PR CI executes offline fixture safeguards and suite routing/monitor
 contracts (`make e2e-contract-check`), not the live jobs. Saved monitor history
 is normalized without renaming run IDs or evidence; see the
-[harness runbook](../integration-tests/AGENTS.md).
+[harness runbook](https://github.com/microsoft/brewlet/blob/main/integration-tests/AGENTS.md).
 
 ## Release baseline and reproducibility
 
