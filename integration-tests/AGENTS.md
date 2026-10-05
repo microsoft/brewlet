@@ -13,6 +13,8 @@ They create their own uniquely named clusters and registries; never pass a
 shared kube context or run the tier reset helper for them. Mandatory assertions
 fail instead of skipping. `.github/workflows/e2e.yml` has separate scheduled/manual
 live jobs, each running twice on fresh clusters; it has no push/PR triggers.
+All three scenarios use the same checkout-built runtime, plus the checkout
+verifier for admission. There are no historical runtime modes or version selectors.
 
 See [the live-validation runbook](../docs/live-validation.md) for release pins,
 capacity, load leases, stabilization, fixture-only TLS/HTTP exceptions, evidence,
@@ -211,6 +213,11 @@ the harness namespaces.
 Generated artifacts and diagnostic logs are written beneath the printed work
 directory. Set `E2E_WORK` to retain them at a known path. For rollout failures,
 read `diag-*.log` first.
+Hosted tier jobs export only redacted `runner.log`, `diag-*.log`, and
+`tN-fixture-teardown.log` files to 14-day artifacts; kubeconfigs, keys, manifests,
+and other private work files are not uploaded. The tier job budget is 60 minutes
+(30 for arm64 host-only); admission/HPA get 180 minutes for two fresh runs,
+and each workflows matrix entry gets 90 minutes.
 
 Common environment-specific skips:
 

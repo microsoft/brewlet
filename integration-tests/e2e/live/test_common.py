@@ -116,7 +116,6 @@ class FixtureSafetyTests(unittest.TestCase):
         fixture.node, fixture.node_id = "owned-node", "node-id"
         fixture.registry_name, fixture.registry_id = "owned-registry", "registry-id"
         fixture.network_id = None
-        fixture.candidate_image_id = None
         fixture.old_signals = {}
         fixture.scenario = "hpa"
         fixture.evidence = []

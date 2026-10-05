@@ -29,9 +29,9 @@ import shutil
 import subprocess
 import threading
 import time
-import xml.etree.ElementTree as ET
 
-from common import JDK_IMAGE, OWNER_LABEL, REGISTRY_IMAGE, ROOT, Fixture, owned_container, run, sha256, wait
+from common import JDK_IMAGE, OWNER_LABEL, REGISTRY_IMAGE, ROOT, owned_container, run, sha256, wait
+from checkout import CheckoutFixture as CheckoutRuntimeFixture
 import workflows_helpers as h
 
 APP_NS, OTHER_NS, MAVEN_NS, PROFILE_NS = "wf-alpha", "wf-beta", "wf-maven", "wf-profile"
@@ -45,21 +45,14 @@ FINALIZER = "node.brewlet.sh/cleanup"
 CLI_TOLERANCE, MAVEN_TOLERANCE = 15, 20
 
 
-class CheckoutFixture(Fixture):
+class CheckoutFixture(CheckoutRuntimeFixture):
     """The shared strict fixture, provisioned from checkout-built components."""
 
     def __init__(self):
         super().__init__("workflows")
-        for key in ("BREWLET_REGISTRY_USERNAME", "BREWLET_REGISTRY_PASSWORD", "MAVEN_OPTS",
-                    "MAVEN_ARGS", "JAVA_TOOL_OPTIONS"):
-            self.env.pop(key, None)
         self.secrets = set()
         self.commands = []
-        self.image_ids = []
-        self.built = {}
         self.auth_registry_id = None
-        self.maven_base = ["mvn", "-B", "--no-transfer-progress",
-                           f"-Dmaven.repo.local={self.private / 'm2'}"]
         self.cleanups.append(self.remove_owned)
 
     def secret(self, value):
@@ -113,69 +106,8 @@ class CheckoutFixture(Fixture):
                 raise RuntimeError(f"Required prerequisite missing: {tool}; no assertions skipped")
         super().start()
 
-    def release(self):
-        self.cli.parent.mkdir()
-        self.cmd("build-cli", ["go", "build", "-trimpath", "-o", self.cli, "./cmd/brewlet"],
-                 cwd=ROOT / "core", env={"CGO_ENABLED": "0"})
-        plugin = self.private / "maven-plugin"
-        shutil.copytree(ROOT / "maven-plugin", plugin, ignore=shutil.ignore_patterns("target"))
-        (self.private / "settings.xml").write_text("<settings/>")
-        self.cmd("build-plugin", [*self.maven_base, "--settings", self.private / "settings.xml",
-                                  "-f", plugin / "pom.xml", "-DskipTests", "install"], timeout=900)
-        version = ET.parse(plugin / "pom.xml").getroot().find("{http://maven.apache.org/POM/4.0.0}version").text
-        self.plugin = f"sh.brewlet:brewlet-maven-plugin:{version}"
-        installed = (self.private / "m2/sh/brewlet/brewlet-maven-plugin" / version /
-                     f"brewlet-maven-plugin-{version}.jar")
-        built = plugin / "target" / f"brewlet-maven-plugin-{version}.jar"
-        if sha256(installed) != sha256(built):
-            raise RuntimeError("Private Maven repository does not hold the checkout-built plugin")
-        for component, dockerfile, args in (
-            ("operator", "kubernetes/Dockerfile", ["--build-arg", "CMD=manager"]),
-            ("admission", "kubernetes/Dockerfile", ["--build-arg", "CMD=admission"]),
-            ("provisioner", "provisioner/Dockerfile", []),
-        ):
-            tag = f"brewlet.local/{self.name}-{component}:candidate"
-            try:
-                self.cmd(f"build-{component}-image",
-                         ["docker", "build", "--platform", f"linux/{self.arch}",
-                          "--label", f"{OWNER_LABEL}={self.name}", "-t", tag, *args,
-                          "-f", ROOT / dockerfile, ROOT], timeout=1800)
-            finally:
-                result = run(["docker", "image", "inspect", tag], env=self.env, check=False)
-                if result.returncode == 0:
-                    self.image_ids.append(json.loads(result.stdout)[0]["Id"])
-            self.built[component] = tag
-        self.chart = ROOT / "kubernetes/charts/brewlet"
-        tools = {}
-        for tool, argv in (("go", ["go", "version"]), ("java", ["java", "-version"]),
-                           ("maven", ["mvn", "-v"]), ("docker", ["docker", "version", "--format", "{{.Server.Version}}"]),
-                           ("kind", ["kind", "version"]), ("kubectl", ["kubectl", "version", "--client"]),
-                           ("helm", ["helm", "version", "--short"])):
-            result = run(argv, env=self.env, check=False)
-            tools[tool] = (result.stdout + result.stderr).strip()
-        self.save("versions.json", {
-            "source": run(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip(),
-            "sourceDirty": bool(run(["git", "status", "--porcelain"], cwd=ROOT).stdout),
-            "cliSHA256": sha256(self.cli), "plugin": self.plugin, "pluginSHA256": sha256(built),
-            "images": {c: {"tag": t} for c, t in self.built.items()}, "dockerImageIDs": self.image_ids,
-            "chart": str(self.chart.relative_to(ROOT)), "hostArchitecture": self.arch,
-            "jdkImage": JDK_IMAGE, "tools": tools})
-
-    def component_images(self):
-        images = {}
-        for component, tag in self.built.items():
-            self.load_image(tag)
-            rows = self.run(["docker", "exec", self.node_id, "ctr", "-n", "k8s.io",
-                             "images", "ls"]).stdout.splitlines()
-            digest = next((r.split()[2] for r in rows if r.split() and r.split()[0] == tag), "")
-            if not h.DIGEST.fullmatch(digest):
-                raise RuntimeError(f"Could not pin the imported {component} image")
-            pinned = tag.split(":")[0] + "@" + digest
-            self.run(["docker", "exec", self.node_id, "ctr", "-n", "k8s.io", "images", "tag",
-                      "--force", tag, pinned])
-            images[component] = pinned
-        self.record("checkout-components-loaded", images)
-        return images
+    def build_command(self, name, argv, **kwargs):
+        return self.cmd(name, argv, **kwargs)
 
     def start_auth_registry(self, htpasswd):
         name = self.name + "-auth-registry"
@@ -210,14 +142,6 @@ class CheckoutFixture(Fixture):
                     self.run(["docker", "rm", "-f", "--volumes", self.auth_registry_id])
                 else:
                     errors.append("refusing to remove foreign auth registry")
-        for image_id in self.image_ids:
-            result = self.run(["docker", "image", "inspect", image_id], check=False)
-            if result.returncode:
-                continue
-            if json.loads(result.stdout)[0]["Config"].get("Labels", {}).get(OWNER_LABEL) != self.name:
-                errors.append(f"refusing to remove foreign image {image_id}")
-                continue
-            self.run(["docker", "image", "rm", "-f", image_id])
         if errors:
             raise RuntimeError("; ".join(errors))
 

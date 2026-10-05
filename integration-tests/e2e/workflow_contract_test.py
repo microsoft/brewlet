@@ -83,8 +83,8 @@ class WorkflowContractTests(unittest.TestCase):
     def test_selectors_defaults_and_scheduled_manual_only_triggers(self):
         self.assertEqual(self.choices("suite"), ["all", "live", "tiers"])
         self.assertEqual(self.choices("scenario"), ["both", "admission", "hpa", "workflows"])
-        self.assertEqual(self.choices("candidate"), ["shim", "release"])
-        for name, default in (("suite", "all"), ("scenario", "both"), ("candidate", "shim")):
+        self.assertNotIn("candidate:", self.inputs)
+        for name, default in (("suite", "all"), ("scenario", "both")):
             self.assertEqual(scalar(block(self.inputs, name, 6), "default", 8), default)
         triggers = block(WORKFLOW, "on", 0)
         self.assertEqual(re.findall(r"^  ([\w_]+):", triggers, re.MULTILINE), ["schedule", "workflow_dispatch"])
@@ -113,10 +113,11 @@ class WorkflowContractTests(unittest.TestCase):
         tiers = [int(n) for args in tier_args for n in re.findall(r"--tier (\d+)", args)]
         self.assertEqual(sorted(tiers), list(range(1, 20)))
         self.assertIn("--tier 17", tier_args)  # GC must retain a fresh runner/node.
-        self.assertIn("run: integration-tests/e2e/run.sh ${{ matrix.tiers }}", self.job_blocks["tiers"])
+        self.assertIn('integration-tests/e2e/run.sh ${{ matrix.tiers }} 2>&1 | tee "$E2E_WORK/runner.log"',
+                      self.job_blocks["tiers"])
         arm64 = self.job_blocks["arm64"]
         self.assertEqual(scalar(arm64, "runs-on", 4), "ubuntu-24.04-arm")
-        self.assertIn("run: integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3", arm64)
+        self.assertIn('integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3 2>&1 | tee "$E2E_WORK/runner.log"', arm64)
         self.assertIn('go env GOARCH)" = "arm64"', arm64)
 
     def test_live_matrix_and_two_fresh_runs_are_preserved(self):
@@ -134,13 +135,24 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('SCENARIO: ${{ matrix.scenario }}', live)
         self.assertIn('python3 "integration-tests/e2e/live/${SCENARIO}.py"\n'
                       '          python3 "integration-tests/e2e/live/${SCENARIO}.py"', live)
-        self.assertIn("BREWLET_LIVE_CANDIDATE: ${{ inputs.candidate || 'shim' }}", live)
+        self.assertNotIn("BREWLET_LIVE_CANDIDATE", WORKFLOW)
         workflows = self.job_blocks["workflows"]
         matrix = block(block(workflows, "strategy", 4), "matrix", 6)
         self.assertEqual(json.loads(scalar(matrix, "run", 8)), [1, 2])
         self.assertIn("run: python3 integration-tests/e2e/live/workflows.py", workflows)
         for source in (live, workflows):
             self.assertIn("if: always()", source)
+            self.assertIn("if-no-files-found: error", source)
+
+    def test_job_budgets_and_sanitized_tier_artifacts(self):
+        for job, budget in (("tiers", "60"), ("arm64", "30"), ("live", "180"), ("workflows", "90")):
+            self.assertEqual(scalar(self.job_blocks[job], "timeout-minutes", 4), budget)
+        for job in ("tiers", "arm64"):
+            source = self.job_blocks[job]
+            self.assertIn('collect_diagnostics.py "$E2E_WORK" "$RUNNER_TEMP/brewlet-tier-evidence"', source)
+            self.assertEqual(source.count("if: always()"), 2)
+            self.assertIn("path: ${{ runner.temp }}/brewlet-tier-evidence", source)
+            self.assertNotIn("path: ${{ runner.temp }}/brewlet-tier-work", source)
             self.assertIn("if-no-files-found: error", source)
 
     def test_concurrency_and_permissions_are_unchanged(self):
