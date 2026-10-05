@@ -109,6 +109,7 @@ deletion. See [Uninstall](installation.md#uninstall) and
 [runnable-stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
 Describe current capabilities by function (for example, NodeProfile provisioning,
-validated containerd activation, or Prometheus textfile collection). Reserve historical
-terms such as "legacy" for precise old-state or migration descriptions; neither
-that label nor its removal decides whether an interface is supported.
+validated containerd activation, or socket-based runtime telemetry with a
+Prometheus exporter). Reserve historical terms such as "legacy" for precise
+old-state or migration descriptions; neither that label nor its removal decides
+whether an interface is supported.
