@@ -101,7 +101,6 @@ BREWLET_MODE="${BREWLET_MODE:-provision}"
 # When and whether to restart containerd after (re)writing its config (§5.6 /
 # proposal 0002). One of:
 #   validated (default) = restart through systemd, health-check, and roll back
-#   sighup              = retain the legacy SIGHUP behavior after a config change
 #   none                = do not mutate or signal containerd (immutable-image mode)
 BREWLET_CONTAINERD_RESTART="${BREWLET_CONTAINERD_RESTART:-validated}"
 CONTAINERD_HEALTH_ATTEMPTS="${CONTAINERD_HEALTH_ATTEMPTS:-10}"
@@ -165,7 +164,7 @@ die()  {
   if [[ "$BREWLET_REQUIRE_NODE_CLAIM" == "true" && "$NODE_WRITE_AUTHORIZED" != "true" ]]; then
     exit 1
   fi
-  if command -v remove_appcds_regeneration_policy >/dev/null 2>&1; then
+  if [[ "$code" != "invalid-restart-mode" ]] && command -v remove_appcds_regeneration_policy >/dev/null 2>&1; then
     remove_appcds_regeneration_policy || true
   fi
   if [[ "${BREWLET_MODE}" != "cleanup" ]] && command -v kubectl >/dev/null 2>&1 && [[ -n "${NODE_NAME:-}" ]]; then
@@ -1425,9 +1424,20 @@ validate_runtime() {
   log "validation passed: all JDKs smoke-tested and launchers checked"
 }
 
-# Render the selected configuration. Validated mode owns drop-in detection and
-# effective-config validation; legacy sighup retains the in-place renderer.
+validate_restart_mode() {
+  local mode="${1-${BREWLET_CONTAINERD_RESTART}}"
+  case "$mode" in
+    validated|""|none) ;;
+    sighup)
+      die invalid-restart-mode "sighup has been removed; use validated or none for new profiles; existing installations must complete cleanup with their compatible release before teardown/reinstallation (docs/installation.md#upgrading); do not rewrite stored cleanup policies" ;;
+    *)
+      die invalid-restart-mode "invalid containerd restart policy '${mode}' (want: validated|none)" ;;
+  esac
+}
+
+# Validated mode owns drop-in detection and effective-config validation.
 configure_containerd() {
+  validate_restart_mode
   CONTAINERD_CONFIG_CHANGED=0
   CONTAINERD_ROLLBACK_KIND="none"
   CONTAINERD_ROLLBACK_PATH=""
@@ -1435,12 +1445,8 @@ configure_containerd() {
   case "${BREWLET_CONTAINERD_RESTART}" in
     none)
       log "BREWLET_CONTAINERD_RESTART=none; skipping containerd configuration mutation" ;;
-    sighup)
-      patch_containerd_in_place ;;
     validated|"")
       configure_containerd_validated ;;
-    *)
-      die invalid-restart-mode "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
   esac
 }
 
@@ -1448,44 +1454,14 @@ configure_containerd() {
 # mutation, any restart or health failure restores known-good configuration,
 # restarts containerd again, verifies recovery, and reports the original stage.
 activate_containerd_config() {
+  validate_restart_mode
   case "${BREWLET_CONTAINERD_RESTART}" in
     none)
       validate_runtime
       log "BREWLET_CONTAINERD_RESTART=none; containerd configuration is managed out of band" ;;
-    sighup)
-      if [[ "$CONTAINERD_CONFIG_CHANGED" == "1" ]]; then
-        reload_containerd
-      else
-        log "containerd configuration unchanged; skipping SIGHUP"
-      fi ;;
     validated|"")
       validated_restart ;;
-    *)
-      die invalid-restart-mode "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
   esac
-}
-
-# The validated mode probes before its restart. Other modes retain their
-# lifecycle behavior and apply the same gate afterward, immediately before labels.
-validate_readiness_after_activation() {
-  case "${BREWLET_CONTAINERD_RESTART}" in
-    sighup) validate_runtime ;;
-    validated|""|none) ;;
-    *) die invalid-restart-mode "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
-  esac
-}
-
-# Reload containerd so it picks up the new runtime. We SIGHUP the host containerd
-# process (the DaemonSet runs with hostPID: true, so its PID is visible here).
-reload_containerd() {
-  local pid
-  pid="$(pgrep -x containerd | head -1 || true)"
-  if [[ -n "$pid" ]]; then
-    log "reloading containerd (SIGHUP pid ${pid})"
-    kill -HUP "$pid" || log "WARN: could not signal containerd; a manual restart may be needed"
-  else
-    log "WARN: containerd process not visible (need hostPID: true); skipping reload"
-  fi
 }
 
 restart_containerd_service() {
@@ -1781,10 +1757,8 @@ verify_node_ownership() {
         || die ownership-fence-failed "cleanup requires a deleting profile at the authorized generation"
     fi
     if [[ -n "$target_restart" ]]; then
-      case "$target_restart" in
-        validated|sighup|none) BREWLET_CONTAINERD_RESTART="$target_restart" ;;
-        *) die ownership-fence-failed "invalid per-node cleanup restart policy" ;;
-      esac
+      validate_restart_mode "$target_restart"
+      BREWLET_CONTAINERD_RESTART="$target_restart"
     fi
   else
     [[ -z "$deleting" && -z "$retirement_phase" && "$generation" == "$BREWLET_PROFILE_GENERATION" ]] \
@@ -1877,22 +1851,19 @@ unlabel_node() {
 }
 
 cleanup_host() {
+  validate_restart_mode
   remove_appcds_regeneration_policy \
     || die cleanup-failed "could not remove AppCDS regeneration policy during cleanup"
   clear_node_advertisement \
     || die cleanup-failed "could not remove node readiness before cleanup"
   # Remove the runtime first so no new brewlet pods land while we tear down, then
-  # reload containerd (unless disabled), drop the shim, and unlabel the node.
+  # restart containerd (unless disabled), drop the shim, and unlabel the node.
   case "${BREWLET_CONTAINERD_RESTART}" in
     none)
       log "BREWLET_CONTAINERD_RESTART=none; leaving image-managed containerd configuration untouched" ;;
     validated|"")
       unpatch_containerd
       restart_containerd_service ;;
-    sighup)
-      unpatch_containerd
-      reload_containerd ;;
-    *) die invalid-restart-mode "invalid BREWLET_CONTAINERD_RESTART='${BREWLET_CONTAINERD_RESTART}' (want: validated|sighup|none)" ;;
   esac
   remove_shim
   # The NodeProfile that authorized these roots is gone, so leaving a full JDK
@@ -1912,6 +1883,7 @@ publish_completion() {
 }
 
 cleanup_node() {
+  validate_restart_mode
   log "cleaning up node ${NODE_NAME} for deleted NodeProfile (BREWLET_MODE=cleanup)"
   install_source_mount_traps
   cleanup_stale_source_mounts
@@ -1965,6 +1937,7 @@ main() {
   rm -f -- "$COMPLETION_FILE" \
     || die completion-state-failed "could not reset completion marker ${COMPLETION_FILE}"
   ensure_in_cluster_kubeconfig
+  validate_restart_mode
   verify_node_ownership
   if [[ "${BREWLET_MODE}" == "cleanup" ]]; then
     cleanup_node
@@ -1991,7 +1964,6 @@ main() {
 
   configure_containerd
   activate_containerd_config
-  validate_readiness_after_activation
   verify_shim
   verify_profile_identity
   configure_appcds_regeneration_policy \

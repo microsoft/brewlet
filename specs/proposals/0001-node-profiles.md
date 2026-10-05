@@ -187,7 +187,7 @@ spec:
   rollout:
     maxUnavailable: 1
     validate: true                 # 0002 smoke gate before marking ready
-    containerdRestart: validated   # validated | sighup | none  (0002)
+    containerdRestart: validated   # validated | none  (0002)
 status:
   observedGeneration: 3
   resolvedPoolKey: cloud.google.com/gke-nodepool  # key the operator matched on
@@ -312,7 +312,7 @@ type RegistrySpec struct {
 type RolloutSpec struct {
     MaxUnavailable    *intstr.IntOrString `json:"maxUnavailable,omitempty"`
     Validate          *bool               `json:"validate,omitempty"`          // default true (0002)
-    ContainerdRestart string              `json:"containerdRestart,omitempty"` // validated|sighup|none (0002)
+    ContainerdRestart string              `json:"containerdRestart,omitempty"` // validated|none (0002)
 }
 ```
 

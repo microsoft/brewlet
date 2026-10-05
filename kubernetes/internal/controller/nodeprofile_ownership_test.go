@@ -111,6 +111,69 @@ func TestNodeProfileCleanupPolicyRetainsPriorHostMutationObligations(t *testing.
 	}
 }
 
+func TestMergeLegacyModeRejectsUnsupportedEvidence(t *testing.T) {
+	for _, unsupported := range []string{"", "sighup", "reboot"} {
+		for _, other := range []string{"validated", "none", unsupported} {
+			if mergeLegacyMode(unsupported, other) != "" || mergeLegacyMode(other, unsupported) != "" {
+				t.Fatalf("unsupported policy %q was merged into %q", unsupported, other)
+			}
+		}
+	}
+	for _, tc := range []struct{ prior, next, want string }{
+		{"none", "none", "none"},
+		{"validated", "none", "validated"},
+		{"none", "validated", "validated"},
+		{"validated", "validated", "validated"},
+	} {
+		if got := mergeLegacyMode(tc.prior, tc.next); got != tc.want {
+			t.Fatalf("merge(%q, %q) = %q, want %q", tc.prior, tc.next, got, tc.want)
+		}
+	}
+}
+
+func TestStoredContainerdPolicies(t *testing.T) {
+	for _, mode := range []string{"", "validated", "none", "sighup", "reboot"} {
+		for _, field := range []string{"provisioningSpec", "targets", "retirement.spec", "retirement.targets"} {
+			t.Run(field+"/"+mode, func(t *testing.T) {
+				p := profileNamed("owner", []string{"pool"}, jdk("temurin", 21))
+				p.Spec.Rollout.ContainerdRestart = "none"
+				setStoredRestartPolicy(&p, field, mode)
+				err := validateStoredContainerdPolicies(&p)
+				wantErr := mode == "sighup" || mode == "reboot"
+				if (err != nil) != wantErr {
+					t.Fatalf("policy %q: %v", mode, err)
+				}
+				if err != nil && !strings.Contains(err.Error(), field) {
+					t.Fatalf("error does not identify stored policy: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func setStoredRestartPolicy(p *nodev1alpha1.NodeProfile, field, mode string) {
+	if len(p.Status.Targets) == 0 {
+		p.Status.Targets = []nodev1alpha1.NodeTarget{{Name: "worker", UID: "node-uid", Claimed: true}}
+	}
+	switch field {
+	case "provisioningSpec":
+		p.Status.ProvisioningSpec = p.Spec.DeepCopy()
+		p.Status.ProvisioningSpec.Rollout.ContainerdRestart = mode
+	case "targets":
+		p.Status.Targets[0].ContainerdRestart = mode
+	case "retirement.spec", "retirement.targets":
+		p.Status.Retirement = &nodev1alpha1.NodeRetirement{
+			Spec: *p.Spec.DeepCopy(), Targets: append([]nodev1alpha1.NodeTarget(nil), p.Status.Targets...),
+			Generation: p.Generation, Phase: nodev1alpha1.RetirementCleaning,
+		}
+		if field == "retirement.spec" {
+			p.Status.Retirement.Spec.Rollout.ContainerdRestart = mode
+		} else {
+			p.Status.Retirement.Targets[0].ContainerdRestart = mode
+		}
+	}
+}
+
 func TestNodeProfileOwnershipFenceJSONPathMatchesDurableAPI(t *testing.T) {
 	script, err := os.ReadFile("../../../provisioner/entrypoint.sh")
 	if err != nil {

@@ -129,6 +129,20 @@ class SiteContractsTest(unittest.TestCase):
         for deployment_field in ("jdk", "launcher", "ports", "jvmArgs", "resources"):
             self.assertNotIn(deployment_field, config)
 
+    def test_removed_sighup_policy_uses_default_release_update_procedure(self):
+        installation = (ROOT / "docs/installation.md").read_text()
+        default = installation.split(
+            "#### Default: safe teardown and reinstallation", 1
+        )[1].split("#### Conditional in-place transitions and recovery", 1)[0]
+        self.assertIn("`BREWLET_CONTAINERD_RESTART=sighup`", default)
+        self.assertIn("no in-place", default)
+        self.assertIn("snapshots", default)
+        self.assertIn("retirement records", default)
+        self.assertIn("rather than silently restarting containerd",
+                      " ".join(default.split()))
+        self.assertNotIn("in-place SIGHUP activation",
+                         (ROOT / "docs/compatibility.md").read_text())
+
     def test_complete_workload_descriptor_uses_an_explicit_digest_placeholder(self):
         descriptors = [block for _, block in self.page.blocks
                        if "kind: JavaApplication" in block]
