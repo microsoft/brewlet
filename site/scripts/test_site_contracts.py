@@ -20,6 +20,9 @@ from test_installation_examples import blocks
 
 
 ROOT = Path(__file__).resolve().parents[2]
+REMOVED_CLI_COMMAND = re.compile(
+    r"(?m)^\s*(?:\$\s+)?(?:\./)?(?:bin/)?brewlet\s+(?:jdks|doctor)(?=\s|$)"
+)
 
 
 class LandingPage(HTMLParser):
@@ -27,6 +30,8 @@ class LandingPage(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.section = None
         self.pre = None
+        self.code = None
+        self.inline_code = []
         self.anchor = None
         self.hidden = 0
         self.blocks = []
@@ -51,6 +56,8 @@ class LandingPage(HTMLParser):
             self.section = attrs.get("id")
         elif tag == "pre":
             self.pre = []
+        elif tag == "code" and self.pre is None:
+            self.code = []
         elif tag == "a":
             self.anchor = (attrs.get("href"), [])
 
@@ -60,6 +67,8 @@ class LandingPage(HTMLParser):
         self.text.append(data)
         if self.pre is not None:
             self.pre.append(data)
+        if self.code is not None:
+            self.code.append(data)
         if self.anchor is not None:
             self.anchor[1].append(data)
 
@@ -69,6 +78,9 @@ class LandingPage(HTMLParser):
         if tag == "pre":
             self.blocks.append((self.section, "".join(self.pre)))
             self.pre = None
+        elif tag == "code" and self.code is not None:
+            self.inline_code.append("".join(self.code))
+            self.code = None
         elif tag == "a" and self.anchor is not None:
             href, text = self.anchor
             self.links.append((href, " ".join("".join(text).split())))
@@ -82,6 +94,42 @@ class SiteContractsTest(unittest.TestCase):
     def setUpClass(cls):
         cls.page = LandingPage((ROOT / "site/index.html").read_text(encoding="utf-8"))
         cls.text = " ".join("".join(cls.page.text).split())
+
+    def test_landing_page_examples_do_not_use_removed_cli_commands(self):
+        # Do not scan documentation migration tables or validation history.
+        for filename in ("index.html", "index-value-prop.html"):
+            page = LandingPage((ROOT / "site" / filename).read_text(encoding="utf-8"))
+            examples = page.inline_code + [block for _, block in page.blocks]
+            for example in examples:
+                with self.subTest(page=filename, example=example):
+                    self.assertNotRegex(example, REMOVED_CLI_COMMAND)
+        self.assertIn("brewlet k8s jdk list", self.page.inline_code)
+
+    def test_removed_cli_command_contract_covers_inline_and_block_examples(self):
+        for command in ("jdks", "doctor"):
+            for source in (
+                f"<p>Run <code>brewlet {command}</code> now.</p>",
+                f"<pre><code>$ bin/brewlet <span>{command}</span> --help</code></pre>",
+                f"<pre>./bin/brewlet\t{command}\n</pre>",
+                f"<code>brewlet&#32;{command}</code>",
+            ):
+                with self.subTest(source=source):
+                    page = LandingPage(source)
+                    examples = page.inline_code + [block for _, block in page.blocks]
+                    self.assertEqual(len(examples), 1)
+                    self.assertRegex(examples[0], REMOVED_CLI_COMMAND)
+
+    def test_removed_cli_command_contract_allows_current_commands_and_prose(self):
+        page = LandingPage(
+            "<p>brewlet jdks and brewlet doctor were removed.</p>"
+            "<!-- Historical example: brewlet jdks -->"
+            "<code>brewlet k8s jdk list</code>"
+            "<pre><code>$ brewlet k8s doctor --help</code></pre>"
+        )
+        examples = page.inline_code + [block for _, block in page.blocks]
+        self.assertEqual(len(examples), 2)
+        for example in examples:
+            self.assertNotRegex(example, REMOVED_CLI_COMMAND)
 
     def test_native_artifacts_and_runnable_images_are_current_formats(self):
         sections = (
