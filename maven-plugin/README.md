@@ -148,7 +148,13 @@ context unless `kubeconfig` / `kubeContext` are set.
 | `kubeContext` | `brewlet.kubeContext` | current context | Passed to `kubectl --context`. |
 | `kubectl` | `brewlet.kubectl` | `kubectl` | kubectl executable. |
 | `wait` | `brewlet.wait` | `true` | Wait for `Ready=True` on the current generation. |
-| `waitTimeout` | `brewlet.waitTimeout` | `300` | Seconds to wait before failing with the last status. |
+| `waitTimeout` | `brewlet.waitTimeout` | `300` | Positive timeout in seconds for `kubectl apply`, and separately for the entire readiness wait, including `kubectl get` calls and polling delays. Apply remains bounded when `wait=false`. |
+
+Timed-out or interrupted kubectl processes are forcibly terminated (including
+running credential-plugin descendants), with up to five additional seconds to
+reap kubectl. An apply timeout may leave resources partially applied; inspect
+the namespace before retrying. A readiness timeout reports the last observed
+status and a `kubectl describe` hint. This timeout does not cover image publication.
 
 All `brewlet:manifest` parameters (`namespace`, `appName`, `replicas`, `ports`,
 resources, …) apply.

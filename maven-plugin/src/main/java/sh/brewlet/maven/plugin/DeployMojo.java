@@ -10,15 +10,16 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.LongSupplier;
 
 /**
@@ -56,7 +57,7 @@ public class DeployMojo extends ManifestMojo {
     @Parameter(property = "brewlet.wait", defaultValue = "true")
     boolean waitForReady = true;
 
-    /** Maximum time, in seconds, to wait for the JavaApplication to become Ready. */
+    /** Maximum seconds for apply, and separately for readiness including kubectl calls. */
     @Parameter(property = "brewlet.waitTimeout", defaultValue = "300")
     int waitTimeout = 300;
 
@@ -66,7 +67,8 @@ public class DeployMojo extends ManifestMojo {
     /** Runs {@code kubectl} with the given arguments. */
     @FunctionalInterface
     interface KubectlRunner {
-        Result run(List<String> args) throws IOException, InterruptedException;
+        Result run(List<String> args, long timeoutMillis)
+                throws IOException, InterruptedException, TimeoutException;
     }
 
     record Result(int exitCode, String stdout, String stderr) {}
@@ -78,10 +80,11 @@ public class DeployMojo extends ManifestMojo {
 
     KubectlRunner kubectlRunner = this::runKubectl;
     Sleeper sleeper = Thread::sleep;
-    LongSupplier clock = System::currentTimeMillis;
+    LongSupplier clock = () -> TimeUnit.NANOSECONDS.toMillis(System.nanoTime());
 
     @Override
     protected void doExecute() throws MojoExecutionException, MojoFailureException {
+        validateTimeout();
         PushResult pushed = pushApplication("deploy");
         if (pushed == null) {
             getLog().info("Brewlet: dry-run mode — would write the JavaApplication manifest, "
@@ -93,16 +96,7 @@ public class DeployMojo extends ManifestMojo {
 
         getLog().info("Brewlet: applying " + manifest.getName() + " to namespace " + namespace
                 + describeTarget() + " ...");
-        Result applied = kubectl("apply", "-f", manifest.getPath());
-        if (applied.exitCode() != 0) {
-            throw new MojoExecutionException("kubectl apply failed (exit " + applied.exitCode()
-                    + "): " + firstNonBlank(applied.stderr(), applied.stdout()).trim());
-        }
-        for (String line : applied.stdout().split("\\R")) {
-            if (!line.isBlank()) {
-                getLog().info("  " + line.trim());
-            }
-        }
+        applyManifest(manifest);
 
         if (!waitForReady) {
             getLog().info("Brewlet: not waiting for readiness (brewlet.wait=false). Check with: "
@@ -112,11 +106,33 @@ public class DeployMojo extends ManifestMojo {
         awaitReady();
     }
 
+    void applyManifest(File manifest) throws MojoExecutionException {
+        validateTimeout();
+        Result applied;
+        try {
+            applied = kubectl(TimeUnit.SECONDS.toMillis(waitTimeout), "apply", "-f", manifest.getPath());
+        } catch (TimeoutException e) {
+            throw new MojoExecutionException("kubectl apply timed out after " + waitTimeout
+                    + "s. The manifest may have been partially applied; inspect namespace "
+                    + namespace + " before retrying. Adjust -Dbrewlet.waitTimeout if needed.", e);
+        }
+        if (applied.exitCode() != 0) {
+            throw new MojoExecutionException("kubectl apply failed (exit " + applied.exitCode()
+                    + "): " + firstNonBlank(applied.stderr(), applied.stdout()).trim());
+        }
+        for (String line : applied.stdout().split("\\R")) {
+            if (!line.isBlank()) {
+                getLog().info("  " + line.trim());
+            }
+        }
+    }
+
     /**
      * Polls the JavaApplication until its {@code Ready} condition is True for the
      * current generation, logging each status change and a periodic heartbeat.
      */
     void awaitReady() throws MojoExecutionException, MojoFailureException {
+        validateTimeout();
         getLog().info("Brewlet: waiting up to " + waitTimeout + "s for JavaApplication "
                 + namespace + "/" + appName + " to become Ready ...");
         long start = clock.getAsLong();
@@ -125,8 +141,20 @@ public class DeployMojo extends ManifestMojo {
         String lastState = null;
         String lastDetail = "no status reported yet";
         while (true) {
-            Result got = kubectl("get", "javaapplication", appName, "-o", "json");
+            long remaining = deadline - clock.getAsLong();
+            if (remaining <= 0) {
+                throw readinessTimeout(lastDetail);
+            }
+            Result got;
+            try {
+                got = kubectl(remaining, "get", "javaapplication", appName, "-o", "json");
+            } catch (TimeoutException e) {
+                throw readinessTimeout(lastDetail + "; kubectl get timed out");
+            }
             long now = clock.getAsLong();
+            if (now >= deadline) {
+                throw readinessTimeout(lastDetail);
+            }
             String elapsed = "[" + TimeUnit.MILLISECONDS.toSeconds(now - start) + "s]";
             if (got.exitCode() == 0) {
                 Status status = Status.parse(got.stdout());
@@ -153,19 +181,27 @@ public class DeployMojo extends ManifestMojo {
                     lastLog = now;
                 }
             }
-            if (now >= deadline) {
-                throw new MojoFailureException("JavaApplication " + namespace + "/" + appName
-                        + " was not Ready after " + waitTimeout + "s: " + lastDetail
-                        + ". Inspect it with: kubectl describe javaapplication " + appName
-                        + " -n " + namespace);
-            }
             try {
-                sleeper.sleep(POLL_INTERVAL_MILLIS);
+                sleeper.sleep(Math.min(POLL_INTERVAL_MILLIS,
+                        Math.max(0, deadline - clock.getAsLong())));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new MojoExecutionException("Interrupted while waiting for " + appName, e);
             }
         }
+    }
+
+    private void validateTimeout() throws MojoExecutionException {
+        if (waitTimeout <= 0) {
+            throw new MojoExecutionException("brewlet.waitTimeout must be greater than zero (seconds).");
+        }
+    }
+
+    private MojoFailureException readinessTimeout(String detail) {
+        return new MojoFailureException("JavaApplication " + namespace + "/" + appName
+                + " was not Ready after " + waitTimeout + "s: " + detail
+                + ". Inspect it with: kubectl describe javaapplication " + appName
+                + " -n " + namespace);
     }
 
     /** Readiness view of a JavaApplication's status. */
@@ -213,7 +249,8 @@ public class DeployMojo extends ManifestMojo {
         }
     }
 
-    private Result kubectl(String... args) throws MojoExecutionException {
+    private Result kubectl(long timeoutMillis, String... args)
+            throws MojoExecutionException, TimeoutException {
         List<String> command = new ArrayList<>();
         if (kubeconfig != null) {
             command.add("--kubeconfig");
@@ -227,7 +264,7 @@ public class DeployMojo extends ManifestMojo {
         command.add(namespace);
         command.addAll(List.of(args));
         try {
-            return kubectlRunner.run(command);
+            return kubectlRunner.run(command, timeoutMillis);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to run " + kubectl + ": " + e.getMessage()
                     + ". Install kubectl or set -Dbrewlet.kubectl=/path/to/kubectl.", e);
@@ -237,30 +274,55 @@ public class DeployMojo extends ManifestMojo {
         }
     }
 
-    private Result runKubectl(List<String> args) throws IOException, InterruptedException {
+    Result runKubectl(List<String> args, long timeoutMillis)
+            throws IOException, InterruptedException, TimeoutException {
         List<String> command = new ArrayList<>();
         command.add(kubectl);
         command.addAll(args);
-        Process process = new ProcessBuilder(command).start();
-        process.getOutputStream().close();
-        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
-        Thread errReader = new Thread(() -> drain(process.getErrorStream(), stderr),
-                "kubectl-stderr");
-        errReader.setDaemon(true);
-        errReader.start();
-        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
-        drain(process.getInputStream(), stdout);
-        int exit = process.waitFor();
-        errReader.join(TimeUnit.SECONDS.toMillis(5));
-        return new Result(exit, stdout.toString(StandardCharsets.UTF_8),
-                stderr.toString(StandardCharsets.UTF_8));
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        Path output = Files.createTempDirectory("brewlet-kubectl-");
+        Path stdout = output.resolve("stdout");
+        Path stderr = output.resolve("stderr");
+        try {
+            // Files avoid pipe backpressure and EOF waits on credential-plugin descendants.
+            Process process = new ProcessBuilder(command)
+                    .redirectOutput(stdout.toFile()).redirectError(stderr.toFile()).start();
+            try {
+                process.getOutputStream().close();
+                if (!process.waitFor(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
+                    throw new TimeoutException("kubectl exceeded its execution deadline");
+                }
+                return new Result(process.exitValue(), Files.readString(stdout, StandardCharsets.UTF_8),
+                        Files.readString(stderr, StandardCharsets.UTF_8));
+            } finally {
+                terminate(process);
+            }
+        } finally {
+            Files.deleteIfExists(stdout);
+            Files.deleteIfExists(stderr);
+            Files.deleteIfExists(output);
+        }
     }
 
-    private static void drain(InputStream in, ByteArrayOutputStream out) {
-        try (in) {
-            in.transferTo(out);
-        } catch (IOException ignored) {
-            // The exit status reports the failure.
+    private static void terminate(Process process) throws IOException {
+        if (!process.isAlive()) return;
+        boolean interrupted = Thread.interrupted();
+        try {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
+            process.destroyForcibly();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (process.isAlive() && System.nanoTime() < deadline) {
+                try {
+                    process.waitFor(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+            if (process.isAlive()) {
+                throw new IOException("Could not terminate kubectl process " + process.pid());
+            }
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
         }
     }
 
