@@ -877,7 +877,7 @@ Source builds without release linker flags print `dev`.
 | `BREWLET_JDK_HOME` | `run` | Overrides `JAVA_HOME` for JDK resolution. |
 | `BREWLET_STORE_ROOT` | shim (`layout` resolver) | OCI layout root used by the local layout resolver. |
 | `BREWLET_CDS_CACHE` | `run`, `bundle`, shim | AppCDS cache root (default `/opt/brewlet/cds`). Entries are private `<key>/archive.jsa` directories; Kubernetes keys include the trusted sandbox namespace, verified platform-manifest digest, JDK build, and CRI process UID. The cache root itself is never mounted into a workload. |
-| `BREWLET_METRICS_DIR` | `run`, shim | Directory for the best-effort node-local CDS metric textfile (`brewlet_cds_archive_mapped`). Unset disables the metric. |
+| `BREWLET_METRICS_SOCKET` | `run`, `bundle`, shim | Unix datagram telemetry destination (default `/opt/brewlet/metrics/telemetry.sock`). Unset or blank selects the default, not disabled telemetry. Match the exporter's `--socket-path` when overriding it. Sending is best-effort; an unavailable exporter must not fail workload launch. See [runtime metrics](runtime-metrics.md). |
 
 ---
 

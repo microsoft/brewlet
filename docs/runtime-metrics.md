@@ -37,7 +37,7 @@ metrics:
       grafana_dashboard: "1"
 ```
 
-Install or upgrade Brewlet with the values file:
+For a fresh installation, install Brewlet with the values file:
 
 ```bash
 helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
@@ -45,10 +45,13 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --set provisioner.pools="{javaworkers}"
 ```
 
-This selects the latest released chart. To retain a specific release, add
-`--version "$BREWLET_VERSION"` with its concrete version. For an existing
-installation, follow [Upgrading](installation.md#upgrading) to update matching
-CRDs and preserve your chosen values.
+This selects the latest released chart and is not an in-place release-update
+procedure. For metrics configuration changes to an existing installation, pin
+its installed chart version with `--version "$BREWLET_VERSION"` and preserve
+its reviewed values and component choices. Cross-release updates default to
+safe teardown/reinstallation under [Upgrading](installation.md#upgrading) and
+the [pre-GA compatibility policy](compatibility.md); this feature declares no
+in-place release-pair exception.
 
 !!! important
     `metrics.serviceMonitor.enabled=true` requires the
@@ -121,6 +124,30 @@ does not depend on exporter mounts or `metrics.enabled`.
 The operator and admission webhook use controller-runtime's Prometheus registry.
 Their endpoints include standard controller-runtime/process metrics alongside
 the Brewlet-specific collectors described below.
+
+### Breaking change: textfile output removed
+
+`BREWLET_METRICS_DIR` no longer produces per-launch `.prom` files. Runtime
+telemetry uses only Unix datagrams to the node exporter; no supported external
+integration requires retaining the alternate textfile path. Under the
+[pre-GA compatibility policy](compatibility.md), this removal has no deprecation
+window and does not affect either the capability-label contract or required
+external platform interoperability.
+
+External textfile collectors must remove the obsolete environment setting and
+collection configuration, enable the supported exporter, and scrape it using
+the surfaces below. Replace queries for the removed
+`brewlet_cds_archive_mapped{role}` gauge with queries for
+`brewlet_cds_regeneration_decisions_total{role}`. For example, the `consume`
+series counts decisions to reuse an archive. It is a cumulative decision
+counter, not a per-launch 0/1 gauge or proof that the JVM mapped an archive.
+Existing exporter metric names, labels, and launch behavior are unchanged.
+
+Brewlet does not delete old textfiles as part of this removal. Retire old
+producers and consumers, verify ownership and that files are unused, and reclaim
+only individually reviewed paths. Do not purge the metrics directory: it may
+contain the live telemetry socket or unrelated files. Release replacement must
+still follow the teardown/reinstallation guidance above.
 
 ---
 

@@ -646,7 +646,6 @@ func applyBrewletLaunchWithWriterLease(
 			SeedArchive:    seed,
 			WriterOwner:    writerOwner,
 			ArchiveArgDir:  kcruntime.InSandboxCDSDir,
-			MetricsDir:     envOr("BREWLET_METRICS_DIR", ""),
 		})
 		if err != nil {
 			return err

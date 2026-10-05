@@ -23,9 +23,10 @@ errors from labels. Metrics are opt-in in the Helm chart.
 See the [metrics exporter README](cmd/brewlet-metrics-exporter/README.md) for
 live integration screenshots that can be reused by the documentation site.
 
-`BREWLET_METRICS_DIR` is a textfile output path for external Prometheus
-textfile collectors. Such collectors must remove consumed files; the built-in
-exporter uses the Unix socket and does not read that directory.
+The Unix socket is the only runtime telemetry output. External Prometheus
+collectors scrape the node exporter rather than per-launch files. See
+[runtime metrics](../docs/runtime-metrics.md) for configuration and the
+textfile-output removal notice.
 
 From the repository root, build and test the module with:
 

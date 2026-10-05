@@ -370,10 +370,14 @@ Two hard problems this design handles:
    `<cacheDir>/.writer-state.lock`.
 
 The engine also evicts cache entries untouched for longer than `DefaultEvictTTL`
-(14d) on a best-effort pass, and emits a best-effort node-local metric
-(`brewlet_cds_archive_mapped{role}` as a textfile under `BREWLET_METRICS_DIR`)
-so operators can watch archive hits/rebuilds. Running app code to produce archives on
-the node is inherent to this mechanism; it runs inside the same sandbox as the app.
+(14d) on a best-effort pass, and sends regeneration decisions over the node-local
+Unix telemetry socket. When metrics are enabled, the exporter exposes
+`brewlet_cds_regeneration_decisions_total{role}` with `consume`, `write`, `defer`,
+and `skip` roles so operators can watch archive reuse and regeneration decisions.
+Missing or unavailable telemetry never fails a workload launch. See
+[runtime metrics](runtime-metrics.md) for configuration. Running app code to
+produce archives on the node is inherent to this mechanism; it runs inside the
+same sandbox as the app.
 
 **Verified end to end in a real cluster.** [e2e Tier 8](https://github.com/microsoft/brewlet/blob/main/integration-tests/README.md)
 provisions a `kind` node for real (shim + full-userland `temurin-21` JDK root +

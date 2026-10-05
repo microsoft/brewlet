@@ -4,14 +4,18 @@
 package runtime
 
 import (
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/microsoft/brewlet/internal/artifact"
+	"github.com/microsoft/brewlet/internal/telemetry"
 )
 
 // fakeJDK writes a minimal JDK root with a `release` file advertising the given
@@ -530,32 +534,148 @@ func TestEvictStaleEntriesCurrentEntries(t *testing.T) {
 	}
 }
 
-func TestDecideCDSRegenWritesMetric(t *testing.T) {
-	cache := t.TempDir()
-	metrics := t.TempDir()
-	jdk := fakeJDK(t, "21.0.5")
-	if _, err := DecideCDSRegen(RegenParams{
-		CacheDir:       cache,
-		CacheScope:     "team-a",
-		JDKRoot:        jdk,
-		ArtifactDigest: "sha256:abc",
-		MetricsDir:     metrics,
-	}); err != nil {
-		t.Fatal(err)
+func TestDecideCDSRegenTelemetry(t *testing.T) {
+	for _, destination := range []string{"listening", "absent", "regular-file"} {
+		t.Run(destination, func(t *testing.T) {
+			// Avoid Unix socket path limits with long test names on macOS.
+			dir, err := os.MkdirTemp("", "cds-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := os.RemoveAll(dir); err != nil {
+					t.Error(err)
+				}
+			})
+			socket := filepath.Join(dir, "s")
+			t.Setenv("BREWLET_METRICS_SOCKET", socket)
+			var conn *net.UnixConn
+			switch destination {
+			case "listening":
+				conn, err = net.ListenUnixgram("unixgram", &net.UnixAddr{Name: socket, Net: "unixgram"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer conn.Close()
+			case "regular-file":
+				if err := os.WriteFile(socket, []byte("not a socket"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			params := RegenParams{
+				CacheDir:       t.TempDir(),
+				CacheScope:     "team-a",
+				JDKRoot:        fakeJDK(t, "21.0.5"),
+				ArtifactDigest: "sha256:abc",
+				ArchiveArgDir:  InSandboxCDSDir,
+			}
+			decide := func(role RegenRole, args []string) RegenDecision {
+				t.Helper()
+				dec, err := DecideCDSRegen(params)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if dec.Role != role || !reflect.DeepEqual(dec.Args, args) || dec.MountRW != (role == RegenWrite) {
+					t.Fatalf("decision = %+v, want role %q, args %v and writer-only writable mount", dec, role, args)
+				}
+				if conn != nil {
+					if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+						t.Fatal(err)
+					}
+					buf := make([]byte, 4096)
+					n, _, err := conn.ReadFromUnix(buf)
+					if err != nil {
+						t.Fatal(err)
+					}
+					got, err := telemetry.Decode(buf[:n])
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := telemetry.Event{Version: telemetry.Version, Kind: telemetry.KindCDS, CDSRole: string(role)}
+					if got != want {
+						t.Fatalf("event = %+v, want %+v", got, want)
+					}
+				}
+				return dec
+			}
+
+			archiveArg := "-XX:SharedArchiveFile=" + InSandboxCDSDir + "/" + cacheArchiveName
+			writer := decide(RegenWrite, []string{"-XX:+AutoCreateSharedArchive", archiveArg, "-Xshare:auto"})
+			if writer.WriterLease == nil {
+				t.Fatal("writer has no lease")
+			}
+			defer writer.WriterLease.Release()
+			decide(RegenDefer, nil)
+			if err := os.WriteFile(writer.HostArchive, []byte("jsa-bytes"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			decide(RegenConsume, []string{"-Xshare:auto", archiveArg})
+			params.JDKRoot = fakeJDK(t, "17.0.10")
+			decide(RegenSkip, nil)
+
+			if conn != nil {
+				if err := conn.SetReadDeadline(time.Now().Add(20 * time.Millisecond)); err != nil {
+					t.Fatal(err)
+				}
+				buf := make([]byte, 4096)
+				if _, _, err := conn.ReadFromUnix(buf); !errors.Is(err, os.ErrDeadlineExceeded) {
+					t.Fatalf("expected no extra CDS events, got %v", err)
+				}
+			}
+		})
 	}
-	entries, err := os.ReadDir(metrics)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) == 0 {
-		t.Fatal("expected a metric file to be written")
-	}
-	b, err := os.ReadFile(filepath.Join(metrics, entries[0].Name()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(b), "brewlet_cds_archive_mapped") {
-		t.Errorf("metric file = %q, want brewlet_cds_archive_mapped", b)
+}
+
+func TestDecideCDSRegenIgnoresRemovedMetricsDir(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(strconv.FormatBool(existing), func(t *testing.T) {
+			metrics := filepath.Join(t.TempDir(), "metrics")
+			sentinel := filepath.Join(metrics, "cds-existing.prom")
+			if existing {
+				if err := os.Mkdir(metrics, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(sentinel, []byte("existing metric\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("BREWLET_METRICS_DIR", metrics)
+			t.Setenv("BREWLET_METRICS_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
+			dec, err := DecideCDSRegen(RegenParams{
+				CacheDir:       t.TempDir(),
+				CacheScope:     "team-a",
+				JDKRoot:        fakeJDK(t, "21.0.5"),
+				ArtifactDigest: "sha256:abc",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if dec.Role != RegenWrite || dec.WriterLease == nil {
+				t.Fatalf("decision = %+v, want writer with lease", dec)
+			}
+			defer dec.WriterLease.Release()
+			if !existing {
+				if _, err := os.Lstat(metrics); !os.IsNotExist(err) {
+					t.Fatalf("removed metrics directory should not be created: %v", err)
+				}
+				return
+			}
+			entries, err := os.ReadDir(metrics)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 || entries[0].Name() != filepath.Base(sentinel) {
+				t.Fatalf("unexpected metrics directory contents: %v", entries)
+			}
+			data, err := os.ReadFile(sentinel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != "existing metric\n" {
+				t.Fatalf("existing metric changed: %q", data)
+			}
+		})
 	}
 }
 

@@ -103,9 +103,6 @@ type RegenParams struct {
 	// in-sandbox mount point). "" means the JVM uses the host archive path
 	// directly (the local `run` path, which is not sandboxed).
 	ArchiveArgDir string
-	// MetricsDir, when set, receives a best-effort node-local role record the
-	// metrics exporter (https://github.com/microsoft/brewlet/blob/main/docs/metrics-exporter.md, Option A) can aggregate.
-	MetricsDir string
 	// Now is an injectable clock for tests; zero => time.Now().
 	Now time.Time
 	// LockTTL / EvictTTL override the defaults when non-zero.
@@ -182,7 +179,7 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 	// JDK build identity + feature gate. Any failure => skip (base CDS).
 	feature, buildID, err := readJDKIdentity(p.JDKRoot)
 	if err != nil || feature < minRegenFeature {
-		return decisionSkip(p), nil
+		return decisionSkip(), nil
 	}
 
 	key := regenKey(p.CacheScope, p.ArtifactDigest, buildID, p.WriterOwner)
@@ -198,7 +195,7 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		// Can't manage a cache here — fall back to base CDS.
-		return decisionSkip(p), nil
+		return decisionSkip(), nil
 	}
 	evictStaleEntries(cacheDir, key, evictTTL, lockTTL, now)
 
@@ -214,7 +211,7 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 			ArgArchive:  argArchive,
 			Args:        []string{"-Xshare:auto", "-XX:SharedArchiveFile=" + argArchive},
 		}
-		recordRegenMetric(p.MetricsDir, key, d.Role, now)
+		recordRegenMetric(d.Role)
 		return d, nil
 	}
 
@@ -225,7 +222,7 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 		// or special files cannot be followed.
 		if err := resetCacheEntry(hostMount, p.WriterOwner, p.AllowUnownedWriter); err != nil {
 			writerLease.Release()
-			return decisionSkip(p), nil
+			return decisionSkip(), nil
 		}
 		// Seed a fresh cache entry from the shipped archive if one is available.
 		// -XX:+AutoCreateSharedArchive validates it and recreates at exit if the
@@ -243,26 +240,19 @@ func DecideCDSRegen(p RegenParams) (RegenDecision, error) {
 			MountRW:     true,
 			WriterLease: writerLease,
 		}
-		recordRegenMetric(p.MetricsDir, key, d.Role, now)
+		recordRegenMetric(d.Role)
 		return d, nil
 	}
 
 	d := RegenDecision{Role: RegenDefer, Key: key}
-	recordRegenMetric(p.MetricsDir, key, d.Role, now)
+	recordRegenMetric(d.Role)
 	return d, nil
 }
 
-func decisionSkip(p RegenParams) RegenDecision {
+func decisionSkip() RegenDecision {
 	d := RegenDecision{Role: RegenSkip}
-	recordRegenMetric(p.MetricsDir, "", d.Role, timeOrNow(p.Now))
+	recordRegenMetric(d.Role)
 	return d
-}
-
-func timeOrNow(t time.Time) time.Time {
-	if t.IsZero() {
-		return time.Now()
-	}
-	return t
 }
 
 // claimWriter atomically becomes the sole generator for a key with O_EXCL. A

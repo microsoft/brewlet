@@ -2178,7 +2178,7 @@ All are opt-in (`metrics.enabled=true`) and bounded-cardinality.
 |---|---|
 | `brewlet_sandbox_launches_total`, `brewlet_sandbox_launch_duration_seconds` | Shim → node exporter |
 | `brewlet_artifact_resolution_duration_seconds` | Shim → node exporter |
-| `brewlet_cds_regeneration_decisions_total`, `brewlet_cds_archive_mapped` | Shim → node exporter |
+| `brewlet_cds_regeneration_decisions_total` | Shim → node exporter |
 | `brewlet_jdk_info`, `brewlet_jdk_installed_timestamp_seconds`, `brewlet_launcher_info` | Node exporter |
 | `brewlet_runnable_stage_bytes` | Node exporter; logical regular-file bytes under the host stage root, refreshed per scrape, with no metric-specific labels |
 | `brewlet_telemetry_events_invalid_total` | Node exporter |
