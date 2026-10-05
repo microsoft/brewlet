@@ -1220,6 +1220,44 @@ assert_contains "brewlet.sh/appcds-regeneration=true" "$node_calls"
 )
 assert_contains "brewlet.sh/appcds-regeneration-" "$node_calls"
 
+# Compact admission/status inventory and structured diagnostics are both current
+# contracts; detailed metadata must not replace compact tokens or capability labels.
+: >"$node_calls"
+(
+  NODE_NAME=inventory-node
+  PREFIX="$policy_root"
+  JDKS="temurin-21,microsoft-25"
+  LAUNCHERS="jaz"
+  BREWLET_APP_CDS_REGENERATION_ENABLED=false
+  jdk_home_in_root() { printf '/opt/java/openjdk'; }
+  jdk_root_complete() { return 0; }
+  jdk_java() {
+    case "$1" in
+      */temurin-21) printf 'java.vendor = Adoptium\njava.version = 21.0.5\nos.arch = amd64\n' ;;
+      */microsoft-25) printf 'java.vendor = Microsoft\njava.version = 25.0.1\nos.arch = amd64\n' ;;
+      *) return 1 ;;
+    esac
+  }
+  kubectl() { printf '%s\n' "$@" >>"$node_calls"; }
+  label_node
+)
+grep -Fxq 'brewlet.sh/jdks=temurin-21,microsoft-25' "$node_calls"
+grep -Fxq 'brewlet.sh/jdks-info=[{"distribution":"temurin","vendor":"Adoptium","feature":21,"version":"21.0.5","arch":"amd64"},{"distribution":"microsoft","vendor":"Microsoft","feature":25,"version":"25.0.1","arch":"amd64"}]' "$node_calls"
+for capability in jdk.temurin-21 jdk.microsoft-25 jdk-feature.21 jdk-feature.25 launcher.java launcher.jaz; do
+  grep -Fxq "brewlet.sh/$capability=true" "$node_calls"
+done
+grep -Fxq 'brewlet.sh/runtime=ready' "$node_calls"
+for clear in clear_node_advertisement unlabel_node; do
+  : >"$node_calls"
+  (
+    NODE_NAME=inventory-node
+    kubectl() { printf '%s\n' "$@" >>"$node_calls"; }
+    "$clear"
+  )
+  grep -Fxq 'brewlet.sh/jdks-' "$node_calls"
+  grep -Fxq 'brewlet.sh/jdks-info-' "$node_calls"
+done
+
 # Cleanup revokes both the host sentinel and the node advertisement before
 # removing the remaining host state.
 mkdir -p "$policy_root/cleanup-policy"

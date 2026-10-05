@@ -4,6 +4,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -15,12 +16,73 @@ const healthyNodes = `{
     "metadata": {
       "name": "node-1",
       "labels": {"brewlet.sh/runtime": "ready"},
-      "annotations": {"brewlet.sh/jdks": "temurin-21"}
+      "annotations": {
+        "brewlet.sh/jdks": "temurin-21",
+        "brewlet.sh/jdks-info": "[{\"distribution\":\"temurin\",\"vendor\":\"Adoptium\",\"feature\":21,\"version\":\"21.0.5\",\"arch\":\"amd64\"}]"
+      }
     },
     "spec": {"unschedulable": false},
     "status": {"nodeInfo": {"containerRuntimeVersion": "containerd://2.1.3"}}
   }]
 }`
+
+func TestDiagnoseNodesRequiresStructuredInventory(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want Status
+	}{
+		{"missing", "", Fail},
+		{"blank", " \t", Fail},
+		{"empty", "[]", Fail},
+		{"malformed", "{broken", Fail},
+		{"structured", `[{"distribution":"temurin","feature":21,"vendor":"Adoptium","version":"21.0.5","arch":"amd64"}]`, Pass},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ann := map[string]string{"brewlet.sh/jdks": "temurin-21"}
+			if tc.raw != "" {
+				ann["brewlet.sh/jdks-info"] = tc.raw
+			}
+			raw, err := json.Marshal(ann)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes := `{"items":[{"metadata":{"name":"worker","labels":{"brewlet.sh/runtime":"ready"},"annotations":` + string(raw) +
+				`},"status":{"nodeInfo":{"containerRuntimeVersion":"containerd://2.1.3"}}}]}`
+			nodeCheck, check := diagnoseNodes([]byte(nodes))
+			if nodeCheck.Status != Pass || check.Status != tc.want {
+				t.Fatalf("checks = %+v, %+v", nodeCheck, check)
+			}
+			if tc.want == Fail && !strings.Contains(check.Detail, "brewlet.sh/jdks-info") {
+				t.Fatalf("missing structured-inventory context: %+v", check)
+			}
+			if tc.name == "malformed" && !strings.Contains(check.Detail, `node "worker"`) {
+				t.Fatalf("missing node context: %+v", check)
+			}
+			if tc.name == "missing" && !strings.Contains(check.Remediation, "node-provisioner") {
+				t.Fatalf("missing publication remediation: %+v", check)
+			}
+		})
+	}
+}
+
+func TestDiagnoseNodesMixedInventory(t *testing.T) {
+	var nodes struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(healthyNodes), &nodes); err != nil {
+		t.Fatal(err)
+	}
+	nodes.Items = append(nodes.Items, json.RawMessage(`{"metadata":{"name":"compact-only","annotations":{"brewlet.sh/jdks":"microsoft-25"}}}`))
+	raw, err := json.Marshal(nodes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, check := diagnoseNodes(raw)
+	if check.Status != Pass || check.Detail != "1 distinct JDK runtime(s) advertised" {
+		t.Fatalf("mixed fleet should count only structured inventory: %+v", check)
+	}
+}
 
 func TestRunHealthyCluster(t *testing.T) {
 	exec := func(args ...string) ([]byte, error) {

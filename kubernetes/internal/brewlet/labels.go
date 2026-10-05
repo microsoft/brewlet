@@ -29,7 +29,8 @@ const (
 
 	// AnnotationJDKs advertises the JDK roots the provisioner installed, as a
 	// comma-separated list of <dist>-<feature> tokens, e.g.
-	// "temurin-21,microsoft-25".
+	// "temurin-21,microsoft-25". This current compact contract is consumed by
+	// compatibility admission, node-ready events, and CLI status/inspection.
 	AnnotationJDKs = "brewlet.sh/jdks"
 	// AnnotationJDKsInfo carries the provisioner's structured JDK inventory as a
 	// JSON array with one object per installed root:
@@ -41,8 +42,10 @@ const (
 	// (java -XshowSettings:properties), so they describe what is really on the
 	// node rather than what was requested. It is the diagnostic companion to
 	// AnnotationJDKs, which carries just the comma-separated "<dist>-<feature>"
-	// tokens. Neither drives scheduling — the per-capability labels do (see
-	// LabelJDKPrefix). A root whose java binary cannot be run is omitted.
+	// tokens. Detailed JDK listing and doctor read only this annotation, without
+	// falling back to compact tokens. Neither annotation drives scheduler
+	// affinity — the per-capability labels do (see LabelJDKPrefix). A root whose
+	// java binary cannot be run is omitted.
 	AnnotationJDKsInfo = "brewlet.sh/jdks-info"
 	// AnnotationLaunchers advertises the installed launcher layers, similarly
 	// comma-separated, e.g. "java,jaz".

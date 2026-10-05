@@ -1650,8 +1650,8 @@ jdks_info_json() {
 
 label_node() {
   command -v kubectl >/dev/null || { log "WARN: kubectl not present; skipping node labelling"; return 0; }
-  # Advertise the inventory as a comma-separated list; a single annotation value
-  # carries commas fine (only label *values* can't).
+  # Publish the current compact contract used by compatibility admission,
+  # node-ready events, and CLI status/inspection alongside detailed inventory.
   local jdk_ann launcher_ann jdks_info
   jdk_ann="${JDKS}"
   launcher_ann="java${LAUNCHERS:+,${LAUNCHERS}}"

@@ -46,6 +46,26 @@ func TestNodeCapabilityFrom(t *testing.T) {
 	}
 }
 
+func TestCompatibilityUsesCompactJDKInventory(t *testing.T) {
+	for _, info := range []string{"", "{broken", `[{"distribution":"temurin","feature":17}]`} {
+		n := node("worker", true, "temurin-21,microsoft-25", "java")
+		if info != "" {
+			n.Annotations[brewlet.AnnotationJDKsInfo] = info
+		}
+		fleet := []NodeCapability{NodeCapabilityFrom(&n)}
+		for _, request := range []string{"temurin-21", "21", "microsoft-25", "25"} {
+			if result := CheckFleet(fleet, request, "", nil, false); !result.Compatible {
+				t.Errorf("compact JDK %q rejected with structured annotation %q: %+v", request, info, result)
+			}
+		}
+		for _, request := range []string{"temurin-17", "17", "temurin-25"} {
+			if result := CheckFleet(fleet, request, "", nil, false); result.Compatible || result.DenyReason != brewlet.ReasonNoCompatibleJDK {
+				t.Errorf("incompatible JDK %q accepted with structured annotation %q: %+v", request, info, result)
+			}
+		}
+	}
+}
+
 // The AppCDS capability key is a boolean-presence label. CAPABILITY_LABELS.md
 // ("Contract v1") states the value is not part of the scheduling test and that
 // consumers MUST NOT require "=true". A node bootstrapped from an immutable

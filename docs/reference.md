@@ -29,8 +29,8 @@ the provisioning, affinity, Cluster Autoscaler, and Karpenter workflows.
 
 | Key | Example | Meaning |
 |---|---|---|
-| `brewlet.sh/jdks` | `temurin-21,microsoft-25` | Advertised JDK roots (comma-separated). |
-| `brewlet.sh/jdks-info` | `[{"distribution":"temurin","vendor":"Eclipse Adoptium","feature":21,"version":"21.0.5","arch":"amd64"}]` | Diagnostic JDK inventory as a JSON array. `vendor`/`version`/`arch` are read from the installed JDK itself, so they report what is really on the node. A root whose `java` cannot be run is omitted. |
+| `brewlet.sh/jdks` | `temurin-21,microsoft-25` | Current compact JDK inventory for compatibility admission, node-ready events, and CLI status/profile inspection. Contains distribution/feature tokens, not detailed runtime metadata. |
+| `brewlet.sh/jdks-info` | `[{"distribution":"temurin","vendor":"Eclipse Adoptium","feature":21,"version":"21.0.5","arch":"amd64"}]` | Structured diagnostic inventory used by `brewlet k8s jdk list` and doctor's JDK check. `vendor`/`version`/`arch` are read from the installed JDK itself. A root whose `java` cannot be run is omitted. |
 | `brewlet.sh/launchers` | `java,jaz` | Advertised launcher layers. Always includes the implicit `java`. |
 | `brewlet.sh/profile` | `default` | `metadata.name` of the `NodeProfile` that last provisioned this node. |
 | `brewlet.sh/profile-generation` | `4` | That profile's `metadata.generation`, so a stale node can be told from an up-to-date one. |
@@ -38,8 +38,14 @@ the provisioning, affinity, Cluster Autoscaler, and Karpenter workflows.
 | `brewlet.sh/provision-error` | `launcher-jaz-not-executable` | **Stable reason code** for a provisioner failure — safe to parse and alert on. Enumerated in [SPECIFICATION §14.2](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md). The operator uses it for `ProvisionFailed` events and clears it after a successful run. |
 | `brewlet.sh/provision-error-message` | `launcher jaz binary at /opt/brewlet/… is not executable` | Human detail for the code above. **Not a contract** — wording may change at any time, so branch on the code instead. |
 
-None of these drive scheduling; the per-capability labels do. Annotations cannot
-back a `nodeAffinity`.
+These annotations do not drive scheduler affinity; the per-capability labels
+do. Compact inventory is still used by compatibility admission's fleet check.
+Detailed inventory never falls back to compact tokens: missing/blank/empty
+structured data is omitted, and malformed nonblank data fails explicitly.
+See [JDK management](jdk-management.md#inspecting-the-jdks-available-on-the-cluster)
+for empty-output behavior and operator guidance, and
+[Specification §14.1](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#141-observable-contract-stable-surfaces)
+for the retained contracts and support boundaries.
 
 ### Pod annotations
 
