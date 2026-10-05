@@ -181,7 +181,7 @@ helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --values my-jdks.yaml
 
 kubectl get nodes -L brewlet.sh/runtime
-brewlet doctor --namespace <developer-namespace>
+brewlet k8s doctor --namespace <developer-namespace>
 ```
 
 Helm selects the latest chart when `--version` is omitted. Add

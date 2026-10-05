@@ -187,10 +187,18 @@ func TestInventoryAndConnectionFlags(t *testing.T) {
 		})
 	}
 	for _, format := range []string{"table", "wide"} {
-		out, _, err := runTest(t, []string{"launcher", "list", "--output", format},
-			func(context.Context, string, []string, []byte) ([]byte, error) { return listJSON(t, node), nil })
-		if err != nil || !strings.Contains(out, "jaz") || !strings.Contains(out, "LAUNCHER") {
-			t.Fatalf("launcher %s = %s %v", format, out, err)
+		for _, command := range []struct{ name, value, header string }{
+			{"launcher", "jaz", "LAUNCHER"},
+			{"jdk", "temurin", "DISTRIBUTION"},
+		} {
+			out, _, err := runTest(t, []string{command.name, "list", "--output", format},
+				func(context.Context, string, []string, []byte) ([]byte, error) { return listJSON(t, node), nil })
+			if err != nil || !strings.Contains(out, command.value) || !strings.Contains(out, command.header) {
+				t.Fatalf("%s %s = %s %v", command.name, format, out, err)
+			}
+			if format == "wide" && !strings.Contains(out, "worker-a") {
+				t.Fatalf("%s wide inventory missing node: %s", command.name, out)
+			}
 		}
 	}
 }
@@ -831,10 +839,10 @@ func TestExecuteErrorsAndCancellation(t *testing.T) {
 func TestDoctorDelegatesChecksAndPropagatesFailure(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		for _, format := range []string{"table", "json", "yaml"} {
-			out, _, err := runTest(t, []string{"doctor", "--context", "staging", "--namespace", "team", "--output", format},
+			out, _, err := runTest(t, []string{"--kubeconfig", "/config with spaces", "doctor", "--context", "staging", "--namespace", "team", "--output", format},
 				func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
-					if !hasArgs(args, "--context", "staging") {
-						t.Fatalf("context missing: %v", args)
+					if !hasArgs(args, "--context", "staging") || !hasArgs(args, "--kubeconfig", "/config with spaces") {
+						t.Fatalf("connection flags missing: %v", args)
 					}
 					switch {
 					case hasArgs(args, "config", "current-context"):

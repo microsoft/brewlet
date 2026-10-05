@@ -121,7 +121,7 @@ func Run(exec Executor, opts Options) Report {
 	nodesOut, nodesErr := run("get", "nodes", "-o", "json")
 	if nodesErr != nil {
 		add(failed("brewlet-nodes", commandError(nodesOut, nodesErr),
-			"Grant node read access or ask Ops to run brewlet doctor."))
+			"Grant node read access or ask Ops to run brewlet k8s doctor."))
 	} else {
 		nodeCheck, inventoryCheck := diagnoseNodes(nodesOut)
 		add(nodeCheck, inventoryCheck)

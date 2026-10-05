@@ -67,7 +67,7 @@ fallback when the archive does not match.
   to serve.
 - Use multi-platform component image references so each node pulls the matching
   operator, provisioner, admission, and shim image.
-- Inspect node inventory with `brewlet jdks` and Kubernetes labels before rolling
+- Inspect node inventory with `brewlet k8s jdk list` and Kubernetes labels before rolling
   out an architecture-constrained application.
 - See [JDK management](jdk-management.md#architecture-mapping-multi-arch) and
   [observability](observability.md#day2-multi-arch-fleets) for operational commands.

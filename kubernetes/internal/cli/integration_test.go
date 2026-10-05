@@ -339,10 +339,10 @@ func (f *fixture) testReadCommands(t *testing.T) {
 		rows[0].Arch != "amd64" || !reflect.DeepEqual(rows[0].Nodes, []string{"inventory-node"}) {
 		t.Fatalf("unexpected advertised inventory: %s", jdks)
 	}
-	aliases := f.command(t, f.binary, "jdks", "--kubeconfig", f.kubeconfig, "--context", "selected",
-		"--selector", "example.com/pool=inventory", "--output", "json").success(t)
-	if aliases != jdks {
-		t.Fatal("legacy jdks alias differs from k8s inventory")
+	removed := f.command(t, f.binary, "jdks", "--kubeconfig", f.kubeconfig, "--context", "selected",
+		"--selector", "example.com/pool=inventory", "--output", "json")
+	if removed.code != 2 || removed.stdout != "" || !strings.Contains(removed.stderr, `use "brewlet k8s jdk list" instead`) {
+		t.Fatalf("removed jdks command must fail with replacement hint: %+v", removed)
 	}
 	empty := f.cli(t, "jdk", "list", "--selector", "example.com/pool=absent", "--output", "json").success(t)
 	if len(decode[[]json.RawMessage](t, empty)) != 0 {
@@ -373,8 +373,11 @@ func (f *fixture) testReadCommands(t *testing.T) {
 		t.Fatal("ready fixtures reported unhealthy")
 	}
 	f.cli(t, "doctor", "--namespace", "team", "--output", "json").success(t)
-	f.command(t, f.binary, "doctor", "--kubeconfig", f.kubeconfig, "--context", "selected",
-		"--namespace", "team", "--output", "json").success(t)
+	removed = f.command(t, f.binary, "doctor", "--kubeconfig", f.kubeconfig, "--context", "selected",
+		"--namespace", "team", "--output", "json")
+	if removed.code != 2 || removed.stdout != "" || !strings.Contains(removed.stderr, `use "brewlet k8s doctor" instead`) {
+		t.Fatalf("removed doctor command must fail with replacement hint: %+v", removed)
+	}
 
 	operator.Status.UpdatedReplicas = 0
 	must(t, f.api.Status().Update(f.ctx, operator))
