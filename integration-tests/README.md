@@ -65,6 +65,12 @@ See [AGENTS.md](AGENTS.md) for cluster requirements, cleanup, and troubleshootin
 
 ### Monitoring runs from the GitHub Copilot app
 
+Enter `/e2e` in a GitHub Copilot app session for this repository to open or
+focus the **Brewlet E2E Tests** canvas. The command is a repository skill in
+`.github/skills/e2e/SKILL.md`; if it was added during an existing session, use
+`/skills reload` to discover it. Opening the panel does not start, reset, or
+stop tests. Select a suite and start a run from the canvas when ready.
+
 The project extension in `.github/extensions/e2e-monitor/` adds an
 **Integration tests** canvas. It starts `run.sh` tiers, the live HPA/admission
 scenarios, or the offline safeguard tests as detached processes, and shows
