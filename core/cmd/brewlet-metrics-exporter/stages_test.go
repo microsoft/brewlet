@@ -20,7 +20,7 @@ func TestStageCollector(t *testing.T) {
 	check := func(value string) {
 		t.Helper()
 		expected := `
-# HELP brewlet_runnable_stage_bytes Logical bytes remaining in runnable staging trees, including legacy and pending stages.
+# HELP brewlet_runnable_stage_bytes Logical regular-file bytes under the runnable stage root, including non-evictable unmanaged and pending trees.
 # TYPE brewlet_runnable_stage_bytes gauge
 brewlet_runnable_stage_bytes ` + value + "\n"
 		if err := testutil.GatherAndCompare(reg, strings.NewReader(expected)); err != nil {
@@ -37,10 +37,27 @@ brewlet_runnable_stage_bytes ` + value + "\n"
 		t.Fatal(err)
 	}
 	check("5")
+	for _, name := range []string{"immutable-v1/retained", "immutable-v2/.pending", "unmanaged"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "payload"), []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outside := filepath.Join(t.TempDir(), "payload")
+	if err := os.WriteFile(outside, []byte("not counted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	check("17")
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
-	check("0")
+	check("12")
 }
 
 func TestStageCollectorReportsReadErrors(t *testing.T) {

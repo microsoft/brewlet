@@ -114,10 +114,10 @@ CLI / prepare-bundle workflows only. For a runnable image the shim:
 Nothing about JVM launch, cgroup-awareness, JDK/launcher selection, or Brewlet's
 overlay rootfs (shared read-only JDK lower + per-container upper) changes.
 
-New shims publish stages under an `immutable-v2` subdirectory of
-`BREWLET_RUNNABLE_STAGE` (or the default temporary staging root). They leave legacy
-stages untouched because running workloads may still mount those files. Allow
-extra disk capacity during rollout: legacy stages and staging directories left
+Shims publish stages under an `immutable-v2` subdirectory of
+`BREWLET_RUNNABLE_STAGE` (or the default temporary staging root). They leave unmanaged
+stage layouts untouched because workloads may still mount those files. Allow
+extra disk capacity: unmanaged layouts and pending directories left
 by abruptly terminated processes are not removed by the stage reaper.
 Do not remove staging trees while workloads still reference them.
 
@@ -127,7 +127,7 @@ digests. This permits later replicas to start after containerd garbage-collects
 its packed layers (`discard_unpacked_layers=true`) without bypassing blob
 verification. A corrupt source blob that remains present still causes failure.
 Missing or corrupt retained evidence fails closed. A cold launch whose packed
-layers are already missing, or an upgrade with only a legacy stage, requires a
+layers are already missing, or a node with only an unmanaged stage layout, requires a
 verified image re-pull; this does not repair missing content from an unpacked
 snapshot. Allow disk capacity for the retained compressed bytes per image.
 
@@ -145,17 +145,18 @@ If you installed the standalone `brewlet` CLI on the host, use:
 
 ```sh
 sudo brewlet stage-gc --dry-run
-# Only after completing the migration prerequisites below:
+# Only on a safely established installation with no unguarded consumers:
 sudo brewlet stage-gc --min-age 24h
 # Non-default locations (use the same stage root as the shim):
 sudo brewlet stage-gc --stage-root /var/lib/brewlet/runnable \
   --address /run/containerd/containerd.sock --min-age 48h
 ```
 
-Manual commands do not enforce `stageGC.enabled`, migration acknowledgment,
-node ownership, or the provisioner's compatibility record. The reaper's
+Manual commands do not enforce `stageGC.enabled`, node ownership, or the
+provisioner's installation safety record. The reaper's
 reference, mount, and locking checks still apply, but they cannot make
-unguarded legacy consumers safe. Do not use a manual deletion or an additional
+unguarded consumers safe. Retire unguarded launchers and exported bundles that
+reference stage paths before cleanup. Do not use manual deletion or an additional
 timer to bypass blocked automatic activation.
 
 `--stage-root` defaults to `BREWLET_RUNNABLE_STAGE`, then
@@ -186,7 +187,6 @@ stageGC:
   enabled: true
   interval: 5m
   minAge: 24h
-  upgradeAcknowledged: false
 ```
 
 The provisioner enters the host PID and mount namespaces for each sweep and
@@ -211,36 +211,45 @@ directory age, **not** time since last use or since becoming unreferenced, and
 is not kubelet's `imageMinimumGCAge` or `imageMaximumGCAge`. This is eventual
 orphan reclamation, not guaranteed immediate disk-pressure relief.
 
-### Upgrading existing nodes
+### Existing installations and unguarded consumers
 
-Existing installations without a matching compatibility record stay provisioned
-but log `stage GC blocked` instead of deleting stages. Before acknowledging the
-migration, retire older shims that do not participate in the guard, finish or
-quiesce their launches, and retire or regenerate previously exported OCI bundles
-that name stage paths. Merely installing a new shim does not retire already
-running older shims. New `brewlet bundle` outputs retain their own payloads.
-Then upgrade with `stageGC.upgradeAcknowledged=true` in addition to your normal
-release values. This acknowledges those prerequisites for **all managed nodes**;
-do not set it before the whole selected fleet is ready.
+Pre-GA release changes require [safe teardown/reinstallation](installation.md#upgrading);
+GC does not provide an in-place upgrade exception. Existing installations without
+a matching safety record stay provisioned but log `stage GC blocked` instead of
+deleting stages. There is no acknowledgment override. Installing a new shim does
+not retire running unguarded shim processes or stage-dependent exported bundles.
+Current `brewlet bundle` outputs retain their own payloads.
 
-After the rollout, reset `stageGC.upgradeAcknowledged=false`. Each compatible
-node retains a root-owned `/opt/brewlet/.stage-gc-compatible` record tied to both
-installed shim copies and the staging path. A changed shim identity or path
-without a matching record blocks activation again at provisioner startup. An interrupted installation
-can also require acknowledgment again. Disable GC before manually rolling back
-shims or introducing consumers that do not participate in the guard.
+A fresh installation has no installed shim copies or safety record and an absent
+or empty staging root. It establishes a root-owned
+`/opt/brewlet/.stage-gc-compatible` record tied to both installed shim copies and
+the staging path, even when GC is disabled. The name is retained, but the record
+is installation safety evidence, not a cross-release compatibility promise.
+It is invalidated before binary replacement and renewed only when safety was
+established. A changed installed shim identity/path, missing record, or interrupted
+installation blocks activation on the next provisioner startup.
+
+Recover blocked nodes through safe teardown using the installed release's cleanup
+path: retire unguarded consumers, finish their launches, and retire or regenerate
+stage-dependent exported bundles. Review retained host files before reinstalling;
+uninstall alone does not empty the staging root or prove those consumers are gone.
+Use a replacement node if safety cannot be established. Do not forge a record,
+rename staging roots, or delete in-use files to make an installation appear fresh.
+Disable GC before introducing any consumer that does not participate in the guard;
+that does not make mixed-version operation or rollback supported.
 Earlier Linux shims derived their default stage root from `TMPDIR`. If
 containerd set a non-default `TMPDIR`, stages created before the upgrade remain
 under that old location; new launches use `/tmp/brewlet-runnable`. Automatic GC
-does not sweep the old location. Remove it manually only after the migration
-checks above confirm nothing still references it.
+does not sweep the old location. Retain it until reviewed host cleanup establishes
+that no process, mount, pending launch, or exported bundle still depends on it.
 For complete Helm commands and per-node activation checks, see
 [Activating runnable-stage GC](installation.md#activating-runnable-stage-gc).
 
 Standalone shim installation still does not schedule GC. Outside the provisioner,
 use a host timer or root cron job, such as an hourly invocation of
-`/usr/local/bin/brewlet stage-gc --min-age 24h`, after the same migration checks.
-Legacy trees and abandoned pending trees remain outside automated eviction.
+`/usr/local/bin/brewlet stage-gc --min-age 24h`, only after establishing the same
+consumer-safety prerequisites. Unmanaged layouts and abandoned pending trees
+remain outside automated eviction.
 External consumers that read stages without mounts must participate in the
 staging guard or be stopped during cleanup; open file descriptors alone are
 not tracked.
@@ -248,7 +257,7 @@ not tracked.
 ### Observing stage usage and cleanup
 
 The metrics exporter exposes `brewlet_runnable_stage_bytes`, the logical size
-of regular files remaining under its stage root (including legacy and pending
+of regular files remaining under its stage root (including unmanaged and pending
 trees, without following symlinks). This is not filesystem-allocated space or
 free disk space. It is refreshed on each scrape; inspection errors fail the
 scrape rather than reporting a misleading zero. The operator's exporter mounts

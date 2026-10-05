@@ -9,7 +9,7 @@ and autoscaling, see
 [Capability labels and autoscaling](capability-labels-and-autoscaling.md).
 For the operational workflow behind the metrics values, see
 [Runtime metrics and Grafana dashboards](runtime-metrics.md).
-For runnable-image cache reclamation and migration prerequisites, see
+For runnable-image cache reclamation and consumer-safety prerequisites, see
 [Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
 ---
@@ -78,10 +78,9 @@ with `--set key=value` or a values file.
 | `operator.leaderElect` | `true` | Enable leader election for HA. |
 | `operator.nodeSelector` | `{}` | Node labels the operator pod must match (for example, to keep it on a system pool). |
 | `operator.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Operator pod resources. |
-| `stageGC.enabled` | `true` | Run periodic orphaned runnable-image stage cleanup in every managed provisioner, independently of metrics. Fresh nodes activate automatically; existing installations require a matching compatibility record or migration acknowledgment. |
+| `stageGC.enabled` | `true` | Run periodic orphaned runnable-image stage cleanup in every managed provisioner, independently of metrics. Fresh nodes activate automatically; existing installations require a matching installation safety record. |
 | `stageGC.interval` | `5m` | Delay after each attempt, plus up to 10% jitter. Sweeps do not overlap. |
 | `stageGC.minAge` | `24h` | Minimum stage directory age, not time since last use or since becoming unreferenced. |
-| `stageGC.upgradeAcknowledged` | `false` | Confirm older unguarded shims and stage-dependent exported bundles have been retired across all managed nodes. Reset after the rollout; compatible nodes retain their approval. |
 | `stageGC.allowNestedPIDNamespace` | `false` | Test-only. Let the reaper run on nodes that are themselves containers with a private PID namespace (kind). Never enable on real nodes. |
 | `uninstall.timeoutSeconds` | `240` | Pre-delete cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstalling; Helm's `--timeout` must exceed this plus 30 seconds. Failure retains the control plane. See [Uninstall](installation.md#uninstall). |
 | `uninstall.imagePullSecrets` | `[]` | Namespaced registry Secret references for the cleanup Job, which uses the operator image and its own service account. |
@@ -146,13 +145,13 @@ seconds, at most `2147483647s`; the operator rejects invalid values.
 Kubelet and containerd still own image retention and content reclamation.
 Brewlet removes only old, unreferenced, unmounted published stages; it does not
 copy kubelet's disk thresholds or change kubelet configuration. Containerd
-references in any namespace can delay reclamation. Legacy and abandoned pending
+references in any namespace can delay reclamation. Unmanaged layouts and abandoned pending
 trees are not automatically removed.
 
-For existing nodes, follow the [GC activation procedure](installation.md#activating-runnable-stage-gc)
-before setting `stageGC.upgradeAcknowledged=true`. Readiness does not imply
-that GC is active. Setting `stageGC.enabled=false` stops automatic sweeps, not
-separately scheduled or manually invoked cleanup commands.
+For existing nodes, follow the [GC activation procedure](installation.md#activating-runnable-stage-gc).
+Unverified installations stay blocked; there is no acknowledgment override.
+Readiness does not imply that GC is active. Setting `stageGC.enabled=false`
+stops automatic sweeps, not separately scheduled or manually invoked cleanup commands.
 
 ### AppCDS regeneration
 
@@ -251,10 +250,9 @@ When you install via Helm, the chart populates them for you.
 | `--health-probe-bind-address` | `:8081` | Health/readiness endpoint. |
 | `--node-metrics-enabled` | `false` | Run the node-local exporter sidecar in managed provisioner pods. |
 | `--node-metrics-port` | `9090` | Exporter port when node metrics are enabled. |
-| `--stage-gc-enabled` | `true` | Enable periodic stage cleanup after successful provisioning and compatibility checks. |
+| `--stage-gc-enabled` | `true` | Enable periodic stage cleanup after successful provisioning and installation safety checks. |
 | `--stage-gc-interval` | `5m` | Delay between GC attempts, plus jitter; positive whole seconds in Go duration syntax. |
 | `--stage-gc-min-age` | `24h` | Minimum stage directory age; positive whole seconds in Go duration syntax. |
-| `--stage-gc-upgrade-acknowledged` | `false` | Acknowledge retirement of unguarded stage consumers across the managed fleet. Reset after rollout. |
 | `--stage-gc-allow-nested-pid-namespace` | `false` | Test-only. Let the reaper run on nodes with a private PID namespace (kind). |
 
 For a local operator built from the same release as the installed CLI, use that
@@ -297,10 +295,9 @@ only touch them directly if you hand-wire the DaemonSet.
 | `LAUNCHER_SOURCE_<n>_PATH` | required per entry | Clean absolute launcher path inside the image. |
 | `JDKS` / `LAUNCHERS` | derived | Internal comma-separated inventories derived from the indexed entries. They are not accepted as independent inputs. |
 | `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Internal operator-to-provisioner policy transport. When true, atomically creates the root-owned AppCDS authorization sentinel and publishes `brewlet.sh/appcds-regeneration=true`; when false or during cleanup/failure, removes both. Configure `spec.appCDS.regenerationEnabled`, not this variable directly. |
-| `BREWLET_STAGE_GC_ENABLED` | `true` | Enable the periodic GC loop after provisioning, subject to compatibility checks. Rendered from operator-wide `stageGC.enabled`. |
+| `BREWLET_STAGE_GC_ENABLED` | `true` | Enable the periodic GC loop after provisioning, subject to installation safety checks. Rendered from operator-wide `stageGC.enabled`. |
 | `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Delay between GC attempts, plus up to 10% jitter; integer seconds in `1..2147483647`. |
 | `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age; integer seconds in `1..2147483647`. |
-| `BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED` | `false` | Confirm older unguarded shims and stage-dependent exported bundles have been retired; rendered from operator-wide policy. |
 | `BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE` | `false` | Test-only. Pass `--allow-nested-pid-namespace` to the reaper on kind nodes; rendered from operator-wide policy. |
 | `BREWLET_RUNNABLE_STAGE` | `/tmp/brewlet-runnable` (provisioner) | Host stage root used by automatic GC. A custom location must also be configured separately for the shim and exporter's read-only mount; this variable does not reconfigure those processes. |
 | `NODE_NAME` | (downward API) | The node to label; injected from `spec.nodeName`. |

@@ -124,15 +124,20 @@ a silently non-running pod. It moves the node's shim aside for the last case and
 it both inline and from its cleanup trap. §14's remaining row, the cgroup-v1
 refusal, cannot be produced on a cgroup-v2 CI node and is covered
 deterministically by `provisioner/entrypoint_test.sh` over `require_cgroup_v2`.
-Tier 17 installs the chart with default `stageGC` values, verifies they reach
-the provisioner DaemonSet without the metrics exporter, and proves the upgrade
-gate blocks GC on a node whose stage root already holds data. It then
-acknowledges the upgrade with `interval=5s` and `minAge=1s`, resets the
-acknowledgment to prove the per-node compatibility record persists, and shows
-that a runnable-image stage survives while its pod runs and while containerd
-still holds the image, then is reclaimed after the image is removed. Once GC is
-active, it may also reclaim unreferenced stages left on the node by earlier
-tiers.
+Tier 17 requires a dedicated fresh node: run it alone on a new kind cluster,
+not after tiers that leave shim or stage state behind. Kubernetes `--reset`
+alone does not prepare a fresh node. The tier rejects retained host state without
+clearing it. It installs the chart with default `stageGC` values and verifies
+fresh activation without the metrics exporter. Current-release configuration
+changes to `interval=5s` and `minAge=1s` replace the worker and preserve its
+installation safety record. A runnable stage survives while its pod runs and
+while containerd holds the image, then is reclaimed after content collection;
+unmanaged and pending trees survive. Finally, the tier disables GC and waits for
+the sweeping worker to terminate before removing only its own safety record.
+Re-enabling GC retains runtime readiness but blocks repeated attempts and
+preserves an otherwise eligible stage. No acknowledgment or fabricated record
+enables cleanup. Fixture teardown preserves recovery evidence and finalizers
+if cleanup cannot complete.
 Tier 18 covers a patched-JDK rollout. It provisions a Temurin 21 digest,
 runs a Brewlet workload on it, then replaces the NodeProfile digest with a
 patched release. It asserts that the node re-advertises the new version for

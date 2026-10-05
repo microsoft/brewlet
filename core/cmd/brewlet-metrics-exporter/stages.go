@@ -18,7 +18,7 @@ func newStageCollector(root string) *stageCollector {
 		root: root,
 		bytes: prometheus.NewDesc(
 			"brewlet_runnable_stage_bytes",
-			"Logical bytes remaining in runnable staging trees, including legacy and pending stages.",
+			"Logical regular-file bytes under the runnable stage root, including non-evictable unmanaged and pending trees.",
 			nil, nil,
 		),
 	}

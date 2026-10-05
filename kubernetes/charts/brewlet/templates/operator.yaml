@@ -1,6 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+{{- if hasKey .Values.stageGC "upgradeAcknowledged" }}
+{{- fail "stageGC.upgradeAcknowledged has been removed; remove it from saved values and use safe teardown/reinstallation, not an acknowledgment to enable GC" }}
+{{- end }}
+
 {{/*
 brewlet-operator: node lifecycle controller (§8.1). Watches provision-opted
 nodes, manages the provisioner DaemonSet + the brewlet RuntimeClass from the
@@ -149,7 +153,6 @@ spec:
             - {{ printf "--stage-gc-enabled=%v" .Values.stageGC.enabled | quote }}
             - {{ printf "--stage-gc-interval=%v" .Values.stageGC.interval | quote }}
             - {{ printf "--stage-gc-min-age=%v" .Values.stageGC.minAge | quote }}
-            - {{ printf "--stage-gc-upgrade-acknowledged=%v" .Values.stageGC.upgradeAcknowledged | quote }}
             - {{ printf "--stage-gc-allow-nested-pid-namespace=%v" .Values.stageGC.allowNestedPIDNamespace | quote }}
             - {{ printf "--allowed-source-mirror-hosts=%s" (join "," .Values.security.allowedSourceMirrorHosts) | quote }}
             {{- if .Values.metrics.enabled }}

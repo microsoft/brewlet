@@ -465,7 +465,7 @@ func TestRunnableStageOnlyToleratesSourceNotExist(t *testing.T) {
 	}
 }
 
-func TestRunnableStageUpgradeLeavesV1StageUntouched(t *testing.T) {
+func TestRunnableStageLeavesUnmanagedV1StageUntouched(t *testing.T) {
 	stage := t.TempDir()
 	t.Setenv("BREWLET_RUNNABLE_STAGE", stage)
 	store, man, digest, expected := runnableLayersFixture(t)
@@ -494,7 +494,7 @@ func TestRunnableStageUpgradeLeavesV1StageUntouched(t *testing.T) {
 	}
 	raw, err := io.ReadAll(file)
 	if err != nil || !os.SameFile(before, after) || string(raw) != "already mounted by 0.5.0" {
-		t.Fatalf("upgrade changed an in-use v1 stage: %q, %v", raw, err)
+		t.Fatalf("staging changed an in-use v1 stage: %q, %v", raw, err)
 	}
 	checkStagedContents(t, digest, expected)
 }

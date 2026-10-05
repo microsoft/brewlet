@@ -52,7 +52,14 @@ an exercised capability fails. The suite covers:
 | 14 | custom JDK + jaz NodeProfile, live workload, and broken-launcher readiness failure | both + fixtures |
 | 15 | live opt-in Prometheus metrics through Helm, provisioner, shim, and exporter | both + fixtures |
 | 16 | SPECIFICATION §14 failure modes on a live node | core + fixtures |
-| 17 | default-enabled runnable-stage GC: chart defaults, upgrade gate, reference protection, and reclamation | both + fixtures |
+| 17 | default-enabled runnable-stage GC: fresh activation, installation safety blocking, reference protection, and reclamation | both + fixtures |
+
+Run Tier 17 alone against a dedicated fresh node. It refuses existing shim,
+installation-record, or nonempty staging-root state; `--reset` only resets
+Kubernetes test state and does not make a used node fresh. A sequential run of
+all tiers on the same node can therefore fail Tier 17's preflight. The CI matrix
+runs it separately on a new kind cluster. Never clear retained host files or
+manufacture a safety record to satisfy this preflight.
 
 See [AGENTS.md](AGENTS.md) for cluster requirements, cleanup, and troubleshooting.
 

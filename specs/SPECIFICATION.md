@@ -847,7 +847,7 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    and autoscaler integration are defined by the public
    [capability-label contract](CAPABILITY_LABELS.md).
 9. Publishes the container-local `/tmp/brewlet-complete` marker, then runs
-   periodic runnable-stage cleanup when enabled and compatible (§5.2.1).
+   periodic runnable-stage cleanup when enabled and installation safety is established (§5.2.1).
    Disabled provisioners and completed cleanup-mode workers idle instead.
    Provisioner and cleanup containers have an exec readiness probe for that
    marker. Each entrypoint invocation removes stale completion state before
@@ -868,10 +868,9 @@ including externally managed NodeProfiles, and is independent of
 
 | Helm setting | Default | Contract |
 |---|---|---|
-| `stageGC.enabled` | `true` | Enable automatic sweeps after successful provisioning and compatibility checks |
+| `stageGC.enabled` | `true` | Enable automatic sweeps after successful provisioning and installation safety checks |
 | `stageGC.interval` | `5m` | Delay after each attempt, plus up to 10% jitter; sweeps do not overlap |
 | `stageGC.minAge` | `24h` | Minimum published stage directory age, not unused age or time since references disappeared |
-| `stageGC.upgradeAcknowledged` | `false` | Confirm retirement of older unguarded shims, stage-dependent exported bundles, and other unguarded consumers across the managed fleet |
 | `stageGC.allowNestedPIDNamespace` | `false` | Test-only: accept a node's non-initial PID namespace (kind nodes are containers) |
 
 Durations must resolve to positive whole seconds, at most `2147483647s`.
@@ -879,16 +878,20 @@ The operator validates and passes them to the provisioner; this is not a
 per-profile `spec` field. The complete flags and environment mapping is in
 [Configuration](../docs/configuration.md#runnable-image-stage-cleanup).
 
-Fresh installations with no installed shim copies and an absent or empty stage
-root activate automatically. Existing installations need a matching saved
-compatibility record or explicit migration acknowledgment. The root-owned
-record (§14.5) binds approval to both installed shim copies and the stage path,
-is invalidated before replacement, and is renewed only for a compatible
-installation. It is maintained even when sweeps are disabled. A detected
-identity/path change or interrupted installation can require acknowledgment
-again at startup. Reset the fleet-wide acknowledgment after rollout; compatible
-nodes retain approval. Installing new binaries alone does not prove that older
-running shim processes or exported bundles have been retired.
+Fresh installations with no installed shim copies or safety record and an absent
+or empty stage root activate automatically. Existing installations require a
+matching saved installation safety record. The root-owned record (§14.5) binds
+safety evidence to both installed shim copies and the stage path, is invalidated
+before replacement, and is renewed only when safety was established. It is
+maintained even when sweeps are disabled. A detected identity/path change,
+missing or mismatched record, or interrupted installation blocks activation at
+startup. Installing new binaries alone does not prove that running unguarded shim
+processes or stage-dependent exported bundles have been retired.
+
+There is no acknowledgment override or supported in-place release
+transition implied by this record. Blocked installations require
+safe teardown/reinstallation with reviewed retained host state or node replacement;
+record fabrication and stage-root renaming are not safe retirement.
 
 Each managed sweep rechecks node/profile ownership before invoking the reaper
 in the host PID and mount namespaces; `nsenter` MUST fork so the reaper itself
@@ -898,7 +901,7 @@ or NodeProfile (API timeout or outage) skips that sweep without exiting or
 changing node advertisements;
 cleanup-mode workers never start this loop. Reference-inspection errors and
 lock contention are logged and retried at the next interval, without treating a
-failed sweep as a provisioning failure. Blocked compatibility also leaves the
+failed sweep as a provisioning failure. Blocked installation safety also leaves the
 node provisioned but logs `stage GC blocked`. TERM/INT signals the active
 sweep's whole process group, or the timer, before supervisor exit. Each reaper uses a five-minute context deadline;
 filesystem operations already in progress may take longer to return.
@@ -910,9 +913,9 @@ orphan reclamation (§6.3), not a second disk-pressure eviction policy.
 There is no guarantee of immediate disk relief or a bounded total stage size.
 
 Manual `stage-gc` invocations apply the same reaper safety checks but do not
-enforce the provisioner's enablement, ownership, or migration gate. Do not
+enforce the provisioner's enablement, ownership, or installation safety gate. Do not
 schedule a second timer on managed nodes or use manual deletion to bypass
-blocked activation. See the [upgrade procedure](../docs/installation.md#activating-runnable-stage-gc).
+blocked activation. See the [activation and recovery procedure](../docs/installation.md#activating-runnable-stage-gc).
 
 ### 5.3 Installing JDK runtime roots on nodes
 
@@ -1437,8 +1440,8 @@ and builds/runs on Linux:
   The `immutable-v2` stage also retains the exact descriptor-verified packed
   layers. Cache reuse verifies those retained bytes and tolerates source-layer
   removal by containerd GC, but not other source I/O errors or present corrupt
-  source bytes. Missing/corrupt retained evidence fails closed. Older stage
-  directories remain untouched during upgrades; a new stage requires available
+  source bytes. Missing/corrupt retained evidence fails closed. Unmanaged stage
+  layouts remain untouched; a new stage requires available
   source bytes. This warm-reuse protection does not guarantee cold startup
   after source-layer GC. Re-pull affected digest-pinned images with packed-layer
   retention enabled, and allow extra disk capacity for retained layer bytes.
@@ -1456,11 +1459,12 @@ and builds/runs on Linux:
   mount namespaces with a complete `/proc`; ambiguous or unreadable evidence
   prevents deletion. A test-only opt-in relaxes only the PID namespace check to
   the node init's namespace, for nodes that are themselves containers (kind). The root is administrator-owned and must not be renamed
-  or replaced while consumers or cleanup run. Legacy and abandoned pending
+  or replaced while consumers or cleanup run. Unmanaged layouts and abandoned pending
   trees remain outside automated eviction. Open file descriptors alone are
-  not tracked: direct readers must hold the guard or be stopped. New exported
+  not tracked: direct readers must hold the guard or be stopped. Exported
   runnable-image bundles retain their own payload copies rather than depend on
-  the evictable stage; legacy bundles require migration before GC activation.
+  the evictable stage; unguarded consumers and stage-dependent exported bundles
+  must be retired before GC activation.
   These rules govern both automatic and manual sweeps.
 
 The workload image reference and manifest digest hints are managed **cluster-side,
@@ -1965,7 +1969,7 @@ other, so each shape behaves as plain Kubernetes does:
   controller-runtime endpoints.
 - **Stage cleanup observability:** the optional exporter exposes
   `brewlet_runnable_stage_bytes` from a read-only host stage mount. It measures
-  logical regular-file bytes, including legacy and pending trees, not allocated
+  logical regular-file bytes, including non-evictable unmanaged and pending trees, not allocated
   space, free space, or reclaimable bytes. It does not follow symlinks; inspection
   errors fail the scrape rather than report zero. Automatic cleanup runs
   independently of metrics. Removed stage counts/bytes, process-local
@@ -2115,8 +2119,8 @@ repurposed.
 | `invalid-jdk-source` | A JDK source entry is missing fields, has a malformed `<distribution>-<feature>` token, or is duplicated |
 | `invalid-launcher-source` | A launcher source entry is missing fields, has a malformed or reserved name, or is duplicated |
 | `invalid-restart-mode` | `rollout.containerdRestart` is not `validated` / `sighup` / `none` |
-| `invalid-stage-gc-config` | Provisioner GC booleans, integer-second durations, or the host staging path are invalid |
-| `stage-gc-state-failed` | GC compatibility inspection/recording or helper installation failed; distinct from a periodic sweep failure, which is logged and retried |
+| `invalid-stage-gc-config` | Provisioner GC configuration is invalid |
+| `stage-gc-state-failed` | GC installation safety inspection/recording or helper installation failed; distinct from a periodic sweep failure, which is logged and retried |
 | `unsupported-architecture` | The node's architecture is not supported |
 | `host-tooling-missing` | A required host tool (`nsenter`, the host `ctr` helper) is unavailable |
 | `completion-state-failed` | The container-local readiness marker could not be reset or published; the operation exits unsuccessfully |
@@ -2204,7 +2208,7 @@ read-only mounts §6.1 describes.
 | `metrics/telemetry.sock` | Unix datagram socket the shim writes best-effort telemetry to |
 | `<root>.retired.<epoch>.<pid>/` | A rotated-out JDK/launcher root, retained while live mounts may reference it (§12) |
 | `.image-mount-*` | Transient source-image mount points; reclaimed on the next pass |
-| `.stage-gc-compatible` | Root-owned record binding GC compatibility to the installed shim copies and stage path; checked at provisioner startup, invalidated before replacing binaries, and removed during teardown |
+| `.stage-gc-compatible` | Root-owned installation safety record bound to both installed shim copies and stage path; checked at startup, invalidated before binary replacement, and removed during teardown. Not an in-place release compatibility promise |
 
 Related host paths outside this prefix:
 

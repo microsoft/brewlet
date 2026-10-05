@@ -64,7 +64,6 @@ HOST_STAGE_GC_PATH="${HOST_STAGE_GC_PATH:-/usr/local/bin/brewlet-stage-gc}"
 STAGE_GC_ENABLED="${BREWLET_STAGE_GC_ENABLED:-true}"
 STAGE_GC_INTERVAL_SECONDS="${BREWLET_STAGE_GC_INTERVAL_SECONDS:-300}"
 STAGE_GC_MIN_AGE_SECONDS="${BREWLET_STAGE_GC_MIN_AGE_SECONDS:-86400}"
-STAGE_GC_UPGRADE_ACKNOWLEDGED="${BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED:-false}"
 # Test-only: kind nodes are containers with a private PID namespace.
 STAGE_GC_ALLOW_NESTED_PID_NAMESPACE="${BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE:-false}"
 STAGE_GC_ROOT="${BREWLET_RUNNABLE_STAGE:-/tmp/brewlet-runnable}"
@@ -564,7 +563,7 @@ stage_gc_identity() {
 
 prepare_stage_gc() {
   local value contents identity
-  for value in "$STAGE_GC_ENABLED" "$STAGE_GC_UPGRADE_ACKNOWLEDGED" "$STAGE_GC_ALLOW_NESTED_PID_NAMESPACE"; do
+  for value in "$STAGE_GC_ENABLED" "$STAGE_GC_ALLOW_NESTED_PID_NAMESPACE"; do
     case "$value" in
       true|false) ;;
       *) die invalid-stage-gc-config "stage GC booleans must be true or false" ;;
@@ -577,14 +576,12 @@ prepare_stage_gc() {
   [[ "$STAGE_GC_ROOT" == /* && "$STAGE_GC_ROOT" != *$'\n'* ]] \
     || die invalid-stage-gc-config "stage root must be an absolute single-line host path"
   STAGE_GC_COMPATIBLE=false
-  if [[ "$STAGE_GC_UPGRADE_ACKNOWLEDGED" == true ]]; then
-    STAGE_GC_COMPATIBLE=true
-  elif [[ -f "$PREFIX/.stage-gc-compatible" && ! -L "$PREFIX/.stage-gc-compatible" &&
+  if [[ -f "$PREFIX/.stage-gc-compatible" && ! -L "$PREFIX/.stage-gc-compatible" &&
           -f "$HOST_BIN/$SHIM_NAME" && -f "$PREFIX/bin/$SHIM_NAME" ]]; then
     identity="$(stage_gc_identity)" \
       || die stage-gc-state-failed "could not verify installed shim identities"
     contents="$(cat "$PREFIX/.stage-gc-compatible")" \
-      || die stage-gc-state-failed "could not read stage GC compatibility record"
+      || die stage-gc-state-failed "could not read stage GC installation safety record"
     [[ "$contents" != "$identity" ]] || STAGE_GC_COMPATIBLE=true
   elif [[ ! -e "$HOST_BIN/$SHIM_NAME" && ! -L "$HOST_BIN/$SHIM_NAME" &&
           ! -e "$PREFIX/bin/$SHIM_NAME" && ! -L "$PREFIX/bin/$SHIM_NAME" &&
@@ -598,10 +595,10 @@ prepare_stage_gc() {
       || die stage-gc-state-failed "could not inspect the host stage root before installation"
     [[ -n "$contents" ]] || STAGE_GC_COMPATIBLE=true
   fi
-  # Invalidate before replacing binaries: an interrupted upgrade must not leave
+  # Invalidate before replacing binaries: an interrupted installation must not leave
   # an approval associated with a different shim installation.
   rm -f "$PREFIX/.stage-gc-compatible" \
-    || die stage-gc-state-failed "could not invalidate stage GC compatibility record"
+    || die stage-gc-state-failed "could not invalidate stage GC installation safety record"
 }
 
 install_stage_gc() {
@@ -617,10 +614,10 @@ install_stage_gc() {
   fi
   if [[ "$STAGE_GC_COMPATIBLE" == true ]]; then
     tmp="$(mktemp "$PREFIX/.stage-gc-compatible.XXXXXX")" \
-      || die stage-gc-state-failed "could not stage compatibility record"
+      || die stage-gc-state-failed "could not stage installation safety record"
     if ! stage_gc_identity >"$tmp" || ! mv -f "$tmp" "$PREFIX/.stage-gc-compatible"; then
       rm -f "$tmp"
-      die stage-gc-state-failed "could not record stage GC compatibility"
+      die stage-gc-state-failed "could not record stage GC installation safety"
     fi
   fi
 }
@@ -685,7 +682,7 @@ run_stage_gc_loop() {
     if (( ownership != 0 )); then
       log "WARN: stage GC skipped: could not verify node ownership; retrying next interval"
     elif [[ "$STAGE_GC_COMPATIBLE" != true ]]; then
-      log "WARN: stage GC blocked: retire older unguarded shims and stage-dependent bundles, then set stageGC.upgradeAcknowledged=true"
+      log "WARN: stage GC blocked: installation safety is unverified; preserve stage files, retire unguarded consumers through safe teardown, then reinstall on a safely prepared or replacement node (no acknowledgment override)"
     else
       if run_stage_gc_sweep; then
         successes=$((successes + 1))
@@ -1964,6 +1961,11 @@ main() {
   # A restarted invocation must never inherit readiness from earlier work.
   rm -f -- "$COMPLETION_FILE" \
     || die completion-state-failed "could not reset completion marker ${COMPLETION_FILE}"
+  if [[ "$BREWLET_MODE" != cleanup && "${BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED+x}" == x ]]; then
+    # Reject before ownership is established, without host-mutating die handlers.
+    log "ERROR: invalid-stage-gc-config: BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED has been removed; remove it from configuration and use safe teardown/reinstallation, not an acknowledgment to enable GC" >&2
+    return 1
+  fi
   ensure_in_cluster_kubeconfig
   verify_node_ownership
   if [[ "${BREWLET_MODE}" == "cleanup" ]]; then

@@ -51,7 +51,7 @@ func Root() string {
 	return filepath.Join(os.TempDir(), "brewlet-runnable")
 }
 
-// Bytes sums logical regular-file sizes, including legacy and pending stages,
+// Bytes sums logical regular-file sizes, including unmanaged and pending trees,
 // without following symlinks. An absent root has size zero.
 func Bytes(root string) (int64, error) {
 	if root == "" {

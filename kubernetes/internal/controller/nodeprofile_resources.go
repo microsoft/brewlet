@@ -289,7 +289,6 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		{Name: "BREWLET_STAGE_GC_ENABLED", Value: strconv.FormatBool(cfg.StageGCEnabled)},
 		{Name: "BREWLET_STAGE_GC_INTERVAL_SECONDS", Value: strconv.FormatInt(int64(cfg.StageGCInterval/time.Second), 10)},
 		{Name: "BREWLET_STAGE_GC_MIN_AGE_SECONDS", Value: strconv.FormatInt(int64(cfg.StageGCMinAge/time.Second), 10)},
-		{Name: "BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED", Value: strconv.FormatBool(cfg.StageGCUpgradeAcknowledged)},
 		{Name: "BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE", Value: strconv.FormatBool(cfg.StageGCAllowNestedPIDNamespace)},
 	}
 	if profile.UID != "" {

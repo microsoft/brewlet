@@ -67,6 +67,7 @@ func TestReapFiltersAndDryRun(t *testing.T) {
 			pending := createStage(t, root, "."+names[0]+"-pending", 48*time.Hour)
 			uppercase := createStage(t, root, strings.Repeat("A", 64), 48*time.Hour)
 			writeFile(t, filepath.Join(root, "legacy", "app.jar"), "jar")
+			writeFile(t, filepath.Join(root, "immutable-v1", names[0], "app.jar"), "jar")
 			outside := t.TempDir()
 			writeFile(t, filepath.Join(outside, "app.jar"), "untouched")
 			link := filepath.Join(root, "immutable-v2", names[6])
@@ -85,7 +86,7 @@ func TestReapFiltersAndDryRun(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantRemaining := int64(30)
+			wantRemaining := int64(33)
 			if !dry {
 				wantRemaining -= 3
 			}
@@ -95,7 +96,7 @@ func TestReapFiltersAndDryRun(t *testing.T) {
 			if _, err := os.Lstat(old); dry && err != nil || !dry && !os.IsNotExist(err) {
 				t.Fatalf("old stage: %v", err)
 			}
-			for _, path := range []string{image, content, mounted, young, inside, unknown, pending, uppercase, link, outside, filepath.Join(root, "legacy")} {
+			for _, path := range []string{image, content, mounted, young, inside, unknown, pending, uppercase, link, outside, filepath.Join(root, "legacy"), filepath.Join(root, "immutable-v1")} {
 				if _, err := os.Lstat(path); err != nil {
 					t.Fatalf("removed protected path %s: %v", path, err)
 				}
@@ -109,6 +110,7 @@ func TestReapFailClosed(t *testing.T) {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
 			path := createStage(t, root, strings.Repeat("a", 64), 48*time.Hour)
+			second := createStage(t, root, strings.Repeat("b", 64), 48*time.Hour)
 			deps := fakeDependencies(t, root)
 			ctx := context.Background()
 			switch failure {
@@ -132,8 +134,10 @@ func TestReapFailClosed(t *testing.T) {
 			if _, err := reap(ctx, "", Options{Root: root, MinAge: DefaultMinAge}, deps); err == nil {
 				t.Fatal("expected failure")
 			}
-			if _, err := os.Stat(filepath.Join(path, "app", "app.jar")); err != nil {
-				t.Fatalf("deletion before complete validation: %v", err)
+			for _, stage := range []string{path, second} {
+				if data, err := os.ReadFile(filepath.Join(stage, "app", "app.jar")); err != nil || string(data) != "jar" {
+					t.Fatalf("changed stage before complete validation: %q, %v", data, err)
+				}
 			}
 		})
 	}
@@ -290,6 +294,34 @@ func TestLockInterprocess(t *testing.T) {
 	}
 	if _, err := Reap(context.Background(), "", Options{Root: root, MinAge: DefaultMinAge}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("cross-process reaper lock: %v", err)
+	}
+}
+
+func TestLockedStageSurvivesUntilGuardReleased(t *testing.T) {
+	root := t.TempDir()
+	path := createStage(t, root, strings.Repeat("a", 64), 48*time.Hour)
+	deps := fakeDependencies(t, root)
+	guard, err := Acquire(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guard.Close()
+	opts := Options{Root: root, MinAge: DefaultMinAge}
+	if _, err := reap(context.Background(), "", opts, deps); !errors.Is(err, ErrBusy) {
+		t.Fatalf("locked stage must block reaping: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(path, "app", "app.jar")); err != nil || string(data) != "jar" {
+		t.Fatalf("locked payload changed: %q, %v", data, err)
+	}
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := reap(context.Background(), "", opts, deps)
+	if err != nil || result.Removed != 1 || result.ReclaimedBytes != 3 || result.RemainingBytes != 0 {
+		t.Fatalf("unlocked eligible stage not reclaimed: %+v, %v", result, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("reclaimed stage still exists: %v", err)
 	}
 }
 

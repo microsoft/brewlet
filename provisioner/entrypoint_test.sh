@@ -1541,6 +1541,9 @@ chmod +x "$completion_bin/sleep"
 
 completion_case() (
   BREWLET_MODE="$1"
+  if [[ "$BREWLET_MODE" == cleanup ]]; then
+    BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED=true
+  fi
   local failure="${2:-}"
   NODE_NAME=""
   export PATH="$completion_bin:$PATH"
