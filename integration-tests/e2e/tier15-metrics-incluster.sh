@@ -255,7 +255,7 @@ _t15_cleanup() {
       fail "tier15: restore the node's original containerd configuration"
     fi
     _t15_remove_created_cds_files
-    label_node "$T15_NODE" "$T15_POOL_KEY-" brewlet.sh/provision- \
+    label_node "$T15_NODE" "$T15_POOL_KEY-" \
       brewlet.sh/runtime- "brewlet.sh/jdk.$T15_JDK-" \
       "brewlet.sh/jdk-feature.${T15_JDK##*-}-" brewlet.sh/launcher.java- \
       >/dev/null 2>&1 || true
@@ -669,7 +669,7 @@ tier15_metrics_incluster() {
   fi
 
   label_node "$T15_NODE" --overwrite \
-    "$T15_POOL_KEY=$T15_POOL" brewlet.sh/provision=true brewlet.sh/runtime- \
+    "$T15_POOL_KEY=$T15_POOL" brewlet.sh/runtime- \
     >>"$WORK/t15-profile.log" 2>&1
   annotate_node "$T15_NODE" brewlet.sh/provision-state- brewlet.sh/provision-error- \
     >>"$WORK/t15-profile.log" 2>&1 || true

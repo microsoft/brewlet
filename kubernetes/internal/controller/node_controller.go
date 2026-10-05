@@ -45,9 +45,8 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Only reflect state for brewlet nodes: those a NodeProfile targets, those
-	// already advertising the runtime, or (legacy) an explicitly provision-opted
-	// node. A node that is none of these is left completely untouched.
+	// Only reflect state for nodes a NodeProfile targets or that already
+	// advertise the runtime. Observation does not establish host ownership.
 	targeted, err := r.isBrewletNode(ctx, &node)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("checking node membership: %w", err)
@@ -83,11 +82,10 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 }
 
 // isBrewletNode reports whether the operator should track this node's
-// provisioning state: it is targeted by a NodeProfile pool, already advertises
-// the runtime, or carries the legacy brewlet.sh/provision=true opt-in.
+// provisioning state: it is targeted by a NodeProfile pool or already
+// advertises the runtime.
 func (r *NodeReconciler) isBrewletNode(ctx context.Context, node *corev1.Node) (bool, error) {
-	if node.Labels[brewlet.LabelProvision] == "true" ||
-		node.Labels[brewlet.LabelRuntimeReady] == brewlet.ValueReady {
+	if node.Labels[brewlet.LabelRuntimeReady] == brewlet.ValueReady {
 		return true, nil
 	}
 	var profiles nodev1alpha1.NodeProfileList

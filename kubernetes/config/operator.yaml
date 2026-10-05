@@ -3,10 +3,10 @@
 
 # brewlet-operator RBAC + Deployment. See https://github.com/microsoft/brewlet/tree/main/specs.
 #
-# The operator watches provision-opted nodes, manages the brewlet-node-provisioner
-# DaemonSet + the brewlet RuntimeClass, and reflects each node's provisioning
-# state via annotations/events. Deploy after the namespace + provisioner SA exist
-# (see deploy/node-provisioner.yaml), or apply that manifest first.
+# The operator manages NodeProfile-scoped provisioning/cleanup DaemonSets and
+# the brewlet RuntimeClass, and reflects node state via annotations/events.
+# Apply deploy/provisioner-rbac.yaml and the CRDs first. Host provisioning
+# requires reviewed NodeProfiles; there is no operator-free deployment model.
 ---
 apiVersion: v1
 kind: ServiceAccount

@@ -10,16 +10,6 @@ package brewlet
 import "strings"
 
 const (
-	// LabelProvision is the legacy per-node opt-in for brewlet provisioning.
-	// The platform team sets it (e.g. `kubectl label node --all
-	// brewlet.sh/provision=true`). It is modeled as a label — not an annotation —
-	// so it can drive the nodeAffinity of the standalone
-	// deploy/node-provisioner.yaml DaemonSet (the no-operator path).
-	// Under the operator, DaemonSet placement is driven by NodeProfile pools
-	// (§5.6), not this label; the operator only reads it as a fallback opt-in when
-	// deciding whether to track a node's provisioning state (see isBrewletNode).
-	LabelProvision = "brewlet.sh/provision"
-
 	// LabelRuntimeReady is set on a node by the provisioner once the shim + a JDK
 	// are installed and the containerd runtime is registered. The RuntimeClass
 	// nodeSelector matches on it so workloads only schedule onto ready nodes.
@@ -209,7 +199,7 @@ const (
 )
 
 // Per-capability node labels the provisioner emits so the scheduler can skip
-// incompatible nodes (annotations can't drive nodeAffinity — see LabelProvision).
+// incompatible nodes (annotations cannot drive nodeAffinity).
 // Each is a boolean-presence label; the webhook matches with Operator: Exists.
 const (
 	// LabelJDKPrefix + "<dist>-<feature>" (e.g. brewlet.sh/jdk.temurin-21) marks a

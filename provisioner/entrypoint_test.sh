@@ -22,6 +22,11 @@ SOURCE_POLICY_BIN="$source_policy_bin"
 # context through die(). Individual tests opt into a node name with a stub.
 NODE_NAME=""
 
+mock_writer_authority() {
+  verify_node_ownership() { NODE_WRITE_AUTHORIZED=true; }
+  verify_profile_identity() { verify_node_ownership; }
+}
+
 zulu_ref="docker.io/library/azul-zulu@sha256:1111111111111111111111111111111111111111111111111111111111111111"
 temurin_ref="docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b"
 microsoft_ref="mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575"
@@ -402,6 +407,7 @@ grep -Fq "images unmount --rm $dest/.image-mount-two" "$calls"
   BREWLET_PROFILE_NAME=test-profile
   BREWLET_PROFILE_UID=test-uid
   BREWLET_PROFILE_GENERATION=7
+  verify_node_ownership() { NODE_WRITE_AUTHORIZED=true; }
   kubectl() {
     [[ "$*" == "get nodeprofile test-profile -o jsonpath={.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}" ]]
     printf 'test-uid|7|'
@@ -415,6 +421,7 @@ assert_profile_identity_fails() {
     BREWLET_PROFILE_UID=test-uid
     BREWLET_PROFILE_GENERATION=7
     NODE_NAME=""
+    verify_node_ownership() { NODE_WRITE_AUTHORIZED=true; }
     kubectl() { printf '%s' "$identity"; }
     verify_profile_identity
   ) >/dev/null 2>&1; then
@@ -438,6 +445,7 @@ if (
   export LAUNCHER_SOURCE_COUNT=0
   BREWLET_MODE=provision
   NODE_NAME=test-node
+  mock_writer_authority
   kubectl() { return 0; }
   clear_node_advertisement() {
     printf 'readiness-cleared\n' >>"$calls"
@@ -458,6 +466,7 @@ fi
 if (
   BREWLET_MODE=provision
   NODE_NAME=test-node
+  mock_writer_authority
   host_arch_oci() { printf 'amd64'; }
   remove_appcds_regeneration_policy() { return 0; }
   clear_node_advertisement() { return 0; }
@@ -1133,6 +1142,7 @@ printf 'drop-in\n' >"$dropin"
 if output="$(
   (
     NODE_NAME=test-node
+    NODE_WRITE_AUTHORIZED=true
     clear_node_advertisement() { printf 'unready\n' >>"$node_calls"; }
     remove_appcds_regeneration_policy() { printf 'policy-removed\n' >>"$node_calls"; }
     kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
@@ -1204,6 +1214,7 @@ policy_root="$(mktemp -d "$TEST_TMP_ROOT/policy-root.XXXXXX")"
   JDKS="temurin-21"
   LAUNCHERS=""
   BREWLET_APP_CDS_REGENERATION_ENABLED=true
+  mock_writer_authority
   kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
   label_node
 )
@@ -1213,6 +1224,7 @@ assert_contains "brewlet.sh/appcds-regeneration=true" "$node_calls"
 (
   BREWLET_APP_CDS_REGENERATION_ENABLED=false
   JDKS="temurin-21"
+  mock_writer_authority
   kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
   label_node
   clear_node_advertisement
@@ -1225,6 +1237,7 @@ assert_contains "brewlet.sh/appcds-regeneration-" "$node_calls"
 : >"$node_calls"
 (
   NODE_NAME=inventory-node
+  mock_writer_authority
   PREFIX="$policy_root"
   JDKS="temurin-21,microsoft-25"
   LAUNCHERS="jaz"
@@ -1608,6 +1621,7 @@ completion_case() (
     [[ "$1" != "$failure" ]] || exit 42
   }
   kubectl() { return 0; }
+  verify_node_ownership() { completion_step verify-ownership; NODE_WRITE_AUTHORIZED=true; }
   host_arch_oci() { printf 'amd64'; }
   remove_appcds_regeneration_policy() { completion_step remove-policy; }
   clear_node_advertisement() { completion_step clear-readiness; }
@@ -1684,9 +1698,82 @@ fi
 grep -Fq "ERROR: completion-state-failed" <<<"$output"
 
 # Ownership fencing runs before host mutation, including die()'s cleanup path.
+for mode in provision cleanup; do
+  for setting in omitted true false "" invalid; do
+    for identity in missing-profile missing-node valid; do
+      [[ "$identity" != valid || ( "$setting" != omitted && "$setting" != true ) ]] || continue
+      if output="$(
+        (
+          unset BREWLET_REQUIRE_NODE_CLAIM
+          if [[ "$setting" != omitted ]]; then
+            BREWLET_REQUIRE_NODE_CLAIM="$setting"
+          fi
+          source "$repo_root/provisioner/entrypoint.sh"
+          COMPLETION_FILE="$TEST_TMP_ROOT/completion"
+          BREWLET_MODE="$mode"
+          BREWLET_PROFILE_NAME=owner
+          BREWLET_PROFILE_UID=profile-uid
+          BREWLET_PROFILE_GENERATION=3
+          NODE_NAME=node-a
+          [[ "$identity" != missing-profile ]] || BREWLET_PROFILE_UID=""
+          [[ "$identity" != missing-node ]] || NODE_NAME=""
+          : >"$calls"
+          : >"$COMPLETION_FILE"
+          ensure_in_cluster_kubeconfig() { :; }
+          kubectl() { printf 'unexpected-api-access\n' >>"$calls"; return 1; }
+          remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
+          clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
+          cleanup_node() { printf 'unexpected-cleanup\n' >>"$calls"; exit 42; }
+          verify_profile_identity() { printf 'unexpected-provisioning\n' >>"$calls"; exit 42; }
+          main
+        ) 2>&1
+      )"; then
+        echo "accepted unclaimed $mode: setting=$setting identity=$identity" >&2
+        exit 1
+      fi
+      grep -Fq 'ownership-fence-failed' <<<"$output"
+      [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]] || {
+        echo "unclaimed $mode mutated host/API state or published completion" >&2
+        exit 1
+      }
+    done
+  done
+done
+
+# Failures before the first ownership check cannot use an opt-out to mutate.
+for mode in provision cleanup; do
+  for setting in true false ""; do
+    if output="$(
+      (
+        BREWLET_MODE="$mode"
+        BREWLET_REQUIRE_NODE_CLAIM="$setting"
+        NODE_WRITE_AUTHORIZED=false
+        NODE_NAME=node-a
+        BREWLET_CONTAINERD_RESTART=invalid
+        : >"$calls"
+        : >"$COMPLETION_FILE"
+        ensure_in_cluster_kubeconfig() { :; }
+        kubectl() { printf 'unexpected-api-access\n' >>"$calls"; }
+        remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
+        clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
+        main
+      ) 2>&1
+    )"; then
+      echo "accepted invalid restart mode before ownership" >&2
+      exit 1
+    fi
+    grep -Fq 'invalid-restart-mode' <<<"$output"
+    [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]]
+  done
+done
+
 ownership_case() (
   BREWLET_MODE="$1"
   local provided_node_claim="$2" provided_profile_ledger="$3" run_main="${4:-false}" expected_restart="${5:-}"
+  unset BREWLET_REQUIRE_NODE_CLAIM
+  source "$repo_root/provisioner/entrypoint.sh"
+  COMPLETION_FILE="$TEST_TMP_ROOT/completion"
+  [[ "$BREWLET_REQUIRE_NODE_CLAIM" == true ]]
   BREWLET_REQUIRE_NODE_CLAIM=true
   BREWLET_PROFILE_NAME=owner
   BREWLET_PROFILE_UID=profile-uid

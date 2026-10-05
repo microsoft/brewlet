@@ -366,9 +366,10 @@ in progress may take longer to return.
 **Manual invocation does not check `stageGC.enabled`, node ownership, or the
 provisioner's installation safety record.** Establish the
 [consumer-safety prerequisites](runnable-image.md#existing-installations-and-unguarded-consumers) before
-deleting anything. Helm-managed nodes already have a periodic loop; do not add
-a second timer. For standalone installations only, arrange a host timer after
-those checks. Manual cleanup is not a workaround for blocked automatic GC.
+deleting anything. NodeProfile-managed nodes already have a periodic loop; do not
+add a second timer. For non-Kubernetes CLI/bundle use only, arrange a host timer
+after those checks; this does not provide an operator-free Kubernetes
+provisioning model. Manual cleanup is not a workaround for blocked automatic GC.
 See [Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
 ---

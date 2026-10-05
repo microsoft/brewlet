@@ -81,13 +81,25 @@ launchers use the same explicit-source model with `name`, `source.image`, and
 
 ## Install raw manifests
 
+Raw installation uses the same operator-managed NodeProfile lifecycle as Helm,
+not an operator-free provisioner. Prepare reviewed component image digests,
+admission/TLS configuration, and your own `my-nodeprofile.yaml` using the
+[manual installation guide](../docs/installation.md#manual-without-helm).
+Apply the prerequisites before the reviewed operator and admission manifests:
+
 ```bash
 kubectl apply -f kubernetes/deploy/nodeprofile-crd.yaml
 kubectl apply -f kubernetes/deploy/javaapplication-crd.yaml
-kubectl apply -f kubernetes/deploy/node-provisioner.yaml
+kubectl apply -f kubernetes/deploy/provisioner-rbac.yaml
 kubectl apply -f kubernetes/config/operator.yaml
-kubectl apply -f kubernetes/deploy/sample-nodeprofile.yaml
 ```
+
+After the operator and your configured admission webhook are healthy, apply
+`my-nodeprofile.yaml`. The operator alone creates provisioning/cleanup
+DaemonSets. The removed `brewlet.sh/provision` label is not an activation path;
+existing standalone installations need
+[safe teardown/reinstallation](../docs/installation.md#removed-standalone-provisioning),
+not adoption by a new profile.
 
 The raw manifests use these images:
 

@@ -11,6 +11,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
@@ -28,24 +30,65 @@ func TestNodeProfileCompletionReadinessProbe(t *testing.T) {
 	}
 }
 
-func TestStandaloneProvisionerCompletionReadinessProbe(t *testing.T) {
-	file, err := os.Open("../../deploy/node-provisioner.yaml")
+func TestManagedProvisionerRawPrerequisites(t *testing.T) {
+	file, err := os.Open("../../deploy/provisioner-rbac.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer file.Close()
 	decoder := yaml.NewYAMLOrJSONDecoder(file, 4096)
+	seen := map[string]bool{}
 	for {
-		var ds appsv1.DaemonSet
-		if err := decoder.Decode(&ds); err == io.EOF {
-			t.Fatal("standalone provisioner DaemonSet missing")
+		var doc *struct {
+			metav1.TypeMeta `json:",inline"`
+			Metadata        metav1.ObjectMeta   `json:"metadata"`
+			Rules           []rbacv1.PolicyRule `json:"rules"`
+			RoleRef         rbacv1.RoleRef      `json:"roleRef"`
+			Subjects        []rbacv1.Subject    `json:"subjects"`
+		}
+		if err := decoder.Decode(&doc); err == io.EOF {
+			break
 		} else if err != nil {
 			t.Fatal(err)
 		}
-		if ds.Kind == "DaemonSet" {
-			assertCompletionReadinessProbe(t, ds.Spec.Template.Spec.Containers[0])
-			return
+		if doc == nil {
+			continue
 		}
+		if seen[doc.Kind] {
+			t.Fatalf("duplicate prerequisite kind %s", doc.Kind)
+		}
+		seen[doc.Kind] = true
+		wantName, wantNamespace, wantAPI := "brewlet-node-provisioner", "", "v1"
+		switch doc.Kind {
+		case "Namespace":
+			wantName = "brewlet"
+		case "ServiceAccount":
+			wantNamespace = "brewlet"
+		case "ClusterRole":
+			wantAPI = rbacv1.SchemeGroupVersion.String()
+			want := []rbacv1.PolicyRule{
+				{APIGroups: []string{""}, Resources: []string{"nodes"}, Verbs: []string{"get", "list", "watch", "patch", "update"}},
+				{APIGroups: []string{"node.brewlet.sh"}, Resources: []string{"nodeprofiles"}, Verbs: []string{"get"}},
+			}
+			if !reflect.DeepEqual(doc.Rules, want) {
+				t.Fatalf("unexpected provisioner permissions: %+v", doc.Rules)
+			}
+		case "ClusterRoleBinding":
+			wantAPI = rbacv1.SchemeGroupVersion.String()
+			wantRef := rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: wantName}
+			wantSubjects := []rbacv1.Subject{{Kind: "ServiceAccount", Name: wantName, Namespace: "brewlet"}}
+			if doc.RoleRef != wantRef || !reflect.DeepEqual(doc.Subjects, wantSubjects) {
+				t.Fatalf("incorrect provisioner binding: %+v", doc)
+			}
+		default:
+			t.Fatalf("unexpected raw prerequisite %q; no standalone workloads may be shipped", doc.Kind)
+		}
+		if doc.Metadata.Name != wantName || doc.Metadata.Namespace != wantNamespace || doc.APIVersion != wantAPI {
+			t.Fatalf("incorrect prerequisite identity: %+v", doc)
+		}
+	}
+	if len(seen) != 4 {
+		t.Fatalf("missing raw prerequisites: %v", seen)
 	}
 }
 

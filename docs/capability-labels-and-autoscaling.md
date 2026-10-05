@@ -73,9 +73,10 @@ do not write policies that require `=true`. Disabled AppCDS policy removes its
 key. The exact `runtime=ready` value is value-sensitive and is selected by the
 `brewlet` `RuntimeClass`.
 
-`brewlet.sh/provision=true` is not required here. It is the opt-in label for the
-standalone provisioner manifest. Operator-managed installations select
-nodes through `NodeProfile.spec.nodePool`.
+Operator-managed provisioning selects nodes through `NodeProfile.spec.nodePool`.
+The standalone provisioner and its `brewlet.sh/provision=true` activation path
+have been removed; that label is not a workload capability. Existing installations
+must follow [safe teardown/reinstallation](installation.md#removed-standalone-provisioning).
 
 ---
 

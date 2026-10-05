@@ -175,10 +175,11 @@ Mitigations and guardrails:
 
 | Guardrail | How |
 |---|---|
-| **Provisioning is opt-in, and never cluster-wide by default** | The chart refuses to render its default `NodeProfile` until you name the pools it may mutate (`provisioner.pools`); there is no every-node install. Alternatively set `defaultProfile.enabled=false` and define named `NodeProfile`s yourself (§5.6). The standalone DaemonSet instead touches only nodes carrying the `brewlet.sh/provision=true` **label**. |
+| **Provisioning is opt-in, and never cluster-wide by default** | The chart refuses to render its default `NodeProfile` until you name the pools it may mutate (`provisioner.pools`); there is no every-node install. Alternatively set `defaultProfile.enabled=false` and define named `NodeProfile`s yourself (§5.6). NodeProfiles are the only supported Kubernetes provisioning model. |
 | **Control-plane nodes are excluded** | Every profile's DaemonSet carries required `DoesNotExist` node affinity on `node-role.kubernetes.io/control-plane` and `node-role.kubernetes.io/master`, so the privileged provisioner stays off control-plane nodes whether or not they are tainted — kind and Docker Desktop label theirs without tainting it. `spec.nodePool.includeControlPlane: true` is the only way in, and it is deliberately per profile. Node accounting applies the same rule, so an excluded node is never counted in `status.assignedNodes`. |
 | **No blanket toleration** | The DaemonSet tolerates only what a profile declares in `spec.tolerations`; there is no `operator: Exists` catch-all to defeat the taints your platform team relies on. The DaemonSet controller still adds the standard node-condition tolerations, so rollouts on healthy nodes are unaffected. Every declared toleration must name a `key`, so "tolerate everything" is not expressible. |
-| **Scope to platform-owned pools** | Use named `NodeProfile` pools (or the `brewlet.sh/provision` label for the standalone path) to restrict provisioning to nodes your platform team controls. Do **not** provision shared/hostile multi-tenant nodes. |
+| **Scope to platform-owned pools** | Use named `NodeProfile` pools to restrict provisioning to nodes your platform team controls. Do **not** provision shared/hostile multi-tenant nodes. |
+| **Host writers require verified authority** | Provisioning and cleanup both require UID-bound node claims and durable profile authority; `BREWLET_REQUIRE_NODE_CLAIM=false` is rejected. Failed initial fences and pre-authorization errors leave host policy and node advertisements untouched. Competing standalone/pre-claim workers remain refused, never adopted. |
 | **Build inputs fail closed** | The provisioner verifies repository-pinned SHA-256 values for `kubectl`, `ctr`, `crictl`, and downloaded notices before extraction. Its runtime image receives only verified outputs, all repository Dockerfile bases are digest-pinned, and CI and release workflows reject corrupt assets or future unpinned/download-bypass changes. |
 | **Sources are immutable before host access** | Every JDK and launcher source must be a fully qualified, tagless `repository@sha256:<digest>` reference with an explicit path. All entries are validated before shim installation or any host containerd/filesystem operation. Brewlet has no built-in runtime catalog. |
 | **Mirror destinations are externally allowlisted** | Configure exact destination registry hosts through `security.allowedSourceMirrorHosts`; empty disables mirrors. Admission, reconciliation, and the provisioner reject malformed, duplicate, self, or unapproved mappings, while approved rewrites retain the reviewed digest. |
@@ -210,9 +211,8 @@ Mitigations and guardrails:
 
 ## Hardening checklist
 
-- [ ] Provision only platform-owned node pools; use named `NodeProfile`s for
-      operator-managed installations or `brewlet.sh/provision` only for the
-      standalone path. See
+- [ ] Provision only platform-owned node pools using operator-managed
+      `NodeProfile`s. See
       [Capability labels and autoscaling](capability-labels-and-autoscaling.md).
 - [ ] Build component images only from repository-pinned base-image digests and
       checksum-verified provisioner assets.

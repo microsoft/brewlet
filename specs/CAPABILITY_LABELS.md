@@ -28,10 +28,12 @@ the key rather than publishing a false value.
 uses value matching because a workload requests one or more specific
 architectures.
 
-`brewlet.sh/provision` is the activation label for the standalone
-provisioner manifest, not a workload capability. Operator-managed installations
-select nodes with `NodeProfile.spec.nodePool`; they do not require
-`brewlet.sh/provision=true`.
+Provisioning selects nodes with `NodeProfile.spec.nodePool` and requires managed
+ownership. The removed standalone activation label `brewlet.sh/provision` is
+not a workload capability and no longer selects nodes for provisioning or
+status tracking. Its removal does not change contract-v1 scheduling keys or
+matching semantics. See the [support decision](SPECIFICATION.md#51-activation)
+and [safe transition guidance](../docs/installation.md#removed-standalone-provisioning).
 
 ## Token grammar
 
