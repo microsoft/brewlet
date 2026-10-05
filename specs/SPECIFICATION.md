@@ -305,13 +305,16 @@ registry-only flags and MUST be rejected for local-layout pushes.
 
 **Credentials and trust.** The Go CLI resolves Docker credentials from
 `$DOCKER_CONFIG/config.json` or `~/.docker/config.json`: a matching `credHelpers`
-entry is authoritative within Docker config; otherwise it tries inline `auths`
+entry with a nonempty helper name is authoritative within Docker config;
+otherwise it tries inline `auths`
 (`identitytoken` or `auth`), then `credsStore`. If no Docker credentials are
 available, it tries `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD`,
 then anonymous access. The Maven plugin additionally checks the matching
 `settings.xml` server first, using Maven's settings decrypter for encrypted
-passwords. Identity tokens are exchanged using an OAuth2 refresh-token grant,
-not sent as Basic credentials.
+passwords. Maven settings decryption failures fail explicitly without falling
+back to Docker config, environment variables, or anonymous access. Identity
+tokens are exchanged using an OAuth2 refresh-token grant, not sent as Basic
+credentials.
 
 Registry transport defaults to HTTPS. Plain HTTP is permitted only for exact
 loopback hosts or explicitly configured `--insecure-registry HOST[:PORT]`
