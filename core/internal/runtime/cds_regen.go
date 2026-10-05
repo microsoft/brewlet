@@ -457,9 +457,8 @@ func seedArchive(src, dst string, owner *RegenOwner, allowUnowned bool) error {
 	return os.Rename(tmpName, dst)
 }
 
-// evictStaleEntries removes stale private entries, orphan markers, and legacy
-// flat cache files. It recognizes only Brewlet's hashed names and never follows
-// symlinks.
+// evictStaleEntries removes stale private entries and orphan writer markers.
+// It recognizes only current cache keys and never follows symlinks.
 func evictStaleEntries(cacheDir, keepKey string, ttl, lockTTL time.Duration, now time.Time) {
 	unlock, err := acquireCDSWriterStateLock(filepath.Join(cacheDir, writerStateLock))
 	if err != nil {
@@ -474,11 +473,6 @@ func evictStaleEntries(cacheDir, keepKey string, ttl, lockTTL time.Duration, now
 	for _, e := range entries {
 		name := e.Name()
 		path := filepath.Join(cacheDir, name)
-
-		if isLegacyCacheName(name) {
-			_ = os.RemoveAll(path)
-			continue
-		}
 
 		if name == keepKey || name == keepKey+writerMarkerSuffix {
 			continue
@@ -533,18 +527,6 @@ func markerKey(name string) (string, bool) {
 	}
 	key := strings.TrimSuffix(name, writerMarkerSuffix)
 	return key, isCacheKey(key)
-}
-
-func isLegacyCacheName(name string) bool {
-	if strings.HasSuffix(name, ".jsa.writer") {
-		return len(strings.TrimSuffix(name, ".jsa.writer")) == 32 &&
-			isLowerHex(strings.TrimSuffix(name, ".jsa.writer"))
-	}
-	if strings.HasSuffix(name, ".jsa") {
-		return len(strings.TrimSuffix(name, ".jsa")) == 32 &&
-			isLowerHex(strings.TrimSuffix(name, ".jsa"))
-	}
-	return false
 }
 
 func isLowerHex(s string) bool {
