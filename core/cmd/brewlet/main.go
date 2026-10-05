@@ -771,7 +771,6 @@ func cmdRun(args []string) error {
 			JDKRoot:        plan.JDKHome,
 			ArtifactDigest: blobs.ManifestDigest,
 			SeedArchive:    seed,
-			MetricsDir:     os.Getenv("BREWLET_METRICS_DIR"),
 		})
 		if derr != nil {
 			return derr

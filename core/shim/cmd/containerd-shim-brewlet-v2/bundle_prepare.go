@@ -205,7 +205,6 @@ func prepareBundle(args []string) error {
 		CacheScope:     "local",
 		ArtifactDigest: ra.ManifestDigest,
 		CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
-		MetricsDir:     os.Getenv("BREWLET_METRICS_DIR"),
 	}
 	if err := kcruntime.GenerateBundleWithIdentityAndRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, ic.processIdentity(), regen); err != nil {
 		return fmt.Errorf("generate bundle: %w", err)

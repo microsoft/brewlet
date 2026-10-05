@@ -146,9 +146,6 @@ type CDSRegenOptions struct {
 	ArtifactDigest string
 	// CacheDir overrides the node cache directory (default DefaultCDSCacheDir).
 	CacheDir string
-	// MetricsDir, when set, receives best-effort node-local role records
-	// (https://github.com/microsoft/brewlet/blob/main/docs/metrics-exporter.md).
-	MetricsDir string
 }
 
 // GenerateBundleWithRegen is GenerateBundleWithCDS plus node-side regeneration.
@@ -222,7 +219,6 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 			WriterOwner:        writerOwner,
 			AllowUnownedWriter: true,
 			ArchiveArgDir:      InSandboxCDSDir,
-			MetricsDir:         regen.MetricsDir,
 		})
 		if derr != nil {
 			return derr
