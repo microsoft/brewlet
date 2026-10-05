@@ -125,6 +125,12 @@ and application inspection; persistent JDK/launcher additions and replacement;
 non-persisting client/server dry runs; failed dry runs with empty stdout;
 admission and RBAC rejection; Helm ownership and offline values; stale
 resource-version/recreated-UID conflicts; and the existing-CRD install guard.
+`profile delete` coverage (`internal/cli/profile_delete_integration_test.go`)
+includes running/terminating Brewlet Pod guards, Helm/GitOps ownership refusal,
+fail-closed Pod-list RBAC, client/server dry-run nonmutation, UID and
+resourceVersion preconditions against an edit or recreation injected
+synchronously by an API proxy, and `--wait` timeout, CleanupBlocked and
+attach-to-deletion paths with fixture-controlled finalizers.
 Real profile and application reconciliation verifies that CLI writes feed the
 controller's desired resources. Helm renders generated values using the local
 chart, without downloading a released chart.
@@ -133,7 +139,9 @@ These are API/process integration tests, not node-runtime E2E. Fixture node
 inventory and readiness statuses are explicitly simulated: envtest has no
 kubelet, scheduler, or Deployment controller. The suite does not prove a fresh
 `brewlet k8s install` completes, download JDK images, execute privileged
-provisioners, or launch a JVM. See the
+provisioners, or launch a JVM. Production profile cleanup is proven separately
+by the live `workflows` scenario in
+[docs/live-validation.md](../docs/live-validation.md#executable-workflows). See the
 [E2E runbook](../integration-tests/AGENTS.md) for the separate live-node tiers.
 
 Build the component images from the repository root so the image also receives

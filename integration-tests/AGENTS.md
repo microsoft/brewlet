@@ -1,10 +1,14 @@
 # Brewlet E2E runbook
 
-## Isolated admission and CPU HPA scenarios
+## Isolated admission, CPU HPA and workflow scenarios
 
 The strict scenarios in `e2e/live/` are independent of the legacy tiers below.
-Run `python3 integration-tests/e2e/live/hpa.py` or
-`python3 integration-tests/e2e/live/admission.py` from the repository root.
+Run `python3 integration-tests/e2e/live/hpa.py`,
+`python3 integration-tests/e2e/live/admission.py` or
+`python3 integration-tests/e2e/live/workflows.py` from the repository root.
+`workflows.py` builds the CLI, Maven plugin, operator, admission and provisioner
+images from the checkout and drives `brewlet push`, `brewlet k8s app
+status|wait`, `mvn brewlet:deploy` and `brewlet k8s profile delete` end to end.
 They create their own uniquely named clusters and registries; never pass a
 shared kube context or run the tier reset helper for them. Mandatory assertions
 fail instead of skipping. `.github/workflows/e2e.yml` has separate scheduled/manual
