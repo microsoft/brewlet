@@ -7,17 +7,21 @@ import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import sh.brewlet.maven.plugin.util.JdkVersionResolver;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -31,6 +35,39 @@ class JdkInferenceMavenTest {
     private Path emptyToolchains;
     private String goal;
     private int invocation;
+
+    @Test
+    void selectedJdkReportsItsActualFeature() throws Exception {
+        assertEquals(Runtime.version().feature(), feature(Path.of(System.getProperty("java.home"))));
+    }
+
+    @Test
+    void unavailableSelectedJdkFailsExplicitly() {
+        Path home = root.resolve("missing-jdk");
+        IOException failure = assertThrows(IOException.class, () -> feature(home));
+        assertTrue(failure.getMessage().contains(home.toString()), failure.getMessage());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"21, 21", "17, 17", "1.8, 8"})
+    void selectedJdkSpecificationVersionIsParsedIndependently(String version, int expected) {
+        assertEquals(expected, reportedFeature(root, "Property settings:\n"
+                + "    java.version = 99.0.1\r\n    java.specification.version = " + version + "\r\n"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "", "java.version = 21.0.1", "java.specification.version =",
+            "java.specification.version = banana", "java.specification.version = 0",
+            "java.specification.version = -1", "java.specification.version = 1.0",
+            "java.specification.version = 17.0.8", "java.specification.version = 21-ea",
+            "java.specification.version = 99999999999999999",
+            "java.specification.version = 17\njava.specification.version = 21"})
+    void invalidSelectedJdkReportNeverDefaults(String output) {
+        AssertionError failure = assertThrows(AssertionError.class, () -> reportedFeature(root, output));
+        assertTrue(failure.getMessage().contains(root.toString()), failure.getMessage());
+        assertTrue(failure.getMessage().contains(output), failure.getMessage());
+    }
 
     @Test
     void realMavenLifecycleOrderAndDisabledBindingsAreRespected() throws Exception {
@@ -308,10 +345,39 @@ class JdkInferenceMavenTest {
         Files.writeString(toolchains, xml.append("</toolchains>").toString());
     }
 
-    private static int feature(Path home) throws Exception {
-        Properties release = new Properties();
-        try (var in = Files.newInputStream(home.resolve("release"))) { release.load(in); }
-        return JdkVersionResolver.parseFeature(release.getProperty("JAVA_VERSION").replace("\"", ""));
+    private int feature(Path home) throws Exception {
+        Path java = home.resolve("bin").resolve(File.separatorChar == '\\' ? "java.exe" : "java");
+        Path log = Files.createTempFile(root, "jdk-version-", ".log");
+        Process process;
+        try {
+            process = new ProcessBuilder(java.toString(), "-XshowSettings:properties", "-version")
+                    .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        } catch (IOException e) {
+            throw new IOException("Cannot query selected JDK at " + home, e);
+        }
+        try {
+            boolean finished = process.waitFor(20, TimeUnit.SECONDS);
+            String output = Files.readString(log);
+            assertTrue(finished, "Selected JDK query exceeded its deadline at " + home + "\n" + output);
+            assertEquals(0, process.exitValue(), "Selected JDK query failed at " + home + "\n" + output);
+            return reportedFeature(home, output);
+        } finally {
+            if (process.isAlive()) {
+                process.toHandle().destroyForcibly();
+                assertTrue(process.waitFor(5, TimeUnit.SECONDS), "Selected JDK failed to terminate at " + home);
+            }
+        }
+    }
+
+    private static int reportedFeature(Path home, String output) {
+        String diagnostic = "Invalid java.specification.version reported by selected JDK at " + home + "\n" + output;
+        List<String> versions = Pattern.compile("(?m)^\\h*java\\.specification\\.version\\h*=\\h*([^\\r\\n]*)$")
+                .matcher(output).results().map(match -> match.group(1).trim()).toList();
+        assertEquals(1, versions.size(), diagnostic);
+        String version = versions.get(0);
+        assertTrue(version.matches("[1-9][0-9]*|1\\.[1-8]"), diagnostic);
+        String feature = version.startsWith("1.") ? version.substring(2) : version;
+        return assertDoesNotThrow(() -> Integer.parseInt(feature), diagnostic);
     }
 
     private String run(Path project, boolean success, String... arguments) throws Exception {

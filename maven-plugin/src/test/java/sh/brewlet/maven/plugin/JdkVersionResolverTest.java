@@ -6,6 +6,8 @@ package sh.brewlet.maven.plugin;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.apache.maven.execution.DefaultMavenExecutionRequest;
 import org.apache.maven.execution.DefaultMavenExecutionResult;
@@ -40,44 +42,44 @@ import static org.junit.jupiter.api.Assertions.*;
 class JdkVersionResolverTest {
     @TempDir Path root;
 
-    @Test
-    void parseFeature_simpleVersion() {
-        assertEquals(21, JdkVersionResolver.parseFeature("21"));
+    @ParameterizedTest
+    @CsvSource({
+            "21, 21", "21.0.1, 21", "1.8, 8", "1.8.0_391, 8",
+            "17.0.8+7, 17", "22-ea, 22", "21-ea+8, 21", "21.0.8+9-LTS, 21"})
+    void selectedToolchainSupportsConcreteExternalJdkVersions(String version, int feature) throws Exception {
+        MavenProject project = project("");
+        DefaultJavaToolChain selected = chain(version, version);
+        MavenSession session = session(project, Map.of());
+        ToolchainManager manager = manager(selected, List.of());
+        assertEquals(feature, resolve(project, session, manager));
+        Files.delete(Path.of(selected.getJavaHome()).resolve("release"));
+        assertEquals(feature, resolve(project, session, manager));
     }
 
-    @Test
-    void parseFeature_patchVersion() {
-        assertEquals(21, JdkVersionResolver.parseFeature("21.0.1"));
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "banana", "${unknown}", "0", "-1", "1.0", "[17,22)", "99999999999999999"})
+    void invalidSelectedJdkReleaseMetadataNeverFallsBack(String version) throws Exception {
+        MavenProject project = project("");
+        DefaultJavaToolChain selected = chain("21", version);
+        MojoExecutionException failure = assertGuidance(project, session(project, Map.of()),
+                manager(selected, List.of()));
+        assertTrue(failure.getMessage().contains(Path.of(selected.getJavaHome()).resolve("release").toString()),
+                failure.getMessage());
     }
 
-    @Test
-    void parseFeature_oldStyleJava8() {
-        assertEquals(8, JdkVersionResolver.parseFeature("1.8"));
-    }
-
-    @Test
-    void parseFeature_oldStyleJava8WithPatch() {
-        assertEquals(8, JdkVersionResolver.parseFeature("1.8.0_391"));
-    }
-
-    @Test
-    void parseFeature_java17() {
-        assertEquals(17, JdkVersionResolver.parseFeature("17.0.8+7"));
-    }
-
-    @Test
-    void parseFeature_earlyAccessSuffix() {
-        assertEquals(22, JdkVersionResolver.parseFeature("22-ea"));
-    }
-
-    @Test
-    void parseFeature_nullFallsBackToDefault() {
-        assertEquals(17, JdkVersionResolver.parseFeature(null));
-    }
-
-    @Test
-    void parseFeature_emptyFallsBackToDefault() {
-        assertEquals(17, JdkVersionResolver.parseFeature(""));
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "banana", "${unknown}", "0", "-1", "1.0", "[17,22)", "99999999999999999"})
+    void invalidProvidedVersionWithoutReleaseMetadataNeverFallsBack(String version) throws Exception {
+        MavenProject project = project("");
+        DefaultJavaToolChain selected = chain("21", "21");
+        Files.delete(Path.of(selected.getJavaHome()).resolve("release"));
+        if (version == null) selected.getModel().getProvides().remove("version");
+        else selected.getModel().getProvides().setProperty("version", version);
+        MojoExecutionException failure = assertGuidance(project, session(project, Map.of()),
+                manager(selected, List.of()));
+        assertTrue(failure.getMessage().contains("concrete provided version"), failure.getMessage());
     }
 
     @Test
@@ -352,9 +354,9 @@ class JdkVersionResolverTest {
         assertGuidance(project, session(project, Map.of()), manager(chain("17", "${unknown}"), List.of()));
     }
 
-    private Toolchain chain(String provided, String actual) throws Exception {
+    private DefaultJavaToolChain chain(String provided, String actual) throws Exception {
         Path home = Files.createDirectory(root.resolve("jdk-" + java.util.UUID.randomUUID()));
-        Files.writeString(home.resolve("release"), "JAVA_VERSION=\"" + actual + "\"\n");
+        Files.writeString(home.resolve("release"), actual == null ? "" : "JAVA_VERSION=\"" + actual + "\"\n");
         ToolchainModel model = new ToolchainModel();
         model.setType("jdk");
         model.addProvide("version", provided);
@@ -428,9 +430,10 @@ class JdkVersionResolverTest {
         return JdkVersionResolver.resolve(project, session, manager, null);
     }
 
-    private static void assertGuidance(MavenProject project, MavenSession session, ToolchainManager manager) {
+    private static MojoExecutionException assertGuidance(MavenProject project, MavenSession session, ToolchainManager manager) {
         MojoExecutionException failure = assertThrows(MojoExecutionException.class,
                 () -> resolve(project, session, manager));
         assertTrue(failure.getMessage().contains("brewlet.jdkFeature"), failure.getMessage());
+        return failure;
     }
 }
