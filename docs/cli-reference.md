@@ -374,25 +374,6 @@ See [Runnable stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
 ---
 
-## Removed CLI aliases
-
-**Pre-GA breaking change ([#183](https://github.com/microsoft/brewlet/issues/183)):**
-the original top-level aliases are no longer supported. Update scripts and
-saved commands using these replacements:
-
-| Removed command | Supported replacement |
-| --- | --- |
-| `brewlet jdks` | `brewlet k8s jdk list` |
-| `brewlet doctor` | `brewlet k8s doctor` |
-
-Keep applicable flags after the replacement command, including `--kubeconfig`,
-`--context`, `--output`, the inventory's `--selector`, and doctor's `--namespace`.
-Inventory and readiness checks retain their behavior and output formats.
-The removed forms exit with status 2, print the replacement hint to stderr,
-leave stdout empty, and do not contact the cluster, even with `--help`.
-This follows the [pre-GA compatibility policy](compatibility.md); there is no
-automatic forwarding or deprecation window.
-
 ## `brewlet k8s jdk list`
 
 List the JDKs available across the cluster — **vendor, major version, minor

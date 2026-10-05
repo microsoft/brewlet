@@ -195,11 +195,6 @@ export class RunManager extends EventEmitter {
         for (const id of await fsp.readdir(this.runsDir)) {
             try {
                 const meta = JSON.parse(await fsp.readFile(path.join(this.runsDir, id, "meta.json"), "utf8"));
-                // Normalize historical records only; new runs must use the current selector.
-                if (meta.suite === "legacy") {
-                    meta.suite = "tiers";
-                    meta.label = SUITES.tiers.label;
-                }
                 const run = { meta, parse: createParseState(), offset: 0 };
                 this.runs.set(meta.id, run);
                 await this.#pump(run);

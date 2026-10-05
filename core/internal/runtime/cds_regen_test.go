@@ -627,58 +627,6 @@ func TestDecideCDSRegenTelemetry(t *testing.T) {
 	}
 }
 
-func TestDecideCDSRegenIgnoresRemovedMetricsDir(t *testing.T) {
-	for _, existing := range []bool{false, true} {
-		t.Run(strconv.FormatBool(existing), func(t *testing.T) {
-			metrics := filepath.Join(t.TempDir(), "metrics")
-			sentinel := filepath.Join(metrics, "cds-existing.prom")
-			if existing {
-				if err := os.Mkdir(metrics, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(sentinel, []byte("existing metric\n"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			t.Setenv("BREWLET_METRICS_DIR", metrics)
-			t.Setenv("BREWLET_METRICS_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
-			dec, err := DecideCDSRegen(RegenParams{
-				CacheDir:       t.TempDir(),
-				CacheScope:     "team-a",
-				JDKRoot:        fakeJDK(t, "21.0.5"),
-				ArtifactDigest: "sha256:abc",
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if dec.Role != RegenWrite || dec.WriterLease == nil {
-				t.Fatalf("decision = %+v, want writer with lease", dec)
-			}
-			defer dec.WriterLease.Release()
-			if !existing {
-				if _, err := os.Lstat(metrics); !os.IsNotExist(err) {
-					t.Fatalf("removed metrics directory should not be created: %v", err)
-				}
-				return
-			}
-			entries, err := os.ReadDir(metrics)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(entries) != 1 || entries[0].Name() != filepath.Base(sentinel) {
-				t.Fatalf("unexpected metrics directory contents: %v", entries)
-			}
-			data, err := os.ReadFile(sentinel)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(data) != "existing metric\n" {
-				t.Fatalf("existing metric changed: %q", data)
-			}
-		})
-	}
-}
-
 func TestRegenKeyChangesWithBuild(t *testing.T) {
 	uid1000 := &RegenOwner{UID: 1000, GID: 1000}
 	uid1000OtherGroup := &RegenOwner{UID: 1000, GID: 2000}

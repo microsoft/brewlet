@@ -76,8 +76,7 @@ accepted and implemented.
   the shim at launch, and replicas on heterogeneous nodes can legitimately
   resolve differently, so the controller cannot name one today. Reporting what
   each replica actually runs needs a shim-to-status feedback channel, which does
-  not exist. SPECIFICATION §9 previously claimed this behavior; the claim was
-  removed because it was never built.
+  not exist.
 - **Ahead-of-time startup options.** Track Project Leyden and related JDK
   capabilities as they become suitable for Brewlet workloads.
 

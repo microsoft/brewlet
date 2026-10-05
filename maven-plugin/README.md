@@ -642,9 +642,7 @@ Kubernetes does not wait for application-specific readiness.
 ## Delivery format: native artifact vs runnable image
 
 `brewlet:push` can publish in two current formats, selected by `format` /
-`-Dbrewlet.format`. Both share the current launch contract and sandbox assembly;
-native artifacts are not a backward-compatibility format and do not accept
-superseded artifact config fields.
+`-Dbrewlet.format`. Both share the current launch contract and sandbox assembly.
 
 | Format | What it publishes | When a pod names it as `image:` |
 |---|---|---|

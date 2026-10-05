@@ -35,12 +35,9 @@ plus host-only tiers 1-3 on arm64), and `live` (isolated live scenarios).
 Scheduled runs execute both suites. The `scenario` selector affects only live
 jobs and is ignored for `tiers`.
 
-The E2E monitor uses `suite: tiers` with an explicit tier list. Automation that
-previously passed `suite: legacy` must switch to `tiers`; the old selector is
-not accepted for new runs. Saved monitor records are normalized to `tiers` in
-memory on load so progress, ETA history, and reruns remain available. Historical
-run IDs, directories, logs, and evidence are not renamed or removed; an ordinary
-metadata save may persist the normalized suite.
+The E2E monitor uses `suite: tiers` with an explicit tier list. Saved runs retain
+their metadata, logs, and evidence across reloads, with progress, ETA history,
+and reruns available.
 
 ## Reliable invocation
 

@@ -20,9 +20,6 @@ from test_installation_examples import blocks
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REMOVED_CLI_COMMAND = re.compile(
-    r"(?m)^\s*(?:\$\s+)?(?:\./)?(?:bin/)?brewlet\s+(?:jdks|doctor)(?=\s|$)"
-)
 
 
 class LandingPage(HTMLParser):
@@ -95,41 +92,8 @@ class SiteContractsTest(unittest.TestCase):
         cls.page = LandingPage((ROOT / "site/index.html").read_text(encoding="utf-8"))
         cls.text = " ".join("".join(cls.page.text).split())
 
-    def test_landing_page_examples_do_not_use_removed_cli_commands(self):
-        # Do not scan documentation migration tables or validation history.
-        for filename in ("index.html", "index-value-prop.html"):
-            page = LandingPage((ROOT / "site" / filename).read_text(encoding="utf-8"))
-            examples = page.inline_code + [block for _, block in page.blocks]
-            for example in examples:
-                with self.subTest(page=filename, example=example):
-                    self.assertNotRegex(example, REMOVED_CLI_COMMAND)
+    def test_landing_page_includes_inventory_command(self):
         self.assertIn("brewlet k8s jdk list", self.page.inline_code)
-
-    def test_removed_cli_command_contract_covers_inline_and_block_examples(self):
-        for command in ("jdks", "doctor"):
-            for source in (
-                f"<p>Run <code>brewlet {command}</code> now.</p>",
-                f"<pre><code>$ bin/brewlet <span>{command}</span> --help</code></pre>",
-                f"<pre>./bin/brewlet\t{command}\n</pre>",
-                f"<code>brewlet&#32;{command}</code>",
-            ):
-                with self.subTest(source=source):
-                    page = LandingPage(source)
-                    examples = page.inline_code + [block for _, block in page.blocks]
-                    self.assertEqual(len(examples), 1)
-                    self.assertRegex(examples[0], REMOVED_CLI_COMMAND)
-
-    def test_removed_cli_command_contract_allows_current_commands_and_prose(self):
-        page = LandingPage(
-            "<p>brewlet jdks and brewlet doctor were removed.</p>"
-            "<!-- Historical example: brewlet jdks -->"
-            "<code>brewlet k8s jdk list</code>"
-            "<pre><code>$ brewlet k8s doctor --help</code></pre>"
-        )
-        examples = page.inline_code + [block for _, block in page.blocks]
-        self.assertEqual(len(examples), 2)
-        for example in examples:
-            self.assertNotRegex(example, REMOVED_CLI_COMMAND)
 
     def test_native_artifacts_and_runnable_images_are_current_formats(self):
         sections = (
@@ -148,12 +112,9 @@ class SiteContractsTest(unittest.TestCase):
                              "local OCI-layout", "CLI", "prepare-bundle",
                              "launch contract", "sandbox assembly", "Kubernetes"):
                     self.assertIn(term, section)
-                for obsolete in ("native/legacy", "pre-puller", "brewlet.sh/artifact-"):
-                    self.assertNotIn(obsolete, section)
 
     def test_native_classpath_media_type_has_a_current_workflow(self):
         source = (ROOT / "maven-plugin/README.md").read_text(encoding="utf-8")
-        self.assertNotIn("native/legacy", source)
         native = " ".join(source.split(
             "Native artifacts use the custom", 1
         )[1].split("\n\n", 1)[0].split())
@@ -162,7 +123,6 @@ class SiteContractsTest(unittest.TestCase):
                      "sandbox assembly", "cannot unpack", "runnable image"):
             self.assertIn(term, native)
         self.assertIn("application/vnd.oci.image.layer.v1.tar+gzip", source)
-        self.assertIn("superseded artifact config fields", " ".join(source.split()))
 
     def test_pre_ga_policy_is_discoverable_and_preserves_explicit_exception(self):
         for filename in (

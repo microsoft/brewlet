@@ -155,8 +155,7 @@ describing how to launch it:
   workflows.
 
 The current launch contract and sandbox assembly are shared by both; §4.4
-describes how a runnable image carries that contract. Native artifacts are not
-a backward-compatibility format: superseded config fields remain rejected.
+describes how a runnable image carries that contract.
 
 ### 4.1 Media types
 
@@ -277,10 +276,7 @@ a backward-compatibility format: superseded config fields remain rejected.
   fields are rejected by the Maven plugin at build time and by the launch core at
   publish and launch time; unknown JSON *fields* are additionally rejected by the
   launch core, which parses configs with strict field checking (publish and launch
-  time). Because unknown fields are rejected, old artifacts whose `jvm-config.json`
-  still contains `jdk`, `launcher`, `labels`, or removed free-form JVM args must be
-  re-pushed. The Maven plugin
-  generates the config from typed models, so it validates mode/field consistency
+  time). The Maven plugin generates the config from typed models, so it validates mode/field consistency
   rather than parsing arbitrary JSON.
 
 ### 4.3 Build & publish flow (developer experience)
@@ -750,10 +746,7 @@ supported on containerd 2.
 **Support decision ([#175](https://github.com/microsoft/brewlet/issues/175)):**
 operator-managed NodeProfiles are the only supported Kubernetes provisioning
 model. Helm, the Brewlet CLI's Helm wrapper, and raw operator manifests all use
-this model. Operator-free provisioning and the `brewlet.sh/provision=true`
-activation label have been removed under the
-[pre-GA compatibility policy](../docs/compatibility.md). The label no longer
-selects nodes for provisioning or node-state tracking.
+this model.
 
 For a fresh installation, use reviewed pool and digest-pinned runtime values
 from the [installation guide](../docs/installation.md):

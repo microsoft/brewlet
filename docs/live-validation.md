@@ -69,8 +69,7 @@ used. Do not point the tiered suite's reset helper at these fixtures.
 The **E2E** workflow remains scheduled/manual-only. Select `suite: tiers` for
 tiers 1-19 and the arm64 host-only coverage, `live` for isolated live scenarios,
 or `all` (the default) for both. Scheduled runs execute both suites; `scenario`
-is ignored when selecting `tiers`. Automation using the former `legacy`
-selector must switch to `tiers`.
+is ignored when selecting `tiers`.
 
 Its `live` selection runs
 two separate jobs, each executing its scenario twice consecutively with fresh

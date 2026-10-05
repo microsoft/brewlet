@@ -23,10 +23,8 @@ errors from labels. Metrics are opt-in in the Helm chart.
 See the [metrics exporter README](cmd/brewlet-metrics-exporter/README.md) for
 live integration screenshots that can be reused by the documentation site.
 
-The Unix socket is the only runtime telemetry output. External Prometheus
-collectors scrape the node exporter rather than per-launch files. See
-[runtime metrics](../docs/runtime-metrics.md) for configuration and the
-textfile-output removal notice.
+See [runtime metrics](../docs/runtime-metrics.md) for exporter configuration
+and the Prometheus metric reference.
 
 From the repository root, build and test the module with:
 

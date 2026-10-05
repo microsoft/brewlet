@@ -78,31 +78,17 @@ func TestMainCommandSurface(t *testing.T) {
 		}
 	})
 
-	for _, command := range []struct {
-		name, replacement string
-		flags             []string
-	}{
-		{"jdks", "brewlet k8s jdk list", []string{"--selector", "pool=java"}},
-		{"doctor", "brewlet k8s doctor", []string{"--namespace", "team"}},
-	} {
-		for _, flags := range [][]string{nil, {"--help"}, append([]string{
-			"--kubeconfig", filepath.Join(dir, "missing-config"), "--context", "staging", "--output", "json",
-		}, command.flags...)} {
-			args := append([]string{command.name}, flags...)
-			t.Run(strings.Join(args, " "), func(t *testing.T) {
-				out, stderr, code := run(t, args)
-				if code != 2 || out != "" || !strings.Contains(stderr, "has been removed") ||
-					!strings.Contains(stderr, `use "`+command.replacement+`" instead`) {
-					t.Fatalf("removed command: exit=%d stdout=%q stderr=%q", code, out, stderr)
-				}
-			})
+	t.Run("unknown command", func(t *testing.T) {
+		out, stderr, code := run(t, []string{"unknown-command"})
+		if code != 2 || !strings.Contains(out, "USAGE:") ||
+			!strings.Contains(stderr, `unknown command "unknown-command"`) {
+			t.Fatalf("unknown command: exit=%d stdout=%q stderr=%q", code, out, stderr)
 		}
-	}
+	})
 	for _, args := range [][]string{{"--help"}, {"k8s", "--help"}, {"k8s", "jdk", "list", "--help"}, {"k8s", "doctor", "--help"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			out, stderr, code := run(t, args)
-			if code != 0 || stderr != "" || !strings.Contains(out, "USAGE:") ||
-				strings.Contains(out, "brewlet jdks") || strings.Contains(out, "brewlet doctor") {
+			if code != 0 || stderr != "" || !strings.Contains(out, "USAGE:") {
 				t.Fatalf("help: exit=%d stdout=%q stderr=%q", code, out, stderr)
 			}
 			if len(args) == 1 && (!strings.Contains(out, "brewlet k8s jdk list") || !strings.Contains(out, "brewlet k8s doctor")) {

@@ -53,13 +53,6 @@ func main() {
 		err = cmdDependencyBundle(os.Args[2:])
 	case "keygen":
 		err = cmdKeygen(os.Args[2:])
-	case "jdks", "doctor":
-		replacement := "brewlet k8s doctor"
-		if os.Args[1] == "jdks" {
-			replacement = "brewlet k8s jdk list"
-		}
-		fmt.Fprintf(os.Stderr, "command %q has been removed; use %q instead\n", "brewlet "+os.Args[1], replacement)
-		os.Exit(2)
 	case "stage-gc":
 		err = cmdStageGC(os.Args[2:])
 	case "k8s":

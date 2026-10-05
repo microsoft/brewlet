@@ -20,8 +20,7 @@ boolean-presence labels: admission matches their keys with `Operator: Exists`,
 not by requiring the current value `true`.
 
 Provisioning selects nodes through `NodeProfile.spec.nodePool` and requires
-managed ownership. The removed `brewlet.sh/provision=true` activation label
-neither provisions a node nor selects it for status tracking. See
+managed ownership. See
 [Capability labels and autoscaling](capability-labels-and-autoscaling.md) for
 the provisioning, affinity, Cluster Autoscaler, and Karpenter workflows.
 

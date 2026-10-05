@@ -89,13 +89,4 @@ brewlet_cds_regeneration_decisions_total{role="write"} 2
 	if err := testutil.GatherAndCompare(reg, strings.NewReader(expected), "brewlet_cds_regeneration_decisions_total"); err != nil {
 		t.Fatal(err)
 	}
-	families, err := reg.Gather()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, family := range families {
-		if family.GetName() == "brewlet_cds_archive_mapped" {
-			t.Fatal("exporter exposed the removed textfile gauge")
-		}
-	}
 }
