@@ -282,7 +282,9 @@ brewlet push ./target/app.jar myacr.azurecr.io/team/app:1.4.2 --push-result push
 - A `<ref>` that names a registry host is uploaded directly to that registry using
   your Docker credentials (`credHelpers`, `auths`, `credsStore`) or
   `BREWLET_REGISTRY_USERNAME`/`BREWLET_REGISTRY_PASSWORD` — the same chain and
-  trust policy as the Maven plugin. A ref without a host never defaults to Docker Hub.
+  trust policy as the Maven plugin, minus `settings.xml`. See the
+  [CLI reference](cli-reference.md#brewlet-push) for Docker helper selection and
+  fallback rules. A ref without a host never defaults to Docker Hub.
 - `--push-result FILE` writes the same `push.json` handoff as the Maven plugin.
 
 To build into a local **OCI layout** instead (for `brewlet inspect`, `run`, or

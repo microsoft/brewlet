@@ -35,12 +35,17 @@ import java.util.regex.Pattern;
  *
  * <ol>
  *   <li>{@code settings.xml} {@code <server>} whose {@code <id>} matches the
- *       registry hostname (supports Maven password encryption).</li>
+ *       registry hostname and whose username is configured (supports Maven
+ *       password encryption). Decryption failures fail explicitly rather than
+ *       falling back to another credential source.</li>
  *   <li>Docker/OCI config ({@code ~/.docker/config.json} or the path indicated
- *       by the {@code DOCKER_CONFIG} environment variable), the same way the
- *       Docker CLI reads it: a per-registry {@code credHelpers} entry, then an
- *       inline {@code auths} entry ({@code auth} or {@code identitytoken}), then
- *       the default {@code credsStore}. Credential helpers
+ *       by {@code $DOCKER_CONFIG/config.json}): a matching per-registry
+ *       {@code credHelpers} entry with a nonempty helper name is authoritative
+ *       within Docker config, suppressing inline {@code auths} and the default
+ *       {@code credsStore} even if the helper fails or returns no usable
+ *       credentials. Without such an entry, try inline {@code auths}
+ *       ({@code identitytoken} before {@code auth}), then {@code credsStore}
+ *       if no usable inline credentials are found. Credential helpers
  *       ({@code docker-credential-<name>}) are how {@code docker login} and
  *       {@code az acr login} store secrets on macOS, Windows and Docker
  *       Desktop.</li>
@@ -48,6 +53,8 @@ import java.util.regex.Pattern;
  *       environment variables for CI pipelines.</li>
  * </ol>
  *
+ * If Docker config yields no usable credentials, including after a per-registry
+ * helper failure, resolution continues with the environment variables.
  * If no credentials are found, returns {@code null} (anonymous access).
  * Credentials are <strong>never</strong> logged.
  */
@@ -161,13 +168,13 @@ public class CredentialResolver {
         boolean dockerHub = DOCKER_HUB_HOSTS.contains(registry.toLowerCase(Locale.ROOT));
         String serverUrl = dockerHub ? DOCKER_HUB_KEY : registry;
 
-        // a. Per-registry credential helper wins, exactly as in the Docker CLI.
+        // a. A matching helper suppresses the remaining Docker config sources.
         String helper = textField(matchingEntry(root.path("credHelpers"), registry, dockerHub));
         if (helper != null) {
             return fromHelper(helper, serverUrl, diagnostics, helpers);
         }
 
-        // b. Inline auths entry (no credential store configured).
+        // b. Inline auths entry (no matching nonempty per-registry helper).
         JsonNode entry = matchingEntry(root.path("auths"), registry, dockerHub);
         if (entry != null) {
             String identityToken = textField(entry.path("identitytoken"));

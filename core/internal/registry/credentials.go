@@ -54,7 +54,7 @@ func (c Credential) String() string {
 type HelperRunner func(helper, serverURL string) (string, error)
 
 // CredentialResolver resolves registry credentials the way the Maven plugin
-// (minus settings.xml) and the Docker CLI do.
+// does (minus settings.xml), including Docker config and credential helpers.
 type CredentialResolver struct {
 	// Getenv reads environment variables; defaults to os.Getenv.
 	Getenv func(string) string
@@ -69,11 +69,16 @@ type CredentialResolver struct {
 
 // Resolve returns credentials for registry (host[:port]) from, in order:
 //  1. the Docker config ($DOCKER_CONFIG/config.json or ~/.docker/config.json):
-//     a per-registry credHelpers entry, then an inline auths entry
-//     (identitytoken or auth), then the default credsStore;
+//     a matching credHelpers entry with a nonempty helper name is authoritative
+//     within Docker config and suppresses inline auths and the default credsStore,
+//     even if the helper fails or returns no usable credentials. Without such an
+//     entry, try inline auths (identitytoken before auth), then credsStore if no
+//     usable inline credentials are found;
 //  2. BREWLET_REGISTRY_USERNAME / BREWLET_REGISTRY_PASSWORD.
 //
-// It returns nil for anonymous access.
+// If Docker config yields no usable credentials, including after a per-registry
+// helper failure, resolution continues with the environment variables.
+// It returns nil for anonymous access if neither source supplies credentials.
 func (r CredentialResolver) Resolve(registry string) *Credential {
 	getenv := r.Getenv
 	if getenv == nil {

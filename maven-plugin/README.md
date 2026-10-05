@@ -250,14 +250,24 @@ actionable message, without logging credentials or falling back to a different
 credential source.
 
 Registry credentials are resolved from, in order: a `settings.xml` `<server>`
-whose `<id>` is the registry host; the Docker config (`$DOCKER_CONFIG` or
-`~/.docker/config.json`) read like the Docker CLI does — per-registry
-`credHelpers`, inline `auths` (`auth` or `identitytoken`), then the default
-`credsStore` (`docker-credential-<name>`, e.g. `osxkeychain`, `desktop`,
-`wincred`); and finally `BREWLET_REGISTRY_USERNAME` /
-`BREWLET_REGISTRY_PASSWORD`. So after `docker login` or `az acr login` no further
-setup is needed; identity tokens are exchanged with an OAuth2 refresh-token
-grant. The plugin keeps credentials scoped to the registry you configured:
+whose `<id>` is the registry host and whose username is configured; the Docker
+config (`$DOCKER_CONFIG/config.json` or `~/.docker/config.json`); and finally
+`BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD`. If none supplies
+credentials, access is anonymous.
+
+Within Docker config, a matching per-registry `credHelpers` entry with a nonempty
+helper name is authoritative: inline `auths` and the default `credsStore` are
+not tried, even if that helper fails or returns no usable credentials. In that
+case, resolution continues with the Brewlet environment variables, then anonymous
+access — the helper is not final across all credential sources. Without a
+matching nonempty helper entry, the plugin tries inline `auths` (`identitytoken`
+before `auth`), then the default `credsStore` if no usable inline credentials are
+found. Helpers run as `docker-credential-<name> get` (e.g. `osxkeychain`,
+`desktop`, `wincred`).
+
+So after `docker login` or `az acr login` no further setup is needed; identity
+tokens are exchanged with an OAuth2 refresh-token grant. The plugin keeps
+credentials scoped to the registry you configured:
 
 - **HTTPS is required** for every registry except exact loopback authorities
   (`localhost`, `127.0.0.0/8`, `::1`, with or without a port). Matching is exact,

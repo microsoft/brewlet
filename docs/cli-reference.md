@@ -144,10 +144,15 @@ Registry pushes use the same credential chain and trust policy as the
 `settings.xml`):
 
 1. Docker config (`$DOCKER_CONFIG/config.json` or `~/.docker/config.json`): a
-   per-registry `credHelpers` entry, then an inline `auths` entry (`identitytoken`
-   or `auth`), then the default `credsStore`. Helpers run as
+   matching per-registry `credHelpers` entry with a nonempty helper name is
+   authoritative **within Docker config**: inline `auths` and the default
+   `credsStore` are not tried, even if that helper fails or returns no usable
+   credentials. Without a matching nonempty helper entry, Brewlet tries inline
+   `auths` (`identitytoken` before `auth`), then the default `credsStore` if no
+   usable inline credentials are found. Helpers run as
    `docker-credential-<name> get` — so `docker login` and `az acr login` just work.
-2. `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD`.
+2. `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD` if Docker config
+   yields no usable credentials, including after a per-registry helper failure.
 3. Otherwise anonymous.
 
 Identity tokens (e.g. from `az acr login`) are exchanged with an OAuth2
