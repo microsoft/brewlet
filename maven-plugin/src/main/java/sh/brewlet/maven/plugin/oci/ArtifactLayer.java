@@ -32,8 +32,8 @@ package sh.brewlet.maven.plugin.oci;
 public record ArtifactLayer(String name, byte[] tar, String mediaType) {
 
     /**
-     * Convenience constructor for a class-path (dependency) layer, the historical
-     * default; equivalent to passing {@link MediaTypes#CLASSPATH_LAYER_MEDIA_TYPE}.
+     * Convenience constructor for a native artifact's class-path (dependency)
+     * layer; equivalent to passing {@link MediaTypes#CLASSPATH_LAYER_MEDIA_TYPE}.
      */
     public ArtifactLayer(String name, byte[] tar) {
         this(name, tar, MediaTypes.CLASSPATH_LAYER_MEDIA_TYPE);

@@ -111,9 +111,13 @@ registry publication or consumption. See
 ## `brewlet push`
 
 Publish a JAR to an OCI registry or a local OCI layout (generates a minimal launch
-config, or embeds one you provide). By default it publishes a **runnable, kubelet-pullable OCI image**;
-pass `--format=artifact` only for the native Brewlet artifact path used by local
-OCI-layout / CLI / bundle workflows (see [runnable-image delivery](runnable-image.md)).
+config, or embeds one you provide). By default it publishes a **runnable image**
+that kubelet/containerd can pull and unpack; pass `--format=artifact` for the
+native artifact used by current local OCI-layout / CLI / `prepare-bundle`
+workflows. Both formats share the current
+launch contract and sandbox assembly. Native artifacts are not Kubernetes pod
+images, even if their blobs are delivered out of band (see
+[runnable-image delivery](runnable-image.md)).
 
 ```
 brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
@@ -167,7 +171,7 @@ or build into a local layout with `--store`.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--format` | `image` | Delivery format: `image` (standard, kubelet-pullable OCI image — the production `runtimeClassName: brewlet` pod image) or `artifact` (native Brewlet OCI artifact for local OCI-layout / CLI / bundle workflows, not the production Kubernetes pod image path). See [runnable-image delivery](runnable-image.md). |
+| `--format` | `image` | Delivery format: `image` (standard, kubelet-pullable runnable image — the `runtimeClassName: brewlet` pod image) or `artifact` (native artifact for local OCI-layout / CLI / `prepare-bundle` workflows, not Kubernetes execution). See [runnable-image delivery](runnable-image.md). |
 | `--store` | `./oci` | OCI layout directory to write the artifact into. Setting it explicitly keeps a registry-hosted `<ref>` local instead of uploading it. |
 | `--config` | *(none)* | Path to a `jvm-config.json` to embed verbatim (overrides the generated one). See the [launch config schema](building-and-publishing.md#2-the-launch-config). |
 | `--arch` | *(auto-detected)* | Comma-separated architecture constraint (e.g. `amd64` or `amd64,arm64`) for a **non-portable (JNI) JAR**: injects `kubernetes.io/arch` nodeAffinity and denies scheduling with `NoCompatibleArch` when no ready node matches. Overrides native-library auto-detection. Omit for arch-neutral bytecode (the default). See [multi-arch](multi-arch.md). |

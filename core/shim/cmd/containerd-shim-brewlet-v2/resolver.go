@@ -36,8 +36,8 @@ func (c contentStoreSource) BlobPath(digest string) (string, error) {
 // loadArtifactBlobs reads the artifact's config + payload layers from the
 // configured blob source. Two backends are supported:
 //
-//   - "layout"     — a Brewlet-local OCI image layout (the PoC's stand-in for a
-//     registry; addressed by tag/ref). Selected when StoreRoot is set.
+//   - "layout"     — a Brewlet-local OCI image layout for local CLI and
+//     prepare-bundle workflows; addressed by tag/ref. Selected when StoreRoot is set.
 //   - "containerd" — containerd's own on-disk content store, addressed by the
 //     CRI-resolved image target digest. This is the production path once
 //     containerd has pulled the runnable OCI image into its content store.

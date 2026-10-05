@@ -11,12 +11,18 @@ shim runs with the node-resident JDK. This page documents the delivery contract 
 
 ## 1. TL;DR
 
-- **The native Brewlet artifact is registry-native but not runnable by containerd.**
+Brewlet supports two current formats with the same launch contract and shared
+sandbox assembly: native artifacts for local OCI-layout / CLI / `prepare-bundle`
+workflows, and runnable images for Kubernetes container-runtime workloads.
+
+- **The native artifact is registry-native but not unpackable by containerd.**
   Its custom layer media types (`application/vnd.brewlet.jar.layer.v1+jar`,
   `…classpath.layer.v1+tar`, `…modulepath.layer.v1+tar`) are not among the media types
   containerd's CRI differ can unpack (`tar`, `tar+gzip`, `tar+zstd`). A pod that sets
-  `image: <native-artifact-ref>` therefore **fails to pull** (`ImagePullBackOff`); the
-  payload has to reach the node **out of band**, such as with `ctr images import`.
+  `image: <native-artifact-ref>` therefore **fails to pull** (`ImagePullBackOff`).
+  Kubernetes execution also rejects native artifacts if their blobs are delivered
+  out of band. Brewlet resolves their raw blobs for local workflows, unpacking
+  dependency/module tars during sandbox assembly rather than through containerd.
 - **Runnable-image mode fixes this without changing the native format.** `brewlet push
   --format=image` publishes the *same* JAR as a **standard, kubelet-pullable OCI
   image**. containerd/kubelet pull + unpack it through the standard OCI path; the shim
@@ -45,8 +51,9 @@ bespoke `+jar`/`+tar` media types so the artifact stays self-describing and
 registry-native — but that is precisely what makes `crictl`/kubelet unable to unpack
 them. The pull fails long before the shim is ever consulted.
 
-That remains useful for explicit local OCI-layout / CLI workflows, but a Pod
-cannot *name* the native artifact as its image. Kubernetes workloads use the
+Native artifacts are used for local OCI-layout / CLI / `prepare-bundle` workflows,
+not as a backward-compatibility format; superseded config fields remain rejected.
+A Pod cannot *name* the native artifact as its image. Kubernetes workloads use the
 runnable-image format so `runtimeClassName: brewlet` pods name the actual runnable image
 in `image:`.
 

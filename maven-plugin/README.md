@@ -467,9 +467,12 @@ its query parameters. Registries that reject the mount operation with `400`,
 `404`, or `405` use a fresh blob upload instead. Authentication and server
 errors abort publication rather than being treated as missing blobs or
 successful mounts.
-The custom `application/vnd.brewlet.classpath.layer.v1+tar` media type remains
-only for native/legacy Brewlet artifacts because container runtimes cannot
-unpack it as a runnable image layer.
+Native artifacts use the custom `application/vnd.brewlet.classpath.layer.v1+tar`
+media type for dependency tars in current local OCI-layout, CLI, and
+`prepare-bundle` workflows. Brewlet unpacks these tars during sandbox assembly;
+container runtimes cannot unpack this custom media type as a runnable image
+layer. Managed dependency bundles and runnable images instead use the standard
+gzip layer described above.
 
 When `signingKey` and `builderIdentity` are supplied, the final image index
 receives a signed DSSE managed-dependency attestation. Otherwise the application
@@ -636,19 +639,22 @@ Kubernetes does not wait for application-specific readiness.
 
 ## Delivery format: native artifact vs runnable image
 
-`brewlet:push` can publish in two formats, selected by `format` / `-Dbrewlet.format`:
+`brewlet:push` can publish in two current formats, selected by `format` /
+`-Dbrewlet.format`. Both share the current launch contract and sandbox assembly;
+native artifacts are not a backward-compatibility format and do not accept
+superseded artifact config fields.
 
 | Format | What it publishes | When a pod names it as `image:` |
 |---|---|---|
 | `image` (default) | A **runnable OCI image**: your JAR (+ dependency/module/CDS payload) packaged as standard `tar+gzip` layers with a real OCI image config and a multi-arch index. The Brewlet launch contract rides in the `brewlet.sh/jvm-config` manifest annotation. | kubelet/containerd pull and unpack it like any image. A `runtimeClassName: brewlet` pod uses the digest-pinned reference printed by `brewlet:push`; tag-only execution is rejected. |
-| `artifact` | The **native Brewlet OCI artifact**: your JAR plus a launch-config blob under Brewlet [media types](https://github.com/microsoft/brewlet/blob/main/docs/reference.md#oci-media-types) (`artifactType: application/vnd.brewlet.app.v1+json`). Compact and the canonical Brewlet shape. | kubelet/containerd **cannot** unpack the custom layer media types, so a bare pod `image:` reference `ImagePullBackOff`s. It is resolved by the shim out-of-band via the `brewlet.sh/artifact-*` annotations the admission webhook stamps. |
+| `artifact` | The **native artifact**: your raw JAR, optional dependency/module/CDS layers, and a launch-config blob under Brewlet [media types](https://github.com/microsoft/brewlet/blob/main/docs/reference.md#oci-media-types) (`artifactType: application/vnd.brewlet.app.v1+json`). Used by local OCI-layout, CLI, and `prepare-bundle` workflows. | kubelet/containerd **cannot** unpack the custom layer media types, so a pod `image:` reference fails with `ImagePullBackOff`. Kubernetes execution rejects native artifacts even if the blobs are already on the node; use a runnable image for Kubernetes workloads. |
 
 ```bash
 # The default push already produces a runnable, kubelet-pullable image:
 mvn clean package brewlet:push \
   -Dbrewlet.image=registry.example.com/team/orders:1.4.2
 
-# Opt into the native artifact instead (registry-native / pre-puller flows):
+# Publish a native artifact for local OCI-layout / CLI / prepare-bundle workflows:
 mvn brewlet:push \
   -Dbrewlet.image=registry.example.com/team/orders:1.4.2 \
   -Dbrewlet.format=artifact

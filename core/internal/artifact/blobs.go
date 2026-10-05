@@ -114,7 +114,7 @@ func ReadVerifiedBlob(src BlobSource, desc Descriptor) ([]byte, error) {
 
 // ResolveNativeBlobs resolves a native Brewlet artifact (custom media-type
 // layers) to on-disk blob paths, mounting each layer blob directly from src with
-// no copy — the historical production/PoC path.
+// no copy for local OCI-layout, CLI, and prepare-bundle workflows.
 func ResolveNativeBlobs(src BlobSource, man Manifest, manifestDigest string) (ResolvedBlobs, error) {
 	cb, err := ReadVerifiedBlob(src, man.Config)
 	if err != nil {

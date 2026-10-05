@@ -142,7 +142,7 @@ not blanket release-to-release support promises.
 
 ## 4. The OCI Application Artifact
 
-The Java application ships in one of two OCI formats (OCI Image Spec ≥ 1.1), and
+The Java application ships in one of two current OCI formats (OCI Image Spec ≥ 1.1), and
 in **neither** is there an OS layer or a JVM inside it — only the application
 payload (a fat JAR, or dependency/module layers) plus a small JSON config
 describing how to launch it:
@@ -151,11 +151,12 @@ describing how to launch it:
   the **default** for `brewlet push` and the Maven plugin, and the format
   Kubernetes workloads use.
 - a **native artifact** (this section) — registry-native custom media types, *not*
-  runnable by containerd, retained for local OCI-layout / CLI / `prepare-bundle`
+  unpackable by containerd, used for local OCI-layout / CLI / `prepare-bundle`
   workflows.
 
-The launch contract below is shared by both; §4.4 describes how a runnable image
-carries it.
+The current launch contract and sandbox assembly are shared by both; §4.4
+describes how a runnable image carries that contract. Native artifacts are not
+a backward-compatibility format: superseded config fields remain rejected.
 
 ### 4.1 Media types
 
