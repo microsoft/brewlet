@@ -335,7 +335,7 @@ the running Pods or a proof of the application's minimum compatible JVM:
    Disabled executions and test-only compiler settings do not determine the
    application request.
 3. Without a declared level, use the compiler's `jdkToolchain`, then a suitable
-   session-selected toolchain, then main-bound legacy toolchains-plugin
+   session-selected toolchain, then main-bound `maven-toolchains-plugin:toolchain`
    requirements. Configured matching follows Maven's first-match order,
    including resolvable version ranges; it does not choose the highest or lowest
    installed JDK. The selected feature is checked against the JDK's `release`
@@ -359,7 +359,9 @@ Maven JVM. Brewlet JDK selection uses only a major (feature) version, such as
 `jdkFeature` and the emitted `spec.jvm.version` do not accept patch versions,
 build numbers, or early-access/vendor suffixes. Full versions read from external
 JDK metadata are used only to infer the major version: for example,
-`21.0.8+9-LTS` becomes `21` and legacy `1.8.0_391` becomes `8`.
+`21.0.8+9-LTS` becomes `21` and the historical Java 8 version string `1.8.0_391`
+becomes `8`. User-configured feature versions remain integers: Java 25 is `25`,
+not `1.25`.
 Standalone automatic toolchain discovery and a selection that might belong
 only to test or later build phases are not guessed. Set `brewlet.jdkFeature`
 after reviewing those builds rather than relying on the Maven JVM by accident.

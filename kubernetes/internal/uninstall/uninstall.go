@@ -221,11 +221,11 @@ func (r *runner) listWorkers(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("listing cluster-wide DaemonSets for operator namespace %q: %w", r.options.Namespace, err)
 	}
 	var pending, standalone, outside []string
-	record := func(kind string, obj client.Object, legacy bool) {
+	record := func(kind string, obj client.Object, isStandalone bool) {
 		description := kind + " " + obj.GetNamespace() + "/" + obj.GetName()
 		if obj.GetNamespace() != r.options.Namespace {
 			outside = append(outside, description)
-		} else if legacy {
+		} else if isStandalone {
 			standalone = append(standalone, description)
 		} else {
 			pending = append(pending, description)
@@ -286,7 +286,7 @@ func standalonePod(pod *corev1.Pod) bool {
 	}
 	// Orphan propagation can remove the DS owner reference. Kubernetes keeps
 	// the canonical GenerateName on those pods; an app label or name prefix
-	// alone is not enough to identify an unrelated workload as a legacy worker.
+	// alone is not enough to identify an unrelated workload as a standalone worker.
 	prefix := brewlet.ProvisionerName + "-"
 	return pod.GenerateName == prefix && strings.HasPrefix(pod.Name, prefix)
 }

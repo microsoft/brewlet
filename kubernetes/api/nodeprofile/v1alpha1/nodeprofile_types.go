@@ -59,8 +59,8 @@ type NodePoolRef struct {
 	// karpenter). Set it explicitly on bare-metal / non-standard clusters.
 	Key string `json:"key,omitempty"`
 	// IncludeControlPlane opts a profile into provisioning control-plane nodes.
-	// Nodes labelled node-role.kubernetes.io/control-plane (or the legacy
-	// .../master) are excluded from every profile unless this is true, so an
+	// Nodes labelled node-role.kubernetes.io/control-plane or
+	// node-role.kubernetes.io/master are excluded unless this is true, so an
 	// untainted control-plane node — single-node kind and Docker Desktop
 	// clusters, for example — is still not provisioned by accident.
 	IncludeControlPlane bool `json:"includeControlPlane,omitempty"`

@@ -77,15 +77,15 @@ func checkStagedContents(t *testing.T, digest string, expected map[string][]byte
 	}
 }
 
-func TestRunnableStageReusesOpenFilesAndLeavesLegacyUntouched(t *testing.T) {
+func TestRunnableStageReusesOpenFilesAndLeavesDigestRootLayoutUntouched(t *testing.T) {
 	stage := t.TempDir()
 	t.Setenv("BREWLET_RUNNABLE_STAGE", stage)
 	store, man, digest, expected := runnableLayersFixture(t)
-	legacy := filepath.Join(stage, strings.TrimPrefix(digest, "sha256:"), "app", "orders.jar")
-	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+	digestRootJar := filepath.Join(stage, strings.TrimPrefix(digest, "sha256:"), "app", "orders.jar")
+	if err := os.MkdirAll(filepath.Dir(digestRootJar), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(legacy, []byte("legacy live container"), 0o644); err != nil {
+	if err := os.WriteFile(digestRootJar, []byte("digest-root live container"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	first, err := ResolveRunnableBlobs(store, man, digest)
@@ -96,7 +96,7 @@ func TestRunnableStageReusesOpenFilesAndLeavesLegacyUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths := []string{legacy}
+	paths := []string{digestRootJar}
 	for name := range expected {
 		paths = append(paths, filepath.Join(root, name))
 	}

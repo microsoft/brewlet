@@ -43,7 +43,7 @@ public final class OrdersApp {
                   + "main.module        = %s%n"
                   + "greeter.module     = %s%n"
                   + "java.class.path    = %s%n"
-                  + "legacy.classpath   = %s%n"
+                  + "classpath.helper   = %s%n"
                   + "availableProcessors= %d   (cgroup/JVM aware)%n"
                   + "Runtime.maxMemory  = %d MB (driven by -XX:MaxRAMPercentage)%n"
                   + "jvm.input.args     = %s%n",
@@ -52,7 +52,7 @@ public final class OrdersApp {
                     OrdersApp.class.getModule().getName(),
                     Greeter.class.getModule().getName(),
                     classPath(),
-                    legacyClasspathStatus(),
+                    classpathHelperStatus(),
                     rt.availableProcessors(),
                     maxMb,
                     ManagementFactory.getRuntimeMXBean().getInputArguments());
@@ -86,13 +86,13 @@ public final class OrdersApp {
 
     /**
      * Reports whether the supplementary class path (mixed form) is live by probing
-     * for a legacy, non-modular helper that only exists on the {@code -cp} entry
+     * for a non-modular helper that only exists on the {@code -cp} entry
      * (unpacked to {@code /app/lib}). Finding it proves both {@code -cp} and
      * {@code -p} were assembled together. Absent in the pure module-path scenario.
      */
-    private static String legacyClasspathStatus() {
+    private static String classpathHelperStatus() {
         try {
-            Class<?> c = Class.forName("com.example.legacy.Legacy", false,
+            Class<?> c = Class.forName("com.example.classpath.ClasspathHelper", false,
                     ClassLoader.getSystemClassLoader());
             return "present (" + c.getName() + " on -cp)";
         } catch (ClassNotFoundException e) {

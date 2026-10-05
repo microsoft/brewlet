@@ -49,7 +49,7 @@ func TestNodeReconcileSelection(t *testing.T) {
 		{name: "catch all with named sibling", labels: map[string]string{"agentpool": "other"}, profiles: []nodev1alpha1.NodeProfile{catchAll, named}, want: brewlet.StateProvisioning},
 		{name: "named sibling selection", labels: map[string]string{"agentpool": "java"}, profiles: []nodev1alpha1.NodeProfile{catchAll, named}, want: brewlet.StateProvisioning},
 		{name: "control plane excluded", labels: map[string]string{"agentpool": "java", controlPlaneLabel: "", "brewlet.sh/provision": "true"}, profiles: []nodev1alpha1.NodeProfile{named}},
-		{name: "master excluded", labels: map[string]string{legacyMasterLabel: ""}, profiles: []nodev1alpha1.NodeProfile{catchAll}},
+		{name: "master excluded", labels: map[string]string{masterRoleLabel: ""}, profiles: []nodev1alpha1.NodeProfile{catchAll}},
 		{name: "control plane explicitly included", labels: map[string]string{"agentpool": "java", controlPlaneLabel: ""}, profiles: []nodev1alpha1.NodeProfile{*controlPlane}, want: brewlet.StateProvisioning},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

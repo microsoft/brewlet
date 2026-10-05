@@ -218,7 +218,7 @@ class CredentialResolverTest {
     }
 
     @Test
-    void dockerHubUsesTheLegacyIndexKey() throws Exception {
+    void dockerHubUsesTheIndexDockerIoV1CredentialKey() throws Exception {
         config("{\"credsStore\":\"desktop\"}");
         helperOutput.put("desktop https://index.docker.io/v1/", "{\"Username\":\"me\",\"Secret\":\"pw\"}");
 

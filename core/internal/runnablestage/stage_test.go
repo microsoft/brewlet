@@ -27,7 +27,7 @@ func TestRootAndBytes(t *testing.T) {
 		t.Fatalf("default root = %q, want %q", Root(), want)
 	}
 	for name, data := range map[string]string{
-		"legacy/app.jar":                                       "123",
+		"unmanaged/app.jar":                                    "123",
 		"immutable-v2/.pending/app.jar":                        "12345",
 		"immutable-v2/" + strings.Repeat("a", 64) + "/app.jar": "1234567",
 	} {

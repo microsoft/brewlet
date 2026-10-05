@@ -700,11 +700,11 @@ printf '[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc]\n  run
   echo "expected a version-2 config with split CRI tables to use io.containerd.cri.v1.runtime" >&2
   exit 1
 }
-legacy_dir="$(new_containerd_test_dir 2)"
+config_v2_dir="$(new_containerd_test_dir 2)"
 printf '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]\n  runtime_type = "io.containerd.runc.v2"\n' \
-  >>"$legacy_dir/config.toml"
-[[ "$(containerd_runtime_plugin_for_config "$legacy_dir/config.toml")" == "io.containerd.grpc.v1.cri" ]] || {
-  echo "expected a legacy version-2 config to keep io.containerd.grpc.v1.cri" >&2
+  >>"$config_v2_dir/config.toml"
+[[ "$(containerd_runtime_plugin_for_config "$config_v2_dir/config.toml")" == "io.containerd.grpc.v1.cri" ]] || {
+  echo "expected a version-2 config with a combined CRI table to keep io.containerd.grpc.v1.cri" >&2
   exit 1
 }
 
@@ -841,7 +841,7 @@ if [[ -e "$missing_dir/config.toml.d/99-brewlet.toml" ]]; then
   exit 1
 fi
 
-# containerd 2 delegates the legacy CRI plugin to an external binary. Its
+# containerd 2 delegates io.containerd.grpc.v1.cri to an external binary. Its
 # config dump omits those runtime tables, so accept the rendered source only
 # when the dump explicitly reports that external-plugin limitation.
 external_cri_dir="$(new_containerd_test_dir)"

@@ -29,7 +29,7 @@ class StrictZipTest {
 
     static Stream<Arguments> validAttributes() {
         return Stream.of(
-                // Exact legacy Maven metadata in jakarta.transaction-api-2.0.1.jar.
+                // Exact ZIP attributes of META-INF/maven/ in jakarta.transaction-api-2.0.1.jar.
                 Arguments.of(3, 0xffff0010L, "META-INF/maven/"),
                 Arguments.of(3, 0x41ed0010L, "directory/"),
                 Arguments.of(3, 0x41ed0000L, "directory/"),

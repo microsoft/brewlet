@@ -18,7 +18,7 @@ import (
 
 const (
 	controlPlaneLabel = "node-role.kubernetes.io/control-plane"
-	legacyMasterLabel = "node-role.kubernetes.io/master"
+	masterRoleLabel   = "node-role.kubernetes.io/master"
 )
 
 // exclusionKeys returns the keys a DoesNotExist requirement is asserted on.
@@ -129,7 +129,7 @@ func TestProfileClaimsNodeSkipsControlPlane(t *testing.T) {
 	// kind and Docker Desktop single-node clusters label the control plane but
 	// leave it untainted, so the label — not the taint — is what excludes it.
 	cp := labeledNode("cp", map[string]string{"agentpool": "general", controlPlaneLabel: ""})
-	legacy := labeledNode("legacy", map[string]string{"agentpool": "general", legacyMasterLabel: ""})
+	master := labeledNode("master-role", map[string]string{"agentpool": "general", masterRoleLabel: ""})
 
 	if !profileClaimsNode(&catchAll, "agentpool", nil, &worker) {
 		t.Error("catch-all must still claim a worker node")
@@ -137,8 +137,8 @@ func TestProfileClaimsNodeSkipsControlPlane(t *testing.T) {
 	if profileClaimsNode(&catchAll, "agentpool", nil, &cp) {
 		t.Error("catch-all claimed a control-plane node")
 	}
-	if profileClaimsNode(&catchAll, "agentpool", nil, &legacy) {
-		t.Error("catch-all claimed a legacy master node")
+	if profileClaimsNode(&catchAll, "agentpool", nil, &master) {
+		t.Error("catch-all claimed a node with the master role label")
 	}
 	if profileClaimsNode(&named, "agentpool", nil, &cp) {
 		t.Error("named pool claimed a control-plane node")

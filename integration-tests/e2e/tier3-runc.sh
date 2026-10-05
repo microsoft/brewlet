@@ -35,7 +35,7 @@ tier3_runc() {
       --format=artifact >>"$WORK/t3-build.log" 2>&1 \
     || ! "$WORK/bin/brewlet" push "$FIXTURES_DIR/demo-module-app/target/orders.jar" demo/orders-mixed:1.0.0 \
       --store "$WORK/oci" --module-layer "$FIXTURES_DIR/demo-module-app/target/mods.tar" \
-      --classpath-layer "$FIXTURES_DIR/demo-module-app/target/legacy.tar" \
+      --classpath-layer "$FIXTURES_DIR/demo-module-app/target/classpath.tar" \
       --format=artifact >>"$WORK/t3-build.log" 2>&1; then
     fail "runc: prepare test artifacts" "see $WORK/t3-build.log"
     return 0
@@ -65,7 +65,8 @@ tier3_runc() {
       eclipse-temurin:21 bash -s <"$E2E_DIR/mixed-runc.sh" 2>&1)"; then
     printf '%s\n' "$out" >"$WORK/t3-mixed-runc.log"
     assert_contains "runc: mixed class-path + module-path app served /hello" "$out" "MIXED"
-    assert_contains "runc: mixed app resolved the legacy class-path helper" "$out" "legacy"
+    assert_contains "runc: mixed app resolved the non-modular class-path helper" "$out" \
+      "classpath.helper   = present (com.example.classpath.ClasspathHelper on -cp)"
     assert_contains "runc: mixed end-to-end run completed" "$out" "== mixed done =="
   else
     printf '%s\n' "$out" >"$WORK/t3-mixed-runc.log"

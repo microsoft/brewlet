@@ -391,14 +391,14 @@ func TestBuildJVMArgsMixedClassPathOrderPreserved(t *testing.T) {
 			Module:     "com.acme.orders",
 			MainClass:  "com.acme.orders.Main",
 			ModulePath: []string{"mods"},
-			ClassPath:  []string{"legacy/a.jar", "legacy/b.jar", "lib/*"},
+			ClassPath:  []string{"classpath/a.jar", "classpath/b.jar", "lib/*"},
 		},
 	}
 	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "-cp /app/legacy/a.jar:/app/legacy/b.jar:/app/lib/* -p /app/mods -m com.acme.orders/com.acme.orders.Main"
+	want := "-cp /app/classpath/a.jar:/app/classpath/b.jar:/app/lib/* -p /app/mods -m com.acme.orders/com.acme.orders.Main"
 	if got := strings.Join(args, " "); got != want {
 		t.Errorf("args = %q, want %q", got, want)
 	}
@@ -598,7 +598,7 @@ func TestAssembleSandboxWithMixedLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 	depsTar := filepath.Join(dir, "deps.tar")
-	writeTar(t, depsTar, map[string]string{"legacy.jar": "x"})
+	writeTar(t, depsTar, map[string]string{"classpath-helper.jar": "x"})
 	modsTar := filepath.Join(dir, "mods.tar")
 	writeTar(t, modsTar, map[string]string{"guava.jar": "y"})
 
@@ -618,7 +618,7 @@ func TestAssembleSandboxWithMixedLayers(t *testing.T) {
 	defer os.RemoveAll(sandbox)
 
 	appDir := filepath.Dir(jarPath)
-	if _, err := os.Stat(filepath.Join(appDir, "lib", "legacy.jar")); err != nil {
+	if _, err := os.Stat(filepath.Join(appDir, "lib", "classpath-helper.jar")); err != nil {
 		t.Errorf("class-path dependency not in /app/lib: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(appDir, "mods", "guava.jar")); err != nil {
@@ -637,7 +637,7 @@ func TestGenerateBundleWithMixedLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 	depsTar := filepath.Join(dir, "deps.tar")
-	writeTar(t, depsTar, map[string]string{"legacy.jar": "x"})
+	writeTar(t, depsTar, map[string]string{"classpath-helper.jar": "x"})
 	modsTar := filepath.Join(dir, "mods.tar")
 	writeTar(t, modsTar, map[string]string{"guava.jar": "y"})
 
@@ -656,7 +656,7 @@ func TestGenerateBundleWithMixedLayers(t *testing.T) {
 	}
 
 	// Both layer kinds were extracted to their host staging dirs.
-	if _, err := os.Stat(filepath.Join(out, "lib", "legacy.jar")); err != nil {
+	if _, err := os.Stat(filepath.Join(out, "lib", "classpath-helper.jar")); err != nil {
 		t.Errorf("class-path dependency not extracted into bundle lib dir: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(out, "mods", "guava.jar")); err != nil {

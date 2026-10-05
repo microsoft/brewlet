@@ -204,7 +204,7 @@ the only file at the `/app` top level. So a bare `<name>.jar` entry (no `/`, no
 `*`) in `classPath`/`modulePath` can only resolve to the primary JAR. When
 `mainJar` is set, any such entry must equal it, or validation fails with a
 dangling-reference error — this catches a `mainJar`/path-entry filename mismatch
-before deploy time. Nested entries like `lib/legacy.jar` and wildcards like
+before deploy time. Nested entries like `lib/classpath-helper.jar` and wildcards like
 `lib/*` are unaffected.
 
 Full field semantics: [Building & publishing](building-and-publishing.md#2-the-launch-config).

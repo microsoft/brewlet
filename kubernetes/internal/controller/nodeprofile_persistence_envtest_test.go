@@ -102,11 +102,11 @@ func TestNodeProfileFreshReadRejectsPrunedRefusalWithoutWorkerMutation(t *testin
 	})
 	requireCRDCheckpointError(t, f)
 	if current := f.daemonSet(t, ds.Name); !current.DeletionTimestamp.IsZero() {
-		t.Fatal("legacy DaemonSet deleted before its old targets were durably recorded")
+		t.Fatal("pre-claim DaemonSet deleted before its refusal was durably recorded")
 	}
 	var currentPod corev1.Pod
 	if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(pod), &currentPod); err != nil || !currentPod.DeletionTimestamp.IsZero() {
-		t.Fatalf("unfenced legacy target evidence was destroyed: %v", err)
+		t.Fatalf("unfenced pre-claim target evidence was destroyed: %v", err)
 	}
 	p = getProfile(t, f.ctx, f.client, p.Name)
 	if !containsString(p.Finalizers, brewlet.FinalizerCleanup) {

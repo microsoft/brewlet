@@ -66,7 +66,7 @@ func TestReapFiltersAndDryRun(t *testing.T) {
 			unknown := createStage(t, root, "unknown", 48*time.Hour)
 			pending := createStage(t, root, "."+names[0]+"-pending", 48*time.Hour)
 			uppercase := createStage(t, root, strings.Repeat("A", 64), 48*time.Hour)
-			writeFile(t, filepath.Join(root, "legacy", "app.jar"), "jar")
+			writeFile(t, filepath.Join(root, "unmanaged", "app.jar"), "jar")
 			writeFile(t, filepath.Join(root, "immutable-v1", names[0], "app.jar"), "jar")
 			outside := t.TempDir()
 			writeFile(t, filepath.Join(outside, "app.jar"), "untouched")
@@ -96,7 +96,7 @@ func TestReapFiltersAndDryRun(t *testing.T) {
 			if _, err := os.Lstat(old); dry && err != nil || !dry && !os.IsNotExist(err) {
 				t.Fatalf("old stage: %v", err)
 			}
-			for _, path := range []string{image, content, mounted, young, inside, unknown, pending, uppercase, link, outside, filepath.Join(root, "legacy"), filepath.Join(root, "immutable-v1")} {
+			for _, path := range []string{image, content, mounted, young, inside, unknown, pending, uppercase, link, outside, filepath.Join(root, "unmanaged"), filepath.Join(root, "immutable-v1")} {
 				if _, err := os.Lstat(path); err != nil {
 					t.Fatalf("removed protected path %s: %v", path, err)
 				}

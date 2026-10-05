@@ -858,9 +858,9 @@ public class AppCdsMojo extends AbstractBrewletMojo {
                 ? matcher.group(1)
                 : versionText.trim().split("\\s+")[0].replace("\"", "");
         if (token.startsWith("1.")) {
-            Matcher legacy = Pattern.compile("^1\\.(\\d+)").matcher(token);
-            if (legacy.find()) {
-                return Integer.parseInt(legacy.group(1));
+            Matcher oneDotVersion = Pattern.compile("^1\\.(\\d+)").matcher(token);
+            if (oneDotVersion.find()) {
+                return Integer.parseInt(oneDotVersion.group(1));
             }
         }
         Matcher current = Pattern.compile("^(\\d+)").matcher(token);

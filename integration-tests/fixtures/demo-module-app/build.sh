@@ -4,13 +4,15 @@
 
 # Builds the modular (JPMS) demo app using only the JDK (no Maven/Gradle).
 #
-# Produces two artifacts that exercise Brewlet's `entry.mode: module` path:
+# Produces three artifacts that exercise Brewlet's `entry.mode: module` path:
 #   target/orders.jar  - the MAIN modular JAR (module com.example.orders), packaged
 #                        with `jar --main-class ...` so it carries a ModuleMainClass
 #                        attribute. Brewlet auto-detects this as a modular app.
 #   target/mods.tar    - a `modulepath.layer.v1+tar` layer holding the library
 #                        module com.example.greeter (greeter.jar), unpacked on the
 #                        node to /app/mods and fed to `--module-path`.
+#   target/classpath.tar - a supplementary class-path layer holding the
+#                          non-modular classpath-helper.jar, unpacked to /app/lib.
 #
 # On the node Brewlet launches:
 #   java -p /app/orders.jar:/app/mods -m com.example.orders/com.example.orders.OrdersApp
@@ -40,22 +42,22 @@ echo "[build] packing the module layer -> mods.tar (contains greeter.jar)..."
 # entries, which would otherwise land in /app/mods and break module resolution.
 COPYFILE_DISABLE=1 tar -cf "$out/mods.tar" -C "$out/mods" .
 
-echo "[build] compiling the legacy (non-modular) class-path helper -> lib/legacy.jar..."
+echo "[build] compiling the non-modular class-path helper -> lib/classpath-helper.jar..."
 # The mixed class-path + module-path scenario (docs §8.1): a plain, non-modular
 # helper that ships on the supplementary class path (/app/lib) alongside the
 # module path. It lives in the unnamed module, so it is compiled WITHOUT the
 # module source path.
-mkdir -p "$out/legacy-classes" "$out/lib"
+mkdir -p "$out/classpath-classes" "$out/lib"
 javac --release 21 \
-    -d "$out/legacy-classes" \
-    "$here/legacy-src/com/example/legacy/Legacy.java"
-jar --create --file "$out/lib/legacy.jar" -C "$out/legacy-classes" .
+    -d "$out/classpath-classes" \
+    "$here/classpath-src/com/example/classpath/ClasspathHelper.java"
+jar --create --file "$out/lib/classpath-helper.jar" -C "$out/classpath-classes" .
 
-echo "[build] packing the class-path layer -> legacy.tar (contains legacy.jar)..."
-COPYFILE_DISABLE=1 tar -cf "$out/legacy.tar" -C "$out/lib" .
+echo "[build] packing the class-path layer -> classpath.tar (contains classpath-helper.jar)..."
+COPYFILE_DISABLE=1 tar -cf "$out/classpath.tar" -C "$out/lib" .
 
 echo "[build] done:"
 echo "  main jar    -> $out/orders.jar"
 echo "  module layer-> $out/mods.tar"
-echo "  classpath layer-> $out/legacy.tar (mixed-form demo)"
+echo "  classpath layer-> $out/classpath.tar (mixed-form demo)"
 jar --describe-module --file "$out/orders.jar" 2>/dev/null || true

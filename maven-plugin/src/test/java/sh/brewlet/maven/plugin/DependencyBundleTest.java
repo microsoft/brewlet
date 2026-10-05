@@ -257,7 +257,7 @@ class DependencyBundleTest {
     }
 
     @Test
-    void parsingRejectsLegacyUnsignedPolicyField() throws IOException {
+    void parsingRejectsAllowUnsignedField() throws IOException {
         Path dependency = temp.resolve("a.jar");
         Files.writeString(dependency, "a");
         DependencyBundle.Content content = DependencyBundle.build(config(), lock("a"),

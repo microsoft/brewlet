@@ -425,8 +425,8 @@ helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
 ```
 
 For source builds, use the local chart instead and retain your digest-pinned
-component overrides. For incompatible legacy profiles, use the maintenance
-sequence below within that transition instead of the direct upgrade command.
+component overrides. For profiles using incompatible source formats, use the
+maintenance sequence below within that transition instead of the direct upgrade command.
 
 Unverified runnable-stage installations can leave nodes
 Ready while automatic cleanup remains blocked by installation safety checks.
@@ -533,8 +533,8 @@ are unaffected.
 
 Before upgrading an existing Brewlet installation to a release that requires explicit
 JDK and launcher sources, plan a maintenance window: the `v1alpha1` launcher
-wire format changed from strings to structured sources, so legacy profiles
-cannot remain present during the control-plane rollout. Delete them while the
+wire format changed from strings to structured sources, so profiles using
+string-valued launchers cannot remain present during the control-plane rollout. Delete them while the
 old controller can still clean their nodes, then upgrade once with profile
 creation disabled:
 

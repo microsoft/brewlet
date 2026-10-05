@@ -13,8 +13,8 @@ set -e
 #
 # So this tier exercises BOTH `-cp` and `-p` on one launch — the module path
 # resolves the com.example.greeter module while the class path carries the plain,
-# non-modular com.example.legacy.Legacy helper. OrdersApp's /info reports the live
-# java.class.path and confirms the legacy class is reachable, proving the mixed
+# non-modular com.example.classpath.ClasspathHelper. OrdersApp's /info reports the live
+# java.class.path and confirms the helper class is reachable, proving the mixed
 # assembly end-to-end.
 #
 # Runs inside the privileged eclipse-temurin container launched by tier 3.
@@ -66,7 +66,7 @@ runc run brewlet-e2e-mixed &
 for i in $(seq 1 30); do curl -sf localhost:8080/healthz >/dev/null 2>&1 && break; sleep 0.5; done
 echo "--- mixed /hello (com.example.greeter module resolved on the module path) ---"
 curl -s localhost:8080/hello
-echo "--- mixed /info (java.class.path populated + legacy class reachable on -cp) ---"
+echo "--- mixed /info (java.class.path populated + non-modular helper reachable on -cp) ---"
 curl -s localhost:8080/info
 runc kill brewlet-e2e-mixed KILL 2>/dev/null || true
 sleep 1
