@@ -3,9 +3,11 @@
 The independent admission and CPU HPA scenarios in
 [`integration-tests/e2e/live/`](https://github.com/microsoft/brewlet/tree/main/integration-tests/e2e/live)
 target the existing native managed-dependency and basic CPU-autoscaling
-contracts. They are not production certification, a performance benchmark, or
-the broader zero-skip rewrite tracked in
-[#13](https://github.com/microsoft/brewlet/issues/13).
+contracts. The [executable workflows](#executable-workflows) scenario covers
+`brewlet push`, `brewlet k8s app status|wait`, `mvn brewlet:deploy` and
+`brewlet k8s profile delete` through their shipped entry points. They are not
+production certification, a performance benchmark, or the broader zero-skip
+rewrite tracked in [#13](https://github.com/microsoft/brewlet/issues/13).
 
 **Coverage status:** CPU HPA passed twice on fresh local arm64 clusters and
 twice on hosted amd64 with the fixed-shim candidate described below. Admission
@@ -49,6 +51,7 @@ export BREWLET_LIVE_CANDIDATE=shim
 python3 -m unittest discover -s integration-tests/e2e/live -p '*test*.py' -v
 python3 integration-tests/e2e/live/hpa.py
 python3 integration-tests/e2e/live/admission.py
+python3 integration-tests/e2e/live/workflows.py
 ```
 
 The output directory must not exist as an invocation directory: each invocation
@@ -59,8 +62,9 @@ used. Do not point the legacy tier reset helper at these fixtures.
 The **E2E** workflow remains scheduled/manual-only. Its `live` selection runs
 two separate jobs, each executing its scenario twice consecutively with fresh
 clusters. The first failure stops that job; the other scenario is independent.
-The manual `scenario` selector can run only `hpa` or only `admission`; the
-scheduled default is both.
+The manual `scenario` selector can run only `hpa`, only `admission` or only
+`workflows`; the scheduled default (`both`) runs every live scenario. The
+`workflows` job runs as two matrix entries, each on a fresh runner and cluster.
 Ordinary PR CI executes only offline fixture safeguards, not the live jobs.
 
 ## Release baseline and reproducibility
@@ -248,6 +252,115 @@ Fresh subjects exercise missing evidence, real registry authentication/fetch
 failures and unavailable Ratify. Valid CREATE/UPDATE requests cover regular and
 init images; ephemeral images use the proper UPDATE subresource. Non-Brewlet
 behavior and all namespace exclusions are checked separately.
+
+## Executable workflows
+
+`workflows.py` reuses the strict fixture but provisions it **entirely from the
+checkout under test**: it builds `core/cmd/brewlet`, installs the checkout's
+Maven plugin into the invocation's private Maven repository (and checks the
+installed JAR is byte-identical to the build), builds the operator, admission
+and provisioner images with an ownership label, loads them into the kind node
+pinned by digest, and installs `kubernetes/charts/brewlet`. No released CLI,
+plugin, chart or image is used. It needs `go` and `htpasswd` in addition to the
+prerequisites above. Each CI run has a 90-minute job budget; most of the time
+is image builds and NodeProfile provisioning/cleanup.
+
+Sections run in this order, each command through the real CLI or Maven goal
+with the private kubeconfig. `commands.json` records every command's sanitized
+argv, environment *names*, target kubeconfig/context/namespace, exit code and
+duration; stdout and stderr are kept in separate `cmd-NNN-*.stdout|stderr`
+files. Generated passwords, tokens, Docker auth, Maven cipher text and security
+files are redacted and any command that prints one fails.
+
+1. **Remote push.** The demo is pushed anonymously to the invocation's
+   Distribution registry; the stdout digest and every `--push-result` field are
+   compared with the index fetched from the registry, and every amd64/arm64
+   child manifest, config and layer is fetched and hashed. A repeat push must
+   reuse existing blobs and leave both digests intact. An explicit `--store`
+   stays local; an unqualified ref with `--push-result` is rejected ("Brewlet
+   never defaults to Docker Hub") and without it writes only `./oci`. A second
+   htpasswd-protected registry proves anonymous rejection, isolated Docker
+   config and `BREWLET_REGISTRY_USERNAME/PASSWORD` publication, and wrong-password
+   rejection without a handoff or tag.
+2. **Application status/wait.** `app wait` starts before the JavaApplication
+   exists and must retry `not found` until the app becomes Ready. Same-named
+   apps in `wf-alpha` (Ready, using the CLI-pushed digest-pinned image) and
+   `wf-beta` (never Ready) distinguish the kubeconfig's default namespace from
+   `--namespace`. JSON, YAML and table outputs are parsed from stdout; progress
+   stays on stderr. A nonready `wait` must fail within 20s plus the documented
+   15s tolerance with describe/status remediation. With the operator paused
+   (scaled to zero) a spec change leaves an old Ready condition that must not
+   satisfy `wait`; resuming it must. A loopback endpoint that accepts but never
+   answers, and a closed port, bound `status`/`wait` without touching the
+   cluster.
+3. **Maven deploy.** `mvn package brewlet:deploy` uses a kubeconfig whose
+   current context is an unreachable decoy, so only `brewlet.kubeContext`
+   reaches the cluster (confirmed by the `kube-system` UID) and
+   `brewlet.namespace=wf-maven`. The index digest must equal `push.json`, the
+   generated manifest and the applied resource, which must be Ready for its
+   current generation and serve `/hello` through its Service. Further cases:
+   `brewlet.wait=false` with a never-ready probe; a live readiness timeout
+   bounded by Maven's own log timestamps; an **injected** stalled `kubectl`
+   (test executable, not a rollout) that must be terminated with its
+   descendant after `brewlet.waitTimeout`; encrypted `settings.xml` with a
+   generated private `settings-security.xml` (success, wrong password and
+   undecryptable master all explicit); and dry runs that publish nothing,
+   leave `push.json` and the live resourceVersion unchanged, after which
+   `brewlet:manifest` still uses the saved digest-pinned image.
+4. **Profile deletion.** After all apps are removed, a running and a
+   gracefully terminating bare Brewlet Pod (real `preStop` sleep in a 600s
+   grace period) block deletion with and without dry runs and `--wait`;
+   `--yes --dry-run=server` reports them without mutating. A Helm-managed label
+   and a ServiceAccount without Pod list permission are refused (fail-closed).
+   The operator is paused while UID, resourceVersion and deletion timestamp are
+   compared, so a real controller status write cannot hide or fake a change.
+   With the operator still paused, a no-wait deletion is followed by an attached
+   `--wait --wait-timeout 10s` that must time out while the finalizer, status
+   targets, node ownership label and host JDK roots remain. The operator is
+   then resumed and an attached `--wait` follows real cleanup; a watch on the
+   profile must show `CleanupComplete=True/CleanupSucceeded` for the current
+   generation with claims retained before `DELETED`. The node must then have no
+   shim, JDK roots, containerd `brewlet` runtime, `owner-uid` or JDK labels, and
+   no profile workers. A second profile is provisioned and deleted with a fresh
+   `--wait` to the same host checks. The run ends by asserting no test
+   JavaApplications, Brewlet Pods or NodeProfiles remain.
+
+The timeout-vs-cleanup case is controlled by pausing the operator, not by a
+race. Deterministic API permutations that need a synchronization seam
+(UID/resourceVersion preconditions against an edit or recreation,
+`CleanupBlocked`, attach-after-finalizer-removal) run in
+`kubernetes/internal/cli/profile_delete_integration_test.go`
+(`make -C kubernetes test-cli-integration`, also in PR CI). Registry protocol
+permutations (mounts, redirects, references) belong to the shared conformance
+tests from [#170](https://github.com/microsoft/brewlet/issues/170); neither is
+presented as live evidence here.
+
+Runtime architecture: the index always contains amd64 and arm64 children, which
+are verified by registry fetch only. Execution covers just the node's
+architecture (amd64 hosted; recorded in `identity.json`). Cross-architecture
+runtime is not claimed.
+
+| Acceptance item (#171) | Scenario assertions (`assertions.json`) / test |
+|---|---|
+| Real CLI/Maven entry points | `commands.json` for every section |
+| App namespace, outputs, readiness | `app-status-namespaces-and-outputs`, `app-wait-retries-missing-resource` |
+| App current generation and timeouts | `app-wait-requires-current-generation`, `app-wait-nonready-rollout-timeout`, `app-commands-bounded-on-api-failure` |
+| Profile workload, terminating Pod, ownership, RBAC | `profile-delete-refuses-running-and-terminating-workloads`, `profile-delete-refuses-helm-managed`, `profile-delete-restricted-identity-fails-closed`; GitOps in envtest |
+| Profile dry runs | `profile-delete-dry-runs-nonmutating` |
+| Production cleanup and wait modes | `profile-delete-production-cleanup`, `profile-delete-fresh-wait-cleanup`, `profile-delete-timeout-preserves-cleanup` |
+| Profile concurrency and blocked cleanup | envtest `profile-deletion/uid-resource-version-preconditions`, `profile-deletion/blocked-timeout-and-attach` |
+| Remote push anonymous/authenticated/rejected | `cli-push-anonymous-verifiable-index`, `cli-push-authenticated-and-rejected`, `cli-push-store-and-unqualified-targets`, `cli-push-repeat-publication-intact` |
+| Runnable digest-pinned workload | `cli-push-digest-pinned-workload-serves` |
+| Maven push→manifest→apply→Ready→response | `maven-deploy-push-manifest-apply-ready-response` |
+| Maven wait opt-out, timeouts, stalled process | `maven-deploy-wait-opt-out`, `maven-deploy-live-readiness-timeout`, `maven-deploy-injected-stalled-kubectl` |
+| Maven encrypted credentials and dry run | `maven-encrypted-settings-credentials`, `maven-deploy-dry-run-nonmutating` |
+| No leaks | `no-leaked-test-resources`, `result.json` cleanup errors |
+
+Additional evidence: `versions.json` (source revision, dirty flag, CLI/plugin
+hashes, image IDs, tool versions), `nodeprofile-live-watch.json`,
+`nodeprofile-live-cleanup-timeline.json` and `cleanup-*-*.log` (operator and
+provisioner logs captured while cleanup workers exist), plus the shared
+resource, event, node and registry diagnostics.
 
 ## Evidence and failure diagnosis
 

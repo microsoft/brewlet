@@ -19,9 +19,9 @@ on:
         options: [shim, release]
         default: shim
       scenario:
-        description: Independently runnable live scenario (ignored by legacy suite)
+        description: Independently runnable live scenario; both runs every live scenario (ignored by legacy suite)
         type: choice
-        options: [both, admission, hpa]
+        options: [both, admission, hpa, workflows]
         default: both
 
 concurrency:
@@ -223,7 +223,7 @@ jobs:
 
   live:
     name: "Live ${{ matrix.scenario }} (two fresh clusters)"
-    if: github.event_name != 'workflow_dispatch' || inputs.suite != 'legacy'
+    if: github.event_name != 'workflow_dispatch' || (inputs.suite != 'legacy' && inputs.scenario != 'workflows')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -269,6 +269,55 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: live-${{ matrix.scenario }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/brewlet-live-evidence
+          if-no-files-found: error
+          retention-days: 14
+
+  # CLI readiness, profile deletion, remote push and Maven deploy through the
+  # shipped entry points (docs/live-validation.md "Executable workflows"). Every
+  # component is built from this checkout; each matrix entry is a fresh runner,
+  # disposable kind cluster and invocation-owned registries.
+  workflows:
+    name: "Live workflows (fresh environment ${{ matrix.run }})"
+    if: github.event_name != 'workflow_dispatch' || (inputs.suite != 'legacy' && (inputs.scenario == 'both' || inputs.scenario == 'workflows'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Select isolated evidence directory
+        run: echo "BREWLET_LIVE_OUTPUT=$RUNNER_TEMP/brewlet-live-evidence" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Install pinned kind and htpasswd
+        run: |
+          go install sigs.k8s.io/kind@v0.30.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          if ! command -v htpasswd; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq apache2-utils
+          fi
+      - name: Test strict fixture safeguards
+        run: python3 -m unittest discover -s integration-tests/e2e/live -p '*test*.py' -v
+      - name: Run executable workflows on a fresh cluster
+        run: python3 integration-tests/e2e/live/workflows.py
+      - name: Retain redacted evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: live-workflows-${{ matrix.run }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/brewlet-live-evidence
           if-no-files-found: error
           retention-days: 14
