@@ -257,7 +257,7 @@ public abstract class AbstractPushMojo extends AbstractBrewletMojo {
 
     /**
      * Resolves the image to push and rejects references that silently fall back
-     * to Docker Hub, which is almost never the intended target.
+     * to Docker Hub or pin a digest instead of a mutable tag.
      */
     private String requirePushImage(String goal) throws MojoExecutionException {
         String ref = resolveImage();
@@ -273,6 +273,7 @@ public abstract class AbstractPushMojo extends AbstractBrewletMojo {
                     + "(e.g. myregistry.azurecr.io/" + ref + "), set <registry>, or use "
                     + "docker.io/<user>/... to target Docker Hub explicitly.");
         }
+        requirePushTag(ref);
         return ref;
     }
 
