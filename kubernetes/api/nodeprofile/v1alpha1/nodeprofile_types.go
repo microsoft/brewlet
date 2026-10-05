@@ -144,7 +144,8 @@ type NodeProfileStatus struct {
 	// scheduling claim. Entries remain until their cleanup workers terminate.
 	Targets              []NodeTarget `json:"targets,omitempty"`
 	OwnershipInitialized bool         `json:"ownershipInitialized,omitempty"`
-	// Migrating drains legacy unfenced workers before activating node claims.
+	// Migrating and MigrationDaemonSetUIDs are inert pre-claim evidence.
+	// Preserve them for refusal and recovery by the original release, never migration.
 	Migrating              bool             `json:"migrating,omitempty"`
 	MigrationDaemonSetUIDs []types.UID      `json:"migrationDaemonSetUIDs,omitempty"`
 	ProvisioningGeneration int64            `json:"provisioningGeneration,omitempty"`
@@ -185,12 +186,12 @@ type NodeRetirement struct {
 }
 
 const (
-	RetirementCleaning       = "Cleaning"
-	RetirementTeardown       = "Teardown"
-	ReasonOwnershipConflict  = "OwnershipConflict"
-	ReasonOwnershipMigration = "OwnershipMigration"
-	ReasonRetargeting        = "Retargeting"
-	ReasonCleanupBlocked     = "CleanupBlocked"
+	RetirementCleaning             = "Cleaning"
+	RetirementTeardown             = "Teardown"
+	ReasonOwnershipConflict        = "OwnershipConflict"
+	ReasonUnsupportedPreClaimState = "UnsupportedPreClaimState"
+	ReasonRetargeting              = "Retargeting"
+	ReasonCleanupBlocked           = "CleanupBlocked"
 )
 
 // Condition types and reasons surfaced on NodeProfile status.

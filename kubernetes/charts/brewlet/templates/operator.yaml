@@ -81,7 +81,7 @@ subjects:
 ---
 {{/*
 Managed DaemonSet writes stay in the configured operator namespace. Global
-list-only inventory detects legacy writers elsewhere without granting authority
+list-only inspection detects pre-claim writers elsewhere without granting authority
 to plant privileged DaemonSets outside this namespace.
 */}}
 apiVersion: rbac.authorization.k8s.io/v1

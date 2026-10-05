@@ -60,14 +60,14 @@ func TestNodeProfileFreshReadRejectsPrunedTargetBeforeClaimOrPublication(t *test
 		t.Fatal("node claim activated before authoritative target persistence")
 	}
 	current := f.daemonSet(t, ds.Name)
-	if current.Generation != ds.Generation || legacyTemplateMatches(&current.Spec.Template.Spec, &node) {
+	if current.Generation != ds.Generation || templateMatchesNode(&current.Spec.Template.Spec, &node) {
 		t.Fatal("privileged target published after its ledger was silently pruned")
 	}
 }
 
-func TestNodeProfileFreshReadRejectsPrunedMigrationBeforeLegacyTeardown(t *testing.T) {
+func TestNodeProfileFreshReadRejectsPrunedRefusalWithoutWorkerMutation(t *testing.T) {
 	f := newCleanupFixture(t, 1)
-	cleanupLegacyDaemonSets(t, f.client, f.r.Config.Namespace)
+	cleanupTestDaemonSets(t, f.client, f.r.Config.Namespace)
 	ds := f.daemonSet(t, brewlet.ProfileDaemonSetName(f.profile.Name))
 	var env []corev1.EnvVar
 	for _, value := range ds.Spec.Template.Spec.Containers[0].Env {
@@ -80,7 +80,7 @@ func TestNodeProfileFreshReadRejectsPrunedMigrationBeforeLegacyTeardown(t *testi
 	if err := f.client.Update(f.ctx, ds); err != nil {
 		t.Fatal(err)
 	}
-	pod := createLegacyDaemonSetPod(t, f.ctx, f.client, ds, f.nodes[0], false)
+	pod := createDaemonSetPod(t, f.ctx, f.client, ds, f.nodes[0], false)
 	updateTargetNode(t, f, f.nodes[0], func(node *corev1.Node) {
 		delete(node.Labels, brewlet.LabelNodeOwner)
 		delete(node.Labels, brewlet.LabelNodeIdentity)
@@ -98,6 +98,7 @@ func TestNodeProfileFreshReadRejectsPrunedMigrationBeforeLegacyTeardown(t *testi
 		status.OwnershipInitialized = false
 		status.Migrating = false
 		status.MigrationDaemonSetUIDs = nil
+		status.Conditions = nil
 	})
 	requireCRDCheckpointError(t, f)
 	if current := f.daemonSet(t, ds.Name); !current.DeletionTimestamp.IsZero() {
@@ -108,20 +109,17 @@ func TestNodeProfileFreshReadRejectsPrunedMigrationBeforeLegacyTeardown(t *testi
 		t.Fatalf("unfenced legacy target evidence was destroyed: %v", err)
 	}
 	p = getProfile(t, f.ctx, f.client, p.Name)
-	if !containsString(p.Finalizers, brewlet.FinalizerCleanup) ||
-		conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonOwnershipMigration {
-		t.Fatalf("migration did not preserve its finalizer and actionable status: %+v", p.Status)
+	if !containsString(p.Finalizers, brewlet.FinalizerCleanup) {
+		t.Fatalf("failed refusal persistence did not preserve its finalizer: %+v", p.Status)
 	}
-	// Once the current schema preserves the checkpoint, legacy teardown can
-	// begin without losing the still-observable in-flight target.
 	f.r.Client = f.client
 	reconcileProfile(t, f.ctx, f.r, p.Name)
-	observeLegacyFence(t, f, ds.Name)
 	reconcileProfile(t, f.ctx, f.r, p.Name)
 	p = getProfile(t, f.ctx, f.client, p.Name)
-	if !p.Status.Migrating || len(p.Status.Targets) != 1 ||
-		f.daemonSet(t, ds.Name).DeletionTimestamp.IsZero() {
-		t.Fatal("migration did not resume after durable checkpoint storage became available")
+	if p.Status.Migrating || len(p.Status.Targets) != 0 ||
+		conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonUnsupportedPreClaimState ||
+		f.daemonSet(t, ds.Name).ResourceVersion != ds.ResourceVersion {
+		t.Fatal("durable refusal must not initiate migration or worker teardown")
 	}
 }
 

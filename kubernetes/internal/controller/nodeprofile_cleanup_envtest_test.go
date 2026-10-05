@@ -15,7 +15,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -380,14 +379,13 @@ func TestNodeProfileDeletionPreservesUnownedDaemonSet(t *testing.T) {
 			if err := f.client.Update(f.ctx, ds); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := f.r.Reconcile(f.ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&f.profile)}); err == nil {
-				t.Fatal("unexpected DaemonSet owner must block host cleanup")
-			}
+			reconcileProfile(t, f.ctx, f.r, f.profile.Name)
 			if got := f.daemonSet(t, ds.Name); !got.DeletionTimestamp.IsZero() {
 				t.Fatal("DaemonSet owned by another profile incarnation was deleted")
 			}
 			p := getProfile(t, f.ctx, f.client, f.profile.Name)
-			if !containsString(p.Finalizers, brewlet.FinalizerCleanup) {
+			if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked ||
+				!containsString(p.Finalizers, brewlet.FinalizerCleanup) {
 				t.Fatal("ownership conflict must preserve cleanup finalizer")
 			}
 		})

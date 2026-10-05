@@ -27,7 +27,7 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-  # Detect unfenced legacy writers even after an operator namespace change.
+  # Refuse competing/pre-claim writers, including after a namespace change.
   - apiGroups: ["apps"]
     resources: ["daemonsets"]
     verbs: ["list"]

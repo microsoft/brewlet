@@ -62,8 +62,9 @@ another release; keep the installed chart version and component choices pinned.
 
 For example, containerd configuration formats 2 and 3 use different plugin
 namespaces; supporting the former does not mean supporting containerd 1.x.
-Brewlet still requires containerd 2.0+ and cgroup v2. Conditional requirements,
-such as scheduling-gate support for ownership migration, also remain in force.
+Brewlet still requires containerd 2.0+ and cgroup v2. Workers predating UID-bound
+NodeProfile claims are refused, not automatically migrated; follow the
+[pre-claim recovery guidance](installation.md#unsupported-pre-claim-workers).
 
 Add future exceptions to the relevant contract and link them here with their
 scope and support decision. Do not silently broaden an exception into a general

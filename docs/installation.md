@@ -423,22 +423,37 @@ An older CRD prunes unsupported fields when a resource is saved. Updating the CR
 cannot restore those values; reapply the original JavaApplication manifests
 afterward.
 
-Legacy ownership migration may pause provisioning while old workers terminate
-and their node ownership is recorded. It temporarily uses `OnDelete` updates and
-the `node.brewlet.sh/migration` scheduling gate to prevent replacement workers
-from running before their possible targets are recorded. Pending pods' node
-affinity and old pods' per-node cleanup policy are part of that inventory; a
-missing DaemonSet does not mean its advertised hosts were cleaned. Do not remove
-migration gates manually. Investigate any `OwnershipMigration`,
-`OwnershipConflict`, or `CleanupBlocked` condition; do not delete ownership
-labels or status records to bypass it. Drain workloads before this maintenance
-operation and retain the original profile manifests for recovery.
-Unverifiable legacy UID, revision, or cleanup-policy evidence remains blocked
-for recovery; matching profile names alone never authorize adoption.
+#### Unsupported pre-claim workers
 
-Only this legacy migration path requires Pod Scheduling Readiness support
-(stable in Kubernetes 1.30): the API server, DaemonSet controller, and scheduler
-must preserve and honor scheduling gates.
+Workers predating UID-bound node claims are **not automatically migrated**.
+`Ready=False/UnsupportedPreClaimState` means the controller has found
+incompatible workers, unfenced host advertisements, or unresolved pre-claim
+records. It does not adopt hosts, infer cleanup authority, change worker
+scheduling, or delete those workers. The refusal remains after a restart or
+after live evidence disappears: a missing DaemonSet is not proof of host cleanup.
+Retained `status.migrating` and `status.migrationDaemonSetUIDs` are evidence-only
+fields, not an active migration protocol.
+
+Follow [safe teardown and reinstallation](#default-safe-teardown-and-reinstallation).
+Save original manifests and evidence, pause automation, and drain or move
+workloads. Restore the original release's compatible operator, provisioner,
+CRDs, RBAC, and API access to finish its cleanup and worker teardown; do not
+overwrite retained schemas or records with target-release resources as a
+recovery shortcut. Only after cleanup and retained-resource review should the
+target release be installed. If recovery is blocked, preserve that installation
+and its obligations and use a separate fresh environment.
+
+Do not clear refusal conditions, ownership labels, status records, finalizers,
+or scheduling gates left by an older release to bypass this refusal.
+`OwnershipConflict` and `CleanupBlocked` likewise require investigation rather
+than forced deletion. Unresolved pre-claim obligations can block other profiles
+from taking host ownership when the affected hosts cannot be safely identified.
+Standalone provisioned hosts need separate safe deprovisioning or replacement;
+removing their DaemonSet alone does not clean them. The current controller no
+longer creates migration scheduling gates or requires Pod Scheduling Readiness
+for this path.
+
+#### Older profile source formats
 
 Before upgrading an existing Brewlet installation to a release that requires explicit
 JDK and launcher sources, plan a maintenance window: the `v1alpha1` launcher
