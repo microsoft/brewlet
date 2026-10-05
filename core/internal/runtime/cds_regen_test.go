@@ -345,10 +345,6 @@ func TestDecideCDSRegenEvictsStale(t *testing.T) {
 	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	legacy := filepath.Join(cache, strings.Repeat("b", 32)+".jsa")
-	if err := os.WriteFile(legacy, []byte("legacy"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	old := time.Now().Add(-30 * 24 * time.Hour)
 	if err := os.Chtimes(stale, old, old); err != nil {
 		t.Fatal(err)
@@ -365,8 +361,172 @@ func TestDecideCDSRegenEvictsStale(t *testing.T) {
 	if _, err := os.Stat(staleDir); !os.IsNotExist(err) {
 		t.Errorf("stale entry should have been evicted, stat err = %v", err)
 	}
-	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
-		t.Errorf("legacy flat archive should have been removed, stat err = %v", err)
+}
+
+func TestDecideCDSRegenIgnoresFlatCache(t *testing.T) {
+	cache := t.TempDir()
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+	for _, suffix := range []string{".jsa", ".jsa.writer"} {
+		path := filepath.Join(cache, strings.Repeat("b", 32)+suffix)
+		if err := os.WriteFile(path, []byte("obsolete"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	params := RegenParams{
+		CacheDir:       cache,
+		CacheScope:     "team-a",
+		JDKRoot:        fakeJDK(t, "21.0.5"),
+		ArtifactDigest: "sha256:abc",
+		Now:            now,
+	}
+	writer, err := DecideCDSRegen(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writer.Role != RegenWrite || writer.WriterLease == nil {
+		t.Fatalf("flat-only cache decision = %+v, want current writer", writer)
+	}
+	defer writer.WriterLease.Release()
+	if !isCacheKey(writer.Key) || writer.HostMount != filepath.Join(cache, writer.Key) ||
+		writer.HostArchive != filepath.Join(writer.HostMount, cacheArchiveName) {
+		t.Fatalf("writer did not use a current private entry: %+v", writer)
+	}
+	if _, err := os.Lstat(writer.HostArchive); !os.IsNotExist(err) {
+		t.Fatalf("flat archive was reused as current archive: %v", err)
+	}
+	if err := os.WriteFile(writer.HostArchive, []byte("current"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	consumer, err := DecideCDSRegen(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consumer.Role != RegenConsume || consumer.HostArchive != writer.HostArchive || consumer.MountRW {
+		t.Fatalf("current archive decision = %+v, want private read-only consumer", consumer)
+	}
+	for _, suffix := range []string{".jsa", ".jsa.writer"} {
+		path := filepath.Join(cache, strings.Repeat("b", 32)+suffix)
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != "obsolete" {
+			t.Errorf("flat cache path %q changed: content=%q, err=%v", path, got, err)
+		}
+	}
+}
+
+func TestEvictStaleEntriesPreservesUnrecognizedPaths(t *testing.T) {
+	for _, name := range []string{
+		strings.Repeat("b", 32) + ".jsa",
+		strings.Repeat("b", 32) + ".jsa.writer",
+		strings.Repeat("c", 64) + ".jsa",
+		"unknown",
+		"unknown.writer",
+	} {
+		for _, kind := range []string{"file", "directory", "symlink"} {
+			t.Run(name+"/"+kind, func(t *testing.T) {
+				cache := t.TempDir()
+				path := filepath.Join(cache, name)
+				contentPath := path
+				switch kind {
+				case "directory":
+					if err := os.Mkdir(path, 0o700); err != nil {
+						t.Fatal(err)
+					}
+					contentPath = filepath.Join(path, cacheArchiveName)
+				case "symlink":
+					contentPath = filepath.Join(t.TempDir(), cacheArchiveName)
+					if err := os.Symlink(contentPath, path); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(contentPath, []byte("untouched"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				now := time.Now()
+				old := now.Add(-30 * 24 * time.Hour)
+				if err := os.Chtimes(contentPath, old, old); err != nil {
+					t.Fatal(err)
+				}
+				before, err := os.Lstat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				evictStaleEntries(cache, "", DefaultEvictTTL, DefaultWriterTTL, now)
+				after, err := os.Lstat(path)
+				if err != nil {
+					t.Fatalf("unrecognized path was removed: %v", err)
+				}
+				if !os.SameFile(before, after) || before.Mode() != after.Mode() {
+					t.Errorf("unrecognized path was replaced")
+				}
+				got, err := os.ReadFile(contentPath)
+				if err != nil || string(got) != "untouched" {
+					t.Errorf("contents or symlink target changed: content=%q, err=%v", got, err)
+				}
+			})
+		}
+	}
+}
+
+func TestEvictStaleEntriesCurrentEntries(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		archiveAge time.Duration
+		markerAge  time.Duration
+		hasArchive bool
+		hasMarker  bool
+		keep       bool
+		wantEntry  bool
+		wantMarker bool
+	}{
+		{name: "stale archive", hasArchive: true, archiveAge: 2 * DefaultEvictTTL},
+		{name: "fresh archive", hasArchive: true, wantEntry: true},
+		{name: "expired orphan marker", hasMarker: true, markerAge: 2 * DefaultWriterTTL},
+		{name: "live orphan marker", hasMarker: true, wantMarker: true},
+		{name: "live writer", hasArchive: true, archiveAge: 2 * DefaultEvictTTL, hasMarker: true, wantEntry: true, wantMarker: true},
+		{name: "expired writer", hasArchive: true, archiveAge: 2 * DefaultEvictTTL, hasMarker: true, markerAge: 2 * DefaultWriterTTL},
+		{name: "keep key", hasArchive: true, archiveAge: 2 * DefaultEvictTTL, hasMarker: true, markerAge: 2 * DefaultWriterTTL, keep: true, wantEntry: true, wantMarker: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := t.TempDir()
+			key := strings.Repeat("a", 64)
+			entry := filepath.Join(cache, key)
+			marker := filepath.Join(cache, key+writerMarkerSuffix)
+			now := time.Now()
+			writeAged := func(path string, age time.Duration) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte("current"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				mtime := now.Add(-age)
+				if err := os.Chtimes(path, mtime, mtime); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.hasArchive {
+				if err := os.Mkdir(entry, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				writeAged(filepath.Join(entry, cacheArchiveName), tc.archiveAge)
+			}
+			if tc.hasMarker {
+				writeAged(marker, tc.markerAge)
+			}
+			keepKey := ""
+			if tc.keep {
+				keepKey = key
+			}
+			evictStaleEntries(cache, keepKey, DefaultEvictTTL, DefaultWriterTTL, now)
+			for path, want := range map[string]bool{entry: tc.wantEntry, marker: tc.wantMarker} {
+				_, err := os.Lstat(path)
+				if (want && err != nil) || (!want && !os.IsNotExist(err)) {
+					t.Errorf("path %q: want present=%v, stat err=%v", path, want, err)
+				}
+			}
+		})
 	}
 }
 

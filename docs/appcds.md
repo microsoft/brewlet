@@ -313,9 +313,14 @@ Before consumption, Brewlet checks both the entry directory and
 archive. Before writing or seeding, it removes and recreates the whole private
 entry, then copies any shipped seed through a temporary file and atomic rename.
 This prevents a previous writer from planting a symlink or special file that a
-privileged host-side copy would follow. Legacy flat
-`<legacy-32-hex>.jsa` and `<legacy-32-hex>.jsa.writer` entries are never
-consumed and are removed by cache maintenance.
+privileged host-side copy would follow. Obsolete flat
+`<32-hex>.jsa` and `<32-hex>.jsa.writer` entries are neither consumed nor
+removed by cache maintenance. Only current 64-hex private entries and writer
+markers are maintained; unrecognized paths are left untouched. Old flat-cache
+disk usage persists until explicit operator cleanup. Under the
+[pre-GA compatibility policy](compatibility.md), handle these leftovers during
+[safe teardown before reinstallation](installation.md#retained-appcds-cache-files),
+not through an implicit runtime migration.
 
 On a JDK patch the `<jdkBuild>` component changes, the old entry is ignored, and
 a fresh archive is produced on the next launch—always matched to the running JVM

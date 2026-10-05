@@ -351,6 +351,8 @@ release pairs.
    schema. The CLI refuses existing Brewlet CRDs. Use a fresh evaluation
    environment if the old one cannot safely be prepared, while preserving the
    old environment's recovery and cleanup obligations.
+   Include [retained AppCDS cache files](#retained-appcds-cache-files) in the
+   host-state review; runtime maintenance no longer reclaims obsolete flat files.
 5. On the prepared environment, follow the fresh-install instructions with the
    target release's matching chart, components, and CRDs. Recreate reviewed
    manifests in the target format and rebuild/republish artifacts where required.
@@ -805,6 +807,29 @@ namespace, or remove finalizers as a timeout workaround.
 The component namespace is retained to avoid cascading deletion of unrelated
 objects. Helm also retains CRDs; the operator-created shared RuntimeClass is not
 a chart-owned resource. Review these leftovers before removing them manually.
+
+### Retained AppCDS cache files
+
+AppCDS maintenance no longer deletes obsolete flat `<32-hex>.jsa` and
+`<32-hex>.jsa.writer` paths. They are never consumed as current archives, but
+their disk usage remains until explicitly reclaimed. Helm uninstall and
+provisioner teardown do not automatically remove the AppCDS cache.
+
+As part of the [default teardown/reinstallation procedure](#upgrading), drain or
+move Brewlet workloads, stop any local AppCDS consumers and writers, pause
+NodeProfile/GitOps and provisioning writers, and complete the installed release's
+finalizer, host-cleanup, and worker-teardown sequence before deleting leftovers.
+Do not bypass blocked cleanup or discard evidence needed for recovery.
+
+On each affected node, review the actual cache root with its owner:
+`/opt/brewlet/cds` by default, including any `BREWLET_CDS_CACHE` override.
+Identify obsolete flat files belonging to the retired installation and confirm
+that no process or mount still uses them. Remove only those individually
+reviewed paths before reinstalling; do not follow symlinks, purge the cache root,
+use wildcard deletion, or delete arbitrary unknown files or current private
+entries as part of flat-cache cleanup. If a path's ownership or use cannot be
+verified, stop and investigate rather than deleting it. Using a fresh environment
+does not discharge the old environment's recovery and cleanup obligations.
 
 ### Older charts and manual installations
 
