@@ -11,8 +11,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from admission import Admission
-from checkout import CheckoutFixture, live_fixture
-from common import Fixture, OWNER_LABEL
+from checkout import CheckoutFixture
+from common import OWNER_LABEL, ROOT
 from hpa import Scaling
 
 
@@ -30,23 +30,12 @@ class CheckoutTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, fixture.private)
         return fixture
 
-    def test_default_and_historical_modes_are_distinct(self):
-        with patch.dict(os.environ):
-            os.environ.pop("BREWLET_LIVE_CANDIDATE", None)
-            fixture = live_fixture("hpa")
-            self.addCleanup(shutil.rmtree, fixture.private)
-            self.assertIsInstance(fixture, CheckoutFixture)
-            self.assertEqual(fixture.candidate, "checkout")
-        for candidate in ("release", "shim"):
-            with patch.dict(os.environ, {"BREWLET_LIVE_CANDIDATE": candidate}):
-                fixture = live_fixture("admission")
-                self.addCleanup(shutil.rmtree, fixture.private)
-                self.assertIs(type(fixture), Fixture)
-                self.assertEqual(fixture.candidate, candidate)
-                self.assertEqual(fixture.plugin, "sh.brewlet:brewlet-maven-plugin:0.5.0")
-        with patch.dict(os.environ, {"BREWLET_LIVE_CANDIDATE": "invalid"}):
-            with self.assertRaises(ValueError):
-                live_fixture("hpa")
+    def test_every_scenario_uses_checkout_source(self):
+        for scenario in ("hpa", "admission", "workflows"):
+            fixture = self.fixture(scenario)
+            self.assertEqual(fixture.scenario, scenario)
+            self.assertEqual(fixture.source, ROOT)
+            self.assertIn(fixture.remove_checkout_images, fixture.cleanups)
 
     def test_builds_all_components_and_records_checkout_provenance(self):
         fixture = self.fixture()
@@ -80,7 +69,7 @@ class CheckoutTests(unittest.TestCase):
 
         with patch("checkout.ROOT", source), patch.object(fixture, "run", side_effect=execute), \
                 patch.object(fixture, "build_command", side_effect=build) as commands:
-            fixture.release()
+            fixture.build()
         self.assertEqual(fixture.plugin, "sh.brewlet:brewlet-maven-plugin:9.9.9-test")
         self.assertEqual(set(fixture.built), {"operator", "admission", "provisioner"})
         self.assertEqual([c.args[0] for c in commands.call_args_list], [
@@ -91,7 +80,7 @@ class CheckoutTests(unittest.TestCase):
         versions = json.loads((fixture.work / "versions.json").read_text())
         self.assertEqual(versions["source"], "checkout-revision")
         self.assertFalse(versions["sourceDirty"])
-        self.assertEqual(versions["candidate"], "checkout")
+        self.assertEqual(versions["runtime"], "checkout")
         self.assertIn("Chart.yaml", versions["chartHashes"])
 
     def test_pins_loaded_images_and_records_digests(self):
@@ -119,22 +108,24 @@ class CheckoutTests(unittest.TestCase):
                 fixture.remove_checkout_images()
         execute.assert_called_once_with(["docker", "image", "inspect", "foreign"], check=False)
 
-    def test_hpa_checks_retained_bytes_for_checkout_and_shim(self):
+    def test_hpa_always_checks_retained_bytes(self):
         digest, layer = "sha256:" + "a" * 64, "sha256:" + "b" * 64
-        for candidate in ("checkout", "shim", "release"):
-            fixture = Mock(candidate=candidate)
-            fixture.node_blob_present.return_value = False
-            fixture.run.return_value.stdout = layer[7:] + " retained-file"
-            with patch("hpa.runnable_layers", return_value=(digest, [layer])):
+        fixture = Mock()
+        fixture.node_blob_present.return_value = False
+        fixture.run.return_value.stdout = layer[7:] + " retained-file"
+        with patch("hpa.runnable_layers", return_value=(digest, [layer])):
+            Scaling(fixture).observe_source_gc("image")
+            fixture.run.assert_called_once()
+            self.assertTrue(fixture.record.call_args.args[1]["retainedBytesVerified"])
+            fixture.record.reset_mock()
+            fixture.run.return_value.stdout = "c" * 64 + " corrupted-file"
+            with self.assertRaisesRegex(AssertionError, "Retained layer"):
                 Scaling(fixture).observe_source_gc("image")
-            self.assertEqual(fixture.run.call_count, int(candidate != "release"))
-            self.assertEqual(fixture.record.call_args.args[1]["retainedBytesVerified"],
-                             candidate != "release")
+            fixture.record.assert_not_called()
 
-    def test_admission_only_corrects_historical_manifest(self):
-        for candidate in ("checkout", "shim", "release"):
+    def test_admission_does_not_hide_shipped_manifest_regressions(self):
+        for spec_type in (None, "unsupported-regression"):
             fixture = self.fixture("admission")
-            fixture.candidate = candidate
             fixture.source_revision = "selected-source"
             fixture.registry = "localhost:5000"
             admission = Admission(fixture)
@@ -143,8 +134,8 @@ class CheckoutTests(unittest.TestCase):
 
             def manifest(name):
                 spec = {"source": {}, "parameters": {}}
-                if name == "20-ratify-verifier.yaml" and candidate != "checkout":
-                    spec["type"] = "historical"
+                if name == "20-ratify-verifier.yaml" and spec_type is not None:
+                    spec["type"] = spec_type
                 return {"name": name, "spec": spec}
 
             with patch.object(admission, "manifest", side_effect=manifest), \
@@ -152,11 +143,10 @@ class CheckoutTests(unittest.TestCase):
                 admission.policies()
             verifier = apply.call_args_list[1].args[0]
             self.assertNotIn("source", verifier["spec"])
-            self.assertNotIn("type", verifier["spec"])
+            self.assertEqual(verifier["spec"].get("type"), spec_type)
             evidence = fixture.evidence[-1]["details"]
             self.assertEqual(evidence["source"], "selected-source")
-            corrections = [s for s in evidence["substitutions"] if s.startswith("candidate correction")]
-            self.assertEqual(len(corrections), int(candidate != "checkout"))
+            self.assertFalse(any("correction" in s for s in evidence["substitutions"]))
 
 
 if __name__ == "__main__":

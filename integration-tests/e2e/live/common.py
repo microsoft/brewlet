@@ -8,35 +8,19 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import platform
 import re
 import shutil
 import signal
 import subprocess
-import tarfile
 import tempfile
 import time
 import uuid
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[3]
-RELEASE = "0.5.0"
-RELEASE_COMMIT = "f0b9334f7b29177d2ba4b49b044163ef69e16af7"
 KIND_IMAGE = "kindest/node@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a"
 REGISTRY_IMAGE = "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
 JDK_IMAGE = "docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b"
-CHART_SHA = "c270ac8ec08067fe6044bba2bd856e40d010d7692447e1e7d95b39200afd26a5"
-COMPONENTS = {
-    "operator": "ghcr.io/microsoft/brewlet-operator@sha256:40719bb42728a50a20655223365597e6e632bab5f5fd97425a8a7985bd487f69",
-    "admission": "ghcr.io/microsoft/brewlet-admission@sha256:351cf755b60d9de01048a9c3127824a4a803dc1bb2e50b46f510f2c72fbc2267",
-    "provisioner": "ghcr.io/microsoft/brewlet-node-provisioner@sha256:783c9f88c73c750eb2a195cbcbceccbc8e45a69b8b3e4a4397946780c3d2396f",
-}
-ASSETS = {
-    "darwin_arm64": "67ff59526fa3c448d9e976615ea63c7f70ec7b22795524389912afe782cfcff1",
-    "darwin_amd64": "dbccf7bc9b3417f1c773373386120ef0eaf35df2dc3cd811616d72453d61763f",
-    "linux_arm64": "0e4a4e55da038d05ce5fc11226fba6eae9957d38ea93dc803f5360f40a436687",
-    "linux_amd64": "888fc032fc5f3a773585f014ddf23695ee63e97cb9dbf54b56884e7000385ed1",
-}
 OWNER_LABEL = "sh.brewlet.live-owner"
 GC_STARTUP_DELAY = "24h"
 
@@ -130,15 +114,9 @@ def owned_container(info, identifier, label, owner):
 
 
 class Fixture:
-    def __init__(self, scenario, candidate=None):
+    def __init__(self, scenario):
         if scenario not in ("hpa", "admission", "workflows"):
             raise ValueError("scenario must be hpa, admission or workflows")
-        self.candidate = candidate or os.environ.get("BREWLET_LIVE_CANDIDATE", "release")
-        if self.candidate not in ("release", "shim", "checkout"):
-            raise ValueError("BREWLET_LIVE_CANDIDATE must be checkout, release or shim")
-        self.plugin_version = RELEASE
-        self.plugin = f"sh.brewlet:brewlet-maven-plugin:{RELEASE}"
-        self.source_revision = RELEASE_COMMIT
         self.scenario = scenario
         self.name = f"brewlet-live-{scenario}-{uuid.uuid4().hex[:12]}"
         base = Path(os.environ.get("BREWLET_LIVE_OUTPUT", tempfile.gettempdir()))
@@ -154,7 +132,6 @@ class Fixture:
         self.node_id = None
         self.registry_id = None
         self.network_id = None
-        self.candidate_image_id = None
         self.children = []
         # Extra invocation-owned cleanup callables, run before the node is removed.
         self.cleanups = []
@@ -167,7 +144,6 @@ class Fixture:
         self.env["DOCKER_CONFIG"] = str(docker_config)
         self.env["HELM_REGISTRY_CONFIG"] = str(self.private / "helm-registry.json")
         Path(self.env["HELM_REGISTRY_CONFIG"]).write_text("{}")
-        self.source = self.private / "source"
         self.cli = self.private / "bin" / "brewlet"
         self.maven_args = ["mvn", "-B", "--no-transfer-progress", "-q",
                            f"-Dmaven.repo.local={self.private / 'm2'}",
@@ -251,7 +227,7 @@ class Fixture:
         self.arch = {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64",
                      "amd64": "amd64"}[engine["Architecture"]]
         self.env["DOCKER_DEFAULT_PLATFORM"] = f"linux/{self.arch}"
-        self.release()
+        self.build()
         try:
             self.run(["docker", "network", "create", "--label",
                       f"{OWNER_LABEL}={self.name}", self.name])
@@ -326,69 +302,11 @@ class Fixture:
                     "metadata": {"name": self.namespace}})
         self.provision()
 
-    def release(self):
-        host_arch = {"aarch64": "arm64", "arm64": "arm64",
-                     "x86_64": "amd64", "amd64": "amd64"}[platform.machine()]
-        host = platform.system().lower() + "_" + host_arch
-        base = "https://github.com/microsoft/brewlet/releases/download/v0.5.0/"
-        archive = self.private / "cli.tar.gz"
-        download(base + f"brewlet_0.5.0_{host}.tar.gz", archive, ASSETS[host])
-        self.cli.parent.mkdir()
-        self.run(["tar", "-xzf", archive, "-C", self.cli.parent])
-        if self.run([self.cli, "version"]).stdout.strip() != RELEASE:
-            raise RuntimeError("Downloaded CLI is not 0.5.0")
-        for suffix, digest in (
-            ("jar", "e2bd00643f6d5a89ef448ae6f9724d472a9d09ef58159994a05c928df64764e1"),
-            ("pom", "760abd6fc426d6b7e4a278527d4751071e6e4e4c20737f9ad7ce75d75a5b615e"),
-        ):
-            download(base + f"brewlet-maven-plugin-0.5.0.{suffix}",
-                     self.private / f"plugin.{suffix}", digest)
-        result = self.run([*self.maven_args,
-                           "org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file",
-                           f"-Dfile={self.private / 'plugin.jar'}",
-                           f"-DpomFile={self.private / 'plugin.pom'}"], timeout=360)
-        self.save("maven-install.log", result.stdout + result.stderr)
-        self.source.mkdir()
-        self.run(["git", "archive", RELEASE_COMMIT, "-o", self.private / "source.tar"],
-                 cwd=ROOT)
-        self.run(["tar", "-xf", self.private / "source.tar", "-C", self.source])
-        result = self.run(["helm", "pull", "oci://ghcr.io/microsoft/charts/brewlet",
-                           "--version", RELEASE, "--destination", self.private])
-        self.save("chart-pull.log", result.stdout + result.stderr)
-        self.chart = self.private / "brewlet-0.5.0.tgz"
-        if sha256(self.chart) != CHART_SHA:
-            raise RuntimeError("Released chart checksum changed")
-        sources = sorted(
-            [p for p in (ROOT / "integration-tests/e2e/live").iterdir()
-             if p.suffix in (".py", ".go") and p.is_file()] +
-            [p for p in (ROOT / "integration-tests/fixtures/demo-app").rglob("*")
-             if p.is_file() and "target" not in p.parts])
-        if self.candidate == "shim":
-            sources += [ROOT / p for p in self.run(
-                ["git", "ls-files", "core"], cwd=ROOT).stdout.splitlines()]
-        source_hashes = {str(p.relative_to(ROOT)): sha256(p) for p in sources}
-        self.save("fixture-source-hashes.json", source_hashes)
-        with tarfile.open(self.work / "fixture-source.tar.gz", "w:gz") as archive:
-            for path in sources:
-                if path.is_symlink():
-                    raise RuntimeError(f"Fixture source must not be a symlink: {path}")
-                archive.add(path, arcname=str(path.relative_to(ROOT)))
-        self.save("versions.json", {
-            "release": RELEASE, "releaseSource": RELEASE_COMMIT,
-            "fixtureSource": self.run(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip(),
-            "fixtureDirty": bool(self.run(["git", "status", "--porcelain"], cwd=ROOT).stdout),
-            "fixtureSourceArchiveSHA256": sha256(self.work / "fixture-source.tar.gz"),
-            "fixtureSourceManifestSHA256": sha256(self.work / "fixture-source-hashes.json"),
-            "cliSHA256": ASSETS[host], "chartSHA256": CHART_SHA, "components": COMPONENTS,
-            "kind": "0.30.0", "kindImage": KIND_IMAGE, "registryImage": REGISTRY_IMAGE,
-            "jdkImage": JDK_IMAGE, "hostJava": self.run(["java", "-version"]).stderr,
-        })
+    def build(self):
+        raise NotImplementedError("Live scenarios must supply checkout-built components")
 
     def component_images(self):
-        images = dict(COMPONENTS)
-        if self.candidate == "shim":
-            images["provisioner"] = self.build_candidate_shim()
-        return images
+        raise NotImplementedError("Live scenarios must supply checkout-built images")
 
     def provision(self):
         images = self.component_images()
@@ -422,48 +340,8 @@ class Fixture:
                  "brewlet.sh/jdk.temurin-21") == "true", timeout=480)
         self.kube("rollout", "status", "daemonset/brewlet-node-provisioner-live",
                   "-n", "brewlet", "--timeout=180s")
-        self.record("runtime-provisioned", {"mode": self.candidate,
+        self.record("runtime-provisioned", {"mode": "checkout",
                     "status": self.get("nodeprofile", "live")["status"]})
-
-    def build_candidate_shim(self):
-        build = self.private / "candidate"
-        build.mkdir()
-        env = dict(self.env, CGO_ENABLED="0", GOOS="linux", GOARCH=self.arch)
-        result = self.run(["go", "build", "-trimpath", "-o",
-                           build / "containerd-shim-brewlet-v2",
-                           "./shim/cmd/containerd-shim-brewlet-v2"],
-                          cwd=ROOT / "core", env=env, timeout=600)
-        self.save("candidate-build.log", result.stdout + result.stderr)
-        (build / "Dockerfile").write_text(
-            f"FROM {COMPONENTS['provisioner']}\n"
-            "COPY --chmod=0755 containerd-shim-brewlet-v2 "
-            "/opt/brewlet-dist/containerd-shim-brewlet-v2\n")
-        tag = f"brewlet.local/{self.name}-provisioner:candidate"
-        result = self.run(["docker", "build", "--platform", f"linux/{self.arch}",
-                           "--label", f"{OWNER_LABEL}={self.name}", "-t", tag, build],
-                          timeout=600)
-        self.save("candidate-image.log", result.stdout + result.stderr)
-        image = json.loads(self.run(["docker", "image", "inspect", tag]).stdout)[0]
-        self.candidate_image_id = image["Id"]
-        self.load_image(tag)
-        rows = self.run(["docker", "exec", self.node_id, "ctr", "-n", "k8s.io",
-                         "images", "ls"]).stdout.splitlines()
-        digest = next((row.split()[2] for row in rows if row.split()[0] == tag), "")
-        if not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
-            raise RuntimeError("Could not pin the imported candidate provisioner manifest")
-        pinned = tag.split(":")[0] + "@" + digest
-        self.run(["docker", "exec", self.node_id, "ctr", "-n", "k8s.io",
-                  "images", "tag", tag, pinned])
-        versions = json.loads((self.work / "versions.json").read_text())
-        versions["candidate"] = {
-            "component": "shim", "baseProvisioner": COMPONENTS["provisioner"],
-            "image": pinned, "dockerImageID": self.candidate_image_id,
-            "binarySHA256": sha256(build / "containerd-shim-brewlet-v2"),
-            "goVersion": self.run(["go", "version"], env=env).stdout.strip(),
-            "sourceManifestSHA256": versions["fixtureSourceManifestSHA256"],
-        }
-        self.save("versions.json", versions)
-        return pinned
 
     def node_blob_present(self, digest):
         self.own_container(self.node)
@@ -626,15 +504,6 @@ class Fixture:
                 self.run(["docker", "network", "rm", self.network_id])
             except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
                 errors.append(f"cleanup: {error}")
-        if self.candidate_image_id:
-            try:
-                image = json.loads(self.run(
-                    ["docker", "image", "inspect", self.candidate_image_id]).stdout)[0]
-                if image["Config"].get("Labels", {}).get(OWNER_LABEL) != self.name:
-                    raise RuntimeError("Refusing to remove foreign candidate image")
-                self.run(["docker", "image", "rm", self.candidate_image_id])
-            except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
-                errors.append(f"candidate cleanup: {error}")
         for sig, handler in self.old_signals.items():
             signal.signal(sig, handler)
         try:

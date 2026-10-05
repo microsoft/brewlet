@@ -4,7 +4,6 @@
 """Shared checkout-built runtime for the isolated live scenarios."""
 
 import json
-import os
 import re
 import shutil
 import xml.etree.ElementTree as ET
@@ -12,16 +11,9 @@ import xml.etree.ElementTree as ET
 from common import Fixture, JDK_IMAGE, OWNER_LABEL, ROOT, sha256
 
 
-def live_fixture(scenario):
-    candidate = os.environ.get("BREWLET_LIVE_CANDIDATE", "checkout")
-    if candidate == "checkout":
-        return CheckoutFixture(scenario)
-    return Fixture(scenario, candidate=candidate)
-
-
 class CheckoutFixture(Fixture):
     def __init__(self, scenario):
-        super().__init__(scenario, candidate="checkout")
+        super().__init__(scenario)
         for key in ("BREWLET_REGISTRY_USERNAME", "BREWLET_REGISTRY_PASSWORD", "MAVEN_OPTS",
                     "MAVEN_ARGS", "JAVA_TOOL_OPTIONS"):
             self.env.pop(key, None)
@@ -45,7 +37,7 @@ class CheckoutFixture(Fixture):
             raise RuntimeError(f"{name} failed ({result.returncode}); see {self.work}")
         return result
 
-    def release(self):
+    def build(self):
         self.source_revision = self.run(["git", "rev-parse", "HEAD"], cwd=ROOT).stdout.strip()
         self.cli.parent.mkdir()
         self.build_command("build-cli", ["go", "build", "-trimpath", "-o", self.cli, "./cmd/brewlet"],
@@ -87,7 +79,7 @@ class CheckoutFixture(Fixture):
             result = self.run(argv)
             tools[tool] = (result.stdout + result.stderr).strip()
         self.save("versions.json", {
-            "candidate": "checkout", "source": self.source_revision,
+            "runtime": "checkout", "source": self.source_revision,
             "sourceDirty": bool(self.run(["git", "status", "--porcelain"], cwd=ROOT).stdout),
             "cliSHA256": sha256(self.cli), "plugin": self.plugin, "pluginSHA256": sha256(built),
             "images": {c: {"tag": t} for c, t in self.built.items()}, "dockerImageIDs": self.image_ids,

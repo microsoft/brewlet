@@ -11,7 +11,7 @@ import time
 from urllib.request import Request, urlopen
 
 from common import download, wait
-from checkout import live_fixture
+from checkout import CheckoutFixture
 
 METRICS_IMAGE = "registry.k8s.io/metrics-server/metrics-server@sha256:89258156d0e9af60403eafd44da9676fd66f600c7934d468ccc17e42b199aee2"
 METRICS_MANIFEST_SHA = "ff64d1a13b9ac3b0635f0dd985815fb44c23eed4706c04e5db1daadf6bc0a83b"
@@ -184,17 +184,16 @@ class Scaling:
         def collected():
             return not any(self.f.node_blob_present(d) for d in layers)
         wait("containerd collects unpacked source layers after the requested GC", collected, timeout=180)
-        if self.f.candidate in ("shim", "checkout"):
-            for layer in layers:
-                path = (f"/tmp/brewlet-runnable/immutable-v2/{selected[7:]}/content/"
-                        f"blobs/sha256/{layer[7:]}")
-                result = self.f.run(["docker", "exec", self.f.node_id, "sha256sum", path])
-                if result.stdout.split()[0] != layer[7:]:
-                    raise AssertionError("Retained layer no longer matches its descriptor")
+        for layer in layers:
+            path = (f"/tmp/brewlet-runnable/immutable-v2/{selected[7:]}/content/"
+                    f"blobs/sha256/{layer[7:]}")
+            result = self.f.run(["docker", "exec", self.f.node_id, "sha256sum", path])
+            if result.stdout.split()[0] != layer[7:]:
+                raise AssertionError("Retained layer no longer matches its descriptor")
         self.f.record("post-unpack-source-gc-observed",
                       {"platformManifest": selected, "missingSourceLayers": layers,
                        "gcRequestLease": lease,
-                       "retainedBytesVerified": self.f.candidate in ("shim", "checkout")})
+                       "retainedBytesVerified": True})
 
     def up(self):
         sample = self.sample("scale-up")
@@ -256,7 +255,7 @@ class Scaling:
 
 
 def main():
-    with live_fixture("hpa") as fixture:
+    with CheckoutFixture("hpa") as fixture:
         install_metrics(fixture)
         capacity = fixture.get("node", fixture.node)["status"]["allocatable"]
         if cpu_millicores(capacity["cpu"]) < 3000:

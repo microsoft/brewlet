@@ -13,11 +13,6 @@ on:
         type: choice
         options: [all, live, tiers]
         default: all
-      candidate:
-        description: Admission/HPA runtime (checkout=current source; shim/release=historical 0.5.0)
-        type: choice
-        options: [checkout, shim, release]
-        default: checkout
       scenario:
         description: Independently runnable live scenario; both runs every live scenario (ignored by tiers suite)
         type: choice
@@ -270,13 +265,10 @@ jobs:
         scenario: ${{ fromJSON(inputs.scenario == 'hpa' && '["hpa"]' || inputs.scenario == 'admission' && '["admission"]' || '["admission","hpa"]') }}
     env:
       PYTHONDONTWRITEBYTECODE: "1"
-      BREWLET_LIVE_CANDIDATE: ${{ inputs.candidate || 'checkout' }}
     steps:
       - name: Select isolated evidence directory
         run: echo "BREWLET_LIVE_OUTPUT=$RUNNER_TEMP/brewlet-live-evidence" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: core/go.mod

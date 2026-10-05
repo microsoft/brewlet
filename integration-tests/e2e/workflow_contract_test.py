@@ -83,8 +83,8 @@ class WorkflowContractTests(unittest.TestCase):
     def test_selectors_defaults_and_scheduled_manual_only_triggers(self):
         self.assertEqual(self.choices("suite"), ["all", "live", "tiers"])
         self.assertEqual(self.choices("scenario"), ["both", "admission", "hpa", "workflows"])
-        self.assertEqual(self.choices("candidate"), ["checkout", "shim", "release"])
-        for name, default in (("suite", "all"), ("scenario", "both"), ("candidate", "checkout")):
+        self.assertNotIn("candidate:", self.inputs)
+        for name, default in (("suite", "all"), ("scenario", "both")):
             self.assertEqual(scalar(block(self.inputs, name, 6), "default", 8), default)
         triggers = block(WORKFLOW, "on", 0)
         self.assertEqual(re.findall(r"^  ([\w_]+):", triggers, re.MULTILINE), ["schedule", "workflow_dispatch"])
@@ -136,7 +136,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('SCENARIO: ${{ matrix.scenario }}', live)
         self.assertIn('python3 "integration-tests/e2e/live/${SCENARIO}.py"\n'
                       '          python3 "integration-tests/e2e/live/${SCENARIO}.py"', live)
-        self.assertIn("BREWLET_LIVE_CANDIDATE: ${{ inputs.candidate || 'checkout' }}", live)
+        self.assertNotIn("BREWLET_LIVE_CANDIDATE", WORKFLOW)
         workflows = self.job_blocks["workflows"]
         matrix = block(block(workflows, "strategy", 4), "matrix", 6)
         self.assertEqual(json.loads(scalar(matrix, "run", 8)), [1, 2])

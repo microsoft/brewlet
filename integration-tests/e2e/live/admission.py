@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 
 from common import OWNER_LABEL, ROOT, redact, run, wait
-from checkout import live_fixture
+from checkout import CheckoutFixture
 from admission_helpers import (
     ARTIFACT, BUILDER, VERIFIER, Registry, assert_admission, assert_candidates,
     assert_discoverable, assert_rejection_reasons, digest, encoded, extract_result, signed_envelope,
@@ -369,11 +369,6 @@ class Admission:
         self.f.apply(store)
         verifier = self.manifest("20-ratify-verifier.yaml")
         verifier["spec"].pop("source")
-        corrections = []
-        if self.f.candidate != "checkout":
-            # Only historical release manifests need this correction.
-            verifier["spec"].pop("type")
-            corrections.append("candidate correction: remove unsupported Verifier.spec.type")
         verifier["spec"]["parameters"] = {
             "trustedPublicKey": self.public.read_text(), "expectedBuilderIdentity": BUILDER}
         self.f.apply(verifier)
@@ -396,7 +391,7 @@ class Admission:
                               "baked plugin (no source.artifact)",
                               "RATIFY_CONFIG selects baked plugin directory",
                               "ORAS content cache uses immutable empty OCI layout, forcing remote fetch",
-                              "owned-registry HTTP; discovery/provider caches disabled"] + corrections,
+                              "owned-registry HTTP; discovery/provider caches disabled"],
             "enforcement": "deny; unchanged verifier identity and predicate semantics",
         })
 
@@ -858,11 +853,8 @@ class Admission:
             self.f.record("admission-scenario-complete", {
                 "mandatoryAssertions": sorted(self.successful),
                 "ordinaryEphemeralExecutionClaimed": False,
-                "runtime": self.f.candidate, "source": self.f.source_revision,
+                "runtime": "checkout", "source": self.f.source_revision,
                 "pluginVersion": self.f.plugin_version,
-                "candidateProductChanges": [] if self.f.candidate == "checkout" else [
-                    "remove unsupported Verifier.spec.type"] + (
-                    [] if self.f.candidate == "release" else [self.f.candidate]),
             })
         finally:
             primary_failure = sys.exc_info()[0] is not None
@@ -886,7 +878,7 @@ def main():
     for name in ("htpasswd", "go"):
         if not shutil.which(name):
             raise SystemExit(f"Scenario A prerequisite missing: {name}; htpasswd comes from Apache utilities")
-    with live_fixture("admission") as fixture:
+    with CheckoutFixture("admission") as fixture:
         Admission(fixture).execute()
 
 

@@ -13,10 +13,8 @@ They create their own uniquely named clusters and registries; never pass a
 shared kube context or run the tier reset helper for them. Mandatory assertions
 fail instead of skipping. `.github/workflows/e2e.yml` has separate scheduled/manual
 live jobs, each running twice on fresh clusters; it has no push/PR triggers.
-Admission and HPA default to `BREWLET_LIVE_CANDIDATE=checkout`, using the same
-checkout-built runtime as workflows, plus the checkout verifier for admission.
-Explicit `shim` and `release` candidates retain the historical 0.5.0 reproducer;
-they are not current-stack acceptance. Workflows always builds the checkout.
+All three scenarios use the same checkout-built runtime, plus the checkout
+verifier for admission. There are no historical runtime modes or version selectors.
 
 See [the live-validation runbook](../docs/live-validation.md) for release pins,
 capacity, load leases, stabilization, fixture-only TLS/HTTP exceptions, evidence,
