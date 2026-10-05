@@ -83,6 +83,41 @@ class SiteContractsTest(unittest.TestCase):
         cls.page = LandingPage((ROOT / "site/index.html").read_text(encoding="utf-8"))
         cls.text = " ".join("".join(cls.page.text).split())
 
+    def test_pre_ga_policy_is_discoverable_and_preserves_explicit_exception(self):
+        for filename in (
+            "README.md", "CONTRIBUTING.md", "docs/README.md", "docs/installation.md",
+            "specs/README.md", "specs/SPECIFICATION.md", "specs/CAPABILITY_LABELS.md",
+            ".github/PULL_REQUEST_TEMPLATE.md", "site/mkdocs.yml",
+        ):
+            with self.subTest(document=filename):
+                self.assertIn("compatibility.md", (ROOT / filename).read_text())
+
+        policy = (ROOT / "docs/compatibility.md").read_text()
+        self.assertIn("Safe teardown/reinstallation is the default", policy)
+        self.assertIn("source and target releases", policy)
+        self.assertIn("CAPABILITY_LABELS.md#compatibility-and-versioning", policy)
+        self.assertIn("installation.md#uninstall", policy)
+        self.assertIn("runnable-image.md#reclaiming-unused-stages", policy)
+        labels = (ROOT / "specs/CAPABILITY_LABELS.md").read_text()
+        self.assertIn("Brewlet MUST NOT rename or remove a listed key family", labels)
+        self.assertIn("old and new keys are published", labels)
+
+    def test_release_update_guidance_gates_commands_and_keeps_safety_anchors(self):
+        installation = (ROOT / "docs/installation.md").read_text()
+        upgrading = installation.split("### Upgrading\n", 1)[1].split(
+            "### What the chart deploys", 1
+        )[0]
+        default = upgrading.index("#### Default: safe teardown and reinstallation")
+        conditional = upgrading.index("#### Conditional in-place transitions and recovery")
+        command = upgrading.index("helm upgrade brewlet")
+        self.assertLess(default, conditional)
+        self.assertLess(conditional, command)
+        self.assertIn("#### Activating runnable-stage GC", upgrading)
+        self.assertIn("## Uninstall", installation)
+        self.assertNotIn("kubectl delete nodeprofiles.node.brewlet.sh --all", upgrading)
+        chart = (ROOT / "kubernetes/charts/brewlet/README.md").read_text()
+        self.assertIn("installation.md#conditional-in-place-transitions-and-recovery", chart)
+
     def test_launch_config_is_copyable_json_not_commented_pseudocode(self):
         configs = [json.loads(block) for _, block in self.page.blocks
                    if block.lstrip().startswith("{")]

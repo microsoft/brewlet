@@ -28,7 +28,7 @@ the key rather than publishing a false value.
 uses value matching because a workload requests one or more specific
 architectures.
 
-`brewlet.sh/provision` is a legacy activation label for the standalone
+`brewlet.sh/provision` is the activation label for the standalone
 provisioner manifest, not a workload capability. Operator-managed installations
 select nodes with `NodeProfile.spec.nodePool`; they do not require
 `brewlet.sh/provision=true`.
@@ -283,6 +283,11 @@ capability-driven Karpenter `NodePool`. If the template publishes
 AppCDS policy sentinel; the label alone is never authorization.
 
 ## Compatibility and versioning
+
+This public scheduling contract is an explicit exception to the
+[pre-GA compatibility policy](../docs/compatibility.md). The versioning and
+dual-publication migration guarantees below remain in force; they do not
+guarantee whole-installation in-place upgrades between Brewlet releases.
 
 The labels in the contract-v1 table are public scheduling API:
 

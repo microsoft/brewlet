@@ -19,6 +19,12 @@ to run PetClinic in a disposable kind cluster. It does not install anything
 into your existing cluster. The instructions below are for administrators
 intentionally configuring an existing cluster.
 
+For an existing Brewlet installation, release updates default to **safe
+teardown/reinstallation**, not an in-place `helm upgrade`. Read
+[Upgrading](#upgrading) and the [pre-GA compatibility policy](compatibility.md)
+before changing releases. Fresh-install examples using `helm upgrade --install`
+are not upgrade support decisions.
+
 > ⚠️ **Node provisioning is privileged and mutates the host** (installs a shim
 > and runtime roots, and registers the runtime through containerd configuration).
 > Provision only nodes your platform team controls; on mixed clusters scope with
@@ -274,7 +280,7 @@ The default rollout is fail-safe:
   `brewlet.sh/provision-error-message`). The codes are enumerated in
   [SPECIFICATION §14](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
-Use `containerdRestart: sighup` only for the legacy in-place SIGHUP path. Use
+Use `containerdRestart: sighup` only for the in-place SIGHUP path. Use
 `containerdRestart: none` when containerd registration is managed in the node
 image or by another system; the JDK smoke tests and launcher executable checks
 still run.
@@ -312,10 +318,54 @@ runtime catalog or a replacement for previewing your chosen values.
 ### Upgrading
 
 **Skip this section for a fresh installation.** Helm installs the chart's CRDs
-when they are not already present; there is no separate CRD upgrade or legacy
+when they are not already present; there is no separate CRD upgrade or
 migration step before deploying Brewlet for the first time. The following
-guidance applies only when updating an existing installation, including a
-development cluster that retains an older Brewlet release or CRDs.
+guidance applies only when replacing an existing release or recovering retained
+state, including development clusters with older Brewlet releases or CRDs.
+
+#### Default: safe teardown and reinstallation
+
+Under the [pre-GA compatibility policy](compatibility.md), release updates
+require safe teardown/reinstallation unless an explicit support decision names
+the source and target releases, covered components/state, prerequisites,
+validation evidence, and recovery limits. The conditional procedures below do
+not establish such a decision; this guide declares no supported in-place
+release pairs.
+
+1. Save your reviewed values, profile and workload manifests, and recovery
+   evidence. Pause NodeProfile/GitOps writers and drain or move Brewlet workloads.
+2. Follow [Uninstall](#uninstall) using the installed release's cleanup path.
+   Keep its operator, provisioner RBAC, and API access available until host
+   cleanup and worker teardown complete. Older charts need the explicit
+   profile-cleanup sequence, not an assumed uninstall hook.
+3. Stop if cleanup is blocked. Recover with the installed release's compatible
+   components; do not bypass finalizers, migration gates, ownership records, or
+   live-reference checks. Standalone provisioned nodes require separate safe
+   deprovisioning or replacement.
+4. Review retained CRDs, custom resources, shared RuntimeClass, namespaces, and
+   host state with their owners. Helm uninstall does not make the environment
+   fresh. Do not delete CRDs with surviving resources or cleanup evidence, or
+   remove shared resources blindly. Only after cleanup completes and owners
+   confirm no surviving custom resources or required evidence depend on them,
+   remove the reviewed Brewlet CRDs so the fresh install creates the target
+   schema. The CLI refuses existing Brewlet CRDs. Use a fresh evaluation
+   environment if the old one cannot safely be prepared, while preserving the
+   old environment's recovery and cleanup obligations.
+5. On the prepared environment, follow the fresh-install instructions with the
+   target release's matching chart, components, and CRDs. Recreate reviewed
+   manifests in the target format and rebuild/republish artifacts where required.
+   [Verify readiness](#verify-the-installation) before restoring workloads and
+   automation.
+
+JDK rotation and configuration maintenance within the installed release are
+separate operations. Pin that chart version and preserve component overrides
+when using `helm upgrade` for those operations.
+
+#### Conditional in-place transitions and recovery
+
+Use these procedures only within an explicitly supported release-pair
+transition, or for recovery of existing state with compatible components.
+Their presence does not promise that an arbitrary old release can be upgraded.
 
 Keep the administrator-selected inventory, pools, and component overrides in
 your reviewed values files; do not replace them with test fixtures or a newly
@@ -346,7 +396,8 @@ kubectl apply -f \
 ```
 
 For source-built components, use the CRDs from the matching source revision
-instead. For an ordinary upgrade with compatible profiles, after updating CRDs:
+instead. For an explicitly supported transition with compatible profiles, after
+updating CRDs:
 
 ```bash
 helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
@@ -359,7 +410,7 @@ helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
 
 For source builds, use the local chart instead and retain your digest-pinned
 component overrides. For incompatible legacy profiles, use the maintenance
-sequence below instead of an ordinary upgrade.
+sequence below within that transition instead of the direct upgrade command.
 
 An upgrade that introduces automatic runnable-stage GC can leave existing nodes
 Ready while cleanup remains blocked pending migration acknowledgment.
@@ -397,8 +448,9 @@ creation disabled:
 ```bash
 RELEASE_VERSION=x.y.z
 
-kubectl delete nodeprofiles.node.brewlet.sh --all
-kubectl wait --for=delete nodeprofiles.node.brewlet.sh --all --timeout=10m
+# Replace the placeholder with the reviewed profiles covered by the transition.
+kubectl delete nodeprofile <reviewed-profile-names>
+kubectl wait --for=delete nodeprofile <reviewed-profile-names> --timeout=10m
 
 kubectl apply -f \
   "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/nodeprofile-crd.yaml"
@@ -427,6 +479,11 @@ helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
 ```
 
 #### Activating runnable-stage GC
+
+These safety requirements apply whenever existing state is encountered, including
+recovery or an explicitly supported in-place transition. They do not grant
+release-update support. For configuration maintenance, set `RELEASE_VERSION`
+to the installed chart version and retain its component choices.
 
 Fresh nodes enable periodic cleanup automatically. On an existing installation,
 the default `stageGC.upgradeAcknowledged=false` keeps cleanup blocked unless
@@ -578,7 +635,9 @@ brewlet k8s jdk list --context evaluation --output wide
 The dry run validates chart rendering only, not image contents or node
 readiness, and still needs access to the chart registry. Installation is
 privileged and mutates the selected nodes. To upgrade later, or if Brewlet CRDs
-remain from a previous installation, follow [Upgrading](#upgrading) with Helm.
+remain from a previous installation, follow the retained-state and safe
+teardown/reinstallation guidance in [Upgrading](#upgrading); do not bypass the
+CLI check by blindly applying a chart over old resources.
 See the [CLI reference](cli-reference.md#installation) for full details.
 
 ---

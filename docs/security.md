@@ -175,7 +175,7 @@ Mitigations and guardrails:
 
 | Guardrail | How |
 |---|---|
-| **Provisioning is opt-in, and never cluster-wide by default** | The chart refuses to render its default `NodeProfile` until you name the pools it may mutate (`provisioner.pools`); there is no every-node install. Alternatively set `defaultProfile.enabled=false` and define named `NodeProfile`s yourself (§5.6). The legacy standalone DaemonSet instead touches only nodes carrying the `brewlet.sh/provision=true` **label**. |
+| **Provisioning is opt-in, and never cluster-wide by default** | The chart refuses to render its default `NodeProfile` until you name the pools it may mutate (`provisioner.pools`); there is no every-node install. Alternatively set `defaultProfile.enabled=false` and define named `NodeProfile`s yourself (§5.6). The standalone DaemonSet instead touches only nodes carrying the `brewlet.sh/provision=true` **label**. |
 | **Control-plane nodes are excluded** | Every profile's DaemonSet carries required `DoesNotExist` node affinity on `node-role.kubernetes.io/control-plane` and `node-role.kubernetes.io/master`, so the privileged provisioner stays off control-plane nodes whether or not they are tainted — kind and Docker Desktop label theirs without tainting it. `spec.nodePool.includeControlPlane: true` is the only way in, and it is deliberately per profile. Node accounting applies the same rule, so an excluded node is never counted in `status.assignedNodes`. |
 | **No blanket toleration** | The DaemonSet tolerates only what a profile declares in `spec.tolerations`; there is no `operator: Exists` catch-all to defeat the taints your platform team relies on. The DaemonSet controller still adds the standard node-condition tolerations, so rollouts on healthy nodes are unaffected. Every declared toleration must name a `key`, so "tolerate everything" is not expressible. |
 | **Scope to platform-owned pools** | Use named `NodeProfile` pools (or the `brewlet.sh/provision` label for the standalone path) to restrict provisioning to nodes your platform team controls. Do **not** provision shared/hostile multi-tenant nodes. |
@@ -212,7 +212,7 @@ Mitigations and guardrails:
 
 - [ ] Provision only platform-owned node pools; use named `NodeProfile`s for
       operator-managed installations or `brewlet.sh/provision` only for the
-      legacy standalone path. See
+      standalone path. See
       [Capability labels and autoscaling](capability-labels-and-autoscaling.md).
 - [ ] Build component images only from repository-pinned base-image digests and
       checksum-verified provisioner assets.

@@ -63,8 +63,9 @@ kubectl get nodes -L brewlet.sh/runtime
 With `--version` omitted, Helm installs the latest chart. Component images
 remain pinned to the immutable digests recorded in that chart. To reproduce a
 specific release, add `--version x.y.z` with your chosen release number. For
-existing installations, follow the [upgrade guide](../../../docs/installation.md#upgrading)
-to update matching CRDs before upgrading.
+existing installations, follow the [update guide](../../../docs/installation.md#upgrading):
+pre-GA release changes default to safe teardown/reinstallation. In-place support
+requires an explicit source/target release decision, not merely compatible CRDs.
 
 > Provisioning is privileged and mutates the host. See the
 > [Brewlet specification](../../../specs/SPECIFICATION.md).
@@ -234,31 +235,15 @@ label when `brewlet.sh/cds-regenerate: "true"` is requested; the shim's sentinel
 check remains authoritative.
 
 > **Existing installations only:** A fresh Helm install creates the chart's CRDs
-> when absent; no separate upgrade or migration is needed. Helm does not upgrade
-> existing CRDs. Before upgrading an existing Brewlet release to a
-> version that requires explicit runtime sources, use a maintenance window. The
-> `v1alpha1` launcher wire format changed from strings to structured objects, so
-> delete legacy profiles while the old controller can clean their nodes, apply
-> the new CRD, and perform one profile-free upgrade before recreating the
-> migrated profiles:
->
-> ```bash
-> kubectl delete nodeprofiles.node.brewlet.sh --all
-> kubectl wait --for=delete nodeprofiles.node.brewlet.sh --all --timeout=10m
-> kubectl apply -f kubernetes/deploy/nodeprofile-crd.yaml
-> printf 'defaultProfile:\n  enabled: false\nprofiles: []\n' >brewlet-no-profiles.yaml
-> helm upgrade brewlet ./kubernetes/charts/brewlet \
->   --namespace brewlet \
->   -f values.yaml -f my-jdks.yaml -f brewlet-no-profiles.yaml --wait
-> helm upgrade brewlet ./kubernetes/charts/brewlet \
->   --namespace brewlet -f values.yaml -f my-jdks.yaml --wait
-> ```
->
-> `values.yaml` must retain your existing pools and other cluster choices;
-> `my-jdks.yaml` must contain your reviewed, migrated runtime inventory.
->
-> Existing sources must be migrated to SHA-256 digest references, and mirror
-> destinations require an explicit `security.allowedSourceMirrorHosts` entry.
+> when absent; no separate migration is needed. Release changes default to safe
+> teardown/reinstallation. For an explicitly supported in-place transition or
+> recovery, follow the [conditional procedures](../../../docs/installation.md#conditional-in-place-transitions-and-recovery).
+> Helm does not upgrade existing CRDs. Old string-valued launcher profiles
+> require cleanup by the old controller before a profile-free transition and
+> recreation; do not remove finalizers or ownership evidence to force it.
+> Preserve reviewed pools and component choices. Recreated sources require
+> SHA-256 digest references, and mirror destinations require an explicit
+> `security.allowedSourceMirrorHosts` entry.
 
 ## Uninstall
 
@@ -309,9 +294,9 @@ Runtime metrics are disabled by default. Set `metrics.enabled=true` to run the
 node exporter, enable the control-plane metrics listeners, and expose three
 scrape surfaces:
 
-Upgrades preserve the disabled default. Existing installations that scrape the
-operator or admission controller-runtime endpoint must explicitly set
-`metrics.enabled=true`.
+Scraping the operator or admission controller-runtime endpoint requires
+`metrics.enabled=true`; preserve that explicit choice when preparing target
+release values or maintaining the installed release.
 
 - `brewlet-node-metrics` discovers the exporter in every profile-managed
   provisioner pod and reports sandbox launch phases/outcomes, artifact resolution,

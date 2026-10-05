@@ -443,9 +443,12 @@ Coordinate [node decommissioning and autoscaler scale-in](capability-labels-and-
 before removing a Node or VM.
 
 For a fresh Helm installation, the chart installs the CRDs; no prior upgrade or
-legacy migration is needed. Only when updating an existing installation must
-the NodeProfile CRD be upgraded before the operator/provisioner pair. Legacy
-migration can recover surviving worker/advertisement evidence, but cannot prove
+migration is needed. Brewlet release changes default to
+[safe teardown/reinstallation](installation.md#upgrading), distinct from JDK
+rotation within the installed release. For an explicitly supported in-place
+transition or recovery, update the NodeProfile CRD before the matching
+operator/provisioner pair. Legacy migration can recover surviving
+worker/advertisement evidence, but cannot prove
 the history of vanished hosts. It inventories pending-node affinity and old-pod
 cleanup policy, even when the current DaemonSet template has changed. Temporary
 `node.brewlet.sh/migration` scheduling gates prevent replacement workers from
@@ -465,5 +468,5 @@ or `CleanupBlocked`. For control-plane removal, follow
 - The copied image must contain the operating-system loader and native libraries
   required by `java`.
 - The default validated activation expects a `containerd` systemd service. Use
-  `sighup` only for the legacy reload path, or `none` when another system owns
+  `sighup` only for the in-place reload path, or `none` when another system owns
   runtime registration.

@@ -74,7 +74,7 @@ key. The exact `runtime=ready` value is value-sensitive and is selected by the
 `brewlet` `RuntimeClass`.
 
 `brewlet.sh/provision=true` is not required here. It is the opt-in label for the
-legacy standalone provisioner manifest. Operator-managed installations select
+standalone provisioner manifest. Operator-managed installations select
 nodes through `NodeProfile.spec.nodePool`.
 
 ---

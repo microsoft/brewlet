@@ -76,6 +76,25 @@ capability model.
 - Multi-language polyglot runtimes (Python, Node). JVM-only for v1.
 - Live migration of running JVMs between nodes.
 
+### 2.3 Pre-GA compatibility
+
+This specification defines current-release behavior. The
+[pre-GA compatibility policy](../docs/compatibility.md) governs retention and
+cross-release support: superseded Brewlet interfaces have no automatic
+compatibility obligation, and retaining alternatives requires a current use
+case and documented support decision. Release updates default to safe
+teardown/reinstallation; in-place exceptions must identify source/target
+releases, scope, prerequisites, validation evidence, and recovery limits.
+
+The [capability-label contract](CAPABILITY_LABELS.md#compatibility-and-versioning)
+retains its versioning and dual-publication migration guarantees as an explicit
+exception. Required external platform interoperability also remains in force.
+Neither exception promises whole-installation in-place upgrades. Unsupported
+old behavior may be removed through a reviewed change, but ownership fences,
+live-reference and integrity checks, cleanup obligations, and safe refusal of
+unverifiable old state MUST remain. Migration procedures below are safeguards,
+not blanket release-to-release support promises.
+
 ---
 
 ## 3. High-Level Architecture
@@ -737,7 +756,7 @@ pools named in `provisioner.pools` — pool-level activation, with no per-node
 opt-in step to manage. `provisioner.pools` is **required**: because the
 provisioner is privileged and mutates the host, the chart fails to render rather
 than default to the whole cluster. To author profiles yourself instead, disable
-the default profile (`defaultProfile.enabled=false`, §5.6). The legacy per-node opt-in — a `brewlet.sh/provision=true` node **label**
+the default profile (`defaultProfile.enabled=false`, §5.6). The standalone per-node opt-in — a `brewlet.sh/provision=true` node **label**
 (not an annotation; it drives `nodeAffinity`) consumed by the standalone
 the [`deploy/node-provisioner.yaml`](../kubernetes/deploy/node-provisioner.yaml)
 DaemonSet — remains for the no-operator path (§5.5).
@@ -775,7 +794,7 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet.options]
        SystemdCgroup = true  # mirror the node's runc cgroup driver
    ```
-   Containerd config `version = 2` uses the legacy
+   Containerd config `version = 2` uses the
    `io.containerd.grpc.v1.cri` namespace shown above. Config `version = 3` uses
    `io.containerd.cri.v1.runtime`; the provisioner selects the namespace from
    the config format rather than the containerd server version.
@@ -801,7 +820,7 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    primary config (or drop-in) before restarting and verifying recovery after a
    failure. The node remains unready and `brewlet.sh/provision-error`
    distinguishes restart, health-check, runtime-handler, rollback, and bounded
-   component-specific failures. The explicit `sighup` mode retains the legacy
+   component-specific failures. The explicit `sighup` mode uses the
    in-place reload path without the config-dump gate; `none` leaves containerd
    configuration untouched. Both still apply the smoke gate before readiness is
    advertised. Unchanged valid configuration is config-dump validated and
@@ -1086,7 +1105,7 @@ mechanics, source policy, deployment): see
 ### 5.6 Node profiles (per-pool preparation)
 
 Provisioning every node identically — whether via a cluster-wide default profile
-or the legacy `brewlet.sh/provision` label (§5.1/§5.5) — ignores that real
+or the standalone `brewlet.sh/provision` label (§5.1/§5.5) — ignores that real
 clusters are heterogeneous: a batch pool wants a different JDK than the web pool,
 an air-gapped pool needs a registry mirror, some pools must never have containerd
 restarted. The cluster-scoped **`NodeProfile`** CRD (`node.brewlet.sh/v1alpha1`)
@@ -1526,7 +1545,7 @@ Manager, and workload reconciliation analogous to Spin Operator:
 >   `brewlet-cleanup-<profile>` DaemonSet reverses host state; the object is only
 >   GC'd once host cleanup and worker teardown complete.
 > - **`NodeReconciler`** is now a per-node *state mirror*: it watches provisioned
->   nodes (pool membership + the legacy `brewlet.sh/provision` label, gated on the
+>   nodes (pool membership + the standalone `brewlet.sh/provision` label, gated on the
 >   runtime-ready label) and reflects state via the `brewlet.sh/provision-state`
 >   annotation plus `Provisioning` / `NodeReady` / `ProvisionFailed` events (§14),
 >   reading the `brewlet.sh/provision-error` annotation the provisioner writes on

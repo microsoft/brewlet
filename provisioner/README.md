@@ -201,7 +201,7 @@ leaves the node unready, and sets an actionable
 
 Re-running an unchanged valid render still verifies the effective configuration
 and health-checks containerd without an unnecessary restart. `sighup` retains
-the legacy in-place render and reload behavior without the config-dump gate,
+the in-place render and reload behavior without the config-dump gate,
 while `none` is the immutable-image mode and does not mutate or signal
 containerd.
 
@@ -221,6 +221,11 @@ Launcher extraction uses `ctr image pull` + `ctr images mount` and a host-side
 expose a writable host bind mount.
 
 ## Readiness validation
+
+For Brewlet release changes, follow the
+[pre-GA update policy](../docs/installation.md#upgrading): safe
+teardown/reinstallation is the default. The protocols below remain mandatory
+for cleanup and recovery; they do not promise arbitrary in-place upgrades.
 
 The provisioner container becomes Ready only after its script has finished
 successfully. Both provisioning and cleanup publish `/tmp/brewlet-complete`

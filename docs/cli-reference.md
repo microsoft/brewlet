@@ -511,7 +511,7 @@ brewlet k8s doctor --namespace my-team
 ```
 
 JDK inventory reuses the existing [JDK aggregation](#brewlet-jdks), including
-legacy annotation fallback. Launcher inventory aggregates optional launcher
+annotation fallback. Launcher inventory aggregates optional launcher
 names from `brewlet.sh/launchers`; the JDK's implicit `java` launcher is not a
 separate entry. Both inventories describe **node-advertised state**, not a
 catalog, a live probe of node files, or proof that a particular Pod uses a JDK.
@@ -681,9 +681,10 @@ chart's `namespace` value to the selected release namespace so resources and the
 release cannot accidentally land in different namespaces.
 
 Installation refuses existing Brewlet CRDs and Helm refuses an existing release.
-It does **not** upgrade a release or migrate CRDs: follow
-[Upgrading](installation.md#upgrading) for those operations, including clusters
-retaining CRDs after uninstall. Preview uses `helm template --include-crds`; it
+It does **not** upgrade a release or migrate CRDs. Pre-GA release updates default
+to [safe teardown/reinstallation](installation.md#upgrading), including review of
+CRDs retained after uninstall; their presence does not authorize an in-place
+upgrade with Helm. Preview uses `helm template --include-crds`; it
 still needs chart registry access, and it is not server-side validation.
 
 Helm readiness is not node provisioning completion. Follow installation with

@@ -131,7 +131,7 @@ capability because it grants a workload write access to node cache state.
 
 Brewlet carries `app.jsa` as an optional
 `application/vnd.brewlet.cds.layer.v1+jsa` archive layer. The launch config uses
-a small, backward-compatible hint:
+an optional `cds` hint in the current format:
 
 ```json
 {
