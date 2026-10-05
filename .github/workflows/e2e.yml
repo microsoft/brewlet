@@ -11,7 +11,7 @@ on:
       suite:
         description: Scenarios to run
         type: choice
-        options: [all, live, legacy]
+        options: [all, live, tiers]
         default: all
       candidate:
         description: Live runtime (release reproduces the 0.5.0 packed-layer GC failure)
@@ -19,7 +19,7 @@ on:
         options: [shim, release]
         default: shim
       scenario:
-        description: Independently runnable live scenario; both runs every live scenario (ignored by legacy suite)
+        description: Independently runnable live scenario; both runs every live scenario (ignored by tiers suite)
         type: choice
         options: [both, admission, hpa, workflows]
         default: both
@@ -223,7 +223,7 @@ jobs:
 
   live:
     name: "Live ${{ matrix.scenario }} (two fresh clusters)"
-    if: github.event_name != 'workflow_dispatch' || (inputs.suite != 'legacy' && inputs.scenario != 'workflows')
+    if: github.event_name != 'workflow_dispatch' || (inputs.suite != 'tiers' && inputs.scenario != 'workflows')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -279,7 +279,7 @@ jobs:
   # disposable kind cluster and invocation-owned registries.
   workflows:
     name: "Live workflows (fresh environment ${{ matrix.run }})"
-    if: github.event_name != 'workflow_dispatch' || (inputs.suite != 'legacy' && (inputs.scenario == 'both' || inputs.scenario == 'workflows'))
+    if: github.event_name != 'workflow_dispatch' || (inputs.suite != 'tiers' && (inputs.scenario == 'both' || inputs.scenario == 'workflows'))
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:

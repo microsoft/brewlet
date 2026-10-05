@@ -2,7 +2,7 @@
 
 ## Isolated admission, CPU HPA and workflow scenarios
 
-The strict scenarios in `e2e/live/` are independent of the legacy tiers below.
+The strict scenarios in `e2e/live/` are independent of the tiered suite below.
 Run `python3 integration-tests/e2e/live/hpa.py`,
 `python3 integration-tests/e2e/live/admission.py` or
 `python3 integration-tests/e2e/live/workflows.py` from the repository root.
@@ -22,9 +22,25 @@ distinct; preserve the preview limitations until the corresponding runs pass.
 Offline safeguard checks:
 
 ```bash
+make e2e-contract-check
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s integration-tests/e2e/live -p '*test*.py' -v
 ```
+
+`make e2e-contract-check` requires Node 24+ and Python 3. It checks workflow
+routing and monitor history using offline fixtures, without accessing a cluster.
+
+The E2E workflow's `suite` selector accepts `all` (default), `tiers` (tiers 1-19
+plus host-only tiers 1-3 on arm64), and `live` (isolated live scenarios).
+Scheduled runs execute both suites. The `scenario` selector affects only live
+jobs and is ignored for `tiers`.
+
+The E2E monitor uses `suite: tiers` with an explicit tier list. Automation that
+previously passed `suite: legacy` must switch to `tiers`; the old selector is
+not accepted for new runs. Saved monitor records are normalized to `tiers` in
+memory on load so progress, ETA history, and reruns remain available. Historical
+run IDs, directories, logs, and evidence are not renamed or removed; an ordinary
+metadata save may persist the normalized suite.
 
 ## Reliable invocation
 

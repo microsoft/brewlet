@@ -24,7 +24,7 @@ const UNITTEST = (dir, pattern) =>
     `python3 -m unittest discover -s ${dir} -p '${pattern}' -v`;
 
 export const SUITES = {
-    legacy: {
+    tiers: {
         label: "Tiered E2E (run.sh)",
         description: "integration-tests/e2e/run.sh — tiers 1-19 against the local toolchain and the selected cluster.",
         usesTiers: true,
@@ -54,7 +54,7 @@ export const SUITES = {
 function buildCommand(suite, opts, run) {
     const e2e = "integration-tests/e2e";
     switch (suite) {
-        case "legacy": {
+        case "tiers": {
             const args = [];
             if (opts.reset) args.push("--reset");
             for (const t of opts.tiers) args.push("--tier", String(t));
@@ -195,6 +195,11 @@ export class RunManager extends EventEmitter {
         for (const id of await fsp.readdir(this.runsDir)) {
             try {
                 const meta = JSON.parse(await fsp.readFile(path.join(this.runsDir, id, "meta.json"), "utf8"));
+                // Normalize historical records only; new runs must use the current selector.
+                if (meta.suite === "legacy") {
+                    meta.suite = "tiers";
+                    meta.label = SUITES.tiers.label;
+                }
                 const run = { meta, parse: createParseState(), offset: 0 };
                 this.runs.set(meta.id, run);
                 await this.#pump(run);
@@ -471,7 +476,7 @@ export class RunManager extends EventEmitter {
 
     #progress(run, now) {
         const { meta, parse } = run;
-        if (meta.suite !== "legacy" || meta.tiers.length === 0) {
+        if (meta.suite !== "tiers" || meta.tiers.length === 0) {
             return { kind: "indeterminate", done: meta.status !== "running" };
         }
         const total = meta.tiers.length;
@@ -502,7 +507,7 @@ export class RunManager extends EventEmitter {
     #tierHistory(excludeId) {
         const history = new Map();
         const runs = [...this.runs.values()]
-            .filter((r) => r.meta.id !== excludeId && r.meta.suite === "legacy" && ["passed", "failed"].includes(r.meta.status))
+            .filter((r) => r.meta.id !== excludeId && r.meta.suite === "tiers" && ["passed", "failed"].includes(r.meta.status))
             .sort((a, b) => a.meta.startedAt - b.meta.startedAt);
         for (const r of runs) {
             const byTier = new Map();

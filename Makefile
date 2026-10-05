@@ -14,7 +14,7 @@ REGISTRY ?= ghcr.io/microsoft
 TAG ?= latest
 PROVISIONER_IMAGE ?= $(REGISTRY)/node-provisioner:$(TAG)
 
-.PHONY: build binaries test vet fmt-check license-check workflow-security-check container-security-check container-security-test check check-all kubernetes-check maven-plugin-check admission-check site-contract-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
+.PHONY: build binaries test vet fmt-check license-check workflow-security-check container-security-check container-security-test check check-all kubernetes-check maven-plugin-check admission-check site-contract-check e2e-contract-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
 
 build: ## Build every package for the current platform
 	go -C core build ./...
@@ -79,10 +79,14 @@ site-contract-check: ## Check public examples, benchmark reports and offline ins
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s site/scripts -p 'test_*.py' -v
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/benchmarks -p 'test_*.py' -v
 
+e2e-contract-check: ## Check E2E suite routing and monitor history without a cluster (Node 24+, Python 3)
+	node --test .github/extensions/e2e-monitor/runner.test.mjs
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'workflow_contract_test.py' -v
+
 e2e-host: ## Run host-only end-to-end tiers
 	integration-tests/e2e/run.sh --tier 1 --tier 2
 
-check-all: check kubernetes-check maven-plugin-check admission-check site-contract-check e2e-host ## Validate all components that do not require a cluster
+check-all: check kubernetes-check maven-plugin-check admission-check site-contract-check e2e-contract-check e2e-host ## Validate all components that do not require a cluster
 
 appcds-verify: ## Run the AppCDS JDK integration test (requires a full JDK 17+)
 	go -C core test -v -run TestAppCDSTrainThenMapIntegration ./internal/runtime/
