@@ -214,12 +214,17 @@ func TestNodeProfileLegacyPodNodeUIDRejectsAmbiguousCreationTimes(t *testing.T) 
 }
 
 func TestNodeProfileLegacyOldPodPolicyRemainsPerNode(t *testing.T) {
-	for _, mode := range []string{nodev1alpha1.ContainerdRestartValidated, nodev1alpha1.ContainerdRestartSIGHUP, ""} {
+	for _, mode := range []string{nodev1alpha1.ContainerdRestartValidated, "sighup", ""} {
 		name := mode
 		if name == "" {
 			name = "unknown"
 		}
 		t.Run(name, func(t *testing.T) {
+			expectedMode := mode
+			blocked := mode == "" || mode == "sighup"
+			if blocked {
+				expectedMode = ""
+			}
 			f := newCleanupFixture(t, 1)
 			ds := f.daemonSet(t, brewlet.ProfileDaemonSetName(f.profile.Name))
 			legacyEnv(&ds.Spec.Template.Spec, "BREWLET_REQUIRE_NODE_CLAIM", "")
@@ -247,7 +252,7 @@ func TestNodeProfileLegacyOldPodPolicyRemainsPerNode(t *testing.T) {
 			if err := f.client.Get(f.ctx, types.NamespacedName{Name: next}, &nextNode); err != nil {
 				t.Fatal(err)
 			}
-			requireLegacyTarget(t, &p, oldNode.Name, oldNode.UID, mode)
+			requireLegacyTarget(t, &p, oldNode.Name, oldNode.UID, expectedMode)
 			requireLegacyTarget(t, &p, nextNode.Name, nextNode.UID, nodev1alpha1.ContainerdRestartNone)
 			var stillRunning corev1.Pod
 			if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(oldPod), &stillRunning); err != nil || !stillRunning.DeletionTimestamp.IsZero() {
@@ -255,7 +260,7 @@ func TestNodeProfileLegacyOldPodPolicyRemainsPerNode(t *testing.T) {
 			}
 			observeLegacyFence(t, f, ds.Name)
 			reconcileProfile(t, f.ctx, f.r, p.Name)
-			if mode == "" {
+			if blocked {
 				if !f.daemonSet(t, ds.Name).DeletionTimestamp.IsZero() {
 					t.Fatal("unknown old policy must not be discarded by draining its last evidence")
 				}
@@ -269,9 +274,9 @@ func TestNodeProfileLegacyOldPodPolicyRemainsPerNode(t *testing.T) {
 			f.r.APIReader = f.client
 			reconcileProfile(t, f.ctx, f.r, p.Name)
 			p = getProfile(t, f.ctx, f.client, p.Name)
-			requireLegacyTarget(t, &p, oldNode.Name, oldNode.UID, mode)
+			requireLegacyTarget(t, &p, oldNode.Name, oldNode.UID, expectedMode)
 			requireLegacyTarget(t, &p, nextNode.Name, nextNode.UID, nodev1alpha1.ContainerdRestartNone)
-			if mode == "" {
+			if blocked {
 				if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked || !p.Status.Migrating {
 					t.Fatal("a newer none template must not erase previously observed unknown policy")
 				}

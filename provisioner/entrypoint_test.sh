@@ -641,10 +641,6 @@ mock_containerd_dump() {
   fi
 }
 
-mock_reload_containerd() {
-  printf 'reload\n' >>"$calls"
-}
-
 # A host config that imports config.toml.d uses the drop-in and leaves the
 # primary config untouched.
 dropin_dir="$(new_containerd_test_dir)"
@@ -657,7 +653,6 @@ printf 'imports = ["./config.toml.d/*.toml"]\n' >>"$dropin_dir/config.toml"
   BREWLET_VALIDATE=false
   NODE_NAME=""
   host_exec() { mock_containerd_dump "$@"; }
-  reload_containerd() { mock_reload_containerd; }
   configure_containerd
 )
 grep -Fq 'containerd.runtimes.brewlet' "$dropin_dir/config.toml.d/99-brewlet.toml"
@@ -677,7 +672,6 @@ printf 'imports = ["./config.toml.d/*.toml"]\n' >>"$v3_dir/config.toml"
   BREWLET_VALIDATE=false
   NODE_NAME=""
   host_exec() { mock_containerd_dump "$@"; }
-  reload_containerd() { mock_reload_containerd; }
   configure_containerd
 )
 grep -Fq 'plugins."io.containerd.cri.v1.runtime".containerd.runtimes.brewlet' \
@@ -743,7 +737,6 @@ grep -Fq 'plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet' \
   BREWLET_VALIDATE=false
   NODE_NAME=""
   host_exec() { mock_containerd_dump "$@"; }
-  reload_containerd() { mock_reload_containerd; }
   configure_containerd
 )
 grep -Fq 'containerd --config '"$dropin_dir/config.toml"' config dump' "$calls"
@@ -784,7 +777,6 @@ fallback_dir="$(new_containerd_test_dir)"
   BREWLET_VALIDATE=false
   NODE_NAME=""
   host_exec() { mock_containerd_dump "$@"; }
-  reload_containerd() { mock_reload_containerd; }
   configure_containerd
 )
 grep -Fq 'containerd.runtimes.brewlet' "$fallback_dir/config.toml"
@@ -804,7 +796,6 @@ if (
     printf 'toml: malformed configuration\n' >&2
     return 1
   }
-  reload_containerd() { echo "unexpected reload" >&2; return 1; }
   configure_containerd
 ) >"$malformed_dir/output" 2>&1; then
   echo "expected malformed containerd configuration to fail" >&2
@@ -830,7 +821,6 @@ if (
       '[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet-old]' \
       '  runtime_type = "io.containerd.brewlet.v2"'
   }
-  reload_containerd() { echo "unexpected reload" >&2; return 1; }
   configure_containerd
 ) >"$missing_dir/output" 2>&1; then
   echo "expected a parsed config without the brewlet handler to fail" >&2
@@ -866,32 +856,73 @@ fi
 grep -Fq 'validated rendered brewlet handler' "$external_cri_dir/output"
 grep -Fq 'containerd.runtimes.brewlet' "$external_cri_dir/config.toml"
 
-# The legacy modes retain their behavior: sighup patches in place and reloads,
-# while none leaves containerd configuration untouched.
-for mode in sighup none; do
-  legacy_dir="$(new_containerd_test_dir)"
+# none must leave both primary and drop-in configuration untouched.
+for operation in provision cleanup; do
+  immutable_dir="$(new_containerd_test_dir)"
+  mkdir -p "$immutable_dir/config.toml.d"
+  printf 'external drop-in\n' >"$immutable_dir/config.toml.d/99-brewlet.toml"
+  cp "$immutable_dir/config.toml" "$immutable_dir/original"
   : >"$calls"
   (
-    CONTAINERD_CONFIG="$legacy_dir/config.toml"
-    CONTAINERD_DROPIN_DIR="$legacy_dir/config.toml.d"
+    CONTAINERD_CONFIG="$immutable_dir/config.toml"
+    CONTAINERD_DROPIN_DIR="$immutable_dir/config.toml.d"
     CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
-    BREWLET_CONTAINERD_RESTART="$mode"
+    BREWLET_CONTAINERD_RESTART=none
     BREWLET_VALIDATE=false
     NODE_NAME=""
-    reload_containerd() { mock_reload_containerd; }
-    configure_containerd
-    activate_containerd_config
-  )
-  if [[ "$mode" == "sighup" ]]; then
-    grep -Fq 'containerd.runtimes.brewlet' "$legacy_dir/config.toml"
-    grep -Fxq 'reload' "$calls"
-  else
-    if grep -Fq 'containerd.runtimes.brewlet' "$legacy_dir/config.toml" ||
-       grep -Fxq 'reload' "$calls"; then
-      echo "expected none mode not to mutate or reload containerd" >&2
-      exit 1
+    restart_containerd_service() { printf 'restart\n' >>"$calls"; }
+    kill() { printf 'signal\n' >>"$calls"; }
+    remove_appcds_regeneration_policy() { :; }
+    clear_node_advertisement() { :; }
+    remove_shim() { :; }
+    remove_runtime_roots() { :; }
+    unlabel_node() { :; }
+    if [[ "$operation" == provision ]]; then
+      configure_containerd
+      activate_containerd_config
+    else
+      cleanup_host
     fi
-  fi
+  )
+  cmp "$immutable_dir/config.toml" "$immutable_dir/original"
+  grep -Fxq 'external drop-in' "$immutable_dir/config.toml.d/99-brewlet.toml"
+  [[ ! -s "$calls" ]] || { echo "none mode signalled containerd" >&2; exit 1; }
+done
+
+for mode in sighup reboot; do
+  for operation in configure_containerd activate_containerd_config cleanup_host cleanup_node main; do
+    for lifecycle in provision cleanup; do
+      rejected_dir="$(new_containerd_test_dir)"
+      cp "$rejected_dir/config.toml" "$rejected_dir/original"
+      : >"$calls"
+      rm -f "$COMPLETION_FILE"
+      if (
+        BREWLET_CONTAINERD_RESTART="$mode"
+        BREWLET_MODE="$lifecycle"
+        CONTAINERD_CONFIG="$rejected_dir/config.toml"
+        CONTAINERD_DROPIN_DIR="$rejected_dir/config.toml.d"
+        CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
+        NODE_NAME=""
+        ensure_in_cluster_kubeconfig() { :; }
+        remove_appcds_regeneration_policy() { printf 'remove-policy\n' >>"$calls"; }
+        remove_shim() { printf 'remove-shim\n' >>"$calls"; }
+        remove_runtime_roots() { printf 'remove-roots\n' >>"$calls"; }
+        install_shim() { printf 'install-shim\n' >>"$calls"; }
+        restart_containerd_service() { printf 'restart\n' >>"$calls"; }
+        kill() { printf 'signal\n' >>"$calls"; }
+        "$operation"
+      ) >"$rejected_dir/output" 2>&1; then
+        echo "expected $mode rejection by $operation in $lifecycle mode" >&2
+        exit 1
+      fi
+      grep -Fq 'invalid-restart-mode' "$rejected_dir/output"
+      if [[ "$mode" == sighup ]]; then
+        grep -Fq 'teardown/reinstallation' "$rejected_dir/output"
+      fi
+      cmp "$rejected_dir/config.toml" "$rejected_dir/original"
+      [[ ! -e "$rejected_dir/config.toml.d/99-brewlet.toml" && ! -s "$calls" && ! -e "$COMPLETION_FILE" ]]
+    done
+  done
 done
 
 assert_contains() {
@@ -915,15 +946,9 @@ assert_activation_validation_order() {
       CONTAINERD_CONFIG_CHANGED=1
       validate_runtime() { printf 'validate\n'; }
       configure_containerd_validated() { validate_runtime; }
-      patch_containerd_in_place() {
-        printf 'configure\n'
-        CONTAINERD_CONFIG_CHANGED=1
-      }
       validated_restart() { printf 'activate\n'; }
-      reload_containerd() { printf 'activate\n'; }
       configure_containerd
       activate_containerd_config
-      validate_readiness_after_activation
     )
   )"
   [[ "$order" == "$expected" ]] || {
@@ -933,7 +958,6 @@ assert_activation_validation_order() {
 }
 
 assert_activation_validation_order validated $'validate\nactivate'
-assert_activation_validation_order sighup $'configure\nactivate\nvalidate'
 assert_activation_validation_order none $'[brewlet-provisioner] BREWLET_CONTAINERD_RESTART=none; skipping containerd configuration mutation\nvalidate\n[brewlet-provisioner] BREWLET_CONTAINERD_RESTART=none; containerd configuration is managed out of band'
 
 restart_calls="$(mktemp "$TEST_TMP_ROOT/restart-calls.XXXXXX")"
@@ -1015,21 +1039,6 @@ assert_contains "handler" "$health_calls"
   activate_containerd_config
 )
 [[ "$(grep -c '^restart$' "$restart_calls")" == "1" ]]
-
-# Legacy modes remain explicit and skip redundant signals.
-: >"$restart_calls"
-(
-  BREWLET_VALIDATE=false
-  BREWLET_CONTAINERD_RESTART=sighup
-  CONTAINERD_CONFIG_CHANGED=1
-  reload_containerd() { printf 'sighup\n' >>"$restart_calls"; }
-  activate_containerd_config
-  CONTAINERD_CONFIG_CHANGED=0
-  activate_containerd_config
-  BREWLET_CONTAINERD_RESTART=none
-  activate_containerd_config
-)
-[[ "$(grep -c '^sighup$' "$restart_calls")" == "1" ]]
 
 # A restart failure restores the primary config, restarts again, verifies
 # recovery, and reports the original failure without advertising success.
@@ -1575,7 +1584,6 @@ completion_case() (
   install_runtime_sources() { completion_step install-sources; }
   configure_containerd() { completion_step configure-containerd; }
   activate_containerd_config() { completion_step activate-containerd; }
-  validate_readiness_after_activation() { completion_step validate-readiness; }
   verify_shim() { completion_step verify-shim; }
   verify_profile_identity() { completion_step verify-profile; }
   configure_appcds_regeneration_policy() { completion_step configure-policy; }
@@ -1669,6 +1677,20 @@ ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Cleanin
 ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Teardown|node-uid|true'
 ownership_case cleanup "$claim_identity" 'profile-uid|3|deleting|node-uid|true|||||none|' false none
 ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Cleaning|node-uid|true|none|validated' false validated
+for policy in sighup reboot; do
+  for ledger in \
+      "profile-uid|3|deleting|node-uid|true|||||$policy|" \
+      "profile-uid|7||node-uid|true|3|Cleaning|node-uid|true|none|$policy"; do
+    if ownership_case cleanup "$claim_identity" "$ledger" true >"$TEST_TMP_ROOT/rejected-policy.log" 2>&1; then
+      echo "expected unsupported stored cleanup policy to be rejected" >&2
+      exit 1
+    fi
+    grep -Fq 'invalid-restart-mode' "$TEST_TMP_ROOT/rejected-policy.log"
+    [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]] || {
+      echo "unsupported cleanup policy mutated state or completed" >&2; exit 1;
+    }
+  done
+done
 for mismatch in \
     'profile-uid|4||node-uid|true||||' \
     'replacement-profile|3||node-uid|true||||' \

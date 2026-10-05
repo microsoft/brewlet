@@ -94,7 +94,7 @@ provisioner:
     maxUnavailable: null
     # validate gates node readiness on the post-install JDK smoke test.
     validate: true
-    # containerdRestart: validated | sighup | none.
+    # containerdRestart: validated | none.
     containerdRestart: validated
   # Optional registry mirrors for air-gapped pulls (§5.6): upstreamHost -> mirror.
   # Every destination host must also appear in security.allowedSourceMirrorHosts.

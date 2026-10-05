@@ -468,5 +468,6 @@ or `CleanupBlocked`. For control-plane removal, follow
 - The copied image must contain the operating-system loader and native libraries
   required by `java`.
 - The default validated activation expects a `containerd` systemd service. Use
-  `sighup` only for the in-place reload path, or `none` when another system owns
-  runtime registration.
+  `none` when another system owns runtime registration. The removed `sighup`
+  policy is rejected; existing installations follow
+  [safe teardown/reinstallation](installation.md#upgrading).

@@ -25,6 +25,7 @@ than pinning one.
 {{- fail "provisioner.pools is required when defaultProfile.enabled is true: name the node pool(s) the privileged provisioner may mutate, or set defaultProfile.enabled=false and define your own NodeProfiles" }}
 {{- end }}
 {{- include "brewlet.validatePools" (dict "value" .Values.provisioner.pools "field" "provisioner.pools") }}
+{{- include "brewlet.validateContainerdRestart" (dict "value" .Values.provisioner.rollout.containerdRestart "field" "provisioner.rollout.containerdRestart") }}
 {{- if not .Values.provisioner.jdks }}
 {{- fail "provisioner.jdks is required when defaultProfile.enabled is true: Brewlet ships no built-in runtime catalog, so name at least one digest-pinned JDK source (distribution, feature, source.image, source.javaHome), or set defaultProfile.enabled=false and define your own NodeProfiles" }}
 {{- end }}
@@ -91,6 +92,8 @@ spec:
 {{- end }}
 {{- $_ := set $names $p.name true }}
 {{- include "brewlet.validatePools" (dict "value" $p.pools "field" (printf "profiles[%d].pools" $i)) }}
+{{- $rollout := default (dict) $p.rollout }}
+{{- include "brewlet.validateContainerdRestart" (dict "value" $rollout.containerdRestart "field" (printf "profiles[%d].rollout.containerdRestart" $i)) }}
 ---
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile

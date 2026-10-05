@@ -49,6 +49,11 @@ func (r *NodeProfileReconciler) profileWriterBarrier(ctx context.Context, profil
 		if ds.Namespace != r.Config.Namespace && metav1.IsControlledBy(ds, profile) {
 			return &migrationEvidenceError{message: fmt.Sprintf("profile writer DaemonSet %s/%s is outside the operator namespace; its original owner must finish teardown before provisioning or cleanup", ds.Namespace, ds.Name)}
 		}
+		if metav1.IsControlledBy(ds, profile) && claimFenced(ds) {
+			if err := validateWorkerContainerdPolicy(&ds.Spec.Template.Spec); err != nil {
+				return &migrationEvidenceError{message: fmt.Sprintf("DaemonSet %s/%s: %v", ds.Namespace, ds.Name, err)}
+			}
+		}
 		if includeUnfenced && (profileWriter(ds.Labels) || profileWriter(ds.Spec.Template.Labels) || ds.Name == brewlet.ProvisionerName) && !claimFenced(ds) {
 			return fmt.Errorf("legacy DaemonSet %s/%s must finish migration before node claims can activate; foreign namespace workers must be drained by their owner", ds.Namespace, ds.Name)
 		}
@@ -63,11 +68,24 @@ func (r *NodeProfileReconciler) profileWriterBarrier(ctx context.Context, profil
 		if pod.Namespace != r.Config.Namespace && profileWriter(pod.Labels) && uid != "" && uid == string(profile.UID) {
 			return &migrationEvidenceError{message: fmt.Sprintf("profile writer pod %s/%s is outside the operator namespace; its original owner must finish teardown before provisioning or cleanup", pod.Namespace, pod.Name)}
 		}
+		if uid != "" && uid == string(profile.UID) && claimFencedPod(&pod.Spec) {
+			if err := validateWorkerContainerdPolicy(&pod.Spec); err != nil {
+				return &migrationEvidenceError{message: fmt.Sprintf("pod %s/%s: %v", pod.Namespace, pod.Name, err)}
+			}
+		}
 		if includeUnfenced && profileWriter(pod.Labels) && !claimFencedPod(&pod.Spec) {
 			return fmt.Errorf("legacy writer pod %s/%s must terminate before node claims can activate", pod.Namespace, pod.Name)
 		}
 	}
 	return nil
+}
+
+func validateWorkerContainerdPolicy(spec *corev1.PodSpec) error {
+	mode, ok := legacyLiteralEnv(spec, "BREWLET_CONTAINERD_RESTART")
+	if !ok {
+		return fmt.Errorf("worker has unverifiable cleanup restart policy; preserve its evidence and recover with compatible components")
+	}
+	return validateContainerdRestart("worker BREWLET_CONTAINERD_RESTART", mode)
 }
 
 func legacyLiteralEnv(spec *corev1.PodSpec, name string) (string, bool) {
@@ -100,21 +118,23 @@ func legacyPolicy(spec *corev1.PodSpec, profile *nodev1alpha1.NodeProfile) (stri
 		return "", "", fmt.Errorf("legacy worker lacks verifiable profile UID/generation provenance")
 	}
 	mode, ok := legacyLiteralEnv(spec, "BREWLET_CONTAINERD_RESTART")
-	if !ok || (mode != nodev1alpha1.ContainerdRestartNone && mode != nodev1alpha1.ContainerdRestartSIGHUP && mode != nodev1alpha1.ContainerdRestartValidated) {
+	if !ok || mode == "" {
 		return "", "", fmt.Errorf("legacy worker has unknown cleanup restart policy")
+	}
+	if err := validateContainerdRestart("legacy worker BREWLET_CONTAINERD_RESTART", mode); err != nil {
+		return "", "", err
 	}
 	return mode, generation, nil
 }
 
 func mergeLegacyMode(prior, next string) string {
-	if prior == "" || next == "" {
+	if prior == "" || next == "" ||
+		validateContainerdRestart("prior cleanup policy", prior) != nil ||
+		validateContainerdRestart("next cleanup policy", next) != nil {
 		return ""
 	}
 	if prior == nodev1alpha1.ContainerdRestartValidated || next == nodev1alpha1.ContainerdRestartValidated {
 		return nodev1alpha1.ContainerdRestartValidated
-	}
-	if prior == nodev1alpha1.ContainerdRestartSIGHUP || next == nodev1alpha1.ContainerdRestartSIGHUP {
-		return nodev1alpha1.ContainerdRestartSIGHUP
 	}
 	return nodev1alpha1.ContainerdRestartNone
 }
@@ -324,6 +344,9 @@ func (r *NodeProfileReconciler) initializeOwnership(ctx context.Context, profile
 		if !verifiedOwner || err != nil {
 			mode = ""
 			blocked = fmt.Errorf("legacy pod %s lacks verified controller UID or cleanup policy; restore its original provenance before migration", pod.Name)
+			if err != nil {
+				blocked = fmt.Errorf("%w: %w", blocked, err)
+			}
 		}
 		names, bounded := migrationPodNames(&pod.Spec, nodes)
 		if !bounded {

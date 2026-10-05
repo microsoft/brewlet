@@ -280,8 +280,7 @@ The default rollout is fail-safe:
   `brewlet.sh/provision-error-message`). The codes are enumerated in
   [SPECIFICATION §14](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
-Use `containerdRestart: sighup` only for the in-place SIGHUP path. Use
-`containerdRestart: none` when containerd registration is managed in the node
+Use `containerdRestart: none` when containerd registration is managed in the node
 image or by another system; the JDK smoke tests and launcher executable checks
 still run.
 See [Configuration](configuration.md#helm-chart-values) for the values.
@@ -331,6 +330,17 @@ the source and target releases, covered components/state, prerequisites,
 validation evidence, and recovery limits. The conditional procedures below do
 not establish such a decision; this guide declares no supported in-place
 release pairs.
+
+**Removed activation policy:** `containerdRestart: sighup` (and
+`BREWLET_CONTAINERD_RESTART=sighup`) is no longer supported. Choose `validated`
+or `none` for new profiles. For existing installations, follow the procedure
+below before replacing components or CRDs; this removal introduces no in-place
+upgrade exception. The old policy may remain in provisioning snapshots,
+per-node targets, retirement records, or worker environments even after the
+current spec changes. The new release refuses these cleanup obligations rather
+than silently restarting containerd or erasing them. Preserve the original
+records and compatible-release recovery evidence if cleanup is blocked; do not
+edit ledgers, remove finalizers, or assume a downgrade is supported.
 
 1. Save your reviewed values, profile and workload manifests, and recovery
    evidence. Pause NodeProfile/GitOps writers and drain or move Brewlet workloads.
