@@ -262,8 +262,8 @@ installed JAR is byte-identical to the build), builds the operator, admission
 and provisioner images with an ownership label, loads them into the kind node
 pinned by digest, and installs `kubernetes/charts/brewlet`. No released CLI,
 plugin, chart or image is used. It needs `go` and `htpasswd` in addition to the
-prerequisites above and takes roughly 35-50 minutes on a hosted runner, most of
-it image builds and NodeProfile provisioning/cleanup.
+prerequisites above. Each CI run has a 90-minute job budget; most of the time
+is image builds and NodeProfile provisioning/cleanup.
 
 Sections run in this order, each command through the real CLI or Maven goal
 with the private kubeconfig. `commands.json` records every command's sanitized
