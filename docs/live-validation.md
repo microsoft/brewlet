@@ -39,6 +39,13 @@ registry fixture). The demo is compiled with `--release 21`. Internet
 access to GitHub release assets, GHCR, Docker Hub, registry.k8s.io, and Maven
 Central is required. Missing prerequisites fail; mandatory cases never skip.
 
+The executable-workflows stalled-process check supports Linux and macOS hosts
+using `/bin/ps` with a bounded timeout, full command arguments, and zombie-state
+checks. An absent PID must also be confirmed by a signal-0 probe; unavailable,
+denied, or malformed inspection fails rather than reporting no orphans.
+Unsupported host platforms fail this mandatory check. The injected stub uses
+the fixture's Python interpreter for portable wall-clock timestamps.
+
 From a full checkout containing release commit
 `f0b9334f7b29177d2ba4b49b044163ef69e16af7`:
 
