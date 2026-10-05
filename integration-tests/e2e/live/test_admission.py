@@ -230,6 +230,7 @@ class DiagnosticCaptureTests(unittest.TestCase):
     def fixture(self):
         return SimpleNamespace(
             registry="localhost:5000", registry_id="owned-registry", candidate="release",
+            source_revision="release-commit", plugin_version="0.5.0",
             record=Mock(), save=Mock(), own_container=Mock(),
             run=Mock(return_value=completed(0, "")),
             kube=Mock(return_value=completed(0, "")))

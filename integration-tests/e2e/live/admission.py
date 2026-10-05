@@ -22,7 +22,8 @@ import tarfile
 import urllib.error
 import urllib.request
 
-from common import Fixture, OWNER_LABEL, ROOT, redact, run, wait
+from common import OWNER_LABEL, ROOT, redact, run, wait
+from checkout import live_fixture
 from admission_helpers import (
     ARTIFACT, BUILDER, VERIFIER, Registry, assert_admission, assert_candidates,
     assert_discoverable, assert_rejection_reasons, digest, encoded, extract_result, signed_envelope,
@@ -38,8 +39,6 @@ RATIFY_IMAGE = ("ghcr.io/notaryproject/ratify:v1.4.5@sha256:"
 GATEKEEPER_COMMIT = "5be06a95665624a619a8082677dcf942043bf514"
 GATEKEEPER_IMAGE = ("openpolicyagent/gatekeeper:v3.18.3@sha256:"
                     "20e9c73472d39644de0fa5941a06894ae79dab41359996c4e0e352b6fb1a62cd")
-RELEASE_SOURCE = "f0b9334f7b29177d2ba4b49b044163ef69e16af7"
-PLUGIN_GOAL = "sh.brewlet:brewlet-maven-plugin:0.5.0:"
 REPOSITORY = "apps/admission"
 CONTENT_CACHE = "/admission-no-content-cache"
 REJECTION_REASONS = {
@@ -130,14 +129,14 @@ class Admission:
         maven("admission-bom", "managed-dependency-bom", "install")
         bundle = self.f.registry + "/platform/admission:release"
         maven("admission-bundle", "managed-dependency-bundle", "package",
-              PLUGIN_GOAL + "dependency-bundle",
+              self.f.plugin + ":dependency-bundle",
               "-Dbrewlet.dependencyBundleImage=" + bundle,
               "-Dbrewlet.sourceBom=com.example.platform:approved-bom:1.0.0",
               "-Dbrewlet.signingKey=" + str(self.current),
               "-Dbrewlet.signerIdentity=live-platform-builder")
         app = self.f.registry + "/" + REPOSITORY + ":release"
         maven("admission-application", "demo-app", "-Pmanaged-dependencies", "package",
-              PLUGIN_GOAL + "push", "-Dbrewlet.image=" + app,
+              self.f.plugin + ":push", "-Dbrewlet.image=" + app,
               "-Dbrewlet.dependencyBundle=" + bundle,
               "-Dbrewlet.mainClass=com.example.Hello",
               "-Dbrewlet.signingKey=" + str(self.current),
@@ -150,7 +149,7 @@ class Admission:
         index = self.registry.referrers(REPOSITORY, digest(raw))
         candidates = [item for item in index["manifests"] if item.get("artifactType") == ARTIFACT]
         if len(candidates) != 1:
-            raise AssertionError(f"released Maven plugin must publish one native attestation: {index}")
+            raise AssertionError(f"Maven plugin must publish one native attestation: {index}")
         candidate = candidates[0]["digest"]
         _, evidence = self.registry.manifest(REPOSITORY, candidate)
         envelope = self.registry.blob(REPOSITORY, evidence["layers"][0]["digest"])
@@ -162,8 +161,8 @@ class Admission:
         self.f.save("admission-release-referrers.json", index)
         self.f.save("admission-release-statement.json", self.statement)
         self.f.record("admission-release-publication", {
-            "version": "0.5.0", "source": RELEASE_SOURCE,
-            "publisher": PLUGIN_GOAL + "push", "subject": digest(raw), "candidate": candidate,
+            "version": self.f.plugin_version, "source": self.f.source_revision,
+            "publisher": self.f.plugin + ":push", "subject": digest(raw), "candidate": candidate,
         })
 
     def fixture(self, name, kinds):
@@ -274,7 +273,7 @@ class Admission:
                     "images", "tag", image, self.baked_image])
         self.f.record("admission-verifier-delivery", {
             "route": "documented baked-image", "baseImage": RATIFY_IMAGE,
-            "source": RELEASE_SOURCE, "binarySHA256": hashlib.sha256(
+            "source": self.f.source_revision, "binarySHA256": hashlib.sha256(
                 (build / VERIFIER).read_bytes()).hexdigest(),
             "image": self.baked_image,
             "otherVerifier": "test-only competing verifier; never an attestation substitute",
@@ -370,9 +369,11 @@ class Admission:
         self.f.apply(store)
         verifier = self.manifest("20-ratify-verifier.yaml")
         verifier["spec"].pop("source")
-        # Ratify v1.4.5's live CRD rejects spec.type; spec.name selects the plugin.
-        # Kept explicit as a candidate correction, never an unmodified-release pass.
-        verifier["spec"].pop("type")
+        corrections = []
+        if self.f.candidate != "checkout":
+            # Only historical release manifests need this correction.
+            verifier["spec"].pop("type")
+            corrections.append("candidate correction: remove unsupported Verifier.spec.type")
         verifier["spec"]["parameters"] = {
             "trustedPublicKey": self.public.read_text(), "expectedBuilderIdentity": BUILDER}
         self.f.apply(verifier)
@@ -390,13 +391,12 @@ class Admission:
              timeout=180, interval=1)
         self.f.apply(self.manifest("50-gatekeeper-constraint.yaml"))
         self.f.record("admission-shipped-resources", {
-            "source": RELEASE_SOURCE,
+            "source": self.f.source_revision,
             "substitutions": ["fixture public key and builder identity",
                               "baked plugin (no source.artifact)",
-                              "candidate correction: remove unsupported Verifier.spec.type",
                               "RATIFY_CONFIG selects baked plugin directory",
                               "ORAS content cache uses immutable empty OCI layout, forcing remote fetch",
-                              "owned-registry HTTP; discovery/provider caches disabled"],
+                              "owned-registry HTTP; discovery/provider caches disabled"] + corrections,
             "enforcement": "deny; unchanged verifier identity and predicate semantics",
         })
 
@@ -858,7 +858,9 @@ class Admission:
             self.f.record("admission-scenario-complete", {
                 "mandatoryAssertions": sorted(self.successful),
                 "ordinaryEphemeralExecutionClaimed": False,
-                "release": "0.5.0", "candidateProductChanges": [
+                "runtime": self.f.candidate, "source": self.f.source_revision,
+                "pluginVersion": self.f.plugin_version,
+                "candidateProductChanges": [] if self.f.candidate == "checkout" else [
                     "remove unsupported Verifier.spec.type"] + (
                     [] if self.f.candidate == "release" else [self.f.candidate]),
             })
@@ -884,7 +886,7 @@ def main():
     for name in ("htpasswd", "go"):
         if not shutil.which(name):
             raise SystemExit(f"Scenario A prerequisite missing: {name}; htpasswd comes from Apache utilities")
-    with Fixture("admission") as fixture:
+    with live_fixture("admission") as fixture:
         Admission(fixture).execute()
 
 

@@ -14,10 +14,10 @@ on:
         options: [all, live, tiers]
         default: all
       candidate:
-        description: Live runtime (release reproduces the 0.5.0 packed-layer GC failure)
+        description: Admission/HPA runtime (checkout=current source; shim/release=historical 0.5.0)
         type: choice
-        options: [shim, release]
-        default: shim
+        options: [checkout, shim, release]
+        default: checkout
       scenario:
         description: Independently runnable live scenario; both runs every live scenario (ignored by tiers suite)
         type: choice
@@ -36,6 +36,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.suite != 'live'
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -118,6 +119,9 @@ jobs:
             cluster: true
             helm: false
     steps:
+      - name: Select private tier work directory
+        run: echo "E2E_WORK=$RUNNER_TEMP/brewlet-tier-work" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
@@ -174,7 +178,22 @@ jobs:
           kubectl rollout status deployment/cert-manager-webhook -n cert-manager --timeout=180s
 
       - name: Run tiers
-        run: integration-tests/e2e/run.sh ${{ matrix.tiers }}
+        run: |
+          mkdir -p "$E2E_WORK"
+          integration-tests/e2e/run.sh ${{ matrix.tiers }} 2>&1 | tee "$E2E_WORK/runner.log"
+
+      - name: Collect redacted tier diagnostics
+        if: always()
+        run: python3 integration-tests/e2e/collect_diagnostics.py "$E2E_WORK" "$RUNNER_TEMP/brewlet-tier-evidence"
+
+      - name: Retain tier diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tiers-${{ strategy.job-index }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/brewlet-tier-evidence
+          if-no-files-found: error
+          retention-days: 14
 
   # SPECIFICATION §4.4 publishes a multi-arch index (amd64 + arm64) and the shim
   # selects a platform manifest with containerd's STRICT matcher — no unmatched
@@ -187,7 +206,11 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.suite != 'live'
     name: "Tier 01-03 on arm64"
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
     steps:
+      - name: Select private tier work directory
+        run: echo "E2E_WORK=$RUNNER_TEMP/brewlet-tier-work" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
@@ -219,20 +242,35 @@ jobs:
           }
 
       - name: Run host-only tiers
-        run: integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3
+        run: |
+          mkdir -p "$E2E_WORK"
+          integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3 2>&1 | tee "$E2E_WORK/runner.log"
+
+      - name: Collect redacted tier diagnostics
+        if: always()
+        run: python3 integration-tests/e2e/collect_diagnostics.py "$E2E_WORK" "$RUNNER_TEMP/brewlet-tier-evidence"
+
+      - name: Retain tier diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tiers-arm64-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/brewlet-tier-evidence
+          if-no-files-found: error
+          retention-days: 14
 
   live:
     name: "Live ${{ matrix.scenario }} (two fresh clusters)"
     if: github.event_name != 'workflow_dispatch' || (inputs.suite != 'tiers' && inputs.scenario != 'workflows')
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
         scenario: ${{ fromJSON(inputs.scenario == 'hpa' && '["hpa"]' || inputs.scenario == 'admission' && '["admission"]' || '["admission","hpa"]') }}
     env:
       PYTHONDONTWRITEBYTECODE: "1"
-      BREWLET_LIVE_CANDIDATE: ${{ inputs.candidate || 'shim' }}
+      BREWLET_LIVE_CANDIDATE: ${{ inputs.candidate || 'checkout' }}
     steps:
       - name: Select isolated evidence directory
         run: echo "BREWLET_LIVE_OUTPUT=$RUNNER_TEMP/brewlet-live-evidence" >> "$GITHUB_ENV"
@@ -241,8 +279,11 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: admission/ratify-verifier/go.mod
-          cache-dependency-path: admission/ratify-verifier/go.sum
+          go-version-file: core/go.mod
+          cache-dependency-path: |
+            core/go.sum
+            kubernetes/go.sum
+            admission/ratify-verifier/go.sum
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin

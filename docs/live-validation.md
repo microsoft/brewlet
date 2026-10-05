@@ -9,11 +9,14 @@ contracts. The [executable workflows](#executable-workflows) scenario covers
 production certification, a performance benchmark, or the broader zero-skip
 rewrite tracked in [#13](https://github.com/microsoft/brewlet/issues/13).
 
-**Coverage status:** CPU HPA passed twice on fresh local arm64 clusters and
+**Historical coverage status:** CPU HPA passed twice on fresh local arm64 clusters and
 twice on hosted amd64 with the fixed-shim candidate described below. Admission
 passed its 47-assertion matrix twice on fresh local arm64 clusters and twice on
 hosted amd64 with that shim and the corrected Verifier manifest. Neither is an
 unmodified 0.5.0 pass.
+The default now builds the full current checkout for all three scenarios.
+Those historical results do not establish a pass for the checkout-built stack;
+use the corresponding run's source revision and evidence for that claim.
 The acceptance work and delivery are tracked in
 [#93](https://github.com/microsoft/brewlet/issues/93),
 [#94](https://github.com/microsoft/brewlet/issues/94), and
@@ -33,21 +36,21 @@ targets, not additional acceptance claims.
 Cross-architecture emulation is deliberately not selected.
 
 Required host tools: Python 3.12+, Docker, **kind 0.30.0**, kubectl, Helm, Go
-(the toolchain required by the pinned verifier), JDK 21 or newer, Maven, Git,
+(the toolchain required by `core/go.mod`), JDK 21 or newer, Maven, Git,
 curl, tar, OpenSSL, and `htpasswd` (Apache utilities, for admission's private
 registry fixture). The demo is compiled with `--release 21`. Internet
 access to GitHub release assets, GHCR, Docker Hub, registry.k8s.io, and Maven
 Central is required. Missing prerequisites fail; mandatory cases never skip.
 
-From a full checkout containing release commit
-`f0b9334f7b29177d2ba4b49b044163ef69e16af7`:
+From a checkout of the source to validate (historical modes additionally need
+release commit `f0b9334f7b29177d2ba4b49b044163ef69e16af7`):
 
 ```bash
 go install sigs.k8s.io/kind@v0.30.0
 export PATH="$(go env GOPATH)/bin:$PATH"
 export PYTHONDONTWRITEBYTECODE=1
 export BREWLET_LIVE_OUTPUT="$(mktemp -d "${TMPDIR:-/tmp}/brewlet-live-evidence.XXXXXX")"
-export BREWLET_LIVE_CANDIDATE=shim
+export BREWLET_LIVE_CANDIDATE=checkout
 python3 -m unittest discover -s integration-tests/e2e/live -p '*test*.py' -v
 python3 integration-tests/e2e/live/hpa.py
 python3 integration-tests/e2e/live/admission.py
@@ -71,6 +74,10 @@ clusters. The first failure stops that job; the other scenario is independent.
 The manual `scenario` selector can run only `hpa`, only `admission` or only
 `workflows`; the scheduled default (`both`) runs every live scenario. The
 `workflows` job runs as two matrix entries, each on a fresh runner and cluster.
+Admission/HPA jobs have a 180-minute budget for two complete checkout builds
+and scenario runs; each workflows job has 90 minutes. Tier jobs have 60 minutes,
+and the arm64 host-only job has 30 minutes. Tier jobs retain selected redacted
+logs on success or failure; private work directories are never uploaded.
 Ordinary PR CI executes offline fixture safeguards and suite routing/monitor
 contracts (`make e2e-contract-check`), not the live jobs. Saved monitor history
 is normalized without renaming run IDs or evidence; see the
@@ -78,12 +85,24 @@ is normalized without renaming run IDs or evidence; see the
 
 ## Release baseline and reproducibility
 
+`BREWLET_LIVE_CANDIDATE=checkout` (the invocation and scheduled/manual default)
+builds the CLI, Maven plugin, operator, admission webhook and provisioner from
+the checkout and installs its chart. Admission also builds the checkout's
+Ratify verifier and uses its shipped policy manifests. `versions.json` records
+the source revision and dirty flag, CLI/plugin hashes, chart file hashes,
+loaded component digests and tool versions. The three scenarios share the
+checkout build implementation; `workflows` always uses it regardless of the
+candidate selector. External infrastructure and JDK images remain pinned.
+
+### Historical reproduction modes
+
 Brewlet 0.5.1 ships the verified warm-reuse fix and corrected Verifier manifest
 described below. The fixture deliberately retains its 0.5.0 baseline and
 candidate modes to reproduce the original defect; these runs do not establish
 unmodified 0.5.1 live coverage.
 
-Both scenarios begin with the **published 0.5.0** CLI, Maven plugin, chart and
+With `candidate=release` or `candidate=shim`, admission/HPA begin with the
+**published 0.5.0** CLI, Maven plugin, chart and
 component images. CLI/plugin/chart bytes are checked against fixed SHA-256
 checksums, and component, kind-node, registry and JDK images are digest-pinned.
 The external Brewlet verifier is built from the matching release source, not
@@ -112,8 +131,8 @@ verification tried to read a packed layer already garbage-collected by
 containerd. No replica writes or synthetic metrics produced that transition.
 
 `BREWLET_LIVE_CANDIDATE=release` preserves that baseline; it is expected to fail
-this configuration's scale-out regression. The documented invocation and hosted
-live jobs explicitly select `shim`: they compile the current shim and overlay
+this configuration's scale-out regression. Explicitly selecting `shim` compiles
+the current shim and overlays
 **only that binary** on the digest-pinned released provisioner image, keeping
 the released operator, admission webhook, Maven plugin, CLI and chart.
 `versions.json` identifies the candidate image manifest, binary SHA-256, Go
@@ -209,14 +228,15 @@ fallback tags cannot substitute for discovery. Zot uses the same private network
 and loopback host port, explicit container identity/ownership and an isolated
 0700 data directory owned by the invoking UID/GID.
 
-The released Maven plugin publishes a signed dependency bundle, a runnable
+The selected Maven plugin publishes a signed dependency bundle, a runnable
 thin-JAR application and its native final-image DSSE/in-toto referrer. Negative
 fixtures retain discoverable referrers and exercise wrong key, builder, subject,
 malformed, tampered, incomplete and split-across-candidate evidence. Each
 denial must be the named Gatekeeper policy's response to a valid API request,
 not an invalid object, missing runtime or scheduling failure.
 
-The verifier is compiled from exact Brewlet 0.5.0 source and delivered by the
+The verifier is compiled from the checkout (or exact Brewlet 0.5.0 source in
+historical modes) and delivered by the
 documented **baked image** route, over digest-pinned Ratify **1.4.5**. Set
 `RATIFY_CONFIG=/home/nonroot/.ratify` to discover the baked plugin directory.
 Ratify's **1.15.6** chart is read from source commit
@@ -227,9 +247,10 @@ base images, generated image and verifier binary digests.
 
 Live deployment found that the pinned chart CRD rejects `Verifier.spec.type`.
 The shipped resource is corrected to select the same plugin through `spec.name`.
-The scenario starts from the release resources and records that one-field
-candidate correction explicitly; trust, predicate and verifier-identity rules
-are unchanged.
+Historical modes start from the release resources and record that one-field
+candidate correction explicitly. Checkout mode uses the corrected shipped
+manifest without deleting `spec.type` to hide a regression; trust, predicate
+and verifier-identity rules are unchanged.
 
 Gatekeeper has external data enabled, cache TTL 0 and validation
 `failurePolicy: Fail`. The Ratify provider timeout is 20 seconds, inside the

@@ -130,12 +130,15 @@ def owned_container(info, identifier, label, owner):
 
 
 class Fixture:
-    def __init__(self, scenario):
+    def __init__(self, scenario, candidate=None):
         if scenario not in ("hpa", "admission", "workflows"):
             raise ValueError("scenario must be hpa, admission or workflows")
-        self.candidate = os.environ.get("BREWLET_LIVE_CANDIDATE", "release")
-        if self.candidate not in ("release", "shim"):
-            raise ValueError("BREWLET_LIVE_CANDIDATE must be release or shim")
+        self.candidate = candidate or os.environ.get("BREWLET_LIVE_CANDIDATE", "release")
+        if self.candidate not in ("release", "shim", "checkout"):
+            raise ValueError("BREWLET_LIVE_CANDIDATE must be checkout, release or shim")
+        self.plugin_version = RELEASE
+        self.plugin = f"sh.brewlet:brewlet-maven-plugin:{RELEASE}"
+        self.source_revision = RELEASE_COMMIT
         self.scenario = scenario
         self.name = f"brewlet-live-{scenario}-{uuid.uuid4().hex[:12]}"
         base = Path(os.environ.get("BREWLET_LIVE_OUTPUT", tempfile.gettempdir()))
@@ -487,7 +490,7 @@ class Fixture:
         shutil.copytree(ROOT / "integration-tests/fixtures/demo-app", app,
                         ignore=shutil.ignore_patterns("target"))
         result = self.run([*self.maven_args, "-f", app / "pom.xml", "package",
-                           "sh.brewlet:brewlet-maven-plugin:0.5.0:push",
+                           self.plugin + ":push",
                            f"-Dbrewlet.image={self.registry}/apps/demo:live",
                            "-Dbrewlet.jdk=21"], timeout=360)
         self.save("publish-demo.log", result.stdout + result.stderr)
