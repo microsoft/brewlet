@@ -323,7 +323,8 @@ With `spec.rollout.validate=true`, each copied JDK must contain an executable
 `<javaHome>/bin/java`, and `java -version` must succeed inside the staged root
 before Brewlet publishes readiness.
 
-Nodes advertise the coarse inventory:
+Nodes advertise a current compact inventory used by compatibility admission,
+node-ready events, and `brewlet k8s status` / `profile inspect`:
 
 ```bash
 kubectl get node node-1 \
@@ -342,6 +343,31 @@ They also publish `brewlet.sh/jdks-info`, populated from the installed JDK:
 
 Use `brewlet k8s jdk list`, `brewlet k8s jdk list --output wide`, or
 `brewlet k8s jdk list --output json` to aggregate this data across the fleet.
+
+These detailed listings and the doctor's JDK inventory check read only
+`brewlet.sh/jdks-info`; they do not infer vendor, patch version, architecture,
+or partial entries from compact tokens. Nodes with absent, blank, or empty
+structured inventory (including `[]` or JSON `null`) are omitted. If none
+remains, listing succeeds with an explanation in table/wide output or `[]`
+in JSON, while `brewlet k8s doctor` fails its inventory check. Malformed nonblank
+structured metadata is an explicit error, even when compact data is present.
+In mixed fleets, detailed inventory covers only nodes with structured entries;
+doctor does not enforce per-node metadata completeness.
+
+**Operational change:** older compact-only nodes no longer appear in detailed
+inventory. Status/inspection can still show their compact JDK tokens, and
+compatibility admission still consumes those tokens; neither guarantees the
+availability of diagnostic metadata. Check `brewlet.sh/jdks-info` and the
+current node-provisioner's logs/publication, not just the desired NodeProfile.
+For release changes, follow the [pre-GA compatibility policy](compatibility.md)
+and [safe teardown/reinstallation guidance](installation.md#upgrading); this
+change does not establish an in-place upgrade exception.
+
+Both annotations remain current contracts under
+[issue #176](https://github.com/microsoft/brewlet/issues/176).
+Their authoritative formats and support boundaries are in
+[Specification §14.1](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#141-observable-contract-stable-surfaces).
+Neither annotation replaces the capability labels used for scheduler affinity.
 
 ---
 

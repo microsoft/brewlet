@@ -213,15 +213,15 @@ func diagnoseNodes(raw []byte) (Check, Check) {
 
 	nodeJDKs, err := inventory.ParseNodes(raw)
 	if err != nil {
-		return nodeCheck, failed("jdk-inventory", err, "Inspect the Brewlet JDK annotations on each node.")
+		return nodeCheck, failed("jdk-inventory", err, "Inspect the brewlet.sh/jdks-info annotation on the reported node.")
 	}
 	jdks := inventory.Aggregate(nodeJDKs)
 	if len(jdks) == 0 {
 		return nodeCheck, Check{
 			Name:        "jdk-inventory",
 			Status:      Fail,
-			Detail:      "no Brewlet JDK inventory is advertised",
-			Remediation: "Configure at least one JDK in the active NodeProfile.",
+			Detail:      "no structured Brewlet JDK inventory is advertised in brewlet.sh/jdks-info",
+			Remediation: "Check the active NodeProfile's JDK configuration and current node-provisioner inventory publication; brewlet.sh/jdks alone is insufficient. See https://github.com/microsoft/brewlet/blob/main/docs/jdk-management.md.",
 		}
 	}
 	return nodeCheck, Check{

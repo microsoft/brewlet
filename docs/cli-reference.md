@@ -418,10 +418,14 @@ brewlet k8s jdk list --output json              # for scripting / CI matrices
 brewlet k8s jdk list --selector brewlet.sh/runtime=ready
 ```
 
-Nodes provisioned before the rich annotation existed fall back to the coarse
-`brewlet.sh/jdks` list (distribution + major only). See
+Only structured `brewlet.sh/jdks-info` entries are listed. Nodes with absent,
+blank, or empty structured inventory are omitted, even if they advertise
+`brewlet.sh/jdks` compact tokens. An empty result succeeds with an explanatory
+message in table/wide output or `[]` in JSON. Malformed nonblank structured
+metadata fails explicitly with the node and annotation name; compact data
+never substitutes for it. See
 [JDK management → Inspecting the JDKs available](jdk-management.md#inspecting-the-jdks-available-on-the-cluster)
-for the equivalent plain-`kubectl` queries.
+for plain-`kubectl` queries and guidance for compact-only nodes.
 
 ---
 
@@ -451,6 +455,13 @@ brewlet k8s doctor --namespace my-team --output json
 
 The command exits non-zero when a blocking check fails. JSON output is suitable
 for CI and platform handoff automation.
+
+The JDK inventory check uses only `brewlet.sh/jdks-info`. It fails if no
+structured JDK entries are advertised anywhere or if structured metadata is
+malformed. It does not require every node to advertise structured inventory.
+If only compact `brewlet.sh/jdks` tokens are present, check current
+node-provisioner publication as well as the active NodeProfile's configuration;
+desired JDK configuration alone does not prove that diagnostic metadata exists.
 
 ---
 
@@ -528,8 +539,8 @@ brewlet k8s inspect app orders --namespace my-team
 brewlet k8s doctor --namespace my-team
 ```
 
-JDK inventory uses [JDK aggregation](#brewlet-k8s-jdk-list), including
-annotation fallback. Launcher inventory aggregates optional launcher
+JDK inventory uses [structured-only JDK aggregation](#brewlet-k8s-jdk-list).
+Launcher inventory aggregates optional launcher
 names from `brewlet.sh/launchers`; the JDK's implicit `java` launcher is not a
 separate entry. Both inventories describe **node-advertised state**, not a
 catalog, a live probe of node files, or proof that a particular Pod uses a JDK.

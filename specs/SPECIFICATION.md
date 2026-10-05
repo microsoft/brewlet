@@ -2097,8 +2097,8 @@ that is explicitly *not* a contract.
 
 | Annotation | Value | Contract |
 |---|---|---|
-| `brewlet.sh/jdks` | Comma-separated `<distribution>-<feature>` tokens, e.g. `temurin-21,microsoft-25` | Installed JDK inventory |
-| `brewlet.sh/jdks-info` | JSON array, one object per root: `{"distribution","vendor","feature","version","arch"}` | Diagnostic inventory. `vendor`/`version`/`arch` are read from the installed JDK itself, so they describe what is really on the node. A root whose `java` cannot be executed is omitted |
+| `brewlet.sh/jdks` | Comma-separated `<distribution>-<feature>` tokens, e.g. `temurin-21,microsoft-25` | Current compact installed-JDK contract for compatibility admission, node-ready events, and CLI status/profile inspection |
+| `brewlet.sh/jdks-info` | JSON array, one object per root: `{"distribution","vendor","feature","version","arch"}` | Structured diagnostic contract for detailed JDK listing and doctor's JDK inventory check. `vendor`/`version`/`arch` are read from the installed JDK itself. A root whose `java` cannot be executed is omitted |
 | `brewlet.sh/launchers` | Comma-separated launcher names, always including the implicit `java` | Installed launcher inventory |
 | `brewlet.sh/profile` | The owning `NodeProfile`'s `metadata.name` | Which profile last provisioned this node |
 | `brewlet.sh/profile-generation` | Decimal `metadata.generation` of that profile | Distinguishes an up-to-date node from a stale one |
@@ -2106,9 +2106,37 @@ that is explicitly *not* a contract.
 | `brewlet.sh/provision-error-message` | Free-form text | **Not a contract.** Human detail only; wording may change at any time |
 | `brewlet.sh/provision-state` | `Provisioning` \| `Ready` \| `Failed` | The *operator's* view of the lifecycle. Distinct from the `brewlet.sh/runtime=ready` label, which the *provisioner* owns and which drives scheduling |
 
-None of these drive scheduling; the per-capability **labels** do
+None of these drive scheduler affinity; the per-capability **labels** do
 ([`CAPABILITY_LABELS.md`](CAPABILITY_LABELS.md)). Annotations cannot back a
-`nodeAffinity`.
+`nodeAffinity`. Compatibility admission's fleet pre-check still consumes the
+compact JDK tokens; retaining that check does not change capability-label
+contract v1.
+
+**JDK inventory support decision
+([#176](https://github.com/microsoft/brewlet/issues/176)):** both annotation
+formats are retained for the current release's distinct consumers listed above.
+This section is their authoritative contract. Compact tokens cannot supply
+vendor, full version, or architecture and are not a fallback for diagnostic
+metadata. Removing the compact producer requires a separate reviewed change
+migrating every active reader first. Revisit this decision when those consumers
+no longer require compact inventory; retention does not promise mixed-version
+operation or an in-place release upgrade.
+
+Detailed inventory reads only `brewlet.sh/jdks-info`. Absent or whitespace-only
+values and decoded empty arrays / JSON `null` yield no entries for that node.
+Malformed nonblank JSON or values incompatible with the typed inventory array
+fail explicitly with node/annotation context, even if compact data is present.
+No detailed records are synthesized from `brewlet.sh/jdks`.
+
+When no structured entries remain, `brewlet k8s jdk list` succeeds with an
+explanation in table/wide output or `[]` in JSON; doctor's JDK check fails.
+Mixed fleets report only structured entries without adding a per-node
+completeness requirement. Status/inspection and compatibility admission keep
+using the compact contract independently. Older compact-only nodes therefore
+lose detailed inventory visibility, not compact status or admission enforcement.
+Operators should inspect current provisioner publication and follow the
+[pre-GA release-update policy](../docs/compatibility.md#release-updates) when
+moving between releases, rather than assuming an in-place upgrade is supported.
 
 ### 14.2 `provision-error` reason codes
 
