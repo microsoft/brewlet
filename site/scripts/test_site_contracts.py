@@ -83,6 +83,39 @@ class SiteContractsTest(unittest.TestCase):
         cls.page = LandingPage((ROOT / "site/index.html").read_text(encoding="utf-8"))
         cls.text = " ".join("".join(cls.page.text).split())
 
+    def test_native_artifacts_and_runnable_images_are_current_formats(self):
+        sections = (
+            ("maven-plugin/README.md",
+             "## Delivery format: native artifact vs runnable image", "## Output"),
+            ("specs/SPECIFICATION.md",
+             "The Java application ships", "### 4.1 Media types"),
+            ("docs/runnable-image.md", "## 1. TL;DR", "## 3."),
+            ("docs/cli-reference.md", "## `brewlet push`", "```"),
+        )
+        for filename, start, end in sections:
+            with self.subTest(document=filename):
+                source = (ROOT / filename).read_text(encoding="utf-8")
+                section = " ".join(source.split(start, 1)[1].split(end, 1)[0].split())
+                for term in ("native artifact", "runnable image", "current",
+                             "local OCI-layout", "CLI", "prepare-bundle",
+                             "launch contract", "sandbox assembly", "Kubernetes"):
+                    self.assertIn(term, section)
+                for obsolete in ("native/legacy", "pre-puller", "brewlet.sh/artifact-"):
+                    self.assertNotIn(obsolete, section)
+
+    def test_native_classpath_media_type_has_a_current_workflow(self):
+        source = (ROOT / "maven-plugin/README.md").read_text(encoding="utf-8")
+        self.assertNotIn("native/legacy", source)
+        native = " ".join(source.split(
+            "Native artifacts use the custom", 1
+        )[1].split("\n\n", 1)[0].split())
+        for term in ("application/vnd.brewlet.classpath.layer.v1+tar",
+                     "local OCI-layout", "CLI", "prepare-bundle",
+                     "sandbox assembly", "cannot unpack", "runnable image"):
+            self.assertIn(term, native)
+        self.assertIn("application/vnd.oci.image.layer.v1.tar+gzip", source)
+        self.assertIn("superseded artifact config fields", " ".join(source.split()))
+
     def test_pre_ga_policy_is_discoverable_and_preserves_explicit_exception(self):
         for filename in (
             "README.md", "CONTRIBUTING.md", "docs/README.md", "docs/installation.md",

@@ -264,10 +264,11 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
      *       A {@code runtimeClassName: brewlet} pod can set {@code image: <ref>}
      *       and containerd/kubelet pull + unpack it as SpinKube does for a
      *       Spin-compatible Wasm application.</li>
-     *   <li>{@code "artifact"} — a native Brewlet OCI artifact with custom media
-     *       types. Registry-native and deployment-agnostic, but containerd cannot
-     *       unpack it, so it must be delivered to nodes out of band (not by
-     *       kubelet).</li>
+     *   <li>{@code "artifact"} — a native artifact with custom media types for
+     *       current local OCI-layout, CLI, and {@code prepare-bundle} workflows.
+     *       Both formats share the current launch contract and sandbox assembly.
+     *       Containerd cannot unpack the custom media types; Kubernetes execution
+     *       rejects native artifacts even if their blobs are already on the node.</li>
      * </ul>
      * See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md.
      */

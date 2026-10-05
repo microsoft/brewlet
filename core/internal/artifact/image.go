@@ -9,8 +9,9 @@
 // layer into a snapshot before the shim's Create() runs, and its differ only
 // understands `tar`, `tar+gzip` and `tar+zstd`. A pod that names a custom
 // artifact as its `image:` therefore fails to pull (ImagePullBackOff) and never
-// reaches the shim — so the artifact can only be delivered to a node out of band
-// (e.g. `ctr images import`), not by kubelet.
+// reaches the shim. Kubernetes execution also rejects native artifacts delivered
+// out of band. Native artifacts serve local OCI-layout, CLI, and prepare-bundle
+// workflows, using the same current launch contract and sandbox assembly.
 //
 // A *runnable OCI image* is the SpinKube-style counterpart that closes that gap:
 // the exact same JAR + optional dependency/module layers, but packaged as a

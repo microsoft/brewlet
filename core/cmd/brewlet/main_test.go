@@ -63,6 +63,21 @@ func TestMainCommandSurface(t *testing.T) {
 		return stdout.String(), stderr.String(), code
 	}
 
+	t.Run("push --help", func(t *testing.T) {
+		out, stderr, code := run(t, []string{"push", "--help"})
+		if code != 0 || out != "" {
+			t.Fatalf("push help: exit=%d stdout=%q stderr=%q", code, out, stderr)
+		}
+		for _, text := range []string{
+			"runnable image", "native artifact", "local OCI-layout / CLI / prepare-bundle",
+			"not Kubernetes execution", "current launch contract", `(default "image")`,
+		} {
+			if !strings.Contains(stderr, text) {
+				t.Errorf("push help missing %q: %s", text, stderr)
+			}
+		}
+	})
+
 	for _, command := range []struct {
 		name, replacement string
 		flags             []string
