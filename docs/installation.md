@@ -467,6 +467,68 @@ removing their DaemonSet alone does not clean them. The current controller no
 longer creates migration scheduling gates or requires Pod Scheduling Readiness
 for this path.
 
+#### Removed standalone provisioning
+
+**Incompatible change ([#175](https://github.com/microsoft/brewlet/issues/175)):**
+NodeProfile/operator-managed provisioning is the only supported Kubernetes
+deployment model. The standalone `kubernetes/deploy/node-provisioner.yaml`
+DaemonSet and `brewlet.sh/provision=true` activation/tracking path have been
+removed. Helm, the Brewlet CLI, and raw operator installation all use
+NodeProfiles. Raw installations now obtain their Namespace and provisioner
+ServiceAccount/RBAC from `kubernetes/deploy/provisioner-rbac.yaml`, which contains
+no worker.
+
+The shipped provisioner requires UID-bound node claims and the profile's durable
+target/retirement authority for **both provision and cleanup**. An omitted
+`BREWLET_REQUIRE_NODE_CLAIM` defaults to `true`; explicit empty, `false`, and
+other values fail with `ownership-fence-failed`. Changing that flag or manually
+stamping ownership is not a recovery path. The new image cannot clean an
+unclaimed standalone installation.
+
+Existing standalone installations must be safely retired before their nodes
+can join the supported model:
+
+1. Inventory the installed release/image, original reviewed manifests, worker
+   DaemonSets/Pods across namespaces, affected nodes, containerd configuration,
+   and retained host state. Save the evidence and pause GitOps or other
+   automation that could recreate provisioning workers.
+2. Drain or move Brewlet workloads and finish local consumers of runtime roots,
+   AppCDS caches, or runnable stages. Follow the original installation's
+   procedure to stop provisioning and GC writers before starting host reversal;
+   do not run competing provisioning and cleanup workers.
+3. Use the **original release's compatible cleanup components and procedure**,
+   retaining its required API access and RBAC until cleanup completes.
+   Do not substitute the target-release provisioner, fabricate claims, clear
+   refusal conditions, or bypass finalizers and live-reference checks.
+4. Verify on every affected node that the original cleanup completed, containerd
+   is healthy with the intended non-Brewlet configuration, and retired workers
+   and shim processes have terminated. Review retained
+   [AppCDS cache files](#retained-appcds-cache-files) and
+   [runnable stages](runnable-image.md#existing-installations-and-unguarded-consumers)
+   separately; cleanup does not prove those files are unused.
+5. Only after verified host cleanup and worker termination, remove the reviewed
+   obsolete activation labels and unshared installation resources. Keep shared
+   RBAC, namespaces, RuntimeClasses, CRDs, and recovery evidence until their
+   owners confirm they are no longer needed. Deleting a DaemonSet, label, or
+   repository manifest alone **does not clean hosts**.
+6. If the original release cannot safely clean a node, stop and preserve its
+   evidence. Retire/replace the affected node through your platform's reviewed
+   decommissioning process, or use a separate fresh environment. Do not attach
+   a new NodeProfile to an unverifiable host; replacement does not erase the
+   old environment's cleanup obligations.
+7. Follow [safe teardown/reinstallation](#default-safe-teardown-and-reinstallation)
+   for retained-resource review, then install matching target-release
+   components and reviewed NodeProfiles on safely prepared nodes. Verify
+   managed ownership, profile status, and runtime readiness before restoring
+   workloads and automation.
+
+The operator and uninstall hook still refuse competing standalone/pre-claim
+workers, including orphaned Pods and known workers in other namespaces. They
+never adopt or delete those workers for you. A node already advertising
+`brewlet.sh/runtime=ready` remains observable, but observation is not authority
+to provision or clean it. Standalone CLI/OCI bundle use and raw workload Pods
+are unaffected.
+
 #### Older profile source formats
 
 Before upgrading an existing Brewlet installation to a release that requires explicit
@@ -560,7 +622,7 @@ for all settings.
 
 | Deployed by the chart | Created/reconciled by the operator at runtime |
 |---|---|
-| `brewlet-operator` Deployment + RBAC | `brewlet-node-provisioner` DaemonSet |
+| `brewlet-operator` Deployment + RBAC | Per-profile `brewlet-node-provisioner-<profile>` and cleanup DaemonSets |
 | Node-provisioner `ServiceAccount` + `ClusterRole` | The `brewlet` `RuntimeClass` |
 | `brewlet-admission` webhook + serving cert | (tracks node readiness, emits events) |
 
@@ -661,9 +723,9 @@ revision, then prepare reviewed manifests:
 
 - Apply `kubernetes/deploy/nodeprofile-crd.yaml` and
   `kubernetes/deploy/javaapplication-crd.yaml` before creating custom resources.
-- Copy the Namespace and provisioner ServiceAccount/RBAC documents from
-  `kubernetes/deploy/node-provisioner.yaml` into your own manifest. **Do not
-  include its standalone DaemonSet** alongside the operator-managed provisioner.
+- Apply `kubernetes/deploy/provisioner-rbac.yaml` for the Namespace and
+  provisioner ServiceAccount/RBAC. It contains no worker; provisioning and
+  cleanup DaemonSets are created only by the operator for NodeProfiles.
 - Configure `kubernetes/config/operator.yaml` with your approved operator image
   digest and provisioner image digest. Configure admission, TLS, and its
   permissions as described in [Configuration](configuration.md#admission-webhook).
@@ -861,7 +923,9 @@ helm uninstall brewlet --namespace brewlet --timeout 5m
 
 Apply the same ordering to raw manifests. Nodes provisioned by a standalone
 `brewlet.sh/provision=true` DaemonSet without a profile require separate
-deprovisioning or replacement. A remaining canonical standalone provisioner
+deprovisioning or replacement using the
+[removed standalone provisioning procedure](#removed-standalone-provisioning).
+A remaining canonical standalone provisioner
 DaemonSet or Pod blocks the hook before profile deletion; the hook never adopts
 or removes it. Finish standalone deprovisioning and remove those workers before
 uninstalling their shared RBAC.

@@ -304,7 +304,7 @@ only touch them directly if you hand-wire the DaemonSet.
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID in managed worker authority checks. |
 | `BREWLET_PROFILE_UID` | *(empty)* | Operator-managed profile UID paired with node ownership and persisted writer authority. |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID`. |
-| `BREWLET_REQUIRE_NODE_CLAIM` | `false` (standalone), `true` (managed) | Require the node UID/owner labels and durable profile target/retirement authority before host mutation. Set by the operator; never disable it on managed workers. |
+| `BREWLET_REQUIRE_NODE_CLAIM` | `true` | Mandatory node UID/owner labels and durable profile target/retirement authority for provisioning and cleanup. Set by the operator; only `true` is accepted. Explicit empty, `false`, and other values fail closed. |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host install prefix (`bin/`, `jdks/`, `launchers/`). |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | Primary containerd configuration. Validated mode uses an imported drop-in when supported and otherwise patches this file with a backup. |
 | `CONTAINERD_DROPIN_DIR` | `/etc/containerd/config.toml.d` | Drop-in directory used when the primary config imports `*.toml` from it. |

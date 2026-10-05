@@ -12,6 +12,13 @@ roots and launcher layers, registers the `brewlet` containerd runtime, validates
 the installation, and advertises node readiness.
 The host must run containerd 2.0 or newer.
 
+The image runs only as an **operator-managed NodeProfile worker**, for both
+provisioning and cleanup. Operator-free Kubernetes provisioning is unsupported
+([#175](https://github.com/microsoft/brewlet/issues/175)); the standalone
+DaemonSet and activation label have been removed. Existing installations must
+use their original compatible cleanup components or safe node replacement;
+see [transition guidance](../docs/installation.md#removed-standalone-provisioning).
+
 See the [Brewlet specification](../specs/SPECIFICATION.md) for the node
 provisioning model and the [user documentation](../docs/)
 for installation and operations guidance.
@@ -103,7 +110,7 @@ the checksum gate to reject each build.
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID for managed writer authority |
 | `BREWLET_PROFILE_UID` | empty | Operator-managed profile UID bound to durable writer authority |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID` |
-| `BREWLET_REQUIRE_NODE_CLAIM` | `false` standalone; `true` managed | Require matching node/profile UIDs and durable provisioning/retirement authority before host mutation; never disable on managed workers |
+| `BREWLET_REQUIRE_NODE_CLAIM` | `true` | Mandatory matching node/profile UIDs and durable provisioning/retirement authority in both modes. Only `true` is accepted; explicit empty, `false`, or other values fail closed. |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host installation prefix |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | containerd configuration |
 | `CONTAINERD_DROPIN_DIR` | `/etc/containerd/config.toml.d` | Host drop-in directory used when the primary config imports it |
@@ -239,7 +246,8 @@ Managed workers predating UID-bound node claims are refused by the current
 operator, not automatically migrated. Complete their cleanup with the original
 release's compatible components before reinstallation; see
 [pre-claim recovery](../docs/installation.md#unsupported-pre-claim-workers).
-Standalone workers likewise must be separately deprovisioned, not adopted.
+Removed standalone installations must likewise be separately deprovisioned with
+their original compatible components, not adopted or cleaned by the new image.
 
 The provisioner container becomes Ready only after its script has finished
 successfully. Both provisioning and cleanup publish `/tmp/brewlet-complete`
@@ -255,12 +263,14 @@ the same completion signal only after reversal has finished. The operator record
 that completion, then waits for the cleanup DaemonSet and its pods to terminate
 before releasing the profile finalizer.
 
-Managed workers first verify `brewlet.sh/owner-uid`,
+All workers first verify `brewlet.sh/owner-uid`,
 `brewlet.sh/owner-node-uid`, `brewlet.sh/owner-name`, and the profile's persisted
-target ledger. Cleanup additionally checks its frozen retirement or deletion
+target ledger. These checks cannot be disabled. Cleanup additionally checks its frozen retirement or deletion
 authority and uses that node's recorded containerd cleanup policy. Failed
 initial fences report `ownership-fence-failed` in logs without running
-host-mutating or node-advertisement failure handlers. Claims survive readiness
+host-mutating or node-advertisement failure handlers. Failures before ownership
+is established also leave host policy and node advertisements untouched,
+regardless of the claim setting. Claims survive readiness
 withdrawal and are released only after cleanup workers terminate.
 
 Retargeting uses the same stop/cleanup/teardown ordering for departing nodes;

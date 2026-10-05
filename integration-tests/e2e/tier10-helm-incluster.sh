@@ -49,7 +49,6 @@ T10_APP="orders-e2e"
 T10_OP_IMG="brewlet.local/brewlet-operator:e2e"
 T10_ADM_IMG="brewlet.local/brewlet-admission:e2e"
 T10_PROV_IMG="brewlet.invalid/brewlet-node-provisioner:e2e"  # bogus on purpose: never runs
-T10_NODE=""
 T10_RC_PREEXISTING=""
 T10_CERT_MANAGER=""
 T10_PORT_FORWARD_PID=""
@@ -84,9 +83,6 @@ _t10_cleanup() {
   kubectl delete validatingwebhookconfiguration brewlet-nodeprofiles --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete ns "$T10_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   wait_for bash -c "! kubectl get namespace '$T10_NS' >/dev/null 2>&1" || true
-  if [[ -n "$T10_NODE" ]]; then
-    label_node "$T10_NODE" brewlet.sh/provision- >/dev/null 2>&1 || true
-  fi
   for n in ${T10_LOADED_NODES[@]+"${T10_LOADED_NODES[@]}"}; do
     node_exec "$n" ctr -n k8s.io images rm "$T10_OP_IMG" "$T10_ADM_IMG" >/dev/null 2>&1 || true
   done
@@ -147,7 +143,6 @@ tier10_helm_incluster() {
       return 0
     fi
   done
-  T10_NODE="$(echo "$nodes" | head -1)"
   # Remember whether a RuntimeClass already existed so cleanup doesn't clobber it.
   kubectl get runtimeclass brewlet >/dev/null 2>&1 && T10_RC_PREEXISTING=1
 
@@ -322,16 +317,11 @@ YAML
 
   # The in-cluster operator reconciles the default profile into the brewlet
   # RuntimeClass + the per-profile DaemonSet (brewlet-node-provisioner-default).
-  # This no longer depends on a node opt-in label — we still label a node to
-  # exercise the node-state path.
-  if ! label_node "$T10_NODE" --overwrite brewlet.sh/provision=true >>"$WORK/t10-optin.log" 2>&1; then
-    fail "helm(in-cluster): opt node in with brewlet.sh/provision label" "see $WORK/t10-optin.log"; return 0
-  fi
   if wait_for kubectl get runtimeclass brewlet; then
     pass "helm(in-cluster): operator created the brewlet RuntimeClass (runtimeclasses RBAC ok)"
   else
-    kubectl logs -n "$T10_NS" -l app=brewlet-operator --tail=60 >>"$WORK/t10-optin.log" 2>&1 || true
-    fail "helm(in-cluster): operator created the RuntimeClass" "see $WORK/t10-optin.log"
+    kubectl logs -n "$T10_NS" -l app=brewlet-operator --tail=60 >>"$WORK/t10-profile.log" 2>&1 || true
+    fail "helm(in-cluster): operator created the RuntimeClass" "see $WORK/t10-profile.log"
   fi
   if wait_for kubectl get ds brewlet-node-provisioner-default -n "$T10_NS"; then
     pass "helm(in-cluster): operator created the per-profile provisioner DaemonSet (daemonsets RBAC ok)"

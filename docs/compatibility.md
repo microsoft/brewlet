@@ -31,6 +31,26 @@ format name alone does not establish it.
 
 ## Release updates
 
+### Kubernetes provisioning support decision
+
+Under [#175](https://github.com/microsoft/brewlet/issues/175) and the policy
+established by [#173](https://github.com/microsoft/brewlet/issues/173),
+**operator-managed NodeProfiles are the only supported Kubernetes provisioning
+model**. Helm, CLI-backed Helm installation, and raw operator manifests remain
+supported ways to install that model. The standalone DaemonSet and label-only
+activation/tracking path are removed; the shipped provisioner requires verified
+managed claims for both provisioning and cleanup.
+
+This is an incompatible installation and opt-in change, not automatic host
+cleanup or adoption. Follow
+[removed standalone provisioning](installation.md#removed-standalone-provisioning)
+for original-release teardown or safe node replacement. Competing-worker
+refusals remain mandatory even though running those workers is unsupported.
+Runtime-ready observation and capability-label contract v1 are unchanged.
+Standalone CLI commands, OCI bundles, and raw workload Pods are not removed.
+
+### Default update path
+
 **Safe teardown/reinstallation is the default for pre-GA release updates.**
 Save reviewed configuration and workload manifests, drain or move workloads,
 and complete the installed release's cleanup before installing the target
@@ -88,7 +108,7 @@ A blocked cleanup requires investigation and recovery, not forced
 deletion. See [Uninstall](installation.md#uninstall) and
 [runnable-stage cleanup](runnable-image.md#reclaiming-unused-stages).
 
-Describe current capabilities by function (for example, standalone provisioning,
+Describe current capabilities by function (for example, NodeProfile provisioning,
 validated containerd activation, or Prometheus textfile collection). Reserve historical
 terms such as "legacy" for precise old-state or migration descriptions; neither
 that label nor its removal decides whether an interface is supported.

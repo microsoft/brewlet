@@ -72,16 +72,16 @@ func TestNodeReconcileOptOutIsNoop(t *testing.T) {
 	}
 }
 
-func TestNodeReconcileOptInProvisions(t *testing.T) {
+func TestNodeReconcileProfileSelectionProvisions(t *testing.T) {
 	c := requireEnvtest(t)
 	ctx := testContext(t)
 	ns := createNamespace(t, ctx, c)
 	r := newNodeReconciler(c, ns)
 
-	// A legacy provision-opted node is tracked and reflected as Provisioning
-	// (the RuntimeClass + provisioner DaemonSet are now owned by the
-	// NodeProfileReconciler, not this controller).
-	name := createNode(t, ctx, c, map[string]string{brewlet.LabelProvision: "true"})
+	profile := profileNamed(ns, []string{ns}, jdk("temurin", 21))
+	profile.Spec.NodePool.Key = "example.com/pool"
+	createProfile(t, ctx, c, profile.Name, profile.Spec)
+	name := createNode(t, ctx, c, map[string]string{"example.com/pool": ns})
 	reconcileNode(t, ctx, r, name)
 
 	var got corev1.Node
@@ -101,7 +101,10 @@ func TestNodeReconcileProvisionErrorFails(t *testing.T) {
 
 	// A provisioner-reported reconfig failure (proposal 0002) marks the node
 	// Failed even before any pod is inspected.
-	name := createNode(t, ctx, c, map[string]string{brewlet.LabelProvision: "true"})
+	profile := profileNamed(ns, []string{ns}, jdk("temurin", 21))
+	profile.Spec.NodePool.Key = "example.com/pool"
+	createProfile(t, ctx, c, profile.Name, profile.Spec)
+	name := createNode(t, ctx, c, map[string]string{"example.com/pool": ns})
 	var node corev1.Node
 	if err := c.Get(ctx, types.NamespacedName{Name: name}, &node); err != nil {
 		t.Fatalf("getting node: %v", err)
@@ -131,7 +134,6 @@ func TestNodeReconcileReadyNode(t *testing.T) {
 
 	// A node advertising the runtime is marked Ready.
 	name := createNode(t, ctx, c, map[string]string{
-		brewlet.LabelProvision:    "true",
 		brewlet.LabelRuntimeReady: brewlet.ValueReady,
 	})
 	var node corev1.Node
@@ -153,6 +155,10 @@ func TestNodeReconcileReadyNode(t *testing.T) {
 	}
 	if s := got.Annotations[brewlet.AnnotationProvisionState]; s != brewlet.StateReady {
 		t.Fatalf("provision-state = %q, want %q", s, brewlet.StateReady)
+	}
+	if got.Labels[brewlet.LabelNodeOwner] != "" || got.Labels[brewlet.LabelNodeIdentity] != "" ||
+		got.Annotations[brewlet.AnnotationNodeOwner] != "" {
+		t.Fatal("readiness observation established node ownership")
 	}
 	select {
 	case event := <-recorder.Events:

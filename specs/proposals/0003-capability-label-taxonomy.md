@@ -31,8 +31,9 @@ The proposal is fully implemented:
   boolean-presence and `Operator: Exists` semantics, compatibility guarantees,
   and concrete Cluster Autoscaler and Karpenter recipes.
 - The recipes reflect the shipped `NodeProfile` pool model: selecting a pool is
-  the provisioning opt-in, while `brewlet.sh/provision=true` remains only for
-  the standalone legacy manifest.
+  the provisioning opt-in. The standalone activation path was removed by
+  [#175](https://github.com/microsoft/brewlet/issues/175); the capability-label
+  contract is unchanged.
 
 ---
 
@@ -74,8 +75,8 @@ Purely documentation + a stability guarantee — no code change required:
   matched with `Operator: Exists`), and the `<dist>`/`<feature>`/`<name>` token grammar.
 - Declare the keys **stable within the `brewlet.sh/` v1 label namespace**: additions
   are allowed; renames/removals are breaking changes gated on a major version.
-- Document **autoscaler recipes** that distinguish the shipped pool model from
-  the legacy standalone path: `NodeProfile.spec.nodePool` selects nodes for
+- Document **autoscaler recipes** for the shipped pool model:
+  `NodeProfile.spec.nodePool` selects nodes for
   provisioning, Cluster Autoscaler may use synthetic capability labels for
   scheduling simulation, and Karpenter may publish those labels only when its
   node bootstrap makes them true before kubelet registration.

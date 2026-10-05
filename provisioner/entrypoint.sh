@@ -4,7 +4,7 @@
 
 # brewlet-node-provisioner entrypoint.
 #
-# Runs as a privileged DaemonSet pod on nodes annotated brewlet.sh/provision=true
+# Runs as an operator-managed privileged DaemonSet pod on UID-claimed NodeProfile nodes
 # and performs the host-side installation described in https://github.com/microsoft/brewlet/tree/main/specs §5.2:
 #
 #   0. Preflight: require cgroup v2 (unified hierarchy); refuse the node otherwise.
@@ -120,7 +120,7 @@ BREWLET_VALIDATE="${BREWLET_VALIDATE:-true}"
 BREWLET_PROFILE_NAME="${BREWLET_PROFILE_NAME:-default}"
 BREWLET_PROFILE_UID="${BREWLET_PROFILE_UID:-}"
 BREWLET_PROFILE_GENERATION="${BREWLET_PROFILE_GENERATION:-0}"
-BREWLET_REQUIRE_NODE_CLAIM="${BREWLET_REQUIRE_NODE_CLAIM:-false}"
+BREWLET_REQUIRE_NODE_CLAIM="${BREWLET_REQUIRE_NODE_CLAIM-true}"
 NODE_WRITE_AUTHORIZED=false
 BREWLET_APP_CDS_REGENERATION_ENABLED="${BREWLET_APP_CDS_REGENERATION_ENABLED:-false}"
 POLICY_DIR="${POLICY_DIR:-$PREFIX/policy}"
@@ -160,7 +160,7 @@ die()  {
   printf '[brewlet-provisioner] ERROR: %s: %s\n' "$code" "$*" >&2
   # Even failure handling mutates host policy and node advertisements. A
   # container that failed the ownership fence must leave both untouched.
-  if [[ "$BREWLET_REQUIRE_NODE_CLAIM" == "true" && "$NODE_WRITE_AUTHORIZED" != "true" ]]; then
+  if [[ "$NODE_WRITE_AUTHORIZED" != "true" ]]; then
     exit 1
   fi
   if [[ "$code" != "invalid-restart-mode" ]] && command -v remove_appcds_regeneration_policy >/dev/null 2>&1; then
@@ -1695,7 +1695,6 @@ label_node() {
 
 verify_profile_identity() {
   verify_node_ownership
-  [[ -n "$BREWLET_PROFILE_UID" ]] || return 0
   local identity uid generation deleting
   if ! identity="$(kubectl get nodeprofile "$BREWLET_PROFILE_NAME" \
       -o jsonpath='{.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}' 2>/dev/null)"; then
@@ -1712,10 +1711,11 @@ verify_profile_identity() {
 # and returns 75 instead of dying. Only a successful read can revoke authority,
 # so a transient control-plane outage cannot crash a provisioned worker.
 verify_node_ownership() {
-  [[ "$BREWLET_REQUIRE_NODE_CLAIM" == "true" ]] || return 0
   local allow_inconclusive=false previous_authorization="$NODE_WRITE_AUTHORIZED"
   [[ "${1:-}" != "--allow-inconclusive" ]] || allow_inconclusive=true
   NODE_WRITE_AUTHORIZED=false
+  [[ "$BREWLET_REQUIRE_NODE_CLAIM" == "true" ]] \
+    || die ownership-fence-failed "BREWLET_REQUIRE_NODE_CLAIM must be true; standalone provisioning and cleanup are unsupported"
   [[ -n "$BREWLET_PROFILE_UID" && -n "$NODE_NAME" ]] \
     || die ownership-fence-failed "managed writers require profile and node identities"
   local node_identity node_uid owner_uid owner_node_uid owner_name

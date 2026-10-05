@@ -258,8 +258,25 @@ grep -Fq 'stage GC skipped: could not verify node ownership' "$work/inconclusive
   if (verify_node_ownership) 2>/dev/null; then exit 1; fi
 )
 
-if grep -Rq 'unexpected-sweep' "$work"; then
-  echo "blocked or unauthorized worker invoked GC" >&2
+# Disabling fencing cannot preserve earlier authority or permit a sweep.
+for setting in false "" invalid; do
+  if (
+    fixture
+    BREWLET_REQUIRE_NODE_CLAIM="$setting"
+    NODE_WRITE_AUTHORIZED=true
+    STAGE_GC_COMPATIBLE=true
+    kubectl() { echo unexpected-api-access >>"$calls"; return 1; }
+    nsenter() { echo unexpected-sweep >>"$calls"; }
+    run_stage_gc_loop
+  ) >"$work/disabled-fence.log" 2>&1; then
+    echo "GC accepted disabled ownership fencing" >&2
+    exit 1
+  fi
+  grep -Fq 'ownership-fence-failed' "$work/disabled-fence.log"
+done
+
+if grep -REq 'unexpected-sweep|unexpected-api-access' "$work"; then
+  echo "blocked or unauthorized worker invoked GC or accessed the API" >&2
   exit 1
 fi
 grep -Fq 'stage GC blocked' "$work/blocked.log"

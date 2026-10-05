@@ -155,7 +155,7 @@ _t17_cleanup() {
       fail "tier17: restore the node's original containerd configuration"
     [[ -n "$T17_SENTINEL_CREATED" ]] &&
       node_exec "$T17_NODE" rm -rf "$T17_SENTINEL" "$T17_PENDING" >/dev/null 2>&1 || true
-    label_node "$T17_NODE" "$T17_POOL_KEY-" brewlet.sh/provision- \
+    label_node "$T17_NODE" "$T17_POOL_KEY-" \
       brewlet.sh/runtime- "brewlet.sh/jdk.$T17_JDK-" \
       "brewlet.sh/jdk-feature.${T17_JDK##*-}-" brewlet.sh/launcher.java- \
       >/dev/null 2>&1 || true
@@ -444,7 +444,7 @@ tier17_stage_gc() {
   fi
   pass "tier17: chart installed with default stageGC values"
 
-  label_node "$T17_NODE" --overwrite "$T17_POOL_KEY=$T17_POOL" brewlet.sh/provision=true \
+  label_node "$T17_NODE" --overwrite "$T17_POOL_KEY=$T17_POOL" \
     brewlet.sh/runtime- >>"$WORK/t17-profile.log" 2>&1
   annotate_node "$T17_NODE" brewlet.sh/provision-state- brewlet.sh/provision-error- \
     >>"$WORK/t17-profile.log" 2>&1 || true

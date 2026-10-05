@@ -29,7 +29,7 @@ _t4_cleanup() {
   [[ -n "$T4_MGR_PID" ]] && wait "$T4_MGR_PID" 2>/dev/null || true
   T4_MGR_PID=""
   if [[ -n "$T4_NODE" ]]; then
-    kubectl label "$T4_NODE" brewlet.sh/provision- brewlet.sh/runtime- >/dev/null 2>&1 || true
+    kubectl label "$T4_NODE" brewlet.sh/runtime- >/dev/null 2>&1 || true
     kubectl annotate "$T4_NODE" brewlet.sh/provision-state- >/dev/null 2>&1 || true
   fi
   if [[ -n "$T4_PROFILE_UID" ]] &&
@@ -212,8 +212,8 @@ YAML
 
   # --- NodeProfile controller: default (catch-all) profile -----------------
   # Creating a default NodeProfile (empty pool = every node) is what now drives
-  # RuntimeClass + provisioner-DaemonSet creation (the node annotation no longer
-  # does). The DaemonSet references the bogus provisioner image, so its pods
+  # RuntimeClass + provisioner-DaemonSet creation. The DaemonSet references
+  # the bogus provisioner image, so its pods
   # never run host-mutating code.
   cat >"$WORK/t4-nodeprofile.yaml" <<YAML
 apiVersion: node.brewlet.sh/v1alpha1
@@ -267,11 +267,9 @@ YAML
   # --- Node lifecycle controller: state transitions ------------------------
   T4_NODE="$(e2e_node_names | head -1)"; T4_NODE="${T4_NODE:+node/$T4_NODE}"
   if [[ -z "$T4_NODE" ]]; then
-    skip "node lifecycle: opt-in flow" "no nodes found"
+    skip "node lifecycle: profile-selected flow" "no nodes found"
   else
     info "node lifecycle: using $T4_NODE"
-    kubectl label --overwrite "$T4_NODE" brewlet.sh/provision=true >/dev/null 2>&1
-
     if wait_for _t4_state_is "Provisioning"; then
       pass "node lifecycle: node marked Provisioning while awaiting the runtime"
     else

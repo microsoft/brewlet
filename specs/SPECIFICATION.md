@@ -737,9 +737,8 @@ execution support, or a production-readiness certification.
 
 ## 5. Node Provisioning (`brewlet-node-provisioner`)
 
-Mirrors Runtime Class Manager's node/shim lifecycle: a privileged DaemonSet —
-placed by a `NodeProfile` pool (§5.6), or by a `brewlet.sh/provision` node label
-on the standalone no-operator path (§5.5) — installs the runtime onto the host
+Mirrors Runtime Class Manager's node/shim lifecycle: a privileged DaemonSet
+placed by an operator-managed `NodeProfile` pool (§5.6) installs the runtime onto the host
 and wires it into containerd. Nodes MUST run containerd 2.0 or newer because
 the authoritative image-identity contract requires protected CRI
 requested-image metadata. This server requirement is independent of the
@@ -747,9 +746,22 @@ containerd TOML format: config `version = 2` and `version = 3` are both
 supported on containerd 2.
 
 ### 5.1 Activation
+
+**Support decision ([#175](https://github.com/microsoft/brewlet/issues/175)):**
+operator-managed NodeProfiles are the only supported Kubernetes provisioning
+model. Helm, the Brewlet CLI's Helm wrapper, and raw operator manifests all use
+this model. Operator-free provisioning and the `brewlet.sh/provision=true`
+activation label have been removed under the
+[pre-GA compatibility policy](../docs/compatibility.md). The label no longer
+selects nodes for provisioning or node-state tracking.
+
+For a fresh installation, use reviewed pool and digest-pinned runtime values
+from the [installation guide](../docs/installation.md):
+
 ```bash
-helm repo add brewlet https://charts.brewlet.sh
-helm install -n brewlet --create-namespace brewlet microsoft/brewlet-operator
+helm install brewlet oci://ghcr.io/microsoft/charts/brewlet \
+  --version x.y.z --namespace brewlet --create-namespace \
+  --values my-pools.yaml --values my-jdks.yaml
 ```
 
 The chart renders a **default `NodeProfile`** (§5.6) that provisions the node
@@ -757,10 +769,13 @@ pools named in `provisioner.pools` — pool-level activation, with no per-node
 opt-in step to manage. `provisioner.pools` is **required**: because the
 provisioner is privileged and mutates the host, the chart fails to render rather
 than default to the whole cluster. To author profiles yourself instead, disable
-the default profile (`defaultProfile.enabled=false`, §5.6). The standalone per-node opt-in — a `brewlet.sh/provision=true` node **label**
-(not an annotation; it drives `nodeAffinity`) consumed by the standalone
-the [`deploy/node-provisioner.yaml`](../kubernetes/deploy/node-provisioner.yaml)
-DaemonSet — remains for the no-operator path (§5.5).
+the default profile (`defaultProfile.enabled=false`, §5.6).
+
+Existing standalone installations require
+[safe teardown with their original compatible components or node replacement](../docs/installation.md#removed-standalone-provisioning).
+Deleting their DaemonSet or activation label does not clean hosts. Competing
+workers are still refused, never silently adopted. Runtime-ready nodes remain
+observable (§8.1), but readiness grants no ownership or cleanup authority.
 
 ### 5.2 What the provisioner does on each opted-in node
 Before step 1, the provisioner validates every indexed JDK and launcher source.
@@ -1065,8 +1080,8 @@ this check together with the JDK smoke tests.
 
 The provisioner is a container image built from the
 [`provisioner/`](https://github.com/microsoft/brewlet/tree/main/provisioner)
-directory (`Dockerfile` + `entrypoint.sh`) and deployed by
-[`deploy/node-provisioner.yaml`](../kubernetes/deploy/node-provisioner.yaml):
+directory (`Dockerfile` + `entrypoint.sh`) and deployed only through the
+operator's per-profile provisioning and cleanup DaemonSets:
 
 - **Image** — a multi-stage build that compiles
   `containerd-shim-brewlet-v2`, `brewlet`, `brewlet-source-policy`, and
@@ -1079,7 +1094,8 @@ directory (`Dockerfile` + `entrypoint.sh`) and deployed by
   one-shot sweeps; it is invoked with the `stage-gc` subcommand.
   Build with `make provisioner-image`
   (single arch) or `make provisioner-image-push` (multi-arch via buildx).
-- **Entrypoint** — an idempotent script that performs all §5.2 steps:
+- **Entrypoint** — an idempotent script that first verifies the node/profile
+  identities and durable writer authority (§5.6), then performs all §5.2 steps:
   validates all indexed JDK/launcher sources before host mutation; installs
   the shim to `/opt/brewlet/bin` and the host `/usr/local/bin` (containerd's
   PATH); materializes each declared JDK root under `/opt/brewlet/jdks/<dist>-<feature>/`
@@ -1095,8 +1111,11 @@ directory (`Dockerfile` + `entrypoint.sh`) and deployed by
   node `brewlet.sh/runtime=ready`,
   annotates the installed JDKs/launchers, and emits the per-capability scheduling
   labels the admission webhook uses (`brewlet.sh/jdk.*`, `brewlet.sh/jdk-feature.*`,
-  `brewlet.sh/launcher.*`). The manifest ships the `ServiceAccount` + `ClusterRole`/binding
-  (`get`/`patch` on nodes) the labelling step needs. After publishing completion,
+  `brewlet.sh/launcher.*`). The Helm chart or raw
+  [`deploy/provisioner-rbac.yaml`](../kubernetes/deploy/provisioner-rbac.yaml)
+  supplies the Namespace, `ServiceAccount`, and `ClusterRole`/binding needed
+  to inspect node/profile authority and publish node state, without deploying
+  an independent worker. After publishing completion,
   the provisioner continues with the cleanup lifecycle in §5.2.1.
 
 Node provisioning is driven by the **operator** (§8.1) and admission is handled
@@ -1110,8 +1129,7 @@ mechanics, source policy, deployment): see
 
 ### 5.6 Node profiles (per-pool preparation)
 
-Provisioning every node identically — whether via a cluster-wide default profile
-or the standalone `brewlet.sh/provision` label (§5.1/§5.5) — ignores that real
+Provisioning every node identically via a cluster-wide default profile ignores that real
 clusters are heterogeneous: a batch pool wants a different JDK than the web pool,
 an air-gapped pool needs a registry mirror, some pools must never have containerd
 restarted. The cluster-scoped **`NodeProfile`** CRD (`node.brewlet.sh/v1alpha1`)
@@ -1220,7 +1238,10 @@ spec:
   fresh profile reads, but node claims remain authoritative when admissions race.
   Managed containers set `BREWLET_REQUIRE_NODE_CLAIM=true` and check both the
   node identity and persisted provisioning/retirement authority before host
-  mutation or readiness publication. A failed initial ownership fence does not
+  mutation or readiness publication. The entrypoint defaults this setting to
+  `true` when omitted and rejects every other explicit value, including empty
+  and `false`, in both provisioning and cleanup modes. Claim fencing cannot be
+  disabled. A failed initial ownership fence does not
   run host-mutating or node-advertisement failure handlers.
 - **Retargeting.** Selector edits and node pool/role changes retire departing
   recorded targets. The operator stops provisioning, freezes the retirement
@@ -1573,12 +1594,14 @@ Manager, and workload reconciliation analogous to Spin Operator:
 >   `node.brewlet.sh/cleanup` finalizer holds a deleted profile while a
 >   `brewlet-cleanup-<profile>` DaemonSet reverses host state; the object is only
 >   GC'd once host cleanup and worker teardown complete.
-> - **`NodeReconciler`** is now a per-node *state mirror*: it watches provisioned
->   nodes (pool membership + the standalone `brewlet.sh/provision` label, gated on the
->   runtime-ready label) and reflects state via the `brewlet.sh/provision-state`
+> - **`NodeReconciler`** is a per-node *state mirror*: it tracks nodes selected
+>   by a NodeProfile's pool/role rules or already advertising
+>   `brewlet.sh/runtime=ready`, and reflects state via the `brewlet.sh/provision-state`
 >   annotation plus `Provisioning` / `NodeReady` / `ProvisionFailed` events (§14),
 >   reading the `brewlet.sh/provision-error` annotation the provisioner writes on
->   failure. DaemonSet/RuntimeClass ownership moved to `NodeProfileReconciler`.
+>   failure. A removed activation label alone does not trigger observation;
+>   runtime-ready observation does not adopt an unmanaged node.
+>   DaemonSet/RuntimeClass ownership belongs to `NodeProfileReconciler`.
 >
 > RBAC + Deployment ship in
 > [`config/operator.yaml`](../kubernetes/config/operator.yaml)
