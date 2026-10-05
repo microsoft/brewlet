@@ -79,6 +79,19 @@ class RegistryClientRefParsingTest {
     }
 
     @Test
+    void pinnedSourcesKeepTheirDigestAndRegistryPort() {
+        String digest = "sha256:" + "a".repeat(64);
+        for (String name : new String[]{"localhost:5000/team/app",
+                "localhost:5000/team/app:1.0"}) {
+            String ref = name + "@" + digest;
+            assertArrayEquals(new String[]{"localhost:5000", "team/app"},
+                    RegistryClient.splitRef(ref));
+            assertEquals(digest, RegistryClient.extractTag(ref));
+            assertTrue(RegistryClient.isDigestPinnedReference(ref));
+        }
+    }
+
+    @Test
     void extractTag_snapshotVersion() {
         assertEquals("1.0.0-SNAPSHOT",
                 RegistryClient.extractTag("registry.example.com/team/app:1.0.0-SNAPSHOT"));
