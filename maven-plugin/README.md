@@ -186,7 +186,7 @@ is not ready.
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
 | `brewlet:manifest` | — | Emit a `JavaApplication` CR YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Uses a digest-pinned `<image>` when given, otherwise the deploy image recorded by the last `brewlet:push` (`target/brewlet/push.json`). Health probes come only from `<probes>` (or `-Dbrewlet.readinessPath`/`livenessPath`); none are inferred. |
 | `brewlet:deploy` | — | `push` + `manifest` + `kubectl apply`, then wait for the `JavaApplication` to become Ready with progress output. See [Push, apply, and wait in one step](#push-apply-and-wait-in-one-step). |
-| `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. |
+| `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. Honors `brewlet.cdsArchive` exactly like `build`/`push` (`cds` block + CDS layer with digest). |
 
 Run any goal directly, e.g. `mvn brewlet:inspect`.
 
