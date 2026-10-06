@@ -3,7 +3,8 @@
 # Licensed under the MIT License.
 
 # Tier 2 — local developer experience: the CLI + node-resident JVM path.
-# Covers: push (OCI artifact, no Dockerfile), inspect, run (java -jar + live curl),
+# Covers: push (OCI artifact, no Dockerfile), inspect, run (java -jar + live curl,
+# plus a shipped AppCDS archive mapping under -Xshare:on),
 # bundle (resource->JVM/cgroup mapping in config.json), layered classpath, and
 # modular (JPMS) apps, including supplementary non-modular class-path helpers.
 # Prereqs: go, java, python3
@@ -87,6 +88,34 @@ tier2_cli() {
   fi
   kill "$run_pid" 2>/dev/null || true
   wait "$run_pid" 2>/dev/null || true
+
+  # --- run + AppCDS: the shipped archive maps under `brewlet run` -----------
+  # The archive records the classpath relative to the training cwd, so `run`
+  # must launch the JVM from the sandbox app dir (the shim's /app). -Xshare:on
+  # turns a silent -Xshare:auto fallback into a hard failure (issue #212).
+  local cdsdir="$WORK/t2-cds" cdsref="demo/cds-hello:1.0.0"
+  rm -rf "$cdsdir"; mkdir -p "$cdsdir/src" "$cdsdir/elsewhere"
+  printf 'public class Main { public static void main(String[] a) { System.out.println("cds-hello"); } }\n' \
+    >"$cdsdir/src/Main.java"
+  printf 'Main-Class: Main\n' >"$cdsdir/manifest.mf"
+  if javac -d "$cdsdir/src" "$cdsdir/src/Main.java" >"$WORK/t2-cds-build.log" 2>&1 \
+       && jar cfm "$cdsdir/app.jar" "$cdsdir/manifest.mf" -C "$cdsdir/src" Main.class >>"$WORK/t2-cds-build.log" 2>&1 \
+       && "$bin" push "$cdsdir/app.jar" "$cdsref" --store "$store" --format=artifact --appcds \
+            >>"$WORK/t2-cds-build.log" 2>&1; then
+    pass "run+appcds: push trains and ships an AppCDS archive"
+    if out="$(cd "$cdsdir/elsewhere" && "$bin" run "$cdsref" --store "$store" \
+                -- -Xshare:on -Xlog:class+load=info 2>&1)"; then
+      pass "run+appcds: JVM starts with -Xshare:on from an unrelated cwd"
+      assert_contains "run+appcds: app output" "$out" "cds-hello"
+      assert_contains "run+appcds: Main loaded from the shipped dynamic archive" \
+        "$out" "Main source: shared objects file (top)"
+    else
+      printf '%s\n' "$out" >"$WORK/t2-cds-run.log"
+      fail "run+appcds: JVM starts with -Xshare:on" "see $WORK/t2-cds-run.log"
+    fi
+  else
+    fail "run+appcds: push --appcds" "see $WORK/t2-cds-build.log"
+  fi
 
   # --- bundle: OCI runc bundle + resource->JVM/cgroup mapping --------------
   local bdir="$WORK/bundle"

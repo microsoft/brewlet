@@ -51,6 +51,11 @@ type Plan struct {
 	Args    []string // full argv after the java binary
 	Env     []string
 	JarPath string
+	// Dir is the JVM working directory: the sandbox app directory holding the
+	// main JAR, mirroring the shim's /app cwd. AppCDS archives record the
+	// classpath relative to the training cwd, so launching elsewhere makes the
+	// archive mismatch (-Xshare:on) or be silently ignored (-Xshare:auto).
+	Dir string
 }
 
 // BuildJVMArgs assembles the launcher argv and appends the entrypoint. Brewlet
@@ -252,13 +257,16 @@ func BuildPlan(cfg artifact.JVMConfig, jarPath, jdkHome, launcherName string, ex
 		Args:    args,
 		Env:     env,
 		JarPath: jarPath,
+		Dir:     filepath.Dir(jarPath),
 	}, nil
 }
 
-// Run executes the plan in the foreground (the local-demo path; on Linux the
-// shim hands the equivalent argv to runc inside a sandbox instead).
+// Run executes the plan in the foreground from p.Dir (the local-demo path; on
+// Linux the shim hands the equivalent argv to runc inside a sandbox, with cwd
+// /app, instead).
 func (p Plan) Run() error {
 	cmd := exec.Command(p.JavaBin, p.Args...)
+	cmd.Dir = p.Dir
 	cmd.Env = p.Env
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
