@@ -11,6 +11,11 @@ invocation-owned registry and disposable kind cluster:
             rejected credentials; --store; unqualified refs; repeat publication)
   apps      `brewlet k8s app status|wait` (namespaces, outputs, generations,
             missing resources, rollout and API timeouts)
+  inventory `brewlet k8s status|doctor`, `jdk|launcher list`, `profile
+            list|inspect`, `inspect app` (outputs, namespaces, ground truth),
+            `jdk|launcher add` (client/server dry runs without mutation,
+            offline --file, Helm refusal, live add on a disposable profile)
+            and `install` validation plus its fresh-install-only guard
   maven     `mvn package brewlet:deploy` (push -> manifest -> apply -> Ready ->
             response, wait opt-out, timeouts, encrypted settings, dry run)
   profiles  `brewlet k8s profile delete` (guards, dry runs, timeout, attach and
@@ -240,6 +245,22 @@ def build_app(f, name):
     return app
 
 
+def maven_app(f, name):
+    """Copy the fixture and declare its HTTP port for the plugin's probes and Service."""
+    app = build_app(f, name)
+    pom = app / "pom.xml"
+    text = pom.read_text()
+    plugin = (f"      <plugin>\n        <groupId>sh.brewlet</groupId>\n"
+              f"        <artifactId>brewlet-maven-plugin</artifactId>\n"
+              f"        <version>{f.plugin_version}</version>\n        <configuration>\n"
+              f"          <ports>\n            <port>\n              <name>http</name>\n"
+              f"              <containerPort>8080</containerPort>\n            </port>\n"
+              f"          </ports>\n        </configuration>\n      </plugin>\n    </plugins>")
+    require(text.count("</plugins>") == 1, "fixture pom layout changed; cannot declare plugin ports")
+    pom.write_text(text.replace("    </plugins>", plugin, 1))
+    return app
+
+
 def push_scenario(f):
     app = build_app(f, "push-app")
     f.cmd("package-demo", [*f.maven_args, "-f", app / "pom.xml", "package"], timeout=600)
@@ -440,7 +461,476 @@ def app_scenario(f, image, published):
         "crossArchitectureRuntime": "not exercised; index children verified by registry fetch only"})
 
 
-# ---- 3. Maven deploy --------------------------------------------------------
+# ---- 3. cluster inventory, inspection and profile additions -------------------
+
+INVENTORY_PROFILE = "wf-inventory"
+JDK17 = ("--distribution", "temurin", "--feature", "17", "--image", JDK_IMAGE, "--java-home", "/opt/java/openjdk")
+JAZ = ("--name", "jaz", "--image", JDK_IMAGE, "--path", "/opt/java/openjdk/bin/java")
+
+
+def quiet_failure(result, needle, what):
+    require(needle in result.stderr and not result.stdout.strip(),
+            f"{what}: expected {needle!r} on stderr and empty stdout, got stderr={result.stderr[-1000:]!r} "
+            f"stdout={result.stdout[-500:]!r}")
+
+
+def node_jdks(f):
+    """Ground truth: the provisioner's structured inventory on the owned node."""
+    raw = f.get("node", f.node)["metadata"].get("annotations", {}).get("brewlet.sh/jdks-info", "")
+    require(raw.strip(), "node does not advertise brewlet.sh/jdks-info")
+    return json.loads(raw)
+
+
+def inventory_scenario(f, image):
+    kc = f.write_kubeconfig("inventory", h.derive_kubeconfig(f.base_kubeconfig(), context="wf-target"))
+    alpha = f.write_kubeconfig("inventory-alpha", h.derive_kubeconfig(f.base_kubeconfig(), context="wf-target",
+                                                                       namespace=APP_NS))
+    profile = f.get("nodeprofile", "live")
+    uid, generation = profile["metadata"]["uid"], profile["metadata"]["generation"]
+    node = f.get("node", f.node)
+    labels, annotations = node["metadata"]["labels"], node["metadata"].get("annotations", {})
+    require(labels.get("brewlet.sh/owner-uid") == uid, "live profile does not own the node before inventory checks")
+    advertised = node_jdks(f)
+    require(any(j["distribution"] == "temurin" and j["feature"] == 21 for j in advertised),
+            f"node inventory lacks temurin 21: {advertised}")
+    inventory_reads(f, kc, alpha, profile, advertised, annotations)
+    inventory_status(f, kc, alpha, profile, annotations)
+    inspect_app(f, alpha, image)
+    # Paused so a controller status write cannot hide or fake a dry-run mutation.
+    f.pause_operator()
+    try:
+        profile_add(f, kc, uid)
+    finally:
+        f.resume_operator()
+    disposable_add(f, kc)
+    install_guards(f, kc)
+    unchanged_after = f.get("nodeprofile", "live")["metadata"]
+    require(unchanged_after["uid"] == uid and unchanged_after["generation"] == generation,
+            "inventory section changed the live profile generation")
+
+
+def inventory_reads(f, kc, alpha, profile, advertised, annotations):
+    jdks = json.loads(f.k8s("jdk-list-json", kc, "jdk", "list", "--output", "json").stdout)
+    expected = sorted((j["distribution"], j["vendor"], j["feature"], j["version"], j["arch"]) for j in advertised)
+    require(sorted((j["distribution"], j["vendor"], j["feature"], j["version"], j["arch"]) for j in jdks) == expected and
+            all(j["nodes"] == [f.node] for j in jdks), f"jdk list differs from the node annotation: {jdks} vs {advertised}")
+    require({(j["distribution"], j["feature"]) for j in jdks} ==
+            {(j["distribution"], j["feature"]) for j in profile["spec"]["jdks"]},
+            "advertised JDKs differ from the live NodeProfile declaration")
+    # The JDK reports its own release-file architecture, not Go's GOARCH name.
+    jdk_arch = {"amd64": {"amd64", "x86_64", "x64"}, "arm64": {"arm64", "aarch64"}}.get(f.arch, {f.arch})
+    require(all(j["arch"] in jdk_arch for j in jdks), f"advertised JDK architecture is not {f.arch}: {jdks}")
+    selected = json.loads(f.k8s("jdk-list-selector-json", kc, "jdk", "list", "--selector",
+                                "brewlet.sh/e2e-pool=live", "--output", "json").stdout)
+    require(selected == jdks, "pool selector changed the inventory of the only pool")
+    empty = f.k8s("jdk-list-selector-empty", kc, "jdk", "list", "--selector", "brewlet.sh/e2e-pool=wf-none",
+                  "--output", "json").stdout
+    require(json.loads(empty) == [], f"non-matching selector returned inventory: {empty}")
+    table = f.k8s("jdk-list-table-empty", kc, "jdk", "list", "--selector", "brewlet.sh/e2e-pool=wf-none").stdout
+    require(table.startswith("No Brewlet JDK inventory found"), "empty inventory table lacks guidance")
+    wide = f.k8s("jdk-list-wide", kc, "jdk", "list", "--output", "wide").stdout.splitlines()
+    require(wide[0].split() == ["NODE", "VENDOR", "DISTRIBUTION", "MAJOR", "VERSION", "ARCH"] and
+            len(wide) == 1 + len(advertised) and
+            all(any(re.fullmatch(rf"{re.escape(f.node)}\s+{re.escape(j['vendor'])}\s+{j['distribution']}\s+"
+                                 rf"{j['feature']}\s+{re.escape(j['version'])}\s+{j['arch']}", r) for r in wide[1:])
+                for j in advertised), f"wide inventory rows differ from the node annotation: {wide}")
+    table = f.k8s("jdk-list-table", kc, "jdk", "list").stdout.splitlines()
+    require(table[0].split()[:2] == ["VENDOR", "DISTRIBUTION"] and len(table) == 1 + len(expected) and
+            all(r.split()[-1] == "1" for r in table[1:]), f"aggregated JDK table: {table}")
+    quiet_failure(f.k8s("jdk-list-yaml-rejected", kc, "jdk", "list", "--output", "yaml", expect="fail"),
+                  'invalid --output "yaml"', "jdk list --output yaml")
+    f.record("k8s-jdk-list-node-inventory", {"node": f.node, "jdks": jdks, "formats": ["json", "wide", "table"],
+             "selectors": {"brewlet.sh/e2e-pool=live": len(selected), "brewlet.sh/e2e-pool=wf-none": 0}})
+
+    launchers = json.loads(f.k8s("launcher-list-json", kc, "launcher", "list", "--output", "json").stdout)
+    names = sorted({n.strip() for n in annotations.get("brewlet.sh/launchers", "").split(",") if n.strip()})
+    require(launchers == [{"name": n, "nodes": [f.node]} for n in names],
+            f"launcher list differs from brewlet.sh/launchers {names}: {launchers}")
+    # Every JDK supplies the implicit "java" launcher next to any declared ones.
+    declared = sorted({"java", *(l["name"] for l in profile["spec"].get("launchers", []))})
+    require(names == declared, f"advertised launchers {names} differ from the live NodeProfile declaration {declared}")
+    wide = f.k8s("launcher-list-wide", kc, "launcher", "list", "--output", "wide").stdout.splitlines()
+    require(wide[0].split() == ["LAUNCHER", "NODE"] and len(wide) == 1 + len(names), f"launcher wide table: {wide}")
+    selected = json.loads(f.k8s("launcher-list-selector-empty", kc, "launcher", "list", "--selector",
+                                "brewlet.sh/e2e-pool=wf-none", "--output", "json").stdout)
+    require(selected == [], "non-matching launcher selector returned inventory")
+    f.record("k8s-launcher-list-node-inventory", {"launchers": launchers, "nodeAnnotation": names,
+             "declared": profile["spec"].get("launchers", [])})
+
+    rows = json.loads(f.k8s("profile-list-json", kc, "profile", "list", "--output", "json").stdout)
+    declared = sorted(p["metadata"]["name"] for p in f.get("nodeprofile")["items"])
+    require([r["name"] for r in rows] == declared == ["live"], f"profile list names {rows} vs {declared}")
+    row = rows[0]
+    ready = h.condition(profile, "Ready") or {}
+    require(row["ready"] and ready.get("status") == "True" and row["reason"] == ready.get("reason") and
+            row["generation"] == row["observedGeneration"] == profile["metadata"]["generation"] and
+            row["assignedNodes"] == row["readyNodes"] == 1 and row["spec"] == profile["spec"] and
+            "managedBy" not in row, f"profile list row differs from the live profile: {row}")
+    table = f.k8s("profile-list-table", kc, "profile", "list").stdout.splitlines()
+    require(table[0].split()[0] == "PROFILE" and len(table) == 2 and
+            re.match(r"^live\s+live\s+temurin-21\s+true\s+1/1\s", table[1]), f"profile table: {table}")
+
+    report = json.loads(f.k8s("profile-inspect-json", kc, "profile", "inspect", "live", "--output", "json").stdout)
+    owners = [n["metadata"]["name"] for n in f.get("nodes", "-l", f"brewlet.sh/owner-uid={profile['metadata']['uid']}")["items"]]
+    require(report["profile"]["name"] == "live" and report["profile"]["spec"] == profile["spec"] and
+            report["profile"]["ready"] and owners == [f.node] and [n["name"] for n in report["nodes"]] == owners,
+            f"profile inspect does not show the uid-claimed node: {report}")
+    claimed = report["nodes"][0]
+    require(claimed["profile"] == "live" and claimed["runtimeReady"] and claimed["nodeReady"] and
+            not claimed.get("error") and "temurin-21" in claimed.get("advertisedJdks", "").split(","),
+            f"claimed node summary incomplete: {claimed}")
+    for name, args in (("profile-inspect-yaml", ["--output", "yaml"]), ("profile-inspect-default", [])):
+        text = f.k8s(name, kc, "profile", "inspect", "live", *args).stdout
+        require(re.search(r"^profile:$", text, re.M) and re.search(r"^nodes:$", text, re.M) and
+                re.search(r"^  name: live$", text, re.M) and
+                re.search(rf"^\s*(- )?name: {re.escape(f.node)}$", text, re.M) and not text.lstrip().startswith("{"),
+                f"{name} is not the YAML report: {text[:500]}")
+    quiet_failure(f.k8s("profile-inspect-missing", kc, "profile", "inspect", "wf-missing-profile", expect="fail"),
+                  "NotFound", "profile inspect of a missing profile")
+    f.record("k8s-profile-list-and-inspect", {"profiles": [r["name"] for r in rows], "uid": profile["metadata"]["uid"],
+             "claimedNodes": owners, "formats": {"list": ["json", "table"], "inspect": ["json", "yaml", "default"]}})
+
+    rejected = {}
+    for command in (["jdk", "list"], ["launcher", "list"], ["profile", "list"], ["profile", "inspect", "live"],
+                    ["jdk", "add", "--profile", "live", *JDK17, "--dry-run"],
+                    ["launcher", "add", "--profile", "live", *JAZ, "--dry-run"]):
+        verb = " ".join(command[:2])
+        result = f.k8s(f"{verb.replace(' ', '-')}-namespace-rejected", alpha, *command, "--namespace", APP_NS,
+                       expect="fail")
+        quiet_failure(result, f'--namespace is not supported by "{verb}"', f"{verb} --namespace")
+        rejected[verb] = result.stderr.strip()
+    result = f.k8s("jdk-list-root-namespace-rejected", kc, "--namespace", APP_NS, "jdk", "list", expect="fail")
+    quiet_failure(result, '--namespace is not supported by "jdk list"', "root --namespace on jdk list")
+    f.record("k8s-cluster-scoped-commands-reject-namespace", rejected)
+
+
+def inventory_status(f, kc, alpha, profile, annotations):
+    report = json.loads(f.k8s("status-json", alpha, "status", "--output", "json").stdout)
+    deployments = {d["metadata"]["name"]: d for d in f.get("deployments", "-n", "brewlet")["items"]}
+    components = {c["name"]: c for c in report["components"]}
+    require(report["healthy"] and report["namespace"] == "brewlet" and
+            list(components) == ["brewlet-operator", "brewlet-admission"], f"status report: {report}")
+    for name, component in components.items():
+        live = deployments[name]
+        desired = live["spec"].get("replicas", 1)
+        require(component["present"] and component["ready"] and desired >= 1 and
+                component["desired"] == component["updated"] == component["available"] == desired ==
+                live["status"].get("availableReplicas") and
+                component["generation"] == component["observedGeneration"] == live["metadata"]["generation"],
+                f"{name} rollout differs from the Deployment: {component}")
+    require([p["name"] for p in report["profiles"]] == ["live"] and report["profiles"][0]["ready"],
+            f"status profiles: {report['profiles']}")
+    nodes = report["nodes"]
+    require(len(nodes) == 1 and nodes[0]["name"] == f.node and nodes[0]["profile"] == "live" and
+            nodes[0]["runtimeReady"] and nodes[0]["nodeReady"] and not nodes[0].get("error") and
+            nodes[0].get("advertisedJdks") == annotations.get("brewlet.sh/jdks") and
+            nodes[0].get("profileGeneration") == annotations.get("brewlet.sh/profile-generation"),
+            f"status node summary differs from the node: {nodes}")
+    explicit = json.loads(f.k8s("status-explicit-namespace", kc, "status", "--namespace", "brewlet",
+                                "--output", "json").stdout)
+    require(explicit["namespace"] == "brewlet" and explicit["healthy"], f"explicit status namespace: {explicit}")
+    table = f.k8s("status-table", kc, "status").stdout
+    require(re.search(r"^namespace: brewlet$", table, re.M) and
+            all(re.search(rf"^{n}: present=true ready=true updated=(\d+)/\1 available=\1$", table, re.M)
+                for n in components) and re.search(r"^live\s+live\s+temurin-21\s+true\s+1/1", table, re.M) and
+            re.search(rf"^{re.escape(f.node)}\s+live\s+\d+\s+true\s+true\s+false\s", table, re.M),
+            f"status table incomplete: {table}")
+    wrong = f.k8s("status-wrong-namespace", kc, "status", "--namespace", APP_NS, "--output", "json", expect="fail")
+    missing = json.loads(wrong.stdout)
+    require(f'no Brewlet control plane found in namespace "{APP_NS}"; pass --namespace' in wrong.stderr and
+            missing["namespace"] == APP_NS and not missing["healthy"] and
+            not any(c["present"] for c in missing["components"]), f"wrong-namespace status: {wrong.stderr}")
+    f.record("k8s-status-control-plane-and-profiles", {"namespace": "auto-discovered brewlet (kubeconfig ns wf-alpha)",
+             "components": components, "profiles": ["live"], "node": nodes[0],
+             "wrongNamespace": wrong.stderr.strip(), "formats": ["json", "table"]})
+
+    names = ["cluster-context", "api-server", "runtimeclass", "javaapplication-crd", "brewlet-nodes",
+             "jdk-inventory", "developer-rbac"]
+    distinct = len(node_jdks(f))
+    checks = {}
+    for label, namespace, args in (("doctor-json-context-namespace", APP_NS, []),
+                                   ("doctor-json-explicit-namespace", OTHER_NS, ["--namespace", OTHER_NS])):
+        doctor = json.loads(f.k8s(label, alpha, "doctor", *args, "--output", "json").stdout)
+        by_name = {c["name"]: c for c in doctor["checks"]}
+        require([c["name"] for c in doctor["checks"]] == names and all(c["status"] == "pass" for c in doctor["checks"]),
+                f"{label} has failing or missing checks: {doctor}")
+        require(by_name["cluster-context"]["detail"] == "wf-target" and
+                by_name["runtimeclass"]["detail"] == "runtimeclass.node.k8s.io/brewlet" and
+                by_name["javaapplication-crd"]["detail"].endswith("/javaapplications.apps.brewlet.sh") and
+                by_name["brewlet-nodes"]["detail"] == "1 schedulable Brewlet-ready node(s)" and
+                by_name["jdk-inventory"]["detail"] == f"{distinct} distinct JDK runtime(s) advertised" and
+                by_name["developer-rbac"]["detail"] ==
+                f'can create JavaApplication resources in namespace "{namespace}"', f"{label} details: {doctor}")
+        checks[label] = doctor["checks"]
+    table = f.k8s("doctor-table", alpha, "doctor").stdout.splitlines()
+    require([line.split()[:2] for line in table] == [["[PASS]", n] for n in names], f"doctor table: {table}")
+    restricted_doctor(f, names)
+    f.record("k8s-doctor-checks-and-namespace", {"contextNamespace": checks["doctor-json-context-namespace"],
+             "explicitNamespace": checks["doctor-json-explicit-namespace"], "formats": ["json", "table"]})
+
+
+def restricted_doctor(f, names):
+    name = "wf-doctor"
+    f.apply({"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": name, "namespace": APP_NS}})
+    f.apply({"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": {"name": name},
+             "rules": [{"apiGroups": ["node.k8s.io"], "resources": ["runtimeclasses"], "verbs": ["get"]},
+                       {"apiGroups": ["apiextensions.k8s.io"], "resources": ["customresourcedefinitions"],
+                        "verbs": ["get"]},
+                       {"apiGroups": [""], "resources": ["nodes"], "verbs": ["get", "list"]}]})
+    f.apply({"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": {"name": name},
+             "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": name},
+             "subjects": [{"kind": "ServiceAccount", "name": name, "namespace": APP_NS}]})
+    try:
+        token = f.secret(f.kube("create", "token", name, "-n", APP_NS, "--duration=10m").stdout.strip())
+        kc = f.write_kubeconfig("doctor-restricted", h.derive_kubeconfig(
+            f.base_kubeconfig(), context="wf-doctor", namespace=APP_NS, token=token))
+        result = f.k8s("doctor-restricted-identity", kc, "doctor", "--output", "json", expect="fail")
+        doctor = json.loads(result.stdout)
+        statuses = {c["name"]: c["status"] for c in doctor["checks"]}
+        require(list(statuses) == names and statuses.pop("developer-rbac") == "fail" and
+                set(statuses.values()) == {"pass"} and "doctor found one or more blocking checks" in result.stderr,
+                f"restricted doctor did not isolate the RBAC failure: {doctor} {result.stderr}")
+        rbac = doctor["checks"][-1]
+        require(rbac.get("remediation"), "failing developer-rbac check has no remediation")
+        f.record("k8s-doctor-restricted-identity-fails", {"identity": f"serviceaccount {APP_NS}/{name}",
+                 "missing": "create javaapplications", "developerRBAC": rbac})
+    finally:
+        f.kube("delete", "clusterrolebinding,clusterrole", name, "--ignore-not-found")
+        f.kube("delete", "serviceaccount", name, "-n", APP_NS, "--ignore-not-found")
+
+
+def inspect_app(f, alpha, image):
+    app = f.get("javaapplication", "wf-app", "-n", APP_NS)
+    report = json.loads(f.k8s("inspect-app-json", alpha, "inspect", "app", "wf-app", "--output", "json").stdout)
+    owned = sorted(d["metadata"]["name"] for d in f.get("deployments", "-n", APP_NS)["items"]
+                   if any(o.get("uid") == app["metadata"]["uid"] for o in d["metadata"].get("ownerReferences", [])))
+    ready_pods = [p for p in report["pods"] if p["ready"]]
+    require(report["name"] == "wf-app" and report["namespace"] == APP_NS and report["ready"] and
+            report["image"] == app["spec"]["artifact"]["image"] == image and report["jdkRequest"] == "temurin-21" and
+            report["launcher"] == "java" and owned and [d["name"] for d in report["deployments"]] == owned and
+            all(d["ready"] for d in report["deployments"]) and ready_pods and
+            all(p["node"] == f.node for p in report["pods"]) and
+            all(p["jdkRequest"] == "temurin-21" for p in ready_pods),
+            f"inspect app report differs from the live application: {report}")
+    require(isinstance(report["events"], list) and (h.condition(app, "Ready") or {}).get("status") == "True",
+            "inspect app events/conditions missing")
+    text = f.k8s("inspect-app-default", alpha, "inspect", "app", "wf-app").stdout
+    require(re.search(rf"^namespace: {APP_NS}$", text, re.M) and re.search(r"^ready: true$", text, re.M),
+            f"inspect app default output is not the YAML report: {text[:500]}")
+    other = json.loads(f.k8s("inspect-app-explicit-namespace", alpha, "inspect", "app", "wf-app", "--namespace",
+                             OTHER_NS, "--output", "json").stdout)
+    require(other["namespace"] == OTHER_NS and not other["ready"] and
+            all(p["node"] == f.node for p in other["pods"]), f"--namespace not targeted: {other}")
+    quiet_failure(f.k8s("inspect-app-missing", alpha, "inspect", "app", "wf-missing-app", expect="fail"),
+                  "NotFound", "inspect app of a missing application")
+    f.record("k8s-inspect-app-workloads", {"default": {k: report[k] for k in ("namespace", "ready", "jdkRequest")},
+             "deployments": owned, "pods": report["pods"], "explicit": {k: other[k] for k in ("namespace", "ready",
+                                                                                           "reason")}})
+
+
+def profile_add(f, kc, uid):
+    live = f.get("nodeprofile", "live")
+    before = snapshot(f, "live")
+
+    def add(name, kind, *args, expect=0):
+        result = f.k8s(name, kc, kind, "add", "--profile", "live", *args, expect=expect)
+        unchanged(f, "live", before, name)
+        return result
+
+    def check_doc(doc, what):
+        meta = doc["metadata"]
+        require(doc["apiVersion"] == "node.brewlet.sh/v1alpha1" and doc["kind"] == "NodeProfile" and
+                meta["name"] == "live" and "status" not in doc and
+                not {"uid", "resourceVersion", "generation", "managedFields", "finalizers"} & set(meta) and
+                doc["spec"]["nodePool"] == live["spec"]["nodePool"], f"{what} is not a clean declaration: {doc}")
+
+    jdk17 = {"distribution": "temurin", "feature": 17, "source": {"image": JDK_IMAGE, "javaHome": "/opt/java/openjdk"}}
+    client = add("jdk-add-client-dry-run", "jdk", *JDK17, "--dry-run", "--output", "json")
+    doc = json.loads(client.stdout)
+    check_doc(doc, "jdk add --dry-run")
+    require(doc["spec"]["jdks"] == live["spec"]["jdks"] + [jdk17], f"client dry run jdks: {doc['spec']['jdks']}")
+    require("Client dry run succeeded; no inventory was changed. Server validation was not performed." in client.stderr,
+            "client dry-run notice missing from stderr")
+    explicit = json.loads(add("jdk-add-client-dry-run-explicit", "jdk", *JDK17, "--dry-run=client", "--output",
+                              "json").stdout)
+    require(explicit == doc, "--dry-run=client differs from bare --dry-run")
+    server = add("jdk-add-server-dry-run", "jdk", *JDK17, "--dry-run=server", "--output", "json")
+    served = json.loads(server.stdout)
+    check_doc(served, "jdk add --dry-run=server")
+    require([(j["distribution"], j["feature"]) for j in served["spec"]["jdks"]] == [("temurin", 21), ("temurin", 17)] and
+            served["spec"]["jdks"][1]["source"] == jdk17["source"] and
+            "Server dry run succeeded; no inventory was changed." in server.stderr, f"server dry run: {served}")
+    yaml_out = add("jdk-add-server-dry-run-yaml", "jdk", *JDK17, "--dry-run=server").stdout
+    require(re.search(r"^kind: NodeProfile$", yaml_out, re.M) and re.search(r"^\s+feature: 17$", yaml_out, re.M),
+            "server dry run YAML output incomplete")
+    conflict = add("jdk-add-conflict", "jdk", "--distribution", "temurin", "--feature", "21", "--image", JDK_IMAGE,
+                   "--java-home", "/opt/java/other", "--dry-run", expect="fail")
+    quiet_failure(conflict, 'jdks "temurin-21" already exists with a different source; use --replace deliberately',
+                  "conflicting jdk add")
+    replaced = json.loads(add("jdk-add-replace-dry-run", "jdk", "--distribution", "temurin", "--feature", "21",
+                              "--image", JDK_IMAGE, "--java-home", "/opt/java/other", "--replace", "--dry-run",
+                              "--output", "json").stdout)
+    require([j["source"]["javaHome"] for j in replaced["spec"]["jdks"]] == ["/opt/java/other"],
+            f"--replace dry run: {replaced['spec']['jdks']}")
+    quiet_failure(add("jdk-add-tagged-image", "jdk", "--distribution", "temurin", "--feature", "17", "--image",
+                      "docker.io/library/eclipse-temurin:17", "--java-home", "/opt/java/openjdk", "--dry-run=server",
+                      expect="fail"), "must contain exactly one digest separator", "tag-only JDK image")
+    quiet_failure(add("jdk-add-bad-dry-run-mode", "jdk", *JDK17, "--dry-run=none", expect="fail"),
+                  "--dry-run accepts client or server", "invalid --dry-run mode")
+    f.record("k8s-jdk-add-dry-runs-nonmutating", {"profile": before, "client": doc["spec"]["jdks"],
+             "server": served["spec"]["jdks"], "conflictRefused": True, "replaceDryRun": True})
+
+    jaz = {"name": "jaz", "source": {"image": JDK_IMAGE, "path": "/opt/java/openjdk/bin/java"}}
+    client = add("launcher-add-client-dry-run", "launcher", *JAZ, "--dry-run", "--output", "json")
+    ldoc = json.loads(client.stdout)
+    check_doc(ldoc, "launcher add --dry-run")
+    require(ldoc["spec"].get("launchers") == live["spec"].get("launchers", []) + [jaz] and
+            ldoc["spec"]["jdks"] == live["spec"]["jdks"] and "Server validation was not performed" in client.stderr,
+            f"launcher client dry run: {ldoc['spec']}")
+    server = add("launcher-add-server-dry-run", "launcher", *JAZ, "--dry-run=server", "--output", "json")
+    lserved = json.loads(server.stdout)
+    check_doc(lserved, "launcher add --dry-run=server")
+    require(lserved["spec"].get("launchers") == [jaz] and "Server dry run succeeded" in server.stderr,
+            f"launcher server dry run: {lserved['spec']}")
+    quiet_failure(add("launcher-add-java-refused", "launcher", "--name", "java", "--image", JDK_IMAGE, "--path",
+                      "/opt/java/openjdk/bin/java", "--dry-run", expect="fail"),
+                  "java is supplied by each JDK", "launcher add java")
+    quiet_failure(add("launcher-add-relative-path", "launcher", "--name", "jaz", "--image", JDK_IMAGE, "--path",
+                      "bin/java", "--dry-run=server", expect="fail"), "must be a clean absolute path below /",
+                  "relative launcher path")
+    f.record("k8s-launcher-add-dry-runs-nonmutating", {"profile": before, "client": ldoc["spec"]["launchers"],
+             "server": lserved["spec"]["launchers"], "javaRefused": True})
+
+    source = f.private / "live-nodeprofile.json"
+    h.write_private(source, json.dumps(live))
+    digest = sha256(source)
+    offline = json.loads(add("jdk-add-offline-file", "jdk", *JDK17, "--file", source, "--dry-run", "--output",
+                             "json").stdout)
+    check_doc(offline, "jdk add --file")
+    require(offline["spec"] == doc["spec"], "offline file input differs from the live client dry run")
+    yaml_file = f.private / "live-server-dry-run.yaml"
+    h.write_private(yaml_file, yaml_out)
+    roundtrip = json.loads(add("launcher-add-offline-yaml-file", "launcher", *JAZ, "--file", yaml_file, "--dry-run",
+                               "--output", "json").stdout)
+    require(roundtrip["spec"]["jdks"] == served["spec"]["jdks"] and roundtrip["spec"].get("launchers") == [jaz],
+            f"YAML file input does not round-trip the server dry-run declaration: {roundtrip['spec']}")
+    refusals = {}
+    for flags in ([], ["--dry-run=server"]):
+        name = "jdk-add-offline-file-requires-client" + "".join(flags).replace("-", "_").replace("=", "_")
+        result = add(name, "jdk", *JDK17, "--file", source, *flags, expect="fail")
+        quiet_failure(result, "--file and --values require --dry-run=client", f"--file with {flags}")
+        refusals[" ".join(flags) or "live"] = result.stderr.strip()
+    require(sha256(source) == digest and yaml_file.read_text() == yaml_out, "offline input files were modified")
+    f.record("k8s-profile-add-offline-file-input", {"jsonFile": source.name, "yamlFile": yaml_file.name,
+             "sha256Unchanged": digest, "refusals": refusals})
+
+    f.kube("label", "nodeprofile", "live", "app.kubernetes.io/managed-by=Helm")
+    try:
+        before = snapshot(f, "live")
+        refused = {}
+        for name, kind, args, flags in (("jdk-add-helm-live", "jdk", JDK17, []),
+                                        ("jdk-add-helm-server-dry-run", "jdk", JDK17, ["--dry-run=server"]),
+                                        ("launcher-add-helm-live", "launcher", JAZ, [])):
+            result = add(name, kind, *args, *flags, expect="fail")
+            quiet_failure(result, 'profile "live" is managed by Helm; edit its source of truth', name)
+            refused[name] = result.stderr.strip()
+        preview = add("jdk-add-helm-client-dry-run", "jdk", *JDK17, "--dry-run", "--output", "json")
+        require(json.loads(preview.stdout)["spec"]["jdks"][-1] == jdk17 and
+                "Profile is managed by Helm. Update its source of truth" in preview.stderr,
+                "client preview of a Helm-managed profile lacks the ownership notice")
+    finally:
+        f.kube("label", "nodeprofile", "live", "app.kubernetes.io/managed-by-")
+    require(f.get("nodeprofile", "live")["metadata"]["uid"] == uid, "live profile was replaced")
+    f.record("k8s-profile-add-refuses-helm-managed", {"label": "app.kubernetes.io/managed-by=Helm", **refused,
+             "clientPreview": "allowed with ownership notice"})
+
+
+def disposable_add(f, kc):
+    """Real (non-dry-run) additions on a profile whose pool matches no node."""
+    # rollout is explicit like `live`: the operator's finalizer Update otherwise
+    # serializes `rollout: {}` under its own field manager ("entry"), which
+    # `jdk|launcher add` then refuses as foreign ownership (microsoft/brewlet#210).
+    f.apply({"apiVersion": "node.brewlet.sh/v1alpha1", "kind": "NodeProfile", "metadata": {"name": INVENTORY_PROFILE},
+             "spec": {"nodePool": {"key": "brewlet.sh/e2e-pool", "names": ["wf-inventory-unclaimed"]},
+                      "jdks": [{"distribution": "temurin", "feature": 21,
+                                "source": {"image": JDK_IMAGE, "javaHome": "/opt/java/openjdk"}}],
+                      "rollout": {"validate": True, "containerdRestart": "validated"}}})
+    wait(f"{INVENTORY_PROFILE} carries the operator finalizer", lambda: f.get("nodeprofile", INVENTORY_PROFILE)
+         ["metadata"].get("finalizers"), timeout=60)
+    try:
+        first = f.get("nodeprofile", INVENTORY_PROFILE)["metadata"]
+        jaz = {"name": "jaz", "source": {"image": JDK_IMAGE, "path": "/opt/java/openjdk/bin/java"}}
+        result = f.k8s("launcher-add-live", kc, "launcher", "add", "--profile", INVENTORY_PROFILE, *JAZ,
+                       "--output", "json")
+        printed = json.loads(result.stdout)
+        after = f.get("nodeprofile", INVENTORY_PROFILE)
+        require("Profile update accepted; provisioning is asynchronous." in result.stderr and
+                printed["spec"]["launchers"] == after["spec"]["launchers"] == [jaz] and
+                after["metadata"]["uid"] == first["uid"] and after["metadata"]["generation"] == first["generation"] + 1,
+                f"live launcher add did not persist exactly once: {after['metadata']} {after['spec']}")
+        result = f.k8s("jdk-add-live", kc, "jdk", "add", "--profile", INVENTORY_PROFILE, *JDK17)
+        after = f.get("nodeprofile", INVENTORY_PROFILE)
+        managers = sorted({m["manager"] for m in f.get("nodeprofile", INVENTORY_PROFILE, "--show-managed-fields")
+                           ["metadata"].get("managedFields", [])})
+        require(re.search(r"^kind: NodeProfile$", result.stdout, re.M) and
+                [(j["distribution"], j["feature"]) for j in after["spec"]["jdks"]] == [("temurin", 21), ("temurin", 17)]
+                and after["spec"]["launchers"] == [jaz] and after["metadata"]["generation"] == first["generation"] + 2
+                and "brewlet" in managers, f"live jdk add: {after['spec']} managers={managers}")
+        live_rows = {r["name"]: r for r in json.loads(f.k8s("profile-list-after-add", kc, "profile", "list",
+                                                             "--output", "json").stdout)}
+        require(live_rows[INVENTORY_PROFILE]["spec"] == after["spec"] and live_rows["live"]["ready"],
+                "profile list does not reflect the live addition")
+        updated = {"generation": after["metadata"]["generation"], "jdks": after["spec"]["jdks"],
+                   "launchers": after["spec"]["launchers"], "fieldManagers": managers}
+    finally:
+        f.kube("delete", "nodeprofile", INVENTORY_PROFILE, "--ignore-not-found", "--wait=true", "--timeout=180s")
+    require(f.kube("get", "nodeprofile", INVENTORY_PROFILE, check=False).returncode != 0,
+            "disposable profile still exists")
+    require(f.get("node", f.node)["metadata"]["labels"].get("brewlet.sh/owner-uid") ==
+            f.get("nodeprofile", "live")["metadata"]["uid"], "disposable profile disturbed the live claim")
+    f.record("k8s-profile-add-live-update", {"profile": INVENTORY_PROFILE, "pool": "matches no node", **updated})
+
+
+def install_guards(f, kc):
+    def releases():
+        return sorted((r["name"], r["namespace"]) for r in json.loads(
+            f.run(["helm", "--kubeconfig", f.kubeconfig, "--kube-context", f.context, "list", "-A",
+                   "-o", "json"]).stdout))
+
+    before = releases()
+    values = f.private / "install-values.json"
+    h.write_private(values, json.dumps({"defaultProfile": {"enabled": False}}))
+    guard = f.k8s("install-existing-crds", kc, "install", "--version", "0.1.0", "-f", values, expect="fail")
+    quiet_failure(guard, "Brewlet CRDs already exist; install is fresh-install-only", "install on an installed cluster")
+    require('Installing Brewlet chart 0.1.0 as release "brewlet" in namespace "brewlet" (current context)' in guard.stderr
+            and "Pulling" not in guard.stderr, "install did not report its default target before refusing")
+    other = f.k8s("install-existing-crds-namespace", kc, "install", "--namespace", "wf-install", "--release",
+                  "wf-other", "--version", "0.1.0", "--values", values, expect="fail", context="wf-target")
+    quiet_failure(other, "Brewlet CRDs already exist", "install into another namespace")
+    require('as release "wf-other" in namespace "wf-install" (context "wf-target")' in other.stderr,
+            "install --namespace/--release/--context not reflected in its target")
+    require(f.kube("get", "namespace", "wf-install", check=False).returncode != 0,
+            "refused install created its namespace")
+    invalid = {}
+    for name, args, needle in (
+        ("install-missing-values", ["--version", "0.1.0"], "at least one --values/-f file is required"),
+        ("install-missing-values-dry-run", ["--version", "0.1.0", "--dry-run"], "at least one --values/-f file"),
+        ("install-version-range", ["--version", "latest", "-f", values], "--version must be an exact chart version"),
+        ("install-unreadable-values", ["--version", "0.1.0", "-f", f.private / "missing-values.yaml", "--dry-run"],
+         "missing-values.yaml"),
+        ("install-invalid-namespace", ["--namespace", "Not_A_Namespace", "--version", "0.1.0", "-f", values,
+                                       "--dry-run"], "--namespace"),
+    ):
+        result = f.k8s(name, kc, "install", *args, expect="fail")
+        quiet_failure(result, needle, name)
+        invalid[name] = result.stderr.strip()
+    require(releases() == before, f"install guards changed Helm releases: {before} -> {releases()}")
+    f.record("k8s-install-validation-and-fresh-install-guard", {"helmReleases": before, "existingCRDs": guard.stderr.strip(),
+             "namespaceTarget": "wf-install (not created)", **invalid,
+             "dryRunRender": "not exercised: renders the released OCI chart from ghcr.io, not the checkout"})
+
+
+# ---- 4. Maven deploy --------------------------------------------------------
 
 def maven_scenario(f):
     f.ensure_namespace(MAVEN_NS)
@@ -467,7 +957,7 @@ def maven_scenario(f):
         values.update(extra)
         return values
 
-    project = build_app(f, "maven-app")
+    project = maven_app(f, "maven-app")
     deployed = mvn("maven-deploy", project, ["package", f"{f.plugin}:deploy"], props("wf-maven"))
     require(f"wf-maven is Ready in namespace {MAVEN_NS}" in deployed.stdout, "deploy did not report readiness")
     push_file = project / "target/brewlet/push.json"
@@ -490,7 +980,7 @@ def maven_scenario(f):
     f.record("maven-deploy-push-manifest-apply-ready-response", {"handoff": handoff, "index": published["digest"],
              "appliedGeneration": applied["metadata"]["generation"], "clusterUID": uid, **target})
 
-    nowait = build_app(f, "maven-nowait")
+    nowait = maven_app(f, "maven-nowait")
     result = mvn("maven-deploy-no-wait", nowait, ["package", f"{f.plugin}:deploy"],
                  props("wf-nowait", **{"brewlet.wait": "false", "brewlet.readinessPath": "/not-ready",
                                        "brewlet.waitTimeout": "60"}))
@@ -500,7 +990,7 @@ def maven_scenario(f):
     f.record("maven-deploy-wait-opt-out", {"app": "wf-nowait", "readiness": "never (/not-ready)",
                                            "elapsedSeconds": round(result.elapsed, 1)})
 
-    slow = build_app(f, "maven-timeout")
+    slow = maven_app(f, "maven-timeout")
     result = mvn("maven-deploy-readiness-timeout", slow, ["package", f"{f.plugin}:deploy"],
                  props("wf-mvn-timeout", **{"brewlet.readinessPath": "/not-ready", "brewlet.waitTimeout": "30"}),
                  expect="fail")
@@ -513,7 +1003,7 @@ def maven_scenario(f):
     f.record("maven-deploy-live-readiness-timeout", h.assert_bounded(
         "Maven readiness wait", (ended - began) % 86400, 30, MAVEN_TOLERANCE))
 
-    stalled = build_app(f, "maven-stalled")
+    stalled = maven_app(f, "maven-stalled")
     state = f.private / "stalled-kubectl"
     state.mkdir()
     stub = state / "kubectl"
@@ -579,7 +1069,7 @@ def encrypted_push(f, mvn, props):
     h.write_private(security / "other-security.xml", h.settings_security(other_master))
     other = f"-Dsettings.security={security / 'other-security.xml'}"
 
-    project = build_app(f, "maven-auth")
+    project = maven_app(f, "maven-auth")
     image = f"{f.auth_registry}/wf/maven-auth"
     mvn("maven-push-encrypted-settings", project, ["package", f"{f.plugin}:push"],
         props("wf-auth", **{"brewlet.image": f"{image}:v1"}), settings_file=good, extra=[sec])
@@ -591,7 +1081,7 @@ def encrypted_push(f, mvn, props):
         ("maven-push-wrong-password", bad, sec, "wrong", None),
         ("maven-push-undecryptable", good, other, "undecryptable", "Cannot decrypt settings.xml credentials for registry"),
     ):
-        failing = build_app(f, name)
+        failing = maven_app(f, name)
         result = mvn(name, failing, ["package", f"{f.plugin}:push"], props("wf-auth", **{"brewlet.image": f"{image}:{tag}"}),
                      expect="fail", settings_file=settings_file, extra=[flag])
         require(message is None or message in result.stdout + result.stderr, f"{name} failure not explicit")
@@ -602,7 +1092,7 @@ def encrypted_push(f, mvn, props):
                                                       **failures})
 
 
-# ---- 4. profile deletion ----------------------------------------------------
+# ---- 5. profile deletion ----------------------------------------------------
 
 def bare_pod(name, image, terminating=False):
     spec = {"runtimeClassName": "brewlet", "nodeSelector": {"brewlet.sh/jdk.temurin-21": "true"},
@@ -674,6 +1164,7 @@ def profile_scenario(f, image):
             host_before["jdkLabels"] and host_before["containerdRuntimeConfig"], f"profile not provisioned: {host_before}")
 
     f.pause_operator()
+    resumed = False
     try:
         before = snapshot(f, "live")
         for flags in ([], ["--dry-run"], ["--dry-run=server"], ["--wait"]):
@@ -734,21 +1225,43 @@ def profile_scenario(f, image):
                 "CLI timeout cancelled cleanup or stripped finalizers, status or ownership")
         f.record("profile-delete-timeout-preserves-cleanup", {**bound, "operator": "paused (controlled block)",
                  "finalizers": stuck["metadata"]["finalizers"], "host": host_blocked})
-    finally:
-        f.resume_operator()
 
-    events = f.work / "nodeprofile-live-watch.json"
-    with open(events, "w") as out:
-        watcher = subprocess.Popen(["kubectl", "--kubeconfig", str(f.kubeconfig), "--context", f.context, "get",
-                                    "nodeprofile", "live", "--watch", "-o", "json", "--output-watch-events"],
-                                   stdout=out, stderr=subprocess.DEVNULL, env=f.env, start_new_session=True)
-    f.children.append(watcher)
-    wait("watch started", lambda: events.stat().st_size > 0, timeout=60, interval=1)
-    with LogCapture(f, "cleanup-live"):
-        result = f.k8s("profile-delete-attach-wait", kc, "profile", "delete", "live", "--wait", "--wait-timeout", "360s",
-                       timeout=420)
-    require('is already deleting; following its cleanup' in result.stderr and 'NodeProfile "live" deleted after' in
-            result.stderr, "attached wait did not follow cleanup to completion")
+        # Attach the watch and the CLI while the operator is paused: once resumed,
+        # cleanup can finish before a later watch or CLI call would observe it.
+        events = f.work / "nodeprofile-live-watch.json"
+        with open(events, "w") as out, open(f.work / "nodeprofile-live-watch.stderr", "w") as err:
+            watcher = subprocess.Popen(["kubectl", "--kubeconfig", str(f.kubeconfig), "--context", f.context, "get",
+                                        "nodeprofile", "live", "--watch", "-o", "json", "--output-watch-events"],
+                                       stdout=out, stderr=err, env=f.env, start_new_session=True)
+        f.children.append(watcher)
+        wait("watch started", lambda: events.stat().st_size > 0, timeout=60, interval=1)
+        stdout, stderr = f.work / "profile-delete-attach-wait.stdout", f.work / "profile-delete-attach-wait.stderr"
+        argv = [str(a) for a in (f.cli, "k8s", "--kubeconfig", kc, "profile", "delete", "live", "--wait",
+                                 "--wait-timeout", "360s")]
+        started = time.monotonic()
+        with open(stdout, "w") as out, open(stderr, "w") as err:
+            attach = subprocess.Popen(argv, stdout=out, stderr=err, env=f.env, start_new_session=True)
+        f.children.append(attach)
+        f.commands.append({"name": "profile-delete-attach-wait", **h.sanitized_command(argv, {}, f.secrets),
+                           "target": {"kubeconfig": Path(kc).name, "context": "current-context"},
+                           "stdout": stdout.name, "stderr": stderr.name, "background": True})
+        wait("profile delete --wait attaches to the deleting profile",
+             lambda: "following its cleanup" in stderr.read_text(), timeout=60, interval=1)
+        require(attach.poll() is None, "attached wait exited before cleanup resumed")
+        with LogCapture(f, "cleanup-live"):
+            f.resume_operator()
+            resumed = True
+            code = attach.wait(timeout=420)
+        f.commands[-1].update({"exitCode": code, "elapsedSeconds": round(time.monotonic() - started, 3)})
+        f.save("commands.json", f.commands)
+    finally:
+        if not resumed:
+            f.resume_operator()
+
+    result = stderr.read_text()
+    require(code == 0, f"attached wait failed: {result[-2000:]}")
+    require('is already deleting; following its cleanup' in result and 'NodeProfile "live" deleted after' in
+            result, "attached wait did not follow cleanup to completion")
     time.sleep(2)  # let the watch flush the DELETED event already observed by the CLI
     watcher.terminate()
     watcher.wait(timeout=10)
@@ -819,6 +1332,7 @@ def main():
     with CheckoutFixture() as fixture:
         image, published = push_scenario(fixture)
         app_scenario(fixture, image, published)
+        inventory_scenario(fixture, image)
         maven_scenario(fixture)
         profile_scenario(fixture, image)
         assert_no_leaks(fixture)

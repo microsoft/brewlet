@@ -9,8 +9,11 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
+import sh.brewlet.maven.plugin.oci.LocalStore;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.List;
 
 /**
@@ -35,7 +38,12 @@ public class InspectMojo extends AbstractBrewletMojo {
     @Override
     protected void doExecute() throws MojoExecutionException, MojoFailureException {
         JvmConfig cfg = buildConfig();
-        java.io.File jar = prepareApplication().jar();
+        File jar = prepareApplication().jar();
+        // Same CDS resolution and validation as brewlet:build / brewlet:push so
+        // the preview matches what is actually published.
+        File resolvedCdsArchive = applyCdsArchive(cfg);
+        validateFinalConfig(cfg);
+        validateCdsPairing(cfg, resolvedCdsArchive);
         boolean runnable = "image".equals(format);
 
         getLog().info("== Brewlet inspect ==");
@@ -69,10 +77,33 @@ public class InspectMojo extends AbstractBrewletMojo {
             }
         }
 
+        if (resolvedCdsArchive != null) {
+            String name = cfg.getCds().getArchive();
+            if (runnable) {
+                getLog().info("  cds: " + name + " folded into app layer ("
+                        + resolvedCdsArchive.length() + " bytes, " + sha256(resolvedCdsArchive) + ")");
+            } else {
+                ArtifactLayer cdsLayer = cdsLayer(resolvedCdsArchive);
+                getLog().info("  cds layer: " + cdsLayer.name() + ": " + cdsLayer.mediaType()
+                        + " (" + cdsLayer.tar().length + " bytes, "
+                        + LocalStore.sha256Hex(cdsLayer.tar()) + ")");
+            }
+            getLog().info("  cds archive: " + name + " (mounted /app/" + name
+                    + "; -Xshare:auto, best-effort)");
+        }
+
         try {
             getLog().info("\n== jvm-config.json ==\n" + MAPPER.writeValueAsString(cfg));
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to serialize config", e);
+        }
+    }
+
+    private static String sha256(File file) throws MojoExecutionException {
+        try {
+            return LocalStore.sha256Hex(Files.readAllBytes(file.toPath()));
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to read CDS archive " + file.getAbsolutePath(), e);
         }
     }
 }

@@ -40,7 +40,7 @@ an exercised capability fails. The suite covers:
 | Tier | Scope | Primary components |
 |---:|---|---|
 | 1 | Go unit/component suites | core + Kubernetes |
-| 2 | CLI push, inspect, run, bundle, classpath, and JPMS | core + fixtures |
+| 2 | CLI push, inspect, run, bundle, classpath, and JPMS; Maven plugin `config`, `inspect`, `build`, `appcds`, and `push` | core + maven-plugin + fixtures |
 | 3 | shim to runc under Linux cgroups | core + fixtures |
 | 4 | operator control plane and Helm packaging | Kubernetes |
 | 5-6 | host and in-cluster admission webhooks | Kubernetes |
