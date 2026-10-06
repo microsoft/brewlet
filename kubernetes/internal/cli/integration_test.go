@@ -141,6 +141,7 @@ func TestCLIIntegration(t *testing.T) {
 	t.Run("rbac-denied-dry-run", f.testRBAC)
 	t.Run("admission-denied-dry-run", f.testAdmission)
 	t.Run("concurrent-updates", f.testConflicts)
+	t.Run("concurrent-status-write", f.testStatusChurn)
 	t.Run("application-inspection", f.testAppInspection)
 	t.Run("profile-deletion", f.testProfileDeletion)
 	t.Run("install-refuses-existing-crds", f.testInstallGuard)
@@ -634,6 +635,63 @@ func (f *fixture) testConflicts(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// testStatusChurn injects a real status-subresource write (as the operator
+// does after adding its finalizer or observing a spec change) between the
+// CLI's read and its patch: the resourceVersion changes but nothing the user
+// reviewed does, so the inventory update must still succeed.
+func (f *fixture) testStatusChurn(t *testing.T) {
+	for _, dryRun := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dry-run=%t", dryRun), func(t *testing.T) {
+			p := f.profile(t, fmt.Sprintf("status-churn-%t", dryRun))
+			upstream, err := url.Parse(f.config.Host)
+			must(t, err)
+			proxy := httputil.NewSingleHostReverseProxy(upstream)
+			proxy.Transport, err = rest.TransportFor(f.config)
+			must(t, err)
+			var once sync.Once
+			mutations := make(chan error, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPatch && strings.HasSuffix(r.URL.Path, "/nodeprofiles/"+p.Name) {
+					once.Do(func() {
+						current := &nodeapi.NodeProfile{}
+						err := f.api.Get(r.Context(), client.ObjectKey{Name: p.Name}, current)
+						if err == nil {
+							current.Status.ObservedGeneration = current.Generation
+							current.Status.OwnershipInitialized = true
+							err = f.api.Status().Update(r.Context(), current)
+						}
+						mutations <- err
+					})
+				}
+				proxy.ServeHTTP(w, r)
+			}))
+			defer server.Close()
+			config := f.writeConfig(t, p.Name, &rest.Config{Host: server.URL})
+			args := jdkArgs(p.Name)
+			if dryRun {
+				args = append(args, "--dry-run=server")
+			}
+			r := f.cliConfig(t, config, args...)
+			select {
+			case err := <-mutations:
+				must(t, err)
+			default:
+				t.Fatal("test did not inject a concurrent status write")
+			}
+			if r.code != 0 || !strings.Contains(r.stdout, `"feature": 25`) {
+				t.Fatalf("status-only change failed the inventory update: %+v", r)
+			}
+			current := f.getProfile(t, p.Name)
+			if !current.Status.OwnershipInitialized {
+				t.Fatal("status write was lost")
+			}
+			if added := len(current.Spec.JDKs) == len(p.Spec.JDKs)+1; added == dryRun {
+				t.Fatalf("unexpected JDKs after update (dry-run=%t): %+v", dryRun, current.Spec.JDKs)
+			}
+		})
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -597,12 +598,12 @@ func TestAddMutatesByDefaultAndDryRunUsesConditionalPatch(t *testing.T) {
 					t.Fatalf("patch: %s %v", raw, err)
 				}
 				if patch[0].Op != "test" || patch[0].Path != "/metadata/uid" || string(patch[0].Value) != `"profile-uid"` ||
-					patch[1].Op != "test" || patch[1].Path != "/metadata/generation" || string(patch[1].Value) != `3` ||
+					patch[1].Op != "test" || patch[1].Path != "/metadata/resourceVersion" || string(patch[1].Value) != `"42"` ||
 					patch[2].Op != "add" || patch[2].Path != "/spec/jdks" {
 					t.Fatalf("patch is not identity/version fenced and narrow: %s", raw)
 				}
 				if mode == "conflict" {
-					return nil, errors.New("The request is invalid: testing value /metadata/generation failed")
+					return nil, errors.New("Conflict: resourceVersion changed")
 				}
 				doc, err := decodeDocument([]byte(fixtureProfile()))
 				if err != nil {
@@ -616,7 +617,12 @@ func TestAddMutatesByDefaultAndDryRunUsesConditionalPatch(t *testing.T) {
 				doc["spec"] = rawJSON(t, spec)
 				return rawJSON(t, doc), nil
 			})
-			if calls != 2 {
+			wantCalls := 2
+			if mode == "conflict" {
+				// One re-read to rule out status-only churn; no second patch.
+				wantCalls = 3
+			}
+			if calls != wantCalls {
 				t.Fatalf("unexpected retries: %d", calls)
 			}
 			if mode == "conflict" {
@@ -684,8 +690,12 @@ func TestFailedServerDryRunDoesNotRender(t *testing.T) {
 						t.Fatalf("failed dry run rendered output or claimed success: stdout=%q stderr=%q err=%v", out, stderr, err)
 					}
 					wantCalls := 2
-					if failure == "read" {
+					switch failure {
+					case "read":
 						wantCalls = 1
+					case "validation", "conflict":
+						// One re-read to rule out status-only churn; no second patch.
+						wantCalls = 3
 					}
 					if calls != wantCalls {
 						t.Fatalf("unexpected fallback/retry after failure: got %d calls, want %d", calls, wantCalls)
@@ -756,34 +766,53 @@ func TestKubectlLocalPatchContract(t *testing.T) {
 		t.Skip("kubectl not installed")
 	}
 	for name, tc := range map[string]struct {
-		mutate func(string) string
-		stale  bool
+		mutate  func(string) string
+		stale   bool
+		patches int
 	}{
-		"unchanged": {mutate: func(s string) string { return s }},
-		// The operator's status writes bump resourceVersion but not generation;
-		// they must not fail a concurrent spec edit.
-		"status-only-change": {mutate: func(s string) string {
+		"unchanged": {patches: 1, mutate: func(s string) string { return s }},
+		// The operator writes status and adds its finalizer asynchronously; that
+		// churn bumps resourceVersion and is retried against the fresh object.
+		"status-only-change": {patches: 2, mutate: func(s string) string {
 			s = strings.Replace(s, `"resourceVersion":"42"`, `"resourceVersion":"43"`, 1)
+			s = strings.Replace(s, `"finalizers":["node.brewlet.sh/cleanup"]`, `"finalizers":["node.brewlet.sh/cleanup","other"]`, 1)
 			return strings.Replace(s, `"readyNodes":1`, `"readyNodes":0`, 1)
 		}},
-		"concurrent-spec-change": {stale: true, mutate: func(s string) string {
+		"concurrent-spec-change": {stale: true, patches: 1, mutate: func(s string) string {
 			s = strings.Replace(s, `"resourceVersion":"42","generation":3`, `"resourceVersion":"43","generation":4`, 1)
 			return strings.Replace(s, `"maxUnavailable":1`, `"maxUnavailable":2`, 1)
 		}},
-		"recreated": {stale: true, mutate: func(s string) string {
+		"concurrent-metadata-change": {stale: true, patches: 1, mutate: func(s string) string {
+			s = strings.Replace(s, `"resourceVersion":"42"`, `"resourceVersion":"43"`, 1)
+			return strings.Replace(s, `"labels":{"team":"platform"}`, `"labels":{"team":"other"}`, 1)
+		}},
+		"recreated": {stale: true, patches: 1, mutate: func(s string) string {
+			s = strings.Replace(s, `"resourceVersion":"42"`, `"resourceVersion":"43"`, 1)
 			return strings.Replace(s, `"uid":"profile-uid"`, `"uid":"other-uid"`, 1)
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			file := writeFixture(t, tc.mutate(fixtureProfile()))
+			// The first read sees the reviewed profile; the server (and any
+			// re-read) then holds the concurrently changed snapshot.
+			snapshot := tc.mutate(fixtureProfile())
+			file := writeFixture(t, snapshot)
+			gets, patches := 0, 0
 			out, _, err := runTest(t, addArgs("--output", "json"),
 				func(ctx context.Context, _ string, args []string, _ []byte) ([]byte, error) {
 					if hasArgs(args, "get", profilesResource) {
-						return []byte(fixtureProfile()), nil
+						gets++
+						if gets == 1 {
+							return []byte(fixtureProfile()), nil
+						}
+						return []byte(snapshot), nil
 					}
+					patches++
 					return execute(ctx, "kubectl", []string{"patch", "--local", "-f", file, "--type=json",
 						"--patch-file", flagValue(t, args, "--patch-file"), "-o", "json"}, nil)
 				})
+			if patches != tc.patches {
+				t.Fatalf("got %d patches, want %d", patches, tc.patches)
+			}
 			if tc.stale {
 				if err == nil || !strings.Contains(err.Error(), "concurrent changes") {
 					t.Fatalf("kubectl accepted a patch against a changed profile: %v", err)
@@ -792,6 +821,21 @@ func TestKubectlLocalPatchContract(t *testing.T) {
 				t.Fatalf("kubectl rejected or lost fields: %s %v", out, err)
 			}
 		})
+	}
+}
+
+func TestStatusOnlyChurnRetryIsBounded(t *testing.T) {
+	version, patches := 42, 0
+	_, _, err := runTest(t, addArgs("--output", "json"), func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
+		if hasArgs(args, "get", profilesResource) {
+			version++
+			return []byte(strings.Replace(fixtureProfile(), `"resourceVersion":"42"`, fmt.Sprintf(`"resourceVersion":"%d"`, version), 1)), nil
+		}
+		patches++
+		return nil, errors.New("The request is invalid: testing value /metadata/resourceVersion failed")
+	})
+	if err == nil || !strings.Contains(err.Error(), "concurrent changes") || patches != maxStatusOnlyRetries+1 {
+		t.Fatalf("status churn retry was not bounded: patches=%d err=%v", patches, err)
 	}
 }
 
@@ -1010,7 +1054,7 @@ func TestLauncherAdditionAndTerminatingProfile(t *testing.T) {
 					Value    json.RawMessage
 				}
 				if err := json.Unmarshal(raw, &patch); err != nil || len(patch) != 3 ||
-					patch[0].Path != "/metadata/uid" || patch[1].Path != "/metadata/generation" ||
+					patch[0].Path != "/metadata/uid" || patch[1].Path != "/metadata/resourceVersion" ||
 					patch[2].Path != "/spec/launchers" || patch[2].Op != "add" {
 					t.Fatalf("launcher patch is not conditional and narrow: %s %v", raw, err)
 				}
