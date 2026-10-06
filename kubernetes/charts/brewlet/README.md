@@ -129,6 +129,10 @@ for upgrades; pass them again rather than substituting example defaults.
 | `admission.nodeSelector` | `{}` | Node labels the admission webhook pods must match. |
 | `admission.nodeProfileFailurePolicy` | `Ignore` | Transport-error policy for NodeProfile validation. The reconciler independently enforces the same rules before privileged work. |
 | `admission.port` | `9443` | Webhook server port. |
+| `admission.namespaceSelector` | excludes `kube-system` | Namespaces the cluster-wide pod webhook is consulted for. `{}` matches every namespace apart from `platformNamespaceExclusions`. |
+| `admission.objectSelector` | `{}` | Optional pod label selector for the pod webhook. |
+| `admission.platformNamespaceExclusions` | AKS Admissions Enforcer expressions | Match expressions appended to the `namespaceSelector` of every chart webhook so Helm 4 server-side-apply upgrades do not conflict with AKS. See [AKS Admissions Enforcer](#aks-admissions-enforcer). |
+| `admission.disableAKSAdmissionsEnforcer` | `false` | AKS only, not recommended: label and annotate both webhook configurations with `admissions.enforcer/disabled: "true"`. |
 | `admission.selfSigned.validityDays` | `90` | Lifetime of the dependency-free Helm-generated serving certificate. |
 | `admission.certManager.enabled` | `false` | Let cert-manager issue and renew the serving certificate and inject webhook CA bundles. |
 | `admission.certManager.createSelfSignedIssuer` | `false` | Create a namespaced self-signed CA chain instead of using an existing issuer. |
@@ -371,6 +375,52 @@ work: the operator repeats all NodeProfile source, mirror, pool, and rollout
 validation before creating a DaemonSet. Set the value to `Fail` after webhook
 availability is guaranteed when synchronous rejection on transport errors is
 preferred.
+
+### AKS Admissions Enforcer
+
+AKS runs an [Admissions Enforcer](https://learn.microsoft.com/azure/aks/faq#can-admission-controller-webhooks-affect-kube-system-and-internal-aks-namespaces)
+that patches every admission webhook configuration after it is created,
+appending `namespaceSelector` expressions that keep the webhook away from AKS
+system namespaces. A `LabelSelector` is atomic for server-side apply, so the
+`admissionsenforcer` field manager then co-owns the whole selector. Helm 4
+upgrades use server-side apply, and an upgrade that renders a different selector
+fails:
+
+```text
+Apply failed with 1 conflict: conflict with "admissionsenforcer" using
+admissionregistration.k8s.io/v1: .webhooks[name="pods.brewlet.sh"].namespaceSelector
+```
+
+The chart therefore appends `admission.platformNamespaceExclusions` to the
+selector of **both** webhooks (`pods.brewlet.sh` and
+`nodeprofiles.node.brewlet.sh`). The defaults are the expressions AKS injects:
+
+```yaml
+- key: control-plane
+  operator: NotIn
+  values: ["true"]
+- key: kubernetes.azure.com/managedby
+  operator: NotIn
+  values: ["aks"]
+```
+
+Helm then applies the same value the enforcer would, so there is nothing to
+conflict on and AKS's system-namespace protection stays in place. The
+expressions match no label Brewlet relies on, so they are harmless on other
+clusters. If AKS changes what it injects, or a different platform injects its own
+expressions, set `admission.platformNamespaceExclusions` to the expressions you
+see in `kubectl get mutatingwebhookconfiguration brewlet-admission -o yaml`
+(keep their order). Set it to `[]` only on clusters without such an enforcer.
+
+When a release already conflicts, for example when upgrading from a chart
+version without these exclusions, use one of these:
+
+| Option | Effect | Trade-off |
+| --- | --- | --- |
+| Upgrade to this chart (default values) | Selector matches the enforcer's; no conflict. | Must track what AKS injects. |
+| `helm upgrade --force-conflicts` | Helm takes ownership of the selector. | Drops the enforcer's expressions until AKS re-adds them, and the next upgrade conflicts again unless the selector matches. |
+| `helm upgrade --server-side=false` | Client-side three-way merge, which does not check field ownership. | Also drops the enforcer's expressions until AKS re-adds them, and opts the release out of server-side apply. |
+| `admission.disableAKSAdmissionsEnforcer=true` | Adds `admissions.enforcer/disabled: "true"` so AKS stops patching Brewlet's webhooks. | Removes AKS's system-namespace protection for these webhooks; AKS discourages it. Combine with `--force-conflicts` once if the enforcer already co-owns the selector. |
 
 ## NetworkPolicies
 

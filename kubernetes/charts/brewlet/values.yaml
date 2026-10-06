@@ -219,15 +219,36 @@ admission:
   # Narrow what the cluster-wide pod webhook is consulted for. The default keeps
   # it off kube-system, where Brewlet workloads never run, so a webhook outage or
   # slow response cannot affect control-plane pods. Set to {} to match every
-  # namespace. objectSelector is empty by default because a brewlet pod is
-  # identified by runtimeClassName, which a label selector cannot match — set it
-  # only if you label your Brewlet workloads yourself.
+  # namespace (apart from platformNamespaceExclusions below). objectSelector is
+  # empty by default because a brewlet pod is identified by runtimeClassName,
+  # which a label selector cannot match — set it only if you label your Brewlet
+  # workloads yourself.
   namespaceSelector:
     matchExpressions:
       - key: kubernetes.io/metadata.name
         operator: NotIn
         values: ["kube-system"]
   objectSelector: {}
+  # Match expressions appended to the namespaceSelector of EVERY chart webhook
+  # (pod and NodeProfile). The defaults are exactly what the AKS Admissions
+  # Enforcer injects into every admission webhook to keep it off AKS system
+  # namespaces. Rendering them up front means Helm never tries to remove them:
+  # without them, `helm upgrade` with Helm 4 (server-side apply) fails on AKS
+  # with a field conflict against the "admissionsenforcer" field manager. They
+  # match no namespace label Brewlet relies on, so they are harmless elsewhere.
+  # Set to [] only on clusters with no such platform enforcer.
+  platformNamespaceExclusions:
+    - key: control-plane
+      operator: NotIn
+      values: ["true"]
+    - key: kubernetes.azure.com/managedby
+      operator: NotIn
+      values: ["aks"]
+  # AKS only, not recommended: annotate and label both webhook configurations
+  # with admissions.enforcer/disabled so the AKS Admissions Enforcer stops
+  # mutating them. This removes AKS's system-namespace protection for Brewlet's
+  # webhooks; prefer platformNamespaceExclusions above.
+  disableAKSAdmissionsEnforcer: false
   selfSigned:
     # The dependency-free default. The certificate is reused across upgrades and
     # only regenerated once it is within renewBeforeDays of expiry.

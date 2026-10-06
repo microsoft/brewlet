@@ -97,6 +97,9 @@ with `--set key=value` or a values file.
 | `admission.failurePolicy` | `Ignore` | Webhook failure policy. `Ignore` keeps availability high, but runtime identity resolution still fails closed in the shim if containerd metadata cannot be resolved. |
 | `admission.nodeSelector` | `{}` | Node labels the admission webhook pods must match. |
 | `admission.port` | `9443` | Webhook server port. |
+| `admission.namespaceSelector` | excludes `kube-system` | Namespaces the cluster-wide pod webhook is consulted for. |
+| `admission.platformNamespaceExclusions` | AKS Admissions Enforcer expressions | Appended to the `namespaceSelector` of every chart webhook so Helm 4 (server-side apply) upgrades on AKS do not conflict with the `admissionsenforcer` field manager. See the chart README's "AKS Admissions Enforcer" section. |
+| `admission.disableAKSAdmissionsEnforcer` | `false` | AKS only, not recommended: opt both webhook configurations out of the Admissions Enforcer with `admissions.enforcer/disabled: "true"`. |
 | `admission.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Webhook pod resources. |
 
 Example production values (own runtime source, no optional launcher):

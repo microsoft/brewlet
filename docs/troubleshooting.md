@@ -358,6 +358,13 @@ containerd --config /etc/containerd/config.toml config dump | grep -A4 runtimes.
   such as Azure CNI powered by Cilium never match those pods with CIDRs, even
   `0.0.0.0/0`, so add them as a namespace+pod selector in
   `networkPolicy.admission.ingressFrom`.
+- **`helm upgrade` on AKS fails with `conflict with "admissionsenforcer"`** on
+  `.webhooks[name="pods.brewlet.sh"].namespaceSelector`: AKS's Admissions
+  Enforcer co-owns webhook selectors, and Helm 4 upgrades use server-side apply.
+  Current charts render the enforcer's expressions through
+  `admission.platformNamespaceExclusions`, so upgrading to them resolves it. If
+  AKS injects different expressions, copy them into that value; `--force-conflicts`
+  is a one-off fallback. See the chart README's "AKS Admissions Enforcer" section.
 - **Control-plane pods fail readiness after enabling NetworkPolicies** when
   `networkPolicy.healthProbes.ingressFrom` does not match the source addresses
   used by kubelets. Configure the cluster's node CIDRs or equivalent trusted

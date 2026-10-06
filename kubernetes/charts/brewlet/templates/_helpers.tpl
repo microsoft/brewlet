@@ -86,6 +86,52 @@ helm.sh/chart: brewlet-{{ .Chart.Version }}
 brewlet-admission
 {{- end -}}
 
+{{/*
+A webhook namespaceSelector: the given selector plus every
+admission.platformNamespaceExclusions expression it does not already contain,
+appended last because that is where the AKS Admissions Enforcer injects them.
+Renders nothing when the result is empty. Expects (dict "root" $ "selector" ...).
+*/}}
+{{- define "brewlet.admission.namespaceSelector" -}}
+{{- $selector := deepCopy (default (dict) .selector) -}}
+{{- $expressions := list -}}
+{{- range (default (list) $selector.matchExpressions) -}}
+{{- $expressions = append $expressions . -}}
+{{- end -}}
+{{- range (default (list) .root.Values.admission.platformNamespaceExclusions) -}}
+{{- if not (has . $expressions) -}}
+{{- $expressions = append $expressions . -}}
+{{- end -}}
+{{- end -}}
+{{- if $expressions -}}
+{{- $_ := set $selector "matchExpressions" $expressions -}}
+{{- end -}}
+{{- if $selector -}}
+namespaceSelector:
+  {{- toYaml $selector | nindent 2 }}
+{{- end -}}
+{{- end -}}
+
+{{/* Metadata labels and annotations shared by both webhook configurations. */}}
+{{- define "brewlet.admission.webhookMetadata" -}}
+{{- $certManagerEnabled := .Values.admission.certManager.enabled -}}
+{{- $disableEnforcer := .Values.admission.disableAKSAdmissionsEnforcer -}}
+labels:
+  {{- include "brewlet.labels" . | nindent 2 }}
+  {{- if $disableEnforcer }}
+  admissions.enforcer/disabled: "true"
+  {{- end }}
+{{- if or $certManagerEnabled $disableEnforcer }}
+annotations:
+  {{- if $certManagerEnabled }}
+  cert-manager.io/inject-ca-from: {{ printf "%s/brewlet-admission-cert" (include "brewlet.namespace" .) | quote }}
+  {{- end }}
+  {{- if $disableEnforcer }}
+  admissions.enforcer/disabled: "true"
+  {{- end }}
+{{- end }}
+{{- end -}}
+
 {{/* Render the required structured JDK source list. */}}
 {{- define "brewlet.jdkItems" -}}
 {{- if kindIs "slice" .value -}}
