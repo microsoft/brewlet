@@ -138,9 +138,22 @@ class Fixture:
         self.evidence = []
         self.env = dict(os.environ, KUBECONFIG=str(self.kubeconfig),
                         KIND_EXPERIMENTAL_DOCKER_NETWORK=self.name)
+        if not self.env.get("DOCKER_HOST"):
+            # The private DOCKER_CONFIG below hides the active context (e.g. Docker
+            # Desktop's desktop-linux), so pin its endpoint first.
+            endpoint = subprocess.run(
+                ["docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=self.env,
+                check=False).stdout.strip()
+            if endpoint:
+                self.env["DOCKER_HOST"] = endpoint
         docker_config = self.private / "docker"
         docker_config.mkdir()
         (docker_config / "config.json").write_text("{}")
+        # Keep CLI plugins (buildx) reachable without exposing the user's credentials.
+        plugins = Path(os.environ.get("DOCKER_CONFIG") or Path.home() / ".docker") / "cli-plugins"
+        if plugins.is_dir():
+            (docker_config / "cli-plugins").symlink_to(plugins.resolve(), target_is_directory=True)
         self.env["DOCKER_CONFIG"] = str(docker_config)
         self.env["HELM_REGISTRY_CONFIG"] = str(self.private / "helm-registry.json")
         Path(self.env["HELM_REGISTRY_CONFIG"]).write_text("{}")

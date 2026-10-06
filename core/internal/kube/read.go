@@ -77,7 +77,7 @@ func summarizeProfile(obj object) profileSummary {
 		Name: obj.Metadata.Name, Generation: obj.Metadata.Generation,
 		ObservedGeneration: obj.Status.ObservedGeneration,
 		Ready:              ready, Reason: reason, AssignedNodes: obj.Status.AssignedNodes,
-		ReadyNodes: obj.Status.ReadyNodes, ManagedBy: managedBy(obj.Metadata),
+		ReadyNodes: obj.Status.ReadyNodes, ManagedBy: managedBy(obj),
 		Spec: obj.Spec, Conditions: obj.Status.Conditions,
 	}
 }

@@ -6,8 +6,9 @@
 # Covers: push (OCI artifact, no Dockerfile), inspect, run (java -jar + live curl,
 # plus a shipped AppCDS archive mapping under -Xshare:on),
 # bundle (resource->JVM/cgroup mapping in config.json), layered classpath, and
-# modular (JPMS) apps, including supplementary non-modular class-path helpers.
-# Prereqs: go, java, python3
+# modular (JPMS) apps, including supplementary non-modular class-path helpers,
+# and the Maven plugin's config / inspect / build / appcds goals (tier2_maven_goals).
+# Prereqs: go, java, python3 (mvn for the Maven goals; docker for the registry)
 
 tier2_cli() {
   section "Tier 2 — local CLI + JVM (push / inspect / run / bundle)"
@@ -354,6 +355,21 @@ tier2_cli() {
       "$(printf '%s' "$out" | tail -1)"
   fi
 
+  # --- Maven plugin: install the checkout build once for the goal checks ----
+  local plugin_ready=false
+  if have mvn; then
+    if mvn -q -f "$MONOREPO_DIR/maven-plugin/pom.xml" install \
+         >"$WORK/t2-maven-plugin.log" 2>&1; then
+      plugin_ready=true
+      pass "maven: install checkout-built brewlet-maven-plugin"
+      tier2_maven_goals "$bin"
+    else
+      fail "maven: install checkout-built brewlet-maven-plugin" "see $WORK/t2-maven-plugin.log"
+    fi
+  else
+    skip "maven goals: config / inspect / build / appcds" "mvn is required"
+  fi
+
   # --- managed dependencies: live OCI registry referrers --------------------
   if have docker && have mvn; then
     local registry_id registry_port registry_ref registry_log="$WORK/t2-registry.log"
@@ -373,8 +389,7 @@ tier2_cli() {
       sleep 0.2
     done
     if [[ "$registry_ready" == true ]] \
-       && mvn -q -f "$MONOREPO_DIR/maven-plugin/pom.xml" install \
-         >>"$registry_log" 2>&1 \
+       && [[ "$plugin_ready" == true ]] \
        && mvn -q -f "$FIXTURES_DIR/managed-dependency-bom/pom.xml" install \
          >>"$registry_log" 2>&1 \
        && mvn -q -f "$maven_bundle_pom" package \
@@ -595,4 +610,388 @@ tier2_cli() {
   else
     fail "mixed: emit OCI runtime bundle" "see $WORK/t2-mixed-bundle.log"
   fi
+}
+
+# --- Maven plugin goals: config / inspect / build / appcds -----------------
+# Drives the goals no other tier invokes, host-only, against a private copy of
+# the demo fixture (the shared pom and its target/ stay untouched). The copy
+# adds plugin configuration so app-intrinsic launch data (system properties,
+# env) is observable end to end. Every image ref points at a local HTTP
+# sentinel that must never be contacted: build/inspect/appcds are offline.
+tier2_maven_goals() {
+  local bin="$1"
+  local plugin="sh.brewlet:brewlet-maven-plugin:0.1.0-SNAPSHOT"
+  local gdir="$WORK/t2-maven-goals"
+  local app="$gdir/app" log out
+  rm -rf "$gdir"
+  mkdir -p "$app"
+  cp "$FIXTURES_DIR/demo-app/pom.xml" "$app/pom.xml"
+  cp -R "$FIXTURES_DIR/demo-app/src" "$app/src"
+  if ! python3 - "$app/pom.xml" <<'PY'
+import sys
+path = sys.argv[1]
+pom = open(path).read()
+anchor = "    </plugins>\n  </build>"
+if pom.count(anchor) != 1:
+    sys.exit("plugin anchor not found")
+plugin = """      <plugin>
+        <groupId>sh.brewlet</groupId>
+        <artifactId>brewlet-maven-plugin</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <configuration>
+          <systemProperties>
+            <server.port>${brewlet.e2e.port}</server.port>
+            <brewlet.e2e.goal>maven-goals</brewlet.e2e.goal>
+          </systemProperties>
+          <env>
+            <env><name>BREWLET_E2E</name><value>maven-goals</value></env>
+          </env>
+        </configuration>
+      </plugin>
+"""
+open(path, "w").write(pom.replace(anchor, plugin + anchor, 1))
+PY
+  then
+    fail "maven goals: configure a private demo-app copy" "unexpected demo-app/pom.xml shape"
+    return 0
+  fi
+  local mvn_app=(mvn -B -f "$app/pom.xml")
+  local port sentinel
+  port="$(free_port)"
+  sentinel="$(free_port)"
+  if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1 )) || [[ ! "$sentinel" =~ ^[0-9]+$ ]] || (( sentinel < 1 )); then
+    fail "maven goals: select test ports" "invalid free ports: $port $sentinel"
+    return 0
+  fi
+  local cp_args=(-Dbrewlet.e2e.port="$port" -Dbrewlet.entryMode=classpath -Dbrewlet.mainClass=com.example.Hello)
+  local layout="$app/target/brewlet/oci"
+  local art_ref="localhost:$sentinel/e2e/demo-maven:1.0.0"
+  local img_ref="localhost:$sentinel/e2e/demo-maven-image:1.0.0"
+  local cds_ref="localhost:$sentinel/e2e/demo-maven-cds:1.0.0"
+
+  # --- brewlet:config --------------------------------------------------------
+  local cfg="$app/target/brewlet/jvm-config.json"
+  local summarize_cfg='import json, sys
+c = json.load(open(sys.argv[1]))
+e = c.get("entry", {})
+print("|".join(str(v) for v in (c.get("schemaVersion"), c.get("mainJar"), e.get("mode"), e.get("mainClass"))))
+print(json.dumps(c.get("systemProperties"), sort_keys=True))
+print(json.dumps(c.get("env"), sort_keys=True))
+print(",".join(sorted(set(c) - {"schemaVersion", "mainJar", "entry", "systemProperties", "env"})) or "-")'
+  log="$gdir/config.log"
+  if "${mvn_app[@]}" package "$plugin:config" -Dbrewlet.e2e.port="$port" >"$log" 2>&1; then
+    assert_contains "maven config: reports the generated launch config" "$(cat "$log")" \
+      "Brewlet: wrote launch config"
+  else
+    fail "maven config: generate the launch config" "see $log"
+    return 0
+  fi
+  assert_file "maven config: writes target/brewlet/jvm-config.json" "$cfg" || return 0
+  out="$(python3 -c "$summarize_cfg" "$cfg" 2>&1)"
+  assert_eq "maven config: infers jar mode for app.jar from the manifest" \
+    "$(printf '%s\n' "$out" | sed -n 1p)" "1|app.jar|jar|None"
+  assert_eq "maven config: records POM systemProperties" "$(printf '%s\n' "$out" | sed -n 2p)" \
+    "{\"brewlet.e2e.goal\": \"maven-goals\", \"server.port\": \"$port\"}"
+  assert_eq "maven config: records POM env" "$(printf '%s\n' "$out" | sed -n 3p)" \
+    '[{"name": "BREWLET_E2E", "value": "maven-goals"}]'
+  # JDK feature/distribution and launcher belong to the deployment descriptor.
+  assert_eq "maven config: carries no JDK feature, launcher, or other deployment fields" \
+    "$(printf '%s\n' "$out" | sed -n 4p)" "-"
+
+  log="$gdir/config-classpath.log"
+  if "${mvn_app[@]}" "$plugin:config" "${cp_args[@]}" >"$log" 2>&1; then
+    assert_eq "maven config: explicit classpath entry records main class com.example.Hello" \
+      "$(python3 -c "$summarize_cfg" "$cfg" 2>&1 | sed -n 1p)" "1|app.jar|classpath|com.example.Hello"
+  else
+    fail "maven config: explicit classpath entry" "see $log"
+  fi
+
+  local bad mode needle
+  for bad in 'bogus|Invalid <entryMode> "bogus"' 'module|requires a modular JAR'; do
+    mode="${bad%%|*}"; needle="${bad#*|}"
+    log="$gdir/config-invalid-$mode.log"
+    if "${mvn_app[@]}" "$plugin:config" -Dbrewlet.e2e.port="$port" \
+         -Dbrewlet.entryMode="$mode" >"$log" 2>&1; then
+      fail "maven config: rejects entryMode=$mode" "goal unexpectedly succeeded"
+    else
+      assert_contains "maven config: rejects entryMode=$mode with a clear error" "$(cat "$log")" "$needle"
+    fi
+  done
+
+  # Registry sentinel: any HTTP request it logs means a goal contacted the
+  # registry named in the image ref.
+  local sentinel_log="$gdir/registry-sentinel.log"
+  python3 -m http.server "$sentinel" --bind 127.0.0.1 >"$sentinel_log" 2>&1 &
+  local sentinel_pid=$!
+  if ! wait_for python3 -c "import socket; socket.create_connection(('127.0.0.1', $sentinel), 1).close()"; then
+    fail "maven goals: start registry sentinel" "see $sentinel_log"
+    kill "$sentinel_pid" 2>/dev/null || true
+    wait "$sentinel_pid" 2>/dev/null || true
+    return 0
+  fi
+
+  # --- brewlet:inspect (dry run) --------------------------------------------
+  local inspect_art_log="$gdir/inspect-artifact.log" inspect_img_log="$gdir/inspect-image.log"
+  if "${mvn_app[@]}" "$plugin:inspect" "${cp_args[@]}" -Dbrewlet.format=artifact \
+       -Dbrewlet.image="$art_ref" >"$inspect_art_log" 2>&1; then
+    out="$(cat "$inspect_art_log")"
+    assert_contains "maven inspect: reports the target image ref" "$out" "image: $art_ref"
+    assert_contains "maven inspect: describes the native artifact format" "$out" \
+      "artifactType: application/vnd.brewlet.app.v1+json"
+    assert_contains "maven inspect: prints the resolved jvm-config.json" "$out" "== jvm-config.json =="
+  else
+    fail "maven inspect: artifact format" "see $inspect_art_log"
+  fi
+  if "${mvn_app[@]}" "$plugin:inspect" "${cp_args[@]}" -Dbrewlet.image="$img_ref" \
+       >"$inspect_img_log" 2>&1; then
+    out="$(cat "$inspect_img_log")"
+    assert_contains "maven inspect: defaults to a runnable OCI image" "$out" "kind: runnable OCI image"
+    assert_contains "maven inspect: names the launch-config annotation" "$out" \
+      "launchConfigAnnotation: brewlet.sh/jvm-config"
+  else
+    fail "maven inspect: image format" "see $inspect_img_log"
+  fi
+  if [[ -e "$layout" ]]; then
+    fail "maven inspect: dry run writes no OCI layout" "found $layout"
+  else
+    pass "maven inspect: dry run writes no OCI layout"
+  fi
+
+  # compare_inspect CLI_OUT MVN_LOG: the CLI's view of the built artifact must
+  # equal what brewlet:inspect predicted (launch config, media types, platforms).
+  local compare_inspect='import json, re, sys
+cli, mvn, layout = open(sys.argv[1]).read(), open(sys.argv[2]).read(), sys.argv[3]
+dec = json.JSONDecoder()
+def after(text, marker):
+    i = text.index(marker)
+    return dec.raw_decode(text[text.index("{", i):])[0]
+def field(name):
+    m = re.search(r"^\[INFO\]\s+" + name + r": (.*)$", mvn, re.M)
+    return m and m.group(1).strip()
+problems = []
+manifest = after(cli, "== manifest ==")
+if after(cli, "== jvm config ==") != after(mvn, "== jvm-config.json =="):
+    problems.append("jvm config differs")
+if manifest["config"]["mediaType"] != field("configMediaType"):
+    problems.append("config media type " + manifest["config"]["mediaType"])
+if manifest["layers"][0]["mediaType"] != field("layerMediaType"):
+    problems.append("layer media type " + manifest["layers"][0]["mediaType"])
+if field("artifactType") and manifest.get("artifactType") != field("artifactType"):
+    problems.append("artifactType " + str(manifest.get("artifactType")))
+if field("platforms"):
+    index = json.load(open(layout + "/index.json"))
+    ref = sys.argv[4]
+    top = next(m for m in index["manifests"]
+               if m.get("annotations", {}).get("org.opencontainers.image.ref.name") == ref)
+    blob = json.load(open(layout + "/blobs/" + top["digest"].replace(":", "/")))
+    arches = sorted(m["platform"]["architecture"] for m in blob["manifests"])
+    if "[" + ", ".join(arches) + "]" != field("platforms"):
+        problems.append("platforms " + str(arches))
+print("; ".join(problems) or "match")'
+
+  # --- brewlet:build: local OCI layout, consumed by the checkout CLI ---------
+  log="$gdir/build-artifact.log"
+  if "${mvn_app[@]}" "$plugin:build" "${cp_args[@]}" -Dbrewlet.format=artifact \
+       -Dbrewlet.image="$art_ref" >"$log" 2>&1; then
+    assert_contains "maven build: writes a local OCI image layout" "$(cat "$log")" \
+      "Brewlet: wrote OCI image-layout"
+    local logged_digest indexed_digest
+    logged_digest="$(sed -n 's/.*  manifest: \(sha256:[0-9a-f]*\) .*/\1/p' "$log" | head -1)"
+    indexed_digest="$(python3 - "$layout/index.json" "$art_ref" <<'PY' 2>&1
+import json, sys
+for m in json.load(open(sys.argv[1]))["manifests"]:
+    if m.get("annotations", {}).get("org.opencontainers.image.ref.name") == sys.argv[2]:
+        print(m["digest"])
+PY
+)"
+    if [[ -n "$logged_digest" ]]; then
+      assert_eq "maven build: index.json tags the reported manifest digest" "$indexed_digest" "$logged_digest"
+    else
+      fail "maven build: index.json tags the reported manifest digest" "no manifest digest in $log"
+    fi
+  else
+    fail "maven build: artifact format" "see $log"
+  fi
+  if "$bin" inspect "$art_ref" --store "$layout" >"$gdir/cli-inspect-artifact.log" 2>&1; then
+    assert_contains "maven build: brewlet inspect reads the native artifact" \
+      "$(cat "$gdir/cli-inspect-artifact.log")" "native artifact"
+    assert_eq "maven inspect: matches brewlet inspect of the built artifact" \
+      "$(python3 -c "$compare_inspect" "$gdir/cli-inspect-artifact.log" "$inspect_art_log" "$layout" "$art_ref" 2>&1 | tail -1)" \
+      "match"
+  else
+    fail "maven build: brewlet inspect reads the native artifact" "see $gdir/cli-inspect-artifact.log"
+  fi
+
+  log="$gdir/build-image.log"
+  if "${mvn_app[@]}" "$plugin:build" "${cp_args[@]}" -Dbrewlet.image="$img_ref" >"$log" 2>&1 \
+     && "$bin" inspect "$img_ref" --store "$layout" >"$gdir/cli-inspect-image.log" 2>&1; then
+    assert_contains "maven build: brewlet inspect reads the runnable image" \
+      "$(cat "$gdir/cli-inspect-image.log")" "runnable OCI image"
+    assert_eq "maven inspect: matches brewlet inspect of the built runnable image" \
+      "$(python3 -c "$compare_inspect" "$gdir/cli-inspect-image.log" "$inspect_img_log" "$layout" "$img_ref" 2>&1 | tail -1)" \
+      "match"
+  else
+    fail "maven build: runnable image readable by brewlet inspect" "see $log"
+  fi
+
+  log="$gdir/build-no-image.log"
+  if "${mvn_app[@]}" "$plugin:build" -Dbrewlet.e2e.port="$port" >"$log" 2>&1; then
+    fail "maven build: requires an image ref" "goal unexpectedly succeeded"
+  else
+    assert_contains "maven build: requires an image ref" "$(cat "$log")" "requires <image> (or <registry>)"
+  fi
+
+  local body run_log="$gdir/run-artifact.log"
+  "$bin" run "$art_ref" --store "$layout" >"$run_log" 2>&1 &
+  local run_pid=$!
+  if body="$(retry_curl "http://localhost:$port/healthz" 40 0.5)"; then
+    pass "maven build: brewlet run launches the Maven-built artifact"
+    body="$(curl -s "http://localhost:$port/info" 2>/dev/null)"
+    assert_contains "maven build: POM systemProperties reach the JVM" "$body" "-Dbrewlet.e2e.goal=maven-goals"
+  else
+    fail "maven build: brewlet run launches the Maven-built artifact" "see $run_log"
+  fi
+  kill "$run_pid" 2>/dev/null || true
+  wait "$run_pid" 2>/dev/null || true
+
+  # --- brewlet:appcds: signal-mode training against the live demo server -----
+  local jfeature
+  jfeature="$("$JAVA_HOME/bin/java" -XshowSettings:properties -version 2>&1 \
+    | sed -n 's/^ *java.specification.version = //p' | head -1)"
+  if [[ ! "$jfeature" =~ ^[0-9]+$ ]] || (( jfeature < 21 )); then
+    skip "maven appcds: generate and ship an AppCDS archive" \
+      "training requires JDK 21+; JAVA_HOME reports ${jfeature:-unknown}"
+  else
+    tier2_maven_appcds "$bin" "$app" "$gdir" "$plugin" "$layout" "$cds_ref" "$jfeature"
+  fi
+
+  if grep -Eq '"(GET|HEAD|POST|PUT|PATCH|DELETE) ' "$sentinel_log"; then
+    fail "maven goals: never contact the registry in the image ref" "see $sentinel_log"
+  else
+    pass "maven goals: never contact the registry in the image ref"
+  fi
+  kill "$sentinel_pid" 2>/dev/null || true
+  wait "$sentinel_pid" 2>/dev/null || true
+}
+
+tier2_maven_appcds() {
+  local bin="$1" app="$2" gdir="$3" plugin="$4" layout="$5" cds_ref="$6" jfeature="$7"
+  local mvn_app=(mvn -B -f "$app/pom.xml") log out
+  local cport
+  cport="$(free_port)"
+  local cds_args=(-Dbrewlet.e2e.port="$cport" -Dbrewlet.entryMode=classpath -Dbrewlet.mainClass=com.example.Hello)
+  local jsa="$app/target/brewlet/app.jsa"
+
+  log="$gdir/appcds-no-readiness.log"
+  if "${mvn_app[@]}" "$plugin:appcds" "${cds_args[@]}" -Dbrewlet.appcds.mode=signal >"$log" 2>&1; then
+    fail "maven appcds: signal mode requires a readiness signal" "goal unexpectedly succeeded"
+  else
+    assert_contains "maven appcds: signal mode requires a readiness signal" "$(cat "$log")" \
+      "requires a readiness signal"
+  fi
+
+  log="$gdir/appcds.log"
+  if "${mvn_app[@]}" "$plugin:appcds" "${cds_args[@]}" -Dbrewlet.appcds.mode=signal \
+       -Dbrewlet.appcds.readyHttp="http://127.0.0.1:$cport/healthz" \
+       -Dbrewlet.appcds.timeoutSeconds=90 >"$log" 2>&1; then
+    out="$(cat "$log")"
+    assert_contains "maven appcds: trains on the JDK running Maven (JDK $jfeature)" "$out" "(feature $jfeature)"
+    assert_contains "maven appcds: waits for the demo server's /healthz" "$out" "readiness reached via HTTP probe"
+    assert_contains "maven appcds: trains the classpath launch" "$out" "-cp app.jar com.example.Hello"
+  else
+    fail "maven appcds: signal-mode training run" "see $log"
+    return 0
+  fi
+  if [[ -s "$jsa" ]]; then
+    pass "maven appcds: writes a non-empty target/brewlet/app.jsa"
+  else
+    fail "maven appcds: writes a non-empty target/brewlet/app.jsa" "see $log"
+    return 0
+  fi
+  if curl -sf "http://127.0.0.1:$cport/healthz" >/dev/null 2>&1; then
+    fail "maven appcds: training server is stopped after the archive flushes" "port $cport still answers"
+  else
+    pass "maven appcds: training server is stopped after the archive flushes"
+  fi
+
+  log="$gdir/build-cds.log"
+  if "${mvn_app[@]}" "$plugin:build" "${cds_args[@]}" -Dbrewlet.format=artifact \
+       -Dbrewlet.image="$cds_ref" -Dbrewlet.cdsArchive="$jsa" >"$log" 2>&1 \
+     && "$bin" inspect "$cds_ref" --store "$layout" >"$gdir/cli-inspect-cds.log" 2>&1; then
+    assert_contains "maven build: reports the attached CDS archive" "$(cat "$log")" "cds archive: app.jsa"
+    out="$(python3 - "$gdir/cli-inspect-cds.log" "$jsa" <<'PY' 2>&1
+import hashlib, json, sys
+text = open(sys.argv[1]).read()
+dec = json.JSONDecoder()
+def after(marker):
+    i = text.index(marker)
+    return dec.raw_decode(text[text.index("{", i):])[0]
+manifest, cfg = after("== manifest =="), after("== jvm config ==")
+digest = "sha256:" + hashlib.sha256(open(sys.argv[2], "rb").read()).hexdigest()
+layers = [l for l in manifest["layers"] if l["mediaType"] == "application/vnd.brewlet.cds.layer.v1+jsa"]
+problems = []
+if cfg.get("cds") != {"archive": "app.jsa", "mode": "dynamic"}:
+    problems.append("cds config " + json.dumps(cfg.get("cds")))
+if len(layers) != 1 or layers[0]["digest"] != digest \
+        or layers[0].get("annotations", {}).get("org.opencontainers.image.title") != "app.jsa":
+    problems.append("cds layer " + json.dumps(layers))
+print("; ".join(problems) or "match")
+PY
+)"
+    assert_eq "maven build: ships app.jsa as the CDS layer named by cds.archive" "$(printf '%s' "$out" | tail -1)" "match"
+  else
+    fail "maven build: attach the generated CDS archive" "see $log"
+    return 0
+  fi
+
+  # Replay the shim's runc launch on the host: the bundle's /app mounts are
+  # copied (with their pinned mtimes) into a host app dir used as the cwd, and
+  # -Xshare:on turns a silent -Xshare:auto fallback into a startup failure.
+  # `brewlet run` is not used here because it does not set the JVM cwd
+  # (microsoft/brewlet#212); brewlet:inspect CDS parity is unasserted (#211).
+  local bdir="$gdir/bundle-cds" rdir="$gdir/replay-cds" rport
+  rm -rf "$bdir" "$rdir"
+  mkdir -p "$rdir/app"
+  rport="$(free_port)"
+  if ! "$bin" bundle "$cds_ref" --store "$layout" --jdk-root "$JAVA_HOME" --out "$bdir" \
+       >"$gdir/bundle-cds.log" 2>&1; then
+    fail "maven appcds: emit a runc bundle for the CDS artifact" "see $gdir/bundle-cds.log"
+    return 0
+  fi
+  assert_contains "maven appcds: bundle launches with -XX:SharedArchiveFile=/app/app.jsa" \
+    "$(cat "$bdir/config.json")" "-XX:SharedArchiveFile=/app/app.jsa"
+  local replay=() line
+  while IFS= read -r line; do replay+=("$line"); done < <(python3 - "$bdir/config.json" "$rdir" \
+      "$JAVA_HOME" -Xshare:on -Xlog:class+load=info -Dserver.port="$rport" <<'PY'
+import json, os, shutil, sys
+cfg, root, jdk, extra = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+c = json.load(open(cfg))
+for m in c["mounts"]:
+    if m["destination"].startswith("/app/"):
+        src = m["source"] if os.path.isabs(m["source"]) else os.path.join(os.getcwd(), m["source"])
+        shutil.copy2(src, root + m["destination"])
+args = [a.replace("/app/", root + "/app/") for a in c["process"]["args"][1:]]
+sel = next(i for i, a in enumerate(args) if a in ("-jar", "-cp", "-p", "--module-path", "-m"))
+print(root + c["process"]["cwd"])
+print(jdk + "/bin/java")
+for a in args[:sel] + extra + args[sel:]:
+    print(a)
+PY
+)
+  if (( ${#replay[@]} < 3 )); then
+    fail "maven appcds: JVM maps the shipped archive (-Xshare:on)" "could not replay $bdir/config.json"
+    return 0
+  fi
+  local replay_log="$gdir/replay-cds.log"
+  (cd "${replay[0]}" && exec "${replay[@]:1}") >"$replay_log" 2>&1 &
+  local replay_pid=$!
+  if retry_curl "http://localhost:$rport/healthz" 40 0.5 >/dev/null; then
+    pass "maven appcds: JVM maps the shipped archive (-Xshare:on)"
+    assert_contains "maven appcds: com.example.Hello loads from the dynamic archive" \
+      "$(cat "$replay_log")" "com.example.Hello source: shared objects file (top)"
+  else
+    fail "maven appcds: JVM maps the shipped archive (-Xshare:on)" "see $replay_log"
+  fi
+  kill "$replay_pid" 2>/dev/null || true
+  wait "$replay_pid" 2>/dev/null || true
 }

@@ -34,7 +34,7 @@ type NodeProfileSpec struct {
 	// Rollout carries the DaemonSet + host-reconfig rollout policy. The
 	// reconfig/validate mechanics themselves are defined in proposal 0002; this
 	// profile only selects them.
-	Rollout RolloutSpec `json:"rollout,omitempty"`
+	Rollout RolloutSpec `json:"rollout,omitzero"`
 	// Tolerations are the ONLY taints the privileged provisioner DaemonSet
 	// tolerates. Empty (the default) means the pod respects every taint,
 	// including the control-plane taint. List a taint here to deliberately

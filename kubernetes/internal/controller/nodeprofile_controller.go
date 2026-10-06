@@ -118,8 +118,8 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// a cleanup finalizer to a never-valid profile, which could otherwise target
 	// nodes owned by the profile it conflicts with when the invalid object is
 	// deleted.
-	if controllerutil.AddFinalizer(&profile, brewlet.FinalizerCleanup) {
-		if err := r.Update(ctx, &profile); err != nil {
+	if base := profile.DeepCopy(); controllerutil.AddFinalizer(&profile, brewlet.FinalizerCleanup) {
+		if err := r.patchFinalizers(ctx, &profile, base); err != nil {
 			return ctrl.Result{}, fmt.Errorf("adding finalizer: %w", err)
 		}
 	}
@@ -220,8 +220,9 @@ func (r *NodeProfileReconciler) reconcileDeleteInvalid(
 		"finalizing unprovisioned invalid profile without host cleanup: %s",
 		validationErr,
 	)
+	base := profile.DeepCopy()
 	controllerutil.RemoveFinalizer(profile, brewlet.FinalizerCleanup)
-	if err := r.Update(ctx, profile); err != nil {
+	if err := r.patchFinalizers(ctx, profile, base); err != nil {
 		return ctrl.Result{}, fmt.Errorf("removing invalid profile finalizer: %w", err)
 	}
 	return ctrl.Result{}, nil
@@ -436,11 +437,19 @@ func (r *NodeProfileReconciler) reconcileCleanupTeardown(ctx context.Context, pr
 	if err := r.releaseTargetClaims(ctx, profile, profile.Status.Targets); err != nil {
 		return ctrl.Result{}, err
 	}
+	base := profile.DeepCopy()
 	controllerutil.RemoveFinalizer(profile, brewlet.FinalizerCleanup)
-	if err := r.Update(ctx, profile); err != nil {
+	if err := r.patchFinalizers(ctx, profile, base); err != nil {
 		return ctrl.Result{}, fmt.Errorf("removing finalizer: %w", err)
 	}
 	return ctrl.Result{}, nil
+}
+
+// patchFinalizers persists only the finalizer change relative to base. A full
+// Update would re-send the whole spec and make the operator a field manager of
+// user-owned spec fields, which the CLI ownership guard treats as foreign.
+func (r *NodeProfileReconciler) patchFinalizers(ctx context.Context, profile, base *nodev1alpha1.NodeProfile) error {
+	return r.Patch(ctx, profile, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 func (r *NodeProfileReconciler) profileProvisionerRemains(ctx context.Context, profile *nodev1alpha1.NodeProfile) (bool, error) {

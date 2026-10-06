@@ -104,3 +104,21 @@ func TestAppCDSPolicyManifests(t *testing.T) {
 		}
 	}
 }
+
+func TestNodeProfileSpecOmitsEmptyRollout(t *testing.T) {
+	encoded, err := json.Marshal(NodeProfileSpec{JDKs: []JDKRef{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "rollout") {
+		t.Fatalf("empty rollout must be omitted so full updates do not claim it: %s", encoded)
+	}
+	validate := true
+	encoded, err = json.Marshal(NodeProfileSpec{Rollout: RolloutSpec{Validate: &validate}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"rollout":{"validate":true}`) {
+		t.Fatalf("non-empty rollout must be serialized: %s", encoded)
+	}
+}
