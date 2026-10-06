@@ -35,7 +35,10 @@ E2E_WORK=/tmp/brewlet-e2e integration-tests/e2e/run.sh --tier 9
 ```
 
 Tiers skip when an optional host prerequisite is unavailable and fail only when
-an exercised capability fails. The suite covers:
+an exercised capability fails. PR CI sets `E2E_REQUIRE_ALL=true`, which also
+fails skipped assertions and tiers with no passing assertions. Tier 2 tests
+Maven goals without repeating the unit suite; run `make maven-plugin-check`
+for Maven unit coverage. The suite covers:
 
 | Tier | Scope | Primary components |
 |---:|---|---|
@@ -66,6 +69,15 @@ runs it separately on a new kind cluster. Never clear retained host files or
 manufacture a safety record to satisfy this preflight.
 
 See [AGENTS.md](AGENTS.md) for cluster requirements, cleanup, and troubleshooting.
+
+PR selection is documented in [Contributing](../CONTRIBUTING.md#pr-coverage-and-merge-gate).
+`python3 integration-tests/e2e/live/smoke.py` runs one install/provision/publish/
+deploy/serve cycle against its own disposable cluster using checkout-built
+components and the Maven plugin's generated manifest. It is the only cluster
+smoke in PR CI; exhaustive cluster tiers and live scenarios run nightly or by
+explicit E2E dispatch, including pre-merge validation of high-risk changes.
+It shares the strict live fixtures' prerequisites, cleanup, evidence, and
+cold-start GC deferral; it is not a replacement for the full nightly scenarios.
 
 ### Monitoring runs from the GitHub Copilot app
 

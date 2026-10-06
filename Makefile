@@ -14,7 +14,7 @@ REGISTRY ?= ghcr.io/microsoft
 TAG ?= latest
 PROVISIONER_IMAGE ?= $(REGISTRY)/node-provisioner:$(TAG)
 
-.PHONY: build binaries test vet fmt-check license-check workflow-security-check container-security-check container-security-test check check-all kubernetes-check maven-plugin-check admission-check site-contract-check e2e-contract-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
+.PHONY: build binaries test vet fmt-check license-check workflow-security-check container-security-check container-security-test container-image-test ci-contract-check cli-platform-check check check-all kubernetes-check maven-plugin-check admission-check site-contract-check e2e-contract-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
 
 build: ## Build every package for the current platform
 	go -C core build ./...
@@ -51,13 +51,30 @@ container-security-check: ## Enforce digest-pinned Dockerfiles and verified down
 	./scripts/check-container-build-security.sh
 	./scripts/check-container-build-security_test.sh
 
-container-security-test: ## Exercise corrupt-download failures and multi-arch image builds
+container-security-test: container-image-test ## Exercise corrupt-download failures and multi-arch image builds
 	./provisioner/dockerfile_test.sh
+
+container-image-test: ## Build all shipped image variants for both architectures
 	docker buildx build --platform linux/amd64,linux/arm64 \
 		--output=type=cacheonly -f provisioner/Dockerfile .
 	docker buildx build --platform linux/amd64,linux/arm64 \
 		--build-arg CMD=manager --output=type=cacheonly \
 		-f kubernetes/Dockerfile .
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		--build-arg CMD=admission --output=type=cacheonly \
+		-f kubernetes/Dockerfile .
+
+ci-contract-check: ## Test PR impact selection, workflow wiring and aggregate results
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_ci_*.py' -v
+
+cli-platform-check: ## Cross-compile the CLI for every released OS/architecture
+	@set -e; work="$$(mktemp -d)"; trap 'rm -rf "$$work"' EXIT; \
+	for os in linux darwin; do \
+		for arch in amd64 arm64; do \
+			CGO_ENABLED=0 GOOS="$$os" GOARCH="$$arch" go -C core build \
+				-o "$$work/brewlet-$$os-$$arch" ./cmd/brewlet; \
+		done; \
+	done
 
 check: license-check workflow-security-check container-security-check fmt-check vet build test ## Run all CI checks
 
@@ -85,11 +102,13 @@ e2e-contract-check: ## Check E2E suite routing and monitor history without a clu
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'collect_diagnostics_test.py' -v
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'lib_retry_test.py' -v
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'nodeprofile_fixtures_test.py' -v
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'cve_sweep_test.py' -v
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'strict_runner_test.py' -v
 
 e2e-host: ## Run host-only end-to-end tiers
 	integration-tests/e2e/run.sh --tier 1 --tier 2
 
-check-all: check kubernetes-check maven-plugin-check admission-check site-contract-check e2e-contract-check e2e-host ## Validate all components that do not require a cluster
+check-all: check kubernetes-check maven-plugin-check admission-check site-contract-check ci-contract-check e2e-contract-check e2e-host ## Validate all components that do not require a cluster
 
 appcds-verify: ## Run the AppCDS JDK integration test (requires a full JDK 17+)
 	go -C core test -v -run TestAppCDSTrainThenMapIntegration ./internal/runtime/
