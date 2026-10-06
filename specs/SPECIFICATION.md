@@ -1467,7 +1467,10 @@ and builds/runs on Linux:
   labels in **any namespace** protect their stages. Removing an image record
   alone may not release a stage until containerd also collects its content.
   Live mounts across process mount namespaces, including individual file bind
-  mounts, protect the corresponding stage.
+  mounts, protect the corresponding stage. Mounts whose root the kernel marks
+  unlinked (`<path>//deleted`, e.g. a bind-mounted socket that was recreated)
+  are tolerated and still protect their former path, but a stage whose own
+  filesystem resolves through such a mount is not reclaimed.
   Launchers hold a shared staging guard through resolution and mount creation
   (or direct execution); cleanup requires the exclusive guard. Reclamation
   requires complete reference inspection in the initial host PID/user and host

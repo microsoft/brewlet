@@ -22,6 +22,10 @@ type mount struct {
 	point      string
 	filesystem string
 	options    string
+	// deleted marks a mount whose root dentry was unlinked after mounting
+	// (e.g. a bind-mounted socket that was later recreated). root then holds
+	// the dentry's last path, which no longer names the mounted object.
+	deleted bool
 }
 
 type mountSnapshot struct {
@@ -99,7 +103,7 @@ func readMounts(ctx context.Context, proc procReader, allowNestedPID bool) (moun
 		return mountSnapshot{}, err
 	}
 	procMount, ok := containingMount(current, "/proc")
-	if !ok || procMount.filesystem != "proc" || procMount.point != "/proc" || procMount.root != "/" {
+	if !ok || procMount.deleted || procMount.filesystem != "proc" || procMount.point != "/proc" || procMount.root != "/" {
 		return mountSnapshot{}, fmt.Errorf("cannot verify complete host proc visibility")
 	}
 	for _, option := range strings.Split(procMount.options, ",") {
@@ -205,11 +209,12 @@ func parseMounts(raw []byte) ([]mount, error) {
 		filesystem := fields[separator+1]
 		var root string
 		var err error
+		deleted := false
 		if filesystem == "nsfs" && namespaceRoot(fields[3]) {
 			// Namespace bind mounts (e.g. CNI's /run/netns/*) report the
 			// namespace identity, not a path, as their root.
 			root = fields[3]
-		} else if root, err = mountPath(fields[3]); err != nil {
+		} else if root, deleted, err = mountRoot(fields[3]); err != nil {
 			return nil, err
 		}
 		point, err := mountPath(fields[4])
@@ -219,6 +224,7 @@ func parseMounts(raw []byte) ([]mount, error) {
 		result = append(result, mount{
 			device: fields[2], root: root, point: point,
 			filesystem: filesystem, options: fields[5] + "," + fields[separator+3],
+			deleted: deleted,
 		})
 	}
 	if err := scanner.Err(); err != nil {
@@ -242,6 +248,37 @@ func namespaceRoot(value string) bool {
 		}
 	}
 	return decimal(strings.TrimSuffix(rest, "]"))
+}
+
+// deletedSuffix is what the kernel appends to an unlinked mount root.
+// show_mountinfo (fs/proc_namespace.c) prints the root via show_path ->
+// seq_dentry -> dentry_path (fs/d_path.c), which does
+// prepend(&b, "//deleted", 10) when d_unlinked(dentry). The mount point is
+// printed via seq_path_root -> __d_path, which never adds a suffix, so only
+// the root field can carry it. Because path components cannot contain '/',
+// "//deleted" is unambiguous: a real path ending in "/deleted" is canonical
+// and never matches, and the suffix is added before escaping.
+const deletedSuffix = "//deleted"
+
+// mountRoot parses mountinfo field 4. A kernel-marked unlinked root is
+// accepted (its prefix must still be canonical) and reported as deleted so
+// callers can refuse to authorize deletion through it instead of failing the
+// whole snapshot.
+func mountRoot(value string) (string, bool, error) {
+	prefix, deleted := strings.CutSuffix(value, deletedSuffix)
+	if !deleted {
+		path, err := mountPath(value)
+		return path, false, err
+	}
+	path, err := mountPath(prefix)
+	if err != nil {
+		return "", false, err
+	}
+	if path == "/" {
+		// A filesystem root dentry is never d_unlinked.
+		return "", false, fmt.Errorf("noncanonical mountinfo path %q", value)
+	}
+	return path, true, nil
 }
 
 func mountPath(value string) (string, error) {
@@ -295,6 +332,11 @@ func (s mountSnapshot) protects(path, device string) (bool, error) {
 	if !ok || base.device != device {
 		return false, fmt.Errorf("cannot resolve staging filesystem for %q", path)
 	}
+	if base.deleted {
+		// The staging path resolves into an unlinked object; its source path
+		// is unknowable, so bind-source protection cannot be proven.
+		return false, fmt.Errorf("staging filesystem for %q is mounted from a deleted root", path)
+	}
 	relative, err := filepath.Rel(base.point, path)
 	if err != nil {
 		return false, err
@@ -310,6 +352,8 @@ func (s mountSnapshot) protects(path, device string) (bool, error) {
 	for _, m := range s.all {
 		if m.device == device && beneath(source, m.root) {
 			// Bind sources live in mountinfo's root field, NOT source.
+			// Deleted roots match on their last path too, which can only
+			// over-protect.
 			return true, nil
 		}
 	}

@@ -187,6 +187,103 @@ func TestMountinfoParsing(t *testing.T) {
 	}
 }
 
+// Realistic AKS records: the node provisioner bind-mounts containerd's socket,
+// containerd then restarts and recreates it, so the stale bind's root is
+// reported by the kernel with the "//deleted" suffix.
+const deletedSocketMountinfo = "1 0 8:1 / / rw - ext4 /dev/root rw\n" +
+	"2 1 0:2 / /proc rw - proc proc rw\n" +
+	"3 1 0:25 / /run rw,nosuid,nodev shared:5 - tmpfs tmpfs rw,mode=755\n" +
+	"4 1 8:1 /var/lib/brewlet /stage rw shared:1 - ext4 /dev/root rw\n"
+
+const deletedSocketPodMountinfo = "3054 2981 0:25 /containerd/containerd.sock//deleted /run/containerd/containerd.sock rw,nosuid,nodev,noexec - tmpfs tmpfs rw,mode=755\n" +
+	"3055 2981 8:1 /var/lib/brewlet/immutable-v2/live/app.jar /app/app.jar ro - ext4 /dev/root rw\n"
+
+func TestDeletedMountRoots(t *testing.T) {
+	mounts, err := parseMounts([]byte(deletedSocketPodMountinfo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mounts[0].deleted || mounts[0].root != "/containerd/containerd.sock" || mounts[0].point != "/run/containerd/containerd.sock" || mounts[1].deleted {
+		t.Fatalf("deleted root: %+v", mounts)
+	}
+	// A real path ending in "/deleted" is canonical and not special.
+	mounts, err = parseMounts([]byte("1 0 8:1 /var/deleted /deleted rw - ext4 /dev/root rw\n"))
+	if err != nil || mounts[0].deleted || mounts[0].root != "/var/deleted" {
+		t.Fatalf("literal deleted component: %+v %v", mounts, err)
+	}
+	mounts, err = parseMounts([]byte(`1 0 8:1 /a\040b/deleted//deleted /x rw - ext4 /dev/root rw` + "\n"))
+	if err != nil || !mounts[0].deleted || mounts[0].root != "/a b/deleted" {
+		t.Fatalf("escaped deleted root: %+v %v", mounts, err)
+	}
+
+	t.Run("gc proceeds with protections intact", func(t *testing.T) {
+		proc := newProc()
+		proc.files["self/mountinfo"].Data = []byte(deletedSocketMountinfo)
+		proc.files["1/mountinfo"].Data = []byte(deletedSocketMountinfo)
+		proc.files["42/mountinfo"].Data = []byte(deletedSocketPodMountinfo)
+		snapshot, err := readMounts(context.Background(), proc, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := snapshot.protects("/stage/immutable-v2/live", "8:1"); err != nil || !got {
+			t.Fatalf("live stage not protected: %t %v", got, err)
+		}
+		if got, err := snapshot.protects("/stage/immutable-v2/stale", "8:1"); err != nil || got {
+			t.Fatalf("stale stage not collectable: %t %v", got, err)
+		}
+	})
+
+	t.Run("deleted root still protects its former source", func(t *testing.T) {
+		base := mount{device: "8:1", root: "/var/lib/brewlet", point: "/stage"}
+		gone := mount{device: "8:1", root: "/var/lib/brewlet/immutable-v2/hash/app", point: "/app", deleted: true}
+		snapshot := mountSnapshot{current: []mount{base}, all: []mount{base, gone}}
+		if got, err := snapshot.protects("/stage/immutable-v2/hash", "8:1"); err != nil || !got {
+			t.Fatalf("deleted bind source not conservatively protected: %t %v", got, err)
+		}
+	})
+
+	t.Run("deleted containing mount refuses", func(t *testing.T) {
+		host := "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 0:2 / /proc rw - proc proc rw\n" +
+			"4 1 8:1 /var/lib/brewlet//deleted /stage rw - ext4 /dev/root rw\n"
+		proc := newProc()
+		proc.files["self/mountinfo"].Data = []byte(host)
+		proc.files["1/mountinfo"].Data = []byte(host)
+		snapshot, err := readMounts(context.Background(), proc, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := snapshot.protects("/stage/immutable-v2/stale", "8:1"); err == nil {
+			t.Fatalf("authorized deletion through deleted mount root: %t", got)
+		}
+	})
+
+	t.Run("deleted proc root refuses", func(t *testing.T) {
+		proc := newProc()
+		host := strings.Replace(hostMountinfo, "0:2 / /proc", "0:2 /x//deleted /proc", 1)
+		proc.files["self/mountinfo"].Data = []byte(host)
+		if _, err := readMounts(context.Background(), proc, false); err == nil {
+			t.Fatal("accepted deleted proc root")
+		}
+	})
+
+	for _, line := range []string{
+		"1 0 8:1 //deleted / rw - ext4 source rw",
+		"1 0 8:1 ///deleted / rw - ext4 source rw",
+		"1 0 8:1 /a/deleted/ / rw - ext4 source rw",
+		"1 0 8:1 /a//b / rw - ext4 source rw",
+		"1 0 8:1 /a/../b//deleted / rw - ext4 source rw",
+		"1 0 8:1 /a//deleted//deleted / rw - ext4 source rw",
+		"1 0 8:1 relative//deleted / rw - ext4 source rw",
+		"1 0 8:1 /a/deleted /a//deleted rw - ext4 source rw",
+		"1 0 8:1 /a//deleted/b / rw - ext4 source rw",
+		"1 0 8:1 /a/ /x rw - ext4 source rw",
+	} {
+		if _, err := parseMounts([]byte(line)); err == nil {
+			t.Errorf("accepted malformed mountinfo %q", line)
+		}
+	}
+}
+
 func TestNestedPIDNamespaceOptIn(t *testing.T) {
 	nested := func() fakeProc {
 		proc := newProc()
