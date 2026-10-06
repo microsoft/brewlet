@@ -96,10 +96,7 @@ kubectl apply -f kubernetes/config/operator.yaml
 
 After the operator and your configured admission webhook are healthy, apply
 `my-nodeprofile.yaml`. The operator alone creates provisioning/cleanup
-DaemonSets. The removed `brewlet.sh/provision` label is not an activation path;
-existing standalone installations need
-[safe teardown/reinstallation](../docs/installation.md#removed-standalone-provisioning),
-not adoption by a new profile.
+DaemonSets, with UID-bound node claims and durable profile authority.
 
 The raw manifests use these images:
 
@@ -137,9 +134,7 @@ and namespace handling are exercised. The existing Kubernetes CI test job runs
 the suite with prerequisites required, rather than silently skipping it.
 
 Coverage includes `brewlet k8s jdk list`, `brewlet k8s launcher list`,
-`brewlet k8s status`, and `brewlet k8s doctor`; rejection of the removed
-top-level `brewlet jdks` and `brewlet doctor` commands with exit code 2,
-empty stdout, and replacement hints on stderr; profile and application
+`brewlet k8s status`, and `brewlet k8s doctor`; profile and application
 inspection; persistent JDK/launcher additions and replacement;
 non-persisting client/server dry runs; failed dry runs with empty stdout;
 admission and RBAC rejection; Helm ownership and offline values; stale

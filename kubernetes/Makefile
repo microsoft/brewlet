@@ -97,8 +97,8 @@ helm-digest-check:
 		exit 1; \
 	fi
 
-# Remediation test for SECURITY-REVIEW.md finding 10: the privileged provisioner
-# must never be rendered as an every-node, every-taint install or receive
+# The privileged provisioner must never be rendered as an every-node,
+# every-taint install or receive
 # cluster-wide DaemonSet mutation privileges.
 helm-scheduling-check:
 	@if $(HELM) template brewlet charts/brewlet >/dev/null 2>&1; then \

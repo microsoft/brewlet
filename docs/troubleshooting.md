@@ -226,18 +226,12 @@ brewlet k8s profile delete <name> --wait --wait-timeout 15m
   the condition message, then repair the cause as described in
   [source-policy failures](#nodeprofile-source-policy-failures); repairing a
   deleting profile resumes cleanup.
-- **`UnsupportedPreClaimState`.** This release permanently refuses unsupported
-  pre-claim state; ordinary spec repair cannot migrate it or resume cleanup.
-  Both attaching without `--wait` and waiting exit nonzero as soon as this
-  reason is observed, printing the condition message rather than waiting for a
-  timeout or claiming cleanup continues in the background. Save original
-  manifests and evidence, pause automation, and drain or move workloads.
-  Restore the original release's compatible operator, provisioner, CRDs, RBAC,
-  and API access to finish cleanup and worker teardown before reinstalling.
-  Follow [pre-claim recovery](installation.md#unsupported-pre-claim-workers);
-  if recovery is blocked, preserve the installation and its obligations and
-  use a separate fresh environment. Do not clear refusal conditions, pre-claim
-  records, or scheduling gates to bypass the refusal.
+- **`UnsupportedPreClaimState`.** The controller refuses unfenced workers or
+  unresolved ownership evidence; ordinary spec repair cannot resume cleanup.
+  Both attaching without `--wait` and waiting exit nonzero with the condition
+  message. Follow [unsupported-state recovery](installation.md#unsupported-state-recovery)
+  using original compatible cleanup components or safe node replacement.
+  Preserve evidence and scheduling gates; do not clear the refusal.
 
 Never remove the `node.brewlet.sh/cleanup` finalizer, ownership labels, or
 status to force deletion: that leaves runtimes and containerd changes on nodes

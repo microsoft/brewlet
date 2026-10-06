@@ -234,19 +234,13 @@ advertises `brewlet.sh/appcds-regeneration=true`. The webhook requires that
 label when `brewlet.sh/cds-regenerate: "true"` is requested; the shim's sentinel
 check remains authoritative.
 
-> **Existing installations only:** A fresh Helm install creates the chart's CRDs
-> when absent; no separate migration is needed. Release changes default to safe
-> teardown/reinstallation. For an explicitly supported in-place transition or
-> recovery, follow the [conditional procedures](../../../docs/installation.md#conditional-in-place-transitions-and-recovery).
-> Helm does not upgrade existing CRDs. Old string-valued launcher profiles
-> require cleanup by the old controller before a profile-free transition and
-> recreation; do not remove finalizers or ownership evidence to force it.
-> Preserve reviewed pools and component choices. Recreated sources require
-> SHA-256 digest references, and mirror destinations require an explicit
-> `security.allowedSourceMirrorHosts` entry.
-> Pre-claim NodeProfile workers are refused with `UnsupportedPreClaimState`, not
-> migrated. Preserve their evidence and finish cleanup using the original
-> release before reinstalling; see [pre-claim recovery](../../../docs/installation.md#unsupported-pre-claim-workers).
+> **Release updates:** A fresh Helm install creates the chart's CRDs when absent.
+> Helm does not upgrade existing CRDs. Follow the
+> [teardown/reinstallation procedure](../../../docs/installation.md#upgrading)
+> before replacing a release. Preserve reviewed pools, runtime sources, component
+> choices, and ownership evidence. If cleanup is blocked, recover with the
+> installed release's components rather than removing finalizers or adopting
+> unverified hosts.
 
 ## Uninstall
 
@@ -262,9 +256,8 @@ helm uninstall brewlet --namespace brewlet --timeout 5m
 ```
 
 The namespace and CRDs are retained; the shared RuntimeClass is operator-created,
-not chart-owned. Older installed charts do not acquire this hook automatically.
-See [installation and recovery guidance](../../../docs/installation.md#uninstall),
-including staged uninstall for charts without the hook.
+not chart-owned. See [installation and recovery guidance](../../../docs/installation.md#uninstall)
+for retained-resource review and manually managed profiles.
 
 ## Requesting a JDK / launcher
 

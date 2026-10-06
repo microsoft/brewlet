@@ -27,8 +27,7 @@ import (
 // (https://github.com/microsoft/brewlet/tree/main/specs). It reflects each brewlet node's provisioning state
 // (Provisioning/Ready/Failed) via an annotation and Kubernetes events. The
 // RuntimeClass and the per-profile provisioner DaemonSets are owned by the
-// NodeProfileReconciler (§5.2); this controller no longer manages them — it is
-// the per-node state mirror only.
+// NodeProfileReconciler (§5.2); this controller only mirrors per-node state.
 type NodeReconciler struct {
 	client.Client
 	Recorder record.EventRecorder

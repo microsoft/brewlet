@@ -38,7 +38,7 @@ func TestStageGCOperatorArguments(t *testing.T) {
 				args := operator.Spec.Template.Spec.Containers[0].Args
 				for _, arg := range args {
 					if strings.HasPrefix(arg, "--stage-gc-upgrade-acknowledged") {
-						t.Fatal("rendered removed acknowledgment flag")
+						t.Fatal("rendered unsupported acknowledgment flag")
 					}
 				}
 				for _, want := range tc.want {
@@ -54,12 +54,12 @@ func TestStageGCOperatorArguments(t *testing.T) {
 	}
 }
 
-func TestStageGCRejectsRemovedAcknowledgment(t *testing.T) {
+func TestStageGCRejectsUnsupportedAcknowledgment(t *testing.T) {
 	for _, value := range []string{"true", "false", "null", ""} {
 		t.Run(value, func(t *testing.T) {
 			out, err := helmCommand(t, "--set", "stageGC.upgradeAcknowledged="+value).CombinedOutput()
-			if err == nil || !strings.Contains(string(out), "stageGC.upgradeAcknowledged has been removed") {
-				t.Fatalf("expected removed-setting error, got %v: %s", err, out)
+			if err == nil || !strings.Contains(string(out), "stageGC.upgradeAcknowledged is unsupported") {
+				t.Fatalf("expected unsupported-setting error, got %v: %s", err, out)
 			}
 		})
 	}

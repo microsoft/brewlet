@@ -89,11 +89,9 @@ releases, scope, prerequisites, validation evidence, and recovery limits.
 The [capability-label contract](CAPABILITY_LABELS.md#compatibility-and-versioning)
 retains its versioning and dual-publication migration guarantees as an explicit
 exception. Required external platform interoperability also remains in force.
-Neither exception promises whole-installation in-place upgrades. Unsupported
-old behavior may be removed through a reviewed change, but ownership fences,
-live-reference and integrity checks, cleanup obligations, and safe refusal of
-unverifiable old state MUST remain. Migration procedures below are safeguards,
-not blanket release-to-release support promises.
+Neither exception promises whole-installation in-place upgrades. Ownership
+fences, live-reference and integrity checks, cleanup obligations, and safe
+refusal of unverifiable state MUST remain.
 
 ---
 
@@ -764,11 +762,9 @@ provisioner is privileged and mutates the host, the chart fails to render rather
 than default to the whole cluster. To author profiles yourself instead, disable
 the default profile (`defaultProfile.enabled=false`, §5.6).
 
-Existing standalone installations require
-[safe teardown with their original compatible components or node replacement](../docs/installation.md#removed-standalone-provisioning).
-Deleting their DaemonSet or activation label does not clean hosts. Competing
-workers are still refused, never silently adopted. Runtime-ready nodes remain
-observable (§8.1), but readiness grants no ownership or cleanup authority.
+Provisioning and cleanup require verified UID-bound node claims and durable
+profile authority (§5.6). Runtime-ready observation (§8.1) grants no ownership
+or cleanup authority.
 
 ### 5.2 What the provisioner does on each opted-in node
 Before step 1, the provisioner validates every indexed JDK and launcher source.
@@ -1172,15 +1168,13 @@ spec:
 ```
 
 - **Containerd activation and cleanup policy.** Only `validated` (the default)
-  and `none` are supported. The removed `sighup` value MUST be rejected, not
-  converted to another host operation. Unsupported policies in provisioning
-  snapshots, target ledgers, retirement records, or old workers block further
+  and `none` are supported; other values MUST be rejected before host operations,
+  not converted to another policy. Unsupported policies in provisioning
+  snapshots, target ledgers, retirement records, or workers block further
   authorization and cleanup while preserving ownership evidence and finalizers.
   The controller reports `CleanupBlocked`; if stricter schema validation
   prevents saving that condition, it emits a warning event and returns the
-  persistence error with the policy failure. This is safe refusal, not an
-  in-place upgrade promise. Existing installations follow
-  [safe teardown/reinstallation](../docs/installation.md#upgrading).
+  persistence error with the policy failure.
 - **Pool key resolution.** `spec.nodePool.key` pins the node label carrying the
   pool name; when empty the operator auto-detects the provider key by probing the
   fleet for the well-known keys (`cloud.google.com/gke-nodepool`, `agentpool`,
@@ -1290,32 +1284,21 @@ advance, clear, or use them to authorize migration. `provisioningGeneration` and
 `provisioningSpec` retain provisioning policy, while `retirement` freezes
 `targets`, `generation`, `spec`, and `phase` (`Cleaning` or `Teardown`). Target and
 retirement checkpoints MUST survive a fresh API read before dependent actions.
-An older CRD that silently prunes these fields fails closed: apply the updated
-NodeProfile CRD before upgrading operator/provisioner images, not merely the
-Helm values.
+Matching CRDs and operator/provisioner components are required; missing or
+pruned ledger fields fail closed.
 
-Automatic migration of workers predating UID-bound node claims is unsupported.
 The controller MUST refuse incompatible workers, unfenced advertisements, and
-unresolved pre-claim records before invalid-spec handling, deletion, or
-retirement can erase evidence. `Ready=False/UnsupportedPreClaimState` is durable
-and MUST NOT automatically clear after workers or advertisements disappear.
-Names, labels, pod affinity, and environment may identify a conflict but MUST
-NOT confer adoption or host-cleanup authority. The controller does not infer
-historical Node UIDs or policies, fence scheduling, drain pre-claim workers, or
-convert their state into claims. Only current recorded UID-bound targets may
-authorize host cleanup.
-
-The original release's compatible components must complete host cleanup and
-worker teardown before safe reinstallation. Keep its evidence, finalizers, and
-any existing scheduling gates intact; do not apply target-release schemas over
-unresolved old state as a shortcut. Retaining evidence fields is a safety
-obligation, not in-place upgrade support. Standalone and foreign-namespace
-writers remain subject to cluster-wide read-only conflict detection without
-adoption or cross-namespace mutation authority. Unresolved pre-claim obligations
-block new ownership conservatively when their affected hosts cannot be bounded.
-The current controller creates no ownership-migration scheduling gates.
-Historical hosts without surviving Kubernetes evidence still require
-administrator verification; worker disappearance does not establish cleanup.
+unresolved ownership evidence before invalid-spec handling, deletion, or
+retirement can erase it. `Ready=False/UnsupportedPreClaimState` is durable and
+MUST NOT automatically clear after workers or advertisements disappear.
+Conflict detection is cluster-wide and read-only; names, labels, pod affinity,
+and environment MUST NOT confer adoption or host-cleanup authority. Only
+recorded UID-bound targets may authorize host cleanup. Unresolved obligations
+block new ownership conservatively when affected hosts cannot be bounded.
+Follow [unsupported-state recovery](../docs/installation.md#unsupported-state-recovery)
+using the original installation's compatible cleanup components or safe node
+replacement. Preserve evidence, finalizers, and scheduling gates; worker
+disappearance does not establish host cleanup.
 Ownership conflicts, missing/reused node identities, and unavailable cleanup
 targets are reported rather than treated as completed reversal.
 Retirement is profile-wide serialized: before successful cleanup is durably
@@ -1349,7 +1332,7 @@ operator or its RBAC. Release ownership requires both
 authority. The coordinator refuses uninstall while any other NodeProfiles
 exist, requests owned-profile deletion with UID/resource-version preconditions,
 and inventories provisioning/cleanup workers across namespaces. Known workers
-outside the operator namespace and standalone writers must be deprovisioned
+outside the operator namespace and unmanaged writers must be deprovisioned
 separately; a namespace change cannot hide them. Success requires profiles and
 their workers to disappear. It does
 not remove finalizers or delete workers directly. API errors and bounded
@@ -1367,13 +1350,11 @@ seconds for Job startup/termination. Failed cleanup Jobs remain for diagnosis
 until retry. Helm may remove earlier successful hook resources on failure;
 retry recreates the dedicated hook RBAC. Successful hook resources are removed.
 The component namespace is retained to protect unrelated objects; CRDs and the
-operator-created shared RuntimeClass are not automatically removed. Existing
-releases without this hook require staged profile deletion before control-plane
-removal.
+operator-created shared RuntimeClass are not automatically removed. Installations
+without a cleanup hook require staged profile deletion before control-plane removal.
 
 Sample manifests:
-[`deploy/sample-nodeprofile.yaml`](../kubernetes/deploy/sample-nodeprofile.yaml);
-design detail in [`proposals/0001-node-profiles.md`](proposals/0001-node-profiles.md).
+[`deploy/sample-nodeprofile.yaml`](../kubernetes/deploy/sample-nodeprofile.yaml).
 
 ---
 
@@ -1566,8 +1547,8 @@ Manager, and workload reconciliation analogous to Spin Operator:
 > Built as a controller-runtime operator in
 > the [`kubernetes/`](../kubernetes)
 > module (separate from the shim, to isolate client-go /
-> controller-runtime from the containerd-pinned deps). Two controllers split the
-> old monolith:
+> controller-runtime from the containerd-pinned deps). Two controllers share
+> responsibility:
 >
 > - **`NodeProfileReconciler`** owns the provisioning mechanism (§5.6). For each
 >   `NodeProfile` it validates the complete profile policy, resolves the pool
@@ -1592,8 +1573,7 @@ Manager, and workload reconciliation analogous to Spin Operator:
 >   `brewlet.sh/runtime=ready`, and reflects state via the `brewlet.sh/provision-state`
 >   annotation plus `Provisioning` / `NodeReady` / `ProvisionFailed` events (§14),
 >   reading the `brewlet.sh/provision-error` annotation the provisioner writes on
->   failure. A removed activation label alone does not trigger observation;
->   runtime-ready observation does not adopt an unmanaged node.
+>   failure. Runtime-ready observation does not adopt an unmanaged node.
 >   DaemonSet/RuntimeClass ownership belongs to `NodeProfileReconciler`.
 >
 > RBAC + Deployment ship in
@@ -2164,12 +2144,10 @@ No detailed records are synthesized from `brewlet.sh/jdks`.
 When no structured entries remain, `brewlet k8s jdk list` succeeds with an
 explanation in table/wide output or `[]` in JSON; doctor's JDK check fails.
 Mixed fleets report only structured entries without adding a per-node
-completeness requirement. Status/inspection and compatibility admission keep
-using the compact contract independently. Older compact-only nodes therefore
-lose detailed inventory visibility, not compact status or admission enforcement.
-Operators should inspect current provisioner publication and follow the
-[pre-GA release-update policy](../docs/compatibility.md#release-updates) when
-moving between releases, rather than assuming an in-place upgrade is supported.
+completeness requirement. Status/inspection and compatibility admission use
+the compact contract independently. For missing diagnostic metadata, inspect
+`brewlet.sh/jdks-info` and provisioner publication rather than inferring detail
+from compact tokens.
 
 ### 14.2 `provision-error` reason codes
 
@@ -2187,7 +2165,7 @@ repurposed.
 | `source-policy-validator-missing` | The source-policy validator binary is absent or not executable in the provisioner image |
 | `invalid-jdk-source` | A JDK source entry is missing fields, has a malformed `<distribution>-<feature>` token, or is duplicated |
 | `invalid-launcher-source` | A launcher source entry is missing fields, has a malformed or reserved name, or is duplicated |
-| `invalid-restart-mode` | The configured or per-node cleanup policy is not `validated` / `none`; removed values are rejected before host operations |
+| `invalid-restart-mode` | The configured or per-node cleanup policy is not `validated` / `none`; rejected before host operations |
 | `invalid-stage-gc-config` | Provisioner GC configuration is invalid |
 | `stage-gc-state-failed` | GC installation safety inspection/recording or helper installation failed; distinct from a periodic sweep failure, which is logged and retried |
 | `unsupported-architecture` | The node's architecture is not supported |

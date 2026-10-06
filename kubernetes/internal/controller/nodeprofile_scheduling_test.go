@@ -11,10 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// These are the remediation tests for SECURITY-REVIEW.md finding 10 — "the
-// privileged provisioner defaults to every node". The provisioner runs
-// privileged with hostPID and host mounts, so where it is allowed to land is a
-// security boundary, not a scheduling preference.
+// The provisioner runs privileged with hostPID and host mounts, so where it is
+// allowed to land is a security boundary, not a scheduling preference.
 
 const (
 	controlPlaneLabel = "node-role.kubernetes.io/control-plane"

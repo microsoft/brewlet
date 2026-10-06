@@ -1,5 +1,9 @@
 # Proposal 0002 — Validated containerd reconfiguration & readiness smoke gate
 
+> **Archived design record (non-normative).** Historical assumptions and rationale
+> are preserved below, not current guarantees. See the
+> [current specification](../../specs/SPECIFICATION.md) and [archive index](../README.md).
+
 - **Status:** implemented
 - **Target spec sections:** amend **§5.2** (steps 4–5) + **§14** (failure modes)
 - **Related code:** [`microsoft/brewlet`](https://github.com/microsoft/brewlet):
@@ -13,7 +17,7 @@
 
 This roadmap design covers the reversible containerd reconfiguration path and
 runtime readiness validation. Current provisioner behavior is documented in
-the [specification](../SPECIFICATION.md).
+the [specification](../../specs/SPECIFICATION.md).
 
 ## Implementation status
 

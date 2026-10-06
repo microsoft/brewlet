@@ -330,7 +330,6 @@ func requirementsFromPod(t *testing.T, pod *corev1.Pod) []corev1.NodeSelectorReq
 // traversal or separator payload is denied at admission — before it can be
 // scheduled or turned into a malformed brewlet.sh/launcher.<name> affinity key.
 // The node shim enforces the same rule independently.
-// See SECURITY-REVIEW.md finding 5.
 func TestMutatePod_DeniesUnsafeLauncherName(t *testing.T) {
 	unsafe := []string{
 		"..", "../..", "../../..", "../outside", "jaz/../../outside",

@@ -129,8 +129,9 @@ func TestRemovedContainerdPolicyRetainedState(t *testing.T) {
 				}
 				select {
 				case event := <-restarted.Recorder.(*record.FakeRecorder).Events:
-					if !strings.Contains(event, "CleanupBlocked") || !strings.Contains(event, "teardown/reinstallation") {
-						t.Fatalf("missing recovery guidance: %s", event)
+					if !strings.Contains(event, "CleanupBlocked") ||
+						!strings.Contains(event, `"sighup" is invalid; want one of validated|none`) {
+						t.Fatalf("missing blocked-policy validation error: %s", event)
 					}
 				default:
 					t.Fatal("missing blocked-policy warning event")

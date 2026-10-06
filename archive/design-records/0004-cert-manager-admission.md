@@ -1,5 +1,9 @@
 # Proposal 0004 — cert-manager integration for the admission webhook
 
+> **Archived design record (non-normative).** Historical assumptions and rationale
+> are preserved below, not current guarantees. See the
+> [current specification](../../specs/SPECIFICATION.md) and [archive index](../README.md).
+
 - **Status:** implemented
 - **Target spec sections:** amend **§8.3** (webhook serving cert)
 - **Related code:** [`kubernetes/`](../../kubernetes):

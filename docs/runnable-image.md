@@ -229,8 +229,8 @@ Current `brewlet bundle` outputs retain their own payloads.
 A fresh installation has no installed shim copies or safety record and an absent
 or empty staging root. It establishes a root-owned
 `/opt/brewlet/.stage-gc-compatible` record tied to both installed shim copies and
-the staging path, even when GC is disabled. The name is retained, but the record
-is installation safety evidence, not a cross-release compatibility promise.
+the staging path, even when GC is disabled. The record is installation safety
+evidence, not a cross-release compatibility promise.
 It is invalidated before binary replacement and renewed only when safety was
 established. A changed installed shim identity/path, missing record, or interrupted
 installation blocks activation on the next provisioner startup.
@@ -243,11 +243,9 @@ Use a replacement node if safety cannot be established. Do not forge a record,
 rename staging roots, or delete in-use files to make an installation appear fresh.
 Disable GC before introducing any consumer that does not participate in the guard;
 that does not make mixed-version operation or rollback supported.
-Earlier Linux shims derived their default stage root from `TMPDIR`. If
-containerd set a non-default `TMPDIR`, stages created before the upgrade remain
-under that old location; new launches use `/tmp/brewlet-runnable`. Automatic GC
-does not sweep the old location. Retain it until reviewed host cleanup establishes
-that no process, mount, pending launch, or exported bundle still depends on it.
+Automatic GC only sweeps its configured stage root. Review retained paths
+elsewhere separately; do not delete them until no process, mount, pending
+launch, or exported bundle depends on them.
 For complete Helm commands and per-node activation checks, see
 [Activating runnable-stage GC](installation.md#activating-runnable-stage-gc).
 

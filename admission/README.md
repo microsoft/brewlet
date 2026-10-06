@@ -200,9 +200,8 @@ verifier name, and its executor runs only the **first** verifier whose
 nondeterministic). If the cluster also has a wildcard/overlapping verifier, it
 could "verify" a Brewlet referrer **without running this plugin** — a bypass. The Rego policy runs every
 matching verifier and binds success to *this* verifier by name, closing that
-gap in both CLI and cluster configurations. The CLI no longer depends on a
-single-verifier-only restriction for policy identity binding. The shipped
-config still registers only the Brewlet verifier; do not add a wildcard
+gap in both CLI and cluster configurations. The shipped
+config registers only the Brewlet verifier; do not add a wildcard
 (`artifactTypes: "*"`) or overlapping verifier that also claims
 `application/vnd.brewlet.attestation.v1+json`. Success from another verifier or
 another artifact type cannot substitute for Brewlet verification. A separately

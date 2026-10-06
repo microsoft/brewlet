@@ -24,13 +24,12 @@ const (
 	defaultWorkloadUserID = int64(65532)
 )
 
-// JVM options env vars. Brewlet no longer writes either of these: user jvm.args
-// are delivered as argv via the brewlet.sh/jvm-args pod annotation (§4.2/§8.2)
-// because the `java` launcher PREPENDS JDK_JAVA_OPTIONS, which would apply
-// deployment tuning BEFORE the artifact's own flags and let the artifact win —
-// the inverse of the documented contract — and whitespace-joining also corrupts
-// any argument containing a space. They are still recognised here so a
-// user-supplied value in spec.env can be reported as an overlap (§8.2).
+// JVM options env vars are recognised in spec.env to report overlap with
+// jvm.args (§8.2). Brewlet delivers jvm.args as argv via the brewlet.sh/jvm-args
+// pod annotation (§4.2/§8.2), preserving argument boundaries and deployment
+// tuning precedence. Using JDK_JAVA_OPTIONS instead would prepend tuning before
+// the artifact's flags, letting the artifact win; whitespace-joining would also
+// corrupt arguments containing spaces.
 // JDK_JAVA_OPTIONS is the modern, launcher-scoped variable (JDK 9+); it is
 // unsupported on JDK 8, where JAVA_TOOL_OPTIONS is the only option.
 // See https://bugs.openjdk.org/browse/JDK-8170832.

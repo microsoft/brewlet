@@ -505,7 +505,6 @@ func TestPushRejectsInvalidConfig(t *testing.T) {
 // joined onto the node's launcher roots to pick an overlay lower layer and a
 // privileged bind-mount source, and is executed as argv[0], so anything that is
 // not a bare DNS-1123 token is a host-path-traversal primitive (CWE-22).
-// See SECURITY-REVIEW.md finding 5.
 func TestLauncherNameRejectsUnsafeRequests(t *testing.T) {
 	cases := []struct {
 		name    string

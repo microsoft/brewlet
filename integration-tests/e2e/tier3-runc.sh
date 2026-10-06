@@ -79,7 +79,7 @@ tier3_runc() {
 # hostile digest must never reach a mount. The shim binary is driven through the
 # same prepare-bundle entrypoint the runc harness uses, so this asserts the real
 # Create() path: bundle assembly fails, and no bundle (and therefore no host
-# bind mount) is produced. See SECURITY-REVIEW.md finding 1.
+# bind mount) is produced.
 tier3_digest_traversal() {
   section "Tier 3b — hostile descriptor digests cannot become host mounts"
   if ! have go; then skip "tier3b: hostile digest rejection" "go not installed"; return 0; fi

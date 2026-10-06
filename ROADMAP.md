@@ -35,9 +35,7 @@ accepted and implemented.
   operator-synthesized default profile (the chart renders one today), and a
   documented bare-metal pool label.
 - **Configuration cleanup.** Consolidate the simple Helm values and `NodeProfile`
-  configuration paths before deprecating redundant global inventory flags.
-  (Shipping default JDK/launcher source digests that cannot be patched is now
-  resolved: the chart requires explicit `provisioner.jdks` — SPECIFICATION §5.3.)
+  configuration paths into one runtime-inventory model.
 
 ## Workload delivery
 

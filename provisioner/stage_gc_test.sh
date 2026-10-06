@@ -118,7 +118,7 @@ for changed in host-shim prefix-shim root missing-record mismatched-record symli
   )
 done
 
-# Obsolete input is rejected before host access, including false and empty values.
+# Unsupported input is rejected before host access, including false and empty values.
 for value in true false ""; do
   (
     fixture
@@ -130,10 +130,10 @@ for value in true false ""; do
     verify_node_ownership() { echo unexpected-host-access >>"$calls"; }
     remove_appcds_regeneration_policy() { echo unexpected-host-access >>"$calls"; }
     if main >"$PREFIX/error" 2>&1; then
-      echo "accepted removed acknowledgment" >&2
+      echo "accepted unsupported acknowledgment" >&2
       exit 1
     fi
-    grep -Fq 'BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED has been removed' "$PREFIX/error"
+    grep -Fq 'invalid-stage-gc-config: BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED is unsupported' "$PREFIX/error"
     [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]]
   )
 done

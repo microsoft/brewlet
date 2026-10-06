@@ -719,7 +719,7 @@ checks out the publishing configuration at the workflow's commit and the source
 at the requested release tag into separate directories. It adds missing
 developer/SCM metadata and applies the `central-release` profile to the tagged
 POM, without replacing the tag's dependencies, ordinary build configuration, or
-source files. This also supports older tags that predate Central publishing.
+source files.
 
 The release caller must set `secrets: inherit` on the reusable-workflow job.
 The called job still selects the `maven-central` environment; without inheritance,

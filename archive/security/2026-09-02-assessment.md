@@ -1,5 +1,12 @@
 # Kubernetes Security Assessment and Threat Model
 
+> **Archived assessment: 2026-09-02; remediation verification: 2026-09-04.**
+> This historical, non-normative record preserves the findings, evidence, and
+> provenance below. Its risk rating and remediation statements are not a current
+> security certification. See [current security guidance](../../docs/security.md),
+> the [current specification](../../specs/SPECIFICATION.md), and the
+> [archive index](../README.md).
+
 **Repository:** `microsoft/brewlet`  
 **Revision assessed:** `f6c8a06`  
 **Assessment date:** 2026-09-02  

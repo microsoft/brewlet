@@ -808,6 +808,11 @@ func TestInstallDelegatesToPinnedHelmChart(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "CRDs already exist") {
 		t.Fatal("existing CRDs were not protected", err)
 	}
+	if !strings.Contains(err.Error(), "fresh-install-only") ||
+		!strings.Contains(err.Error(), "safe teardown and retained-resource review") ||
+		!strings.Contains(err.Error(), "docs/installation.md#upgrading") {
+		t.Fatalf("missing fresh-install teardown guidance: %v", err)
+	}
 }
 
 func TestInstallReportsStepsAndRolloutProgress(t *testing.T) {

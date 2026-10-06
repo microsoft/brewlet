@@ -159,8 +159,9 @@ func TestNodeProfileValidatorContainerdRestart(t *testing.T) {
 				if res.Allowed != want {
 					t.Fatalf("%s mode %q allowed=%v: %+v", req.Operation, mode, res.Allowed, res.Result)
 				}
-				if mode == "sighup" && (res.Result == nil || !strings.Contains(res.Result.Message, "teardown/reinstallation")) {
-					t.Fatalf("missing removed-policy guidance: %+v", res.Result)
+				if !want && (res.Result == nil || !strings.Contains(res.Result.Message,
+					`spec.rollout.containerdRestart "`+mode+`" is invalid; want one of validated|none`)) {
+					t.Fatalf("missing allowed-value validation error: %+v", res.Result)
 				}
 			}
 		})

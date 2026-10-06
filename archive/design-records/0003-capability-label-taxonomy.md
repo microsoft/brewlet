@@ -1,8 +1,12 @@
 # Proposal 0003 — Stable capability-label taxonomy for autoscaling
 
+> **Archived design record (non-normative).** Historical assumptions and rationale
+> are preserved below, not current guarantees. See the
+> [current specification](../../specs/SPECIFICATION.md) and [archive index](../README.md).
+
 - **Status:** implemented; retained as a design record
 - **Specification sections:** **§5.2**, **§7**, **§8.3**, and
-  the public [capability-label reference](../CAPABILITY_LABELS.md)
+  the public [capability-label reference](../../specs/CAPABILITY_LABELS.md)
 - **Related code:** [`kubernetes/`](../../kubernetes):
   `internal/brewlet/labels.go`; [`microsoft/brewlet`](https://github.com/microsoft/brewlet):
   `provisioner/entrypoint.sh` (`label_node`)
@@ -13,8 +17,8 @@
 
 This document preserves the rationale for promoting the existing scheduling
 labels to a supported public taxonomy. The
-[capability-label reference](../CAPABILITY_LABELS.md), the
-[specification](../SPECIFICATION.md), and the shipped implementation are
+[capability-label reference](../../specs/CAPABILITY_LABELS.md), the
+[specification](../../specs/SPECIFICATION.md), and the shipped implementation are
 authoritative.
 
 ## Implementation status

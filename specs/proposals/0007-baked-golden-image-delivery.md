@@ -6,7 +6,7 @@
 - **Current delivery path:** runnable images ([SPECIFICATION §4.4](../SPECIFICATION.md#44-runnable-image-delivery-mode-kubelet-pullable-the-spinkube-style-pull-path)),
   node JDK roots ([§5.3](../SPECIFICATION.md#53-installing-jdk-runtime-roots-on-nodes)),
   and the Runtime v2 shim ([§6](../SPECIFICATION.md#6-the-containerd-shim-containerd-shim-brewlet-v2))
-- **Related proposals:** [0001 — node profiles](0001-node-profiles.md),
+- **Related designs:** [0001 — node profiles](../../archive/design-records/0001-node-profiles.md),
   [0006 — sandbox isolation tiers](0006-sandbox-isolation-tiers.md)
 
 This design records an alternative in which an operator-approved **golden image**

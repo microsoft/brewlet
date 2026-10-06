@@ -307,8 +307,7 @@ YAML
     fi
 
     # The privileged provisioner must never be a default: an install that leaves
-    # provisioner.pools empty has to fail closed rather than claim every node
-    # (SECURITY-REVIEW.md finding 10).
+    # provisioner.pools empty has to fail closed rather than claim every node.
     local failclosed
     if failclosed="$(helm template brewlet "$BREWLET_KUBERNETES_DIR/charts/brewlet" 2>&1)"; then
       fail "helm: an install without provisioner.pools fails closed" \

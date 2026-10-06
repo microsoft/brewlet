@@ -412,7 +412,7 @@ message in table/wide output or `[]` in JSON. Malformed nonblank structured
 metadata fails explicitly with the node and annotation name; compact data
 never substitutes for it. See
 [JDK management → Inspecting the JDKs available](jdk-management.md#inspecting-the-jdks-available-on-the-cluster)
-for plain-`kubectl` queries and guidance for compact-only nodes.
+for plain-`kubectl` queries and the distinct inventory consumers.
 
 ---
 
@@ -871,11 +871,9 @@ exits nonzero. The CLI **never removes finalizers, ownership labels, or
 status** to force deletion.
 
 `CleanupBlocked` requires repairing the cause identified by its condition
-message. `UnsupportedPreClaimState` is a permanent refusal by this release,
-not a state that ordinary spec repair can migrate. Save original manifests and
-evidence, pause automation, drain or move workloads, and restore the original
-release's compatible components to finish cleanup and worker teardown before
-reinstalling. See [pre-claim recovery](installation.md#unsupported-pre-claim-workers).
+message. `UnsupportedPreClaimState` requires
+[unsupported-state recovery](installation.md#unsupported-state-recovery),
+not ordinary spec repair.
 Both refusal reasons stop `--wait` as soon as they are observed; they do not
 wait for the timeout or claim cleanup continues in the background.
 

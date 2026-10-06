@@ -389,8 +389,8 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 		JDKRootsDir:      envOr("BREWLET_JDK_ROOTS", defaultJDKRootsDir),
 		LauncherRootsDir: envOr("BREWLET_LAUNCHER_ROOTS", defaultLauncherRootsDir),
 		// The JDK/launcher the deployment descriptor requested, carried on the
-		// pod annotations and propagated onto the OCI spec. The artifact config
-		// no longer carries these — the descriptor is the single source of truth.
+		// pod annotations and propagated onto the OCI spec. The descriptor is
+		// the single source of truth for runtime selection.
 		JDKRequest:   spec.Annotations[annRequestedJDK],
 		LauncherName: spec.Annotations[annRequestedLauncher],
 		// Kubernetes execution is always bound to the image containerd resolved

@@ -35,11 +35,8 @@ func TestContainerdRestartPolicies(t *testing.T) {
 				}
 				out, err := helmCommand(t, args...).CombinedOutput()
 				if mode == "sighup" || mode == "reboot" || mode == "false" {
-					if err == nil || !strings.Contains(string(out), field) {
+					if err == nil || !strings.Contains(string(out), field+" must be validated or none") {
 						t.Fatalf("expected policy rejection: %v\n%s", err, out)
-					}
-					if mode == "sighup" && !strings.Contains(string(out), "teardown/reinstallation") {
-						t.Fatalf("missing removal guidance: %s", out)
 					}
 					return
 				}

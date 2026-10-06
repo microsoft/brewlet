@@ -1,5 +1,9 @@
 # Proposal 0001 — Node profiles: per-pool cluster preparation
 
+> **Archived design record (non-normative).** Historical assumptions and rationale
+> are preserved below, not current guarantees. See the
+> [current specification](../../specs/SPECIFICATION.md) and [archive index](../README.md).
+
 - **Status:** implemented; retained as a design record
 - **Specification sections:** **§5.6** (Node profiles), **§8.1**, **§8.3**, and
   **§14**.
@@ -17,7 +21,7 @@
   - [0004 — cert-manager integration for the admission webhook](0004-cert-manager-admission.md).
 
 This document preserves the design rationale for the `NodeProfile` API. The
-[specification](../SPECIFICATION.md) and shipped API are authoritative.
+[specification](../../specs/SPECIFICATION.md) and shipped API are authoritative.
 
 The implemented security contract requires an administrator-provided,
 canonical, tagless SHA-256 digest reference and absolute path for every JDK and
@@ -36,7 +40,7 @@ fail-closed behavior.
 > `.../master` must be absent) unless it sets
 > `spec.nodePool.includeControlPlane`, and it carries only the tolerations
 > `spec.tolerations` declares rather than the blanket `operator: Exists` this
-> design assumed. See [SPECIFICATION §5.6](../SPECIFICATION.md) for the
+> design assumed. See [SPECIFICATION §5.6](../../specs/SPECIFICATION.md) for the
 > authoritative rules.
 
 ---
@@ -78,7 +82,7 @@ Before `NodeProfile`, inventory was a single global value:
 The comparison below describes the historical design, not a supported
 alternative. [#175](https://github.com/microsoft/brewlet/issues/175) removes
 standalone provisioning; see the current
-[support and activation contract](../SPECIFICATION.md#51-activation).
+[support and activation contract](../../specs/SPECIFICATION.md#51-activation).
 
 | Gap | Before NodeProfile | Why it hurts in production |
 |---|---|---|
