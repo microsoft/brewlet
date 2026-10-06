@@ -20,6 +20,9 @@
 #
 # The tier uses minAge=1s and interval=5s to finish quickly. With GC activated,
 # this tier requires a dedicated fresh node, not retained state from other tiers.
+# It uses the first fresh schedulable node. run.sh runs it before any other
+# Kubernetes tier in a multi-tier run; if no node is fresh there (a previous
+# run provisioned them) it SKIPs with instructions, but run alone it FAILs.
 
 T17_RELEASE="brewlet-stagegc-e2e"
 T17_RELEASE_NS="default"
@@ -326,6 +329,23 @@ _t17_wait_rollout() {
   return 1
 }
 
+# _t17_node_fresh NODE: true if NODE has no shim, safety record, or stage tree.
+_t17_node_fresh() {
+  node_exec "$1" sh -eu -c '
+    for path in /opt/brewlet/bin/containerd-shim-brewlet-v2 \
+        /usr/local/bin/containerd-shim-brewlet-v2 "$1"; do
+      [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1
+    done
+    [ ! -L "$2" ] || exit 1
+    if [ -d "$2" ]; then
+      entries="$(find "$2" -mindepth 1 -maxdepth 1 -print -quit)"
+      [ -z "$entries" ]
+    else
+      [ ! -e "$2" ]
+    fi
+  ' sh "$T17_RECORD" "$T17_STAGE_ROOT" >/dev/null 2>&1
+}
+
 tier17_stage_gc() {
   section "Tier 17 — default-enabled runnable-stage GC in-cluster"
   if ! have kubectl || ! k8s_reachable; then skip "tier17: stage GC" "no reachable cluster"; return 0; fi
@@ -344,12 +364,18 @@ tier17_stage_gc() {
       skip "tier17: stage GC" "node '$n' is not a local containerd docker container"; return 0
     fi
   done
-  T17_NODE="$(pick_provisionable_node)"
-  if [[ -z "$T17_NODE" ]] || ! node_schedulable "$T17_NODE"; then
+  local candidates=""
+  for n in $(e2e_node_names); do
+    node_provisionable "$n" && node_schedulable "$n" && candidates+="$n "
+  done
+  if [[ -z "$candidates" ]]; then
     skip "tier17: stage GC" "no schedulable local containerd node"; return 0
   fi
-  T17_ARCH="$(_t15_node_arch "$T17_NODE")"
-  [[ -n "$T17_ARCH" ]] || { skip "tier17: stage GC" "unknown node architecture"; return 0; }
+  # Prefer a node no earlier tier has provisioned.
+  T17_NODE=""
+  for n in $candidates; do
+    if _t17_node_fresh "$n"; then T17_NODE="$n"; break; fi
+  done
   if [[ -n "$(detect_leftovers)" ]] ||
      helm status "$T17_RELEASE" -n "$T17_RELEASE_NS" >/dev/null 2>&1 ||
      kubectl get ns "$T17_NS" >/dev/null 2>&1 ||
@@ -357,23 +383,22 @@ tier17_stage_gc() {
     fail "tier17: clean Brewlet cluster state" "run ./run.sh --reset before tier 17"
     return 0
   fi
-  if ! node_exec "$T17_NODE" sh -eu -c '
-    for path in /opt/brewlet/bin/containerd-shim-brewlet-v2 \
-        /usr/local/bin/containerd-shim-brewlet-v2 "$1"; do
-      [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1
-    done
-    [ ! -L "$2" ] || exit 1
-    if [ -d "$2" ]; then
-      entries="$(find "$2" -mindepth 1 -maxdepth 1 -print -quit)"
-      [ -z "$entries" ]
+  if [[ -z "$T17_NODE" ]]; then
+    local why="no fresh node among (${candidates% }): existing shim, record, or stage state was preserved; a Kubernetes reset does not make the node fresh"
+    # In a multi-tier run, earlier node tiers (or a previous run) may own every
+    # node; that is an environment limit, not a stage-GC defect. Run alone,
+    # tier 17 still fails so a dirty dedicated node is never silently accepted.
+    if (( ${E2E_TIER_COUNT:-1} > 1 )); then
+      skip "tier17: requires a dedicated fresh node" \
+        "$why; run './run.sh --tier 17' alone on a new cluster (e.g. a fresh kind cluster)"
     else
-      [ ! -e "$2" ]
+      fail "tier17: requires a dedicated fresh node" "$why"
     fi
-  ' sh "$T17_RECORD" "$T17_STAGE_ROOT"; then
-    fail "tier17: requires a dedicated fresh node" \
-      "existing shim, record, or stage state was preserved; a Kubernetes reset does not make the node fresh"
     return 0
   fi
+  info "tier17: using fresh node $T17_NODE"
+  T17_ARCH="$(_t15_node_arch "$T17_NODE")"
+  [[ -n "$T17_ARCH" ]] || { skip "tier17: stage GC" "unknown node architecture"; return 0; }
 
   # --- snapshot and prepare host state --------------------------------------
   node_exec "$T17_NODE" test -e "/opt/brewlet/jdks/$T17_JDK" >/dev/null 2>&1 &&

@@ -146,6 +146,14 @@ fi
 
 [[ ${#TIERS[@]} -eq 0 ]] && TIERS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19)
 
+# Tier 17 must see a fresh node; see e2e_order_tiers in lib.sh.
+_requested="${TIERS[*]}"
+# shellcheck disable=SC2207 # tier ids are plain tokens; bash 3.2 has no mapfile
+TIERS=($(e2e_order_tiers "${TIERS[@]}"))
+[[ "${TIERS[*]}" != "$_requested" ]] &&
+  info "order     : tier 17 moved before node-provisioning tiers: ${TIERS[*]}"
+export E2E_TIER_COUNT="${#TIERS[@]}"
+
 section "Brewlet E2E — environment"
 info "harness   : $REPO_DIR"
 info "core      : $BREWLET_CORE_DIR"

@@ -91,8 +91,20 @@ integration-tests/e2e/run.sh --reset --tier 1 --tier 2  # ...or list every tier
   node-shell pod per node in `brewlet-e2e-nodeshell` (`chroot /host nsenter
   -t 1`). The namespace is deleted on exit and by `--reset`. Override the image
   with `E2E_NODESHELL_IMAGE`; it needs only `chroot` and `sleep`. Uploads go in
-  retried, checksum-verified chunks (`E2E_UPLOAD_CHUNK`, default `2m`) because
-  API-server exec streams can time out.
+  checksum-verified chunks (`E2E_UPLOAD_CHUNK`, default `2m`) because
+  API-server exec streams can time out. Each chunk is retried up to
+  `E2E_UPLOAD_RETRIES` (default 5) times and a retry first checks whether the
+  chunk already landed, so a reset stream resumes rather than restarts.
+- Connections from a workstation to a managed API server are occasionally
+  reset. Idempotent kubectl calls used for node-shell setup, uploads, fixture
+  teardown and its verification (`get`, `apply`, `wait`, key removals,
+  `delete --ignore-not-found`) retry with exponential backoff only on transport
+  errors: `connection reset by peer`, `EOF`, `Unable to connect to the server`,
+  `TLS handshake timeout` and `socket is not connected`. Tune with
+  `E2E_RETRIES` (default 5) and `E2E_RETRY_BACKOFF` (initial seconds, default
+  2, capped at 30). Assertions are never retried. If a NodeProfile fixture
+  teardown still fails, live state is re-checked and a leak is reported only
+  if the profile, its workers, or a node claim actually remain.
 - `E2E_NODE_SELECTOR` (a label selector, default: the pools) further restricts
   which pool nodes the provisioning tiers may pick.
 - Tier 13 relabels nodes with `E2E_T13_POOL_KEY` (default `brewlet-e2e-pool`
@@ -144,10 +156,15 @@ a silently non-running pod. It moves the node's shim aside for the last case and
 it both inline and from its cleanup trap. §14's remaining row, the cgroup-v1
 refusal, cannot be produced on a cgroup-v2 CI node and is covered
 deterministically by `provisioner/entrypoint_test.sh` over `require_cgroup_v2`.
-Tier 17 requires a dedicated fresh node: run it alone on a new kind cluster,
-not after tiers that leave shim or stage state behind. Kubernetes `--reset`
-alone does not prepare a fresh node. The tier rejects retained host state without
-clearing it. It installs the chart with default `stageGC` values and verifies
+Tier 17 requires a dedicated fresh node (no shim, safety record, or stage
+tree). Kubernetes `--reset` alone does not prepare a fresh node, and the tier
+rejects retained host state without clearing it. It uses the first fresh
+schedulable node. In a multi-tier run (including the default all-tiers run),
+`run.sh` moves tier 17 ahead of every Kubernetes tier, right after host-only
+tiers 1-3, so earlier tiers cannot dirty the node first. If no node is fresh
+even then (a previous run already provisioned it), a multi-tier run reports a
+SKIP with instructions; run alone (`--tier 17`), the tier still FAILs. For a
+definitive result, run `--tier 17` alone on a new kind cluster, as CI does. It installs the chart with default `stageGC` values and verifies
 fresh activation without the metrics exporter. Current-release configuration
 changes to `interval=5s` and `minAge=1s` replace the worker and preserve its
 installation safety record. A runnable stage survives while its pod runs and
@@ -202,6 +219,16 @@ Run the fixture safeguards independently with:
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s integration-tests/e2e -p 'nodeprofile_fixtures_test.py' -v
 ```
+
+Run the transient-retry, resumable-upload and tier-order helpers offline (fake
+kubectl, no cluster) with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s integration-tests/e2e -p 'lib_retry_test.py' -v
+```
+
+`make e2e-contract-check` runs both of these suites as well.
 
 Run tier 19's SBOM sweep logic offline (fake CLI, no cluster) with:
 
