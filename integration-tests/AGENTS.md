@@ -26,6 +26,18 @@ capacity, load leases, stabilization, fixture-only TLS/HTTP exceptions, evidence
 cleanup, and the acceptance mapping. Keep component-test and live-run claims
 distinct; preserve the preview limitations until the corresponding runs pass.
 
+The change-aware `CI` workflow selects only the smaller
+`python3 integration-tests/e2e/live/smoke.py` scenario for affected PRs.
+It reuses the same private checkout-built fixture to install, provision, and
+run Maven `deploy`: publish, generate/apply a JavaApplication, wait for readiness,
+and serve HTTP. API, raw CRD, and chart changes select Maven verification and
+this smoke. Comprehensive admission/HPA/workflow runs and cluster tiers remain
+exclusively nightly/manual E2E, not duplicated by CI's main-push or scheduled
+runs. Explicitly dispatch E2E on the candidate branch for high-risk pre-merge
+validation. The smoke requires Python 3.12+ and the same
+kind/tool prerequisites and preserves the documented cold-start GC deferral.
+It does not use the tier reset helper or an existing kube context.
+
 Offline safeguard checks:
 
 ```bash
@@ -205,6 +217,14 @@ tiers 1-3 a second time on an `ubuntu-24.04-arm` runner. That is the only path
 that actually executes the CLI and the shim-to-runc assembly on arm64; the
 multi-arch index writer and the strict platform matcher are additionally
 unit-tested in `core/internal/artifact`.
+
+**Required PR assertions.** CI runs selected host tiers 2-3 with `E2E_REQUIRE_ALL=true`.
+Any skipped assertion, or a selected tier that records no passing assertion,
+fails the run. The default remains optional-prerequisite skipping for local
+exploration and the existing nightly matrix. Invalid tier numbers always fail.
+Tier 2 installs the checkout Maven plugin with `-DskipTests` before exercising
+its goals; Maven unit tests belong to the JDK 17 CI job / `make maven-plugin-check`.
+Do not count a tier-2-only run as Maven unit-suite coverage.
 
 ## Cleanup and diagnostics
 

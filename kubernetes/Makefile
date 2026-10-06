@@ -10,7 +10,7 @@ ENVTEST_K8S_VERSION ?= 1.31.0
 SETUP_ENVTEST_VERSION ?= v0.0.0-20250308055145-5fe7bb3edc86
 SETUP_ENVTEST ?= $(shell $(GO) env GOPATH)/bin/setup-envtest
 
-.PHONY: all fmt-check vet build test test-envtest test-cli-integration ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-lifecycle-check helm-check print-setup-envtest-version clean
+.PHONY: all fmt-check vet build test test-envtest test-cli-integration ci operator-build admission-build operator-image admission-image helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-lifecycle-check helm-render-check helm-check print-setup-envtest-version clean
 
 all: build
 
@@ -166,7 +166,9 @@ helm-admission-check:
 helm-lifecycle-check:
 	BREWLET_REQUIRE_HELM=true HELM="$(HELM)" $(GO) test -count=1 ./internal/chart
 
-helm-check: helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check helm-lifecycle-check
+helm-render-check: helm-lint helm-template helm-digest-check helm-scheduling-check helm-admission-check
+
+helm-check: helm-render-check helm-lifecycle-check
 
 clean:
 	rm -rf bin

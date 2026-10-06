@@ -29,6 +29,17 @@ fail() { E2E_RESULTS+=("FAIL"$'\t'"$1"$'\t'"${2:-}"); E2E_FAIL=$((E2E_FAIL+1));
 skip() { E2E_RESULTS+=("SKIP"$'\t'"$1"$'\t'"${2:-}"); E2E_SKIP=$((E2E_SKIP+1));
          printf '  %sSKIP%s %s%s\n' "$C_YEL" "$C_RESET" "$1" "${2:+ — $2}"; }
 
+e2e_require_results() {
+  local tier="$1" pass_before="$2" skip_before="$3"
+  [[ "${E2E_REQUIRE_ALL:-false}" == "true" ]] || return 0
+  if (( E2E_SKIP > skip_before )); then
+    fail "tier$tier: required assertions were skipped" "E2E_REQUIRE_ALL=true forbids skips"
+  fi
+  if (( E2E_PASS == pass_before )); then
+    fail "tier$tier: no passing assertions" "a required tier must execute its assertions"
+  fi
+}
+
 # check NAME: run a command; PASS on exit 0, FAIL otherwise (last stderr line kept).
 # usage: check "name" command args...
 check() {
