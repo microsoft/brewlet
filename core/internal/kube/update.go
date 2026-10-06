@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -388,38 +389,23 @@ func (c *client) updateProfile(u updateOptions) error {
 		if live.Metadata.UID == "" || live.Metadata.ResourceVersion == "" {
 			return fmt.Errorf("live profile has no UID/resourceVersion; cannot update safely")
 		}
-		patch := []struct {
-			Op    string `json:"op"`
-			Path  string `json:"path"`
-			Value any    `json:"value"`
-		}{
-			{"test", "/metadata/uid", live.Metadata.UID},
-			{"test", "/metadata/resourceVersion", live.Metadata.ResourceVersion},
-			{"add", "/spec/" + field, spec[field]},
-		}
-		input, err := json.Marshal(patch)
-		if err != nil {
-			return err
-		}
-		patchFile, err := os.CreateTemp("", "brewlet-profile-patch-*.json")
-		if err != nil {
-			return err
-		}
-		defer os.Remove(patchFile.Name())
-		if _, err := patchFile.Write(input); err != nil {
-			patchFile.Close()
-			return err
-		}
-		if err := patchFile.Close(); err != nil {
-			return err
-		}
-		args := []string{"patch", profilesResource, u.profile, "--type=json", "--patch-file", patchFile.Name(), "--field-manager=brewlet", "-o", "json"}
-		if u.dryRun == dryRunServer {
-			args = append(args, "--dry-run=server")
-		}
-		result, err := c.kubectl(nil, args...)
-		if err != nil {
-			return fmt.Errorf("profile update failed (concurrent changes require re-reading and reviewing the profile): %w", err)
+		var result []byte
+		for attempt := 0; ; attempt++ {
+			result, err = c.patchProfile(u, live, field, spec[field])
+			if err == nil {
+				break
+			}
+			// The operator writes status (and adds its finalizer) asynchronously,
+			// bumping resourceVersion without changing anything the user
+			// reviewed. Only that churn is retried; any other change fails.
+			if attempt >= maxStatusOnlyRetries {
+				return fmt.Errorf("profile update failed (concurrent changes require re-reading and reviewing the profile): %w", err)
+			}
+			fresh, getErr := c.get(profilesResource, u.profile, "--show-managed-fields=true")
+			if getErr != nil || !onlyServerChurn(live, fresh) {
+				return fmt.Errorf("profile update failed (concurrent changes require re-reading and reviewing the profile): %w", err)
+			}
+			live = fresh
 		}
 		doc, err = decodeDocument(result)
 		if err != nil {
@@ -444,6 +430,60 @@ func (c *client) updateProfile(u updateOptions) error {
 		fmt.Fprintln(c.err, "Profile update accepted; provisioning is asynchronous. Inspect the profile and advertised node inventory before using the new source.")
 	}
 	return nil
+}
+
+const maxStatusOnlyRetries = 5
+
+// patchProfile applies the narrow inventory change, fenced on the exact
+// object (UID and resourceVersion) the caller reviewed.
+func (c *client) patchProfile(u updateOptions, live object, field string, value json.RawMessage) ([]byte, error) {
+	patch := []struct {
+		Op    string `json:"op"`
+		Path  string `json:"path"`
+		Value any    `json:"value"`
+	}{
+		{"test", "/metadata/uid", live.Metadata.UID},
+		{"test", "/metadata/resourceVersion", live.Metadata.ResourceVersion},
+		{"add", "/spec/" + field, value},
+	}
+	input, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+	patchFile, err := os.CreateTemp("", "brewlet-profile-patch-*.json")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(patchFile.Name())
+	if _, err := patchFile.Write(input); err != nil {
+		patchFile.Close()
+		return nil, err
+	}
+	if err := patchFile.Close(); err != nil {
+		return nil, err
+	}
+	args := []string{"patch", profilesResource, u.profile, "--type=json", "--patch-file", patchFile.Name(), "--field-manager=brewlet", "-o", "json"}
+	if u.dryRun == dryRunServer {
+		args = append(args, "--dry-run=server")
+	}
+	return c.kubectl(nil, args...)
+}
+
+// onlyServerChurn reports whether fresh differs from the reviewed profile
+// only by a new resourceVersion and server-maintained state (status,
+// finalizers, status field ownership): the same object, spec and
+// ownership-relevant metadata, still not terminating or externally managed.
+func onlyServerChurn(reviewed, fresh object) bool {
+	a, b := reviewed.Metadata, fresh.Metadata
+	if b.UID != a.UID || b.ResourceVersion == a.ResourceVersion || b.Generation != a.Generation ||
+		b.DeletionTimestamp != "" || !reflect.DeepEqual(b.Labels, a.Labels) ||
+		!reflect.DeepEqual(b.Annotations, a.Annotations) || !reflect.DeepEqual(b.OwnerReferences, a.OwnerReferences) ||
+		managedBy(fresh) != "" {
+		return false
+	}
+	var reviewedSpec, freshSpec any
+	return json.Unmarshal(reviewed.Spec, &reviewedSpec) == nil && json.Unmarshal(fresh.Spec, &freshSpec) == nil &&
+		reflect.DeepEqual(reviewedSpec, freshSpec)
 }
 
 func cleanManifest(doc document) error {
