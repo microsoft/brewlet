@@ -84,8 +84,7 @@ def placement(namespace, name, count, mode="provision"):
     spec = ds["spec"]["template"]["spec"]
     provisioner = next(c for c in spec["containers"] if c["name"] == "provisioner")
     env = {e["name"]: e.get("value") for e in provisioner.get("env", [])}
-    require(env.get("BREWLET_REQUIRE_NODE_CLAIM") == "true" and
-            env.get("BREWLET_PROFILE_UID") == uid and env.get("BREWLET_PROFILE_NAME") == name,
+    require(env.get("BREWLET_PROFILE_UID") == uid and env.get("BREWLET_PROFILE_NAME") == name,
             "provisioner does not enforce the profile claim")
     if mode == "cleanup":
         require(env.get("BREWLET_MODE") == "cleanup", "cleanup worker has the wrong mode")

@@ -65,64 +65,6 @@ func TestNodeProfileFreshReadRejectsPrunedTargetBeforeClaimOrPublication(t *test
 	}
 }
 
-func TestNodeProfileFreshReadRejectsPrunedRefusalWithoutWorkerMutation(t *testing.T) {
-	f := newCleanupFixture(t, 1)
-	cleanupTestDaemonSets(t, f.client, f.r.Config.Namespace)
-	ds := f.daemonSet(t, brewlet.ProfileDaemonSetName(f.profile.Name))
-	var env []corev1.EnvVar
-	for _, value := range ds.Spec.Template.Spec.Containers[0].Env {
-		if value.Name != "BREWLET_REQUIRE_NODE_CLAIM" {
-			env = append(env, value)
-		}
-	}
-	ds.Spec.Template.Spec.Containers[0].Env = env
-	ds.Spec.Template.Spec.Affinity = profileAffinity(&f.profile, "agentpool", nil)
-	if err := f.client.Update(f.ctx, ds); err != nil {
-		t.Fatal(err)
-	}
-	pod := createDaemonSetPod(t, f.ctx, f.client, ds, f.nodes[0], false)
-	updateTargetNode(t, f, f.nodes[0], func(node *corev1.Node) {
-		delete(node.Labels, brewlet.LabelNodeOwner)
-		delete(node.Labels, brewlet.LabelNodeIdentity)
-		delete(node.Annotations, brewlet.AnnotationNodeOwner)
-	})
-	p := getProfile(t, f.ctx, f.client, f.profile.Name)
-	p.Status = nodev1alpha1.NodeProfileStatus{}
-	if err := f.client.Status().Update(f.ctx, &p); err != nil {
-		t.Fatal(err)
-	}
-	f.r.Client = prunedStatusAcknowledgement(f.client, func(status *nodev1alpha1.NodeProfileStatus) {
-		status.Targets = nil
-		status.ProvisioningSpec = nil
-		status.ProvisioningGeneration = 0
-		status.OwnershipInitialized = false
-		status.Migrating = false
-		status.MigrationDaemonSetUIDs = nil
-		status.Conditions = nil
-	})
-	requireCRDCheckpointError(t, f)
-	if current := f.daemonSet(t, ds.Name); !current.DeletionTimestamp.IsZero() {
-		t.Fatal("pre-claim DaemonSet deleted before its refusal was durably recorded")
-	}
-	var currentPod corev1.Pod
-	if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(pod), &currentPod); err != nil || !currentPod.DeletionTimestamp.IsZero() {
-		t.Fatalf("unfenced pre-claim target evidence was destroyed: %v", err)
-	}
-	p = getProfile(t, f.ctx, f.client, p.Name)
-	if !containsString(p.Finalizers, brewlet.FinalizerCleanup) {
-		t.Fatalf("failed refusal persistence did not preserve its finalizer: %+v", p.Status)
-	}
-	f.r.Client = f.client
-	reconcileProfile(t, f.ctx, f.r, p.Name)
-	reconcileProfile(t, f.ctx, f.r, p.Name)
-	p = getProfile(t, f.ctx, f.client, p.Name)
-	if p.Status.Migrating || len(p.Status.Targets) != 0 ||
-		conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonUnsupportedPreClaimState ||
-		f.daemonSet(t, ds.Name).ResourceVersion != ds.ResourceVersion {
-		t.Fatal("durable refusal must not initiate migration or worker teardown")
-	}
-}
-
 func TestNodeProfileFreshReadRejectsPrunedRetirementBeforeCleanupTeardown(t *testing.T) {
 	f := newCleanupFixture(t, 1)
 	updateTargetNode(t, f, f.nodes[0], func(node *corev1.Node) { delete(node.Labels, "agentpool") })

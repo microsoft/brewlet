@@ -7,10 +7,8 @@ import (
 	"context"
 	"net/http"
 	"reflect"
-	"slices"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
-	"brewlet-operator/internal/brewlet"
 	"brewlet-operator/internal/controller"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -43,12 +41,6 @@ func (v *NodeProfileValidator) Handle(ctx context.Context, req admission.Request
 		oldProfile := &nodev1alpha1.NodeProfile{}
 		if err := v.Decoder.DecodeRaw(req.OldObject, oldProfile); err != nil {
 			return admission.Errored(http.StatusBadRequest, err)
-		}
-		if controller.HasUnsupportedPreClaimState(oldProfile) &&
-			slices.Contains(oldProfile.Finalizers, brewlet.FinalizerCleanup) &&
-			!slices.Contains(profile.Finalizers, brewlet.FinalizerCleanup) {
-			log.Info("rejecting finalizer removal from pre-claim NodeProfile", "name", profile.Name)
-			return denied("UnsupportedPreClaimState", "preserve the cleanup finalizer and pre-claim evidence; the original release must finish cleanup before reinstallation")
 		}
 		if deletingFinalizersOnlyRemoved(oldProfile, profile) &&
 			!controller.HasNodeProfileCleanupObligations(oldProfile) {

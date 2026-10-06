@@ -302,9 +302,8 @@ configure the profile and operator settings rather than editing worker environme
 | `BREWLET_RUNNABLE_STAGE` | `/tmp/brewlet-runnable` (provisioner) | Host stage root used by automatic GC. A custom location must also be configured separately for the shim and exporter's read-only mount; this variable does not reconfigure those processes. |
 | `NODE_NAME` | (downward API) | The node to label; injected from `spec.nodeName`. |
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID in managed worker authority checks. |
-| `BREWLET_PROFILE_UID` | *(empty)* | Operator-managed profile UID paired with node ownership and persisted writer authority. |
+| `BREWLET_PROFILE_UID` | *(empty)* | Operator-managed profile UID paired with node ownership and persisted writer authority. Required: provisioning and cleanup always verify node UID/owner labels and durable profile authority. |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID`. |
-| `BREWLET_REQUIRE_NODE_CLAIM` | `true` | Mandatory node UID/owner labels and durable profile target/retirement authority for provisioning and cleanup. Set by the operator; only `true` is accepted. Explicit empty, `false`, and other values fail closed. |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host install prefix (`bin/`, `jdks/`, `launchers/`). |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | Primary containerd configuration. Validated mode uses an imported drop-in when supported and otherwise patches this file with a backup. |
 | `CONTAINERD_DROPIN_DIR` | `/etc/containerd/config.toml.d` | Drop-in directory used when the primary config imports `*.toml` from it. |

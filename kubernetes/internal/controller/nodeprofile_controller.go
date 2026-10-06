@@ -77,8 +77,8 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("listing profiles: %w", err)
 	}
 	// Refuse unsupported state before invalidation or deletion can erase evidence.
-	if err := r.checkOwnershipCompatibility(ctx, &profile, nodes.Items); err != nil {
-		return r.compatibilityStatus(ctx, &profile, err)
+	if err := r.checkWriterOwnership(ctx, &profile, nodes.Items); err != nil {
+		return r.ownershipBlocked(ctx, &profile, nodev1alpha1.ReasonCleanupBlocked, err)
 	}
 
 	resolvedKey := resolvePoolKey(&profile, nodes.Items)
@@ -101,7 +101,7 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		if controllerutil.ContainsFinalizer(&profile, brewlet.FinalizerCleanup) {
 			if err := r.initializeOwnership(ctx, &profile, nodes.Items); err != nil {
-				return r.compatibilityStatus(ctx, &profile, err)
+				return r.ownershipBlocked(ctx, &profile, nodev1alpha1.ReasonCleanupBlocked, err)
 			}
 			if profile.Status.Retirement != nil {
 				return r.reconcileRetirement(ctx, &profile)
@@ -201,7 +201,7 @@ func (r *NodeProfileReconciler) reconcileDeleteInvalid(
 		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, blocked)
 	}
 	// No claimed host, retirement, or remaining writer exists. Clear abandoned
-	// pre-claim intentions durably so admission can permit this narrow exception.
+	// unclaimed intentions durably so admission can permit this narrow exception.
 	if HasNodeProfileCleanupObligations(profile) {
 		profile.Status.Targets = nil
 		meta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{

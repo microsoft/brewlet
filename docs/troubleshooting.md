@@ -17,7 +17,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | Node provisioning fails | Node not labeled `ready`; condition/event `ProvisionFailed` | [→ provisioning](#node-never-becomes-ready) |
 | No provisioner pod on a node at all | Node absent from `status.assignedNodes`; no DaemonSet pod scheduled | [→ placement](#no-provisioner-pod-is-scheduled) |
 | NodeProfile is invalid | `Ready=False/InvalidProfile`; deletion with possible host state remains `CleanupBlocked` | [→ source policy](#nodeprofile-source-policy-failures) |
-| NodeProfile deletion does not finish | Profile stays with `Ready=False/CleanupPending`, `CleanupTeardown`, `CleanupBlocked`, or `UnsupportedPreClaimState` | [→ deletion](#nodeprofile-deletion-does-not-finish) |
+| NodeProfile deletion does not finish | Profile stays with `Ready=False/CleanupPending`, `CleanupTeardown`, or `CleanupBlocked` | [→ deletion](#nodeprofile-deletion-does-not-finish) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 | containerd 1.x node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
@@ -222,16 +222,12 @@ brewlet k8s profile delete <name> --wait --wait-timeout 15m
 - **`CleanupTeardown`.** Cleanup finished; the operator is waiting for the
   cleanup workers to terminate.
 - **`CleanupBlocked`.** The profile's spec, source/mirror policy, or pool
-  ownership is invalid, or a target node is unavailable or was replaced. Read
-  the condition message, then repair the cause as described in
-  [source-policy failures](#nodeprofile-source-policy-failures); repairing a
-  deleting profile resumes cleanup.
-- **`UnsupportedPreClaimState`.** The controller refuses unfenced workers or
-  unresolved ownership evidence; ordinary spec repair cannot resume cleanup.
-  Both attaching without `--wait` and waiting exit nonzero with the condition
-  message. Follow [unsupported-state recovery](installation.md#unsupported-state-recovery)
-  using original compatible cleanup components or safe node replacement.
-  Preserve evidence and scheduling gates; do not clear the refusal.
+  ownership is invalid, a target node is unavailable or was replaced, or a
+  competing or unfenced worker was found. Read the condition message, then
+  repair the cause as described in
+  [source-policy failures](#nodeprofile-source-policy-failures) or
+  [blocked cleanup recovery](installation.md#blocked-cleanup-recovery);
+  repairing a deleting profile resumes cleanup.
 
 Never remove the `node.brewlet.sh/cleanup` finalizer, ownership labels, or
 status to force deletion: that leaves runtimes and containerd changes on nodes

@@ -1254,8 +1254,8 @@ func fastPolling(t *testing.T) {
 
 func TestProfileDeleteValidation(t *testing.T) {
 	out, _, err := runTest(t, []string{"profile", "delete", "--help"}, noExecution(t))
-	if err != nil || !strings.Contains(out, "UnsupportedPreClaimState requires original-release cleanup, not spec repair.") {
-		t.Fatalf("delete help missing pre-claim recovery: %q, %v", out, err)
+	if err != nil || !strings.Contains(out, "Exits non-zero on CleanupBlocked or timeout.") {
+		t.Fatalf("delete help missing blocked-cleanup exit status: %q, %v", out, err)
 	}
 	for _, args := range [][]string{
 		{"profile", "delete"},
@@ -1371,7 +1371,7 @@ func TestProfileDeleteWaitFollowsCleanup(t *testing.T) {
 	}
 
 	// A profile recreated under the same name means the original is gone.
-	for _, reason := range []string{"CleanupPending", "CleanupBlocked", "UnsupportedPreClaimState"} {
+	for _, reason := range []string{"CleanupPending", "CleanupBlocked"} {
 		f = &deleteCluster{t: t, profile: profile, snapshots: []string{strings.Replace(deletingProfile(reason, "", ""), "profile-uid", "new-uid", 1)}}
 		if _, _, err := runTest(t, []string{"profile", "delete", "workers", "--wait"}, f.exec); err != nil {
 			t.Fatalf("UID change (%s): %v", reason, err)
@@ -1402,7 +1402,6 @@ func TestProfileDeleteBlockedReasons(t *testing.T) {
 		reason, message, recovery string
 	}{
 		{"CleanupBlocked", "invalid source policy", "Repair the profile spec"},
-		{"UnsupportedPreClaimState", "restore the original release to finish cleanup", "Restore the original release's compatible"},
 	} {
 		for _, mode := range []string{"attach", "attach-wait", "delete-wait"} {
 			t.Run(tc.reason+"/"+mode, func(t *testing.T) {
@@ -1432,10 +1431,6 @@ func TestProfileDeleteBlockedReasons(t *testing.T) {
 					if strings.Contains(err.Error()+stderr, unwanted) {
 						t.Errorf("misleading diagnostic %q: %v\n%s", unwanted, err, stderr)
 					}
-				}
-				if tc.reason == "UnsupportedPreClaimState" &&
-					(strings.Contains(err.Error(), "Repair the profile spec") || strings.Contains(err.Error(), "Ready=False/CleanupBlocked")) {
-					t.Errorf("unsupported state described as repairable CleanupBlocked: %v", err)
 				}
 				var report deleteReport
 				if decodeErr := json.Unmarshal([]byte(out), &report); decodeErr != nil ||

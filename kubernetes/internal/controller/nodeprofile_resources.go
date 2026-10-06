@@ -291,9 +291,6 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		{Name: "BREWLET_STAGE_GC_MIN_AGE_SECONDS", Value: strconv.FormatInt(int64(cfg.StageGCMinAge/time.Second), 10)},
 		{Name: "BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE", Value: strconv.FormatBool(cfg.StageGCAllowNestedPIDNamespace)},
 	}
-	if profile.UID != "" {
-		env = append(env, corev1.EnvVar{Name: "BREWLET_REQUIRE_NODE_CLAIM", Value: "true"})
-	}
 	env = append(env, jdkSourceEnv(profile)...)
 	env = append(env, launcherSourceEnv(profile)...)
 	if m := mirrorEnv(profile); m != "" {

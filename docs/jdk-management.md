@@ -445,8 +445,8 @@ brewlet k8s profile delete java-workers --wait      # per-node cleanup progress
 The command refuses Helm/GitOps-owned profiles (remove those from
 `provisioner.pools`/`profiles` or the GitOps source, then run the same command
 with `--wait` to follow cleanup). It requires `--yes` while Java workloads still
-run on the profile's claimed nodes, and exits nonzero on `CleanupBlocked`,
-`UnsupportedPreClaimState`, or `--wait-timeout`. See
+run on the profile's claimed nodes, and exits nonzero on `CleanupBlocked` or
+`--wait-timeout`. See
 [`brewlet k8s profile delete`](cli-reference.md#deleting-a-profile).
 
 Move or drain affected workloads before deleting a profile: completion ordering
@@ -467,12 +467,9 @@ before removing a Node or VM.
 Brewlet release changes default to
 [safe teardown/reinstallation](installation.md#upgrading), distinct from JDK
 rotation within the installed release. Use matching CRDs and
-operator/provisioner components. `UnsupportedPreClaimState` requires
-[unsupported-state recovery](installation.md#unsupported-state-recovery), not
-ordinary spec repair or adoption of unfenced hosts.
+operator/provisioner components.
 Inspect `kubectl get nodeprofile <name> -o yaml`
-and operator logs for `UnsupportedPreClaimState`, `OwnershipConflict`, `Retargeting`,
-or `CleanupBlocked`. For control-plane removal, follow
+and operator logs for `OwnershipConflict`, `Retargeting`, or `CleanupBlocked`. For control-plane removal, follow
 [the gated uninstall procedure](installation.md#uninstall).
 
 ---

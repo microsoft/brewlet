@@ -104,9 +104,8 @@ the checksum gate to reject each build.
 | `BREWLET_RUNNABLE_STAGE` | `/tmp/brewlet-runnable` | Host staging path for GC; must match the shim's staging root |
 | `NODE_NAME` | downward API | Kubernetes node to label |
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID for managed writer authority |
-| `BREWLET_PROFILE_UID` | empty | Operator-managed profile UID bound to durable writer authority |
+| `BREWLET_PROFILE_UID` | empty | Operator-managed profile UID bound to durable writer authority; required in both modes, so provisioning and cleanup always need a matching node claim |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID` |
-| `BREWLET_REQUIRE_NODE_CLAIM` | `true` | Mandatory matching node/profile UIDs and durable provisioning/retirement authority in both modes. Only `true` is accepted; explicit empty, `false`, or other values fail closed. |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host installation prefix |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | containerd configuration |
 | `CONTAINERD_DROPIN_DIR` | `/etc/containerd/config.toml.d` | Host drop-in directory used when the primary config imports it |
@@ -232,11 +231,10 @@ expose a writable host bind mount.
 For Brewlet release changes, follow the
 [pre-GA update policy](../docs/installation.md#upgrading): safe
 teardown/reinstallation is the default. The protocols below remain mandatory
-for cleanup and recovery. `UnsupportedPreClaimState` refuses unfenced workers
-or unresolved ownership evidence; follow
-[unsupported-state recovery](../docs/installation.md#unsupported-state-recovery)
-with the original installation's compatible cleanup components or safe node
-replacement, never fabricated claims or forced deletion.
+for cleanup and recovery. Unfenced or competing workers block cleanup; follow
+[blocked cleanup recovery](../docs/installation.md#blocked-cleanup-recovery)
+with the installed cleanup components or safe node replacement, never
+fabricated claims or forced deletion.
 
 The provisioner container becomes Ready only after its script has finished
 successfully. Both provisioning and cleanup publish `/tmp/brewlet-complete`

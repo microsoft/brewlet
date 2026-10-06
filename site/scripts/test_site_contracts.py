@@ -149,7 +149,7 @@ class SiteContractsTest(unittest.TestCase):
             "### What the chart deploys", 1
         )[0]
         default = upgrading.index("#### Default: safe teardown and reinstallation")
-        recovery = upgrading.index("#### Unsupported-state recovery")
+        recovery = upgrading.index("#### Blocked cleanup recovery")
         self.assertLess(default, recovery)
         self.assertIn("no supported in-place release", upgrading)
         self.assertEqual(list(helm_commands(upgrading)), [],
@@ -171,12 +171,12 @@ class SiteContractsTest(unittest.TestCase):
         for deployment_field in ("jdk", "launcher", "ports", "jvmArgs", "resources"):
             self.assertNotIn(deployment_field, config)
 
-    def test_unsupported_state_recovery_preserves_host_authority(self):
+    def test_blocked_cleanup_recovery_preserves_host_authority(self):
         installation = (ROOT / "docs/installation.md").read_text()
         recovery = " ".join(installation.split(
-            "#### Unsupported-state recovery", 1
+            "#### Blocked cleanup recovery", 1
         )[1].split("#### Activating runnable-stage GC", 1)[0].split())
-        for term in ("UnsupportedPreClaimState", "original compatible components",
+        for term in ("CleanupBlocked", "installed components",
                      "finalizers", "live-reference checks", "worker/shim termination",
                      "without adopting or deleting", "recovery evidence"):
             self.assertIn(term, recovery)

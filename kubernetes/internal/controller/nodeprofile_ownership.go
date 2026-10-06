@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -110,7 +109,7 @@ func nodeClaimedBy(node *corev1.Node, profile *nodev1alpha1.NodeProfile, target 
 func HasNodeProfileCleanupObligations(profile *nodev1alpha1.NodeProfile) bool {
 	condition := meta.FindStatusCondition(profile.Status.Conditions, nodev1alpha1.ConditionReady)
 	return len(profile.Status.Targets) > 0 || profile.Status.Retirement != nil ||
-		hasProvisioningHistory(profile) || HasUnsupportedPreClaimState(profile) ||
+		hasProvisioningHistory(profile) ||
 		(condition != nil && condition.Reason == nodev1alpha1.ReasonCleanupBlocked)
 }
 
@@ -127,7 +126,7 @@ func invalidProfileHasHostOwnership(profile *nodev1alpha1.NodeProfile, nodes []c
 			return true
 		}
 	}
-	if profile.Status.Retirement != nil || HasUnsupportedPreClaimState(profile) {
+	if profile.Status.Retirement != nil {
 		return true
 	}
 	for _, node := range nodes {
@@ -159,10 +158,6 @@ func unrecordedNodeClaim(profile *nodev1alpha1.NodeProfile, nodes []corev1.Node)
 }
 
 func (r *NodeProfileReconciler) ownershipBlocked(ctx context.Context, profile *nodev1alpha1.NodeProfile, reason string, cause error) (ctrl.Result, error) {
-	var unsupported *preClaimStateError
-	if errors.As(cause, &unsupported) || HasUnsupportedPreClaimState(profile) {
-		reason = nodev1alpha1.ReasonUnsupportedPreClaimState
-	}
 	base := profile.DeepCopy()
 	profile.Status.ObservedGeneration = profile.Generation
 	profile.Status.ReadyNodes = 0
@@ -180,7 +175,7 @@ func (r *NodeProfileReconciler) ownershipBlocked(ctx context.Context, profile *n
 
 func (r *NodeProfileReconciler) reconcileTargets(ctx context.Context, profile *nodev1alpha1.NodeProfile, profiles []nodev1alpha1.NodeProfile, nodes []corev1.Node) (bool, ctrl.Result, error) {
 	if err := r.initializeOwnership(ctx, profile, nodes); err != nil {
-		result, err := r.compatibilityStatus(ctx, profile, err)
+		result, err := r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, err)
 		return true, result, err
 	}
 	if err := unrecordedNodeClaim(profile, nodes); err != nil {
@@ -316,14 +311,14 @@ func (r *NodeProfileReconciler) claimTarget(ctx context.Context, profile *nodev1
 			continue
 		}
 		for _, prior := range other.Status.Targets {
-			if prior.Name == node.Name && (prior.Claimed || HasUnsupportedPreClaimState(&other)) {
+			if prior.Name == node.Name && prior.Claimed {
 				return fmt.Errorf("node name %s is still recorded by profile %s (%s); its prior identity must finish cleanup first", node.Name, other.Name, other.UID)
 			}
 		}
 	}
 	advertised := node.Annotations[brewlet.AnnotationProfile]
 	if advertised != "" || node.Labels[brewlet.LabelRuntimeReady] != "" {
-		return &preClaimStateError{evidence: fmt.Sprintf("node %s has unfenced runtime state from %q", node.Name, advertised)}
+		return fmt.Errorf("node %s has unfenced runtime state from %q; refusing to adopt it", node.Name, advertised)
 	}
 	var pods corev1.PodList
 	if err := r.apiReader().List(ctx, &pods); err != nil {
@@ -356,9 +351,10 @@ func claimFenced(ds *appsv1.DaemonSet) bool {
 	return claimFencedPod(&ds.Spec.Template.Spec)
 }
 
+// Managed workers carry their profile identity; the provisioner refuses to run without it.
 func claimFencedPod(spec *corev1.PodSpec) bool {
-	value, unique := literalProvisionerEnv(spec, "BREWLET_REQUIRE_NODE_CLAIM")
-	return unique && value == "true"
+	value, unique := literalProvisionerEnv(spec, "BREWLET_PROFILE_UID")
+	return unique && value != ""
 }
 
 func (r *NodeProfileReconciler) validateTargetClaims(ctx context.Context, profile *nodev1alpha1.NodeProfile, targets []nodev1alpha1.NodeTarget) ([]corev1.Node, error) {

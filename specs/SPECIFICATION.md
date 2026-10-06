@@ -1223,12 +1223,10 @@ spec:
   overwritten. Claims remain reserved until host cleanup and worker teardown
   finish, including handoff from a catch-all to a named profile. Admission uses
   fresh profile reads, but node claims remain authoritative when admissions race.
-  Managed containers set `BREWLET_REQUIRE_NODE_CLAIM=true` and check both the
-  node identity and persisted provisioning/retirement authority before host
-  mutation or readiness publication. The entrypoint defaults this setting to
-  `true` when omitted and rejects every other explicit value, including empty
-  and `false`, in both provisioning and cleanup modes. Claim fencing cannot be
-  disabled. A failed initial ownership fence does not
+  Managed containers carry `BREWLET_PROFILE_UID` and check both the node
+  identity and persisted provisioning/retirement authority before host
+  mutation or readiness publication, in both provisioning and cleanup modes.
+  Claim fencing cannot be disabled. A failed initial ownership fence does not
   run host-mutating or node-advertisement failure handlers.
 - **Retargeting.** Selector edits and node pool/role changes retire departing
   recorded targets. The operator stops provisioning, freezes the retirement
@@ -1277,26 +1275,23 @@ spec:
 
 The operator-owned status ledger contains `targets[]` entries with `name`, `uid`,
 `claimed`, and per-node `containerdRestart`; `ownershipInitialized` records
-initialization of current UID-bound ownership. `migrating` and
-`migrationDaemonSetUIDs` are inert pre-claim evidence retained solely for refusal
-and original-release recovery. The current controller MUST NOT populate,
-advance, clear, or use them to authorize migration. `provisioningGeneration` and
+initialization of UID-bound ownership. `provisioningGeneration` and
 `provisioningSpec` retain provisioning policy, while `retirement` freezes
 `targets`, `generation`, `spec`, and `phase` (`Cleaning` or `Teardown`). Target and
 retirement checkpoints MUST survive a fresh API read before dependent actions.
 Matching CRDs and operator/provisioner components are required; missing or
 pruned ledger fields fail closed.
 
-The controller MUST refuse incompatible workers, unfenced advertisements, and
-unresolved ownership evidence before invalid-spec handling, deletion, or
-retirement can erase it. `Ready=False/UnsupportedPreClaimState` is durable and
-MUST NOT automatically clear after workers or advertisements disappear.
+The controller MUST refuse competing or unfenced workers (those without a
+literal `BREWLET_PROFILE_UID`) and advertisements without UID-bound ownership
+before invalid-spec handling, deletion, or retirement can erase them, reporting
+`Ready=False/CleanupBlocked` or `OwnershipConflict`.
 Conflict detection is cluster-wide and read-only; names, labels, pod affinity,
 and environment MUST NOT confer adoption or host-cleanup authority. Only
 recorded UID-bound targets may authorize host cleanup. Unresolved obligations
 block new ownership conservatively when affected hosts cannot be bounded.
-Follow [unsupported-state recovery](../docs/installation.md#unsupported-state-recovery)
-using the original installation's compatible cleanup components or safe node
+Follow [blocked cleanup recovery](../docs/installation.md#blocked-cleanup-recovery)
+using the installed cleanup components or safe node
 replacement. Preserve evidence, finalizers, and scheduling gates; worker
 disappearance does not establish host cleanup.
 Ownership conflicts, missing/reused node identities, and unavailable cleanup
@@ -2210,7 +2205,7 @@ reason (§5.5).
 |---|---|---|
 | `JavaApplication` | `Ready` | `Reconciled`, `Progressing`, `ReconcileError` |
 | `JavaApplication` | `JVMArgsApplied` | `ArgsDelivered`, `EnvOptionsOverlap` (§8.2) |
-| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `OwnershipConflict`, `UnsupportedPreClaimState`, `Retargeting`, `CleanupBlocked`, `CleanupPending`, `CleanupTeardown` |
+| `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `OwnershipConflict`, `Retargeting`, `CleanupBlocked`, `CleanupPending`, `CleanupTeardown` |
 | `NodeProfile` | `CleanupComplete` | `CleanupSucceeded` (current-generation host cleanup finished; worker teardown may still be pending) |
 
 Event reasons: `Provisioning`, `NodeReady`, `ProvisionFailed`, `NodeUnmatched`
