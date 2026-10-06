@@ -222,12 +222,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   name: brewlet-admission
-  labels:
-    {{- include "brewlet.labels" . | nindent 4 }}
-  {{- if $certManagerEnabled }}
-  annotations:
-    cert-manager.io/inject-ca-from: {{ printf "%s/brewlet-admission-cert" $ns | quote }}
-  {{- end }}
+  {{- include "brewlet.admission.webhookMetadata" . | nindent 2 }}
 webhooks:
   - name: pods.brewlet.sh
     admissionReviewVersions: ["v1"]
@@ -248,11 +243,9 @@ webhooks:
     # must consult it for. The default excludes kube-system: brewlet workloads
     # never run there, and keeping a webhook off control-plane-critical pods
     # bounds the blast radius of an outage or a slow response. Set either
-    # selector to {} to match everything.
-    {{- with .Values.admission.namespaceSelector }}
-    namespaceSelector:
-      {{- toYaml . | nindent 6 }}
-    {{- end }}
+    # selector to {} to match everything. admission.platformNamespaceExclusions
+    # (by default the AKS Admissions Enforcer's expressions) are appended.
+    {{- include "brewlet.admission.namespaceSelector" (dict "root" $ "selector" .Values.admission.namespaceSelector) | nindent 4 }}
     {{- with .Values.admission.objectSelector }}
     objectSelector:
       {{- toYaml . | nindent 6 }}
@@ -268,12 +261,7 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   name: brewlet-nodeprofiles
-  labels:
-    {{- include "brewlet.labels" . | nindent 4 }}
-  {{- if $certManagerEnabled }}
-  annotations:
-    cert-manager.io/inject-ca-from: {{ printf "%s/brewlet-admission-cert" $ns | quote }}
-  {{- end }}
+  {{- include "brewlet.admission.webhookMetadata" . | nindent 2 }}
 webhooks:
   - name: nodeprofiles.node.brewlet.sh
     admissionReviewVersions: ["v1"]
@@ -291,6 +279,10 @@ webhooks:
       {{- if not $certManagerEnabled }}
       caBundle: {{ $ca.Cert | b64enc }}
       {{- end }}
+    # NodeProfiles are cluster-scoped, so a namespaceSelector never skips this
+    # webhook; it is rendered only to match what the AKS Admissions Enforcer
+    # injects, so a server-side-apply upgrade has nothing to conflict on.
+    {{- include "brewlet.admission.namespaceSelector" (dict "root" $ "selector" dict) | nindent 4 }}
     rules:
       - apiGroups: ["node.brewlet.sh"]
         apiVersions: ["v1alpha1"]
