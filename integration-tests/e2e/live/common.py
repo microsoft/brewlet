@@ -216,8 +216,8 @@ def owned_container(info, identifier, label, owner):
 
 class Fixture:
     def __init__(self, scenario):
-        if scenario not in ("hpa", "admission", "workflows"):
-            raise ValueError("scenario must be hpa, admission or workflows")
+        if scenario not in ("smoke", "hpa", "admission", "workflows"):
+            raise ValueError("scenario must be smoke, hpa, admission or workflows")
         self.scenario = scenario
         self.name = f"brewlet-live-{scenario}-{uuid.uuid4().hex[:12]}"
         base = Path(os.environ.get("BREWLET_LIVE_OUTPUT", tempfile.gettempdir()))

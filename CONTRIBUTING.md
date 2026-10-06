@@ -219,6 +219,79 @@ tests as the contract, not an unimplemented roadmap proposal.
 
 ## Changing GitHub Actions workflows
 
+### PR coverage and merge gate
+
+The `CI` workflow always starts on PRs targeting `main`; it does not use
+workflow-level path filters. `scripts/ci_plan.py` compares the complete PR
+head against its merge base, including removed paths and both sides of
+renames, then selects jobs by dependency impact. Unknown paths, shared
+CI/build/specification changes, unavailable diff information, and empty diffs
+select all component checks and smoke tests. Pushes to `main`, scheduled CI, and
+manual CI runs also select this full CI set, never the exhaustive E2E scenarios.
+
+| Change | Required coverage |
+| --- | --- |
+| Every PR | Source headers, workflow and Dockerfile policy, routing/gate tests, release-version guard, offline site/installation and E2E fixture contracts; CodeQL runs separately |
+| Docs/site only | Strict documentation build and website notices; no runtime or image jobs |
+| Core | Go checks, downstream Kubernetes CLI integration and Ratify tests, notices, released CLI cross-builds, container builds, host tiers 2-3, and fresh-cluster smoke |
+| Kubernetes | Go race tests, envtest and CLI integration, Helm render checks, notices, container builds, and fresh-cluster smoke |
+| Maven or shared registry/artifact contracts | Maven verification on the JDK 17 baseline, applicable host tests, and Maven deployment smoke; Maven source/packaging changes also run the Central dry run |
+| Kubernetes API, raw manifests, or chart | Maven JDK 17 verification and deployment smoke in addition to Kubernetes/chart checks |
+| Provisioner | Source-policy checks, images, host tier 3, and fresh-cluster smoke |
+| Ratify admission | Verifier component checks; exhaustive live enforcement remains in E2E |
+
+The routing table in `ci_plan.py` is authoritative and deliberately conservative.
+When adding a component, shared fixture, or dependency, update its routing and
+regression cases together. Tier 1 is not repeated in PR smoke jobs. Tier 2
+installs the plugin without repeating Maven unit tests; the single JDK 17
+baseline job owns those tests and the notice checks. Helm lifecycle tests run once in the Kubernetes race suite
+with Helm and envtest required; `helm-render-check` retains the separate static
+chart checks and the local `helm-check` target still includes lifecycle tests.
+
+Container jobs retain native provisioner inspection and builds of both Kubernetes
+entry points on amd64/arm64, reusing one Buildx builder. Corrupt-download builds
+run for provisioner Dockerfile/download/checksum/test changes and full runs, not
+ordinary source edits. The separate `E2E` workflow still runs the complete
+tier matrix and native arm64 tests nightly/manually, including repeated
+fresh-cluster live scenarios. AppCDS (8), metrics (15), GC (17), JDK rollout (18),
+dependency remediation (19), and the comprehensive admission/HPA/workflow
+scenarios belong only to E2E, not the CI merge gate, main-push CI, or scheduled CI.
+For high-risk changes, explicitly dispatch E2E on the candidate branch before
+merging and inspect its results; it is not automatically covered by `PR checks`.
+CI runs only one fresh-cluster smoke, without repeating those scenario matrices.
+
+PR tiers set `E2E_REQUIRE_ALL=true`: skipped assertions or a tier with no
+passing assertions fail the job. The small `live/smoke.py` scenario uses checkout-built
+components, a private registry and cluster, a real provisioned JDK, and a
+real Maven `deploy` invocation to publish, generate the JavaApplication manifest,
+apply it against the installed CRD, and wait for readiness. Its digest-pinned
+workload must serve HTTP; this catches plugin/schema drift without running the
+comprehensive workflow scenarios. It retains the strict
+fixture's documented cold-start GC deferral; it does not establish arbitrary
+containerd-GC timing or replace the dedicated GC/HPA scenarios. Evidence is
+redacted and retained even on failure.
+
+`PR checks` is the aggregate merge check. It requires the selector and repository
+safeguards to succeed, every selected job to succeed, and every unselected job
+to be explicitly skipped. Failures, cancellations, missing selections, or
+unexpected skips fail the gate. After the workflow has produced a successful
+check on GitHub, configure **PR checks** as required in the repository's `main`
+ruleset, preserving any independent requirements such as CodeQL. Do not require
+the path-conditional component checks individually, and do not enable the new
+requirement before GitHub can produce it. Workflow files do not change repository
+rules automatically.
+
+Validate routing and workflow wiring without containers:
+
+```bash
+make ci-contract-check e2e-contract-check
+make -C kubernetes helm-render-check
+```
+
+Compare recent Actions job durations and queue times after rollout; no fixed
+speedup is assumed. Unrelated PRs should avoid image/cluster work, while runtime
+and shared-infrastructure PRs intentionally retain more expensive coverage.
+
 Workflows are part of the release supply chain, so `make workflow-security-check`
 enforces two rules that CI will not let you skip:
 

@@ -355,10 +355,10 @@ tier2_cli() {
       "$(printf '%s' "$out" | tail -1)"
   fi
 
-  # --- Maven plugin: install the checkout build once for the goal checks ----
+  # Unit tests belong to maven-plugin-check / CI's JDK matrix, not this tier.
   local plugin_ready=false
   if have mvn; then
-    if mvn -q -f "$MONOREPO_DIR/maven-plugin/pom.xml" install \
+    if mvn -q -f "$MONOREPO_DIR/maven-plugin/pom.xml" -DskipTests install \
          >"$WORK/t2-maven-plugin.log" 2>&1; then
       plugin_ready=true
       pass "maven: install checkout-built brewlet-maven-plugin"

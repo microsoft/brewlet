@@ -31,7 +31,7 @@ class CheckoutTests(unittest.TestCase):
         return fixture
 
     def test_every_scenario_uses_checkout_source(self):
-        for scenario in ("hpa", "admission", "workflows"):
+        for scenario in ("smoke", "hpa", "admission", "workflows"):
             fixture = self.fixture(scenario)
             self.assertEqual(fixture.scenario, scenario)
             self.assertEqual(fixture.source, ROOT)
