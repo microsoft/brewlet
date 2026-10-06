@@ -832,3 +832,56 @@ func TestValidateExtraArgs(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanRunsFromSandboxAppDir pins issue #212: `brewlet run` must launch the
+// JVM with the sandbox app directory as its cwd (the shim's /app), because
+// AppCDS archives record the classpath relative to the training cwd.
+func TestPlanRunsFromSandboxAppDir(t *testing.T) {
+	jdkHome := t.TempDir()
+	bin := filepath.Join(jdkHome, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "cwd")
+	script := "#!/bin/sh\npwd -P > \"$BREWLET_TEST_CWD_OUT\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "java"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "app.jsa"}}
+	jarSrc := filepath.Join(t.TempDir(), "app.jar")
+	if err := os.WriteFile(jarSrc, []byte("jar"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sandbox, jarPath, err := AssembleSandbox(cfg, jarSrc, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(sandbox)
+
+	plan, err := BuildPlan(cfg, jarPath, jdkHome, "", nil, false)
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	appDir := filepath.Join(sandbox, "app")
+	if plan.Dir != appDir {
+		t.Fatalf("plan.Dir = %q, want sandbox app dir %q", plan.Dir, appDir)
+	}
+
+	t.Chdir(t.TempDir())
+	plan.Env = append(plan.Env, "BREWLET_TEST_CWD_OUT="+out)
+	if err := plan.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(appDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != want {
+		t.Fatalf("JVM cwd = %q, want %q", strings.TrimSpace(string(got)), want)
+	}
+}

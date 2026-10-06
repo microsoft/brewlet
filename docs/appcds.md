@@ -401,10 +401,13 @@ path, then asserts it maps under `-Xshare:on` from a *different* directory with 
 canonical mtime and is *refused* when the mtime drifts):
 
 - CDS validates each classpath entry by **basename + file size + mtime** — *not* by
-  directory or absolute path. An archive trained at `/x/traindir/app.jar` maps
-  cleanly when consumed at `/y/appdir/app.jar` (or relative `app.jar`) **iff the
-  JAR's size and mtime are unchanged**. So production's absolute `-jar /app/app.jar`
-  launch needs no change; only the timestamp matters.
+  the training directory. An archive trained at `/x/traindir/app.jar` maps
+  cleanly when consumed at `/y/appdir/app.jar` **iff the JAR's size and mtime are
+  unchanged**. Training records the relative `app.jar`, however, so the JVM must
+  run with the app directory as its working directory for the absolute
+  `-jar /app/app.jar` to resolve to the recorded entry. The shim uses cwd `/app`,
+  and `brewlet run` launches from its sandbox `app` directory; launched from any
+  other cwd, JDK 25 reports `shared class paths mismatch`.
 - Under Brewlet's default `-Xshare:auto`, an mtime/size mismatch is **silent**: the
   JVM drops the app archive and falls back to base CDS with no warning and no
   benefit (under `-Xshare:on` it is fatal). A naive `cp` (fresh mtime) is enough to
