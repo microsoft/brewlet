@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -598,12 +597,12 @@ func TestAddMutatesByDefaultAndDryRunUsesConditionalPatch(t *testing.T) {
 					t.Fatalf("patch: %s %v", raw, err)
 				}
 				if patch[0].Op != "test" || patch[0].Path != "/metadata/uid" || string(patch[0].Value) != `"profile-uid"` ||
-					patch[1].Op != "test" || patch[1].Path != "/metadata/resourceVersion" || string(patch[1].Value) != `"42"` ||
+					patch[1].Op != "test" || patch[1].Path != "/metadata/generation" || string(patch[1].Value) != `3` ||
 					patch[2].Op != "add" || patch[2].Path != "/spec/jdks" {
 					t.Fatalf("patch is not identity/version fenced and narrow: %s", raw)
 				}
 				if mode == "conflict" {
-					return nil, errors.New("Conflict: resourceVersion changed")
+					return nil, errors.New("The request is invalid: testing value /metadata/generation failed")
 				}
 				doc, err := decodeDocument([]byte(fixtureProfile()))
 				if err != nil {
@@ -621,7 +620,7 @@ func TestAddMutatesByDefaultAndDryRunUsesConditionalPatch(t *testing.T) {
 				t.Fatalf("unexpected retries: %d", calls)
 			}
 			if mode == "conflict" {
-				if err == nil || !strings.Contains(err.Error(), "Conflict") || out != "" || stderr != "" {
+				if err == nil || !strings.Contains(err.Error(), "concurrent changes") || out != "" || stderr != "" {
 					t.Fatalf("conflict concealed: %s %s %v", out, stderr, err)
 				}
 			} else {
@@ -756,13 +755,27 @@ func TestKubectlLocalPatchContract(t *testing.T) {
 	if _, err := exec.LookPath("kubectl"); err != nil {
 		t.Skip("kubectl not installed")
 	}
-	for _, stale := range []bool{false, true} {
-		t.Run(fmt.Sprint(stale), func(t *testing.T) {
-			snapshot := fixtureProfile()
-			if stale {
-				snapshot = strings.Replace(snapshot, `"resourceVersion":"42"`, `"resourceVersion":"43"`, 1)
-			}
-			file := writeFixture(t, snapshot)
+	for name, tc := range map[string]struct {
+		mutate func(string) string
+		stale  bool
+	}{
+		"unchanged": {mutate: func(s string) string { return s }},
+		// The operator's status writes bump resourceVersion but not generation;
+		// they must not fail a concurrent spec edit.
+		"status-only-change": {mutate: func(s string) string {
+			s = strings.Replace(s, `"resourceVersion":"42"`, `"resourceVersion":"43"`, 1)
+			return strings.Replace(s, `"readyNodes":1`, `"readyNodes":0`, 1)
+		}},
+		"concurrent-spec-change": {stale: true, mutate: func(s string) string {
+			s = strings.Replace(s, `"resourceVersion":"42","generation":3`, `"resourceVersion":"43","generation":4`, 1)
+			return strings.Replace(s, `"maxUnavailable":1`, `"maxUnavailable":2`, 1)
+		}},
+		"recreated": {stale: true, mutate: func(s string) string {
+			return strings.Replace(s, `"uid":"profile-uid"`, `"uid":"other-uid"`, 1)
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			file := writeFixture(t, tc.mutate(fixtureProfile()))
 			out, _, err := runTest(t, addArgs("--output", "json"),
 				func(ctx context.Context, _ string, args []string, _ []byte) ([]byte, error) {
 					if hasArgs(args, "get", profilesResource) {
@@ -771,9 +784,9 @@ func TestKubectlLocalPatchContract(t *testing.T) {
 					return execute(ctx, "kubectl", []string{"patch", "--local", "-f", file, "--type=json",
 						"--patch-file", flagValue(t, args, "--patch-file"), "-o", "json"}, nil)
 				})
-			if stale {
-				if err == nil {
-					t.Fatal("kubectl accepted a stale resourceVersion")
+			if tc.stale {
+				if err == nil || !strings.Contains(err.Error(), "concurrent changes") {
+					t.Fatalf("kubectl accepted a patch against a changed profile: %v", err)
 				}
 			} else if err != nil || !strings.Contains(out, `"feature": 25`) || !strings.Contains(out, `"maxUnavailable": 1`) {
 				t.Fatalf("kubectl rejected or lost fields: %s %v", out, err)
@@ -997,7 +1010,7 @@ func TestLauncherAdditionAndTerminatingProfile(t *testing.T) {
 					Value    json.RawMessage
 				}
 				if err := json.Unmarshal(raw, &patch); err != nil || len(patch) != 3 ||
-					patch[0].Path != "/metadata/uid" || patch[1].Path != "/metadata/resourceVersion" ||
+					patch[0].Path != "/metadata/uid" || patch[1].Path != "/metadata/generation" ||
 					patch[2].Path != "/spec/launchers" || patch[2].Op != "add" {
 					t.Fatalf("launcher patch is not conditional and narrow: %s %v", raw, err)
 				}

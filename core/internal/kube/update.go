@@ -385,16 +385,20 @@ func (c *client) updateProfile(u updateOptions) error {
 		return err
 	}
 	if u.dryRun != dryRunClient {
-		if live.Metadata.UID == "" || live.Metadata.ResourceVersion == "" {
-			return fmt.Errorf("live profile has no UID/resourceVersion; cannot update safely")
+		if live.Metadata.UID == "" || live.Metadata.Generation <= 0 {
+			return fmt.Errorf("live profile has no UID/generation; cannot update safely")
 		}
+		// Fence on generation rather than resourceVersion: NodeProfile has a
+		// status subresource, so the operator's status writes bump
+		// resourceVersion but not generation. Only concurrent spec changes (or
+		// deletion) bump generation, and those must fail this edit.
 		patch := []struct {
 			Op    string `json:"op"`
 			Path  string `json:"path"`
 			Value any    `json:"value"`
 		}{
 			{"test", "/metadata/uid", live.Metadata.UID},
-			{"test", "/metadata/resourceVersion", live.Metadata.ResourceVersion},
+			{"test", "/metadata/generation", live.Metadata.Generation},
 			{"add", "/spec/" + field, spec[field]},
 		}
 		input, err := json.Marshal(patch)
