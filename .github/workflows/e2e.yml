@@ -170,6 +170,7 @@ jobs:
       - name: Run tiers
         run: |
           mkdir -p "$E2E_WORK"
+          set -o pipefail
           integration-tests/e2e/run.sh ${{ matrix.tiers }} 2>&1 | tee "$E2E_WORK/runner.log"
 
       - name: Collect redacted tier diagnostics
@@ -234,6 +235,7 @@ jobs:
       - name: Run host-only tiers
         run: |
           mkdir -p "$E2E_WORK"
+          set -o pipefail
           integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3 2>&1 | tee "$E2E_WORK/runner.log"
 
       - name: Collect redacted tier diagnostics

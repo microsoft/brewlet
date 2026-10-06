@@ -231,7 +231,8 @@ YAML
 # _t18_prove_restart_rollback: run the real provisioner's validated restart on
 # the node with a handler health check that always fails, and require it to
 # restore the containerd config, recover containerd, and publish the error
-# without advertising the runtime.
+# without advertising the runtime. The standalone probe has no NodeProfile
+# claim, so it grants itself the write authority verify_node_ownership would.
 _t18_prove_restart_rollback() {
   local before="$WORK/t18-rollback-before.toml"
   local after="$WORK/t18-rollback-after.toml"
@@ -267,6 +268,7 @@ spec:
           install -m 0755 /bin/false "\$HOST_CRICTL";
           trap 'rm -f "\$HOST_CTR" "\$HOST_CRICTL"' EXIT;
           source /usr/local/bin/brewlet-provision;
+          NODE_WRITE_AUTHORIZED=true;
           clear_node_advertisement;
           patch_containerd_in_place;
           validated_restart

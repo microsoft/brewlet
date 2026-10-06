@@ -119,6 +119,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(scalar(arm64, "runs-on", 4), "ubuntu-24.04-arm")
         self.assertIn('integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3 2>&1 | tee "$E2E_WORK/runner.log"', arm64)
         self.assertIn('go env GOARCH)" = "arm64"', arm64)
+        for job in ("tiers", "arm64"):  # A tee pipeline must not mask tier failures.
+            self.assertRegex(self.job_blocks[job], r"set -o pipefail\n\s*integration-tests/e2e/run\.sh ")
 
     def test_live_matrix_and_two_fresh_runs_are_preserved(self):
         live = self.job_blocks["live"]
