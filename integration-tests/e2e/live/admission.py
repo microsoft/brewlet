@@ -133,8 +133,11 @@ class Admission:
         self.obsolete = self.f.private / "admission-obsolete.pem"
         self.public = self.f.private / "admission-current.pub"
         for key in [self.current, self.obsolete]:
+            # Named-curve encoding is OpenSSL 3's default but not LibreSSL's (macOS
+            # /usr/bin/openssl); Java rejects explicit EC parameters.
             run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-                 "ec_paramgen_curve:P-256", "-out", str(key)])
+                 "ec_paramgen_curve:P-256", "-pkeyopt", "ec_param_enc:named_curve",
+                 "-out", str(key)])
             key.chmod(0o600)
         run(["openssl", "pkey", "-in", str(self.current), "-pubout",
              "-out", str(self.public)])

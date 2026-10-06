@@ -12,6 +12,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -99,6 +100,16 @@ def retry_transient(description, attempt, *, attempts=4, backoff=10, resolution_
               f"retrying in {delay}s", flush=True)
         sleep(delay)
     raise ValueError("attempts must be at least 1")
+
+
+MIN_PYTHON = (3, 12)
+
+
+def require_python(version=sys.version_info):
+    if tuple(version[:2]) < MIN_PYTHON:
+        raise RuntimeError(
+            f"Live scenarios require Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ (found "
+            f"{version[0]}.{version[1]}); run them with a newer interpreter, e.g. python3.12")
 
 
 def require_kind_version(output):
@@ -336,6 +347,7 @@ class Fixture:
         return False
 
     def start(self):
+        require_python()
         for tool in ("kind", "docker", "kubectl", "helm", "java", "javac",
                      "jar", "mvn", "curl", "openssl", "git", "tar"):
             if not shutil.which(tool):

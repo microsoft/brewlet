@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from common import (GC_STARTUP_DELAY, KIND_IMAGE, KIND_VERSION, MAVEN_NETWORK_RETRIES, Fixture,
                     InfrastructureError, failure_class, kind_config, owned_container, redact,
-                    require_kind_version, retry_transient, transient_failure, wait)
+                    require_kind_version, require_python, retry_transient, transient_failure, wait)
 from hpa import assert_cold_start_retention, cpu_millicores, hpa_cpu_utilization
 
 
@@ -152,6 +152,11 @@ class KindPinTests(unittest.TestCase):
             message = str(raised.exception)
             self.assertIn(f"requires kind {KIND_VERSION}", message)
             self.assertIn(f"go install sigs.k8s.io/kind@{KIND_VERSION}", message)
+
+    def test_old_python_fails_before_any_setup(self):
+        require_python((3, 12, 0))
+        with self.assertRaisesRegex(RuntimeError, r"Python 3\.12\+ \(found 3\.9\)"):
+            require_python((3, 9, 6))
 
     def test_node_image_is_digest_pinned(self):
         self.assertRegex(KIND_IMAGE, r"^kindest/node:v1\.34\.\d+@sha256:[a-f0-9]{64}$")
