@@ -109,9 +109,9 @@ class WorkflowContractTests(unittest.TestCase):
     def test_all_tiers_and_arm64_invocations_are_preserved(self):
         matrix = block(block(self.job_blocks["tiers"], "strategy", 4), "matrix", 6)
         tier_args = re.findall(r"^            tiers: (.+)$", matrix, re.MULTILINE)
-        self.assertEqual(len(tier_args), 15)
+        self.assertEqual(len(tier_args), 14)
         tiers = [int(n) for args in tier_args for n in re.findall(r"--tier (\d+)", args)]
-        self.assertEqual(sorted(tiers), list(range(1, 20)))
+        self.assertEqual(sorted(tiers), [n for n in range(1, 20) if n != 14])  # Tier 14 was retired.
         self.assertIn("--tier 17", tier_args)  # GC must retain a fresh runner/node.
         self.assertIn('integration-tests/e2e/run.sh ${{ matrix.tiers }} 2>&1 | tee "$E2E_WORK/runner.log"',
                       self.job_blocks["tiers"])
@@ -119,6 +119,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(scalar(arm64, "runs-on", 4), "ubuntu-24.04-arm")
         self.assertIn('integration-tests/e2e/run.sh --tier 1 --tier 2 --tier 3 2>&1 | tee "$E2E_WORK/runner.log"', arm64)
         self.assertIn('go env GOARCH)" = "arm64"', arm64)
+        for job in ("tiers", "arm64"):  # A tee pipeline must not mask tier failures.
+            self.assertRegex(self.job_blocks[job], r"set -o pipefail\n\s*integration-tests/e2e/run\.sh ")
 
     def test_live_matrix_and_two_fresh_runs_are_preserved(self):
         live = self.job_blocks["live"]

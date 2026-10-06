@@ -13,6 +13,10 @@
 #   5. restarting the unchanged application image moves it to the patched JDK;
 #   6. once nothing uses it, the retired root is reclaimed.
 #
+# Before the rollout, an induced post-restart handler failure must roll the
+# real containerd config back. The profile also installs a digest-pinned `jaz`
+# launcher layer, and the workload runs through it across the JDK rotation.
+#
 # Prereqs: kubectl + reachable cluster, Docker with a local containerd node
 # (kind / Docker Desktop worker), Go, a host JDK 21+, and network access.
 
@@ -28,23 +32,29 @@ T18_OLD_IMAGE="docker.io/library/eclipse-temurin@sha256:8a79c84cdf6967ae437eba13
 T18_OLD_VERSION="21.0.11"
 T18_NEW_IMAGE="docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b"
 T18_NEW_VERSION="21.0.12"
+T18_LAUNCHER="jaz"
+T18_LAUNCHER_IMAGE="mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575"
 T18_REF="demo/hello:jdk-patch-e2e"
 T18_APP="patched-orders"
 T18_PORT=8080
 T18_PROVISIONER_IMAGE="localhost/brewlet-node-provisioner:jdk-patch-e2e-$$"
 T18_SWEEP_POD="brewlet-retired-sweep"
+T18_ROLLBACK_POD="brewlet-rollback-probe"
 T18_MGR_PID=""
 T18_NODE=""
 T18_CONTAINERD_SNAPSHOT=""
 T18_JDK_SNAPSHOT=""
 T18_JDK_ACTIVE_SNAPSHOT=""
 T18_JDK_ACTIVE_STATE=""
+T18_LAUNCHER_SNAPSHOT=""
+T18_LAUNCHER_ACTIVE_SNAPSHOT=""
+T18_LAUNCHER_ACTIVE_STATE=""
 T18_PRE_RETIRED=""
 
 _t18_cleanup() {
   info "tier18: cleaning up"
   kubectl delete ns "$T18_NS_APP" --ignore-not-found --timeout=60s >/dev/null 2>&1 || true
-  kubectl delete pod -n "$T18_NS_OP" "$T18_SWEEP_POD" \
+  kubectl delete pod -n "$T18_NS_OP" "$T18_SWEEP_POD" "$T18_ROLLBACK_POD" \
     --ignore-not-found --wait=false >/dev/null 2>&1 || true
   if kubectl get nodeprofile "$T18_PROFILE" >/dev/null 2>&1; then
     kubectl delete nodeprofile "$T18_PROFILE" --wait=false >/dev/null 2>&1 || true
@@ -70,7 +80,9 @@ _t18_cleanup() {
         "$T18_NODE:/etc/containerd/config.toml" >/dev/null 2>&1 || true
       node_exec "$T18_NODE" systemctl restart containerd >/dev/null 2>&1 || true
     fi
-    node_exec "$T18_NODE" rm -f /etc/containerd/config.toml.brewlet.bak >/dev/null 2>&1 || true
+    node_exec "$T18_NODE" rm -f /etc/containerd/config.toml.brewlet.bak \
+      /usr/local/bin/brewlet-ctr-rollback-probe \
+      /usr/local/bin/brewlet-crictl-rollback-probe >/dev/null 2>&1 || true
     # Remove the root and any retired copies this tier created; keep pre-existing ones.
     local dir
     while IFS= read -r dir; do
@@ -96,9 +108,25 @@ _t18_cleanup() {
       absent)
         node_exec "$T18_NODE" rm -f /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
     esac
+    node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
+      sh "/opt/brewlet/launchers/$T18_LAUNCHER" >/dev/null 2>&1 || true
+    node_exec "$T18_NODE" mkdir -p /opt/brewlet/launchers >/dev/null 2>&1 || true
+    if [[ -n "$T18_LAUNCHER_SNAPSHOT" && -f "$T18_LAUNCHER_SNAPSHOT" ]]; then
+      node_exec -i "$T18_NODE" tar -C /opt/brewlet/launchers -xf - \
+        <"$T18_LAUNCHER_SNAPSHOT" >/dev/null 2>&1 || true
+    fi
+    case "$T18_LAUNCHER_ACTIVE_STATE" in
+      present)
+        node_cp "$T18_LAUNCHER_ACTIVE_SNAPSHOT" \
+          "$T18_NODE:/opt/brewlet/launchers/.brewlet-active.t18" >/dev/null 2>&1 || true
+        node_exec "$T18_NODE" mv \
+          /opt/brewlet/launchers/.brewlet-active.t18 /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
+      absent)
+        node_exec "$T18_NODE" rm -f /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
+    esac
     label_node "$T18_NODE" "$T18_POOL_KEY-" brewlet.sh/runtime- \
       "brewlet.sh/jdk.$T18_JDK-" "brewlet.sh/jdk-feature.${T18_JDK##*-}-" \
-      brewlet.sh/launcher.java- >/dev/null 2>&1 || true
+      brewlet.sh/launcher.java- "brewlet.sh/launcher.$T18_LAUNCHER-" >/dev/null 2>&1 || true
     annotate_node "$T18_NODE" brewlet.sh/jdks- brewlet.sh/jdks-info- \
       brewlet.sh/launchers- brewlet.sh/profile- brewlet.sh/profile-generation- \
       brewlet.sh/provision-error- >/dev/null 2>&1 || true
@@ -115,11 +143,13 @@ _t18_retired_roots() {
 }
 
 # _t18_node_at VERSION GENERATION: the node is ready, advertises the given
-# profile generation, and its inventory reports the given temurin-21 build.
+# profile generation, and its inventory reports the given temurin-21 build
+# plus the jaz launcher.
 _t18_node_at() {
   local version="$1" generation="$2"
   [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/runtime}' 2>/dev/null)" == "ready" ]] &&
     [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/jdk\.temurin-21}' 2>/dev/null)" == "true" ]] &&
+    [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/launcher\.jaz}' 2>/dev/null)" == "true" ]] &&
     [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/profile-generation}' 2>/dev/null)" == "$generation" ]] &&
     kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks-info}' 2>/dev/null |
       grep -q "\"version\":\"${version}"
@@ -198,6 +228,117 @@ YAML
     --ignore-not-found --wait=true >/dev/null 2>&1 || true
 }
 
+# _t18_prove_restart_rollback: run the real provisioner's validated restart on
+# the node with a handler health check that always fails, and require it to
+# restore the containerd config, recover containerd, and publish the error
+# without advertising the runtime. The standalone probe has no NodeProfile
+# claim, so it grants itself the write authority verify_node_ownership would.
+_t18_prove_restart_rollback() {
+  local before="$WORK/t18-rollback-before.toml"
+  local after="$WORK/t18-rollback-after.toml"
+  local log="$WORK/t18-rollback.log"
+  local error ready logs failed=0
+
+  if node_exec "$T18_NODE" grep -qE \
+      'io\.containerd\.(grpc\.v1\.cri|cri\.v1\.runtime)"\.containerd\.runtimes\.brewlet' /etc/containerd/config.toml; then
+    skip "tier18: induced post-restart failure rolls back containerd" \
+      "node already had a Brewlet-managed runtime block"
+    return 0
+  fi
+  node_cp "$T18_NODE:/etc/containerd/config.toml" "$before" >/dev/null
+
+  kubectl apply -f - >"$log" 2>&1 <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $T18_ROLLBACK_POD
+  namespace: $T18_NS_OP
+spec:
+  nodeName: $T18_NODE
+  serviceAccountName: brewlet-node-provisioner
+  hostPID: true
+  restartPolicy: Never
+  containers:
+    - name: rollback-probe
+      image: $T18_PROVISIONER_IMAGE
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/bash", "-c"]
+      args:
+        - install -m 0755 /usr/local/bin/ctr "\$HOST_CTR";
+          install -m 0755 /bin/false "\$HOST_CRICTL";
+          trap 'rm -f "\$HOST_CTR" "\$HOST_CRICTL"' EXIT;
+          source /usr/local/bin/brewlet-provision;
+          NODE_WRITE_AUTHORIZED=true;
+          clear_node_advertisement;
+          patch_containerd_in_place;
+          validated_restart
+      env:
+        - name: NODE_NAME
+          value: $T18_NODE
+        - name: HOST_CTR
+          value: /host/usr/local/bin/brewlet-ctr-rollback-probe
+        - name: HOST_CTR_PATH
+          value: /usr/local/bin/brewlet-ctr-rollback-probe
+        - name: HOST_CRICTL
+          value: /host/usr/local/bin/brewlet-crictl-rollback-probe
+        - name: HOST_CRICTL_PATH
+          value: /usr/local/bin/brewlet-crictl-rollback-probe
+        - name: CONTAINERD_HEALTH_ATTEMPTS
+          value: "1"
+        - name: CONTAINERD_RECOVERY_ATTEMPTS
+          value: "30"
+      securityContext:
+        privileged: true
+      volumeMounts:
+        - { name: containerd-conf, mountPath: /etc/containerd }
+        - { name: host-bin, mountPath: /host/usr/local/bin }
+        - { name: containerd-sock, mountPath: /run/containerd/containerd.sock }
+  volumes:
+    - { name: containerd-conf, hostPath: { path: /etc/containerd } }
+    - { name: host-bin, hostPath: { path: /usr/local/bin } }
+    - { name: containerd-sock, hostPath: { path: /run/containerd/containerd.sock, type: Socket } }
+YAML
+
+  if ! wait_for_seconds 90 bash -c \
+      "[[ \"\$(kubectl get pod '$T18_ROLLBACK_POD' -n '$T18_NS_OP' -o jsonpath='{.status.phase}' 2>/dev/null)\" == Failed ]]"; then
+    fail "tier18: induced rollback probe reached the expected failure" "see $log"
+    return 1
+  fi
+  logs="$(kubectl logs -n "$T18_NS_OP" "$T18_ROLLBACK_POD" 2>&1 || true)"
+  printf '%s\n' "$logs" >>"$log"
+  assert_contains "tier18: post-restart handler failure was induced" "$logs" \
+    "runtime-handler-health-check-failed: configuration rolled back and containerd recovered" \
+    || failed=1
+
+  node_cp "$T18_NODE:/etc/containerd/config.toml" "$after" >/dev/null
+  if cmp -s "$before" "$after"; then
+    pass "tier18: failed post-restart activation restored containerd config"
+  else
+    fail "tier18: failed post-restart activation restored containerd config"
+    failed=1
+  fi
+  check "tier18: containerd recovered after rollback" \
+    node_exec "$T18_NODE" ctr version || failed=1
+
+  ready="$(kubectl get node "$T18_NODE" \
+    -o jsonpath='{.metadata.labels.brewlet\.sh/runtime}' 2>/dev/null || true)"
+  assert_eq "tier18: rollback left the node without runtime readiness" "$ready" "" \
+    || failed=1
+  error="$(kubectl get node "$T18_NODE" \
+    -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-error}' 2>/dev/null || true)"
+  assert_contains "tier18: rollback published the provision error" "$error" \
+    "runtime-handler-health-check-failed" || failed=1
+
+  kubectl delete pod -n "$T18_NS_OP" "$T18_ROLLBACK_POD" \
+    --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  annotate_node "$T18_NODE" brewlet.sh/provision-error- >/dev/null 2>&1 || true
+  node_exec "$T18_NODE" rm -f \
+    /etc/containerd/config.toml.brewlet.bak \
+    /usr/local/bin/brewlet-ctr-rollback-probe \
+    /usr/local/bin/brewlet-crictl-rollback-probe >/dev/null 2>&1 || true
+  (( failed == 0 ))
+}
+
 tier18_jdk_patch() {
   section "Tier 18 — patched JDK rollout (NodeProfile digest replacement)"
   if ! have kubectl || ! k8s_reachable; then skip "tier18: JDK patch rollout" "no reachable cluster"; return 0; fi
@@ -240,9 +381,27 @@ tier18_jdk_patch() {
     fi
   fi
   T18_PRE_RETIRED="$(_t18_retired_roots)"
+  if node_exec "$T18_NODE" test -f /opt/brewlet/launchers/.brewlet-active; then
+    T18_LAUNCHER_ACTIVE_SNAPSHOT="$WORK/t18-launcher-active-before"
+    if node_cp "$T18_NODE:/opt/brewlet/launchers/.brewlet-active" \
+        "$T18_LAUNCHER_ACTIVE_SNAPSHOT" >/dev/null 2>&1; then
+      T18_LAUNCHER_ACTIVE_STATE=present
+    else
+      fail "tier18: snapshot existing launcher active inventory"; return 0
+    fi
+  else
+    T18_LAUNCHER_ACTIVE_STATE=absent
+  fi
+  if node_exec "$T18_NODE" test -e "/opt/brewlet/launchers/$T18_LAUNCHER"; then
+    T18_LAUNCHER_SNAPSHOT="$WORK/t18-launcher-before.tar"
+    if ! node_exec "$T18_NODE" tar -C /opt/brewlet/launchers -cf - "$T18_LAUNCHER" \
+        >"$T18_LAUNCHER_SNAPSHOT" 2>/dev/null; then
+      fail "tier18: snapshot existing launcher directory"; return 0
+    fi
+  fi
   trap _t18_cleanup RETURN
-  node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
-    sh "/opt/brewlet/jdks/$T18_JDK" >/dev/null 2>&1 || true
+  node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" "$2" 2>/dev/null || true; rm -rf "$1" "$2"' \
+    sh "/opt/brewlet/jdks/$T18_JDK" "/opt/brewlet/launchers/$T18_LAUNCHER" >/dev/null 2>&1 || true
 
   # Build the real provisioner and load it into the node's k8s.io namespace.
   local -a build_args=(--platform "linux/$arch" -t "$T18_PROVISIONER_IMAGE")
@@ -252,6 +411,9 @@ tier18_jdk_patch() {
   if docker build "${build_args[@]}" \
       -f "$MONOREPO_DIR/provisioner/Dockerfile" "$MONOREPO_DIR" \
       >"$WORK/t18-provisioner-build.log" 2>&1 &&
+    docker run --rm --platform "linux/$arch" --entrypoint /usr/bin/test \
+      "$T18_PROVISIONER_IMAGE" -x /opt/brewlet-dist/brewlet-source-policy \
+      >>"$WORK/t18-provisioner-build.log" 2>&1 &&
     docker save "$T18_PROVISIONER_IMAGE" -o "$WORK/t18-provisioner.tar" \
         >"$WORK/t18-provisioner-import.log" 2>&1 &&
     node_import_image "$T18_NODE" "$WORK/t18-provisioner.tar" \
@@ -263,13 +425,13 @@ tier18_jdk_patch() {
   fi
 
   # Install APIs and the provisioner's node-patching identity.
-  if ! T14_NS_OP="$T18_NS_OP" _t14_ensure_operator_namespace; then
+  if ! ensure_fresh_namespace "$T18_NS_OP"; then
     fail "tier18: prepare operator namespace" "namespace $T18_NS_OP remained terminating"; return 0
   fi
-  _t14_wait_crd_not_terminating nodeprofiles.node.brewlet.sh || {
+  wait_crd_not_terminating nodeprofiles.node.brewlet.sh || {
     fail "tier18: wait for previous NodeProfile CRD deletion"; return 0
   }
-  _t14_wait_crd_not_terminating javaapplications.apps.brewlet.sh || {
+  wait_crd_not_terminating javaapplications.apps.brewlet.sh || {
     fail "tier18: wait for previous JavaApplication CRD deletion"; return 0
   }
   if kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/nodeprofile-crd.yaml" >"$WORK/t18-control.log" 2>&1 &&
@@ -306,6 +468,11 @@ subjects:
   - { kind: ServiceAccount, name: brewlet-node-provisioner, namespace: $T18_NS_OP }
 YAML
 
+  # --- 0. A failed post-restart activation rolls containerd back ----------
+  if ! _t18_prove_restart_rollback; then
+    return 0
+  fi
+
   # Run the checked-out operator and target only the selected local node.
   if ! (cd "$BREWLET_KUBERNETES_DIR" && go build -o "$WORK/t18-manager" ./cmd/manager) \
       >>"$WORK/t18-control.log" 2>&1; then
@@ -340,6 +507,11 @@ spec:
       source:
         image: $T18_OLD_IMAGE
         javaHome: $T18_JAVA_HOME
+  launchers:
+    - name: $T18_LAUNCHER
+      source:
+        image: $T18_LAUNCHER_IMAGE
+        path: /usr/bin/jaz
   rollout:
     validate: true
     containerdRestart: validated
@@ -358,6 +530,19 @@ YAML
   assert_eq "tier18: installed root records the original source digest" \
     "$(node_exec "$T18_NODE" head -n 1 "/opt/brewlet/jdks/$T18_JDK/.brewlet-source" 2>/dev/null)" \
     "$T18_OLD_IMAGE"
+  local ds="brewlet-node-provisioner-$T18_PROFILE"
+  assert_eq "tier18: operator passed the Java home to the provisioner" \
+    "$(kubectl get ds "$ds" -n "$T18_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="JDK_SOURCE_0_JAVA_HOME")].value}')" \
+    "$T18_JAVA_HOME"
+  assert_eq "tier18: operator passed the launcher image to the provisioner" \
+    "$(kubectl get ds "$ds" -n "$T18_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LAUNCHER_SOURCE_0_IMAGE")].value}')" \
+    "$T18_LAUNCHER_IMAGE"
+  assert_contains "tier18: node launcher inventory includes jaz" \
+    "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}')" \
+    "$T18_LAUNCHER"
+  check "tier18: installed jaz version probe succeeds" \
+    node_exec "$T18_NODE" env JAZ_PRINT_VERSION=1 JAZ_EXIT_WITHOUT_FLUSH=1 \
+    "/opt/brewlet/launchers/$T18_LAUNCHER/bin/$T18_LAUNCHER"
 
   # --- 2. Run a workload on the older build -------------------------------
   local jar="$FIXTURES_DIR/demo-app/target/app.jar"
@@ -397,11 +582,13 @@ spec:
       labels: { app: $T18_APP }
       annotations:
         brewlet.sh/jdk: "$T18_JDK"
+        brewlet.sh/launcher: "$T18_LAUNCHER"
     spec:
       runtimeClassName: brewlet
       nodeSelector:
         brewlet.sh/runtime: ready
         brewlet.sh/jdk.temurin-21: "true"
+        brewlet.sh/launcher.jaz: "true"
       containers:
         - name: app
           image: "$image_ref"
