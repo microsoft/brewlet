@@ -187,6 +187,41 @@ wait_for_reconcile() {
   wait_for_seconds "$seconds" "$@"
 }
 
+# wait_while_progressing IDLE MAX PROGRESS_FN PRED...: retry PRED until it
+# passes, as long as the output of PROGRESS_FN (a fingerprint of observable
+# work, e.g. active image-pull ingests or provisioner log lines) keeps changing.
+# Fails after IDLE seconds without a fingerprint change, or after MAX seconds
+# in total, so a slow but advancing pull is not mistaken for a hang. If
+# PROGRESS_FN never changes this is a plain IDLE-second wait. On failure,
+# E2E_WAIT_STOP holds the reason. E2E_PROGRESS_POLL sets the poll interval
+# (seconds, default 2).
+# shellcheck disable=SC2034 # E2E_WAIT_STOP is read by callers.
+wait_while_progressing() {
+  local idle="$1" max="$2" progress="$3"; shift 3
+  local start now last_change fp prev=""
+  start="$(date +%s)"; last_change="$start"; E2E_WAIT_STOP=""
+  while :; do
+    if "$@" >/dev/null 2>&1; then return 0; fi
+    now="$(date +%s)"
+    fp="$("$progress" 2>/dev/null | cksum)"
+    if [[ "$fp" != "$prev" ]]; then prev="$fp"; last_change="$now"; fi
+    if (( now - start >= max )); then
+      E2E_WAIT_STOP="still progressing at the ${max}s limit"; return 1
+    fi
+    if (( now - last_change >= idle )); then
+      E2E_WAIT_STOP="no progress for ${idle}s after $(( now - start ))s"; return 1
+    fi
+    sleep "${E2E_PROGRESS_POLL:-2}"
+  done
+}
+
+# e2e_positive_int NAME VALUE: succeed when VALUE is a positive integer.
+e2e_positive_int() {
+  [[ "$2" =~ ^[1-9][0-9]*$ ]] && return 0
+  printf 'ERROR: %s must be a positive integer number of seconds (got %s)\n' "$1" "$2" >&2
+  return 1
+}
+
 # free_port: print an unused localhost TCP port.
 free_port() {
   python3 - <<'PY' 2>/dev/null || echo 0

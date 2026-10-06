@@ -53,6 +53,11 @@ T18_PRE_RETIRED=""
 # JDK/launcher tree snapshots stay on the node: streaming a JDK through
 # `kubectl exec` to the workstation and back is slow on managed clusters.
 T18_NODE_SNAPSHOT_DIR="/var/tmp/brewlet-e2e-t18-$$"
+# A cold node pulls ~1 GB of JDK and launcher images; on a slow link that
+# outlasts any fixed deadline. Fail only after IDLE seconds with no pull or
+# provisioner progress, or at the overall TIMEOUT.
+T18_PROVISION_IDLE="${E2E_PROVISION_IDLE_TIMEOUT:-240}"
+T18_PROVISION_TIMEOUT="${E2E_PROVISION_TIMEOUT:-900}"
 
 _t18_cleanup() {
   info "tier18: cleaning up"
@@ -157,6 +162,17 @@ _t18_node_at() {
     [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/profile-generation}' 2>/dev/null)" == "$generation" ]] &&
     kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks-info}' 2>/dev/null |
       grep -q "\"version\":\"${version}"
+}
+
+# _t18_provision_progress: fingerprint of provisioning work — the node's
+# in-flight containerd content ingests (byte offsets advance during an image
+# pull) and the provisioner's log. AGE is dropped: it ticks even for a stalled
+# ingest.
+_t18_provision_progress() {
+  E2E_EXEC_TIMEOUT=30 node_exec "$T18_NODE" ctr -n k8s.io content active 2>/dev/null |
+    awk '{print $1, $2}'
+  kubectl logs -n "$T18_NS_OP" -l "brewlet.sh/nodeprofile=$T18_PROFILE" -c provisioner \
+    --tail=-1 --request-timeout=30s 2>/dev/null
 }
 
 _t18_curl() {
@@ -345,6 +361,10 @@ YAML
 
 tier18_jdk_patch() {
   section "Tier 18 — patched JDK rollout (NodeProfile digest replacement)"
+  if ! e2e_positive_int E2E_PROVISION_IDLE_TIMEOUT "$T18_PROVISION_IDLE" ||
+     ! e2e_positive_int E2E_PROVISION_TIMEOUT "$T18_PROVISION_TIMEOUT"; then
+    fail "tier18: provisioning wait configuration" "E2E_PROVISION_IDLE_TIMEOUT and E2E_PROVISION_TIMEOUT must be positive integers"; return 0
+  fi
   if ! have kubectl || ! k8s_reachable; then skip "tier18: JDK patch rollout" "no reachable cluster"; return 0; fi
   if ! have docker || ! docker info >/dev/null 2>&1; then skip "tier18: JDK patch rollout" "docker daemon not available"; return 0; fi
   if ! have go; then skip "tier18: JDK patch rollout" "go not installed"; return 0; fi
@@ -524,13 +544,14 @@ spec:
 YAML
   local gen_old
   gen_old="$(kubectl get nodeprofile "$T18_PROFILE" -o jsonpath='{.metadata.generation}' 2>/dev/null)"
-  if wait_for_seconds 240 _t18_node_at "$T18_OLD_VERSION" "$gen_old"; then
+  if wait_while_progressing "$T18_PROVISION_IDLE" "$T18_PROVISION_TIMEOUT" \
+      _t18_provision_progress _t18_node_at "$T18_OLD_VERSION" "$gen_old"; then
     pass "tier18: node advertised temurin-21 $T18_OLD_VERSION for generation $gen_old"
   else
     kubectl logs -n "$T18_NS_OP" -l "brewlet.sh/nodeprofile=$T18_PROFILE" -c provisioner --tail=200 \
       >"$WORK/t18-provisioner.log" 2>&1 || true
     fail "tier18: node advertised temurin-21 $T18_OLD_VERSION" \
-      "provision-error=$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-error}' 2>/dev/null); see $WORK/t18-provisioner.log"
+      "$E2E_WAIT_STOP; provision-error=$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-error}' 2>/dev/null); see $WORK/t18-provisioner.log"
     return 0
   fi
   assert_eq "tier18: installed root records the original source digest" \
@@ -648,13 +669,14 @@ YAML
   if [[ "$gen_new" == "$gen_old" ]]; then
     fail "tier18: digest replacement advanced the profile generation" "generation stayed $gen_old"; return 0
   fi
-  if wait_for_seconds 240 _t18_node_at "$T18_NEW_VERSION" "$gen_new"; then
+  if wait_while_progressing "$T18_PROVISION_IDLE" "$T18_PROVISION_TIMEOUT" \
+      _t18_provision_progress _t18_node_at "$T18_NEW_VERSION" "$gen_new"; then
     pass "tier18: node re-advertised temurin-21 $T18_NEW_VERSION for generation $gen_new"
   else
     kubectl logs -n "$T18_NS_OP" -l "brewlet.sh/nodeprofile=$T18_PROFILE" -c provisioner --tail=200 \
       >"$WORK/t18-provisioner.log" 2>&1 || true
     fail "tier18: node re-advertised temurin-21 $T18_NEW_VERSION" \
-      "provision-error=$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-error}' 2>/dev/null); see $WORK/t18-provisioner.log"
+      "$E2E_WAIT_STOP; provision-error=$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-error}' 2>/dev/null); see $WORK/t18-provisioner.log"
     return 0
   fi
   assert_eq "tier18: operator passed the patched digest to the provisioner" \

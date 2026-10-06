@@ -186,5 +186,42 @@ class TierOrderTest(LibShell):
         self.assertEqual(self.order(1, 2, 17), [1, 2, 17])
 
 
+class ProgressWaitTest(LibShell):
+    """wait_while_progressing with a fake clock-free progress counter."""
+
+    PRELUDE = textwrap.dedent("""\
+        n=0
+        progress() { cat "$TMPDIR/progress" 2>/dev/null; }
+        tick() { n=$((n+1)); echo "$n" > "$TMPDIR/progress"; }
+        ready_after() { tick; [ "$n" -ge "$1" ]; }
+        """)
+
+    def wait(self, body):
+        return self.bash(self.PRELUDE + body, env={"E2E_PROGRESS_POLL": "0.2"})
+
+    def test_waits_past_idle_window_while_progress_advances(self):
+        # Ready after ~3s of polls, longer than the 1s idle window, but every
+        # poll advances the fingerprint.
+        result = self.wait('wait_while_progressing 1 30 progress ready_after 15 && echo ok')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "ok\n")
+
+    def test_fails_when_progress_stalls(self):
+        result = self.wait('wait_while_progressing 1 30 progress false; '
+                           'echo "rc=$? $E2E_WAIT_STOP"')
+        self.assertRegex(result.stdout, r"^rc=1 no progress for 1s after \ds\n$")
+
+    def test_overall_limit_bounds_endless_progress(self):
+        result = self.wait('wait_while_progressing 30 2 progress ready_after 1000000; '
+                           'echo "rc=$? $E2E_WAIT_STOP"')
+        self.assertEqual(result.stdout, "rc=1 still progressing at the 2s limit\n")
+
+    def test_positive_int_validation(self):
+        for value, rc in (("900", 0), ("0", 1), ("-1", 1), ("15m", 1), ("", 1)):
+            with self.subTest(value=value):
+                result = self.bash(f'e2e_positive_int E2E_X "{value}"')
+                self.assertEqual(result.returncode, rc, result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
