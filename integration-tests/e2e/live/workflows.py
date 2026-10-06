@@ -240,6 +240,22 @@ def build_app(f, name):
     return app
 
 
+def maven_app(f, name):
+    """Copy the fixture and declare its HTTP port for the plugin's probes and Service."""
+    app = build_app(f, name)
+    pom = app / "pom.xml"
+    text = pom.read_text()
+    plugin = (f"      <plugin>\n        <groupId>sh.brewlet</groupId>\n"
+              f"        <artifactId>brewlet-maven-plugin</artifactId>\n"
+              f"        <version>{f.plugin_version}</version>\n        <configuration>\n"
+              f"          <ports>\n            <port>\n              <name>http</name>\n"
+              f"              <containerPort>8080</containerPort>\n            </port>\n"
+              f"          </ports>\n        </configuration>\n      </plugin>\n    </plugins>")
+    require(text.count("</plugins>") == 1, "fixture pom layout changed; cannot declare plugin ports")
+    pom.write_text(text.replace("    </plugins>", plugin, 1))
+    return app
+
+
 def push_scenario(f):
     app = build_app(f, "push-app")
     f.cmd("package-demo", [*f.maven_args, "-f", app / "pom.xml", "package"], timeout=600)
@@ -467,7 +483,7 @@ def maven_scenario(f):
         values.update(extra)
         return values
 
-    project = build_app(f, "maven-app")
+    project = maven_app(f, "maven-app")
     deployed = mvn("maven-deploy", project, ["package", f"{f.plugin}:deploy"], props("wf-maven"))
     require(f"wf-maven is Ready in namespace {MAVEN_NS}" in deployed.stdout, "deploy did not report readiness")
     push_file = project / "target/brewlet/push.json"
@@ -490,7 +506,7 @@ def maven_scenario(f):
     f.record("maven-deploy-push-manifest-apply-ready-response", {"handoff": handoff, "index": published["digest"],
              "appliedGeneration": applied["metadata"]["generation"], "clusterUID": uid, **target})
 
-    nowait = build_app(f, "maven-nowait")
+    nowait = maven_app(f, "maven-nowait")
     result = mvn("maven-deploy-no-wait", nowait, ["package", f"{f.plugin}:deploy"],
                  props("wf-nowait", **{"brewlet.wait": "false", "brewlet.readinessPath": "/not-ready",
                                        "brewlet.waitTimeout": "60"}))
@@ -500,7 +516,7 @@ def maven_scenario(f):
     f.record("maven-deploy-wait-opt-out", {"app": "wf-nowait", "readiness": "never (/not-ready)",
                                            "elapsedSeconds": round(result.elapsed, 1)})
 
-    slow = build_app(f, "maven-timeout")
+    slow = maven_app(f, "maven-timeout")
     result = mvn("maven-deploy-readiness-timeout", slow, ["package", f"{f.plugin}:deploy"],
                  props("wf-mvn-timeout", **{"brewlet.readinessPath": "/not-ready", "brewlet.waitTimeout": "30"}),
                  expect="fail")
@@ -513,7 +529,7 @@ def maven_scenario(f):
     f.record("maven-deploy-live-readiness-timeout", h.assert_bounded(
         "Maven readiness wait", (ended - began) % 86400, 30, MAVEN_TOLERANCE))
 
-    stalled = build_app(f, "maven-stalled")
+    stalled = maven_app(f, "maven-stalled")
     state = f.private / "stalled-kubectl"
     state.mkdir()
     stub = state / "kubectl"
@@ -579,7 +595,7 @@ def encrypted_push(f, mvn, props):
     h.write_private(security / "other-security.xml", h.settings_security(other_master))
     other = f"-Dsettings.security={security / 'other-security.xml'}"
 
-    project = build_app(f, "maven-auth")
+    project = maven_app(f, "maven-auth")
     image = f"{f.auth_registry}/wf/maven-auth"
     mvn("maven-push-encrypted-settings", project, ["package", f"{f.plugin}:push"],
         props("wf-auth", **{"brewlet.image": f"{image}:v1"}), settings_file=good, extra=[sec])
@@ -591,7 +607,7 @@ def encrypted_push(f, mvn, props):
         ("maven-push-wrong-password", bad, sec, "wrong", None),
         ("maven-push-undecryptable", good, other, "undecryptable", "Cannot decrypt settings.xml credentials for registry"),
     ):
-        failing = build_app(f, name)
+        failing = maven_app(f, name)
         result = mvn(name, failing, ["package", f"{f.plugin}:push"], props("wf-auth", **{"brewlet.image": f"{image}:{tag}"}),
                      expect="fail", settings_file=settings_file, extra=[flag])
         require(message is None or message in result.stdout + result.stderr, f"{name} failure not explicit")
@@ -674,6 +690,7 @@ def profile_scenario(f, image):
             host_before["jdkLabels"] and host_before["containerdRuntimeConfig"], f"profile not provisioned: {host_before}")
 
     f.pause_operator()
+    resumed = False
     try:
         before = snapshot(f, "live")
         for flags in ([], ["--dry-run"], ["--dry-run=server"], ["--wait"]):
@@ -734,21 +751,43 @@ def profile_scenario(f, image):
                 "CLI timeout cancelled cleanup or stripped finalizers, status or ownership")
         f.record("profile-delete-timeout-preserves-cleanup", {**bound, "operator": "paused (controlled block)",
                  "finalizers": stuck["metadata"]["finalizers"], "host": host_blocked})
-    finally:
-        f.resume_operator()
 
-    events = f.work / "nodeprofile-live-watch.json"
-    with open(events, "w") as out:
-        watcher = subprocess.Popen(["kubectl", "--kubeconfig", str(f.kubeconfig), "--context", f.context, "get",
-                                    "nodeprofile", "live", "--watch", "-o", "json", "--output-watch-events"],
-                                   stdout=out, stderr=subprocess.DEVNULL, env=f.env, start_new_session=True)
-    f.children.append(watcher)
-    wait("watch started", lambda: events.stat().st_size > 0, timeout=60, interval=1)
-    with LogCapture(f, "cleanup-live"):
-        result = f.k8s("profile-delete-attach-wait", kc, "profile", "delete", "live", "--wait", "--wait-timeout", "360s",
-                       timeout=420)
-    require('is already deleting; following its cleanup' in result.stderr and 'NodeProfile "live" deleted after' in
-            result.stderr, "attached wait did not follow cleanup to completion")
+        # Attach the watch and the CLI while the operator is paused: once resumed,
+        # cleanup can finish before a later watch or CLI call would observe it.
+        events = f.work / "nodeprofile-live-watch.json"
+        with open(events, "w") as out, open(f.work / "nodeprofile-live-watch.stderr", "w") as err:
+            watcher = subprocess.Popen(["kubectl", "--kubeconfig", str(f.kubeconfig), "--context", f.context, "get",
+                                        "nodeprofile", "live", "--watch", "-o", "json", "--output-watch-events"],
+                                       stdout=out, stderr=err, env=f.env, start_new_session=True)
+        f.children.append(watcher)
+        wait("watch started", lambda: events.stat().st_size > 0, timeout=60, interval=1)
+        stdout, stderr = f.work / "profile-delete-attach-wait.stdout", f.work / "profile-delete-attach-wait.stderr"
+        argv = [str(a) for a in (f.cli, "k8s", "--kubeconfig", kc, "profile", "delete", "live", "--wait",
+                                 "--wait-timeout", "360s")]
+        started = time.monotonic()
+        with open(stdout, "w") as out, open(stderr, "w") as err:
+            attach = subprocess.Popen(argv, stdout=out, stderr=err, env=f.env, start_new_session=True)
+        f.children.append(attach)
+        f.commands.append({"name": "profile-delete-attach-wait", **h.sanitized_command(argv, {}, f.secrets),
+                           "target": {"kubeconfig": Path(kc).name, "context": "current-context"},
+                           "stdout": stdout.name, "stderr": stderr.name, "background": True})
+        wait("profile delete --wait attaches to the deleting profile",
+             lambda: "following its cleanup" in stderr.read_text(), timeout=60, interval=1)
+        require(attach.poll() is None, "attached wait exited before cleanup resumed")
+        with LogCapture(f, "cleanup-live"):
+            f.resume_operator()
+            resumed = True
+            code = attach.wait(timeout=420)
+        f.commands[-1].update({"exitCode": code, "elapsedSeconds": round(time.monotonic() - started, 3)})
+        f.save("commands.json", f.commands)
+    finally:
+        if not resumed:
+            f.resume_operator()
+
+    result = stderr.read_text()
+    require(code == 0, f"attached wait failed: {result[-2000:]}")
+    require('is already deleting; following its cleanup' in result and 'NodeProfile "live" deleted after' in
+            result, "attached wait did not follow cleanup to completion")
     time.sleep(2)  # let the watch flush the DELETED event already observed by the CLI
     watcher.terminate()
     watcher.wait(timeout=10)
