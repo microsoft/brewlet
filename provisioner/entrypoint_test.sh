@@ -925,9 +925,7 @@ for mode in sighup reboot; do
         exit 1
       fi
       grep -Fq 'invalid-restart-mode' "$rejected_dir/output"
-      if [[ "$mode" == sighup ]]; then
-        grep -Fq 'teardown/reinstallation' "$rejected_dir/output"
-      fi
+      grep -Fq "invalid containerd restart policy '${mode}' (want: validated|none)" "$rejected_dir/output"
       cmp "$rejected_dir/config.toml" "$rejected_dir/original"
       [[ ! -e "$rejected_dir/config.toml.d/99-brewlet.toml" && ! -s "$calls" && ! -e "$COMPLETION_FILE" ]]
     done
@@ -1814,6 +1812,7 @@ for policy in sighup reboot; do
       exit 1
     fi
     grep -Fq 'invalid-restart-mode' "$TEST_TMP_ROOT/rejected-policy.log"
+    grep -Fq "invalid containerd restart policy '${policy}' (want: validated|none)" "$TEST_TMP_ROOT/rejected-policy.log"
     [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]] || {
       echo "unsupported cleanup policy mutated state or completed" >&2; exit 1;
     }

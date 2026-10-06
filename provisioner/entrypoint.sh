@@ -25,7 +25,7 @@
 # brewlet-cleanup DaemonSet the operator launches for a deleted NodeProfile.
 # In that mode it restores the containerd config backup, removes the shim,
 # and drops the brewlet runtime + capability labels/annotations from the node
-# (https://github.com/microsoft/brewlet/blob/main/specs/proposals/0001-node-profiles.md §5.7), then idles so the operator can
+# (https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md §5.6), then idles so the operator can
 # observe completion before removing the profile finalizer.
 #
 # NB: this is privileged and mutates the host. Only run it on nodes the platform
@@ -1425,8 +1425,6 @@ validate_restart_mode() {
   local mode="${1-${BREWLET_CONTAINERD_RESTART}}"
   case "$mode" in
     validated|""|none) ;;
-    sighup)
-      die invalid-restart-mode "sighup has been removed; use validated or none for new profiles; existing installations must complete cleanup with their compatible release before teardown/reinstallation (docs/installation.md#upgrading); do not rewrite stored cleanup policies" ;;
     *)
       die invalid-restart-mode "invalid containerd restart policy '${mode}' (want: validated|none)" ;;
   esac
@@ -1935,7 +1933,7 @@ main() {
     || die completion-state-failed "could not reset completion marker ${COMPLETION_FILE}"
   if [[ "$BREWLET_MODE" != cleanup && "${BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED+x}" == x ]]; then
     # Reject before ownership is established, without host-mutating die handlers.
-    log "ERROR: invalid-stage-gc-config: BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED has been removed; remove it from configuration and use safe teardown/reinstallation, not an acknowledgment to enable GC" >&2
+    log "ERROR: invalid-stage-gc-config: BREWLET_STAGE_GC_UPGRADE_ACKNOWLEDGED is unsupported" >&2
     return 1
   fi
   ensure_in_cluster_kubeconfig

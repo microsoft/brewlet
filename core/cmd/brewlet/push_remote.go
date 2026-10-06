@@ -43,7 +43,7 @@ func flagWasSet(fs *flag.FlagSet, name string) bool {
 
 // resolvePushTarget decides between a local OCI layout and a registry push.
 // A ref naming a registry host goes to that registry unless --store was given
-// explicitly, which keeps the historical local-layout behavior. Registry-only
+// explicitly to select a local layout. Registry-only
 // flags are rejected for local pushes so nothing is silently ignored.
 func resolvePushTarget(ref string, storeExplicit bool, pushResult string, insecure, realms []string) (*remotePush, error) {
 	remoteOnly := pushResult != "" || len(insecure) > 0 || len(realms) > 0

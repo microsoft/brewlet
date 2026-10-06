@@ -685,7 +685,6 @@ func TestGenerateBundleWithMixedLayers(t *testing.T) {
 // TestResolveLauncherRejectsPaths pins the local-run contract: --launcher names
 // a launcher, never a path. Accepting a path (absolute or traversing) would let
 // a descriptor pick an arbitrary host binary to front the entrypoint.
-// See SECURITY-REVIEW.md finding 5.
 func TestResolveLauncherRejectsPaths(t *testing.T) {
 	jdkHome := t.TempDir()
 	bin := filepath.Join(jdkHome, "bin")

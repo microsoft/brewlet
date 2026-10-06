@@ -82,7 +82,7 @@ func (c *client) install(i installOptions) error {
 			return fmt.Errorf("check for existing Brewlet CRDs: %w", err)
 		}
 		if len(existing) != 0 {
-			return fmt.Errorf("Brewlet CRDs already exist; install is fresh-install-only. Follow the documented CRD migration and Helm upgrade procedure")
+			return fmt.Errorf("Brewlet CRDs already exist; install is fresh-install-only. Complete safe teardown and retained-resource review before reinstalling (docs/installation.md#upgrading)")
 		}
 		p.Logf("      none found; cluster is eligible for a fresh install")
 		p.Logf("[3/3] Pulling %s and waiting for rollout (timeout %s)...", chart, i.waitTimeout)

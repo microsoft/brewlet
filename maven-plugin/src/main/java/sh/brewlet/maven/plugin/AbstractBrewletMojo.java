@@ -233,8 +233,8 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
      * </ul>
      *
      * <p>Unchanged dependency layers dedup by digest across rebuilds and apps, so
-     * a code-only change re-pushes only the small app JAR. Backward compatible:
-     * defaults to {@code false} (single fat-JAR layer).
+     * a code-only change re-pushes only the small app JAR. Defaults to
+     * {@code false} (single fat-JAR layer).
      */
     @Parameter(property = "brewlet.layered", defaultValue = "false")
     protected boolean layered;

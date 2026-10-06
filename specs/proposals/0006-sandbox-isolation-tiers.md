@@ -6,8 +6,8 @@
 - **Related issue:** [#1](https://github.com/microsoft/brewlet/issues/1)
 - **Current execution path:** [`core/shim`](../../core/shim),
   [`provisioner/entrypoint.sh`](../../provisioner/entrypoint.sh)
-- **Control plane:** [`NodeProfile`](0001-node-profiles.md), capability labels
-  ([0003](0003-capability-label-taxonomy.md)), and Kubernetes `RuntimeClass`
+- **Control plane:** [`NodeProfile`](../SPECIFICATION.md),
+  [capability labels](../CAPABILITY_LABELS.md), and Kubernetes `RuntimeClass`
 
 ## 1. Decision
 

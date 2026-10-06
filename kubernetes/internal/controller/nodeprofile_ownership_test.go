@@ -194,8 +194,9 @@ func TestStoredContainerdPolicies(t *testing.T) {
 				if (err != nil) != wantErr {
 					t.Fatalf("policy %q: %v", mode, err)
 				}
-				if err != nil && !strings.Contains(err.Error(), field) {
-					t.Fatalf("error does not identify stored policy: %v", err)
+				if err != nil && (!strings.Contains(err.Error(), field) ||
+					!strings.Contains(err.Error(), `"`+mode+`" is invalid; want one of validated|none`)) {
+					t.Fatalf("error does not identify invalid stored policy and allowed values: %v", err)
 				}
 			})
 		}

@@ -54,8 +54,7 @@ without repository or package credentials. If GHCR denies a chart or component
 pull, see [package access troubleshooting](#package-access-troubleshooting).
 
 Use a disposable evaluation cluster; Brewlet is preproduction software. Start
-with the fresh Helm install below, not the existing-installation migration
-section.
+with the fresh Helm install below.
 
 Brewlet publishes version-aligned multi-architecture component images and an OCI
 Helm chart. A published chart records the **immutable digest** of each component
@@ -158,9 +157,7 @@ gh attestation verify "brewlet_${BREWLET_VERSION}_linux_amd64.tar.gz" \
 from this repository's release workflow, not merely from some workflow in the
 repository.
 
-Every release produced by the current release workflow carries build
-provenance. Any older artifact that predates it can only be verified with the
-published `checksums.txt`.
+Every release produced by the current release workflow carries build provenance.
 
 ---
 
@@ -221,7 +218,7 @@ Omitting `--version` selects the latest released chart; do not pass
 `--version latest`. The chart still pins its component images to immutable
 digests. To reproduce a specific release, add `--version x.y.z`, replacing
 `x.y.z` with that release number. For an existing installation, follow
-[Upgrading](#upgrading) to update matching CRDs and retain your chosen values.
+[Upgrading](#upgrading) for safe teardown and reinstallation.
 
 For a fresh cluster, you can instead install the same chart with
 [`brewlet k8s install`](#brewlet-cli-brewlet-k8s-install).
@@ -316,42 +313,22 @@ runtime catalog or a replacement for previewing your chosen values.
 
 ### Upgrading
 
-**Skip this section for a fresh installation.** Helm installs the chart's CRDs
-when they are not already present; there is no separate CRD upgrade or
-migration step before deploying Brewlet for the first time. The following
-guidance applies only when replacing an existing release or recovering retained
-state, including development clusters with older Brewlet releases or CRDs.
+Helm installs the chart's CRDs on a fresh environment. For release changes,
+use safe teardown and reinstallation; there are no supported in-place release
+pairs. See the [pre-GA compatibility policy](compatibility.md).
 
 #### Default: safe teardown and reinstallation
-
-Under the [pre-GA compatibility policy](compatibility.md), release updates
-require safe teardown/reinstallation unless an explicit support decision names
-the source and target releases, covered components/state, prerequisites,
-validation evidence, and recovery limits. The conditional procedures below do
-not establish such a decision; this guide declares no supported in-place
-release pairs.
-
-**Removed activation policy:** `containerdRestart: sighup` (and
-`BREWLET_CONTAINERD_RESTART=sighup`) is no longer supported. Choose `validated`
-or `none` for new profiles. For existing installations, follow the procedure
-below before replacing components or CRDs; this removal introduces no in-place
-upgrade exception. The old policy may remain in provisioning snapshots,
-per-node targets, retirement records, or worker environments even after the
-current spec changes. The new release refuses these cleanup obligations rather
-than silently restarting containerd or erasing them. Preserve the original
-records and compatible-release recovery evidence if cleanup is blocked; do not
-edit ledgers, remove finalizers, or assume a downgrade is supported.
 
 1. Save your reviewed values, profile and workload manifests, and recovery
    evidence. Pause NodeProfile/GitOps writers and drain or move Brewlet workloads.
 2. Follow [Uninstall](#uninstall) using the installed release's cleanup path.
    Keep its operator, provisioner RBAC, and API access available until host
-   cleanup and worker teardown complete. Older charts need the explicit
-   profile-cleanup sequence, not an assumed uninstall hook.
+   cleanup and worker teardown complete. Use the explicit profile-cleanup
+   sequence if the installation has no uninstall hook.
 3. Stop if cleanup is blocked. Recover with the installed release's compatible
-   components; do not bypass finalizers, migration gates, ownership records, or
-   live-reference checks. Standalone provisioned nodes require separate safe
-   deprovisioning or replacement.
+   components; do not bypass finalizers, scheduling gates, ownership records, or
+   live-reference checks. See [Unsupported-state recovery](#unsupported-state-recovery)
+   for hosts that cannot be safely cleaned.
 4. Review retained CRDs, custom resources, shared RuntimeClass, namespaces, and
    host state with their owners. Helm uninstall does not make the environment
    fresh. Do not delete CRDs with surviving resources or cleanup evidence, or
@@ -362,7 +339,7 @@ edit ledgers, remove finalizers, or assume a downgrade is supported.
    environment if the old one cannot safely be prepared, while preserving the
    old environment's recovery and cleanup obligations.
    Include [retained AppCDS cache files](#retained-appcds-cache-files) in the
-   host-state review; runtime maintenance no longer reclaims obsolete flat files.
+   host-state review; uninstall does not establish that retained files are unused.
 5. On the prepared environment, follow the fresh-install instructions with the
    target release's matching chart, components, and CRDs. Recreate reviewed
    manifests in the target format and rebuild/republish artifacts where required.
@@ -373,199 +350,30 @@ JDK rotation and configuration maintenance within the installed release are
 separate operations. Pin that chart version and preserve component overrides
 when using `helm upgrade` for those operations.
 
-#### Conditional in-place transitions and recovery
+#### Unsupported-state recovery
 
-Use these procedures only within an explicitly supported release-pair
-transition, or for recovery of existing state with compatible components.
-Their presence does not promise that an arbitrary old release can be upgraded.
+`Ready=False/UnsupportedPreClaimState` refuses incompatible workers, unfenced
+host advertisements, or unresolved ownership evidence. The refusal persists
+across restarts and disappearing workers; it does not authorize adoption,
+scheduling changes, or host cleanup. `OwnershipConflict` and `CleanupBlocked`
+also require investigation, not forced deletion.
 
-Keep the administrator-selected inventory, pools, and component overrides in
-your reviewed values files; do not replace them with test fixtures or a newly
-copied example. The upgrade examples below use `values.yaml` for your saved
-cluster configuration (including `provisioner.pools`) and `my-jdks.yaml` for
-your chosen runtime inventory.
+Preserve the installed release's manifests, worker/node identities, schemas,
+and cleanup records. Pause automation and drain workloads, then use that
+installation's original compatible components, RBAC, and API access to finish
+host cleanup and worker teardown. Do not replace its schemas, fabricate claims,
+clear evidence or refusal conditions, or bypass finalizers, scheduling gates,
+and live-reference checks. Verify containerd health and worker/shim termination
+on every affected node; a deleted DaemonSet or readiness label is not proof of
+cleanup.
 
-Upgrade the operator and provisioner images together. The operator's provisioning
-and cleanup readiness probes require the provisioner to publish the
-container-local `/tmp/brewlet-complete` marker after successful work. An older or
-custom image without that protocol stays NotReady and blocks completion rather
-than allowing premature cleanup. Do not bypass a blocked cleanup by removing its
-finalizer; restore compatible images and inspect the provisioner logs.
-
-Ownership-aware builds also require the operator/provisioner node-claim protocol
-and the new NodeProfile status schema. Apply the matching CRDs **before** rolling
-out the new control plane; Helm does not upgrade CRDs in a chart's `crds/`
-directory. Node ownership and retirement records must not be silently pruned by
-an older schema. Apply the JavaApplication CRD too before using newly supported
-fields such as `spec.env[].valueFrom`:
-
-```bash
-RELEASE_VERSION=x.y.z
-kubectl apply -f \
-  "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/nodeprofile-crd.yaml"
-kubectl apply -f \
-  "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/javaapplication-crd.yaml"
-```
-
-For source-built components, use the CRDs from the matching source revision
-instead. For an explicitly supported transition with compatible profiles, after
-updating CRDs:
-
-```bash
-helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$RELEASE_VERSION" \
-  --namespace brewlet \
-  --values values.yaml \
-  --values my-jdks.yaml \
-  --wait
-```
-
-For source builds, use the local chart instead and retain your digest-pinned
-component overrides. For profiles using incompatible source formats, use the
-maintenance sequence below within that transition instead of the direct upgrade command.
-
-Unverified runnable-stage installations can leave nodes
-Ready while automatic cleanup remains blocked by installation safety checks.
-`helm upgrade --wait` does not prove GC is active. After the runtime rollout,
-follow [Activating runnable-stage GC](#activating-runnable-stage-gc).
-
-An older CRD prunes unsupported fields when a resource is saved. Updating the CRD
-cannot restore those values; reapply the original JavaApplication manifests
-afterward.
-
-#### Unsupported pre-claim workers
-
-Workers predating UID-bound node claims are **not automatically migrated**.
-`Ready=False/UnsupportedPreClaimState` means the controller has found
-incompatible workers, unfenced host advertisements, or unresolved pre-claim
-records. It does not adopt hosts, infer cleanup authority, change worker
-scheduling, or delete those workers. The refusal remains after a restart or
-after live evidence disappears: a missing DaemonSet is not proof of host cleanup.
-Retained `status.migrating` and `status.migrationDaemonSetUIDs` are evidence-only
-fields, not an active migration protocol.
-
-Follow [safe teardown and reinstallation](#default-safe-teardown-and-reinstallation).
-Save original manifests and evidence, pause automation, and drain or move
-workloads. Restore the original release's compatible operator, provisioner,
-CRDs, RBAC, and API access to finish its cleanup and worker teardown; do not
-overwrite retained schemas or records with target-release resources as a
-recovery shortcut. Only after cleanup and retained-resource review should the
-target release be installed. If recovery is blocked, preserve that installation
-and its obligations and use a separate fresh environment.
-
-Do not clear refusal conditions, ownership labels, status records, finalizers,
-or scheduling gates left by an older release to bypass this refusal.
-`OwnershipConflict` and `CleanupBlocked` likewise require investigation rather
-than forced deletion. Unresolved pre-claim obligations can block other profiles
-from taking host ownership when the affected hosts cannot be safely identified.
-Standalone provisioned hosts need separate safe deprovisioning or replacement;
-removing their DaemonSet alone does not clean them. The current controller no
-longer creates migration scheduling gates or requires Pod Scheduling Readiness
-for this path.
-
-#### Removed standalone provisioning
-
-**Incompatible change ([#175](https://github.com/microsoft/brewlet/issues/175)):**
-NodeProfile/operator-managed provisioning is the only supported Kubernetes
-deployment model. The standalone `kubernetes/deploy/node-provisioner.yaml`
-DaemonSet and `brewlet.sh/provision=true` activation/tracking path have been
-removed. Helm, the Brewlet CLI, and raw operator installation all use
-NodeProfiles. Raw installations now obtain their Namespace and provisioner
-ServiceAccount/RBAC from `kubernetes/deploy/provisioner-rbac.yaml`, which contains
-no worker.
-
-The shipped provisioner requires UID-bound node claims and the profile's durable
-target/retirement authority for **both provision and cleanup**. An omitted
-`BREWLET_REQUIRE_NODE_CLAIM` defaults to `true`; explicit empty, `false`, and
-other values fail with `ownership-fence-failed`. Changing that flag or manually
-stamping ownership is not a recovery path. The new image cannot clean an
-unclaimed standalone installation.
-
-Existing standalone installations must be safely retired before their nodes
-can join the supported model:
-
-1. Inventory the installed release/image, original reviewed manifests, worker
-   DaemonSets/Pods across namespaces, affected nodes, containerd configuration,
-   and retained host state. Save the evidence and pause GitOps or other
-   automation that could recreate provisioning workers.
-2. Drain or move Brewlet workloads and finish local consumers of runtime roots,
-   AppCDS caches, or runnable stages. Follow the original installation's
-   procedure to stop provisioning and GC writers before starting host reversal;
-   do not run competing provisioning and cleanup workers.
-3. Use the **original release's compatible cleanup components and procedure**,
-   retaining its required API access and RBAC until cleanup completes.
-   Do not substitute the target-release provisioner, fabricate claims, clear
-   refusal conditions, or bypass finalizers and live-reference checks.
-4. Verify on every affected node that the original cleanup completed, containerd
-   is healthy with the intended non-Brewlet configuration, and retired workers
-   and shim processes have terminated. Review retained
-   [AppCDS cache files](#retained-appcds-cache-files) and
-   [runnable stages](runnable-image.md#existing-installations-and-unguarded-consumers)
-   separately; cleanup does not prove those files are unused.
-5. Only after verified host cleanup and worker termination, remove the reviewed
-   obsolete activation labels and unshared installation resources. Keep shared
-   RBAC, namespaces, RuntimeClasses, CRDs, and recovery evidence until their
-   owners confirm they are no longer needed. Deleting a DaemonSet, label, or
-   repository manifest alone **does not clean hosts**.
-6. If the original release cannot safely clean a node, stop and preserve its
-   evidence. Retire/replace the affected node through your platform's reviewed
-   decommissioning process, or use a separate fresh environment. Do not attach
-   a new NodeProfile to an unverifiable host; replacement does not erase the
-   old environment's cleanup obligations.
-7. Follow [safe teardown/reinstallation](#default-safe-teardown-and-reinstallation)
-   for retained-resource review, then install matching target-release
-   components and reviewed NodeProfiles on safely prepared nodes. Verify
-   managed ownership, profile status, and runtime readiness before restoring
-   workloads and automation.
-
-The operator and uninstall hook still refuse competing standalone/pre-claim
-workers, including orphaned Pods and known workers in other namespaces. They
-never adopt or delete those workers for you. A node already advertising
-`brewlet.sh/runtime=ready` remains observable, but observation is not authority
-to provision or clean it. Standalone CLI/OCI bundle use and raw workload Pods
-are unaffected.
-
-#### Older profile source formats
-
-Before upgrading an existing Brewlet installation to a release that requires explicit
-JDK and launcher sources, plan a maintenance window: the `v1alpha1` launcher
-wire format changed from strings to structured sources, so profiles using
-string-valued launchers cannot remain present during the control-plane rollout. Delete them while the
-old controller can still clean their nodes, then upgrade once with profile
-creation disabled:
-
-```bash
-RELEASE_VERSION=x.y.z
-
-# Replace the placeholder with the reviewed profiles covered by the transition.
-kubectl delete nodeprofile <reviewed-profile-names>
-kubectl wait --for=delete nodeprofile <reviewed-profile-names> --timeout=10m
-
-kubectl apply -f \
-  "https://raw.githubusercontent.com/microsoft/brewlet/v${RELEASE_VERSION}/kubernetes/deploy/nodeprofile-crd.yaml"
-
-cat >brewlet-no-profiles.yaml <<'EOF'
-defaultProfile:
-  enabled: false
-profiles: []
-EOF
-
-helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$RELEASE_VERSION" \
-  --namespace brewlet \
-  -f values.yaml \
-  -f my-jdks.yaml \
-  -f brewlet-no-profiles.yaml \
-  --wait
-
-# Re-enable the migrated, digest-pinned profiles after the new webhook is ready.
-helm upgrade brewlet oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$RELEASE_VERSION" \
-  --namespace brewlet \
-  -f values.yaml \
-  -f my-jdks.yaml \
-  --wait
-```
+The current operator and uninstall hook refuse competing workers across
+namespaces without adopting or deleting them. Never attach a new NodeProfile to
+an unfenced or unverifiable host. If original-component cleanup cannot be
+completed safely, use your platform's reviewed node decommissioning/replacement
+process or a separate fresh environment, preserving outstanding recovery
+evidence and obligations. Review retained resources and files before following
+the [fresh-install procedure](#default-safe-teardown-and-reinstallation).
 
 #### Activating runnable-stage GC
 
@@ -833,7 +641,7 @@ Cleanup does not migrate application Pods, and the uninstall coordinator cannot
 atomically lock out new cluster-wide profile creation. Keep the operator,
 provisioner RBAC, and API access available throughout cleanup.
 
-For a chart containing the pre-delete cleanup hook:
+For a Helm installation:
 
 ```bash
 helm uninstall brewlet --namespace brewlet --timeout 5m
@@ -877,36 +685,24 @@ a chart-owned resource. Review these leftovers before removing them manually.
 
 ### Retained AppCDS cache files
 
-AppCDS maintenance no longer deletes obsolete flat `<32-hex>.jsa` and
-`<32-hex>.jsa.writer` paths. They are never consumed as current archives, but
-their disk usage remains until explicitly reclaimed. Helm uninstall and
-provisioner teardown do not automatically remove the AppCDS cache.
+AppCDS maintenance manages only [64-hex private cache entries and writer
+markers](appcds.md#43-node-side-regeneration-the-durable-answer-for-a-patched-fleet);
+unrecognized paths are untouched.
+Helm uninstall and provisioner teardown do not remove the AppCDS cache.
 
-As part of the [default teardown/reinstallation procedure](#upgrading), drain or
-move Brewlet workloads, stop any local AppCDS consumers and writers, pause
-NodeProfile/GitOps and provisioning writers, and complete the installed release's
-finalizer, host-cleanup, and worker-teardown sequence before deleting leftovers.
-Do not bypass blocked cleanup or discard evidence needed for recovery.
+For manual reclamation, drain workloads, stop local cache consumers and writers,
+pause provisioning automation, and finish host cleanup and worker teardown.
+Review `/opt/brewlet/cds` (or the configured `BREWLET_CDS_CACHE`) with its owner.
+Remove only individually verified, unused paths belonging to the retired
+installation. Do not follow symlinks, purge the root, use wildcard deletion,
+delete live files, or discard recovery evidence. Unverifiable ownership or use
+requires investigation, not deletion.
 
-On each affected node, review the actual cache root with its owner:
-`/opt/brewlet/cds` by default, including any `BREWLET_CDS_CACHE` override.
-Identify obsolete flat files belonging to the retired installation and confirm
-that no process or mount still uses them. Remove only those individually
-reviewed paths before reinstalling; do not follow symlinks, purge the cache root,
-use wildcard deletion, or delete arbitrary unknown files or current private
-entries as part of flat-cache cleanup. If a path's ownership or use cannot be
-verified, stop and investigate rather than deleting it. Using a fresh environment
-does not discharge the old environment's recovery and cleanup obligations.
+### Manual control-plane removal
 
-### Older charts and manual installations
-
-Hooks are stored with the installed Helm release. Updating a source checkout
-does not add a hook to an existing release; inspect `helm get hooks brewlet -n
-brewlet`. A chart with this hook requires an operator image implementing its
-cleanup mode; do not combine it with an older image.
-
-For a chart without the hook, delete reviewed profiles and wait for their
-finalizers **before** uninstalling the control plane:
+For raw manifests or an installed chart without a cleanup hook, delete reviewed
+profiles and wait for their finalizers **before** removing the control plane.
+For Helm, inspect the installed hooks with `helm get hooks brewlet -n brewlet`:
 
 ```bash
 kubectl get nodeprofiles
@@ -917,18 +713,11 @@ kubectl wait --for=delete nodeprofile <reviewed-profile-names> --timeout=10m
 helm uninstall brewlet --namespace brewlet --timeout 5m
 ```
 
-Apply the same ordering to raw manifests. Nodes provisioned by a standalone
-`brewlet.sh/provision=true` DaemonSet without a profile require separate
-deprovisioning or replacement using the
-[removed standalone provisioning procedure](#removed-standalone-provisioning).
-A remaining canonical standalone provisioner
-DaemonSet or Pod blocks the hook before profile deletion; the hook never adopts
-or removes it. Finish standalone deprovisioning and remove those workers before
-uninstalling their shared RBAC.
-Worker inventory is cluster-wide and read-only, so moving the operator namespace
-does not hide an old installation. Known workers outside the configured operator
-namespace block removal until their installation is deprovisioned separately;
-the hook never deletes those workers.
+For raw manifests, remove the reviewed control-plane manifests only after the
+same cleanup checks. Worker inventory is cluster-wide and read-only; competing
+or foreign-namespace workers block removal and require
+[unsupported-state recovery](#unsupported-state-recovery) before removing
+shared RBAC.
 
 ## Next steps
 

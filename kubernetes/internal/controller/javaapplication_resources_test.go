@@ -219,9 +219,8 @@ func TestPodAnnotationsJVMArgs(t *testing.T) {
 	}
 }
 
-// The annotation is JDK-version independent: argv delivery replaced the
-// JDK_JAVA_OPTIONS / JAVA_TOOL_OPTIONS split, which existed only because JDK 8
-// lacks the former.
+// Argv delivery is JDK-version independent, including JDK 8 where
+// JDK_JAVA_OPTIONS is unavailable.
 func TestBuildDeploymentJVMArgsAreVersionIndependent(t *testing.T) {
 	for _, version := range []int32{0, 8, 11, 21, 25} {
 		app := sampleApp()

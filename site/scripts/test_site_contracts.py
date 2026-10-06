@@ -16,7 +16,7 @@ import unittest
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
-from test_installation_examples import blocks
+from test_installation_examples import blocks, helm_commands
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -143,21 +143,22 @@ class SiteContractsTest(unittest.TestCase):
         self.assertIn("Brewlet MUST NOT rename or remove a listed key family", labels)
         self.assertIn("old and new keys are published", labels)
 
-    def test_release_update_guidance_gates_commands_and_keeps_safety_anchors(self):
+    def test_release_update_guidance_uses_reinstallation_and_keeps_safety_anchors(self):
         installation = (ROOT / "docs/installation.md").read_text()
         upgrading = installation.split("### Upgrading\n", 1)[1].split(
             "### What the chart deploys", 1
         )[0]
         default = upgrading.index("#### Default: safe teardown and reinstallation")
-        conditional = upgrading.index("#### Conditional in-place transitions and recovery")
-        command = upgrading.index("helm upgrade brewlet")
-        self.assertLess(default, conditional)
-        self.assertLess(conditional, command)
+        recovery = upgrading.index("#### Unsupported-state recovery")
+        self.assertLess(default, recovery)
+        self.assertIn("no supported in-place release", upgrading)
+        self.assertEqual(list(helm_commands(upgrading)), [],
+                         "Release-update guidance must not offer an in-place Helm recipe")
         self.assertIn("#### Activating runnable-stage GC", upgrading)
         self.assertIn("## Uninstall", installation)
         self.assertNotIn("kubectl delete nodeprofiles.node.brewlet.sh --all", upgrading)
         chart = (ROOT / "kubernetes/charts/brewlet/README.md").read_text()
-        self.assertIn("installation.md#conditional-in-place-transitions-and-recovery", chart)
+        self.assertIn("installation.md#upgrading", chart)
 
     def test_launch_config_is_copyable_json_not_commented_pseudocode(self):
         configs = [json.loads(block) for _, block in self.page.blocks
@@ -170,19 +171,28 @@ class SiteContractsTest(unittest.TestCase):
         for deployment_field in ("jdk", "launcher", "ports", "jvmArgs", "resources"):
             self.assertNotIn(deployment_field, config)
 
-    def test_removed_sighup_policy_uses_default_release_update_procedure(self):
+    def test_unsupported_state_recovery_preserves_host_authority(self):
         installation = (ROOT / "docs/installation.md").read_text()
-        default = installation.split(
-            "#### Default: safe teardown and reinstallation", 1
-        )[1].split("#### Conditional in-place transitions and recovery", 1)[0]
-        self.assertIn("`BREWLET_CONTAINERD_RESTART=sighup`", default)
-        self.assertIn("no in-place", default)
-        self.assertIn("snapshots", default)
-        self.assertIn("retirement records", default)
-        self.assertIn("rather than silently restarting containerd",
-                      " ".join(default.split()))
-        self.assertNotIn("in-place SIGHUP activation",
-                         (ROOT / "docs/compatibility.md").read_text())
+        recovery = " ".join(installation.split(
+            "#### Unsupported-state recovery", 1
+        )[1].split("#### Activating runnable-stage GC", 1)[0].split())
+        for term in ("UnsupportedPreClaimState", "original compatible components",
+                     "finalizers", "live-reference checks", "worker/shim termination",
+                     "without adopting or deleting", "recovery evidence"):
+            self.assertIn(term, recovery)
+
+    def test_historical_records_are_separate_from_current_contracts(self):
+        archive = (ROOT / "archive/README.md").read_text()
+        for target in ("../specs/SPECIFICATION.md", "../docs/security.md",
+                       "security/2026-09-02-assessment.md"):
+            self.assertIn(target, archive)
+        for name in ("0001-node-profiles", "0002-validated-node-reconfig",
+                     "0003-capability-label-taxonomy", "0004-cert-manager-admission"):
+            with self.subTest(record=name):
+                self.assertTrue((ROOT / "archive/design-records" / f"{name}.md").is_file())
+                self.assertFalse((ROOT / "specs/proposals" / f"{name}.md").exists())
+        proposals = (ROOT / "specs/proposals/README.md").read_text()
+        self.assertIn("../../archive/README.md", proposals)
 
     def test_complete_workload_descriptor_uses_an_explicit_digest_placeholder(self):
         descriptors = [block for _, block in self.page.blocks

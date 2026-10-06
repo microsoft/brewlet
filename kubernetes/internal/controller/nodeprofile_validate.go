@@ -111,8 +111,6 @@ func validateContainerdRestart(field, mode string) error {
 	switch mode {
 	case "", nodev1alpha1.ContainerdRestartValidated, nodev1alpha1.ContainerdRestartNone:
 		return nil
-	case "sighup":
-		return fmt.Errorf("%s %q has been removed; use validated or none for new profiles; existing installations must complete cleanup with their compatible release before teardown/reinstallation (docs/installation.md#upgrading); do not rewrite stored cleanup policies", field, mode)
 	default:
 		return fmt.Errorf("%s %q is invalid; want one of validated|none", field, mode)
 	}

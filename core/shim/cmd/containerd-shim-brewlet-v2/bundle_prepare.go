@@ -32,8 +32,7 @@ const (
 	// JDK and launcher request onto the pod (set by the operator from
 	// jvm.version/jvm.launcher, or by the user on a raw Deployment). They are
 	// propagated onto the OCI runtime spec like annArtifactRef, and are the
-	// single source of truth for which JDK/launcher the workload runs on — the
-	// artifact's launch config no longer carries them.
+	// single source of truth for which JDK/launcher the workload runs on.
 	annRequestedJDK      = "brewlet.sh/jdk"
 	annRequestedLauncher = "brewlet.sh/launcher"
 	// annCDSRegenerate opts the workload into node-side AppCDS regeneration

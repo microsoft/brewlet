@@ -1,8 +1,8 @@
 # Brewlet specifications
 
-This directory is the authoritative source for Brewlet architecture and
-compatibility contracts. Implementations and user documentation must follow
-[`SPECIFICATION.md`](SPECIFICATION.md); substantial changes should begin as a
+The current reference documents in this directory are the authoritative source
+for Brewlet architecture and compatibility contracts. Implementations and user
+documentation must follow [`SPECIFICATION.md`](SPECIFICATION.md); substantial changes should begin as a
 reviewable design in [`proposals/`](proposals/) and remain on the
 [roadmap](../ROADMAP.md) until they ship.
 
@@ -46,9 +46,18 @@ Public reference contracts:
 Changes here describe the contract; implementation-specific behavior belongs in
 the directory that owns that component.
 
+## Current contracts, proposed designs, and historical records
+
 The specification documents only behavior available in Brewlet releases.
-Proposed functionality belongs in the [roadmap](../ROADMAP.md), with detailed
-engineering designs retained under [`proposals/`](proposals/).
+Proposed functionality belongs in the [roadmap](../ROADMAP.md), with unimplemented
+engineering designs under [`proposals/`](proposals/README.md). Proposals are not
+current contracts.
+
+Implemented design proposals and dated security assessments are retained in the
+[archive](../archive/README.md) as non-normative historical records. Their original
+assumptions, rationale, and remediation statements do not define current
+guarantees; use the current reference contracts above and
+[security guidance](../docs/security.md) instead.
 
 ## Supporting project areas
 

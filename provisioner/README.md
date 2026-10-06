@@ -13,11 +13,7 @@ the installation, and advertises node readiness.
 The host must run containerd 2.0 or newer.
 
 The image runs only as an **operator-managed NodeProfile worker**, for both
-provisioning and cleanup. Operator-free Kubernetes provisioning is unsupported
-([#175](https://github.com/microsoft/brewlet/issues/175)); the standalone
-DaemonSet and activation label have been removed. Existing installations must
-use their original compatible cleanup components or safe node replacement;
-see [transition guidance](../docs/installation.md#removed-standalone-provisioning).
+provisioning and cleanup, with UID-bound node claims and durable profile authority.
 
 See the [Brewlet specification](../specs/SPECIFICATION.md) for the node
 provisioning model and the [user documentation](../docs/)
@@ -213,13 +209,8 @@ and health-checks containerd without an unnecessary restart. `none` is the
 immutable-image mode and does not mutate or signal containerd during
 provisioning or cleanup.
 
-The `sighup` policy has been removed and is rejected before host operations,
-including when read from a managed node's cleanup ledger. It is never converted
-to a service restart or to `none`. Existing installations must follow
-[safe teardown/reinstallation](../docs/installation.md#upgrading), completing
-their installed release's cleanup before replacement. Keep blocked cleanup
-evidence and ownership records; changing the live profile does not discharge
-an old cleanup obligation.
+Other policy values are rejected before host operations, including when read
+from a cleanup ledger; they are never converted to a different host operation.
 
 When Helm runtime metrics are enabled, the profile-managed DaemonSet includes a
 best-effort exporter sidecar that serves `/metrics` and listens for shim
@@ -241,13 +232,11 @@ expose a writable host bind mount.
 For Brewlet release changes, follow the
 [pre-GA update policy](../docs/installation.md#upgrading): safe
 teardown/reinstallation is the default. The protocols below remain mandatory
-for cleanup and recovery; they do not promise arbitrary in-place upgrades.
-Managed workers predating UID-bound node claims are refused by the current
-operator, not automatically migrated. Complete their cleanup with the original
-release's compatible components before reinstallation; see
-[pre-claim recovery](../docs/installation.md#unsupported-pre-claim-workers).
-Removed standalone installations must likewise be separately deprovisioned with
-their original compatible components, not adopted or cleaned by the new image.
+for cleanup and recovery. `UnsupportedPreClaimState` refuses unfenced workers
+or unresolved ownership evidence; follow
+[unsupported-state recovery](../docs/installation.md#unsupported-state-recovery)
+with the original installation's compatible cleanup components or safe node
+replacement, never fabricated claims or forced deletion.
 
 The provisioner container becomes Ready only after its script has finished
 successfully. Both provisioning and cleanup publish `/tmp/brewlet-complete`
@@ -276,7 +265,7 @@ withdrawal and are released only after cleanup workers terminate.
 Retargeting uses the same stop/cleanup/teardown ordering for departing nodes;
 retained nodes' runtime roots are not removed. Invalid deleting profiles with
 possible host state remain blocked for repair rather than dropping their
-finalizer. The updated NodeProfile CRD and compatible operator/provisioner
+finalizer. Matching NodeProfile CRDs and operator/provisioner
 images must be deployed together; missing/pruned ledger fields fail closed.
 
 With `BREWLET_VALIDATE=true`, the provisioner validates every configured

@@ -241,7 +241,7 @@ func TestSelectLauncherRequiresActiveInventory(t *testing.T) {
 
 // unsafeRuntimeNames are the traversal, separator and dot-segment variants a
 // tenant can put in the brewlet.sh/launcher (or brewlet.sh/jdk) annotation. None
-// may reach mount construction; see SECURITY-REVIEW.md finding 5.
+// may reach mount construction.
 var unsafeRuntimeNames = []string{
 	"..",
 	"../..",

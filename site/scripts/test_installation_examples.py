@@ -106,8 +106,7 @@ class InstallationExamplesTest(unittest.TestCase):
         self.assertEqual(len(positionals), 2)
         return result
 
-    def test_every_documented_install_preview_and_upgrade_renders(self):
-        command_count = 0
+    def test_every_documented_install_and_preview_renders(self):
         for filename in DOCUMENTS:
             document = (ROOT / filename).read_text()
             inventory = self.inventory(document)
@@ -115,46 +114,38 @@ class InstallationExamplesTest(unittest.TestCase):
             (self.work / "my-jdks.yaml").write_text(
                 inventory.replace("<64-lowercase-hex>", DIGEST)
             )
-            # Represent the administrator's existing settings during upgrades.
+            # Preserve any administrator-selected component images and pools.
             saved_images = {name: f"registry.example.com/private/{name}@sha256:{DIGEST}"
                             for name in ("operator", "admission", "provisioner")}
             (self.work / "values.yaml").write_text(json.dumps({
                 "provisioner": {"pools": ["existingpool"]},
                 "images": saved_images,
             }))
-            (self.work / "brewlet-no-profiles.yaml").write_text(json.dumps({
-                "defaultProfile": {"enabled": False}, "profiles": [],
-            }))
             commands = list(helm_commands(document))
             self.assertTrue(commands, filename)
             for command in commands:
-                command_count += 1
                 with self.subTest(document=filename, command=command):
                     args = self.render_arguments(command)
                     result = self.render(args)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     profiles = [doc for doc in result.stdout.split("---\n")
                                 if "\nkind: NodeProfile\n" in doc]
-                    if "brewlet-no-profiles.yaml" in args:
-                        self.assertEqual(profiles, [])
-                    else:
-                        self.assertEqual(len(profiles), 1)
-                        profile = profiles[0]
-                        self.assertIn("apiVersion: node.brewlet.sh/v1alpha1\n", profile)
-                        self.assertIn("\n  name: default\n", profile)
-                        pool = "existingpool" if "values.yaml" in args else "javaworkers"
-                        self.assertIn(f'\n      - "{pool}"\n', profile)
-                        self.assertIn("    - distribution: temurin\n", profile)
-                        self.assertIn("      feature: 21\n", profile)
-                        self.assertIn(f"        image: docker.io/library/eclipse-temurin@sha256:{DIGEST}\n",
-                                      profile)
-                        self.assertIn("        javaHome: /opt/java/openjdk\n", profile)
-                        self.assertNotIn("includeControlPlane: true", profile)
-                        self.assertNotIn("\n  launchers:", profile)
+                    self.assertEqual(len(profiles), 1)
+                    profile = profiles[0]
+                    self.assertIn("apiVersion: node.brewlet.sh/v1alpha1\n", profile)
+                    self.assertIn("\n  name: default\n", profile)
+                    pool = "existingpool" if "values.yaml" in args else "javaworkers"
+                    self.assertIn(f'\n      - "{pool}"\n', profile)
+                    self.assertIn("    - distribution: temurin\n", profile)
+                    self.assertIn("      feature: 21\n", profile)
+                    self.assertIn(f"        image: docker.io/library/eclipse-temurin@sha256:{DIGEST}\n",
+                                  profile)
+                    self.assertIn("        javaHome: /opt/java/openjdk\n", profile)
+                    self.assertNotIn("includeControlPlane: true", profile)
+                    self.assertNotIn("\n  launchers:", profile)
                     if "values.yaml" in args:
                         for image in saved_images.values():
-                            self.assertIn(image, result.stdout, "Upgrade lost administrator image choice")
-        self.assertGreaterEqual(command_count, 10, "A documented command disappeared from coverage")
+                            self.assertIn(image, result.stdout, "Render lost administrator image choice")
 
     def test_cli_values_example_is_self_contained_and_renders(self):
         document = (ROOT / "docs/cli-reference.md").read_text()
@@ -212,15 +203,13 @@ class InstallationExamplesTest(unittest.TestCase):
                 self.assertIn("--version", command)
                 self.assertEqual(command[command.index("--version") + 1], "$BREWLET_VERSION")
 
-    def test_existing_installation_upgrades_keep_matching_release_pin(self):
-        commands = list(helm_commands((ROOT / "docs/installation.md").read_text()))
-        upgrades = [command for command in commands
-                    if command[1] == "upgrade" and "--install" not in command]
-        self.assertTrue(upgrades)
-        for command in upgrades:
-            with self.subTest(command=command):
-                self.assertIn("--version", command)
-                self.assertEqual(command[command.index("--version") + 1], "$RELEASE_VERSION")
+    def test_configuration_maintenance_documents_installed_release_pin(self):
+        for filename in ("docs/configuration.md", "docs/runtime-metrics.md"):
+            with self.subTest(document=filename):
+                document = (ROOT / filename).read_text()
+                self.assertIn('--version "$BREWLET_VERSION"', document)
+                self.assertIn("installed", document)
+                self.assertIn("installation.md#upgrading", document)
 
     def test_disposable_demo_chart_renders_the_worker_inventory(self):
         document = (ROOT / "site/try-brewlet.sh").read_text()

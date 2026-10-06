@@ -450,8 +450,7 @@ func claimedTargetAffinity(profile *nodev1alpha1.NodeProfile, targets []nodev1al
 
 // metricsSocketVolume is the only host path the metrics exporter may write. It
 // is scoped to the directory holding the shim telemetry socket so the exporter
-// keeps a read-only view of the rest of the runtime tree (§ SECURITY-REVIEW
-// finding 9).
+// keeps a read-only view of the rest of the runtime tree.
 const metricsSocketVolume = "host-opt-metrics"
 
 // dropMetricsExporter removes the exporter sidecar and the writable telemetry

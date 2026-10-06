@@ -2,13 +2,13 @@
 # Licensed under the MIT License.
 
 {{- if hasKey .Values.stageGC "upgradeAcknowledged" }}
-{{- fail "stageGC.upgradeAcknowledged has been removed; remove it from saved values and use safe teardown/reinstallation, not an acknowledgment to enable GC" }}
+{{- fail "stageGC.upgradeAcknowledged is unsupported" }}
 {{- end }}
 
 {{/*
-brewlet-operator: node lifecycle controller (§8.1). Watches provision-opted
-nodes, manages the provisioner DaemonSet + the brewlet RuntimeClass from the
-values below, and reflects node state via annotations/events.
+brewlet-operator: node lifecycle controller (§8.1). Manages NodeProfile-scoped
+provisioning/cleanup DaemonSets and the brewlet RuntimeClass, and reflects node
+state via annotations/events.
 */}}
 apiVersion: v1
 kind: ServiceAccount

@@ -2,8 +2,7 @@
 
 Brewlet is pre-GA. The specification describes the contract implemented by the
 current release, not a blanket promise that earlier Brewlet interfaces or state
-will work with later releases. This policy does not remove any feature or weaken
-any operational safeguard.
+will work with later releases.
 
 ## Brewlet interfaces and support decisions
 
@@ -14,15 +13,12 @@ to retain them.
 
 Retaining an alternate interface or format requires a current use case and a
 documented maintainer support decision in the relevant contract documentation,
-linked to its reviewed issue or pull request. Record the use case, supported
-scope, authoritative contract, limits, and review or removal conditions.
-Describing an existing code path is not itself a cross-release support decision.
+linked to its reviewed issue or pull request, with its scope and limits.
 
 Removing a superseded interface requires a reviewed change that identifies
 affected users and operational impact, checks the exceptions below, and updates
 the implementation, specification, tests, and user guidance together. Release
 notes must identify incompatible changes and required operator actions.
-Feature-level removals are separate from adoption of this policy.
 
 There is no automatic pre-GA deprecation window or promise of mixed-version
 operation, reuse of old Brewlet artifacts, rollback, or in-place release updates.
@@ -30,26 +26,6 @@ Any such promise must be explicit and bounded; an unchanged API version or
 format name alone does not establish it.
 
 ## Release updates
-
-### Kubernetes provisioning support decision
-
-Under [#175](https://github.com/microsoft/brewlet/issues/175) and the policy
-established by [#173](https://github.com/microsoft/brewlet/issues/173),
-**operator-managed NodeProfiles are the only supported Kubernetes provisioning
-model**. Helm, CLI-backed Helm installation, and raw operator manifests remain
-supported ways to install that model. The standalone DaemonSet and label-only
-activation/tracking path are removed; the shipped provisioner requires verified
-managed claims for both provisioning and cleanup.
-
-This is an incompatible installation and opt-in change, not automatic host
-cleanup or adoption. Follow
-[removed standalone provisioning](installation.md#removed-standalone-provisioning)
-for original-release teardown or safe node replacement. Competing-worker
-refusals remain mandatory even though running those workers is unsupported.
-Runtime-ready observation and capability-label contract v1 are unchanged.
-Standalone CLI commands, OCI bundles, and raw workload Pods are not removed.
-
-### Default update path
 
 **Safe teardown/reinstallation is the default for pre-GA release updates.**
 Save reviewed configuration and workload manifests, drain or move workloads,
@@ -60,9 +36,7 @@ for retained resources and nodes that cannot be safely cleaned.
 An in-place upgrade is supported only when a documented support decision names
 the **source and target releases**, covered components and persisted state,
 prerequisites, validation evidence, and recovery limits. Without that decision,
-use teardown/reinstallation. Generic migration instructions, successful Helm
-rendering, or an available recovery code path are not a release-pair exception.
-This policy introduces no supported in-place release pairs.
+use teardown/reinstallation. There are no supported in-place release pairs.
 
 Use matching release components and CRDs. Recreate manifests in the target
 release's supported format; rebuild or republish artifacts when its contract
@@ -80,17 +54,7 @@ another release; keep the installed chart version and component choices pinned.
 | [Capability-label contract v1](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md#compatibility-and-versioning) | Preserve the public scheduling key families and matching semantics within contract v1. Breaking changes require a new major capability-label contract, release notes, and a migration period publishing old and new keys together so autoscaler templates and workload policies can move safely. This is not a whole-installation in-place-upgrade guarantee. |
 | External platform interoperability | Preserve interoperability required by the [supported platform prerequisites](installation.md#prerequisites) and the specification, including Kubernetes, OCI, containerd, and JVM contracts. The age of an external format is not a reason to remove support required by that matrix. |
 
-For example, containerd configuration formats 2 and 3 use different plugin
-namespaces; supporting the former does not mean supporting containerd 1.x.
-Brewlet still requires containerd 2.0+ and cgroup v2. Workers predating UID-bound
-NodeProfile claims are refused, not automatically migrated; follow the
-[pre-claim recovery guidance](installation.md#unsupported-pre-claim-workers).
-
-Add future exceptions to the relevant contract and link them here with their
-scope and support decision. Do not silently broaden an exception into a general
-compatibility promise.
-
-## Safety is not old-format support
+## Safety
 
 Refusing unsafe old state is a safety obligation, not a promise to run it.
 Unsupported or unverifiable resources must fail explicitly rather than be
@@ -99,17 +63,12 @@ silently accepted, adopted by name, or treated as an empty installation.
 Ownership fences, live-reference checks, integrity verification, and cleanup
 obligations remain mandatory. Preserve evidence needed to recover or clean old
 state even if the runtime no longer consumes its format. Do not delete in-use
-files, abandon host state, bypass migration gates or finalizers, discard
-ownership records, or enable stage GC on unverified installations.
-Stage GC has no migration-acknowledgment override: its per-node safety record
-does not establish a supported release transition. Retire unguarded consumers
-through safe teardown and review retained files before reinstallation.
-A blocked cleanup requires investigation and recovery, not forced
-deletion. See [Uninstall](installation.md#uninstall) and
-[runnable-stage cleanup](runnable-image.md#reclaiming-unused-stages).
+files, abandon host state, bypass scheduling gates or finalizers, discard
+ownership records, or enable stage GC on unverified installations. Blocked
+cleanup requires the original installed components to finish safely or reviewed
+node replacement, not forced deletion or adoption of unfenced hosts. Replacement
+does not erase outstanding cleanup obligations.
 
-Describe current capabilities by function (for example, NodeProfile provisioning,
-validated containerd activation, or socket-based runtime telemetry with a
-Prometheus exporter). Reserve historical terms such as "legacy" for precise
-old-state or migration descriptions; neither that label nor its removal decides
-whether an interface is supported.
+Follow [Uninstall](installation.md#uninstall) for ordered teardown and
+[runnable-stage cleanup](runnable-image.md#reclaiming-unused-stages) for
+safe file reclamation.

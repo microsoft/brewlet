@@ -9,8 +9,7 @@
 #   2. No workflow grants a `write` permission at workflow scope; write scopes
 #      must be declared on the individual jobs that publish.
 #
-# Both rules block the tag-moving attack path described in SECURITY-REVIEW.md
-# finding 11.
+# Both rules prevent build-only jobs from moving release tags.
 
 set -euo pipefail
 

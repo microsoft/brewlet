@@ -354,14 +354,9 @@ structured metadata is an explicit error, even when compact data is present.
 In mixed fleets, detailed inventory covers only nodes with structured entries;
 doctor does not enforce per-node metadata completeness.
 
-**Operational change:** older compact-only nodes no longer appear in detailed
-inventory. Status/inspection can still show their compact JDK tokens, and
-compatibility admission still consumes those tokens; neither guarantees the
-availability of diagnostic metadata. Check `brewlet.sh/jdks-info` and the
-current node-provisioner's logs/publication, not just the desired NodeProfile.
-For release changes, follow the [pre-GA compatibility policy](compatibility.md)
-and [safe teardown/reinstallation guidance](installation.md#upgrading); this
-change does not establish an in-place upgrade exception.
+For missing diagnostic metadata, check `brewlet.sh/jdks-info` and the
+node-provisioner's logs/publication, not just the desired NodeProfile or compact
+tokens.
 
 Both annotations remain current contracts under
 [issue #176](https://github.com/microsoft/brewlet/issues/176).
@@ -451,8 +446,7 @@ The command refuses Helm/GitOps-owned profiles (remove those from
 `provisioner.pools`/`profiles` or the GitOps source, then run the same command
 with `--wait` to follow cleanup). It requires `--yes` while Java workloads still
 run on the profile's claimed nodes, and exits nonzero on `CleanupBlocked`,
-`UnsupportedPreClaimState`, or `--wait-timeout`. Unsupported pre-claim state
-requires original-release cleanup, not ordinary spec repair. See
+`UnsupportedPreClaimState`, or `--wait-timeout`. See
 [`brewlet k8s profile delete`](cli-reference.md#deleting-a-profile).
 
 Move or drain affected workloads before deleting a profile: completion ordering
@@ -470,17 +464,12 @@ Missing/reused UIDs before proven cleanup have no supported in-place recovery.
 Coordinate [node decommissioning and autoscaler scale-in](capability-labels-and-autoscaling.md#scale-in-consolidation-and-replacement)
 before removing a Node or VM.
 
-For a fresh Helm installation, the chart installs the CRDs; no prior upgrade or
-migration is needed. Brewlet release changes default to
+Brewlet release changes default to
 [safe teardown/reinstallation](installation.md#upgrading), distinct from JDK
-rotation within the installed release. For an explicitly supported in-place
-transition or recovery, use matching CRDs and operator/provisioner components.
-Workers predating UID-bound node claims are refused, not inventoried, drained,
-or adopted. Finish cleanup using the original release's compatible components
-before reinstalling; see [pre-claim recovery](installation.md#unsupported-pre-claim-workers).
-Retained migration markers and refusal conditions are evidence, not permission
-to migrate. Keep them, finalizers, and any scheduling gates left by an older
-release intact. Vanished workers or advertisements do not prove host cleanup.
+rotation within the installed release. Use matching CRDs and
+operator/provisioner components. `UnsupportedPreClaimState` requires
+[unsupported-state recovery](installation.md#unsupported-state-recovery), not
+ordinary spec repair or adoption of unfenced hosts.
 Inspect `kubectl get nodeprofile <name> -o yaml`
 and operator logs for `UnsupportedPreClaimState`, `OwnershipConflict`, `Retargeting`,
 or `CleanupBlocked`. For control-plane removal, follow
@@ -495,6 +484,4 @@ or `CleanupBlocked`. For control-plane removal, follow
 - The copied image must contain the operating-system loader and native libraries
   required by `java`.
 - The default validated activation expects a `containerd` systemd service. Use
-  `none` when another system owns runtime registration. The removed `sighup`
-  policy is rejected; existing installations follow
-  [safe teardown/reinstallation](installation.md#upgrading).
+  `none` when another system owns runtime registration.

@@ -70,7 +70,7 @@ with `--set key=value` or a values file.
 | `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the chart-managed default `NodeProfile`. |
 | `provisioner.rollout.maxUnavailable` | `null` | Bounds the default profile's provisioner DaemonSet rolling update. `null` keeps the DaemonSet default. |
 | `provisioner.rollout.validate` | `true` | Gate node readiness on post-install JDK smoke tests and staged-launcher executable checks. Arbitrary launchers are not executed as a probe. Renders the provisioner `BREWLET_VALIDATE` env. |
-| `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`), or no containerd mutation/signal (`none`). Removed policies are rejected; existing installations follow [safe teardown/reinstallation](installation.md#upgrading). Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
+| `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`), or no containerd mutation/signal (`none`). Invalid values are rejected. Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `provisioner.registry.mirrors` | `{}` | `<upstream-host>: <mirror-host[/path]>` map applied to digest-pinned source pulls. Every destination host must appear in `security.allowedSourceMirrorHosts`. |
 | `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Requires `provisioner.pools`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `profiles` | `[]` | Additional `NodeProfile` CRs. Each requires a unique name, a nonempty list of named `pools`, and explicit JDK sources; the chart never renders an accidental catch-all. Includes AppCDS, rollout, and registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
@@ -278,10 +278,10 @@ namespace. This mode does not start controllers or host-mutating workers; see
 
 ## Node-provisioner environment variables
 
-The provisioner environment contract lives in the core runtime's
+The provisioner environment contract lives in
 [`provisioner/README.md`](https://github.com/microsoft/brewlet/blob/main/provisioner/README.md).
-The Kubernetes operator sets these variables on the DaemonSet it manages; you
-only touch them directly if you hand-wire the DaemonSet.
+The Kubernetes operator sets these variables on NodeProfile-managed DaemonSets;
+configure the profile and operator settings rather than editing worker environments.
 
 | Env var | Default | Meaning |
 |---|---|---|
@@ -312,7 +312,7 @@ only touch them directly if you hand-wire the DaemonSet.
 | `CONTAINERD_ADDRESS` | `/run/containerd/containerd.sock` | Host containerd socket for copy-from-image and stage GC reference inspection. |
 | `CONTAINERD_NAMESPACE` | `k8s.io` | containerd namespace for image pulls; does not restrict GC, which checks all namespaces. |
 | `BREWLET_MODE` | `provision` | `provision` installs the runtime; `cleanup` reverses recorded host state for a retiring target or deleted profile. Managed cleanup uses the frozen per-node containerd policy and runs in `brewlet-cleanup-<profile>` (§5.6). |
-| `BREWLET_CONTAINERD_RESTART` | `validated` | `validated` smoke-tests the runtime inventory, validates the effective config with `containerd config dump`, restarts the host service only when needed, checks containerd and the live `brewlet` handler, and restores known-good config on activation failure. `none` neither mutates nor signals containerd during provisioning or cleanup. Rendered from `spec.rollout.containerdRestart`; removed values are rejected, never mapped to a different host operation. |
+| `BREWLET_CONTAINERD_RESTART` | `validated` | `validated` validates the effective config with `containerd config dump`, restarts the host service only when needed, checks containerd and the live `brewlet` handler, and restores known-good config on activation failure. `none` neither mutates nor signals containerd during provisioning or cleanup. Rendered from `spec.rollout.containerdRestart`; other values fail before host operations. |
 | `BREWLET_VALIDATE` | `true` | Run `java -version` for every JDK and verify every staged launcher is executable before publishing runtime or capability labels. Arbitrary launchers are not executed. `false` skips both sets of checks. Rendered from `spec.rollout.validate`. |
 | `MIRRORS` | *(empty)* | Strict comma-separated `<upstream-host>=<mirror-host[/path]>` pairs rendered from `spec.registry.mirrors`. Schemes, whitespace, empty entries, duplicates, self-mappings, and unapproved destinations fail closed. |
 | `SOURCE_ALLOWED_MIRROR_HOSTS` | *(empty)* | Exact destination host allowlist rendered from the operator's `--allowed-source-mirror-hosts`; empty disables `MIRRORS`. |

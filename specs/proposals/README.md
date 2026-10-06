@@ -3,18 +3,10 @@
 KEP-style design proposals for changes that are large enough to warrant a written,
 reviewable design. The [roadmap](../../ROADMAP.md) is the source of truth for
 functionality that Brewlet does not yet ship; proposals preserve the detailed
-engineering rationale behind those roadmap items.
-
-## Design record
-
-- [0001 — Node profiles: per-pool cluster preparation](0001-node-profiles.md)
-  — implemented
-- [0002 — Validated containerd reconfiguration and readiness smoke gate](0002-validated-node-reconfig.md)
-  — implemented
-- [0003 — Stable capability-label taxonomy for autoscaling](0003-capability-label-taxonomy.md)
-  — implemented
-- [0004 — cert-manager integration for the admission webhook](0004-cert-manager-admission.md)
-  — implemented
+engineering rationale behind those roadmap items. These proposals are not current
+contracts; see the [specification](../SPECIFICATION.md) for shipped behavior.
+Implemented proposals 0001-0004 are preserved as non-normative historical records
+in the [archive index](../../archive/README.md).
 
 ## Roadmap designs
 
