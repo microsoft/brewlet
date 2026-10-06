@@ -116,6 +116,10 @@ bash provisioner/entrypoint_test.sh
 make container-security-check
 ```
 
+Container security checks cover tracked and untracked, non-ignored Dockerfiles.
+Ignored build outputs and upstream fixture checkouts are excluded from discovery;
+explicit paths passed to `scripts/check-container-build-security.sh` are always checked.
+
 The explicit Kubernetes CLI integration target requires Go and Helm and runs
 with a private envtest API server, not your current kube context. For image
 changes, use `make provisioner-image` and, with a configured Docker Buildx

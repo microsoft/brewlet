@@ -257,12 +257,12 @@ dockerfiles=()
 if (($# > 0)); then
   dockerfiles=("$@")
 else
+  git rev-parse --show-toplevel >/dev/null
   while IFS= read -r -d '' dockerfile; do
     dockerfiles+=("$dockerfile")
   done < <(
-    find . -type f \
-      \( -name Dockerfile -o -name '*Dockerfile' -o -name 'Dockerfile.*' \) \
-      -not -path './.git/*' -print0
+    git ls-files -z --cached --others --exclude-standard -- \
+      '*Dockerfile' 'Dockerfile.*' '*/Dockerfile.*'
   )
 
   helper="provisioner/download-verified.sh"

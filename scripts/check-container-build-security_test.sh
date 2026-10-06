@@ -193,4 +193,45 @@ expect_failure "$WORK/custom-escape.Dockerfile" "non-default Dockerfile escape d
 expect_failure "$WORK/external-copy.Dockerfile" "external COPY --from must use a full sha256 digest"
 expect_failure "$WORK/external-mount.Dockerfile" "external RUN --mount source must use a full sha256 digest"
 
+repo="$WORK/repo"
+mkdir -p "$repo/provisioner" "$repo/fixtures/.checkout/.devcontainer"
+git init -q "$repo"
+cp "$ROOT/provisioner/download-verified.sh" "$repo/provisioner/"
+chmod +x "$repo/provisioner/download-verified.sh"
+cp "$WORK/good.Dockerfile" "$repo/Dockerfile"
+cp "$WORK/unpinned.Dockerfile" "$repo/fixtures/.checkout/.devcontainer/Dockerfile"
+printf 'fixtures/.checkout/\n' >"$repo/.gitignore"
+git -C "$repo" add Dockerfile
+
+(
+  cd "$repo"
+  "$POLICY" >/dev/null
+  expect_failure "fixtures/.checkout/.devcontainer/Dockerfile" \
+    "external FROM must use a full sha256 digest"
+
+  for file in "new image/Dockerfile" "new image/custom.Dockerfile" "new image/Dockerfile.test"; do
+    mkdir -p "$(dirname "$file")"
+    cp "$WORK/unpinned.Dockerfile" "$file"
+    if output="$("$POLICY" 2>&1)"; then
+      echo "expected discovery to reject untracked $file" >&2
+      exit 1
+    fi
+    if [[ "$output" != *"$file:1: external FROM must use a full sha256 digest"* ]]; then
+      echo "unexpected discovery failure: $output" >&2
+      exit 1
+    fi
+    rm "$file"
+  done
+
+  git add -f fixtures/.checkout/.devcontainer/Dockerfile
+  if output="$("$POLICY" 2>&1)"; then
+    echo "expected discovery to reject tracked Dockerfiles even when ignored" >&2
+    exit 1
+  fi
+  if [[ "$output" != *"fixtures/.checkout/.devcontainer/Dockerfile:1: external FROM must use a full sha256 digest"* ]]; then
+    echo "unexpected tracked-file failure: $output" >&2
+    exit 1
+  fi
+)
+
 echo "Container build security policy tests passed."
