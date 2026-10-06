@@ -46,7 +46,9 @@ verified_download() {
 
 cleanup() {
   local result=$? cid
-  trap - EXIT INT TERM ERR
+  # Ignore further interrupts so a pending or repeated signal cannot abort cluster removal.
+  trap '' INT TERM
+  trap - EXIT ERR
   set +e
   if [[ -n "$builder_pid" ]]; then
     if kill -0 "$builder_pid" 2>/dev/null; then
@@ -313,7 +315,10 @@ EOF
     die "PetClinic did not become healthy through the local port forward."
   printf '\nPetClinic is ready: http://127.0.0.1:%s\n' "$port"
   printf 'Open Find Owners to explore the sample data.\nPress Ctrl+C here to delete this demo cluster and return to your terminal.\n'
-  wait "$forward_pid"
+  local forward_status=0
+  wait "$forward_pid" || forward_status=$?
+  # Ctrl+C or SIGTERM reaches the whole process group; keep the interrupt exit status.
+  case "$forward_status" in 130|143) exit "$forward_status" ;; esac
   die "Port forwarding ended unexpectedly; the demo will be cleaned up."
 }
 
