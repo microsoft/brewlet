@@ -264,7 +264,8 @@ func decodeDocument(raw []byte) (document, error) {
 	return doc, nil
 }
 
-func managedBy(meta metadata) string {
+func managedBy(obj object) string {
+	meta := obj.Metadata
 	if meta.Labels["app.kubernetes.io/managed-by"] != "" &&
 		!oneOf(strings.ToLower(meta.Labels["app.kubernetes.io/managed-by"]), "brewlet", "kubectl") {
 		return meta.Labels["app.kubernetes.io/managed-by"]
@@ -292,12 +293,35 @@ func managedBy(meta metadata) string {
 		if err := json.Unmarshal(field.Fields, &fields); err != nil {
 			return "unrecognized field ownership"
 		}
-		if _, ownsSpec := fields["f:spec"]; ownsSpec &&
-			!oneOf(field.Manager, "brewlet", "kubectl", "kubectl-client-side-apply", "kubectl-edit", "kubectl-patch") {
+		if specFields, ownsSpec := fields["f:spec"]; ownsSpec &&
+			!oneOf(field.Manager, "brewlet", "kubectl", "kubectl-client-side-apply", "kubectl-edit", "kubectl-patch") &&
+			!ownsOnlyEmptyRollout(specFields, obj.Spec) {
 			return "field manager " + field.Manager
 		}
 	}
 	return ""
+}
+
+// ownsOnlyEmptyRollout reports whether a manager's spec ownership is just an
+// empty rollout that the live object also leaves empty. Older operators wrote
+// "rollout: {}" when adding their finalizer with a full update; that entry
+// carries no user intent and must not make the profile look externally managed.
+func ownsOnlyEmptyRollout(specFields, spec json.RawMessage) bool {
+	var owned map[string]json.RawMessage
+	if json.Unmarshal(specFields, &owned) != nil || len(owned) != 1 || !emptyObject(owned["f:rollout"]) {
+		return false
+	}
+	var live map[string]json.RawMessage
+	if json.Unmarshal(spec, &live) != nil {
+		return false
+	}
+	rollout, ok := live["rollout"]
+	return !ok || string(rollout) == "null" || emptyObject(rollout)
+}
+
+func emptyObject(raw json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	return raw != nil && json.Unmarshal(raw, &fields) == nil && fields != nil && len(fields) == 0
 }
 
 func (c *client) updateProfile(u updateOptions) error {
@@ -345,7 +369,7 @@ func (c *client) updateProfile(u updateOptions) error {
 	if profile.Metadata.DeletionTimestamp != "" {
 		return fmt.Errorf("profile %q is terminating; refusing to change its inventory", u.profile)
 	}
-	owner := managedBy(profile.Metadata)
+	owner := managedBy(profile)
 	if u.dryRun != dryRunClient && owner != "" {
 		return fmt.Errorf("profile %q is managed by %s; edit its source of truth (use add --dry-run --values FILE for Helm), not the live object", u.profile, owner)
 	}

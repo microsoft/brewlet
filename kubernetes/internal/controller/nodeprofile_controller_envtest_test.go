@@ -6,6 +6,7 @@ package controller
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
@@ -16,6 +17,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -643,4 +645,60 @@ func itoaTest(v int) string {
 		v /= 10
 	}
 	return string(buf[i:])
+}
+
+// Regression for #210: adding the cleanup finalizer must not make the operator
+// a field manager of spec (e.g. an implicit "rollout: {}"), which the CLI
+// ownership guard would treat as an external source of truth.
+func TestNodeProfileFinalizerDoesNotClaimSpecFields(t *testing.T) {
+	c := requireEnvtest(t)
+	ctx := testContext(t)
+	ns := createNamespace(t, ctx, c)
+	const operator = "brewlet-operator-test"
+	r := newProfileReconciler(client.WithFieldOwner(c, operator), ns)
+	t.Cleanup(func() { cleanupRuntimeClass(c) })
+
+	poolKey := "cloud.google.com/gke-nodepool"
+	createNode(t, ctx, c, map[string]string{poolKey: "no-rollout"})
+	name := uniqueName("no-rollout")
+	// Create from raw JSON like kubectl does: the typed client would itself
+	// serialize an empty rollout and mask the operator's claim.
+	src := jdk("temurin", 21)
+	profile := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": nodev1alpha1.GroupVersion.String(), "kind": "NodeProfile",
+		"metadata": map[string]any{"name": name},
+		"spec": map[string]any{
+			"nodePool": map[string]any{"names": []any{"no-rollout"}, "key": poolKey},
+			"jdks": []any{map[string]any{
+				"distribution": src.Distribution, "feature": int64(src.Feature),
+				"source": map[string]any{"image": src.Source.Image, "javaHome": src.Source.JavaHome},
+			}},
+		},
+	}}
+	if err := client.WithFieldOwner(c, "kubectl").Create(ctx, profile); err != nil {
+		t.Fatalf("creating profile: %v", err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		var cur nodev1alpha1.NodeProfile
+		if err := c.Get(bg, types.NamespacedName{Name: name}, &cur); err == nil {
+			cur.Finalizers = nil
+			_ = c.Update(bg, &cur)
+			_ = c.Delete(bg, &cur)
+		}
+	})
+
+	reconcileProfile(t, ctx, r, name)
+	p := getProfile(t, ctx, c, name)
+	if !containsString(p.Finalizers, brewlet.FinalizerCleanup) {
+		t.Fatalf("finalizer not added: %v", p.Finalizers)
+	}
+	for _, entry := range p.ManagedFields {
+		if entry.Manager != operator || entry.Subresource != "" || entry.FieldsV1 == nil {
+			continue
+		}
+		if strings.Contains(string(entry.FieldsV1.Raw), `"f:spec"`) {
+			t.Fatalf("operator claimed spec fields: %s", entry.FieldsV1.Raw)
+		}
+	}
 }

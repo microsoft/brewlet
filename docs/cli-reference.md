@@ -791,8 +791,10 @@ There is no `--apply` flag. **`add ... > result.yaml` still changes the cluster*
 use `add ... --dry-run > proposal.yaml` for a client-validated preview.
 
 Live application rejects terminating profiles, Helm/Argo CD/Flux ownership
-markers, owner references, and unrecognized spec field managers. It never
-forces ownership. The patch changes only the selected inventory and tests both
+markers, owner references, and unrecognized spec field managers. A manager
+whose only spec ownership is an empty `rollout` (left by older operators when
+they added the cleanup finalizer) is ignored while the live `spec.rollout` is
+empty. It never forces ownership. The patch changes only the selected inventory and tests both
 the profile UID and resource version; a concurrent change fails without a
 blind retry. These ownership checks also apply to `add --dry-run=server`. Use
 client dry-run mode to prepare Helm/GitOps source changes and deploy them through
