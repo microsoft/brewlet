@@ -384,7 +384,7 @@ tier17_stage_gc() {
     return 0
   fi
   if [[ -z "$T17_NODE" ]]; then
-    local why="no fresh node among ($candidates): existing shim, record, or stage state was preserved; a Kubernetes reset does not make the node fresh"
+    local why="no fresh node among (${candidates% }): existing shim, record, or stage state was preserved; a Kubernetes reset does not make the node fresh"
     # In a multi-tier run, earlier node tiers (or a previous run) may own every
     # node; that is an environment limit, not a stage-GC defect. Run alone,
     # tier 17 still fails so a dirty dedicated node is never silently accepted.
