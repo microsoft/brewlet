@@ -8,7 +8,9 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from common import GC_STARTUP_DELAY, Fixture, kind_config, owned_container, redact, wait
+from common import (GC_STARTUP_DELAY, KIND_IMAGE, KIND_VERSION, MAVEN_NETWORK_RETRIES, Fixture,
+                    InfrastructureError, failure_class, kind_config, owned_container, redact,
+                    require_kind_version, retry_transient, transient_failure, wait)
 from hpa import assert_cold_start_retention, cpu_millicores, hpa_cpu_utilization
 
 
@@ -132,6 +134,100 @@ class FixtureSafetyTests(unittest.TestCase):
                 ["docker", "rm", "-f", "--volumes", "registry-id"],
             ])
         self.assertFalse(fixture.private.exists())
+
+
+
+def completed(code, stderr=""):
+    return subprocess.CompletedProcess([], code, "", stderr)
+
+
+class KindPinTests(unittest.TestCase):
+    def test_exact_kind_version_is_required(self):
+        self.assertEqual(require_kind_version(
+            f"kind {KIND_VERSION} go1.27.1 darwin/arm64"), KIND_VERSION)
+        for output in ("kind v0.30.0 go1.24.6 linux/amd64", "kind v0.33.1 go1.27 linux/amd64",
+                       "kind v0.33.0-alpha+abc go1.27", "garbage", ""):
+            with self.assertRaises(RuntimeError) as raised:
+                require_kind_version(output)
+            message = str(raised.exception)
+            self.assertIn(f"requires kind {KIND_VERSION}", message)
+            self.assertIn(f"go install sigs.k8s.io/kind@{KIND_VERSION}", message)
+
+    def test_node_image_is_digest_pinned(self):
+        self.assertRegex(KIND_IMAGE, r"^kindest/node:v1\.34\.\d+@sha256:[a-f0-9]{64}$")
+
+
+class InfrastructureRetryTests(unittest.TestCase):
+    def test_transient_symptoms_are_classified(self):
+        for text in ("repo.maven.apache.org: nodename nor servname provided, or not known",
+                     "Could not transfer artifact org.mockito:mockito-core: Connection reset",
+                     "dial tcp: lookup ghcr.io: no such host",
+                     "Get https://proxy.golang.org/: dial tcp: i/o timeout",
+                     "toomanyrequests: rate limit"):
+            self.assertIsNotNone(transient_failure(text), text)
+        for text in ("BUILD FAILURE: compilation error", "AssertionError: denied",
+                     "syntax error: unexpected EOF", "403 Forbidden", ""):
+            self.assertIsNone(transient_failure(text), text)
+
+    def test_publishing_goals_retry_only_before_mojo_runs(self):
+        resolution = ("Failed to execute goal on project demo: Could not resolve dependencies: "
+                      "Could not transfer artifact x: Connection reset")
+        self.assertIsNotNone(transient_failure(resolution, resolution_only=True))
+        self.assertIsNone(transient_failure(
+            "brewlet:push failed: PUT http://registry/v2/: Connection reset", resolution_only=True))
+
+    def test_retry_recovers_from_transient_failure_with_backoff(self):
+        results = iter([completed(1, "lookup ghcr.io: no such host"),
+                        completed(1, "Connection reset"), completed(0)])
+        delays = []
+        with patch("builtins.print"):
+            result = retry_transient("pull", lambda: next(results), sleep=delays.append)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(delays, [10, 20])
+
+    def test_non_transient_failure_is_returned_without_retry(self):
+        calls = []
+        def attempt():
+            calls.append(1)
+            return completed(1, "BUILD FAILURE: cannot find symbol")
+        result = retry_transient("build", attempt, sleep=self.fail)
+        self.assertEqual((result.returncode, len(calls)), (1, 1))
+
+    def test_exhausted_retries_raise_infrastructure_error(self):
+        calls = []
+        def attempt():
+            calls.append(1)
+            return completed(1, "repo.maven.apache.org: nodename nor servname provided")
+        with patch("builtins.print"), self.assertRaises(InfrastructureError) as raised:
+            retry_transient("build-plugin", attempt, attempts=3, sleep=lambda _: None)
+        self.assertEqual(len(calls), 3)
+        self.assertIn("not an assertion failure", str(raised.exception))
+        self.assertEqual(failure_class(raised.exception), "infrastructure")
+
+    def test_failure_classes_keep_assertions_distinct(self):
+        self.assertEqual(failure_class(AssertionError("denied")), "assertion")
+        self.assertEqual(failure_class(TimeoutError("wait")), "assertion")
+        self.assertEqual(failure_class(RuntimeError("other")), "error")
+        self.assertTrue(issubclass(InfrastructureError, RuntimeError))
+
+    def test_maven_uses_bounded_resolver_retries(self):
+        self.assertIn("-Daether.connector.http.retryHandler.count=5", MAVEN_NETWORK_RETRIES)
+
+    def test_result_records_failure_class(self):
+        fixture = Fixture.__new__(Fixture)
+        fixture.node, fixture.node_id, fixture.registry_id, fixture.network_id = "n", None, None, None
+        fixture.children, fixture.cleanups, fixture.evidence, fixture.old_signals = [], [], [], {}
+        fixture.scenario = "admission"
+        fixture.private = Path(tempfile.mkdtemp())
+        fixture.failure_class = None
+        error = InfrastructureError("lookup ghcr.io: no such host")
+        with patch("builtins.print"):
+            fixture.classify(error)
+        with patch.object(fixture, "diagnostics"), patch.object(fixture, "save") as save:
+            fixture.finish(False)
+        result = [c.args[1] for c in save.call_args_list if c.args[0] == "result.json"][0]
+        self.assertEqual(result["failureClass"], "infrastructure")
+        self.assertFalse(result["passed"])
 
 
 if __name__ == "__main__":

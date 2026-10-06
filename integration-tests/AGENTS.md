@@ -17,6 +17,9 @@ fail instead of skipping. `.github/workflows/e2e.yml` has separate scheduled/man
 live jobs, each running twice on fresh clusters; it has no push/PR triggers.
 All three scenarios use the same checkout-built runtime, plus the checkout
 verifier for admission. There are no historical runtime modes or version selectors.
+They require exactly kind v0.33.0 (`go install sigs.k8s.io/kind@v0.33.0`); setup
+network failures are retried with backoff and reported as `failureClass:
+infrastructure` in `result.json`, never as skipped assertions.
 
 See [the live-validation runbook](../docs/live-validation.md) for release pins,
 capacity, load leases, stabilization, fixture-only TLS/HTTP exceptions, evidence,

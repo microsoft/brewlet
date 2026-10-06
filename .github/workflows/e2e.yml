@@ -283,7 +283,7 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - name: Install pinned kind
         run: |
-          go install sigs.k8s.io/kind@v0.30.0
+          go install sigs.k8s.io/kind@v0.33.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           if ! command -v htpasswd; then
             sudo apt-get update -qq
@@ -336,7 +336,7 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - name: Install pinned kind and htpasswd
         run: |
-          go install sigs.k8s.io/kind@v0.30.0
+          go install sigs.k8s.io/kind@v0.33.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           if ! command -v htpasswd; then
             sudo apt-get update -qq

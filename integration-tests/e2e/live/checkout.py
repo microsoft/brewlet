@@ -8,7 +8,8 @@ import re
 import shutil
 import xml.etree.ElementTree as ET
 
-from common import Fixture, JDK_IMAGE, OWNER_LABEL, ROOT, sha256
+from common import (Fixture, JDK_IMAGE, MAVEN_NETWORK_RETRIES, OWNER_LABEL, ROOT,
+                    retry_transient, sha256)
 
 
 class CheckoutFixture(Fixture):
@@ -20,7 +21,7 @@ class CheckoutFixture(Fixture):
         self.source = ROOT
         self.image_ids = []
         self.built = {}
-        self.maven_base = ["mvn", "-B", "--no-transfer-progress",
+        self.maven_base = ["mvn", "-B", "--no-transfer-progress", *MAVEN_NETWORK_RETRIES,
                            f"-Dmaven.repo.local={self.private / 'm2'}"]
         self.cleanups.append(self.remove_checkout_images)
 
@@ -30,9 +31,13 @@ class CheckoutFixture(Fixture):
         super().start()
 
     def build_command(self, name, argv, **kwargs):
+        """Idempotent checkout build; transient network failures are retried."""
         kwargs["env"] = dict(self.env, **kwargs.get("env", {}))
-        result = self.run(argv, check=False, **kwargs)
-        self.save(name + ".log", result.stdout + result.stderr)
+        def attempt():
+            result = self.run(argv, check=False, **kwargs)
+            self.save(name + ".log", result.stdout + result.stderr)
+            return result
+        result = retry_transient(name, attempt)
         if result.returncode:
             raise RuntimeError(f"{name} failed ({result.returncode}); see {self.work}")
         return result
