@@ -101,6 +101,21 @@ _t17_image_refs() {
     awk -v d="$1" 'NR > 1 && $3 == d { print $1 }'
 }
 
+# _t17_foreign_refs DIGEST: image records already on the node that reference
+# DIGEST directly or through an index (e.g. another tier's `ctr import` of the
+# same deterministic demo image). Such records keep the stage alive, so a node
+# holding them is not fresh for the reclaim assertion.
+_t17_foreign_refs() {
+  node_exec "$T17_NODE" sh -c '
+    parents="$(ctr -n k8s.io content ls 2>/dev/null |
+      awk -v d="$1" "NR > 1 { n = split(\$NF, l, \",\"); for (i = 1; i <= n; i++) if (sub(/^[^=]*=/, \"\", l[i]) && l[i] == d) { print \$1; break } }" |
+      tr "\n" " ")"
+    ctr -n k8s.io images ls 2>/dev/null |
+      awk -v d="$1" -v p="$parents" "BEGIN { n = split(p, a, \" \"); for (i = 1; i <= n; i++) s[a[i]] = 1 }
+        NR > 1 && (\$3 == d || (\$3 in s)) { print \$1 }"
+  ' sh "$1" 2>/dev/null
+}
+
 _t17_remove_image() {
   local refs
   refs="$(_t17_image_refs "$1")"
@@ -442,8 +457,18 @@ tier17_stage_gc() {
      ! "$WORK/t17-brewlet" push "$jar" "$T17_REF" --store "$store" --format=image >>"$WORK/t17-app.log" 2>&1; then
     fail "tier17: build runnable image" "see $WORK/t17-app.log"; return 0
   fi
-  local digest
+  local digest foreign
   digest="$(oci_layout_digest "$store" "$T17_REF")"
+  foreign="$([[ -n "$digest" ]] && _t17_foreign_refs "$digest" | tr '\n' ' ')"
+  if [[ -n "$foreign" ]]; then
+    local why="node $T17_NODE already has image records referencing the demo image ($foreign); they would keep its stage alive"
+    if (( ${E2E_TIER_COUNT:-1} > 1 )); then
+      skip "tier17: requires a dedicated fresh node" "$why; run './run.sh --tier 17' alone on a new cluster"
+    else
+      fail "tier17: requires a dedicated fresh node" "$why"
+    fi
+    return 0
+  fi
   if [[ -z "$digest" ]] || ! import_oci_layout "$T17_NODE" "$store" "$WORK/t17-app.log" ||
      ! image_ref="$(pin_image_for_cri "$T17_NODE" "$T17_REF" "$digest" "$WORK/t17-app.log")"; then
     fail "tier17: import runnable image into node" "see $WORK/t17-app.log"; return 0

@@ -178,7 +178,8 @@ it both inline and from its cleanup trap. §14's remaining row, the cgroup-v1
 refusal, cannot be produced on a cgroup-v2 CI node and is covered
 deterministically by `provisioner/entrypoint_test.sh` over `require_cgroup_v2`.
 Tier 17 requires a dedicated fresh node (no shim, safety record, or stage
-tree). Kubernetes `--reset` alone does not prepare a fresh node, and the tier
+tree, and no image records that already reference the tier's deterministic
+demo image, since those would keep its stage alive). Kubernetes `--reset` alone does not prepare a fresh node, and the tier
 rejects retained host state without clearing it. It uses the first fresh
 schedulable node. In a multi-tier run (including the default all-tiers run),
 `run.sh` moves tier 17 ahead of every Kubernetes tier, right after host-only
