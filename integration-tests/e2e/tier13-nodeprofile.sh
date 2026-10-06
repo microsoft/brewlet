@@ -67,21 +67,21 @@ _t13_cleanup() {
   _t13_abort_profiles || return
   local n
   for n in $T13_LABELLED; do
-    kubectl label "node/$n" "$T13_POOL_KEY-" >/dev/null 2>&1 || true
+    kubectl_retry label "node/$n" "$T13_POOL_KEY-" >/dev/null 2>&1 || true
   done
   T13_LABELLED=""
   if [[ -n "$T13_NODE" ]]; then
     if [[ -n "$T13_OLD_POOL" ]]; then
-      kubectl label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_OLD_POOL" >/dev/null 2>&1 || true
+      kubectl_retry label --overwrite "$T13_NODE" "$T13_POOL_KEY=$T13_OLD_POOL" >/dev/null 2>&1 || true
     else
-      kubectl label "$T13_NODE" "$T13_POOL_KEY-" >/dev/null 2>&1 || true
+      kubectl_retry label "$T13_NODE" "$T13_POOL_KEY-" >/dev/null 2>&1 || true
     fi
   fi
-  kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete ns "$T13_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl_retry delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
+  kubectl_retry delete ns "$T13_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   wait_for bash -c "! kubectl get namespace '$T13_NS' >/dev/null 2>&1" ||
     fail "tier13: operator namespace fully removed"
-  kubectl delete crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh \
+  kubectl_retry delete crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh \
     --ignore-not-found --wait=true --timeout=30s >/dev/null 2>&1 || true
   check "tier13: fixture teardown leaves no owner claims or writers" profile_fixture_preflight
 }

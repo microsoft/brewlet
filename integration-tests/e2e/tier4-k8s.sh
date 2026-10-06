@@ -29,8 +29,8 @@ _t4_cleanup() {
   [[ -n "$T4_MGR_PID" ]] && wait "$T4_MGR_PID" 2>/dev/null || true
   T4_MGR_PID=""
   if [[ -n "$T4_NODE" ]]; then
-    kubectl label "$T4_NODE" brewlet.sh/runtime- >/dev/null 2>&1 || true
-    kubectl annotate "$T4_NODE" brewlet.sh/provision-state- >/dev/null 2>&1 || true
+    kubectl_retry label "$T4_NODE" brewlet.sh/runtime- >/dev/null 2>&1 || true
+    kubectl_retry annotate "$T4_NODE" brewlet.sh/provision-state- >/dev/null 2>&1 || true
   fi
   if [[ -n "$T4_PROFILE_UID" ]] &&
      ! abort_unstarted_profile_fixture "$T4_NS_OP" default "$T4_PROFILE_UID" "$T4_IMAGE" \
@@ -38,14 +38,14 @@ _t4_cleanup() {
     fail "tier4: abort never-started fixture without leaking ownership" "see $WORK/t4-fixture-teardown.log"
     return
   fi
-  kubectl delete javaapplication orders -n "$T4_NS_APP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  kubectl delete ns "$T4_NS_APP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  kubectl delete daemonset brewlet-node-provisioner-default -n "$T4_NS_OP" --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete ns "$T4_NS_OP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl_retry delete javaapplication orders -n "$T4_NS_APP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl_retry delete ns "$T4_NS_APP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl_retry delete daemonset brewlet-node-provisioner-default -n "$T4_NS_OP" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl_retry delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
+  kubectl_retry delete ns "$T4_NS_OP" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   wait_for bash -c "! kubectl get namespace '$T4_NS_OP' >/dev/null 2>&1" ||
     fail "tier4: operator namespace fully removed"
-  kubectl delete crd javaapplications.apps.brewlet.sh nodeprofiles.node.brewlet.sh \
+  kubectl_retry delete crd javaapplications.apps.brewlet.sh nodeprofiles.node.brewlet.sh \
     --ignore-not-found --wait=true --timeout=30s >/dev/null 2>&1 || true
   T4_PROFILE_UID=""
   check "tier4: fixture teardown leaves no owner claims or writers" profile_fixture_preflight

@@ -83,6 +83,8 @@ e2e-contract-check: ## Check E2E suite routing and monitor history without a clu
 	node --test .github/extensions/e2e-monitor/runner.test.mjs
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'workflow_contract_test.py' -v
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'collect_diagnostics_test.py' -v
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'lib_retry_test.py' -v
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/e2e -p 'nodeprofile_fixtures_test.py' -v
 
 e2e-host: ## Run host-only end-to-end tiers
 	integration-tests/e2e/run.sh --tier 1 --tier 2

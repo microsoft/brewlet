@@ -6,8 +6,11 @@
 
 import copy
 import json
+import os
+import re
 import subprocess
 import sys
+import time
 
 OWNER = "brewlet.sh/owner-uid"
 IDENTITY = "brewlet.sh/owner-node-uid"
@@ -15,8 +18,50 @@ OWNER_NAME = "brewlet.sh/owner-name"
 ROLES = ("node-role.kubernetes.io/control-plane", "node-role.kubernetes.io/master")
 
 
+# Transport failures between a workstation and a managed API server. Only these
+# are retried; NotFound, conflicts, and assertion failures are not.
+TRANSIENT = re.compile(
+    r"connection reset by peer|unexpected EOF|(^|[^\w])EOF([^\w]|$)|"
+    r"Unable to connect to the server|TLS handshake timeout|socket is not connected",
+    re.MULTILINE)
+
+
+def transient(error):
+    return (isinstance(error, subprocess.CalledProcessError) and
+            bool(TRANSIENT.search(error.stderr or "")))
+
+
+def retrying(action, *args):
+    """Run an idempotent action, retrying only transient API-server errors."""
+    tries = max(1, int(os.environ.get("E2E_RETRIES", "5")))
+    nap = float(os.environ.get("E2E_RETRY_BACKOFF", "2"))
+    for attempt in range(1, tries + 1):
+        try:
+            return action(*args)
+        except subprocess.CalledProcessError as error:
+            if attempt >= tries or not transient(error):
+                raise
+            line = error.stderr.strip().splitlines()[-1]
+            print(f"transient API error (attempt {attempt}/{tries}, retrying in {nap:g}s): {line}",
+                  file=sys.stderr, flush=True)
+            time.sleep(nap)
+            nap = min(nap * 2, 30)
+
+
+def _kubectl_once(*args):
+    return subprocess.run(["kubectl", *args], check=True, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+
+
+def idempotent(args):
+    return bool(args) and (args[0] == "get" or
+                           (args[0] == "delete" and "--ignore-not-found" in args))
+
+
 def kubectl(*args):
-    return subprocess.check_output(["kubectl", *args], text=True)
+    if idempotent(args):
+        return retrying(_kubectl_once, *args)
+    return _kubectl_once(*args)
 
 
 def get(*args):
@@ -158,17 +203,38 @@ def placement(namespace, name, count, mode="provision"):
                 "guarded profile admits a control-plane node")
 
 
+def released(namespace, name, uid):
+    """Assert that profile UID, its workers, and its node claims are all gone."""
+    raw = kubectl("get", "nodeprofile", name, "--ignore-not-found", "-o", "json")
+    require(not raw.strip() or json.loads(raw)["metadata"]["uid"] != uid,
+            f"profile {name} ({uid}) still exists")
+    for worker in get("daemonsets,pods", "-n", namespace, "-l",
+                      f"brewlet.sh/nodeprofile={name}")["items"]:
+        refs = worker["metadata"].get("ownerReferences", [])
+        require(not any(r["uid"] == uid for r in refs), f"worker owned by {uid} remains")
+    for node in get("nodes")["items"]:
+        require(node["metadata"].get("labels", {}).get(OWNER) != uid,
+                f"{node['metadata']['name']} retains the claim of {uid}")
+
+
 def teardown(namespace, name, uid, image):
     """Test-only abort, NOT evidence of production host cleanup.
 
     The caller must stop and wait for its manager first. Only this invocation's
     reserved-domain, never-started workers and exact profile UID are accepted.
     Any dirty/foreign worker or identity mismatch preserves claims/finalizers.
+    Every step re-reads live state, so a pass interrupted by a transient
+    API-server error is safely re-run from the start.
     """
     require(image.startswith("invalid.brewlet-e2e.invalid/"),
             "teardown requires the reserved non-pullable fixture image")
+    retrying(_teardown_once, namespace, name, uid, image)
+
+
+def _teardown_once(namespace, name, uid, image):
     raw = kubectl("get", "nodeprofile", name, "--ignore-not-found", "-o", "json")
     if not raw.strip():
+        released(namespace, name, uid)
         return
     profile = json.loads(raw)
     require(profile["metadata"]["uid"] == uid, "refusing a replacement profile")
@@ -237,7 +303,10 @@ def teardown(namespace, name, uid, image):
 
 if __name__ == "__main__":
     try:
-        {"preflight": preflight, "placement": placement, "teardown": teardown}[sys.argv[1]](*sys.argv[2:])
+        {"preflight": preflight, "placement": placement, "teardown": teardown,
+         "released": released}[sys.argv[1]](*sys.argv[2:])
     except (AssertionError, KeyError, subprocess.CalledProcessError) as error:
         print(error, file=sys.stderr)
+        if getattr(error, "stderr", None):
+            print(error.stderr.strip(), file=sys.stderr)
         sys.exit(1)

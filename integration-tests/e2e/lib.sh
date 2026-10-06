@@ -92,6 +92,45 @@ resolve_java_home() {
 # k8s_reachable: true if kubectl can talk to a cluster.
 k8s_reachable() { kubectl version >/dev/null 2>&1 || kubectl cluster-info >/dev/null 2>&1; }
 
+# --- transient API-server errors -----------------------------------------
+# Long-haul connections to a managed API server (AKS from a workstation) are
+# occasionally reset. Only these transport failures are retried; any other
+# error, including a real assertion or a NotFound, is returned immediately.
+E2E_TRANSIENT_RE='connection reset by peer|unexpected EOF|(^|[^[:alnum:]_])EOF([^[:alnum:]_]|$)|Unable to connect to the server|TLS handshake timeout|socket is not connected'
+
+# e2e_transient_error FILE: true if FILE (stderr of a failed command) reports a
+# transient connection error.
+e2e_transient_error() { grep -qE "$E2E_TRANSIENT_RE" "$1" 2>/dev/null; }
+
+# e2e_retry_transient CMD...: run an IDEMPOTENT command, retrying with
+# exponential backoff (E2E_RETRY_BACKOFF seconds, doubling, capped at 30) up to
+# E2E_RETRIES attempts (default 5) only while it fails with a transient
+# connection error. Output of the final attempt is replayed; stdin is not
+# re-readable, so do not use it for commands that consume stdin.
+e2e_retry_transient() {
+  local tries="${E2E_RETRIES:-5}" nap="${E2E_RETRY_BACKOFF:-2}" attempt=1 rc out err
+  out="$(mktemp "${TMPDIR:-/tmp}/e2e-retry-out.XXXXXX")" || return 1
+  err="$(mktemp "${TMPDIR:-/tmp}/e2e-retry-err.XXXXXX")" || { rm -f "$out"; return 1; }
+  while :; do
+    rc=0
+    "$@" >"$out" 2>"$err" || rc=$?
+    if (( rc == 0 || attempt >= tries )) || ! e2e_transient_error "$err"; then break; fi
+    printf 'e2e: transient API error (attempt %d/%d, retrying in %ss): %s\n' \
+      "$attempt" "$tries" "$nap" "$(grep -E "$E2E_TRANSIENT_RE" "$err" | tail -1)" >&2
+    sleep "$nap"
+    nap=$(( nap * 2 > 30 ? 30 : nap * 2 ))
+    attempt=$((attempt + 1))
+  done
+  cat "$out"; cat "$err" >&2
+  rm -f "$out" "$err"
+  return "$rc"
+}
+
+# kubectl_retry ARGS...: kubectl for idempotent operations (get, apply, wait,
+# label/annotate KEY-, delete --ignore-not-found) used in setup, teardown and
+# verification. Never use it for assertions that expect a specific failure.
+kubectl_retry() { e2e_retry_transient kubectl "$@"; }
+
 # retry_curl URL [tries] [sleep]: fetch URL, retrying; echoes body on success.
 retry_curl() {
   local url="$1" tries="${2:-40}" nap="${3:-0.5}" body
@@ -295,14 +334,15 @@ _nodeshell_pod() { printf 'nodeshell-%s' "${1#node/}"; }
 
 # _nodeshell_ensure NODE: create (if needed) and wait for the node-shell pod.
 _nodeshell_ensure() {
-  local n="${1#node/}" pod
+  local n="${1#node/}" pod manifest rc=0
   pod="$(_nodeshell_pod "$n")"
-  [[ "$(kubectl get pod -n "$E2E_NODESHELL_NS" "$pod" \
+  [[ "$(kubectl_retry get pod -n "$E2E_NODESHELL_NS" "$pod" \
     -o jsonpath='{.status.phase}' 2>/dev/null)" == "Running" ]] && return 0
-  kubectl get node "$n" >/dev/null 2>&1 || return 1
-  kubectl get namespace "$E2E_NODESHELL_NS" >/dev/null 2>&1 ||
-    kubectl create namespace "$E2E_NODESHELL_NS" >/dev/null 2>&1 || true
-  kubectl apply -f - >/dev/null 2>&1 <<YAML || return 1
+  kubectl_retry get node "$n" >/dev/null 2>&1 || return 1
+  kubectl_retry get namespace "$E2E_NODESHELL_NS" >/dev/null 2>&1 ||
+    kubectl_retry create namespace "$E2E_NODESHELL_NS" >/dev/null 2>&1 || true
+  manifest="$(mktemp "${TMPDIR:-/tmp}/e2e-nodeshell.XXXXXX")" || return 1
+  cat >"$manifest" <<YAML
 apiVersion: v1
 kind: Pod
 metadata:
@@ -325,13 +365,16 @@ spec:
     volumeMounts: [{name: host, mountPath: /host, mountPropagation: HostToContainer}]
   volumes: [{name: host, hostPath: {path: /}}]
 YAML
-  kubectl wait -n "$E2E_NODESHELL_NS" --for=condition=Ready "pod/$pod" --timeout=120s >/dev/null 2>&1
+  kubectl_retry apply -f "$manifest" >/dev/null 2>&1 || rc=1
+  rm -f "$manifest"
+  (( rc == 0 )) || return 1
+  kubectl_retry wait -n "$E2E_NODESHELL_NS" --for=condition=Ready "pod/$pod" --timeout=120s >/dev/null 2>&1
 }
 
 # nodeshell_cleanup: delete every node-shell pod (and their namespace).
 nodeshell_cleanup() {
   [[ "$E2E_NODE_ACCESS" == "kubectl" ]] || return 0
-  kubectl delete namespace "$E2E_NODESHELL_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl_retry delete namespace "$E2E_NODESHELL_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
 
 # node_exec [-i] NODE CMD...: run CMD in NODE's host context, like
@@ -361,9 +404,14 @@ node_exec() {
 }
 
 # _node_upload NODE SRC PATH MODE: upload one file. Over kubectl the file is
-# sent in small chunks, each bounded by a timeout and retried, then reassembled
-# and sha256-checked on the node: remote exec streams through a managed API
-# server drop often enough that one multi-MB stream regularly fails.
+# sent in small chunks, each bounded by a timeout, then reassembled and
+# sha256-checked on the node: remote exec streams through a managed API server
+# drop often enough that one multi-MB stream regularly fails. Each chunk is
+# written to a temporary name and renamed only after its own sha256 matches, so
+# a retry first checks whether the chunk already landed (a stream can reset
+# after the write completed) and the transfer resumes instead of restarting.
+# Chunks retry on any failure (E2E_UPLOAD_RETRIES, default 5); the idempotent
+# setup, assembly and cleanup execs retry only on transient connection errors.
 _node_upload() {
   local n="$1" src="$2" path="$3" mode="$4"
   if [[ "$E2E_NODE_ACCESS" != "kubectl" ]]; then
@@ -374,31 +422,48 @@ _node_upload() {
     ' sh "$path" "$mode" "$(basename "$src")" <"$src"
     return
   fi
-  local dst stage parts part idx=0 try sum rc=0
-  dst="$(E2E_EXEC_TIMEOUT=60 node_exec "$n" sh -c '[ -d "$1" ] && echo "$1/$2" || echo "$1"' sh "$path" "$(basename "$src")")" || return 1
+  local dst stage parts part chunk csum idx=0 try sum rc=0 tries="${E2E_UPLOAD_RETRIES:-5}"
+  dst="$(E2E_EXEC_TIMEOUT=60 e2e_retry_transient node_exec "$n" \
+    sh -c '[ -d "$1" ] && echo "$1/$2" || echo "$1"' sh "$path" "$(basename "$src")")" || return 1
   stage="$dst.e2e-upload.$$"
-  sum="$(shasum -a 256 "$src" | awk '{print $1}')" || return 1
+  sum="$(_e2e_sha256 "$src")" || return 1
   parts="$(mktemp -d "${TMPDIR:-/tmp}/e2e-upload.XXXXXX")" || return 1
   split -b "${E2E_UPLOAD_CHUNK:-2m}" "$src" "$parts/p." || { rm -rf "$parts"; return 1; }
-  E2E_EXEC_TIMEOUT=60 node_exec "$n" mkdir -p "$stage.d" || { rm -rf "$parts"; return 1; }
+  E2E_EXEC_TIMEOUT=60 e2e_retry_transient node_exec "$n" mkdir -p "$stage.d" || { rm -rf "$parts"; return 1; }
   for part in "$parts"/p.*; do
     idx=$((idx + 1))
-    for try in 1 2 3 4 5; do
-      E2E_EXEC_TIMEOUT="${E2E_UPLOAD_CHUNK_TIMEOUT:-120}" node_exec -i "$n" \
-        sh -c 'cat > "$1"' sh "$stage.d/$(printf '%06d' "$idx")" <"$part" && break
-      (( try == 5 )) && { rc=1; break 2; }
-      echo "node_cp: chunk $idx to $n failed (attempt $try), retrying" >&2
-      sleep $((try * 2))
+    chunk="$stage.d/$(printf '%06d' "$idx")"
+    csum="$(_e2e_sha256 "$part")" || { rc=1; break; }
+    for ((try = 1; ; try++)); do
+      if (( try > 1 )) && E2E_EXEC_TIMEOUT=60 node_exec "$n" sh -c \
+          '[ "$(sha256sum "$1" 2>/dev/null | cut -d" " -f1)" = "$2" ]' sh "$chunk" "$csum" \
+          >/dev/null 2>&1; then
+        echo "node_cp: chunk $idx already on $n, resuming" >&2
+        break
+      fi
+      E2E_EXEC_TIMEOUT="${E2E_UPLOAD_CHUNK_TIMEOUT:-120}" node_exec -i "$n" sh -c '
+        cat >"$1.part" && [ "$(sha256sum "$1.part" | cut -d" " -f1)" = "$2" ] &&
+          mv -f "$1.part" "$1"' sh "$chunk" "$csum" <"$part" && break
+      (( try >= tries )) && { rc=1; break 2; }
+      echo "node_cp: chunk $idx to $n failed (attempt $try/$tries), retrying" >&2
+      sleep $((try * ${E2E_RETRY_BACKOFF:-2}))
     done
   done
   rm -rf "$parts"
   if (( rc == 0 )); then
-    E2E_EXEC_TIMEOUT=300 node_exec "$n" sh -c '
-      cat "$1.d"/* >"$1" && [ "$(sha256sum "$1" | cut -d" " -f1)" = "$2" ] &&
+    E2E_EXEC_TIMEOUT=300 e2e_retry_transient node_exec "$n" sh -c '
+      rm -f "$1.d"/*.part && cat "$1.d"/* >"$1" &&
+        [ "$(sha256sum "$1" | cut -d" " -f1)" = "$2" ] &&
         chmod "$3" "$1" && mv -f "$1" "$4"' sh "$stage" "$sum" "$mode" "$dst" || rc=1
   fi
-  E2E_EXEC_TIMEOUT=60 node_exec "$n" rm -rf "$stage" "$stage.d" >/dev/null 2>&1 || true
+  E2E_EXEC_TIMEOUT=60 e2e_retry_transient node_exec "$n" rm -rf "$stage" "$stage.d" >/dev/null 2>&1 || true
   return "$rc"
+}
+
+# _e2e_sha256 FILE: print FILE's sha256 (macOS shasum or GNU sha256sum).
+_e2e_sha256() {
+  if have sha256sum; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
 # node_import_image NODE TARBALL: import an image archive into the node's
@@ -413,7 +478,7 @@ node_import_image() {
   node_cp "$tarball" "$n:$remote" || return 1
   local rc=0
   E2E_EXEC_TIMEOUT=600 node_exec "$n" ctr -n k8s.io images import "$remote" || rc=$?
-  E2E_EXEC_TIMEOUT=60 node_exec "$n" rm -f "$remote" >/dev/null 2>&1 || true
+  E2E_EXEC_TIMEOUT=60 e2e_retry_transient node_exec "$n" rm -f "$remote" >/dev/null 2>&1 || true
   return "$rc"
 }
 
@@ -678,8 +743,19 @@ profile_fixture_placement() {
 # Only for stopped out-of-cluster managers with never-executed bogus images.
 # Unlike reset's force deletion, this releases exact fixture-owned fences only
 # after verifying worker provenance and waiting for foreground worker deletion.
+# If teardown fails (e.g. its connection was reset after the API server had
+# already applied the deletion), live state is re-checked before a leak is
+# declared: success only if the exact profile UID, its workers and every node
+# claim are verifiably gone.
 abort_unstarted_profile_fixture() {
-  python3 "$E2E_DIR/nodeprofile-fixtures.py" teardown "$@"
+  python3 "$E2E_DIR/nodeprofile-fixtures.py" teardown "$@" && return 0
+  echo "teardown did not complete; re-checking live state of $2 ($3)"
+  sleep "${E2E_RETRY_BACKOFF:-2}"
+  if python3 "$E2E_DIR/nodeprofile-fixtures.py" released "$1" "$2" "$3"; then
+    echo "re-check: fixture $1/$2 ($3) and its claims are gone; no leak"
+    return 0
+  fi
+  return 1
 }
 
 # force_delete_nodeprofiles: delete every NodeProfile, force-removing the
@@ -691,17 +767,17 @@ abort_unstarted_profile_fixture() {
 # Stripping the finalizer is a TEST-TEARDOWN concern only — the product behaviour
 # (hold until cleanup is verified) is intentional. No-op if the CRD is absent.
 force_delete_nodeprofiles() {
-  kubectl get crd nodeprofiles.node.brewlet.sh >/dev/null 2>&1 || return 0
+  kubectl_retry get crd nodeprofiles.node.brewlet.sh >/dev/null 2>&1 || return 0
   local np
-  for np in $(kubectl get nodeprofiles.node.brewlet.sh -o name 2>/dev/null); do
-    kubectl patch "$np" --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
+  for np in $(kubectl_retry get nodeprofiles.node.brewlet.sh -o name 2>/dev/null); do
+    kubectl_retry patch "$np" --type=merge -p '{"metadata":{"finalizers":[]}}' >/dev/null 2>&1 || true
   done
-  kubectl delete nodeprofiles.node.brewlet.sh --all --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl_retry delete nodeprofiles.node.brewlet.sh --all --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
 
 # nodeprofile_uids: print the UIDs of every NodeProfile (empty when the CRD is gone).
 nodeprofile_uids() {
-  kubectl get nodeprofiles.node.brewlet.sh -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' 2>/dev/null || true
+  kubectl_retry get nodeprofiles.node.brewlet.sh -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' 2>/dev/null || true
 }
 
 # release_profile_node_claims UID...: drop the owner fence (owner-uid,
@@ -715,10 +791,28 @@ release_profile_node_claims() {
     [[ -n "$owner" ]] || continue
     for uid in "$@"; do
       [[ "$owner" == "$uid" ]] || continue
-      kubectl label node "$node" brewlet.sh/owner-uid- brewlet.sh/owner-node-uid- >/dev/null 2>&1 || true
-      kubectl annotate node "$node" brewlet.sh/owner-name- brewlet.sh/provision-state- >/dev/null 2>&1 || true
+      kubectl_retry label node "$node" brewlet.sh/owner-uid- brewlet.sh/owner-node-uid- >/dev/null 2>&1 || true
+      kubectl_retry annotate node "$node" brewlet.sh/owner-name- brewlet.sh/provision-state- >/dev/null 2>&1 || true
     done
-  done < <(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.brewlet\.sh/owner-uid}{"\n"}{end}' 2>/dev/null)
+  done < <(kubectl_retry get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.brewlet\.sh/owner-uid}{"\n"}{end}' 2>/dev/null)
+}
+
+# e2e_order_tiers TIER...: print the run order, one per line. Tier 17 needs a
+# node no other tier has provisioned, and Kubernetes cleanup does not undo
+# node-side installs, so in a multi-tier run it moves ahead of every Kubernetes
+# tier (after host-only tiers 1-3). Other tiers keep their requested order.
+e2e_order_tiers() {
+  local t has17=0
+  local -a out=()
+  for t in "$@"; do [[ "$t" == 17 ]] && has17=1; done
+  if (( has17 == 0 || $# < 2 )); then printf '%s\n' "$@"; return; fi
+  for t in "$@"; do
+    [[ "$t" == 17 ]] && continue
+    if (( has17 == 1 )) && [[ ! "$t" =~ ^[123]$ ]]; then out+=(17); has17=2; fi
+    out+=("$t")
+  done
+  (( has17 == 1 )) && out+=(17)
+  printf '%s\n' "${out[@]}"
 }
 
 # --- summary -------------------------------------------------------------

@@ -56,8 +56,10 @@ an exercised capability fails. The suite covers:
 
 Run Tier 17 alone against a dedicated fresh node. It refuses existing shim,
 installation-record, or nonempty staging-root state; `--reset` only resets
-Kubernetes test state and does not make a used node fresh. A sequential run of
-all tiers on the same node can therefore fail Tier 17's preflight. The CI matrix
+Kubernetes test state and does not make a used node fresh. A multi-tier run
+(including the default all-tiers run) therefore runs Tier 17 before every other
+Kubernetes tier, uses the first fresh node, and reports SKIP with instructions
+if no node is fresh; run alone, Tier 17 FAILs on a used node. The CI matrix
 runs it separately on a new kind cluster. Never clear retained host files or
 manufacture a safety record to satisfy this preflight.
 

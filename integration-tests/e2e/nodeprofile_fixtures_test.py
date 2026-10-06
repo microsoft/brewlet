@@ -196,5 +196,110 @@ class TeardownTest(unittest.TestCase):
         self.assertEqual(profile_patch[-1]["value"], ["other/finalizer"])
 
 
+def failed(stderr, args=("kubectl",)):
+    return fixtures.subprocess.CalledProcessError(1, list(args), output="", stderr=stderr)
+
+
+class TransientRetryTest(unittest.TestCase):
+    RESET = "Unable to connect to the server: read tcp 10.0.0.1:5->1.2.3.4:443: read: connection reset by peer"
+
+    def setUp(self):
+        env = patch.dict(fixtures.os.environ, {"E2E_RETRIES": "4", "E2E_RETRY_BACKOFF": "0"})
+        env.start()
+        self.addCleanup(env.stop)
+        sleep = patch.object(fixtures.time, "sleep")
+        self.sleep = sleep.start()
+        self.addCleanup(sleep.stop)
+
+    def test_only_transport_errors_are_transient(self):
+        for stderr in (self.RESET, "error: unexpected EOF", "error: EOF",
+                       "Unable to connect to the server: net/http: TLS handshake timeout",
+                       "dial tcp: socket is not connected"):
+            with self.subTest(stderr=stderr):
+                self.assertTrue(fixtures.transient(failed(stderr)))
+        for stderr in ('Error from server (NotFound): nodeprofiles "batch" not found',
+                       "Error from server (Conflict): the object has been modified",
+                       "The request is invalid: test operation failed", "HEOFX", ""):
+            with self.subTest(stderr=stderr):
+                self.assertFalse(fixtures.transient(failed(stderr)))
+        self.assertFalse(fixtures.transient(AssertionError("connection reset by peer")))
+
+    def test_idempotent_kubectl_retries_transient_errors(self):
+        calls = iter([failed(self.RESET), failed("error: EOF"), "ok"])
+
+        def once(*args):
+            value = next(calls)
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+        with patch.object(fixtures, "_kubectl_once", side_effect=once) as command, \
+             patch("builtins.print"):
+            self.assertEqual(fixtures.kubectl("delete", "nodeprofile", "batch", "--ignore-not-found"), "ok")
+        self.assertEqual(command.call_count, 3)
+
+    def test_non_idempotent_and_real_errors_are_not_retried(self):
+        with patch.object(fixtures, "_kubectl_once", side_effect=failed(self.RESET)) as command:
+            with self.assertRaises(fixtures.subprocess.CalledProcessError):
+                fixtures.kubectl("patch", "node", "worker", "--type=json", "-p", "[]")
+            with self.assertRaises(fixtures.subprocess.CalledProcessError):
+                fixtures.kubectl("delete", "nodeprofile", "batch")
+        self.assertEqual(command.call_count, 2)
+        with patch.object(fixtures, "_kubectl_once",
+                          side_effect=failed("Error from server (Forbidden)")) as command:
+            with self.assertRaises(fixtures.subprocess.CalledProcessError):
+                fixtures.kubectl("get", "nodes")
+        self.assertEqual(command.call_count, 1)
+
+    def test_retries_are_bounded(self):
+        with patch.object(fixtures, "_kubectl_once", side_effect=failed(self.RESET)) as command, \
+             patch("builtins.print"):
+            with self.assertRaises(fixtures.subprocess.CalledProcessError):
+                fixtures.kubectl("get", "nodes")
+        self.assertEqual(command.call_count, 4)
+        self.assertEqual(self.sleep.call_count, 3)
+
+    def test_teardown_reruns_after_reset_and_rechecks_state(self):
+        # The delete was applied server-side but its response was lost; the
+        # re-run finds the profile gone and verifies no claims remain.
+        passes = []
+
+        def once(namespace, name, uid, image):
+            passes.append(name)
+            if len(passes) == 1:
+                raise failed(self.RESET)
+            fixtures.released(namespace, name, uid)
+
+        nodes = {"items": [{"metadata": {"name": "worker", "labels": {}}}]}
+        with patch.object(fixtures, "_teardown_once", side_effect=once), \
+             patch.object(fixtures, "kubectl", return_value=""), \
+             patch.object(fixtures, "get", side_effect=lambda kind, *a:
+                          nodes if kind == "nodes" else {"items": []}), \
+             patch("builtins.print"):
+            fixtures.teardown("brewlet", "batch", "owner", TeardownTest.image)
+        self.assertEqual(len(passes), 2)
+
+    def test_released_detects_retained_claims_and_profiles(self):
+        claimed = {"items": [{"metadata": {"name": "worker", "labels": {fixtures.OWNER: "owner"}}}]}
+        with patch.object(fixtures, "kubectl", return_value=""), \
+             patch.object(fixtures, "get", side_effect=lambda kind, *a:
+                          claimed if kind == "nodes" else {"items": []}):
+            with self.assertRaisesRegex(AssertionError, "retains the claim"):
+                fixtures.released("brewlet", "batch", "owner")
+        with patch.object(fixtures, "kubectl", return_value='{"metadata":{"uid":"owner"}}'), \
+             patch.object(fixtures, "get", return_value={"items": []}):
+            with self.assertRaisesRegex(AssertionError, "still exists"):
+                fixtures.released("brewlet", "batch", "owner")
+        owned = {"items": [{"metadata": {"ownerReferences": [{"uid": "owner"}]}}]}
+        with patch.object(fixtures, "kubectl", return_value=""), \
+             patch.object(fixtures, "get", side_effect=lambda kind, *a:
+                          owned if kind == "daemonsets,pods" else {"items": []}):
+            with self.assertRaisesRegex(AssertionError, "worker owned"):
+                fixtures.released("brewlet", "batch", "owner")
+        with patch.object(fixtures, "kubectl", return_value='{"metadata":{"uid":"replacement"}}'), \
+             patch.object(fixtures, "get", return_value={"items": []}):
+            fixtures.released("brewlet", "batch", "owner")
+
+
 if __name__ == "__main__":
     unittest.main()
