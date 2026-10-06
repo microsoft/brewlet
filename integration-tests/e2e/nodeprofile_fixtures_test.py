@@ -39,7 +39,6 @@ class PlacementTest(unittest.TestCase):
             "metadata": {"ownerReferences": [{"uid": "owner", "controller": True}]},
             "spec": {"template": {"spec": {
                 "containers": [{"name": "provisioner", "env": [
-                    {"name": "BREWLET_REQUIRE_NODE_CLAIM", "value": "true"},
                     {"name": "BREWLET_PROFILE_UID", "value": "owner"},
                     {"name": "BREWLET_PROFILE_NAME", "value": "batch"},
                 ]}],

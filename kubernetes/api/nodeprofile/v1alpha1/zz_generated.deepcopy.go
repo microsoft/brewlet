@@ -10,7 +10,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
@@ -195,7 +194,6 @@ func (in *NodeProfileSpec) DeepCopy() *NodeProfileSpec {
 func (in *NodeProfileStatus) DeepCopyInto(out *NodeProfileStatus) {
 	*out = *in
 	out.Targets = append([]NodeTarget(nil), in.Targets...)
-	out.MigrationDaemonSetUIDs = append([]types.UID(nil), in.MigrationDaemonSetUIDs...)
 	if in.ProvisioningSpec != nil {
 		out.ProvisioningSpec = in.ProvisioningSpec.DeepCopy()
 	}

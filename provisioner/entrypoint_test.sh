@@ -1697,82 +1697,69 @@ grep -Fq "ERROR: completion-state-failed" <<<"$output"
 
 # Ownership fencing runs before host mutation, including die()'s cleanup path.
 for mode in provision cleanup; do
-  for setting in omitted true false "" invalid; do
-    for identity in missing-profile missing-node valid; do
-      [[ "$identity" != valid || ( "$setting" != omitted && "$setting" != true ) ]] || continue
-      if output="$(
-        (
-          unset BREWLET_REQUIRE_NODE_CLAIM
-          if [[ "$setting" != omitted ]]; then
-            BREWLET_REQUIRE_NODE_CLAIM="$setting"
-          fi
-          source "$repo_root/provisioner/entrypoint.sh"
-          COMPLETION_FILE="$TEST_TMP_ROOT/completion"
-          BREWLET_MODE="$mode"
-          BREWLET_PROFILE_NAME=owner
-          BREWLET_PROFILE_UID=profile-uid
-          BREWLET_PROFILE_GENERATION=3
-          NODE_NAME=node-a
-          [[ "$identity" != missing-profile ]] || BREWLET_PROFILE_UID=""
-          [[ "$identity" != missing-node ]] || NODE_NAME=""
-          : >"$calls"
-          : >"$COMPLETION_FILE"
-          ensure_in_cluster_kubeconfig() { :; }
-          kubectl() { printf 'unexpected-api-access\n' >>"$calls"; return 1; }
-          remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
-          clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
-          cleanup_node() { printf 'unexpected-cleanup\n' >>"$calls"; exit 42; }
-          verify_profile_identity() { printf 'unexpected-provisioning\n' >>"$calls"; exit 42; }
-          main
-        ) 2>&1
-      )"; then
-        echo "accepted unclaimed $mode: setting=$setting identity=$identity" >&2
-        exit 1
-      fi
-      grep -Fq 'ownership-fence-failed' <<<"$output"
-      [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]] || {
-        echo "unclaimed $mode mutated host/API state or published completion" >&2
-        exit 1
-      }
-    done
-  done
-done
-
-# Failures before the first ownership check cannot use an opt-out to mutate.
-for mode in provision cleanup; do
-  for setting in true false ""; do
+  for identity in missing-profile missing-node; do
     if output="$(
       (
+        source "$repo_root/provisioner/entrypoint.sh"
+        COMPLETION_FILE="$TEST_TMP_ROOT/completion"
         BREWLET_MODE="$mode"
-        BREWLET_REQUIRE_NODE_CLAIM="$setting"
-        NODE_WRITE_AUTHORIZED=false
+        BREWLET_PROFILE_NAME=owner
+        BREWLET_PROFILE_UID=profile-uid
+        BREWLET_PROFILE_GENERATION=3
         NODE_NAME=node-a
-        BREWLET_CONTAINERD_RESTART=invalid
+        [[ "$identity" != missing-profile ]] || BREWLET_PROFILE_UID=""
+        [[ "$identity" != missing-node ]] || NODE_NAME=""
         : >"$calls"
         : >"$COMPLETION_FILE"
         ensure_in_cluster_kubeconfig() { :; }
-        kubectl() { printf 'unexpected-api-access\n' >>"$calls"; }
+        kubectl() { printf 'unexpected-api-access\n' >>"$calls"; return 1; }
         remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
         clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
+        cleanup_node() { printf 'unexpected-cleanup\n' >>"$calls"; exit 42; }
+        verify_profile_identity() { printf 'unexpected-provisioning\n' >>"$calls"; exit 42; }
         main
       ) 2>&1
     )"; then
-      echo "accepted invalid restart mode before ownership" >&2
+      echo "accepted unclaimed $mode: identity=$identity" >&2
       exit 1
     fi
-    grep -Fq 'invalid-restart-mode' <<<"$output"
-    [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]]
+    grep -Fq 'ownership-fence-failed' <<<"$output"
+    [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]] || {
+      echo "unclaimed $mode mutated host/API state or published completion" >&2
+      exit 1
+    }
   done
+done
+
+# Failures before the first ownership check cannot mutate.
+for mode in provision cleanup; do
+  if output="$(
+    (
+      BREWLET_MODE="$mode"
+      NODE_WRITE_AUTHORIZED=false
+      NODE_NAME=node-a
+      BREWLET_CONTAINERD_RESTART=invalid
+      : >"$calls"
+      : >"$COMPLETION_FILE"
+      ensure_in_cluster_kubeconfig() { :; }
+      kubectl() { printf 'unexpected-api-access\n' >>"$calls"; }
+      remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
+      clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
+      main
+    ) 2>&1
+  )"; then
+    echo "accepted invalid restart mode before ownership" >&2
+    exit 1
+  fi
+  grep -Fq 'invalid-restart-mode' <<<"$output"
+  [[ ! -s "$calls" && ! -e "$COMPLETION_FILE" ]]
 done
 
 ownership_case() (
   BREWLET_MODE="$1"
   local provided_node_claim="$2" provided_profile_ledger="$3" run_main="${4:-false}" expected_restart="${5:-}"
-  unset BREWLET_REQUIRE_NODE_CLAIM
   source "$repo_root/provisioner/entrypoint.sh"
   COMPLETION_FILE="$TEST_TMP_ROOT/completion"
-  [[ "$BREWLET_REQUIRE_NODE_CLAIM" == true ]]
-  BREWLET_REQUIRE_NODE_CLAIM=true
   BREWLET_PROFILE_NAME=owner
   BREWLET_PROFILE_UID=profile-uid
   BREWLET_PROFILE_GENERATION=3

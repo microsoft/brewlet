@@ -325,9 +325,9 @@ pairs. See the [pre-GA compatibility policy](compatibility.md).
    Keep its operator, provisioner RBAC, and API access available until host
    cleanup and worker teardown complete. Use the explicit profile-cleanup
    sequence if the installation has no uninstall hook.
-3. Stop if cleanup is blocked. Recover with the installed release's compatible
+3. Stop if cleanup is blocked. Recover with the installed release's
    components; do not bypass finalizers, scheduling gates, ownership records, or
-   live-reference checks. See [Unsupported-state recovery](#unsupported-state-recovery)
+   live-reference checks. See [Blocked cleanup recovery](#blocked-cleanup-recovery)
    for hosts that cannot be safely cleaned.
 4. Review retained CRDs, custom resources, shared RuntimeClass, namespaces, and
    host state with their owners. Helm uninstall does not make the environment
@@ -350,30 +350,29 @@ JDK rotation and configuration maintenance within the installed release are
 separate operations. Pin that chart version and preserve component overrides
 when using `helm upgrade` for those operations.
 
-#### Unsupported-state recovery
+#### Blocked cleanup recovery
 
-`Ready=False/UnsupportedPreClaimState` refuses incompatible workers, unfenced
-host advertisements, or unresolved ownership evidence. The refusal persists
-across restarts and disappearing workers; it does not authorize adoption,
-scheduling changes, or host cleanup. `OwnershipConflict` and `CleanupBlocked`
-also require investigation, not forced deletion.
+`Ready=False/CleanupBlocked` and `OwnershipConflict` refuse competing or
+unfenced workers, host advertisements without UID-bound ownership, and
+unavailable or replaced targets. They do not authorize adoption, scheduling
+changes, or host cleanup; investigate the condition message rather than forcing
+deletion.
 
-Preserve the installed release's manifests, worker/node identities, schemas,
-and cleanup records. Pause automation and drain workloads, then use that
-installation's original compatible components, RBAC, and API access to finish
-host cleanup and worker teardown. Do not replace its schemas, fabricate claims,
-clear evidence or refusal conditions, or bypass finalizers, scheduling gates,
-and live-reference checks. Verify containerd health and worker/shim termination
-on every affected node; a deleted DaemonSet or readiness label is not proof of
+Preserve the installed release's manifests, worker/node identities, and cleanup
+records. Pause automation and drain workloads, then use the installed
+components, RBAC, and API access to finish host cleanup and worker teardown. Do
+not fabricate claims, clear status, or bypass finalizers, scheduling gates, and
+live-reference checks. Verify containerd health and worker/shim termination on
+every affected node; a deleted DaemonSet or readiness label is not proof of
 cleanup.
 
-The current operator and uninstall hook refuse competing workers across
-namespaces without adopting or deleting them. Never attach a new NodeProfile to
-an unfenced or unverifiable host. If original-component cleanup cannot be
-completed safely, use your platform's reviewed node decommissioning/replacement
-process or a separate fresh environment, preserving outstanding recovery
-evidence and obligations. Review retained resources and files before following
-the [fresh-install procedure](#default-safe-teardown-and-reinstallation).
+The operator and uninstall hook refuse competing workers across namespaces
+without adopting or deleting them. Never attach a NodeProfile to an unfenced or
+unverifiable host. If cleanup cannot be completed safely, use your platform's
+reviewed node decommissioning/replacement process or a separate fresh
+environment, preserving recovery evidence and obligations. Review retained
+resources and files before following the
+[fresh-install procedure](#default-safe-teardown-and-reinstallation).
 
 #### Activating runnable-stage GC
 
@@ -716,7 +715,7 @@ helm uninstall brewlet --namespace brewlet --timeout 5m
 For raw manifests, remove the reviewed control-plane manifests only after the
 same cleanup checks. Worker inventory is cluster-wide and read-only; competing
 or foreign-namespace workers block removal and require
-[unsupported-state recovery](#unsupported-state-recovery) before removing
+[blocked cleanup recovery](#blocked-cleanup-recovery) before removing
 shared RBAC.
 
 ## Next steps

@@ -27,7 +27,7 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-  # Refuse competing/pre-claim writers, including after a namespace change.
+  # Refuse competing or unfenced writers, including after a namespace change.
   - apiGroups: ["apps"]
     resources: ["daemonsets"]
     verbs: ["list"]

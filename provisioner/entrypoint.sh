@@ -120,7 +120,6 @@ BREWLET_VALIDATE="${BREWLET_VALIDATE:-true}"
 BREWLET_PROFILE_NAME="${BREWLET_PROFILE_NAME:-default}"
 BREWLET_PROFILE_UID="${BREWLET_PROFILE_UID:-}"
 BREWLET_PROFILE_GENERATION="${BREWLET_PROFILE_GENERATION:-0}"
-BREWLET_REQUIRE_NODE_CLAIM="${BREWLET_REQUIRE_NODE_CLAIM-true}"
 NODE_WRITE_AUTHORIZED=false
 BREWLET_APP_CDS_REGENERATION_ENABLED="${BREWLET_APP_CDS_REGENERATION_ENABLED:-false}"
 POLICY_DIR="${POLICY_DIR:-$PREFIX/policy}"
@@ -1712,8 +1711,6 @@ verify_node_ownership() {
   local allow_inconclusive=false previous_authorization="$NODE_WRITE_AUTHORIZED"
   [[ "${1:-}" != "--allow-inconclusive" ]] || allow_inconclusive=true
   NODE_WRITE_AUTHORIZED=false
-  [[ "$BREWLET_REQUIRE_NODE_CLAIM" == "true" ]] \
-    || die ownership-fence-failed "BREWLET_REQUIRE_NODE_CLAIM must be true; standalone provisioning and cleanup are unsupported"
   [[ -n "$BREWLET_PROFILE_UID" && -n "$NODE_NAME" ]] \
     || die ownership-fence-failed "managed writers require profile and node identities"
   local node_identity node_uid owner_uid owner_node_uid owner_name

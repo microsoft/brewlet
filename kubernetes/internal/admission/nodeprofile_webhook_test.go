@@ -15,7 +15,6 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -347,12 +346,6 @@ func TestNodeProfileValidatorBlocksInvalidOwnedFinalizerBypassButAllowsRepair(t 
 		"claimed-host":      {Targets: []nodev1alpha1.NodeTarget{{Name: "worker", UID: "node-uid", Claimed: true}}},
 		"saved-policy":      {ProvisioningSpec: &nodev1alpha1.NodeProfileSpec{}},
 		"saved-generation":  {ProvisioningGeneration: 1},
-		"pre-claim-marker":  {Migrating: true},
-		"pre-claim-worker":  {MigrationDaemonSetUIDs: []types.UID{"old-worker"}},
-		"pre-claim-refusal": {Conditions: []metav1.Condition{{
-			Type: nodev1alpha1.ConditionReady, Status: metav1.ConditionFalse,
-			Reason: nodev1alpha1.ReasonUnsupportedPreClaimState,
-		}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			v := newValidator(t)
@@ -375,38 +368,6 @@ func TestNodeProfileValidatorBlocksInvalidOwnedFinalizerBypassButAllowsRepair(t 
 			repaired.Spec.Registry = nil
 			if res := v.Handle(context.Background(), profileUpdateRequest(t, oldProfile, repaired)); !res.Allowed {
 				t.Fatalf("repairing a deleting owned profile must remain possible: %+v", res.Result)
-			}
-		})
-	}
-}
-
-func TestNodeProfileValidatorRetainsPreClaimFinalizerEvenWithValidSpec(t *testing.T) {
-	for name, status := range map[string]nodev1alpha1.NodeProfileStatus{
-		"migration-marker": {Migrating: true},
-		"worker-evidence":  {MigrationDaemonSetUIDs: []types.UID{"old-worker"}},
-		"unknown-target":   {Targets: []nodev1alpha1.NodeTarget{{Name: "old-host"}}},
-		"durable-refusal": {Conditions: []metav1.Condition{{
-			Type: nodev1alpha1.ConditionReady, Status: metav1.ConditionFalse,
-			Reason: nodev1alpha1.ReasonUnsupportedPreClaimState,
-		}}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			v := newValidator(t)
-			old := &nodev1alpha1.NodeProfile{
-				ObjectMeta: metav1.ObjectMeta{Name: "pre-claim", Finalizers: []string{"node.brewlet.sh/cleanup"}},
-				Spec:       nodev1alpha1.NodeProfileSpec{JDKs: []nodev1alpha1.JDKRef{webhookJDK("temurin", 21)}},
-				Status:     status,
-			}
-			for _, deleting := range []bool{false, true} {
-				if deleting {
-					now := metav1.Now()
-					old.DeletionTimestamp = &now
-				}
-				next := old.DeepCopy()
-				next.Finalizers = []string{"example.com/replacement"}
-				if res := v.Handle(context.Background(), profileUpdateRequest(t, old, next)); res.Allowed {
-					t.Fatal("valid spec or finalizer replacement bypassed pre-claim evidence")
-				}
 			}
 		})
 	}

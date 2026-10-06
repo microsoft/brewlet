@@ -19,11 +19,10 @@ import (
 )
 
 const (
-	cleanupBlockedReason      = "CleanupBlocked"
-	unsupportedPreClaimReason = "UnsupportedPreClaimState"
-	cleanupTroubleshooting    = "https://github.com/microsoft/brewlet/blob/main/docs/troubleshooting.md#nodeprofile-deletion-does-not-finish"
-	brewletRuntimeClass       = "brewlet"
-	maxListedWorkloads        = 10
+	cleanupBlockedReason   = "CleanupBlocked"
+	cleanupTroubleshooting = "https://github.com/microsoft/brewlet/blob/main/docs/troubleshooting.md#nodeprofile-deletion-does-not-finish"
+	brewletRuntimeClass    = "brewlet"
+	maxListedWorkloads     = 10
 )
 
 type deleteOptions struct {
@@ -481,12 +480,6 @@ func blockedError(name, reason, message string) error {
 	switch reason {
 	case cleanupBlockedReason:
 		recovery = "Repair the profile spec, source/mirror policy or pool conflict to resume cleanup."
-	case unsupportedPreClaimReason:
-		recovery = "Pre-claim state is not migrated by this release; ordinary spec repair cannot resume cleanup. " +
-			"Save original manifests and evidence, pause automation, and drain or move workloads. " +
-			"Restore the original release's compatible operator, provisioner, CRDs, RBAC, and API access " +
-			"to finish cleanup and worker teardown before reinstalling. " +
-			"Preserve refusal conditions, pre-claim records, and any existing scheduling gates."
 	default:
 		return nil
 	}

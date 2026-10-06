@@ -141,12 +141,8 @@ const (
 type NodeProfileStatus struct {
 	// Targets is the durable node-identity ledger, written before granting a
 	// scheduling claim. Entries remain until their cleanup workers terminate.
-	Targets              []NodeTarget `json:"targets,omitempty"`
-	OwnershipInitialized bool         `json:"ownershipInitialized,omitempty"`
-	// Migrating and MigrationDaemonSetUIDs are inert pre-claim evidence.
-	// Preserve them for refusal and recovery by the original release, never migration.
-	Migrating              bool             `json:"migrating,omitempty"`
-	MigrationDaemonSetUIDs []types.UID      `json:"migrationDaemonSetUIDs,omitempty"`
+	Targets                []NodeTarget     `json:"targets,omitempty"`
+	OwnershipInitialized   bool             `json:"ownershipInitialized,omitempty"`
 	ProvisioningGeneration int64            `json:"provisioningGeneration,omitempty"`
 	ProvisioningSpec       *NodeProfileSpec `json:"provisioningSpec,omitempty"`
 	// Retirement freezes departing targets and their last authorized policy;
@@ -185,12 +181,11 @@ type NodeRetirement struct {
 }
 
 const (
-	RetirementCleaning             = "Cleaning"
-	RetirementTeardown             = "Teardown"
-	ReasonOwnershipConflict        = "OwnershipConflict"
-	ReasonUnsupportedPreClaimState = "UnsupportedPreClaimState"
-	ReasonRetargeting              = "Retargeting"
-	ReasonCleanupBlocked           = "CleanupBlocked"
+	RetirementCleaning      = "Cleaning"
+	RetirementTeardown      = "Teardown"
+	ReasonOwnershipConflict = "OwnershipConflict"
+	ReasonRetargeting       = "Retargeting"
+	ReasonCleanupBlocked    = "CleanupBlocked"
 )
 
 // Condition types and reasons surfaced on NodeProfile status.

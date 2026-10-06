@@ -315,7 +315,7 @@ func TestRunWaitsForControllerFinalization(t *testing.T) {
 }
 
 func TestRunReportsFreshPendingConditionsWithoutStatusGating(t *testing.T) {
-	for _, reason := range []string{"InvalidProfile", "OwnershipConflict", "UnsupportedPreClaimState", "OwnershipMigration", "Retargeting", "CleanupBlocked", "CleanupTeardown"} {
+	for _, reason := range []string{"InvalidProfile", "OwnershipConflict", "Retargeting", "CleanupBlocked", "CleanupTeardown"} {
 		t.Run(reason, func(t *testing.T) {
 			p := ownedProfile("held")
 			p.Generation = 2

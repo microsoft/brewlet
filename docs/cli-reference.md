@@ -862,8 +862,7 @@ namespace (auto-discovered as for `status`). The overall result comes from the
 profile itself.
 
 The command exits nonzero when a guard refuses the deletion, when the profile
-reports `Ready=False/CleanupBlocked` or `Ready=False/UnsupportedPreClaimState`
-(the actual condition reason, message, recovery guidance, and a
+reports `Ready=False/CleanupBlocked` (the actual condition reason, message, recovery guidance, and a
 [troubleshooting](troubleshooting.md#nodeprofile-deletion-does-not-finish)
 link are printed), or when `--wait-timeout` expires. A timeout does not cancel
 cleanup. Without `--wait`, a profile that is already deleting and blocked also
@@ -871,11 +870,9 @@ exits nonzero. The CLI **never removes finalizers, ownership labels, or
 status** to force deletion.
 
 `CleanupBlocked` requires repairing the cause identified by its condition
-message. `UnsupportedPreClaimState` requires
-[unsupported-state recovery](installation.md#unsupported-state-recovery),
-not ordinary spec repair.
-Both refusal reasons stop `--wait` as soon as they are observed; they do not
-wait for the timeout or claim cleanup continues in the background.
+message; see [blocked cleanup recovery](installation.md#blocked-cleanup-recovery).
+It stops `--wait` as soon as it is observed; the CLI does not wait for the
+timeout or claim cleanup continues in the background.
 
 Required permissions: `get` and `delete` on `nodeprofiles.node.brewlet.sh`,
 `list` on Nodes and on Pods in all namespaces (the workload guard), and,
