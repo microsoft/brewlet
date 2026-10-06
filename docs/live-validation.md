@@ -32,12 +32,29 @@ on macOS Docker Desktop. Other host/architecture combinations are fixture
 targets, not additional acceptance claims.
 Cross-architecture emulation is deliberately not selected.
 
-Required host tools: Python 3.12+, Docker, **kind 0.30.0**, kubectl, Helm, Go
+Required host tools: Python 3.12+, Docker, **kind 0.33.0**, kubectl, Helm, Go
 (the toolchain required by `core/go.mod`), JDK 21 or newer, Maven, Git,
 curl, tar, OpenSSL, and `htpasswd` (Apache utilities, for admission's private
 registry fixture). The demo is compiled with `--release 21`. Internet
 access to GitHub release assets, GHCR, Docker Hub, registry.k8s.io, and Maven
 Central is required. Missing prerequisites fail; mandatory cases never skip.
+
+The kind release is pinned exactly, together with its digest-pinned
+multi-arch (amd64/arm64) node image `kindest/node:v1.34.11`, so every fresh
+cluster is reproducible. Any other kind version fails before a cluster is
+created, and the error names the required version and its install command.
+
+Setup steps that reach external infrastructure retry transient network
+failures (DNS, connection resets/timeouts, registry 5xx/rate limits) at most
+three times with 10/20/40-second backoff. These steps are the checkout's Go,
+Docker and Maven builds, pulls of the pinned registry, kind node, Zot and Ratify
+base images, and pinned source downloads. Pinned images are pre-pulled once per
+invocation before use. Maven also runs with
+`-Daether.connector.http.retryHandler.count=5`. A publishing Maven goal reruns
+only when it failed during dependency resolution, before anything was pushed.
+Exhausted retries raise an `INFRASTRUCTURE ERROR (not an assertion failure)`.
+`result.json` records `failureClass` as `infrastructure`, `assertion` or `error`.
+Assertions themselves are never retried or skipped.
 
 The executable-workflows stalled-process check supports Linux and macOS hosts
 using `/bin/ps` with a bounded timeout, full command arguments, and zombie-state
@@ -49,7 +66,7 @@ the fixture's Python interpreter for portable wall-clock timestamps.
 From a checkout of the source to validate:
 
 ```bash
-go install sigs.k8s.io/kind@v0.30.0
+go install sigs.k8s.io/kind@v0.33.0
 export PATH="$(go env GOPATH)/bin:$PATH"
 export PYTHONDONTWRITEBYTECODE=1
 export BREWLET_LIVE_OUTPUT="$(mktemp -d "${TMPDIR:-/tmp}/brewlet-live-evidence.XXXXXX")"

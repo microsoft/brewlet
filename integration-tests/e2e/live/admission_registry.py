@@ -15,6 +15,8 @@ ZOT_IMAGE = ("ghcr.io/project-zot/zot:v2.1.8@sha256:"
 
 def native_registry(fixture):
     """Replace only the empty, identity-checked fixture registry before publishing."""
+    # Pull before removing the empty registry so a network failure leaves nothing half-replaced.
+    fixture.pull(ZOT_IMAGE)
     old = fixture.own_container(fixture.registry_name)
     config = fixture.private / "admission-zot.json"
     credentials = fixture.private / "admission-htpasswd"

@@ -35,7 +35,8 @@ import subprocess
 import threading
 import time
 
-from common import JDK_IMAGE, OWNER_LABEL, REGISTRY_IMAGE, ROOT, owned_container, run, sha256, wait
+from common import (JDK_IMAGE, OWNER_LABEL, REGISTRY_IMAGE, ROOT, owned_container,
+                    retry_transient, run, sha256, wait)
 from checkout import CheckoutFixture as CheckoutRuntimeFixture
 import workflows_helpers as h
 
@@ -111,8 +112,17 @@ class CheckoutFixture(CheckoutRuntimeFixture):
                 raise RuntimeError(f"Required prerequisite missing: {tool}; no assertions skipped")
         super().start()
 
+    def setup_cmd(self, name, argv, *, resolution_only=False, **kwargs):
+        """Recorded infrastructure step: transient network failures are retried and an
+        exhausted retry raises InfrastructureError instead of an assertion failure."""
+        result = retry_transient(name, lambda: self.cmd(name, argv, expect=None, **kwargs),
+                                 resolution_only=resolution_only)
+        if result.returncode:
+            raise RuntimeError(f"{name} failed ({result.returncode}); see {self.work}")
+        return result
+
     def build_command(self, name, argv, **kwargs):
-        return self.cmd(name, argv, **kwargs)
+        return self.setup_cmd(name, argv, **kwargs)
 
     def start_auth_registry(self, htpasswd):
         name = self.name + "-auth-registry"
@@ -263,7 +273,7 @@ def maven_app(f, name):
 
 def push_scenario(f):
     app = build_app(f, "push-app")
-    f.cmd("package-demo", [*f.maven_args, "-f", app / "pom.xml", "package"], timeout=600)
+    f.setup_cmd("package-demo", [*f.maven_args, "-f", app / "pom.xml", "package"], timeout=600)
     jar = app / "target/app.jar"
     cwd = f.private / "push-cwd"
     cwd.mkdir()

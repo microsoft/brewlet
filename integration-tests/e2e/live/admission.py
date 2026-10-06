@@ -19,10 +19,11 @@ import socket
 import subprocess
 import sys
 import tarfile
+import time
 import urllib.error
 import urllib.request
 
-from common import OWNER_LABEL, ROOT, redact, run, wait
+from common import InfrastructureError, OWNER_LABEL, ROOT, redact, retry_transient, run, wait
 from checkout import CheckoutFixture
 from admission_helpers import (
     ARTIFACT, BUILDER, VERIFIER, Registry, assert_admission, assert_candidates,
@@ -52,10 +53,24 @@ REJECTION_REASONS = {
 }
 
 
-def download(url, destination):
-    with urllib.request.urlopen(url, timeout=90) as response:
-        destination.write_bytes(response.read())
-    return hashlib.sha256(destination.read_bytes()).hexdigest()
+def download(url, destination, *, attempts=4, backoff=10, sleep=time.sleep):
+    for number in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=90) as response:
+                destination.write_bytes(response.read())
+            return hashlib.sha256(destination.read_bytes()).hexdigest()
+        except urllib.error.HTTPError as error:
+            if error.code < 500 and error.code != 429:
+                raise
+            reason = f"HTTP {error.code}"
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            reason = str(getattr(error, "reason", error))
+        if number == attempts:
+            raise InfrastructureError(
+                f"INFRASTRUCTURE ERROR (not an assertion failure): download {url} failed "
+                f"{attempts} times ({reason}); no assertion ran or was skipped")
+        print(f"INFRA RETRY {number}/{attempts - 1}: download {url}: {reason}", flush=True)
+        sleep(backoff * 2 ** (number - 1))
 
 
 class Admission:
@@ -69,9 +84,18 @@ class Admission:
         self.ca = None
         self.successful = set()
 
-    def command(self, name, argv, **kwargs):
-        result = self.f.run(argv, check=False, **kwargs)
-        self.f.save(name + ".log", result.stdout + result.stderr)
+    def command(self, name, argv, *, retry=False, resolution_only=False, **kwargs):
+        """Run a step; ``retry`` reruns it only on transient infrastructure errors.
+
+        Publishing Maven goals pass ``resolution_only`` so they are rerun only when
+        dependency resolution failed, before anything could have been pushed.
+        """
+        def attempt():
+            result = self.f.run(argv, check=False, **kwargs)
+            self.f.save(name + ".log", result.stdout + result.stderr)
+            return result
+        result = (retry_transient(name, attempt, resolution_only=resolution_only)
+                  if retry else attempt())
         if result.returncode:
             raise RuntimeError(f"{name} failed ({result.returncode}); see {self.f.work}")
         return result
@@ -109,8 +133,11 @@ class Admission:
         self.obsolete = self.f.private / "admission-obsolete.pem"
         self.public = self.f.private / "admission-current.pub"
         for key in [self.current, self.obsolete]:
+            # Named-curve encoding is OpenSSL 3's default but not LibreSSL's (macOS
+            # /usr/bin/openssl); Java rejects explicit EC parameters.
             run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-                 "ec_paramgen_curve:P-256", "-out", str(key)])
+                 "ec_paramgen_curve:P-256", "-pkeyopt", "ec_param_enc:named_curve",
+                 "-out", str(key)])
             key.chmod(0o600)
         run(["openssl", "pkey", "-in", str(self.current), "-pubout",
              "-out", str(self.public)])
@@ -122,11 +149,11 @@ class Admission:
         for name in ["managed-dependency-bom", "managed-dependency-bundle", "demo-app"]:
             shutil.copytree(fixtures / name, project / name,
                             ignore=shutil.ignore_patterns("target", "*.class"))
-        def maven(name, project_name, *arguments):
+        def maven(name, project_name, *arguments, publishes=True):
             self.command(name, [*self.f.maven_args, "-f",
                                 str(project / project_name / "pom.xml"), *arguments],
-                         timeout=900)
-        maven("admission-bom", "managed-dependency-bom", "install")
+                         retry=True, resolution_only=publishes, timeout=900)
+        maven("admission-bom", "managed-dependency-bom", "install", publishes=False)
         bundle = self.f.registry + "/platform/admission:release"
         maven("admission-bundle", "managed-dependency-bundle", "package",
               self.f.plugin + ":dependency-bundle",
@@ -237,12 +264,13 @@ class Admission:
         environment = ["env", "GOOS=linux", "GOARCH=" + self.f.arch, "CGO_ENABLED=0"]
         self.command("admission-build-verifier",
                      environment + ["go", "build", "-trimpath", "-o",
-                                    str(build / VERIFIER), "."], cwd=module, timeout=900)
+                                    str(build / VERIFIER), "."], cwd=module, timeout=900,
+                     retry=True)
         self.command("admission-build-other",
                      environment + ["go", "build", "-trimpath", "-o",
                                     str(build / "admission-other"),
                                     str(HERE / "admission_other.go")],
-                     cwd=module, timeout=900)
+                     cwd=module, timeout=900, retry=True)
         cache = build / "admission-no-content-cache"
         (cache / "blobs/sha256").mkdir(parents=True)
         (cache / "blobs/sha256/.keep").write_text("")
@@ -256,10 +284,11 @@ class Admission:
             "/home/nonroot/.ratify/plugins/\n")
         self.baked_repository = "brewlet.local/" + self.f.name + "-ratify"
         image = self.baked_repository + ":fixture"
+        self.f.pull(RATIFY_IMAGE)
         self.command("admission-build-image", ["docker", "build", "--provenance=false",
                                              "--platform", "linux/" + self.f.arch,
                                              "--label", f"{OWNER_LABEL}={self.f.name}",
-                                             "-t", image, str(build)], timeout=600)
+                                             "-t", image, str(build)], timeout=600, retry=True)
         self.baked_image_id = json.loads(self.f.run(
             ["docker", "image", "inspect", image]).stdout)[0]["Id"]
         self.f.load_image(image)

@@ -12,17 +12,115 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
 from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[3]
-KIND_IMAGE = "kindest/node@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a"
+# Exact pins keep every fresh cluster reproducible. The node image is the
+# multi-arch (amd64/arm64) Kubernetes 1.34 image published with this kind release.
+KIND_VERSION = "v0.33.0"
+KIND_IMAGE = ("kindest/node:v1.34.11@sha256:"
+              "44e222ee2132dab25ff87301682f89eb82c7880ea3a1bf543bfe9708fd08d67d")
 REGISTRY_IMAGE = "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
 JDK_IMAGE = "docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b"
 OWNER_LABEL = "sh.brewlet.live-owner"
 GC_STARTUP_DELAY = "24h"
+# Setup steps that reach external infrastructure (Maven Central, Go proxy, image
+# registries, GitHub) are retried a bounded number of times on these transient
+# network symptoms only. Mandatory assertions are never retried or skipped.
+TRANSIENT_PATTERNS = (
+    "nodename nor servname provided", "no such host", "Temporary failure in name resolution",
+    "Name or service not known", "Could not resolve host", "UnknownHostException",
+    "Connection reset", "connection reset by peer", "Connection timed out",
+    "connect timed out", "Read timed out", "SocketTimeoutException", "i/o timeout",
+    "TLS handshake timeout", "Remote host terminated the handshake",
+    "Premature end of Content-Length", "502 Bad Gateway", "503 Service Unavailable",
+    "504 Gateway Time", "status code: 502", "status code: 503", "status code: 504",
+    "toomanyrequests", "net/http: request canceled",
+)
+# A Maven goal that publishes may only be rerun when it failed while resolving
+# dependencies or plugins, i.e. before any mojo could have pushed anything.
+MAVEN_RESOLUTION_MARKERS = (
+    "Could not resolve dependencies", "Could not transfer artifact",
+    "Failed to read artifact descriptor", "Failed to collect dependencies",
+    "or one of its dependencies could not be resolved", "Could not resolve artifact",
+    "Non-resolvable parent POM", "Plugin not found",
+)
+MAVEN_NETWORK_RETRIES = ["-Daether.connector.http.retryHandler.count=5",
+                         "-Dmaven.wagon.http.retryHandler.count=5"]
+
+
+class InfrastructureError(RuntimeError):
+    """Setup could not reach external infrastructure; no assertion ran or was skipped."""
+
+
+def failure_class(error):
+    if isinstance(error, InfrastructureError):
+        return "infrastructure"
+    if isinstance(error, (AssertionError, TimeoutError)):
+        return "assertion"
+    return "error"
+
+
+def transient_failure(text, *, resolution_only=False):
+    """Return the matched transient symptom, or None for a real failure."""
+    text = str(text)
+    if resolution_only and not any(marker in text for marker in MAVEN_RESOLUTION_MARKERS):
+        return None
+    lowered = text.lower()
+    return next((p for p in TRANSIENT_PATTERNS if p.lower() in lowered), None)
+
+
+def retry_transient(description, attempt, *, attempts=4, backoff=10, resolution_only=False,
+                    sleep=time.sleep):
+    """Rerun a failed setup command only on transient infrastructure symptoms.
+
+    ``attempt`` returns a CompletedProcess. Success and non-transient failures are
+    returned to the caller unchanged; exhausted transient failures raise
+    InfrastructureError so they are never confused with an assertion failure.
+    """
+    for number in range(1, attempts + 1):
+        result = attempt()
+        if result.returncode == 0:
+            return result
+        reason = transient_failure(result.stdout + result.stderr,
+                                   resolution_only=resolution_only)
+        if not reason:
+            return result
+        if number == attempts:
+            raise InfrastructureError(
+                f"INFRASTRUCTURE ERROR (not an assertion failure): {description} failed "
+                f"{attempts} times on a transient network error ({reason!r}); no assertion "
+                "ran or was skipped")
+        delay = backoff * 2 ** (number - 1)
+        print(f"INFRA RETRY {number}/{attempts - 1}: {description}: {reason!r}; "
+              f"retrying in {delay}s", flush=True)
+        sleep(delay)
+    raise ValueError("attempts must be at least 1")
+
+
+MIN_PYTHON = (3, 12)
+
+
+def require_python(version=sys.version_info):
+    if tuple(version[:2]) < MIN_PYTHON:
+        raise RuntimeError(
+            f"Live scenarios require Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ (found "
+            f"{version[0]}.{version[1]}); run them with a newer interpreter, e.g. python3.12")
+
+
+def require_kind_version(output):
+    found = re.search(r"\bkind (v\d+\.\d+\.\d+\S*)", output or "")
+    found = found.group(1) if found else "an unrecognized version"
+    if found != KIND_VERSION:
+        raise RuntimeError(
+            f"This fixture requires kind {KIND_VERSION} (found {found}); install it with "
+            f"'go install sigs.k8s.io/kind@{KIND_VERSION}' and put \"$(go env GOPATH)/bin\" "
+            "first on PATH. The exact pin keeps the node image and cluster reproducible.")
+    return found
 
 
 def redact(text):
@@ -71,8 +169,11 @@ def sha256(path):
 
 
 def download(url, path, digest):
-    run(["curl", "--fail", "--silent", "--show-error", "--location",
-         "--retry", "3", "--max-time", "180", url, "-o", path])
+    argv = ["curl", "--fail", "--silent", "--show-error", "--location",
+            "--retry", "3", "--max-time", "180", url, "-o", path]
+    result = retry_transient(f"download {url}", lambda: run(argv, check=False))
+    if result.returncode:
+        raise RuntimeError(redact(f"Download failed ({result.returncode}): {url}\n{result.stderr}"))
     if sha256(path) != digest:
         raise RuntimeError(f"Checksum mismatch: {path.name}")
 
@@ -158,16 +259,32 @@ class Fixture:
         self.env["HELM_REGISTRY_CONFIG"] = str(self.private / "helm-registry.json")
         Path(self.env["HELM_REGISTRY_CONFIG"]).write_text("{}")
         self.cli = self.private / "bin" / "brewlet"
-        self.maven_args = ["mvn", "-B", "--no-transfer-progress", "-q",
+        self.maven_args = ["mvn", "-B", "--no-transfer-progress", "-q", *MAVEN_NETWORK_RETRIES,
                            f"-Dmaven.repo.local={self.private / 'm2'}",
                            "--settings", str(self.private / "settings.xml")]
         (self.private / "settings.xml").write_text("<settings/>")
         self.old_signals = {}
+        self.failure_class = None
         print(f"Evidence: {self.work}", flush=True)
 
     def run(self, argv, **kwargs):
         kwargs.setdefault("env", self.env)
         return run(argv, **kwargs)
+
+    def pull(self, ref):
+        """Pre-pull a pinned image once, with bounded retries, before it is needed."""
+        result = retry_transient(f"docker pull {ref}", lambda: self.run(
+            ["docker", "pull", "--platform", f"linux/{self.arch}", ref],
+            check=False, timeout=600))
+        if result.returncode:
+            raise RuntimeError(redact(f"docker pull failed ({result.returncode}): {ref}\n"
+                                      f"{result.stderr}"))
+        return result
+
+    def classify(self, error):
+        self.failure_class = failure_class(error)
+        if self.failure_class == "infrastructure":
+            print(redact(str(error)), flush=True)
 
     def save(self, name, data):
         if Path(name).name != name:
@@ -212,6 +329,7 @@ class Fixture:
         try:
             self.start()
         except BaseException as error:
+            self.classify(error)
             try:
                 self.save("failure.txt", str(error))
             finally:
@@ -222,24 +340,27 @@ class Fixture:
     def __exit__(self, exc_type, exc, _traceback):
         try:
             if exc:
+                self.classify(exc)
                 self.save("failure.txt", str(exc))
         finally:
             self.finish(exc_type is None)
         return False
 
     def start(self):
+        require_python()
         for tool in ("kind", "docker", "kubectl", "helm", "java", "javac",
                      "jar", "mvn", "curl", "openssl", "git", "tar"):
             if not shutil.which(tool):
                 raise RuntimeError(f"Required prerequisite missing: {tool}; no assertions skipped")
-        if "v0.30.0" not in self.run(["kind", "version"]).stdout:
-            raise RuntimeError("This fixture requires kind v0.30.0")
+        require_kind_version(self.run(["kind", "version"]).stdout)
         engine = json.loads(self.run(["docker", "info", "--format", "{{json .}}"]).stdout)
         if engine["NCPU"] < 4 or engine["MemTotal"] < 7 * 1024 ** 3:
             raise RuntimeError("Live fixture requires at least 4 Docker CPUs and 7 GiB RAM")
         self.arch = {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64",
                      "amd64": "amd64"}[engine["Architecture"]]
         self.env["DOCKER_DEFAULT_PLATFORM"] = f"linux/{self.arch}"
+        for image in (REGISTRY_IMAGE, KIND_IMAGE):
+            self.pull(image)
         self.build()
         try:
             self.run(["docker", "network", "create", "--label",
@@ -380,10 +501,13 @@ class Fixture:
         app = self.private / "demo-app"
         shutil.copytree(ROOT / "integration-tests/fixtures/demo-app", app,
                         ignore=shutil.ignore_patterns("target"))
-        result = self.run([*self.maven_args, "-f", app / "pom.xml", "package",
-                           self.plugin + ":push",
-                           f"-Dbrewlet.image={self.registry}/apps/demo:live",
-                           "-Dbrewlet.jdk=21"], timeout=360)
+        argv = [*self.maven_args, "-f", app / "pom.xml", "package", self.plugin + ":push",
+                f"-Dbrewlet.image={self.registry}/apps/demo:live", "-Dbrewlet.jdk=21"]
+        result = retry_transient("publish-demo dependency resolution", lambda: self.run(
+            argv, check=False, timeout=360), resolution_only=True)
+        if result.returncode:
+            raise RuntimeError(redact(f"publish-demo failed ({result.returncode})\n"
+                                      f"{result.stdout}\n{result.stderr}"))
         self.save("publish-demo.log", result.stdout + result.stderr)
         with urlopen(f"http://{self.registry}/v2/apps/demo/manifests/live", timeout=10) as response:
             digest = response.headers["Docker-Content-Digest"]
@@ -525,6 +649,7 @@ class Fixture:
             errors.append(f"private material cleanup: {error}")
         try:
             self.save("result.json", {"passed": passed and not errors, "errors": errors,
+                                     "failureClass": getattr(self, "failure_class", None),
                                      "scenario": self.scenario, "assertions": len(self.evidence)})
         except OSError as error:
             errors.append(f"result persistence: {error}")
