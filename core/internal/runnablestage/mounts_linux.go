@@ -8,12 +8,14 @@ package runnablestage
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 type mount struct {
@@ -126,29 +128,18 @@ func readMounts(ctx context.Context, proc procReader, allowNestedPID bool) (moun
 			return mountSnapshot{}, err
 		}
 		raw, err := proc.ReadFile(entry.Name() + "/mountinfo")
-		if os.IsNotExist(err) {
-			// A vanished PID is harmless; an existing process with a hidden
-			// mountinfo is not. Zombies can have an empty mountinfo.
-			_, aliveErr := proc.ReadFile(entry.Name() + "/stat")
-			if os.IsNotExist(aliveErr) {
-				continue
-			}
+		// A vanished PID or a zombie is harmless; an existing live process
+		// with a hidden mountinfo is not. A zombie has no mount namespace, so
+		// its mountinfo is empty or, on current kernels, fails with EINVAL.
+		if err != nil && (os.IsNotExist(err) || errors.Is(err, syscall.EINVAL)) && exited(proc, entry.Name()) {
+			continue
 		}
 		if err != nil {
 			return mountSnapshot{}, fmt.Errorf("read PID %s mounts: %w", entry.Name(), err)
 		}
 		if len(strings.TrimSpace(string(raw))) == 0 {
-			stat, statErr := proc.ReadFile(entry.Name() + "/stat")
-			if os.IsNotExist(statErr) {
+			if exited(proc, entry.Name()) {
 				continue
-			}
-			if statErr == nil {
-				if end := strings.LastIndex(string(stat), ") "); end >= 0 {
-					state := string(stat)[end+2:]
-					if strings.HasPrefix(state, "Z ") || strings.HasPrefix(state, "X ") {
-						continue
-					}
-				}
 			}
 			return mountSnapshot{}, fmt.Errorf("empty mountinfo for live or unreadable PID %s", entry.Name())
 		}
@@ -162,6 +153,24 @@ func readMounts(ctx context.Context, proc procReader, allowNestedPID bool) (moun
 		return mountSnapshot{}, fmt.Errorf("no visible processes in host proc")
 	}
 	return snapshot, nil
+}
+
+// exited reports whether PID has vanished or is a zombie/dead task, whose
+// mounts cannot pin any stage.
+func exited(proc procReader, pid string) bool {
+	stat, err := proc.ReadFile(pid + "/stat")
+	if os.IsNotExist(err) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	end := strings.LastIndex(string(stat), ") ")
+	if end < 0 {
+		return false
+	}
+	state := string(stat)[end+2:]
+	return strings.HasPrefix(state, "Z ") || strings.HasPrefix(state, "X ")
 }
 
 func decimal(value string) bool {

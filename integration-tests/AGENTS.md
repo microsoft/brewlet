@@ -71,6 +71,8 @@ integration-tests/e2e/run.sh
 Set `E2E_KUBE_CONTEXT` to pin the run to one context: the harness writes a
 private, minified kubeconfig into the work directory and exports `KUBECONFIG`,
 so a concurrent `kubectl config use-context` cannot redirect a running suite.
+Locally built image tags carry the run's PID, so a concurrent run that shares
+the Docker daemon (for example against another cluster) cannot remove them.
 
 ### Managed clusters (AKS and other real VMs)
 
@@ -118,6 +120,11 @@ integration-tests/e2e/run.sh --reset --tier 1 --tier 2  # ...or list every tier
   2, capped at 30). Assertions are never retried. If a NodeProfile fixture
   teardown still fails, live state is re-checked and a leak is reported only
   if the profile, its workers, or a node claim actually remain.
+- The tiers run the operator on the workstation, and every NodeProfile
+  reconcile does several uncached cluster-wide Lists (nodes, profiles,
+  DaemonSets, pods). Over a WAN link one reconcile can take minutes, so
+  reconcile waits use `E2E_RECONCILE_TIMEOUT` seconds (default 360 with
+  `E2E_NODE_ACCESS=kubectl`, otherwise 30).
 - `E2E_NODE_SELECTOR` (a label selector, default: the pools) further restricts
   which pool nodes the provisioning tiers may pick.
 - Tier 13 relabels nodes with `E2E_T13_POOL_KEY` (default `brewlet-e2e-pool`

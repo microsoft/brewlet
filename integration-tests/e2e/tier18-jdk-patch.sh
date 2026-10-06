@@ -50,6 +50,9 @@ T18_LAUNCHER_SNAPSHOT=""
 T18_LAUNCHER_ACTIVE_SNAPSHOT=""
 T18_LAUNCHER_ACTIVE_STATE=""
 T18_PRE_RETIRED=""
+# JDK/launcher tree snapshots stay on the node: streaming a JDK through
+# `kubectl exec` to the workstation and back is slow on managed clusters.
+T18_NODE_SNAPSHOT_DIR="/var/tmp/brewlet-e2e-t18-$$"
 
 _t18_cleanup() {
   info "tier18: cleaning up"
@@ -93,10 +96,10 @@ _t18_cleanup() {
     done < <(_t18_retired_roots)
     node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
       sh "/opt/brewlet/jdks/$T18_JDK" >/dev/null 2>&1 || true
-    if [[ -n "$T18_JDK_SNAPSHOT" && -f "$T18_JDK_SNAPSHOT" ]]; then
+    if [[ -n "$T18_JDK_SNAPSHOT" ]]; then
       node_exec "$T18_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
-      node_exec -i "$T18_NODE" tar -C /opt/brewlet/jdks -xf - \
-        <"$T18_JDK_SNAPSHOT" >/dev/null 2>&1 || true
+      node_exec "$T18_NODE" tar -C /opt/brewlet/jdks -xf "$T18_JDK_SNAPSHOT" >/dev/null 2>&1 ||
+        warn "tier18: could not restore $T18_NODE:/opt/brewlet/jdks/$T18_JDK from $T18_JDK_SNAPSHOT"
     fi
     node_exec "$T18_NODE" mkdir -p /opt/brewlet/jdks >/dev/null 2>&1 || true
     case "$T18_JDK_ACTIVE_STATE" in
@@ -111,9 +114,9 @@ _t18_cleanup() {
     node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
       sh "/opt/brewlet/launchers/$T18_LAUNCHER" >/dev/null 2>&1 || true
     node_exec "$T18_NODE" mkdir -p /opt/brewlet/launchers >/dev/null 2>&1 || true
-    if [[ -n "$T18_LAUNCHER_SNAPSHOT" && -f "$T18_LAUNCHER_SNAPSHOT" ]]; then
-      node_exec -i "$T18_NODE" tar -C /opt/brewlet/launchers -xf - \
-        <"$T18_LAUNCHER_SNAPSHOT" >/dev/null 2>&1 || true
+    if [[ -n "$T18_LAUNCHER_SNAPSHOT" ]]; then
+      node_exec "$T18_NODE" tar -C /opt/brewlet/launchers -xf "$T18_LAUNCHER_SNAPSHOT" >/dev/null 2>&1 ||
+        warn "tier18: could not restore $T18_NODE:/opt/brewlet/launchers/$T18_LAUNCHER from $T18_LAUNCHER_SNAPSHOT"
     fi
     case "$T18_LAUNCHER_ACTIVE_STATE" in
       present)
@@ -124,6 +127,7 @@ _t18_cleanup() {
       absent)
         node_exec "$T18_NODE" rm -f /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
     esac
+    node_exec "$T18_NODE" rm -rf "$T18_NODE_SNAPSHOT_DIR" >/dev/null 2>&1 || true
     label_node "$T18_NODE" "$T18_POOL_KEY-" brewlet.sh/runtime- \
       "brewlet.sh/jdk.$T18_JDK-" "brewlet.sh/jdk-feature.${T18_JDK##*-}-" \
       brewlet.sh/launcher.java- "brewlet.sh/launcher.$T18_LAUNCHER-" >/dev/null 2>&1 || true
@@ -374,9 +378,10 @@ tier18_jdk_patch() {
     T18_JDK_ACTIVE_STATE=absent
   fi
   if node_exec "$T18_NODE" test -e "/opt/brewlet/jdks/$T18_JDK"; then
-    T18_JDK_SNAPSHOT="$WORK/t18-jdk-before.tar"
-    if ! node_exec "$T18_NODE" tar -C /opt/brewlet/jdks -cf - "$T18_JDK" \
-        >"$T18_JDK_SNAPSHOT" 2>/dev/null; then
+    T18_JDK_SNAPSHOT="$T18_NODE_SNAPSHOT_DIR/jdk-before.tar"
+    if ! node_exec "$T18_NODE" sh -c 'mkdir -p "$1" && tar -C /opt/brewlet/jdks -cf "$2" "$3"' \
+        sh "$T18_NODE_SNAPSHOT_DIR" "$T18_JDK_SNAPSHOT" "$T18_JDK" >/dev/null 2>&1; then
+      T18_JDK_SNAPSHOT=""
       fail "tier18: snapshot existing JDK directory"; return 0
     fi
   fi
@@ -393,9 +398,10 @@ tier18_jdk_patch() {
     T18_LAUNCHER_ACTIVE_STATE=absent
   fi
   if node_exec "$T18_NODE" test -e "/opt/brewlet/launchers/$T18_LAUNCHER"; then
-    T18_LAUNCHER_SNAPSHOT="$WORK/t18-launcher-before.tar"
-    if ! node_exec "$T18_NODE" tar -C /opt/brewlet/launchers -cf - "$T18_LAUNCHER" \
-        >"$T18_LAUNCHER_SNAPSHOT" 2>/dev/null; then
+    T18_LAUNCHER_SNAPSHOT="$T18_NODE_SNAPSHOT_DIR/launcher-before.tar"
+    if ! node_exec "$T18_NODE" sh -c 'mkdir -p "$1" && tar -C /opt/brewlet/launchers -cf "$2" "$3"' \
+        sh "$T18_NODE_SNAPSHOT_DIR" "$T18_LAUNCHER_SNAPSHOT" "$T18_LAUNCHER" >/dev/null 2>&1; then
+      T18_LAUNCHER_SNAPSHOT=""
       fail "tier18: snapshot existing launcher directory"; return 0
     fi
   fi

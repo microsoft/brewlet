@@ -1475,7 +1475,8 @@ and builds/runs on Linux:
   (or direct execution); cleanup requires the exclusive guard. Reclamation
   requires complete reference inspection in the initial host PID/user and host
   mount namespaces with a complete `/proc`; ambiguous or unreadable evidence
-  prevents deletion. A test-only opt-in relaxes only the PID namespace check to
+  prevents deletion. Exited (zombie or dead) processes hold no mount namespace
+  and are skipped even when their mount table cannot be read. A test-only opt-in relaxes only the PID namespace check to
   the node init's namespace, for nodes that are themselves containers (kind). The root is administrator-owned and must not be renamed
   or replaced while consumers or cleanup run. Unmanaged layouts and abandoned pending
   trees remain outside automated eviction. Open file descriptors alone are

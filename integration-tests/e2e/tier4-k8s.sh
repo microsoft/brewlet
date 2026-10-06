@@ -240,14 +240,14 @@ YAML
     fail "NodeProfile: apply default profile" "see $WORK/t4-np.log"
   fi
 
-  if wait_for _t4_rc_exists; then
+  if wait_for_reconcile _t4_rc_exists; then
     assert_eq "NodeProfile: reconciler ensured the brewlet RuntimeClass handler" \
       "$(kubectl get runtimeclass brewlet -o jsonpath='{.handler}')" "brewlet"
   else
     fail "NodeProfile: reconciler ensured the brewlet RuntimeClass"
   fi
 
-  if wait_for _t4_ds_exists; then
+  if wait_for_reconcile _t4_ds_exists; then
     pass "NodeProfile: reconciler created the per-profile provisioner DaemonSet (brewlet-node-provisioner-default)"
     local total_nodes
     total_nodes="$(e2e_pool_nodes | wc -l | tr -d ' ')"
@@ -257,7 +257,7 @@ YAML
     fail "NodeProfile: reconciler created the per-profile provisioner DaemonSet"
   fi
 
-  if wait_for _t4_np_assigned; then
+  if wait_for_reconcile _t4_np_assigned; then
     pass "NodeProfile: status.assignedNodes reflects the claimed fleet"
   else
     fail "NodeProfile: status.assignedNodes populated" \

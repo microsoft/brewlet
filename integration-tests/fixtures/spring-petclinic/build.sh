@@ -63,7 +63,10 @@ mvn_cmd=("$checkout/mvnw")
 built=""
 for f in "$checkout"/target/*.jar; do
   [[ "$f" == *-sources.jar || "$f" == *-javadoc.jar ]] && continue
-  if unzip -p "$f" META-INF/MANIFEST.MF 2>/dev/null | grep -q '^Start-Class:'; then
+  # Read the manifest first: under pipefail, `unzip | grep -q` can fail with
+  # SIGPIPE when grep exits on its first match.
+  manifest="$(unzip -p "$f" META-INF/MANIFEST.MF 2>/dev/null || true)"
+  if grep -q '^Start-Class:' <<<"$manifest"; then
     built="$f"; break
   fi
 done

@@ -176,6 +176,17 @@ wait_for_seconds() {
   return 1
 }
 
+# wait_for_reconcile CMD...: wait for a host-run operator reconcile. Each
+# NodeProfile reconcile does several uncached cluster-wide Lists, which take
+# minutes over a WAN link to a managed cluster. E2E_RECONCILE_TIMEOUT overrides.
+wait_for_reconcile() {
+  local seconds="${E2E_RECONCILE_TIMEOUT:-}"
+  if [[ -z "$seconds" ]]; then
+    if [[ "${E2E_NODE_ACCESS:-docker}" == "kubectl" ]]; then seconds=360; else seconds=30; fi
+  fi
+  wait_for_seconds "$seconds" "$@"
+}
+
 # free_port: print an unused localhost TCP port.
 free_port() {
   python3 - <<'PY' 2>/dev/null || echo 0
