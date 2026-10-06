@@ -94,7 +94,7 @@ func (c *client) deleteProfile(name string, d deleteOptions) error {
 	// Attaching to a deletion already in progress changes nothing, so it is
 	// allowed even for profiles whose source of truth already removed them.
 	if !report.AlreadyDeleting {
-		if owner := managedBy(live.Metadata); owner != "" {
+		if owner := managedBy(live); owner != "" {
 			return fmt.Errorf("profile %q is managed by %s; deleting the live object would fight its source of truth. "+
 				"Remove the profile there instead: for Helm, drop the pool from provisioner.pools or profiles "+
 				"(or set defaultProfile.enabled=false) and run helm upgrade; for GitOps, remove it from the repository. "+

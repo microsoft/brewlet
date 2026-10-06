@@ -508,6 +508,9 @@ func TestManagedProfilesCannotBePatched(t *testing.T) {
 		`"labels":{"kustomize.toolkit.fluxcd.io/name":"runtime"}`,
 		`"ownerReferences":[{"uid":"controller","controller":true}]`,
 		`"managedFields":[{"manager":"custom-gitops","fieldsV1":{"f:spec":{}}}]`,
+		// The fixture's live rollout is non-empty, so even an empty f:rollout entry counts.
+		`"managedFields":[{"manager":"entry","fieldsV1":{"f:spec":{"f:rollout":{}}}}]`,
+		`"managedFields":[{"manager":"entry","fieldsV1":{"f:spec":{"f:rollout":{},"f:jdks":{}}}}]`,
 	}
 	for _, ownership := range cases {
 		t.Run(ownership, func(t *testing.T) {
@@ -526,6 +529,33 @@ func TestManagedProfilesCannotBePatched(t *testing.T) {
 			out, stderr, err := runTest(t, dryRunArgs(), executor)
 			if err != nil || !strings.Contains(stderr, "source of truth") || out == "" {
 				t.Fatalf("managed declaration must remain available: %s %s %v", out, stderr, err)
+			}
+		})
+	}
+}
+
+func TestOperatorOwnedEmptyRolloutIsNotExternalManagement(t *testing.T) {
+	cases := []struct {
+		name, rollout, owned, want string
+	}{
+		{"absent rollout", ``, `{"f:rollout":{}}`, ""},
+		{"empty rollout", `"rollout":{},`, `{"f:rollout":{}}`, ""},
+		{"null rollout", `"rollout":null,`, `{"f:rollout":{}}`, ""},
+		{"owned rollout child", `"rollout":{},`, `{"f:rollout":{"f:validate":{}}}`, "field manager entry"},
+		{"non-empty live rollout", `"rollout":{"validate":true},`, `{"f:rollout":{}}`, "field manager entry"},
+		{"other spec fields", ``, `{"f:rollout":{},"f:nodePool":{}}`, "field manager entry"},
+		{"whole spec", ``, `{}`, "field manager entry"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := `{"metadata":{"name":"workers","managedFields":[{"manager":"entry","fieldsV1":{"f:spec":` +
+				tc.owned + `}}]},"spec":{` + tc.rollout + `"jdks":[]}}`
+			var obj object
+			if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+				t.Fatal(err)
+			}
+			if got := managedBy(obj); got != tc.want {
+				t.Fatalf("managedBy = %q, want %q", got, tc.want)
 			}
 		})
 	}
