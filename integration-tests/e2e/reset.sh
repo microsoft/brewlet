@@ -38,8 +38,14 @@ E2E_FIXED_NS=(brewlet brewlet-e2e brewlet-e2e-app brewlet-metrics-e2e brewlet-st
 # always safe to reset for an e2e cluster — a genuinely provisioned node simply
 # gets re-labelled by its provisioner DaemonSet.
 scrub_node_labels() {
-  local n keys
-  for n in $(kubectl get nodes -o name 2>/dev/null); do
+  local n keys nodes
+  nodes="$(kubectl get nodes -o name 2>/dev/null)"
+  # On a shared (pinned) cluster, never touch nodes outside E2E_POOLS.
+  if e2e_pinned && [[ "$E2E_NODE_ACCESS" == "kubectl" ]]; then
+    [[ -n "$E2E_POOL_KEY" ]] || E2E_POOL_KEY="$(e2e_detect_pool_key)" || return 0
+    nodes="$(e2e_pool_nodes)"
+  fi
+  for n in $nodes; do
     n="${n#node/}"
     keys="$(kubectl get node "$n" -o json 2>/dev/null | python3 -c '
 import json,sys

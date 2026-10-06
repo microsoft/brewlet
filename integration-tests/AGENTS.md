@@ -71,6 +71,8 @@ integration-tests/e2e/run.sh
 Set `E2E_KUBE_CONTEXT` to pin the run to one context: the harness writes a
 private, minified kubeconfig into the work directory and exports `KUBECONFIG`,
 so a concurrent `kubectl config use-context` cannot redirect a running suite.
+Locally built image tags carry the run's PID, so a concurrent run that shares
+the Docker daemon (for example against another cluster) cannot remove them.
 
 ### Managed clusters (AKS and other real VMs)
 
@@ -118,6 +120,11 @@ integration-tests/e2e/run.sh --reset --tier 1 --tier 2  # ...or list every tier
   2, capped at 30). Assertions are never retried. If a NodeProfile fixture
   teardown still fails, live state is re-checked and a leak is reported only
   if the profile, its workers, or a node claim actually remain.
+- The tiers run the operator on the workstation, and every NodeProfile
+  reconcile does several uncached cluster-wide Lists (nodes, profiles,
+  DaemonSets, pods). Over a WAN link one reconcile can take minutes, so
+  reconcile waits use `E2E_RECONCILE_TIMEOUT` seconds (default 360 with
+  `E2E_NODE_ACCESS=kubectl`, otherwise 30).
 - `E2E_NODE_SELECTOR` (a label selector, default: the pools) further restricts
   which pool nodes the provisioning tiers may pick.
 - Tier 13 relabels nodes with `E2E_T13_POOL_KEY` (default `brewlet-e2e-pool`
@@ -171,7 +178,8 @@ it both inline and from its cleanup trap. §14's remaining row, the cgroup-v1
 refusal, cannot be produced on a cgroup-v2 CI node and is covered
 deterministically by `provisioner/entrypoint_test.sh` over `require_cgroup_v2`.
 Tier 17 requires a dedicated fresh node (no shim, safety record, or stage
-tree). Kubernetes `--reset` alone does not prepare a fresh node, and the tier
+tree, and no image records that already reference the tier's deterministic
+demo image, since those would keep its stage alive). Kubernetes `--reset` alone does not prepare a fresh node, and the tier
 rejects retained host state without clearing it. It uses the first fresh
 schedulable node. In a multi-tier run (including the default all-tiers run),
 `run.sh` moves tier 17 ahead of every Kubernetes tier, right after host-only

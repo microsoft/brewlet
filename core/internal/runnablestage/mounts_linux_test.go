@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/fstest"
 )
@@ -19,11 +20,16 @@ type fakeProc struct {
 	files fstest.MapFS
 	links map[string]string
 	fail  string
+	// einval names a file whose read fails like a zombie's mountinfo.
+	einval string
 }
 
 func (p fakeProc) ReadFile(name string) ([]byte, error) {
 	if name == p.fail {
 		return nil, os.ErrPermission
+	}
+	if name == p.einval {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: syscall.EINVAL}
 	}
 	return fs.ReadFile(p.files, name)
 }
@@ -108,7 +114,7 @@ func TestMountMapping(t *testing.T) {
 }
 
 func TestProcFailClosed(t *testing.T) {
-	for _, failure := range []string{"hidepid", "pidns", "userns", "mountns", "missing-proc", "permission", "parse", "empty-live", "missing-live", "enumeration", "namespace-permission"} {
+	for _, failure := range []string{"hidepid", "pidns", "userns", "mountns", "missing-proc", "permission", "parse", "empty-live", "missing-live", "einval-live", "enumeration", "namespace-permission"} {
 		t.Run(failure, func(t *testing.T) {
 			proc := newProc()
 			switch failure {
@@ -132,6 +138,9 @@ func TestProcFailClosed(t *testing.T) {
 			case "missing-live":
 				delete(proc.files, "42/mountinfo")
 				proc.files["42/stat"] = &fstest.MapFile{Data: []byte("42 (jvm) S 1 2")}
+			case "einval-live":
+				proc.einval = "42/mountinfo"
+				proc.files["42/stat"] = &fstest.MapFile{Data: []byte("42 (jvm) S 1 2")}
 			case "enumeration":
 				proc.fail = "."
 			case "namespace-permission":
@@ -145,6 +154,16 @@ func TestProcFailClosed(t *testing.T) {
 }
 
 func TestExitedProcesses(t *testing.T) {
+	t.Run("zombie-einval", func(t *testing.T) {
+		// Zombies have no mount namespace; the kernel fails mountinfo opens
+		// with EINVAL (seen on AKS Ubuntu 24.04 nodes).
+		proc := newProc()
+		proc.einval = "42/mountinfo"
+		proc.files["42/stat"] = &fstest.MapFile{Data: []byte("42 (inotifywait) Z 1 2")}
+		if _, err := readMounts(context.Background(), proc, false); err != nil {
+			t.Fatal(err)
+		}
+	})
 	for _, zombie := range []bool{false, true} {
 		t.Run(fmt.Sprint(zombie), func(t *testing.T) {
 			proc := newProc()
