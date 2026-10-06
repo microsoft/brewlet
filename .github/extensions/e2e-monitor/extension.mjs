@@ -136,7 +136,7 @@ const actions = [
             additionalProperties: false,
             properties: {
                 suite: { type: "string", enum: Object.keys(SUITES) },
-                tiers: { type: "array", items: { type: "integer", minimum: 1, maximum: 19 }, description: "Tiers for the tiers suite (1-19)." },
+                tiers: { type: "array", items: { type: "integer", minimum: 1, maximum: 19 }, description: "Tiers for the tiers suite (1-19; 14 is retired)." },
                 reset: { type: "boolean", description: "tiers only: pass --reset before running tiers." },
                 cluster: {
                     type: "string",

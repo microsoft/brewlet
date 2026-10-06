@@ -560,6 +560,28 @@ pick_provisionable_node() {
   return 1
 }
 
+# ensure_fresh_namespace NS: wait out a previous tier's terminating NS, then
+# (re)create it.
+ensure_fresh_namespace() {
+  local ns="$1" deleting
+  deleting="$(kubectl get namespace "$ns" \
+    -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null || true)"
+  if [[ -n "$deleting" ]]; then
+    wait_for bash -c "! kubectl get namespace '$ns' >/dev/null 2>&1" || return 1
+  fi
+  kubectl create namespace "$ns" >/dev/null 2>&1 || true
+  kubectl get namespace "$ns" >/dev/null 2>&1
+}
+
+# wait_crd_not_terminating CRD: wait for a previous tier's CRD deletion to finish.
+wait_crd_not_terminating() {
+  local crd="$1" deleting
+  deleting="$(kubectl get crd "$crd" \
+    -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null || true)"
+  [[ -z "$deleting" ]] || wait_for_seconds 60 bash -c \
+    "! kubectl get crd '$crd' >/dev/null 2>&1"
+}
+
 # ctr_supports_unpack NODE: true if the node's `ctr` exposes `images unpack`.
 # Some trimmed containerd CLIs (e.g. the one shipped in Docker Desktop nodes)
 # omit the subcommand tier 12 relies on.

@@ -35,7 +35,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 routing and monitor history using offline fixtures, without accessing a cluster.
 
 The E2E workflow's `suite` selector accepts `all` (default), `tiers` (tiers 1-19
-plus host-only tiers 1-3 on arm64), and `live` (isolated live scenarios).
+except retired tier 14, plus host-only tiers 1-3 on arm64), and `live` (isolated
+live scenarios).
 Scheduled runs execute both suites. The `scenario` selector affects only live
 jobs and is ignored for `tiers`.
 
@@ -118,16 +119,17 @@ The harness does not switch branches or modify component sources. It uses
 | OpenSSL | 4, 5, 6, 10, 11 |
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
-behavior. Tiers 6, 8-12, and 14-19 require containerd nodes the harness can
+behavior. Tiers 6, 8-12, and 15-19 require containerd nodes the harness can
 enter: local kind nodes by default, or any Linux node with
 `E2E_NODE_ACCESS=kubectl` (see "Managed clusters"). Otherwise managed clusters
 skip those node-side paths. Tier 13
 also proves the control-plane guard: a NodeProfile that does not set
 `nodePool.includeControlPlane` never counts or schedules onto a control-plane
 node. Because kind and Docker Desktop label their single node as the control
-plane, the node-side tiers set that opt-in explicitly. Tier 14
-installs explicit custom JDK and `jaz` sources and runs a live workload through
-both. Tier 10 also exercises cert-manager issuance and certificate hot reload
+plane, the node-side tiers set that opt-in explicitly. Tier 18
+first proves an induced post-restart handler failure rolls containerd back,
+then installs digest-pinned JDK and `jaz` sources and runs a live workload
+through both across a JDK patch rotation. Tier 14 is retired (no renumbering). Tier 10 also exercises cert-manager issuance and certificate hot reload
 when cert-manager is installed. Tier 15 installs the
 chart with metrics enabled, provisions one node through the real DaemonSet,
 launches a Brewlet workload, and scrapes all metrics surfaces. Tier 16 covers

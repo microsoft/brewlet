@@ -49,10 +49,12 @@ an exercised capability fails. The suite covers:
 | 10-11 | installed Helm stack and webhook resilience | Kubernetes |
 | 12 | runnable image pulled and unpacked by kubelet | core + fixtures |
 | 13 | NodeProfile lifecycle | Kubernetes |
-| 14 | custom JDK + jaz NodeProfile, live workload, and broken-launcher readiness failure | both + fixtures |
+| 14 | retired: every JDK is NodeProfile-sourced, so its coverage moved to tier 18 and NodeProfile envtests | — |
 | 15 | live opt-in Prometheus metrics through Helm, provisioner, shim, and exporter | both + fixtures |
 | 16 | SPECIFICATION §14 failure modes on a live node | core + fixtures |
 | 17 | default-enabled runnable-stage GC: fresh activation, installation safety blocking, reference protection, and reclamation | both + fixtures |
+| 18 | containerd restart rollback, sourced JDK + `jaz` launcher provisioning, and patched JDK digest rollout under a live workload | both + fixtures |
+| 19 | dependency CVE remediation across environments | both + fixtures |
 
 Run Tier 17 alone against a dedicated fresh node. It refuses existing shim,
 installation-record, or nonempty staging-root state; `--reset` only resets
