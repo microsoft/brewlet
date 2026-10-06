@@ -206,6 +206,12 @@ checks that the running pod keeps its original JDK and container, and that a
 retired-root sweep keeps the root that pod still uses. Finally, it asserts
 that `kubectl rollout restart` moves the same application image onto the
 patched JDK, after which an idle sweep reclaims the retired root.
+A cold node pulls roughly 1 GB of JDK and `jaz` images here, so each wait for
+the node to advertise a JDK is progress-aware rather than fixed. It keeps
+waiting while the node's in-flight containerd ingests or the provisioner log
+advance. It fails after `E2E_PROVISION_IDLE_TIMEOUT` seconds without progress
+(default 240) or after `E2E_PROVISION_TIMEOUT` seconds in total (default
+900). The failure detail names which limit stopped the wait.
 Tier 19 rehearses a critical CVE in a library shipped by a managed dependency
 bundle. It publishes a bundle with a stub `log4j-core` 2.14.1, composes three
 thin-JAR apps (two on that bundle, one control on an unrelated bundle), and
