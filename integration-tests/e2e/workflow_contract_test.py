@@ -82,7 +82,7 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_selectors_defaults_and_scheduled_manual_only_triggers(self):
         self.assertEqual(self.choices("suite"), ["all", "live", "tiers"])
-        self.assertEqual(self.choices("scenario"), ["both", "admission", "hpa", "workflows"])
+        self.assertEqual(self.choices("scenario"), ["both", "admission", "hpa", "workflows", "retirement"])
         self.assertNotIn("candidate:", self.inputs)
         for name, default in (("suite", "all"), ("scenario", "both")):
             self.assertEqual(scalar(block(self.inputs, name, 6), "default", 8), default)
@@ -99,7 +99,7 @@ class WorkflowContractTests(unittest.TestCase):
             if suite in ("all", "tiers"):
                 expected.update(("tiers", "arm64"))
             if suite in ("all", "live"):
-                if scenario in ("both", "admission", "hpa"):
+                if scenario in ("both", "admission", "hpa", "retirement"):
                     expected.add("live")
                 if scenario in ("both", "workflows"):
                     expected.add("workflows")
@@ -132,8 +132,9 @@ class WorkflowContractTests(unittest.TestCase):
         match = re.fullmatch(r"\$\{\{ fromJSON\((.+)\) \}\}", value)
         self.assertIsNotNone(match)
         for scenario, expected in (
-            ("", ["admission", "hpa"]), ("both", ["admission", "hpa"]),
+            ("", ["admission", "hpa", "retirement"]), ("both", ["admission", "hpa", "retirement"]),
             ("admission", ["admission"]), ("hpa", ["hpa"]),
+            ("retirement", ["retirement"]),
         ):
             with self.subTest(scenario=scenario):
                 self.assertEqual(json.loads(expression(match[1], {"inputs.scenario": scenario})), expected)

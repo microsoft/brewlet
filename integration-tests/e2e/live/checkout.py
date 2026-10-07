@@ -13,8 +13,8 @@ from common import (Fixture, JDK_IMAGE, MAVEN_NETWORK_RETRIES, OWNER_LABEL, ROOT
 
 
 class CheckoutFixture(Fixture):
-    def __init__(self, scenario):
-        super().__init__(scenario)
+    def __init__(self, scenario, *, workers=0):
+        super().__init__(scenario, workers=workers)
         for key in ("BREWLET_REGISTRY_USERNAME", "BREWLET_REGISTRY_PASSWORD", "MAVEN_OPTS",
                     "MAVEN_ARGS", "JAVA_TOOL_OPTIONS"):
             self.env.pop(key, None)
@@ -105,6 +105,10 @@ class CheckoutFixture(Fixture):
             pinned = tag.split(":")[0] + "@" + digest
             self.run(["docker", "exec", self.node_id, "ctr", "-n", "k8s.io", "images", "tag",
                       "--force", tag, pinned])
+            for node, identifier in self.worker_ids.items():
+                self.own_container(node)
+                self.run(["docker", "exec", identifier, "ctr", "-n", "k8s.io", "images", "tag",
+                          "--force", tag, pinned])
             images[component] = pinned
         versions = json.loads((self.work / "versions.json").read_text())
         versions["components"] = images

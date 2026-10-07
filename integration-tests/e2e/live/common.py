@@ -178,13 +178,13 @@ def download(url, path, digest):
         raise RuntimeError(f"Checksum mismatch: {path.name}")
 
 
-def kind_config(name):
+def kind_config(name, workers=0):
     # Stock kind discards packed layers after unpack, and containerd collects them
     # within about a second of a pull. A cold runnable-image start needs them until
     # the shim publishes its verified stage (docs/live-validation.md), so defer
     # automatic GC on this disposable node. Fixture.request_containerd_gc() later
     # runs containerd's own collector, after which periodic GC resumes.
-    return f"""kind: Cluster
+    config = f"""kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 containerdConfigPatches:
 - |-
@@ -207,6 +207,10 @@ nodes:
         horizontal-pod-autoscaler-sync-period: "10s"
         horizontal-pod-autoscaler-cpu-initialization-period: "30s"
 """
+    return config + (f"""- role: worker
+  labels:
+    sh.brewlet/live-owner: {name}
+""" * workers)
 
 
 def owned_container(info, identifier, label, owner):
@@ -215,9 +219,11 @@ def owned_container(info, identifier, label, owner):
 
 
 class Fixture:
-    def __init__(self, scenario):
-        if scenario not in ("smoke", "hpa", "admission", "workflows"):
-            raise ValueError("scenario must be smoke, hpa, admission or workflows")
+    def __init__(self, scenario, *, workers=0):
+        if scenario not in ("smoke", "hpa", "admission", "workflows", "retirement"):
+            raise ValueError("unknown live scenario")
+        if workers not in (0, 2):
+            raise ValueError("fixtures support zero or two disposable workers")
         self.scenario = scenario
         self.name = f"brewlet-live-{scenario}-{uuid.uuid4().hex[:12]}"
         base = Path(os.environ.get("BREWLET_LIVE_OUTPUT", tempfile.gettempdir()))
@@ -231,6 +237,9 @@ class Fixture:
         self.namespace = "live-e2e"
         self.node = f"{self.name}-control-plane"
         self.node_id = None
+        self.worker_names = [f"{self.name}-worker{n if n > 1 else ''}"
+                             for n in range(1, workers + 1)]
+        self.worker_ids = {}
         self.registry_id = None
         self.network_id = None
         self.children = []
@@ -315,6 +324,8 @@ class Fixture:
         info = json.loads(self.run(["docker", "inspect", name]).stdout)[0]
         if name == self.node:
             valid = owned_container(info, self.node_id, "io.x-k8s.kind.cluster", self.name)
+        elif name in self.worker_ids:
+            valid = owned_container(info, self.worker_ids[name], "io.x-k8s.kind.cluster", self.name)
         else:
             valid = owned_container(info, self.registry_id, OWNER_LABEL, self.name)
         if not valid:
@@ -400,40 +411,54 @@ class Fixture:
             ["curl", "-fsS", "--max-time", "5", f"http://{self.registry}/v2/"],
             check=False).returncode == 0, timeout=60)
         config = self.private / "kind.yaml"
-        config.write_text(kind_config(self.name))
+        config.write_text(kind_config(self.name, len(self.worker_names)))
         try:
             result = self.run(["kind", "create", "cluster", "--name", self.name,
                                "--kubeconfig", self.kubeconfig, "--image", KIND_IMAGE,
                                "--config", config, "--wait", "180s", "--retain"], timeout=360)
             self.save("kind-create.log", result.stdout + result.stderr)
         finally:
-            result = self.run(["docker", "inspect", self.node], check=False)
-            if result.returncode == 0:
-                info = json.loads(result.stdout)[0]
-                if info["Config"].get("Labels", {}).get("io.x-k8s.kind.cluster") != self.name:
-                    raise RuntimeError("Unexpected kind node ownership")
-                self.node_id = info["Id"]
-                self.save("node-identity.json", {"id": self.node_id,
-                          "name": self.node, "mounts": info["Mounts"]})
+            for name in [self.node, *self.worker_names]:
+                result = self.run(["docker", "inspect", name], check=False)
+                if result.returncode == 0:
+                    info = json.loads(result.stdout)[0]
+                    if info["Config"].get("Labels", {}).get("io.x-k8s.kind.cluster") != self.name:
+                        raise RuntimeError("Unexpected kind node ownership")
+                    if name == self.node:
+                        self.node_id = info["Id"]
+                    else:
+                        self.worker_ids[name] = info["Id"]
+                    filename = "node-identity.json" if name == self.node else f"{name}-identity.json"
+                    self.save(filename, {"id": info["Id"],
+                              "name": name, "mounts": info["Mounts"]})
         self.own_container(self.node)
-        self.run(["docker", "update", "--cpus", "3", "--memory", "6g",
-                  "--memory-swap", "6g", self.node_id])
+        memory = "3g" if self.worker_names else "6g"
+        self.run(["docker", "update", "--cpus", "3", "--memory", memory,
+                  "--memory-swap", memory, self.node_id])
+        for name, identifier in self.worker_ids.items():
+            self.own_container(name)
+            self.run(["docker", "update", "--cpus", "2", "--memory", "1536m",
+                      "--memory-swap", "1536m", identifier])
         self.kube("wait", "--for=condition=Ready", "nodes", "--all", "--timeout=180s")
         nodes = self.get("nodes")["items"]
-        if len(nodes) != 1 or nodes[0]["metadata"]["labels"].get("sh.brewlet/live-owner") != self.name:
-            raise RuntimeError("Kubeconfig does not identify the owned disposable node")
+        if ({n["metadata"]["name"] for n in nodes} != {self.node, *self.worker_names}
+                or any(n["metadata"]["labels"].get("sh.brewlet/live-owner") != self.name for n in nodes)):
+            raise RuntimeError("Kubeconfig does not identify the owned disposable nodes")
         self.cluster_uid = self.get("namespace", "kube-system")["metadata"]["uid"]
-        for host in (self.registry, self.registry_internal):
-            target = f"/etc/containerd/certs.d/{host}"
-            self.run(["docker", "exec", self.node_id, "mkdir", "-p", target])
-            self.run(["docker", "exec", "-i", self.node_id, "tee", f"{target}/hosts.toml"],
-                     input=f'[host."http://{self.registry_internal}"]\n'
-                           '  capabilities = ["pull", "resolve"]\n')
+        for identifier in [self.node_id, *self.worker_ids.values()]:
+            for host in (self.registry, self.registry_internal):
+                target = f"/etc/containerd/certs.d/{host}"
+                self.run(["docker", "exec", identifier, "mkdir", "-p", target])
+                self.run(["docker", "exec", "-i", identifier, "tee", f"{target}/hosts.toml"],
+                         input=f'[host."http://{self.registry_internal}"]\n'
+                               '  capabilities = ["pull", "resolve"]\n')
         self.save("identity.json", {"name": self.name, "clusterUID": self.cluster_uid,
                   "nodeID": self.node_id, "registryID": self.registry_id,
-                  "networkID": self.network_id, "arch": self.arch})
+                  "networkID": self.network_id, "arch": self.arch, "workerIDs": self.worker_ids})
         self.apply({"apiVersion": "v1", "kind": "Namespace",
                     "metadata": {"name": self.namespace}})
+        if self.worker_names:
+            self.kube("taint", "node", self.node, "node-role.kubernetes.io/control-plane:NoSchedule-")
         self.provision()
 
     def build(self):
@@ -448,6 +473,9 @@ class Fixture:
                   "images": images,
                   "operator": {"leaderElect": False},
                   "admission": {"failurePolicy": "Ignore", "nodeProfileFailurePolicy": "Fail"}}
+        if self.worker_names:
+            for component in ("operator", "admission"):
+                values[component]["nodeSelector"] = {"kubernetes.io/hostname": self.node}
         path = self.private / "values.json"
         path.write_text(json.dumps(values))
         result = self.run(["helm", "--kubeconfig", self.kubeconfig,
@@ -581,6 +609,7 @@ class Fixture:
                 ("events.json", ["get", "events", "-A", "-o", "json"]),
                 ("metrics.json", ["get", "--raw", "/apis/metrics.k8s.io/v1beta1/pods"]),
                 ("nodes.json", ["get", "nodes", "-o", "json"]),
+                ("retirement-evidence.json", ["get", "noderetirementevidence.node.brewlet.sh", "-o", "json"]),
             ):
                 result = self.kube(*args, check=False, timeout=60)
                 self.save(filename, result.stdout + result.stderr)
@@ -595,6 +624,11 @@ class Fixture:
             result = self.run(["docker", "exec", self.node_id, "journalctl", "-u", "kubelet",
                                "-u", "containerd", "--no-pager", "-n", "500"], check=False)
             self.save("node.log", result.stdout + result.stderr)
+            for name, identifier in self.worker_ids.items():
+                self.own_container(name)
+                result = self.run(["docker", "exec", identifier, "journalctl", "-u", "kubelet",
+                                   "-u", "containerd", "--no-pager", "-n", "500"], check=False)
+                self.save(f"{name}.log", result.stdout + result.stderr)
         if self.registry_id:
             self.own_container(self.registry_name)
             result = self.run(["docker", "logs", "--tail", "500", self.registry_id], check=False)
@@ -625,8 +659,9 @@ class Fixture:
                 cleanup()
             except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
                 errors.append(f"cleanup: {error}")
-        for name, identifier in ((self.node, self.node_id),
-                                 (getattr(self, "registry_name", ""), self.registry_id)):
+        for name, identifier in [(self.node, self.node_id),
+                                 *getattr(self, "worker_ids", {}).items(),
+                                 (getattr(self, "registry_name", ""), self.registry_id)]:
             if identifier:
                 try:
                     self.own_container(name)

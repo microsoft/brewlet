@@ -84,21 +84,20 @@ tier4_k8s() {
   fi
 
   # --- install the CRDs -----------------------------------------------------
-  # Both must exist before the manager starts: controller-runtime's typed caches
-  # open informers for JavaApplication AND NodeProfile at boot and fail if either
-  # CRD is missing.
+  # Every watched CRD must exist before controller-runtime opens its informers.
   kubectl create namespace "$T4_NS_OP" >/dev/null 2>&1 || true
   check "NodeProfile: provisioner fixture ServiceAccount created" \
     kubectl create serviceaccount brewlet-node-provisioner -n "$T4_NS_OP" || return 0
   if kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/javaapplication-crd.yaml" >"$WORK/t4-crd.log" 2>&1 \
      && kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/nodeprofile-crd.yaml" >>"$WORK/t4-crd.log" 2>&1 \
+     && kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/noderetirementevidence-crd.yaml" >>"$WORK/t4-crd.log" 2>&1 \
      && kubectl wait --for=condition=Established --timeout=30s \
           crd/javaapplications.apps.brewlet.sh >>"$WORK/t4-crd.log" 2>&1 \
      && kubectl wait --for=condition=Established --timeout=30s \
-          crd/nodeprofiles.node.brewlet.sh >>"$WORK/t4-crd.log" 2>&1; then
-    pass "CRD: JavaApplication + NodeProfile installed and Established"
+          crd/nodeprofiles.node.brewlet.sh crd/noderetirementevidence.node.brewlet.sh >>"$WORK/t4-crd.log" 2>&1; then
+    pass "CRD: JavaApplication + NodeProfile + NodeRetirementEvidence installed and Established"
   else
-    fail "CRD: JavaApplication + NodeProfile Established" "see $WORK/t4-crd.log"; return 0
+    fail "CRD: JavaApplication + NodeProfile + NodeRetirementEvidence Established" "see $WORK/t4-crd.log"; return 0
   fi
 
   # --- start the operator out-of-cluster ------------------------------------

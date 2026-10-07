@@ -460,9 +460,14 @@ tier18_jdk_patch() {
   wait_crd_not_terminating javaapplications.apps.brewlet.sh || {
     fail "tier18: wait for previous JavaApplication CRD deletion"; return 0
   }
+  wait_crd_not_terminating noderetirementevidence.node.brewlet.sh || {
+    fail "tier18: wait for previous NodeRetirementEvidence CRD deletion"; return 0
+  }
   if kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/nodeprofile-crd.yaml" >"$WORK/t18-control.log" 2>&1 &&
     kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/javaapplication-crd.yaml" >>"$WORK/t18-control.log" 2>&1 &&
-    kubectl wait --for=condition=Established --timeout=30s crd/nodeprofiles.node.brewlet.sh >>"$WORK/t18-control.log" 2>&1; then
+    kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/noderetirementevidence-crd.yaml" >>"$WORK/t18-control.log" 2>&1 &&
+    kubectl wait --for=condition=Established --timeout=30s crd/nodeprofiles.node.brewlet.sh \
+      crd/javaapplications.apps.brewlet.sh crd/noderetirementevidence.node.brewlet.sh >>"$WORK/t18-control.log" 2>&1; then
     pass "tier18: installed the NodeProfile API"
   else
     fail "tier18: install NodeProfile API" "see $WORK/t18-control.log"; return 0

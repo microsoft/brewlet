@@ -11,11 +11,17 @@ images from the checkout and drives `brewlet push`, `brewlet k8s app
 status|wait`, `status`, `doctor`, `jdk|launcher list|add`, `profile
 list|inspect|delete`, `inspect app`, the `install` guards and
 `mvn package brewlet:push` with a separate kubectl/CLI deployment handoff end to end.
+`retirement.py` provisions a private three-node kind cluster, permanently removes
+one invocation-owned worker container and its volumes, and recovers the blocked
+profile through `NodeRetirementEvidence`. It verifies denial before an explicit
+recovery-role binding, real Java serving on the unprovisioned standby replacement,
+an unchanged survivor, and evidence retained after normal profile deletion.
+It is provider-neutral recovery coverage, not an AKS decommissioning test.
 They create their own uniquely named clusters and registries; never pass a
 shared kube context or run the tier reset helper for them. Mandatory assertions
 fail instead of skipping. `.github/workflows/e2e.yml` has separate scheduled/manual
 live jobs, each running twice on fresh clusters; it has no push/PR triggers.
-All three scenarios use the same checkout-built runtime, plus the checkout
+All scenarios use the same checkout-built runtime, plus the checkout
 verifier for admission. There are no historical runtime modes or version selectors.
 They require exactly kind v0.33.0 (`go install sigs.k8s.io/kind@v0.33.0`); setup
 network failures are retried with backoff and reported as `failureClass:

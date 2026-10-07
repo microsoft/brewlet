@@ -20,7 +20,11 @@ Evidence includes `maven-push-manifest.log`, `javaapplication.yaml`, and
 `cli-app-wait.log`. The comprehensive workflows scenario retains its separate
 production-style manifest handoff, so both paths remain covered.
 
-**Coverage boundary:** All three scenarios build the full current checkout.
+The [external retirement scenario](#external-host-retirement) exercises
+evidence-backed NodeProfile recovery after destroying a disposable kind worker,
+including real Java execution on its replacement.
+
+**Coverage boundary:** All live scenarios build the full current checkout.
 The [recorded source-built validation](#recorded-source-built-validation)
 identifies the tested revision and its relationship to the corresponding release.
 Archived acceptance results used an older mixed-version stack; neither those
@@ -34,7 +38,9 @@ coverage boundary.
 
 Use an otherwise idle Docker engine with at least **4 CPUs and 7 GiB RAM**.
 The fixture bounds its single kind node to 3 CPUs/6 GiB and the registry to
-0.5 CPU/256 MiB. Run the two scenarios sequentially on that host. Linux amd64
+0.5 CPU/256 MiB. Retirement instead uses a 3 GiB control plane and two
+1.5 GiB workers; each worker is capped at 2 CPUs. Run scenarios sequentially
+on that host. Linux amd64
 is the hosted-workflow target; the recorded local runs use Linux/arm64 nodes
 on macOS Docker Desktop. Other host/architecture combinations are fixture
 targets, not additional acceptance claims.
@@ -82,6 +88,7 @@ python3 -m unittest discover -s integration-tests/e2e/live -p '*test*.py' -v
 python3 integration-tests/e2e/live/hpa.py
 python3 integration-tests/e2e/live/admission.py
 python3 integration-tests/e2e/live/workflows.py
+python3 integration-tests/e2e/live/retirement.py
 ```
 
 The output directory must not exist as an invocation directory: each invocation
@@ -95,12 +102,12 @@ or `all` (the default) for both. Scheduled runs execute both suites; `scenario`
 is ignored when selecting `tiers`.
 
 Its `live` selection runs
-two separate jobs, each executing its scenario twice consecutively with fresh
+three separate jobs, each executing its scenario twice consecutively with fresh
 clusters. The first failure stops that job; the other scenario is independent.
-The manual `scenario` selector can run only `hpa`, only `admission` or only
+The manual `scenario` selector can run only `hpa`, `admission`, `retirement` or
 `workflows`; the scheduled default (`both`) runs every live scenario. The
 `workflows` job runs as two matrix entries, each on a fresh runner and cluster.
-Admission/HPA jobs have a 180-minute budget for two complete checkout builds
+Admission/HPA/retirement jobs have a 180-minute budget for two complete checkout builds
 and scenario runs; each workflows job has 90 minutes. Tier jobs have 60 minutes,
 and the arm64 host-only job has 30 minutes. Tier jobs retain selected redacted
 logs on success or failure; private work directories are never uploaded.
@@ -115,7 +122,7 @@ Every invocation builds the CLI, Maven plugin, operator, admission webhook and p
 the checkout and installs its chart. Admission also builds the checkout's
 Ratify verifier and uses its shipped policy manifests. `versions.json` records
 the source revision and dirty flag, CLI/plugin hashes, chart file hashes,
-loaded component digests and tool versions. The three scenarios share the
+loaded component digests and tool versions. All scenarios share the
 checkout build implementation. There is no runtime version selector or
 released-component overlay. External infrastructure and JDK images remain pinned.
 
@@ -176,6 +183,44 @@ production registry configuration. The Brewlet compatibility webhook boots
 with the chart's default `Ignore`, then switches to `Fail` after readiness and
 before any workload or admission assertion. Signature enforcement is a separate
 Ratify/Gatekeeper policy and must not be weakened to make a test pass.
+
+## External host retirement
+
+Run `python3 integration-tests/e2e/live/retirement.py`, or dispatch E2E with
+`suite: live` and `scenario: retirement`. This is explicitly destructive only
+inside the invocation-owned kind fixture: it accepts no existing cluster or
+node identifiers and does not call Azure APIs.
+
+The fixture provisions its control plane and original worker through the real
+NodeProfile controller and provisioner, then serves Java on both. A second,
+unprovisioned worker is held outside the profile's pool as the replacement.
+The scenario verifies the private cluster UID, original Node UID/provider ID,
+and captured Docker container ID/cluster label before removing that worker
+container **and its volumes**. Successful Docker inventory reads must prove
+their absence before the Kubernetes Node registration is removed.
+
+After introducing the standby into the pool, the scenario requires
+`CleanupBlocked`, the original frozen cleanup obligation, and an untouched,
+unclaimed replacement without evidence. An unbound submitter must receive
+`Forbidden`; only an explicit binding to `brewlet-retirement-recovery` permits
+the identity-bound attestation. The operator must resolve the evidence and
+provision the replacement under its own Node UID. A fresh Brewlet Pod must
+serve Java from that replacement, while the survivor's labels, Pod UID, running
+container and response remain unchanged. Finally, ordinary profile deletion
+must complete without deleting or changing the resolved evidence.
+
+`retirement-host-before.json` and `retirement-host.json` retain original host
+identity and destruction proof. The attestation references the SHA-256 of the
+latter. `retirement-evidence-resolved.json`,
+`retirement-evidence-retained.json`, and `assertions.json` retain the recovery
+checkpoints. Shared fixture cleanup identity-checks remaining containers and
+removes only this invocation's resources, including on failure.
+
+This covers provider-neutral recovery and actual runtime provisioning, not
+AKS/VMSS permanent-decommission verification, a same-name host replacement, or
+all cleanup races. Envtest covers the broader identity and race permutations.
+The shared fixture's cold-start containerd GC deferral still applies. Offline
+safeguard tests alone do not establish a successful live recovery run.
 
 ## CPU HPA contract and timing
 

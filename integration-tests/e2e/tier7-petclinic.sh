@@ -246,11 +246,14 @@ tier7_petclinic() {
 
   kubectl create namespace "$T7_NS_OP" >/dev/null 2>&1 || true
   if kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/javaapplication-crd.yaml" >"$WORK/t7-crd.log" 2>&1 \
+     && kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/nodeprofile-crd.yaml" >>"$WORK/t7-crd.log" 2>&1 \
+     && kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/noderetirementevidence-crd.yaml" >>"$WORK/t7-crd.log" 2>&1 \
      && kubectl wait --for=condition=Established --timeout=30s \
-          crd/javaapplications.apps.brewlet.sh >>"$WORK/t7-crd.log" 2>&1; then
-    pass "CRD: JavaApplication installed and Established"
+          crd/javaapplications.apps.brewlet.sh crd/nodeprofiles.node.brewlet.sh \
+          crd/noderetirementevidence.node.brewlet.sh >>"$WORK/t7-crd.log" 2>&1; then
+    pass "CRD: all operator APIs installed and Established"
   else
-    fail "CRD: JavaApplication Established" "see $WORK/t7-crd.log"; return 0
+    fail "CRD: all operator APIs Established" "see $WORK/t7-crd.log"; return 0
   fi
 
   # Start the operator out-of-cluster (built binary + your kubeconfig), just like

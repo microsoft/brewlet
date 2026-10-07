@@ -192,11 +192,12 @@ tier13_nodeprofile() {
     kubectl create serviceaccount brewlet-node-provisioner -n "$T13_NS" || return 0
   if kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/nodeprofile-crd.yaml" >"$WORK/t13-crd.log" 2>&1 &&
      kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/javaapplication-crd.yaml" >>"$WORK/t13-crd.log" 2>&1 &&
+     kubectl apply -f "$BREWLET_KUBERNETES_DIR/deploy/noderetirementevidence-crd.yaml" >>"$WORK/t13-crd.log" 2>&1 &&
      kubectl wait --for=condition=Established --timeout=30s crd/nodeprofiles.node.brewlet.sh \
-       crd/javaapplications.apps.brewlet.sh >>"$WORK/t13-crd.log" 2>&1; then
-    pass "CRD: NodeProfile + JavaApplication installed and Established"
+       crd/javaapplications.apps.brewlet.sh crd/noderetirementevidence.node.brewlet.sh >>"$WORK/t13-crd.log" 2>&1; then
+    pass "CRD: NodeProfile + JavaApplication + NodeRetirementEvidence installed and Established"
   else
-    fail "CRD: NodeProfile + JavaApplication Established" "see $WORK/t13-crd.log"; return 0
+    fail "CRD: NodeProfile + JavaApplication + NodeRetirementEvidence Established" "see $WORK/t13-crd.log"; return 0
   fi
   _t13_action "operator: manager started and healthy (readyz)" _t13_start_manager || return 0
 
