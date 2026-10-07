@@ -16,3 +16,5 @@ in the [archive index](../../archive/README.md).
   — research complete; implementation gated on prototype
 - [0007 — Baked golden-image delivery](0007-baked-golden-image-delivery.md)
   — proposed as an optional delivery mode, not a replacement
+- [0008 — Per-application Java truststores](0008-application-truststores.md)
+  — proposed Secret/ConfigMap-backed truststore references for `JavaApplication`

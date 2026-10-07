@@ -14,6 +14,11 @@ Two ways to deploy:
   and wait for one in a single step with
   [`brewlet:deploy`](#deploy-from-maven).
 
+For outbound TLS to private services, see
+[Custom CA certificates](custom-ca-certificates.md). The recommended shared-trust
+approach uses a custom JDK distribution; per-application truststore mounts
+currently require a raw Pod or Deployment.
+
 The optional [managed-dependency admission integration](admission-enforcement.md)
 provides a policy for gating either form in a disposable evaluation cluster. The
 Gatekeeper policy applies to every pod with `runtimeClassName: brewlet`,

@@ -39,6 +39,12 @@ accepted and implemented.
 
 ## Workload delivery
 
+- **Per-application truststores.** Add a narrow `JavaApplication` reference to a
+  prebuilt, same-namespace Secret/ConfigMap truststore, with read-only mounting
+  and explicit JVM configuration. Shared corporate roots can already use a
+  [custom JDK image](docs/custom-ca-certificates.md); per-application CRD support
+  and deterministic reference-based rotation are described in
+  [proposal 0008](specs/proposals/0008-application-truststores.md).
 - **Broader supply-chain admission.** A Brewlet-native example already ships in
   [`admission/`](admission/): a Ratify external verifier plugin plus Gatekeeper
   policy that admits digest-pinned `runtimeClassName: brewlet` pods only when
