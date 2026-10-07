@@ -246,6 +246,14 @@ check remains authoritative.
 > installed release's components rather than removing finalizers or adopting
 > unverified hosts.
 
+For permanently destroyed original hosts, the chart supplies the
+`NodeRetirementEvidence` CRD and an **unbound** `brewlet-retirement-recovery`
+ClusterRole. See [identity-bound recovery](../../../docs/installation.md#verified-external-host-retirement)
+and the narrow maintenance procedure for already-blocked installations.
+Evidence creation is a trusted administrative attestation, not Azure API
+verification. The records survive profile deletion and Helm uninstall; the
+uninstall hook inventories unfinished accepted evidence but never deletes it.
+
 ## Uninstall
 
 Drain Brewlet workloads and pause profile/GitOps writers first. The pre-delete

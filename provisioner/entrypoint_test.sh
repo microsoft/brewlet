@@ -1790,6 +1790,16 @@ ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Cleanin
 ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Teardown|node-uid|true'
 ownership_case cleanup "$claim_identity" 'profile-uid|3|deleting|node-uid|true|||||none|' false none
 ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Cleaning|node-uid|true|none|validated' false validated
+for mode in provision cleanup; do
+  for receipt in 'evidence-uid|evidence-name' '|evidence-name' 'evidence-uid|'; do
+    if ownership_case "$mode" "$claim_identity" "profile-uid|3|deleting|node-uid|true|||||validated||$receipt" >"$TEST_TMP_ROOT/rejected-retirement.log" 2>&1; then
+      echo "expected external-retirement receipt to revoke host writes" >&2
+      exit 1
+    fi
+    grep -Fq 'external-retirement disposition' "$TEST_TMP_ROOT/rejected-retirement.log"
+    [[ ! -s "$calls" ]]
+  done
+done
 for policy in sighup reboot; do
   for ledger in \
       "profile-uid|3|deleting|node-uid|true|||||$policy|" \

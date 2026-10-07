@@ -1,0 +1,59 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: noderetirementevidence.node.brewlet.sh
+spec:
+  group: node.brewlet.sh
+  scope: Cluster
+  names:
+    kind: NodeRetirementEvidence
+    listKind: NodeRetirementEvidenceList
+    plural: noderetirementevidence
+    singular: noderetirementevidence
+    shortNames: [nre]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - { name: Profile, type: string, jsonPath: .spec.profileName }
+        - { name: Node, type: string, jsonPath: .spec.nodeName }
+        - { name: Phase, type: string, jsonPath: .status.phase }
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [profileName, profileUID, nodeName, nodeUID, providerID, instanceID, evidenceRef, identityBinding, retiredAt, permanentlyDecommissioned]
+              x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: retirement attestation is immutable; submit a new record instead
+              properties:
+                profileName: { type: string, minLength: 1, maxLength: 253, pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$' }
+                profileUID: { type: string, minLength: 1, maxLength: 128, pattern: '^\S+$' }
+                nodeName: { type: string, minLength: 1, maxLength: 253, pattern: '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$' }
+                nodeUID: { type: string, minLength: 1, maxLength: 128, pattern: '^\S+$' }
+                providerID: { type: string, minLength: 1, maxLength: 2048, pattern: '\S' }
+                instanceID: { type: string, minLength: 1, maxLength: 1024, pattern: '\S' }
+                systemUUID: { type: string, minLength: 1, maxLength: 128, pattern: '\S' }
+                evidenceRef: { type: string, minLength: 1, maxLength: 2048, pattern: '\S' }
+                identityBinding: { type: string, minLength: 1, maxLength: 4096, pattern: '\S' }
+                retiredAt: { type: string, format: date-time }
+                permanentlyDecommissioned: { type: boolean, enum: [true] }
+            status:
+              type: object
+              properties:
+                phase: { type: string, enum: [Blocked, Accepted, Resolved] }
+                message: { type: string }
+                acceptedAt: { type: string, format: date-time }
+                resolvedAt: { type: string, format: date-time }
+                obligation:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true

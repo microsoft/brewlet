@@ -171,6 +171,11 @@ type NodeTarget struct {
 	// ContainerdRestart preserves this node's cleanup obligation even if later
 	// label-only provisioning is authorized on other targets.
 	ContainerdRestart string `json:"containerdRestart,omitempty"`
+	ProviderID        string `json:"providerID,omitempty"`
+	SystemUUID        string `json:"systemUUID,omitempty"`
+	// Evidence references a durable external-retirement disposition, not host cleanup.
+	RetirementEvidenceName string    `json:"retirementEvidenceName,omitempty"`
+	RetirementEvidenceUID  types.UID `json:"retirementEvidenceUID,omitempty"`
 }
 
 type NodeRetirement struct {
@@ -212,6 +217,7 @@ const (
 	ReasonCleanupSucceeded = "CleanupSucceeded"
 	// ReasonCleanupTeardown — completed cleanup workers must finish terminating.
 	ReasonCleanupTeardown = "CleanupTeardown"
+	ReasonCleanupResolved = "CleanupResolved"
 )
 
 // NodeProfile binds a node pool to a JDK/launcher inventory (§5.6). Cluster-scoped.

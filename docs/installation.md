@@ -315,7 +315,10 @@ runtime catalog or a replacement for previewing your chosen values.
 
 Helm installs the chart's CRDs on a fresh environment. For release changes,
 use safe teardown and reinstallation; there are no supported in-place release
-pairs. See the [pre-GA compatibility policy](compatibility.md).
+pairs for general runtime upgrades. The narrowly scoped
+[blocked-profile recovery maintenance](#recovery-maintenance-for-an-already-blocked-installation)
+procedure preserves old cleanup obligations rather than bypassing them.
+See the [pre-GA compatibility policy](compatibility.md).
 
 #### Default: safe teardown and reinstallation
 
@@ -377,6 +380,131 @@ reviewed node decommissioning/replacement process or a separate fresh
 environment, preserving recovery evidence and obligations. Review retained
 resources and files before following the
 [fresh-install procedure](#default-safe-teardown-and-reinstallation).
+
+##### Verified external host retirement
+
+When a managed platform permanently destroys a claimed host before Brewlet can
+clean it, an authorized administrator can submit a cluster-scoped
+`NodeRetirementEvidence` resource. This applies to both retargeting and profile
+deletion. It does **not** apply to an original Node that is merely unreachable.
+Restore that Node's connectivity for ordinary cleanup.
+
+**Trust boundary:** Brewlet checks the Kubernetes identities, recorded host
+identity, durable cleanup obligations, and writer barriers. It does not contact
+Azure or verify the referenced platform evidence. Creating the attestation is a
+privileged administrative assertion of permanent decommissioning. Node deletion,
+VM deallocation, a stopped VM, or an AKS pool reporting `Succeeded` alone is not
+proof that a particular original VM instance can never run again.
+
+1. Pause replacement/scale-in and profile/GitOps writers. Preserve the original
+   NodeProfile YAML, Node JSON if available, worker identities, platform records,
+   and Kubernetes API audit logs. Inspect `status.targets` and
+   `status.retirement`; never copy identities from a replacement Node.
+2. Verify permanent destruction of the original host using the platform's
+   decommissioning record. Bind its non-reusable instance identity to the
+   original Node UID. A VMSS slot or reusable resource path is insufficient
+   without an instance-specific record. Newly claimed targets retain available
+   `providerID` and `systemUUID`; legacy targets require an explicit mapping from
+   archived records, not invented status fields.
+3. A cluster administrator explicitly binds the unbound
+   `brewlet-retirement-recovery` ClusterRole to the responsible administrator.
+   The role grants evidence create/get/list/watch only; normal NodeProfile
+   editing does not grant recovery. Keep API audit records for authenticated
+   submitter attribution. Do not put credentials or signed access tokens in
+   evidence references.
+4. Create one immutable resource per original target, replacing every
+   placeholder below with reviewed values. Omit `systemUUID` only when the
+   original ledger did not record it. Use `kubectl create -f retirement.yaml`,
+   not edits to NodeProfile status or finalizers.
+
+```yaml
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeRetirementEvidence
+metadata:
+  name: reviewed-original-worker-retirement
+spec:
+  profileName: <original-profile-name>
+  profileUID: <original-profile-uid>
+  nodeName: <original-node-name>
+  nodeUID: <original-node-uid>
+  providerID: <original-provider-resource-identity>
+  instanceID: <non-reusable-original-vm-instance-id>
+  systemUUID: <original-recorded-system-uuid>
+  retiredAt: "<actual-permanent-decommissioning-time-in-RFC3339>"
+  evidenceRef: <retained-platform-record-reference>
+  identityBinding: <explanation-linking-original-node-uid-to-destroyed-instance>
+  permanentlyDecommissioned: true
+```
+
+```bash
+kubectl get noderetirementevidence -o yaml
+brewlet k8s profile inspect <profile-name> --output yaml
+kubectl get nodeprofile <profile-name> -o yaml
+brewlet k8s status --namespace brewlet
+```
+
+An unprocessed record has no phase yet. `Blocked` explains invalid evidence.
+`Accepted` means its original target and frozen cleanup policy were durably
+recorded; it does not mean the profile is ready. `Resolved` means worker teardown
+permitted the external-retirement disposition to finish. Evidence carries
+acceptance/resolution timestamps and the original obligation. It never claims
+that host cleanup executed.
+
+All other targets still require ordinary cleanup or their own valid evidence.
+Surviving workers, foreign ownership, and unverifiable records remain blockers.
+A known original `systemUUID` still registered under any Node name/UID also
+blocks recovery: re-registration is not permanent host destruction.
+A same-name replacement is never cleaned or released under its predecessor's
+identity; it is claimed normally only after retirement finishes. The profile-wide
+pause remains until the episode is resolved. `CleanupComplete` uses
+`CleanupResolved`, rather than `CleanupSucceeded`, when deletion includes an
+external disposition.
+
+Evidence has no owner references and survives profile deletion and Helm
+uninstall. Its spec is immutable. A corrected, unaccepted attestation requires a
+new resource; do not delete or replace an accepted record. Once the profile
+records an evidence UID, another resource with the same name cannot replace it.
+Export retained evidence and audit records before any separately reviewed
+archival/removal operation. Cluster administrators remain trusted; the submitter
+and operator are deliberately not granted evidence deletion.
+
+##### Recovery maintenance for an already-blocked installation
+
+An already-blocked 0.7.1 installation cannot uninstall in order to acquire this
+API. For its existing UID-bound target/provisioning/retirement ledger, use a
+reviewed build containing this recovery implementation, pinned by exact source
+revision and image digests. This is a recovery-only maintenance exception, not a
+general runtime release upgrade, rollback, or mixed-version support promise.
+The control-plane regression coverage exercises legacy records without host
+identity snapshots, checkpoint pruning/failure, and resumed lifecycle; it is
+not a live AKS VM-decommissioning validation.
+
+1. Preserve the installed chart/values, CRDs, NodeProfiles (including status),
+   worker identities, and platform evidence. Pause GitOps, profile edits, and
+   node replacement; drain affected workloads. Verify the original ledger and
+   cleanup policies are intact. Never reconstruct missing obligations from
+   today's pool labels.
+2. Stop the old operator before installing the reviewed recovery build. Do not
+   run old and new operator writers concurrently. Keep existing profiles,
+   finalizers, node claims, and worker evidence; do not uninstall the release.
+3. Apply that build's `nodeprofile-crd.yaml` and
+   `noderetirementevidence-crd.yaml` first. Wait for both CRDs to be established
+   and re-read every original ledger to verify preservation. Helm will not
+   upgrade existing CRDs on your behalf.
+4. Update operator/recovery/uninstall RBAC and the operator plus its configured
+   provisioner image to the reviewed matching build, retaining pools, sources,
+   restart policy, namespace, and other installed settings. Review rendered
+   manifests before applying; a fresh `brewlet k8s install` remains prohibited.
+   Do not change stage-GC safety records or enable an acknowledgment bypass.
+5. Start only the recovery-capable operator, confirm it remains fail-closed
+   without evidence, then follow the attestation workflow above. Verify normal
+   readiness for replacements or complete finalizer-driven deletion. Keep the
+   evidence APIs available for inspection and subsequent uninstall.
+
+If status was pruned or accepted evidence was damaged, stop and preserve the
+records; repairing the schema does not justify fabricating a lost checkpoint.
+Use a separately reviewed recovery of the original records rather than clearing
+the obligations.
 
 #### Activating runnable-stage GC
 
@@ -529,7 +657,10 @@ installation. Start from a source checkout matching your component
 revision, then prepare reviewed manifests:
 
 - Apply `kubernetes/deploy/nodeprofile-crd.yaml` and
-  `kubernetes/deploy/javaapplication-crd.yaml` before creating custom resources.
+  `kubernetes/deploy/javaapplication-crd.yaml`, plus
+  `kubernetes/deploy/noderetirementevidence-crd.yaml`, before creating custom resources.
+- Apply `kubernetes/deploy/retirement-recovery-rbac.yaml` to install the unbound
+  administrative recovery role; grant it only after reviewing host evidence.
 - Apply `kubernetes/deploy/provisioner-rbac.yaml` for the Namespace and
   provisioner ServiceAccount/RBAC. It contains no worker; provisioning and
   cleanup DaemonSets are created only by the operator for NodeProfiles.
@@ -649,7 +780,8 @@ controllers and pause writers first. Do not bypass a blocked hook with
 `--no-hooks`, namespace deletion, or finalizer removal.
 
 **A successful Helm uninstall does not make the environment fresh.** Helm
-retains CRDs, and the CLI refuses either existing Brewlet CRD, even if empty.
+retains CRDs, and the CLI refuses any existing Brewlet CRD, including the
+retirement-evidence CRD, even if empty.
 Use the guide's [retained-resource review](uninstallation.md#5-review-retained-resources-before-reinstalling)
 before removing reviewed empty CRDs; do not blindly delete the retained
 namespace, shared RuntimeClass, or host files.

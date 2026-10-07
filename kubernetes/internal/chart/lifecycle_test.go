@@ -180,6 +180,7 @@ func TestUninstallHookLifecycle(t *testing.T) {
 	role := convert[rbacv1.ClusterRole](t, resources["ClusterRole"])
 	wantRules := []rbacv1.PolicyRule{
 		{APIGroups: []string{"node.brewlet.sh"}, Resources: []string{"nodeprofiles"}, Verbs: []string{"list", "delete"}},
+		{APIGroups: []string{"node.brewlet.sh"}, Resources: []string{"noderetirementevidence"}, Verbs: []string{"list"}},
 		{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"list"}},
 		{APIGroups: []string{"apps"}, Resources: []string{"daemonsets"}, Verbs: []string{"list"}},
 	}

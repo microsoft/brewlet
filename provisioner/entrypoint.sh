@@ -1726,8 +1726,8 @@ verify_node_ownership() {
   [[ -n "$node_uid" && "$owner_uid" == "$BREWLET_PROFILE_UID" &&
      "$owner_node_uid" == "$node_uid" && "$owner_name" == "$BREWLET_PROFILE_NAME" ]] \
     || die ownership-fence-failed "node identity or ownership no longer authorizes this container"
-  local identity uid generation deleting target_uid claimed retirement_generation retirement_phase retiring_uid retiring_claimed target_restart retiring_restart
-  local query='{.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].uid}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].claimed}|{.status.retirement.generation}|{.status.retirement.phase}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].uid}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].claimed}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].containerdRestart}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].containerdRestart}'
+  local identity uid generation deleting target_uid claimed retirement_generation retirement_phase retiring_uid retiring_claimed target_restart retiring_restart evidence_uid evidence_name
+  local query='{.metadata.uid}|{.metadata.generation}|{.metadata.deletionTimestamp}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].uid}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].claimed}|{.status.retirement.generation}|{.status.retirement.phase}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].uid}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].claimed}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].containerdRestart}|{.status.retirement.targets[?(@.name=="'"$NODE_NAME"'")].containerdRestart}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].retirementEvidenceUID}|{.status.targets[?(@.name=="'"$NODE_NAME"'")].retirementEvidenceName}'
   identity="$(kubectl get nodeprofile "$BREWLET_PROFILE_NAME" -o "jsonpath=$query" --request-timeout=10s)" || {
     if [[ "$allow_inconclusive" == true ]]; then
       NODE_WRITE_AUTHORIZED="$previous_authorization"
@@ -1735,7 +1735,9 @@ verify_node_ownership() {
     fi
     die ownership-fence-failed "could not read the durable target ledger"
   }
-  IFS='|' read -r uid generation deleting target_uid claimed retirement_generation retirement_phase retiring_uid retiring_claimed target_restart retiring_restart <<<"$identity"
+  IFS='|' read -r uid generation deleting target_uid claimed retirement_generation retirement_phase retiring_uid retiring_claimed target_restart retiring_restart evidence_uid evidence_name <<<"$identity"
+  [[ -z "$evidence_uid" && -z "$evidence_name" ]] \
+    || die ownership-fence-failed "target has an external-retirement disposition; host writes are forbidden"
   [[ "$uid" == "$BREWLET_PROFILE_UID" && "$target_uid" == "$node_uid" && "$claimed" == "true" ]] \
     || die ownership-fence-failed "node target was not durably authorized by this profile incarnation"
   if [[ "$BREWLET_MODE" == "cleanup" ]]; then

@@ -29,4 +29,5 @@ var AddToScheme = SchemeBuilder.AddToScheme
 
 func init() {
 	SchemeBuilder.Register(&NodeProfile{}, &NodeProfileList{})
+	SchemeBuilder.Register(&NodeRetirementEvidence{}, &NodeRetirementEvidenceList{})
 }

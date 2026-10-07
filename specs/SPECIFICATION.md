@@ -1256,7 +1256,8 @@ spec:
   sentinel, the shim, and the profile's installed JDK/launcher roots (unless
   `BREWLET_CLEANUP_RUNTIME_ROOTS=false`, for nodes whose roots are baked into an
   immutable image), and drops the runtime + capability labels; only once every
-  recorded target is cleaned does the operator record completion and tear down
+  recorded target is cleaned or explicitly resolved by external-retirement
+  evidence does the operator record completion and tear down
   cleanup. The finalizer remains until the cleanup DaemonSet and its pods are
   gone, so a replacement profile cannot race an old cleanup process. Recorded
   completion survives a controller restart; teardown must not create another
@@ -1278,6 +1279,25 @@ retirement checkpoints MUST survive a fresh API read before dependent actions.
 Matching CRDs and operator/provisioner components are required; missing or
 pruned ledger fields fail closed.
 
+New targets also capture available `providerID` and `systemUUID`. An immutable,
+cluster-scoped `NodeRetirementEvidence` attestation binds original profile/Node
+UIDs to a permanently decommissioned external instance and retained platform
+record. Creation requires separately granted administrative RBAC; Brewlet
+trusts the administrator's verification, not Node absence alone. Evidence has no
+owner references. Its status preserves the original cleanup-policy snapshot and
+acceptance/resolution times independently of profile lifetime. Existing host
+identity snapshots MUST match; legacy targets require an explicit administrative
+mapping from external records. A still-present original Node is ineligible.
+
+Before excluding a target from execution, the operator MUST durably accept the
+evidence and persist a matching `retirementEvidenceName`/`retirementEvidenceUID`
+receipt in the target ledger. Receipt-bearing targets cannot authorize host
+writes. Recreated evidence names, foreign target identities, remaining workers,
+failed checkpoints, and unverifiable records MUST NOT authorize release.
+External disposition records that cleanup was not executed; normal surviving
+targets still require host cleanup. Resolved evidence is retained, not garbage
+collected with the profile.
+
 The controller MUST refuse competing or unfenced workers (those without a
 literal `BREWLET_PROFILE_UID`) and advertisements without UID-bound ownership
 before invalid-spec handling, deletion, or retirement can erase them, reporting
@@ -1297,7 +1317,7 @@ recorded, an inaccessible/missing/reused departing node pauses all profile
 provisioner and metrics workers and retained/new-node provisioning, while
 preserving retained hosts' runtime roots and advertisements. Recovery is
 supported for a disconnected original Node with its UID intact; missing/reused
-UIDs have no supported in-place recovery. A durable `Teardown` checkpoint is
+UIDs require explicit external-retirement evidence as described above. A durable `Teardown` checkpoint is
 different: cleanup is already proven, so later Node disappearance need not block
 release after workers disappear. Planned shrink MUST exclude departing nodes
 from every remaining profile, including catch-alls, and finish cleanup/teardown
@@ -1314,6 +1334,11 @@ the checkpoint prevents teardown. `CleanupComplete` is not permission to skip
 the finalizer or start a replacement profile early.
 Partial retirement uses its own frozen phase, never the full-deletion
 `CleanupComplete` checkpoint.
+
+Deletion that includes external retirement uses `CleanupComplete=True` with
+reason `CleanupResolved`, not `CleanupSucceeded`. Both checkpoints require
+worker teardown. Uninstall preserves resolved evidence and fails closed on any
+unfinished accepted evidence, including an orphaned accepted obligation.
 
 **Helm uninstall.** A `pre-delete` Job runs the operator image in a separate,
 unprivileged cleanup-coordinator mode. It MUST complete before Helm deletes the

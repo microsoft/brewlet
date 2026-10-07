@@ -224,6 +224,9 @@ func newUninstallClient(config *rest.Config) (client.Client, error) {
 		nodev1alpha1.GroupVersion, appsv1.SchemeGroupVersion, corev1.SchemeGroupVersion,
 	})
 	mapper.Add(nodev1alpha1.GroupVersion.WithKind("NodeProfile"), meta.RESTScopeRoot)
+	mapper.AddSpecific(nodev1alpha1.GroupVersion.WithKind("NodeRetirementEvidence"),
+		nodev1alpha1.GroupVersion.WithResource("noderetirementevidence"),
+		nodev1alpha1.GroupVersion.WithResource("noderetirementevidence"), meta.RESTScopeRoot)
 	mapper.Add(appsv1.SchemeGroupVersion.WithKind("DaemonSet"), meta.RESTScopeNamespace)
 	mapper.Add(corev1.SchemeGroupVersion.WithKind("Pod"), meta.RESTScopeNamespace)
 	return client.New(config, client.Options{Scheme: scheme, Mapper: mapper})

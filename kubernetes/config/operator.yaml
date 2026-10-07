@@ -45,6 +45,12 @@ rules:
   - apiGroups: ["node.brewlet.sh"]
     resources: ["nodeprofiles/finalizers"]
     verbs: ["update"]
+  - apiGroups: ["node.brewlet.sh"]
+    resources: ["noderetirementevidence"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["node.brewlet.sh"]
+    resources: ["noderetirementevidence/status"]
+    verbs: ["get", "update", "patch"]
   # Reconcile JavaApplications (§8.2) and write their status.
   - apiGroups: ["apps.brewlet.sh"]
     resources: ["javaapplications"]

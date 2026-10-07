@@ -77,7 +77,7 @@ func (c *client) install(i installOptions) error {
 		p.Logf("Installing Brewlet chart %s as release %q in namespace %q (%s)", i.version, i.release, ns, target)
 		p.Logf("[1/3] Validated %d values file(s)", len(i.values))
 		p.Logf("[2/3] Checking the cluster for existing Brewlet CRDs...")
-		existing, err := c.list("customresourcedefinitions", profilesResource, appsResource, "--ignore-not-found")
+		existing, err := c.list("customresourcedefinitions", profilesResource, appsResource, retirementEvidenceResource, "--ignore-not-found")
 		if err != nil {
 			return fmt.Errorf("check for existing Brewlet CRDs: %w", err)
 		}

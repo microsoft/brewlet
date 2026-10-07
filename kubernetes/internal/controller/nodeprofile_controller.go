@@ -386,11 +386,12 @@ func (r *NodeProfileReconciler) reconcileDelete(ctx context.Context, profile *no
 	}
 
 	// The durable ledger, not today's pool labels, defines what must be undone.
-	targetNodes, err := r.validateTargetClaims(ctx, profile, profile.Status.Targets)
+	targetNodes, err := r.resolveCleanupTargets(ctx, profile, profile.Status.Targets)
 	if err != nil {
 		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, err)
 	}
 	execution := profile.DeepCopy()
+	execution.Status.Targets = cleanupExecutionTargets(profile.Status.Targets)
 	if profile.Status.ProvisioningSpec != nil {
 		execution.Spec = *profile.Status.ProvisioningSpec.DeepCopy()
 		execution.Spec.Tolerations = provisioningSnapshot(profile.Status.ProvisioningSpec, &profile.Spec).Tolerations
@@ -434,6 +435,9 @@ func (r *NodeProfileReconciler) reconcileCleanupTeardown(ctx context.Context, pr
 	if cleanupRemains || podsRemain {
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
+	if err := r.finishExternalRetirements(ctx, profile, profile.Status.Targets); err != nil {
+		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, err)
+	}
 	if err := r.releaseTargetClaims(ctx, profile, profile.Status.Targets); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -469,7 +473,7 @@ func cleanupCompleted(profile *nodev1alpha1.NodeProfile) bool {
 	// a name-keyed cache entry or the previous incarnation of this profile.
 	condition := meta.FindStatusCondition(profile.Status.Conditions, nodev1alpha1.ConditionCleanupComplete)
 	return condition != nil && condition.Status == metav1.ConditionTrue &&
-		condition.Reason == nodev1alpha1.ReasonCleanupSucceeded &&
+		(condition.Reason == nodev1alpha1.ReasonCleanupSucceeded || condition.Reason == nodev1alpha1.ReasonCleanupResolved) &&
 		condition.ObservedGeneration == profile.Generation
 }
 
@@ -790,10 +794,19 @@ func (r *NodeProfileReconciler) setDeleting(ctx context.Context, profile *nodev1
 	reason, message := nodev1alpha1.ReasonCleanupPending, "waiting for provisioners to stop and host cleanup to complete"
 	if complete {
 		reason, message = nodev1alpha1.ReasonCleanupTeardown, "host cleanup complete; waiting for all profile workers to terminate"
+		completionReason, completionMessage := nodev1alpha1.ReasonCleanupSucceeded, "host cleanup completed on every assigned node"
+		for _, target := range profile.Status.Targets {
+			if externallyRetired(target) {
+				completionReason = nodev1alpha1.ReasonCleanupResolved
+				completionMessage = "targets resolved by host cleanup or retained external-retirement evidence; external retirement does not imply host cleanup"
+				message = "targets resolved; waiting for all profile workers to terminate"
+				break
+			}
+		}
 		meta.SetStatusCondition(&profile.Status.Conditions, metav1.Condition{
 			Type: nodev1alpha1.ConditionCleanupComplete, Status: metav1.ConditionTrue,
-			Reason: nodev1alpha1.ReasonCleanupSucceeded, ObservedGeneration: profile.Generation,
-			Message: "host cleanup completed on every assigned node",
+			Reason: completionReason, ObservedGeneration: profile.Generation,
+			Message: completionMessage,
 		})
 	} else {
 		meta.RemoveStatusCondition(&profile.Status.Conditions, nodev1alpha1.ConditionCleanupComplete)
@@ -862,6 +875,7 @@ func (r *NodeProfileReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&nodev1alpha1.NodeProfile{}).
 		Owns(&appsv1.DaemonSet{}).
+		Watches(&nodev1alpha1.NodeRetirementEvidence{}, handler.EnqueueRequestsFromMapFunc(r.evidenceToProfile)).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.nodeToProfiles)).
 		Watches(&nodev1alpha1.NodeProfile{}, handler.EnqueueRequestsFromMapFunc(r.nodeToProfiles),
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).

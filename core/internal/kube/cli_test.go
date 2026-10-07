@@ -839,6 +839,20 @@ func TestStatusOnlyChurnRetryIsBounded(t *testing.T) {
 	}
 }
 
+func TestInstallRefusesRetirementEvidenceCRD(t *testing.T) {
+	file := writeFixture(t, "provisioner:\n  pools: [workers]\n")
+	_, _, err := runTest(t, []string{"install", "--version", "0.7.1", "-f", file},
+		func(_ context.Context, program string, args []string, _ []byte) ([]byte, error) {
+			if program != "kubectl" || !hasArgs(args, retirementEvidenceResource) {
+				t.Fatalf("retained evidence bypassed install guard: %s %v", program, args)
+			}
+			return listJSON(t, objectJSON(t, `{"kind":"CustomResourceDefinition","metadata":{"name":"noderetirementevidence.node.brewlet.sh"}}`)), nil
+		})
+	if err == nil || !strings.Contains(err.Error(), "CRDs already exist") {
+		t.Fatalf("evidence-only installation was treated as fresh: %v", err)
+	}
+}
+
 func TestInstallDelegatesToPinnedHelmChart(t *testing.T) {
 	file := writeFixture(t, "provisioner:\n  pools: [workers]\n  jdks: []\n")
 	for _, dryRun := range []bool{false, true} {
@@ -847,11 +861,12 @@ func TestInstallDelegatesToPinnedHelmChart(t *testing.T) {
 		if dryRun {
 			args = append(args, "--dry-run")
 		}
+
 		out, _, err := runTest(t, args,
 			func(ctx context.Context, program string, args []string, _ []byte) ([]byte, error) {
 				if program == "kubectl" {
 					if dryRun || !hasArgs(args, "get", "customresourcedefinitions") ||
-						!hasArgs(args, profilesResource, appsResource, "--ignore-not-found") {
+						!hasArgs(args, profilesResource, appsResource, retirementEvidenceResource, "--ignore-not-found") {
 						t.Fatalf("unexpected install preflight: %v", args)
 					}
 					// kubectl writes no JSON when all explicitly named resources are absent.

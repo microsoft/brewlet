@@ -20,6 +20,7 @@ import (
 
 const profilesResource = "nodeprofiles.node.brewlet.sh"
 const appsResource = "javaapplications.apps.brewlet.sh"
+const retirementEvidenceResource = "noderetirementevidence.node.brewlet.sh"
 
 type options struct {
 	kubeconfig, context, namespace string
@@ -178,10 +179,21 @@ type ownerReference struct {
 }
 
 type nodeTarget struct {
-	Name string `json:"name"`
-	UID  string `json:"uid"`
+	Name                   string `json:"name"`
+	UID                    string `json:"uid"`
+	Claimed                bool   `json:"claimed,omitempty"`
+	ContainerdRestart      string `json:"containerdRestart,omitempty"`
+	ProviderID             string `json:"providerID,omitempty"`
+	SystemUUID             string `json:"systemUUID,omitempty"`
+	RetirementEvidenceName string `json:"retirementEvidenceName,omitempty"`
+	RetirementEvidenceUID  string `json:"retirementEvidenceUID,omitempty"`
 }
 
+type nodeRetirement struct {
+	Phase      string       `json:"phase"`
+	Generation int64        `json:"generation"`
+	Targets    []nodeTarget `json:"targets"`
+}
 type condition struct {
 	Type               string `json:"type"`
 	Status             string `json:"status"`
@@ -196,22 +208,19 @@ type object struct {
 	Metadata   metadata        `json:"metadata"`
 	Spec       json.RawMessage `json:"spec"`
 	Status     struct {
-		ObservedGeneration int64        `json:"observedGeneration"`
-		Conditions         []condition  `json:"conditions"`
-		AssignedNodes      int          `json:"assignedNodes"`
-		ReadyNodes         int          `json:"readyNodes"`
-		Replicas           int          `json:"replicas"`
-		UpdatedReplicas    int          `json:"updatedReplicas"`
-		ReadyReplicas      int          `json:"readyReplicas"`
-		SelectedJDK        string       `json:"selectedJdk"`
-		AvailableReplicas  int          `json:"availableReplicas"`
-		Phase              string       `json:"phase"`
-		Targets            []nodeTarget `json:"targets"`
-		Retirement         *struct {
-			Phase   string       `json:"phase"`
-			Targets []nodeTarget `json:"targets"`
-		} `json:"retirement"`
-		ContainerStatuses []struct {
+		ObservedGeneration int64           `json:"observedGeneration"`
+		Conditions         []condition     `json:"conditions"`
+		AssignedNodes      int             `json:"assignedNodes"`
+		ReadyNodes         int             `json:"readyNodes"`
+		Replicas           int             `json:"replicas"`
+		UpdatedReplicas    int             `json:"updatedReplicas"`
+		ReadyReplicas      int             `json:"readyReplicas"`
+		SelectedJDK        string          `json:"selectedJdk"`
+		AvailableReplicas  int             `json:"availableReplicas"`
+		Phase              string          `json:"phase"`
+		Targets            []nodeTarget    `json:"targets"`
+		Retirement         *nodeRetirement `json:"retirement"`
+		ContainerStatuses  []struct {
 			Name         string `json:"name"`
 			Ready        bool   `json:"ready"`
 			RestartCount int    `json:"restartCount"`
