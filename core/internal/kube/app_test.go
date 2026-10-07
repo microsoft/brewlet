@@ -16,8 +16,6 @@ import (
 	"github.com/microsoft/brewlet/internal/progress"
 )
 
-// appStatusJSON mirrors DeployMojoTest.status so both tools are tested against
-// the same JavaApplication shapes.
 func appStatusJSON(generation, observed int, ready, reason, message string) string {
 	return fmt.Sprintf(`{"kind":"JavaApplication","metadata":{"name":"orders","namespace":"apps","uid":"app-uid","generation":%d},
 	  "status":{"observedGeneration":%d,"readyReplicas":1,"selectedJdk":"temurin-21","conditions":[{
@@ -25,7 +23,7 @@ func appStatusJSON(generation, observed int, ready, reason, message string) stri
 		generation, observed, ready, reason, message, observed)
 }
 
-func TestAppReadinessMatchesDeployMojo(t *testing.T) {
+func TestAppReadinessRequiresCurrentGeneration(t *testing.T) {
 	for _, tc := range []struct {
 		name, raw, key, phase string
 		ready                 bool

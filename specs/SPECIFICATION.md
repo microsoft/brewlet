@@ -1593,13 +1593,34 @@ Manager, and workload reconciliation analogous to Spin Operator:
   are preserved. Deletion checks both UID and resource version so concurrent
   replacement or ownership changes cause a retry, not deletion of the changed object.
 
-The Maven `brewlet:manifest` goal does not infer `spec.probes` from declared ports
-or detected frameworks. Ports may generate a Service but do not establish an
-HTTP health endpoint. Applications declare probes explicitly through the
-plugin's `<probes>` configuration (HTTP GET, exec, or TCP) or in their
+Ports may generate a Service but do not establish an HTTP health endpoint.
+Applications declare probes explicitly (HTTP GET, exec, or TCP) in their
 deployment YAML; no implicit `GET /` readiness or liveness checks are emitted.
 
-Its JDK feature request uses a positive explicit `brewlet.jdkFeature` first,
+The Maven plugin builds and publishes OCI images, recording an immutable image
+handoff in `target/brewlet/push.json`. Its optional `brewlet:manifest` goal
+generates a development `JavaApplication` starting point only for the runnable
+image built or pushed for that project in the same Maven invocation. It MUST
+use the actual build digest, MUST NOT expose an independent image input, and
+MUST NOT consume a saved push result or a previous invocation's local layout.
+Local build output must be made available to the cluster before applying.
+Production manifest authoring and runtime selection, applying resources, and
+waiting for readiness belong to deployment tooling (`kubectl`, Helm/GitOps,
+and optionally the Brewlet CLI). Maven MUST NOT apply resources or wait for
+cluster readiness.
+
+Within one Maven invocation, build and push MUST reuse one assembled application
+image per project when their inputs match. Both goal orders MUST preserve the
+same digest and exact content across the local layout, registry, push handoff,
+and generated manifest. A local write after publication MUST NOT discard
+publication state. Conflicting image references, payload contents, or effective
+image configuration MUST fail explicitly; the plugin MUST NOT silently rebuild
+or reuse incompatible content. Reuse MUST NOT bypass managed-bundle graph,
+integrity, or provenance verification. Separate Maven invocations do not share
+this in-memory assembly.
+
+For managed dependency bundle compatibility checks and development manifests, the plugin's application
+JDK feature uses a positive explicit `brewlet.jdkFeature` first,
 then effective main compiler `release`/`target`/`source` settings with Maven
 configuration/property precedence. Test compilation must not select the
 application runtime. Without a declared level, compiler-specific, suitably
@@ -1607,7 +1628,7 @@ selected session, and main-bound configured toolchains are considered in that
 order; the Maven JVM is a fallback only without other compiler authority.
 Unresolved/malformed settings and ambiguous main compilation must fail with
 explicit-override guidance, not silently select a default feature. This is
-deployment metadata inference, not proof of a minimum compatible runtime or
+build-time compatibility/development inference, not production runtime policy or proof of a minimum compatible runtime or
 per-Pod JDK observation. The detailed supported cases are in the
 [Maven plugin contract](../maven-plugin/README.md#jdk-inference).
 - `env[].valueFrom` preserves Kubernetes Secret, ConfigMap, pod-field, and

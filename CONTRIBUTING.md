@@ -64,7 +64,7 @@ not test all components.
 | [`kubernetes/`](kubernetes/) | Separate Go module for `cmd/manager` (operator), `cmd/admission` (webhook), APIs and controllers in `api/` and `internal/`, raw manifests in `deploy/`, and Helm chart in `charts/brewlet/`. Its own `Makefile` owns envtest and chart checks. |
 | [`provisioner/`](provisioner/) | Privileged node-installation scripts and Dockerfile; its image builds the shim and helpers from `core/`. |
 | [`admission/`](admission/) | Optional Ratify/Gatekeeper policies and a separate Go module in `ratify-verifier/`; the verifier uses `core/pkg/attest` via a local module replacement. |
-| [`maven-plugin/`](maven-plugin/) | Maven plugin (`pom.xml`, `src/`) for building/publishing application artifacts and generating workload manifests. |
+| [`maven-plugin/`](maven-plugin/) | Maven plugin (`pom.xml`, `src/`) for building/publishing application artifacts and recording immutable image handoffs. |
 | [`integration-tests/`](integration-tests/) | Cross-component E2E harness, Java fixtures, and benchmarks; read its `AGENTS.md` before running cluster tiers. |
 | [`specs/`](specs/) | Authoritative architecture, artifact, and API contracts; proposals live in `specs/proposals/`. |
 | [`docs/`](docs/) and [`site/`](site/) | User/operator documentation and workshops; website assets, MkDocs configuration, installer, and site checks. |
@@ -239,7 +239,7 @@ manual CI runs also select this full CI set, never the exhaustive E2E scenarios.
 | Docs/site only | Strict documentation build and website notices; no runtime or image jobs |
 | Core | Go checks, downstream Kubernetes CLI integration and Ratify tests, notices, released CLI cross-builds, container builds, host tiers 2-3, and fresh-cluster smoke |
 | Kubernetes | Go race tests, envtest and CLI integration, Helm render checks, notices, container builds, and fresh-cluster smoke |
-| Maven or shared registry/artifact contracts | Maven verification on the JDK 17 baseline, applicable host tests, and Maven deployment smoke; Maven source/packaging changes also run the Central dry run |
+| Maven or shared registry/artifact contracts | Maven verification on the JDK 17 baseline, applicable host tests, and publish/deploy handoff smoke; Maven source/packaging changes also run the Central dry run |
 | Kubernetes API, raw manifests, or chart | Maven JDK 17 verification and deployment smoke in addition to Kubernetes/chart checks |
 | Provisioner | Source-policy checks, images, host tier 3, and fresh-cluster smoke |
 | Ratify admission | Verifier component checks; exhaustive live enforcement remains in E2E |
@@ -267,9 +267,11 @@ CI runs only one fresh-cluster smoke, without repeating those scenario matrices.
 PR tiers set `E2E_REQUIRE_ALL=true`: skipped assertions or a tier with no
 passing assertions fail the job. The small `live/smoke.py` scenario uses checkout-built
 components, a private registry and cluster, a real provisioned JDK, and a
-real Maven `deploy` invocation to publish, generate the JavaApplication manifest,
-apply it against the installed CRD, and wait for readiness. Its digest-pinned
-workload must serve HTTP; this catches plugin/schema drift without running the
+real Maven `push manifest` invocation to publish an immutable image and generate
+development YAML. A separate kubectl step applies that fixture-owned
+JavaApplication against the installed CRD; the CLI waits for readiness.
+Its digest-pinned workload must serve HTTP; this catches
+publication/runtime drift without running the
 comprehensive workflow scenarios. It retains the strict
 fixture's documented cold-start GC deferral; it does not establish arbitrary
 containerd-GC timing or replace the dedicated GC/HPA scenarios. Evidence is

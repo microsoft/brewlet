@@ -10,10 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
-import shlex
 import socket
-import subprocess
-import sys
 import threading
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -49,16 +46,6 @@ def assert_bounded(description, elapsed, limit, tolerance):
     if elapsed > limit + tolerance:
         raise AssertionError(f"{description} took {elapsed:.1f}s; bound is {limit}s + {tolerance}s tolerance")
     return {"elapsedSeconds": round(elapsed, 3), "limitSeconds": limit, "toleranceSeconds": tolerance}
-
-
-def log_seconds(output, needle):
-    """Seconds since midnight of the first HH:mm:ss.SSS-stamped line containing needle."""
-    for line in output.splitlines():
-        match = re.match(r"(\d{2}):(\d{2}):(\d{2})\.(\d{3}) ", line)
-        if match and needle in line:
-            hours, minutes, seconds, millis = (int(v) for v in match.groups())
-            return hours * 3600 + minutes * 60 + seconds + millis / 1000
-    raise AssertionError(f"no timestamped log line contains {needle!r}")
 
 
 def push_stdout(stdout):
@@ -252,56 +239,6 @@ def encrypted(value):
     if not match:
         raise AssertionError("Maven did not print an encrypted value")
     return match[0]
-
-
-def stalled_kubectl(state):
-    """A test-only kubectl that never exits and spawns a descendant."""
-    state = shlex.quote(str(state))
-    python = shlex.quote(sys.executable)
-    return f"""#!/bin/sh
-set -eu
-# Injected process failure for the brewlet:deploy kubectl deadline. Not a live rollout.
-{python} -c 'import time; print(time.time())' > {state}/started
-echo "$$" > {state}/kubectl.pid
-sleep 600 &
-echo "$!" > {state}/child.pid
-echo "stalled test kubectl invoked" >&2
-wait
-"""
-
-
-def process_alive(pid, expected):
-    """Inspect one PID on Linux/macOS; unknown liveness is an error, not absence."""
-    if sys.platform not in ("linux", "darwin"):
-        raise RuntimeError(f"process inspection is unsupported on {sys.platform}")
-    if not re.fullmatch(r"[0-9]+", str(pid)) or not 0 < int(pid) <= 2147483647:
-        raise ValueError(f"invalid process PID: {pid!r}")
-    if not expected:
-        raise ValueError("expected process command must not be empty")
-    pid = int(pid)
-    # Both procps and macOS ps support these fields; -ww avoids argv truncation.
-    try:
-        result = subprocess.run(
-            ["/bin/ps", "-ww", "-p", str(pid), "-o", "stat=", "-o", "args="],
-            capture_output=True, text=True, timeout=5, env={**os.environ, "LC_ALL": "C"})
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError(f"cannot inspect process {pid}: {error}") from error
-    if result.returncode == 1 and not result.stdout.strip() and not result.stderr.strip():
-        # ps uses exit 1 for no match, but that alone cannot prove the PID is gone.
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except OSError as error:
-            raise RuntimeError(f"cannot confirm process {pid} is absent: {error}") from error
-        raise RuntimeError(f"ps could not inspect existing process {pid}")
-    if result.returncode != 0 or result.stderr.strip():
-        raise RuntimeError(f"ps failed for process {pid} (exit {result.returncode}): {result.stderr.strip()}")
-    fields = result.stdout.strip().split(maxsplit=1)
-    if len(fields) != 2 or not re.fullmatch(r"[RSDZTtXxKWPIU][A-Za-z0-9<+NsLlEsVX-]*", fields[0]):
-        raise RuntimeError(f"invalid ps output for process {pid}: {result.stdout!r}")
-    state, cmdline = fields
-    return not state.startswith("Z") and expected in cmdline
 
 
 class StalledEndpoint:

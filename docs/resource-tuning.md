@@ -153,8 +153,8 @@ jvm:
 ## Ports
 
 `ports` is a **deployment concern, not an artifact field**. It lives in the
-descriptor (CRD `spec.ports` or the Maven `manifest` goal's `<ports>`), where the
-operator uses it to wire the Service and probes. The artifact's launch config
+descriptor (CRD `spec.ports`), where the
+operator uses it to wire the Service. Declare probes separately. The artifact's launch config
 carries no ports.
 
 Brewlet does **not** translate a port into any JVM system property — the listen

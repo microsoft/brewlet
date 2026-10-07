@@ -6,9 +6,19 @@ target the existing native managed-dependency and basic CPU-autoscaling
 contracts. The [executable workflows](#executable-workflows) scenario covers
 `brewlet push`, `brewlet k8s app status|wait`, `status`, `doctor`,
 `jdk|launcher list|add`, `profile list|inspect|delete`, `inspect app`, the
-`install` guards and `mvn brewlet:deploy` through their shipped entry points. They are not
+`install` guards and `mvn package brewlet:push` with a separate kubectl/CLI
+deployment handoff through their shipped entry points. They are not
 production certification, a performance benchmark, or the broader zero-skip
 rewrite tracked in [#13](https://github.com/microsoft/brewlet/issues/13).
+
+The smaller PR smoke, `python3 integration-tests/e2e/live/smoke.py`, runs
+`mvn package brewlet:push brewlet:manifest` in its own disposable fixture.
+It checks the generated YAML's image, namespace, JDK, ports, and readiness probe
+before applying that file separately with kubectl. The CLI then waits for the
+application, and the fixture verifies runtime readiness and an HTTP response.
+Evidence includes `maven-push-manifest.log`, `javaapplication.yaml`, and
+`cli-app-wait.log`. The comprehensive workflows scenario retains its separate
+production-style manifest handoff, so both paths remain covered.
 
 **Coverage boundary:** All three scenarios build the full current checkout.
 The [recorded source-built validation](#recorded-source-built-validation)
@@ -331,20 +341,17 @@ files are redacted and any command that prints one fails.
    `install --dry-run` and a real install are **not** exercised: both fetch the
    released `oci://ghcr.io/microsoft/charts/brewlet` chart from the network
    rather than the checkout chart.
-4. **Maven deploy.** `mvn package brewlet:deploy` uses a kubeconfig whose
-   current context is an unreachable decoy, so only `brewlet.kubeContext`
-   reaches the cluster (confirmed by the `kube-system` UID) and
-   `brewlet.namespace=wf-maven`. The index digest must equal `push.json`, the
-   generated manifest and the applied resource, which must be Ready for its
-   current generation and serve `/hello` through its Service. Further cases:
-   `brewlet.wait=false` with a never-ready probe; a live readiness timeout
-   bounded by Maven's own log timestamps; an **injected** stalled `kubectl`
-   (test executable, not a rollout) that must be terminated with its
-   descendant after `brewlet.waitTimeout`; encrypted `settings.xml` with a
-   generated private `settings-security.xml` (success, wrong password and
-   undecryptable master all explicit); and dry runs that publish nothing,
-   leave `push.json` and the live resourceVersion unchanged, after which
-   `brewlet:manifest` still uses the saved digest-pinned image.
+4. **Maven publication and deployment handoff.** `mvn package brewlet:push`
+   publishes without Kubernetes options and must not create a manifest or
+   application resource. The index digest must equal `push.json`; a separate
+   fixture-owned manifest is applied with kubectl using that immutable image.
+   CLI readiness checks use an explicit context with an unreachable decoy as
+   the current context (the target is confirmed by the `kube-system` UID).
+   The applied resource must be Ready for its current generation and serve
+   `/hello` through its Service in `wf-maven`. Further cases cover encrypted
+   `settings.xml` with a generated private `settings-security.xml` (success,
+   wrong password and undecryptable master all explicit), and dry runs that
+   publish nothing and leave `push.json` and the live resourceVersion unchanged.
 5. **Profile deletion.** After all apps are removed, a running and a
    gracefully terminating bare Brewlet Pod (real `preStop` sleep in a 600s
    grace period) block deletion with and without dry runs and `--wait`;
@@ -393,9 +400,8 @@ runtime is not claimed.
 | Doctor checks, namespaces, RBAC | `k8s-doctor-checks-and-namespace`, `k8s-doctor-restricted-identity-fails` |
 | Profile additions | `k8s-jdk-add-dry-runs-nonmutating`, `k8s-launcher-add-dry-runs-nonmutating`, `k8s-profile-add-offline-file-input`, `k8s-profile-add-refuses-helm-managed`, `k8s-profile-add-live-update` |
 | Install guards (no chart render) | `k8s-install-validation-and-fresh-install-guard` |
-| Maven push→manifest→apply→Ready→response | `maven-deploy-push-manifest-apply-ready-response` |
-| Maven wait opt-out, timeouts, stalled process | `maven-deploy-wait-opt-out`, `maven-deploy-live-readiness-timeout`, `maven-deploy-injected-stalled-kubectl` |
-| Maven encrypted credentials and dry run | `maven-encrypted-settings-credentials`, `maven-deploy-dry-run-nonmutating` |
+| Maven push handoff → kubectl apply → CLI Ready → response | `maven-push-kubectl-apply-cli-ready-response` |
+| Maven encrypted credentials and dry run | `maven-encrypted-settings-credentials`, `maven-push-dry-run-nonmutating` |
 | No leaks | `no-leaked-test-resources`, `result.json` cleanup errors |
 
 Additional evidence: `versions.json` (source revision, dirty flag, CLI/plugin

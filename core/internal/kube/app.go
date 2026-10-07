@@ -19,8 +19,7 @@ import (
 // maxRecentEvents bounds the events shown by app status.
 const maxRecentEvents = 10
 
-// appState is the readiness view of a JavaApplication. It deliberately mirrors
-// DeployMojo.Status in the Maven plugin so both tools report the same thing.
+// appState is the current-generation readiness view of a JavaApplication.
 type appState struct {
 	Ready         bool
 	Reason        string

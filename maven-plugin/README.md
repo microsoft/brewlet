@@ -13,9 +13,10 @@ registry. By default it publishes a **runnable, kubelet-pullable OCI image** (a
 
 The plugin wraps steps 2–3 of the [build & publish flow](../specs/SPECIFICATION.md#43-build--publish-flow-developer-experience)
 so you never touch `oras` or hand-author a `jvm-config.json`. It infers as much as
-possible (main class, framework, ports) from the project and the built JAR's
-manifest. JDK feature and launcher requests belong to the generated deployment
-descriptor, not the artifact config.
+possible (entry mode, main class, runtime dependencies) from the project and
+the built JAR. JDK selection, launcher, ports and probes belong to deployment
+configuration, not the artifact config. The optional `manifest` goal generates
+a development starting point for the image built in the current invocation.
 
 - **Coordinates:** `sh.brewlet:brewlet-maven-plugin` on [Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin)
 - **Requires:** Maven 3.10+, JDK 17+ (to run the build). The `appcds`
@@ -52,26 +53,32 @@ For reproducible builds, pin the resolved version in your POM or CI environment:
 </plugin>
 ```
 
-Build the application and publish it using the short `brewlet` prefix:
+For development, build and publish the application and generate its
+`JavaApplication` YAML using the short `brewlet` prefix:
 
 ```bash
-mvn clean package brewlet:push \
+mvn clean package brewlet:push brewlet:manifest \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 
 # or derive the image (<registry>/${artifactId}:${version}) from a registry:
-mvn clean package brewlet:push -Dbrewlet.registry=registry.example.com/team
+mvn clean package brewlet:push brewlet:manifest -Dbrewlet.registry=registry.example.com/team
 ```
 
 Declaring the plugin does not bind `push` to the build lifecycle; it only enables
 direct goal invocation. `mvn brewlet:push` alone requires an already packaged application.
 
-For a one-off invocation without editing the application's POM, use the full
-coordinates instead. Maven still resolves the plugin from Central:
+These commands generate `target/brewlet/javaapplication.yaml` with the actual
+published digest; there is no manual YAML or digest substitution step.
+Review the runtime, ports and health probes, then deploy separately:
 
 ```bash
-mvn clean package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
-  -Dbrewlet.image=registry.example.com/team/app:1.4.2
+kubectl apply -f target/brewlet/javaapplication.yaml
 ```
+
+See [Development manifest](#development-manifest) for configuration options and
+the [developer workshop](../docs/workshops/developers.md) for a complete example.
+For CI publication only, omit `brewlet:manifest` and hand the published digest
+to the separate production deployment stage.
 
 If a newly tagged release has not reached Central yet, wait for its publishing
 job and repository propagation. Do not switch to a different plugin version.
@@ -88,11 +95,6 @@ the plugin declaration:
   <version>${env.BREWLET_VERSION}</version>
   <configuration>
     <image>registry.example.com/team/app:${project.version}</image>
-    <jdkFeature>21</jdkFeature>       <!-- written to brewlet:manifest descriptors -->
-    <launcher>java</launcher>         <!-- omit for vanilla java; use jaz if installed -->
-    <ports>                             <!-- descriptor spec.ports (manifest goal) -->
-      <port><name>http</name><containerPort>8080</containerPort></port>
-    </ports>
     <enablePreview>true</enablePreview>      <!-- artifact correctness flag -->
     <addOpens>
       <addOpen>java.base/java.lang=ALL-UNNAMED</addOpen>
@@ -100,9 +102,6 @@ the plugin declaration:
     <systemProperties>
       <spring.aot.enabled>true</spring.aot.enabled>
     </systemProperties>
-    <jvmArgs>                               <!-- deployment tuning; spec.jvm.args -->
-      <jvmArg>-XX:MaxRAMPercentage=75.0</jvmArg>
-    </jvmArgs>
   </configuration>
   <executions>
     <execution>
@@ -113,65 +112,131 @@ the plugin declaration:
 ```
 
 With that, `mvn deploy` publishes the runnable OCI image, prints its
-digest-pinned `deploy image`, and records it in `target/brewlet/push.json`. The
-manifest goal picks it up automatically:
+digest-pinned `deploy image`, and records it in `target/brewlet/push.json`.
+The Maven `deploy` lifecycle phase publishes artifacts; it does not deploy a
+Kubernetes workload.
 
-```bash
-mvn brewlet:manifest
-```
+### Publish, then deploy separately
 
-With `-Dbrewlet.dryRun=true`, `brewlet:push` and `brewlet:deploy` preserve any
-existing `target/brewlet/push.json` byte-for-byte, including when dry-run validation
-fails. They do not create a handoff if none exists. A later `brewlet:manifest`
-can still use the last successful push's digest-pinned image, provided it matches
-the configured image; the dry run does not publish the current application.
-Real pushes still clear the previous handoff after validating the target registry
-and before preparing or publishing the application, so a failed push cannot leave
-that stale result available to `brewlet:manifest`.
-
-### Push, apply, and wait in one step
-
-Set `<registry>` once and let `brewlet:deploy` do the rest:
-
-```xml
-<configuration>
-  <registry>myregistry.azurecr.io</registry>   <!-- image: <registry>/${artifactId}:${version} -->
-  <namespace>default</namespace>
-</configuration>
-```
+The plugin never invokes `kubectl` or needs cluster credentials. CI's
+responsibility ends at publication. Publish once and
+promote the same immutable image across environments without rebuilding:
 
 ```bash
 az acr login -n myregistry     # or docker login; credential helpers are supported
-mvn package brewlet:deploy
+mvn package brewlet:push -Dbrewlet.registry=myregistry.azurecr.io
+jq -r '.deployImage' target/brewlet/push.json
 ```
 
-`brewlet:deploy` pushes the runnable image, writes
-`target/brewlet/javaapplication.yaml` with the digest-pinned image, runs
-`kubectl apply`, and waits for the `JavaApplication` to report `Ready`, printing
-status changes as the rollout progresses. It uses your current `kubectl`
-context unless `kubeconfig` / `kubeContext` are set.
+Pass `deployImage` to a separately maintained `JavaApplication` or Deployment
+manifest, then apply it with `kubectl`, Helm, or GitOps. The optional CLI command
+`brewlet k8s app wait <appName> --namespace <ns>` waits for `Ready`;
+`brewlet k8s app status <appName>` explains why an app is not ready.
+See [Deploying workloads](../docs/deploying-workloads.md#deploy-a-published-image)
+for a complete handoff example. Kubernetes requires `format=image`, not a native
+`format=artifact` publication.
 
-| Parameter | Property | Default | Notes |
-|---|---|---|---|
-| `kubeconfig` | `brewlet.kubeconfig` | kubectl default | kubeconfig file passed to `kubectl --kubeconfig`. |
-| `kubeContext` | `brewlet.kubeContext` | current context | Passed to `kubectl --context`. |
-| `kubectl` | `brewlet.kubectl` | `kubectl` | kubectl executable. |
-| `wait` | `brewlet.wait` | `true` | Wait for `Ready=True` on the current generation. |
-| `waitTimeout` | `brewlet.waitTimeout` | `300` | Positive timeout in seconds for `kubectl apply`, and separately for the entire readiness wait, including `kubectl get` calls and polling delays. Apply remains bounded when `wait=false`. |
+### Build/push ordering
 
-Timed-out or interrupted kubectl processes are forcibly terminated (including
-running credential-plugin descendants), with up to five additional seconds to
-reap kubectl. An apply timeout may leave resources partially applied; inspect
-the namespace before retrying. A readiness timeout reports the last observed
-status and a `kubectl describe` hint. This timeout does not cover image publication.
+`brewlet:build` and `brewlet:push` share one assembled image per project in the
+same Maven invocation. The first goal assembles it; subsequent goals revalidate
+the inputs and reuse the exact blobs and manifests, including their original
+creation timestamp.
 
-All `brewlet:manifest` parameters (`namespace`, `appName`, `replicas`, `ports`,
-resources, …) apply.
+| Invocation after `mvn package` | Behavior |
+|---|---|
+| `brewlet:build brewlet:push brewlet:manifest` | Assemble locally, publish the same bytes, generate YAML for that digest. |
+| `brewlet:push brewlet:build brewlet:manifest` | Assemble and publish, write the same bytes locally, generate YAML for that digest. |
+| `brewlet:push brewlet:manifest` | Assemble and publish without requiring a prior local build. |
+| `brewlet:build brewlet:manifest` | Assemble locally and generate YAML; warns that the image has not been published. |
 
-Deploying without Maven (Gradle, `kubectl apply`, GitOps, CI)? The CLI applies
-the same readiness rule: `brewlet k8s app wait <appName> --namespace <ns>`
-waits for `Ready`, and `brewlet k8s app status <appName>` explains why an app
-is not ready.
+Configure the same registry-qualified image reference for both goals. Changes
+to the application/dependency/CDS contents or effective image configuration
+between goals fail explicitly rather than creating a second image or publishing
+stale bytes. Use separate Maven invocations for deliberately different builds.
+Local writes preserve publication state, and a retry after a failed push reuses
+the same assembly. Separate invocations do not reuse saved image bytes.
+
+Both goals apply the same managed-dependency graph and provenance checks.
+`build` does not publish, but selecting a remote dependency bundle may require
+registry access to read and verify it. Use a local bundle layout for offline builds.
+
+### Dry-run behavior
+
+| Goal with `-Dbrewlet.dryRun=true` | Result |
+|---|---|
+| `brewlet:build` | Still assembles and writes the local OCI layout; never publishes. |
+| `brewlet:push` | Validates and displays configuration; produces no current image result or publication, so it cannot feed `manifest`. |
+| `brewlet:manifest` | Logs YAML for this invocation's built image; leaves any existing YAML unchanged. |
+
+A dry-run push preserves existing `target/brewlet/push.json` byte-for-byte,
+even if validation fails, and does not create one. That file still describes
+the last successful push. A real push clears it after target-registry validation
+and before preparing or publishing the application, preventing a failed push
+from leaving a stale handoff.
+
+For an offline manifest preview, use
+`mvn package brewlet:build brewlet:manifest -Dbrewlet.dryRun=true`
+with a registry-qualified build target.
+
+### Development manifest
+
+Explicitly invoke `brewlet:manifest` **after a successful** `brewlet:build` or `brewlet:push`
+for the same project in the **same Maven invocation**:
+
+```bash
+mvn package brewlet:push brewlet:manifest \
+  -Dbrewlet.registry=registry.example.com/team
+kubectl apply -f target/brewlet/javaapplication.yaml
+brewlet k8s app wait my-app --namespace default --wait-timeout 5m
+```
+
+Replace `my-app` with the project's artifact ID (or configured `appName`).
+For offline generation, use `brewlet:build brewlet:manifest` instead; that does
+not publish, so the exact built OCI image must be made available to the cluster
+before applying the YAML. Configure a registry-qualified target on **build/push**
+even for a local build. Native `format=artifact` output is not supported.
+
+The manifest pins the actual current build's digest. It has **no `image`,
+`registry`, or JAR input of its own** and never reads `push.json` or an old OCI
+layout. A standalone `mvn brewlet:manifest` fails. Generation is optional,
+not bound to a lifecycle phase, and never publishes, applies, or waits.
+
+`target/brewlet/javaapplication.yaml` is a development starting point, not a
+production configuration source of truth. These settings apply **only to manifest
+generation**, not to the image:
+
+| Setting | Property / configuration | Default |
+|---|---|---|
+| Name / namespace / replicas | `brewlet.appName`, `brewlet.namespace`, `brewlet.replicas` | artifact ID / `default` / `1` |
+| Runtime | `brewlet.jdkFeature`, `brewlet.jdkDistribution`, `brewlet.launcher` | inferred feature / any distribution / `java` |
+| CPU request / limit | `brewlet.resources.cpuRequest`, `brewlet.resources.cpuLimit` | `500m` / `2` |
+| Memory request / limit | `brewlet.resources.memoryRequest`, `brewlet.resources.memoryLimit` | `256Mi` / `512Mi` |
+| JVM tuning | `<jvmArgs><jvmArg>...</jvmArg></jvmArgs>` | none |
+| Ports | `<ports><port><name>http</name><containerPort>8080</containerPort></port></ports>` | `8080/http` for Spring Boot or Quarkus, with a warning; otherwise none |
+| Health probes | `<probes>` or `brewlet.readinessPath` / `brewlet.livenessPath` | none; never inferred |
+
+For example, add development defaults directly to the plugin's
+`<configuration>` and invoke `brewlet:manifest` after build/push:
+
+```xml
+<configuration>
+  <ports>
+    <port><name>http</name><containerPort>8080</containerPort></port>
+  </ports>
+  <probes>
+    <readiness><path>/healthz</path></readiness>
+  </probes>
+</configuration>
+```
+
+Use only health endpoints the application actually exposes. Each probe uses
+HTTP GET when `<path>` is set, exec when `<command><arg>...</arg></command>` is
+set, or TCP otherwise. HTTP/TCP probes use `<port>` (a declared name or number),
+defaulting to the first configured port. Optional timing fields are
+`initialDelaySeconds`, `periodSeconds`, `timeoutSeconds`, and `failureThreshold`.
+Ports alone do not establish readiness. `brewlet.skip=true` skips generation.
+For output preview, see [Dry-run behavior](#dry-run-behavior).
 
 ---
 
@@ -184,9 +249,9 @@ is not ready.
 | `brewlet:push` | `deploy` | Build and push to the registry in `<image>`. By default (`image` format) this pushes a **runnable OCI image** — a standard, kubelet-pullable image (see [Delivery format](#delivery-format-native-artifact-vs-runnable-image)). With `-Dbrewlet.format=artifact` it pushes the native Brewlet artifact instead (JAR layer + launch-config blob + manifest with `artifactType: application/vnd.brewlet.app.v1+json`). |
 | `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) from the same fat/thin/Boot/module payload used for publication, using a self-terminating run or explicit signal-mode training. Attach it later with `-Dbrewlet.cdsArchive=...`. |
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
-| `brewlet:manifest` | — | Emit a `JavaApplication` CR YAML compatible with the [Brewlet Kubernetes components](../kubernetes) to `target/brewlet/` for `kubectl apply`, including `spec.jvm.version` / `spec.jvm.launcher`. Uses a digest-pinned `<image>` when given, otherwise the deploy image recorded by the last `brewlet:push` (`target/brewlet/push.json`). Health probes come only from `<probes>` (or `-Dbrewlet.readinessPath`/`livenessPath`); none are inferred. |
-| `brewlet:deploy` | — | `push` + `manifest` + `kubectl apply`, then wait for the `JavaApplication` to become Ready with progress output. See [Push, apply, and wait in one step](#push-apply-and-wait-in-one-step). |
 | `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. Honors `brewlet.cdsArchive` exactly like `build`/`push` (`cds` block + CDS layer with digest). |
+| `brewlet:manifest` | — | Generate a development `JavaApplication` YAML for this invocation's built/pushed image. No independent image input, publication, or cluster access. |
+| `brewlet:help` | — | List goals and parameters; use `-Ddetail=true -Dgoal=push` for detailed publishing help. |
 
 Run any goal directly, e.g. `mvn brewlet:inspect`.
 
@@ -207,7 +272,7 @@ URL schemes or query strings in `image`. Docker Hub references such as
 
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
-| `image` | `brewlet.image` | `<registry>/${project.artifactId}:${project.version}` | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2`. `push` and `deploy` reject refs without a registry host instead of defaulting to Docker Hub (use `docker.io/<user>/app` to target Docker Hub). Publishing requires a mutable tag (implicit `latest` when omitted), not `repo@digest` or `repo:tag@digest`, even in dry-run mode. `manifest` accepts a digest-pinned `…@sha256:…` ref, or uses the last push. |
+| `image` | `brewlet.image` | `<registry>/${project.artifactId}:${project.version}` | Target OCI ref, e.g. `registry.example.com/team/app:1.4.2`. `push` rejects refs without a registry host instead of defaulting to Docker Hub (use `docker.io/<user>/app` to target Docker Hub). Publishing requires a mutable tag (implicit `latest` when omitted), not `repo@digest` or `repo:tag@digest`, even in dry-run mode. |
 | `registry` | `brewlet.registry` | — | Registry (optionally with a repository prefix, e.g. `registry.example.com/team`) used to derive `image` when it is not set. |
 | `format` | `brewlet.format` | `image` | Delivery format for `push`: `image` (runnable, kubelet-pullable OCI image — the default) or `artifact` (native Brewlet OCI artifact). See [Delivery format](#delivery-format-native-artifact-vs-runnable-image). |
 | `jarFile` | `brewlet.jarFile` | project's primary artifact | Path to the application JAR to publish. After a separate `mvn package`, standard unclassified `jar`/`maven-plugin` projects can use `${project.build.directory}/${project.build.finalName}.jar`. Custom packaging, classifier, or JAR-plugin output overrides require an explicit `jarFile`; the plugin never searches for a newest or arbitrary JAR. |
@@ -215,10 +280,10 @@ URL schemes or query strings in `image`. Docker Hub references such as
 | `entryMode` | `brewlet.entryMode` | inferred from manifest | `jar`, `classpath`, or `module` (auto-detected for modular JARs with a root `module-info.class`). |
 | `outputDirectory` | — | `${project.build.directory}/brewlet` | Where generated files land. |
 | `skip` | `brewlet.skip` | `false` | Skip all Brewlet goals. |
-| `dryRun` | `brewlet.dryRun` | `false` | Generate + display the config but do not push. `push` and `deploy` leave any existing `push.json` unchanged and do not create one; `deploy` also skips manifest generation and kubectl. |
+| `dryRun` | `brewlet.dryRun` | `false` | Goal-specific preview; see [Dry-run behavior](#dry-run-behavior). |
 | `layered` | `brewlet.layered` | `false` | **Layered deployment.** Plain thin JARs use the resolved POM runtime dependencies and `entry.classPath=[mainJar, "lib/*"]`; standard Spring Boot executable JARs are unpacked into a thin application JAR plus their exact packaged libraries and an explicitly ordered classpath (see below). Modular JARs use dependency modules at `/app/mods` and `entry.modulePath=[mainJar, "mods"]`. Non-modular layering selects `classpath` mode. Unchanged dependency layers dedup by digest. |
 | `splitSnapshotLayers` | `brewlet.splitSnapshotLayers` | `true` | When `layered`, pack released deps and `-SNAPSHOT` deps into separate `deps` / `snapshot-deps` layers (stable→volatile) for finer dedup. |
-| `dependencyBundle` | `brewlet.dependencyBundle` | — | For `push`, a registry reference or local OCI-layout directory containing a managed dependency bundle. The resolved runtime graph must exactly match its lock. Forces thin-JAR classpath launch and requires `mainClass`. |
+| `dependencyBundle` | `brewlet.dependencyBundle` | — | For `build` and `push`, a registry reference or local OCI-layout directory containing a managed dependency bundle. The resolved runtime graph must exactly match its lock. Forces thin-JAR classpath launch and requires `mainClass`. |
 | `signingKey` | `brewlet.signingKey` | — | Optional PKCS#8 PEM ECDSA P-256 private key. When present, bundle or final-image provenance is published and must be paired with the corresponding identity. |
 | `trustedPublicKey` | `brewlet.trustedPublicKey` | — | SubjectPublicKeyInfo PEM ECDSA P-256 public key trusted to verify a managed bundle. Required when the selected bundle has provenance. |
 | `signerIdentity` | `brewlet.signerIdentity` | — | Bundle-publisher identity used only by `dependency-bundle`; required when that goal uses `signingKey`. |
@@ -259,8 +324,8 @@ layout conversion. `layers.idx` grouping is not interpreted.
 
 Passwords in the matching Maven `settings.xml` server may be plaintext or
 encrypted with Maven's password-encryption tooling. The plugin uses Maven's
-settings decrypter and `settings-security.xml` configuration for push, deploy,
-and dependency-bundle registry access. Decryption errors fail the goal with an
+settings decrypter and `settings-security.xml` configuration for publishing
+and managed dependency-bundle registry access. Decryption errors fail the goal with an
 actionable message, without logging credentials or falling back to a different
 credential source.
 
@@ -311,20 +376,20 @@ never carry registry credentials to a different origin.
 | `insecureRegistries` | `brewlet.insecureRegistries` | *(empty)* | Exact registry authorities (`host` or `host:port`) that may be contacted over plain HTTP. Loopback registries are always allowed, so this is only needed for a non-loopback HTTP registry such as an in-cluster mirror. Configure as `<insecureRegistries><insecureRegistry>registry.internal:5000</insecureRegistry></insecureRegistries>` or `-Dbrewlet.insecureRegistries=registry.internal:5000`. |
 | `allowedTokenRealms` | `brewlet.allowedTokenRealms` | *(empty)* | Exact authorities (`host` or `host:port`) trusted to receive this build's registry credentials when the authentication challenge realm is **not** the registry's own origin. Docker Hub (`auth.docker.io`) is trusted automatically; add an entry only when you trust that host with your registry credentials. |
 
-### Descriptor JDK / launcher requests
+### Managed-dependency JDK compatibility
 
-These parameters feed `brewlet:manifest` and are written to the deployment
-descriptor. They are **not** serialized into `target/brewlet/jvm-config.json`.
+This build-time setting checks the application's JDK feature against a managed
+dependency bundle's declared compatibility. The optional development manifest
+also uses it for `spec.jvm.version`. It is **not** serialized into
+`target/brewlet/jvm-config.json`.
 
 | Parameter | Property | Default | Notes |
 |---|---|---|---|
-| `jdkFeature` | `brewlet.jdkFeature` | inferred from the main compiler configuration or toolchain | Positive JDK feature request written as `spec.jvm.version`; an explicit value overrides inference. See the precedence below. |
-| `jdkDistribution` | `brewlet.jdkDistribution` | *(none — any distribution)* | Optional JDK distribution (`temurin`, `microsoft`) written as `spec.jvm.distribution`. With `jdkFeature` it pins an exact `<distribution>-<feature>` node JDK; omit to accept any distribution of that feature. |
-| `launcher` | `brewlet.launcher` | `java` | Launcher written as `spec.jvm.launcher`; use `jaz` for the auto-tuning launcher. |
+| `jdkFeature` | `brewlet.jdkFeature` | inferred from the main compiler configuration or toolchain | Positive application JDK feature used when the dependency bundle declares compatible JDKs; an explicit value overrides inference. See the precedence below. |
 
 ### JDK inference
 
-The plugin selects a **requested deployment JDK feature**, not a measurement of
+The plugin resolves an **application JDK feature for compatibility checks**, not a measurement of
 the running Pods or a proof of the application's minimum compatible JVM:
 
 1. A positive explicit `<jdkFeature>` / `-Dbrewlet.jdkFeature` wins.
@@ -344,7 +409,7 @@ the running Pods or a proof of the application's minimum compatible JVM:
    Maven JDK as a fallback. Implicit defaults from every compiler-plugin version
    are not emulated.
 
-For example, a main compiler `<release>17</release>` requests JDK 17 even when
+For example, a main compiler `<release>17</release>` resolves to JDK 17 even when
 Maven or its compiler toolchain runs on JDK 21. A literal `<release>17</release>`
 also remains authoritative over an unrelated `maven.compiler.release=21`
 property; reference that property in the XML if it is intended to control the
@@ -354,9 +419,8 @@ Inference fails with explicit-override guidance for unresolved or malformed
 values, differing main compilation levels, unavailable toolchains, unsupported
 compiler/executable choices, or opaque arguments that could change the target.
 Unknown or malformed selected-JDK versions never default to Java 17 or the
-Maven JVM. Brewlet JDK selection uses only a major (feature) version, such as
-`17` or `21`, optionally qualified by a distribution, such as `temurin-21`.
-`jdkFeature` and the emitted `spec.jvm.version` do not accept patch versions,
+Maven JVM. `jdkFeature` uses only a major (feature) version, such as
+`17` or `21`, and does not accept patch versions,
 build numbers, or early-access/vendor suffixes. Full versions read from external
 JDK metadata are used only to infer the major version: for example,
 `21.0.8+9-LTS` becomes `21` and the historical Java 8 version string `1.8.0_391`
@@ -368,10 +432,10 @@ after reviewing those builds rather than relying on the Maven JVM by accident.
 An execution bound to `compile` can still run after the main compiler in that
 same phase; selections whose ordering cannot establish main-compiler authority
 also require an explicit request.
-Failures occur before writing a guessed manifest, and logs identify the
+Failures occur before publishing an incompatible image, and logs identify the
 compiler setting or fallback toolchain used.
 
-The same request resolution is used when managed-dependency publication checks
+This resolution is used when managed-dependency assembly checks
 the bundle's compatible JDK features. It remains separate from the artifact's
 launch configuration and does not install or upgrade a node JDK.
 
@@ -379,15 +443,14 @@ launch configuration and does not install or upgrade a node JDK.
 
 | Parameter | Notes |
 |---|---|
-| `ports` | Descriptor `spec.ports` (manifest goal): `<port>` entries (`name`, `containerPort`, `protocol`). Defaults to `8080/http` with a warning for Spring Boot / Quarkus. Ports enable Service generation but never imply health probes; declare those with `probes` (see [`brewlet:manifest` extras](#brewletmanifest-extras)). Not part of the artifact. |
 | `enablePreview` (`brewlet.enablePreview`) | App-intrinsic artifact knob; writes `enablePreview` and expands to `--enable-preview`. |
 | `addModules` / `addOpens` / `addExports` | App-intrinsic artifact lists for JPMS/module access; configure with `<addModule>`, `<addOpen>`, and `<addExport>` entries. |
 | `systemProperties` | App-intrinsic artifact map expanded as sorted `-D<key>=<value>` flags. |
-| `jvmArgs` (`brewlet.jvmArgs`) | Deployment tuning/escape-hatch args written directly to descriptor `spec.jvm.args`; use for heap, GC, agents, and `-XX` flags. |
 | `env` | `<envVar>` entries (`name`, `value`). |
 
-Framework auto-detection is still used for port inference, but framework labels are
-not written into the artifact. Process UID/GID is also excluded: Kubernetes
+Ports, probes and JVM resource tuning are not artifact fields. Development
+defaults can be supplied to `manifest`; production values belong in maintained
+deployment configuration. Process UID/GID is also excluded: Kubernetes
 deployments set it through Pod `securityContext`, and artifact configs containing
 `user` are rejected.
 
@@ -580,63 +643,6 @@ but the archive is still tied to the exact JDK build and classpath layout. With
 `-Xshare:auto`, a mismatch safely falls back to base CDS (no correctness risk, just
 no AppCDS benefit); see [AppCDS §7](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#7-the-jdk-coupling-problem-design-core).
 
-### `brewlet:manifest` extras
-
-Health probes are never guessed: a configured or inferred port does not prove
-that HTTP `/` exists, or that it is suitable for liveness, and an API-only
-application returning 404 at `/` must not be restarted because of a guessed
-probe. Declare the application's actual health contract with `<probes>`:
-
-```xml
-<configuration>
-  <ports>
-    <port><name>http</name><containerPort>8080</containerPort></port>
-  </ports>
-  <probes>
-    <readiness>
-      <path>/actuator/health/readiness</path>   <!-- HTTP GET -->
-      <periodSeconds>5</periodSeconds>
-    </readiness>
-    <liveness>
-      <path>/actuator/health/liveness</path>
-      <port>http</port>                         <!-- port name or number; defaults to the first port -->
-      <failureThreshold>3</failureThreshold>
-    </liveness>
-  </probes>
-</configuration>
-```
-
-Each probe is an **HTTP GET** when `<path>` is set (optional `<scheme>` `HTTP` or
-`HTTPS`), an **exec** probe when `<command>` is set
-(`<command><arg>sh</arg><arg>-c</arg><arg>…</arg></command>`), and otherwise a
-**TCP socket** check on `<port>`. Optional timings: `<initialDelaySeconds>`,
-`<periodSeconds>`, `<timeoutSeconds>`, `<failureThreshold>`. Invalid
-combinations, relative paths, and port names that don't match `<ports>` fail
-the build.
-
-For a quick HTTP probe without editing the POM, use
-`-Dbrewlet.readinessPath=/healthz` and `-Dbrewlet.livenessPath=/livez`
-(applied against the first port, ignored when the corresponding `<probes>`
-entry is configured).
-
-When ports are generated but no readiness probe is configured, the plugin
-warns, and suggests the Spring Boot Actuator
-(`/actuator/health/readiness`) or Quarkus SmallRye Health (`/q/health/ready`)
-paths when those dependencies are declared. Without a readiness probe,
-Kubernetes does not wait for application-specific readiness.
-
-| Parameter | Property | Default |
-|---|---|---|
-| `namespace` | `brewlet.namespace` | `default` |
-| `appName` | `brewlet.appName` | `${project.artifactId}` |
-| `replicas` | `brewlet.replicas` | `1` |
-| CPU/memory requests & limits | `brewlet.resources.*` | `500m` / `256Mi` req, `2` / `512Mi` limit |
-| `probes` | — | none (see above) |
-| `readinessPath` | `brewlet.readinessPath` | none |
-| `livenessPath` | `brewlet.livenessPath` | none |
-
----
-
 ---
 
 ## Delivery format: native artifact vs runnable image
@@ -686,9 +692,9 @@ shape (media types, `jvm-config` annotation, platforms). See
 - `target/brewlet/oci/` — a local OCI image-layout (from `brewlet:build`); readable
   with `brewlet inspect` or pushable with `oras push`.
 - `target/brewlet/push.json` — the last successful push (`image`, `digest`,
-  `deployImage`, `format`), consumed by `brewlet:manifest`.
-- `target/brewlet/javaapplication.yaml` — the CR/Deployment manifest (from
-  `brewlet:manifest` / `brewlet:deploy`).
+  `deployImage`, `format`), for downstream deployment tooling.
+- `target/brewlet/javaapplication.yaml` — optional development manifest for the
+  current build (`brewlet:manifest`); never automatically applied.
 
 The published artifact uses the Brewlet [media types](https://github.com/microsoft/brewlet/blob/main/docs/reference.md#oci-media-types),
 which mark it as an OCI artifact rather than a container image.

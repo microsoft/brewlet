@@ -7,7 +7,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -23,42 +23,41 @@ class PushHandoffTest {
     @TempDir Path root;
 
     @ParameterizedTest
-    @CsvSource({"push,image", "push,artifact", "deploy,image", "deploy,artifact"})
-    void dryRunPreservesLastPushForSubsequentManifest(String goal, String format) throws Exception {
-        AbstractPushMojo mojo = mojo(goal, format);
+    @ValueSource(strings = {"image", "artifact"})
+    void dryRunPreservesLastPushForReleaseTooling(String format) throws Exception {
+        AbstractPushMojo mojo = mojo(format);
         byte[] original = writeLastPush(mojo);
         mojo.dryRun = true;
+        new ApplicationBuildResult(mojo.image, "sha256:" + "1".repeat(64), format,
+                new sh.brewlet.maven.plugin.model.JvmConfig()).save(mojo.project);
 
         mojo.execute();
 
+        assertNull(ApplicationBuildResult.get(mojo.project), "Dry-run push must invalidate an earlier build result");
         assertArrayEquals(original, Files.readAllBytes(handoff()));
         assertFalse(Files.exists(root.resolve("brewlet/javaapplication.yaml")));
-        ManifestMojo manifest = manifest(mojo);
-        manifest.execute();
-        String yaml = Files.readString(root.resolve("brewlet/javaapplication.yaml"));
-        assertTrue(yaml.contains("    image: \"" + pinnedImage(mojo) + "\"\n"), yaml);
-        assertArrayEquals(original, Files.readAllBytes(handoff()));
+        var result = AbstractBrewletMojo.MAPPER.readValue(handoff().toFile(), AbstractPushMojo.PushResult.class);
+        assertEquals(pinnedImage(mojo), result.deployImage());
+        assertEquals(format, result.format());
     }
 
     @ParameterizedTest
-    @CsvSource({"push,image", "push,artifact", "deploy,image", "deploy,artifact"})
-    void dryRunWithoutLastPushDoesNotInventHandoff(String goal, String format) throws Exception {
-        AbstractPushMojo mojo = mojo(goal, format);
+    @ValueSource(strings = {"image", "artifact"})
+    void dryRunWithoutLastPushDoesNotInventHandoff(String format) throws Exception {
+        AbstractPushMojo mojo = mojo(format);
         mojo.dryRun = true;
 
         mojo.execute();
 
         assertFalse(Files.exists(handoff()));
+        assertNull(ApplicationBuildResult.get(mojo.project));
         assertFalse(Files.exists(root.resolve("brewlet/javaapplication.yaml")));
-        MojoExecutionException error = assertThrows(MojoExecutionException.class,
-                manifest(mojo)::execute);
-        assertTrue(error.getMessage().contains("Run brewlet:push first"), error.getMessage());
     }
 
     @ParameterizedTest
-    @CsvSource({"push,true", "deploy,true", "push,false", "deploy,false"})
-    void validationFailurePreservesHandoffOnlyInDryRun(String goal, boolean dryRun) throws Exception {
-        AbstractPushMojo mojo = mojo(goal, "image");
+    @ValueSource(booleans = {true, false})
+    void validationFailurePreservesHandoffOnlyInDryRun(boolean dryRun) throws Exception {
+        AbstractPushMojo mojo = mojo("image");
         byte[] original = writeLastPush(mojo);
         mojo.dryRun = dryRun;
         mojo.entryMode = "invalid";
@@ -70,13 +69,12 @@ class PushHandoffTest {
             assertArrayEquals(original, Files.readAllBytes(handoff()));
         } else {
             assertFalse(Files.exists(handoff()));
-            assertThrows(MojoExecutionException.class, manifest(mojo)::execute);
         }
     }
 
     @ParameterizedTest
-    @CsvSource({"push,image", "push,artifact", "deploy,image", "deploy,artifact"})
-    void failedRealPushRemovesStaleHandoff(String goal, String format) throws Exception {
+    @ValueSource(strings = {"image", "artifact"})
+    void failedRealPushRemovesStaleHandoff(String format) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicInteger requests = new AtomicInteger();
         server.createContext("/", exchange -> {
@@ -87,7 +85,7 @@ class PushHandoffTest {
         });
         server.start();
         try {
-            AbstractPushMojo mojo = mojo(goal, format);
+            AbstractPushMojo mojo = mojo(format);
             String registry = "127.0.0.1:" + server.getAddress().getPort();
             mojo.image = registry + "/app:1";
             mojo.insecureRegistries = List.of(registry);
@@ -98,39 +96,19 @@ class PushHandoffTest {
             assertTrue(error.getMessage().contains("Failed to push"), error.getMessage());
             assertTrue(requests.get() > 0, "the push must reach the registry");
             assertFalse(Files.exists(handoff()));
-            assertThrows(MojoExecutionException.class, manifest(mojo)::execute);
         } finally {
             server.stop(0);
         }
     }
 
-    private AbstractPushMojo mojo(String goal, String format) throws Exception {
-        AbstractPushMojo mojo;
-        if ("deploy".equals(goal)) {
-            DeployMojo deploy = new DeployMojo();
-            deploy.kubectlRunner = (args, timeout) ->
-                    fail("dry-run or failed push must not invoke kubectl");
-            mojo = deploy;
-        } else {
-            mojo = new PushMojo();
-        }
+    private AbstractPushMojo mojo(String format) throws Exception {
+        AbstractPushMojo mojo = new PushMojo();
         Path jar = root.resolve("app.jar");
         Files.write(jar, TestApplications.zip(Map.of("META-INF/MANIFEST.MF",
                 "Manifest-Version: 1.0\nMain-Class: example.Main\n\n".getBytes(StandardCharsets.UTF_8))));
         TestApplications.configure(mojo, jar, root.resolve("brewlet"), false);
         mojo.format = format;
         return mojo;
-    }
-
-    private ManifestMojo manifest(AbstractPushMojo push) throws Exception {
-        ManifestMojo manifest = new ManifestMojo();
-        TestApplications.configure(manifest, push.jarFile.toPath(), push.outputDirectory.toPath(), false);
-        manifest.image = push.image;
-        manifest.jdkFeature = 17;
-        manifest.appName = "app";
-        manifest.namespace = "default";
-        TestApplications.set(manifest, "replicas", 1);
-        return manifest;
     }
 
     private byte[] writeLastPush(AbstractPushMojo mojo) throws Exception {

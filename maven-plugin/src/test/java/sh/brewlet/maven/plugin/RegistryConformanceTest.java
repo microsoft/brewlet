@@ -35,30 +35,23 @@ class RegistryConformanceTest {
                         tc.path("repository").asText()}, RegistryClient.splitRef(ref));
                 assertEquals(tc.path("reference").asText(), RegistryClient.extractTag(ref));
             }
-            for (AbstractPushMojo mojo : List.of(new PushMojo(), new DeployMojo())) {
-                TestApplications.configure(mojo, root.resolve("missing.jar"),
-                        root.resolve(tc.path("id").asText()), false);
-                mojo.image = ref;
-                mojo.dryRun = true;
-                if (!tc.path("publish").asBoolean()) {
-                    // Validation must precede artifact preparation, credentials and network.
-                    MojoExecutionException error = assertThrows(MojoExecutionException.class, mojo::execute);
-                    assertTrue(error.getMessage().startsWith("Image "),
-                            "expected reference rejection, got: " + error.getMessage());
-                } else {
-                    Path jar = root.resolve("app.jar");
-                    Files.write(jar, TestApplications.zip(Map.of("META-INF/MANIFEST.MF",
-                            "Manifest-Version: 1.0\nMain-Class: app.Main\n\n".getBytes(StandardCharsets.UTF_8))));
-                    mojo.jarFile = jar.toFile();
-                    if (mojo instanceof DeployMojo deploy) {
-                        deploy.kubectlRunner = (args, timeout) -> {
-                            fail("dry run must not invoke kubectl");
-                            return null;
-                        };
-                    }
-                    assertDoesNotThrow(mojo::execute);
-                    assertEquals(ref, mojo.image);
-                }
+            PushMojo mojo = new PushMojo();
+            TestApplications.configure(mojo, root.resolve("missing.jar"),
+                    root.resolve(tc.path("id").asText()), false);
+            mojo.image = ref;
+            mojo.dryRun = true;
+            if (!tc.path("publish").asBoolean()) {
+                // Validation must precede artifact preparation, credentials and network.
+                MojoExecutionException error = assertThrows(MojoExecutionException.class, mojo::execute);
+                assertTrue(error.getMessage().startsWith("Image "),
+                        "expected reference rejection, got: " + error.getMessage());
+            } else {
+                Path jar = root.resolve("app.jar");
+                Files.write(jar, TestApplications.zip(Map.of("META-INF/MANIFEST.MF",
+                        "Manifest-Version: 1.0\nMain-Class: app.Main\n\n".getBytes(StandardCharsets.UTF_8))));
+                mojo.jarFile = jar.toFile();
+                assertDoesNotThrow(mojo::execute);
+                assertEquals(ref, mojo.image);
             }
         }));
     }

@@ -6,6 +6,11 @@ package sh.brewlet.maven.plugin;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.apache.maven.artifact.DefaultArtifact;
+import org.apache.maven.artifact.handler.DefaultArtifactHandler;
+import org.apache.maven.plugin.MojoExecutionException;
 import sh.brewlet.maven.plugin.model.DependencyBundleConfig;
 import sh.brewlet.maven.plugin.model.DependencyLock;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
@@ -32,6 +37,8 @@ import java.security.KeyPairGenerator;
 import java.security.spec.ECGenParameterSpec;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -201,6 +208,65 @@ class SupplyChainTest {
         assertTrue(predicate.path("thinJar").asBoolean());
         assertEquals("sha256:sbom", predicate.path("sbomDigest").asText());
         assertEquals("sha256:bundle", predicate.path("dependencyBundleDigest").asText());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void bothGoalOrdersReuseSignedManagedImageAndRecheckBundleTrust(boolean pushFirst) throws Exception {
+        Keys keys = keys();
+        DependencyBundle.Content bundle = bundle();
+        BundleProvenance.Materials materials = BundleProvenance.create(bundle, keys.privatePem(), "platform");
+        Path bundlePath = temp.resolve("bundle");
+        LocalStore bundleStore = new LocalStore(bundlePath);
+        bundleStore.pushDependencyBundle("example/platform:1", bundle);
+        bundleStore.pushReferrer(materials.sbomReferrer());
+        bundleStore.pushReferrer(materials.provenanceReferrer());
+        Path jar = temp.resolve("app.jar");
+        Files.write(jar, TestApplications.zip(Map.of("META-INF/MANIFEST.MF",
+                "Manifest-Version: 1.0\nMain-Class: App\n\n".getBytes(StandardCharsets.UTF_8))));
+        try (TestImageRegistry registry = new TestImageRegistry()) {
+            BuildMojo build = new BuildMojo();
+            PushMojo push = new PushMojo();
+            for (AbstractImageMojo mojo : List.of(build, push)) {
+                TestApplications.configure(mojo, jar, temp.resolve("out"), true);
+                mojo.format = "image";
+                mojo.image = registry.image();
+                mojo.dependencyBundle = bundlePath.toString();
+                mojo.signingKey = keys.privatePem().toFile();
+                mojo.trustedPublicKey = keys.publicPem().toFile();
+                mojo.trustedSignerIdentity = "platform";
+                mojo.builderIdentity = "application-builder";
+            }
+            DefaultArtifactHandler handler = new DefaultArtifactHandler("jar");
+            handler.setAddedToClasspath(true);
+            DefaultArtifact dependency = new DefaultArtifact("com.acme", "library", "2",
+                    "runtime", "jar", null, handler);
+            dependency.setFile(temp.resolve("library.jar").toFile());
+            build.project.setArtifacts(Set.of(dependency));
+            push.project = build.project;
+            Path layout = temp.resolve("application");
+            TestApplications.set(build, "ociOutputDirectory", layout.toFile());
+            (pushFirst ? push : build).execute();
+            ApplicationAssembly first = ApplicationAssembly.get(build.project);
+            (pushFirst ? build : push).execute();
+            assertSame(first, ApplicationAssembly.get(build.project));
+            assertTrue(first.published);
+            assertEquals(first.result.digest(), LocalStore.sha256Hex(registry.tagged));
+            assertArrayEquals(bundle.compressedLayer(), registry.content.get(bundle.config().getLayerDigest()));
+            assertArrayEquals(first.attestation.manifest(),
+                    registry.content.get(first.attestation.manifestDigest()));
+            LocalStore store = new LocalStore(layout);
+            assertArrayEquals(first.attestation.document(), store.readReferrerDocument(
+                    store.referrers(first.result.digest(), MediaTypes.DSSE_ARTIFACT_TYPE).get(0)));
+            JsonNode statement = Dsse.verifyStatement(first.attestation.document(), keys.publicPem(),
+                    first.result.digest(), MediaTypes.MANAGED_DEPENDENCY_PREDICATE_TYPE, "application-builder");
+            assertEquals(bundle.manifestDigest(), statement.path("predicate").path("dependencyBundleDigest").asText());
+
+            build.trustedSignerIdentity = "wrong-platform";
+            assertThrows(MojoExecutionException.class, build::execute);
+            assertNull(ApplicationBuildResult.get(build.project), "Cached assembly must not bypass trust checks");
+            assertSame(first, ApplicationAssembly.get(build.project));
+        }
     }
 
     private DependencyBundle.Content bundle() throws IOException {

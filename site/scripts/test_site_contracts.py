@@ -219,8 +219,9 @@ class SiteContractsTest(unittest.TestCase):
         images = re.findall(r"^\s*image:\s*(\S+)\s*$", descriptor, re.MULTILINE)
         self.assertEqual(len(images), 1)
         self.assertEqual(images[0], "registry.example.com/team/app@sha256:<published-digest>")
-        self.assertIn("Use the deploy image brewlet:push prints (also in target/brewlet/push.json)",
+        self.assertIn("brewlet:manifest fills in the actual build digest",
                       descriptor)
+        self.assertIn("illustrates the structure rather than a file you need to copy", self.text)
 
     def test_cli_examples_explicitly_use_local_stores(self):
         commands = []
@@ -254,8 +255,12 @@ class SiteContractsTest(unittest.TestCase):
         self.assertIn("Maven Central", blocks)
         self.assertNotIn("maven-install-plugin", blocks)
         self.assertNotIn("releases/download", blocks)
-        self.assertIn('sh.brewlet:brewlet-maven-plugin:$(brewlet version):build', blocks)
-        self.assertIn('sh.brewlet:brewlet-maven-plugin:$(brewlet version):deploy', self.text)
+        self.assertIn('package brewlet:build', blocks)
+        self.assertIn('mvn package brewlet:push brewlet:manifest', self.text)
+        self.assertIn('First declare the plugin', self.text)
+        self.assertNotIn("to push, apply, and wait", self.text)
+        self.assertIn("Deploy separately with kubectl or GitOps", self.text)
+        self.assertIn("kubectl apply -f target/brewlet/javaapplication.yaml", self.text)
         self.assertIn('-Dbrewlet.registry=registry.example.com/team', self.text)
         self.assertEqual(blocks.count("demo/hello:local"), 4)
         self.assertNotIn("make binaries", blocks)
@@ -302,9 +307,71 @@ class SiteContractsTest(unittest.TestCase):
         self.assertIn("Maven Central", developers)
         self.assertNotIn("maven-install-plugin", developers)
         self.assertIn("brewlet:config brewlet:build", developers)
-        self.assertIn("  brewlet:deploy", developers)
+        self.assertIn("  package brewlet:push brewlet:manifest", developers)
+        self.assertIn("kubectl apply", developers)
+        self.assertIn("brewlet k8s app wait", developers)
         self.assertLess(developers.index("<artifactId>brewlet-maven-plugin</artifactId>"),
                         developers.index("brewlet:config brewlet:build"))
+
+    def test_workshop_generates_manifest_for_initial_deploy_and_iteration(self):
+        document = (ROOT / "docs/workshops/developers.md").read_text(encoding="utf-8")
+        plugin = ET.fromstring(blocks(document, "xml")[0])
+        self.assertIsNone(plugin.find("executions"))
+        config = plugin.find("configuration")
+        expected = {
+            "appName": "hello",
+            "namespace": "${env.BREWLET_NAMESPACE}",
+            "jdkFeature": "${env.BREWLET_JDK}",
+            "ports/port/name": "http",
+            "ports/port/containerPort": "8080",
+            "probes/readiness/path": "/healthz",
+            "cpuRequest": "100m",
+            "cpuLimit": "1",
+            "memoryRequest": "128Mi",
+            "memoryLimit": "256Mi",
+        }
+        for field, value in expected.items():
+            with self.subTest(field=field):
+                self.assertEqual(config.findtext(field), value)
+        self.assertIsNone(config.find("image"))
+        commands = re.sub(r"\\\n\s*", " ", "\n".join(blocks(document, "bash"))).splitlines()
+        publishes = [line for line in commands if line.startswith("mvn ") and "brewlet:push" in line]
+        self.assertEqual(len(publishes), 2)
+        for command in publishes:
+            self.assertIn("package brewlet:push brewlet:manifest", command)
+            self.assertNotIn("brewlet:manifest@", command)
+            self.assertIn('-Dbrewlet.registry="$BREWLET_REGISTRY"', command)
+        applies = [line for line in commands if line.startswith("kubectl apply")]
+        self.assertEqual(len(applies), 2)
+        for command in applies:
+            self.assertIn('--context "$BREWLET_CONTEXT"', command)
+            self.assertIn("-f integration-tests/fixtures/demo-app/target/brewlet/javaapplication.yaml", command)
+        for manual_step in ("DEPLOY_IMAGE=", "cat >", "hello.yaml", "jq -"):
+            self.assertNotIn(manual_step, document)
+        self.assertIn("production deployment configuration separate", document)
+
+    def test_maven_quickstarts_lead_with_generated_development_yaml(self):
+        for filename, heading in (
+                ("maven-plugin/README.md", "## Quick start"),
+                ("docs/building-and-publishing.md", "### Option C")):
+            document = (ROOT / filename).read_text(encoding="utf-8").split(heading, 1)[1]
+            commands = blocks(document, "bash")
+            first_publish = next(block for block in commands if "mvn clean package brewlet:push" in block)
+            self.assertIn("mvn clean package brewlet:push brewlet:manifest", first_publish)
+            self.assertIn("kubectl apply -f target/brewlet/javaapplication.yaml", document)
+        deployment = (ROOT / "docs/deploying-workloads.md").read_text(encoding="utf-8")
+        self.assertLess(deployment.index("### Generate a development manifest"),
+                        deployment.index("### Minimal example"))
+        self.assertLess(deployment.index("### Generate a development manifest"),
+                        deployment.index("### Deploy a published image"))
+
+    def test_documentation_uses_canonical_maven_goal_prefix(self):
+        paths = [ROOT / "README.md", ROOT / "maven-plugin/README.md",
+                 *sorted((ROOT / "docs").rglob("*.md")),
+                 *sorted((ROOT / "site").glob("index*.html"))]
+        for path in paths:
+            with self.subTest(document=path.relative_to(ROOT)):
+                self.assertNotIn("sh.brewlet:brewlet-maven-plugin:", path.read_text(encoding="utf-8"))
 
     def test_plugin_guides_only_install_from_central(self):
         for filename in ("maven-plugin/README.md", "docs/building-and-publishing.md",
@@ -362,9 +429,6 @@ class SiteContractsTest(unittest.TestCase):
         lookup = next(block for block in commands if block.startswith('release_url='))
         export = next(block for block in commands if block.startswith("export BREWLET_VERSION"))
         publish = next(block for block in commands if block.startswith("# Build the fat JAR"))
-        one_off = next(block for block in commands
-                       if block.startswith('mvn clean package "sh.brewlet:') and
-                       "-Dbrewlet.layered" not in block)
         harness = r"""
 set -eu
 curl() {
@@ -383,7 +447,7 @@ mvn() {
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "commands.log"
             result = subprocess.run(
-                ["bash"], input=harness + lookup + "\n" + export + "\n" + publish + "\n" + one_off
+                ["bash"], input=harness + lookup + "\n" + export + "\n" + publish
                 + '\nsh -c \'test "$BREWLET_VERSION" = 9.8.7\'\n',
                 cwd=directory, env={**os.environ, "COMMAND_LOG": str(log),
                                     "BREWLET_VERSION": "0.0.0"},
@@ -391,11 +455,10 @@ mvn() {
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             calls = log.read_text().splitlines()
-            self.assertEqual(len(calls), 3)
+            self.assertEqual(len(calls), 2)
             self.assertEqual(calls[0], "-fsSL -o /dev/null -w %{url_effective} "
                              "https://github.com/microsoft/brewlet/releases/latest")
-            self.assertIn("clean package brewlet:push", calls[1])
-            self.assertIn("sh.brewlet:brewlet-maven-plugin:9.8.7:push", calls[2])
+            self.assertIn("clean package brewlet:push brewlet:manifest", calls[1])
 
     def test_public_content_does_not_condition_release_access_on_repository_visibility(self):
         paths = [ROOT / "README.md", ROOT / "kubernetes/charts/brewlet/README.md",

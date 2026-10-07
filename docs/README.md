@@ -38,7 +38,7 @@ Implemented functionality and live end-to-end validation are different:
 | Kubernetes runtime | The source-built E2E tiers exercise provisioning, serving, manual scaling, and runtime telemetry. | These scenarios do not establish the admission or autoscaling loops below, or production readiness. |
 | Managed-dependency admission | Component tests use substituted registry access and plugin transport; source-built live tests exercise real registries, the external verifier, Ratify/Gatekeeper and Kubernetes API enforcement. | The live fixture uses test-specific cache, registry and TLS settings. It does not establish ordinary ephemeral-debug execution support; see the [runbook](live-validation.md). |
 | CPU autoscaling | Alongside HPA creation and simulated HPA ownership tests, source-built live tests exercise real metrics-server-driven scale-up/down, Ready Pods, serving endpoints and HPA ownership. | The GC scenario covers verified warm reuse, not cold startup after source layers disappear; see the [runbook](live-validation.md). |
-| CLI and Maven workflows | Source-built live tests exercise CLI operations and Maven deployment in fresh environments. | These runs build the checkout's components and chart; they do not validate installation of published release artifacts. |
+| CLI and Maven workflows | Source-built live tests exercise CLI operations and Maven publication followed by separate Kubernetes deployment in fresh environments. | These runs build the checkout's components and chart; they do not validate installation of published release artifacts. |
 
 Live admission and CPU HPA validation each require two consecutive fresh disposable
 clusters to pass, with mandatory assertions, failure diagnostics, and bounded cleanup.

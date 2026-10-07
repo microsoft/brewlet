@@ -4,19 +4,25 @@
 package sh.brewlet.maven.plugin;
 
 import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
+import org.apache.maven.execution.MavenSession;
+import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.project.MavenProject;
+import org.apache.maven.toolchain.ToolchainManager;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.model.Port;
 import sh.brewlet.maven.plugin.model.Probe;
 import sh.brewlet.maven.plugin.model.Probes;
 import sh.brewlet.maven.plugin.oci.RegistryClient;
 import sh.brewlet.maven.plugin.util.FrameworkDetector;
+import sh.brewlet.maven.plugin.util.JdkVersionResolver;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.HexFormat;
@@ -31,9 +37,9 @@ import java.util.List;
  * <p>The generated CR uses the JavaApplication schema and examples maintained in
  * https://github.com/microsoft/brewlet/tree/main/kubernetes.
  *
- * <p>The image is the digest-pinned {@code <image>} when one is configured,
- * otherwise the deploy image recorded by the last {@code brewlet:push} in
- * {@code target/brewlet/push.json}.
+ * <p>Development-time output only. The image must come from {@code brewlet:build}
+ * or {@code brewlet:push} for this project in the same Maven invocation.
+ * No explicit image input, saved push result, publishing or cluster access.
  *
  * <p>Example:
  * <pre>
@@ -44,7 +50,40 @@ import java.util.List;
 @Mojo(name = "manifest",
       requiresProject = true,
       threadSafe = true)
-public class ManifestMojo extends AbstractPushMojo {
+public class ManifestMojo extends AbstractMojo {
+
+    @Parameter(defaultValue = "${project}", readonly = true, required = true)
+    MavenProject project;
+
+    @Parameter(defaultValue = "${session}", readonly = true, required = true)
+    MavenSession session;
+
+    @Component
+    ToolchainManager toolchainManager;
+
+    /** Directory for the generated development manifest. */
+    @Parameter(defaultValue = "${project.build.directory}/brewlet")
+    File outputDirectory;
+
+    /** Skip generation. */
+    @Parameter(property = "brewlet.skip", defaultValue = "false")
+    boolean skip;
+
+    /** Render to the build log without writing a manifest. */
+    @Parameter(property = "brewlet.dryRun", defaultValue = "false")
+    boolean dryRun;
+
+    /** Development runtime feature, inferred from the main compiler settings. */
+    @Parameter(property = "brewlet.jdkFeature")
+    Integer jdkFeature;
+
+    /** Optional development runtime distribution. */
+    @Parameter(property = "brewlet.jdkDistribution")
+    String jdkDistribution;
+
+    /** Development launcher, defaulting to java. */
+    @Parameter(property = "brewlet.launcher", defaultValue = "java")
+    String launcher;
 
     /**
      * Kubernetes namespace for the generated manifest.
@@ -137,73 +176,82 @@ public class ManifestMojo extends AbstractPushMojo {
     private String memoryLimit;
 
     @Override
-    protected void doExecute() throws MojoExecutionException, MojoFailureException {
-        File outputFile = writeManifest(resolveDeployImage());
-        getLog().info("  Apply with: kubectl apply -f " + outputFile.getPath()
-                + " (or run brewlet:deploy to push, apply and wait in one step)");
-    }
-
-    /**
-     * Returns the digest-pinned image for the manifest: a digest-pinned
-     * {@code <image>}, or the deploy image recorded by the last
-     * {@code brewlet:push} for the same image.
-     */
-    String resolveDeployImage() throws MojoExecutionException {
-        String configured = resolveImage();
-        if (configured != null && RegistryClient.isDigestPinnedReference(configured)) {
-            return configured;
+    public void execute() throws MojoExecutionException {
+        if (skip) {
+            getLog().info("Brewlet: skipping (brewlet.skip=true)");
+            return;
         }
-        PushResult last = readLastPush();
-        if (last == null) {
-            throw new MojoExecutionException("brewlet:manifest needs a digest-pinned image. "
-                    + "Run brewlet:push first (e.g. mvn package brewlet:push brewlet:manifest), "
-                    + "use brewlet:deploy, or pass -Dbrewlet.image=repo@sha256:<digest>.");
+        ApplicationBuildResult built = requireBuildResult();
+        ApplicationAssembly assembly = ApplicationAssembly.get(project);
+        if (assembly != null && !assembly.published) {
+            getLog().warn("Brewlet: this image has not been published by this invocation. "
+                    + "Publish or load the exact built image before applying the manifest.");
         }
-        if (configured != null && !configured.equals(last.image())) {
-            throw new MojoExecutionException("The last brewlet:push in " + outputDirectory
-                    + " was for " + last.image() + ", not " + configured
-                    + ". Run brewlet:push for " + configured + " first.");
+        StringWriter rendered = new StringWriter();
+        try (PrintWriter writer = new PrintWriter(rendered)) {
+            writeJavaApplicationYaml(writer, built.config(), resolveDeployImage());
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to render JavaApplication manifest", e);
         }
-        getLog().info("Brewlet: using image from the last brewlet:push: " + last.deployImage());
-        return last.deployImage();
-    }
-
-    /** Writes {@code javaapplication.yaml} for {@code deployImage} and returns the file. */
-    File writeManifest(String deployImage) throws MojoExecutionException {
-        if (!RegistryClient.isDigestPinnedReference(deployImage)) {
-            throw new MojoExecutionException(
-                    "brewlet:manifest requires a digest-pinned <image> (repo@sha256:<64 lowercase hex>); "
-                            + "use the deploy image printed by brewlet:push.");
+        if (dryRun) {
+            getLog().info("Brewlet: dry-run development manifest (not written):\n" + rendered);
+            return;
         }
-        image = deployImage;
-        JvmConfig cfg = buildConfig();
-        int feature = resolveJdkFeature();
-        outputDirectory.mkdirs();
-
         File outputFile = new File(outputDirectory, "javaapplication.yaml");
-        try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(
-                outputFile.toPath(), StandardCharsets.UTF_8))) {
-            writeJavaApplicationYaml(w, cfg, feature);
+        try {
+            Files.createDirectories(outputDirectory.toPath());
+            Files.writeString(outputFile.toPath(), rendered.toString(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to write JavaApplication manifest", e);
         }
+        getLog().info("Brewlet: wrote development JavaApplication manifest -> " + outputFile.getPath());
+        getLog().info("  Apply separately with: kubectl apply -f " + outputFile.getPath());
+    }
 
-        getLog().info("Brewlet: wrote JavaApplication manifest → " + outputFile.getPath());
-        return outputFile;
+    private ApplicationBuildResult requireBuildResult() throws MojoExecutionException {
+        ApplicationBuildResult built = ApplicationBuildResult.get(project);
+        if (built == null) {
+            throw new MojoExecutionException("brewlet:manifest requires this project's image from "
+                    + "brewlet:build or brewlet:push in the same Maven invocation. Run "
+                    + "'mvn package brewlet:push brewlet:manifest' (or use brewlet:build). "
+                    + "A dry-run push does not produce an image; remove -Dbrewlet.dryRun=true "
+                    + "to publish, or use brewlet:build for a local image and manifest preview. "
+                    + "Explicit images and saved push.json files are not inputs.");
+        }
+        if (!"image".equals(built.format())) {
+            throw new MojoExecutionException("brewlet:manifest requires a runnable image; "
+                    + "build or push with -Dbrewlet.format=image, not artifact.");
+        }
+        return built;
+    }
+
+    String resolveDeployImage() throws MojoExecutionException {
+        ApplicationBuildResult built = requireBuildResult();
+        if (!RegistryClient.hasExplicitRegistry(built.reference())) {
+            throw new MojoExecutionException("The built image has no registry host. Configure "
+                    + "<registry> or a registry-qualified publishing <image> on brewlet:build/brewlet:push.");
+        }
+        String pinned = RegistryClient.pinReference(built.reference(), built.digest());
+        if (!RegistryClient.isDigestPinnedReference(pinned)) {
+            throw new MojoExecutionException("The current build did not produce a valid image digest.");
+        }
+        return pinned;
     }
 
     void writeJavaApplicationYaml(PrintWriter w, JvmConfig cfg) throws IOException, MojoExecutionException {
-        writeJavaApplicationYaml(w, cfg, resolveJdkFeature());
+        writeJavaApplicationYaml(w, cfg, resolveDeployImage());
     }
 
-    private void writeJavaApplicationYaml(PrintWriter w, JvmConfig cfg, int feature)
+    private void writeJavaApplicationYaml(PrintWriter w, JvmConfig cfg, String deployImage)
             throws IOException, MojoExecutionException {
+        int feature = JdkVersionResolver.resolve(project, session, toolchainManager, getLog(), jdkFeature);
         List<Port> resolvedPorts = resolvePorts();
         Probe readiness = effectiveProbe(probes == null ? null : probes.getReadiness(), readinessPath);
         Probe liveness = effectiveProbe(probes == null ? null : probes.getLiveness(), livenessPath);
         validateProbe("readiness", readiness, resolvedPorts);
         validateProbe("liveness", liveness, resolvedPorts);
         w.println("# Generated by brewlet-maven-plugin " + yamlString(project.getVersion()));
+        w.println("# Development starting point; review before applying.");
         w.println("# Apply with: kubectl apply -f javaapplication.yaml");
         w.println("---");
         w.println("apiVersion: apps.brewlet.sh/v1alpha1");
@@ -218,7 +266,7 @@ public class ManifestMojo extends AbstractPushMojo {
         w.println("    app.kubernetes.io/managed-by: brewlet-maven-plugin");
         w.println("spec:");
         w.println("  artifact:");
-        w.println("    image: " + yamlString(image));
+        w.println("    image: " + yamlString(deployImage));
         w.println("    pullPolicy: IfNotPresent");
         w.println("  replicas: " + replicas);
         w.println("  resources:");
@@ -230,11 +278,11 @@ public class ManifestMojo extends AbstractPushMojo {
         w.println("      memory: " + yamlString(memoryLimit));
         w.println("  jvm:");
         w.println("    version: " + feature);
-        String resolvedDistribution = resolveJdkDistribution();
+        String resolvedDistribution = isBlank(jdkDistribution) ? null : jdkDistribution.trim();
         if (resolvedDistribution != null) {
             w.println("    distribution: " + yamlString(resolvedDistribution));
         }
-        String resolvedLauncher = resolveLauncher();
+        String resolvedLauncher = isBlank(launcher) ? "java" : launcher.trim();
         if (!"java".equals(resolvedLauncher)) {
             w.println("    launcher: " + yamlString(resolvedLauncher));
         }
@@ -425,7 +473,7 @@ public class ManifestMojo extends AbstractPushMojo {
     }
 
     static String yamlString(String value) throws IOException {
-        String json = MAPPER.writeValueAsString(String.valueOf(value));
+        String json = AbstractBrewletMojo.MAPPER.writeValueAsString(String.valueOf(value));
         StringBuilder scalar = new StringBuilder(json.length());
         // YAML also folds Unicode line breaks and disallows raw C1 controls.
         // Keep supplementary Unicode intact: YAML does not accept surrogate escapes.

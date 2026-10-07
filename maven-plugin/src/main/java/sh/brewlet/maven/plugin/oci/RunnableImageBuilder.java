@@ -22,7 +22,7 @@ import java.util.zip.GZIPOutputStream;
 /**
  * Assembles a <strong>runnable OCI image</strong> — a STANDARD, kubelet-pullable
  * image carrying a Java application — entirely in memory, with no network access.
- * {@link RegistryClient#pushRunnableImage} pushes the result; unit tests exercise
+ * {@link RegistryClient#pushApplicationImage} publishes the assembled content; unit tests exercise
  * this builder directly. This is the Java twin of the Go writer in
  * {@code src/internal/artifact/image.go}; the two MUST stay behaviourally in sync.
  *

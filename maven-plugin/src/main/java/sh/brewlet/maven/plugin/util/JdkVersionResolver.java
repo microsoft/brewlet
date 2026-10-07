@@ -58,6 +58,18 @@ public final class JdkVersionResolver {
         return resolve(project, null, null, null);
     }
 
+    public static int resolve(MavenProject project, MavenSession session,
+                              ToolchainManager manager, Log log, Integer explicit) throws MojoExecutionException {
+        if (explicit != null) {
+            if (explicit <= 0) {
+                throw new MojoExecutionException("brewlet.jdkFeature must be a positive JDK feature number, e.g. 17.");
+            }
+            if (log != null) log.info("Brewlet: application JDK " + explicit + " from explicit brewlet.jdkFeature");
+            return explicit;
+        }
+        return resolve(project, session, manager, log);
+    }
+
     /**
      * Uses Maven's effective model (including inheritance/profile expansion),
      * parameter expression evaluator, and configured-toolchain matching APIs.

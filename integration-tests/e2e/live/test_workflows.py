@@ -7,13 +7,9 @@ import json
 import os
 from pathlib import Path
 import shutil
-import signal
 import socket
-import subprocess
-import sys
 import tempfile
 import threading
-import time
 import unittest
 from unittest.mock import patch
 
@@ -87,13 +83,6 @@ class RecordingTests(unittest.TestCase):
         self.assertEqual(h.assert_bounded("op", 24.0, 20, 5)["limitSeconds"], 20)
         with self.assertRaisesRegex(AssertionError, "bound is 20s"):
             h.assert_bounded("op", 25.1, 20, 5)
-
-    def test_maven_timestamps(self):
-        output = "12:00:01.500 [INFO] waiting up to 30s\n12:00:31.750 [ERROR] was not Ready after 30s"
-        self.assertEqual(h.log_seconds(output, "was not Ready") - h.log_seconds(output, "waiting up to"), 30.25)
-        with self.assertRaises(AssertionError):
-            h.log_seconds("[INFO] waiting up to 30s", "waiting up to")
-
 
 class HandoffTests(unittest.TestCase):
     def test_push_stdout_and_handoff(self):
@@ -198,133 +187,6 @@ class IsolationTests(unittest.TestCase):
                 client.recv(1)
         with self.assertRaises(OSError):
             socket.create_connection(("127.0.0.1", h.unused_port()), 1).close()
-
-    def test_stalled_kubectl_stub_and_orphan_detection(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            state = Path(tmp) / "state with 'quotes'"
-            state.mkdir()
-            stub = state / "kubectl"
-            stub.write_text(h.stalled_kubectl(state))
-            stub.chmod(0o755)
-            began = time.time()
-            process = subprocess.Popen([str(stub), "apply"], stderr=subprocess.DEVNULL)
-            child = None
-            try:
-                deadline = time.monotonic() + 10
-                while time.monotonic() < deadline:
-                    if (state / "child.pid").exists():
-                        child = (state / "child.pid").read_text().strip()
-                        if child:
-                            break
-                    time.sleep(0.05)
-                self.assertTrue(child, "stub did not record its child within 10s")
-                started = float((state / "started").read_text())
-                self.assertGreaterEqual(started, began)
-                self.assertLessEqual(started, time.time())
-                self.assertEqual(int((state / "kubectl.pid").read_text()), process.pid)
-                self.assertTrue(h.process_alive(process.pid, str(stub)))
-                self.assertTrue(h.process_alive(child, "sleep"))
-                self.assertFalse(h.process_alive(child, "not-the-command"))
-            finally:
-                try:
-                    if child:
-                        try:
-                            os.kill(int(child), signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                    # Let the shell reap its child before falling back to killing it.
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                finally:
-                    process.wait(timeout=10)
-            deadline = time.monotonic() + 10
-            while h.process_alive(child, "sleep") and time.monotonic() < deadline:
-                time.sleep(0.05)
-            self.assertFalse(h.process_alive(child, "sleep"))
-            self.assertFalse(h.process_alive(process.pid, str(stub)))
-
-
-class ProcessInspectionTests(unittest.TestCase):
-    def test_real_live_and_reaped_process(self):
-        process = subprocess.Popen(["sleep", "600"])
-        try:
-            self.assertTrue(h.process_alive(process.pid, "sleep"))
-            self.assertFalse(h.process_alive(process.pid, "not-the-command"))
-        finally:
-            process.kill()
-            process.wait(timeout=10)
-        self.assertFalse(h.process_alive(process.pid, "sleep"))
-
-    def test_real_zombie_is_not_alive(self):
-        process = subprocess.Popen([sys.executable, "-c", "pass"])
-        try:
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                result = subprocess.run(["/bin/ps", "-ww", "-p", str(process.pid), "-o", "stat=", "-o", "args="],
-                                        capture_output=True, text=True, check=True, timeout=5)
-                if result.stdout.strip().startswith("Z"):
-                    break
-                time.sleep(0.05)
-            self.assertTrue(result.stdout.strip().startswith("Z"), "child did not become a zombie")
-            command = result.stdout.strip().split(maxsplit=1)[1]
-            self.assertFalse(h.process_alive(process.pid, command))
-        finally:
-            process.kill()
-            process.wait(timeout=10)
-
-    def test_linux_and_macos_states_and_full_command(self):
-        for platform in ("linux", "darwin"):
-            for state, alive in (("S", True), ("R+", True), ("Ss", True), ("Z+", False)):
-                with self.subTest(platform=platform, state=state), patch.object(h.sys, "platform", platform):
-                    result = subprocess.CompletedProcess([], 0, f" {state} /bin/sleep 600\n", "")
-                    with patch.object(h.subprocess, "run", return_value=result) as run:
-                        self.assertEqual(h.process_alive("123", "sleep"), alive)
-                        self.assertFalse(h.process_alive("123", "other-command"))
-                        self.assertEqual(run.call_args.args[0],
-                                         ["/bin/ps", "-ww", "-p", "123", "-o", "stat=", "-o", "args="])
-                        self.assertEqual(run.call_args.kwargs["timeout"], 5)
-
-    def test_inspection_errors_fail_closed(self):
-        for error in (FileNotFoundError("ps unavailable"), PermissionError("ps denied"),
-                      subprocess.TimeoutExpired("ps", 5)):
-            with self.subTest(error=error), patch.object(h.subprocess, "run", side_effect=error):
-                with self.assertRaisesRegex(RuntimeError, "cannot inspect process"):
-                    h.process_alive(123, "sleep")
-        for code, stdout, stderr in ((2, "", "ps failed"), (1, "", "access denied"),
-                                     (0, "", ""), (0, "S", ""), (0, "? sleep", ""),
-                                     (0, "S sleep", "warning")):
-            with self.subTest(code=code, stdout=stdout, stderr=stderr):
-                with patch.object(h.subprocess, "run",
-                                  return_value=subprocess.CompletedProcess([], code, stdout, stderr)):
-                    with self.assertRaises(RuntimeError):
-                        h.process_alive(123, "sleep")
-
-    def test_no_ps_match_requires_confirmed_absence(self):
-        result = subprocess.CompletedProcess([], 1, "", "")
-        with patch.object(h.subprocess, "run", return_value=result):
-            with patch.object(h.os, "kill", side_effect=ProcessLookupError) as kill:
-                self.assertFalse(h.process_alive(123, "sleep"))
-                kill.assert_called_once_with(123, 0)
-            with patch.object(h.os, "kill", return_value=None):
-                with self.assertRaisesRegex(RuntimeError, "existing process"):
-                    h.process_alive(123, "sleep")
-            with patch.object(h.os, "kill", side_effect=PermissionError):
-                with self.assertRaisesRegex(RuntimeError, "cannot confirm"):
-                    h.process_alive(123, "sleep")
-
-    def test_unsupported_platform_and_invalid_inputs_fail(self):
-        with patch.object(h.sys, "platform", "win32"), patch.object(h.subprocess, "run") as run:
-            with self.assertRaisesRegex(RuntimeError, "unsupported"):
-                h.process_alive(123, "sleep")
-            run.assert_not_called()
-        for pid in ("", "0", "-1", "123/../stat", "2147483648"):
-            with self.subTest(pid=pid), self.assertRaises(ValueError):
-                h.process_alive(pid, "sleep")
-        with self.assertRaises(ValueError):
-            h.process_alive(123, "")
-
 
 class FixtureScopeTests(unittest.TestCase):
     def test_workflows_scenario_is_allowed_and_isolated(self):

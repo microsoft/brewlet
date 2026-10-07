@@ -16,8 +16,8 @@ invocation-owned registry and disposable kind cluster:
             `jdk|launcher add` (client/server dry runs without mutation,
             offline --file, Helm refusal, live add on a disposable profile)
             and `install` validation plus its fresh-install-only guard
-  maven     `mvn package brewlet:deploy` (push -> manifest -> apply -> Ready ->
-            response, wait opt-out, timeouts, encrypted settings, dry run)
+  maven     `mvn package brewlet:push` (immutable handoff -> kubectl apply ->
+            CLI Ready -> response, encrypted settings, dry run)
   profiles  `brewlet k8s profile delete` (guards, dry runs, timeout, attach and
             real operator/provisioner host cleanup)
 
@@ -46,9 +46,8 @@ SHIM_PATHS = ("/opt/brewlet/bin/containerd-shim-brewlet-v2", "/usr/local/bin/con
 JDK_ROOT = "/opt/brewlet/jdks"
 FINALIZER = "node.brewlet.sh/cleanup"
 # Documented tolerance above a requested deadline: process start, one in-flight
-# kubectl call and output flushing. Maven adds JVM shutdown and the 5s
-# process-tree termination grace.
-CLI_TOLERANCE, MAVEN_TOLERANCE = 15, 20
+# kubectl call and output flushing.
+CLI_TOLERANCE = 15
 
 
 class CheckoutFixture(CheckoutRuntimeFixture):
@@ -255,18 +254,16 @@ def build_app(f, name):
     return app
 
 
-def maven_app(f, name):
-    """Copy the fixture and declare its HTTP port for the plugin's probes and Service."""
+def maven_app(f, name, configuration=""):
+    """Copy the fixture and select the checkout-built publishing plugin."""
     app = build_app(f, name)
     pom = app / "pom.xml"
     text = pom.read_text()
     plugin = (f"      <plugin>\n        <groupId>sh.brewlet</groupId>\n"
               f"        <artifactId>brewlet-maven-plugin</artifactId>\n"
-              f"        <version>{f.plugin_version}</version>\n        <configuration>\n"
-              f"          <ports>\n            <port>\n              <name>http</name>\n"
-              f"              <containerPort>8080</containerPort>\n            </port>\n"
-              f"          </ports>\n        </configuration>\n      </plugin>\n    </plugins>")
-    require(text.count("</plugins>") == 1, "fixture pom layout changed; cannot declare plugin ports")
+              f"        <version>{f.plugin_version}</version>\n"
+              f"        <configuration>{configuration}</configuration>\n      </plugin>\n    </plugins>")
+    require(text.count("</plugins>") == 1, "fixture pom layout changed; cannot declare publishing plugin")
     pom.write_text(text.replace("    </plugins>", plugin, 1))
     return app
 
@@ -940,7 +937,7 @@ def install_guards(f, kc):
              "dryRunRender": "not exercised: renders the released OCI chart from ghcr.io, not the checkout"})
 
 
-# ---- 4. Maven deploy --------------------------------------------------------
+# ---- 4. Maven publication and deployment handoff ----------------------------
 
 def maven_scenario(f):
     f.ensure_namespace(MAVEN_NS)
@@ -954,30 +951,29 @@ def maven_scenario(f):
     def mvn(name, project, goals, props, expect=0, settings_file=settings, extra=()):
         argv = [*f.maven_base, "--settings", settings_file, *extra, "-f", project / "pom.xml", *goals,
                 *(f"-D{k}={v}" for k, v in props.items())]
-        return f.cmd(name, argv, expect=expect, timeout=900, target=target,
-                     env={"MAVEN_OPTS": "-Dorg.slf4j.simpleLogger.showDateTime=true "
-                                        "-Dorg.slf4j.simpleLogger.dateTimeFormat=HH:mm:ss.SSS"})
+        return f.cmd(name, argv, expect=expect, timeout=900, target={"registry": f.registry})
 
     def props(app, **extra):
-        values = {"brewlet.kubeconfig": kc, "brewlet.kubeContext": "wf-maven-target",
-                  "brewlet.namespace": MAVEN_NS, "brewlet.appName": app, "brewlet.jdkFeature": "21",
-                  "brewlet.readinessPath": "/healthz", "brewlet.resources.cpuRequest": "100m",
-                  "brewlet.resources.memoryRequest": "128Mi", "brewlet.resources.cpuLimit": "500m",
-                  "brewlet.resources.memoryLimit": "256Mi", "brewlet.image": f"{f.registry}/wf/maven:{app}"}
+        values = {"brewlet.image": f"{f.registry}/wf/maven:{app}"}
         values.update(extra)
         return values
 
     project = maven_app(f, "maven-app")
-    deployed = mvn("maven-deploy", project, ["package", f"{f.plugin}:deploy"], props("wf-maven"))
-    require(f"wf-maven is Ready in namespace {MAVEN_NS}" in deployed.stdout, "deploy did not report readiness")
+    mvn("maven-push", project, ["package", f"{f.plugin}:push"], props("wf-maven"))
+    require(not (project / "target/brewlet/javaapplication.yaml").exists(),
+            "publication must not generate deployment configuration")
+    require(f.kube("get", "javaapplication", "wf-maven", "-n", MAVEN_NS, check=False).returncode != 0,
+            "publication must not deploy the application")
     push_file = project / "target/brewlet/push.json"
     handoff = json.loads(push_file.read_text())
     published = h.verify_published(f.registry, "wf/maven", "wf-maven")
     h.validate_handoff(handoff, f.registry, "wf/maven", "wf-maven", published["digest"])
-    manifest = (project / "target/brewlet/javaapplication.yaml").read_text()
+    f.application("wf-maven", MAVEN_NS, handoff["deployImage"])
+    f.k8s("maven-image-wait", kc, "app", "wait", "wf-maven", "--namespace", MAVEN_NS,
+           "--wait-timeout", "5m", context="wf-maven-target")
     applied = f.get("javaapplication", "wf-maven", "-n", MAVEN_NS)
-    require(handoff["deployImage"] in manifest and applied["spec"]["artifact"]["image"] == handoff["deployImage"],
-            "manifest/applied image differs from push.json")
+    require(applied["spec"]["artifact"]["image"] == handoff["deployImage"],
+            "applied image differs from push.json")
     ready = h.condition(applied, "Ready") or {}
     require(ready.get("status") == "True" and ready.get("observedGeneration") == applied["metadata"]["generation"],
             "applied JavaApplication is not Ready for its current generation")
@@ -986,74 +982,26 @@ def maven_scenario(f):
             "deploy also targeted the default namespace")
     uid = json.loads(run(["kubectl", "--kubeconfig", kc, "--context", "wf-maven-target", "get", "namespace",
                           "kube-system", "-o", "json"], env=f.env).stdout)["metadata"]["uid"]
-    require(uid == f.cluster_uid, "Maven kubeconfig context is not the disposable cluster")
-    f.record("maven-deploy-push-manifest-apply-ready-response", {"handoff": handoff, "index": published["digest"],
+    require(uid == f.cluster_uid, "Deployment kubeconfig context is not the disposable cluster")
+    f.record("maven-push-kubectl-apply-cli-ready-response", {"handoff": handoff, "index": published["digest"],
              "appliedGeneration": applied["metadata"]["generation"], "clusterUID": uid, **target})
-
-    nowait = maven_app(f, "maven-nowait")
-    result = mvn("maven-deploy-no-wait", nowait, ["package", f"{f.plugin}:deploy"],
-                 props("wf-nowait", **{"brewlet.wait": "false", "brewlet.readinessPath": "/not-ready",
-                                       "brewlet.waitTimeout": "60"}))
-    require("not waiting for readiness (brewlet.wait=false)" in result.stdout and
-            f.get("javaapplication", "wf-nowait", "-n", MAVEN_NS)["metadata"]["name"] == "wf-nowait",
-            "wait opt-out did not apply without readiness")
-    f.record("maven-deploy-wait-opt-out", {"app": "wf-nowait", "readiness": "never (/not-ready)",
-                                           "elapsedSeconds": round(result.elapsed, 1)})
-
-    slow = maven_app(f, "maven-timeout")
-    result = mvn("maven-deploy-readiness-timeout", slow, ["package", f"{f.plugin}:deploy"],
-                 props("wf-mvn-timeout", **{"brewlet.readinessPath": "/not-ready", "brewlet.waitTimeout": "30"}),
-                 expect="fail")
-    output = result.stdout + result.stderr
-    require(f"JavaApplication {MAVEN_NS}/wf-mvn-timeout was not Ready after 30s" in output and
-            f"kubectl describe javaapplication wf-mvn-timeout -n {MAVEN_NS}" in output,
-            "readiness timeout diagnostics missing")
-    began = h.log_seconds(output, "waiting up to 30s for JavaApplication")
-    ended = h.log_seconds(output, "was not Ready after 30s")
-    f.record("maven-deploy-live-readiness-timeout", h.assert_bounded(
-        "Maven readiness wait", (ended - began) % 86400, 30, MAVEN_TOLERANCE))
-
-    stalled = maven_app(f, "maven-stalled")
-    state = f.private / "stalled-kubectl"
-    state.mkdir()
-    stub = state / "kubectl"
-    stub.write_text(h.stalled_kubectl(state))
-    stub.chmod(0o755)
-    result = mvn("maven-deploy-stalled-kubectl", stalled, ["package", f"{f.plugin}:deploy"],
-                 props("wf-mvn-stalled", **{"brewlet.kubectl": stub, "brewlet.waitTimeout": "8"}), expect="fail")
-    finished = time.time()
-    require("kubectl apply timed out after 8s" in result.stdout + result.stderr, "stalled kubectl diagnostics missing")
-    bound = h.assert_bounded("stalled kubectl apply", finished - float((state / "started").read_text()), 8, MAVEN_TOLERANCE)
-    orphans = [pid for pid, name in (((state / "kubectl.pid").read_text().strip(), "kubectl"),
-                                     ((state / "child.pid").read_text().strip(), "sleep"))
-               if h.process_alive(pid, name)]
-    require(not orphans, f"stalled kubectl left orphan processes: {orphans}")
-    require(f.kube("get", "javaapplication", "wf-mvn-stalled", "-n", MAVEN_NS, check=False).returncode != 0,
-            "stalled kubectl stub mutated the cluster")
-    f.record("maven-deploy-injected-stalled-kubectl", {"label": "injected process failure, not a live rollout",
-             **bound, "orphans": []})
 
     encrypted_push(f, mvn, props)
 
     before = sha256(push_file)
     live_version = f.get("javaapplication", "wf-maven", "-n", MAVEN_NS)["metadata"]["resourceVersion"]
     apps = sorted(a["metadata"]["name"] for a in f.get("javaapplication", "-n", MAVEN_NS)["items"])
-    mvn("maven-deploy-dry-run", project, ["package", f"{f.plugin}:deploy"],
+    mvn("maven-push-dry-run", project, ["package", f"{f.plugin}:push"],
         props("wf-maven", **{"brewlet.dryRun": "true"}))
-    mvn("maven-deploy-dry-run-new-tag", project, ["package", f"{f.plugin}:deploy"],
+    mvn("maven-push-dry-run-new-tag", project, ["package", f"{f.plugin}:push"],
         props("wf-maven", **{"brewlet.dryRun": "true", "brewlet.image": f"{f.registry}/wf/maven-dryrun:v1"}))
     require(sha256(push_file) == before, "dry run rewrote push.json")
     require(h.manifest(f.registry, "wf/maven-dryrun", "v1") is None, "dry run published to the registry")
     require(f.get("javaapplication", "wf-maven", "-n", MAVEN_NS)["metadata"]["resourceVersion"] == live_version and
             sorted(a["metadata"]["name"] for a in f.get("javaapplication", "-n", MAVEN_NS)["items"]) == apps,
             "dry run mutated Kubernetes")
-    (project / "target/brewlet/javaapplication.yaml").unlink()
-    result = mvn("maven-manifest-after-dry-run", project, ["package", f"{f.plugin}:manifest"], props("wf-maven"))
-    require(f"using image from the last brewlet:push: {handoff['deployImage']}" in result.stdout and
-            handoff["deployImage"] in (project / "target/brewlet/javaapplication.yaml").read_text(),
-            "manifest after dry run did not use the saved digest-pinned image")
-    f.record("maven-deploy-dry-run-nonmutating", {"pushJsonSHA256": before, "resourceVersion": live_version,
-             "manifestImage": handoff["deployImage"]})
+    f.record("maven-push-dry-run-nonmutating", {"pushJsonSHA256": before, "resourceVersion": live_version,
+             "deployImage": handoff["deployImage"]})
 
 
 def encrypted_push(f, mvn, props):

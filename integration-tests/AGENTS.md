@@ -10,7 +10,7 @@ Run `python3 integration-tests/e2e/live/hpa.py`,
 images from the checkout and drives `brewlet push`, `brewlet k8s app
 status|wait`, `status`, `doctor`, `jdk|launcher list|add`, `profile
 list|inspect|delete`, `inspect app`, the `install` guards and
-`mvn brewlet:deploy` end to end.
+`mvn package brewlet:push` with a separate kubectl/CLI deployment handoff end to end.
 They create their own uniquely named clusters and registries; never pass a
 shared kube context or run the tier reset helper for them. Mandatory assertions
 fail instead of skipping. `.github/workflows/e2e.yml` has separate scheduled/manual
@@ -29,8 +29,9 @@ distinct; preserve the preview limitations until the corresponding runs pass.
 The change-aware `CI` workflow selects only the smaller
 `python3 integration-tests/e2e/live/smoke.py` scenario for affected PRs.
 It reuses the same private checkout-built fixture to install, provision, and
-run Maven `deploy`: publish, generate/apply a JavaApplication, wait for readiness,
-and serve HTTP. API, raw CRD, and chart changes select Maven verification and
+run Maven `push manifest`, validate the generated fixture-owned JavaApplication,
+then separately apply that YAML with kubectl, wait with the CLI, verify runtime
+readiness, and serve HTTP. API, raw CRD, and chart changes select Maven verification and
 this smoke. Comprehensive admission/HPA/workflow runs and cluster tiers remain
 exclusively nightly/manual E2E, not duplicated by CI's main-push or scheduled
 runs. Explicitly dispatch E2E on the candidate branch for high-risk pre-merge

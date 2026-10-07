@@ -3,8 +3,12 @@
 
 package sh.brewlet.maven.plugin;
 
+import sh.brewlet.maven.plugin.oci.LocalStore;
+import sh.brewlet.maven.plugin.oci.MediaTypes;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
+import org.apache.maven.artifact.DefaultArtifact;
+import org.apache.maven.artifact.handler.DefaultArtifactHandler;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -18,6 +22,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -34,6 +40,7 @@ class JdkInferenceMavenTest {
     private Path toolchains;
     private Path emptyToolchains;
     private String goal;
+    private String lastOutput;
     private int invocation;
 
     @Test
@@ -70,6 +77,150 @@ class JdkInferenceMavenTest {
     }
 
     @Test
+    void manifestUsesOnlyTheImageBuiltInTheCurrentMavenInvocation() throws Exception {
+        preparePlugin();
+        Path application = root.resolve("development-app");
+        Files.createDirectories(application);
+        writeToolchainProject(application, "<release>17</release>", "");
+        Path jar = application.resolve("app.jar");
+        Files.write(jar, TestApplications.zip(Map.of("META-INF/MANIFEST.MF",
+                "Manifest-Version: 1.0\nMain-Class: App\n\n".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        String prefix = goal.substring(0, goal.lastIndexOf(':') + 1);
+        run(application, true, "-Dbrewlet.jarFile=" + jar, "-Dbrewlet.dryRun=false",
+                prefix + "build", prefix + "manifest");
+        Path output = application.resolve("target/brewlet");
+        String digest = AbstractBrewletMojo.MAPPER.readTree(output.resolve("oci/index.json").toFile())
+                .path("manifests").get(0).path("digest").asText();
+        String yaml = Files.readString(output.resolve("javaapplication.yaml"));
+        assertTrue(yaml.contains("\"example.invalid/application@" + digest + "\""), yaml);
+        assertTrue(yaml.contains("    version: 17\n"), yaml);
+        assertFalse(Files.exists(output.resolve("push.json")), "Local generation must not publish");
+
+        Files.writeString(output.resolve("push.json"),
+                "{\"deployImage\":\"other.example.com/app@sha256:" + "2".repeat(64) + "\"}");
+        String failure = run(application, false, "-Dbrewlet.dryRun=false",
+                "-Dbrewlet.image=other.example.com/app@sha256:" + "2".repeat(64), prefix + "manifest");
+        assertTrue(failure.contains("same Maven invocation"), failure);
+        assertEquals(yaml, Files.readString(output.resolve("javaapplication.yaml")));
+
+        String dryPush = run(application, false, "-Dbrewlet.jarFile=" + jar,
+                goal, prefix + "manifest");
+        assertTrue(dryPush.contains("same Maven invocation"), dryPush);
+        assertTrue(dryPush.contains("A dry-run push does not produce an image"), dryPush);
+        assertEquals(yaml, Files.readString(output.resolve("javaapplication.yaml")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"inherited", "profile", "execution", "explicit", "compiler-toolchain", "session-toolchain"})
+    void manifestOutputReflectsJdkPrecedenceWithoutManagedBundles(String scenario) throws Exception {
+        preparePlugin();
+        Path application = root.resolve("parent/app");
+        Files.createDirectories(application);
+        int currentFeature = Runtime.version().feature();
+        boolean toolchain = scenario.endsWith("toolchain");
+        String compiler = toolchain ? "" : "<release>17</release>";
+        if ("compiler-toolchain".equals(scenario)) {
+            compiler = "<jdkToolchain><version>" + currentFeature + "</version><vendor>fixture</vendor></jdkToolchain>";
+        }
+        Files.writeString(application.getParent().resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>test.inference</groupId><artifactId>parent</artifactId><version>1</version><packaging>pom</packaging>
+                  <build><plugins><plugin><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version>
+                    <configuration>%s</configuration>
+                    <executions><execution><id>default-testCompile</id>
+                      <configuration><release>21</release></configuration>
+                    </execution></executions>
+                  </plugin></plugins></build>
+                </project>
+                """.formatted(compiler));
+        String sessionPlugin = "session-toolchain".equals(scenario) ? """
+                <plugin><artifactId>maven-toolchains-plugin</artifactId><version>3.2.0</version>
+                  <executions><execution><goals><goal>toolchain</goal></goals></execution></executions>
+                  <configuration><toolchains><jdk><version>%d</version><vendor>fixture</vendor></jdk></toolchains></configuration>
+                </plugin>
+                """.formatted(currentFeature) : "";
+        Files.writeString(application.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <parent><groupId>test.inference</groupId><artifactId>parent</artifactId><version>1</version></parent>
+                  <artifactId>app</artifactId>
+                  <build><plugins>%s</plugins></build>
+                  <profiles>
+                    <profile><id>profile</id><build><plugins><plugin><artifactId>maven-compiler-plugin</artifactId>
+                      <configuration><release>11</release></configuration>
+                    </plugin></plugins></build></profile>
+                    <profile><id>execution</id><build><plugins><plugin><artifactId>maven-compiler-plugin</artifactId>
+                      <executions><execution><id>default-compile</id><configuration><release>8</release></configuration>
+                      </execution></executions>
+                    </plugin></plugins></build></profile>
+                  </profiles>
+                </project>
+                """.formatted(sessionPlugin));
+        Path jar = application.resolve("app.jar");
+        Files.write(jar, TestApplications.zip(Map.of("META-INF/MANIFEST.MF",
+                "Manifest-Version: 1.0\nMain-Class: App\n\n".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        List<String> args = new ArrayList<>(List.of("-Dbrewlet.jarFile=" + jar,
+                "-Dbrewlet.dryRun=false", "-Dbrewlet.dependencyBundle="));
+        int expected = switch (scenario) {
+            case "profile", "explicit" -> 11;
+            case "execution" -> 8;
+            default -> toolchain ? currentFeature : 17;
+        };
+        if (!toolchain) args.add("-Dmaven.compiler.release=8");
+        if ("profile".equals(scenario) || "execution".equals(scenario)) args.add("-P" + scenario);
+        if ("explicit".equals(scenario)) args.add("-Dbrewlet.jdkFeature=11");
+        if ("session-toolchain".equals(scenario)) args.add("validate");
+        String prefix = goal.substring(0, goal.lastIndexOf(':') + 1);
+        args.add(prefix + "build");
+        args.add(prefix + "manifest");
+        run(application, true, args.toArray(String[]::new));
+        Path output = application.resolve("target/brewlet");
+        String yaml = Files.readString(output.resolve("javaapplication.yaml"));
+        assertTrue(yaml.contains("    version: " + expected + "\n"), yaml);
+        assertFalse(Files.exists(output.resolve("push.json")));
+        String digest = AbstractBrewletMojo.MAPPER.readTree(output.resolve("oci/index.json").toFile())
+                .path("manifests").get(0).path("digest").asText();
+        var index = AbstractBrewletMojo.MAPPER.readTree(new LocalStore(output.resolve("oci")).blobPath(digest).toFile());
+        assertFalse(index.path("annotations").has(MediaTypes.MANAGED_DEPENDENCY_EVIDENCE_ANNOTATION));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void realMavenBuildAndPushShareManagedImageInEitherOrder(boolean pushFirst) throws Exception {
+        preparePlugin();
+        Path application = root.resolve("ordered-goals");
+        Files.createDirectories(application);
+        writeToolchainProject(application, "<release>17</release>", "");
+        Path jar = application.resolve("app.jar");
+        Files.write(jar, TestApplications.zip(Map.of("META-INF/MANIFEST.MF",
+                "Manifest-Version: 1.0\nMain-Class: App\n\n".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        String prefix = goal.substring(0, goal.lastIndexOf(':') + 1);
+        try (TestImageRegistry registry = new TestImageRegistry()) {
+            String log = run(application, true, "-Dbrewlet.jarFile=" + jar, "-Dbrewlet.dryRun=false",
+                    "-Dbrewlet.image=" + registry.image(),
+                    prefix + (pushFirst ? "push" : "build"), prefix + (pushFirst ? "build" : "push"),
+                    prefix + "build", prefix + "manifest");
+            assertEquals(1, log.split("Brewlet: assembled image ", -1).length - 1, log);
+            assertEquals(2, log.split("Brewlet: reusing assembled image ", -1).length - 1, log);
+            assertFalse(log.contains("this image has not been published"), log);
+            Path output = application.resolve("target/brewlet");
+            String digest = LocalStore.sha256Hex(registry.tagged);
+            assertEquals(digest, AbstractBrewletMojo.MAPPER.readTree(output.resolve("oci/index.json").toFile())
+                    .path("manifests").get(0).path("digest").asText());
+            assertEquals(digest, AbstractBrewletMojo.MAPPER.readTree(output.resolve("push.json").toFile())
+                    .path("digest").asText());
+            assertTrue(Files.readString(output.resolve("javaapplication.yaml"))
+                    .contains(registry.authority() + "/app@" + digest));
+            var index = AbstractBrewletMojo.MAPPER.readTree(registry.tagged);
+            assertTrue(index.path("annotations").has(MediaTypes.MANAGED_DEPENDENCY_EVIDENCE_ANNOTATION));
+            LocalStore store = new LocalStore(output.resolve("oci"));
+            for (var blob : registry.content.entrySet()) {
+                assertArrayEquals(blob.getValue(), Files.readAllBytes(store.blobPath(blob.getKey())));
+            }
+            assertEquals(1, registry.taggedWrites.get());
+        }
+    }
+
+    @Test
     void realMavenLifecycleOrderAndDisabledBindingsAreRespected() throws Exception {
         preparePlugin();
         Path application = root.resolve("lifecycle-application");
@@ -102,7 +253,7 @@ class JdkInferenceMavenTest {
             String output = run(application, true, "-Ddisabled.phase=" + phase, "clean", "package", goal);
             assertFalse(output.contains(":compile (default-compile)"), output);
             assertTrue(output.contains(":compile (replacement-main)"), output);
-            assertCompiledAndManifest(application, currentFeature);
+            assertCompiledAndInferred(application, currentFeature);
         }
 
         Path currentHome = Path.of(System.getProperty("java.home"));
@@ -145,16 +296,16 @@ class JdkInferenceMavenTest {
                 "Toolchain in maven-compiler-plugin: JDK[" + mainHome), ambiguous);
         assertTrue(ambiguous.contains("at or after main compilation"), ambiguous);
         run(application, true, "-Dbrewlet.jdkFeature=" + mainFeature, goal);
-        assertManifest(application, mainFeature);
+        assertInferred(application, mainFeature);
         Files.writeString(application.resolve("pom.xml"), template.formatted(mainFeature, ""));
         run(application, true, goal);
-        assertManifest(application, mainFeature);
+        assertInferred(application, mainFeature);
         System.out.println("Verified " + invocation + " actual Maven lifecycle invocations: disabled default bindings, "
                 + "replacement compilation, main-before-late toolchain ordering, and explicit override.");
     }
 
     @Test
-    void effectiveCompilerConfigurationAndToolchainsDriveActualManifestOutput() throws Exception {
+    void effectiveCompilerConfigurationAndToolchainsDriveBundleCompatibility() throws Exception {
         preparePlugin();
         Path application = root.resolve("parent/application");
         Files.createDirectories(application.resolve("src/main/java"));
@@ -202,15 +353,15 @@ class JdkInferenceMavenTest {
                 """);
 
         run(application, true, "-Dmaven.compiler.release=8", "clean", "package", goal);
-        assertCompiledAndManifest(application, 17);
+        assertCompiledAndInferred(application, 17);
         run(application, true, "-Dmaven.compiler.release=8", goal);
-        assertManifest(application, 17); // Fresh standalone session, conventional packaged-JAR resolution.
+        assertInferred(application, 17); // Fresh standalone session, conventional packaged-JAR resolution.
         run(application, true, "-Pproperty-release", "-Dapplication.release=11",
                 "-Dmaven.compiler.release=8", "clean", "package", goal);
-        assertCompiledAndManifest(application, 11);
+        assertCompiledAndInferred(application, 11);
         run(application, true, "-Pexecution-release", "-Dmain.release=8",
                 "-Dmaven.compiler.release=11", "clean", "package", goal);
-        assertCompiledAndManifest(application, 8);
+        assertCompiledAndInferred(application, 8);
         String ambiguous = run(application, false, "-Pambiguous-main", goal);
         assertTrue(ambiguous.contains("different application JDKs"), ambiguous);
 
@@ -223,7 +374,7 @@ class JdkInferenceMavenTest {
         int currentFeature = feature(currentHome);
         writeToolchains(List.of(currentHome));
         run(selected, true, "-Dbrewlet.jarFile=" + appJar, "-Dcompiler.requirement=" + currentFeature, goal);
-        assertManifest(selected, currentFeature);
+        assertInferred(selected, currentFeature);
 
         String other = System.getProperty("brewlet.test.otherJdk");
         if (other != null) {
@@ -231,16 +382,16 @@ class JdkInferenceMavenTest {
             int otherFeature = feature(otherHome);
             writeToolchains(List.of(otherHome, currentHome));
             run(selected, true, "-Dbrewlet.jarFile=" + appJar, "-Dcompiler.requirement=[17,30)", goal);
-            assertManifest(selected, otherFeature); // First configured match, not Maven's JDK or maximum.
+            assertInferred(selected, otherFeature); // First configured match, not Maven's JDK or maximum.
             run(selected, true, "-Dbrewlet.jarFile=" + appJar, "-Dcompiler.requirement=" + currentFeature, goal);
-            assertManifest(selected, currentFeature);
+            assertInferred(selected, currentFeature);
         }
         String noMatch = run(selected, false, "-Dbrewlet.jarFile=" + appJar,
                 "-Dcompiler.requirement=[999,1000)", goal);
         assertTrue(noMatch.contains("No configured JDK"), noMatch);
         run(selected, true, "-Dbrewlet.jarFile=" + appJar, "-Dcompiler.requirement=[999,1000)",
                 "-Dbrewlet.jdkFeature=17", goal);
-        assertManifest(selected, 17);
+        assertInferred(selected, 17);
         String invalidOverride = run(selected, false, "-Dbrewlet.jarFile=" + appJar,
                 "-Dbrewlet.jdkFeature=0", goal);
         assertTrue(invalidOverride.contains("positive JDK feature"), invalidOverride);
@@ -252,7 +403,7 @@ class JdkInferenceMavenTest {
                 </plugin>
                 """);
         run(selected, true, "-Dbrewlet.jarFile=" + appJar, "-Dcompiler.requirement=" + currentFeature, goal);
-        assertManifest(selected, currentFeature);
+        assertInferred(selected, currentFeature);
         String selectedInSession = run(selected, true, "-Dbrewlet.jarFile=" + appJar,
                 "-Dcompiler.requirement=" + currentFeature, "validate", goal);
         assertTrue(selectedInSession.contains("session-selected JDK toolchain"), selectedInSession);
@@ -265,7 +416,7 @@ class JdkInferenceMavenTest {
         String compilerFallback = run(selected, true, "-Dbrewlet.jarFile=" + appJar,
                 "-Dcompiler.requirement=" + currentFeature, "validate", goal);
         assertTrue(compilerFallback.contains("session-selected JDK toolchain"), compilerFallback);
-        assertManifest(selected, currentFeature);
+        assertInferred(selected, currentFeature);
         writeToolchainProject(selected, "", """
                 <plugin><artifactId>maven-toolchains-plugin</artifactId><version>3.2.0</version>
                   <executions><execution><goals><goal>toolchain</goal></goals></execution></executions>
@@ -277,7 +428,7 @@ class JdkInferenceMavenTest {
                 "-Dcompiler.requirement=" + currentFeature, goal);
         assertTrue(unavailable.contains("No configured JDK toolchain"), unavailable);
         System.out.println("Verified " + invocation + " actual Maven invocations: inherited/profile/execution compiler "
-                + "precedence, bytecode levels, standalone manifests, and configured/session toolchain selection.");
+                + "precedence, bytecode levels, standalone publication, and configured/session toolchain selection.");
     }
 
     private void preparePlugin() throws Exception {
@@ -303,7 +454,8 @@ class JdkInferenceMavenTest {
                 jar.closeEntry();
             }
         }
-        goal = model.getGroupId() + ":" + model.getArtifactId() + ":" + model.getVersion() + ":manifest";
+        goal = model.getGroupId() + ":" + model.getArtifactId() + ":" + model.getVersion() + ":push";
+        prepareDependencyBundle();
         Path cache = Path.of(System.getProperty("maven.repo.local",
                 Path.of(System.getProperty("user.home"), ".m2/repository").toString()));
         settings = root.resolve("settings.xml");
@@ -321,6 +473,32 @@ class JdkInferenceMavenTest {
         emptyToolchains = root.resolve("empty-toolchains.xml");
         Files.writeString(emptyToolchains, "<toolchains/>");
         writeToolchains(List.of(Path.of(System.getProperty("java.home"))));
+    }
+
+    private void prepareDependencyBundle() throws Exception {
+        Path artifact = repository.resolve("test/inference/library/1");
+        Files.createDirectories(artifact);
+        Path jar = artifact.resolve("library-1.jar");
+        Files.write(jar, TestApplications.zip(Map.of("fixture.txt", new byte[]{1})));
+        Files.writeString(artifact.resolve("library-1.pom"), """
+                <project><modelVersion>4.0.0</modelVersion>
+                  <groupId>test.inference</groupId><artifactId>library</artifactId><version>1</version>
+                </project>
+                """);
+        DefaultArtifactHandler handler = new DefaultArtifactHandler("jar");
+        handler.setAddedToClasspath(true);
+        DefaultArtifact dependency = new DefaultArtifact(
+                "test.inference", "library", "1", "compile", "jar", null, handler);
+        dependency.setFile(jar.toFile());
+        DependencyBundleMojo bundle = new DependencyBundleMojo();
+        TestApplications.configure(bundle, jar, root.resolve("bundle-output"), false);
+        bundle.project.setArtifacts(Set.of(dependency));
+        bundle.dryRun = true;
+        TestApplications.set(bundle, "sourceBom", "test.inference:platform:1");
+        TestApplications.set(bundle, "compatibleJdks",
+                java.util.stream.IntStream.rangeClosed(1, Runtime.version().feature() + 10).boxed().toList());
+        TestApplications.set(bundle, "dependencyBundleOutputDirectory", root.resolve("bundle").toFile());
+        bundle.execute();
     }
 
     private void writeToolchainProject(Path project, String compilerConfiguration, String otherPlugins) throws Exception {
@@ -381,13 +559,22 @@ class JdkInferenceMavenTest {
     }
 
     private String run(Path project, boolean success, String... arguments) throws Exception {
+        Path pom = project.resolve("pom.xml");
+        String xml = Files.readString(pom);
+        if (!xml.contains("<artifactId>library</artifactId>")) {
+            Files.writeString(pom, xml.replace("</project>", """
+                    <dependencies><dependency><groupId>test.inference</groupId>
+                      <artifactId>library</artifactId><version>1</version>
+                    </dependency></dependencies></project>"""));
+        }
         String mavenHome = System.getProperty("maven.home");
         String maven = mavenHome == null ? "mvn" : Path.of(mavenHome, "bin", "mvn").toString();
         List<String> command = new ArrayList<>(List.of(maven,
                 "-B", "-ntp", "-nsu", "--settings", settings.toString(), "--global-settings", emptySettings.toString(),
                 "--toolchains", toolchains.toString(), "--global-toolchains", emptyToolchains.toString(),
                 "-Dmaven.repo.local=" + repository, "-Dmaven.test.skip=true",
-                "-Dbrewlet.image=example.invalid/application@sha256:" + "1".repeat(64)));
+                "-Dbrewlet.image=example.invalid/application:1", "-Dbrewlet.dryRun=true",
+                "-Dbrewlet.mainClass=App", "-Dbrewlet.dependencyBundle=" + root.resolve("bundle")));
         command.addAll(List.of(arguments));
         Path log = root.resolve("maven-" + ++invocation + ".log");
         ProcessBuilder builder = new ProcessBuilder(command).directory(project.toFile())
@@ -398,10 +585,11 @@ class JdkInferenceMavenTest {
         try {
             assertTrue(process.waitFor(120, TimeUnit.SECONDS), "Maven invocation exceeded its deadline: " + command);
             String output = Files.readString(log);
+            lastOutput = output;
             if (success) assertEquals(0, process.exitValue(), output);
             else {
                 assertNotEquals(0, process.exitValue(), output);
-                assertTrue(output.contains("brewlet.jdkFeature"), output);
+                assertTrue(output.contains("BUILD FAILURE"), output);
             }
             return output;
         } finally {
@@ -412,16 +600,16 @@ class JdkInferenceMavenTest {
         }
     }
 
-    private static void assertCompiledAndManifest(Path application, int feature) throws Exception {
+    private void assertCompiledAndInferred(Path application, int feature) throws Exception {
         byte[] bytecode = Files.readAllBytes(application.resolve("target/classes/App.class"));
         int major = Byte.toUnsignedInt(bytecode[6]) * 256 + Byte.toUnsignedInt(bytecode[7]);
         assertEquals(feature + 44, major, "Actual Maven compiler target differs from expected feature");
-        assertManifest(application, feature);
+        assertInferred(application, feature);
     }
 
-    private static void assertManifest(Path application, int feature) throws Exception {
-        String yaml = Files.readString(application.resolve("target/brewlet/javaapplication.yaml"));
-        assertTrue(yaml.contains("  jvm:\n    version: " + feature + "\n"), yaml);
-        assertFalse(yaml.contains("  probes:"), "JDK inference must not reintroduce inferred probes");
+    private void assertInferred(Path application, int feature) {
+        assertTrue(lastOutput.contains("application JDK " + feature + " from "), lastOutput);
+        assertFalse(Files.exists(application.resolve("target/brewlet/javaapplication.yaml")));
+        assertFalse(Files.exists(application.resolve("target/brewlet/push.json")), "Dry run must not publish");
     }
 }

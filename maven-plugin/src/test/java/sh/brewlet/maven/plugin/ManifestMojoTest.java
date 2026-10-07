@@ -79,7 +79,6 @@ class ManifestMojoTest {
         String value = "on: \"quoted\"\\path\n\u65e5\u672c\u8a9e \ud83c\udf31\u0085end";
         ManifestMojo mojo = mojo();
         mojo.project.setVersion(value);
-        mojo.image = value;
         mojo.jdkDistribution = value;
         mojo.launcher = value;
         for (String field : List.of("appName", "namespace", "cpuRequest", "memoryRequest",
@@ -93,7 +92,7 @@ class ManifestMojoTest {
         String yaml = render(mojo, config);
         for (String prefix : List.of("  name: ", "  namespace: ", "    app: ",
                 "    app.kubernetes.io/name: ", "    app.kubernetes.io/version: ",
-                "    image: ", "    distribution: ", "    launcher: ", "      value: ")) {
+                "    distribution: ", "    launcher: ", "      value: ")) {
             assertEquals(List.of(value), scalars(yaml, prefix), prefix);
         }
         assertEquals(List.of(value, value), scalars(yaml, "      cpu: "));
@@ -331,86 +330,91 @@ class ManifestMojoTest {
     }
 
     @Test
-    void digestPinnedImageIsUsedDirectly(@TempDir Path dir) throws Exception {
+    void savedPushAndExplicitImageCannotReplaceTheCurrentBuild(@TempDir Path dir) throws Exception {
         ManifestMojo mojo = mojo();
         mojo.outputDirectory = dir.toFile();
-        Path jar = dir.resolve("app.jar");
-        Files.write(jar, TestApplications.zip(java.util.Map.of(
-                "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMain-Class: app.Main\n\n"
-                        .getBytes(java.nio.charset.StandardCharsets.UTF_8))));
-        mojo.jarFile = jar.toFile();
-        for (String name : List.of("registry.example.com/app", "localhost:5000/team/app:1")) {
-            mojo.image = name + "@sha256:" + "1".repeat(64);
-            mojo.execute();
-            assertEquals(mojo.image, mojo.resolveDeployImage());
-            assertTrue(Files.readString(dir.resolve("javaapplication.yaml"))
-                    .contains("    image: \"" + mojo.image + "\""));
-        }
-    }
-
-    @Test
-    void lastPushIsUsedWhenNoDigestIsConfigured(@TempDir Path dir) throws Exception {
-        ManifestMojo mojo = mojo();
-        mojo.outputDirectory = dir.toFile();
-        mojo.image = null;
-        String pinned = "myacr.azurecr.io/orders@sha256:" + "2".repeat(64);
-        writeLastPush(dir, "myacr.azurecr.io/orders:1.0", pinned);
-
-        assertEquals(pinned, mojo.resolveDeployImage());
-
-        mojo.image = "myacr.azurecr.io/orders:1.0";
-        assertEquals(pinned, mojo.resolveDeployImage());
-    }
-
-    @Test
-    void lastPushMustMatchTheConfiguredImage(@TempDir Path dir) throws Exception {
-        ManifestMojo mojo = mojo();
-        mojo.outputDirectory = dir.toFile();
-        mojo.project.setArtifactId("orders");
-        mojo.image = null;
-        mojo.registry = "myacr.azurecr.io";
-        writeLastPush(dir, "myacr.azurecr.io/orders:0.9", "myacr.azurecr.io/orders@sha256:" + "3".repeat(64));
-
+        ApplicationBuildResult.clear(mojo.project);
+        String override = "other.example.com/app@sha256:" + "2".repeat(64);
+        mojo.project.getProperties().setProperty("brewlet.image", override);
+        Files.writeString(dir.resolve("push.json"), "{\"deployImage\":\"" + override + "\"}");
         var failure = assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
-                mojo::resolveDeployImage);
-        assertTrue(failure.getMessage().contains("myacr.azurecr.io/orders:1.0"), failure.getMessage());
+                mojo::execute);
+        assertTrue(failure.getMessage().contains("same Maven invocation"), failure.getMessage());
+        assertFalse(Files.exists(dir.resolve("javaapplication.yaml")));
     }
 
     @Test
-    void missingPushResultExplainsWhatToRun(@TempDir Path dir) throws Exception {
+    void manifestAlwaysUsesTheCurrentBuildNotPropertiesOrSavedPush(@TempDir Path dir) throws Exception {
         ManifestMojo mojo = mojo();
         mojo.outputDirectory = dir.toFile();
-        mojo.image = "myacr.azurecr.io/orders:1.0";
-
-        var failure = assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
-                mojo::resolveDeployImage);
-        assertTrue(failure.getMessage().contains("brewlet:push"), failure.getMessage());
+        mojo.project.getProperties().setProperty("brewlet.image", "other.example.com/app:1");
+        Files.writeString(dir.resolve("push.json"), "invalid and deliberately ignored");
+        mojo.execute();
+        String yaml = Files.readString(dir.resolve("javaapplication.yaml"));
+        assertTrue(yaml.contains("registry.example.com/app@sha256:" + "1".repeat(64)), yaml);
+        assertFalse(yaml.contains("other.example.com"), yaml);
+        assertEquals("invalid and deliberately ignored", Files.readString(dir.resolve("push.json")));
     }
 
     @Test
-    void writeManifestRejectsTagReferences(@TempDir Path dir) throws Exception {
+    void nativeArtifactsAndUnqualifiedLocalImagesAreNotDeployable() throws Exception {
+        ManifestMojo mojo = mojo();
+        new ApplicationBuildResult("registry.example.com/app:1", "sha256:" + "1".repeat(64),
+                "artifact", new JvmConfig()).save(mojo.project);
+        assertTrue(assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
+                mojo::execute).getMessage().contains("runnable image"));
+        new ApplicationBuildResult("demo/app:1", "sha256:" + "1".repeat(64),
+                "image", new JvmConfig()).save(mojo.project);
+        assertTrue(assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
+                mojo::execute).getMessage().contains("no registry host"));
+    }
+
+    @Test
+    void dryRunAndInvalidProbePreserveExistingOutput(@TempDir Path dir) throws Exception {
         ManifestMojo mojo = mojo();
         mojo.outputDirectory = dir.toFile();
+        Path output = dir.resolve("javaapplication.yaml");
+        Files.writeString(output, "existing");
+        mojo.dryRun = true;
+        mojo.execute();
+        assertEquals("existing", Files.readString(output));
+        mojo.dryRun = false;
+        set(mojo, "readinessPath", "invalid-relative-path");
         assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
-                () -> mojo.writeManifest("myacr.azurecr.io/orders:1.0"));
+                mojo::execute);
+        assertEquals("existing", Files.readString(output));
     }
 
     @Test
-    void registryDerivesTheImageFromProjectCoordinates() throws Exception {
+    void buildsAreIsolatedPerProject() throws Exception {
         ManifestMojo mojo = mojo();
-        mojo.project.setArtifactId("orders");
-        mojo.image = null;
-        assertNull(mojo.resolveImage());
-        mojo.registry = "https://myacr.azurecr.io/team/";
-        assertEquals("myacr.azurecr.io/team/orders:1.0", mojo.resolveImage());
-        mojo.image = " other.example.com/x:2 ";
-        assertEquals("other.example.com/x:2", mojo.resolveImage());
+        mojo.project = new MavenProject();
+        assertThrows(org.apache.maven.plugin.MojoExecutionException.class, mojo::execute);
     }
 
-    private static void writeLastPush(Path dir, String image, String deployImage) throws IOException {
-        Files.writeString(dir.resolve(AbstractPushMojo.PUSH_RESULT_FILE),
-                "{\"image\":\"" + image + "\",\"digest\":\"" + deployImage.substring(deployImage.indexOf('@') + 1)
-                        + "\",\"deployImage\":\"" + deployImage + "\",\"format\":\"image\"}");
+    @Test
+    void actualBuildFeedsManifestAndFailedRebuildInvalidatesIt(@TempDir Path dir) throws Exception {
+        BuildMojo build = new BuildMojo();
+        Path jar = dir.resolve("app.jar");
+        Files.write(jar, TestApplications.zip(java.util.Map.of("META-INF/MANIFEST.MF",
+                "Manifest-Version: 1.0\nMain-Class: app.Main\n\n"
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        TestApplications.configure(build, jar, dir.resolve("output"), false);
+        build.format = "image";
+        TestApplications.set(build, "ociOutputDirectory", dir.resolve("oci").toFile());
+        build.execute();
+        String digest = AbstractBrewletMojo.MAPPER.readTree(dir.resolve("oci/index.json").toFile())
+                .path("manifests").get(0).path("digest").asText();
+        ManifestMojo manifest = mojo();
+        manifest.project = build.project;
+        manifest.outputDirectory = build.outputDirectory;
+        manifest.execute();
+        assertEquals("example.test/app@" + digest, manifest.resolveDeployImage());
+        assertTrue(Files.readString(dir.resolve("output/javaapplication.yaml"))
+                .contains("\"example.test/app@" + digest + "\""));
+        build.entryMode = "invalid";
+        assertThrows(org.apache.maven.plugin.MojoExecutionException.class, build::execute);
+        assertThrows(org.apache.maven.plugin.MojoExecutionException.class, manifest::execute);
     }
 
     private static void assertNoInferredProbes(String yaml) {
@@ -425,7 +429,8 @@ class ManifestMojoTest {
         mojo.project = new MavenProject();
         mojo.project.setVersion("1.0");
         mojo.jdkFeature = 17;
-        mojo.image = "registry.example.com/app@sha256:" + "1".repeat(64);
+        new ApplicationBuildResult("registry.example.com/app:1", "sha256:" + "1".repeat(64),
+                "image", new JvmConfig()).save(mojo.project);
         set(mojo, "appName", "orders");
         set(mojo, "namespace", "default");
         set(mojo, "replicas", 1);

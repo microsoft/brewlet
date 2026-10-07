@@ -14,13 +14,10 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * the registry specified by {@code <image>}. Optionally bound to the
  * {@code deploy} phase.
  *
- * <p>The push mirrors the Go CLI's {@code brewlet push} command:
- * <ol>
- *   <li>Serialize the JvmConfig → {@code application/vnd.brewlet.jvm.config.v1+json} blob.</li>
- *   <li>Push the JAR → {@code application/vnd.brewlet.jar.layer.v1+jar} layer blob.</li>
- *   <li>Build an OCI manifest with {@code artifactType: application/vnd.brewlet.app.v1+json}.</li>
- *   <li>Push the manifest and tag it.</li>
- * </ol>
+ * <p>Reuses the exact image already assembled by build/push for this project in
+ * the same Maven invocation, or assembles it once when invoked on its own.
+ * Uploads its blobs, then child manifests, then the tagged image index (or native
+ * artifact manifest when {@code format=artifact}).
  *
  * <p>Example:
  * <pre>
@@ -29,7 +26,7 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
  * </pre>
  *
  * <p>The digest-pinned result is recorded in {@code target/brewlet/push.json},
- * which {@code brewlet:manifest} picks up automatically.
+ * for downstream deployment tooling to consume without rebuilding.
  *
  * <p>Or bind to the deploy lifecycle:
  * <pre>{@code

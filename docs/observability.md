@@ -68,8 +68,8 @@ Probe execution and `kubectl exec` use the normal containerd/runc mechanisms:
 Ordinary-image ephemeral debug containers are not supported by the Brewlet
 handler. Use a separate ordinary-runtime Pod when those tools are needed.
 
-`brewlet:manifest` does not infer health probes from a port or framework.
-Configure them explicitly for endpoints the application exposes; the following
+Ports and frameworks do not imply health probes.
+Configure them explicitly in deployment YAML for endpoints the application exposes; the following
 Actuator example requires those health endpoints to be enabled:
 
 ```yaml

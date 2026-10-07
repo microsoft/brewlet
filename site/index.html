@@ -125,20 +125,17 @@ $ docker push registry/app:1.4.2   <span class="c-cm"># unchanged layers are reu
             <pre tabindex="0"><code><span class="c-cm"># Package a local OCI image: the Go CLI does not upload to a registry</span>
 $ brewlet push target/app.jar demo/app:1.4.2 --store ./oci --format image
 
-<span class="c-cm"># Publish and deploy with the Maven Central plugin matching your installed CLI:</span>
-$ mvn package "sh.brewlet:brewlet-maven-plugin:$(brewlet version):deploy" \
+<span class="c-cm"># With the Maven Central plugin declared in pom.xml:</span>
+$ mvn package brewlet:push brewlet:manifest \
     <span class="c-key">-Dbrewlet.registry</span>=registry.example.com/team
-<span class="c-cm"># → pushes, applies a digest-pinned JavaApplication, waits until Ready</span>
+<span class="c-cm"># → javaapplication.yaml already references the published image digest</span>
 
-<span class="c-cm"># Or deploy it yourself — one Brewlet-specific line.</span>
-<span class="c-cm"># Kubernetes execution requires a digest-pinned image.</span>
-<span class="c-key">runtimeClassName</span>: <span class="c-val">brewlet</span>
-<span class="c-key">image</span>: <span class="c-val">registry.example.com/team/app@sha256:&lt;published-digest&gt;</span>
-<span class="c-key">resources</span>:
-  <span class="c-key">limits</span>: { cpu: "2", memory: "512Mi" }</code></pre>
+<span class="c-cm"># Review ports, probes, and runtime settings before applying.</span>
+<span class="c-cm"># Deploy separately with kubectl or GitOps.</span>
+$ kubectl apply -f target/brewlet/javaapplication.yaml</code></pre>
           </div>
         </div>
-        <p class="center muted">Application images omit the OS and JDK. Payload size depends on your app and dependencies; ordinary container tooling also reuses unchanged layers.</p>
+        <p class="center muted">Application images omit the OS and JDK. Payload size depends on your app and dependencies; ordinary container tooling also reuses unchanged layers. <a href="/docs/building-and-publishing/#option-c-maven-plugin">Declare the Maven plugin in your POM</a> before using the <code>brewlet:</code> commands.</p>
 
         <div class="ship-config">
           <h3 data-reveal>Add one small launch config</h3>
@@ -277,19 +274,22 @@ $ mvn package "sh.brewlet:brewlet-maven-plugin:$(brewlet version):deploy" \
       <div class="container">
         <h2 data-reveal>See Brewlet run locally and on Kubernetes</h2>
         <p class="section-lede">
-          Supply your published image digest in the example descriptor below.
+          Generate development YAML with <code>mvn package brewlet:push brewlet:manifest</code>
+          after <a href="/docs/building-and-publishing/#option-c-maven-plugin">configuring the plugin</a>.
+          The generated file already contains your image digest; the descriptor below
+          illustrates the structure rather than a file you need to copy.
           The illustrative output shows local and Kubernetes execution; actual resource
           readings depend on the JDK and deployment settings.
         </p>
         <div class="code-card wide" data-reveal>
-          <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">orders.yaml — replace the digest placeholder</span></div>
+          <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">JavaApplication structure — illustrative example</span></div>
           <pre tabindex="0"><code><span class="c-key">apiVersion</span>: <span class="c-val">apps.brewlet.sh/v1alpha1</span>
 <span class="c-key">kind</span>: <span class="c-val">JavaApplication</span>
 <span class="c-key">metadata</span>:
   <span class="c-key">name</span>: <span class="c-val">orders</span>
 <span class="c-key">spec</span>:
   <span class="c-key">artifact</span>:
-    <span class="c-cm"># Use the deploy image brewlet:push prints (also in target/brewlet/push.json).</span>
+    <span class="c-cm"># Illustrative digest; brewlet:manifest fills in the actual build digest.</span>
     <span class="c-key">image</span>: <span class="c-val">registry.example.com/team/app@sha256:&lt;published-digest&gt;</span>
   <span class="c-key">replicas</span>: <span class="c-val">1</span>
   <span class="c-key">jvm</span>:
@@ -318,7 +318,8 @@ on the node via Brewlet!</code></pre>
           </div>
           <div class="code-card highlight" data-reveal data-reveal-delay="1">
             <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">Real Kubernetes — Deployment + Service</span></div>
-            <pre tabindex="0"><code>$ kubectl apply -f orders.yaml
+            <pre tabindex="0"><code><span class="c-cm"># For this example, configure appName=orders and the settings shown above.</span>
+$ kubectl apply -f target/brewlet/javaapplication.yaml
 $ kubectl get pod -l app=orders
 <span class="c-key">NAME</span>          <span class="c-key">READY</span>   <span class="c-key">STATUS</span>
 orders-7c9…   <span class="c-val">1/1</span>     <span class="c-val">Running</span>
@@ -390,12 +391,11 @@ $ brewlet push integration-tests/fixtures/demo-app/target/app.jar \
 $ brewlet inspect demo/hello:local --store ./oci
 $ brewlet run demo/hello:local --store ./oci</code></pre>
         </div>
-       <p class="section-lede" data-reveal>Stop the app with Ctrl+C, then package a local image with the plugin from <a href="https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin">Maven Central</a>. Maven downloads the matching version automatically, with no manual installation or GitHub credentials. For short <code>mvn brewlet:push</code> commands, <a href="/docs/building-and-publishing/#option-c-maven-plugin">declare the plugin in your POM</a>. Use the <code>push</code> goal with a registry you control when you are ready to publish, or <code>deploy</code> to push, apply, and wait for the application in one step.</p>
+       <p class="section-lede" data-reveal>Stop the app with Ctrl+C, then package a local image with the plugin from <a href="https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin">Maven Central</a>. First <a href="/docs/building-and-publishing/#option-c-maven-plugin">declare the plugin</a> in <code>integration-tests/fixtures/demo-app/pom.xml</code>, using the version reported by <code>brewlet version</code>. Maven downloads it automatically, with no manual installation or GitHub credentials. When ready for Kubernetes, use <code>mvn package brewlet:push brewlet:manifest</code> with your registry to publish and generate development YAML. Review it and apply separately with <code>kubectl</code>; the <a href="/docs/workshops/developers/">developer workshop</a> walks through this without hand-written YAML.</p>
        <div class="code-card wide" data-reveal>
          <div class="code-head"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><span class="code-title">your project</span></div>
-         <pre tabindex="0"><code><span class="c-cm"># Resolve the plugin from Maven Central and build a local OCI layout</span>
-$ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
-    "sh.brewlet:brewlet-maven-plugin:$(brewlet version):build" \
+         <pre tabindex="0"><code><span class="c-cm"># With the Maven Central plugin declared in this POM, build a local OCI layout</span>
+$ mvn -f integration-tests/fixtures/demo-app/pom.xml package brewlet:build \
     <span class="c-key">-Dbrewlet.image</span>=demo/hello:local</code></pre>
        </div>
        <div class="hero-cta center">
