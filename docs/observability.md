@@ -41,7 +41,7 @@ kubectl logs <pod> --previous          # after a restart
 - **JFR (Java Flight Recorder)** can be enabled via `jvm.args`
   (e.g. `-XX:StartFlightRecording=...`).
 - **CPU HPA** requires Kubernetes resource metrics from metrics-server.
-  [Live validation is scoped to the fixed candidate](#autoscaling).
+  See [autoscaling requirements and validation limits](#autoscaling).
 
 These are application and Kubernetes resource signals. Brewlet's own
 control-plane, launch-path, and node inventory telemetry is a separate,
@@ -100,16 +100,15 @@ Deployment replica count. It requires metrics-server and CPU requests on the
 workload. Brewlet's runtime exporter is not a replacement for that resource
 metrics path.
 
-Two fresh local arm64 clusters passed real CPU scale-up/down with a fixed-shim
-candidate over 0.5.0 components. Unmodified 0.5.0 exposed a packed-layer GC
-scale-out failure; the candidate fixes verified warm reuse, not cold startup
-with missing source bytes. See [issue #94](https://github.com/microsoft/brewlet/issues/94)
-and the [live-validation runbook](live-validation.md).
+Source-built live tests exercise real CPU scale-up/down. The GC scenario covers
+verified warm reuse, not cold startup with missing source layers. See the
+[live-validation runbook](live-validation.md) for recorded results and fixture
+settings; these runs do not validate published release artifacts.
 See [Autoscaling configuration](deploying-workloads.md#autoscaling) and use a
 disposable evaluation cluster. Memory or custom-metric HPAs require separately
 managed ordinary Deployments with `runtimeClassName: brewlet`, HPA resources
 and the appropriate metrics providers; they are not
-configured by `JavaApplication` or covered by that validation milestone.
+configured by `JavaApplication` or covered by these live scenarios.
 
 ---
 

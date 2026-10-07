@@ -28,25 +28,7 @@ integration tests, website, and user-facing documentation.
 
 Brewlet is a pre-1.0 preview. It is under active development, and its APIs,
 artifact formats, and operational behavior may change between minor releases.
-Use a disposable evaluation environment, not a production or shared cluster.
-The source and GitHub release downloads are public; no repository credentials
-are needed to clone the project or install the CLI.
-
-Live [Ratify/Gatekeeper enforcement (#95)](https://github.com/microsoft/brewlet/issues/95)
-passed its required matrix twice on fresh local disposable clusters with the
-released verifier/publisher, a corrected Verifier manifest and the fixed shim.
-Real CPU HPA scale-up/down has also passed twice on fresh disposable clusters
-with a **fixed-shim candidate** over the 0.5.0 components.
-The unmodified release exposed a packed-layer GC failure during scale-out;
-[metrics-driven scaling (#94)](https://github.com/microsoft/brewlet/issues/94)
-and the [live runbook](docs/live-validation.md) distinguish that baseline from
-the candidate, fixture-only admission settings and remaining cold-start limits.
-Neither result is an unmodified 0.5.0 pass or production certification.
-Brewlet 0.5.1 includes the verified warm-reuse fix and corrected Verifier manifest;
-the recorded live evidence retains its explicit 0.5.0 baseline and candidate
-configuration.
-See [preview status and validation](https://brewlet.sh/docs/#preview-status-and-validation)
-for the distinction between release smoke, component, and live cluster coverage.
+Evaluate it in a disposable environment, not a production or shared cluster.
 
 - [Documentation](https://brewlet.sh/)
 - [Getting started](https://brewlet.sh/docs/getting-started/)

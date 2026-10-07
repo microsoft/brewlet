@@ -51,9 +51,9 @@ accepted and implemented.
   their image carries a valid managed-dependency DSSE/in-toto attestation.
   Ecosystem-compatible cosign signatures, standard SLSA provenance, keyless
   identity, and admission policy for ordinary Brewlet runnable images remain
-  future work. Live end-to-end validation of the existing managed-dependency
-  admission path is tracked separately in
-  [issue #95](https://github.com/microsoft/brewlet/issues/95).
+  future work. The existing managed-dependency admission path has
+  [source-built live validation](docs/live-validation.md#recorded-source-built-validation);
+  those disposable-cluster results are not production certification.
 - **Replica coalescing.** Allow an opt-in `JavaApplication` capacity model that
   can realize logical replicas as fewer, larger JVMs. See
   [proposal 0005](specs/proposals/0005-replica-coalescing.md).

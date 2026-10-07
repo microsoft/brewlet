@@ -793,15 +793,17 @@ when GitHub requests it.
 For a Central-only run, use **Publish Maven Central** from the Actions UI.
 Select a trusted ref containing the publishing workflow in **Use workflow from**,
 enter the release tag in `tag`, and leave `publish` unchecked to validate without
-publishing. After the workflow is on `main`, the CLI equivalent for `0.5.1` is:
+publishing. For the CLI equivalent, set `RELEASE_TAG` to the existing release
+tag you intend to validate:
 
 ```bash
 gh workflow run maven-central.yml --repo microsoft/brewlet \
-  --ref main -f tag=v0.5.1 -f publish=false
+  --ref main -f tag="${RELEASE_TAG:?Set RELEASE_TAG to the release tag to validate}" \
+  -f publish=false
 ```
 
 The tag must exist and its specification version must match, but it does not
-need to contain the new workflow or publishing profile. Do not move an existing
+need to contain the publishing workflow or profile. Do not move an existing
 tag or publish current development sources under an old version.
 
 Open the deployment in the Central Publisher Portal after validation. It can

@@ -11,14 +11,12 @@ production certification, a performance benchmark, or the broader zero-skip
 rewrite tracked in [#13](https://github.com/microsoft/brewlet/issues/13).
 
 **Coverage boundary:** All three scenarios build the full current checkout.
-Archived acceptance results used an older mixed-version stack and do not
-establish a pass for the current stack; use the corresponding run's source
-revision and evidence for that claim.
-The acceptance work and delivery are tracked in
-[#93](https://github.com/microsoft/brewlet/issues/93),
-[#94](https://github.com/microsoft/brewlet/issues/94), and
-[#95](https://github.com/microsoft/brewlet/issues/95). A harness implementation or
-successful component test is not evidence that the live matrix passed. See
+The [recorded source-built validation](#recorded-source-built-validation)
+identifies the tested revision and its relationship to the corresponding release.
+Archived acceptance results used an older mixed-version stack; neither those
+results nor source-built runs establish a pass for published release artifacts.
+A harness implementation or successful component test is not evidence that the
+live matrix passed. See
 [preview status](README.md#preview-status-and-validation) for the public
 coverage boundary.
 
@@ -407,6 +405,36 @@ provisioner logs captured while cleanup workers exist), plus the shared
 resource, event, node and registry diagnostics.
 
 ## Evidence and failure diagnosis
+
+### Recorded source-built validation
+
+The [October 7, 2026 E2E run](https://github.com/microsoft/brewlet/actions/runs/37594958441)
+passed all live jobs on Linux amd64 using source commit
+`1b21f3318aeecef380f7039a0b7d9f889c00cab9`:
+
+| Scenario | Successful jobs |
+|---|---|
+| Native admission | `Live admission (two fresh clusters)` |
+| CPU HPA | `Live hpa (two fresh clusters)` |
+| CLI and Maven workflows | `Live workflows (fresh environment 1)` and `Live workflows (fresh environment 2)` |
+
+Admission and HPA each ran twice consecutively on fresh disposable kind
+clusters. Each workflows job used a separate fresh environment. All Brewlet
+components and the chart were built or installed from that checkout, not
+downloaded as published release artifacts.
+
+The `v0.7.1` tag points to `739c4181c61deeb402e20ba2bf44297e58b3de54`,
+one commit after the tested revision. The
+[release-preparation diff](https://github.com/microsoft/brewlet/compare/1b21f3318aeecef380f7039a0b7d9f889c00cab9...739c4181c61deeb402e20ba2bf44297e58b3de54)
+changes documentation, website content and a website contract test, not runtime
+code or live fixtures. This provides live validation of the runtime source
+shipped in 0.7.1, **not a live test of the published 0.7.1 artifacts**.
+The exact release commit has no recorded E2E run as of October 7, 2026.
+
+These disposable-cluster results are not production certification. The
+[warm-reuse and cold-start boundary](#packed-layer-gc-and-warm-reuse) and
+fixture-specific registry, cache and TLS settings still apply. Hosted evidence
+artifacts follow the workflow's 14-day retention.
 
 ### Archived hosted acceptance
 

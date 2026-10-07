@@ -7,17 +7,12 @@ valid, trusted final-image managed-dependency attestation. It combines a
 verifies Brewlet's native OCI 1.1 referrer in place so the runtime executes that
 same admitted image.
 
-!!! warning "Preview: live candidate validation, not production certification"
+!!! warning "Preview: evaluate only in a disposable cluster"
 
-    Brewlet is a pre-1.0 preview; evaluate this integration only in a disposable
-    cluster. Two consecutive fresh local arm64 clusters passed live referrer
-    discovery, external plugin execution, Ratify/Gatekeeper enforcement and
-    serving JavaApplication-generated Pods. The candidate uses the released
-    0.5.0 verifier/publisher, the fixed shim and a corrected Verifier manifest;
-    this is not an unmodified 0.5.0 pass.
-    [Issue #95](https://github.com/microsoft/brewlet/issues/95) and the
-    [runbook](live-validation.md) retain the exact evidence and fixture-only
-    cache, registry and TLS settings. This is not production certification.
+    Source-built live tests cover referrer discovery, external plugin execution
+    and Ratify/Gatekeeper enforcement. The [runbook](live-validation.md) records
+    results and fixture-only cache, registry and TLS settings. These results
+    are not validation of published release artifacts or production certification.
 
 The plugin verifies Brewlet's native evidence directly, reusing Brewlet's own
 DSSE and predicate verification code instead of requiring evidence to be
@@ -334,6 +329,6 @@ A rejected extra candidate does not block a complete valid candidate.
 
 In a disposable evaluation cluster, exercise these failure paths with the
 constraint in `deny` mode and confirm actual Kubernetes admission outcomes.
-Successful local evaluation does not by itself establish production readiness;
-live regression coverage remains tracked in
-[#95](https://github.com/microsoft/brewlet/issues/95).
+Successful local evaluation does not by itself establish production readiness.
+See the [live-validation runbook](live-validation.md) for the implemented
+regression scenarios, recorded results and fixture limitations.

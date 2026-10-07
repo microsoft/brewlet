@@ -443,7 +443,10 @@ mvn() {
                 self.assertIn("disposable evaluation environment", text)
                 links = [href for href, _ in page.links]
                 self.assertIn(validation_link, links)
-                self.assertIn("https://github.com/microsoft/brewlet/issues/95", links)
+                self.assertIn("/docs/live-validation/", links)
+                self.assertNotIn("candidate validation", text)
+                self.assertNotIn("fixed-shim candidate", text)
+                self.assertNotIn("candidate corrections", text)
                 self.assertNotIn("full (Services, probes, HPA, logs)", text)
                 self.assertNotIn("HPA and Services all work unchanged", text)
 
@@ -459,40 +462,82 @@ mvn() {
         for boundary in ("does not install the chart or provision nodes",
                          "substituted registry access and plugin transport",
                          "simulated HPA ownership",
-                         "fixed-shim candidate",
-                         "packed-layer GC scale-out failure",
-                         "corrected Verifier manifest",
-                         "47 real registry",
+                         "source-built live tests",
+                         "verified warm reuse",
+                         "cold startup",
+                         "published release artifacts",
+                         "recorded source revision",
                          "two consecutive fresh disposable clusters",
                          "existing E2E harness permits skips"):
             self.assertIn(boundary, text)
-        for issue in (13, 93, 94, 95):
-            self.assertIn(f"https://github.com/microsoft/brewlet/issues/{issue}", document)
+        self.assertIn("https://github.com/microsoft/brewlet/issues/13", document)
+        self.assertIn("live-validation.md#recorded-source-built-validation", document)
 
-    def test_operational_guides_scope_live_candidate_validation(self):
-        guides = {
-            "docs/admission-enforcement.md": 95,
-            "admission/README.md": 95,
-            "docs/security.md": 95,
-            "docs/deploying-workloads.md": 94,
-            "docs/observability.md": 94,
-        }
-        for filename, issue in guides.items():
+    def test_current_validation_guidance_links_coverage_not_closed_trackers(self):
+        for filename in ("docs/README.md", "docs/admission-enforcement.md", "ROADMAP.md"):
+            with self.subTest(document=filename):
+                text = (ROOT / filename).read_text(encoding="utf-8")
+                self.assertIn("live-validation.md", text)
+                for issue in (93, 94, 95):
+                    self.assertNotIn(f"https://github.com/microsoft/brewlet/issues/{issue}", text)
+
+    def test_maven_publish_example_requires_an_explicit_release_tag(self):
+        document = (ROOT / "maven-plugin/README.md").read_text(encoding="utf-8")
+        section = document.split("### Release and retry", 1)[1]
+        self.assertIn('tag="${RELEASE_TAG:?', section)
+        self.assertIn("-f publish=false", section)
+        self.assertNotRegex(section, r"tag=v\d+\.\d+\.\d+")
+
+    def test_operational_guides_scope_source_built_validation(self):
+        guides = (
+            "docs/admission-enforcement.md",
+            "admission/README.md",
+            "docs/security.md",
+            "docs/deploying-workloads.md",
+            "docs/observability.md",
+        )
+        for filename in guides:
             with self.subTest(document=filename):
                 text = " ".join((ROOT / filename).read_text(encoding="utf-8").split())
-                self.assertIn(f"https://github.com/microsoft/brewlet/issues/{issue}", text)
-                self.assertIn("0.5.0", text)
-                if issue == 95:
-                    self.assertIn("corrected Verifier manifest", text)
-                    self.assertIn("fixture-only", text)
-                else:
-                    self.assertIn("fixed-shim candidate", text)
+                self.assertIn("live-validation.md", text)
+                self.assertIn("Source-built live tests", text)
+                self.assertIn("published release artifacts", text)
+                if filename in ("docs/deploying-workloads.md", "docs/observability.md"):
+                    self.assertIn("verified warm reuse", text)
                     self.assertIn("cold startup", text)
+                else:
+                    self.assertIn("fixture-only", text)
                 self.assertIn("disposable", text)
                 self.assertNotIn("production admission integration", text)
                 self.assertNotIn("Production admission policy that", text)
                 self.assertNotIn("HPA and metrics-server work.", text)
                 self.assertNotIn("HPA works against CPU/memory or custom/Prometheus metrics as usual.", text)
+
+    def test_current_guides_do_not_present_historical_candidate_tests_as_status(self):
+        for filename in (
+            "README.md", "docs/README.md", "docs/concepts.md",
+            "docs/admission-enforcement.md", "admission/README.md",
+            "docs/security.md", "docs/deploying-workloads.md",
+            "docs/observability.md", "specs/SPECIFICATION.md",
+        ):
+            with self.subTest(document=filename):
+                text = " ".join((ROOT / filename).read_text(encoding="utf-8").split())
+                self.assertNotRegex(text, r"\b0\.5\.\d+\b")
+                self.assertNotIn("fixed-shim candidate", text)
+                self.assertNotIn("live candidate validation", text)
+                self.assertNotIn("scoped to the fixed candidate", text)
+
+    def test_live_evidence_separates_source_builds_from_release_artifacts_and_archive(self):
+        document = (ROOT / "docs/live-validation.md").read_text(encoding="utf-8")
+        current, archived = document.split("### Archived hosted acceptance", 1)
+        self.assertIn("### Recorded source-built validation", current)
+        self.assertIn("https://github.com/microsoft/brewlet/actions/runs/37594958441", current)
+        self.assertIn("1b21f3318aeecef380f7039a0b7d9f889c00cab9", current)
+        self.assertIn("739c4181c61deeb402e20ba2bf44297e58b3de54", current)
+        self.assertIn("not a live test of the published 0.7.1 artifacts", current)
+        self.assertNotIn("0.5.0", current)
+        for historical in ("0.5.0", "35419764860", "35423006340"):
+            self.assertIn(historical, archived)
 
     def test_architecture_images_attribute_registry_pulls_to_cri(self):
         ns = {"svg": "http://www.w3.org/2000/svg"}

@@ -65,10 +65,9 @@ capability model.
 - **G5 — Shared, patchable JVM.** The JDK is owned by the platform, lives on the
   node, is shared across workloads, and is upgraded independently of app artifacts.
 - **G6 — First-class Kubernetes citizen.** Use standard Kubernetes Services,
-  Ingress, probes, autoscaling, logs, and metrics interfaces. Live CPU HPA
-  validation passed twice on fresh local arm64 clusters with a fixed-shim
-  candidate over 0.5.0, not the unmodified release; see
-  [#94](https://github.com/microsoft/brewlet/issues/94).
+  Ingress, probes, autoscaling, logs, and metrics interfaces. See
+  [live validation](../docs/live-validation.md) for source-built CPU HPA
+  coverage and remaining limits.
 
 ### 2.2 Non-Goals (for v1)
 - Replacing OCI *images* for apps that legitimately need OS packages/native deps.
@@ -717,15 +716,12 @@ admission — reusing Brewlet's own DSSE/predicate verification through a Ratify
 external verifier plugin and Gatekeeper policy — is provided in
 [`admission/`](../admission/); it requires a registry that exposes the OCI 1.1
 Referrers API. Component tests substitute registry access and external plugin
-transport. Separate live candidate validation passed twice on fresh local arm64
-clusters, exercising real native referrers, the external verifier subprocess,
-Ratify/Gatekeeper and Kubernetes API enforcement. The runs use the released
-0.5.0 verifier/publisher, the fixed shim and a corrected Verifier manifest
-(`spec.name`, without the `spec.type` rejected by Ratify v1.4.5's chart CRD).
-[#95](https://github.com/microsoft/brewlet/issues/95) and the
-[runbook](../docs/live-validation.md) record fixture-only cache, registry and
-TLS settings. This is not an unmodified 0.5.0 pass, ordinary-image ephemeral
-execution support, or a production-readiness certification.
+transport. Source-built live tests exercise real native referrers, the external
+verifier subprocess, Ratify/Gatekeeper and Kubernetes API enforcement.
+The [runbook](../docs/live-validation.md) records the tested revision and
+fixture-only cache, registry and TLS settings. These results do not validate
+published release artifacts, ordinary-image ephemeral execution support, or
+production readiness.
 
 ---
 
@@ -1683,11 +1679,11 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 > reference and garbage-collected with the `JavaApplication`.
 >
 > Existing tests cover HPA resource creation, simulated HPA ownership, and manual
-> scaling. Real metrics-server-driven 1-to-3-to-1 scaling passed twice on fresh
-> local arm64 clusters with the fixed-shim candidate over 0.5.0. Unmodified
-> 0.5.0 failed warm scale-out after packed-layer GC; cold missing-source startup
-> remains outside the correction. Evidence and remaining scope are tracked
-> validation in [#94](https://github.com/microsoft/brewlet/issues/94).
+> scaling. Source-built live tests exercise real metrics-server-driven
+> scale-up/down. The GC scenario covers verified warm reuse, not cold startup
+> with missing source layers. See the [runbook](../docs/live-validation.md) for
+> evidence and fixture settings; these results do not validate published release
+> artifacts or production readiness.
 
 ### 8.3 Pod admission/scheduling webhook
 

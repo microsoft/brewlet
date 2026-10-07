@@ -140,12 +140,10 @@ provides a policy requiring the final-image attestation for
 `runtimeClassName: brewlet` pods. It requires an OCI 1.1 Referrers-API registry
 and digest-pinned images. Its implemented policy denies images without a
 complete valid candidate, including discovery or verification failures.
-Component coverage alone is not proof of live cluster enforcement. Separate live
-candidate validation passed twice on fresh local clusters using the released
-0.5.0 verifier/publisher, corrected Verifier manifest, fixed shim and fixture-only
-uncached settings. See [#95](https://github.com/microsoft/brewlet/issues/95) and
-the [runbook](live-validation.md) for evidence and limits. Evaluate only in a
-disposable cluster; do not treat this preview as a production trust boundary.
+Source-built live tests exercise this enforcement in disposable clusters with
+fixture-only cache, registry and TLS settings. The [runbook](live-validation.md)
+records the evidence and limits; these runs do not validate published release
+artifacts. Do not treat this preview as a production trust boundary.
 
 ---
 

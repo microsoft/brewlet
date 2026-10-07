@@ -245,7 +245,7 @@ $ mvn package "sh.brewlet:brewlet-maven-plugin:$(brewlet version):deploy" \
         <p class="center muted">
           Pods use CNI, <code>kubectl logs</code>/<code>exec</code>, probes, and Services.
           CPU HPA configuration is available;
-          <a href="/docs/deploying-workloads/#autoscaling">live validation uses a fixed-shim candidate</a>.
+          see <a href="/docs/deploying-workloads/#autoscaling">requirements and validation limits</a>.
         </p>
       </div>
     </section>
@@ -332,8 +332,7 @@ $ curl orders:8080/info
         <p class="center muted">
           The JVM sees <strong>1 CPU</strong> and a heap bounded under <strong>256Mi</strong> because the
           containerd shim wires the pod's cgroup limits into the process.
-          <a href="/docs/live-validation/">Live CPU scaling passed with a fixed-shim candidate</a>;
-          the unmodified baseline release exposed a packed-layer GC scale-out failure.
+          See <a href="/docs/live-validation/">source-built CPU scaling validation and its limits</a>.
           With Brewlet's default
           runnable-image format, <code>image: &lt;ref&gt;</code> is all the pod needs; kubelet
           pulls it like any container image.
@@ -441,7 +440,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
         </details>
         <details>
           <summary>Which supply-chain verification is available?</summary>
-          <p>Component releases carry verifiable build provenance. Managed-dependency admission verifies Brewlet's DSSE attestations; <a href="https://github.com/microsoft/brewlet/issues/95">live candidate validation</a> passed with a corrected Verifier manifest and fixture-only settings, not an unmodified baseline release. General cosign or standard SLSA admission for application images is not implemented; see the <a href="/docs/admission-enforcement/">supported admission contract and limitations</a>.</p>
+          <p>Component releases carry verifiable build provenance. Managed-dependency admission verifies Brewlet's DSSE attestations; see <a href="/docs/live-validation/">source-built live validation and its limits</a>. General cosign or standard SLSA admission for application images is not implemented; see the <a href="/docs/admission-enforcement/">supported admission contract and limitations</a>.</p>
         </details>
         <details>
           <summary>Can I still use a regular container when I need one?</summary>

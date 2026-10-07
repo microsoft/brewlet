@@ -5,14 +5,12 @@ signatures and identities** before a workload runs. It admits a pod on the
 Brewlet runtime only when the Pod image resolves to a digest with a valid,
 trusted final-image managed-dependency attestation.
 
-> **Preview: live candidate validation, not production certification.** Two
-> consecutive fresh local arm64 clusters passed the real registry, external
-> verifier, Ratify/Gatekeeper and Kubernetes admission matrix, including serving
-> JavaApplication-generated Pods. These runs use the released 0.5.0 verifier and
-> publisher, a fixed-shim candidate and the corrected Verifier manifest, not
-> unmodified 0.5.0. See [#95](https://github.com/microsoft/brewlet/issues/95) and
-> the [live runbook](../docs/live-validation.md) for evidence and fixture-only
-> cache, registry and TLS configuration. Evaluate only in a disposable cluster.
+> **Preview: evaluate only in a disposable cluster.** Source-built live tests
+> cover real registries, the external verifier, Ratify/Gatekeeper and Kubernetes
+> admission enforcement. See the [live runbook](../docs/live-validation.md) for
+> recorded results and fixture-only cache, registry and TLS settings. These
+> results are not validation of published release artifacts or production
+> certification.
 
 It provides the cluster-side enforcement that the managed-dependency-bundles
 design (specification §4.5) leaves to admission policy: requiring a valid,
