@@ -195,8 +195,12 @@ unmanaged and pending trees survive. Finally, the tier disables GC and waits for
 the sweeping worker to terminate before removing only its own safety record.
 Re-enabling GC retains runtime readiness but blocks repeated attempts and
 preserves an otherwise eligible stage. No acknowledgment or fabricated record
-enables cleanup. Fixture teardown preserves recovery evidence and finalizers
-if cleanup cannot complete.
+enables cleanup. That fabricated stage sits at the canonical path of the
+deterministic demo image that tiers 8 and 9 also deploy, so successful
+teardown removes exactly that path and fails if it remains. Fixture teardown
+preserves recovery evidence and finalizers if cleanup cannot complete. The E2E
+workflow's "Tier 17 then 08" entry runs both tiers on one node to guard
+against such host-state leaks.
 Tier 18 covers a patched-JDK rollout. It provisions a Temurin 21 digest,
 runs a Brewlet workload on it, then replaces the NodeProfile digest with a
 patched release. It asserts that the node re-advertises the new version for

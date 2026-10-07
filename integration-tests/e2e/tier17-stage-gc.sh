@@ -50,6 +50,10 @@ T17_NODE_TOUCHED=""
 T17_JDK_PREEXISTING=""
 T17_JDK_ACTIVE_PREEXISTING=""
 T17_SENTINEL_CREATED=""
+# Canonical stage path that step (6) fabricates for the deterministic demo
+# image. Later tiers deploying that image would try to reuse it, so cleanup
+# must remove it.
+T17_FAKE_STAGE=""
 T17_IMAGE_DIGEST=""
 T17_IMPORT_DIGEST=""
 declare -a T17_LOADED_NODES=()
@@ -173,6 +177,22 @@ _t17_cleanup() {
       fail "tier17: restore the node's original containerd configuration"
     [[ -n "$T17_SENTINEL_CREATED" ]] &&
       node_exec "$T17_NODE" rm -rf "$T17_SENTINEL" "$T17_PENDING" >/dev/null 2>&1 || true
+    if [[ -n "$T17_FAKE_STAGE" ]]; then
+      case "$T17_FAKE_STAGE" in
+        "$T17_STAGE_ROOT"/immutable-v2/?*)
+          node_exec "$T17_NODE" rm -rf "$T17_FAKE_STAGE" >/dev/null 2>&1 || true
+          if node_exec "$T17_NODE" test ! -e "$T17_FAKE_STAGE"; then
+            pass "tier17: fabricated runnable-stage fixture removed from the node"
+          else
+            fail "tier17: fabricated runnable-stage fixture removed from the node" \
+              "still present: $T17_FAKE_STAGE"
+          fi
+          ;;
+        *)
+          fail "tier17: refusing to remove unexpected stage fixture path" "$T17_FAKE_STAGE"
+          ;;
+      esac
+    fi
     label_node "$T17_NODE" "$T17_POOL_KEY-" \
       brewlet.sh/runtime- "brewlet.sh/jdk.$T17_JDK-" \
       "brewlet.sh/jdk-feature.${T17_JDK##*-}-" brewlet.sh/launcher.java- \
@@ -695,6 +715,9 @@ YAML
      ! pod="$(_t17_wait_rollout false 5 1 "$pod")"; then
     fail "tier17: stop GC before invalidating fixture evidence"; return 0
   fi
+  # Step (5) proved $stage absent, so anything created there from now on is
+  # this tier's fixture (tracked before creation to cover partial failures).
+  T17_FAKE_STAGE="$stage"
   if ! node_exec "$T17_NODE" sh -eu -c '
     rm "$1"
     mkdir -p "$2/app"
