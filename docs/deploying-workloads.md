@@ -84,6 +84,9 @@ Because the shim is runc-backed, this pod is a **first-class Kubernetes citizen*
 Ordinary-image ephemeral debug containers are not supported by the current
 Brewlet handler. Use `kubectl exec` with tools present in the selected runtime,
 or a separate ordinary-runtime Pod for debugging.
+Shells and OS utilities are supplied by the selected JDK source image's
+userland, not by the host OS; minimal or distroless sources may omit them.
+See [Where shells and diagnostic tools come from](jdk-management.md#where-shells-and-diagnostic-tools-come-from).
 
 The Pod `securityContext` is the sole source of process UID/GID for raw
 workloads. Brewlet preserves the identity CRI places in the OCI spec; artifact

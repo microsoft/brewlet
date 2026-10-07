@@ -149,11 +149,26 @@ artifacts. Do not treat this preview as a production trust boundary.
 
 ## Centralized JDK CVE management
 
-The platform team controls the node JDK independently of application images.
+The platform team controls the node JDK and its complete supporting userland
+independently of application images. "No OS base layer" describes the
+**application image**, not the running sandbox: OS libraries and utilities
+from the runtime source remain present, and their vulnerabilities remain
+relevant. For example, an OpenSSL or libc vulnerability is not eliminated by
+moving that component out of application images. Exploitability depends on
+the component's use and exposure.
+
+Scan and track the digest-pinned runtime source as well as application images;
+an application-only scan does not cover the deployed workload's full software
+inventory. Brewlet centralizes patch ownership and separates runtime updates
+from application packaging. Fewer components in the application image alone
+are not evidence of fewer vulnerabilities or a smaller runtime attack surface.
+A minimal or distroless runtime is an explicit platform choice and still
+requires vulnerability management.
+
 Updating that installation makes the new runtime available to subsequent
 launches; **running JVMs are not patched in place**. Roll or restart affected
 workloads to move them off their retained old roots. Application images do not
-need to be rebuilt solely for that JDK update, but their own dependency
+need to be rebuilt solely for that JDK/userland update, but their own dependency
 vulnerabilities still require application remediation. See
 [JDK management](jdk-management.md#patching-upgrading-jdks).
 

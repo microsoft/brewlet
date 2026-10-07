@@ -24,13 +24,22 @@ JPMS module — as an OCI artifact. A node-resident JDK runs it (e.g. the canoni
 `java -jar app.jar`), inside a runc sandbox whose CPU/memory limits come from the
 Kubernetes deployment descriptor.
 
-| You stop owning… | Because… |
+| Application teams stop bundling or maintaining… | Because… |
 |---|---|
 | Dockerfiles | the plugin packages application-only OCI images |
-| OS base layers & their CVEs | there is no OS layer in the artifact |
+| OS base layers in application images | the platform team supplies and patches the runtime userland separately |
 | A JVM copy in every image | the JDK installation lives on the node, shared and patched centrally |
 | Bundling runtime layers with app releases | the payload contains application code, dependencies, and launch metadata; runtime installation is separate |
 | Per-arch image builds & manifest lists | a JAR is JVM **bytecode — architecture-neutral**, so the *same* artifact runs on any provisioned arch (`amd64`/`arm64`); the node-side JDK is per-arch |
+
+**Application-only images do not eliminate runtime OS vulnerabilities.** The
+selected JDK source supplies a complete userland for the sandbox. If it
+contains OpenSSL, libc, or other vulnerable components, those still need
+assessment and remediation. Scan both the application image and the separately
+provisioned runtime source. Brewlet centralizes runtime maintenance; it does
+not automatically reduce attack surface or remove CVEs. Choosing a smaller
+runtime source is a separate platform decision. See
+[runtime CVE management](security.md#centralized-jdk-cve-management).
 
 Updating a node JDK does not change an already-running JVM. Existing workloads
 retain their runtime roots until they stop; roll or restart them to use the

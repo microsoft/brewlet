@@ -67,7 +67,7 @@
           <p class="lede" data-reveal data-reveal-delay="2">
             Push your app (a fat JAR, a layered classpath, or a JPMS module)
             to an OCI registry. Brewlet runs it with a JDK installed on the node.
-            <strong>No Dockerfile. No OS base image. No JVM bundled with every app.</strong>
+            <strong>No Dockerfile. No OS or JVM layers in your application image.</strong>
           </p>
           <p class="sub" data-reveal data-reveal-delay="2">
             Brewlet brings SpinKube's node-resident runtime model to <strong>Java</strong>.
@@ -185,8 +185,8 @@ $ mvn package "sh.brewlet:brewlet-maven-plugin:$(brewlet version):deploy" \
               <p>Package the JAR and launch metadata into an application-only OCI image without a Dockerfile.</p>
             </article>
             <article class="value-priority" data-reveal data-reveal-delay="1">
-              <h3>No OS base layer</h3>
-              <p>The artifact contains no OS layer for application teams to scan, patch, or rebuild.</p>
+              <h3>Separate runtime maintenance</h3>
+              <p>Ship application-only images. Platform teams scan and patch the JDK and its OS userland separately; runtime CVEs still require remediation.</p>
             </article>
             <article class="value-priority" data-reveal data-reveal-delay="2">
               <h3>Shared, centrally managed JDKs</h3>
@@ -412,7 +412,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package \
         <h2 data-reveal>FAQ</h2>
         <details>
           <summary>Is this a base image with the JAR copied into it?</summary>
-          <p>No. The OCI artifact contains the application and a small launch config, but no OS or JVM layer. The node supplies the JDK at run time.</p>
+          <p>No. The OCI artifact contains the application and a small launch config, but no OS or JVM layer. The node supplies the JDK and its supporting userland at run time. Those runtime components still need scanning and patching; an application-only image does not eliminate OS vulnerabilities.</p>
         </details>
         <details>
           <summary>Does Brewlet change how my Java app runs?</summary>

@@ -59,6 +59,68 @@ node-advertised inventory; they are not interchangeable.
 
 ---
 
+## Where shells and diagnostic tools come from
+
+Brewlet moves the JDK **and its supporting userland** out of application images
+and onto nodes; it does not eliminate the userland. The selected `source.image`
+supplies the sandbox's shell, OS libraries, and utilities such as `ls` or `ps`,
+if that image includes them. These tools do not come from the node's host OS or
+from a debugging toolbox injected by Brewlet. JDK tools such as `jcmd` come
+from the selected Java home, exposed at `/opt/jdk`.
+
+`kubectl exec` starts a process inside the application's container sandbox,
+not a shell on the host node. Using a node-provisioned runtime filesystem does
+not grant access to the host's filesystem or process namespace.
+
+Tool availability depends on the exact source image: a distroless or minimal
+source may have no shell or POSIX utilities, and a JRE or jlink runtime may
+omit `jcmd`. Brewlet does not add missing tools automatically. Direct execution
+of a tool that is present does not require a shell; see
+[Probes & exec](observability.md#probes-exec) for examples.
+
+The platform team owns the contents and patching of the **complete runtime
+source**, including its OS libraries and utilities, not just the JVM. Choose
+the required diagnostic tools deliberately rather than assuming that removing
+the OS from the application image makes the running sandbox distroless.
+
+### Distroless runtime example
+
+A runtime source need not contain a shell or a full development kit. For
+example, the non-debug Google Distroless Java 25 image contains a Temurin JRE
+and its minimal supporting userland. The following **amd64-only** source was
+tested with Brewlet 0.7.1 on two AKS workers using a layered Spring Boot
+ShowMyJVM application:
+
+```yaml
+# Entry in a NodeProfile's spec.jdks list; retain other required entries.
+- distribution: distroless
+  feature: 25
+  source:
+    image: gcr.io/distroless/java25-debian13@sha256:6ca6f13fb89004e4dc8431ad5b9100cf608992d57efa6dae2e513258b5d64ec0
+    javaHome: /usr/lib/jvm/temurin-25-jre-amd64
+```
+
+Here `distroless` is an administrator-chosen inventory name, not a built-in
+catalog entry. The source was resolved from `java25-debian13:nonroot` on
+2026-10-07; it is a reproducibility reference, not a continuously patched
+recommendation. Review and update source digests under your own patch policy.
+The Java home and platform digest are specific to amd64; choose appropriate
+sources/paths and separate pool profiles for other architectures.
+
+Request `brewlet.sh/jdk: "distroless-25"` on the workload's Pod template and
+select the provisioned pool and `kubernetes.io/arch: amd64`. Declare
+`runAsNonRoot: true`, `runAsUser: 65532`, and `runAsGroup: 65532` in the Pod
+security context if using this nonroot identity: the source image's `USER`
+does not replace the workload's security context.
+
+In that test, both replicas served the web UI and HTTP health endpoints and
+reported Temurin 25.0.4.1 with `java.home=/opt/jdk`. Direct execution of
+`/opt/jdk/bin/java -version` worked, while `/bin/sh`, `/usr/bin/ls`, and
+`/opt/jdk/bin/jcmd` were absent. HTTP probes therefore worked without a shell;
+exec probes must name an executable the runtime actually contains. This was
+a functional compatibility check, not a vulnerability assessment or evidence
+that the image is CVE-free.
+
 ## Helm examples: Temurin and Microsoft
 
 The chart ships editable examples for Eclipse Temurin 21 and Microsoft Build of

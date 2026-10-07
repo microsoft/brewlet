@@ -65,6 +65,13 @@ Probe execution and `kubectl exec` use the normal containerd/runc mechanisms:
 - readiness / liveness / startup probes: `httpGet`, `tcpSocket`, `exec`;
 - `kubectl exec` into the JVM sandbox, using tools installed in its runtime.
 
+The shell and OS utilities come from the **complete userland of the selected
+JDK source image**, not the node's host OS or the application image. Exec runs
+inside the application's container sandbox, not a host shell. A distroless
+source may have no shell, and a minimal Java runtime may omit diagnostic tools;
+Brewlet does not inject them. See
+[Where shells and diagnostic tools come from](jdk-management.md#where-shells-and-diagnostic-tools-come-from).
+
 Ordinary-image ephemeral debug containers are not supported by the Brewlet
 handler. Use a separate ordinary-runtime Pod when those tools are needed.
 
@@ -78,7 +85,11 @@ livenessProbe:  { httpGet: { path: /actuator/health/liveness,  port: 8080 } }
 ```
 
 ```bash
-kubectl exec -it <pod> -- jcmd 1 VM.flags      # inspect the running JVM
+# Requires jcmd in the selected JDK; no shell or TTY is needed.
+kubectl exec <pod> -c <container> -- /opt/jdk/bin/jcmd 1 VM.flags
+
+# Interactive shell, only if the selected runtime source contains /bin/sh.
+kubectl exec -it <pod> -c <container> -- /bin/sh
 ```
 
 ---
