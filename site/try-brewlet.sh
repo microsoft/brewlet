@@ -296,6 +296,8 @@ spec:
 EOF
   k apply -f "$work/petclinic.yaml" >> "$work/demo.log" 2>&1
   k wait --for=condition=Ready javaapplication/petclinic -n petclinic --timeout=5m >> "$work/demo.log" 2>&1
+  # The readiness loop can run before the background shell opens its log.
+  : > "$work/port-forward.log"
   "$work/bin/kubectl" --kubeconfig "$work/kubeconfig" --context "kind-$cluster" \
     --cache-dir "$work/kubectl-cache" -n petclinic port-forward \
     --address 127.0.0.1 service/petclinic :8080 > "$work/port-forward.log" 2>&1 &
