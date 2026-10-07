@@ -409,8 +409,10 @@ class Admission:
                                  "--ignore-not-found", "-o", "json")
             if not result.stdout.strip():
                 return False
-            return any(condition["type"] == "Established" and condition["status"] == "True"
-                       for condition in json.loads(result.stdout).get("status", {}).get("conditions", []))
+            # A freshly generated CRD can briefly report status or conditions as null.
+            status = json.loads(result.stdout).get("status") or {}
+            return any(condition.get("type") == "Established" and condition.get("status") == "True"
+                       for condition in status.get("conditions") or [])
         wait("Gatekeeper generated constraint CRD established", constraint_crd_ready,
              timeout=180, interval=1)
         self.f.apply(self.manifest("50-gatekeeper-constraint.yaml"))
