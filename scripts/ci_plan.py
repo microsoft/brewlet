@@ -82,8 +82,15 @@ def plan(paths, full=False):
         reasons.append("full CI coverage (component checks and smoke only)")
     if host:
         selected.add("host")
+    codeql = []
+    if selected.intersection(("core", "kubernetes", "admission")):
+        codeql.append({"language": "go", "build-mode": "autobuild"})
+    if "maven" in selected:
+        codeql.append({"language": "java", "build-mode": "none"})
     return {
         **{job: job in selected for job in JOBS},
+        "codeql": bool(codeql),
+        "codeql_matrix": {"include": codeql},
         "image_integrity": integrity,
         "maven_release": maven_release,
         "host_matrix": sorted(host) or [2],

@@ -19,6 +19,36 @@ class ImpactTests(unittest.TestCase):
         selection = plan(["docs/installation.md", "core/README.md"])
         self.assertEqual([j for j in JOBS if selection[j]], ["docs"])
 
+    def test_codeql_language_selection(self):
+        cases = (
+            (["docs/README.md", "docs/cli-reference.md", "docs/configuration.md",
+              "docs/installation.md", "docs/jdk-management.md", "docs/troubleshooting.md",
+              "docs/uninstallation.md", "site/mkdocs.yml"], []),
+            (["core/README.md", "maven-plugin/README.md"], []),
+            (["core/internal/runtime/launch.go"], ["go"]),
+            (["kubernetes/internal/controller/controller.go"], ["go"]),
+            (["admission/ratify-verifier/go.sum"], ["go"]),
+            (["maven-plugin/src/main/java/Example.java"], ["java"]),
+            (["maven-plugin/pom.xml"], ["java"]),
+            (["core/go.mod"], ["go", "java"]),
+            (["core/internal/registry/testdata/conformance.json"], ["go", "java"]),
+            (["integration-tests/fixtures/demo-app/build.sh"], ["go", "java"]),
+            ([".github/workflows/codeql.yml"], ["go", "java"]),
+            (["scripts/ci_plan.py"], ["go", "java"]),
+            (["new-component/main.go"], ["go", "java"]),
+            (["core/old.go", "docs/new.md"], ["go"]),
+            ([], ["go", "java"]),
+        )
+        modes = {"go": "autobuild", "java": "none"}
+        for paths, languages in cases:
+            with self.subTest(paths=paths):
+                selection = plan(paths)
+                self.assertEqual(selection["codeql"], bool(languages))
+                self.assertEqual(selection["codeql_matrix"], {
+                    "include": [{"language": language, "build-mode": modes[language]}
+                                for language in languages],
+                })
+
     def test_core_selects_consumers_but_not_docs_or_integrity(self):
         selection = plan(["core/internal/runtime/launch.go"])
         for job in ("core", "kubernetes", "admission", "containers", "notices", "host", "live"):
@@ -99,6 +129,9 @@ class ImpactTests(unittest.TestCase):
                     main()
                 for job in JOBS:
                     self.assertIn(f"{job}=true\n", output.read_text())
+                self.assertIn("codeql=true\n", output.read_text())
+                self.assertIn('codeql_matrix={"include":[{"language":"go","build-mode":"autobuild"},'
+                              '{"language":"java","build-mode":"none"}]}\n', output.read_text())
                 self.assertNotIn("tiers=", output.read_text())
                 self.assertNotIn("live_matrix=", output.read_text())
 
@@ -122,6 +155,9 @@ class ImpactTests(unittest.TestCase):
                     patch("sys.argv", ["ci_plan.py", "plan"]), redirect_stdout(io.StringIO()):
                 main()
             self.assertIn("live=true", output.read_text())
+            self.assertIn("codeql=true", output.read_text())
+            self.assertIn('"language":"go"', output.read_text())
+            self.assertIn('"language":"java"', output.read_text())
 
     def test_real_git_rename_selects_both_owners(self):
         with tempfile.TemporaryDirectory() as directory:
