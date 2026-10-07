@@ -95,6 +95,22 @@ class SiteContractsTest(unittest.TestCase):
     def test_landing_page_includes_inventory_command(self):
         self.assertIn("brewlet k8s jdk list", self.page.inline_code)
 
+    def test_desktop_navigation_titles_scroll_with_their_links(self):
+        css = (ROOT / "docs/stylesheets/brewlet-docs.css").read_text(encoding="utf-8")
+        for rail, breakpoint in (("primary", "76.25"), ("secondary", "60")):
+            with self.subTest(rail=rail):
+                desktop = re.search(
+                    rf"@media screen and \(min-width: {re.escape(breakpoint)}em\)"
+                    r" \{\n(.*?)\n\}",
+                    css, re.DOTALL,
+                )
+                self.assertIsNotNone(desktop)
+                self.assertRegex(
+                    desktop.group(1),
+                    rf"\.md-nav--{rail} > \.md-nav__title\s*\{{\s*"
+                    r"position:\s*static;\s*\}",
+                )
+
     def test_native_artifacts_and_runnable_images_are_current_formats(self):
         sections = (
             ("maven-plugin/README.md",
