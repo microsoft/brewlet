@@ -533,7 +533,7 @@ rotation within the installed release. Use matching CRDs and
 operator/provisioner components.
 Inspect `kubectl get nodeprofile <name> -o yaml`
 and operator logs for `OwnershipConflict`, `Retargeting`, or `CleanupBlocked`. For control-plane removal, follow
-[the gated uninstall procedure](installation.md#uninstall).
+[the gated uninstall procedure](uninstallation.md).
 
 ---
 

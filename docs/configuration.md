@@ -82,7 +82,7 @@ with `--set key=value` or a values file.
 | `stageGC.interval` | `5m` | Delay after each attempt, plus up to 10% jitter. Sweeps do not overlap. |
 | `stageGC.minAge` | `24h` | Minimum stage directory age, not time since last use or since becoming unreferenced. |
 | `stageGC.allowNestedPIDNamespace` | `false` | Test-only. Let the reaper run on nodes that are themselves containers with a private PID namespace (kind). Never enable on real nodes. |
-| `uninstall.timeoutSeconds` | `240` | Pre-delete cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstalling; Helm's `--timeout` must exceed this plus 30 seconds. Failure retains the control plane. See [Uninstall](installation.md#uninstall). |
+| `uninstall.timeoutSeconds` | `240` | Pre-delete cleanup coordinator timeout, 1-86400 whole seconds. Configure before uninstalling; Helm's `--timeout` must exceed this plus 30 seconds. Failure retains the control plane. See [Uninstall](uninstallation.md#blocked-hooks-timeouts-and-retry). |
 | `uninstall.imagePullSecrets` | `[]` | Namespaced registry Secret references for the cleanup Job, which uses the operator image and its own service account. |
 | `uninstall.nodeSelector` | `{}` | Extra node labels for the cleanup Job pod; `kubernetes.io/os: linux` is always set. |
 | `metrics.enabled` | `false` | Opt in to Brewlet runtime and control-plane Prometheus endpoints. Enables the operator and admission listeners plus the node exporter sidecar and Services. |
@@ -275,7 +275,7 @@ The Helm pre-delete Job selects a separate coordinator-only mode with
 `--uninstall-timeout`. Both release identity flags are required. `--namespace`
 still identifies the worker namespace, which may differ from the release
 namespace. This mode does not start controllers or host-mutating workers; see
-[Uninstall](installation.md#uninstall).
+[Uninstall](uninstallation.md).
 
 ---
 

@@ -18,6 +18,7 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | No provisioner pod on a node at all | Node absent from `status.assignedNodes`; no DaemonSet pod scheduled | [→ placement](#no-provisioner-pod-is-scheduled) |
 | NodeProfile is invalid | `Ready=False/InvalidProfile`; deletion with possible host state remains `CleanupBlocked` | [→ source policy](#nodeprofile-source-policy-failures) |
 | NodeProfile deletion does not finish | Profile stays with `Ready=False/CleanupPending`, `CleanupTeardown`, or `CleanupBlocked` | [→ deletion](#nodeprofile-deletion-does-not-finish) |
+| Reinstall after Helm uninstall is refused | `Brewlet CRDs already exist; install is fresh-install-only` | [→ retained CRD review and recovery](uninstallation.md#troubleshooting-brewlet-crds-already-exist) |
 | Shim crash | containerd reports task failure; pod restarts | [→ shim](#task-shim-failures) |
 | cgroup v1-only node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |
 | containerd 1.x node | Provisioner refuses; node not marked ready | [→ provisioning](#node-never-becomes-ready) |

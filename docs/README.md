@@ -107,6 +107,8 @@ independent required scenarios, tested source revisions, evidence and limits.
   JVM (and `jaz`) react.
 
 ### Operate it
+- **[Uninstallation and reinstallation](uninstallation.md)** — stop workloads,
+  finish node cleanup, and review retained CRDs and host state before reinstalling.
 - **[Security](security.md)** — isolation model, non-root defaults, artifact
   integrity, and the sharp edge of privileged node provisioning.
 - **[Custom CA certificates](custom-ca-certificates.md)** — add corporate roots

@@ -95,6 +95,7 @@ nav:
       - Deploying workloads: deploying-workloads.md
       - Resource requests, limits & JVM tuning: resource-tuning.md
   - Operate:
+      - Uninstallation and reinstallation: uninstallation.md
       - Security: security.md
       - Custom CA certificates: custom-ca-certificates.md
       - Admission enforcement: admission-enforcement.md
