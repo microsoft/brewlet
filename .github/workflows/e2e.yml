@@ -98,6 +98,13 @@ jobs:
             java: true
             cluster: true
             helm: true
+          # Shared-node regression guard: tier 17 must leave no host fixture
+          # that breaks a later tier deploying the same demo image.
+          - name: "Tier 17 then 08: Shared-node cleanup"
+            tiers: --tier 17 --tier 8
+            java: true
+            cluster: true
+            helm: true
           - name: "Tier 18: Patched JDK rollout"
             tiers: --tier 18
             java: true

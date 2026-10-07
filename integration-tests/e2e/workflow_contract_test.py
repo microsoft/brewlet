@@ -109,8 +109,11 @@ class WorkflowContractTests(unittest.TestCase):
     def test_all_tiers_and_arm64_invocations_are_preserved(self):
         matrix = block(block(self.job_blocks["tiers"], "strategy", 4), "matrix", 6)
         tier_args = re.findall(r"^            tiers: (.+)$", matrix, re.MULTILINE)
-        self.assertEqual(len(tier_args), 14)
-        tiers = [int(n) for args in tier_args for n in re.findall(r"--tier (\d+)", args)]
+        self.assertEqual(len(tier_args), 15)
+        # A shared-node entry reruns tiers 17 and 8 together to catch host fixture leaks.
+        self.assertIn("--tier 17 --tier 8", tier_args)
+        isolated = [args for args in tier_args if args != "--tier 17 --tier 8"]
+        tiers = [int(n) for args in isolated for n in re.findall(r"--tier (\d+)", args)]
         self.assertEqual(sorted(tiers), [n for n in range(1, 20) if n != 14])  # Tier 14 was retired.
         self.assertIn("--tier 17", tier_args)  # GC must retain a fresh runner/node.
         self.assertIn('integration-tests/e2e/run.sh ${{ matrix.tiers }} 2>&1 | tee "$E2E_WORK/runner.log"',
