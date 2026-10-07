@@ -18,7 +18,7 @@ manifest. JDK feature and launcher requests belong to the generated deployment
 descriptor, not the artifact config.
 
 - **Coordinates:** `sh.brewlet:brewlet-maven-plugin` on [Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin)
-- **Requires:** Maven 3.9+, JDK 17+ (to run the build). The `appcds`
+- **Requires:** Maven 3.10+, JDK 17+ (to run the build). The `appcds`
   training goal requires a JDK 21+ training runtime.
 
 ---

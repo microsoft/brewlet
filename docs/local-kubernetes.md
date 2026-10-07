@@ -15,7 +15,7 @@ On Windows, use a WSL terminal with Docker Desktop's WSL integration enabled,
 not PowerShell. Start Docker Desktop with Linux containers, or a local Docker
 Engine with Buildx on Linux.
 
-This walkthrough assumes **JDK 21** and **Maven 3.9 or newer** are already
+This walkthrough assumes **JDK 21** and **Maven 3.10 or newer** are already
 installed locally.
 
 Install these command-line tools if you do not already have them:

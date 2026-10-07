@@ -22,7 +22,7 @@ Use the concrete version Ops resolved during installation, not the literal
 `latest` or a new latest-release lookup. The CLI, example source, Maven plugin,
 and cluster components must use the same release.
 
-You also need JDK 21+, Maven 3.9+, Git, `kubectl`, `curl`, `tar`, and credentials
+You also need JDK 21+, Maven 3.10+, Git, `kubectl`, `curl`, `tar`, and credentials
 for your application registry. Clone the example source from the release tag
 matching the platform handoff:
 

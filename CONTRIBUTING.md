@@ -17,7 +17,7 @@ Run commands from the repository root unless noted. For core development,
 install [Go 1.26+](https://go.dev/dl/), GNU Make, and Bash. The
 `go.mod` files specify the minimum Go version. For the full `make check-all`
 path, also install [Python 3](https://www.python.org/downloads/),
-[Maven 3.9+](https://maven.apache.org/download.cgi),
+[Maven 3.10+](https://maven.apache.org/download.cgi),
 a full [JDK 21+](https://adoptium.net/), [Helm](https://helm.sh/docs/intro/install/),
 and `unzip`. Maven itself supports building the plugin on JDK 17+, but JDK
 21+ also covers the host-only JVM integration tiers. Ensure `java`, `javac`,

@@ -9,7 +9,7 @@ your installed JDK. You do not need Docker or Kubernetes.
 You need:
 
 - JDK 21 or newer;
-- Maven 3.9 or newer;
+- Maven 3.10 or newer;
 - Bash, Git, `curl`, and `tar`; and
 - macOS or Linux on `amd64` or `arm64`.
 

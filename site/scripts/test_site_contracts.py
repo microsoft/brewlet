@@ -756,7 +756,7 @@ class LocalKubernetesGuideTest(unittest.TestCase):
                 self.assertEqual(result.stdout.strip(), "localhost/brewlet/brewlet-lab-test:local")
 
     def test_petclinic_build_uses_local_maven_and_jdk_21(self):
-        self.assertIn("**JDK 21** and **Maven 3.9 or newer**", self.document)
+        self.assertIn("**JDK 21** and **Maven 3.10 or newer**", self.document)
         self.assertIn("java -version", self.commands[0])
         self.assertIn("mvn -version", self.commands[0])
         build = next(command for command in self.commands if command.startswith("mvn -q -B"))
