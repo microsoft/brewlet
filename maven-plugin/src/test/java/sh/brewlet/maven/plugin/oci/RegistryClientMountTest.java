@@ -27,6 +27,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static sh.brewlet.maven.plugin.oci.RegistryWireConformanceTest.query;
@@ -220,11 +223,19 @@ class RegistryClientMountTest {
         storage.createContext("/", handler);
         registry.start();
         storage.start();
+        List<String> logs = new CopyOnWriteArrayList<>();
+        Logger logger = Logger.getLogger(RegistryClient.class.getName());
+        Handler capture = new Handler() {
+            @Override public void publish(LogRecord record) { logs.add(record.getMessage()); }
+            @Override public void flush() {}
+            @Override public void close() {}
+        };
+        logger.addHandler(capture);
         try {
             RegistryClient client = new RegistryClient(authority, TARGET, new Credential("publisher", "password"));
             if (success) {
                 assertEquals(expected.indexDigest,
-                        client.pushRunnableImage("latest", cfg, jar, bundle, null, Map.of(), SOURCE));
+                        client.pushApplicationImage("latest", ApplicationImage.runnable(expected), digest, SOURCE));
                 assertEquals(expected.manifests.size() + 1, manifestOrder.size());
                 assertEquals("latest", manifestOrder.get(manifestOrder.size() - 1));
                 assertEquals(scenario.equals("existing") ? 0 : 1, mounts.get());
@@ -232,9 +243,15 @@ class RegistryClientMountTest {
                 assertEquals(scenario.startsWith("unsupported-") ? 1 : 0, starts.get());
                 assertEquals(scenario.equals("existing") ? List.of(TARGET_SCOPE)
                         : List.of(TARGET_SCOPE, MOUNT_SCOPE), scopes);
+                String progress = String.join("\n", logs);
+                assertTrue(progress.contains(scenario.equals("existing")
+                        ? "blob " + digest + " already exists in registry (skipping upload)"
+                        : "Pushing " + MediaTypes.OCI_LAYER_GZIP_MEDIA_TYPE + " blob " + digest), progress);
+                assertTrue(progress.contains("Published " + MediaTypes.OCI_INDEX_MEDIA_TYPE
+                        + ": " + expected.indexDigest), progress);
             } else {
                 assertThrows(IOException.class,
-                        () -> client.pushRunnableImage("latest", cfg, jar, bundle, null, Map.of(), SOURCE));
+                        () -> client.pushApplicationImage("latest", ApplicationImage.runnable(expected), digest, SOURCE));
                 assertFalse(manifests.containsKey("latest"), "failure must not publish a root index");
                 assertEquals(0, starts.get(), "errors must not silently restart an upload");
                 assertEquals(scenario.startsWith("upload-") || scenario.equals("manifest-500") ? 1 : 0,
@@ -243,9 +260,11 @@ class RegistryClientMountTest {
                 if (scenario.startsWith("head-") || scenario.equals("token-403")) {
                     assertEquals(0, mounts.get(), "auth/check failure must stop before mounting");
                 }
+                assertFalse(logs.stream().anyMatch(message -> message.startsWith("Published ")), logs.toString());
             }
             assertTrue(failures.isEmpty(), failures.toString());
         } finally {
+            logger.removeHandler(capture);
             registry.stop(0);
             storage.stop(0);
         }

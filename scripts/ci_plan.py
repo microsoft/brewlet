@@ -43,7 +43,7 @@ def plan(paths, full=False):
                 selected.update(("kubernetes", "helm", "maven"))
         elif path.startswith("kubernetes/"):
             selected.update(("kubernetes", "helm", "containers", "notices", "live"))
-            # Maven emits JavaApplication manifests consumed by these schemas.
+            # Preserve publisher compatibility coverage alongside the deployment smoke.
             if path.startswith(("kubernetes/api/", "kubernetes/charts/", "kubernetes/deploy/")):
                 selected.add("maven")
             if path.endswith(("go.mod", "go.sum")):

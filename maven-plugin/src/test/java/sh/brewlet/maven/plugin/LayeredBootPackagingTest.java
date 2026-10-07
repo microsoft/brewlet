@@ -117,6 +117,11 @@ class LayeredBootPackagingTest {
         assertArrayEquals(source, Files.readAllBytes(boot.source()));
         assertEquals(sourceTime, Files.getLastModifiedTime(boot.source()));
 
+        // Training produced new image inputs; model a separate Maven invocation.
+        build = new BuildMojo();
+        TestApplications.configure(build, boot.source(), root.resolve("build"), true);
+        build.format = format;
+        TestApplications.set(build, "ociOutputDirectory", layout.toFile());
         build.cdsArchive = training.resolve("trained.jsa").toFile();
         build.execute();
         Path paired = root.resolve("paired");
@@ -181,7 +186,16 @@ class LayeredBootPackagingTest {
                     .path("manifests").get(0).path("digest").asText();
             assertNotEquals(oldDigest, digest);
             assertEquals(new AbstractPushMojo.PushResult(
-                    push.image, digest, registry + "/app@" + digest, format), push.readLastPush());
+                    push.image, digest, registry + "/app@" + digest, format),
+                    JSON.readValue(handoff.toFile(), AbstractPushMojo.PushResult.class));
+            assertFalse(Files.exists(push.outputDirectory.toPath().resolve("javaapplication.yaml")));
+            ManifestMojo manifest = new ManifestMojo();
+            manifest.project = push.project;
+            if ("image".equals(format)) {
+                assertEquals(registry + "/app@" + digest, manifest.resolveDeployImage());
+            } else {
+                assertThrows(MojoExecutionException.class, manifest::resolveDeployImage);
+            }
             Path deployed = root.resolve("pushed");
             JvmConfig config = unpack(layout, deployed);
             assertEquals(List.of("boot.jar", "lib/z-SNAPSHOT.jar", "lib/a.jar"), config.getEntry().getClassPath());

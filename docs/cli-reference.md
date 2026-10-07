@@ -588,8 +588,8 @@ application; use `app wait` for a readiness exit code.
 `app wait` polls the JavaApplication every 3 seconds until its `Ready`
 condition is `True` **for the current generation**: a `Ready=True` condition
 whose `observedGeneration` is older than `metadata.generation` does not count.
-This is the same rule the Maven plugin's `brewlet:deploy` goal uses, so both
-tools report the same thing. Each status change (`Reason: message`) is printed
+Use it after `kubectl apply` or a GitOps sync, independently of the build tool
+that published the image. Each status change (`Reason: message`) is printed
 to stderr with the elapsed time; a spinner (terminals) or a periodic heartbeat
 (CI, pipes) shows it is still waiting. A missing application or a failed
 `kubectl` call is reported and retried, so you can start waiting before a GitOps

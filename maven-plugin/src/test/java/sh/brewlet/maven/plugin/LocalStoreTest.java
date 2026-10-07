@@ -10,6 +10,7 @@ import sh.brewlet.maven.plugin.model.Entry;
 import sh.brewlet.maven.plugin.oci.LocalStore;
 import sh.brewlet.maven.plugin.oci.MediaTypes;
 import sh.brewlet.maven.plugin.oci.OciDescriptor;
+import sh.brewlet.maven.plugin.oci.ApplicationImage;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,7 +36,8 @@ class LocalStoreTest {
         JvmConfig cfg = sampleConfig();
         Path jar = createFakeJar();
 
-        store.push("demo/hello:1.0.0", cfg, jar, null);
+        store.pushApplicationImage("demo/hello:1.0.0",
+                ApplicationImage.artifact(cfg, Files.readAllBytes(jar), List.of(), null));
 
         Path ociLayout = tempDir.resolve("oci").resolve("oci-layout");
         assertTrue(Files.exists(ociLayout), "oci-layout file must exist");
@@ -49,7 +51,8 @@ class LocalStoreTest {
         JvmConfig cfg = sampleConfig();
         Path jar = createFakeJar();
 
-        store.push("demo/hello:1.0.0", cfg, jar, null);
+        store.pushApplicationImage("demo/hello:1.0.0",
+                ApplicationImage.artifact(cfg, Files.readAllBytes(jar), List.of(), null));
 
         Path indexFile = tempDir.resolve("oci").resolve("index.json");
         assertTrue(Files.exists(indexFile), "index.json must exist");
@@ -63,7 +66,8 @@ class LocalStoreTest {
         JvmConfig cfg = sampleConfig();
         Path jar = createFakeJar();
 
-        store.push("demo/hello:1.0.0", cfg, jar, null);
+        store.pushApplicationImage("demo/hello:1.0.0",
+                ApplicationImage.artifact(cfg, Files.readAllBytes(jar), List.of(), null));
 
         Path blobsDir = tempDir.resolve("oci").resolve("blobs").resolve("sha256");
         assertTrue(Files.exists(blobsDir), "blobs/sha256 directory must exist");
@@ -78,7 +82,8 @@ class LocalStoreTest {
         JvmConfig cfg = sampleConfig();
         Path jar = createFakeJar();
 
-        OciDescriptor desc = store.push("demo/hello:1.0.0", cfg, jar, null);
+        OciDescriptor desc = store.pushApplicationImage("demo/hello:1.0.0",
+                ApplicationImage.artifact(cfg, Files.readAllBytes(jar), List.of(), null));
 
         assertEquals(MediaTypes.OCI_MANIFEST_MEDIA_TYPE, desc.getMediaType());
         assertEquals(MediaTypes.ARTIFACT_TYPE, desc.getArtifactType());
@@ -90,8 +95,9 @@ class LocalStoreTest {
         JvmConfig cfg = sampleConfig();
         Path jar = createFakeJar();
 
-        store.push("demo/hello:1.0.0", cfg, jar, null);
-        store.push("demo/hello:1.0.0", cfg, jar, null); // push same ref again
+        ApplicationImage image = ApplicationImage.artifact(cfg, Files.readAllBytes(jar), List.of(), null);
+        store.pushApplicationImage("demo/hello:1.0.0", image);
+        store.pushApplicationImage("demo/hello:1.0.0", image); // push same ref again
 
         String indexContent = Files.readString(tempDir.resolve("oci").resolve("index.json"));
         // Count occurrences of the ref — should be exactly 1
@@ -125,7 +131,8 @@ class LocalStoreTest {
                 new sh.brewlet.maven.plugin.oci.ArtifactLayer("snapshot-deps", "snap-tar".getBytes()));
 
         OciDescriptor manifestDesc =
-                store.push("demo/hello:1.0.0", cfg, jar, layers, null);
+                store.pushApplicationImage("demo/hello:1.0.0",
+                        ApplicationImage.artifact(cfg, Files.readAllBytes(jar), layers, null));
 
         // Read the manifest blob back and assert its layers.
         Path manifestBlob = store.blobPath(manifestDesc.getDigest());
@@ -150,7 +157,8 @@ class LocalStoreTest {
                         MediaTypes.MODULEPATH_LAYER_MEDIA_TYPE));
 
         OciDescriptor manifestDesc =
-                store.push("demo/orders:1.0.0", cfg, jar, layers, null);
+                store.pushApplicationImage("demo/orders:1.0.0",
+                        ApplicationImage.artifact(cfg, Files.readAllBytes(jar), layers, null));
 
         Path manifestBlob = store.blobPath(manifestDesc.getDigest());
         String manifest = Files.readString(manifestBlob);

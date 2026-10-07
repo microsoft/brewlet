@@ -62,7 +62,7 @@ you can author it and pass `--config`.
 | `env` | Environment variables baked into the artifact. |
 
 Ports are **not** an artifact field — they are a deployment concern
-(`spec.ports` in the descriptor, or the Maven `manifest` goal's `<ports>`).
+(`spec.ports` in the deployment descriptor).
 Process UID/GID is also a deployment concern: use Pod `securityContext` on
 Kubernetes or `brewlet bundle --uid/--gid` for a standalone OCI bundle. A
 launch config containing `user` is rejected.
@@ -159,8 +159,8 @@ First [select and configure the released plugin](#option-c-maven-plugin) below.
 Keep its exported `BREWLET_VERSION` for these commands and Maven configuration.
 
 ```bash
-# One-off: enable layering on the command line
-mvn clean package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
+# Enable layering on the command line
+mvn clean package brewlet:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2 \
   -Dbrewlet.layered=true
 ```
@@ -327,7 +327,7 @@ artifact rather than a container image.
 
 The [Brewlet Maven plugin](https://github.com/microsoft/brewlet/tree/main/maven-plugin/) wraps steps 2–3 so developers
 never touch ORAS or hand-author the launch config. It infers the entry point and
-framework from the project and JAR manifest; its `manifest` goal writes the
+framework from the project and JAR manifest; its optional `manifest` goal writes the
 descriptor's JDK feature request and infers the container `ports`.
 
 JDK requests come from an explicit `brewlet.jdkFeature` override or the effective
@@ -378,18 +378,21 @@ lifecycle:
 ```
 
 ```bash
-# Build the fat JAR and push it as a Brewlet OCI image in one line:
-mvn clean package brewlet:push \
+# Build the fat JAR, publish its OCI image, and generate development YAML:
+mvn clean package brewlet:push brewlet:manifest \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2
 ```
 
-For a one-off command without editing the application's POM, use the fully
-qualified coordinates instead; Maven still downloads the plugin from Central:
+This generates `target/brewlet/javaapplication.yaml` with the actual
+published digest. Review its runtime, ports and probes, then apply it separately:
 
 ```bash
-mvn clean package "sh.brewlet:brewlet-maven-plugin:${BREWLET_VERSION}:push" \
-  -Dbrewlet.image=registry.example.com/team/app:1.4.2
+kubectl apply -f target/brewlet/javaapplication.yaml
 ```
+
+You do not need to copy a digest or write YAML by hand. For a complete
+development loop with explicit health probes and resource limits, follow the
+[developer workshop](workshops/developers.md).
 
 To bind publishing to `mvn deploy`, optionally add this inside the plugin
 declaration:
@@ -404,28 +407,31 @@ If a newly tagged version is not yet available on Central, wait for its Maven
 Central publishing job and repository propagation; do not silently select a
 different plugin version. Select a release available on Central.
 
+For CI publication without development YAML, omit `brewlet:manifest`.
 `brewlet:push` prints a digest-pinned `deploy image` and records it in
-`target/brewlet/push.json`, so `brewlet:manifest` picks it up without copying
-the digest:
+`target/brewlet/push.json` for a separate production deployment stage:
 
 ```bash
-mvn package brewlet:push brewlet:manifest -Dbrewlet.registry=registry.example.com/team
-kubectl apply -f target/brewlet/javaapplication.yaml
+mvn package brewlet:push -Dbrewlet.registry=registry.example.com/team
+jq -r '.deployImage' target/brewlet/push.json
 ```
 
-Or do all of it — push, generate the manifest, `kubectl apply`, and wait until
-the `JavaApplication` is Ready, with progress — in one goal:
+The CI build is complete when publication succeeds. Keep production deployment
+manifests and cluster credentials in the release stage: use the saved `deployImage` with
+`kubectl`, Helm or GitOps, and optionally `brewlet k8s app wait` for readiness.
+See [Deploy a published image](deploying-workloads.md#deploy-a-published-image).
 
-```bash
-mvn package brewlet:deploy -Dbrewlet.registry=registry.example.com/team
-```
+For offline generation and manifest inputs, see the
+[development manifest reference](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#development-manifest).
+The plugin reference also explains
+[build/push ordering](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#buildpush-ordering)
+and [dry-run behavior](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#dry-run-behavior).
 
 `<registry>` derives the image as `<registry>/${project.artifactId}:${project.version}`;
 a full `<image>` still works. References without a registry host (for example
-`app:1.0`) are rejected instead of silently targeting Docker Hub. An explicit
-digest such as
-`-Dbrewlet.image=registry.example.com/team/app@sha256:REPLACE_WITH_IMAGE_DIGEST`
-still overrides the recorded push for `brewlet:manifest`.
+`app:1.0`) are rejected instead of silently targeting Docker Hub. Publishing
+requires a tag, not a digest-pinned destination; use the resulting digest for
+deployment and promotion without republishing.
 
 Follow-up goals work in a fresh Maven invocation after `mvn package`: for standard
 unclassified JAR projects, the plugin finds
@@ -433,15 +439,14 @@ unclassified JAR projects, the plugin finds
 associated the packaged artifact with the new session. An explicit
 `-Dbrewlet.jarFile=/path/to/app.jar` takes precedence and is required for custom
 packaging, classifiers, or JAR-plugin output overrides. The plugin does not guess
-among files in `target`.
-
-Generated manifests preserve JVM arguments and environment values as individual
-UTF-8 YAML strings, including quotes, backslashes, line breaks, and empty values.
+among files in `target`. `manifest` is the exception: always invoke it together
+with `build` or `push`, not on its own in a later invocation.
 
 Goals: `brewlet:config` (generate the launch config), `brewlet:build` (assemble a
-local OCI layout), `brewlet:push` (publish to a registry), `brewlet:manifest`
-(emit a `JavaApplication`/Deployment YAML), `brewlet:deploy` (push, apply, and
-wait for Ready), `brewlet:inspect` (dry-run preview),
+local OCI layout), `brewlet:push` (publish to a registry),
+`brewlet:manifest` (generate development YAML for the current build),
+`brewlet:inspect` (dry-run preview), `brewlet:dependency-bundle` (publish shared
+runtime dependencies), `brewlet:help` (goal and parameter reference),
 and `brewlet:appcds` (generate an AppCDS startup archive — see [AppCDS](appcds.md)).
 See the [plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md) for the full goal and
 parameter reference.

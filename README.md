@@ -91,7 +91,7 @@ Evaluate it in a disposable environment, not a production or shared cluster.
 | Core runtime | [`core/`](core/) | Contains the Brewlet CLI, artifact tooling, shared runtime packages, and containerd Runtime v2 shim. |
 | Node provisioner | [`provisioner/`](provisioner/) | Installs and removes the shim, JDK roots, launchers, and containerd configuration on Linux nodes. |
 | Kubernetes platform | [`kubernetes/`](kubernetes/) | Provides the operator, admission webhook, `NodeProfile` and `JavaApplication` APIs, RBAC, manifests, and Helm chart. |
-| Maven plugin | [`maven-plugin/`](maven-plugin/) | Builds and publishes Brewlet OCI artifacts and generates Kubernetes workload manifests directly from Maven projects. |
+| Maven plugin | [`maven-plugin/`](maven-plugin/) | Builds and publishes Brewlet OCI artifacts from Maven projects, recording an immutable image handoff for separate deployment tooling. |
 | Specifications | [`specs/`](specs/) | Defines the architecture, artifact formats, runtime contracts, APIs, and compatibility rules. Future work is tracked in the [roadmap](ROADMAP.md). |
 | Integration tests | [`integration-tests/`](integration-tests/) | Exercises the CLI, JVM execution, shim, Kubernetes control plane, node provisioning, Helm installation, and representative workloads. |
 | Website | [`site/`](site/) | Contains the static landing page, installer, branding assets, and MkDocs configuration published at [brewlet.sh](https://brewlet.sh/). |

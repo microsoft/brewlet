@@ -9,22 +9,18 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import sh.brewlet.maven.plugin.model.JvmConfig;
-import sh.brewlet.maven.plugin.oci.ArtifactLayer;
 import sh.brewlet.maven.plugin.oci.LocalStore;
 import sh.brewlet.maven.plugin.oci.OciDescriptor;
-import sh.brewlet.maven.plugin.oci.RunnableImageBuilder;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 
 /**
  * <strong>brewlet:build</strong> — Assemble the Brewlet OCI payload into a
  * local OCI image-layout directory ({@code target/brewlet/oci}) without pushing
  * to a registry. Useful for inspection, air-gapped flows, or integration tests
  * against a local registry.
+ * Reuses an image already assembled by build/push in the same invocation.
  *
  * <p>The resulting layout matches the CLI's {@code --store} format and can be
  * read with {@code brewlet inspect} or pushed with {@code oras push}.
@@ -39,7 +35,7 @@ import java.util.Map;
       requiresProject = true,
       requiresDependencyResolution = ResolutionScope.RUNTIME,
       threadSafe = true)
-public class BuildMojo extends AbstractBrewletMojo {
+public class BuildMojo extends AbstractImageMojo {
 
     /**
      * OCI image-layout output directory.
@@ -50,54 +46,35 @@ public class BuildMojo extends AbstractBrewletMojo {
 
     @Override
     protected void doExecute() throws MojoExecutionException, MojoFailureException {
+        ApplicationBuildResult.clear(project);
         image = resolveImage();
         if (image == null) {
             throw new MojoExecutionException(
                     "brewlet:build requires <image> (or <registry>) to be set (used as the OCI ref name).");
         }
 
-        JvmConfig cfg = buildConfig();
-        File jar = prepareApplication().jar();
-        File resolvedCdsArchive = applyCdsArchive(cfg);
-        validateFinalConfig(cfg);
-        validateCdsPairing(cfg, resolvedCdsArchive);
-        List<ArtifactLayer> dependencyLayers = new ArrayList<>(
-                buildArtifactLayers(cfg.getEntry().getMode()));
-
-        LocalStore store = new LocalStore(ociOutputDirectory.toPath());
-        Map<String, String> annotations = buildAnnotations();
-
-        boolean runnable = "image".equals(format);
-        if (!"artifact".equals(format) && !runnable) {
-            throw new MojoExecutionException("Invalid <format> \"" + format
-                    + "\": expected \"artifact\" or \"image\".");
+        if (dryRun) {
+            getLog().info("Brewlet: build writes the local OCI layout even with brewlet.dryRun=true; "
+                    + "it never publishes.");
         }
-
+        ApplicationAssembly assembly = assembleApplication(false);
+        LocalStore store = new LocalStore(ociOutputDirectory.toPath());
+        boolean runnable = "image".equals(format);
         OciDescriptor resultDesc;
         try {
-            if (runnable) {
-                RunnableImageBuilder.Result imageResult = RunnableImageBuilder.build(
-                        cfg, jar.toPath(), dependencyLayers,
-                        resolvedCdsArchive == null ? null : resolvedCdsArchive.toPath(),
-                        annotations);
-                resultDesc = store.pushRunnableImage(image, imageResult);
-                getLog().info("  platforms: " + imageResult.arches);
-            } else {
-                ArtifactLayer cdsLayer = cdsLayer(resolvedCdsArchive);
-                if (cdsLayer != null) {
-                    dependencyLayers.add(cdsLayer);
-                }
-                resultDesc = store.push(image, cfg, jar.toPath(), dependencyLayers, annotations);
-            }
+            resultDesc = store.pushApplicationImage(image, assembly.image);
+            if (assembly.attestation != null) store.pushReferrer(assembly.attestation);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to write local OCI layout", e);
         }
 
+        assembly.result.save(project);
         getLog().info("Brewlet: wrote OCI image-layout → " + ociOutputDirectory.getPath());
         getLog().info("  " + (runnable ? "index" : "manifest") + ": " + resultDesc.getDigest()
                 + " (" + resultDesc.getSize() + " bytes)");
         getLog().info("  format: " + format);
         getLog().info("  ref: " + image);
+        JvmConfig cfg = assembly.result.config();
         if (cfg.getCds() != null) {
             getLog().info("  cds archive: " + cfg.getCds().getArchive()
                     + " (mounted /app/" + cfg.getCds().getArchive()

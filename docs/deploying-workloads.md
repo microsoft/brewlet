@@ -10,9 +10,8 @@ Two ways to deploy:
   RuntimeClass.
 - **[`JavaApplication` CRD](#javaapplication-crd)** — a higher-level descriptor;
   the controller reconciles it into a
-  `Deployment` (+ `Service`, + optional `HPA`). Maven projects can push, apply,
-  and wait for one in a single step with
-  [`brewlet:deploy`](#deploy-from-maven).
+  `Deployment` (+ `Service`, + optional `HPA`). Build tooling publishes the image;
+  deployment tooling [applies that immutable image](#deploy-a-published-image).
 
 For outbound TLS to private services, see
 [Custom CA certificates](custom-ca-certificates.md). The recommended shared-trust
@@ -169,7 +168,41 @@ kubectl apply -f kubernetes/deploy/javaapplication-crd.yaml
 kubectl apply -f kubernetes/deploy/sample-javaapplication.yaml
 ```
 
+### Generate a development manifest
+
+**Recommended for Maven development:** let `brewlet:manifest` generate the
+`JavaApplication` rather than copying YAML or substituting an image digest.
+[Declare the plugin](building-and-publishing.md#option-c-maven-plugin) first and
+configure your application's ports, health probes and runtime defaults as shown
+in the [developer workshop](workshops/developers.md).
+
+```bash
+mvn package brewlet:push brewlet:manifest \
+  -Dbrewlet.registry=registry.example.com/team -Dbrewlet.appName=hello
+```
+
+Review `target/brewlet/javaapplication.yaml`, then apply it and wait separately:
+
+```bash
+kubectl apply -f target/brewlet/javaapplication.yaml
+brewlet k8s app wait hello --namespace default --wait-timeout 5m
+```
+
+Generation uses this invocation's actual built image digest. It accepts no
+independent image input and cannot consume an earlier `push.json`. Repeat the
+publish-and-generate command after an application change, then apply the
+regenerated file; no manual image update is needed. Keep development defaults
+in the plugin configuration, since regeneration overwrites the YAML.
+
+With `brewlet:build` instead of `brewlet:push`, generation does not publish;
+make the exact built image available to the cluster before applying.
+Generation itself neither deploys nor waits. See the
+[development manifest options](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#development-manifest).
+
 ### Minimal example
+
+This illustrates the resource schema; Maven developers can generate their own
+file using the preceding commands.
 
 ```yaml
 apiVersion: apps.brewlet.sh/v1alpha1
@@ -191,28 +224,40 @@ The generated Deployment defaults to `runAsNonRoot: true` with UID/GID
 `65532:65532`, `RuntimeDefault` seccomp, privilege escalation disabled, and all
 Linux capabilities dropped.
 
-### Deploy from Maven
+### Deploy a published image
 
-Maven projects don't need to write this manifest or copy the digest by hand.
-`brewlet:deploy` pushes the runnable image, generates a `JavaApplication` with
-the digest-pinned image, runs `kubectl apply`, and waits until the application
-is Ready, printing progress:
+For CI and production, build and publication are separate from deployment.
+Maven projects publish a
+runnable image and a machine-readable handoff without requiring cluster access:
 
 ```bash
-mvn package brewlet:deploy \
-  -Dbrewlet.registry=registry.example.com/team \
-  -Dbrewlet.namespace=payments
+mvn package brewlet:push -Dbrewlet.registry=registry.example.com/team
 ```
 
-It uses the current `kubectl` context unless `-Dbrewlet.kubeconfig` or
-`-Dbrewlet.kubeContext` is set. The generated manifest includes a ClusterIP
-Service when `<ports>` are configured and the probes declared in `<probes>`
-(see [below](#generated-manifests-and-health-probes)). To review or extend the
-YAML before applying it, run
-`mvn package brewlet:push brewlet:manifest` instead. `brewlet:manifest` reads
-the digest that `brewlet:push` recorded in `target/brewlet/push.json` and
-writes `target/brewlet/javaapplication.yaml`. See
-[Building & publishing](building-and-publishing.md#option-c-maven-plugin).
+Alternatively, use `brewlet push app.jar registry.example.com/team/app:1
+--push-result push.json`. Both publishers record `image`, `digest`, `deployImage`
+and `format`. Only `format=image` is runnable by Kubernetes.
+
+In the deployment stage, set `spec.artifact.image` in your reviewed
+`JavaApplication` manifest to the `deployImage` from that handoff. Keep namespace,
+JDK selection, replicas, ports, resources and probes in production deployment configuration,
+not the POM. For example, starting from the minimal `hello.yaml` above (requires
+`jq` and an existing `payments` namespace):
+
+```bash
+DEPLOY_IMAGE="$(jq -er 'select(.format == "image") | .deployImage' target/brewlet/push.json)" || exit 1
+kubectl patch --local -f hello.yaml --type merge \
+  -p "{\"spec\":{\"artifact\":{\"image\":\"$DEPLOY_IMAGE\"}}}" \
+  -o yaml > hello-release.yaml
+kubectl apply -n payments -f hello-release.yaml
+brewlet k8s app wait hello --namespace payments --wait-timeout 5m
+```
+
+`kubectl` and the optional Brewlet CLI use your kubeconfig; select the same
+context for both when overriding it. Helm or GitOps can perform the deployment
+instead. Promote the same digest between environments without rebuilding or
+republishing. See the [plugin reference](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#publish-then-deploy-separately)
+for publishing and deployment handoff details.
 
 ### Full example
 
@@ -321,38 +366,41 @@ state was reached, not that a serving endpoint exists.
 `selectedJdk` describes the requested JDK selector, not a measurement of each
 running JVM's distribution or patch version.
 
-### Generated manifests and health probes
+### Deployment configuration and health probes
 
-`brewlet:manifest` and `brewlet:deploy` never infer `spec.probes`. Neither a
-configured port nor Spring Boot/Quarkus detection establishes an HTTP health
+Neither a configured port nor the application's framework establishes an HTTP health
 contract. In particular, a healthy application may return 404 at `/`; a
 generated liveness probe must not restart it for that.
 
 Declare probes that match endpoints or commands the application actually
-provides with `<probes>` in the plugin configuration:
+provides in the `JavaApplication` deployment configuration:
 
-```xml
-<probes>
-  <readiness><path>/actuator/health/readiness</path></readiness>
-  <liveness><path>/actuator/health/liveness</path></liveness>
-</probes>
+```yaml
+spec:
+  probes:
+    readiness:
+      httpGet: { path: /actuator/health/readiness, port: 8080 }
+    liveness:
+      httpGet: { path: /actuator/health/liveness, port: 8080 }
 ```
 
-`<path>` produces an HTTP GET against the first configured port (or `<port>`),
-`<command>` an exec probe, and a bare `<port>` a TCP check. For a one-off HTTP
-probe, pass `-Dbrewlet.readinessPath=/healthz`. When no readiness probe is
-configured, the plugin warns and points at the Actuator or Quarkus health paths
-if those modules are on the classpath. See the
-[plugin reference](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#brewletmanifest-extras).
+For a development manifest generated by `brewlet:manifest`, configure the
+plugin's `<ports>` and `<probes>` in the POM; the goal translates them into
+this YAML. See the [Maven development manifest configuration](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#development-manifest)
+for the inputs. Those values are not embedded in the image and do not update a
+running application. For production, maintain probes and other deployment
+settings in your deployment repository or Helm/GitOps configuration instead.
+
+Use `httpGet`, `exec`, or `tcpSocket` with the application's actual health
+contract. For Spring Boot Actuator, enable the health endpoints shown above.
 Without a readiness probe, Kubernetes does not wait for application-specific
 readiness.
 
-The generated `spec.jvm.version` is an explicit `brewlet.jdkFeature` override or
-an inferred request based on effective main compiler settings and toolchain
-selection, not automatically the JVM running Maven. A configured release/target
-takes precedence over the compiler JDK; conflicting or unresolved settings
-require an explicit request. See the
-[Maven inference contract](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#jdk-inference).
+Set `spec.jvm.version`, optional `spec.jvm.distribution`, and `spec.jvm.launcher`
+in the deployment manifest to request a compatible node runtime. Maven's
+`brewlet.jdkFeature` checks managed-dependency compatibility and supplies the
+runtime feature in the optional development manifest. It never changes an
+already-deployed workload or provisions a node JDK.
 
 ### Environment references and resource ownership
 

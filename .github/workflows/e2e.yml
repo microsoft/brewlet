@@ -310,7 +310,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # CLI readiness, profile deletion, remote push and Maven deploy through the
+  # CLI readiness, profile deletion, remote push and Maven publication through the
   # shipped entry points (docs/live-validation.md "Executable workflows"). Every
   # component is built from this checkout; each matrix entry is a fresh runner,
   # disposable kind cluster and invocation-owned registries.

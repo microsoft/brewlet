@@ -103,6 +103,8 @@ Add this plugin alongside the existing entries under `<build><plugins>` in
   <version>${env.BREWLET_VERSION}</version>
   <configuration>
     <appName>hello</appName>
+    <namespace>${env.BREWLET_NAMESPACE}</namespace>
+    <jdkFeature>${env.BREWLET_JDK}</jdkFeature>
     <ports>
       <port><name>http</name><containerPort>8080</containerPort></port>
     </ports>
@@ -110,18 +112,18 @@ Add this plugin alongside the existing entries under `<build><plugins>` in
       <readiness><path>/healthz</path></readiness>
     </probes>
     <cpuRequest>100m</cpuRequest>
-    <memoryRequest>128Mi</memoryRequest>
     <cpuLimit>1</cpuLimit>
+    <memoryRequest>128Mi</memoryRequest>
     <memoryLimit>256Mi</memoryLimit>
   </configuration>
 </plugin>
 ```
 
 This enables `mvn brewlet:...` without binding publishing to the build lifecycle.
-The `<configuration>` describes how the application runs on Kubernetes: its
-name, the port it listens on, the endpoint that reports readiness, and its
-CPU and memory requests and limits. The plugin never guesses health probes; it
-uses only the ones declared here.
+The plugin configuration supplies development defaults for `brewlet:manifest`:
+the namespace and JDK from Ops, port 8080, the application's actual `/healthz`
+endpoint, and resource limits. Manifest generation is explicitly invoked and
+never deploys; no named execution is needed.
 For reproducible builds outside the workshop, pin the handoff version in your
 project POM or CI environment. Use a platform release available on Central
 (starting with 0.5.1). For a just-published release, wait until the matching
@@ -149,27 +151,39 @@ Log in with your normal registry tooling first, for example `docker login` or
 including credential helpers (`credsStore`/`credHelpers`) and identity tokens,
 so no extra environment variables are needed.
 
-Then push, generate the `JavaApplication`, apply it, and wait until it is Ready
-in one step:
+Publish the application and generate its development manifest without accessing
+the cluster:
 
 ```bash
 mvn -f integration-tests/fixtures/demo-app/pom.xml \
-  brewlet:deploy \
-  -Dbrewlet.registry="$BREWLET_REGISTRY" \
-  -Dbrewlet.namespace="$BREWLET_NAMESPACE" \
-  -Dbrewlet.kubeContext="$BREWLET_CONTEXT" \
-  -Dbrewlet.jdkFeature="$BREWLET_JDK"
+  package brewlet:push brewlet:manifest \
+  -Dbrewlet.registry="$BREWLET_REGISTRY"
 ```
 
 The image defaults to `$BREWLET_REGISTRY/<artifactId>:<version>`. The plugin
-pushes it, records the digest-pinned deploy image in
-`target/brewlet/push.json`, and writes the applied manifest to
-`target/brewlet/`. It includes the port, a ClusterIP Service, and the
-readiness probe from the POM:
+pushes it, then `manifest` writes `target/brewlet/javaapplication.yaml` using that
+exact image digest in the same Maven invocation. No copying digests, writing
+YAML by hand, or passing an image to `manifest` is needed.
+
+Review the generated file, then apply it and wait using separate tools:
 
 ```bash
 cat integration-tests/fixtures/demo-app/target/brewlet/javaapplication.yaml
+kubectl apply --context "$BREWLET_CONTEXT" \
+  -f integration-tests/fixtures/demo-app/target/brewlet/javaapplication.yaml
+brewlet k8s app wait hello --context "$BREWLET_CONTEXT" \
+  --namespace "$BREWLET_NAMESPACE" --wait-timeout 5m
 ```
+
+The operator creates the Deployment and ClusterIP Service from this manifest.
+For production, maintain environment-specific manifests in your deployment
+repository and promote the same published digest with `kubectl`, Helm, or GitOps.
+
+The generator always uses this invocation's built image, not an explicit image
+or an earlier push result. `push.json` is still available as a CI handoff, but
+this development loop does not need it. For other ports, health probes or
+runtime settings, see the
+[development manifest options](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#development-manifest).
 
 Private registry pull authentication for the nodes can be configured with
 `spec.artifact.pullSecrets`; this workshop assumes the nodes can read the
@@ -209,13 +223,28 @@ limits observed by the JVM.
 
 Change the response in
 `integration-tests/fixtures/demo-app/src/com/example/Hello.java`, then run the
-same `brewlet:deploy` command again. The new push produces a new digest, so
-Kubernetes rolls out the updated artifact like any other application update.
+publish-and-generate command again, then apply the regenerated file:
+
+```bash
+mvn -f integration-tests/fixtures/demo-app/pom.xml \
+  package brewlet:push brewlet:manifest \
+  -Dbrewlet.registry="$BREWLET_REGISTRY"
+kubectl apply --context "$BREWLET_CONTEXT" \
+  -f integration-tests/fixtures/demo-app/target/brewlet/javaapplication.yaml
+brewlet k8s app wait hello --context "$BREWLET_CONTEXT" \
+  --namespace "$BREWLET_NAMESPACE" --wait-timeout 5m
+```
+
+The new digest is filled in automatically. Kubernetes rolls out the updated
+image like any other application update. Keep development defaults in the
+plugin configuration rather than editing the generated file, which is overwritten
+on regeneration.
 
 Your own applications work the same way: add the plugin with a
-`<configuration>` that declares their ports and health endpoints (for example
-`/actuator/health/readiness` with Spring Boot Actuator), then run
-`mvn package brewlet:deploy` with the same `-Dbrewlet.*` properties.
+development configuration, then run `mvn package brewlet:push
+brewlet:manifest`. Configure the ports, resources and health
+endpoints your app actually uses (for example `/actuator/health/readiness` with
+Spring Boot Actuator). Keep production deployment configuration separate.
 
 ## Cleanup
 

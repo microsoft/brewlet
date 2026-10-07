@@ -5,7 +5,6 @@ package sh.brewlet.maven.plugin.oci;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import sh.brewlet.maven.plugin.model.JvmConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -63,103 +62,20 @@ public class LocalStore {
         return new OciDescriptor(null, digest, content.length);
     }
 
-    /**
-     * Assembles and writes the full Brewlet OCI artifact:
-     * <ol>
-     *   <li>Serializes {@code cfg} as the config blob.</li>
-     *   <li>Writes the JAR bytes as the layer blob.</li>
-     *   <li>Builds the OCI manifest and writes it.</li>
-     *   <li>Updates {@code index.json}.</li>
-     * </ol>
-     *
-     * @param ref     OCI reference ({@code name:tag} or full registry ref)
-     * @param cfg     launch descriptor
-     * @param jarPath path to the JAR file
-     * @param extraAnnotations extra OCI annotations for the manifest (may be null)
-     * @return descriptor of the written manifest
-     */
-    public OciDescriptor push(String ref, JvmConfig cfg, Path jarPath,
-                              Map<String, String> extraAnnotations) throws IOException {
-        return push(ref, cfg, jarPath, List.of(), extraAnnotations);
-    }
-
-    /**
-     * Assembles and writes the full Brewlet OCI artifact, optionally with one or
-     * more classpath (dependency) layers appended after the main JAR layer for
-     * layered class-path deployment. See
-     * https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md.
-     *
-     * @param ref              OCI reference ({@code name:tag} or full registry ref)
-     * @param cfg              launch descriptor
-     * @param jarPath          path to the (thin) application JAR file
-     * @param classpathLayers  ordered dependency layers (may be empty)
-     * @param extraAnnotations extra OCI annotations for the manifest (may be null)
-     * @return descriptor of the written manifest
-     */
-    public OciDescriptor push(String ref, JvmConfig cfg, Path jarPath,
-                              List<ArtifactLayer> classpathLayers,
-                              Map<String, String> extraAnnotations) throws IOException {
-        // 1. Config blob
-        byte[] cfgBytes = MAPPER.writeValueAsBytes(cfg);
-        OciDescriptor cfgDesc = writeBlob(cfgBytes);
-        cfgDesc.setMediaType(MediaTypes.CONFIG_MEDIA_TYPE);
-
-        // 2. JAR layer blob
-        byte[] jarBytes = Files.readAllBytes(jarPath);
-        OciDescriptor jarDesc = writeBlob(jarBytes);
-        jarDesc.setMediaType(MediaTypes.JAR_LAYER_MEDIA_TYPE);
-        jarDesc.setAnnotations(Map.of(MediaTypes.ANNOTATION_TITLE, cfg.getMainJar()));
-
-        // 2b. Classpath (dependency) layers — stable → volatile, each its own blob.
-        List<OciDescriptor> layers = new ArrayList<>();
-        layers.add(jarDesc);
-        if (classpathLayers != null) {
-            for (ArtifactLayer layer : classpathLayers) {
-                OciDescriptor desc = writeBlob(layer.tar());
-                desc.setMediaType(layer.mediaType());
-                desc.setAnnotations(Map.of(MediaTypes.ANNOTATION_TITLE, layer.name()));
-                layers.add(desc);
-            }
-        }
-
-        // 3. OCI Manifest
-        OciManifest manifest = new OciManifest();
-        manifest.setArtifactType(MediaTypes.ARTIFACT_TYPE);
-        manifest.setConfig(cfgDesc);
-        manifest.setLayers(layers);
-        if (extraAnnotations != null && !extraAnnotations.isEmpty()) {
-            manifest.setAnnotations(extraAnnotations);
-        }
-
-        byte[] manifestBytes = MAPPER.writeValueAsBytes(manifest);
-        OciDescriptor manifestDesc = writeBlob(manifestBytes);
-        manifestDesc.setMediaType(MediaTypes.OCI_MANIFEST_MEDIA_TYPE);
-        manifestDesc.setArtifactType(MediaTypes.ARTIFACT_TYPE);
-        manifestDesc.setAnnotations(Map.of(MediaTypes.ANNOTATION_REF_NAME, ref));
-
-        // 4. index.json
-        upsertIndex(manifestDesc);
-
-        // 5. oci-layout marker
-        Files.createDirectories(root);
-        Files.writeString(root.resolve("oci-layout"),
-                "{\"imageLayoutVersion\":\"1.0.0\"}\n");
-
-        return manifestDesc;
-    }
-
-    /** Writes a preassembled runnable image as a tagged OCI image-layout entry. */
-    public OciDescriptor pushRunnableImage(String ref, RunnableImageBuilder.Result image)
-            throws IOException {
-        for (RunnableImageBuilder.Blob blob : image.blobs) {
+    /** Writes the exact assembled bytes without rebuilding any manifests or layers. */
+    public OciDescriptor pushApplicationImage(String ref, ApplicationImage image) throws IOException {
+        for (RunnableImageBuilder.Blob blob : image.blobs()) {
             writeBlob(blob.data());
         }
-        for (RunnableImageBuilder.Blob manifest : image.manifests) {
+        for (RunnableImageBuilder.Blob manifest : image.manifests()) {
             writeBlob(manifest.data());
         }
 
-        OciDescriptor indexDesc = writeBlob(image.indexBytes);
-        indexDesc.setMediaType(MediaTypes.OCI_INDEX_MEDIA_TYPE);
+        OciDescriptor indexDesc = writeBlob(image.root().data());
+        indexDesc.setMediaType(image.root().mediaType());
+        if (MediaTypes.OCI_MANIFEST_MEDIA_TYPE.equals(image.root().mediaType())) {
+            indexDesc.setArtifactType(MediaTypes.ARTIFACT_TYPE);
+        }
         indexDesc.setAnnotations(Map.of(MediaTypes.ANNOTATION_REF_NAME, ref));
         upsertIndex(indexDesc);
 

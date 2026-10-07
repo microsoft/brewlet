@@ -422,7 +422,7 @@ jobs:
           retention-days: 7
 
   live:
-    name: Maven deployment smoke (one fresh cluster)
+    name: Publish/deploy handoff smoke (one fresh cluster)
     needs: changes
     if: needs.changes.outputs.live == 'true'
     runs-on: ubuntu-24.04

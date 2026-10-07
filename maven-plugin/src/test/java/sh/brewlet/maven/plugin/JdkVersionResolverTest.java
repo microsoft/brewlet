@@ -297,7 +297,7 @@ class JdkVersionResolverTest {
         MavenSession session = session(project, Map.of());
         ToolchainManager manager = manager(chain("17", "17"), List.of(chain("21", "21"), chain("17", "17")));
         assertGuidance(project, session, manager);
-        ManifestMojo explicit = new ManifestMojo();
+        PushMojo explicit = new PushMojo();
         explicit.project = project;
         explicit.session = session;
         explicit.toolchainManager = manager;

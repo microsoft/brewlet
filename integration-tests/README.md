@@ -73,7 +73,8 @@ See [AGENTS.md](AGENTS.md) for cluster requirements, cleanup, and troubleshootin
 PR selection is documented in [Contributing](../CONTRIBUTING.md#pr-coverage-and-merge-gate).
 `python3 integration-tests/e2e/live/smoke.py` runs one install/provision/publish/
 deploy/serve cycle against its own disposable cluster using checkout-built
-components and the Maven plugin's generated manifest. It is the only cluster
+components, Maven's immutable publication handoff and generated development
+manifest, followed by a separate kubectl apply and CLI readiness wait. It is the only cluster
 smoke in PR CI; exhaustive cluster tiers and live scenarios run nightly or by
 explicit E2E dispatch, including pre-merge validation of high-risk changes.
 It shares the strict live fixtures' prerequisites, cleanup, evidence, and

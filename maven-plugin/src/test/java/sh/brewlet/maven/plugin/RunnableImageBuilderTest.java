@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import sh.brewlet.maven.plugin.model.Entry;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
+import sh.brewlet.maven.plugin.oci.ApplicationImage;
 import sh.brewlet.maven.plugin.oci.LocalStore;
 import sh.brewlet.maven.plugin.oci.MediaTypes;
 import sh.brewlet.maven.plugin.oci.OciDescriptor;
@@ -117,7 +118,7 @@ class RunnableImageBuilderTest {
         assertEquals(2, r.manifests.size());
 
         LocalStore store = new LocalStore(tmp.resolve("oci"));
-        OciDescriptor localIndex = store.pushRunnableImage("demo/orders:1.0.0", r);
+        OciDescriptor localIndex = store.pushApplicationImage("demo/orders:1.0.0", ApplicationImage.runnable(r));
         assertEquals(r.indexDigest, localIndex.getDigest());
         JsonNode layoutIndex = MAPPER.readTree(tmp.resolve("oci/index.json").toFile());
         assertEquals("demo/orders:1.0.0",

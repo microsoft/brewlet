@@ -33,7 +33,7 @@ class PublishingReferenceTest {
     Path root;
 
     @ParameterizedTest
-    @ValueSource(strings = {"push", "deploy", "dependency-bundle"})
+    @ValueSource(strings = {"push", "dependency-bundle"})
     void rejectsDigestDestinationsBeforeBuildingOrPublishing(String goal) throws Exception {
         for (String format : List.of("image", "artifact")) {
             for (boolean dryRun : List.of(false, true)) {
@@ -64,7 +64,7 @@ class PublishingReferenceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"push", "deploy", "dependency-bundle"})
+    @ValueSource(strings = {"push", "dependency-bundle"})
     void acceptsTaggedAndImplicitLatestDestinations(String goal) throws Exception {
         for (String ref : List.of("registry.example.com/team/app:1.0.0",
                 "registry.example.com/team/app", "localhost:5000/team/app:1.0.0-SNAPSHOT",
@@ -82,10 +82,9 @@ class PublishingReferenceTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"push", "deploy"})
-    void preservesRegistryDerivedImageAndExplicitHostRequirement(String goal) throws Exception {
-        AbstractBrewletMojo mojo = mojo(goal);
+    @Test
+    void preservesRegistryDerivedImageAndExplicitHostRequirement() throws Exception {
+        AbstractBrewletMojo mojo = mojo("push");
         mojo.jarFile = applicationJar().toFile();
         mojo.dryRun = true;
         mojo.image = null;
@@ -174,7 +173,6 @@ class PublishingReferenceTest {
     private AbstractBrewletMojo mojo(String goal) throws Exception {
         AbstractBrewletMojo mojo = switch (goal) {
             case "push" -> new PushMojo();
-            case "deploy" -> new DeployMojo();
             case "dependency-bundle" -> new DependencyBundleMojo();
             default -> throw new IllegalArgumentException(goal);
         };
@@ -193,12 +191,6 @@ class PublishingReferenceTest {
         if (mojo instanceof DependencyBundleMojo) {
             TestApplications.set(mojo, "sourceBom", "test:platform:1");
             TestApplications.set(mojo, "dependencyBundleOutputDirectory", root.resolve("bundle").toFile());
-        }
-        if (mojo instanceof DeployMojo deploy) {
-            deploy.kubectlRunner = (args, timeout) -> {
-                fail("Reference checks and dry runs must not invoke kubectl");
-                return null;
-            };
         }
         return mojo;
     }

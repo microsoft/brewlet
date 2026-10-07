@@ -180,7 +180,7 @@ to an application-owned store when a JDK is patched.
 
 The implementation must update the Go API and generated deepcopy, both deployed
 and chart CRD copies, Deployment rendering and JVM argument validation, relevant
-CLI/Maven manifest round-trips, and the user documentation/reference. Audit
+CLI manifest round-trips, and the user documentation/reference. Audit
 update paths so unrelated edits preserve the new field. No new RBAC permissions
 should be needed.
 

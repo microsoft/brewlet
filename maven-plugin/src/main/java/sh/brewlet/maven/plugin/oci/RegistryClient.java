@@ -5,7 +5,6 @@ package sh.brewlet.maven.plugin.oci;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import sh.brewlet.maven.plugin.model.JvmConfig;
 
 import java.io.IOException;
 import java.net.URI;
@@ -14,8 +13,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.HashMap;
@@ -34,9 +31,9 @@ import java.util.logging.Logger;
  *
  * <p>Push flow:
  * <ol>
- *   <li>Serialize JvmConfig → config blob, push via single-chunk monolithic upload.</li>
- *   <li>Push the JAR bytes as the layer blob.</li>
- *   <li>Build and PUT the OCI manifest.</li>
+ *   <li>Upload preassembled config and layer blobs not already present.</li>
+ *   <li>PUT child manifests by digest.</li>
+ *   <li>PUT the tagged root manifest or image index.</li>
  * </ol>
  *
  * <p>Authentication:
@@ -88,197 +85,31 @@ public class RegistryClient {
                 .build();
     }
 
-    /**
-     * Pushes the Brewlet OCI artifact to the registry.
-     *
-     * @param reference  OCI tag or digest reference, e.g. {@code "1.0.0"}
-     * @param cfg        the JVM launch descriptor
-     * @param jarPath    path to the JAR file
-     * @param extraAnnotations OCI manifest annotations (may be null)
-     * @return the manifest digest
-     */
-    public String push(String reference, JvmConfig cfg, Path jarPath,
-                       Map<String, String> extraAnnotations) throws IOException, InterruptedException {
-        return push(reference, cfg, jarPath, List.of(), extraAnnotations);
-    }
-
-    /**
-     * Pushes the Brewlet OCI artifact to the registry, optionally with one or
-     * more classpath (dependency) layers appended after the main JAR layer for
-     * layered class-path deployment. Each layer is uploaded as its own blob so
-     * unchanged dependency layers dedup by digest across rebuilds and apps.
-     * See https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md.
-     *
-     * @param reference        OCI tag or digest reference, e.g. {@code "1.0.0"}
-     * @param cfg              the JVM launch descriptor
-     * @param jarPath          path to the (thin) application JAR file
-     * @param classpathLayers  ordered dependency layers (may be empty)
-     * @param extraAnnotations OCI manifest annotations (may be null)
-     * @return the manifest digest
-     */
-    public String push(String reference, JvmConfig cfg, Path jarPath,
-                       List<ArtifactLayer> classpathLayers,
-                       Map<String, String> extraAnnotations) throws IOException, InterruptedException {
-        // 1. Config blob
-        byte[] cfgBytes = new ObjectMapper()
-                .writerWithDefaultPrettyPrinter()
-                .writeValueAsBytes(cfg);
-        String cfgDigest = LocalStore.sha256Hex(cfgBytes);
-        if (!blobExists(cfgDigest)) {
-            pushBlob(cfgDigest, cfgBytes);
-        }
-
-        OciDescriptor cfgDesc = new OciDescriptor(MediaTypes.CONFIG_MEDIA_TYPE, cfgDigest, cfgBytes.length);
-
-        // 2. JAR layer blob
-        byte[] jarBytes = Files.readAllBytes(jarPath);
-        String jarDigest = LocalStore.sha256Hex(jarBytes);
-        if (!blobExists(jarDigest)) {
-            LOG.info(String.format("Pushing JAR layer (%,d bytes) ...", jarBytes.length));
-            pushBlob(jarDigest, jarBytes);
-        } else {
-            LOG.info("JAR layer already exists in registry (skipping upload).");
-        }
-
-        OciDescriptor jarDesc = new OciDescriptor(MediaTypes.JAR_LAYER_MEDIA_TYPE, jarDigest, jarBytes.length);
-        jarDesc.setAnnotations(Map.of(MediaTypes.ANNOTATION_TITLE, cfg.getMainJar()));
-
-        // 2b. Classpath (dependency) layers — pushed as their own blobs.
-        java.util.List<OciDescriptor> layers = new java.util.ArrayList<>();
-        layers.add(jarDesc);
-        if (classpathLayers != null) {
-            for (ArtifactLayer layer : classpathLayers) {
-                byte[] tarBytes = layer.tar();
-                String tarDigest = LocalStore.sha256Hex(tarBytes);
-                if (!blobExists(tarDigest)) {
-                    LOG.info(String.format("Pushing %s layer (%,d bytes) ...",
-                            layer.name(), tarBytes.length));
-                    pushBlob(tarDigest, tarBytes);
-                } else {
-                    LOG.info(String.format(
-                            "%s layer already exists in registry (skipping upload).",
-                            layer.name()));
-                }
-                OciDescriptor desc = new OciDescriptor(
-                        layer.mediaType(), tarDigest, tarBytes.length);
-                desc.setAnnotations(Map.of(MediaTypes.ANNOTATION_TITLE, layer.name()));
-                layers.add(desc);
-            }
-        }
-
-        // 3. Build and push manifest
-        OciManifest manifest = new OciManifest();
-        manifest.setArtifactType(MediaTypes.ARTIFACT_TYPE);
-        manifest.setConfig(cfgDesc);
-        manifest.setLayers(layers);
-        if (extraAnnotations != null && !extraAnnotations.isEmpty()) {
-            manifest.setAnnotations(extraAnnotations);
-        }
-
-        byte[] manifestBytes = new ObjectMapper()
-                .writerWithDefaultPrettyPrinter()
-                .writeValueAsBytes(manifest);
-        String manifestDigest = LocalStore.sha256Hex(manifestBytes);
-
-        pushManifest(reference, manifestBytes);
-        LOG.info(String.format("Pushed manifest: %s", manifestDigest));
-        return manifestDigest;
-    }
-
-    /**
-     * Pushes a <strong>runnable OCI image</strong> (kubelet-pullable) built by
-     * {@link RunnableImageBuilder} and tags it {@code reference}. Unlike
-     * {@link #push}, which writes a native Brewlet artifact with custom media
-     * types, every layer here is a standard {@code tar+gzip} blob and the tagged
-     * object is a multi-arch OCI image index, so containerd/kubelet pull and
-     * unpack it with no special configuration. The launch contract rides in each
-     * platform manifest's {@code brewlet.sh/jvm-config} annotation. See
-     * https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md.
-     *
-     * @param reference        OCI tag reference, e.g. {@code "1.0.0"}
-     * @param cfg              the JVM launch descriptor
-     * @param jarPath          path to the primary application JAR
-     * @param depLayers        class-path / module-path dependency layers (may be
-     *                         empty); must NOT include a CDS layer
-     * @param cdsArchive       optional AppCDS {@code .jsa} folded into the app layer, or null
-     * @param extraAnnotations OCI image-index annotations (provenance), may be null
-     * @return the image-index digest
-     */
-    public String pushRunnableImage(String reference, JvmConfig cfg, Path jarPath,
-                                    List<ArtifactLayer> depLayers, Path cdsArchive,
-                                    Map<String, String> extraAnnotations)
+    /** Publishes preassembled content, retaining managed-layer mount support. */
+    public String pushApplicationImage(String reference, ApplicationImage image,
+                                      String managedLayerDigest, String sourceRepository)
             throws IOException, InterruptedException {
-        RunnableImageBuilder.Result image;
-        try {
-            image = RunnableImageBuilder.build(cfg, jarPath, depLayers, cdsArchive, extraAnnotations);
-        } catch (IOException e) {
-            throw new IOException("Failed to assemble runnable image: " + e.getMessage(), e);
-        }
-
-        // 1. Content-addressable blobs (layers + per-arch image configs).
-        for (RunnableImageBuilder.Blob b : image.blobs) {
-            if (!blobExists(b.digest())) {
-                LOG.info(String.format("Pushing %s (%,d bytes) ...", b.mediaType(), b.data().length));
-                pushBlob(b.digest(), b.data());
-            } else {
-                LOG.info(String.format("%s blob already exists in registry (skipping upload).", b.mediaType()));
-            }
-        }
-
-        // 2. Per-arch image manifests, addressed by digest.
-        for (RunnableImageBuilder.Blob m : image.manifests) {
-            pushManifest(m.digest(), m.data(), m.mediaType());
-        }
-
-        // 3. The multi-arch image index, tagged with the reference.
-        pushManifest(reference, image.indexBytes, MediaTypes.OCI_INDEX_MEDIA_TYPE);
-        LOG.info(String.format("Pushed runnable image index: %s (platforms %s)",
-                image.indexDigest, image.arches));
-        return image.indexDigest;
-    }
-
-    /**
-     * Pushes a runnable image while preserving a managed bundle layer's compressed
-     * bytes, descriptor digest, and uncompressed diffID.
-     */
-    public String pushRunnableImage(String reference, JvmConfig cfg, Path jarPath,
-                                    DependencyBundle.Content bundle, Path cdsArchive,
-                                    Map<String, String> extraAnnotations,
-                                    String bundleSourceRepository)
-            throws IOException, InterruptedException {
-        RunnableImageBuilder.ManagedDependencyLayer layer =
-                new RunnableImageBuilder.ManagedDependencyLayer(
-                        bundle.compressedLayer(), bundle.config().getLayerDigest(),
-                        bundle.config().getLayerDiffId(), "dependencies");
-        RunnableImageBuilder.Result image = RunnableImageBuilder.buildWithManagedDependencyLayer(
-                cfg, jarPath, layer, cdsArchive, extraAnnotations);
-        return pushRunnableImage(reference, image, bundle.config().getLayerDigest(),
-                bundleSourceRepository);
-    }
-
-    private String pushRunnableImage(String reference, RunnableImageBuilder.Result image)
-            throws IOException, InterruptedException {
-        return pushRunnableImage(reference, image, null, null);
-    }
-
-    private String pushRunnableImage(String reference, RunnableImageBuilder.Result image,
-                                     String managedLayerDigest, String sourceRepository)
-            throws IOException, InterruptedException {
-        for (RunnableImageBuilder.Blob blob : image.blobs) {
+        for (RunnableImageBuilder.Blob blob : image.blobs()) {
             if (!blobExists(blob.digest())) {
+                LOG.info(String.format("Pushing %s blob %s (%,d bytes) ...",
+                        blob.mediaType(), blob.digest(), blob.data().length));
                 boolean mounted = blob.digest().equals(managedLayerDigest)
                         && sourceRepository != null
                         && mountOrUploadBlob(blob.digest(), sourceRepository, blob.data());
                 if (!mounted) {
                     pushBlob(blob.digest(), blob.data());
                 }
+            } else {
+                LOG.info(blob.mediaType() + " blob " + blob.digest()
+                        + " already exists in registry (skipping upload).");
             }
         }
-        for (RunnableImageBuilder.Blob manifest : image.manifests) {
+        for (RunnableImageBuilder.Blob manifest : image.manifests()) {
             pushManifest(manifest.digest(), manifest.data(), manifest.mediaType());
         }
-        pushManifest(reference, image.indexBytes, MediaTypes.OCI_INDEX_MEDIA_TYPE);
-        return image.indexDigest;
+        pushManifest(reference, image.root().data(), image.root().mediaType());
+        LOG.info("Published " + image.root().mediaType() + ": " + image.root().digest());
+        return image.root().digest();
     }
 
     /**

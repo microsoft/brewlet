@@ -71,7 +71,7 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     /**
      * OCI image reference to push to, e.g.
      * {@code registry.example.com/team/orders-api:${project.version}}.
-     * When unset, {@code brewlet:push}/{@code brewlet:deploy} derive it from
+     * When unset, {@code brewlet:push} derives it from
      * {@link #registry} as {@code <registry>/${project.artifactId}:${project.version}}.
      */
     @Parameter(property = "brewlet.image")
@@ -120,33 +120,12 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     protected String entryMode;
 
     /**
-     * Required JDK feature (major) version for the deployment descriptor's
-     * {@code spec.jvm.version}. Inferred from the project's release/target when
-     * not set. This is a scheduling request written to the CRD/Deployment — not
-     * the artifact config — so a single source of truth selects the JDK.
+     * Application JDK feature (major) version used to check a managed dependency
+     * bundle's compatibility. Inferred from the project's release/target when
+     * not set. This does not select a deployment JDK or enter the artifact config.
      */
     @Parameter(property = "brewlet.jdkFeature")
     protected Integer jdkFeature;
-
-    /**
-     * Optional JDK distribution (e.g. {@code temurin}, {@code microsoft}) for the
-     * deployment descriptor's {@code spec.jvm.distribution}. With {@code jdkFeature}
-     * it selects an exact {@code <distribution>-<feature>} node JDK; omitted, any
-     * distribution of the requested feature is acceptable and each node picks the
-     * lexically-first installed one (no built-in vendor preference).
-     * Written to the CRD/Deployment, not the artifact config.
-     */
-    @Parameter(property = "brewlet.jdkDistribution")
-    protected String jdkDistribution;
-
-    /**
-     * Optional custom launcher (e.g. {@code jaz} for node auto-tuning) for the
-     * deployment descriptor's {@code spec.jvm.launcher}. When omitted, the
-     * vanilla OpenJDK {@code java} launcher is used. Written to the CRD/Deployment,
-     * not the artifact config.
-     */
-    @Parameter(property = "brewlet.launcher")
-    protected String launcher;
 
     /**
      * App-intrinsic launch knobs baked into the artifact. These are correctness
@@ -250,7 +229,8 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     protected boolean splitSnapshotLayers;
 
     /**
-     * Dry-run mode: generate and display the config but do not push anything.
+     * Dry-run mode: preview publication without pushing. The build goal still
+     * writes its local OCI layout, like dependency-bundle's local output.
      */
     @Parameter(property = "brewlet.dryRun", defaultValue = "false")
     protected boolean dryRun;
@@ -276,7 +256,7 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     protected String format;
 
     /**
-     * Managed dependency bundle reference for {@code brewlet:push}. This may be
+     * Managed dependency bundle reference for {@code brewlet:build}/{@code brewlet:push}. This may be
      * an OCI registry reference or a path to a local OCI image layout.
      */
     @Parameter(property = "brewlet.dependencyBundle")
@@ -655,40 +635,13 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     }
 
     /**
-     * Resolves the required JDK feature (major) version for the deployment
-     * descriptor's {@code spec.jvm.version}: an explicit {@code <jdkFeature>}
+     * Resolves the application JDK feature for managed dependency compatibility:
+     * an explicit {@code <jdkFeature>}
      * wins, otherwise it is inferred from the project's release/target via
-     * {@link JdkVersionResolver}. This feeds the CRD/Deployment, not the
-     * artifact config.
+     * {@link JdkVersionResolver}. This is not written to the artifact config.
      */
     protected int resolveJdkFeature() throws MojoExecutionException {
-        if (jdkFeature != null) {
-            if (jdkFeature <= 0) {
-                throw new MojoExecutionException("brewlet.jdkFeature must be a positive JDK feature number, e.g. 17.");
-            }
-            getLog().info("Brewlet: application JDK " + jdkFeature + " from explicit brewlet.jdkFeature");
-            return jdkFeature;
-        }
-        return JdkVersionResolver.resolve(project, session, toolchainManager, getLog());
-    }
-
-    /**
-     * Resolves the launcher name for the deployment descriptor's
-     * {@code spec.jvm.launcher}, defaulting to the vanilla {@code java} launcher.
-     */
-    protected String resolveLauncher() {
-        return (launcher == null || launcher.isBlank()) ? "java" : launcher;
-    }
-
-    /**
-     * Resolves the optional JDK distribution for the deployment descriptor's
-     * {@code spec.jvm.distribution}, or {@code null} when unset (any distribution
-     * of the requested feature is acceptable).
-     */
-    protected String resolveJdkDistribution() {
-        return (jdkDistribution == null || jdkDistribution.isBlank())
-                ? null
-                : jdkDistribution.trim();
+        return JdkVersionResolver.resolve(project, session, toolchainManager, getLog(), jdkFeature);
     }
 
     /**
