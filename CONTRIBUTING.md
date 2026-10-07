@@ -233,6 +233,14 @@ CI/build/specification changes, unavailable diff information, and empty diffs
 select all component checks and smoke tests. Pushes to `main`, scheduled CI, and
 manual CI runs also select this full CI set, never the exhaustive E2E scenarios.
 
+The separate `CodeQL` workflow uses the same impact selector: Go analysis runs
+when core, Kubernetes, or admission checks are selected, and Java analysis runs
+when Maven checks are selected. Docs/site-only PRs run the selector but skip
+analysis. Selection follows component dependencies rather than source-file
+extensions, so build inputs and shared contracts can also trigger analysis.
+Unknown/shared inputs, empty or unavailable diffs, pushes to `main`, scheduled
+scans, and manual scans retain analysis of both languages.
+
 | Change | Required coverage |
 | --- | --- |
 | Every PR | Source headers, workflow and Dockerfile policy, routing/gate tests, release-version guard, offline site/installation and E2E fixture contracts; CodeQL runs separately |

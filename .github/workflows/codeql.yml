@@ -20,8 +20,28 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Select affected languages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      codeql: ${{ steps.plan.outputs.codeql }}
+      codeql_matrix: ${{ steps.plan.outputs.codeql_matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Select languages from the complete PR diff
+        id: plan
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/ci_plan.py plan
+
   analyze:
     name: Analyze ${{ matrix.language }}
+    needs: changes
+    if: needs.changes.outputs.codeql == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -30,12 +50,7 @@ jobs:
       security-events: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - language: go
-            build-mode: autobuild
-          - language: java
-            build-mode: none
+      matrix: ${{ fromJSON(needs.changes.outputs.codeql_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

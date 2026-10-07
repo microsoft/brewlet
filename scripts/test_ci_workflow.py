@@ -12,15 +12,37 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = (ROOT / ".github/workflows/ci.yml").read_text()
 
 
-def job(name):
+def job(name, workflow=WORKFLOW):
     match = re.search(rf"^  {re.escape(name)}:\n(.*?)(?=^  [\w-]+:\n|\Z)",
-                      WORKFLOW.split("\njobs:\n", 1)[1], re.MULTILINE | re.DOTALL)
+                      workflow.split("\njobs:\n", 1)[1], re.MULTILINE | re.DOTALL)
     if not match:
         raise AssertionError(f"missing workflow job: {name}")
     return match[1]
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_codeql_reuses_selection_and_skips_empty_matrix(self):
+        workflow = (ROOT / ".github/workflows/codeql.yml").read_text()
+        source = job("changes", workflow)
+        self.assertIn("fetch-depth: 0", source)
+        self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}", source)
+        self.assertIn("PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}", source)
+        self.assertIn("run: python3 scripts/ci_plan.py plan", source)
+        for output in ("codeql", "codeql_matrix"):
+            self.assertIn(f"      {output}: ${{{{ steps.plan.outputs.{output} }}}}", source)
+        analyze = job("analyze", workflow)
+        self.assertIn("    needs: changes", analyze)
+        self.assertIn("    if: needs.changes.outputs.codeql == 'true'", analyze)
+        self.assertIn("matrix: ${{ fromJSON(needs.changes.outputs.codeql_matrix) }}", analyze)
+        self.assertIn("languages: ${{ matrix.language }}", analyze)
+        self.assertIn("build-mode: ${{ matrix.build-mode }}", analyze)
+        self.assertIn("if: matrix.build-mode == 'autobuild'", analyze)
+        triggers = workflow.split("\njobs:\n")[0]
+        self.assertNotIn("paths:", triggers)
+        self.assertNotIn("paths-ignore:", triggers)
+        for event in ("push", "pull_request", "schedule", "workflow_dispatch"):
+            self.assertIn(f"  {event}:", triggers)
+
     def test_gate_covers_every_job_and_runs_after_skips(self):
         names = set(re.findall(r"^  ([\w-]+):$", WORKFLOW.split("\njobs:\n", 1)[1], re.MULTILINE))
         self.assertEqual(names, {"changes", "safeguards", "pr-checks", *JOBS})
