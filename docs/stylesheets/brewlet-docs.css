@@ -128,6 +128,17 @@ body {
   .md-sidebar--secondary .md-sidebar__inner {
     padding: 1.5rem 0.5rem 2.5rem 1.25rem;
   }
+
+  /* Transparent rail headings must scroll with their links, not over them. */
+  .md-nav--primary > .md-nav__title {
+    position: static;
+  }
+}
+
+@media screen and (min-width: 60em) {
+  .md-nav--secondary > .md-nav__title {
+    position: static;
+  }
 }
 
 .md-nav__title {

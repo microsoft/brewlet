@@ -83,6 +83,11 @@ outside `docs/` as GitHub URLs: those files are not published by MkDocs.
 Run `make site-contract-check` for the existing offline site and installation
 contracts as well.
 
+For navigation styling changes, also check the local preview at desktop and
+mobile widths. Scroll inside each desktop sidebar: its heading should scroll
+away with the links rather than overlap them. On mobile, confirm the menu
+drawer still opens and its navigation links remain usable.
+
 ## Deployment
 
 Pushes to `main` that change the web assets, documentation, or Pages
