@@ -36,27 +36,25 @@ Implemented functionality and live end-to-end validation are different:
 |---|---|---|
 | Public release access and local use | The Pages release smoke exercises the released CLI, local Java example, Maven plugin, anonymous chart download, component manifest access, and release provenance. | It renders but does not install the chart or provision nodes. |
 | Kubernetes runtime | The source-built E2E tiers exercise provisioning, serving, manual scaling, and runtime telemetry. | These scenarios do not establish the admission or autoscaling loops below, or production readiness. |
-| Managed-dependency admission | Component tests use substituted registry access and plugin transport; two fresh local arm64 clusters additionally passed 47 real registry, external verifier, Ratify/Gatekeeper and API assertions, including serving JavaApplication Pods. | Live candidate validation uses the released verifier/publisher, corrected Verifier manifest, fixed shim and fixture-only uncached settings. It does not establish an unmodified release pass or ordinary ephemeral-debug execution support; see [#95](https://github.com/microsoft/brewlet/issues/95) and the [runbook](live-validation.md). |
-| CPU autoscaling | Alongside HPA creation and simulated HPA ownership tests, two fresh local arm64 clusters passed real metrics-server-driven 1-to-3-to-1 scaling, Ready Pods, serving endpoints and three ownership reconciliations with a fixed-shim candidate. | The unmodified baseline release exposed a packed-layer GC scale-out failure. The candidate fixes warm reuse, not cold startup after missing-source GC; see [#94](https://github.com/microsoft/brewlet/issues/94) and the [runbook](live-validation.md). |
+| Managed-dependency admission | Component tests use substituted registry access and plugin transport; source-built live tests exercise real registries, the external verifier, Ratify/Gatekeeper and Kubernetes API enforcement. | The live fixture uses test-specific cache, registry and TLS settings. It does not establish ordinary ephemeral-debug execution support; see the [runbook](live-validation.md). |
+| CPU autoscaling | Alongside HPA creation and simulated HPA ownership tests, source-built live tests exercise real metrics-server-driven scale-up/down, Ready Pods, serving endpoints and HPA ownership. | The GC scenario covers verified warm reuse, not cold startup after source layers disappear; see the [runbook](live-validation.md). |
+| CLI and Maven workflows | Source-built live tests exercise CLI operations and Maven deployment in fresh environments. | These runs build the checkout's components and chart; they do not validate installation of published release artifacts. |
 
-[The validation tracker (#93)](https://github.com/microsoft/brewlet/issues/93)
-requires both live scenarios to succeed on two consecutive fresh disposable
-clusters, with mandatory assertions, failure diagnostics, and bounded cleanup.
+Live admission and CPU HPA validation each require two consecutive fresh disposable
+clusters to pass, with mandatory assertions, failure diagnostics, and bounded cleanup.
 The existing E2E harness permits skips; a successful run alone is not evidence
 that every assertion executed. Broader strict-mode work is tracked in
 [#13](https://github.com/microsoft/brewlet/issues/13).
 
-Admission exposed an unsupported Verifier manifest field; CPU validation exposed
-a packed-layer GC defect. Both passes use explicitly identified candidate
-corrections rather than an unmodified baseline installation.
-Both corrections shipped in a subsequent release, but the historical live
-evidence remains pinned to the tested baseline plus those candidate corrections,
-rather than being relabeled as an unmodified release run.
+The [recorded source-built validation](live-validation.md#recorded-source-built-validation)
+passed admission and CPU HPA scenarios twice each on fresh clusters, plus CLI
+and Maven workflows in two fresh environments. These results apply to the
+recorded source revision, not an installation of published release artifacts.
 Do not treat component tests or release smoke results as proof of either live loop,
 or these disposable-cluster runs as production certification.
 
 The [disposable live-validation runbook](live-validation.md) describes the
-independent required scenarios, pinned release baseline, evidence and limits.
+independent required scenarios, tested source revisions, evidence and limits.
 
 ---
 

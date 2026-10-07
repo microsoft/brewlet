@@ -84,7 +84,7 @@ directories. Each implementation maps to a section of the
 | **`brewlet-node-provisioner`** | Privileged operator-managed worker. On UID-claimed NodeProfile nodes it installs the shim, materializes JDK roots + launcher layers, registers the containerd runtime, and labels the node ready; cleanup uses the same ownership fences. | Source: [`provisioner/`](https://github.com/microsoft/brewlet/tree/main/provisioner); [managed installation](installation.md); spec §5 |
 | **`brewlet-operator`** | Reconciles NodeProfiles into provisioning/cleanup DaemonSets and the `brewlet` RuntimeClass, and tracks profile-selected or runtime-ready nodes without adopting unmanaged hosts. | [`kubernetes/cmd/manager/`](https://github.com/microsoft/brewlet/tree/main/kubernetes/cmd/manager), spec §8.1 |
 | **`brewlet-admission`** | Mutating+validating webhook. Overwrites compatibility hints from the selected Pod image onto brewlet pods and matches/steers requested JDK/launcher onto compatible nodes. | [`kubernetes/cmd/admission/`](https://github.com/microsoft/brewlet/tree/main/kubernetes/cmd/admission), spec §8.3 |
-| **Ratify/Gatekeeper enforcement** | Optional policy requiring a valid, trusted final-image managed-dependency attestation for every image on a Brewlet-runtime pod; [#95](https://github.com/microsoft/brewlet/issues/95) records live candidate validation with a corrected manifest and fixture-only settings, not production certification. | [Admission enforcement](admission-enforcement.md), [`admission/`](https://github.com/microsoft/brewlet/tree/main/admission) |
+| **Ratify/Gatekeeper enforcement** | Optional policy requiring a valid, trusted final-image managed-dependency attestation for every image on a Brewlet-runtime pod. Evaluate only in disposable clusters; see [live validation](live-validation.md) for coverage and limits. | [Admission enforcement](admission-enforcement.md), [`admission/`](https://github.com/microsoft/brewlet/tree/main/admission) |
 | **`RuntimeClass/brewlet`** | Routes pods to the shim handler; its `nodeSelector` keeps workloads on ready nodes. | [`deploy/runtimeclass.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/runtimeclass.yaml), spec §7 |
 | **`JavaApplication` CRD** | The higher-level developer-facing deployment descriptor, reconciled by the operator's `JavaApplication` controller (§8.2). | [`deploy/javaapplication-crd.yaml`](https://github.com/microsoft/brewlet/blob/main/kubernetes/deploy/javaapplication-crd.yaml), spec §9 |
 | **Helm chart** | SpinKube-style single-command activation of the operator + provisioner RBAC + webhook. | [`charts/brewlet/`](https://github.com/microsoft/brewlet/tree/main/kubernetes/charts/brewlet/) |
@@ -141,8 +141,8 @@ directories. Each implementation maps to a section of the
    `nodeAffinity`) onto a node with a compatible JDK/launcher. The optional
    [Ratify/Gatekeeper admission integration](admission-enforcement.md) provides
    a policy requiring a trusted final-image managed-dependency attestation.
-   Its live candidate validation uses a corrected manifest and fixture-only
-   settings; use disposable evaluation clusters only.
+   Use disposable evaluation clusters only; the [live runbook](live-validation.md)
+   describes source-built coverage and fixture-specific settings.
 5. The **containerd shim** requires the CRI-recorded requested image to be
    digest-pinned, resolves that exact target from containerd's content store,
    verifies its selected platform manifest against CRI's image-config digest,
@@ -152,7 +152,7 @@ directories. Each implementation maps to a section of the
    and hands it to **runc**.
 6. The JVM runs in a pod with a real IP via CNI, `kubectl logs`/`exec`, probes,
    and Services. The controller can also create a CPU HPA;
-   [live validation is scoped to a fixed-shim candidate](deploying-workloads.md#autoscaling).
+   see [autoscaling requirements and validation limits](deploying-workloads.md#autoscaling).
 
 ```mermaid
 sequenceDiagram
