@@ -96,6 +96,7 @@ nav:
       - Resource requests, limits & JVM tuning: resource-tuning.md
   - Operate:
       - Security: security.md
+      - Custom CA certificates: custom-ca-certificates.md
       - Admission enforcement: admission-enforcement.md
       - Observability: observability.md
       - OpenTelemetry: opentelemetry.md

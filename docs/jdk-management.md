@@ -6,7 +6,8 @@ its Java home lives inside the source image.
 
 Related: [Configuration](configuration.md) ·
 [Capability labels and autoscaling](capability-labels-and-autoscaling.md) ·
-[Launchers](launchers.md) · [Security](security.md).
+[Launchers](launchers.md) · [Custom CA certificates](custom-ca-certificates.md) ·
+[Security](security.md).
 
 ---
 

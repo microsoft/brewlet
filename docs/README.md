@@ -111,6 +111,8 @@ independent required scenarios, pinned release baseline, evidence and limits.
 ### Operate it
 - **[Security](security.md)** — isolation model, non-root defaults, artifact
   integrity, and the sharp edge of privileged node provisioning.
+- **[Custom CA certificates](custom-ca-certificates.md)** — add corporate roots
+  to a platform-owned JDK image, select it, and rotate trust safely.
 - **[Observability & day‑2](observability.md)** — networking, logs, metrics,
   probes, JDK upgrades, and multi-arch operations.
 - **[OpenTelemetry for Java workloads](opentelemetry.md)** — where to put the
