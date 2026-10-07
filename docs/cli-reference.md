@@ -812,6 +812,10 @@ advertised inventory before deploying workloads that require the new runtime.
 
 ### Deleting a profile
 
+For complete control-plane removal and preparing another fresh install, follow
+[Uninstalling Brewlet safely](uninstallation.md). Profile deletion alone does
+not remove the Helm release or its retained CRDs.
+
 `profile delete NAME` deletes an unmanaged live NodeProfile and, with `--wait`,
 follows the operator's host cleanup until the profile is gone. **Deletion is
 destructive:** the operator removes the profile's JDK/launcher runtimes,

@@ -321,7 +321,8 @@ pairs. See the [pre-GA compatibility policy](compatibility.md).
 
 1. Save your reviewed values, profile and workload manifests, and recovery
    evidence. Pause NodeProfile/GitOps writers and drain or move Brewlet workloads.
-2. Follow [Uninstall](#uninstall) using the installed release's cleanup path.
+2. Follow [Uninstalling Brewlet safely](uninstallation.md) using the installed
+   release's cleanup path.
    Keep its operator, provisioner RBAC, and API access available until host
    cleanup and worker teardown complete. Use the explicit profile-cleanup
    sequence if the installation has no uninstall hook.
@@ -340,6 +341,9 @@ pairs. See the [pre-GA compatibility policy](compatibility.md).
    old environment's recovery and cleanup obligations.
    Include [retained AppCDS cache files](#retained-appcds-cache-files) in the
    host-state review; uninstall does not establish that retained files are unused.
+   Use the [explicit empty-CRD review and removal procedure](uninstallation.md#inspect-and-remove-reviewed-empty-crds),
+   including recovery from the CLI's
+   ["Brewlet CRDs already exist" error](uninstallation.md#troubleshooting-brewlet-crds-already-exist).
 5. On the prepared environment, follow the fresh-install instructions with the
    target release's matching chart, components, and CRDs. Recreate reviewed
    manifests in the target format and rebuild/republish artifacts where required.
@@ -635,88 +639,35 @@ specific JDK/launcher), see [Deploying workloads](deploying-workloads.md).
 
 ## Uninstall
 
-Drain or move Brewlet workloads and pause NodeProfile/GitOps writers first.
-Cleanup does not migrate application Pods, and the uninstall coordinator cannot
-atomically lock out new cluster-wide profile creation. Keep the operator,
-provisioner RBAC, and API access available throughout cleanup.
+Follow the dedicated **[Uninstalling Brewlet safely](uninstallation.md)** guide
+for inventory, workload shutdown, profile deprovisioning, hook verification,
+control-plane removal, and preparation for reinstallation.
 
-For a Helm installation:
+Keep the operator, provisioner RBAC, API access, and original nodes available
+until host cleanup and worker teardown finish. Stop workloads at their owning
+controllers and pause writers first. Do not bypass a blocked hook with
+`--no-hooks`, namespace deletion, or finalizer removal.
 
-```bash
-helm uninstall brewlet --namespace brewlet --timeout 5m
-```
-
-The hook uses the **same operator image**, running a bounded cleanup coordinator
-with a dedicated unprivileged service account. It identifies profiles by both
-Helm release ownership annotations and the `app.kubernetes.io/managed-by=Helm`
-label. It requests deletion with UID/resource-version preconditions and waits
-for profiles and their provisioning/cleanup workers to disappear. It never
-removes finalizers or kills privileged workers to force completion. The operator
-performs the normal stop, host-cleanup, and worker-teardown sequence before Helm
-may remove the control plane.
-
-Any manually managed or other-release NodeProfile blocks uninstall: this
-operator is cluster-wide, so removing it would strand those profiles. Have their
-owners deprovision them safely first, or retain the operator. A cleanup failure,
-unavailable node, API error, or timeout also fails the hook and leaves the
-operator/RBAC available. Repair the cause, let cleanup finish, and retry.
-
-```bash
-kubectl get nodeprofiles
-kubectl get daemonsets,pods -n brewlet
-kubectl get jobs -n brewlet -l app=brewlet-uninstall
-kubectl logs -n brewlet -l app=brewlet-uninstall --all-containers=true
-```
-
-The default coordinator timeout is 240 seconds; the Job allows another 20
-seconds and a 10-second termination grace period. For longer operations, set
-`uninstall.timeoutSeconds` **before** uninstalling and use a Helm `--timeout`
-greater than that value plus 30 seconds. Configure `uninstall.imagePullSecrets`
-when the operator image requires registry credentials. Failed cleanup Jobs
-remain for diagnosis until the next attempt. Helm may remove earlier successful
-hook resources even when the Job fails; retry recreates the dedicated hook RBAC.
-The normal operator/RBAC remain available. Do not use `--no-hooks`, delete the
-namespace, or remove finalizers as a timeout workaround.
-
-The component namespace is retained to avoid cascading deletion of unrelated
-objects. Helm also retains CRDs; the operator-created shared RuntimeClass is not
-a chart-owned resource. Review these leftovers before removing them manually.
+**A successful Helm uninstall does not make the environment fresh.** Helm
+retains CRDs, and the CLI refuses either existing Brewlet CRD, even if empty.
+Use the guide's [retained-resource review](uninstallation.md#5-review-retained-resources-before-reinstalling)
+before removing reviewed empty CRDs; do not blindly delete the retained
+namespace, shared RuntimeClass, or host files.
 
 ### Retained AppCDS cache files
 
-AppCDS maintenance manages only [64-hex private cache entries and writer
-markers](appcds.md#43-node-side-regeneration-the-durable-answer-for-a-patched-fleet);
-unrecognized paths are untouched.
-Helm uninstall and provisioner teardown do not remove the AppCDS cache.
-
-For manual reclamation, drain workloads, stop local cache consumers and writers,
-pause provisioning automation, and finish host cleanup and worker teardown.
-Review `/opt/brewlet/cds` (or the configured `BREWLET_CDS_CACHE`) with its owner.
-Remove only individually verified, unused paths belonging to the retired
-installation. Do not follow symlinks, purge the root, use wildcard deletion,
-delete live files, or discard recovery evidence. Unverifiable ownership or use
-requires investigation, not deletion.
+Uninstall does not remove the AppCDS cache or prove retained files are unused.
+See [retained AppCDS cache files](uninstallation.md#retained-appcds-cache-files)
+for the ownership review and safe reclamation rules. Also review
+[retained runnable stage roots](uninstallation.md#retained-runnable-stage-roots).
 
 ### Manual control-plane removal
 
-For raw manifests or an installed chart without a cleanup hook, delete reviewed
-profiles and wait for their finalizers **before** removing the control plane.
-For Helm, inspect the installed hooks with `helm get hooks brewlet -n brewlet`:
-
-```bash
-kubectl get nodeprofiles
-# Replace the placeholder with reviewed profile names after draining workloads.
-kubectl delete nodeprofile <reviewed-profile-names>
-kubectl wait --for=delete nodeprofile <reviewed-profile-names> --timeout=10m
-# Proceed only after all profiles and provisioning/cleanup workers are gone.
-helm uninstall brewlet --namespace brewlet --timeout 5m
-```
-
-For raw manifests, remove the reviewed control-plane manifests only after the
-same cleanup checks. Worker inventory is cluster-wide and read-only; competing
-or foreign-namespace workers block removal and require
-[blocked cleanup recovery](#blocked-cleanup-recovery) before removing
-shared RBAC.
+Raw manifests and installed charts without a cleanup hook require explicit
+profile cleanup **before** removing shared control-plane resources. Follow
+[manual control-plane removal](uninstallation.md#manual-control-plane-removal),
+including cluster-wide worker checks and the installed release's cleanup path.
+Do not delete a manifest bundle containing CRDs or a namespace as a shortcut.
 
 ## Next steps
 
