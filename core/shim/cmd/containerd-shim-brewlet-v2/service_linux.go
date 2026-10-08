@@ -426,6 +426,13 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 		info.entryMode = "jar"
 	}
 
+	// Gate once, before any consumer of ra.Config (argv, mount, mtime pins): on
+	// JDK < 24 -XX:AOTCache is fatal, so the hint must be dropped everywhere.
+	if gated, dropped := kcruntime.GateAOTCache(ra.Config, ra.JDKHome); dropped {
+		fmt.Printf("shim: dropping AOT cache %q: JDK at %s does not support it (needs JDK 24+)\n", ra.Config.AOT.Cache, ra.JDKHome)
+		ra.Config = gated
+	}
+
 	bundleStart := time.Now()
 	var writerLease *kcruntime.CDSWriterLease
 	if err := applyBrewletLaunchWithWriterLease(&spec, ra, r.Bundle, &writerLease); err != nil {
@@ -584,6 +591,8 @@ func applyBrewletLaunchWithWriterLease(
 	// StageCDSJar/staging resolution, a root bind-mount SOURCE. Resolution
 	// already validates it, but this is the trust boundary — re-check and fail
 	// closed rather than mount a host path the image chose.
+	// Idempotent with the caller's gate; covers direct callers.
+	ra.Config, _ = kcruntime.GateAOTCache(ra.Config, ra.JDKHome)
 	mainJar, err := artifact.MainJarName(ra.Config)
 	if err != nil {
 		return err
@@ -710,7 +719,7 @@ func applyBrewletLaunchWithWriterLease(
 	// from dump time, and the blob's mtime is the node's non-deterministic pull
 	// time (see runtime.CDSModTime).
 	jarSource := ra.JarHostPath
-	if ra.Config.CDS != nil || regenerate {
+	if kcruntime.ShipsStartupArchive(ra.Config) || regenerate {
 		staged, err := kcruntime.StageCDSJar(ra.JarHostPath, filepath.Join(bundleDir, "brewlet", "app"), mainJar)
 		if err != nil {
 			return fmt.Errorf("stage cds jar: %w", err)
@@ -732,12 +741,16 @@ func applyBrewletLaunchWithWriterLease(
 	// -XX:SharedArchiveFile path BuildJVMArgs emitted resolves. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	// Skipped under node-side regeneration: there the shipped archive is only seed
 	// data for the node cache (bind-mounted at InSandboxCDSDir instead).
-	if !regenerate && ra.CDSHostPath != "" && ra.Config.CDS != nil && ra.Config.CDS.Archive != "" {
-		if err := artifact.ValidateBareFilename("cds.archive", ra.Config.CDS.Archive); err != nil {
+	if name, _, ok := ra.Config.StartupArchive(); !regenerate && ra.CDSHostPath != "" && ok {
+		field := "cds.archive"
+		if ra.Config.AOT != nil {
+			field = "aot.cache"
+		}
+		if err := artifact.ValidateBareFilename(field, name); err != nil {
 			return err
 		}
 		brewletMounts = append(brewletMounts, specs.Mount{
-			Destination: "/app/" + ra.Config.CDS.Archive,
+			Destination: "/app/" + name,
 			Type:        "bind",
 			Source:      ra.CDSHostPath,
 			Options:     []string{"rbind", "ro"},
@@ -798,7 +811,7 @@ func mountClasspathLayers(spec *specs.Spec, ra resolvedArtifact, bundleDir strin
 	// Pin dependency-JAR mtimes to the canonical CDS value when the artifact
 	// ships an archive or requests node-side regeneration, so training and
 	// later consumers agree on every entry (see runtime.CDSModTime).
-	if ra.Config.CDS != nil || cdsRegenerationRequested(spec) {
+	if kcruntime.ShipsStartupArchive(ra.Config) || cdsRegenerationRequested(spec) {
 		if err := kcruntime.PinCDSModTimesUnder(libHost); err != nil {
 			return err
 		}
@@ -826,7 +839,7 @@ func mountModulepathLayers(spec *specs.Spec, ra resolvedArtifact, bundleDir stri
 	if err := kcruntime.StageModulepathLayers(ra.ModulepathHostPaths, modsHost); err != nil {
 		return err
 	}
-	if ra.Config.CDS != nil || cdsRegenerationRequested(spec) {
+	if kcruntime.ShipsStartupArchive(ra.Config) || cdsRegenerationRequested(spec) {
 		if err := kcruntime.PinCDSModTimesUnder(modsHost); err != nil {
 			return err
 		}
