@@ -1332,6 +1332,11 @@ independently of active `Ready` and assigned/ready counts. A same-name new UID
 does not inherit the old claim. Known original Node UID, providerID, or systemUUID
 conflicts MUST fence returning/re-registered hosts across profiles and retained
 accepted/resolved evidence; unrelated eligible nodes remain provisionable.
+The operator MUST also withdraw Brewlet runtime and capability advertisements
+from every Node matching such an identity, whether or not the Node is selected,
+unowned, or carries another profile's ownership metadata. Withdrawal only removes
+scheduling eligibility; ownership metadata is retained for diagnosis and no
+host cleanup is attempted or recorded.
 Workers carry an immutable `BREWLET_TARGET_UIDS` authorization set and MUST reject
 host writes for any other UID, as well as checking the current active ledger.
 Only workers that cannot authorize the detached UID may coexist with evidence
@@ -2298,7 +2303,7 @@ All are opt-in (`metrics.enabled=true`) and bounded-cardinality.
 | `brewlet_runnable_stage_bytes` | Node exporter; logical regular-file bytes under the host stage root, refreshed per scrape, with no metric-specific labels |
 | `brewlet_telemetry_events_invalid_total` | Node exporter |
 | `brewlet_node_provision_transitions_total` | Operator |
-| `brewlet_nodeprofile_condition`, `brewlet_nodeprofile_nodes` | Operator |
+| `brewlet_nodeprofile_condition`, `brewlet_nodeprofile_nodes`, `brewlet_nodeprofile_detached_retirements` | Operator |
 | `brewlet_admission_requests_total` | Admission webhook |
 
 ### 14.5 Host path layout (`/opt/brewlet`)

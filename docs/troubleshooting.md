@@ -244,7 +244,11 @@ blocking distinct replacement provisioning. A healthy `Ready` condition does
 not mean this history is resolved. Deletion and Helm uninstall still wait for
 every obligation; inspect the detached records and retained evidence rather
 than only the current Node list. Known providerID/systemUUID conflicts exclude
-returning hosts from fresh claims even under another name.
+returning hosts from fresh claims even under another name, and the operator
+withdraws any Brewlet runtime/capability labels from such Nodes regardless of
+their ownership metadata. `brewlet k8s profile list` shows the unresolved count
+as `PENDING RETIREMENTS`; the `brewlet_nodeprofile_detached_retirements` metric
+reports the same value for alerting.
 
 Never remove the `node.brewlet.sh/cleanup` finalizer, ownership labels, or
 status to force deletion: that leaves runtimes and containerd changes on nodes

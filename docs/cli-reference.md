@@ -534,7 +534,10 @@ catalog, a live probe of node files, or proof that a particular Pod uses a JDK.
 Use `--selector` to restrict nodes, such as to runtime-ready nodes.
 
 Profile listing shows **desired** JDK/launcher inventories, pool selection,
-readiness, and node counts. Profile inspection adds the full spec, conditions,
+readiness, node counts, and `PENDING RETIREMENTS` (`pendingRetirements` in
+JSON/YAML): the number of unresolved detached missing-host cleanup obligations.
+A profile can be ready while this count is nonzero; deletion and uninstall
+wait for it to reach zero. Profile inspection adds the full spec, conditions,
 field-management information, and claimed node summaries. Node identity and
 ownership must match the profile's UID. Missing or stale observed generations
 never count as a current Ready condition.

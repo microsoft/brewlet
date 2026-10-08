@@ -13,6 +13,7 @@ func TestAdmissionAndNodeProfileMetrics(t *testing.T) {
 	admissionRequests.Reset()
 	nodeProfileNodes.Reset()
 	nodeProfileCondition.Reset()
+	nodeProfileDetachedRetirements.Reset()
 
 	ObserveAdmission("denied", "NoCompatibleArch")
 	if got := testutil.ToFloat64(admissionRequests.WithLabelValues("denied", "NoCompatibleArch")); got != 1 {
@@ -25,5 +26,14 @@ func TestAdmissionAndNodeProfileMetrics(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(nodeProfileNodes.WithLabelValues("batch", "ready")); got != 2 {
 		t.Fatalf("ready gauge = %v", got)
+	}
+
+	SetNodeProfileDetachedRetirements("batch", 2)
+	if got := testutil.ToFloat64(nodeProfileDetachedRetirements.WithLabelValues("batch")); got != 2 {
+		t.Fatalf("detached retirements gauge = %v", got)
+	}
+	DeleteNodeProfile("batch")
+	if got := testutil.CollectAndCount(nodeProfileDetachedRetirements); got != 0 {
+		t.Fatalf("detached retirements series after delete = %d", got)
 	}
 }

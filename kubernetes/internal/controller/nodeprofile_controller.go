@@ -57,6 +57,8 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	// Every status write requeues this profile, so the persisted count stays current.
+	observability.SetNodeProfileDetachedRetirements(profile.Name, len(profile.Status.DetachedRetirements))
 
 	// Check retained authority before reconciliation can overwrite
 	// a policy, stop its evidence-bearing workers, or release a cleanup claim.

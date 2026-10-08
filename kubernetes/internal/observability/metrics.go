@@ -23,6 +23,10 @@ var (
 		Name: "brewlet_nodeprofile_condition",
 		Help: "Current NodeProfile readiness condition, labeled by reason and boolean status.",
 	}, []string{"profile", "reason", "status"})
+	nodeProfileDetachedRetirements = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "brewlet_nodeprofile_detached_retirements",
+		Help: "Unresolved missing-host cleanup obligations retained by each Brewlet NodeProfile.",
+	}, []string{"profile"})
 	provisionTransitions = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "brewlet_node_provision_transitions_total",
 		Help: "Brewlet node provisioning state transitions.",
@@ -34,6 +38,7 @@ func init() {
 		admissionRequests,
 		nodeProfileNodes,
 		nodeProfileCondition,
+		nodeProfileDetachedRetirements,
 		provisionTransitions,
 	)
 }
@@ -52,9 +57,14 @@ func SetNodeProfile(name string, assigned, ready int32, reason string, condition
 	nodeProfileCondition.WithLabelValues(name, reason, strconv.FormatBool(condition)).Set(1)
 }
 
+func SetNodeProfileDetachedRetirements(name string, count int) {
+	nodeProfileDetachedRetirements.WithLabelValues(name).Set(float64(count))
+}
+
 func DeleteNodeProfile(name string) {
 	nodeProfileNodes.DeletePartialMatch(prometheus.Labels{"profile": name})
 	nodeProfileCondition.DeletePartialMatch(prometheus.Labels{"profile": name})
+	nodeProfileDetachedRetirements.DeletePartialMatch(prometheus.Labels{"profile": name})
 }
 
 func ObserveProvisionTransition(state string) {
