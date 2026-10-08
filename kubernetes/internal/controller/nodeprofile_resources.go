@@ -422,7 +422,7 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 func claimedTargetAffinity(profile *nodev1alpha1.NodeProfile, targets []nodev1alpha1.NodeTarget) *corev1.Affinity {
 	var terms []corev1.NodeSelectorTerm
 	for _, target := range targets {
-		if !target.Claimed {
+		if !target.Claimed || externallyRetired(target) {
 			continue
 		}
 		terms = append(terms, corev1.NodeSelectorTerm{

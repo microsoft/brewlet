@@ -232,6 +232,10 @@ spec:
                       uid: { type: string }
                       claimed: { type: boolean }
                       containerdRestart: { type: string, enum: [validated, none] }
+                      providerID: { type: string }
+                      systemUUID: { type: string }
+                      retirementEvidenceName: { type: string }
+                      retirementEvidenceUID: { type: string }
                 retirement:
                   type: object
                   required: [targets, generation, spec, phase]
@@ -251,6 +255,10 @@ spec:
                           uid: { type: string }
                           claimed: { type: boolean }
                           containerdRestart: { type: string, enum: [validated, none] }
+                          providerID: { type: string }
+                          systemUUID: { type: string }
+                          retirementEvidenceName: { type: string }
+                          retirementEvidenceUID: { type: string }
                 observedGeneration:
                   type: integer
                   format: int64

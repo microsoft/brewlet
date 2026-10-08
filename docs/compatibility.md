@@ -36,7 +36,11 @@ for retained resources and nodes that cannot be safely cleaned.
 An in-place upgrade is supported only when a documented support decision names
 the **source and target releases**, covered components and persisted state,
 prerequisites, validation evidence, and recovery limits. Without that decision,
-use teardown/reinstallation. There are no supported in-place release pairs.
+use teardown/reinstallation. There are no supported general in-place release
+pairs. The [recovery-only maintenance procedure](installation.md#recovery-maintenance-for-an-already-blocked-installation)
+for #237 is limited to intact 0.7.1 UID-bound cleanup ledgers and an explicitly
+pinned, reviewed recovery build. It preserves outstanding obligations; it does
+not promise runtime upgrades, mixed-version operation, or rollback.
 
 Use matching release components and CRDs. Recreate manifests in the target
 release's supported format; rebuild or republish artifacts when its contract

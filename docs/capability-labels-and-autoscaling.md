@@ -256,10 +256,13 @@ and pauses all provisioner and node-metrics workers for that profile, including
 retained/new-node provisioning and upgrades. Retained hosts' runtime roots and
 capability advertisements are preserved.
 
-There is **no supported in-place recovery for a missing/reused node UID**.
-Recreating the name or asserting that the VM was decommissioned does not advance
-the state machine. A disconnected original host can recover if its Node object
-and UID remain intact. After durable `Teardown` has already proven cleanup,
+Missing/reused UIDs remain blocked without
+[authorized, identity-bound retirement evidence](installation.md#verified-external-host-retirement).
+Recreating the Node name or observing a stopped VM does not advance the state
+machine. An administrator must verify permanent retirement of the original host,
+then submit immutable `NodeRetirementEvidence`; Brewlet does not verify the cloud
+record itself. A disconnected original host can recover normally if its Node
+object and UID remain intact. After durable `Teardown` has already proven cleanup,
 later Node disappearance may permit completion once workers are gone. Never
 delete ownership metadata or finalizers to manufacture that proof.
 

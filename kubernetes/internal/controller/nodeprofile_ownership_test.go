@@ -264,7 +264,7 @@ func TestNodeProfileOwnershipFenceJSONPathMatchesDurableAPI(t *testing.T) {
 	if err := parser.Execute(&result, object); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := result.String(), "profile-uid|7||node-uid|true|3|Cleaning|node-uid|true|none|validated"; got != want {
+	if got, want := result.String(), "profile-uid|7||node-uid|true|3|Cleaning|node-uid|true|none|validated||"; got != want {
 		t.Fatalf("fence JSONPath = %q, want %q", got, want)
 	}
 }

@@ -17,7 +17,8 @@ artifacts. They also do not purge retained host caches or staging trees.
     cleanup and worker teardown finish. Do not delete the namespace first,
     remove finalizers, kill cleanup workers, or use Helm `--no-hooks` to bypass
     a failure. Pause node scale-in/replacement as well as configuration writers;
-    losing a recorded node UID can make cleanup unrecoverable in place.
+    losing a recorded node UID blocks cleanup unless permanent external
+    retirement can be resolved through the authorized evidence workflow.
 
 ## 1. Inventory and preserve recovery information
 
@@ -245,6 +246,13 @@ procedure; deleting their DaemonSet alone is not host cleanup.
 
 ## 5. Review retained resources before reinstalling
 
+`NodeRetirementEvidence` records survive NodeProfile deletion and Helm uninstall.
+Resolved historical evidence does not block uninstall, but an unfinished
+`Accepted` obligation does. Unmanaged profiles must still be removed by their
+owners after recovery. Export evidence and Kubernetes API audit records and
+review retention requirements before any administrative archival/removal;
+neither the operator nor the recovery-submitter role deletes evidence.
+
 **Normal uninstall completion:** workloads are stopped or migrated, all profile
 cleanup and worker teardown have finished, and the reviewed control plane is
 removed. CRDs, the component namespace, the shared RuntimeClass, and retained
@@ -260,9 +268,10 @@ After cleanup, repeat the cluster-wide inventory and preserve any needed
 recovery evidence. In particular:
 
 ```bash
-kubectl get crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh
+kubectl get crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh noderetirementevidence.node.brewlet.sh
 kubectl get nodeprofiles.node.brewlet.sh -o yaml
 kubectl get javaapplications.apps.brewlet.sh --all-namespaces -o yaml
+kubectl get noderetirementevidence.node.brewlet.sh -o yaml
 kubectl get daemonsets,pods --all-namespaces -o yaml
 kubectl get nodes -o yaml
 ```
@@ -280,12 +289,13 @@ remaining type. Do not treat a failed resource listing as an empty result.
     or required recovery evidence depending on these CRDs. Keep writers paused
     and recheck immediately before deletion.
 
-Only after those checks, explicitly delete the two reviewed empty CRDs:
+Only after those checks and separately reviewed archival/removal of evidence
+instances, explicitly delete the reviewed empty CRDs:
 
 ```bash
-kubectl delete crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh \
+kubectl delete crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh noderetirementevidence.node.brewlet.sh \
   --wait=true --timeout=5m
-kubectl get crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh \
+kubectl get crd nodeprofiles.node.brewlet.sh javaapplications.apps.brewlet.sh noderetirementevidence.node.brewlet.sh \
   --ignore-not-found
 ```
 
@@ -339,8 +349,9 @@ files are absent or unused.
 Brewlet CRDs already exist; install is fresh-install-only. Complete safe teardown and retained-resource review before reinstalling (docs/installation.md#upgrading)
 ```
 
-The CLI checks for either `nodeprofiles.node.brewlet.sh` or
-`javaapplications.apps.brewlet.sh`; even an empty retained CRD triggers the error.
+The CLI checks for `nodeprofiles.node.brewlet.sh`,
+`javaapplications.apps.brewlet.sh`, and `noderetirementevidence.node.brewlet.sh`;
+even an empty retained CRD triggers the error.
 Do not bypass the guard with a different installation command.
 
 If the release, profiles, applications, and workers are already gone, do not

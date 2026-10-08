@@ -209,7 +209,8 @@ digest.
 ## NodeProfile deletion does not finish
 
 A deleted NodeProfile stays until the operator has stopped its provisioner,
-run host cleanup on every recorded target, and torn down the cleanup workers.
+resolved every recorded target by host cleanup or accepted external-retirement
+evidence, and torn down the cleanup workers.
 Follow progress per node:
 
 ```bash
@@ -220,7 +221,7 @@ brewlet k8s profile delete <name> --wait --wait-timeout 15m
   cleanup worker Pods (`kubectl get pods -n brewlet -l app=brewlet-cleanup,brewlet.sh/nodeprofile=<name> -o wide`)
   for image-pull or scheduling problems, and make sure every target node is
   Ready and the operator is running.
-- **`CleanupTeardown`.** Cleanup finished; the operator is waiting for the
+- **`CleanupTeardown`.** Targets were resolved; the operator is waiting for the
   cleanup workers to terminate.
 - **`CleanupBlocked`.** The profile's spec, source/mirror policy, or pool
   ownership is invalid, a target node is unavailable or was replaced, or a
@@ -229,6 +230,14 @@ brewlet k8s profile delete <name> --wait --wait-timeout 15m
   [source-policy failures](#nodeprofile-source-policy-failures) or
   [blocked cleanup recovery](installation.md#blocked-cleanup-recovery);
   repairing a deleting profile resumes cleanup.
+
+For an AKS or other managed-node replacement, Kubernetes readiness of the new
+Nodes and a successful pool operation do not prove retirement of the original
+hosts. Preserve the original UID ledger, verify permanent destruction of each
+original instance, and follow
+[external-retirement recovery](installation.md#verified-external-host-retirement).
+The same-name replacement is not a cleanup target for the old UID. An unreachable
+original Node still requires connectivity repair, not an attestation bypass.
 
 Never remove the `node.brewlet.sh/cleanup` finalizer, ownership labels, or
 status to force deletion: that leaves runtimes and containerd changes on nodes

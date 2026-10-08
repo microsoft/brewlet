@@ -35,6 +35,32 @@ func testOptions() Options {
 	}
 }
 
+func TestRetirementEvidenceRetention(t *testing.T) {
+	for _, phase := range []string{nodev1alpha1.EvidenceAccepted, nodev1alpha1.EvidenceResolved} {
+		t.Run(phase, func(t *testing.T) {
+			e := &nodev1alpha1.NodeRetirementEvidence{
+				ObjectMeta: metav1.ObjectMeta{Name: "retired", UID: "evidence-uid"},
+				Status:     nodev1alpha1.RetirementEvidenceStatus{Phase: phase},
+			}
+			c := fakeClient(t, e)
+			o := testOptions()
+			o.Timeout = 20 * time.Millisecond
+			err := Run(context.Background(), c, o)
+			if phase == nodev1alpha1.EvidenceAccepted {
+				if err == nil || !strings.Contains(err.Error(), "unfinished accepted") {
+					t.Fatalf("unresolved accepted history must block uninstall: %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("historical evidence should not block uninstall: %v", err)
+			}
+			var retained nodev1alpha1.NodeRetirementEvidence
+			if err := c.Get(context.Background(), client.ObjectKeyFromObject(e), &retained); err != nil {
+				t.Fatal("uninstall deleted retirement history", err)
+			}
+		})
+	}
+}
+
 func ownedProfile(name string) *nodev1alpha1.NodeProfile {
 	return &nodev1alpha1.NodeProfile{ObjectMeta: metav1.ObjectMeta{
 		Name: name, UID: types.UID(name + "-uid"), ResourceVersion: "1",

@@ -1,0 +1,12 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+# Deliberately unbound; grant only to administrators verifying host retirement.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: brewlet-retirement-recovery
+rules:
+  - apiGroups: ["node.brewlet.sh"]
+    resources: ["noderetirementevidence"]
+    verbs: ["create", "get", "list", "watch"]

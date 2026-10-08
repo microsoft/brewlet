@@ -60,6 +60,7 @@ func (c *client) launchers() error {
 
 type profileSummary struct {
 	Name               string          `json:"name"`
+	UID                string          `json:"uid"`
 	Generation         int64           `json:"generation"`
 	ObservedGeneration int64           `json:"observedGeneration"`
 	Ready              bool            `json:"ready"`
@@ -74,7 +75,7 @@ type profileSummary struct {
 func summarizeProfile(obj object) profileSummary {
 	ready, reason := readyCondition(obj)
 	return profileSummary{
-		Name: obj.Metadata.Name, Generation: obj.Metadata.Generation,
+		Name: obj.Metadata.Name, UID: obj.Metadata.UID, Generation: obj.Metadata.Generation,
 		ObservedGeneration: obj.Status.ObservedGeneration,
 		Ready:              ready, Reason: reason, AssignedNodes: obj.Status.AssignedNodes,
 		ReadyNodes: obj.Status.ReadyNodes, ManagedBy: managedBy(obj),
@@ -209,9 +210,11 @@ func (c *client) inspectProfile(name string) error {
 		return err
 	}
 	report := struct {
-		Profile profileSummary `json:"profile"`
-		Nodes   []nodeSummary  `json:"nodes"`
-	}{summarizeProfile(profile), nodes}
+		Profile    profileSummary  `json:"profile"`
+		Nodes      []nodeSummary   `json:"nodes"`
+		Targets    []nodeTarget    `json:"targets,omitempty"`
+		Retirement *nodeRetirement `json:"retirement,omitempty"`
+	}{summarizeProfile(profile), nodes, profile.Status.Targets, profile.Status.Retirement}
 	format := c.opts.output
 	if format == "table" {
 		format = "yaml"

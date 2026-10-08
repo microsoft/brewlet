@@ -16,7 +16,7 @@ on:
       scenario:
         description: Independently runnable live scenario; both runs every live scenario (ignored by tiers suite)
         type: choice
-        options: [both, admission, hpa, workflows]
+        options: [both, admission, hpa, workflows, retirement]
         default: both
 
 concurrency:
@@ -266,7 +266,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ fromJSON(inputs.scenario == 'hpa' && '["hpa"]' || inputs.scenario == 'admission' && '["admission"]' || '["admission","hpa"]') }}
+        scenario: ${{ fromJSON(inputs.scenario == 'hpa' && '["hpa"]' || inputs.scenario == 'admission' && '["admission"]' || inputs.scenario == 'retirement' && '["retirement"]' || '["admission","hpa","retirement"]') }}
     env:
       PYTHONDONTWRITEBYTECODE: "1"
     steps:

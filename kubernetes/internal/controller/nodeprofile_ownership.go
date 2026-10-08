@@ -78,7 +78,10 @@ func desiredTargets(profile *nodev1alpha1.NodeProfile, profiles []nodev1alpha1.N
 			}
 		}
 		if !reserved {
-			targets = append(targets, nodev1alpha1.NodeTarget{Name: node.Name, UID: node.UID})
+			targets = append(targets, nodev1alpha1.NodeTarget{
+				Name: node.Name, UID: node.UID, ProviderID: node.Spec.ProviderID,
+				SystemUUID: node.Status.NodeInfo.SystemUUID,
+			})
 		}
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].Name < targets[j].Name })
@@ -365,12 +368,12 @@ func (r *NodeProfileReconciler) validateTargetClaims(ctx context.Context, profil
 		}
 		var node corev1.Node
 		if err := r.apiReader().Get(ctx, types.NamespacedName{Name: target.Name}, &node); apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("cleanup blocked for %s (%s): original Node object was deleted; recreating its name cannot restore its UID. There is no supported in-place recovery after Node deletion; complete retirement before deleting Node objects: %w", target.Name, target.UID, err)
+			return nil, fmt.Errorf("cleanup blocked for %s (%s): original Node object was deleted; recreating its name cannot restore its UID. Verified permanent host retirement requires authorized NodeRetirementEvidence: %w", target.Name, target.UID, err)
 		} else if err != nil {
 			return nil, fmt.Errorf("cleanup blocked for %s (%s): cannot read original Node; restore API access without replacing its recorded UID: %w", target.Name, target.UID, err)
 		}
 		if node.UID != target.UID {
-			return nil, fmt.Errorf("cleanup blocked for %s (%s): Node UID changed to %s; a replacement cannot prove cleanup of the original host. There is no supported in-place recovery after Node replacement; complete retirement before deleting Node objects", target.Name, target.UID, node.UID)
+			return nil, fmt.Errorf("cleanup blocked for %s (%s): Node UID changed to %s; a replacement cannot prove cleanup of the original host. Verified permanent host retirement requires authorized NodeRetirementEvidence", target.Name, target.UID, node.UID)
 		}
 		if !nodeClaimedBy(&node, profile, target) {
 			return nil, fmt.Errorf("cleanup blocked for %s (%s): node identity or owner changed; refusing another owner's host", target.Name, target.UID)
@@ -387,6 +390,9 @@ func (r *NodeProfileReconciler) validateTargetClaims(ctx context.Context, profil
 
 func (r *NodeProfileReconciler) releaseTargetClaims(ctx context.Context, profile *nodev1alpha1.NodeProfile, targets []nodev1alpha1.NodeTarget) error {
 	for _, target := range targets {
+		if externallyRetired(target) {
+			continue
+		}
 		var node corev1.Node
 		if err := r.apiReader().Get(ctx, types.NamespacedName{Name: target.Name}, &node); apierrors.IsNotFound(err) {
 			continue
@@ -430,22 +436,23 @@ func (r *NodeProfileReconciler) reconcileRetirement(ctx context.Context, profile
 		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonRetargeting, fmt.Errorf("retiring %d nodes: waiting for old provisioners to terminate", len(retirement.Targets)))
 	}
 	if retirement.Phase == nodev1alpha1.RetirementCleaning {
-		nodes, err := r.validateTargetClaims(ctx, profile, retirement.Targets)
+		nodes, err := r.resolveCleanupTargets(ctx, profile, retirement.Targets)
 		if err != nil {
 			return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked,
 				fmt.Errorf("profile-wide provisioning and upgrades are paused, including retained and new nodes; retained-node claims and runtime advertisements are preserved: %w", err))
 		}
+		retirement = profile.Status.Retirement
 		execution := profile.DeepCopy()
 		execution.Generation = retirement.Generation
 		execution.Spec = *retirement.Spec.DeepCopy()
 		execution.Spec.Tolerations = provisioningSnapshot(&retirement.Spec, &profile.Spec).Tolerations
-		execution.Status.Targets = append([]nodev1alpha1.NodeTarget(nil), retirement.Targets...)
+		execution.Status.Targets = cleanupExecutionTargets(retirement.Targets)
 		done, err := r.ensureCleanupComplete(ctx, execution, "", nil, nodes)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		if !done {
-			return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonRetargeting, fmt.Errorf("waiting for explicit cleanup completion on all %d retiring nodes", len(retirement.Targets)))
+			return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonRetargeting, fmt.Errorf("waiting for cleanup completion on %d nodes; external-retirement evidence is retained separately", len(execution.Status.Targets)))
 		}
 		retirement.Phase = nodev1alpha1.RetirementTeardown
 		if err := r.persistOwnershipStatus(ctx, profile); err != nil {
@@ -474,6 +481,9 @@ func (r *NodeProfileReconciler) reconcileRetirement(ctx context.Context, profile
 	}
 	if cleanup || pods {
 		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonRetargeting, fmt.Errorf("retiring cleanup completed; retaining claims until all workers terminate"))
+	}
+	if err := r.finishExternalRetirements(ctx, profile, retirement.Targets); err != nil {
+		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, err)
 	}
 	if err := r.releaseTargetClaims(ctx, profile, retirement.Targets); err != nil {
 		return ctrl.Result{}, err

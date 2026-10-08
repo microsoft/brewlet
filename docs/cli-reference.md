@@ -539,6 +539,15 @@ field-management information, and claimed node summaries. Node identity and
 ownership must match the profile's UID. Missing or stale observed generations
 never count as a current Ready condition.
 
+Inspection also includes the durable `targets` and frozen `retirement` state,
+including original Node UIDs, cleanup restart policy, available host identities,
+and `retirementEvidenceName`/`retirementEvidenceUID` receipts. Deleted original
+Nodes remain visible in this ledger even though they cannot appear in live node
+summaries. Use `kubectl get noderetirementevidence -o yaml` for retained decisions
+and history, including after profile deletion. Recovery is a restricted
+[kubectl evidence workflow](installation.md#verified-external-host-retirement),
+not a force option on `profile delete`.
+
 `status` reports the operator and admission **Deployment rollout state** in
 the control-plane namespace, profile conditions, and node readiness and
 provisioning errors. Without `--namespace`, it lists Deployments labeled

@@ -62,6 +62,7 @@ func TestMain(m *testing.M) {
 		CRDDirectoryPaths: []string{
 			filepath.Join("..", "..", "deploy", "javaapplication-crd.yaml"),
 			filepath.Join("..", "..", "deploy", "nodeprofile-crd.yaml"),
+			filepath.Join("..", "..", "deploy", "noderetirementevidence-crd.yaml"),
 		},
 		ErrorIfCRDPathMissing: true,
 	}

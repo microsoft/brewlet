@@ -200,6 +200,15 @@ func (r *runner) poll(ctx context.Context) (bool, string, error) {
 	if len(profiles) != 0 {
 		return false, "new NodeProfiles appeared during worker inspection", nil
 	}
+	var evidence nodev1alpha1.NodeRetirementEvidenceList
+	if err := r.client.List(ctx, &evidence); err != nil {
+		return false, "", fmt.Errorf("listing retained retirement evidence: %w", err)
+	}
+	for _, e := range evidence.Items {
+		if e.Status.Phase == nodev1alpha1.EvidenceAccepted {
+			return false, "NodeRetirementEvidence " + e.Name + " has an unfinished accepted cleanup obligation", nil
+		}
+	}
 	return true, "confirming no NodeProfiles or workers remain", nil
 }
 

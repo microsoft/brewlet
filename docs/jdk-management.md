@@ -523,7 +523,10 @@ finalizers with `CleanupBlocked`. Repair the spec/source policy or pool conflict
 to resume cleanup; a missing ledger must be restored, not interpreted as an
 empty installation. Unavailable nodes and replaced node UIDs also block cleanup.
 Never clear ownership labels, status, or finalizers as a workaround.
-Missing/reused UIDs before proven cleanup have no supported in-place recovery.
+Missing/reused UIDs before proven cleanup remain blocked unless an authorized
+administrator submits [identity-bound evidence of permanent external retirement](installation.md#verified-external-host-retirement).
+This records an external disposition, not successful host cleanup, and preserves
+the original identities and cleanup policy after the profile is deleted.
 Coordinate [node decommissioning and autoscaler scale-in](capability-labels-and-autoscaling.md#scale-in-consolidation-and-replacement)
 before removing a Node or VM.
 

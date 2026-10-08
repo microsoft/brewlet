@@ -15,6 +15,21 @@ fixtures = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixtures)
 
 
+class OperatorAPIsTest(unittest.TestCase):
+    def test_standalone_manager_tiers_install_every_watched_crd(self):
+        for filename in ("tier4-k8s.sh", "tier7-petclinic.sh", "tier13-nodeprofile.sh",
+                         "tier18-jdk-patch.sh"):
+            source = Path(__file__).with_name(filename).read_text()
+            with self.subTest(tier=filename):
+                for crd, resource in (
+                    ("nodeprofile", "nodeprofiles.node.brewlet.sh"),
+                    ("javaapplication", "javaapplications.apps.brewlet.sh"),
+                    ("noderetirementevidence", "noderetirementevidence.node.brewlet.sh"),
+                ):
+                    self.assertIn(f'/deploy/{crd}-crd.yaml"', source)
+                    self.assertIn(f"crd/{resource}", source)
+
+
 class PlacementTest(unittest.TestCase):
     def setUp(self):
         self.node = {"metadata": {"name": "worker", "uid": "node-uid",

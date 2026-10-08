@@ -92,6 +92,8 @@ func TestUninstallDirectClientUsesClusterWideFreshLists(t *testing.T) {
 		switch r.URL.Path {
 		case "/apis/node.brewlet.sh/v1alpha1/nodeprofiles":
 			apiVersion, kind = "node.brewlet.sh/v1alpha1", "NodeProfileList"
+		case "/apis/node.brewlet.sh/v1alpha1/noderetirementevidence":
+			apiVersion, kind = "node.brewlet.sh/v1alpha1", "NodeRetirementEvidenceList"
 		case "/apis/apps/v1/daemonsets":
 			apiVersion, kind = "apps/v1", "DaemonSetList"
 		case "/api/v1/pods":
@@ -116,8 +118,8 @@ func TestUninstallDirectClientUsesClusterWideFreshLists(t *testing.T) {
 	if err := uninstall.Run(context.Background(), c, o); err != nil {
 		t.Fatal(err)
 	}
-	if requests.Load() != 8 {
-		t.Fatalf("requests=%d, want two fresh complete scans (8 reads)", requests.Load())
+	if requests.Load() != 10 {
+		t.Fatalf("requests=%d, want two fresh complete scans (10 reads)", requests.Load())
 	}
 }
 

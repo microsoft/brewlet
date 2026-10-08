@@ -144,6 +144,7 @@ func TestCLIIntegration(t *testing.T) {
 	t.Run("concurrent-status-write", f.testStatusChurn)
 	t.Run("application-inspection", f.testAppInspection)
 	t.Run("profile-deletion", f.testProfileDeletion)
+	t.Run("retirement-evidence", f.testRetirementEvidence)
 	t.Run("install-refuses-existing-crds", f.testInstallGuard)
 	unchanged, err := os.ReadFile(poison)
 	must(t, err)

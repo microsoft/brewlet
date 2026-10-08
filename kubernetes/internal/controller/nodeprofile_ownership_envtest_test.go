@@ -445,7 +445,7 @@ func TestNodeProfileUnavailableRetirementPausesWholeProfileAndPreservesRetainedN
 					!strings.Contains(p.Status.Conditions[0].Message, "profile-wide provisioning and upgrades are paused") {
 					t.Fatalf("status must disclose the profile-wide pause: %+v", p.Status.Conditions)
 				}
-				if loss != "disconnected" && !strings.Contains(p.Status.Conditions[0].Message, "no supported in-place recovery") {
+				if loss != "disconnected" && !strings.Contains(p.Status.Conditions[0].Message, "NodeRetirementEvidence") {
 					t.Fatalf("lost UID status must not imply that recreating the Node recovers retirement: %+v", p.Status.Conditions)
 				}
 				if p.Status.Retirement == nil || len(p.Status.Retirement.Targets) != 1 ||

@@ -31,7 +31,7 @@ class CheckoutTests(unittest.TestCase):
         return fixture
 
     def test_every_scenario_uses_checkout_source(self):
-        for scenario in ("smoke", "hpa", "admission", "workflows"):
+        for scenario in ("smoke", "hpa", "admission", "workflows", "retirement"):
             fixture = self.fixture(scenario)
             self.assertEqual(fixture.scenario, scenario)
             self.assertEqual(fixture.source, ROOT)
@@ -107,6 +107,25 @@ class CheckoutTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "foreign image"):
                 fixture.remove_checkout_images()
         execute.assert_called_once_with(["docker", "image", "inspect", "foreign"], check=False)
+
+    def test_pins_checkout_images_on_every_owned_worker(self):
+        fixture = self.fixture("retirement")
+        fixture.node_id = "control-plane"
+        fixture.worker_ids = {"worker": "original", "worker2": "replacement"}
+        fixture.built = {"provisioner": "brewlet.local/provisioner:candidate"}
+        fixture.save("versions.json", {})
+        digest = "sha256:" + "a" * 64
+        result = subprocess.CompletedProcess(
+            [], 0, f"brewlet.local/provisioner:candidate type {digest}", "")
+        with patch.object(fixture, "run", return_value=result) as execute, \
+                patch.object(fixture, "load_image"), patch.object(fixture, "own_container") as owned:
+            fixture.component_images()
+        self.assertEqual([c.args[0] for c in owned.call_args_list], ["worker", "worker2"])
+        for identifier in ("original", "replacement"):
+            self.assertIn(["docker", "exec", identifier, "ctr", "-n", "k8s.io", "images",
+                           "tag", "--force", fixture.built["provisioner"],
+                           "brewlet.local/provisioner@" + digest],
+                          [c.args[0] for c in execute.call_args_list])
 
     def test_hpa_always_checks_retained_bytes(self):
         digest, layer = "sha256:" + "a" * 64, "sha256:" + "b" * 64

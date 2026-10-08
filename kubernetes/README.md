@@ -106,6 +106,15 @@ The raw manifests use these images:
 | Admission webhook | `ghcr.io/microsoft/brewlet-admission` |
 | Node provisioner | `ghcr.io/microsoft/brewlet-node-provisioner` |
 
+## External-retirement recovery
+
+Missing or replaced original Nodes remain fail-closed unless an authorized
+administrator submits immutable `NodeRetirementEvidence` bound to the original
+profile/Node UIDs and a verified permanent platform retirement record. The
+unbound `brewlet-retirement-recovery` role grants submission, not status editing
+or evidence deletion. Original cleanup obligations and decisions survive profile
+deletion. See the [recovery and maintenance procedure](../docs/installation.md#verified-external-host-retirement).
+
 ## Build and test
 
 Run component checks from the monorepo root:
