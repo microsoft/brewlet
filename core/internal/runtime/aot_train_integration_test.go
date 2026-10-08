@@ -108,5 +108,8 @@ func TestAOTCacheTrainThenMapIntegration(t *testing.T) {
 		if code == 0 {
 			t.Fatalf("expected a drifted-mtime JAR to be refused, but it ran:\n%s", out)
 		}
+		if !strings.Contains(out, "timestamp has changed") {
+			t.Fatalf("expected the refusal to name the JAR timestamp drift:\n%s", out)
+		}
 	})
 }

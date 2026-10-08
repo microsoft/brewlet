@@ -128,14 +128,33 @@ func runTraining(cfg artifact.JVMConfig, jarPath, javaBin, outArchive, outputOpt
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	ctx, stop := trainingContext(ctx)
+	defer stop()
 	cmd := exec.CommandContext(ctx, javaBin, jvmArgs...)
 	cmd.Dir = scratch
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	isolateTrainingGroup(cmd)
 	runErr := cmd.Run()
 
-	if ctx.Err() == context.DeadlineExceeded {
+	err = trainingOutcome(ctx.Err(), runErr, absOut, timeout, timeoutHint)
+	if err != nil {
+		// A timed-out or failed run may leave a JEP 514 assembly child behind; kill
+		// it before removing the output (and the temporary AOTConfiguration the
+		// launcher records next to it) so nothing is written after we return.
+		reapTrainingGroup(cmd)
+		_ = os.Remove(absOut)
+		_ = os.Remove(absOut + ".config")
+	}
+	return err
+}
+
+func trainingOutcome(ctxErr, runErr error, absOut string, timeout time.Duration, timeoutHint string) error {
+	if ctxErr == context.DeadlineExceeded {
 		return fmt.Errorf("training run did not exit within %s; a fat JAR must self-terminate for %s", timeout, timeoutHint)
+	}
+	if ctxErr != nil {
+		return fmt.Errorf("training run interrupted: %w", ctxErr)
 	}
 	// A dynamic-CDS training JVM writes the archive on any clean shutdown; the
 	// app's own exit code is not authoritative, so treat a produced, non-empty
