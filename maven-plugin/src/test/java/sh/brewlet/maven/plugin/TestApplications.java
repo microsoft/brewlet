@@ -150,7 +150,7 @@ final class TestApplications {
 
     static String java(Path directory, List<String> args) throws Exception {
         List<String> command = new ArrayList<>();
-        command.add(AppCdsMojo.javaBinary(new java.io.File(System.getProperty("java.home"))).toString());
+        command.add(sh.brewlet.maven.plugin.util.TrainingRun.javaBinary(new java.io.File(System.getProperty("java.home"))).toString());
         command.addAll(args);
         Path log = directory.resolve("jvm.log");
         Process process = new ProcessBuilder(command).directory(directory.toFile())

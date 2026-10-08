@@ -17,6 +17,7 @@ import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.oci.LocalStore;
 import sh.brewlet.maven.plugin.oci.MediaTypes;
 import sh.brewlet.maven.plugin.util.PreparedApplication;
+import sh.brewlet.maven.plugin.util.TrainingRun;
 
 import java.io.ByteArrayInputStream;
 import java.nio.ByteBuffer;
@@ -63,7 +64,7 @@ class LayeredBootPackagingTest {
             assertNull(jar.getEntry("BOOT-INF/classes/app/Main.class"));
             assertFalse(jar.stream().anyMatch(e -> e.getName().endsWith(".jar")));
         }
-        assertTrue(TestApplications.java(deployed, AppCdsMojo.launchSelector(config, config.getMainJar()))
+        assertTrue(TestApplications.java(deployed, TrainingRun.launchSelector(config, config.getMainJar()))
                 .contains("first:resource"));
 
         ConfigMojo configMojo = new ConfigMojo();
@@ -88,7 +89,7 @@ class LayeredBootPackagingTest {
         Path training = root.resolve("training");
         Files.createDirectories(training.resolve("lib"));
         Files.writeString(training.resolve("lib/stale.jar"), "must not train stale library");
-        cds.stageTrainingInputs(config, "classpath", cds.prepareApplication(), training);
+        cds.training().stageTrainingInputs(cds.resolveJarFile(), config, "classpath", cds.prepareApplication(), training);
         assertFalse(Files.exists(training.resolve("lib/stale.jar")));
         for (String file : config.getEntry().getClassPath()) {
             assertEquals(LocalStore.sha256Hex(Files.readAllBytes(deployed.resolve(file))),
@@ -98,13 +99,13 @@ class LayeredBootPackagingTest {
         // Dynamic CDS exists on JDK 17; the public turnkey goal's JDK 21 floor is unchanged.
         List<String> trainArgs = new ArrayList<>();
         trainArgs.add("-XX:ArchiveClassesAtExit=trained.jsa");
-        trainArgs.addAll(AppCdsMojo.launchSelector(config, config.getMainJar()));
+        trainArgs.addAll(TrainingRun.launchSelector(config, config.getMainJar()));
         assertTrue(TestApplications.java(training, trainArgs).contains("first:resource"));
         assertTrue(Files.size(training.resolve("trained.jsa")) > 0);
         Files.copy(training.resolve("trained.jsa"), deployed.resolve("trained.jsa"));
         List<String> runArgs = new ArrayList<>(List.of(
                 "-Xshare:on", "-XX:SharedArchiveFile=trained.jsa", "-Xlog:class+load=info"));
-        runArgs.addAll(AppCdsMojo.launchSelector(config, config.getMainJar()));
+        runArgs.addAll(TrainingRun.launchSelector(config, config.getMainJar()));
         String mapped = TestApplications.java(deployed, runArgs);
         assertTrue(mapped.contains("app.Main source: shared objects file"), mapped);
         assertTrue(mapped.contains("lib.Dependency source: shared objects file"), mapped);
@@ -199,7 +200,7 @@ class LayeredBootPackagingTest {
             Path deployed = root.resolve("pushed");
             JvmConfig config = unpack(layout, deployed);
             assertEquals(List.of("boot.jar", "lib/z-SNAPSHOT.jar", "lib/a.jar"), config.getEntry().getClassPath());
-            assertTrue(TestApplications.java(deployed, AppCdsMojo.launchSelector(config, "boot.jar"))
+            assertTrue(TestApplications.java(deployed, TrainingRun.launchSelector(config, "boot.jar"))
                     .contains("first:resource"));
             assertArrayEquals(boot.first(), Files.readAllBytes(deployed.resolve("lib/z-SNAPSHOT.jar")));
             assertArrayEquals(Files.readAllBytes(push.prepareApplication().jar().toPath()),
@@ -247,7 +248,7 @@ class LayeredBootPackagingTest {
         TestApplications.configure(mojo, boot.source(), root.resolve("output"), true);
         JvmConfig config = mojo.buildConfig();
         assertThrows(MojoExecutionException.class,
-                () -> mojo.stageTrainingInputs(config, "classpath", mojo.prepareApplication(), root));
+                () -> mojo.training().stageTrainingInputs(mojo.resolveJarFile(), config, "classpath", mojo.prepareApplication(), root));
         assertArrayEquals(original, Files.readAllBytes(boot.source()));
     }
 
@@ -348,7 +349,7 @@ class LayeredBootPackagingTest {
         mojo.execute();
         Path deployed = root.resolve("deployed");
         JvmConfig config = unpack(layout, deployed);
-        assertTrue(TestApplications.java(deployed, AppCdsMojo.launchSelector(config, "boot.jar"))
+        assertTrue(TestApplications.java(deployed, TrainingRun.launchSelector(config, "boot.jar"))
                 .contains("first:package scan and templates"));
         byte[] first = Files.readAllBytes(deployed.resolve("boot.jar"));
         mojo.execute();
@@ -556,7 +557,7 @@ class LayeredBootPackagingTest {
         BuildMojo mojo = new BuildMojo();
         TestApplications.configure(mojo, plain, root.resolve("plain-out"), true);
         assertEquals(plain.toFile(), mojo.prepareApplication().jar());
-        assertTrue(TestApplications.java(root, AppCdsMojo.launchSelector(mojo.buildConfig(), "plain.jar")).contains("plain"));
+        assertTrue(TestApplications.java(root, TrainingRun.launchSelector(mojo.buildConfig(), "plain.jar")).contains("plain"));
 
         Path module = TestApplications.compile(root.resolve("module"), "module-info", "module demo.app {}");
         Path app = TestApplications.compile(root.resolve("module-main"), "demo.Main",
@@ -569,7 +570,7 @@ class LayeredBootPackagingTest {
         mojo.mainClass = "demo.Main";
         assertEquals(modular.toFile(), mojo.prepareApplication().jar());
         assertEquals("module", mojo.buildConfig().getEntry().getMode());
-        assertTrue(TestApplications.java(root, AppCdsMojo.launchSelector(mojo.buildConfig(), "modular.jar")).contains("modular"));
+        assertTrue(TestApplications.java(root, TrainingRun.launchSelector(mojo.buildConfig(), "modular.jar")).contains("modular"));
     }
 
     private void assertInvalidZip(Path source, byte[] bytes) throws Exception {

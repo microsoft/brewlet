@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import sh.brewlet.maven.plugin.util.TrainingRun;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -43,8 +44,8 @@ class AppCdsLifecycleTest {
             });
         }
         assertThrows(MojoExecutionException.class, () -> {
-            if (failure.equals("exit")) mojo.runSelfTerminating(command, root.toFile());
-            else mojo.runSignalTraining(command, root.toFile());
+            if (failure.equals("exit")) mojo.training().runSelfTerminating(command, root.toFile());
+            else mojo.training().runSignalTraining(command, root.toFile());
         });
         assertReaped(readPid());
     }
@@ -64,8 +65,8 @@ class AppCdsLifecycleTest {
         AtomicBoolean interrupted = new AtomicBoolean();
         Thread worker = new Thread(() -> {
             try {
-                if (phase.equals("exit")) mojo.runSelfTerminating(command, root.toFile());
-                else mojo.runSignalTraining(command, root.toFile());
+                if (phase.equals("exit")) mojo.training().runSelfTerminating(command, root.toFile());
+                else mojo.training().runSignalTraining(command, root.toFile());
             } catch (Throwable e) {
                 failure.set(e);
             } finally {
@@ -104,7 +105,7 @@ class AppCdsLifecycleTest {
         mojo.setLog(new SystemStreamLog() {
             @Override public void info(CharSequence content) { output.add(content.toString()); }
         });
-        int code = mojo.runSignalTraining(command, root.toFile());
+        int code = mojo.training().runSignalTraining(command, root.toFile());
         assertTrue(code == 0 || code == 143);
         assertTrue(Files.size(archive) > 0);
         assertReaped(readPid());
@@ -131,7 +132,7 @@ class AppCdsLifecycleTest {
             }
         });
         MojoExecutionException failure = assertThrows(MojoExecutionException.class,
-                () -> mojo.runSignalTraining(command, root.toFile()));
+                () -> mojo.training().runSignalTraining(command, root.toFile()));
         assertInstanceOf(IllegalStateException.class, failure.getCause());
         assertReaped(readPid());
     }
@@ -144,10 +145,10 @@ class AppCdsLifecycleTest {
             @Override public int read() throws java.io.IOException { throw failure; }
         };
         AtomicReference<Throwable> observed = new AtomicReference<>();
-        var pump = AppCdsMojo.class.getDeclaredMethod("pumpOutput", java.io.InputStream.class,
+        var pump = TrainingRun.class.getDeclaredMethod("pumpOutput", java.io.InputStream.class,
                 java.util.regex.Pattern.class, CountDownLatch.class, AtomicReference.class);
         pump.setAccessible(true);
-        pump.invoke(mojo(), brokenStream, null, null, observed);
+        pump.invoke(mojo().training(), brokenStream, null, null, observed);
         assertSame(failure, observed.get(), "Real I/O errors must not be suppressed based on their message");
     }
 
@@ -157,7 +158,7 @@ class AppCdsLifecycleTest {
         List<String> command = command(false);
         for (String url : List.of("file:///etc/hosts", "http:/missing-host", "not a URL")) {
             TestApplications.set(mojo, "readyHttp", url);
-            assertThrows(MojoExecutionException.class, () -> mojo.runSignalTraining(command, root.toFile()));
+            assertThrows(MojoExecutionException.class, () -> mojo.training().runSignalTraining(command, root.toFile()));
             assertFalse(Files.exists(root.resolve("server.pid")));
         }
         Path jar = root.resolve("server.jar");
@@ -177,7 +178,7 @@ class AppCdsLifecycleTest {
         TestApplications.set(mojo, "readyDelaySeconds", 30);
         long start = System.nanoTime();
         assertThrows(MojoExecutionException.class,
-                () -> mojo.runSignalTraining(command(false), root.toFile()));
+                () -> mojo.training().runSignalTraining(command(false), root.toFile()));
         assertTrue(TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start) < 15);
         assertReaped(readPid());
     }
@@ -208,7 +209,7 @@ class AppCdsLifecycleTest {
             TestApplications.set(mojo, "readyHttp", server.url());
             long start = System.nanoTime();
             MojoExecutionException failure = assertThrows(MojoExecutionException.class,
-                    () -> mojo.runSignalTraining(command, root.toFile()));
+                    () -> mojo.training().runSignalTraining(command, root.toFile()));
             assertTrue(failure.getMessage().contains("Timed out"), failure.getMessage());
             assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 4000,
                     "A one-second readiness budget waited for the five-second response");
@@ -230,7 +231,7 @@ class AppCdsLifecycleTest {
             AtomicBoolean interrupted = new AtomicBoolean();
             Thread training = new Thread(() -> {
                 try {
-                    mojo.runSignalTraining(command, root.toFile());
+                    mojo.training().runSignalTraining(command, root.toFile());
                 } catch (Throwable e) {
                     failure.set(e);
                 } finally {
@@ -266,7 +267,7 @@ class AppCdsLifecycleTest {
             server.gateOnStartup(mojo);
             TestApplications.set(mojo, "readyHttp", server.url());
             long start = System.nanoTime();
-            int exit = mojo.runSignalTraining(command, root.toFile());
+            int exit = mojo.training().runSignalTraining(command, root.toFile());
             assertTrue(exit == 0 || exit == 143);
             assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 4000);
             assertTrue(server.disconnected.await(3, TimeUnit.SECONDS), "Unused response body remained open");
@@ -367,7 +368,7 @@ class AppCdsLifecycleTest {
                 "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMain-Class: TrainingServer\n\n".getBytes(StandardCharsets.UTF_8),
                 "TrainingServer.class", Files.readAllBytes(classes.resolve("TrainingServer.class")))));
         List<String> command = new ArrayList<>(List.of(
-                AppCdsMojo.javaBinary(new java.io.File(System.getProperty("java.home"))).toString(),
+                TrainingRun.javaBinary(new java.io.File(System.getProperty("java.home"))).toString(),
                 "-jar", jar.toString(), root.resolve("server.pid").toString()));
         if (slowShutdown) command.add("slow-shutdown");
         return command;
