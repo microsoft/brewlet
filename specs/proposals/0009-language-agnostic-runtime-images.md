@@ -119,6 +119,11 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
   that need cgroup-aware tuning MUST obtain it from the runtime image itself.
 - Building runtime images. Golden images are produced by the platform team's
   existing image pipeline; Brewlet only approves, distributes, and composes them.
+- A generic workload CRD. `JavaApplication` is removed and is not replaced by a
+  language-neutral equivalent in 2.0; Deployments, StatefulSets, and DaemonSets
+  are the workload API.
+- Per-container runtime images. A pod uses exactly one runtime image (§8.1).
+- Running workloads as root (§8.4).
 - Sandboxes other than runc. [Proposal 0006](0006-sandbox-isolation-tiers.md)
   remains the venue for stronger isolation.
 
@@ -176,6 +181,9 @@ reject, before any mount, a layer containing:
   escapes `app/` through a symlink or hardlink target;
 - device, FIFO, or socket nodes;
 - setuid or setgid bits;
+- regular files that are not readable by others, or directories that are not
+  readable and searchable by others (the process never runs as the file owner,
+  §8.4);
 - whiteouts or opaque-directory markers that target anything outside `app/`.
 
 These rules make the runtime root **unshadowable**: no application or dependency
@@ -301,8 +309,9 @@ spec:
   source:
     image: registry.example.com/golden/python@sha256:<64 hex>   # index or manifest
   description: CPython 3.12 on hardened Debian 12, glibc ABI
-  defaults:
-    user: 10001                # numeric; applied by admission when the pod sets none (§8.4)
+  user:                        # the image's non-root `app` account (§8.4); immutable
+    uid: 1000
+    gid: 1000
   compatibility:               # informational; drives docs and tooling, not matching
     ecosystem: python
     abi: glibc-2.36
@@ -317,6 +326,9 @@ status:
 - `spec.source.image` MUST be a canonical `repo@sha256:<64 lowercase hex>`
   reference, subject to the existing source policy and mirror allowlist (SPEC §5.3).
   Tags are rejected.
+- `spec.user.uid` and `spec.user.gid` are required, MUST be non-zero, and are
+  immutable: they identify the image's `app` account (§7.2, §8.4) and are part of
+  the ID's compatibility promise.
 - Changing `spec.source.image` is a **rotation**: the controller increments
   `status.generation` and every node that offers the ID converges to the new
   generation (§7.3). Changing any other identity-bearing field requires a new ID.
@@ -336,16 +348,39 @@ architecture of the pools that offer it. Its **config** contributes:
 
 Its root filesystem MUST NOT contain a non-empty `/app`; the shim requires `/app`
 to be absent or an empty directory so application content never merges with
-runtime content. Runtime images SHOULD be minimal, SHOULD NOT contain setuid
+runtime content. `/app` is the only application prefix for every ecosystem.
+
+Its root filesystem MUST define a non-root account named **`app`** in
+`/etc/passwd` (and its primary group in `/etc/group`) whose UID and GID equal
+`RuntimeImage.spec.user`, with an existing home directory. The provisioner
+verifies this during validation and refuses a generation that does not match. Runtime images SHOULD be minimal, SHOULD NOT contain setuid
 binaries or package managers, and SHOULD carry an SBOM referrer. The provisioner
 applies the existing safe-extraction rules (SPEC §5.3) and records
 `.brewlet-source` with the resolved digest; the 1.x `.brewlet-java-home` marker is
 removed.
 
+**Deriving from third-party images.** Vendor images rarely meet these rules out
+of the box. A platform team customizes them in its own image pipeline and
+approves the result, not the vendor image. For example, a golden image based on
+the Oracle JDK container image adds the `app` account, removes any content under
+`/app`, strips setuid/setgid bits, and optionally removes package managers and
+shells before being pushed and pinned by digest:
+
+```dockerfile
+FROM container-registry.oracle.com/java/jdk:21
+RUN groupadd --gid 1000 app \
+ && useradd --uid 1000 --gid app --home-dir /home/app --create-home --shell /sbin/nologin app \
+ && rm -rf /app \
+ && find / -xdev -perm /6000 -type f -exec chmod ug-s {} +
+```
+
+Brewlet does not build or modify runtime images; licensing and redistribution
+terms of the base image remain the platform team's responsibility.
+
 **An ID is a compatibility promise.** Rotating the digest behind an ID MUST
 preserve everything applications built against that ID depend on: language
-minor/feature line, C library and ABI, `PATH` layout, and the presence of
-documented tools. A change that breaks any of these — a new major runtime, a
+minor/feature line, C library and ABI, `PATH` layout, the `app` account, and the
+presence of documented tools. A change that breaks any of these — a new major runtime, a
 libc switch from glibc to musl, a changed interpreter path — MUST be published as
 a new ID. This is the contract that makes digest-free workload references safe.
 
@@ -465,6 +500,49 @@ on every node in the pool. Switching from `Eager` to `OnDemand` leaves existing
 installations in place as `ready` (subject to `idleTTL`) rather than removing
 them.
 
+### 7.6 Opt-in rolling restart on rotation
+
+A rotation reaches running containers only when they restart (§7.3). Workloads
+that want a patched runtime promptly opt in to an operator-driven rolling
+restart.
+
+**Enablement.** The feature has two opt-ins:
+
+1. **Cluster:** the chart value `operator.rotationRestarts.enabled` (default
+   `false`) grants the operator `get`/`list`/`watch`/`patch` on Deployments,
+   StatefulSets, and DaemonSets. Without it the operator has no such RBAC.
+2. **Workload:** the annotation `brewlet.sh/restart-on-rotation: "true"` on the
+   Deployment, StatefulSet, or DaemonSet object (not its pod template).
+
+**Trigger.** A `RuntimeImage` rotation sets condition `RotationComplete` and
+`status.rotationCompletedAt` once every node that has the ID installed (an
+`Eager` entry, or an `OnDemand` entry in state `ready`) has the new generation
+`current`. Waiting for completion guarantees that restarted pods cannot land on
+a node still serving the previous generation.
+
+**Selection.** The operator then considers each opted-in workload whose pod
+template carries `brewlet.sh/runtime-image: <id>`, and restarts it if at least
+one of its running pods started before `status.rotationCompletedAt`. Workloads
+created or rolled after completion are therefore left alone.
+
+**Mechanism.** The operator patches the pod template annotation
+`brewlet.sh/rotated-to-generation: "<generation>"`. This is the same mechanism as
+`kubectl rollout restart`: the workload's own controller performs the rollout
+and honors its update strategy (`maxUnavailable`, `maxSurge`, partitions,
+`minReadySeconds`). The annotation also makes the patch idempotent: a workload
+whose template already records the current generation is not patched again.
+
+**Pacing.** At most `operator.rotationRestarts.maxConcurrent` workloads (default
+`5`) roll at the same time cluster-wide. A slot is freed when the rollout
+completes or exceeds its progress deadline; a failed rollout is reported and
+does not block other workloads. A newer rotation of the same ID supersedes
+pending restarts for the older generation.
+
+**Out of scope.** Bare pods, Jobs, and CronJobs are not restarted (their next
+pod uses the current generation). Other workload controllers can watch the
+`RotationComplete` condition themselves. GitOps tools SHOULD ignore
+`brewlet.sh/rotated-to-generation` on pod templates to avoid reporting drift.
+
 ## 8. Workload contract
 
 ### 8.1 Pod selection
@@ -494,7 +572,10 @@ spec:
   annotation is denied by admission and failed by the shim
   (`RuntimeImageRequired`).
 - The annotation is pod-wide. Every container of the pod that the shim executes
-  uses the same runtime image. Per-container selection is an open question (§15).
+  uses the same runtime image; there is no per-container form. A workload that
+  needs several languages in one sandbox uses a runtime image the platform team
+  composes for that purpose (for example, `java-21-python-3.12`), approved like
+  any other ID.
 - The application `image:` MUST be digest-pinned, exactly as in 1.x (SPEC §4.4); the
   shim's CRI identity checks are unchanged.
 - Init and sidecar containers that are ordinary images MAY be present; as in 1.x,
@@ -545,12 +626,25 @@ spec:
 
 ### 8.4 User identity
 
-The application image config `User` is empty, so CRI derives the process user
-from the pod `securityContext` alone. When a pod sets no `runAsUser`, admission
-injects `RuntimeImage.spec.defaults.user` (if declared) into the container
-`securityContext`. Because admission is fail-open, clusters that require
-non-root execution SHOULD additionally enforce Pod Security `restricted`; the
-shim does not invent a user.
+Brewlet 2.0 workloads never run as root. The default identity is the runtime
+image's `app` account.
+
+- The application image config `User` is empty, so CRI derives the process user
+  from the pod `securityContext` alone.
+- When a container sets no `runAsUser` (directly or through the pod
+  `securityContext`), admission sets `runAsUser`/`runAsGroup` to
+  `RuntimeImage.spec.user` and `runAsNonRoot: true`.
+- An explicit non-zero `runAsUser` is permitted (for example, platforms that
+  assign UIDs per namespace). Files under `/app` are world-readable (§6.2), so any
+  non-root UID can run the application.
+- Admission denies `runAsUser: 0` and `runAsNonRoot: false` with
+  `RootNotSupported`.
+- **The shim enforces the rule independently**: a process UID of 0 in the
+  CRI-provided spec fails `Create` with `RootNotSupported`. Because CRI yields
+  UID 0 when no user is set, a pod that bypassed fail-open admission fails closed
+  rather than running as root.
+- When the pod does not set `HOME`, the shim sets it from the runtime image's
+  `/etc/passwd` entry for the process UID, or `/tmp` when the UID has no entry.
 
 ## 9. Admission and scheduling
 
@@ -565,7 +659,7 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   already have the runtime installed whenever one fits and otherwise trigger an
   on-demand install (§7.5). Admission denies with `NoCompatibleRuntime` when no
   node carries either value for the ID.
-- **Defaults** the container user (§8.4) and **overwrites** the existing
+- **Defaults** the container user and denies root (§8.4), and **overwrites** the existing
   `brewlet.sh/artifact-*` compatibility hints (SPEC §8.3, unchanged).
 - **Does not** read the application artifact from the registry. Artifact-side
   constraints (`requires.runtimeImages`, layer rules, platforms) are enforced by
@@ -627,7 +721,7 @@ Re-expressed generically:
 | Classpath / module-path layers | Dependency layers under `/app/lib` or `/app/mods`, referenced from argv |
 | Managed dependency bundle | `java`-ecosystem layer set (§6.5) |
 | Shipped AppCDS archive | An ordinary file in an application layer plus `-XX:SharedArchiveFile=… -Xshare:auto` in argv. Because rotations change the exact JDK build, the archive is best-effort by design. |
-| `JavaApplication` | A plain Deployment; ecosystem-specific CRDs are out of scope (§15) |
+| `JavaApplication` | A plain Deployment, StatefulSet, or DaemonSet; no replacement CRD (§4) |
 
 The **Maven plugin survives as a producer**: it builds `launch.json` from the
 project (main class, JPMS module, preview flags, `--add-opens`), splits
@@ -668,6 +762,11 @@ brewlet push registry.example.com/apps/api \
   an eager install. The worst a workload can do is install, earlier than it
   otherwise would be, a runtime the administrator already approved for the pool;
   `idleTTL` bounds how long such an install occupies disk without use.
+- **No root.** Every Brewlet container runs with a non-zero UID, defaulted by
+  admission and enforced by the shim (§8.4).
+- **Restart RBAC is opt-in.** The operator's permission to patch Deployments,
+  StatefulSets, and DaemonSets exists only when rotation restarts are enabled
+  in the chart (§7.6).
 - **Unchanged boundaries.** The privileged provisioner, host-path layout under
   `/opt/brewlet`, fail-open admission, and runc isolation retain their 1.x
   properties and caveats (SPEC §11).
@@ -694,6 +793,8 @@ brewlet push registry.example.com/apps/api \
   `brewlet_container_runtime_image_info{id,generation,digest}`.
 - `brewlet_runtime_image_generations{id,state}` on each node, and a controller
   condition `RotationProgressing` / `RotationComplete` per `RuntimeImage`.
+- Rotation restarts (§7.6) report `status.restarts` counts per `RuntimeImage`
+  and an event on each restarted workload.
 - Operators answer "which pods still run the vulnerable generation?" from the
   info metric, since the pod spec intentionally does not record a digest.
 - Provisioner metrics `brewlet_runtime_image_install_requests_total{id,outcome}`
@@ -704,30 +805,50 @@ brewlet push registry.example.com/apps/api \
   `UnknownRuntimeImage`, `NoCompatibleRuntime`, `RuntimeImageNotInstalled`,
   `RuntimeImageInstalling`, `RuntimeImageInstallFailed`,
   `RuntimeImageIncompatible`, `UnsupportedArtifact`, `LaunchConfigMismatch`,
-  `LayerPathViolation`, `UnsupportedAnnotation`.
+  `LayerPathViolation`, `UnsupportedAnnotation`, `RootNotSupported`.
 
 ## 15. Open questions
 
-1. **Restart policy on rotation.** Should the operator offer opt-in rolling
-   restarts of workloads whose containers run a non-current generation, or is
-   that left to existing tooling once the info metric exists?
-2. **Per-container runtime images.** Is a per-container annotation form
-   (`brewlet.sh/runtime-image.<container>`) worth the complexity for multi-language
-   pods, or should those pods mix one Brewlet container with ordinary images?
-3. **Generic workload CRD.** Is there enough value in a language-neutral
-   `Application` resource, or are Deployments plus Helm/Kustomize sufficient?
-4. **Default user.** Should a runtime image's declared default user also be
-   enforced by the shim when admission is bypassed, at the cost of the shim
-   distinguishing an explicit `runAsUser: 0`?
-5. **Artifact-declared runtime image.** Should `requires.runtimeImages` with a
-   single entry let admission default the pod annotation? Doing so requires
-   admission to read registries, which 1.x deliberately avoids.
-6. **Prefix flexibility.** Is `/app` sufficient for every ecosystem, or do some
-   (for example, tools expecting `/opt/<name>`) need a declared, still
-   runtime-disjoint, set of application prefixes?
-7. **Baked export.** Should [proposal 0007](0007-baked-golden-image-delivery.md)'s
-   bake become the standard fallback for clusters without the shim, using the
-   same `RuntimeImage` inventory and `launch.json`?
+1. **Artifact-declared runtime image.** Should an artifact whose
+   `requires.runtimeImages` names exactly one ID let admission fill in a missing
+   `brewlet.sh/runtime-image` annotation?
+
+   - *For:* one less field for developers; the build that tested the artifact
+     also chooses its runtime; mismatches surface at admission instead of at
+     container start.
+   - *Against:* admission must fetch the manifest and launch layer from the
+     registry. That needs pull credentials (image pull secrets or cloud workload
+     identity) inside the webhook, adds registry latency to every pod creation,
+     and fails open during a registry outage, so the shim would still reject the
+     pod. The runtime choice also disappears from the reviewed workload manifest,
+     which weakens the governance that §7.4 relies on, and multi-entry lists need
+     a tie-break rule.
+   - *Middle ground:* producers (the CLI and Maven plugin) write the annotation
+     into generated or patched manifests at build time, so admission stays
+     registry-free.
+
+2. **Baked export ([proposal 0007](0007-baked-golden-image-delivery.md)).**
+   Should Brewlet offer a standard way to bake an application and its runtime
+   image into one ordinary image, using the same `RuntimeImage` inventory and
+   `launch.json`, for clusters without the shim?
+
+   - *For:* runs on clusters that cannot install a privileged provisioner or a
+     custom shim (some managed or regulated platforms); works with VM-isolated
+     sandboxes such as Kata; ordinary scanners, signing, and `docker run` for
+     local development all work unchanged; and it gives adopters a way out,
+     which lowers the risk of adopting Brewlet. Composition is well defined
+     because §6–§8 already specify layer order, environment, user, and `PATH`.
+   - *Against:* baked images lose the central property of this design: a
+     rotation does not patch them, so each rotation requires a rebuild and
+     redeploy of every baked application. The shared read-only runtime per node
+     and its pull savings are lost. Every runtime generation produces a new
+     application digest, so digests return to workload manifests. Brewlet would
+     support and test two execution paths whose behavior can drift (read-only
+     `/app`, root rejection, and `PATH` ownership become build-time checks rather
+     than shim enforcement), and it must define who signs the baked result.
+   - *Option:* keep 0007 separate and later, but hold this proposal to
+     deterministic composition rules so a bake exporter can be added without
+     changing the 2.0 contract.
 
 ## 16. Alternatives considered
 
@@ -784,9 +905,11 @@ On acceptance, `SPECIFICATION.md` would be revised as follows:
 | SPEC §5.6 | Update `NodeProfile`, add on-demand install | §7.3, §7.5 |
 | SPEC §6.1 | Replace `Create` lifecycle | §8.2–§8.4 |
 | SPEC §7 | Retain; revisit overhead | §10 |
+| SPEC §8 | Add rotation restarts to the operator | §7.6 |
 | SPEC §8.2, §9 | Remove `JavaApplication` | §11 |
 | SPEC §8.3 | Replace admission rules | §9 |
 | SPEC §10 | Remove JVM resource mapping | §11 |
+| SPEC §11 | Add non-root enforcement | §8.4, §12 |
 | SPEC §13 | Move AppCDS guidance to Maven plugin docs | §11 |
 | SPEC §14 | Update reason codes, annotations, host layout | §7.3, §14 |
 | [CAPABILITY_LABELS](../CAPABILITY_LABELS.md) | New v2 key family | §9.1 |
