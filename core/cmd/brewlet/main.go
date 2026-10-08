@@ -78,7 +78,7 @@ func usage() {
 	fmt.Print(`Brewlet PoC — the JVM analogue to SpinKube
 
 USAGE:
-  brewlet push    <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE] [--arch amd64,arm64] [--no-arch] [--classpath-layer TAR ...] [--dependency-bundle REF --dependency-lock FILE [--trusted-public-key PEM --trusted-signer-identity IDENTITY] [--signing-key PEM --builder-identity IDENTITY]] [--main-class CLASS] [--module-layer TAR ...] [--appcds-archive JSA] [--push-result FILE] [--insecure-registry HOST[:PORT] ...] [--allowed-token-realm HOST[:PORT] ...]
+  brewlet push    <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE] [--arch amd64,arm64] [--no-arch] [--classpath-layer TAR ...] [--dependency-bundle REF --dependency-lock FILE [--trusted-public-key PEM --trusted-signer-identity IDENTITY] [--signing-key PEM --builder-identity IDENTITY]] [--main-class CLASS] [--module-layer TAR ...] [--appcds-archive JSA | --aot-cache FILE | --aot] [--push-result FILE] [--insecure-registry HOST[:PORT] ...] [--allowed-token-realm HOST[:PORT] ...]
   brewlet dependency-bundle <classpath-tar> <ref> --name NAME --version VERSION --source-bom G:A:V --lock FILE [--signing-key PEM --signer-identity IDENTITY] [--compatible-jdks 21,25] [--store DIR]
   brewlet keygen --private FILE --public FILE
   brewlet inspect <ref>       [--store DIR] [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
@@ -176,6 +176,12 @@ func cmdPush(args []string) error {
 	format := fs.String("format", "image", "delivery format: \"image\" (default; a standard, kubelet-pullable runnable image for runtimeClassName: brewlet pods) or \"artifact\" (native artifact with custom media types for local OCI-layout / CLI / prepare-bundle workflows, not Kubernetes execution). Both use the current launch contract. See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md")
 	var appcdsArgs stringSlice
 	fs.Var(&appcdsArgs, "appcds-arg", "workload argument passed to the --appcds training JVM to drive class loading (repeatable)")
+	aotCache := fs.String("aot-cache", "", "optional prebuilt JDK AOT cache to ship; mounted at /app/<name> and launched with -XX:AOTCache (JDK 24+, best-effort); mutually exclusive with --appcds*")
+	aot := fs.Bool("aot", false, "generate a JDK AOT cache by running a self-terminating training JVM (JDK 25+) against the JAR, then ship it (turnkey equivalent of --aot-cache); fat-JAR only")
+	aotJava := fs.String("aot-java", "", "java executable (or JAVA_HOME dir) for --aot training; defaults to $JAVA_HOME/bin/java, else java on PATH")
+	aotTimeout := fs.Int("aot-timeout", 120, "seconds to wait for the --aot training JVM to self-terminate")
+	var aotArgs stringSlice
+	fs.Var(&aotArgs, "aot-arg", "workload argument passed to the --aot training JVM to drive class loading (repeatable)")
 	pushResult := fs.String("push-result", "", "registry push only: write a push.json handoff ({image, digest, deployImage, format}) to this file")
 	var insecureRegistries, allowedTokenRealms stringSlice
 	fs.Var(&insecureRegistries, "insecure-registry", "registry push only: HOST[:PORT] reachable over plain HTTP (repeatable; loopback registries always are)")
@@ -188,6 +194,15 @@ func cmdPush(args []string) error {
 		return fmt.Errorf("usage: push <jar> <ref>")
 	}
 	jarPath, ref := pos[0], pos[1]
+
+	if *aotCache != "" || *aot {
+		if *aotCache != "" && *aot {
+			return fmt.Errorf("--aot and --aot-cache are mutually exclusive: --aot generates the cache, --aot-cache ships a prebuilt one")
+		}
+		if *appcds || *cdsArchive != "" {
+			return fmt.Errorf("--aot/--aot-cache and --appcds/--appcds-archive are mutually exclusive: a workload ships one startup archive")
+		}
+	}
 
 	remote, err := resolvePushTarget(ref, flagWasSet(fs, "store"), *pushResult, insecureRegistries, allowedTokenRealms)
 	if err != nil {
@@ -257,8 +272,8 @@ func cmdPush(args []string) error {
 		if len(cpLayers) > 0 || len(mpLayers) > 0 {
 			return fmt.Errorf("--dependency-bundle is mutually exclusive with --classpath-layer and --module-layer")
 		}
-		if *appcds || *cdsArchive != "" {
-			return fmt.Errorf("--dependency-bundle does not support AppCDS in the MVP")
+		if *appcds || *cdsArchive != "" || *aot || *aotCache != "" {
+			return fmt.Errorf("--dependency-bundle does not support AppCDS or AOT cache in the MVP")
 		}
 		if err := artifact.ValidateThinJar(jarPath); err != nil {
 			return err
@@ -387,10 +402,50 @@ func cmdPush(args []string) error {
 		*cdsArchive = genArchive
 	}
 
+	// --aot turnkey training: same shape as --appcds, fat-JAR only, with
+	// AOT-specific wording so users never see CDS advice.
+	if *aot {
+		if len(cpLayers) > 0 || len(mpLayers) > 0 || cfg.Entry.Mode != "jar" {
+			return fmt.Errorf("--aot supports fat-JAR only (entry mode jar, no --classpath-layer/--module-layer)")
+		}
+		javaBin, err := resolveJavaBinary(*aotJava)
+		if err != nil {
+			return err
+		}
+		genDir, err := os.MkdirTemp("", "brewlet-aot-out-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(genDir)
+		cacheName := strings.TrimSuffix(filepath.Base(jarPath), ".jar") + ".aot"
+		genCache := filepath.Join(genDir, cacheName)
+		fmt.Printf("  training AOT cache with %s (timeout %ds)...\n", javaBin, *aotTimeout)
+		start := time.Now()
+		if err := progress.Plain(os.Stderr).Await("training AOT cache", nil, func() error {
+			return runtime.GenerateAOTCache(cfg, jarPath, javaBin, genCache, time.Duration(*aotTimeout)*time.Second, aotArgs)
+		}); err != nil {
+			return fmt.Errorf("--aot: %w (after %s)", err, progress.FormatElapsed(time.Since(start)))
+		}
+		if info, err := os.Stat(genCache); err == nil {
+			fmt.Printf("  trained AOT cache %s (%d KiB) in %s\n", cacheName, info.Size()/1024, progress.FormatElapsed(time.Since(start)))
+		}
+		*aotCache = genCache
+	}
+	if *aotCache != "" {
+		base := filepath.Base(*aotCache)
+		if cfg.AOT == nil {
+			cfg.AOT = &artifact.AOT{Cache: base}
+		} else if cfg.AOT.Cache == "" {
+			cfg.AOT.Cache = base
+		}
+		// The startup-archive parameter carries whichever archive cfg names.
+		*cdsArchive = *aotCache
+	}
+
 	// Wire the optional AppCDS archive (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md). When --appcds-archive is
 	// given, default the launch-config cds hint from the file's basename unless a
 	// --config already set one; PushWithCDS then enforces they agree.
-	if *cdsArchive != "" {
+	if *cdsArchive != "" && *aotCache == "" {
 		base := filepath.Base(*cdsArchive)
 		if cfg.CDS == nil {
 			cfg.CDS = &artifact.CDS{Archive: base, Mode: "dynamic"}
@@ -481,6 +536,9 @@ func cmdPush(args []string) error {
 	}
 	if cfg.CDS != nil && cfg.CDS.Archive != "" {
 		fmt.Printf("  cds archive: %s (mounted /app/%s; -Xshare:auto, best-effort)\n", cfg.CDS.Archive, cfg.CDS.Archive)
+	}
+	if cfg.AOT != nil && cfg.AOT.Cache != "" {
+		fmt.Printf("  aot cache: %s (mounted /app/%s; -XX:AOTCache, JDK 24+, best-effort)\n", cfg.AOT.Cache, cfg.AOT.Cache)
 	}
 	fmt.Printf("  -> developer shipped ONLY the JAR; no Dockerfile, no base image.\n")
 	return nil
@@ -709,6 +767,23 @@ func parseJDKFeatures(value string) ([]int, error) {
 	return out, nil
 }
 
+// localJDKRoot mirrors the JDK resolution BuildPlan uses (flag, then
+// BREWLET_JDK_HOME, JAVA_HOME, then java on PATH).
+func localJDKRoot(flagRoot string) string {
+	for _, r := range []string{flagRoot, os.Getenv("BREWLET_JDK_HOME"), os.Getenv("JAVA_HOME")} {
+		if r != "" {
+			return r
+		}
+	}
+	if bin, err := exec.LookPath("java"); err == nil {
+		if real, err := filepath.EvalSymlinks(bin); err == nil {
+			bin = real
+		}
+		return filepath.Dir(filepath.Dir(bin))
+	}
+	return ""
+}
+
 func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	store := fs.String("store", "./oci", "OCI layout directory")
@@ -740,6 +815,12 @@ func cmdRun(args []string) error {
 	// Pull: the payload is already in the store (native artifact) or staged from
 	// the runnable image's layers; mount it into a sandbox.
 	cdsSrc := blobs.CDSHostPath
+	// AssembleSandboxWithCDS and BuildPlan do not gate: -XX:AOTCache is fatal
+	// on JDK < 24, so drop the hint here for the JDK that will run it.
+	if gated, dropped := runtime.GateAOTCache(cfg, localJDKRoot(*jdkRoot)); dropped {
+		fmt.Fprintf(os.Stderr, "brewlet: aot cache %q ignored: requires JDK 24+\n", cfg.AOT.Cache)
+		cfg = gated
+	}
 	sandbox, jarPath, err := runtime.AssembleSandboxWithCDS(cfg, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *appcdsRegen)
 	if err != nil {
 		return err

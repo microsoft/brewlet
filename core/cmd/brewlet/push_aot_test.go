@@ -1,0 +1,68 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+package main
+
+import (
+	"os"
+
+	"github.com/microsoft/brewlet/internal/artifact"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestPushAOTFlagValidation(t *testing.T) {
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "app.jar")
+	writeCLIZip(t, jar, "com/example/Main.class")
+	store := filepath.Join(dir, "oci")
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"cache+archive", []string{"--aot-cache", "x.aot", "--appcds-archive", "y.jsa"}, "mutually exclusive"},
+		{"cache+appcds", []string{"--aot-cache", "x.aot", "--appcds"}, "mutually exclusive"},
+		{"aot+cache", []string{"--aot", "--aot-cache", "x.aot"}, "mutually exclusive"},
+		{"aot+appcds", []string{"--aot", "--appcds"}, "mutually exclusive"},
+		{"cache+bundle", []string{"--aot-cache", "x.aot", "--dependency-bundle", "b"}, "does not support"},
+		{"aot+layer", []string{"--aot", "--classpath-layer", "l.tar"}, "--aot supports fat-JAR only"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{jar, "apps/a:1", "--store", store}, tc.args...)
+			err := cmdPush(args)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want containing %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "appcds-archive") && tc.name == "aot+layer" {
+				t.Fatalf("CDS advice leaked into --aot error: %v", err)
+			}
+		})
+	}
+}
+
+func TestPushAOTCacheRecordsConfig(t *testing.T) {
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "app.jar")
+	writeCLIZip(t, jar, "com/example/Main.class")
+	cache := filepath.Join(dir, "app.aot")
+	if err := os.WriteFile(cache, []byte("aot"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(dir, "oci")
+	for _, format := range []string{"image", "artifact"} {
+		if err := cmdPush([]string{jar, "apps/a:" + format, "--store", store, "--format", format, "--aot-cache", cache}); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		blobs, err := (artifact.Store{Root: store}).ResolveBlobs("apps/a:" + format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if blobs.Config.AOT == nil || blobs.Config.AOT.Cache != "app.aot" || blobs.Config.CDS != nil {
+			t.Fatalf("%s: config = %+v", format, blobs.Config)
+		}
+	}
+}
