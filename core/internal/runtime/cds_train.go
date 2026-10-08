@@ -81,19 +81,19 @@ func trainingArgsWith(cfg artifact.JVMConfig, jarName, outputOption string, trai
 // should finish well within it; if it does not, that is reported as an error
 // (long-running servers need the Maven signal mode, not this CLI path).
 func GenerateAppCDSArchive(cfg artifact.JVMConfig, jarPath, javaBin, outArchive string, timeout time.Duration, trainingArgs []string) error {
-	return runTraining(cfg, jarPath, javaBin, outArchive, "-XX:ArchiveClassesAtExit=", "brewlet-appcds-", timeout, trainingArgs)
+	return runTraining(cfg, jarPath, javaBin, outArchive, "-XX:ArchiveClassesAtExit=", "brewlet-appcds-", "--appcds (long-running servers: use the Maven brewlet:appcds goal with -Dbrewlet.appcds.mode=signal)", timeout, trainingArgs)
 }
 
 // GenerateAOTCache runs a self-terminating JEP 514 AOT-cache training JVM and
 // writes the cache to outCache, staging the JAR exactly as GenerateAppCDSArchive
 // does. Requires JDK 25+; cache creation needs roughly twice the heap.
 func GenerateAOTCache(cfg artifact.JVMConfig, jarPath, javaBin, outCache string, timeout time.Duration, trainingArgs []string) error {
-	return runTraining(cfg, jarPath, javaBin, outCache, "-XX:AOTCacheOutput=", "brewlet-aot-", timeout, trainingArgs)
+	return runTraining(cfg, jarPath, javaBin, outCache, "-XX:AOTCacheOutput=", "brewlet-aot-", "--aot (long-running servers: use the Maven brewlet:aotcache goal with -Dbrewlet.aotcache.mode=signal)", timeout, trainingArgs)
 }
 
 // runTraining is the shared core of the two Generate functions; outputOptionPrefix
-// is the -XX option up to and including "=" and scratchPrefix names the temp dir.
-func runTraining(cfg artifact.JVMConfig, jarPath, javaBin, outArchive, outputOptionPrefix, scratchPrefix string, timeout time.Duration, trainingArgs []string) error {
+// is the -XX option up to and including "=" and scratchPrefix names the temp dir; timeoutHint is the caller-specific advice appended to a timeout error.
+func runTraining(cfg artifact.JVMConfig, jarPath, javaBin, outArchive, outputOptionPrefix, scratchPrefix, timeoutHint string, timeout time.Duration, trainingArgs []string) error {
 	jarName, err := artifact.MainJarName(cfg)
 	if err != nil {
 		return err
@@ -135,7 +135,7 @@ func runTraining(cfg artifact.JVMConfig, jarPath, javaBin, outArchive, outputOpt
 	runErr := cmd.Run()
 
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("training run did not exit within %s; a fat JAR must self-terminate for --appcds (long-running servers: use the Maven brewlet:appcds goal with -Dbrewlet.appcds.mode=signal)", timeout)
+		return fmt.Errorf("training run did not exit within %s; a fat JAR must self-terminate for %s", timeout, timeoutHint)
 	}
 	// A dynamic-CDS training JVM writes the archive on any clean shutdown; the
 	// app's own exit code is not authoritative, so treat a produced, non-empty

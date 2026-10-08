@@ -66,3 +66,20 @@ func TestPushAOTCacheRecordsConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestPushAOTTimeoutHasNoCDSAdvice(t *testing.T) {
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "app.jar")
+	writeCLIZip(t, jar, "com/example/Main.class")
+	java := filepath.Join(dir, "java")
+	if err := os.WriteFile(java, []byte("#!/bin/sh\nexec sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := cmdPush([]string{jar, "apps/a:1", "--store", filepath.Join(dir, "oci"), "--aot", "--aot-java", java, "--aot-timeout", "1"})
+	if err == nil || !strings.Contains(err.Error(), "did not exit") {
+		t.Fatalf("err = %v, want timeout", err)
+	}
+	if strings.Contains(err.Error(), "appcds") {
+		t.Fatalf("CDS advice leaked: %v", err)
+	}
+}
