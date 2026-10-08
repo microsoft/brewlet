@@ -1048,3 +1048,45 @@ func TestAssembleSandboxWithAOTCache(t *testing.T) {
 		t.Errorf("aot cache not copied to /app/app.aot: %v", err)
 	}
 }
+
+// ResolveJDKHome is the one resolution both BuildPlan and `brewlet run`'s AOT
+// gate use, so the gate inspects the JVM that is launched: a java found on
+// PATH through a symlink keeps the symlink's home, exactly as BuildPlan runs it.
+func TestResolveJDKHomeMatchesBuildPlanJava(t *testing.T) {
+	real := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(real, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "bin", "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(link, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(real, "bin", "java"), filepath.Join(link, "bin", "java")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("BREWLET_JDK_HOME", "")
+	t.Setenv("JAVA_HOME", "")
+	t.Setenv("PATH", filepath.Join(link, "bin"))
+
+	home, err := ResolveJDKHome("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if home != link {
+		t.Errorf("ResolveJDKHome = %q, want the PATH entry's home %q", home, link)
+	}
+	plan, err := BuildPlan(artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}, "/app/app.jar", "", "", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.JavaBin != filepath.Join(home, "bin", "java") {
+		t.Errorf("BuildPlan launches %q, but the gate would inspect %q", plan.JavaBin, home)
+	}
+
+	if _, err := ResolveJDKHome(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Error("ResolveJDKHome accepted a JDK home without bin/java")
+	}
+}

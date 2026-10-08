@@ -238,7 +238,7 @@ func joinAppPaths(entries []string, jarPath string) string {
 // deployment's node-side AppCDS regeneration choice (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3); the
 // caller injects the regeneration args separately.
 func BuildPlan(cfg artifact.JVMConfig, jarPath, jdkHome, launcherName string, extraArgs []string, regenerateCDS bool) (Plan, error) {
-	_, home, err := resolveJDK(jdkHome)
+	home, err := ResolveJDKHome(jdkHome)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -311,7 +311,11 @@ func (p Plan) CommandLine() string {
 	return p.JavaBin + " " + strings.Join(p.Args, " ")
 }
 
-func resolveJDK(jdkHome string) (javaBin, home string, err error) {
+// ResolveJDKHome picks the node JDK home: jdkHome, then BREWLET_JDK_HOME, then
+// JAVA_HOME, then the directory above the bin/ holding `java` on PATH (symlinks
+// are deliberately not resolved). BuildPlan launches <home>/bin/java, and
+// callers that gate on the JDK (GateAOTCache) must inspect this same home.
+func ResolveJDKHome(jdkHome string) (string, error) {
 	if jdkHome == "" {
 		jdkHome = os.Getenv("BREWLET_JDK_HOME")
 	}
@@ -319,17 +323,16 @@ func resolveJDK(jdkHome string) (javaBin, home string, err error) {
 		jdkHome = os.Getenv("JAVA_HOME")
 	}
 	if jdkHome != "" {
-		bin := filepath.Join(jdkHome, "bin", "java")
-		if _, statErr := os.Stat(bin); statErr == nil {
-			return bin, jdkHome, nil
+		if _, statErr := os.Stat(filepath.Join(jdkHome, "bin", "java")); statErr != nil {
+			return "", fmt.Errorf("no java under JDK home %q", jdkHome)
 		}
-		return "", "", fmt.Errorf("no java under JDK home %q", jdkHome)
+		return jdkHome, nil
 	}
 	bin, lookErr := exec.LookPath("java")
 	if lookErr != nil {
-		return "", "", fmt.Errorf("no node-resident JDK found (set --jdk-root or JAVA_HOME)")
+		return "", fmt.Errorf("no node-resident JDK found (set --jdk-root or JAVA_HOME)")
 	}
-	return bin, filepath.Dir(filepath.Dir(bin)), nil
+	return filepath.Dir(filepath.Dir(bin)), nil
 }
 
 // resolveLauncher returns the launcher binary that fronts the entrypoint. The

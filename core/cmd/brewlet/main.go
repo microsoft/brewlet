@@ -762,23 +762,6 @@ func parseJDKFeatures(value string) ([]int, error) {
 	return out, nil
 }
 
-// localJDKRoot mirrors the JDK resolution BuildPlan uses (flag, then
-// BREWLET_JDK_HOME, JAVA_HOME, then java on PATH).
-func localJDKRoot(flagRoot string) string {
-	for _, r := range []string{flagRoot, os.Getenv("BREWLET_JDK_HOME"), os.Getenv("JAVA_HOME")} {
-		if r != "" {
-			return r
-		}
-	}
-	if bin, err := exec.LookPath("java"); err == nil {
-		if real, err := filepath.EvalSymlinks(bin); err == nil {
-			bin = real
-		}
-		return filepath.Dir(filepath.Dir(bin))
-	}
-	return ""
-}
-
 func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	store := fs.String("store", "./oci", "OCI layout directory")
@@ -812,7 +795,11 @@ func cmdRun(args []string) error {
 	// AssembleSandboxWithCDS and BuildPlan do not gate: -XX:AOTCache is fatal
 	// on JDK < 24, so pick the archive here for the JDK that will run it (the
 	// AOT cache on 24+, else the .jsa).
-	gated, dropped := runtime.GateAOTCache(cfg, localJDKRoot(*jdkRoot))
+	jdkHome, err := runtime.ResolveJDKHome(*jdkRoot)
+	if err != nil {
+		return err
+	}
+	gated, dropped := runtime.GateAOTCache(cfg, jdkHome)
 	if dropped {
 		fmt.Fprintf(os.Stderr, "brewlet: aot cache %q ignored: requires JDK 24+\n", cfg.AOT.Cache)
 	}
@@ -823,7 +810,7 @@ func cmdRun(args []string) error {
 	}
 	defer os.RemoveAll(sandbox)
 
-	plan, err := runtime.BuildPlan(cfg, jarPath, *jdkRoot, *launcher, extra, *appcdsRegen)
+	plan, err := runtime.BuildPlan(cfg, jarPath, jdkHome, *launcher, extra, *appcdsRegen)
 	if err != nil {
 		return err
 	}
