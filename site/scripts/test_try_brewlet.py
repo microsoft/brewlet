@@ -318,6 +318,14 @@ class DisposableDemoTest(unittest.TestCase):
         self.assertIn("Some cluster diagnostics could not be collected", text)
         self.assertFalse((self.state / "cluster").exists())
 
+    def test_port_forward_log_exists_before_background_process_starts(self):
+        script = SCRIPT.read_text()
+        self.assertIsNotNone(re.search(
+            r': > "\$work/port-forward\.log"\n'
+            r'  "\$work/bin/kubectl"[^&]+> "\$work/port-forward\.log" 2>&1 &',
+            script,
+        ), "Create the port-forward log synchronously before launching the background process")
+
     def test_remote_or_insufficient_engine_is_rejected_before_downloads(self):
         for failure in ("remote", "resources", "docker"):
             with self.subTest(failure=failure):
