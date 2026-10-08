@@ -169,6 +169,11 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	if err != nil {
 		return err
 	}
+	// -XX:AOTCache is a fatal unrecognized option before JDK 24: drop the hint.
+	if gated, dropped := GateAOTCache(cfg, jdkRoot); dropped {
+		fmt.Fprintf(os.Stderr, "brewlet: aot cache %q ignored: requires JDK 24+\n", cfg.AOT.Cache)
+		cfg = gated
+	}
 	if identity.UID > MaxProcessID || identity.GID > MaxProcessID {
 		return fmt.Errorf("process UID/GID must be between 0 and %d", MaxProcessID)
 	}
@@ -245,7 +250,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	// whenever CDS is in play — either a shipped archive or node-side
 	// regeneration — so the archive maps rather than being silently rejected
 	// under -Xshare:auto (see CDSModTime / https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.4).
-	pinMtime := shipsCDS(cfg) || regen.Regenerate
+	pinMtime := ShipsStartupArchive(cfg) || regen.Regenerate
 
 	// Stage classpath dependency layers into a host dir bind-mounted at /app/lib.
 	var libMount []ociMount
@@ -305,9 +310,9 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	// shipped archive is only seed data for the node cache (mounted at
 	// InSandboxCDSDir instead).
 	var cdsMount []ociMount
-	if !regen.Regenerate && cdsHostPath != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
+	if name, _, ok := cfg.StartupArchive(); ok && !regen.Regenerate && cdsHostPath != "" && name != "" {
 		cdsMount = []ociMount{{
-			Destination: "/app/" + cfg.CDS.Archive, Type: "bind",
+			Destination: "/app/" + name, Type: "bind",
 			Source: cdsHostPath, Options: []string{"rbind", "ro"},
 		}}
 	}

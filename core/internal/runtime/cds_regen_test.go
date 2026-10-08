@@ -872,3 +872,30 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestGateAOTCacheDropsOnOldJDK(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}}
+	gated, dropped := GateAOTCache(cfg, fakeJDK(t, "21.0.4"))
+	if !dropped || gated.AOT != nil {
+		t.Fatalf("dropped=%v AOT=%v, want dropped with nil AOT", dropped, gated.AOT)
+	}
+	if cfg.AOT == nil {
+		t.Fatal("input cfg was mutated")
+	}
+}
+
+func TestGateAOTCacheKeepsOnJDK24(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}}
+	gated, dropped := GateAOTCache(cfg, fakeJDK(t, "24.0.1"))
+	if dropped || gated.AOT == nil {
+		t.Fatalf("dropped=%v AOT=%v, want kept", dropped, gated.AOT)
+	}
+}
+
+func TestGateAOTCacheDropsWhenIdentityUnknown(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}}
+	gated, dropped := GateAOTCache(cfg, t.TempDir())
+	if !dropped || gated.AOT != nil {
+		t.Fatalf("dropped=%v AOT=%v, want dropped", dropped, gated.AOT)
+	}
+}

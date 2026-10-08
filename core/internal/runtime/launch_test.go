@@ -885,3 +885,87 @@ func TestPlanRunsFromSandboxAppDir(t *testing.T) {
 		t.Fatalf("JVM cwd = %q, want %q", strings.TrimSpace(string(got)), want)
 	}
 }
+
+func TestBuildJVMArgsAOTCache(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}}
+	args, _ := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	if got, want := strings.Join(args, " "), "-XX:AOTCache=/app/app.aot -jar /app/app.jar"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestBuildJVMArgsRegenerateSuppressesAOTCache(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}}
+	args, _ := BuildJVMArgs(cfg, "/app/app.jar", nil, true)
+	if got := strings.Join(args, " "); strings.Contains(got, "AOTCache") {
+		t.Fatalf("args %q contain AOTCache under regeneration", got)
+	}
+}
+
+func TestBuildJVMArgsNeverEmitsAOTMode(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}}
+	args, _ := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	for _, a := range args {
+		if strings.HasPrefix(a, "-XX:AOTMode") {
+			t.Fatalf("unexpected %q", a)
+		}
+	}
+}
+
+// aotBundleConfig generates a bundle shipping an AOT cache against a fake JDK
+// of the given version and returns config.json.
+func aotBundleConfig(t *testing.T, javaVersion string) string {
+	t.Helper()
+	dir := t.TempDir()
+	jarHost := filepath.Join(dir, "app.jar")
+	aotHost := filepath.Join(dir, "app.aot")
+	for _, p := range []string{jarHost, aotHost} {
+		if err := os.WriteFile(p, []byte("PK"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, AOT: &artifact.AOT{Cache: "app.aot"}}
+	out := filepath.Join(dir, "bundle")
+	if err := GenerateBundleWithCDS(cfg, fakeJDK(t, javaVersion), "", "", jarHost, nil, nil, aotHost, out, Resources{}, nil); err != nil {
+		t.Fatalf("GenerateBundleWithCDS: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(out, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestGenerateBundleWithAOTCache(t *testing.T) {
+	c := aotBundleConfig(t, "25.0.1")
+	if !strings.Contains(c, `"/app/app.aot"`) || !strings.Contains(c, "-XX:AOTCache=/app/app.aot") {
+		t.Errorf("config.json missing AOT mount/argv:\n%s", c)
+	}
+}
+
+func TestGenerateBundleDropsAOTCacheOnJDK21(t *testing.T) {
+	c := aotBundleConfig(t, "21.0.4")
+	if strings.Contains(c, "app.aot") || strings.Contains(c, "-XX:AOTCache") {
+		t.Errorf("config.json still references AOT cache on JDK 21:\n%s", c)
+	}
+}
+
+func TestAssembleSandboxWithAOTCache(t *testing.T) {
+	dir := t.TempDir()
+	jarSrc := filepath.Join(dir, "app.jar")
+	aotSrc := filepath.Join(dir, "app.aot")
+	for _, p := range []string{jarSrc, aotSrc} {
+		if err := os.WriteFile(p, []byte("AOT"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, AOT: &artifact.AOT{Cache: "app.aot"}}
+	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, nil, nil, aotSrc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(sandbox)
+	if _, err := os.Stat(filepath.Join(filepath.Dir(jarPath), "app.aot")); err != nil {
+		t.Errorf("aot cache not copied to /app/app.aot: %v", err)
+	}
+}

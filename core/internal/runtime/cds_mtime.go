@@ -89,10 +89,10 @@ func PinCDSModTimesUnder(dir string) error {
 	})
 }
 
-// shipsCDS reports whether cfg's artifact carries an AppCDS archive, i.e. whether
-// mtime pinning applies.
-func shipsCDS(cfg artifact.JVMConfig) bool {
-	return cfg.CDS != nil
+// ShipsStartupArchive reports whether cfg's artifact carries a startup archive
+// (AppCDS .jsa or AOT cache), i.e. whether mtime pinning applies.
+func ShipsStartupArchive(cfg artifact.JVMConfig) bool {
+	return cfg.CDS != nil || cfg.AOT != nil
 }
 
 // copyFileContents copies src to dst (truncating dst), preserving nothing but the

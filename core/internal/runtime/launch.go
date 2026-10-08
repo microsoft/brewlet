@@ -67,7 +67,8 @@ type Plan struct {
 // directly. This performs no filesystem access, so it is safe for bundle
 // generation targeting a remote node's JDK.
 //
-// Expansion order (entry always last): -Xshare:auto -XX:SharedArchiveFile (CDS),
+// Expansion order (entry always last): -Xshare:auto -XX:SharedArchiveFile (CDS)
+// or -XX:AOTCache (AOT; never both),
 // --enable-preview, --add-modules, --add-opens, --add-exports, -D<k>=<v>
 // (sorted), then extraArgs (the local `-- …` args or the descriptor's jvm.args),
 // then the entrypoint.
@@ -99,6 +100,13 @@ func BuildJVMArgs(cfg artifact.JVMConfig, jarPath string, extraArgs []string, re
 	if cfg.CDS != nil && !regenerateCDS && cfg.CDS.Archive != "" {
 		archivePath := filepath.Join(filepath.Dir(jarPath), cfg.CDS.Archive)
 		args = append(args, "-Xshare:auto", "-XX:SharedArchiveFile="+archivePath)
+	}
+
+	// AOT cache (optional, JDK 24+; the caller gates on the JDK). Only
+	// -XX:AOTCache is emitted, never -XX:AOTMode: the default `auto` falls back
+	// safely on a mismatch, like -Xshare:auto above.
+	if cfg.AOT != nil && !regenerateCDS && cfg.AOT.Cache != "" {
+		args = append(args, "-XX:AOTCache="+filepath.Join(filepath.Dir(jarPath), cfg.AOT.Cache))
 	}
 
 	if cfg.EnablePreview {
@@ -364,7 +372,7 @@ func AssembleSandbox(cfg artifact.JVMConfig, jarSrc string, classpathTars, modul
 // keeps mapping across runs (CDS validates classpath entries by basename+size+
 // mtime). See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars, modulepathTars []string, cdsSrc string, regenerate bool) (sandboxDir, jarPath string, err error) {
-	pinMtime := shipsCDS(cfg) || regenerate
+	pinMtime := ShipsStartupArchive(cfg) || regenerate
 	sandboxDir, err = os.MkdirTemp("", "brewlet-sandbox-*")
 	if err != nil {
 		return "", "", err
@@ -420,15 +428,15 @@ func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars
 	// /app/<archive> launch finds it. Skipped under node-side regeneration: there
 	// the shipped archive is only seed data for the node cache (the caller feeds
 	// cdsSrc to DecideCDSRegen), and the /app copy would go unread.
-	if cdsSrc != "" && cfg.CDS != nil && !regenerate {
-		if err := artifact.ValidateBareFilename("cds.archive", cfg.CDS.Archive); err != nil {
+	if name, _, ok := cfg.StartupArchive(); ok && cdsSrc != "" && !regenerate {
+		if err := artifact.ValidateBareFilename("startup archive", name); err != nil {
 			return "", "", err
 		}
 		cdsData, err := os.ReadFile(cdsSrc)
 		if err != nil {
 			return "", "", err
 		}
-		if err := os.WriteFile(filepath.Join(appDir, cfg.CDS.Archive), cdsData, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(appDir, name), cdsData, 0o644); err != nil {
 			return "", "", err
 		}
 	}
