@@ -45,7 +45,15 @@ func TestRemovedContainerdPolicyRetainedState(t *testing.T) {
 	}
 	// Only this private API accepts the old enum to seed incompatible state.
 	// Refusal after tightening is a safety test, not upgrade support.
-	env := &envtest.Environment{CRDs: []*apiextensionsv1.CustomResourceDefinition{&old}}
+	evidenceRaw, err := os.ReadFile("../../deploy/noderetirementevidence-crd.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var evidenceCRD apiextensionsv1.CustomResourceDefinition
+	if err := yaml.Unmarshal(evidenceRaw, &evidenceCRD); err != nil {
+		t.Fatal(err)
+	}
+	env := &envtest.Environment{CRDs: []*apiextensionsv1.CustomResourceDefinition{&old, &evidenceCRD}}
 	cfg, err := env.Start()
 	if err != nil {
 		t.Fatal(err)

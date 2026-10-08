@@ -210,11 +210,12 @@ func (c *client) inspectProfile(name string) error {
 		return err
 	}
 	report := struct {
-		Profile    profileSummary  `json:"profile"`
-		Nodes      []nodeSummary   `json:"nodes"`
-		Targets    []nodeTarget    `json:"targets,omitempty"`
-		Retirement *nodeRetirement `json:"retirement,omitempty"`
-	}{summarizeProfile(profile), nodes, profile.Status.Targets, profile.Status.Retirement}
+		Profile             profileSummary   `json:"profile"`
+		Nodes               []nodeSummary    `json:"nodes"`
+		Targets             []nodeTarget     `json:"targets,omitempty"`
+		Retirement          *nodeRetirement  `json:"retirement,omitempty"`
+		DetachedRetirements []nodeRetirement `json:"detachedRetirements,omitempty"`
+	}{summarizeProfile(profile), nodes, profile.Status.Targets, profile.Status.Retirement, profile.Status.DetachedRetirements}
 	format := c.opts.output
 	if format == "table" {
 		format = "yaml"

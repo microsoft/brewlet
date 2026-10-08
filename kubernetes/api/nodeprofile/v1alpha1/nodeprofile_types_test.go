@@ -23,23 +23,32 @@ func TestNodeProfileOwnershipStatusDeepCopy(t *testing.T) {
 			Phase:   RetirementCleaning, Generation: 3,
 			Spec: NodeProfileSpec{Tolerations: []corev1.Toleration{{Key: "dedicated"}}},
 		},
+		DetachedRetirements: []NodeRetirement{{
+			Targets: []NodeTarget{{Name: "missing", UID: "original", Claimed: true}},
+			Phase:   RetirementMissing, Generation: 2,
+			Spec: NodeProfileSpec{NodePool: NodePoolRef{Names: []string{"previous"}}},
+		}},
 	}}
 	copy := profile.DeepCopy()
 	copy.Status.Targets[0].UID = "different"
 	copy.Status.ProvisioningSpec.NodePool.Names[0] = "new"
 	copy.Status.Retirement.Targets[0].Name = "different"
 	copy.Status.Retirement.Spec.Tolerations[0].Key = "different"
+	copy.Status.DetachedRetirements[0].Targets[0].UID = "new-uid"
+	copy.Status.DetachedRetirements[0].Spec.NodePool.Names[0] = "new-pool"
 	if profile.Status.Targets[0].UID != "node-uid" ||
 		profile.Status.ProvisioningSpec.NodePool.Names[0] != "old" ||
 		profile.Status.Retirement.Targets[0].Name != "worker" ||
-		profile.Status.Retirement.Spec.Tolerations[0].Key != "dedicated" {
+		profile.Status.Retirement.Spec.Tolerations[0].Key != "dedicated" ||
+		profile.Status.DetachedRetirements[0].Targets[0].UID != "original" ||
+		profile.Status.DetachedRetirements[0].Spec.NodePool.Names[0] != "previous" {
 		t.Fatal("ownership status snapshots must not alias informer data")
 	}
 	encoded, err := json.Marshal(profile.Status)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fragment := range []string{`"targets":[{"name":"worker","uid":"node-uid","claimed":true}]`, `"phase":"Cleaning"`, `"generation":3`} {
+	for _, fragment := range []string{`"targets":[{"name":"worker","uid":"node-uid","claimed":true}]`, `"phase":"Cleaning"`, `"generation":3`, `"detachedRetirements":`, `"phase":"Missing"`} {
 		if !strings.Contains(string(encoded), fragment) {
 			t.Fatalf("missing ownership protocol %s in %s", fragment, encoded)
 		}

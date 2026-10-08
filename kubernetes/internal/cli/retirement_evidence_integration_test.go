@@ -81,10 +81,11 @@ func (f *fixture) testRetirementEvidence(t *testing.T) {
 		ContainerdRestart: "validated", RetirementEvidenceName: e.Name, RetirementEvidenceUID: e.UID}
 	p.Status.Targets = []nodeapi.NodeTarget{target}
 	p.Status.Retirement = &nodeapi.NodeRetirement{Targets: []nodeapi.NodeTarget{target}, Generation: p.Generation, Spec: p.Spec, Phase: nodeapi.RetirementCleaning}
+	p.Status.DetachedRetirements = []nodeapi.NodeRetirement{{Targets: []nodeapi.NodeTarget{target}, Generation: p.Generation, Spec: p.Spec, Phase: nodeapi.RetirementMissing}}
 	must(t, f.api.Status().Update(f.ctx, p))
 	for _, format := range []string{"json", "yaml"} {
 		out := f.cli(t, "profile", "inspect", p.Name, "--output", format).success(t)
-		for _, want := range []string{"lost-node", "lost-uid", "retirementEvidenceUID", string(e.UID), "Cleaning", "validated"} {
+		for _, want := range []string{"lost-node", "lost-uid", "retirementEvidenceUID", string(e.UID), "Cleaning", "validated", "detachedRetirements", "Missing", "jdks"} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("inspection omitted %s: %s", want, out)
 			}

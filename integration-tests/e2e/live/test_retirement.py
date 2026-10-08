@@ -9,14 +9,15 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from common import Fixture, kind_config
-from retirement import evidence_document, main, require_blocked, retire_worker
+from retirement import evidence_document, main, require_detached, retire_worker
 
 
 TARGET = {"name": "owned-worker", "uid": "original-node-uid", "claimed": True,
           "providerID": "kind://docker/owned/owned-worker", "systemUUID": "original-host"}
 PROFILE = {"metadata": {"uid": "profile-uid"},
-           "status": {"targets": [TARGET], "retirement": {"targets": [TARGET]},
-                      "conditions": [{"type": "Ready", "status": "False", "reason": "CleanupBlocked"}]}}
+           "status": {"targets": [{"name": "replacement", "uid": "new", "claimed": True}],
+                      "detachedRetirements": [{"targets": [TARGET], "phase": "Missing"}],
+                      "conditions": [{"type": "RetirementPending", "status": "True", "reason": "CleanupBlocked"}]}}
 
 
 class RetirementTests(unittest.TestCase):
@@ -108,18 +109,20 @@ class RetirementTests(unittest.TestCase):
             del receipt["target"]["systemUUID"]
             self.assertNotIn("systemUUID", evidence_document(f, receipt, PROFILE)["spec"])
 
-    def test_negative_case_requires_block_and_preserved_obligation_and_no_new_claim(self):
-        require_blocked(PROFILE, TARGET, "replacement")
-        for mutation in ("unblocked", "lost-obligation", "claimed-replacement"):
+    def test_independence_requires_history_and_new_claim_without_active_old_target(self):
+        require_detached(PROFILE, TARGET, "replacement")
+        for mutation in ("no-condition", "lost-obligation", "no-replacement", "active-old"):
             p = deepcopy(PROFILE)
-            if mutation == "unblocked":
+            if mutation == "no-condition":
                 p["status"]["conditions"] = []
             elif mutation == "lost-obligation":
-                p["status"]["retirement"]["targets"] = []
+                p["status"]["detachedRetirements"][0]["targets"] = []
+            elif mutation == "active-old":
+                p["status"]["targets"].append(TARGET)
             else:
-                p["status"]["targets"].append({"name": "replacement", "uid": "new", "claimed": True})
+                p["status"]["targets"] = []
             with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
-                require_blocked(p, TARGET, "replacement")
+                require_detached(p, TARGET, "replacement")
 
     def test_multi_node_config_keeps_all_nodes_invocation_owned(self):
         config = kind_config("owned", 2)

@@ -200,18 +200,21 @@ container **and its volumes**. Successful Docker inventory reads must prove
 their absence before the Kubernetes Node registration is removed.
 
 After introducing the standby into the pool, the scenario requires
-`CleanupBlocked`, the original frozen cleanup obligation, and an untouched,
-unclaimed replacement without evidence. An unbound submitter must receive
+real Java serving on a newly claimed replacement **before evidence**, with
+`RetirementPending=True` and the exact frozen obligation retained independently.
+The survivor's labels, Pod UID, running container and response remain unchanged.
+After removing its Java workloads, the fixture requests deletion and verifies
+that unresolved history holds the finalizer and causes real Helm uninstall to
+fail without removing the operator. An unbound submitter must receive
 `Forbidden`; only an explicit binding to `brewlet-retirement-recovery` permits
 the identity-bound attestation. The operator must resolve the evidence and
-provision the replacement under its own Node UID. A fresh Brewlet Pod must
-serve Java from that replacement, while the survivor's labels, Pod UID, running
-container and response remain unchanged. Finally, ordinary profile deletion
-must complete without deleting or changing the resolved evidence.
+finish profile deletion. A subsequent uninstall must succeed without deleting
+or changing the resolved evidence.
 
 `retirement-host-before.json` and `retirement-host.json` retain original host
 identity and destruction proof. The attestation references the SHA-256 of the
-latter. `retirement-evidence-resolved.json`,
+latter. `retirement-before-evidence.json`, `uninstall-unresolved.log`,
+`retirement-evidence-resolved.json`,
 `retirement-evidence-retained.json`, and `assertions.json` retain the recovery
 checkpoints. Shared fixture cleanup identity-checks remaining containers and
 removes only this invocation's resources, including on failure.

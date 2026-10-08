@@ -389,6 +389,16 @@ clean it, an authorized administrator can submit a cluster-scoped
 deletion. It does **not** apply to an original Node that is merely unreachable.
 Restore that Node's connectivity for ordinary cleanup.
 
+When an original claimed Node UID is absent (including a same-name Node with a
+different UID), the operator first stops the old profile workers and durably
+copies its frozen cleanup policy and identity into `status.detachedRetirements`.
+Only after a read-back checkpoint does it remove that target from active
+membership. Healthy targets and distinct replacement hosts then provision
+without an attestation. `RetirementPending=True` exposes unresolved history
+independently of `Ready`; assigned/ready counts describe active targets only.
+Repeated losses retain separate obligations with their original policy and
+generation. This is not abandonment or evidence of successful host cleanup.
+
 **Trust boundary:** Brewlet checks the Kubernetes identities, recorded host
 identity, durable cleanup obligations, and writer barriers. It does not contact
 Azure or verify the referenced platform evidence. Creating the attestation is a
@@ -399,7 +409,9 @@ proof that a particular original VM instance can never run again.
 1. Pause replacement/scale-in and profile/GitOps writers. Preserve the original
    NodeProfile YAML, Node JSON if available, worker identities, platform records,
    and Kubernetes API audit logs. Inspect `status.targets` and
-   `status.retirement`; never copy identities from a replacement Node.
+   `status.retirement` and `status.detachedRetirements`; never copy identities
+   from a replacement Node. Evidence is required to resolve cleanup history,
+   not to resume provisioning of distinct replacement hosts.
 2. Verify permanent destruction of the original host using the platform's
    decommissioning record. Bind its non-reusable instance identity to the
    original Node UID. A VMSS slot or reusable resource path is insufficient
@@ -451,12 +463,21 @@ acceptance/resolution timestamps and the original obligation. It never claims
 that host cleanup executed.
 
 All other targets still require ordinary cleanup or their own valid evidence.
-Surviving workers, foreign ownership, and unverifiable records remain blockers.
-A known original `systemUUID` still registered under any Node name/UID also
-blocks recovery: re-registration is not permanent host destruction.
+Old workers authorized for the missing UID, foreign ownership, and unverifiable
+records remain blockers. New workers carry an immutable authorized-UID set and
+cannot write to detached targets; they need not stop to resolve old history.
+A known original `providerID` or `systemUUID` still registered under any Node
+name/UID blocks recovery and fresh claims on that host: re-registration is not
+permanent host destruction. A conflicting host stays excluded; distinct healthy
+hosts remain eligible. Retained accepted/resolved evidence also fences host reuse
+after the original profile is gone. A reused provider resource path is deliberately
+conservative; do not erase historical records to work around an identity conflict.
 A same-name replacement is never cleaned or released under its predecessor's
-identity; it is claimed normally only after retirement finishes. The profile-wide
-pause remains until the episode is resolved. `CleanupComplete` uses
+identity; it can be claimed normally before evidence when its known host
+identities do not conflict. Ordinary reachable-target retirement still runs
+behind the profile worker barrier. Deletion and uninstall remain fail-closed
+until **every** detached obligation has authorized resolution, even when active
+target cleanup has finished. `CleanupComplete` uses
 `CleanupResolved`, rather than `CleanupSucceeded`, when deletion includes an
 external disposition.
 
@@ -496,8 +517,16 @@ not a live AKS VM-decommissioning validation.
    restart policy, namespace, and other installed settings. Review rendered
    manifests before applying; a fresh `brewlet k8s install` remains prohibited.
    Do not change stage-GC safety records or enable an acknowledgment bypass.
-5. Start only the recovery-capable operator, confirm it remains fail-closed
-   without evidence, then follow the attestation workflow above. Verify normal
+5. Start only the recovery-capable operator. Intact #240 retirement episodes
+   migrate through the durable copy/read-back checkpoint without discarding
+   obligations or receipts. Use matching operator and provisioner images: older
+   workers lack the immutable target fence and must terminate before detachment.
+   A legacy/stale worker that reappears while history is outstanding blocks new
+   claims and evidence resolution; stop it through its original owner rather
+   than adding authorization fields to that worker or clearing history.
+   Do not downgrade the CRD/operator while detached records exist. Confirm
+   distinct replacements provision before evidence while deletion/uninstall
+   remain blocked, then follow the attestation workflow above. Verify normal
    readiness for replacements or complete finalizer-driven deletion. Keep the
    evidence APIs available for inspection and subsequent uninstall.
 

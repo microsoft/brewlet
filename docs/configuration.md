@@ -306,6 +306,7 @@ configure the profile and operator settings rather than editing worker environme
 | `NODE_NAME` | (downward API) | The node to label; injected from `spec.nodeName`. |
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID in managed worker authority checks. |
 | `BREWLET_PROFILE_UID` | *(empty)* | Operator-managed profile UID paired with node ownership and persisted writer authority. Required: provisioning and cleanup always verify node UID/owner labels and durable profile authority. |
+| `BREWLET_TARGET_UIDS` | *(empty)* | Operator-generated immutable space-separated authorized Node UIDs for this worker. Both modes refuse writes outside this set; missing/empty sets authorize no host. Never supply this manually to adopt a host. |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID`. |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host install prefix (`bin/`, `jdks/`, `launchers/`). |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | Primary containerd configuration. Validated mode uses an imported drop-in when supported and otherwise patches this file with a backup. |

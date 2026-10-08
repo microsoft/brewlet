@@ -251,15 +251,20 @@ that would restore pool labels or reclaim the node while retirement is running.
 Brewlet does not supply an autoscaler termination hook. Suspend automatic
 scale-in/consolidation or provide external deprovisioning coordination; do not
 assume deleting a Kubernetes Node proves its host was cleaned. Before a durable
-cleanup-completion checkpoint, a missing/reused node UID yields `CleanupBlocked`
-and pauses all provisioner and node-metrics workers for that profile, including
-retained/new-node provisioning and upgrades. Retained hosts' runtime roots and
-capability advertisements are preserved.
+cleanup-completion checkpoint, a missing/reused Node UID is copied into the
+durable `status.detachedRetirements` history after old workers terminate. It is
+then removed from active membership, so healthy and genuinely distinct replacement
+hosts can provision and upgrade without waiting for evidence. Retained hosts'
+runtime roots and capability advertisements are preserved. `RetirementPending`
+reports outstanding cleanup history independently of active `Ready` status.
 
-Missing/reused UIDs remain blocked without
+Deletion/uninstall and resolution of missing hosts' cleanup obligations remain
+blocked without
 [authorized, identity-bound retirement evidence](installation.md#verified-external-host-retirement).
-Recreating the Node name or observing a stopped VM does not advance the state
-machine. An administrator must verify permanent retirement of the original host,
+Recreating the Node name or observing a stopped VM does not resolve the original
+obligation. Known providerID/systemUUID conflicts prevent host reuse, including
+re-registration under a different Node name. An administrator must verify
+permanent retirement of the original host,
 then submit immutable `NodeRetirementEvidence`; Brewlet does not verify the cloud
 record itself. A disconnected original host can recover normally if its Node
 object and UID remain intact. After durable `Teardown` has already proven cleanup,

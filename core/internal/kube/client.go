@@ -190,9 +190,10 @@ type nodeTarget struct {
 }
 
 type nodeRetirement struct {
-	Phase      string       `json:"phase"`
-	Generation int64        `json:"generation"`
-	Targets    []nodeTarget `json:"targets"`
+	Phase      string          `json:"phase"`
+	Generation int64           `json:"generation"`
+	Targets    []nodeTarget    `json:"targets"`
+	Spec       json.RawMessage `json:"spec,omitempty"`
 }
 type condition struct {
 	Type               string `json:"type"`
@@ -208,19 +209,20 @@ type object struct {
 	Metadata   metadata        `json:"metadata"`
 	Spec       json.RawMessage `json:"spec"`
 	Status     struct {
-		ObservedGeneration int64           `json:"observedGeneration"`
-		Conditions         []condition     `json:"conditions"`
-		AssignedNodes      int             `json:"assignedNodes"`
-		ReadyNodes         int             `json:"readyNodes"`
-		Replicas           int             `json:"replicas"`
-		UpdatedReplicas    int             `json:"updatedReplicas"`
-		ReadyReplicas      int             `json:"readyReplicas"`
-		SelectedJDK        string          `json:"selectedJdk"`
-		AvailableReplicas  int             `json:"availableReplicas"`
-		Phase              string          `json:"phase"`
-		Targets            []nodeTarget    `json:"targets"`
-		Retirement         *nodeRetirement `json:"retirement"`
-		ContainerStatuses  []struct {
+		ObservedGeneration  int64            `json:"observedGeneration"`
+		Conditions          []condition      `json:"conditions"`
+		AssignedNodes       int              `json:"assignedNodes"`
+		ReadyNodes          int              `json:"readyNodes"`
+		Replicas            int              `json:"replicas"`
+		UpdatedReplicas     int              `json:"updatedReplicas"`
+		ReadyReplicas       int              `json:"readyReplicas"`
+		SelectedJDK         string           `json:"selectedJdk"`
+		AvailableReplicas   int              `json:"availableReplicas"`
+		Phase               string           `json:"phase"`
+		Targets             []nodeTarget     `json:"targets"`
+		Retirement          *nodeRetirement  `json:"retirement"`
+		DetachedRetirements []nodeRetirement `json:"detachedRetirements"`
+		ContainerStatuses   []struct {
 			Name         string `json:"name"`
 			Ready        bool   `json:"ready"`
 			RestartCount int    `json:"restartCount"`

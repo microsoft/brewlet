@@ -105,6 +105,7 @@ the checksum gate to reject each build.
 | `NODE_NAME` | downward API | Kubernetes node to label |
 | `BREWLET_PROFILE_NAME` | `default` | Profile name paired with its UID for managed writer authority |
 | `BREWLET_PROFILE_UID` | empty | Operator-managed profile UID bound to durable writer authority; required in both modes, so provisioning and cleanup always need a matching node claim |
+| `BREWLET_TARGET_UIDS` | empty | Operator-generated immutable space-separated Node UID authorization set; a stale worker cannot write to a replacement UID. Empty or missing authorizes no host |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID` |
 | `BREWLET_PREFIX` | `/opt/brewlet` | Host installation prefix |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | containerd configuration |

@@ -2,7 +2,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Destroy an owned kind worker and recover its profile through retained evidence.
+"""Replace an owned kind worker before resolving its retained cleanup obligation.
 
 This is provider-neutral runtime E2E, not an AKS/VMSS API verification test.
 The replacement is a fresh, unprovisioned standby worker in the private cluster.
@@ -33,14 +33,18 @@ def runtime_labels(node):
     return {k: v for k, v in node["metadata"]["labels"].items() if k.startswith("brewlet.sh/")}
 
 
-def require_blocked(profile, original, replacement):
+def require_detached(profile, original, replacement):
     status = profile.get("status", {})
-    if not any(c.get("reason") == "CleanupBlocked" for c in status.get("conditions", [])):
-        raise AssertionError("Missing evidence did not keep the profile CleanupBlocked")
-    if original not in status.get("retirement", {}).get("targets", []):
-        raise AssertionError("Blocked recovery lost the frozen original cleanup obligation")
-    if claimed_target(profile, replacement):
-        raise AssertionError("Replacement was claimed before resolving original retirement")
+    if not any(c.get("type") == "RetirementPending" and c.get("status") == "True"
+               for c in status.get("conditions", [])):
+        raise AssertionError("Missing evidence did not preserve RetirementPending")
+    records = status.get("detachedRetirements", [])
+    if len(records) != 1 or records[0].get("targets") != [original] or records[0].get("phase") != "Missing":
+        raise AssertionError("Lost the independent original cleanup obligation")
+    if status.get("retirement") or original in status.get("targets", []):
+        raise AssertionError("Missing target still blocks active membership")
+    if not claimed_target(profile, replacement):
+        raise AssertionError("Replacement was not claimed independently of evidence")
 
 
 def retire_worker(f, name, target, profile):
@@ -149,16 +153,51 @@ def exercise(f):
         "nodeUID": target["uid"], "containerID": receipt["container"]["Id"],
         "proofSHA256": sha256(f.work / "retirement-host.json")})
     f.kube("label", "node", replacement, POOL)
-    wait("missing evidence blocks retirement", lambda: any(
-        c.get("reason") == "CleanupBlocked"
-        for c in f.get("nodeprofile", PROFILE).get("status", {}).get("conditions", [])))
+    wait("replacement runtime is ready before evidence", lambda: f.get("node", replacement)["metadata"]["labels"].get(
+        "brewlet.sh/jdk.temurin-21") == "true", timeout=480)
+    serve(f, "replacement", replacement, image)
     for delay in (0, 15):
         time.sleep(delay)
-        require_blocked(f.get("nodeprofile", PROFILE), target, replacement)
-        labels = runtime_labels(f.get("node", replacement))
-        if labels != dict(fresh_labels, **{"brewlet.sh/e2e-pool": "live"}):
-            raise AssertionError("Blocked recovery touched the replacement's runtime/ownership")
-    f.record("no-evidence-fails-closed", {"target": target, "replacementUID": fresh["metadata"]["uid"]})
+        current = f.get("nodeprofile", PROFILE)
+        require_detached(current, target, replacement)
+        if (current["metadata"]["uid"] != profile["metadata"]["uid"]
+                or claimed_target(current, replacement)["uid"] != fresh["metadata"]["uid"]
+                or len(current["status"]["targets"]) != 2):
+            raise AssertionError("Replacement did not receive its own independent identity")
+        require_response(f, "replacement")
+    frozen = current["status"]["detachedRetirements"][0]
+    if frozen["spec"] != profile["status"]["provisioningSpec"] or frozen["generation"] != profile["status"]["provisioningGeneration"]:
+        raise AssertionError("Detached obligation lost its frozen authorized policy")
+    f.save("retirement-before-evidence.json", current)
+    f.record("replacement-serves-before-evidence", {"target": target, "replacementUID": fresh["metadata"]["uid"]})
+    after = f.get("pod", "survivor", "-n", f.namespace)
+    if (runtime_labels(f.get("node", f.node)) != survivor_labels
+            or after["metadata"]["uid"] != survivor["metadata"]["uid"]
+            or after["status"]["containerStatuses"] != survivor["status"]["containerStatuses"]):
+        raise AssertionError("Detachment disturbed the surviving host or restarted its workload")
+    require_response(f, "survivor")
+    f.record("surviving-host-and-java-process-preserved", {"node": f.node})
+    f.kube("delete", "pods", "survivor", "replacement", "-n", f.namespace, "--timeout=120s")
+    # This invocation owns the private profile and release; mark its fixture
+    # profile as release-managed to exercise the real pre-delete hook barrier.
+    f.kube("label", "nodeprofile", PROFILE, "app.kubernetes.io/managed-by=Helm")
+    f.kube("annotate", "nodeprofile", PROFILE,
+           "meta.helm.sh/release-name=brewlet", "meta.helm.sh/release-namespace=default")
+    f.kube("delete", "nodeprofile", PROFILE, "--wait=false")
+    wait("deletion holds unresolved history", lambda: any(
+        c.get("type") == "Ready" and c.get("reason") == "CleanupBlocked"
+        for c in f.get("nodeprofile", PROFILE).get("status", {}).get("conditions", [])), timeout=360)
+    operator = f.get("deployment", "brewlet-operator", "-n", "brewlet")
+    uninstall = f.run(["helm", "--kubeconfig", f.kubeconfig, "--kube-context", f.context,
+                       "uninstall", "brewlet", "-n", "default", "--timeout", "30s"], check=False, timeout=60)
+    f.save("uninstall-unresolved.log", uninstall.stdout + uninstall.stderr)
+    deleting = f.get("nodeprofile", PROFILE)
+    if (uninstall.returncode == 0 or not deleting["metadata"].get("deletionTimestamp")
+            or "node.brewlet.sh/cleanup" not in deleting["metadata"].get("finalizers", [])
+            or deleting["status"].get("detachedRetirements") != [frozen]
+            or f.get("deployment", "brewlet-operator", "-n", "brewlet")["metadata"]["uid"] != operator["metadata"]["uid"]):
+        raise AssertionError("Deletion/uninstall erased unresolved history or its cleanup authority")
+    f.record("deletion-and-uninstall-fail-closed", {"profileUID": profile["metadata"]["uid"]})
     document = evidence_document(f, receipt, profile)
     f.apply({"apiVersion": "v1", "kind": "ServiceAccount",
              "metadata": {"name": "recovery", "namespace": f.namespace}})
@@ -185,27 +224,7 @@ def exercise(f):
             or resolved["spec"] != document["spec"] or resolved["metadata"].get("ownerReferences")):
         raise AssertionError("Resolved evidence did not retain the exact independent original obligation")
     f.save("retirement-evidence-resolved.json", resolved)
-    wait("replacement runtime is actually ready", lambda: f.get("node", replacement)["metadata"]["labels"].get(
-        "brewlet.sh/jdk.temurin-21") == "true", timeout=480)
-    current = f.get("nodeprofile", PROFILE)
-    replacement_target = claimed_target(current, replacement)
-    if (current["metadata"]["uid"] != profile["metadata"]["uid"]
-            or current["status"].get("retirement")
-            or claimed_target(current, original)
-            or not replacement_target or replacement_target["uid"] != fresh["metadata"]["uid"]
-            or len(current["status"]["targets"]) != 2):
-        raise AssertionError("Recovery did not resume with exactly the survivor and fresh replacement")
-    f.record("replacement-claimed-under-new-identity", {"target": replacement_target})
-    serve(f, "replacement", replacement, image)
-    after = f.get("pod", "survivor", "-n", f.namespace)
-    if (runtime_labels(f.get("node", f.node)) != survivor_labels
-            or after["metadata"]["uid"] != survivor["metadata"]["uid"]
-            or after["status"]["containerStatuses"] != survivor["status"]["containerStatuses"]):
-        raise AssertionError("Recovery disturbed the surviving host or restarted its workload")
-    require_response(f, "survivor")
-    f.record("surviving-host-and-java-process-preserved", {"node": f.node})
-    f.kube("delete", "pods", "survivor", "replacement", "-n", f.namespace, "--timeout=120s")
-    f.kube("delete", "nodeprofile", PROFILE, "--wait=true", "--timeout=360s", timeout=390)
+    f.kube("wait", "--for=delete", "nodeprofile", PROFILE, "--timeout=360s", timeout=390)
     retained = f.get(RESOURCE, EVIDENCE)
     if (retained["metadata"]["uid"] != resolved["metadata"]["uid"]
             or retained["spec"] != resolved["spec"] or retained["status"] != resolved["status"]
@@ -213,6 +232,11 @@ def exercise(f):
         raise AssertionError("Historical evidence changed or disappeared after profile deletion")
     f.save("retirement-evidence-retained.json", retained)
     f.record("resolved-evidence-survives-profile-deletion", {"evidenceUID": retained["metadata"]["uid"]})
+    f.run(["helm", "--kubeconfig", f.kubeconfig, "--kube-context", f.context,
+           "uninstall", "brewlet", "-n", "default", "--timeout", "120s"], timeout=150)
+    if f.get(RESOURCE, EVIDENCE)["status"] != retained["status"]:
+        raise AssertionError("Successful uninstall changed retained history")
+    f.record("resolved-evidence-survives-uninstall", {"evidenceUID": retained["metadata"]["uid"]})
 
 
 def main():

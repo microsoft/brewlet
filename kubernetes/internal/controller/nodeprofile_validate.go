@@ -117,6 +117,18 @@ func validateContainerdRestart(field, mode string) error {
 }
 
 func validateStoredContainerdPolicies(profile *nodev1alpha1.NodeProfile) error {
+	for i, record := range profile.Status.DetachedRetirements {
+		if len(record.Targets) != 1 || !record.Targets[0].Claimed || record.Targets[0].UID == "" ||
+			record.Targets[0].Name == "" || record.Phase != nodev1alpha1.RetirementMissing {
+			return fmt.Errorf("status.detachedRetirements[%d] has an invalid original cleanup obligation", i)
+		}
+		if err := validateContainerdRestart("detached retirement spec", record.Spec.Rollout.ContainerdRestart); err != nil {
+			return err
+		}
+		if err := validateContainerdRestart("detached retirement target", record.Targets[0].ContainerdRestart); err != nil {
+			return err
+		}
+	}
 	if spec := profile.Status.ProvisioningSpec; spec != nil {
 		if err := validateContainerdRestart("status.provisioningSpec.rollout.containerdRestart", spec.Rollout.ContainerdRestart); err != nil {
 			return err

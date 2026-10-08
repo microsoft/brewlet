@@ -259,6 +259,34 @@ spec:
                           systemUUID: { type: string }
                           retirementEvidenceName: { type: string }
                           retirementEvidenceUID: { type: string }
+                detachedRetirements:
+                  type: array
+                  description: Missing hosts' unresolved cleanup obligations, independent of active scheduling; block finalization until resolved by retained evidence.
+                  items:
+                    type: object
+                    required: [targets, generation, spec, phase]
+                    properties:
+                      generation: { type: integer, format: int64 }
+                      phase: { type: string, enum: [Missing] }
+                      spec:
+                        type: object
+                        x-kubernetes-preserve-unknown-fields: true
+                      targets:
+                        type: array
+                        minItems: 1
+                        maxItems: 1
+                        items:
+                          type: object
+                          required: [name, uid, claimed]
+                          properties:
+                            name: { type: string, minLength: 1 }
+                            uid: { type: string, minLength: 1 }
+                            claimed: { type: boolean, enum: [true] }
+                            containerdRestart: { type: string, enum: [validated, none] }
+                            providerID: { type: string }
+                            systemUUID: { type: string }
+                            retirementEvidenceName: { type: string }
+                            retirementEvidenceUID: { type: string }
                 observedGeneration:
                   type: integer
                   format: int64
