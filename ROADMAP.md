@@ -66,6 +66,13 @@ accepted and implemented.
   suit clusters that cannot accept privileged provisioning or that need a
   VM-isolated sandbox, at the cost of centralized JDK patching. See
   [proposal 0007](specs/proposals/0007-baked-golden-image-delivery.md).
+- **Language-agnostic runtime images (Brewlet 2.0).** Replace the JDK and
+  launcher inventory with administrator-approved, digest-pinned runtime images
+  selected by pods through an ID-only `brewlet.sh/runtime-image` annotation, and
+  generalize the application artifact to code and dependency layers under `/app`
+  plus a language-neutral launch layer. Java-specific features would leave the
+  core, with the Maven plugin remaining as a Java producer. See
+  [proposal 0009](specs/proposals/0009-language-agnostic-runtime-images.md).
 - **Managed bundles and referrers from the Go CLI.** `brewlet push` uploads
   ordinary images directly to a registry, but managed dependency bundles and
   referrer consumption still go through `--store` layouts or the Maven plugin.
