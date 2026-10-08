@@ -185,7 +185,11 @@ spec:
 ```
 
 `kubernetes.io/arch` is derived from the VM size. Never put Brewlet labels in
-`--labels` or Brewlet taints in `--node-taints`. For scale-from-zero on AKS, use
+`--labels` or Brewlet taints in `--node-taints`. AKS node initialization taints
+(preview, removable with `kubectl`) don't help either. AKS accepts them only on
+managed-cluster operations (`az aks update --nodepool-initialization-taints`),
+which apply them to every pool in the cluster. A per-pool request is rejected
+with `NodeInitializationTaintsFeatureNotSupported`. For scale-from-zero on AKS, use
 [Node Auto Provisioning](#karpenter) (Karpenter) with a Brewlet startup taint.
 
 On EKS, add synthetic node-template labels to the backing Auto Scaling group:

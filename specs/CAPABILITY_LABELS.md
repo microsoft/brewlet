@@ -181,7 +181,10 @@ agent pool spec (`--labels`, `--node-taints` and the VM size). It does not read
 labels and taints: its node admission webhook refuses to remove or change them
 on a Node. A pool label `brewlet.sh/runtime=ready` would advertise readiness
 before installation and could never be withdrawn, so AKS pools MUST NOT carry
-Brewlet labels or taints. As a result, AKS-managed Cluster Autoscaler pools
+Brewlet labels or taints. AKS node initialization taints are not a per-pool
+alternative: AKS accepts them only on managed-cluster operations, which apply
+them to every pool, and rejects them on agent pool operations
+(`NodeInitializationTaintsFeatureNotSupported`). As a result, AKS-managed Cluster Autoscaler pools
 cannot scale from zero for Brewlet capability requests. Keep `--min-count 1`:
 once a pool has a provisioned node, Cluster Autoscaler templates further
 scale-out from that real node's provisioner-published labels. On AKS, use Node
