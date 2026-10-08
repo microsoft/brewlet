@@ -105,7 +105,10 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
   applications while still being delivered as ordinary image layers.
 - Let platform teams approve large runtime inventories without installing every
   runtime on every node, by installing selected runtimes on first use.
-- Keep the Maven plugin as an optional **Java producer** of 2.0 artifacts.
+- Keep the `brewlet` CLI language-agnostic: it packages and validates
+  hand-written descriptors and never inspects application content (§11.1).
+- Keep the Maven plugin as an optional **Java producer** of 2.0 artifacts, the
+  only place where Java-specific intelligence lives (§11.2).
 
 ## 4. Non-goals
 
@@ -124,6 +127,11 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
   are the workload API.
 - Per-container runtime images. A pod uses exactly one runtime image (§8.1).
 - Running workloads as root (§8.4).
+- Inferring the runtime image from the artifact. Admission never reads the
+  registry and never fills in `brewlet.sh/runtime-image`; the workload manifest
+  always states it explicitly (§9).
+- Language detection in generic tooling. The CLI does not guess entrypoints,
+  dependency layouts, or runtime IDs for any ecosystem.
 - Sandboxes other than runc. [Proposal 0006](0006-sandbox-isolation-tiers.md)
   remains the venue for stronger isolation.
 
@@ -235,8 +243,10 @@ Field contract (unknown fields MUST be rejected at publish and launch time):
 
 The launch configuration intentionally contains **no** language-specific fields.
 Everything a 1.x `jvm.config` expressed (`mainJar`, `entry.mode`, `addOpens`,
-system properties, preview flags, AppCDS hints) becomes plain argv, produced by a
-language-aware tool such as the Maven plugin (§11).
+system properties, preview flags, AppCDS hints) becomes plain argv. Outside the
+Java ecosystem, the application author writes `launch.json` by hand and the CLI
+packages it unchanged (§11.1); for Java projects the Maven plugin MAY generate it
+(§11.2).
 
 ### 6.4 Image config
 
@@ -661,7 +671,8 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   node carries either value for the ID.
 - **Defaults** the container user and denies root (§8.4), and **overwrites** the existing
   `brewlet.sh/artifact-*` compatibility hints (SPEC §8.3, unchanged).
-- **Does not** read the application artifact from the registry. Artifact-side
+- **Does not** read the application artifact from the registry, and therefore
+  never defaults `brewlet.sh/runtime-image` from it. Artifact-side
   constraints (`requires.runtimeImages`, layer rules, platforms) are enforced by
   the shim and by kubelet's pull, so fail-open admission never weakens them.
 
@@ -723,20 +734,58 @@ Re-expressed generically:
 | Shipped AppCDS archive | An ordinary file in an application layer plus `-XX:SharedArchiveFile=… -Xshare:auto` in argv. Because rotations change the exact JDK build, the archive is best-effort by design. |
 | `JavaApplication` | A plain Deployment, StatefulSet, or DaemonSet; no replacement CRD (§4) |
 
-The **Maven plugin survives as a producer**: it builds `launch.json` from the
-project (main class, JPMS module, preview flags, `--add-opens`), splits
-dependencies into layers or consumes a published layer set, optionally emits an
-AppCDS archive, records `requires.runtimeImages` from configuration, and pushes a
-2.0 artifact. It no longer generates Kubernetes manifests. The `brewlet` CLI
-becomes the generic producer for every other ecosystem:
+### 11.1 The `brewlet` CLI: language-agnostic packaging
+
+The CLI is the producer for every ecosystem and knows none of them. The author
+writes `launch.json` (§6.3) by hand and declares which directories become which
+layers; the CLI validates and packages them:
 
 ```bash
 brewlet push registry.example.com/apps/api \
-  --layer app=./src:/app/src \
+  --launch ./launch.json \
   --layer dependency=./venv/lib/python3.12/site-packages:/app/site-packages \
-  --requires-runtime python-3.12 \
-  --entrypoint python -- -m api
+  --layer app=./src:/app/src
 ```
+
+The CLI MUST:
+
+- validate `launch.json` against the schema and reject unknown fields;
+- enforce the layer content rules of §6.2 at build time (paths under `/app`,
+  world-readable, no devices, setuid, or escaping links), producing the same
+  reason codes the shim would;
+- build deterministic layers in the given order, append the launch layer last,
+  mirror `launch.json` into the image config (§6.4), and push;
+- consume layer sets (§6.5) named with `--layer-set <ref>` by reusing their
+  layers byte-for-byte.
+
+The CLI MUST NOT inspect application content to derive any field: it never
+detects a language, guesses an entrypoint, splits dependencies, chooses
+`requires.runtimeImages`, or writes Kubernetes manifests. What the author wrote is
+what ships. `brewlet inspect <image>` prints the effective `launch.json` and
+layer table so authors and reviewers can check the result.
+
+### 11.2 The Maven plugin: Java-specific producer
+
+The Maven plugin is the one place where Java knowledge remains. It MAY:
+
+- generate `launch.json` argv from the project: main class or JPMS module,
+  classpath or module path, `--enable-preview`, `--add-opens`, and system
+  properties;
+- split dependencies into layers (for example `/app/lib` and `/app/mods`) or
+  consume a published `java` layer set;
+- emit an AppCDS archive as an ordinary application file and add the matching
+  flags to argv;
+- propose `requires.runtimeImages` from `maven.compiler.release` and a configured
+  mapping to inventory IDs (for example `21 → java-21, java-21-jaz`), so the
+  allow-list reflects the bytecode level the project actually targets;
+- warn when the generated argv requires a newer runtime than the configured IDs
+  provide.
+
+Its output is an ordinary 2.0 artifact that the shim treats exactly like one
+produced by the CLI. A developer can always replace the generated `launch.json`
+with a hand-written one. The plugin does not generate Kubernetes manifests and
+does not write `brewlet.sh/runtime-image`; choosing the runtime for a workload
+remains an explicit decision in the reviewed manifest.
 
 ## 12. Security model
 
@@ -809,25 +858,7 @@ brewlet push registry.example.com/apps/api \
 
 ## 15. Open questions
 
-1. **Artifact-declared runtime image.** Should an artifact whose
-   `requires.runtimeImages` names exactly one ID let admission fill in a missing
-   `brewlet.sh/runtime-image` annotation?
-
-   - *For:* one less field for developers; the build that tested the artifact
-     also chooses its runtime; mismatches surface at admission instead of at
-     container start.
-   - *Against:* admission must fetch the manifest and launch layer from the
-     registry. That needs pull credentials (image pull secrets or cloud workload
-     identity) inside the webhook, adds registry latency to every pod creation,
-     and fails open during a registry outage, so the shim would still reject the
-     pod. The runtime choice also disappears from the reviewed workload manifest,
-     which weakens the governance that §7.4 relies on, and multi-entry lists need
-     a tie-break rule.
-   - *Middle ground:* producers (the CLI and Maven plugin) write the annotation
-     into generated or patched manifests at build time, so admission stays
-     registry-free.
-
-2. **Baked export ([proposal 0007](0007-baked-golden-image-delivery.md)).**
+1. **Baked export ([proposal 0007](0007-baked-golden-image-delivery.md)).**
    Should Brewlet offer a standard way to bake an application and its runtime
    image into one ordinary image, using the same `RuntimeImage` inventory and
    `launch.json`, for clusters without the shim?
