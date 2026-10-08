@@ -649,6 +649,7 @@ func TestValidateAOT(t *testing.T) {
 		"traversal":     base(&AOT{Cache: "../x.aot"}, nil),
 		"bad cds":       base(&AOT{Cache: "app.aot"}, &CDS{Archive: "../app.jsa"}),
 		"bad aot w/cds": base(&AOT{Cache: "a/app.aot"}, &CDS{Archive: "app.jsa"}),
+		"same name":     base(&AOT{Cache: "app.bin"}, &CDS{Archive: "app.bin"}),
 	} {
 		if err := cfg.Validate(); err == nil {
 			t.Errorf("%s: want error", name)

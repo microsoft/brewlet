@@ -440,6 +440,11 @@ func (c JVMConfig) Validate() error {
 		if err := validateBareFilename("aot.cache", c.AOT.Cache); err != nil {
 			return fmt.Errorf("%w: the cache is mounted at /app/<cache>", err)
 		}
+		// Both files land flat under /app (and in one runnable app tar), so a
+		// shared name would let one silently overwrite the other.
+		if c.CDS != nil && c.CDS.Archive == c.AOT.Cache {
+			return fmt.Errorf("cds.archive and aot.cache must differ: both are materialized at /app/%s", c.AOT.Cache)
+		}
 	}
 	return nil
 }

@@ -113,3 +113,22 @@ func TestPushBothArchivesRecordsBothHints(t *testing.T) {
 		}
 	}
 }
+
+func TestPushRejectsSameArchiveAndCacheName(t *testing.T) {
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "app.jar")
+	writeCLIZip(t, jar, "com/example/Main.class")
+	for _, sub := range []string{"x", "y"} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, sub, "app.bin"), []byte(sub), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := cmdPush([]string{jar, "apps/c:1", "--store", filepath.Join(dir, "oci"),
+		"--appcds-archive", filepath.Join(dir, "x", "app.bin"), "--aot-cache", filepath.Join(dir, "y", "app.bin")})
+	if err == nil || !strings.Contains(err.Error(), "cds.archive and aot.cache must differ") {
+		t.Fatalf("err = %v, want cds.archive and aot.cache must differ", err)
+	}
+}
