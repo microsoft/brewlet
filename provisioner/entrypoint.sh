@@ -15,7 +15,8 @@
 #   4. Register the `brewlet` runtime through a host-enabled drop-in or validated
 #      in-place fallback, then activate it through the selected restart mode.
 #   5. Label the node brewlet.sh/runtime=ready and advertise the installed
-#      JDKs/launchers via annotations.
+#      JDKs/launchers via annotations, then remove the optional
+#      startup-taint.cluster-autoscaler.kubernetes.io/brewlet startup taint.
 #
 # The script is idempotent: it is safe to re-run, and only does work that is
 # still missing. It publishes a container-local completion marker, then runs
@@ -205,6 +206,11 @@ truncate_error_message() {
 # Node annotations the operator reads to fail a node whose provisioning errored.
 # The first carries the stable reason code (§14); the second the human detail.
 ANNOTATION_PROVISION_ERROR="brewlet.sh/provision-error"
+# Optional node-pool startup taint. Cluster Autoscaler ignores taints with this
+# prefix when it builds scale-from-zero templates, so a pool can pre-declare
+# Brewlet capability labels while the taint keeps workloads off the node until
+# the provisioner has actually installed the runtime and removes it.
+STARTUP_TAINT_KEY="startup-taint.cluster-autoscaler.kubernetes.io/brewlet"
 ANNOTATION_PROVISION_ERROR_MESSAGE="brewlet.sh/provision-error-message"
 
 # ---------------------------------------------------------------------------
@@ -1688,6 +1694,20 @@ label_node() {
   kubectl label node "$NODE_NAME" "${caps[@]}" --overwrite || return 1
   verify_profile_identity
   kubectl label node "$NODE_NAME" brewlet.sh/runtime=ready --overwrite || return 1
+  release_startup_taint
+}
+
+# Removes the optional startup taint once the node is ready. Absent taints are
+# the common case and are not an error.
+release_startup_taint() {
+  local out
+  if out="$(kubectl taint node "$NODE_NAME" "${STARTUP_TAINT_KEY}-" 2>&1)"; then
+    [[ -z "$out" ]] || log "released startup taint ${STARTUP_TAINT_KEY}"
+    return 0
+  fi
+  [[ "$out" == *"not found"* ]] && return 0
+  log "ERROR: could not remove startup taint ${STARTUP_TAINT_KEY}: ${out}"
+  return 1
 }
 
 verify_profile_identity() {

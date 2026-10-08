@@ -846,7 +846,11 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    when policy authorizes it, `brewlet.sh/appcds-regeneration` (§8/§14).
    Their exact keys, token grammar, presence semantics, compatibility guarantees,
    and autoscaler integration are defined by the public
-   [capability-label contract](CAPABILITY_LABELS.md).
+   [capability-label contract](CAPABILITY_LABELS.md). Only after readiness is
+   published does it remove the optional autoscaler startup taint
+   `startup-taint.cluster-autoscaler.kubernetes.io/brewlet`. A node still
+   carrying that taint is not ready, whatever its labels say
+   ([startup taint](CAPABILITY_LABELS.md#startup-taint)).
 9. Publishes the container-local `/tmp/brewlet-complete` marker, then runs
    periodic runnable-stage cleanup when enabled and installation safety is established (§5.2.1).
    Disabled provisioners and completed cleanup-mode workers idle instead.

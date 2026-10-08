@@ -7,7 +7,11 @@
 // reads them) — keep them in sync with https://github.com/microsoft/brewlet/tree/main/specs.
 package brewlet
 
-import "strings"
+import (
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
+)
 
 const (
 	// LabelRuntimeReady is set on a node by the provisioner once the shim + a JDK
@@ -216,6 +220,15 @@ const (
 	// LabelAppCDSRegeneration marks a node whose active profile authorizes AppCDS
 	// regeneration. It is a scheduling hint; the host sentinel is authoritative.
 	LabelAppCDSRegeneration = "brewlet.sh/appcds-regeneration"
+
+	// StartupTaintKey is the optional node-pool startup taint for autoscalers
+	// that build scale-from-zero templates only from node-pool labels (for
+	// example the AKS-managed Cluster Autoscaler). Such a pool may pre-declare
+	// LabelRuntimeReady and capability labels so the template matches Brewlet
+	// Pods; Cluster Autoscaler ignores taints with this prefix in templates,
+	// while the real node stays unschedulable until the provisioner installs
+	// the runtime and removes the taint. A node carrying it is never ready.
+	StartupTaintKey = "startup-taint.cluster-autoscaler.kubernetes.io/brewlet"
 	// LabelArch is the standard, kubelet-provided node label carrying the node's
 	// architecture (e.g. "amd64", "arm64"). Brewlet reuses it — rather than
 	// emitting a provisioner label — to steer non-portable artifacts via the
@@ -272,3 +285,19 @@ const (
 	// no otherwise-compatible ready node or eligible NodeProfile authorizes it.
 	ReasonAppCDSRegenerationDisabled = "AppCDSRegenerationDisabled"
 )
+
+// HasStartupTaint reports whether the node still carries StartupTaintKey.
+func HasStartupTaint(node *corev1.Node) bool {
+	for _, taint := range node.Spec.Taints {
+		if taint.Key == StartupTaintKey {
+			return true
+		}
+	}
+	return false
+}
+
+// RuntimeReady reports whether the node advertises a ready Brewlet runtime and
+// is not still waiting for the provisioner to release StartupTaintKey.
+func RuntimeReady(node *corev1.Node) bool {
+	return node.Labels[LabelRuntimeReady] == ValueReady && !HasStartupTaint(node)
+}

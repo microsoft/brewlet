@@ -145,22 +145,27 @@ Cluster Autoscaler simulates whether a future node from a group could schedule a
 pending pod. Its node-group template must therefore advertise the same runtime,
 JDK, launcher, and AppCDS labels that the group's `NodeProfile` will install.
 
-On AKS, set the node-template labels as node pool tags, which propagate to the
-pool's VMSS. The Azure provider maps `_` in the label part of the tag name to
-`/`:
+On AKS, the managed Cluster Autoscaler builds a scale-from-zero template only
+from the agent pool spec (`--labels`, `--node-taints`, and the VM size). It
+ignores `k8s.io_cluster-autoscaler_node-template_label_*` VMSS tags. Pool labels
+and taints are also pinned: AKS's node admission webhook refuses to remove or
+change them on a node. A pool that templates `brewlet.sh/runtime=ready` would
+therefore advertise readiness before installation, and could never withdraw it
+during reprovisioning or cleanup. That's unsupported, so **AKS-managed Cluster
+Autoscaler pools can't scale from zero for Brewlet capability requests**. Keep
+at least one node in each Brewlet pool:
 
 ```bash
-P=k8s.io_cluster-autoscaler_node-template_label_brewlet.sh
 for pool in javax64 javaarm; do
   az aks nodepool update -g "$RG" --cluster-name "$CLUSTER" -n "$pool" \
-    --enable-cluster-autoscaler --min-count 0 --max-count 5 \
-    --tags "${P}_runtime=ready" "${P}_jdk.temurin-21=true" \
-           "${P}_jdk-feature.21=true" "${P}_launcher.java=true"
+    --update-cluster-autoscaler --min-count 1 --max-count 5
 done
 ```
 
-A single profile can then cover both pools, and workloads pick an architecture
-with `spec.arch` instead of naming a pool:
+Once a pool has a provisioned node, Cluster Autoscaler uses that real node,
+including its provisioner-published Brewlet labels, as the template for further
+scale-out. A single profile can cover pools of different architectures, and
+workloads pick one with `spec.arch` instead of naming a pool:
 
 ```yaml
 apiVersion: node.brewlet.sh/v1alpha1
@@ -179,10 +184,9 @@ spec:
         javaHome: /opt/java/openjdk
 ```
 
-`kubernetes.io/arch` is derived from the VM size, so no arch tag is needed. Do
-**not** use `--labels` for Brewlet labels: AKS applies them to real nodes at
-registration, before the runtime is installed. Confirm that your Cluster
-Autoscaler honors VMSS template tags before setting `--min-count 0`.
+`kubernetes.io/arch` is derived from the VM size. Never put Brewlet labels in
+`--labels` or Brewlet taints in `--node-taints`. For scale-from-zero on AKS, use
+[Node Auto Provisioning](#karpenter) (Karpenter) with a Brewlet startup taint.
 
 On EKS, add synthetic node-template labels to the backing Auto Scaling group:
 
@@ -213,9 +217,9 @@ placing the workload.
 Karpenter handles template labels differently: labels under
 `NodePool.spec.template.metadata.labels` are copied onto real NodeClaims and
 Nodes. Do **not** put `brewlet.sh/runtime=ready` or Brewlet capability labels on a
-Karpenter `NodePool` when Brewlet will be installed after the node registers.
-That creates a window where the scheduler can place a pod before the runtime is
-ready.
+Karpenter `NodePool` when Brewlet will be installed after the node registers,
+unless the pool also declares the Brewlet startup taint (see below). Otherwise
+the scheduler can place a pod before the runtime is ready.
 
 A `NodeProfile` can safely target Karpenter nodes that are created for other
 demand:
@@ -260,10 +264,66 @@ This ensures created nodes receive the inventory, but it is not
 capability-driven scale-from-zero: Karpenter cannot infer labels that another
 DaemonSet will add after registration.
 
-Making a Karpenter pool eligible for Brewlet capability requests requires an
+### Scale-from-zero with a startup taint
+
+Karpenter, including AKS Node Auto Provisioning, ignores a `NodePool`'s
+`startupTaints` when it simulates scheduling, and doesn't pin labels on the
+node. A pool can therefore template the profile's ready label set if it also
+declares the Brewlet startup taint
+`startup-taint.cluster-autoscaler.kubernetes.io/brewlet`. Until the taint is
+gone, the node isn't ready to Brewlet, and the scheduler places nothing there.
+The provisioner first withdraws the templated labels, installs and validates
+the runtime, and publishes the real labels. Only then does it remove the taint:
+
+```yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: brewlet-jdk21
+spec:
+  template:
+    metadata:
+      labels:
+        brewlet.sh/runtime: ready
+        brewlet.sh/jdk.temurin-21: "true"
+        brewlet.sh/jdk-feature.21: "true"
+        brewlet.sh/launcher.java: "true"
+    spec:
+      startupTaints:
+        - key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet
+          value: provisioning
+          effect: NoSchedule
+---
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata:
+  name: brewlet-jdk21
+spec:
+  nodePool:
+    key: karpenter.sh/nodepool
+    names: ["brewlet-jdk21"]
+  tolerations:
+    - key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet
+      operator: Exists
+      effect: NoSchedule
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
+```
+
+The `NodeProfile` must tolerate the startup taint, because provisioner
+tolerations are opt-in. The templated labels must exactly match the profile
+inventory. Without the startup taint, the templated labels are unsupported.
+
+### Pre-baked images
+
+A Karpenter pool is also eligible for Brewlet capability requests when it uses an
 immutable node image or a pre-registration bootstrap that installs and validates
 Brewlet before kubelet registers the node. Only then may the Karpenter template
-truthfully publish the complete ready label set:
+truthfully publish the complete ready label set without a startup taint:
 
 ```yaml
 spec:
@@ -290,8 +350,10 @@ reject regeneration if only the label exists.
 
 | Provisioning model | Autoscaler configuration | Scale-from-zero for capability requests |
 |---|---|---|
-| Cluster Autoscaler + `NodeProfile` | Synthetic node-template labels matching the profile; provisioner publishes the real labels | Yes; admission counts the profile's declared inventory |
+| Cluster Autoscaler + `NodeProfile` | Synthetic node-template labels matching the profile; provisioner publishes the real labels | Yes, where template labels aren't applied to real nodes (for example EKS ASG tags); admission counts the profile's declared inventory |
+| AKS-managed Cluster Autoscaler + `NodeProfile` | `--min-count 1`; no Brewlet `--labels` or `--node-taints` | No; scale-out from the first provisioned node works |
 | Karpenter + post-registration `NodeProfile` | Select the Karpenter pool in `NodeProfile.spec.nodePool`; do not template Brewlet readiness labels | No; suitable for nodes created for other demand |
+| Karpenter / AKS NAP + `NodeProfile` + Brewlet startup taint | Template the profile's labels plus `startupTaints`; the profile tolerates the taint | Yes; the provisioner withdraws the templated labels and releases the taint when ready |
 | Karpenter + pre-baked or pre-registration Brewlet bootstrap | Template the complete labels only after the image/bootstrap makes them true | Yes, when a valid `NodeProfile` declares the same inventory (admission needs a ready node or profile) |
 
 ## Scale-in, consolidation, and replacement

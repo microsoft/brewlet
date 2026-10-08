@@ -50,7 +50,7 @@ func NodeCapabilityFrom(node *corev1.Node) NodeCapability {
 	_, appCDSRegeneration := node.Labels[brewlet.LabelAppCDSRegeneration]
 	return NodeCapability{
 		Name:               node.Name,
-		Ready:              node.Labels[brewlet.LabelRuntimeReady] == brewlet.ValueReady,
+		Ready:              brewlet.RuntimeReady(node),
 		Arch:               node.Labels[brewlet.LabelArch],
 		JDKs:               splitInventory(node.Annotations[brewlet.AnnotationJDKs]),
 		Launchers:          splitInventory(node.Annotations[brewlet.AnnotationLaunchers]),

@@ -44,6 +44,10 @@ func TestNodeCapabilityFrom(t *testing.T) {
 	if !c.AppCDSRegeneration {
 		t.Fatal("expected AppCDS regeneration policy to be projected")
 	}
+	n.Spec.Taints = []corev1.Taint{{Key: brewlet.StartupTaintKey, Effect: corev1.TaintEffectNoSchedule}}
+	if NodeCapabilityFrom(&n).Ready {
+		t.Fatal("a node still carrying the startup taint is not ready")
+	}
 }
 
 func TestCompatibilityUsesCompactJDKInventory(t *testing.T) {

@@ -3,7 +3,12 @@
 
 package brewlet
 
-import "testing"
+import (
+	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 // brewlet.sh/provision-error carries a stable reason CODE and
 // brewlet.sh/provision-error-message the human detail (§14.1). Rendering them
@@ -30,5 +35,21 @@ func TestFormatProvisionError(t *testing.T) {
 				t.Errorf("FormatProvisionError(%q, %q) = %q, want %q", tc.code, tc.message, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRuntimeReadyRequiresStartupTaintRelease(t *testing.T) {
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{LabelRuntimeReady: ValueReady}}}
+	if !RuntimeReady(node) || HasStartupTaint(node) {
+		t.Fatal("labelled node without startup taint must be ready")
+	}
+	node.Spec.Taints = []corev1.Taint{{Key: StartupTaintKey, Value: "provisioning", Effect: corev1.TaintEffectNoSchedule}}
+	if RuntimeReady(node) || !HasStartupTaint(node) {
+		t.Fatal("node still carrying the startup taint must not be ready")
+	}
+	node.Spec.Taints = nil
+	node.Labels = nil
+	if RuntimeReady(node) {
+		t.Fatal("unlabelled node must not be ready")
 	}
 }
