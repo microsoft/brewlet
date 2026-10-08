@@ -427,11 +427,14 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 	}
 
 	// Gate once, before any consumer of ra.Config (argv, mount, mtime pins): on
-	// JDK < 24 -XX:AOTCache is fatal, so the hint must be dropped everywhere.
-	if gated, dropped := kcruntime.GateAOTCache(ra.Config, ra.JDKHome); dropped {
+	// JDK < 24 -XX:AOTCache is fatal, so the hint must be dropped everywhere (a
+	// shipped .jsa is the fallback); on JDK 24+ a kept AOT cache clears the .jsa
+	// hint, since HotSpot refuses both together.
+	gated, dropped := kcruntime.GateAOTCache(ra.Config, ra.JDKHome)
+	if dropped {
 		fmt.Printf("shim: dropping AOT cache %q: JDK at %s does not support it (needs JDK 24+)\n", ra.Config.AOT.Cache, ra.JDKHome)
-		ra.Config = gated
 	}
+	ra.Config = gated
 
 	bundleStart := time.Now()
 	var writerLease *kcruntime.CDSWriterLease
@@ -643,10 +646,10 @@ func applyBrewletLaunchWithWriterLease(
 			return fmt.Errorf("AppCDS regeneration requires a verified resolved manifest digest")
 		}
 		cacheDir := envOr("BREWLET_CDS_CACHE", kcruntime.DefaultCDSCacheDir)
-		seed := ""
-		if ra.CDSHostPath != "" && ra.Config.CDS != nil && ra.Config.CDS.Archive != "" {
-			seed = ra.CDSHostPath
-		}
+		// CDSHostPath is only ever the shipped .jsa (resolution fills it only
+		// for a cds.archive hint), so it seeds even when a kept AOT cache
+		// cleared the gated config's CDS hint.
+		seed := ra.CDSHostPath
 		dec, err := kcruntime.DecideCDSRegen(kcruntime.RegenParams{
 			CacheDir:       cacheDir,
 			CacheScope:     namespace,
@@ -737,11 +740,13 @@ func applyBrewletLaunchWithWriterLease(
 		{Destination: "/opt/jdk", Type: "bind", Source: ra.JDKHome, Options: []string{"rbind", "ro"}},
 		{Destination: inSandboxJar, Type: "bind", Source: jarSource, Options: []string{"rbind", "ro"}},
 	}
-	// Optional AppCDS archive: bind-mount read-only at /app/<archive> so the
-	// -XX:SharedArchiveFile path BuildJVMArgs emitted resolves. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
+	// Optional startup archive: bind-mount the one the gated config launches with
+	// read-only at /app/<name> so the -XX:AOTCache / -XX:SharedArchiveFile path
+	// BuildJVMArgs emitted resolves. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	// Skipped under node-side regeneration: there the shipped archive is only seed
 	// data for the node cache (bind-mounted at InSandboxCDSDir instead).
-	if name, _, ok := ra.Config.StartupArchive(); !regenerate && ra.CDSHostPath != "" && ok {
+	archiveHostPath := artifact.ResolvedBlobs{CDSHostPath: ra.CDSHostPath, AOTHostPath: ra.AOTHostPath}.StartupArchiveHostPath(ra.Config)
+	if name, _, ok := ra.Config.StartupArchive(); !regenerate && archiveHostPath != "" && ok {
 		field := "cds.archive"
 		if ra.Config.AOT != nil {
 			field = "aot.cache"
@@ -752,7 +757,7 @@ func applyBrewletLaunchWithWriterLease(
 		brewletMounts = append(brewletMounts, specs.Mount{
 			Destination: "/app/" + name,
 			Type:        "bind",
-			Source:      ra.CDSHostPath,
+			Source:      archiveHostPath,
 			Options:     []string{"rbind", "ro"},
 		})
 	}

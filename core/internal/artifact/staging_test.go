@@ -48,7 +48,7 @@ func runnableLayersFixture(t *testing.T) (Store, Manifest, string, map[string][]
 		CDS:   &CDS{Archive: "orders.jsa"},
 	}
 	store := Store{Root: filepath.Join(dir, "oci")}
-	if _, err := store.PushRunnableImage("orders:test", cfg, jar, []string{cp}, []string{mp}, cds); err != nil {
+	if _, err := store.PushRunnableImage("orders:test", cfg, jar, []string{cp}, []string{mp}, cds, ""); err != nil {
 		t.Fatal(err)
 	}
 	man, digest, err := store.ResolveManifestByRef("orders:test")

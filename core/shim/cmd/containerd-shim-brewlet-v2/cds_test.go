@@ -31,7 +31,7 @@ func TestLayoutBlobsWithCDSLayer(t *testing.T) {
 		Entry: artifact.Entry{Mode: "jar"},
 		CDS:   &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"},
 	}
-	if _, err := store.PushWithCDS("demo/cds:1.0.0", cfg, jarPath, nil, nil, jsaPath); err != nil {
+	if _, err := store.PushWithCDS("demo/cds:1.0.0", cfg, jarPath, nil, nil, jsaPath, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +51,7 @@ func TestLayoutBlobsWithCDSLayer(t *testing.T) {
 }
 
 // TestLayoutBlobsWithAOTLayer verifies the shim resolves the optional AOT
-// cache's on-disk path (carried in CDSHostPath) from a Brewlet OCI layout.
+// cache's on-disk path (carried in AOTHostPath) from a Brewlet OCI layout.
 func TestLayoutBlobsWithAOTLayer(t *testing.T) {
 	dir := t.TempDir()
 	jarPath := filepath.Join(dir, "app.jar")
@@ -69,7 +69,7 @@ func TestLayoutBlobsWithAOTLayer(t *testing.T) {
 		Entry: artifact.Entry{Mode: "jar"},
 		AOT:   &artifact.AOT{Cache: "app.aot"},
 	}
-	if _, err := store.PushWithCDS("demo/aot:1.0.0", cfg, jarPath, nil, nil, aotPath); err != nil {
+	if _, err := store.PushWithCDS("demo/aot:1.0.0", cfg, jarPath, nil, nil, "", aotPath); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,10 +77,10 @@ func TestLayoutBlobsWithAOTLayer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadArtifactBlobs: %v", err)
 	}
-	if blobs.CDSHostPath == "" {
-		t.Fatal("CDSHostPath empty, want the resolved aot cache path")
+	if blobs.AOTHostPath == "" {
+		t.Fatal("AOTHostPath empty, want the resolved aot cache path")
 	}
-	if _, err := os.Stat(blobs.CDSHostPath); err != nil {
+	if _, err := os.Stat(blobs.AOTHostPath); err != nil {
 		t.Errorf("resolved aot blob not on disk: %v", err)
 	}
 	if blobs.Config.AOT == nil || blobs.Config.AOT.Cache != "app.aot" {

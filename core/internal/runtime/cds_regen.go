@@ -677,14 +677,20 @@ func SupportsCDSRegen(jdkRoot string) bool {
 // -XX:AOTCache; earlier JDKs treat it as a fatal unrecognized VM option.
 const minAOTCacheFeature = 24
 
-// GateAOTCache drops a shipped AOT cache hint when the JDK at jdkRoot cannot
-// consume it (feature < 24) or its identity is unreadable. It returns a copy
-// with AOT=nil and dropped=true; the caller's cfg is never mutated.
+// GateAOTCache picks the startup archive the JDK at jdkRoot can consume. Below
+// feature 24, or when its identity is unreadable, the AOT hint is dropped
+// (dropped=true) and any CDS hint is left as the fallback. When the AOT cache is
+// kept, the CDS hint is cleared: HotSpot refuses -XX:AOTCache together with
+// -XX:SharedArchiveFile. It returns a copy; the caller's cfg is never mutated.
 func GateAOTCache(cfg artifact.JVMConfig, jdkRoot string) (gated artifact.JVMConfig, dropped bool) {
-	feature, _, err := readJDKIdentity(jdkRoot)
-	if cfg.AOT == nil || (err == nil && feature >= minAOTCacheFeature) {
+	if cfg.AOT == nil {
 		return cfg, false
 	}
-	cfg.AOT = nil // cfg is a value copy; only the pointer is cleared, never written through
+	// cfg is a value copy; only its pointers are cleared, never written through.
+	if feature, _, err := readJDKIdentity(jdkRoot); err == nil && feature >= minAOTCacheFeature {
+		cfg.CDS = nil
+		return cfg, false
+	}
+	cfg.AOT = nil
 	return cfg, true
 }

@@ -30,7 +30,7 @@ func buildImage(t *testing.T) (artifact.Store, artifact.Descriptor) {
 	}
 	s := artifact.Store{Root: filepath.Join(dir, "oci")}
 	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "orders.jar", Entry: artifact.Entry{Mode: "jar"}}
-	desc, err := s.PushRunnableImage(localRef, cfg, jar, nil, nil, "")
+	desc, err := s.PushRunnableImage(localRef, cfg, jar, nil, nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

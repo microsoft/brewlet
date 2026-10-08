@@ -108,7 +108,7 @@ func TestAssembleSandboxWithCDSPinsJarModTime(t *testing.T) {
 		Entry:   artifact.Entry{Mode: "classpath", MainClass: "com.acme.Main", ClassPath: []string{"app.jar", "lib/*"}},
 		CDS:     &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"},
 	}
-	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, []string{libTar}, nil, jsaSrc, false)
+	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, []string{libTar}, nil, jsaSrc, "", false)
 	if err != nil {
 		t.Fatalf("AssembleSandboxWithCDS: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestGenerateBundleWithCDSPinsJarModTime(t *testing.T) {
 	}
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"}}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithCDS(cfg, jdkRoot, "", "", jarHost, nil, nil, jsaHost, out, Resources{}, nil); err != nil {
+	if err := GenerateBundleWithCDS(cfg, jdkRoot, "", "", jarHost, nil, nil, jsaHost, "", out, Resources{}, nil); err != nil {
 		t.Fatalf("GenerateBundleWithCDS: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(out, "config.json"))
@@ -252,7 +252,7 @@ func TestGenerateBundleWithAOTPinsJarModTime(t *testing.T) {
 	}
 	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, AOT: &artifact.AOT{Cache: "app.aot"}}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithCDS(cfg, fakeJDK(t, "25.0.1"), "", "", jarHost, nil, nil, aotHost, out, Resources{}, nil); err != nil {
+	if err := GenerateBundleWithCDS(cfg, fakeJDK(t, "25.0.1"), "", "", jarHost, nil, nil, "", aotHost, out, Resources{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(out, "config.json"))

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -410,7 +411,7 @@ func TestPushWithCDSAndResolve(t *testing.T) {
 		CDS:           &CDS{Archive: "app.jsa", Mode: "dynamic"},
 	}
 	s := Store{Root: filepath.Join(dir, "oci")}
-	if _, err := s.PushWithCDS("demo/cds:1.0.0", cfg, jarPath, nil, nil, jsaPath); err != nil {
+	if _, err := s.PushWithCDS("demo/cds:1.0.0", cfg, jarPath, nil, nil, jsaPath, ""); err != nil {
 		t.Fatalf("PushWithCDS: %v", err)
 	}
 	man, got, err := s.Resolve("demo/cds:1.0.0")
@@ -447,7 +448,7 @@ func TestPushWithAOTAndResolve(t *testing.T) {
 	}
 	cfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}, AOT: &AOT{Cache: "app.aot"}}
 	s := Store{Root: filepath.Join(dir, "oci")}
-	if _, err := s.PushWithCDS("demo/aot:1.0.0", cfg, jarPath, nil, nil, aotPath); err != nil {
+	if _, err := s.PushWithCDS("demo/aot:1.0.0", cfg, jarPath, nil, nil, "", aotPath); err != nil {
 		t.Fatalf("PushWithCDS: %v", err)
 	}
 	man, got, err := s.Resolve("demo/aot:1.0.0")
@@ -471,8 +472,11 @@ func TestPushWithAOTAndResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveNativeBlobs: %v", err)
 	}
-	if b, err := os.ReadFile(blobs.CDSHostPath); err != nil || string(b) != "AOT-CACHE-BYTES" {
-		t.Errorf("CDSHostPath content = %q (err %v)", b, err)
+	if b, err := os.ReadFile(blobs.AOTHostPath); err != nil || string(b) != "AOT-CACHE-BYTES" {
+		t.Errorf("AOTHostPath content = %q (err %v)", b, err)
+	}
+	if blobs.CDSHostPath != "" {
+		t.Errorf("CDSHostPath = %q for an AOT-only artifact", blobs.CDSHostPath)
 	}
 }
 
@@ -490,15 +494,15 @@ func TestPushAOTPairingErrors(t *testing.T) {
 
 	withHint := jarCfg
 	withHint.AOT = &AOT{Cache: "app.aot"}
-	if _, err := s.PushWithCDS("demo/a:1", withHint, jarPath, nil, nil, ""); err == nil {
+	if _, err := s.PushWithCDS("demo/a:1", withHint, jarPath, nil, nil, "", ""); err == nil {
 		t.Error("accepted aot.cache with no shipped file")
 	}
-	if _, err := s.PushWithCDS("demo/b:1", jarCfg, jarPath, nil, nil, aotPath); err == nil {
+	if _, err := s.PushWithCDS("demo/b:1", jarCfg, jarPath, nil, nil, "", aotPath); err == nil {
 		t.Error("accepted a shipped file with no hint")
 	}
 	mismatch := jarCfg
 	mismatch.AOT = &AOT{Cache: "other.aot"}
-	if _, err := s.PushWithCDS("demo/c:1", mismatch, jarPath, nil, nil, aotPath); err == nil {
+	if _, err := s.PushWithCDS("demo/c:1", mismatch, jarPath, nil, nil, "", aotPath); err == nil {
 		t.Error("accepted mismatched basename")
 	}
 }
@@ -539,19 +543,19 @@ func TestPushCDSPairingErrors(t *testing.T) {
 	// Config declares cds.archive but no archive file is shipped.
 	cfgWithCDS := jarCfg
 	cfgWithCDS.CDS = &CDS{Archive: "app.jsa"}
-	if _, err := s.PushWithCDS("demo/a:1", cfgWithCDS, jarPath, nil, nil, ""); err == nil {
+	if _, err := s.PushWithCDS("demo/a:1", cfgWithCDS, jarPath, nil, nil, "", ""); err == nil {
 		t.Error("PushWithCDS accepted cds.archive with no shipped archive, want error")
 	}
 
 	// Archive file shipped but config has no cds hint.
-	if _, err := s.PushWithCDS("demo/b:1", jarCfg, jarPath, nil, nil, jsaPath); err == nil {
+	if _, err := s.PushWithCDS("demo/b:1", jarCfg, jarPath, nil, nil, jsaPath, ""); err == nil {
 		t.Error("PushWithCDS accepted a shipped archive with no cds hint, want error")
 	}
 
 	// Basename mismatch between file and cds.archive.
 	mismatch := jarCfg
 	mismatch.CDS = &CDS{Archive: "other.jsa"}
-	if _, err := s.PushWithCDS("demo/c:1", mismatch, jarPath, nil, nil, jsaPath); err == nil {
+	if _, err := s.PushWithCDS("demo/c:1", mismatch, jarPath, nil, nil, jsaPath, ""); err == nil {
 		t.Error("PushWithCDS accepted mismatched archive basename, want error")
 	}
 }
@@ -641,13 +645,104 @@ func TestValidateAOT(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, cfg := range map[string]JVMConfig{
-		"empty":     base(&AOT{}, nil),
-		"traversal": base(&AOT{Cache: "../x.aot"}, nil),
-		"with cds":  base(&AOT{Cache: "app.aot"}, &CDS{Archive: "app.jsa"}),
+		"empty":         base(&AOT{}, nil),
+		"traversal":     base(&AOT{Cache: "../x.aot"}, nil),
+		"bad cds":       base(&AOT{Cache: "app.aot"}, &CDS{Archive: "../app.jsa"}),
+		"bad aot w/cds": base(&AOT{Cache: "a/app.aot"}, &CDS{Archive: "app.jsa"}),
 	} {
 		if err := cfg.Validate(); err == nil {
 			t.Errorf("%s: want error", name)
 		}
+	}
+}
+
+func TestValidateAllowsCDSAndAOT(t *testing.T) {
+	cfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}, AOT: &AOT{Cache: "app.aot"}, CDS: &CDS{Archive: "app.jsa"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("cds + aot rejected: %v", err)
+	}
+}
+
+func TestStartupArchivesOrder(t *testing.T) {
+	cfg := JVMConfig{AOT: &AOT{Cache: "app.aot"}, CDS: &CDS{Archive: "app.jsa"}}
+	got := cfg.StartupArchives()
+	want := []StartupArchiveRef{{"app.aot", AOTLayerMediaType}, {"app.jsa", CDSLayerMediaType}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("StartupArchives() = %+v, want %+v", got, want)
+	}
+	if n, mt, ok := cfg.StartupArchive(); n != "app.aot" || mt != AOTLayerMediaType || !ok {
+		t.Fatalf("StartupArchive() = (%q,%q,%v), want app.aot", n, mt, ok)
+	}
+	if got := (JVMConfig{}).StartupArchives(); len(got) != 0 {
+		t.Fatalf("StartupArchives() of empty config = %+v", got)
+	}
+}
+
+func TestPushBothArchivesAndResolve(t *testing.T) {
+	dir := t.TempDir()
+	jarPath := filepath.Join(dir, "app.jar")
+	jsaPath := filepath.Join(dir, "app.jsa")
+	aotPath := filepath.Join(dir, "app.aot")
+	for p, b := range map[string]string{jarPath: "PK\x03\x04", jsaPath: "JSA-BYTES", aotPath: "AOT-BYTES"} {
+		if err := os.WriteFile(p, []byte(b), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}, CDS: &CDS{Archive: "app.jsa"}, AOT: &AOT{Cache: "app.aot"}}
+	s := Store{Root: filepath.Join(dir, "oci")}
+	if _, err := s.PushWithCDS("demo/both:1", cfg, jarPath, nil, nil, jsaPath, aotPath); err != nil {
+		t.Fatalf("PushWithCDS: %v", err)
+	}
+	man, _, err := s.Resolve("demo/both:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := man.CDSLayer(); !ok {
+		t.Error("CDSLayer() missing")
+	}
+	if _, ok := man.AOTLayer(); !ok {
+		t.Error("AOTLayer() missing")
+	}
+	blobs, err := s.ResolveBlobs("demo/both:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(blobs.CDSHostPath); err != nil || string(b) != "JSA-BYTES" {
+		t.Errorf("CDSHostPath content = %q (err %v)", b, err)
+	}
+	if b, err := os.ReadFile(blobs.AOTHostPath); err != nil || string(b) != "AOT-BYTES" {
+		t.Errorf("AOTHostPath content = %q (err %v)", b, err)
+	}
+	if got := blobs.StartupArchiveHostPath(cfg); got != blobs.AOTHostPath {
+		t.Errorf("StartupArchiveHostPath(both) = %q, want AOTHostPath", got)
+	}
+	cdsOnly := cfg
+	cdsOnly.AOT = nil
+	if got := blobs.StartupArchiveHostPath(cdsOnly); got != blobs.CDSHostPath {
+		t.Errorf("StartupArchiveHostPath(cds) = %q, want CDSHostPath", got)
+	}
+}
+
+func TestPushBothArchivesPairingErrors(t *testing.T) {
+	dir := t.TempDir()
+	jarPath := filepath.Join(dir, "app.jar")
+	jsaPath := filepath.Join(dir, "app.jsa")
+	aotPath := filepath.Join(dir, "app.aot")
+	for _, p := range []string{jarPath, jsaPath, aotPath} {
+		if err := os.WriteFile(p, []byte("PK"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := Store{Root: filepath.Join(dir, "oci")}
+	both := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}, CDS: &CDS{Archive: "app.jsa"}, AOT: &AOT{Cache: "app.aot"}}
+	if _, err := s.PushWithCDS("demo/a:1", both, jarPath, nil, nil, jsaPath, ""); err == nil {
+		t.Error("accepted aot.cache hint without a cache file")
+	}
+	if _, err := s.PushWithCDS("demo/b:1", both, jarPath, nil, nil, "", aotPath); err == nil {
+		t.Error("accepted cds.archive hint without a .jsa file")
+	}
+	if _, err := s.PushWithCDS("demo/c:1", both, jarPath, nil, nil, aotPath, jsaPath); err == nil {
+		t.Error("accepted swapped archive files")
 	}
 }
 

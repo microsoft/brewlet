@@ -176,7 +176,7 @@ func cmdPush(args []string) error {
 	format := fs.String("format", "image", "delivery format: \"image\" (default; a standard, kubelet-pullable runnable image for runtimeClassName: brewlet pods) or \"artifact\" (native artifact with custom media types for local OCI-layout / CLI / prepare-bundle workflows, not Kubernetes execution). Both use the current launch contract. See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md")
 	var appcdsArgs stringSlice
 	fs.Var(&appcdsArgs, "appcds-arg", "workload argument passed to the --appcds training JVM to drive class loading (repeatable)")
-	aotCache := fs.String("aot-cache", "", "optional prebuilt JDK AOT cache to ship; mounted at /app/<name> and launched with -XX:AOTCache (JDK 24+, best-effort); mutually exclusive with --appcds*")
+	aotCache := fs.String("aot-cache", "", "optional prebuilt JDK AOT cache to ship; mounted at /app/<name> and launched with -XX:AOTCache (JDK 24+, best-effort); may ship alongside --appcds*, the AOT cache wins on JDK 24+")
 	aot := fs.Bool("aot", false, "generate a JDK AOT cache by running a self-terminating training JVM (JDK 25+) against the JAR, then ship it (turnkey equivalent of --aot-cache); fat-JAR only")
 	aotJava := fs.String("aot-java", "", "java executable (or JAVA_HOME dir) for --aot training; defaults to $JAVA_HOME/bin/java, else java on PATH")
 	aotTimeout := fs.Int("aot-timeout", 120, "seconds to wait for the --aot training JVM to self-terminate")
@@ -195,13 +195,10 @@ func cmdPush(args []string) error {
 	}
 	jarPath, ref := pos[0], pos[1]
 
-	if *aotCache != "" || *aot {
-		if *aotCache != "" && *aot {
-			return fmt.Errorf("--aot and --aot-cache are mutually exclusive: --aot generates the cache, --aot-cache ships a prebuilt one")
-		}
-		if *appcds || *cdsArchive != "" {
-			return fmt.Errorf("--aot/--aot-cache and --appcds/--appcds-archive are mutually exclusive: a workload ships one startup archive")
-		}
+	// A workload may ship both an AOT cache and an AppCDS archive (the AOT cache
+	// wins on JDK 24+); only generating and shipping the same kind conflict.
+	if *aotCache != "" && *aot {
+		return fmt.Errorf("--aot and --aot-cache are mutually exclusive: --aot generates the cache, --aot-cache ships a prebuilt one")
 	}
 
 	remote, err := resolvePushTarget(ref, flagWasSet(fs, "store"), *pushResult, insecureRegistries, allowedTokenRealms)
@@ -438,14 +435,12 @@ func cmdPush(args []string) error {
 		} else if cfg.AOT.Cache == "" {
 			cfg.AOT.Cache = base
 		}
-		// The startup-archive parameter carries whichever archive cfg names.
-		*cdsArchive = *aotCache
 	}
 
 	// Wire the optional AppCDS archive (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md). When --appcds-archive is
 	// given, default the launch-config cds hint from the file's basename unless a
 	// --config already set one; PushWithCDS then enforces they agree.
-	if *cdsArchive != "" && *aotCache == "" {
+	if *cdsArchive != "" {
 		base := filepath.Base(*cdsArchive)
 		if cfg.CDS == nil {
 			cfg.CDS = &artifact.CDS{Archive: base, Mode: "dynamic"}
@@ -457,7 +452,7 @@ func cmdPush(args []string) error {
 	s := artifact.Store{Root: *store}
 	switch *format {
 	case "artifact":
-		desc, err := s.PushWithCDS(ref, cfg, jarPath, cpLayers, mpLayers, *cdsArchive)
+		desc, err := s.PushWithCDS(ref, cfg, jarPath, cpLayers, mpLayers, *cdsArchive, *aotCache)
 		if err != nil {
 			return err
 		}
@@ -473,7 +468,7 @@ func cmdPush(args []string) error {
 		fmt.Printf("pushed %s\n  manifest: %s (%d bytes)\n  artifactType: %s\n  store: %s\n",
 			ref, desc.Digest, desc.Size, artifact.ArtifactType, *store)
 	case "image", "":
-		desc, err := s.PushRunnableImageWithOptions(ref, cfg, jarPath, cpLayers, mpLayers, *cdsArchive, artifact.RunnableImageOptions{
+		desc, err := s.PushRunnableImageWithOptions(ref, cfg, jarPath, cpLayers, mpLayers, *cdsArchive, *aotCache, artifact.RunnableImageOptions{
 			ManagedDependency: managedBundle,
 			ManagedEvidence:   managedEvidence,
 		})
@@ -814,14 +809,15 @@ func cmdRun(args []string) error {
 
 	// Pull: the payload is already in the store (native artifact) or staged from
 	// the runnable image's layers; mount it into a sandbox.
-	cdsSrc := blobs.CDSHostPath
 	// AssembleSandboxWithCDS and BuildPlan do not gate: -XX:AOTCache is fatal
-	// on JDK < 24, so drop the hint here for the JDK that will run it.
-	if gated, dropped := runtime.GateAOTCache(cfg, localJDKRoot(*jdkRoot)); dropped {
+	// on JDK < 24, so pick the archive here for the JDK that will run it (the
+	// AOT cache on 24+, else the .jsa).
+	gated, dropped := runtime.GateAOTCache(cfg, localJDKRoot(*jdkRoot))
+	if dropped {
 		fmt.Fprintf(os.Stderr, "brewlet: aot cache %q ignored: requires JDK 24+\n", cfg.AOT.Cache)
-		cfg = gated
 	}
-	sandbox, jarPath, err := runtime.AssembleSandboxWithCDS(cfg, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *appcdsRegen)
+	cfg = gated
+	sandbox, jarPath, err := runtime.AssembleSandboxWithCDS(cfg, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, blobs.CDSHostPath, blobs.AOTHostPath, *appcdsRegen)
 	if err != nil {
 		return err
 	}
@@ -838,10 +834,7 @@ func cmdRun(args []string) error {
 	// Regeneration is a deployment/fleet choice (--appcds-regenerate), not read
 	// from the artifact.
 	if *appcdsRegen {
-		seed := ""
-		if cdsSrc != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
-			seed = cdsSrc
-		}
+		seed := blobs.CDSHostPath // only ever the shipped .jsa
 		dec, derr := runtime.DecideCDSRegen(runtime.RegenParams{
 			CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
 			CacheScope:     "local",
@@ -923,8 +916,7 @@ func cmdBundle(args []string) error {
 		return err
 	}
 	cfg := blobs.Config
-	cdsSrc := blobs.CDSHostPath
-	if err := runtime.GenerateBundleWithIdentityAndRegen(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
+	if err := runtime.GenerateBundleWithIdentityAndRegen(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, blobs.CDSHostPath, blobs.AOTHostPath, *out,
 		res, nil, runtime.ProcessIdentity{UID: uid, GID: gid},
 		runtime.CDSRegenOptions{
 			Regenerate:     *appcdsRegen,

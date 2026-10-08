@@ -667,7 +667,7 @@ func TestGenerateBundleWithRegenMountsCache(t *testing.T) {
 	cache := t.TempDir()
 	out := filepath.Join(dir, "bundle")
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
-	if err := GenerateBundleWithRegen(cfg, jdkRoot, "", "", jarHost, nil, nil, "", out, Resources{}, nil,
+	if err := GenerateBundleWithRegen(cfg, jdkRoot, "", "", jarHost, nil, nil, "", "", out, Resources{}, nil,
 		CDSRegenOptions{
 			Regenerate:     true,
 			CacheScope:     "local",
@@ -732,7 +732,7 @@ func TestGenerateBundleWithIdentitySeparatesRegenCacheByUID(t *testing.T) {
 		t.Helper()
 		out := filepath.Join(dir, "bundle-"+strconv.FormatUint(uint64(uid), 10))
 		if err := GenerateBundleWithIdentityAndRegen(
-			cfg, jdkRoot, "", "", jarHost, nil, nil, "", out,
+			cfg, jdkRoot, "", "", jarHost, nil, nil, "", "", out,
 			Resources{}, nil, ProcessIdentity{UID: uid, GID: uid}, regen,
 		); err != nil {
 			t.Fatalf("GenerateBundleWithIdentityAndRegen(%d): %v", uid, err)
@@ -897,5 +897,27 @@ func TestGateAOTCacheDropsWhenIdentityUnknown(t *testing.T) {
 	gated, dropped := GateAOTCache(cfg, t.TempDir())
 	if !dropped || gated.AOT != nil {
 		t.Fatalf("dropped=%v AOT=%v, want dropped", dropped, gated.AOT)
+	}
+}
+
+func TestGateAOTCacheBothOnJDK25(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}, CDS: &artifact.CDS{Archive: "app.jsa"}}
+	gated, dropped := GateAOTCache(cfg, fakeJDK(t, "25.0.1"))
+	if dropped || gated.AOT == nil || gated.CDS != nil {
+		t.Fatalf("dropped=%v AOT=%v CDS=%v, want AOT kept and CDS cleared", dropped, gated.AOT, gated.CDS)
+	}
+	if cfg.AOT == nil || cfg.CDS == nil {
+		t.Fatal("input cfg was mutated")
+	}
+}
+
+func TestGateAOTCacheBothOnJDK21(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}, CDS: &artifact.CDS{Archive: "app.jsa"}}
+	gated, dropped := GateAOTCache(cfg, fakeJDK(t, "21.0.4"))
+	if !dropped || gated.AOT != nil || gated.CDS == nil {
+		t.Fatalf("dropped=%v AOT=%v CDS=%v, want AOT dropped and CDS kept", dropped, gated.AOT, gated.CDS)
+	}
+	if cfg.AOT == nil {
+		t.Fatal("input cfg was mutated")
 	}
 }

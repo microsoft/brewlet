@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -413,19 +414,23 @@ func pushRunnableFixture(t *testing.T, cfg JVMConfig, withCDS bool) (Store, Mani
 	if err := os.WriteFile(jarPath, []byte("PK\x03\x04 orders"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cdsPath := ""
+	// withCDS ships a file for every startup-archive hint cfg declares.
+	cdsPath, aotPath := "", ""
 	if withCDS {
-		name := "orders.jsa"
-		if n, _, ok := cfg.StartupArchive(); ok {
-			name = n
-		}
-		cdsPath = filepath.Join(work, name)
-		if err := os.WriteFile(cdsPath, []byte("JSA"), 0o644); err != nil {
-			t.Fatal(err)
+		for _, a := range cfg.StartupArchives() {
+			p := filepath.Join(work, a.Name)
+			if err := os.WriteFile(p, []byte(a.Name+"-BYTES"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if a.MediaType == AOTLayerMediaType {
+				aotPath = p
+			} else {
+				cdsPath = p
+			}
 		}
 	}
 	store := Store{Root: t.TempDir()}
-	if _, err := store.PushRunnableImage("demo/orders:1", cfg, jarPath, nil, nil, cdsPath); err != nil {
+	if _, err := store.PushRunnableImage("demo/orders:1", cfg, jarPath, nil, nil, cdsPath, aotPath); err != nil {
 		t.Fatalf("PushRunnableImage: %v", err)
 	}
 	man, digest, err := store.ResolveManifestByRef("demo/orders:1")
@@ -529,12 +534,54 @@ func TestResolveRunnableBlobsAOTPathStaysUnderStaging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRunnableBlobs: %v", err)
 	}
-	if filepath.Base(got.CDSHostPath) != "orders.aot" {
-		t.Fatalf("CDSHostPath = %q, want the staged orders.aot", got.CDSHostPath)
+	if filepath.Base(got.AOTHostPath) != "orders.aot" {
+		t.Fatalf("AOTHostPath = %q, want the staged orders.aot", got.AOTHostPath)
 	}
-	rel, err := filepath.Rel(stage, got.CDSHostPath)
+	rel, err := filepath.Rel(stage, got.AOTHostPath)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		t.Errorf("CDSHostPath = %q escapes staging root %q", got.CDSHostPath, stage)
+		t.Errorf("AOTHostPath = %q escapes staging root %q", got.AOTHostPath, stage)
+	}
+}
+
+func TestResolveRunnableBlobsBothArchives(t *testing.T) {
+	stage := t.TempDir()
+	t.Setenv("BREWLET_RUNNABLE_STAGE", stage)
+	cfg := JVMConfig{
+		SchemaVersion: 1,
+		MainJar:       "app.jar",
+		Entry:         Entry{Mode: "jar"},
+		CDS:           &CDS{Archive: "app.jsa"},
+		AOT:           &AOT{Cache: "app.aot"},
+	}
+	store, man, digest := pushRunnableFixture(t, cfg, true)
+
+	got, err := ResolveRunnableBlobs(store, man, digest)
+	if err != nil {
+		t.Fatalf("ResolveRunnableBlobs: %v", err)
+	}
+	// The app layer tar unpacks to exactly the JAR plus both archives.
+	entries, err := os.ReadDir(filepath.Dir(got.JarHostPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if want := []string{"app.aot", "app.jar", "app.jsa"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("staged app layer entries = %v, want %v", names, want)
+	}
+	for name, p := range map[string]string{"CDSHostPath": got.CDSHostPath, "AOTHostPath": got.AOTHostPath} {
+		rel, err := filepath.Rel(stage, p)
+		if p == "" || err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			t.Errorf("%s = %q, want a path under staging root %q", name, p, stage)
+		}
+	}
+	if b, err := os.ReadFile(got.CDSHostPath); err != nil || string(b) != "app.jsa-BYTES" {
+		t.Errorf("CDSHostPath content = %q (err %v)", b, err)
+	}
+	if b, err := os.ReadFile(got.AOTHostPath); err != nil || string(b) != "app.aot-BYTES" {
+		t.Errorf("AOTHostPath content = %q (err %v)", b, err)
 	}
 }
 

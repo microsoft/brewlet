@@ -22,10 +22,8 @@ func TestPushAOTFlagValidation(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"cache+archive", []string{"--aot-cache", "x.aot", "--appcds-archive", "y.jsa"}, "mutually exclusive"},
-		{"cache+appcds", []string{"--aot-cache", "x.aot", "--appcds"}, "mutually exclusive"},
 		{"aot+cache", []string{"--aot", "--aot-cache", "x.aot"}, "mutually exclusive"},
-		{"aot+appcds", []string{"--aot", "--appcds"}, "mutually exclusive"},
+		{"appcds+archive", []string{"--appcds", "--appcds-archive", "y.jsa"}, "mutually exclusive"},
 		{"cache+bundle", []string{"--aot-cache", "x.aot", "--dependency-bundle", "b"}, "does not support"},
 		{"aot+layer", []string{"--aot", "--classpath-layer", "l.tar"}, "--aot supports fat-JAR only"},
 	}
@@ -81,5 +79,37 @@ func TestPushAOTTimeoutHasNoCDSAdvice(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "appcds") {
 		t.Fatalf("CDS advice leaked: %v", err)
+	}
+}
+
+func TestPushBothArchivesRecordsBothHints(t *testing.T) {
+	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
+	dir := t.TempDir()
+	jar := filepath.Join(dir, "app.jar")
+	writeCLIZip(t, jar, "com/example/Main.class")
+	cache := filepath.Join(dir, "app.aot")
+	archive := filepath.Join(dir, "app.jsa")
+	for p, b := range map[string]string{cache: "AOT", archive: "JSA"} {
+		if err := os.WriteFile(p, []byte(b), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := filepath.Join(dir, "oci")
+	for _, format := range []string{"image", "artifact"} {
+		if err := cmdPush([]string{jar, "apps/b:" + format, "--store", store, "--format", format, "--aot-cache", cache, "--appcds-archive", archive}); err != nil {
+			t.Fatalf("%s: %v", format, err)
+		}
+		blobs, err := (artifact.Store{Root: store}).ResolveBlobs("apps/b:" + format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if blobs.Config.AOT == nil || blobs.Config.AOT.Cache != "app.aot" || blobs.Config.CDS == nil || blobs.Config.CDS.Archive != "app.jsa" {
+			t.Fatalf("%s: config aot=%+v cds=%+v, want both hints", format, blobs.Config.AOT, blobs.Config.CDS)
+		}
+		for path, want := range map[string]string{blobs.AOTHostPath: "AOT", blobs.CDSHostPath: "JSA"} {
+			if b, err := os.ReadFile(path); err != nil || string(b) != want {
+				t.Errorf("%s: %q = %q (err %v), want %q", format, path, b, err, want)
+			}
+		}
 	}
 }

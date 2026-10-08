@@ -150,7 +150,7 @@ func TestGenerateBundleUsesExplicitRuntimeIdentity(t *testing.T) {
 	want := ProcessIdentity{UID: 1234, GID: 5678}
 	if err := GenerateBundleWithIdentityAndRegen(
 		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
-		nil, nil, "", out, Resources{}, nil, want, CDSRegenOptions{},
+		nil, nil, "", "", out, Resources{}, nil, want, CDSRegenOptions{},
 	); err != nil {
 		t.Fatalf("GenerateBundleWithIdentityAndRegen: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestGenerateBundleRejectsReservedProcessIdentity(t *testing.T) {
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
 	err := GenerateBundleWithIdentityAndRegen(
 		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
-		nil, nil, "", filepath.Join(dir, "bundle"), Resources{}, nil,
+		nil, nil, "", "", filepath.Join(dir, "bundle"), Resources{}, nil,
 		ProcessIdentity{UID: MaxProcessID + 1, GID: DefaultProcessGID},
 		CDSRegenOptions{},
 	)
@@ -183,7 +183,7 @@ func TestGenerateBundleRejectsRegenIdentityBeyondPlatformInt(t *testing.T) {
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
 	err := GenerateBundleWithIdentityAndRegen(
 		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
-		nil, nil, "", filepath.Join(dir, "bundle"), Resources{}, nil,
+		nil, nil, "", "", filepath.Join(dir, "bundle"), Resources{}, nil,
 		ProcessIdentity{UID: math.MaxInt32 + 1, GID: DefaultProcessGID},
 		CDSRegenOptions{Regenerate: true},
 	)
@@ -221,7 +221,7 @@ func TestGenerateBundleWithCDS(t *testing.T) {
 	}
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"}}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithCDS(cfg, jdkRoot, "", "", jarHost, nil, nil, jsaHost, out, Resources{}, nil); err != nil {
+	if err := GenerateBundleWithCDS(cfg, jdkRoot, "", "", jarHost, nil, nil, jsaHost, "", out, Resources{}, nil); err != nil {
 		t.Fatalf("GenerateBundleWithCDS: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(out, "config.json"))
@@ -251,7 +251,7 @@ func TestAssembleSandboxWithCDS(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "app.jsa"}}
-	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, nil, nil, jsaSrc, false)
+	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, nil, nil, jsaSrc, "", false)
 	if err != nil {
 		t.Fatalf("AssembleSandboxWithCDS: %v", err)
 	}
@@ -912,6 +912,85 @@ func TestBuildJVMArgsNeverEmitsAOTMode(t *testing.T) {
 	}
 }
 
+func TestBuildJVMArgsBothSetEmitsOnlyAOTCache(t *testing.T) {
+	cfg := artifact.JVMConfig{SchemaVersion: 1, AOT: &artifact.AOT{Cache: "app.aot"}, CDS: &artifact.CDS{Archive: "app.jsa"}}
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(args, " "), "-XX:AOTCache=/app/app.aot -jar /app/app.jar"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+// bothArchivesBundleConfig generates a bundle shipping both a .jsa and an AOT
+// cache against a fake JDK of the given version and returns config.json.
+func bothArchivesBundleConfig(t *testing.T, javaVersion string) string {
+	t.Helper()
+	dir := t.TempDir()
+	jarHost := filepath.Join(dir, "app.jar")
+	jsaHost := filepath.Join(dir, "app.jsa")
+	aotHost := filepath.Join(dir, "app.aot")
+	for _, p := range []string{jarHost, jsaHost, aotHost} {
+		if err := os.WriteFile(p, []byte("PK"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"},
+		CDS: &artifact.CDS{Archive: "app.jsa"}, AOT: &artifact.AOT{Cache: "app.aot"}}
+	out := filepath.Join(dir, "bundle")
+	if err := GenerateBundleWithCDS(cfg, fakeJDK(t, javaVersion), "", "", jarHost, nil, nil, jsaHost, aotHost, out, Resources{}, nil); err != nil {
+		t.Fatalf("GenerateBundleWithCDS: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(out, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestGenerateBundleBothArchivesJDK21UsesJSA(t *testing.T) {
+	c := bothArchivesBundleConfig(t, "21.0.4")
+	if !strings.Contains(c, `"/app/app.jsa"`) || !strings.Contains(c, "-XX:SharedArchiveFile=/app/app.jsa") {
+		t.Errorf("config.json missing .jsa mount/argv on JDK 21:\n%s", c)
+	}
+	if strings.Contains(c, "-XX:AOTCache") || strings.Contains(c, "/app/app.aot") {
+		t.Errorf("config.json references the AOT cache on JDK 21:\n%s", c)
+	}
+}
+
+func TestGenerateBundleBothArchivesJDK25UsesAOT(t *testing.T) {
+	c := bothArchivesBundleConfig(t, "25.0.1")
+	if !strings.Contains(c, `"/app/app.aot"`) || !strings.Contains(c, "-XX:AOTCache=/app/app.aot") {
+		t.Errorf("config.json missing AOT mount/argv on JDK 25:\n%s", c)
+	}
+	if strings.Contains(c, "-XX:SharedArchiveFile") || strings.Contains(c, "/app/app.jsa") {
+		t.Errorf("config.json references the .jsa on JDK 25:\n%s", c)
+	}
+}
+
+func TestAssembleSandboxBothArchivesUsesAOT(t *testing.T) {
+	dir := t.TempDir()
+	jarSrc := filepath.Join(dir, "app.jar")
+	jsaSrc := filepath.Join(dir, "app.jsa")
+	aotSrc := filepath.Join(dir, "app.aot")
+	for p, b := range map[string]string{jarSrc: "PK", jsaSrc: "JSA", aotSrc: "AOT"} {
+		if err := os.WriteFile(p, []byte(b), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"},
+		CDS: &artifact.CDS{Archive: "app.jsa"}, AOT: &artifact.AOT{Cache: "app.aot"}}
+	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, nil, nil, jsaSrc, aotSrc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(sandbox)
+	if b, err := os.ReadFile(filepath.Join(filepath.Dir(jarPath), "app.aot")); err != nil || string(b) != "AOT" {
+		t.Errorf("/app/app.aot = %q (err %v), want the AOT cache bytes", b, err)
+	}
+}
+
 // aotBundleConfig generates a bundle shipping an AOT cache against a fake JDK
 // of the given version and returns config.json.
 func aotBundleConfig(t *testing.T, javaVersion string) string {
@@ -926,7 +1005,7 @@ func aotBundleConfig(t *testing.T, javaVersion string) string {
 	}
 	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, AOT: &artifact.AOT{Cache: "app.aot"}}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithCDS(cfg, fakeJDK(t, javaVersion), "", "", jarHost, nil, nil, aotHost, out, Resources{}, nil); err != nil {
+	if err := GenerateBundleWithCDS(cfg, fakeJDK(t, javaVersion), "", "", jarHost, nil, nil, "", aotHost, out, Resources{}, nil); err != nil {
 		t.Fatalf("GenerateBundleWithCDS: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(out, "config.json"))
@@ -960,7 +1039,7 @@ func TestAssembleSandboxWithAOTCache(t *testing.T) {
 		}
 	}
 	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, AOT: &artifact.AOT{Cache: "app.aot"}}
-	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, nil, nil, aotSrc, false)
+	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, nil, nil, "", aotSrc, false)
 	if err != nil {
 		t.Fatal(err)
 	}

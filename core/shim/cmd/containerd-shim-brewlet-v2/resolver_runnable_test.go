@@ -31,7 +31,7 @@ func buildRunnableStore(t *testing.T) (root, ref, indexDigest string) {
 		Entry:         artifact.Entry{Mode: "classpath", ClassPath: []string{"orders.jar", "lib/*"}, MainClass: "com.acme.Main"},
 	}
 	store := artifact.Store{Root: root}
-	desc, err := store.PushRunnableImage("demo/orders:1", cfg, jarPath, []string{depsTar}, nil, "")
+	desc, err := store.PushRunnableImage("demo/orders:1", cfg, jarPath, []string{depsTar}, nil, "", "")
 	if err != nil {
 		t.Fatalf("PushRunnableImage: %v", err)
 	}

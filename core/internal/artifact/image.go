@@ -76,7 +76,7 @@ const (
 
 // Runnable-image layer roles (values of LayerRoleAnnotation).
 const (
-	LayerRoleApp        = "app"        // tar of the primary JAR (+ optional CDS archive or AOT cache), flat
+	LayerRoleApp        = "app"        // tar of the primary JAR (+ optional CDS archive and/or AOT cache), flat
 	LayerRoleClasspath  = "classpath"  // tar of dependency JARs, unpacked to /app/lib
 	LayerRoleModulepath = "modulepath" // tar of library module JARs, unpacked to /app/mods
 )
@@ -135,24 +135,25 @@ type RunnableImageOptions struct {
 //
 // The launch contract (cfg) is carried verbatim on each platform manifest under
 // the brewlet.sh/jvm-config annotation; the shim reads it from there instead of
-// a Brewlet config blob. cdsArchivePath is the shipped startup archive (CDS .jsa or AOT cache); pass "" when the app ships none.
+// a Brewlet config blob. cdsArchivePath is the shipped AppCDS .jsa and
+// aotCachePath the shipped AOT cache; pass "" for one the app does not ship.
 // See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md.
-func (s Store) PushRunnableImage(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string, cdsArchivePath string) (Descriptor, error) {
-	return s.PushRunnableImageWithOptions(ref, cfg, jarPath, classpathTars, modulepathTars, cdsArchivePath, RunnableImageOptions{})
+func (s Store) PushRunnableImage(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string, cdsArchivePath, aotCachePath string) (Descriptor, error) {
+	return s.PushRunnableImageWithOptions(ref, cfg, jarPath, classpathTars, modulepathTars, cdsArchivePath, aotCachePath, RunnableImageOptions{})
 }
 
-func (s Store) PushRunnableImageWithOptions(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string, cdsArchivePath string, opts RunnableImageOptions) (Descriptor, error) {
+func (s Store) PushRunnableImageWithOptions(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string, cdsArchivePath, aotCachePath string, opts RunnableImageOptions) (Descriptor, error) {
 	if err := cfg.Validate(); err != nil {
 		return Descriptor{}, fmt.Errorf("invalid launch config: %w", err)
 	}
-	if err := validateStartupArchivePairing(cfg, cdsArchivePath); err != nil {
+	if err := validateStartupArchivePairing(cfg, cdsArchivePath, aotCachePath); err != nil {
 		return Descriptor{}, err
 	}
 
 	// Layer 0 (role=app): a flat tar of the primary JAR (materialized as
-	// cfg.MainJar) plus the optional CDS archive. The shim untars it to recover
-	// the JAR (and .jsa) as files, exactly like the native artifact's JAR blob.
-	appFiles, err := appLayerFiles(cfg, jarPath, cdsArchivePath)
+	// cfg.MainJar) plus the optional .jsa / AOT cache. The shim untars it to
+	// recover them as files, exactly like the native artifact's JAR blob.
+	appFiles, err := appLayerFiles(cfg, jarPath, cdsArchivePath, aotCachePath)
 	if err != nil {
 		return Descriptor{}, err
 	}
@@ -403,8 +404,9 @@ type tarEntry struct {
 }
 
 // appLayerFiles gathers the flat files the app layer tar carries: the primary
-// JAR (named MainJarName(cfg)) and, when shipped, the CDS archive or AOT cache.
-func appLayerFiles(cfg JVMConfig, jarPath, cdsArchivePath string) ([]tarEntry, error) {
+// JAR (named MainJarName(cfg)) and, when shipped, the AOT cache and CDS archive
+// under their hint names.
+func appLayerFiles(cfg JVMConfig, jarPath, cdsArchivePath, aotCachePath string) ([]tarEntry, error) {
 	jarName, err := MainJarName(cfg)
 	if err != nil {
 		return nil, err
@@ -414,16 +416,13 @@ func appLayerFiles(cfg JVMConfig, jarPath, cdsArchivePath string) ([]tarEntry, e
 		return nil, fmt.Errorf("read jar: %w", err)
 	}
 	files := []tarEntry{{name: jarName, content: jarBytes}}
-	if cdsArchivePath != "" {
-		cdsBytes, err := os.ReadFile(cdsArchivePath)
+	for _, a := range cfg.StartupArchives() {
+		path := startupArchivePath(a, cdsArchivePath, aotCachePath)
+		b, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read startup archive %q: %w", cdsArchivePath, err)
+			return nil, fmt.Errorf("read startup archive %q: %w", path, err)
 		}
-		name := filepath.Base(cdsArchivePath)
-		if n, _, ok := cfg.StartupArchive(); ok && n != "" {
-			name = n
-		}
-		files = append(files, tarEntry{name: name, content: cdsBytes})
+		files = append(files, tarEntry{name: a.Name, content: b})
 	}
 	return files, nil
 }

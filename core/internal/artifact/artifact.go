@@ -118,8 +118,9 @@ type JVMConfig struct {
 	// AOT is the optional JDK AOT cache hint. When set, the shim mounts the cache
 	// read-only at /app/<cache> and launch adds `-XX:AOTCache=/app/<cache>`. Like
 	// CDS it is a best-effort startup accelerator bound to the exact JDK build +
-	// classpath, never a correctness constraint. It is mutually exclusive with
-	// CDS. Leave it UNSET for the common case.
+	// classpath, never a correctness constraint. It may ship alongside CDS: on
+	// JDK 24+ the AOT cache wins, otherwise the .jsa is used. Leave it UNSET for
+	// the common case.
 	AOT *AOT `json:"aot,omitempty"`
 }
 
@@ -132,17 +133,32 @@ type AOT struct {
 	Cache string `json:"cache"`
 }
 
-// StartupArchive returns the shipped startup-archive file name and its layer
-// media type: the CDS archive or the AOT cache, whichever is set. ok is false
-// when neither is. Validate guarantees at most one is set.
+// StartupArchive returns the startup archive a launch consumes and its layer
+// media type: the AOT cache when set, else the CDS archive. ok is false when
+// neither is. An artifact may ship both; runtime callers gate the config on the
+// node's JDK first (runtime.GateAOTCache), so at most one survives there.
 func (c JVMConfig) StartupArchive() (name, mediaType string, ok bool) {
-	switch {
-	case c.CDS != nil:
-		return c.CDS.Archive, CDSLayerMediaType, true
-	case c.AOT != nil:
-		return c.AOT.Cache, AOTLayerMediaType, true
+	if a := c.StartupArchives(); len(a) > 0 {
+		return a[0].Name, a[0].MediaType, true
 	}
 	return "", "", false
+}
+
+// StartupArchiveRef names one shipped startup archive and its layer media type.
+type StartupArchiveRef struct{ Name, MediaType string }
+
+// StartupArchives lists every startup archive the artifact ships, AOT cache
+// first, then the CDS archive, each only if its hint is set. Publish paths
+// iterate it so both files are written.
+func (c JVMConfig) StartupArchives() []StartupArchiveRef {
+	var out []StartupArchiveRef
+	if c.AOT != nil {
+		out = append(out, StartupArchiveRef{c.AOT.Cache, AOTLayerMediaType})
+	}
+	if c.CDS != nil {
+		out = append(out, StartupArchiveRef{c.CDS.Archive, CDSLayerMediaType})
+	}
+	return out
 }
 
 // CDS carries the optional Application Class-Data Sharing archive hint (see
@@ -418,9 +434,6 @@ func (c JVMConfig) Validate() error {
 		}
 	}
 	if c.AOT != nil {
-		if c.CDS != nil {
-			return fmt.Errorf("cds and aot are mutually exclusive")
-		}
 		if strings.TrimSpace(c.AOT.Cache) == "" {
 			return fmt.Errorf("aot.cache is required (e.g. \"app.aot\")")
 		}
@@ -607,21 +620,21 @@ func (s Store) PushWithLayers(ref string, cfg JVMConfig, jarPath string, classpa
 // manifest as ref. Each tar becomes its own blob so registry/content stores dedup
 // by digest. See https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md and https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md.
 func (s Store) PushWithTypedLayers(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string) (Descriptor, error) {
-	return s.PushWithCDS(ref, cfg, jarPath, classpathTars, modulepathTars, "")
+	return s.PushWithCDS(ref, cfg, jarPath, classpathTars, modulepathTars, "", "")
 }
 
-// PushWithCDS is PushWithTypedLayers with an optional startup archive: an
-// Application Class-Data Sharing `.jsa` or a JDK AOT cache. When cdsArchivePath
-// is non-empty the file it names is written as a single layer (appended after
-// the JAR/classpath/modulepath layers) whose media type comes from
-// cfg.StartupArchive(), and the launch config MUST carry a matching cds.archive
-// or aot.cache hint (whose name equals the file's basename) so the shim mounts
-// it at /app/<name>. Pass "" for the common no-archive case. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
-func (s Store) PushWithCDS(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string, cdsArchivePath string) (Descriptor, error) {
+// PushWithCDS is PushWithTypedLayers with optional startup archives: an
+// Application Class-Data Sharing `.jsa` (cdsArchivePath) and/or a JDK AOT cache
+// (aotCachePath). Each non-empty path is written as its own layer (appended
+// after the JAR/classpath/modulepath layers, AOT first) and the launch config
+// MUST carry the matching cds.archive / aot.cache hint whose name equals the
+// file's basename, so the shim mounts it at /app/<name>. Pass "" for an archive
+// the app does not ship. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
+func (s Store) PushWithCDS(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string, cdsArchivePath, aotCachePath string) (Descriptor, error) {
 	if err := cfg.Validate(); err != nil {
 		return Descriptor{}, fmt.Errorf("invalid launch config: %w", err)
 	}
-	if err := validateStartupArchivePairing(cfg, cdsArchivePath); err != nil {
+	if err := validateStartupArchivePairing(cfg, cdsArchivePath, aotCachePath); err != nil {
 		return Descriptor{}, err
 	}
 	cfgBytes, err := json.MarshalIndent(cfg, "", "  ")
@@ -652,19 +665,19 @@ func (s Store) PushWithCDS(ref string, cfg JVMConfig, jarPath string, classpathT
 	if layers, err = s.appendTarLayers(layers, modulepathTars, ModulepathLayerMediaType, "modulepath"); err != nil {
 		return Descriptor{}, err
 	}
-	if cdsArchivePath != "" {
-		cdsBytes, err := os.ReadFile(cdsArchivePath)
+	for _, a := range cfg.StartupArchives() {
+		path := startupArchivePath(a, cdsArchivePath, aotCachePath)
+		b, err := os.ReadFile(path)
 		if err != nil {
-			return Descriptor{}, fmt.Errorf("read cds archive %q: %w", cdsArchivePath, err)
+			return Descriptor{}, fmt.Errorf("read startup archive %q: %w", path, err)
 		}
-		cdsDesc, err := s.writeBlob(cdsBytes)
+		desc, err := s.writeBlob(b)
 		if err != nil {
 			return Descriptor{}, err
 		}
-		_, mediaType, _ := cfg.StartupArchive() // pairing check guarantees ok
-		cdsDesc.MediaType = mediaType
-		cdsDesc.Annotations = map[string]string{titleAnnotation: filepath.Base(cdsArchivePath)}
-		layers = append(layers, cdsDesc)
+		desc.MediaType = a.MediaType
+		desc.Annotations = map[string]string{titleAnnotation: a.Name}
+		layers = append(layers, desc)
 	}
 
 	m := Manifest{
@@ -695,30 +708,42 @@ func (s Store) PushWithCDS(ref string, cfg JVMConfig, jarPath string, classpathT
 	return mDesc, nil
 }
 
-// validateStartupArchivePairing enforces the layer <-> config invariant: an
-// archive file (CDS .jsa or AOT cache) may only be shipped alongside a matching
-// cds.archive / aot.cache hint, and a config declaring one must be given a file
-// to ship. This keeps the on-disk filename and the launch config's expected
-// /app/<name> in lockstep so the shim mount and the JVM flag path agree.
-func validateStartupArchivePairing(cfg JVMConfig, archivePath string) error {
-	name, _, declared := cfg.StartupArchive()
-	field := "cds.archive"
+// validateStartupArchivePairing enforces the layer <-> config invariant per
+// hint: a .jsa (cdsPath) or AOT cache (aotPath) may only be shipped alongside a
+// matching cds.archive / aot.cache hint, a declared hint must be given a file to
+// ship, and the file's basename must equal the hint. This keeps the on-disk
+// filename and the launch config's /app/<name> in lockstep so the shim mount
+// and the JVM flag path agree.
+func validateStartupArchivePairing(cfg JVMConfig, cdsPath, aotPath string) error {
+	var cdsName, aotName string
+	if cfg.CDS != nil {
+		cdsName = cfg.CDS.Archive
+	}
 	if cfg.AOT != nil {
-		field = "aot.cache"
+		aotName = cfg.AOT.Cache
 	}
-	if archivePath == "" {
-		if declared {
-			return fmt.Errorf("launch config declares %s %q but no startup archive file was provided to ship", field, name)
+	for _, p := range []struct{ field, name, path string }{
+		{"cds.archive", cdsName, cdsPath},
+		{"aot.cache", aotName, aotPath},
+	} {
+		switch {
+		case p.path == "" && p.name != "":
+			return fmt.Errorf("launch config declares %s %q but no file was provided to ship", p.field, p.name)
+		case p.path != "" && p.name == "":
+			return fmt.Errorf("a startup archive file %q was provided but the launch config has no %s hint", p.path, p.field)
+		case p.path != "" && filepath.Base(p.path) != p.name:
+			return fmt.Errorf("startup archive filename %q does not match %s %q (they must agree so the archive maps to /app/%s)", filepath.Base(p.path), p.field, p.name, p.name)
 		}
-		return nil
-	}
-	if !declared {
-		return fmt.Errorf("a startup archive file was provided but the launch config has no cds.archive or aot.cache hint")
-	}
-	if base := filepath.Base(archivePath); base != name {
-		return fmt.Errorf("startup archive filename %q does not match %s %q (they must agree so the archive maps to /app/%s)", base, field, name, name)
 	}
 	return nil
+}
+
+// startupArchivePath picks the host file for a, after pairing validation.
+func startupArchivePath(a StartupArchiveRef, cdsPath, aotPath string) string {
+	if a.MediaType == AOTLayerMediaType {
+		return aotPath
+	}
+	return cdsPath
 }
 
 func (s Store) writeLayoutMarker() error {
