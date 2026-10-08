@@ -289,7 +289,13 @@ regression; trust, predicate and verifier-identity rules are unchanged.
 Gatekeeper has external data enabled, cache TTL 0 and validation
 `failurePolicy: Fail`. The Ratify provider timeout is 20 seconds, inside the
 30-second validating webhook timeout. Gatekeeper and Ratify each have bounded
-240-second rollout waits. Ratify uses a test-only `Recreate` rollout; current
+240-second rollout waits. Gatekeeper's fixture-only TCP startup probe waits for
+the webhook listener before the unchanged `/readyz` probe can mark it Ready.
+After enabling fail-closed validation, a server-side dry-run ConfigMap must pass
+through the API server before Ratify's CRDs are installed. This readiness wait
+is bounded to 120 seconds and retries only Gatekeeper connection-refused or
+missing-Service-endpoint errors; policy denials and other failures abort.
+`admission-gatekeeper-readiness.log` retains the latest response. Ratify uses a test-only `Recreate` rollout; current
 Ready Pods and Service endpoints must agree
 before enforcement tests proceed. Report transport uses a unique fixture CA and
 verified SANs, never `curl --insecure`.

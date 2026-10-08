@@ -240,6 +240,16 @@ class Admission:
                             "        - --operation=webhook")
         text = text.replace("replicas: 3", "replicas: 1")
         self.f.kube("apply", "-f", "-", input=text, timeout=180)
+        # Gatekeeper's /readyz can succeed before certificate initialization
+        # starts the admission listener. Preserve /readyz behind a startup gate.
+        self.f.kube("patch", "deployment", "gatekeeper-controller-manager",
+                    "-n", "gatekeeper-system", "--type=strategic", "-p", json.dumps({
+                        "spec": {"template": {"spec": {"containers": [{
+                            "name": "manager",
+                            "startupProbe": {"tcpSocket": {"port": "webhook-server"},
+                                             "periodSeconds": 1, "failureThreshold": 120},
+                        }]}}},
+                    }))
         self.f.kube("-n", "gatekeeper-system", "rollout", "status",
                     "deployment/gatekeeper-controller-manager", "--timeout=240s", timeout=260)
         self.f.kube("wait", "--for=condition=Established",
@@ -251,11 +261,29 @@ class Admission:
                 item["failurePolicy"] = "Fail"
                 item["timeoutSeconds"] = 30
         self.f.apply(webhook)
+        wait("Gatekeeper admits through the API server", self.gatekeeper_admission_ready,
+             timeout=120, interval=1)
         self.f.record("admission-gatekeeper", {
             "sourceCommit": GATEKEEPER_COMMIT, "sourceSHA256": checksum,
             "image": GATEKEEPER_IMAGE, "externalDataCacheTTL": 0,
             "failurePolicy": "Fail", "replicas": 1,
         })
+
+    def gatekeeper_admission_ready(self):
+        probe = {"apiVersion": "v1", "kind": "ConfigMap",
+                 "metadata": {"name": "gatekeeper-startup-probe", "namespace": self.f.namespace}}
+        result = self.f.kube("create", "--dry-run=server", "-f", "-", input=json.dumps(probe),
+                             check=False, timeout=50)
+        self.f.save("admission-gatekeeper-readiness.log", result.stdout + result.stderr)
+        if result.returncode == 0:
+            return True
+        message = result.stderr
+        if (any(f'failed calling webhook "{name}"' in message for name in (
+                "validation.gatekeeper.sh", "mutation.gatekeeper.sh"))
+                and ("connection refused" in message
+                     or 'no endpoints available for service "gatekeeper-webhook-service"' in message)):
+            return False
+        raise RuntimeError("Gatekeeper admission readiness failed: " + redact(message))
 
     def build_ratify(self):
         build = self.f.private / "admission-image"

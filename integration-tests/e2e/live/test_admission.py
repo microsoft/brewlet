@@ -291,6 +291,88 @@ class StatementFixtureTests(unittest.TestCase):
         self.assertEqual(original, before)
 
 
+class GatekeeperReadinessTests(unittest.TestCase):
+    def admission(self):
+        from admission import Admission
+        f = Mock(namespace="live-e2e")
+        f.registry = "localhost:5000"
+        return Admission(f)
+
+    def test_success_requires_server_side_dry_run_without_persisting_probe(self):
+        a = self.admission()
+        a.f.kube.return_value = completed(0, "")
+        self.assertTrue(a.gatekeeper_admission_ready())
+        self.assertEqual(a.f.kube.call_args.args, ("create", "--dry-run=server", "-f", "-"))
+        probe = json.loads(a.f.kube.call_args.kwargs["input"])
+        self.assertEqual(probe["kind"], "ConfigMap")
+        self.assertEqual(probe["metadata"]["namespace"], "live-e2e")
+        a.f.save.assert_called_once()
+
+    def test_only_named_gatekeeper_startup_transport_failures_are_retried(self):
+        a = self.admission()
+        for name in ("validation.gatekeeper.sh", "mutation.gatekeeper.sh"):
+            for error in ("connection refused",
+                          'no endpoints available for service "gatekeeper-webhook-service"'):
+                a.f.kube.return_value = completed(1, f'failed calling webhook "{name}": {error}')
+                with self.subTest(name=name, error=error):
+                    self.assertFalse(a.gatekeeper_admission_ready())
+        for message in (
+            'admission webhook "validation.gatekeeper.sh" denied the request',
+            'failed calling webhook "unrelated.sh": connection refused',
+            'failed calling webhook "validation.gatekeeper.sh": x509: unknown authority',
+            'failed calling webhook "validation.gatekeeper.sh": context deadline exceeded',
+            "Forbidden: cannot create configmaps",
+            "connection refused",
+        ):
+            a.f.kube.return_value = completed(1, message)
+            with self.subTest(message=message), self.assertRaisesRegex(RuntimeError, "readiness failed"):
+                a.gatekeeper_admission_ready()
+
+    def test_startup_gate_preserves_health_probes_and_fail_closed_policy(self):
+        a = self.admission()
+        with tempfile.TemporaryDirectory() as directory:
+            a.f.private = Path(directory)
+            (a.f.private / "admission-gatekeeper.yaml").write_text("replicas: 3\n")
+            a.f.get.return_value = {"webhooks": [
+                {"name": "validation.gatekeeper.sh", "failurePolicy": "Ignore"},
+                {"name": "another-webhook", "failurePolicy": "Ignore"},
+            ]}
+            with patch("admission.download", return_value="checksum"), \
+                    patch("admission.wait") as ready:
+                a.install_gatekeeper()
+        calls = a.f.kube.call_args_list
+        self.assertEqual(calls[1].args[:-1], (
+            "patch", "deployment", "gatekeeper-controller-manager",
+            "-n", "gatekeeper-system", "--type=strategic", "-p"))
+        container = json.loads(calls[1].args[-1])["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(container, {
+            "name": "manager", "startupProbe": {
+                "tcpSocket": {"port": "webhook-server"}, "periodSeconds": 1, "failureThreshold": 120},
+        })
+        self.assertIn("rollout", calls[2].args)
+        self.assertEqual(a.f.apply.call_args.args[0]["webhooks"], [
+            {"name": "validation.gatekeeper.sh", "failurePolicy": "Fail", "timeoutSeconds": 30},
+            {"name": "another-webhook", "failurePolicy": "Ignore"},
+        ])
+        ready.assert_called_once_with(
+            "Gatekeeper admits through the API server", a.gatekeeper_admission_ready,
+            timeout=120, interval=1)
+        self.assertLess([c[0] for c in a.f.mock_calls].index("apply"),
+                        [c[0] for c in a.f.mock_calls].index("record"))
+
+    def test_readiness_failure_never_records_success(self):
+        a = self.admission()
+        with tempfile.TemporaryDirectory() as directory:
+            a.f.private = Path(directory)
+            (a.f.private / "admission-gatekeeper.yaml").write_text("replicas: 3\n")
+            a.f.get.return_value = {"webhooks": [{"name": "validation.gatekeeper.sh"}]}
+            with patch("admission.download"), \
+                    patch("admission.wait", side_effect=TimeoutError("listener never served")), \
+                    self.assertRaisesRegex(TimeoutError, "never served"):
+                a.install_gatekeeper()
+        a.f.record.assert_not_called()
+
+
 class RatifyInstallationTests(unittest.TestCase):
     def setUp(self):
         from admission import Admission
