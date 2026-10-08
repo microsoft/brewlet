@@ -238,6 +238,13 @@ original instance, and follow
 [external-retirement recovery](installation.md#verified-external-host-retirement).
 The same-name replacement is not a cleanup target for the old UID. An unreachable
 original Node still requires connectivity repair, not an attestation bypass.
+For a non-deleting profile, `RetirementPending=True` and
+`status.detachedRetirements` retain missing-host cleanup obligations without
+blocking distinct replacement provisioning. A healthy `Ready` condition does
+not mean this history is resolved. Deletion and Helm uninstall still wait for
+every obligation; inspect the detached records and retained evidence rather
+than only the current Node list. Known providerID/systemUUID conflicts exclude
+returning hosts from fresh claims even under another name.
 
 Never remove the `node.brewlet.sh/cleanup` finalizer, ownership labels, or
 status to force deletion: that leaves runtimes and containerd changes on nodes

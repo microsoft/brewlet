@@ -1274,7 +1274,11 @@ The operator-owned status ledger contains `targets[]` entries with `name`, `uid`
 `claimed`, and per-node `containerdRestart`; `ownershipInitialized` records
 initialization of UID-bound ownership. `provisioningGeneration` and
 `provisioningSpec` retain provisioning policy, while `retirement` freezes
-`targets`, `generation`, `spec`, and `phase` (`Cleaning` or `Teardown`). Target and
+`targets`, `generation`, `spec`, and `phase` (`Cleaning` or `Teardown`).
+`detachedRetirements[]` retains independent missing-host obligations, each with
+one original claimed target, frozen authorized generation/spec, and `Missing`
+phase. The containing profile UID binds unresolved history; resolved evidence
+preserves that UID independently. Target and
 retirement checkpoints MUST survive a fresh API read before dependent actions.
 Matching CRDs and operator/provisioner components are required; missing or
 pruned ledger fields fail closed.
@@ -1289,7 +1293,7 @@ acceptance/resolution times independently of profile lifetime. Existing host
 identity snapshots MUST match; legacy targets require an explicit administrative
 mapping from external records. A still-present original Node is ineligible.
 
-Before excluding a target from execution, the operator MUST durably accept the
+Before resolving a missing host's cleanup obligation, the operator MUST durably accept the
 evidence and persist a matching `retirementEvidenceName`/`retirementEvidenceUID`
 receipt in the target ledger. Receipt-bearing targets cannot authorize host
 writes. Recreated evidence names, foreign target identities, remaining workers,
@@ -1312,12 +1316,30 @@ replacement. Preserve evidence, finalizers, and scheduling gates; worker
 disappearance does not establish host cleanup.
 Ownership conflicts, missing/reused node identities, and unavailable cleanup
 targets are reported rather than treated as completed reversal.
-Retirement is profile-wide serialized: before successful cleanup is durably
-recorded, an inaccessible/missing/reused departing node pauses all profile
-provisioner and metrics workers and retained/new-node provisioning, while
-preserving retained hosts' runtime roots and advertisements. Recovery is
-supported for a disconnected original Node with its UID intact; missing/reused
-UIDs require explicit external-retirement evidence as described above. A durable `Teardown` checkpoint is
+Ordinary reachable-node retirement is profile-wide serialized, preserving
+retained hosts' runtime roots and advertisements. An inaccessible original Node
+with its UID intact still blocks that episode and requires connectivity recovery.
+Node absence or replacement by a different UID instead permits **detachment**:
+after old workers terminate, the operator MUST copy the frozen obligation into
+`detachedRetirements`, durably read it back, and only then remove active membership.
+This copy-before-removal protocol preserves intact older ledgers if a stale CRD
+prunes the new field. Repeated losses retain separate snapshots. Detachment is
+neither proof of host cleanup nor permanent destruction.
+
+Healthy nodes and genuinely distinct replacements may then provision without
+administrative evidence. `RetirementPending=True` reports outstanding history
+independently of active `Ready` and assigned/ready counts. A same-name new UID
+does not inherit the old claim. Known original Node UID, providerID, or systemUUID
+conflicts MUST fence returning/re-registered hosts across profiles and retained
+accepted/resolved evidence; unrelated eligible nodes remain provisionable.
+Workers carry an immutable `BREWLET_TARGET_UIDS` authorization set and MUST reject
+host writes for any other UID, as well as checking the current active ledger.
+Only workers that cannot authorize the detached UID may coexist with evidence
+resolution; legacy or stale workers remain blockers.
+
+Every detached obligation still requires authorized external-retirement evidence
+before finalization. Deletion/uninstall MUST remain fail-closed even after all
+active target cleanup has finished. A durable `Teardown` checkpoint is
 different: cleanup is already proven, so later Node disappearance need not block
 release after workers disappear. Planned shrink MUST exclude departing nodes
 from every remaining profile, including catch-alls, and finish cleanup/teardown
@@ -2253,6 +2275,7 @@ reason (§5.5).
 | `JavaApplication` | `JVMArgsApplied` | `ArgsDelivered`, `EnvOptionsOverlap` (§8.2) |
 | `NodeProfile` | `Ready` | `AllNodesProvisioned`, `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`, `OwnershipConflict`, `Retargeting`, `CleanupBlocked`, `CleanupPending`, `CleanupTeardown` |
 | `NodeProfile` | `CleanupComplete` | `CleanupSucceeded` (current-generation host cleanup finished; worker teardown may still be pending) |
+| `NodeProfile` | `RetirementPending` | `CleanupBlocked` (detached missing-host obligations remain, independently of active readiness); `CleanupResolved` (no detached obligations remain) |
 
 Event reasons: `Provisioning`, `NodeReady`, `ProvisionFailed`, `NodeUnmatched`
 (node lifecycle, §8.1); `ReconcileError`, `EnvOptionsOverlap` (`JavaApplication`,

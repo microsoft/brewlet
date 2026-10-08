@@ -1705,6 +1705,7 @@ for mode in provision cleanup; do
         BREWLET_MODE="$mode"
         BREWLET_PROFILE_NAME=owner
         BREWLET_PROFILE_UID=profile-uid
+        BREWLET_TARGET_UIDS="${TEST_TARGET_UIDS-node-uid}"
         BREWLET_PROFILE_GENERATION=3
         NODE_NAME=node-a
         [[ "$identity" != missing-profile ]] || BREWLET_PROFILE_UID=""
@@ -1763,6 +1764,7 @@ ownership_case() (
   BREWLET_PROFILE_NAME=owner
   BREWLET_PROFILE_UID=profile-uid
   BREWLET_PROFILE_GENERATION=3
+  BREWLET_TARGET_UIDS="${TEST_TARGET_UIDS-node-uid}"
   NODE_NAME=node-a
   NODE_WRITE_AUTHORIZED=false
   : >"$calls"
@@ -1784,6 +1786,17 @@ ownership_case() (
   fi
 )
 claim_identity='node-uid|profile-uid|node-uid|owner'
+for mode in provision cleanup; do
+  for authorized in "" original-uid; do
+    if TEST_TARGET_UIDS="$authorized" ownership_case "$mode" "$claim_identity" \
+        'profile-uid|3||node-uid|true||||' >"$TEST_TMP_ROOT/rejected-worker.log" 2>&1; then
+      echo "worker authorized a replacement or missing immutable target set" >&2
+      exit 1
+    fi
+    grep -Fq "immutable target set" "$TEST_TMP_ROOT/rejected-worker.log"
+    [[ ! -s "$calls" ]]
+  done
+done
 ownership_case provision "$claim_identity" 'profile-uid|3||node-uid|true||||'
 ownership_case cleanup "$claim_identity" 'profile-uid|3|deleting|node-uid|true||||'
 ownership_case cleanup "$claim_identity" 'profile-uid|7||node-uid|true|3|Cleaning|node-uid|true'

@@ -137,7 +137,16 @@ func (r *NodeProfileReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.apiReader().List(ctx, &nodes); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, r.updateStatus(ctx, &profile, resolvedKey, otherPools, nodes.Items)
+	if err := r.updateStatus(ctx, &profile, resolvedKey, otherPools, nodes.Items); err != nil {
+		return ctrl.Result{}, err
+	}
+	if len(profile.Status.DetachedRetirements) > 0 {
+		if err := r.reconcileDetachedRetirements(ctx, &profile); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *NodeProfileReconciler) reconcileDeleteInvalid(
@@ -434,6 +443,13 @@ func (r *NodeProfileReconciler) reconcileCleanupTeardown(ctx context.Context, pr
 	}
 	if cleanupRemains || podsRemain {
 		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+	if err := r.reconcileDetachedRetirements(ctx, profile); err != nil {
+		return ctrl.Result{}, err
+	}
+	if len(profile.Status.DetachedRetirements) > 0 {
+		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked,
+			fmt.Errorf("%d detached missing-host cleanup obligations remain; authorized NodeRetirementEvidence is required before deletion or uninstall", len(profile.Status.DetachedRetirements)))
 	}
 	if err := r.finishExternalRetirements(ctx, profile, profile.Status.Targets); err != nil {
 		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, err)
@@ -795,6 +811,9 @@ func (r *NodeProfileReconciler) setDeleting(ctx context.Context, profile *nodev1
 	if complete {
 		reason, message = nodev1alpha1.ReasonCleanupTeardown, "host cleanup complete; waiting for all profile workers to terminate"
 		completionReason, completionMessage := nodev1alpha1.ReasonCleanupSucceeded, "host cleanup completed on every assigned node"
+		if len(profile.Status.DetachedRetirements) > 0 {
+			completionMessage = "active target cleanup completed; detached missing-host obligations remain unresolved and prevent finalization"
+		}
 		for _, target := range profile.Status.Targets {
 			if externallyRetired(target) {
 				completionReason = nodev1alpha1.ReasonCleanupResolved

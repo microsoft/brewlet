@@ -111,7 +111,7 @@ func nodeClaimedBy(node *corev1.Node, profile *nodev1alpha1.NodeProfile, target 
 // claim or writer, then remove that intent before finalization.
 func HasNodeProfileCleanupObligations(profile *nodev1alpha1.NodeProfile) bool {
 	condition := meta.FindStatusCondition(profile.Status.Conditions, nodev1alpha1.ConditionReady)
-	return len(profile.Status.Targets) > 0 || profile.Status.Retirement != nil ||
+	return len(profile.Status.Targets) > 0 || profile.Status.Retirement != nil || len(profile.Status.DetachedRetirements) > 0 ||
 		hasProvisioningHistory(profile) ||
 		(condition != nil && condition.Reason == nodev1alpha1.ReasonCleanupBlocked)
 }
@@ -129,7 +129,7 @@ func invalidProfileHasHostOwnership(profile *nodev1alpha1.NodeProfile, nodes []c
 			return true
 		}
 	}
-	if profile.Status.Retirement != nil {
+	if profile.Status.Retirement != nil || len(profile.Status.DetachedRetirements) > 0 {
 		return true
 	}
 	for _, node := range nodes {
@@ -142,7 +142,7 @@ func invalidProfileHasHostOwnership(profile *nodev1alpha1.NodeProfile, nodes []c
 }
 
 func unrecordedNodeClaim(profile *nodev1alpha1.NodeProfile, nodes []corev1.Node) error {
-	if hasProvisioningHistory(profile) && len(profile.Status.Targets) == 0 {
+	if hasProvisioningHistory(profile) && len(profile.Status.Targets) == 0 && len(profile.Status.DetachedRetirements) == 0 {
 		return fmt.Errorf("profile has saved provisioning history but no durable targets; restore its original target/cleanup-policy records before proceeding")
 	}
 	for _, node := range nodes {
@@ -152,6 +152,12 @@ func unrecordedNodeClaim(profile *nodev1alpha1.NodeProfile, nodes []corev1.Node)
 		recorded := false
 		for _, target := range profile.Status.Targets {
 			recorded = recorded || (target.Name == node.Name && string(target.UID) == node.Labels[brewlet.LabelNodeIdentity])
+		}
+		for _, retirement := range profile.Status.DetachedRetirements {
+			for _, target := range retirement.Targets {
+				recorded = recorded || ((target.Name == node.Name || sameHost(target, &node)) &&
+					string(target.UID) == node.Labels[brewlet.LabelNodeIdentity])
+			}
 		}
 		if !recorded {
 			return fmt.Errorf("node %s has this profile's ownership claim but no matching durable target; restore its original target/cleanup-policy record before proceeding", node.Name)
@@ -189,7 +195,17 @@ func (r *NodeProfileReconciler) reconcileTargets(ctx context.Context, profile *n
 		result, err := r.reconcileRetirement(ctx, profile)
 		return true, result, err
 	}
+	for _, record := range profile.Status.DetachedRetirements {
+		if err := r.recoveryWorkersGone(ctx, profile, record.Targets[0]); err != nil {
+			result, err := r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked, err)
+			return true, result, err
+		}
+	}
 	wanted := desiredTargets(profile, profiles, nodes)
+	wanted, err := r.excludeRetiredHosts(ctx, profile, wanted)
+	if err != nil {
+		return true, ctrl.Result{}, err
+	}
 	base := profile.DeepCopy()
 	var departing, retained []nodev1alpha1.NodeTarget
 	for _, target := range profile.Status.Targets {
@@ -211,11 +227,13 @@ func (r *NodeProfileReconciler) reconcileTargets(ctx context.Context, profile *n
 	profile.Status.Targets = retained
 	if len(departing) > 0 {
 		spec := profile.Spec.DeepCopy()
+		generation := profile.Generation
 		if profile.Status.ProvisioningSpec != nil {
 			spec = profile.Status.ProvisioningSpec.DeepCopy()
+			generation = profile.Status.ProvisioningGeneration
 		}
 		profile.Status.Retirement = &nodev1alpha1.NodeRetirement{
-			Targets: departing, Generation: profile.Generation, Spec: *spec,
+			Targets: departing, Generation: generation, Spec: *spec,
 			Phase: nodev1alpha1.RetirementCleaning,
 		}
 		meta.RemoveStatusCondition(&profile.Status.Conditions, nodev1alpha1.ConditionCleanupComplete)
@@ -292,6 +310,9 @@ func (r *NodeProfileReconciler) claimTarget(ctx context.Context, profile *nodev1
 	}
 	if node.UID != target.UID || target.UID == "" {
 		return fmt.Errorf("target %s Node UID changed from %s to %s; refusing host access", target.Name, target.UID, node.UID)
+	}
+	if err := r.retiredHostConflict(ctx, &node); err != nil {
+		return err
 	}
 	if nodeClaimedBy(&node, profile, target) {
 		return nil
@@ -436,6 +457,13 @@ func (r *NodeProfileReconciler) reconcileRetirement(ctx context.Context, profile
 		return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonRetargeting, fmt.Errorf("retiring %d nodes: waiting for old provisioners to terminate", len(retirement.Targets)))
 	}
 	if retirement.Phase == nodev1alpha1.RetirementCleaning {
+		if err := r.detachMissingTargets(ctx, profile); err != nil {
+			return ctrl.Result{}, err
+		}
+		retirement = profile.Status.Retirement
+		if retirement == nil {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
 		nodes, err := r.resolveCleanupTargets(ctx, profile, retirement.Targets)
 		if err != nil {
 			return r.ownershipBlocked(ctx, profile, nodev1alpha1.ReasonCleanupBlocked,

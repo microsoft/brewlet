@@ -139,8 +139,9 @@ const (
 
 // NodeProfileStatus reflects the reconciled state of a profile (§5.6).
 type NodeProfileStatus struct {
-	// Targets is the durable node-identity ledger, written before granting a
-	// scheduling claim. Entries remain until their cleanup workers terminate.
+	// Targets is active provisioning/cleanup membership, written before granting
+	// a scheduling claim. Missing hosts move to DetachedRetirements only after
+	// worker teardown and a durable copy/read-back of their cleanup obligations.
 	Targets                []NodeTarget     `json:"targets,omitempty"`
 	OwnershipInitialized   bool             `json:"ownershipInitialized,omitempty"`
 	ProvisioningGeneration int64            `json:"provisioningGeneration,omitempty"`
@@ -148,6 +149,10 @@ type NodeProfileStatus struct {
 	// Retirement freezes departing targets and their last authorized policy;
 	// newer spec generations cannot discard an in-flight cleanup episode.
 	Retirement *NodeRetirement `json:"retirement,omitempty"`
+	// DetachedRetirements retain missing hosts' frozen cleanup obligations.
+	// They confer no scheduling authority and block finalization, not provisioning.
+	// Each entry contains exactly one original claimed target.
+	DetachedRetirements []NodeRetirement `json:"detachedRetirements,omitempty"`
 	// ObservedGeneration is the .metadata.generation the operator last acted on.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// ResolvedPoolKey is the node label key the operator matched the pool on
@@ -186,11 +191,13 @@ type NodeRetirement struct {
 }
 
 const (
-	RetirementCleaning      = "Cleaning"
-	RetirementTeardown      = "Teardown"
-	ReasonOwnershipConflict = "OwnershipConflict"
-	ReasonRetargeting       = "Retargeting"
-	ReasonCleanupBlocked    = "CleanupBlocked"
+	RetirementCleaning         = "Cleaning"
+	RetirementTeardown         = "Teardown"
+	RetirementMissing          = "Missing"
+	ConditionRetirementPending = "RetirementPending"
+	ReasonOwnershipConflict    = "OwnershipConflict"
+	ReasonRetargeting          = "Retargeting"
+	ReasonCleanupBlocked       = "CleanupBlocked"
 )
 
 // Condition types and reasons surfaced on NodeProfile status.

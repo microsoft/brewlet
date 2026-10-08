@@ -20,6 +20,13 @@ artifacts. They also do not purge retained host caches or staging trees.
     losing a recorded node UID blocks cleanup unless permanent external
     retirement can be resolved through the authorized evidence workflow.
 
+A non-deleting profile may be `Ready` while `RetirementPending=True` retains
+missing-host obligations in `status.detachedRetirements`. Distinct replacements
+can run before evidence, but that does not make the installation clean.
+Uninstall waits for each detached obligation as well as ordinary active-host
+cleanup. Preserve the frozen specs, generations, original identities, and any
+accepted evidence receipts; never clear history to make uninstall succeed.
+
 ## 1. Inventory and preserve recovery information
 
 Confirm the intended kubeconfig/context for **kubectl, Helm, and Brewlet**.

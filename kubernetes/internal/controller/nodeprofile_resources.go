@@ -284,6 +284,7 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		{Name: "BREWLET_CONTAINERD_RESTART", Value: containerdRestart(profile)},
 		{Name: "BREWLET_PROFILE_NAME", Value: profile.Name},
 		{Name: "BREWLET_PROFILE_UID", Value: string(profile.UID)},
+		{Name: "BREWLET_TARGET_UIDS", Value: authorizedTargetUIDs(profile.Status.Targets)},
 		{Name: "BREWLET_PROFILE_GENERATION", Value: strconv.FormatInt(profile.Generation, 10)},
 		{Name: "SOURCE_ALLOWED_MIRROR_HOSTS", Value: strings.Join(cfg.AllowedSourceMirrorHosts, ",")},
 		{Name: "BREWLET_STAGE_GC_ENABLED", Value: strconv.FormatBool(cfg.StageGCEnabled)},
@@ -419,12 +420,23 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 	return ds
 }
 
+func authorizedTargetUIDs(targets []nodev1alpha1.NodeTarget) string {
+	var uids []string
+	for _, target := range targets {
+		if target.Claimed && !externallyRetired(target) {
+			uids = append(uids, string(target.UID))
+		}
+	}
+	return strings.Join(uids, " ")
+}
+
 func claimedTargetAffinity(profile *nodev1alpha1.NodeProfile, targets []nodev1alpha1.NodeTarget) *corev1.Affinity {
 	var terms []corev1.NodeSelectorTerm
 	for _, target := range targets {
 		if !target.Claimed || externallyRetired(target) {
 			continue
 		}
+
 		terms = append(terms, corev1.NodeSelectorTerm{
 			MatchFields: []corev1.NodeSelectorRequirement{{
 				Key: "metadata.name", Operator: corev1.NodeSelectorOpIn, Values: []string{target.Name},

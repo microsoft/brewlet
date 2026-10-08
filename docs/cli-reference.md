@@ -539,7 +539,8 @@ field-management information, and claimed node summaries. Node identity and
 ownership must match the profile's UID. Missing or stale observed generations
 never count as a current Ready condition.
 
-Inspection also includes the durable `targets` and frozen `retirement` state,
+Inspection also includes active `targets`, frozen `retirement`, and independent
+`detachedRetirements` cleanup history (including each frozen spec/generation),
 including original Node UIDs, cleanup restart policy, available host identities,
 and `retirementEvidenceName`/`retirementEvidenceUID` receipts. Deleted original
 Nodes remain visible in this ledger even though they cannot appear in live node

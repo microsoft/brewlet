@@ -47,6 +47,9 @@ func evidenceObligation(p *nodev1alpha1.NodeProfile, target nodev1alpha1.NodeTar
 	if p.Status.Retirement != nil {
 		spec, generation = p.Status.Retirement.Spec.DeepCopy(), p.Status.Retirement.Generation
 	}
+	if record := detachedObligation(p, target); record != nil {
+		spec, generation = record.Spec.DeepCopy(), record.Generation
+	}
 	return nodev1alpha1.NodeRetirement{
 		Targets: []nodev1alpha1.NodeTarget{target}, Generation: generation, Spec: *spec,
 		Phase: "ExternallyRetired",
@@ -118,14 +121,14 @@ func (r *NodeProfileReconciler) originalHostAbsent(ctx context.Context, target n
 	if err == nil && node.UID == target.UID {
 		return fmt.Errorf("original Node %s (%s) still exists; restore connectivity for ordinary cleanup", target.Name, target.UID)
 	}
-	if target.SystemUUID != "" {
+	if target.SystemUUID != "" || target.ProviderID != "" {
 		var nodes corev1.NodeList
 		if err := r.apiReader().List(ctx, &nodes); err != nil {
 			return fmt.Errorf("checking whether the original host re-registered: %w", err)
 		}
 		for _, live := range nodes.Items {
-			if strings.EqualFold(live.Status.NodeInfo.SystemUUID, target.SystemUUID) {
-				return fmt.Errorf("original host systemUUID is still registered on Node %s (%s); refusing external retirement", live.Name, live.UID)
+			if sameHost(target, &live) {
+				return fmt.Errorf("original host identity is still registered on Node %s (%s); refusing external retirement", live.Name, live.UID)
 			}
 		}
 	}
@@ -133,6 +136,9 @@ func (r *NodeProfileReconciler) originalHostAbsent(ctx context.Context, target n
 }
 
 func (r *NodeProfileReconciler) evidenceHostAbsent(ctx context.Context, target nodev1alpha1.NodeTarget, e *nodev1alpha1.NodeRetirementEvidence) error {
+	if target.ProviderID == "" {
+		target.ProviderID = e.Spec.ProviderID
+	}
 	if target.SystemUUID == "" {
 		target.SystemUUID = e.Spec.SystemUUID
 	}
@@ -140,7 +146,7 @@ func (r *NodeProfileReconciler) evidenceHostAbsent(ctx context.Context, target n
 }
 
 // Labels alone cannot prove teardown: an owned writer may have lost its labels.
-func (r *NodeProfileReconciler) recoveryWorkersGone(ctx context.Context, p *nodev1alpha1.NodeProfile) error {
+func (r *NodeProfileReconciler) recoveryWorkersGone(ctx context.Context, p *nodev1alpha1.NodeProfile, detached ...nodev1alpha1.NodeTarget) error {
 	if err := r.profileWriterBarrier(ctx, p); err != nil {
 		return err
 	}
@@ -151,6 +157,9 @@ func (r *NodeProfileReconciler) recoveryWorkersGone(ctx context.Context, p *node
 	for _, ds := range sets.Items {
 		uid, _ := literalProvisionerEnv(&ds.Spec.Template.Spec, "BREWLET_PROFILE_UID")
 		if metav1.IsControlledBy(&ds, p) || uid == string(p.UID) {
+			if len(detached) == 1 && workerExcludesTarget(&ds.Spec.Template.Spec, detached[0]) {
+				continue
+			}
 			return fmt.Errorf("waiting for writer DaemonSet %s/%s to terminate", ds.Namespace, ds.Name)
 		}
 	}
@@ -168,6 +177,9 @@ func (r *NodeProfileReconciler) recoveryWorkersGone(ctx context.Context, p *node
 			targetWriter = targetWriter || (pod.Spec.NodeName == target.Name && profileWriter(pod.Labels))
 		}
 		if uid == string(p.UID) || namedOwner || targetWriter || pod.Labels[brewlet.LabelNodeProfile] == p.Name {
+			if len(detached) == 1 && workerExcludesTarget(&pod.Spec, detached[0]) {
+				continue
+			}
 			return fmt.Errorf("waiting for writer pod %s/%s to terminate", pod.Namespace, pod.Name)
 		}
 	}
@@ -244,22 +256,28 @@ func (r *NodeProfileReconciler) acceptTargetEvidence(ctx context.Context, p *nod
 	if err := r.profileWriterBarrier(ctx, p); err != nil {
 		return err
 	}
-	cleanup, err := r.deleteCleanupDaemonSetIfExists(ctx, p)
-	if err != nil {
-		return err
+	var detached []nodev1alpha1.NodeTarget
+	if detachedObligation(p, target) != nil {
+		detached = []nodev1alpha1.NodeTarget{target}
 	}
-	pods, err := r.profilePodsRemain(ctx, p.Name)
-	if err != nil {
-		return err
+	if len(detached) == 0 {
+		cleanup, err := r.deleteCleanupDaemonSetIfExists(ctx, p)
+		if err != nil {
+			return err
+		}
+		pods, err := r.profilePodsRemain(ctx, p.Name)
+		if err != nil {
+			return err
+		}
+		provisioner, err := r.profileProvisionerRemains(ctx, p)
+		if err != nil {
+			return err
+		}
+		if cleanup || pods || provisioner {
+			return fmt.Errorf("waiting for all profile workers to terminate before accepting external retirement")
+		}
 	}
-	provisioner, err := r.profileProvisionerRemains(ctx, p)
-	if err != nil {
-		return err
-	}
-	if cleanup || pods || provisioner {
-		return fmt.Errorf("waiting for all profile workers to terminate before accepting external retirement")
-	}
-	if err := r.recoveryWorkersGone(ctx, p); err != nil {
+	if err := r.recoveryWorkersGone(ctx, p, detached...); err != nil {
 		return err
 	}
 	obligation := evidenceObligation(p, target)
@@ -277,7 +295,7 @@ func (r *NodeProfileReconciler) acceptTargetEvidence(ctx context.Context, p *nod
 			return err
 		}
 	}
-	if err := r.recoveryWorkersGone(ctx, p); err != nil {
+	if err := r.recoveryWorkersGone(ctx, p, detached...); err != nil {
 		return err
 	}
 	if err := r.evidenceHostAbsent(ctx, target, chosen); err != nil {
@@ -295,6 +313,9 @@ func (r *NodeProfileReconciler) acceptTargetEvidence(ctx context.Context, p *nod
 	if p.Status.Retirement != nil {
 		setReceipt(p.Status.Retirement.Targets)
 	}
+	for i := range p.Status.DetachedRetirements {
+		setReceipt(p.Status.DetachedRetirements[i].Targets)
+	}
 	return r.persistOwnershipStatus(ctx, p)
 }
 
@@ -305,6 +326,12 @@ func (r *NodeProfileReconciler) resolveCleanupTargets(ctx context.Context, p *no
 	for _, target := range append([]nodev1alpha1.NodeTarget(nil), targets...) {
 		if externallyRetired(target) {
 			if _, err := r.recordedEvidence(ctx, p, target); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if detachedObligation(p, target) != nil {
+			if err := r.acceptTargetEvidence(ctx, p, target); err != nil {
 				return nil, err
 			}
 			continue
@@ -334,7 +361,11 @@ func (r *NodeProfileReconciler) finishExternalRetirements(ctx context.Context, p
 			continue
 		}
 		hasEvidence = true
-		if err := r.recoveryWorkersGone(ctx, p); err != nil {
+		var detached []nodev1alpha1.NodeTarget
+		if detachedObligation(p, target) != nil {
+			detached = []nodev1alpha1.NodeTarget{target}
+		}
+		if err := r.recoveryWorkersGone(ctx, p, detached...); err != nil {
 			return err
 		}
 		e, err := r.recordedEvidence(ctx, p, target)
@@ -349,11 +380,14 @@ func (r *NodeProfileReconciler) finishExternalRetirements(ctx context.Context, p
 				return err
 			}
 		}
-	}
-	if hasEvidence {
-		if err := r.recoveryWorkersGone(ctx, p); err != nil {
+		if err := r.recoveryWorkersGone(ctx, p, detached...); err != nil {
 			return err
 		}
+		if _, err := r.recordedEvidence(ctx, p, target); err != nil {
+			return err
+		}
+	}
+	if hasEvidence {
 		// Reject a concurrent spec/deletion/ledger change before active claims
 		// can be released, even if evidence resolution itself succeeded.
 		return r.persistOwnershipStatus(ctx, p)

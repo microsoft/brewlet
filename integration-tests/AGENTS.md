@@ -12,10 +12,12 @@ status|wait`, `status`, `doctor`, `jdk|launcher list|add`, `profile
 list|inspect|delete`, `inspect app`, the `install` guards and
 `mvn package brewlet:push` with a separate kubectl/CLI deployment handoff end to end.
 `retirement.py` provisions a private three-node kind cluster, permanently removes
-one invocation-owned worker container and its volumes, and recovers the blocked
-profile through `NodeRetirementEvidence`. It verifies denial before an explicit
-recovery-role binding, real Java serving on the unprovisioned standby replacement,
-an unchanged survivor, and evidence retained after normal profile deletion.
+one invocation-owned worker container and its volumes, and proves real Java
+serving on the unprovisioned standby replacement **before** evidence, while the
+missing-host obligation persists independently. It verifies an unchanged survivor,
+deletion/uninstall blocked on unresolved history, denial before an explicit
+recovery-role binding, and authorized `NodeRetirementEvidence` resolution with
+history retained after profile deletion and successful uninstall.
 It is provider-neutral recovery coverage, not an AKS decommissioning test.
 They create their own uniquely named clusters and registries; never pass a
 shared kube context or run the tier reset helper for them. Mandatory assertions

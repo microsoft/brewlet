@@ -202,8 +202,12 @@ func TestNodeProfileRetirementRefusesReusedOrForeignNode(t *testing.T) {
 			}
 			reconcileProfile(t, f.ctx, f.r, p.Name)
 			p = getProfile(t, f.ctx, f.client, p.Name)
-			if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked || p.Status.Retirement == nil {
-				t.Fatal("foreign/missing node must block and retain its retirement ledger")
+			if change == "owner" {
+				if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked || p.Status.Retirement == nil {
+					t.Fatal("foreign owner must block ordinary cleanup")
+				}
+			} else if len(p.Status.DetachedRetirements) != 1 || p.Status.Retirement != nil {
+				t.Fatal("missing/replaced UID must retain independent cleanup history")
 			}
 			f.assertNoCleanup(t)
 		})
@@ -438,6 +442,23 @@ func TestNodeProfileUnavailableRetirementPausesWholeProfileAndPreservesRetainedN
 				t.Fatal(err)
 			}
 			reconcileProfile(t, f.ctx, f.r, p.Name)
+			if loss != "disconnected" {
+				reconcileProfile(t, f.ctx, f.r, p.Name)
+				p = getProfile(t, f.ctx, f.client, p.Name)
+				if len(p.Status.DetachedRetirements) != 1 || p.Status.Retirement != nil ||
+					p.Status.DetachedRetirements[0].Targets[0].UID != old.UID {
+					t.Fatal("lost host must detach without erasing cleanup history")
+				}
+				var current corev1.Node
+				if err := f.client.Get(f.ctx, types.NamespacedName{Name: next}, &current); err != nil {
+					t.Fatal(err)
+				}
+				if current.Labels[brewlet.LabelNodeOwner] != string(p.UID) {
+					t.Fatal("distinct node must provision without evidence")
+				}
+				f.daemonSet(t, provisioner.Name)
+				return
+			}
 			assertPaused := func() {
 				t.Helper()
 				p = getProfile(t, f.ctx, f.client, p.Name)

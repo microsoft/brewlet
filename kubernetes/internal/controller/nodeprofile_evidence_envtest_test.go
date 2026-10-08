@@ -17,6 +17,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -100,24 +101,33 @@ func TestExternalRetirementResumesReplacementProvisioning(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = f.client.Delete(context.Background(), &replacement) })
 			beginLostNodeRetirement(t, f)
+			reconcileProfile(t, f.ctx, f.r, f.profile.Name)
 			p := getProfile(t, f.ctx, f.client, f.profile.Name)
-			if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked {
-				t.Fatal("missing evidence must block")
+			if p.Status.Retirement != nil || includesTarget(p.Status.Targets, target) ||
+				len(p.Status.DetachedRetirements) != 1 ||
+				!reflect.DeepEqual(p.Status.DetachedRetirements[0].Targets, []nodev1alpha1.NodeTarget{target}) {
+				t.Fatal("missing evidence must retain independent history without blocking provisioning")
+			}
+			var current corev1.Node
+			if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(&replacement), &current); err != nil {
+				t.Fatal(err)
+			}
+			if current.Labels[brewlet.LabelNodeIdentity] != string(replacement.UID) {
+				t.Fatal("replacement must provision before any evidence")
 			}
 			e := retirementEvidence(f, target)
 			submitEvidence(t, f, e)
 			reconcileProfile(t, f.ctx, f.r, p.Name)
 			requireEvidenceResolved(t, f, e, target)
 			p = getProfile(t, f.ctx, f.client, p.Name)
-			if p.Status.Retirement != nil || includesTarget(p.Status.Targets, target) {
+			if p.Status.Retirement != nil || includesTarget(p.Status.Targets, target) || len(p.Status.DetachedRetirements) != 0 {
 				t.Fatal("resolved target was not retired")
 			}
-			var current corev1.Node
 			if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(&replacement), &current); err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(current.Labels, replacement.Labels) || current.UID != replacement.UID {
-				t.Fatal("recovery touched the replacement before normal provisioning")
+			if current.UID != replacement.UID || current.Labels[brewlet.LabelNodeIdentity] != string(replacement.UID) {
+				t.Fatal("evidence changed the replacement identity")
 			}
 			if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(&kept), &current); err != nil {
 				t.Fatal(err)
@@ -163,8 +173,11 @@ func TestExternalRetirementMixedCleanupAndDeletion(t *testing.T) {
 			submitEvidence(t, f, e)
 			reconcileProfile(t, f.ctx, f.r, p.Name)
 			p = getProfile(t, f.ctx, f.client, p.Name)
-			if len(p.Status.Targets) != 2 || !externallyRetired(p.Status.Targets[0]) {
+			if deleting && (len(p.Status.Targets) != 2 || !externallyRetired(p.Status.Targets[0])) {
 				t.Fatal("original obligations discarded before surviving host cleanup")
+			}
+			if !deleting && (len(p.Status.Targets) != 1 || len(p.Status.DetachedRetirements) != 1) {
+				t.Fatal("missing host was not separated from ordinary cleanup")
 			}
 			cleanup := f.daemonSet(t, brewlet.CleanupDaemonSetName(p.Name))
 			var survivor corev1.Node
@@ -186,13 +199,16 @@ func TestExternalRetirementMixedCleanupAndDeletion(t *testing.T) {
 			if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(e), e); err != nil {
 				t.Fatal(err)
 			}
-			if e.Status.Phase != nodev1alpha1.EvidenceAccepted {
+			if deleting && e.Status.Phase != nodev1alpha1.EvidenceAccepted {
 				t.Fatal("remaining cleanup Pod did not hold final resolution")
 			}
 			if err := f.client.Delete(f.ctx, pod, client.GracePeriodSeconds(0)); err != nil {
 				t.Fatal(err)
 			}
 			reconcileProfile(t, f.ctx, f.r, p.Name)
+			if !deleting {
+				reconcileProfile(t, f.ctx, f.r, p.Name)
+			}
 			requireEvidenceResolved(t, f, e, target)
 			if deleting {
 				err := f.client.Get(f.ctx, client.ObjectKeyFromObject(&p), &p)
@@ -219,8 +235,8 @@ func TestExternalRetirementAllTargetsNeedEvidence(t *testing.T) {
 	submitEvidence(t, f, first)
 	reconcileProfile(t, f.ctx, f.r, f.profile.Name)
 	p := getProfile(t, f.ctx, f.client, f.profile.Name)
-	if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked || p.Status.Retirement == nil || len(p.Status.Targets) != 2 {
-		t.Fatal("partial evidence bypassed an unresolved target")
+	if len(p.Status.DetachedRetirements) != 1 || p.Status.DetachedRetirements[0].Targets[0].UID != f.profile.Status.Targets[1].UID || len(p.Status.Targets) != 0 {
+		t.Fatal("partial evidence discarded another unresolved target")
 	}
 	second := retirementEvidence(f, f.profile.Status.Targets[1])
 	submitEvidence(t, f, second)
@@ -272,7 +288,11 @@ func TestExternalRetirementRejectsUntrustedEvidence(t *testing.T) {
 			submitEvidence(t, f, e)
 			reconcileProfile(t, f.ctx, f.r, f.profile.Name)
 			p := getProfile(t, f.ctx, f.client, f.profile.Name)
-			if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked || externallyRetired(p.Status.Targets[0]) {
+			if scenario == "original-present" {
+				if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked || len(p.Status.DetachedRetirements) != 0 {
+					t.Fatal("present NotReady original was detached")
+				}
+			} else if len(p.Status.DetachedRetirements) != 1 || externallyRetired(p.Status.DetachedRetirements[0].Targets[0]) {
 				t.Fatal("invalid evidence resolved original cleanup obligation")
 			}
 		})
@@ -306,12 +326,11 @@ func TestExternalRetirementCheckpointFailures(t *testing.T) {
 						return nil
 					}
 				case *nodev1alpha1.NodeProfile:
-					fail = (checkpoint == "receipt" && len(o.Status.Targets) > 0 && externallyRetired(o.Status.Targets[0])) ||
-						(checkpoint == "release" && len(o.Status.Targets) == 0)
-					if checkpoint == "pruned-receipt" && !fired && externallyRetired(o.Status.Targets[0]) {
+					fail = (checkpoint == "receipt" && len(o.Status.DetachedRetirements) > 0 && externallyRetired(o.Status.DetachedRetirements[0].Targets[0])) ||
+						(checkpoint == "release" && len(o.Status.DetachedRetirements) == 0)
+					if checkpoint == "pruned-receipt" && !fired && len(o.Status.DetachedRetirements) > 0 && externallyRetired(o.Status.DetachedRetirements[0].Targets[0]) {
 						stored := o.DeepCopy()
-						stored.Status.Targets[0].RetirementEvidenceName, stored.Status.Targets[0].RetirementEvidenceUID = "", ""
-						stored.Status.Retirement.Targets[0].RetirementEvidenceName, stored.Status.Retirement.Targets[0].RetirementEvidenceUID = "", ""
+						stored.Status.DetachedRetirements[0].Targets[0].RetirementEvidenceName, stored.Status.DetachedRetirements[0].Targets[0].RetirementEvidenceUID = "", ""
 						fired = true
 						if err := f.client.Status().Update(ctx, stored, opts...); err != nil {
 							return err
@@ -328,7 +347,7 @@ func TestExternalRetirementCheckpointFailures(t *testing.T) {
 			}}
 			_, _ = f.r.Reconcile(f.ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&f.profile)})
 			p := getProfile(t, f.ctx, f.client, f.profile.Name)
-			if !fired || len(p.Status.Targets) != 1 || p.Status.Retirement == nil || !containsString(p.Finalizers, brewlet.FinalizerCleanup) {
+			if !fired || len(p.Status.DetachedRetirements) != 1 || !containsString(p.Finalizers, brewlet.FinalizerCleanup) {
 				t.Fatalf("checkpoint failure discarded obligation: %+v", p.Status)
 			}
 			f.r = newProfileReconciler(f.client, f.r.Config.Namespace)
@@ -336,7 +355,7 @@ func TestExternalRetirementCheckpointFailures(t *testing.T) {
 			if checkpoint == "pruned-evidence" {
 				reconcileProfile(t, f.ctx, f.r, p.Name)
 				p = getProfile(t, f.ctx, f.client, p.Name)
-				if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked {
+				if !meta.IsStatusConditionTrue(p.Status.Conditions, nodev1alpha1.ConditionRetirementPending) {
 					t.Fatal("damaged accepted record must not be silently reconstructed")
 				}
 				return
@@ -351,23 +370,35 @@ func TestExternalRetirementWaitsForUnlabelledWriter(t *testing.T) {
 	f := newCleanupFixture(t, 1)
 	target := f.profile.Status.Targets[0]
 	ds := f.daemonSet(t, brewlet.ProfileDaemonSetName(f.profile.Name))
+	// Simulate an intact pre-change worker: no immutable target-UID fence.
+	for i := range ds.Spec.Template.Spec.Containers {
+		var env []corev1.EnvVar
+		for _, value := range ds.Spec.Template.Spec.Containers[i].Env {
+			if value.Name != "BREWLET_TARGET_UIDS" {
+				env = append(env, value)
+			}
+		}
+		ds.Spec.Template.Spec.Containers[i].Env = env
+	}
 	pod := createDaemonSetPod(t, f.ctx, f.client, ds, target.Name, false)
 	pod.Labels = nil
 	if err := f.client.Update(f.ctx, pod); err != nil {
 		t.Fatal(err)
 	}
 	removeOriginalNode(t, f, target.Name)
-	beginLostNodeRetirement(t, f)
+	reconcileProfile(t, f.ctx, f.r, f.profile.Name)
+	completeForegroundDaemonSetDeletion(t, f.ctx, f.client, f.r.Config.Namespace, brewlet.ProfileDaemonSetName(f.profile.Name))
 	e := retirementEvidence(f, target)
 	submitEvidence(t, f, e)
-	reconcileProfile(t, f.ctx, f.r, f.profile.Name)
+	_, err := f.r.Reconcile(f.ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&f.profile)})
 	p := getProfile(t, f.ctx, f.client, f.profile.Name)
-	if externallyRetired(p.Status.Targets[0]) || !strings.Contains(p.Status.Conditions[0].Message, "writer pod") {
+	if externallyRetired(p.Status.Targets[0]) || err == nil || !strings.Contains(err.Error(), "writer pod") || len(p.Status.DetachedRetirements) != 0 {
 		t.Fatal("unlabelled writer bypassed recovery teardown barrier")
 	}
 	if err := f.client.Delete(f.ctx, pod, client.GracePeriodSeconds(0)); err != nil {
 		t.Fatal(err)
 	}
+	reconcileProfile(t, f.ctx, f.r, p.Name)
 	reconcileProfile(t, f.ctx, f.r, p.Name)
 	requireEvidenceResolved(t, f, e, target)
 }
@@ -409,7 +440,13 @@ func TestExternalRetirementConcurrentLifecycleChanges(t *testing.T) {
 				case "writer-reappears":
 					reappeared := buildProfileDaemonSet(f.r.Config, &p, "agentpool", nil)
 					reappeared.OwnerReferences = oldWriter.OwnerReferences
-					return f.client.Create(ctx, reappeared)
+					reappeared.Spec = oldWriter.Spec
+					var current appsv1.DaemonSet
+					if err := f.client.Get(ctx, client.ObjectKeyFromObject(reappeared), &current); err != nil {
+						return err
+					}
+					current.Spec = reappeared.Spec
+					return f.client.Update(ctx, &current)
 				case "evidence-replaced":
 					replacement := record.DeepCopy()
 					if err := f.client.Delete(ctx, record); err != nil {
@@ -423,11 +460,11 @@ func TestExternalRetirementConcurrentLifecycleChanges(t *testing.T) {
 			}}
 			_, _ = f.r.Reconcile(f.ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&f.profile)})
 			p := getProfile(t, f.ctx, f.client, f.profile.Name)
-			if !fired || p.Status.Retirement == nil || len(p.Status.Targets) != 1 {
+			if !fired || len(p.Status.DetachedRetirements) != 1 {
 				t.Fatal("concurrent change released the cleanup obligation")
 			}
 			if scenario == "evidence-replaced" {
-				if externallyRetired(p.Status.Targets[0]) {
+				if externallyRetired(p.Status.DetachedRetirements[0].Targets[0]) {
 					t.Fatal("replacement evidence inherited the original record's acceptance")
 				}
 				return
@@ -435,6 +472,21 @@ func TestExternalRetirementConcurrentLifecycleChanges(t *testing.T) {
 			f.r = newProfileReconciler(f.client, f.r.Config.Namespace)
 			f.r.APIReader = f.client
 			if scenario == "writer-reappears" {
+				reconcileProfile(t, f.ctx, f.r, p.Name)
+				p = getProfile(t, f.ctx, f.client, p.Name)
+				if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked {
+					t.Fatal("reappeared old authorization must block new claims")
+				}
+				var current appsv1.DaemonSet
+				if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(oldWriter), &current); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.client.Delete(f.ctx, &current); err != nil {
+					t.Fatal(err)
+				}
+				completeForegroundDaemonSetDeletion(t, f.ctx, f.client, oldWriter.Namespace, oldWriter.Name)
+			}
+			if scenario == "delete" {
 				reconcileProfile(t, f.ctx, f.r, p.Name)
 				completeForegroundDaemonSetDeletion(t, f.ctx, f.client, oldWriter.Namespace, oldWriter.Name)
 			}
@@ -461,9 +513,15 @@ func TestExternalRetirementDuplicateAndRecreatedEvidence(t *testing.T) {
 	first.Name, duplicate.Name = "a-"+first.Name, "z-"+duplicate.Name
 	submitEvidence(t, f, first)
 	submitEvidence(t, f, duplicate)
-	reconcileProfile(t, f.ctx, f.r, f.profile.Name)
+	f.r.Client = interceptProfileStatusClient{Client: f.client, update: func(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+		if e, ok := obj.(*nodev1alpha1.NodeRetirementEvidence); ok && e.Status.Phase == nodev1alpha1.EvidenceResolved {
+			return fmt.Errorf("hold resolution to inspect committed receipt")
+		}
+		return f.client.Status().Update(ctx, obj, opts...)
+	}}
+	_, _ = f.r.Reconcile(f.ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&f.profile)})
 	p := getProfile(t, f.ctx, f.client, f.profile.Name)
-	if p.Status.Targets[0].RetirementEvidenceUID != first.UID {
+	if p.Status.DetachedRetirements[0].Targets[0].RetirementEvidenceUID != first.UID {
 		t.Fatal("duplicate selection was not deterministic")
 	}
 	if err := f.client.Delete(f.ctx, first); err != nil {
@@ -474,9 +532,9 @@ func TestExternalRetirementDuplicateAndRecreatedEvidence(t *testing.T) {
 	submitEvidence(t, f, replacement)
 	reconcileProfile(t, f.ctx, f.r, p.Name)
 	p = getProfile(t, f.ctx, f.client, p.Name)
-	if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked ||
-		p.Status.Targets[0].RetirementEvidenceUID != first.UID ||
-		!strings.Contains(p.Status.Conditions[0].Message, "evidence UID changed") {
+	if !meta.IsStatusConditionTrue(p.Status.Conditions, nodev1alpha1.ConditionRetirementPending) ||
+		p.Status.DetachedRetirements[0].Targets[0].RetirementEvidenceUID != first.UID ||
+		!strings.Contains(meta.FindStatusCondition(p.Status.Conditions, nodev1alpha1.ConditionRetirementPending).Message, "evidence UID changed") {
 		t.Fatal("recreated evidence or duplicate replaced a committed receipt")
 	}
 }
@@ -522,8 +580,8 @@ func TestExternalRetirementRefusesReregisteredHost(t *testing.T) {
 	}
 	reconcileProfile(t, f.ctx, f.r, f.profile.Name)
 	p := getProfile(t, f.ctx, f.client, f.profile.Name)
-	if conditionReason(p.Status.Conditions) != nodev1alpha1.ReasonCleanupBlocked || externallyRetired(p.Status.Targets[0]) ||
-		!strings.Contains(p.Status.Conditions[0].Message, "still registered") {
+	if len(p.Status.DetachedRetirements) != 1 || externallyRetired(p.Status.DetachedRetirements[0].Targets[0]) ||
+		!strings.Contains(meta.FindStatusCondition(p.Status.Conditions, nodev1alpha1.ConditionRetirementPending).Message, "still registered") {
 		t.Fatal("new Node UID was mistaken for proof that the original host was destroyed")
 	}
 }

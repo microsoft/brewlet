@@ -323,6 +323,7 @@ func TestRunWaitsForControllerFinalization(t *testing.T) {
 		if _, ok := list.(*nodev1alpha1.NodeProfileList); !ok || c.profileLists != 3 {
 			return
 		}
+
 		var current nodev1alpha1.NodeProfile
 		if err := base.Get(ctx, client.ObjectKey{Name: p.Name}, &current); err != nil {
 			t.Fatal(err)
@@ -337,6 +338,32 @@ func TestRunWaitsForControllerFinalization(t *testing.T) {
 	}
 	if err := Run(context.Background(), c, testOptions()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunKeepsReadyProfileWithDetachedObligations(t *testing.T) {
+	p := ownedProfile("missing-host")
+	p.Finalizers = []string{brewlet.FinalizerCleanup}
+	p.Status.Conditions = []metav1.Condition{{
+		Type: nodev1alpha1.ConditionReady, Status: metav1.ConditionTrue,
+		Reason: nodev1alpha1.ReasonAllNodesProvisioned,
+	}}
+	p.Status.DetachedRetirements = []nodev1alpha1.NodeRetirement{{
+		Phase: nodev1alpha1.RetirementMissing, Generation: 1,
+		Targets: []nodev1alpha1.NodeTarget{{Name: "original", UID: "original-uid", Claimed: true}},
+	}}
+	base := fakeClient(t, p)
+	c := &observedClient{Client: base, t: t}
+	if err := Run(context.Background(), c, testOptions()); err == nil {
+		t.Fatal("active readiness bypassed unresolved cleanup history")
+	}
+	var current nodev1alpha1.NodeProfile
+	if err := base.Get(context.Background(), client.ObjectKeyFromObject(p), &current); err != nil {
+		t.Fatal(err)
+	}
+	if current.DeletionTimestamp.IsZero() || len(current.Finalizers) != 1 ||
+		len(current.Status.DetachedRetirements) != 1 {
+		t.Fatal("uninstall changed history or finalizer instead of waiting for the controller")
 	}
 }
 

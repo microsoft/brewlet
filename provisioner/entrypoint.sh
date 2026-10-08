@@ -1723,6 +1723,8 @@ verify_node_ownership() {
     die ownership-fence-failed "could not read the node ownership claim"
   }
   IFS='|' read -r node_uid owner_uid owner_node_uid owner_name <<<"$node_identity"
+  [[ " ${BREWLET_TARGET_UIDS:-} " == *" $node_uid "* && -n "$node_uid" ]] \
+    || die ownership-fence-failed "node UID was not authorized in this worker's immutable target set"
   [[ -n "$node_uid" && "$owner_uid" == "$BREWLET_PROFILE_UID" &&
      "$owner_node_uid" == "$node_uid" && "$owner_name" == "$BREWLET_PROFILE_NAME" ]] \
     || die ownership-fence-failed "node identity or ownership no longer authorizes this container"

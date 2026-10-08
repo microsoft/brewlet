@@ -193,6 +193,12 @@ func (in *NodeProfileSpec) DeepCopy() *NodeProfileSpec {
 // DeepCopyInto copies the receiver into out.
 func (in *NodeProfileStatus) DeepCopyInto(out *NodeProfileStatus) {
 	*out = *in
+	if in.DetachedRetirements != nil {
+		out.DetachedRetirements = make([]NodeRetirement, len(in.DetachedRetirements))
+		for i := range in.DetachedRetirements {
+			out.DetachedRetirements[i] = *in.DetachedRetirements[i].DeepCopy()
+		}
+	}
 	out.Targets = append([]NodeTarget(nil), in.Targets...)
 	if in.ProvisioningSpec != nil {
 		out.ProvisioningSpec = in.ProvisioningSpec.DeepCopy()
@@ -209,6 +215,17 @@ func (in *NodeProfileStatus) DeepCopyInto(out *NodeProfileStatus) {
 			in.Conditions[i].DeepCopyInto(&out.Conditions[i])
 		}
 	}
+}
+
+func (in *NodeRetirement) DeepCopy() *NodeRetirement {
+	if in == nil {
+		return nil
+	}
+	out := new(NodeRetirement)
+	*out = *in
+	out.Targets = append([]NodeTarget(nil), in.Targets...)
+	in.Spec.DeepCopyInto(&out.Spec)
+	return out
 }
 
 // DeepCopy returns a deep copy of the receiver.
