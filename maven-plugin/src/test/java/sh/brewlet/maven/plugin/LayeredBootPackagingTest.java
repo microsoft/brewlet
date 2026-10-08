@@ -409,6 +409,27 @@ class LayeredBootPackagingTest {
     }
 
     @Test
+    void publicAotCacheGoalTrainsBootPayload() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Runtime.version().feature() >= 25,
+                "The public AOT cache goal requires JDK 25+ (-XX:AOTCacheOutput)");
+        var boot = TestApplications.boot(root);
+        AotCacheMojo mojo = new AotCacheMojo();
+        Path output = root.resolve("output");
+        Path cache = root.resolve("app.aot");
+        TestApplications.configure(mojo, boot.source(), output, true);
+        TestApplications.set(mojo, "aotCacheOutput", cache.toFile());
+        TestApplications.set(mojo, "timeoutSeconds", 60);
+        TestApplications.set(mojo, "trainingJavaHome", new java.io.File(System.getProperty("java.home")));
+        mojo.execute();
+        assertTrue(Files.size(cache) > 0);
+        var payload = mojo.prepareApplication();
+        for (String path : payload.classPath()) {
+            assertArrayEquals(Files.readAllBytes(output.resolve("prepared").resolve(path)),
+                    Files.readAllBytes(output.resolve("aotcache-training").resolve(path)));
+        }
+    }
+
+    @Test
     void signedDependenciesRemainSignedAndRewrittenApplicationDropsOnlyStaleSignatures() throws Exception {
         var boot = TestApplications.boot(root);
         Path lib = root.resolve("signed.jar");

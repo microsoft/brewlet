@@ -117,6 +117,24 @@ class AppCdsLifecycleTest {
     }
 
     @Test
+    void gracefulSignalWritesAnActualAotCache() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Runtime.version().feature() >= 25,
+                "-XX:AOTCacheOutput requires JDK 25+");
+        AotCacheMojo mojo = new AotCacheMojo();
+        TestApplications.set(mojo, "timeoutSeconds", 10);
+        TestApplications.set(mojo, "readyLog", "SERVER STARTED");
+        TestApplications.set(mojo, "shutdownGraceSeconds", 120);
+        TestApplications.set(mojo, "readyPollMillis", 50L);
+        Path cache = root.resolve("app.aot");
+        List<String> command = command(false);
+        command.add(1, "-XX:AOTCacheOutput=" + cache);
+        int code = mojo.training().runSignalTraining(command, root.toFile());
+        assertTrue(code == 0 || code == 143, "exit code " + code);
+        assertTrue(Files.size(cache) > 0);
+        assertReaped(readPid(), "brewlet-aotcache-training-io-");
+    }
+
+    @Test
     void shutdownOutputFailureIsNotSilentlyIgnored() throws Exception {
         AppCdsMojo mojo = mojo();
         TestApplications.set(mojo, "timeoutSeconds", 10);
@@ -386,8 +404,12 @@ class AppCdsLifecycleTest {
     }
 
     private static void assertReaped(long pid) {
+        assertReaped(pid, "brewlet-appcds-training-io-");
+    }
+
+    private static void assertReaped(long pid, String pumpPrefix) {
         assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false), "leaked training JVM " + pid);
         assertFalse(Thread.getAllStackTraces().keySet().stream()
-                .anyMatch(t -> t.isAlive() && t.getName().equals("brewlet-appcds-training-io-" + pid)), "leaked output pump");
+                .anyMatch(t -> t.isAlive() && t.getName().equals(pumpPrefix + pid)), "leaked output pump");
     }
 }

@@ -76,6 +76,18 @@ class AppCdsMojoTest {
     }
 
     @Test
+    void buildTrainingCommand_aotOptionUsesAotCacheOutput() {
+        JvmConfig cfg = new JvmConfig();
+        cfg.setEntry(new Entry("jar"));
+        cfg.setMainJar("app.jar");
+        List<String> cmd = TrainingRun.buildTrainingCommand("-XX:AOTCacheOutput=", new File("/jdk/bin/java"), cfg,
+                new File("/out/app.aot"), "app.jar", List.of("--warmup"));
+        assertTrue(cmd.contains("-XX:AOTCacheOutput=" + new File("/out/app.aot").getAbsolutePath()));
+        assertTrue(cmd.stream().noneMatch(a -> a.contains("ArchiveClassesAtExit")));
+        assertEquals(List.of("-jar", "app.jar", "--warmup"), cmd.subList(cmd.size() - 3, cmd.size()));
+    }
+
+    @Test
     void normalizeMode_defaultsAndCaseInsensitive() throws Exception {
         assertEquals("exit", TrainingRun.normalizeMode("brewlet.appcds.", null));
         assertEquals("exit", TrainingRun.normalizeMode("brewlet.appcds.", ""));
