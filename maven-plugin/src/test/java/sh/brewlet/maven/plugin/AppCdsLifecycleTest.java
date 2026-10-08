@@ -134,6 +134,56 @@ class AppCdsLifecycleTest {
         assertReaped(readPid(), "brewlet-aotcache-training-io-");
     }
 
+    /**
+     * JEP 514 assembles the cache in a child JVM spawned at exit. A wrapper java
+     * passes {@code JDK_AOT_VM_OPTIONS=-XX:+PauseAtStartup}, so that child stays
+     * paused (until {@code vm.paused.<pid>} is removed) and the shutdown grace
+     * deterministically expires mid-assembly. The child must not outlive the run.
+     */
+    @Test
+    void shutdownGraceExpiryReapsAotAssemblyChild() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Runtime.version().feature() >= 25,
+                "-XX:AOTCacheOutput requires JDK 25+");
+        command(false);
+        Path bin = Files.createDirectories(root.resolve("wrapped-jdk/bin"));
+        Path java = bin.resolve("java");
+        Files.writeString(java, "#!/bin/sh\nJDK_AOT_VM_OPTIONS='-XX:+UnlockDiagnosticVMOptions -XX:+PauseAtStartup' exec '"
+                + TrainingRun.javaBinary(new java.io.File(System.getProperty("java.home"))) + "' \"$@\"\n");
+        assertTrue(java.toFile().setExecutable(true));
+        AotCacheMojo mojo = new AotCacheMojo();
+        Path output = root.resolve("output");
+        TestApplications.configure(mojo, root.resolve("server.jar"), output, false);
+        Path cache = root.resolve("app.aot");
+        TestApplications.set(mojo, "aotCacheOutput", cache.toFile());
+        TestApplications.set(mojo, "trainingJavaHome", bin.getParent().toFile());
+        TestApplications.set(mojo, "mode", "signal");
+        TestApplications.set(mojo, "readyLog", "SERVER STARTED");
+        TestApplications.set(mojo, "timeoutSeconds", 20);
+        TestApplications.set(mojo, "shutdownGraceSeconds", 1);
+        TestApplications.set(mojo, "readyPollMillis", 50L);
+        TestApplications.set(mojo, "trainingArgs", List.of(root.resolve("server.pid").toString()));
+        Path trainingDir = output.resolve("aotcache-training");
+        List<Long> children = new ArrayList<>();
+        try {
+            assertThrows(MojoExecutionException.class, mojo::execute);
+            try (var files = Files.list(trainingDir)) {
+                files.map(f -> f.getFileName().toString()).filter(n -> n.startsWith("vm.paused."))
+                        .forEach(n -> children.add(Long.parseLong(n.substring("vm.paused.".length()))));
+            }
+            assertFalse(children.isEmpty(), "the AOT assembly child never started; the test did not exercise it");
+            for (long child : children) {
+                assertFalse(ProcessHandle.of(child).map(ProcessHandle::isAlive).orElse(false),
+                        "leaked AOT assembly child " + child);
+            }
+            assertFalse(Files.exists(cache), "a failed run must not leave an AOT cache");
+            assertReaped(readPid(), "brewlet-aotcache-training-io-");
+        } finally {
+            for (long child : children) {
+                ProcessHandle.of(child).filter(ProcessHandle::isAlive).ifPresent(ProcessHandle::destroyForcibly);
+            }
+        }
+    }
+
     @Test
     void shutdownOutputFailureIsNotSilentlyIgnored() throws Exception {
         AppCdsMojo mojo = mojo();

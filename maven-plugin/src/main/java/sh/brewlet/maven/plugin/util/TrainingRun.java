@@ -27,6 +27,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -307,7 +309,7 @@ public final class TrainingRun {
             // without closing stdout/stderr so the pump can drain shutdown output.
             process.toHandle().destroy();
             if (!process.waitFor(shutdownGraceSeconds, TimeUnit.SECONDS)) {
-                process.toHandle().destroyForcibly();
+                training.kill(true);
                 throw new MojoExecutionException("Training JVM did not exit within "
                         + shutdownGraceSeconds + "s of SIGTERM; the " + noun + " was likely not flushed. "
                         + "Ensure the app shuts down gracefully on SIGTERM, or raise "
@@ -408,6 +410,10 @@ public final class TrainingRun {
         private final Process process;
         private final Thread pump;
         private final AtomicReference<Throwable> outputFailure = new AtomicReference<>();
+        // JEP 514 assembles the AOT cache in a child JVM spawned at exit. Remember
+        // descendants while the parent is alive: once it dies they are reparented
+        // and could still write the cache after a failed run.
+        private final Set<ProcessHandle> descendants = ConcurrentHashMap.newKeySet();
 
         TrainingProcess(Process process, Pattern pattern, CountDownLatch ready) {
             this.process = process;
@@ -422,21 +428,60 @@ public final class TrainingRun {
             if (failure != null) throw new MojoExecutionException("Failed to read " + kind + " training output", failure);
         }
 
+        /** Signals the training JVM and every descendant seen so far. */
+        void kill(boolean force) {
+            snapshotDescendants();
+            for (ProcessHandle handle : descendants) {
+                if (force) handle.destroyForcibly(); else handle.destroy();
+            }
+            if (force) process.toHandle().destroyForcibly(); else process.toHandle().destroy();
+        }
+
+        private void snapshotDescendants() {
+            if (process.isAlive()) process.descendants().forEach(descendants::add);
+        }
+
+        private List<Long> alive() {
+            List<Long> pids = new ArrayList<>();
+            if (process.isAlive()) pids.add(process.pid());
+            descendants.stream().filter(ProcessHandle::isAlive).forEach(h -> pids.add(h.pid()));
+            return pids;
+        }
+
+        /** Cleanup cannot abandon the processes when the caller is already interrupted. */
+        private boolean waitForCleanup(int seconds) {
+            boolean interrupted = false;
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+            while (!alive().isEmpty() && System.nanoTime() < deadline) {
+                // A SIGTERMed JVM may spawn the assembly child while we wait.
+                snapshotDescendants();
+                long slice = Math.max(0, Math.min(TimeUnit.MILLISECONDS.toNanos(50), deadline - System.nanoTime()));
+                try {
+                    if (process.isAlive()) process.waitFor(slice, TimeUnit.NANOSECONDS);
+                    else TimeUnit.NANOSECONDS.sleep(slice);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+            return interrupted;
+        }
+
         @Override
         public void close() throws MojoExecutionException {
             boolean interrupted = Thread.interrupted();
             MojoExecutionException failure = null;
             try {
-                if (process.isAlive()) {
-                    process.toHandle().destroy();
-                    interrupted |= waitForCleanup(process, 5);
-                    if (process.isAlive()) {
-                        process.toHandle().destroyForcibly();
-                        interrupted |= waitForCleanup(process, 5);
+                if (!alive().isEmpty()) {
+                    kill(false);
+                    interrupted |= waitForCleanup(5);
+                    if (!alive().isEmpty()) {
+                        kill(true);
+                        interrupted |= waitForCleanup(5);
                     }
                 }
-                if (process.isAlive()) {
-                    failure = new MojoExecutionException("Could not reap " + kind + " training JVM PID " + process.pid());
+                if (!alive().isEmpty()) {
+                    failure = new MojoExecutionException("Could not reap " + kind + " training JVM PID " + process.pid()
+                            + " (still alive: " + alive() + ")");
                 }
                 // Let a normally exiting process drain before closing the pipe.
                 long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
@@ -478,20 +523,6 @@ public final class TrainingRun {
                 if (interrupted) Thread.currentThread().interrupt();
             }
         }
-    }
-
-    /** Cleanup cannot abandon the child when the caller is already interrupted. */
-    private static boolean waitForCleanup(Process process, int seconds) {
-        boolean interrupted = false;
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
-        while (process.isAlive() && System.nanoTime() < deadline) {
-            try {
-                process.waitFor(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
-            } catch (InterruptedException e) {
-                interrupted = true;
-            }
-        }
-        return interrupted;
     }
 
     /** Returns true when an HTTP(S) GET to {@code url} answers with a 2xx/3xx status. */
@@ -832,4 +863,5 @@ public final class TrainingRun {
             return Integer.parseInt(current.group(1));
         }
         throw new IllegalArgumentException("unrecognized java version: " + versionText);
-    }}
+    }
+}
