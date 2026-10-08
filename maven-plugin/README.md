@@ -20,7 +20,8 @@ a development starting point for the image built in the current invocation.
 
 - **Coordinates:** `sh.brewlet:brewlet-maven-plugin` on [Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin)
 - **Requires:** Maven 3.10+, JDK 17+ (to run the build). The `appcds`
-  training goal requires a JDK 21+ training runtime.
+  training goal requires a JDK 21+ training runtime; the `aotcache` training
+  goal requires JDK 25+.
 
 ---
 
@@ -248,8 +249,9 @@ For output preview, see [Dry-run behavior](#dry-run-behavior).
 | `brewlet:build` | — | Assemble the OCI artifact into a local **OCI image-layout** dir (`target/brewlet/oci`) without pushing. Good for inspection, air-gapped flows, or local-registry tests. |
 | `brewlet:push` | `deploy` | Build and push to the registry in `<image>`. By default (`image` format) this pushes a **runnable OCI image** — a standard, kubelet-pullable image (see [Delivery format](#delivery-format-native-artifact-vs-runnable-image)). With `-Dbrewlet.format=artifact` it pushes the native Brewlet artifact instead (JAR layer + launch-config blob + manifest with `artifactType: application/vnd.brewlet.app.v1+json`). |
 | `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) from the same fat/thin/Boot/module payload used for publication, using a self-terminating run or explicit signal-mode training. Attach it later with `-Dbrewlet.cdsArchive=...`. |
+| `brewlet:aotcache` | — | Generate a JDK AOT cache (`target/brewlet/app.aot`) with `-XX:AOTCacheOutput` (JDK 25+), using the same payloads and training modes as `appcds`. Attach it later with `-Dbrewlet.aotCache=...`. See [AOT cache](#aot-cache-brewletaotcache). |
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
-| `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. Honors `brewlet.cdsArchive` exactly like `build`/`push` (`cds` block + CDS layer with digest). |
+| `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. Honors `brewlet.cdsArchive` and `brewlet.aotCache` exactly like `build`/`push` (`cds` or `aot` block + archive layer with digest). |
 | `brewlet:manifest` | — | Generate a development `JavaApplication` YAML for this invocation's built/pushed image. No independent image input, publication, or cluster access. |
 | `brewlet:help` | — | List goals and parameters; use `-Ddetail=true -Dgoal=push` for detailed publishing help. |
 
@@ -290,6 +292,7 @@ URL schemes or query strings in `image`. Docker Hub references such as
 | `trustedSignerIdentity` | `brewlet.trustedSignerIdentity` | — | Expected identity in signed bundle provenance. Required when the selected bundle has provenance. |
 | `builderIdentity` | `brewlet.builderIdentity` | — | Application publisher identity asserted in optional final-image provenance. Required with `signingKey` when pushing a managed application. |
 | `cdsArchive` | `brewlet.cdsArchive` | — | Optional prebuilt AppCDS `.jsa` archive to append as a `application/vnd.brewlet.cds.layer.v1+jsa` layer after dependency layers. The archive basename becomes `cds.archive`, is mounted at `/app/<name>`, and launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<name>` as best-effort acceleration. See [AppCDS §4.1](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#41-build-time-archive-layer-recommended-primary). |
+| `aotCache` | `brewlet.aotCache` | — | Optional prebuilt JDK AOT cache to append as an `application/vnd.brewlet.aot.layer.v1+aot` layer (folded into the `app` layer of a runnable image). The basename becomes `aot.cache`, is mounted at `/app/<name>`, and launches with `-XX:AOTCache=/app/<name>` on JDK 24+. Mutually exclusive with `cdsArchive`. See [JDK AOT cache](https://github.com/microsoft/brewlet/blob/main/docs/aot-cache.md). |
 
 ### Layered Spring Boot JARs
 
@@ -645,6 +648,50 @@ no AppCDS benefit); see [AppCDS §7](https://github.com/microsoft/brewlet/blob/m
 
 ---
 
+## AOT cache (`brewlet:aotcache`)
+
+A [JDK AOT cache](https://github.com/microsoft/brewlet/blob/main/docs/aot-cache.md)
+is the JDK 24+ alternative to an AppCDS archive. The goal trains with
+`-XX:AOTCacheOutput` (JEP 514), so it needs a **JDK 25+** training runtime, and
+writes `app.aot`. Ship it as an extra layer:
+
+```bash
+mvn package brewlet:aotcache \
+  -Dbrewlet.aotcache.mode=signal \
+  -Dbrewlet.aotcache.readyLog='Started .* in .* seconds'
+
+mvn brewlet:push \
+  -Dbrewlet.image=registry.example.com/team/app:1.4.2 \
+  -Dbrewlet.aotCache=target/brewlet/app.aot
+```
+
+Training works like [`brewlet:appcds`](#appcds-brewletappcds): the same `exit` and
+[`signal`](#long-running-servers--signal-mode) modes, readiness signals, cleanup
+rules and fat/layered/Boot/JPMS staging, under `brewlet.aotcache.*` properties.
+The cache is created after the training JVM exits, in a child JVM that can use
+about twice the training heap. In `signal` mode that happens after `SIGTERM`,
+so the default `shutdownGraceSeconds` is 120 rather than 30. If training fails,
+the goal stops that child JVM and leaves no `app.aot`.
+
+| Parameter | Property | Default | Notes |
+|---|---|---|---|
+| `aotCacheOutput` | — | `${project.build.directory}/brewlet/app.aot` | Where `brewlet:aotcache` writes the cache. |
+| `trainingArgs` | `brewlet.aotcache.trainingArgs` | — | Extra program args passed after `-jar <mainJar>` during training. |
+| `timeoutSeconds` | `brewlet.aotcache.timeoutSeconds` | `120` | Execution budget in `exit` mode; readiness and settling budget in `signal` mode. |
+| `trainingJavaHome` | `brewlet.aotcache.javaHome` | Maven's `java.home` | JDK used for training. Must be JDK 25+. |
+| `mode` | `brewlet.aotcache.mode` | `exit` | `exit` or `signal`. |
+| `readyLog` | `brewlet.aotcache.readyLog` | — | `signal` mode: readiness regex over the app's output. |
+| `readyHttp` | `brewlet.aotcache.readyHttp` | — | `signal` mode: HTTP(S) URL polled until 2xx/3xx. |
+| `readyDelaySeconds` | `brewlet.aotcache.readyDelaySeconds` | `0` | `signal` mode: fixed warmup or settle delay before `SIGTERM`. |
+| `shutdownGraceSeconds` | `brewlet.aotcache.shutdownGraceSeconds` | `120` | `signal` mode: time allowed after `SIGTERM` for shutdown and cache creation. |
+| `readyPollMillis` | `brewlet.aotcache.readyPollMillis` | `500` | `signal` mode: poll interval for `readyHttp`. |
+
+The cache follows the JEP 483 rules: identical module options, only JARs on the
+class path, and no class-rewriting agents. The node pins JAR mtimes as it does for
+AppCDS. On JDKs older than 24 the hint is dropped and the app starts without it.
+
+---
+
 ## Delivery format: native artifact vs runnable image
 
 `brewlet:push` can publish in two current formats, selected by `format` /
@@ -689,6 +736,7 @@ shape (media types, `jvm-config` annotation, platforms). See
 - `target/brewlet/jvm-config.json` — the generated launch config
   (`application/vnd.brewlet.jvm.config.v1+json`).
 - `target/brewlet/app.jsa` — optional AppCDS archive from `brewlet:appcds`.
+- `target/brewlet/app.aot` — optional JDK AOT cache from `brewlet:aotcache`.
 - `target/brewlet/oci/` — a local OCI image-layout (from `brewlet:build`); readable
   with `brewlet inspect` or pushable with `oras push`.
 - `target/brewlet/push.json` — the last successful push (`image`, `digest`,

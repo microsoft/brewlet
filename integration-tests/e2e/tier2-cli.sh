@@ -4,7 +4,8 @@
 
 # Tier 2 — local developer experience: the CLI + node-resident JVM path.
 # Covers: push (OCI artifact, no Dockerfile), inspect, run (java -jar + live curl,
-# plus a shipped AppCDS archive mapping under -Xshare:on),
+# plus a shipped AppCDS archive mapping under -Xshare:on and a shipped JDK AOT
+# cache under -XX:AOTMode=required/on),
 # bundle (resource->JVM/cgroup mapping in config.json), layered classpath, and
 # modular (JPMS) apps, including supplementary non-modular class-path helpers,
 # and the Maven plugin's config / inspect / build / appcds goals (tier2_maven_goals).
@@ -116,6 +117,38 @@ tier2_cli() {
     fi
   else
     fail "run+appcds: push --appcds" "see $WORK/t2-cds-build.log"
+  fi
+
+  # --- run + AOT cache: the shipped cache maps under `brewlet run` ---------
+  # Same app as above, trained with -XX:AOTCacheOutput (JDK 25+). The run adds
+  # -XX:AOTMode=required (JDK 27+; `on` before) so an unusable cache is a
+  # startup failure instead of the default auto-mode warning. AOTMode alone
+  # passes without any -XX:AOTCache, so Main must also load from the cache.
+  local jfeat aotref="demo/aot-hello:1.0.0" aotmode=on
+  jfeat="$(java -XshowSettings:properties -version 2>&1 \
+    | sed -n 's/^ *java.specification.version = //p' | head -1)"
+  if [[ ! "$jfeat" =~ ^[0-9]+$ ]] || (( jfeat < 25 )); then
+    skip "run+aot: shipped AOT cache maps under brewlet run" "needs JDK 25"
+  elif [[ ! -f "$cdsdir/app.jar" ]]; then
+    fail "run+aot: shipped AOT cache maps under brewlet run" "no $cdsdir/app.jar (see $WORK/t2-cds-build.log)"
+  else
+    (( jfeat >= 27 )) && aotmode=required
+    if "$bin" push "$cdsdir/app.jar" "$aotref" --store "$store" --format=artifact --aot \
+         >"$WORK/t2-aot-build.log" 2>&1; then
+      pass "run+aot: push --aot trains and ships an AOT cache"
+      if out="$(cd "$cdsdir/elsewhere" && "$bin" run "$aotref" --store "$store" \
+                  -- "-XX:AOTMode=$aotmode" -Xlog:class+load=info 2>&1)"; then
+        pass "run+aot: JVM starts with -XX:AOTMode=$aotmode from an unrelated cwd"
+        assert_contains "run+aot: app output" "$out" "cds-hello"
+        assert_contains "run+aot: Main loaded from the shipped AOT cache" \
+          "$out" "Main source: shared objects file"
+      else
+        printf '%s\n' "$out" >"$WORK/t2-aot-run.log"
+        fail "run+aot: JVM starts with -XX:AOTMode=$aotmode" "see $WORK/t2-aot-run.log"
+      fi
+    else
+      fail "run+aot: push --aot" "see $WORK/t2-aot-build.log"
+    fi
   fi
 
   # --- bundle: OCI runc bundle + resource->JVM/cgroup mapping --------------

@@ -128,7 +128,9 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
                           [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
                           [--signing-key PEM --builder-identity IDENTITY]]
                          [--appcds-archive JSA | --appcds [--appcds-java JAVA]
-                          [--appcds-timeout SEC] [--appcds-arg ARG ...]]
+                          [--appcds-timeout SEC] [--appcds-arg ARG ...]
+                          | --aot-cache FILE | --aot [--aot-java JAVA]
+                          [--aot-timeout SEC] [--aot-arg ARG ...]]
                          [--push-result FILE]
                          [--insecure-registry HOST[:PORT] ...]
                          [--allowed-token-realm HOST[:PORT] ...]
@@ -178,7 +180,7 @@ or build into a local layout with `--store`.
 | `--no-arch` | `false` | Disable native-library auto-detection and publish with **no** arch constraint (force arch-neutral), even when bundled natives are found. |
 | `--classpath-layer` | *(none)* | Tar of dependency JARs to attach as a class-path layer (repeatable), unpacked to `/app/lib`. See [layered classpath deployment](layered-classpath-deployment.md). |
 | `--module-layer` | *(none)* | Tar of library modules to attach as a module-path layer (repeatable), unpacked to `/app/mods` and fed to `--module-path`. See [JPMS support](jpms-support.md). |
-| `--dependency-bundle` | *(none)* | Approved managed dependency bundle reference in the same local `--store`. Requires `--format image` and `--dependency-lock`; mutually exclusive with classpath/module layers and AppCDS. |
+| `--dependency-bundle` | *(none)* | Approved managed dependency bundle reference in the same local `--store`. Requires `--format image` and `--dependency-lock`; mutually exclusive with classpath/module layers, AppCDS and AOT caches. |
 | `--dependency-lock` | *(none)* | Canonical lock for the application's resolved Maven runtime graph; required with `--dependency-bundle`. |
 | `--main-class` | *(none)* | Application main class for managed classpath launch; required with `--dependency-bundle` unless a classpath-mode `--config` supplies `entry.mainClass`. |
 | `--trusted-public-key` | *(none)* | ECDSA P-256 public key trusted to sign the selected bundle; paired with `--trusted-signer-identity` when bundle provenance is present. |
@@ -190,6 +192,11 @@ or build into a local layout with `--store`.
 | `--appcds-java` | *(auto)* | `java` executable (or a `JAVA_HOME` directory) used for `--appcds` training. Defaults to `$JAVA_HOME/bin/java`, then `java` on `PATH`. |
 | `--appcds-timeout` | `120` | Seconds to wait for the `--appcds` training JVM to self-terminate. |
 | `--appcds-arg` | *(none)* | Workload argument passed to the `--appcds` training JVM to drive class loading (repeatable). |
+| `--aot-cache` | *(none)* | Prebuilt JDK AOT cache to ship, mounted at `/app/<name>` and launched with `-XX:AOTCache` on JDK 24+ (dropped on older JDKs). Sets `aot.cache` in the config from the file's basename (unless `--config` already declares one, which must then match). Mutually exclusive with `--aot`, `--appcds` and `--appcds-archive`. See [JDK AOT cache](aot-cache.md). |
+| `--aot` | `false` | Generate the AOT cache **turnkey**: run a self-terminating training JVM with `-XX:AOTCacheOutput` (JDK 25+) against the JAR, then ship `<jar-name>.aot` like `--aot-cache`. Fat-JAR only; mutually exclusive with `--aot-cache`, `--appcds`, `--appcds-archive`, `--classpath-layer` and `--module-layer`. |
+| `--aot-java` | *(auto)* | `java` executable (or a `JAVA_HOME` directory) used for `--aot` training. Defaults to `$JAVA_HOME/bin/java`, then `java` on `PATH`. |
+| `--aot-timeout` | `120` | Seconds to wait for the `--aot` training JVM to self-terminate. |
+| `--aot-arg` | *(none)* | Workload argument passed to the `--aot` training JVM to drive class loading (repeatable). |
 | `--push-result` | *(none)* | Registry push only: write a `push.json` handoff — `{"image","digest","deployImage","format"}`, the same schema as the Maven plugin's `target/brewlet/push.json` — to this file. |
 | `--insecure-registry` | *(none)* | Registry push only: `HOST[:PORT]` that may be reached (and whose token realm may be reached) over plain HTTP (repeatable). Loopback registries always may. |
 | `--allowed-token-realm` | *(none)* | Registry push only: `HOST[:PORT]` of a cross-origin token service trusted to receive registry credentials (repeatable). |
@@ -200,6 +207,9 @@ constraint automatically for non-portable artifacts (pass `--arch` to override, 
 `--appcds-archive`, or let the CLI build one with `--appcds` (the two are mutually
 exclusive). During `--appcds` training the CLI prints a heartbeat to stderr at
 least every 30 seconds and reports the archive size and training time when done.
+A [JDK AOT cache](aot-cache.md) is the alternative startup archive: ship one with
+`--aot-cache`, or train one with `--aot`. The summary then prints
+`aot cache: <name> (mounted /app/<name>; -XX:AOTCache, JDK 24+, best-effort)`.
 
 ```bash
 brewlet push ./target/app.jar demo/hello:1.0.0                        # runnable image (default)
@@ -211,6 +221,7 @@ brewlet push ./target/app.jar demo/hello:1.0.0 --config ./cfg.json --classpath-l
 brewlet push ./target/orders.jar demo/orders:1.0.0 --module-layer mods.tar
 brewlet push ./target/app.jar demo/hello:1.0.0 --appcds-archive ./target/app.jsa
 brewlet push ./target/app.jar demo/hello:1.0.0 --appcds                # generate + ship an AppCDS archive
+brewlet push ./target/app.jar demo/hello:1.0.0 --aot                   # generate + ship a JDK AOT cache (JDK 25+)
 brewlet push ./target/native-app.jar demo/native:1.0.0 --arch amd64,arm64   # non-portable (JNI) JAR
 brewlet push ./target/orders.jar apps/orders:1.4.2 \
   --store ./oci --format image \

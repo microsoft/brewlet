@@ -83,7 +83,8 @@ Layer layout:
 
 - **app layer** — a flat tar containing the main JAR (named per `mainJar`, which must
   be a bare filename and defaults to `app.jar` when omitted) plus an optional
-  AppCDS `.jsa`.
+  AppCDS `.jsa` or [JDK AOT cache](aot-cache.md) (at most one, under the bare
+  name its `cds.archive` / `aot.cache` records).
 - **classpath / modulepath layers** — the *same* flat-JAR tars a native artifact would
   ship for [layered classpath](layered-classpath-deployment.md) / [JPMS](jpms-support.md)
   deployments, just gzip-compressed and role-tagged.
@@ -108,7 +109,7 @@ CLI / prepare-bundle workflows only. For a runnable image the shim:
 
 1. follows the image index to the node's **platform** manifest (by `GOARCH`);
 2. decodes the launch config from `brewlet.sh/jvm-config`;
-3. recovers the JAR (and any `.jsa`) and classpath/modulepath tars into a
+3. recovers the JAR (and any `.jsa` or AOT cache) and classpath/modulepath tars into a
    manifest-specific immutable stage; extraction is published atomically only
    after it completes, and later resolutions reuse it without rewriting files
    already mounted by running workloads;

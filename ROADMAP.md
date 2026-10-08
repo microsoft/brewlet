@@ -81,8 +81,10 @@ accepted and implemented.
   resolve differently, so the controller cannot name one today. Reporting what
   each replica actually runs needs a shim-to-status feedback channel, which does
   not exist.
-- **Ahead-of-time startup options.** Track Project Leyden and related JDK
-  capabilities as they become suitable for Brewlet workloads.
+- **Node-side AOT cache regeneration.** Shipped JDK AOT caches
+  ([docs](docs/aot-cache.md)) are build-time only, so a node JDK patch makes
+  them stop mapping until the app is rebuilt. Regenerate them on the node per
+  JDK build, as AppCDS regeneration already does.
 
 ## Ecosystem questions
 
