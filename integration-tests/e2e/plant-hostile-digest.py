@@ -21,6 +21,7 @@ MEDIA_TYPES = {
     "classpath": "application/vnd.brewlet.classpath.layer.v1+tar",
     "modulepath": "application/vnd.brewlet.modulepath.layer.v1+tar",
     "cds": "application/vnd.brewlet.cds.layer.v1+jsa",
+    "aot": "application/vnd.brewlet.aot.layer.v1+aot",
 }
 
 

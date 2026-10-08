@@ -111,7 +111,7 @@ class RunnableImageBuilderTest {
                 depTar(Map.of("spring-core.jar", "aaa", "jackson.jar", "bbb")),
                 MediaTypes.CLASSPATH_LAYER_MEDIA_TYPE));
 
-        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, deps, null, null);
+        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, deps, null, null, null);
 
         // Portable (pure-bytecode) JAR -> multi-arch index of amd64 + arm64.
         assertEquals(List.of("amd64", "arm64"), r.arches);
@@ -203,7 +203,7 @@ class RunnableImageBuilderTest {
         cfg.setMainJar("app.jar");
         cfg.setEntry(new Entry("jar"));
 
-        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, null, cds, null);
+        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, null, cds, null, null);
 
         // No dependency layers -> a single (app) layer that also carries the CDS.
         JsonNode man = MAPPER.readTree(r.manifests.get(0).data());
@@ -213,6 +213,52 @@ class RunnableImageBuilderTest {
         Map<String, String> files = gunzipTar(appGz);
         assertEquals("PK\u0003\u0004 app", files.get("app.jar"));
         assertEquals("cds-archive-bytes", files.get("app.jsa"));
+    }
+
+    @Test
+    void foldsAotCacheIntoAppLayer() throws IOException {
+        Path jar = tmp.resolve("app.jar");
+        Files.write(jar, "PK\u0003\u0004 app".getBytes());
+        Path aot = tmp.resolve("app.aot");
+        Files.write(aot, "aot-cache-bytes".getBytes());
+
+        JvmConfig cfg = new JvmConfig();
+        cfg.setMainJar("app.jar");
+        cfg.setEntry(new Entry("jar"));
+        cfg.setAot(new JvmConfig.Aot("app.aot"));
+
+        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, null, null, aot, null);
+
+        JsonNode layers = MAPPER.readTree(r.manifests.get(0).data()).get("layers");
+        assertEquals(1, layers.size());
+        Map<String, String> files = gunzipTar(blobByDigest(r, layers.get(0).get("digest").asText()));
+        assertEquals("PK\u0003\u0004 app", files.get("app.jar"));
+        assertEquals("aot-cache-bytes", files.get("app.aot"));
+    }
+
+    @Test
+    void foldsCdsAndAotIntoAppLayer() throws IOException {
+        Path jar = tmp.resolve("app.jar");
+        Files.write(jar, "PK\u0003\u0004 app".getBytes());
+        Path cds = tmp.resolve("app.jsa");
+        Files.write(cds, "cds-archive-bytes".getBytes());
+        Path aot = tmp.resolve("app.aot");
+        Files.write(aot, "aot-cache-bytes".getBytes());
+
+        JvmConfig cfg = new JvmConfig();
+        cfg.setMainJar("app.jar");
+        cfg.setEntry(new Entry("jar"));
+        cfg.setCds(new JvmConfig.Cds("app.jsa", "dynamic"));
+        cfg.setAot(new JvmConfig.Aot("app.aot"));
+
+        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, null, cds, aot, null);
+
+        JsonNode layers = MAPPER.readTree(r.manifests.get(0).data()).get("layers");
+        assertEquals(1, layers.size());
+        Map<String, String> files = gunzipTar(blobByDigest(r, layers.get(0).get("digest").asText()));
+        assertEquals(Set.of("app.jar", "app.jsa", "app.aot"), files.keySet());
+        assertEquals("cds-archive-bytes", files.get("app.jsa"));
+        assertEquals("aot-cache-bytes", files.get("app.aot"));
     }
 
     @Test
@@ -245,7 +291,7 @@ class RunnableImageBuilderTest {
                 depTar(Map.of("greeter.jar", "ggg")),
                 MediaTypes.MODULEPATH_LAYER_MEDIA_TYPE));
 
-        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, mods, null, null);
+        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, mods, null, null, null);
 
         JsonNode layers = MAPPER.readTree(r.manifests.get(0).data()).get("layers");
         assertEquals(MediaTypes.LAYER_ROLE_MODULEPATH,

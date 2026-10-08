@@ -7,6 +7,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	taskAPI "github.com/containerd/containerd/api/runtime/task/v3"
 	runcoptions "github.com/containerd/containerd/api/types/runc/options"
 	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
+	"github.com/containerd/log"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -802,16 +804,141 @@ func TestMountModulepathLayersNoop(t *testing.T) {
 	}
 }
 
+func fakeJDKHome(t *testing.T, javaVersion string) string {
+	t.Helper()
+	root := t.TempDir()
+	rel := "JAVA_VERSION=\"" + javaVersion + "\"\nJAVA_RUNTIME_VERSION=\"" + javaVersion + "+11-LTS\"\n"
+	if err := os.WriteFile(filepath.Join(root, "release"), []byte(rel), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func aotResolved(t *testing.T, javaVersion string) resolvedArtifact {
+	t.Helper()
+	jarHost := filepath.Join(t.TempDir(), "blob")
+	if err := os.WriteFile(jarHost, []byte("PK"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ra := testResolved()
+	ra.JarHostPath = jarHost
+	ra.JDKHome = fakeJDKHome(t, javaVersion)
+	ra.Config.AOT = &artifact.AOT{Cache: "app.aot"}
+	ra.AOTHostPath = "/var/lib/containerd/.../blobs/sha256/beef"
+	return ra
+}
+
+// bothArchivesResolved is aotResolved shipping a .jsa as well.
+func bothArchivesResolved(t *testing.T, javaVersion string) resolvedArtifact {
+	t.Helper()
+	ra := aotResolved(t, javaVersion)
+	ra.Config.CDS = &artifact.CDS{Archive: "app.jsa"}
+	ra.CDSHostPath = "/var/lib/containerd/.../blobs/sha256/cafe"
+	return ra
+}
+
+// startupArchiveMounts returns spec's /app/app.jsa and /app/app.aot mount sources.
+func startupArchiveMounts(spec *specs.Spec) (jsa, aot string) {
+	for _, m := range spec.Mounts {
+		switch m.Destination {
+		case "/app/app.jsa":
+			jsa = m.Source
+		case "/app/app.aot":
+			aot = m.Source
+		}
+	}
+	return jsa, aot
+}
+
+func TestApplyBrewletLaunchBothArchivesJDK21UsesJSA(t *testing.T) {
+	ra := bothArchivesResolved(t, "21.0.5")
+	spec := &specs.Spec{Process: &specs.Process{}}
+	if err := applyBrewletLaunch(spec, ra, t.TempDir()); err != nil {
+		t.Fatalf("applyBrewletLaunch: %v", err)
+	}
+	jsa, aot := startupArchiveMounts(spec)
+	if jsa != ra.CDSHostPath || aot != "" {
+		t.Errorf("mounts jsa=%q aot=%q, want only the .jsa from %q", jsa, aot, ra.CDSHostPath)
+	}
+	argv := strings.Join(spec.Process.Args, " ")
+	if !strings.Contains(argv, "-XX:SharedArchiveFile=/app/app.jsa") || strings.Contains(argv, "AOTCache") {
+		t.Errorf("argv = %q, want -XX:SharedArchiveFile and no AOTCache", argv)
+	}
+}
+
+func TestApplyBrewletLaunchBothArchivesJDK25UsesAOT(t *testing.T) {
+	ra := bothArchivesResolved(t, "25.0.1")
+	spec := &specs.Spec{Process: &specs.Process{}}
+	if err := applyBrewletLaunch(spec, ra, t.TempDir()); err != nil {
+		t.Fatalf("applyBrewletLaunch: %v", err)
+	}
+	jsa, aot := startupArchiveMounts(spec)
+	if aot != ra.AOTHostPath || jsa != "" {
+		t.Errorf("mounts jsa=%q aot=%q, want only the AOT cache from %q", jsa, aot, ra.AOTHostPath)
+	}
+	argv := strings.Join(spec.Process.Args, " ")
+	if !strings.Contains(argv, "-XX:AOTCache=/app/app.aot") || strings.Contains(argv, "SharedArchiveFile") {
+		t.Errorf("argv = %q, want -XX:AOTCache and no SharedArchiveFile", argv)
+	}
+}
+
+func TestApplyBrewletLaunchWithAOTCache(t *testing.T) {
+	ra := aotResolved(t, "25.0.1")
+	spec := &specs.Spec{Process: &specs.Process{}}
+	if err := applyBrewletLaunch(spec, ra, t.TempDir()); err != nil {
+		t.Fatalf("applyBrewletLaunch: %v", err)
+	}
+	var haveAOT bool
+	var jarSource string
+	for _, m := range spec.Mounts {
+		if m.Destination == "/app/app.aot" && m.Source == ra.AOTHostPath && hasMountOption(m.Options, "ro") {
+			haveAOT = true
+		}
+		if m.Destination == "/app/app.jar" {
+			jarSource = m.Source
+		}
+	}
+	if !haveAOT {
+		t.Errorf("missing read-only /app/app.aot mount: %+v", spec.Mounts)
+	}
+	if fi, err := os.Stat(jarSource); err != nil {
+		t.Errorf("stat staged jar: %v", err)
+	} else if !fi.ModTime().Equal(kcruntime.CDSModTime) {
+		t.Errorf("staged jar mtime = %v, want canonical %v", fi.ModTime(), kcruntime.CDSModTime)
+	}
+	if argv := strings.Join(spec.Process.Args, " "); !strings.Contains(argv, "-XX:AOTCache=/app/app.aot") {
+		t.Errorf("argv missing AOTCache flag: %q", argv)
+	}
+}
+
+func TestApplyBrewletLaunchDropsAOTCacheOnJDK21(t *testing.T) {
+	ra := aotResolved(t, "21.0.5")
+	spec := &specs.Spec{Process: &specs.Process{}}
+	if err := applyBrewletLaunch(spec, ra, t.TempDir()); err != nil {
+		t.Fatalf("applyBrewletLaunch: %v", err)
+	}
+	for _, m := range spec.Mounts {
+		if m.Destination == "/app/app.aot" {
+			t.Errorf("unexpected AOT mount on JDK 21: %+v", m)
+		}
+	}
+	if argv := strings.Join(spec.Process.Args, " "); strings.Contains(argv, "AOTCache") || !strings.Contains(argv, "/app/app.jar") {
+		t.Errorf("argv = %q, want no AOTCache and a complete launch", argv)
+	}
+}
+
 func TestMountDependencyLayersCDSModTimes(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		shipped    bool
+		aot        bool
 		regenerate string
 		pin        bool
 	}{
 		{name: "no CDS"},
 		{name: "regeneration disabled", regenerate: "false"},
 		{name: "shipped archive", shipped: true, pin: true},
+		{name: "shipped aot cache", aot: true, pin: true},
 		{name: "regeneration only", regenerate: "true", pin: true},
 		{name: "normalized regeneration", regenerate: " TrUe ", pin: true},
 		{name: "shipped plus regeneration", shipped: true, regenerate: "true", pin: true},
@@ -828,6 +955,9 @@ func TestMountDependencyLayersCDSModTimes(t *testing.T) {
 			ra.ModulepathHostPaths = []string{layer}
 			if tc.shipped {
 				ra.Config.CDS = &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"}
+			}
+			if tc.aot {
+				ra.Config.AOT = &artifact.AOT{Cache: "app.aot"}
 			}
 			// Independent container bundles must agree even without a shipped
 			// archive: one may train the node cache and another consume it.
@@ -979,5 +1109,23 @@ func TestNormalizeRuncOptionsPassthrough(t *testing.T) {
 	}
 	if empty.Options != nil {
 		t.Errorf("nil options became %v", empty.Options)
+	}
+}
+
+// The shim is long-running and its stdout goes nowhere useful; the AOT drop
+// notice must reach containerd's log.
+func TestLogAOTDropWarnsThroughContainerdLog(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.L.Logger.Out
+	log.L.Logger.SetOutput(&buf)
+	defer log.L.Logger.SetOutput(old)
+
+	logAOTDrop(context.Background(), "app.aot", "/opt/brewlet/jdks/temurin-21")
+
+	got := buf.String()
+	for _, want := range []string{"level=warning", "dropping AOT cache", "app.aot", "/opt/brewlet/jdks/temurin-21"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("containerd log %q missing %q", got, want)
+		}
 	}
 }

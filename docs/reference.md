@@ -102,6 +102,7 @@ are used for local OCI-layout / CLI / `prepare-bundle` workflows.
 | Optional layer | `application/vnd.brewlet.classpath.layer.v1+tar` | Extra JARs (dependency layers) unpacked to `/app/lib`; see [layered classpath deployment](layered-classpath-deployment.md). |
 | Optional layer | `application/vnd.brewlet.modulepath.layer.v1+tar` | Library modules for a modular (JPMS) app, unpacked to `/app/mods` and fed to `--module-path`; see [JPMS support](jpms-support.md). |
 | Optional layer | `application/vnd.brewlet.cds.layer.v1+jsa` | A single Application Class-Data Sharing archive (`.jsa`), mounted read-only at `/app/<archive>` and consumed with `-Xshare:auto -XX:SharedArchiveFile`; best-effort startup accelerator, see [AppCDS](appcds.md). |
+| Optional layer | `application/vnd.brewlet.aot.layer.v1+aot` | A single JDK AOT cache, mounted read-only at `/app/<cache>` and consumed with `-XX:AOTCache` on JDK 24+; best-effort startup accelerator, see [JDK AOT cache](aot-cache.md). |
 
 Push with `oras` using exactly these types — see
 [Building & publishing](building-and-publishing.md#option-b-oras-a-real-registry-today).
@@ -157,6 +158,7 @@ Full flag reference: [CLI reference](cli-reference.md#brewlet-push) and the
 | `addExports` | array | Optional; each token expands to `--add-exports <module>/<package>=<target>`. |
 | `systemProperties` | object | Optional string map expanded, sorted by key, as `-D<key>=<value>`. |
 | `cds` | object | Optional Application Class-Data Sharing hint: `{archive, mode}`. `archive` is a bare filename (e.g. `app.jsa`) shipped as a `cds.layer.v1+jsa` layer, mounted read-only at `/app/<archive>`; launch prepends `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`. `mode` (`dynamic`\|`static`, informational) records how it was produced. Best-effort accelerator: a build/version/classpath mismatch falls back to base CDS, never fails. See [AppCDS](appcds.md). |
+| `aot` | object | Optional JDK AOT cache hint: `{cache}`. `cache` is required and is a bare filename (e.g. `app.aot`) shipped as an `aot.layer.v1+aot` layer, mounted read-only at `/app/<cache>`; launch prepends `-XX:AOTCache=/app/<cache>` (never `-XX:AOTMode`). Dropped on JDKs older than 24 or when the JDK identity is unreadable. May ship with `cds` under a different filename: the AOT cache wins on JDK 24+, the `.jsa` is used otherwise. See [JDK AOT cache](aot-cache.md). |
 | `arch` | array | Optional architecture constraint (`amd64`, `arm64`). Omit for arch-neutral bytecode (the default — runs on any provisioned arch). Set only for **non-portable JARs** that bundle JNI native libraries or arch-specific deps; steers scheduling to matching-arch nodes via `kubernetes.io/arch` nodeAffinity, and denies admission with `NoCompatibleArch` when no ready node of a required arch exists. The CLI (`brewlet push`) and Maven plugin auto-detect bundled natives and default this accordingly. |
 | `env` | array | `{name, value}`. |
 
@@ -165,7 +167,9 @@ rejected; Kubernetes identity comes from Pod `securityContext`, while standalone
 bundles use the trusted `brewlet bundle --uid/--gid` flags.
 
 Artifact launch knobs expand first in this order: `-Xshare:auto`
-`-XX:SharedArchiveFile` (when `cds` is set), `--enable-preview`, `--add-modules`,
+`-XX:SharedArchiveFile` (when `cds` is set) or `-XX:AOTCache` (when `aot` is
+set; never both: with both set, JDK 24+ takes the AOT cache and older JDKs the
+`.jsa`; neither under node-side regeneration), `--enable-preview`, `--add-modules`,
 `--add-opens`, `--add-exports`, sorted `-D` flags. Descriptor `jvm.args` follows
 for deployment tuning/escape-hatch flags, then the entrypoint. Because the JVM
 resolves conflicting options last-wins, descriptor `jvm.args` **override**
@@ -255,6 +259,7 @@ verifies the live runtime handler, and automatically rolls back failed changes.
 | **Launcher** | The java-compatible program that fronts the entrypoint (`java`, or `jaz`). |
 | **Overlay rootfs** | The sandbox filesystem: shared RO JDK lower + per-container upper/work, JAR at `/app`. |
 | **AppCDS** | Application Class-Data Sharing — a class archive that cuts startup (ships as a `cds.layer`). |
+| **AOT cache** | A JDK 24+ cache of loaded and linked classes (JEP 483) that cuts startup (ships as an `aot.layer`). |
 
 ## See also
 

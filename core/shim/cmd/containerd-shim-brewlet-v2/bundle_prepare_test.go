@@ -23,7 +23,7 @@ func TestPrepareBundleRejectsInvalidResourceLimits(t *testing.T) {
 	}
 	store := artifact.Store{Root: filepath.Join(dir, "oci")}
 	cfg := artifact.JVMConfig{SchemaVersion: 1, Entry: artifact.Entry{Mode: "jar"}}
-	if _, err := store.PushRunnableImage("orders:test", cfg, jar, nil, nil, ""); err != nil {
+	if _, err := store.PushRunnableImage("orders:test", cfg, jar, nil, nil, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	jdks := filepath.Join(dir, "jdks")

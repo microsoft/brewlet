@@ -10,6 +10,7 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
 import sh.brewlet.maven.plugin.oci.LocalStore;
+import sh.brewlet.maven.plugin.oci.MediaTypes;
 
 import java.io.File;
 import java.io.IOException;
@@ -42,8 +43,10 @@ public class InspectMojo extends AbstractBrewletMojo {
         // Same CDS resolution and validation as brewlet:build / brewlet:push so
         // the preview matches what is actually published.
         File resolvedCdsArchive = applyCdsArchive(cfg);
+        File resolvedAotCache = applyAotCache(cfg);
         validateFinalConfig(cfg);
         validateCdsPairing(cfg, resolvedCdsArchive);
+        validateAotPairing(cfg, resolvedAotCache);
         boolean runnable = "image".equals(format);
 
         getLog().info("== Brewlet inspect ==");
@@ -83,13 +86,28 @@ public class InspectMojo extends AbstractBrewletMojo {
                 getLog().info("  cds: " + name + " folded into app layer ("
                         + resolvedCdsArchive.length() + " bytes, " + sha256(resolvedCdsArchive) + ")");
             } else {
-                ArtifactLayer cdsLayer = cdsLayer(resolvedCdsArchive);
+                ArtifactLayer cdsLayer = startupArchiveLayer(resolvedCdsArchive, MediaTypes.CDS_LAYER_MEDIA_TYPE);
                 getLog().info("  cds layer: " + cdsLayer.name() + ": " + cdsLayer.mediaType()
                         + " (" + cdsLayer.tar().length + " bytes, "
                         + LocalStore.sha256Hex(cdsLayer.tar()) + ")");
             }
             getLog().info("  cds archive: " + name + " (mounted /app/" + name
                     + "; -Xshare:auto, best-effort)");
+        }
+
+        if (resolvedAotCache != null) {
+            String name = cfg.getAot().getCache();
+            if (runnable) {
+                getLog().info("  aot: " + name + " folded into app layer ("
+                        + resolvedAotCache.length() + " bytes, " + sha256(resolvedAotCache) + ")");
+            } else {
+                ArtifactLayer aotLayer = startupArchiveLayer(resolvedAotCache, MediaTypes.AOT_LAYER_MEDIA_TYPE);
+                getLog().info("  aot layer: " + aotLayer.name() + ": " + aotLayer.mediaType()
+                        + " (" + aotLayer.tar().length + " bytes, "
+                        + LocalStore.sha256Hex(aotLayer.tar()) + ")");
+            }
+            getLog().info("  aot cache: " + name + " (mounted /app/" + name
+                    + "; -XX:AOTCache, JDK 24+, best-effort)");
         }
 
         try {
@@ -103,7 +121,7 @@ public class InspectMojo extends AbstractBrewletMojo {
         try {
             return LocalStore.sha256Hex(Files.readAllBytes(file.toPath()));
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to read CDS archive " + file.getAbsolutePath(), e);
+            throw new MojoExecutionException("Failed to read startup archive " + file.getAbsolutePath(), e);
         }
     }
 }

@@ -14,7 +14,7 @@ REGISTRY ?= ghcr.io/microsoft
 TAG ?= latest
 PROVISIONER_IMAGE ?= $(REGISTRY)/node-provisioner:$(TAG)
 
-.PHONY: build binaries test vet fmt-check license-check workflow-security-check container-security-check container-security-test container-image-test ci-contract-check cli-platform-check check check-all kubernetes-check maven-plugin-check admission-check site-contract-check e2e-contract-check e2e-host appcds-verify provisioner-image provisioner-image-push clean
+.PHONY: build binaries test vet fmt-check license-check workflow-security-check container-security-check container-security-test container-image-test ci-contract-check cli-platform-check check check-all kubernetes-check maven-plugin-check admission-check site-contract-check e2e-contract-check e2e-host appcds-verify aotcache-verify provisioner-image provisioner-image-push clean
 
 build: ## Build every package for the current platform
 	go -C core build ./...
@@ -112,6 +112,9 @@ check-all: check kubernetes-check maven-plugin-check admission-check site-contra
 
 appcds-verify: ## Run the AppCDS JDK integration test (requires a full JDK 17+)
 	go -C core test -v -run TestAppCDSTrainThenMapIntegration ./internal/runtime/
+
+aotcache-verify: ## Run the AOT cache JDK integration test (requires a full JDK 25+)
+	go -C core test -v -run TestAOTCacheTrainThenMapIntegration ./internal/runtime/
 
 provisioner-image: ## Build the node-provisioner image for the host architecture
 	docker build --platform linux/$(ARCH) -t $(PROVISIONER_IMAGE) -f provisioner/Dockerfile .

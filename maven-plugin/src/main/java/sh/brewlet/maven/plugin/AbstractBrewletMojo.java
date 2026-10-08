@@ -103,6 +103,14 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     protected File cdsArchive;
 
     /**
+     * Optional prebuilt JDK AOT cache (JDK 24+) to ship as an OCI layer. May
+     * ship alongside {@code cdsArchive}: the AOT cache wins on JDK 24+, the
+     * {@code .jsa} otherwise. Mirrors the CLI's {@code --aot-cache}.
+     */
+    @Parameter(property = "brewlet.aotCache")
+    protected File aotCache;
+
+    /**
      * Fully-qualified main class name. Inferred from {@code Main-Class} in the
      * JAR manifest when not set; enables {@code entry.mode=classpath}. In
      * {@code entry.mode=module} it optionally selects {@code <module>/<mainClass>}.
@@ -786,20 +794,47 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     }
 
     /**
-     * Builds the optional AppCDS archive layer. The layer is appended after any
-     * classpath/modulepath layers and mounted by the shim at {@code /app/<name>}.
+     * Applies the optional {@code brewlet.aotCache} parameter to the launch
+     * config: the {@code aot} hint defaults from the cache basename unless set.
      */
-    protected ArtifactLayer cdsLayer(File resolvedArchive) throws MojoExecutionException {
+    protected File applyAotCache(JvmConfig cfg) throws MojoExecutionException {
+        if (aotCache == null) {
+            return null;
+        }
+        if (!aotCache.exists()) {
+            throw new MojoExecutionException(
+                    "Configured aotCache does not exist: " + aotCache.getAbsolutePath());
+        }
+        if (!aotCache.isFile()) {
+            throw new MojoExecutionException(
+                    "Configured aotCache is not a file: " + aotCache.getAbsolutePath());
+        }
+        if (cfg.getAot() == null) {
+            cfg.setAot(new JvmConfig.Aot(aotCache.getName()));
+        } else if (cfg.getAot().getCache() == null || cfg.getAot().getCache().isBlank()) {
+            cfg.getAot().setCache(aotCache.getName());
+        }
+        return aotCache;
+    }
+
+    /**
+     * Builds an optional startup-archive layer ({@link MediaTypes#CDS_LAYER_MEDIA_TYPE}
+     * for an AppCDS {@code .jsa}, {@link MediaTypes#AOT_LAYER_MEDIA_TYPE} for an
+     * AOT cache). The layer is appended after any classpath/modulepath layers and
+     * mounted by the shim at {@code /app/<name>}.
+     */
+    protected ArtifactLayer startupArchiveLayer(File resolvedArchive, String mediaType)
+            throws MojoExecutionException {
         if (resolvedArchive == null) {
             return null;
         }
         try {
             return new ArtifactLayer(resolvedArchive.getName(),
                     Files.readAllBytes(resolvedArchive.toPath()),
-                    MediaTypes.CDS_LAYER_MEDIA_TYPE);
+                    mediaType);
         } catch (IOException e) {
             throw new MojoExecutionException(
-                    "Failed to read CDS archive " + resolvedArchive.getAbsolutePath(), e);
+                    "Failed to read startup archive " + resolvedArchive.getAbsolutePath(), e);
         }
     }
 
@@ -828,6 +863,33 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
                     + "\" does not match cds.archive \"" + cfg.getCds().getArchive()
                     + "\" (they must agree so the archive maps to /app/"
                     + cfg.getCds().getArchive() + ")");
+        }
+    }
+
+    /**
+     * Enforces the AOT layer to config invariant, mirroring the Go CLI: a shipped
+     * cache needs a matching {@code aot.cache} hint and vice versa.
+     */
+    static void validateAotPairing(JvmConfig cfg, File aotCache) throws MojoExecutionException {
+        boolean hasCache = aotCache != null && aotCache.exists();
+        if (!hasCache) {
+            if (cfg.getAot() != null) {
+                throw new MojoExecutionException("launch config declares aot.cache \""
+                        + cfg.getAot().getCache()
+                        + "\" but no AOT cache file was provided to ship");
+            }
+            return;
+        }
+        if (cfg.getAot() == null) {
+            throw new MojoExecutionException(
+                    "an AOT cache file was provided but the launch config has no aot.cache hint");
+        }
+        String base = aotCache.getName();
+        if (!base.equals(cfg.getAot().getCache())) {
+            throw new MojoExecutionException("AOT cache filename \"" + base
+                    + "\" does not match aot.cache \"" + cfg.getAot().getCache()
+                    + "\" (they must agree so the cache maps to /app/"
+                    + cfg.getAot().getCache() + ")");
         }
     }
 

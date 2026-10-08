@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import sh.brewlet.maven.plugin.util.TrainingRun;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -43,8 +44,8 @@ class AppCdsLifecycleTest {
             });
         }
         assertThrows(MojoExecutionException.class, () -> {
-            if (failure.equals("exit")) mojo.runSelfTerminating(command, root.toFile());
-            else mojo.runSignalTraining(command, root.toFile());
+            if (failure.equals("exit")) mojo.training().runSelfTerminating(command, root.toFile());
+            else mojo.training().runSignalTraining(command, root.toFile());
         });
         assertReaped(readPid());
     }
@@ -64,8 +65,8 @@ class AppCdsLifecycleTest {
         AtomicBoolean interrupted = new AtomicBoolean();
         Thread worker = new Thread(() -> {
             try {
-                if (phase.equals("exit")) mojo.runSelfTerminating(command, root.toFile());
-                else mojo.runSignalTraining(command, root.toFile());
+                if (phase.equals("exit")) mojo.training().runSelfTerminating(command, root.toFile());
+                else mojo.training().runSignalTraining(command, root.toFile());
             } catch (Throwable e) {
                 failure.set(e);
             } finally {
@@ -104,7 +105,7 @@ class AppCdsLifecycleTest {
         mojo.setLog(new SystemStreamLog() {
             @Override public void info(CharSequence content) { output.add(content.toString()); }
         });
-        int code = mojo.runSignalTraining(command, root.toFile());
+        int code = mojo.training().runSignalTraining(command, root.toFile());
         assertTrue(code == 0 || code == 143);
         assertTrue(Files.size(archive) > 0);
         assertReaped(readPid());
@@ -112,6 +113,74 @@ class AppCdsLifecycleTest {
                 "SERVER STOPPED WITHOUT NEWLINE")) {
             assertTrue(output.stream().anyMatch(line -> line.contains(message)),
                     "Training output was closed before shutdown output drained: " + message);
+        }
+    }
+
+    @Test
+    void gracefulSignalWritesAnActualAotCache() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Runtime.version().feature() >= 25,
+                "-XX:AOTCacheOutput requires JDK 25+");
+        AotCacheMojo mojo = new AotCacheMojo();
+        TestApplications.set(mojo, "timeoutSeconds", 10);
+        TestApplications.set(mojo, "readyLog", "SERVER STARTED");
+        TestApplications.set(mojo, "shutdownGraceSeconds", 120);
+        TestApplications.set(mojo, "readyPollMillis", 50L);
+        Path cache = root.resolve("app.aot");
+        List<String> command = command(false);
+        command.add(1, "-XX:AOTCacheOutput=" + cache);
+        int code = mojo.training().runSignalTraining(command, root.toFile());
+        assertTrue(code == 0 || code == 143, "exit code " + code);
+        assertTrue(Files.size(cache) > 0);
+        assertReaped(readPid(), "brewlet-aotcache-training-io-");
+    }
+
+    /**
+     * JEP 514 assembles the cache in a child JVM spawned at exit. A wrapper java
+     * passes {@code JDK_AOT_VM_OPTIONS=-XX:+PauseAtStartup}, so that child stays
+     * paused (until {@code vm.paused.<pid>} is removed) and the shutdown grace
+     * deterministically expires mid-assembly. The child must not outlive the run.
+     */
+    @Test
+    void shutdownGraceExpiryReapsAotAssemblyChild() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(Runtime.version().feature() >= 25,
+                "-XX:AOTCacheOutput requires JDK 25+");
+        command(false);
+        Path bin = Files.createDirectories(root.resolve("wrapped-jdk/bin"));
+        Path java = bin.resolve("java");
+        Files.writeString(java, "#!/bin/sh\nJDK_AOT_VM_OPTIONS='-XX:+UnlockDiagnosticVMOptions -XX:+PauseAtStartup' exec '"
+                + TrainingRun.javaBinary(new java.io.File(System.getProperty("java.home"))) + "' \"$@\"\n");
+        assertTrue(java.toFile().setExecutable(true));
+        AotCacheMojo mojo = new AotCacheMojo();
+        Path output = root.resolve("output");
+        TestApplications.configure(mojo, root.resolve("server.jar"), output, false);
+        Path cache = root.resolve("app.aot");
+        TestApplications.set(mojo, "aotCacheOutput", cache.toFile());
+        TestApplications.set(mojo, "trainingJavaHome", bin.getParent().toFile());
+        TestApplications.set(mojo, "mode", "signal");
+        TestApplications.set(mojo, "readyLog", "SERVER STARTED");
+        TestApplications.set(mojo, "timeoutSeconds", 20);
+        TestApplications.set(mojo, "shutdownGraceSeconds", 1);
+        TestApplications.set(mojo, "readyPollMillis", 50L);
+        TestApplications.set(mojo, "trainingArgs", List.of(root.resolve("server.pid").toString()));
+        Path trainingDir = output.resolve("aotcache-training");
+        List<Long> children = new ArrayList<>();
+        try {
+            assertThrows(MojoExecutionException.class, mojo::execute);
+            try (var files = Files.list(trainingDir)) {
+                files.map(f -> f.getFileName().toString()).filter(n -> n.startsWith("vm.paused."))
+                        .forEach(n -> children.add(Long.parseLong(n.substring("vm.paused.".length()))));
+            }
+            assertFalse(children.isEmpty(), "the AOT assembly child never started; the test did not exercise it");
+            for (long child : children) {
+                assertFalse(ProcessHandle.of(child).map(ProcessHandle::isAlive).orElse(false),
+                        "leaked AOT assembly child " + child);
+            }
+            assertFalse(Files.exists(cache), "a failed run must not leave an AOT cache");
+            assertReaped(readPid(), "brewlet-aotcache-training-io-");
+        } finally {
+            for (long child : children) {
+                ProcessHandle.of(child).filter(ProcessHandle::isAlive).ifPresent(ProcessHandle::destroyForcibly);
+            }
         }
     }
 
@@ -131,7 +200,7 @@ class AppCdsLifecycleTest {
             }
         });
         MojoExecutionException failure = assertThrows(MojoExecutionException.class,
-                () -> mojo.runSignalTraining(command, root.toFile()));
+                () -> mojo.training().runSignalTraining(command, root.toFile()));
         assertInstanceOf(IllegalStateException.class, failure.getCause());
         assertReaped(readPid());
     }
@@ -144,10 +213,10 @@ class AppCdsLifecycleTest {
             @Override public int read() throws java.io.IOException { throw failure; }
         };
         AtomicReference<Throwable> observed = new AtomicReference<>();
-        var pump = AppCdsMojo.class.getDeclaredMethod("pumpOutput", java.io.InputStream.class,
+        var pump = TrainingRun.class.getDeclaredMethod("pumpOutput", java.io.InputStream.class,
                 java.util.regex.Pattern.class, CountDownLatch.class, AtomicReference.class);
         pump.setAccessible(true);
-        pump.invoke(mojo(), brokenStream, null, null, observed);
+        pump.invoke(mojo().training(), brokenStream, null, null, observed);
         assertSame(failure, observed.get(), "Real I/O errors must not be suppressed based on their message");
     }
 
@@ -157,7 +226,7 @@ class AppCdsLifecycleTest {
         List<String> command = command(false);
         for (String url : List.of("file:///etc/hosts", "http:/missing-host", "not a URL")) {
             TestApplications.set(mojo, "readyHttp", url);
-            assertThrows(MojoExecutionException.class, () -> mojo.runSignalTraining(command, root.toFile()));
+            assertThrows(MojoExecutionException.class, () -> mojo.training().runSignalTraining(command, root.toFile()));
             assertFalse(Files.exists(root.resolve("server.pid")));
         }
         Path jar = root.resolve("server.jar");
@@ -177,7 +246,7 @@ class AppCdsLifecycleTest {
         TestApplications.set(mojo, "readyDelaySeconds", 30);
         long start = System.nanoTime();
         assertThrows(MojoExecutionException.class,
-                () -> mojo.runSignalTraining(command(false), root.toFile()));
+                () -> mojo.training().runSignalTraining(command(false), root.toFile()));
         assertTrue(TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start) < 15);
         assertReaped(readPid());
     }
@@ -208,7 +277,7 @@ class AppCdsLifecycleTest {
             TestApplications.set(mojo, "readyHttp", server.url());
             long start = System.nanoTime();
             MojoExecutionException failure = assertThrows(MojoExecutionException.class,
-                    () -> mojo.runSignalTraining(command, root.toFile()));
+                    () -> mojo.training().runSignalTraining(command, root.toFile()));
             assertTrue(failure.getMessage().contains("Timed out"), failure.getMessage());
             assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 4000,
                     "A one-second readiness budget waited for the five-second response");
@@ -230,7 +299,7 @@ class AppCdsLifecycleTest {
             AtomicBoolean interrupted = new AtomicBoolean();
             Thread training = new Thread(() -> {
                 try {
-                    mojo.runSignalTraining(command, root.toFile());
+                    mojo.training().runSignalTraining(command, root.toFile());
                 } catch (Throwable e) {
                     failure.set(e);
                 } finally {
@@ -266,7 +335,7 @@ class AppCdsLifecycleTest {
             server.gateOnStartup(mojo);
             TestApplications.set(mojo, "readyHttp", server.url());
             long start = System.nanoTime();
-            int exit = mojo.runSignalTraining(command, root.toFile());
+            int exit = mojo.training().runSignalTraining(command, root.toFile());
             assertTrue(exit == 0 || exit == 143);
             assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 4000);
             assertTrue(server.disconnected.await(3, TimeUnit.SECONDS), "Unused response body remained open");
@@ -367,7 +436,7 @@ class AppCdsLifecycleTest {
                 "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nMain-Class: TrainingServer\n\n".getBytes(StandardCharsets.UTF_8),
                 "TrainingServer.class", Files.readAllBytes(classes.resolve("TrainingServer.class")))));
         List<String> command = new ArrayList<>(List.of(
-                AppCdsMojo.javaBinary(new java.io.File(System.getProperty("java.home"))).toString(),
+                TrainingRun.javaBinary(new java.io.File(System.getProperty("java.home"))).toString(),
                 "-jar", jar.toString(), root.resolve("server.pid").toString()));
         if (slowShutdown) command.add("slow-shutdown");
         return command;
@@ -385,8 +454,12 @@ class AppCdsLifecycleTest {
     }
 
     private static void assertReaped(long pid) {
+        assertReaped(pid, "brewlet-appcds-training-io-");
+    }
+
+    private static void assertReaped(long pid, String pumpPrefix) {
         assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false), "leaked training JVM " + pid);
         assertFalse(Thread.getAllStackTraces().keySet().stream()
-                .anyMatch(t -> t.isAlive() && t.getName().equals("brewlet-appcds-training-io-" + pid)), "leaked output pump");
+                .anyMatch(t -> t.isAlive() && t.getName().equals(pumpPrefix + pid)), "leaked output pump");
     }
 }

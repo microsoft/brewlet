@@ -29,10 +29,22 @@ import (
 // training is a follow-up; use the Maven brewlet:appcds goal (which stages lib/
 // and mods/) for those, or pass a prebuilt archive with --appcds-archive.
 func AppCDSTrainingArgs(cfg artifact.JVMConfig, jarName, archivePath string, trainingArgs []string) ([]string, error) {
+	return trainingArgsWith(cfg, jarName, "-XX:ArchiveClassesAtExit="+archivePath, trainingArgs)
+}
+
+// AOTCacheTrainingArgs is the JDK AOT-cache (JEP 514, JDK 25+) twin of
+// AppCDSTrainingArgs: -XX:AOTCacheOutput=<cachePath> alone makes the launcher do
+// the training run and then the cache-creating sub-invocation itself.
+func AOTCacheTrainingArgs(cfg artifact.JVMConfig, jarName, cachePath string, trainingArgs []string) ([]string, error) {
+	return trainingArgsWith(cfg, jarName, "-XX:AOTCacheOutput="+cachePath, trainingArgs)
+}
+
+// trainingArgsWith is the shared core: app-intrinsic knobs, outputOption, -jar.
+func trainingArgsWith(cfg artifact.JVMConfig, jarName, outputOption string, trainingArgs []string) ([]string, error) {
 	switch cfg.Entry.Mode {
 	case "", "jar":
 	default:
-		return nil, fmt.Errorf("--appcds supports fat-JAR (entry.mode=jar) only, got %q; use the Maven brewlet:appcds goal for layered/module training, or ship a prebuilt archive with --appcds-archive", cfg.Entry.Mode)
+		return nil, fmt.Errorf("training supports fat-JAR (entry.mode=jar) only, got %q; use the Maven brewlet:appcds goal for layered/module training, or ship a prebuilt archive with --appcds-archive", cfg.Entry.Mode)
 	}
 	var args []string
 	if cfg.EnablePreview {
@@ -50,7 +62,7 @@ func AppCDSTrainingArgs(cfg artifact.JVMConfig, jarName, archivePath string, tra
 	for _, k := range sortedKeys(cfg.SystemProperties) {
 		args = append(args, "-D"+k+"="+cfg.SystemProperties[k])
 	}
-	args = append(args, "-XX:ArchiveClassesAtExit="+archivePath, "-jar", jarName)
+	args = append(args, outputOption, "-jar", jarName)
 	args = append(args, trainingArgs...)
 	return args, nil
 }
@@ -69,6 +81,19 @@ func AppCDSTrainingArgs(cfg artifact.JVMConfig, jarName, archivePath string, tra
 // should finish well within it; if it does not, that is reported as an error
 // (long-running servers need the Maven signal mode, not this CLI path).
 func GenerateAppCDSArchive(cfg artifact.JVMConfig, jarPath, javaBin, outArchive string, timeout time.Duration, trainingArgs []string) error {
+	return runTraining(cfg, jarPath, javaBin, outArchive, "-XX:ArchiveClassesAtExit=", "brewlet-appcds-", "--appcds (long-running servers: use the Maven brewlet:appcds goal with -Dbrewlet.appcds.mode=signal)", timeout, trainingArgs)
+}
+
+// GenerateAOTCache runs a self-terminating JEP 514 AOT-cache training JVM and
+// writes the cache to outCache, staging the JAR exactly as GenerateAppCDSArchive
+// does. Requires JDK 25+; cache creation needs roughly twice the heap.
+func GenerateAOTCache(cfg artifact.JVMConfig, jarPath, javaBin, outCache string, timeout time.Duration, trainingArgs []string) error {
+	return runTraining(cfg, jarPath, javaBin, outCache, "-XX:AOTCacheOutput=", "brewlet-aot-", "--aot (long-running servers: use the Maven brewlet:aotcache goal with -Dbrewlet.aotcache.mode=signal)", timeout, trainingArgs)
+}
+
+// runTraining is the shared core of the two Generate functions; outputOptionPrefix
+// is the -XX option up to and including "=" and scratchPrefix names the temp dir; timeoutHint is the caller-specific advice appended to a timeout error.
+func runTraining(cfg artifact.JVMConfig, jarPath, javaBin, outArchive, outputOptionPrefix, scratchPrefix, timeoutHint string, timeout time.Duration, trainingArgs []string) error {
 	jarName, err := artifact.MainJarName(cfg)
 	if err != nil {
 		return err
@@ -86,7 +111,7 @@ func GenerateAppCDSArchive(cfg artifact.JVMConfig, jarPath, javaBin, outArchive 
 		return err
 	}
 
-	scratch, err := os.MkdirTemp("", "brewlet-appcds-")
+	scratch, err := os.MkdirTemp("", scratchPrefix)
 	if err != nil {
 		return err
 	}
@@ -96,21 +121,40 @@ func GenerateAppCDSArchive(cfg artifact.JVMConfig, jarPath, javaBin, outArchive 
 		return fmt.Errorf("stage training jar: %w", err)
 	}
 
-	jvmArgs, err := AppCDSTrainingArgs(cfg, jarName, absOut, trainingArgs)
+	jvmArgs, err := trainingArgsWith(cfg, jarName, outputOptionPrefix+absOut, trainingArgs)
 	if err != nil {
 		return err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	ctx, stop := trainingContext(ctx)
+	defer stop()
 	cmd := exec.CommandContext(ctx, javaBin, jvmArgs...)
 	cmd.Dir = scratch
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	isolateTrainingGroup(cmd)
 	runErr := cmd.Run()
 
-	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("training run did not exit within %s; a fat JAR must self-terminate for --appcds (long-running servers: use the Maven brewlet:appcds goal with -Dbrewlet.appcds.mode=signal)", timeout)
+	err = trainingOutcome(ctx.Err(), runErr, absOut, timeout, timeoutHint)
+	if err != nil {
+		// A timed-out or failed run may leave a JEP 514 assembly child behind; kill
+		// it before removing the output (and the temporary AOTConfiguration the
+		// launcher records next to it) so nothing is written after we return.
+		reapTrainingGroup(cmd)
+		_ = os.Remove(absOut)
+		_ = os.Remove(absOut + ".config")
+	}
+	return err
+}
+
+func trainingOutcome(ctxErr, runErr error, absOut string, timeout time.Duration, timeoutHint string) error {
+	if ctxErr == context.DeadlineExceeded {
+		return fmt.Errorf("training run did not exit within %s; a fat JAR must self-terminate for %s", timeout, timeoutHint)
+	}
+	if ctxErr != nil {
+		return fmt.Errorf("training run interrupted: %w", ctxErr)
 	}
 	// A dynamic-CDS training JVM writes the archive on any clean shutdown; the
 	// app's own exit code is not authoritative, so treat a produced, non-empty

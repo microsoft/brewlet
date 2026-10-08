@@ -100,12 +100,13 @@ public final class RunnableImageBuilder {
      *                         {@link ArtifactLayer#mediaType()}. Must NOT contain a
      *                         CDS layer — pass the CDS archive via {@code cdsArchive}.
      * @param cdsArchive       optional AppCDS {@code .jsa} folded into the app layer, or null
+     * @param aotCache         optional JDK AOT cache folded into the app layer, or null
      * @param indexAnnotations optional annotations for the image index (provenance), or null
      */
     public static Result build(JvmConfig cfg, Path jarPath, List<ArtifactLayer> depLayers,
-                               Path cdsArchive, Map<String, String> indexAnnotations)
+                               Path cdsArchive, Path aotCache, Map<String, String> indexAnnotations)
             throws IOException {
-        return build(cfg, jarPath, depLayers, null, cdsArchive, indexAnnotations);
+        return build(cfg, jarPath, depLayers, null, cdsArchive, aotCache, indexAnnotations);
     }
 
     /**
@@ -114,12 +115,12 @@ public final class RunnableImageBuilder {
      */
     public static Result buildWithManagedDependencyLayer(
             JvmConfig cfg, Path jarPath, ManagedDependencyLayer managedLayer,
-            Path cdsArchive, Map<String, String> indexAnnotations) throws IOException {
-        return build(cfg, jarPath, null, managedLayer, cdsArchive, indexAnnotations);
+            Path cdsArchive, Path aotCache, Map<String, String> indexAnnotations) throws IOException {
+        return build(cfg, jarPath, null, managedLayer, cdsArchive, aotCache, indexAnnotations);
     }
 
     private static Result build(JvmConfig cfg, Path jarPath, List<ArtifactLayer> depLayers,
-                                ManagedDependencyLayer managedLayer, Path cdsArchive,
+                                ManagedDependencyLayer managedLayer, Path cdsArchive, Path aotCache,
                                 Map<String, String> indexAnnotations)
             throws IOException {
         ObjectMapper pretty = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
@@ -128,19 +129,23 @@ public final class RunnableImageBuilder {
         Result result = new Result();
         List<Layer> layers = new ArrayList<>();
 
-        // Layer 0 (role=app): flat tar of the primary JAR (+ optional CDS archive).
+        // Layer 0 (role=app): flat tar of the primary JAR (+ optional .jsa and/or AOT cache).
         String mainJar = (cfg.getMainJar() != null && !cfg.getMainJar().isBlank())
                 ? cfg.getMainJar()
                 : jarPath.getFileName().toString();
         TarWriter appTar = new TarWriter();
         appTar.addFile(mainJar, Files.readAllBytes(jarPath));
         if (cdsArchive != null) {
-            String name = cdsArchive.getFileName().toString();
-            if (cfg.getCds() != null && cfg.getCds().getArchive() != null
-                    && !cfg.getCds().getArchive().isBlank()) {
-                name = cfg.getCds().getArchive();
-            }
+            String name = cfg.getCds() != null && cfg.getCds().getArchive() != null
+                    && !cfg.getCds().getArchive().isBlank()
+                    ? cfg.getCds().getArchive() : cdsArchive.getFileName().toString();
             appTar.addFile(name, Files.readAllBytes(cdsArchive));
+        }
+        if (aotCache != null) {
+            String name = cfg.getAot() != null && cfg.getAot().getCache() != null
+                    && !cfg.getAot().getCache().isBlank()
+                    ? cfg.getAot().getCache() : aotCache.getFileName().toString();
+            appTar.addFile(name, Files.readAllBytes(aotCache));
         }
         layers.add(buildLayer(appTar.toByteArray(), MediaTypes.LAYER_ROLE_APP, mainJar, result.blobs));
 

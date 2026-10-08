@@ -164,3 +164,64 @@ func TestGenerateAppCDSArchiveNoArchiveFails(t *testing.T) {
 		t.Fatalf("expected no-archive error, got %v", err)
 	}
 }
+
+func TestAOTCacheTrainingArgsFatJar(t *testing.T) {
+	cfg := artifact.JVMConfig{
+		SchemaVersion:    1,
+		MainJar:          "app.jar",
+		Entry:            artifact.Entry{Mode: "jar"},
+		EnablePreview:    true,
+		AddModules:       []string{"jdk.incubator.vector"},
+		AddOpens:         []string{"java.base/java.lang=ALL-UNNAMED"},
+		AddExports:       []string{"java.base/sun.nio.ch=ALL-UNNAMED"},
+		SystemProperties: map[string]string{"b": "2", "a": "1"},
+	}
+	got, err := AOTCacheTrainingArgs(cfg, "app.jar", "/tmp/app.aot", []string{"--selftest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"--enable-preview",
+		"--add-modules", "jdk.incubator.vector",
+		"--add-opens", "java.base/java.lang=ALL-UNNAMED",
+		"--add-exports", "java.base/sun.nio.ch=ALL-UNNAMED",
+		"-Da=1", "-Db=2",
+		"-XX:AOTCacheOutput=/tmp/app.aot",
+		"-jar", "app.jar",
+		"--selftest",
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("args mismatch:\n got %v\nwant %v", got, want)
+	}
+	for _, a := range got {
+		if strings.Contains(a, "ArchiveClassesAtExit") {
+			t.Fatalf("AOT training must not use ArchiveClassesAtExit: %v", got)
+		}
+	}
+}
+
+func TestAOTCacheTrainingArgsRejectsNonJar(t *testing.T) {
+	for _, mode := range []string{"classpath", "module"} {
+		cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: mode}}
+		if _, err := AOTCacheTrainingArgs(cfg, "app.jar", "out.aot", nil); err == nil {
+			t.Fatalf("expected error for entry.mode=%q", mode)
+		}
+	}
+}
+
+func TestGenerateAOTCacheTimeout(t *testing.T) {
+	fakeJava := filepath.Join(t.TempDir(), "java")
+	if err := os.WriteFile(fakeJava, []byte("#!/bin/sh\nexec sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jar := filepath.Join(t.TempDir(), "app.jar")
+	if err := os.WriteFile(jar, []byte("PK\x03\x04dummy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := artifact.JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
+	out := filepath.Join(t.TempDir(), "app.aot")
+	err := GenerateAOTCache(cfg, jar, fakeJava, out, 200*time.Millisecond, nil)
+	if err == nil || !strings.Contains(err.Error(), "did not exit") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+}

@@ -70,7 +70,7 @@ func TestDependencyBundleRoundTripAndRunnableReuse(t *testing.T) {
 			ClassPath: []string{"orders.jar", "lib/*"},
 		},
 	}
-	if _, err := store.PushRunnableImageWithOptions("apps/orders:1", cfg, jarPath, nil, nil, "", RunnableImageOptions{ManagedDependency: &bundle}); err != nil {
+	if _, err := store.PushRunnableImageWithOptions("apps/orders:1", cfg, jarPath, nil, nil, "", "", RunnableImageOptions{ManagedDependency: &bundle}); err != nil {
 		t.Fatalf("PushRunnableImageWithOptions: %v", err)
 	}
 	manifest, _, err := store.ResolveManifestByRef("apps/orders:1")
@@ -375,7 +375,7 @@ func TestManagedDependencyRequiresClasspathLaunchContract(t *testing.T) {
 	}
 	bundle := ResolvedDependencyBundle{}
 	_, err := (Store{Root: filepath.Join(dir, "oci")}).PushRunnableImageWithOptions(
-		"apps/orders:1", cfg, jarPath, nil, nil, "", RunnableImageOptions{ManagedDependency: &bundle},
+		"apps/orders:1", cfg, jarPath, nil, nil, "", "", RunnableImageOptions{ManagedDependency: &bundle},
 	)
 	if err == nil {
 		t.Fatal("expected classpath launch contract rejection")

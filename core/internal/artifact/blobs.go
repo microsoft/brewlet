@@ -29,8 +29,19 @@ type ResolvedBlobs struct {
 	ClasspathHostPaths  []string // on-disk paths of the optional classpath layer tars
 	ModulepathHostPaths []string // on-disk paths of the optional modulepath layer tars
 	CDSHostPath         string   // on-disk path of the optional AppCDS archive, or ""
+	AOTHostPath         string   // on-disk path of the optional JDK AOT cache, or ""
 	ManifestDigest      string   // verified digest of the resolved platform manifest
 	Format              string   // "native" or "image"
+}
+
+// StartupArchiveHostPath returns the host file for the archive cfg launches
+// with: AOTHostPath when cfg keeps an AOT hint, else CDSHostPath. Pass the
+// JDK-gated config so the mount source matches the emitted JVM flag.
+func (b ResolvedBlobs) StartupArchiveHostPath(cfg JVMConfig) string {
+	if cfg.AOT != nil {
+		return b.AOTHostPath
+	}
+	return b.CDSHostPath
 }
 
 // BlobSource abstracts a content-addressed blob store so format resolution
@@ -140,13 +151,22 @@ func ResolveNativeBlobs(src BlobSource, man Manifest, manifestDigest string) (Re
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	var cdsPath string
-	if l, ok := man.CDSLayer(); ok {
-		if cdsPath, err = verifiedBlobPath(src, l, "cds"); err != nil {
-			return ResolvedBlobs{}, err
+	var cdsPath, aotPath string
+	if cfg.CDS != nil {
+		if layer, ok := man.CDSLayer(); ok {
+			if cdsPath, err = verifiedBlobPath(src, layer, "cds"); err != nil {
+				return ResolvedBlobs{}, err
+			}
 		}
 	}
-	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, ManifestDigest: manifestDigest, Format: "native"}, nil
+	if cfg.AOT != nil {
+		if layer, ok := man.AOTLayer(); ok {
+			if aotPath, err = verifiedBlobPath(src, layer, "aot"); err != nil {
+				return ResolvedBlobs{}, err
+			}
+		}
+	}
+	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, AOTHostPath: aotPath, ManifestDigest: manifestDigest, Format: "native"}, nil
 }
 
 // verifiedBlobPath resolves one layer descriptor to the host path that will be
@@ -313,15 +333,20 @@ func runnableStagedBlobs(cfg JVMConfig, man Manifest, manifestDigest, stageDir s
 	if err := requireStagedFile(jarPath); err != nil {
 		return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing jar %q: %w", jarName, err)
 	}
-	var cdsPath string
-	if cfg.CDS != nil && cfg.CDS.Archive != "" {
-		cdsPath, err = stagedPath(appDir, cfg.CDS.Archive)
+	var cdsPath, aotPath string
+	for _, a := range cfg.StartupArchives() {
+		noun, dst := "cds archive", &cdsPath
+		if a.MediaType == AOTLayerMediaType {
+			noun, dst = "aot cache", &aotPath
+		}
+		p, err := stagedPath(appDir, a.Name)
 		if err != nil {
-			return ResolvedBlobs{}, fmt.Errorf("runnable image cds archive: %w", err)
+			return ResolvedBlobs{}, fmt.Errorf("runnable image %s: %w", noun, err)
 		}
-		if err := requireStagedFile(cdsPath); err != nil {
-			return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing cds archive %q: %w", cfg.CDS.Archive, err)
+		if err := requireStagedFile(p); err != nil {
+			return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing %s %q: %w", noun, a.Name, err)
 		}
+		*dst = p
 	}
 
 	cpPaths, err := stagedLayerPaths(man.RunnableClasspathLayers(), stageDir, "cp")
@@ -332,7 +357,7 @@ func runnableStagedBlobs(cfg JVMConfig, man Manifest, manifestDigest, stageDir s
 	if err != nil {
 		return ResolvedBlobs{}, err
 	}
-	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, ManifestDigest: manifestDigest, Format: "image"}, nil
+	return ResolvedBlobs{Config: cfg, JarHostPath: jarPath, ClasspathHostPaths: cpPaths, ModulepathHostPaths: mpPaths, CDSHostPath: cdsPath, AOTHostPath: aotPath, ManifestDigest: manifestDigest, Format: "image"}, nil
 }
 
 func requireStagedFile(path string) error {

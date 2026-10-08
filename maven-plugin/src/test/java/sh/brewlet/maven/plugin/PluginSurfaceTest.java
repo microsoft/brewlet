@@ -25,7 +25,7 @@ class PluginSurfaceTest {
                 var mojo = (org.w3c.dom.Element) nodes.item(i);
                 goals.add(mojo.getElementsByTagName("goal").item(0).getTextContent());
             }
-            assertEquals(Set.of("config", "build", "push", "appcds", "dependency-bundle", "inspect", "help", "manifest"), goals);
+            assertEquals(Set.of("config", "build", "push", "appcds", "aotcache", "dependency-bundle", "inspect", "help", "manifest"), goals);
 
             Set<String> removed = Set.of("kubeconfig", "kubeContext", "kubectl", "waitForReady", "waitTimeout");
             Set<String> manifestOnly = Set.of("namespace", "appName", "replicas", "ports", "probes", "readinessPath", "livenessPath",

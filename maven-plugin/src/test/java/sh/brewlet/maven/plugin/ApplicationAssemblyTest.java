@@ -66,7 +66,7 @@ class ApplicationAssemblyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"jar", "dependency", "config", "cds", "format", "reference"})
+    @ValueSource(strings = {"jar", "dependency", "config", "cds", "aot", "bothCds", "bothAot", "format", "reference"})
     void changedInputsCannotSilentlyReplaceTheAssembly(String change) throws Exception {
         try (TestImageRegistry registry = new TestImageRegistry()) {
             BuildMojo build = build(registry, "image");
@@ -79,20 +79,27 @@ class ApplicationAssemblyTest {
                     "runtime", "jar", null, handler);
             artifact.setFile(dependency.toFile());
             build.project.setArtifacts(Set.of(artifact));
-            Path cds = root.resolve("app.jsa");
+            boolean aotRun = "aot".equals(change) || "bothAot".equals(change);
+            boolean both = change.startsWith("both");
+            Path cds = root.resolve(aotRun ? "app.aot" : "app.jsa");
             Files.write(cds, new byte[]{1});
-            build.cdsArchive = cds.toFile();
+            // In the "both" runs the other archive ships too but stays unchanged.
+            Path other = root.resolve(aotRun ? "app.jsa" : "app.aot");
+            Files.write(other, new byte[]{1});
+            if (aotRun) build.aotCache = cds.toFile(); else build.cdsArchive = cds.toFile();
+            if (both) { if (aotRun) build.cdsArchive = other.toFile(); else build.aotCache = other.toFile(); }
             build.execute();
             ApplicationAssembly first = ApplicationAssembly.get(build.project);
             byte[] localIndex = Files.readAllBytes(root.resolve("oci/index.json"));
             PushMojo push = push(build);
             push.layered = true;
-            push.cdsArchive = cds.toFile();
+            if (aotRun) push.aotCache = cds.toFile(); else push.cdsArchive = cds.toFile();
+            if (both) { if (aotRun) push.cdsArchive = other.toFile(); else push.aotCache = other.toFile(); }
             switch (change) {
                 case "jar" -> Files.write(build.jarFile.toPath(), jar("new"));
                 case "dependency" -> Files.write(dependency, TestApplications.zip(Map.of("value", new byte[]{2})));
                 case "config" -> push.enablePreview = true;
-                case "cds" -> Files.write(cds, new byte[]{2});
+                case "cds", "aot", "bothCds", "bothAot" -> Files.write(cds, new byte[]{2});
                 case "format" -> push.format = "artifact";
                 case "reference" -> push.image = registry.authority() + "/different:1";
                 default -> fail("Unhandled change");
@@ -192,6 +199,30 @@ class ApplicationAssemblyTest {
             assertTrue(logs.stream().anyMatch(message -> message.contains("build writes the local OCI layout")));
             assertTrue(logs.stream().anyMatch(message -> message.contains("dry-run development manifest")
                     && message.contains(ApplicationBuildResult.get(build.project).digest())));
+        }
+    }
+
+    @Test
+    void nativeArtifactShipsCdsAndAotAsTwoLayers() throws Exception {
+        try (TestImageRegistry registry = new TestImageRegistry()) {
+            BuildMojo build = build(registry, "artifact");
+            Path jsa = root.resolve("app.jsa");
+            Files.write(jsa, new byte[]{1});
+            Path aot = root.resolve("app.aot");
+            Files.write(aot, new byte[]{2});
+            build.cdsArchive = jsa.toFile();
+            build.aotCache = aot.toFile();
+            build.execute();
+            var manifest = AbstractBrewletMojo.MAPPER.readTree(
+                    ApplicationAssembly.get(build.project).image.root().data());
+            var layers = manifest.path("layers");
+            var byType = new java.util.HashMap<String, String>();
+            for (var layer : layers) {
+                byType.put(layer.path("mediaType").asText(),
+                        layer.path("annotations").path("org.opencontainers.image.title").asText());
+            }
+            assertEquals("app.jsa", byType.get(sh.brewlet.maven.plugin.oci.MediaTypes.CDS_LAYER_MEDIA_TYPE), layers.toString());
+            assertEquals("app.aot", byType.get(sh.brewlet.maven.plugin.oci.MediaTypes.AOT_LAYER_MEDIA_TYPE), layers.toString());
         }
     }
 

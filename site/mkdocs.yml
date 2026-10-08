@@ -109,6 +109,7 @@ nav:
       - CLI reference: cli-reference.md
       - Core reference: reference.md
       - AppCDS: appcds.md
+      - JDK AOT cache: aot-cache.md
       - JPMS support: jpms-support.md
       - Layered classpath deployment: layered-classpath-deployment.md
       - Runnable-image delivery: runnable-image.md

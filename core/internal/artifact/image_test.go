@@ -60,7 +60,7 @@ func TestPushRunnableImageIsKubeletPullable(t *testing.T) {
 	}
 
 	s := Store{Root: filepath.Join(dir, "oci")}
-	idxDesc, err := s.PushRunnableImage("demo/orders:1.0.0", cfg, jarPath, []string{depsTar}, nil, "")
+	idxDesc, err := s.PushRunnableImage("demo/orders:1.0.0", cfg, jarPath, []string{depsTar}, nil, "", "")
 	if err != nil {
 		t.Fatalf("PushRunnableImage: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestPushRunnableImageNonPortableArch(t *testing.T) {
 	}
 	cfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}, Arch: []string{"arm64"}}
 	s := Store{Root: filepath.Join(dir, "oci")}
-	if _, err := s.PushRunnableImage("demo/native:1", cfg, jarPath, nil, nil, ""); err != nil {
+	if _, err := s.PushRunnableImage("demo/native:1", cfg, jarPath, nil, nil, "", ""); err != nil {
 		t.Fatalf("PushRunnableImage: %v", err)
 	}
 	idxRaw, _ := os.ReadFile(filepath.Join(s.Root, "index.json"))

@@ -67,6 +67,9 @@ public class JvmConfig {
     @JsonProperty("cds")
     private Cds cds;
 
+    @JsonProperty("aot")
+    private Aot aot;
+
     /** Recognized architecture tokens for the optional {@code arch} constraint,
      * mirroring {@code KnownArches} in the Go artifact package. */
     public static final java.util.Set<String> KNOWN_ARCHES = java.util.Set.of("amd64", "arm64");
@@ -106,6 +109,9 @@ public class JvmConfig {
 
     public Cds getCds() { return cds; }
     public void setCds(Cds cds) { this.cds = cds; }
+
+    public Aot getAot() { return aot; }
+    public void setAot(Aot aot) { this.aot = aot; }
 
     /**
      * Enforces launch-config consistency, mirroring the Go
@@ -223,6 +229,22 @@ public class JvmConfig {
                         + "\" is not recognized (expected \"dynamic\", \"static\", or omitted).");
             }
         }
+        // Optional JDK AOT cache hint (JDK 24+): mounted at /app/<cache> and
+        // consumed with -XX:AOTCache. It may ship alongside cds: the AOT cache
+        // wins on JDK 24+, the .jsa is used below that.
+        if (aot != null) {
+            String cache = aot.getCache();
+            if (cache == null || cache.trim().isEmpty()) {
+                throw new IllegalStateException("aot.cache is required (e.g. \"app.aot\")");
+            }
+            requireBareFilename("aot.cache", cache, "the cache is mounted at /app/<cache>");
+            // Both files land flat under /app (and in one runnable app tar), so a
+            // shared name would let one silently overwrite the other.
+            if (cds != null && cache.equals(cds.getArchive())) {
+                throw new IllegalStateException("cds.archive and aot.cache must differ: both are materialized at /app/"
+                        + cache);
+            }
+        }
     }
 
     /**
@@ -297,5 +319,26 @@ public class JvmConfig {
 
         public String getMode() { return mode; }
         public void setMode(String mode) { this.mode = mode; }
+    }
+
+    /**
+     * Optional JDK AOT cache hint. The artifact ships the cache as an AOT layer,
+     * the shim mounts it read-only at {@code /app/<cache>}, and launch adds
+     * {@code -XX:AOTCache=/app/<cache>} (JDK 24+, best-effort). May ship with
+     * {@link Cds}: the AOT cache wins on JDK 24+, the {@code .jsa} otherwise.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class Aot {
+        @JsonProperty("cache")
+        private String cache;
+
+        public Aot() {}
+
+        public Aot(String cache) {
+            this.cache = cache;
+        }
+
+        public String getCache() { return cache; }
+        public void setCache(String cache) { this.cache = cache; }
     }
 }

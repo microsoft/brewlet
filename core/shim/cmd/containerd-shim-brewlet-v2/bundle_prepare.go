@@ -131,6 +131,7 @@ type resolvedArtifact struct {
 	ClasspathHostPaths  []string // on-disk paths of the optional classpath layer tars
 	ModulepathHostPaths []string // on-disk paths of the optional modulepath layer tars
 	CDSHostPath         string   // on-disk path of the optional AppCDS archive blob, or ""
+	AOTHostPath         string   // on-disk path of the optional JDK AOT cache blob, or ""
 	ManifestDigest      string   // verified digest of the resolved platform manifest
 	JDKRoot             string   // selected node-resident userland root (e.g. /opt/brewlet/jdks/temurin-21)
 	JDKHome             string   // JDK or jlink runtime within JDKRoot; mounted at /opt/jdk
@@ -167,6 +168,7 @@ func resolveArtifact(ic imageConfig) (resolvedArtifact, error) {
 		ClasspathHostPaths:  blobs.ClasspathHostPaths,
 		ModulepathHostPaths: blobs.ModulepathHostPaths,
 		CDSHostPath:         blobs.CDSHostPath,
+		AOTHostPath:         blobs.AOTHostPath,
 		ManifestDigest:      blobs.ManifestDigest,
 		JDKRoot:             jdkRoot,
 		JDKHome:             jdkHome,
@@ -205,7 +207,7 @@ func prepareBundle(args []string) error {
 		ArtifactDigest: ra.ManifestDigest,
 		CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
 	}
-	if err := kcruntime.GenerateBundleWithIdentityAndRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, ic.processIdentity(), regen); err != nil {
+	if err := kcruntime.GenerateBundleWithIdentityAndRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, ra.AOTHostPath, bundleDir, res, nil, ic.processIdentity(), regen); err != nil {
 		return fmt.Errorf("generate bundle: %w", err)
 	}
 

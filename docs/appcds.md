@@ -427,7 +427,8 @@ invariant that must stay in lockstep:
 - Java: `FileTime.from(Instant.ofEpochSecond(946684800L))`
   (`AppCdsMojo.CANONICAL_APP_MTIME`).
 
-Normalization happens whenever the artifact ships a CDS archive **or** the
+Normalization happens whenever the artifact ships a CDS archive or a
+[JDK AOT cache](aot-cache.md), **or** the
 deployment requests node-side regeneration, so the common no-CDS path remains
 unchanged. On the node side the JAR can't be re-timestamped on the shared
 read-only blob, so the runtime copies it into per-container staging, `chtimes` it

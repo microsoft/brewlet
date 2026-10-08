@@ -119,16 +119,17 @@ func GenerateBundle(cfg artifact.JVMConfig, jdkRoot, jarHostPath, outDir string,
 // read-only at /app/mods, so a module-mode `-p /app/app.jar:/app/mods` resolves
 // the library modules.
 func GenerateBundleWithLauncher(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, outDir string, res Resources, extraArgs []string) error {
-	return GenerateBundleWithCDS(cfg, jdkRoot, launcherRoot, launcherName, jarHostPath, classpathTars, modulepathTars, "", outDir, res, extraArgs)
+	return GenerateBundleWithCDS(cfg, jdkRoot, launcherRoot, launcherName, jarHostPath, classpathTars, modulepathTars, "", "", outDir, res, extraArgs)
 }
 
-// GenerateBundleWithCDS is GenerateBundleWithLauncher with an optional AppCDS
-// archive. When cdsHostPath is non-empty the `.jsa` file it names is bind-mounted
-// read-only at /app/<archive> (cfg.CDS.Archive), matching the -XX:SharedArchiveFile
-// path BuildJVMArgs derives, so the JVM maps the app archive on startup. Pass ""
-// for the common no-CDS case. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
-func GenerateBundleWithCDS(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string) error {
-	return GenerateBundleWithRegen(cfg, jdkRoot, launcherRoot, launcherName, jarHostPath, classpathTars, modulepathTars, cdsHostPath, outDir, res, extraArgs, CDSRegenOptions{})
+// GenerateBundleWithCDS is GenerateBundleWithLauncher with optional startup
+// archives: cdsHostPath is the `.jsa` and aotHostPath the AOT cache. After
+// gating on the JDK (GateAOTCache: the AOT cache on JDK 24+, else the .jsa) the
+// surviving file is bind-mounted read-only at /app/<name>, matching the
+// -XX:AOTCache / -XX:SharedArchiveFile path BuildJVMArgs derives. Pass "" for an
+// archive the app does not ship. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
+func GenerateBundleWithCDS(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, aotHostPath, outDir string, res Resources, extraArgs []string) error {
+	return GenerateBundleWithRegen(cfg, jdkRoot, launcherRoot, launcherName, jarHostPath, classpathTars, modulepathTars, cdsHostPath, aotHostPath, outDir, res, extraArgs, CDSRegenOptions{})
 }
 
 // CDSRegenOptions carries the node context needed for node-side AppCDS
@@ -153,10 +154,10 @@ type CDSRegenOptions struct {
 // JDK-build, process-UID) entry, bind-mounts only that directory at
 // InSandboxCDSDir (writable only for the elected writer), and treats any shipped
 // archive as optional seed data rather than mounting it at /app/<archive>.
-func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, regen CDSRegenOptions) error {
+func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, aotHostPath, outDir string, res Resources, extraArgs []string, regen CDSRegenOptions) error {
 	return GenerateBundleWithIdentityAndRegen(
 		cfg, jdkRoot, launcherRoot, launcherName, jarHostPath,
-		classpathTars, modulepathTars, cdsHostPath, outDir, res, extraArgs,
+		classpathTars, modulepathTars, cdsHostPath, aotHostPath, outDir, res, extraArgs,
 		DefaultProcessIdentity(), regen,
 	)
 }
@@ -164,11 +165,20 @@ func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, laun
 // GenerateBundleWithIdentityAndRegen is GenerateBundleWithRegen with an
 // explicit trusted runtime identity. It is used by deployment-side callers such
 // as `brewlet bundle`; artifact metadata is intentionally not consulted.
-func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity, regen CDSRegenOptions) error {
+func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, aotHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity, regen CDSRegenOptions) error {
 	resources, err := buildResources(res)
 	if err != nil {
 		return err
 	}
+	// -XX:AOTCache is a fatal unrecognized option before JDK 24: drop the hint
+	// (falling back to a shipped .jsa). The regen seed is the shipped .jsa,
+	// whichever archive the launch ends up consuming.
+	hasJSA := cfg.CDS != nil && cfg.CDS.Archive != ""
+	gated, dropped := GateAOTCache(cfg, jdkRoot)
+	if dropped {
+		fmt.Fprintf(os.Stderr, "brewlet: aot cache %q ignored: requires JDK 24+\n", cfg.AOT.Cache)
+	}
+	cfg = gated
 	if identity.UID > MaxProcessID || identity.GID > MaxProcessID {
 		return fmt.Errorf("process UID/GID must be between 0 and %d", MaxProcessID)
 	}
@@ -203,7 +213,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	var cdsCacheMount []ociMount
 	if regen.Regenerate {
 		seed := ""
-		if cdsHostPath != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
+		if cdsHostPath != "" && hasJSA {
 			seed = cdsHostPath
 		}
 		cacheDir := regen.CacheDir
@@ -245,7 +255,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	// whenever CDS is in play — either a shipped archive or node-side
 	// regeneration — so the archive maps rather than being silently rejected
 	// under -Xshare:auto (see CDSModTime / https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.4).
-	pinMtime := shipsCDS(cfg) || regen.Regenerate
+	pinMtime := ShipsStartupArchive(cfg) || regen.Regenerate
 
 	// Stage classpath dependency layers into a host dir bind-mounted at /app/lib.
 	var libMount []ociMount
@@ -299,16 +309,17 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 		jarSource = staged
 	}
 
-	// Bind-mount the optional AppCDS archive read-only at /app/<archive> so the
-	// -XX:SharedArchiveFile path BuildJVMArgs emitted resolves. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
+	// Bind-mount the surviving startup archive read-only at /app/<name> so the
+	// -XX:AOTCache / -XX:SharedArchiveFile path BuildJVMArgs emitted resolves. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	// Skipped when the deployment opts into node-side regeneration: there the
 	// shipped archive is only seed data for the node cache (mounted at
 	// InSandboxCDSDir instead).
 	var cdsMount []ociMount
-	if !regen.Regenerate && cdsHostPath != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
+	archiveHostPath := artifact.ResolvedBlobs{CDSHostPath: cdsHostPath, AOTHostPath: aotHostPath}.StartupArchiveHostPath(cfg)
+	if name, _, ok := cfg.StartupArchive(); ok && !regen.Regenerate && archiveHostPath != "" && name != "" {
 		cdsMount = []ociMount{{
-			Destination: "/app/" + cfg.CDS.Archive, Type: "bind",
-			Source: cdsHostPath, Options: []string{"rbind", "ro"},
+			Destination: "/app/" + name, Type: "bind",
+			Source: archiveHostPath, Options: []string{"rbind", "ro"},
 		}}
 	}
 

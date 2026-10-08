@@ -164,6 +164,7 @@ describes how a runnable image carries that contract.
 | (optional) layer | `application/vnd.brewlet.classpath.layer.v1+tar`    | Dependency JARs; unpacked to `/app/lib` for layered class-path deployment ([docs](https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md)) |
 | (optional) layer | `application/vnd.brewlet.modulepath.layer.v1+tar`   | Library modules for a modular (JPMS) app; unpacked to `/app/mods` and fed to `--module-path` ([docs](https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md)) |
 | (optional) layer | `application/vnd.brewlet.cds.layer.v1+jsa`          | AppCDS class-data archive paired with the config's `cds.archive`; mounted read-only at `/app/<archive>` and consumed with `-Xshare:auto` (§13, [docs](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md)) |
+| (optional) layer | `application/vnd.brewlet.aot.layer.v1+aot`          | JDK AOT cache paired with the config's `aot.cache`; mounted read-only at `/app/<cache>` and consumed with `-XX:AOTCache` on JDK 24+ (§13, [docs](https://github.com/microsoft/brewlet/blob/main/docs/aot-cache.md)) |
 
 **Managed dependency bundles (§4.5)** add a second artifact family:
 
@@ -208,10 +209,11 @@ describes how a runnable image carries that contract.
   for raw Deployments). The artifact is deployment-agnostic.
 - The artifact field set is exactly `schemaVersion`, `mainJar`, `entry`,
   `enablePreview`, `addModules`, `addOpens`, `addExports`, `systemProperties`,
-  `env`, and the two optional constraints/hints `arch` (an architecture
+  `env`, and the three optional constraints/hints `arch` (an architecture
   constraint for non-portable/JNI JARs, steering `kubernetes.io/arch`
-  nodeAffinity — §14) and `cds` (an AppCDS archive hint pairing the artifact with
-  its `cds.layer.v1+jsa` layer — §13). Ports and process credentials are
+  nodeAffinity — §14), `cds` (an AppCDS archive hint pairing the artifact with
+  its `cds.layer.v1+jsa` layer — §13) and `aot` (a JDK AOT cache hint pairing
+  the artifact with its `aot.layer.v1+aot` layer — §13). Ports and process credentials are
   deployment concerns, not part of the artifact. Consumers MUST reject a config
   containing a `user` field.
 - The optional `cds` object has exactly two fields. `cds.archive` (required when
@@ -221,8 +223,18 @@ describes how a runnable image carries that contract.
   (`-Xshare:dump`). `cds.mode` is **informational only**: consumption is
   identical either way, so an omitted value is not a defect. Any other value is
   rejected, like every other unknown field or mode.
-- Non-empty `mainJar` values and `cds.archive` MUST be bare filenames (no path separator, no
-  wildcard, no `..`). Both name files that a node materializes under a per-image
+- The optional `aot` object has exactly one field, `cache` (required when `aot`
+  is present: `aot.cache is required`), the bare filename the paired
+  `aot.layer.v1+aot` layer is materialized as under `/app` (e.g. `"app.aot"`).
+  An artifact MAY carry both `cds` and `aot`, but their filenames MUST differ
+  (`cds.archive and aot.cache must differ`), since both are materialized flat
+  under `/app`. The launching JDK picks one: on feature 24+ the AOT cache wins and
+  the `.jsa` is neither mounted nor passed; below 24, or when the JDK identity
+  cannot be read, the `.jsa` is used and the AOT cache is dropped. The `aot` key is
+  an incompatible pre-GA addition — shims and CLIs that predate it reject the
+  config as an unknown field.
+- Non-empty `mainJar` values, `cds.archive` and `aot.cache` MUST be bare filenames (no path separator, no
+  wildcard, no `..`). They name files that a node materializes under a per-image
   staging directory and then bind-mounts read-only into the sandbox, so
   producers MUST reject a non-bare value at publish time and consumers MUST
   reject it at load time and confirm the resolved path is contained by the
@@ -249,7 +261,14 @@ describes how a runnable image carries that contract.
   an app-embedded flag — a platform team can always win.
 - Launch expansion order is: `-Xshare:auto` + `-XX:SharedArchiveFile` (only when
   the artifact ships an AppCDS archive and the deployment has not opted into
-  node-side regeneration — §13), `--enable-preview`, `--add-modules`,
+  node-side regeneration — §13) **or** `-XX:AOTCache=/app/<cache>` (same slot,
+  same regeneration rule; dropped together with its mount when the selected JDK
+  is older than feature 24 or its identity cannot be read; `-XX:AOTMode` is never
+  emitted, so the JDK default `auto` warns and continues on a mismatch). Never
+  both: when an artifact ships both archives, JDK 24+ takes `-XX:AOTCache`, an
+  older or unidentifiable JDK takes the `.jsa`, and node-side regeneration
+  suppresses both (the shipped `.jsa` still seeds the node cache). Then follow
+  `--enable-preview`, `--add-modules`,
   `--add-opens`, `--add-exports`, sorted `-D` system properties, descriptor
   `jvm.args`, then the entrypoint (`-jar`, `-cp … <MainClass>`, or `-p … -m …`).
 - Descriptor `jvm.args` reach the JVM as **argv**, not as an options environment
@@ -376,7 +395,7 @@ publishes the *same* JAR as a **standard, kubelet-pullable OCI image**:
 - a real `application/vnd.oci.image.config.v1+json` config (with `rootfs.diff_ids`
   over the **uncompressed** layer tars, as the OCI image spec requires);
 - **`application/vnd.oci.image.layer.v1.tar+gzip`** layers — the app JAR (plus an
-  optional AppCDS `.jsa`) in one layer, and the same classpath/modulepath tars a
+  optional AppCDS `.jsa` and/or JDK AOT cache) in one layer, and the same classpath/modulepath tars a
   native artifact would ship as additional layers, each tagged with its role via a
   `brewlet.sh/layer` annotation (`app` / `classpath` / `modulepath`);
 - the launch config (§4.2) carried verbatim in the manifest annotation
@@ -2122,6 +2141,15 @@ and JVM features:
   patch. Workloads receive only their single entry directory, never the
   node-shared cache root. See the
   [AppCDS note](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md).
+- **JDK AOT cache (JEP 483/514):** also ship a JDK AOT cache as an
+  `aot.layer.v1+aot` layer (`brewlet push --aot-cache`, or `--aot` to train one
+  with `-XX:AOTCacheOutput` on JDK 25+), alone or next to a `.jsa`. It is mounted
+  at `/app/<cache>` and consumed with `-XX:AOTCache` on JDK 24+, without
+  `-XX:AOTMode`, so a mismatch falls back to a normal start. When both ship, the
+  AOT cache wins on JDK 24+ and the `.jsa` is used otherwise. Older JDKs drop the
+  hint. Node-side regeneration suppresses both; node-side AOT regeneration itself is
+  [roadmap](../ROADMAP.md) work. See the
+  [AOT cache note](https://github.com/microsoft/brewlet/blob/main/docs/aot-cache.md).
 
 ---
 

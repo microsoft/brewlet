@@ -16,6 +16,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CdsPairingTest {
 
@@ -65,6 +66,65 @@ class CdsPairingTest {
 
         assertDoesNotThrow(
                 () -> AbstractBrewletMojo.validateCdsPairing(cfg, archive("app.jsa")));
+    }
+
+    @Test
+    void aotConfigWithoutCache_fails() {
+        JvmConfig cfg = sampleConfig();
+        cfg.setAot(new JvmConfig.Aot("app.aot"));
+
+        MojoExecutionException e = assertThrows(MojoExecutionException.class,
+                () -> AbstractBrewletMojo.validateAotPairing(cfg, null));
+        assertTrue(e.getMessage().contains("aot.cache"), e.getMessage());
+    }
+
+    @Test
+    void aotCacheWithoutConfig_fails() throws IOException {
+        assertThrows(MojoExecutionException.class,
+                () -> AbstractBrewletMojo.validateAotPairing(sampleConfig(), archive("app.aot")));
+    }
+
+    @Test
+    void aotBasenameMismatch_fails() throws IOException {
+        JvmConfig cfg = sampleConfig();
+        cfg.setAot(new JvmConfig.Aot("expected.aot"));
+
+        assertThrows(MojoExecutionException.class,
+                () -> AbstractBrewletMojo.validateAotPairing(cfg, archive("actual.aot")));
+    }
+
+    @Test
+    void aotCacheAndConfigMatch_ok() throws IOException {
+        JvmConfig cfg = sampleConfig();
+        cfg.setAot(new JvmConfig.Aot("app.aot"));
+
+        assertDoesNotThrow(() -> AbstractBrewletMojo.validateAotPairing(cfg, archive("app.aot")));
+    }
+
+    @Test
+    void cdsArchiveAndAotCache_bothSet_ok() throws IOException, MojoExecutionException {
+        BuildMojo mojo = new BuildMojo();
+        mojo.cdsArchive = archive("app.jsa");
+        mojo.aotCache = archive("app.aot");
+        JvmConfig cfg = sampleConfig();
+
+        mojo.applyCdsArchive(cfg);
+        mojo.applyAotCache(cfg);
+
+        org.junit.jupiter.api.Assertions.assertEquals("app.jsa", cfg.getCds().getArchive());
+        org.junit.jupiter.api.Assertions.assertEquals("app.aot", cfg.getAot().getCache());
+        assertDoesNotThrow(cfg::validate);
+    }
+
+    @Test
+    void applyAotCache_defaultsHintFromBasename() throws IOException, MojoExecutionException {
+        BuildMojo mojo = new BuildMojo();
+        mojo.aotCache = archive("app.aot");
+        JvmConfig cfg = sampleConfig();
+
+        mojo.applyAotCache(cfg);
+
+        org.junit.jupiter.api.Assertions.assertEquals("app.aot", cfg.getAot().getCache());
     }
 
     private File archive(String name) throws IOException {

@@ -74,8 +74,10 @@ func retainBundlePayloads(blobs *artifact.ResolvedBlobs, out string) (func(), er
 		return nil, fmt.Errorf("retain bundle payloads: %w", err)
 	}
 	blobs.JarHostPath = filepath.Join(dir, filepath.Base(blobs.JarHostPath))
-	if blobs.CDSHostPath != "" {
-		blobs.CDSHostPath = filepath.Join(dir, filepath.Base(blobs.CDSHostPath))
+	for _, p := range []*string{&blobs.CDSHostPath, &blobs.AOTHostPath} {
+		if *p != "" {
+			*p = filepath.Join(dir, filepath.Base(*p))
+		}
 	}
 	return cleanup, nil
 }

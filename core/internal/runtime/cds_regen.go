@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 // Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3). The node maintains a
@@ -669,4 +671,26 @@ func SupportsCDSRegen(jdkRoot string) bool {
 		return false
 	}
 	return feature >= minRegenFeature
+}
+
+// minAOTCacheFeature is the first JDK feature release that recognizes
+// -XX:AOTCache; earlier JDKs treat it as a fatal unrecognized VM option.
+const minAOTCacheFeature = 24
+
+// GateAOTCache picks the startup archive the JDK at jdkRoot can consume. Below
+// feature 24, or when its identity is unreadable, the AOT hint is dropped
+// (dropped=true) and any CDS hint is left as the fallback. When the AOT cache is
+// kept, the CDS hint is cleared: HotSpot refuses -XX:AOTCache together with
+// -XX:SharedArchiveFile. It returns a copy; the caller's cfg is never mutated.
+func GateAOTCache(cfg artifact.JVMConfig, jdkRoot string) (gated artifact.JVMConfig, dropped bool) {
+	if cfg.AOT == nil {
+		return cfg, false
+	}
+	// cfg is a value copy; only its pointers are cleared, never written through.
+	if feature, _, err := readJDKIdentity(jdkRoot); err == nil && feature >= minAOTCacheFeature {
+		cfg.CDS = nil
+		return cfg, false
+	}
+	cfg.AOT = nil
+	return cfg, true
 }
