@@ -2,19 +2,22 @@
 # Licensed under the MIT License.
 
 import hashlib
+from http.client import RemoteDisconnected
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import shutil
 import socket
+import subprocess
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
+from urllib.error import URLError
 
 import workflows_helpers as h
-from common import Fixture
+from common import Fixture, OWNER_LABEL
 from workflows import CheckoutFixture
 
 DIGEST = "sha256:" + "a" * 64
@@ -187,6 +190,99 @@ class IsolationTests(unittest.TestCase):
                 client.recv(1)
         with self.assertRaises(OSError):
             socket.create_connection(("127.0.0.1", h.unused_port()), 1).close()
+
+class AuthRegistryTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = CheckoutFixture.__new__(CheckoutFixture)
+        self.fixture.name = "owned"
+        self.fixture.arch = "amd64"
+        self.fixture.auth_registry_id = "registry-id"
+        self.fixture.secrets = {"secret-password"}
+        self.info = {"Id": "registry-id", "Config": {"Labels": {OWNER_LABEL: "owned"}},
+                     "State": {"Status": "running", "Error": "secret-password"},
+                     "NetworkSettings": {"Ports": {"5000/tcp": [{"HostPort": "12345"}]}}}
+        self.fixture.run = Mock(return_value=subprocess.CompletedProcess(
+            [], 0, json.dumps([self.info]), ""))
+        self.fixture.save = Mock()
+
+    def test_start_retries_transport_errors_until_auth_challenge(self):
+        errors = [ConnectionResetError("reset"), URLError("refused"),
+                  TimeoutError("timed out"), RemoteDisconnected("closed")]
+        with patch("workflows.h.fetch", side_effect=[
+                *errors, (503, {}, b""), (401, {}, b"")]) as fetch, \
+                patch("common.time.sleep") as sleep:
+            self.assertEqual(self.fixture.start_auth_registry(Path("/private/auth/htpasswd")),
+                             "localhost:12345")
+        self.assertEqual(fetch.call_count, 6)
+        fetch.assert_called_with("localhost:12345", "/v2/")
+        self.assertEqual(sleep.call_count, 5)
+
+    def test_start_still_times_out_without_challenge(self):
+        for response in (ConnectionResetError("reset"), (200, {}, b""), (503, {}, b"")):
+            with self.subTest(response=response), \
+                    patch("workflows.h.fetch", side_effect=[response, response]) as fetch, \
+                    patch("common.time.monotonic", side_effect=[0, 0, 60]), \
+                    patch("common.time.sleep") as sleep:
+                with self.assertRaisesRegex(TimeoutError, "after 60s: auth registry challenge"):
+                    self.fixture.start_auth_registry(Path("/private/auth/htpasswd"))
+                self.assertEqual(fetch.call_count, 2)
+                sleep.assert_called_once_with(1)
+
+    def test_start_does_not_retry_unexpected_errors(self):
+        with patch("workflows.h.fetch", side_effect=ValueError("invalid response")), \
+                patch("common.time.sleep") as sleep:
+            with self.assertRaisesRegex(ValueError, "invalid response"):
+                self.fixture.start_auth_registry(Path("/private/auth/htpasswd"))
+            sleep.assert_not_called()
+
+    def test_fetch_outside_readiness_does_not_swallow_transport_errors(self):
+        with patch("workflows_helpers.urlopen", side_effect=ConnectionResetError("reset")):
+            with self.assertRaises(ConnectionResetError):
+                h.fetch("localhost:12345", "/v2/")
+
+    def test_cleanup_retains_redacted_state_and_logs_before_removal(self):
+        self.fixture.run.side_effect = [
+            self.fixture.run.return_value,
+            subprocess.CompletedProcess([], 0, "stdout secret-password", "stderr secret-password"),
+            subprocess.CompletedProcess([], 0, "", ""),
+        ]
+        self.fixture.remove_owned()
+        self.assertEqual(self.fixture.save.call_args_list, [
+            call("auth-registry-state.json",
+                 json.dumps({"Status": "running", "Error": h.REDACTED})),
+            call("auth-registry.log", f"stdout {h.REDACTED}stderr {h.REDACTED}"),
+        ])
+        self.assertEqual([c.args[0] for c in self.fixture.run.call_args_list], [
+            ["docker", "inspect", "registry-id"],
+            ["docker", "logs", "--tail", "200", "registry-id"],
+            ["docker", "rm", "-f", "--volumes", "registry-id"],
+        ])
+
+    def test_cleanup_removes_container_even_if_evidence_write_fails(self):
+        self.fixture.save.side_effect = OSError("disk full")
+        with self.assertRaisesRegex(OSError, "disk full"):
+            self.fixture.remove_owned()
+        self.fixture.run.assert_called_with(["docker", "rm", "-f", "--volumes", "registry-id"])
+
+    def test_cleanup_reports_log_collection_failure(self):
+        self.fixture.run.side_effect = [
+            self.fixture.run.return_value,
+            subprocess.CompletedProcess([], 1, "", "logs unavailable"),
+            subprocess.CompletedProcess([], 0, "", ""),
+        ]
+        with self.assertRaisesRegex(RuntimeError, "auth registry logs failed"):
+            self.fixture.remove_owned()
+        self.fixture.save.assert_called_with("auth-registry.log", "logs unavailable")
+        self.fixture.run.assert_called_with(["docker", "rm", "-f", "--volumes", "registry-id"])
+
+    def test_cleanup_does_not_collect_or_remove_foreign_container(self):
+        self.info["Config"]["Labels"][OWNER_LABEL] = "foreign"
+        self.fixture.run.return_value.stdout = json.dumps([self.info])
+        with self.assertRaisesRegex(RuntimeError, "foreign auth registry"):
+            self.fixture.remove_owned()
+        self.fixture.run.assert_called_once_with(["docker", "inspect", "registry-id"], check=False)
+        self.fixture.save.assert_not_called()
+
 
 class FixtureScopeTests(unittest.TestCase):
     def test_workflows_scenario_is_allowed_and_isolated(self):

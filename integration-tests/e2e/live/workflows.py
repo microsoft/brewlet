@@ -34,6 +34,7 @@ import shutil
 import subprocess
 import threading
 import time
+from urllib.error import URLError
 
 from common import (JDK_IMAGE, OWNER_LABEL, REGISTRY_IMAGE, ROOT, owned_container,
                     retry_transient, run, sha256, wait)
@@ -142,7 +143,15 @@ class CheckoutFixture(CheckoutRuntimeFixture):
         self.run(["docker", "start", self.auth_registry_id])
         info = json.loads(self.run(["docker", "inspect", self.auth_registry_id]).stdout)[0]
         registry = f"localhost:{info['NetworkSettings']['Ports']['5000/tcp'][0]['HostPort']}"
-        wait("auth registry challenge", lambda: h.fetch(registry, "/v2/")[0] == 401, timeout=60, interval=1)
+        def challenged():
+            try:
+                return h.fetch(registry, "/v2/")[0] == 401
+            except (URLError, TimeoutError, ConnectionError) as error:
+                print("Auth registry not ready: " + h.redact_secrets(str(error), self.secrets),
+                      flush=True)
+                return False
+
+        wait("auth registry challenge", challenged, timeout=60, interval=1)
         return registry
 
     def remove_owned(self):
@@ -152,8 +161,18 @@ class CheckoutFixture(CheckoutRuntimeFixture):
             if result.returncode == 0:
                 info = json.loads(result.stdout)[0]
                 if owned_container(info, self.auth_registry_id, OWNER_LABEL, self.name):
-                    self.run(["docker", "logs", "--tail", "200", self.auth_registry_id], check=False)
-                    self.run(["docker", "rm", "-f", "--volumes", self.auth_registry_id])
+                    try:
+                        self.save("auth-registry-state.json", h.redact_secrets(
+                            json.dumps(info["State"]), self.secrets))
+                        logs = self.run(["docker", "logs", "--tail", "200", self.auth_registry_id],
+                                        check=False)
+                        self.save("auth-registry.log", h.redact_secrets(
+                            logs.stdout + logs.stderr, self.secrets))
+                        if logs.returncode:
+                            errors.append(f"auth registry logs failed ({logs.returncode}); "
+                                          "see auth-registry.log")
+                    finally:
+                        self.run(["docker", "rm", "-f", "--volumes", self.auth_registry_id])
                 else:
                     errors.append("refusing to remove foreign auth registry")
         if errors:

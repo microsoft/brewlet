@@ -32,6 +32,12 @@ capacity, load leases, stabilization, fixture-only TLS/HTTP exceptions, evidence
 cleanup, and the acceptance mapping. Keep component-test and live-run claims
 distinct; preserve the preview limitations until the corresponding runs pass.
 
+The workflows auth-registry readiness probe retries transient connection errors
+within its 60-second wait and requires an HTTP 401 challenge. Registry operations
+after readiness still fail on transport errors. Cleanup retains redacted
+`auth-registry-state.json` and `auth-registry.log` before removing the owned
+container, including when readiness fails.
+
 The change-aware `CI` workflow selects only the smaller
 `python3 integration-tests/e2e/live/smoke.py` scenario for affected PRs.
 It reuses the same private checkout-built fixture to install, provision, and
