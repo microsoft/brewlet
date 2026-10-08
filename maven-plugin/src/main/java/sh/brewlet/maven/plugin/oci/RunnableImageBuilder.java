@@ -99,7 +99,7 @@ public final class RunnableImageBuilder {
      *                         empty); each is mapped to a Brewlet role by its
      *                         {@link ArtifactLayer#mediaType()}. Must NOT contain a
      *                         CDS layer — pass the CDS archive via {@code cdsArchive}.
-     * @param cdsArchive       optional AppCDS {@code .jsa} folded into the app layer, or null
+     * @param cdsArchive       optional startup archive (AppCDS {@code .jsa} or AOT cache) folded into the app layer, or null
      * @param indexAnnotations optional annotations for the image index (provenance), or null
      */
     public static Result build(JvmConfig cfg, Path jarPath, List<ArtifactLayer> depLayers,
@@ -139,6 +139,9 @@ public final class RunnableImageBuilder {
             if (cfg.getCds() != null && cfg.getCds().getArchive() != null
                     && !cfg.getCds().getArchive().isBlank()) {
                 name = cfg.getCds().getArchive();
+            } else if (cfg.getAot() != null && cfg.getAot().getCache() != null
+                    && !cfg.getAot().getCache().isBlank()) {
+                name = cfg.getAot().getCache();
             }
             appTar.addFile(name, Files.readAllBytes(cdsArchive));
         }

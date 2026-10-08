@@ -76,6 +76,7 @@ class ModelSerializationTest {
         assertFalse(node.has("env"), "env should be omitted when null");
         assertFalse(node.has("arch"), "arch should be omitted when null");
         assertFalse(node.has("cds"), "cds should be omitted when null");
+        assertFalse(node.has("aot"), "aot should be omitted when null");
     }
 
     @Test
@@ -88,6 +89,21 @@ class ModelSerializationTest {
         JsonNode node = MAPPER.readTree(MAPPER.writeValueAsString(cfg));
         assertTrue(node.has("arch"), "arch should be serialized when set");
         assertEquals("amd64", node.get("arch").get(0).asText());
+    }
+
+    @Test
+    void jvmConfig_aotRoundTripsWhenSet() throws IOException {
+        JvmConfig cfg = new JvmConfig();
+        cfg.setMainJar("app.jar");
+        cfg.setEntry(new Entry("jar"));
+        cfg.setAot(new JvmConfig.Aot("app.aot"));
+
+        JsonNode node = MAPPER.readTree(MAPPER.writeValueAsString(cfg));
+        assertEquals("app.aot", node.get("aot").get("cache").asText());
+        assertFalse(node.has("cds"));
+
+        JvmConfig back = MAPPER.readValue(MAPPER.writeValueAsString(cfg), JvmConfig.class);
+        assertEquals("app.aot", back.getAot().getCache());
     }
 
     @Test
@@ -150,6 +166,8 @@ class ModelSerializationTest {
                 sh.brewlet.maven.plugin.oci.MediaTypes.MODULEPATH_LAYER_MEDIA_TYPE);
         assertEquals("application/vnd.brewlet.cds.layer.v1+jsa",
                 sh.brewlet.maven.plugin.oci.MediaTypes.CDS_LAYER_MEDIA_TYPE);
+        assertEquals("application/vnd.brewlet.aot.layer.v1+aot",
+                sh.brewlet.maven.plugin.oci.MediaTypes.AOT_LAYER_MEDIA_TYPE);
     }
 
     @Test

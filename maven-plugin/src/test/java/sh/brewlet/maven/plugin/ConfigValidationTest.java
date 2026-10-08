@@ -11,6 +11,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Mirrors the Go {@code TestValidate} in {@code src/internal/artifact/artifact_test.go}:
@@ -187,6 +188,39 @@ class ConfigValidationTest {
         JvmConfig cfg = withEntry(new Entry("jar"));
         cfg.setArch(List.of("amd64", "amd64"));
         assertThrows(IllegalStateException.class, cfg::validate);
+    }
+
+    @Test
+    void aot_emptyCacheRejected() {
+        JvmConfig cfg = withEntry(new Entry("jar"));
+        cfg.setAot(new JvmConfig.Aot(""));
+        IllegalStateException e = assertThrows(IllegalStateException.class, cfg::validate);
+        assertTrue(e.getMessage().contains("aot.cache is required"), e.getMessage());
+    }
+
+    @Test
+    void aot_traversalRejected() {
+        for (String bad : List.of("dir/app.aot", "dir\\app.aot", "..app.aot", "*.aot")) {
+            JvmConfig cfg = withEntry(new Entry("jar"));
+            cfg.setAot(new JvmConfig.Aot(bad));
+            assertThrows(IllegalStateException.class, cfg::validate, bad);
+        }
+    }
+
+    @Test
+    void aot_withCds_rejected() {
+        JvmConfig cfg = withEntry(new Entry("jar"));
+        cfg.setCds(new JvmConfig.Cds("app.jsa", "dynamic"));
+        cfg.setAot(new JvmConfig.Aot("app.aot"));
+        IllegalStateException e = assertThrows(IllegalStateException.class, cfg::validate);
+        assertTrue(e.getMessage().contains("mutually exclusive"), e.getMessage());
+    }
+
+    @Test
+    void aot_valid_ok() {
+        JvmConfig cfg = withEntry(new Entry("jar"));
+        cfg.setAot(new JvmConfig.Aot("app.aot"));
+        assertDoesNotThrow(cfg::validate);
     }
 
     @Test

@@ -91,6 +91,13 @@ public final class MediaTypes {
     public static final String CDS_LAYER_MEDIA_TYPE =
             "application/vnd.brewlet.cds.layer.v1+jsa";
 
+    /**
+     * Media type for an optional JDK AOT cache layer: the raw cache file
+     * mounted at {@code /app/<cache>} and consumed with {@code -XX:AOTCache=...}.
+     */
+    public static final String AOT_LAYER_MEDIA_TYPE =
+            "application/vnd.brewlet.aot.layer.v1+aot";
+
     /** Standard OCI image manifest v1 media type. */
     public static final String OCI_MANIFEST_MEDIA_TYPE =
             "application/vnd.oci.image.manifest.v1+json";

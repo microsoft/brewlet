@@ -216,6 +216,27 @@ class RunnableImageBuilderTest {
     }
 
     @Test
+    void foldsAotCacheIntoAppLayer() throws IOException {
+        Path jar = tmp.resolve("app.jar");
+        Files.write(jar, "PK\u0003\u0004 app".getBytes());
+        Path aot = tmp.resolve("app.aot");
+        Files.write(aot, "aot-cache-bytes".getBytes());
+
+        JvmConfig cfg = new JvmConfig();
+        cfg.setMainJar("app.jar");
+        cfg.setEntry(new Entry("jar"));
+        cfg.setAot(new JvmConfig.Aot("app.aot"));
+
+        RunnableImageBuilder.Result r = RunnableImageBuilder.build(cfg, jar, null, aot, null);
+
+        JsonNode layers = MAPPER.readTree(r.manifests.get(0).data()).get("layers");
+        assertEquals(1, layers.size());
+        Map<String, String> files = gunzipTar(blobByDigest(r, layers.get(0).get("digest").asText()));
+        assertEquals("PK\u0003\u0004 app", files.get("app.jar"));
+        assertEquals("aot-cache-bytes", files.get("app.aot"));
+    }
+
+    @Test
     void targetArchesDefaultsToPortablePair() {
         JvmConfig cfg = new JvmConfig();
         assertEquals(List.of("amd64", "arm64"), RunnableImageBuilder.targetArches(cfg));

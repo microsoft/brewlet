@@ -66,7 +66,7 @@ class ApplicationAssemblyTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"jar", "dependency", "config", "cds", "format", "reference"})
+    @ValueSource(strings = {"jar", "dependency", "config", "cds", "aot", "format", "reference"})
     void changedInputsCannotSilentlyReplaceTheAssembly(String change) throws Exception {
         try (TestImageRegistry registry = new TestImageRegistry()) {
             BuildMojo build = build(registry, "image");
@@ -79,20 +79,21 @@ class ApplicationAssemblyTest {
                     "runtime", "jar", null, handler);
             artifact.setFile(dependency.toFile());
             build.project.setArtifacts(Set.of(artifact));
-            Path cds = root.resolve("app.jsa");
+            boolean aotRun = "aot".equals(change);
+            Path cds = root.resolve(aotRun ? "app.aot" : "app.jsa");
             Files.write(cds, new byte[]{1});
-            build.cdsArchive = cds.toFile();
+            if (aotRun) build.aotCache = cds.toFile(); else build.cdsArchive = cds.toFile();
             build.execute();
             ApplicationAssembly first = ApplicationAssembly.get(build.project);
             byte[] localIndex = Files.readAllBytes(root.resolve("oci/index.json"));
             PushMojo push = push(build);
             push.layered = true;
-            push.cdsArchive = cds.toFile();
+            if (aotRun) push.aotCache = cds.toFile(); else push.cdsArchive = cds.toFile();
             switch (change) {
                 case "jar" -> Files.write(build.jarFile.toPath(), jar("new"));
                 case "dependency" -> Files.write(dependency, TestApplications.zip(Map.of("value", new byte[]{2})));
                 case "config" -> push.enablePreview = true;
-                case "cds" -> Files.write(cds, new byte[]{2});
+                case "cds", "aot" -> Files.write(cds, new byte[]{2});
                 case "format" -> push.format = "artifact";
                 case "reference" -> push.image = registry.authority() + "/different:1";
                 default -> fail("Unhandled change");

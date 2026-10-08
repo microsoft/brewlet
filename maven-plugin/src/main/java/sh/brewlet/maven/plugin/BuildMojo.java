@@ -80,5 +80,10 @@ public class BuildMojo extends AbstractImageMojo {
                     + " (mounted /app/" + cfg.getCds().getArchive()
                     + "; -Xshare:auto, best-effort)");
         }
+        if (cfg.getAot() != null) {
+            getLog().info("  aot cache: " + cfg.getAot().getCache()
+                    + " (mounted /app/" + cfg.getAot().getCache()
+                    + "; -XX:AOTCache, JDK 24+, best-effort)");
+        }
     }
 }
