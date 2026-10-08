@@ -432,7 +432,7 @@ func (r *NodeProfileReconciler) releaseTargetClaims(ctx context.Context, profile
 		delete(node.Labels, brewlet.LabelNodeOwner)
 		delete(node.Labels, brewlet.LabelNodeIdentity)
 		delete(node.Annotations, brewlet.AnnotationNodeOwner)
-		if err := r.Patch(ctx, &node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		if err := r.patchNodeWithdrawal(ctx, base, &node); err != nil {
 			return err
 		}
 	}

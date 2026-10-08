@@ -336,19 +336,61 @@ func (r *NodeProfileReconciler) withdrawProfileNodeAdvertisements(ctx context.Co
 		}
 		base := node.DeepCopy()
 		removeNodeAdvertisements(node)
-		if err := r.Patch(ctx, node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		if err := r.patchNodeWithdrawal(ctx, base, node); err != nil {
 			return fmt.Errorf("withdrawing invalid profile %q from node %q: %w", profile.Name, node.Name, err)
 		}
 	}
 	return nil
 }
 
+// patchNodeWithdrawal applies a patch that withdraws Brewlet advertisements.
+// When the API server refuses it, for example because a managed node pool
+// pins the readiness labels, it retries without removing those labels and
+// fences readiness with the startup taint instead.
+func (r *NodeProfileReconciler) patchNodeWithdrawal(ctx context.Context, base, node *corev1.Node) error {
+	err := r.Patch(ctx, node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+	if err == nil || apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+		return err
+	}
+	fenced := node.DeepCopy()
+	restored := false
+	for key, value := range base.Labels {
+		if _, kept := fenced.Labels[key]; !kept && isNodeAdvertisementLabel(key) {
+			if fenced.Labels == nil {
+				fenced.Labels = map[string]string{}
+			}
+			fenced.Labels[key] = value
+			restored = true
+		}
+	}
+	if !restored {
+		return err
+	}
+	if !brewlet.HasStartupTaint(fenced) {
+		fenced.Spec.Taints = append(fenced.Spec.Taints, corev1.Taint{
+			Key:    brewlet.StartupTaintKey,
+			Value:  "provisioning",
+			Effect: corev1.TaintEffectNoSchedule,
+		})
+	}
+	if fenceErr := r.Patch(ctx, fenced, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); fenceErr != nil {
+		return fmt.Errorf("%w; fencing with startup taint also failed: %v", err, fenceErr)
+	}
+	log.FromContext(ctx).Info("node refused removal of Brewlet labels; fenced readiness with the startup taint", "node", node.Name, "refusal", err.Error())
+	fenced.DeepCopyInto(node)
+	return nil
+}
+
+func isNodeAdvertisementLabel(key string) bool {
+	return key == brewlet.LabelRuntimeReady || key == "brewlet.sh/appcds-regeneration" ||
+		strings.HasPrefix(key, brewlet.LabelJDKPrefix) ||
+		strings.HasPrefix(key, brewlet.LabelJDKFeaturePrefix) ||
+		strings.HasPrefix(key, brewlet.LabelLauncherPrefix)
+}
+
 func removeNodeAdvertisements(node *corev1.Node) {
 	for key := range node.Labels {
-		if key == brewlet.LabelRuntimeReady || key == "brewlet.sh/appcds-regeneration" ||
-			strings.HasPrefix(key, brewlet.LabelJDKPrefix) ||
-			strings.HasPrefix(key, brewlet.LabelJDKFeaturePrefix) ||
-			strings.HasPrefix(key, brewlet.LabelLauncherPrefix) {
+		if isNodeAdvertisementLabel(key) {
 			delete(node.Labels, key)
 		}
 	}

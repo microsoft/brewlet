@@ -179,14 +179,23 @@ The AKS-managed Cluster Autoscaler builds node-group templates only from the
 agent pool spec (`--labels`, `--node-taints` and the VM size). It does not read
 `k8s.io_cluster-autoscaler_node-template_label_*` VMSS tags. AKS also pins pool
 labels and taints: its node admission webhook refuses to remove or change them
-on a Node. A pool label `brewlet.sh/runtime=ready` would advertise readiness
-before installation and could never be withdrawn, so AKS pools MUST NOT carry
-Brewlet labels or taints. As a result, AKS-managed Cluster Autoscaler pools
-cannot scale from zero for Brewlet capability requests. Keep `--min-count 1`:
-once a pool has a provisioned node, Cluster Autoscaler templates further
-scale-out from that real node's provisioner-published labels. On AKS, use Node
-Auto Provisioning (see [Karpenter](#karpenter)) with the Brewlet startup taint
-for scale-from-zero. `kubernetes.io/arch` comes from the VM size, so one profile
+on a Node. A pool label `brewlet.sh/runtime=ready` alone would advertise
+readiness before installation and could never be withdrawn, so an AKS pool MUST
+NOT carry Brewlet labels unless it also carries the Brewlet
+[startup taint](#startup-taint) as a node initialization taint (preview,
+removable from a Node), and MUST NOT carry Brewlet taints in `--node-taints`.
+AKS accepts `nodeInitializationTaints` only on managed-cluster requests, not
+on agent-pool requests (`NodeInitializationTaintsFeatureNotSupported`), after
+the subscription registers `Microsoft.ContainerService/NodeInitializationTaintsPreview`.
+A managed-cluster request that changes only one pool's profile scopes the taint
+to that pool. New nodes carry it only after the pool's node image
+is regenerated (`az aks nodepool upgrade --node-image-only`). With that taint and
+the profile's exact label set in `--labels`, the managed Cluster Autoscaler
+scales the pool from zero. Without them, keep `--min-count 1`: once a pool has a
+provisioned node, Cluster Autoscaler templates further scale-out from that real
+node's provisioner-published labels. Node Auto Provisioning (see
+[Karpenter](#karpenter)) with the startup taint is the other AKS
+scale-from-zero path. `kubernetes.io/arch` comes from the VM size, so one profile
 can target `amd64` and `arm64` pools together
 (`nodePool: {key: agentpool, names: [javax64, javaarm]}`).
 
@@ -284,9 +293,17 @@ long as no Brewlet profile advertisement is on it. The provisioner withdraws
 the templated labels, installs and validates the runtime, publishes the real
 labels, and only then removes the taint. The `NodeProfile` MUST list a
 toleration for the taint, because provisioner tolerations are opt-in. The
-platform MUST allow the provisioner to remove the taint (AKS-managed pool
-taints, for example, cannot be removed). The templated labels MUST exactly
-match the profile inventory.
+platform MUST allow the provisioner to add and remove the taint (AKS
+`--node-taints` cannot be removed; AKS node initialization taints can). The
+templated labels MUST exactly match the profile inventory.
+
+Some platforms pin templated labels so they can't be removed from a Node (AKS
+pool `--labels`). When the provisioner or operator must withdraw readiness and
+a label removal is refused this way, it leaves the pinned labels in place and
+applies the startup taint instead, which alone makes the node not ready. A
+pinned capability label that the profile inventory doesn't provide fails
+provisioning with `node-advertisement-failed`, because it can never be made
+true.
 
 #### Pre-baked images
 

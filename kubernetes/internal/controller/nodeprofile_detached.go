@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func detachedObligation(p *nodev1alpha1.NodeProfile, target nodev1alpha1.NodeTarget) *nodev1alpha1.NodeRetirement {
@@ -235,7 +234,7 @@ func (r *NodeProfileReconciler) excludeRetiredHosts(ctx context.Context, p *node
 		if reflect.DeepEqual(base.Labels, node.Labels) && reflect.DeepEqual(base.Annotations, node.Annotations) {
 			continue
 		}
-		if err := r.Patch(ctx, node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		if err := r.patchNodeWithdrawal(ctx, base, node); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
