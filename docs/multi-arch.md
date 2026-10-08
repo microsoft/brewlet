@@ -46,8 +46,10 @@ spec:
 ```
 
 The admission webhook converts this constraint into required node affinity using
-the standard `kubernetes.io/arch` label. If the cluster has no compatible ready
-node, admission reports `NoCompatibleArch`.
+the standard `kubernetes.io/arch` label. Architecture never causes a denial: if
+the cluster has no ready node of that architecture, the pod is admitted with an
+admission warning and stays `Pending` until one exists, so an autoscaled pool of
+that architecture can scale up from zero.
 
 The CLI and Maven plugin scan JARs for bundled `.so`, `.dll`, and `.dylib` files
 and can infer the corresponding architecture constraint. Confirm the detected

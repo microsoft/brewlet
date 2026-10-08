@@ -247,8 +247,9 @@ spec:
 provisioner atomically installs the root-owned
 `/opt/brewlet/policy/appcds-regeneration-enabled` sentinel and publishes the
 `brewlet.sh/appcds-regeneration=true` scheduling capability. Admission requires
-an otherwise-compatible ready node with that capability and injects an `Exists`
-affinity requirement; otherwise it denies the pod with
+an otherwise-compatible ready node with that capability, or a valid NodeProfile
+that enables it (the pod then waits `Pending` for that pool), and injects an
+`Exists` affinity requirement; otherwise it denies the pod with
 `AppCDSRegenerationDisabled`.
 
 Admission remains an early guard, not the security boundary: the webhook uses

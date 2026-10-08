@@ -230,7 +230,7 @@ select the other installation. For a raw `Deployment`, the equivalent Pod
 template annotation is `brewlet.sh/jdk: "temurin-canary-21"`.
 
 An explicit distribution request does not fall back to another distribution.
-Admission rejects a request with no compatible ready node as `NoCompatibleJDK`,
+Admission rejects a request with no compatible ready node or valid NodeProfile as `NoCompatibleJDK`,
 and the shim independently refuses an unavailable or inactive installation.
 
 `spec.jvm.version` is the integer **feature version**, not a patch version.

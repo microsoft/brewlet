@@ -651,3 +651,47 @@ func TestNodeProfileCleanupPolicyDistinguishesPreviouslyMutatedAndNewImmutableNo
 		}
 	}
 }
+
+func TestNodeProfileClaimsPoolDeclaredRuntimeLabelOnlyBehindStartupTaint(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		taint     bool
+		annotated bool
+		claim     bool
+	}{
+		{name: "startup-tainted fresh node", taint: true, claim: true},
+		{name: "untainted runtime label", taint: false, claim: false},
+		{name: "startup-tainted advertised node", taint: true, annotated: true, claim: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newCleanupFixture(t, 0)
+			name := createNode(t, f.ctx, f.client, map[string]string{brewlet.LabelRuntimeReady: brewlet.ValueReady})
+			var node corev1.Node
+			if err := f.client.Get(f.ctx, types.NamespacedName{Name: name}, &node); err != nil {
+				t.Fatal(err)
+			}
+			if tc.taint {
+				node.Spec.Taints = []corev1.Taint{{Key: brewlet.StartupTaintKey, Value: "provisioning", Effect: corev1.TaintEffectNoSchedule}}
+			}
+			if tc.annotated {
+				node.Annotations = map[string]string{brewlet.AnnotationProfile: "other"}
+			}
+			if err := f.client.Update(f.ctx, &node); err != nil {
+				t.Fatal(err)
+			}
+			p := getProfile(t, f.ctx, f.client, f.profile.Name)
+			target := nodev1alpha1.NodeTarget{Name: node.Name, UID: node.UID}
+			p.Status.Targets = []nodev1alpha1.NodeTarget{target}
+			if err := f.client.Status().Update(f.ctx, &p); err != nil {
+				t.Fatal(err)
+			}
+			err := f.r.claimTarget(f.ctx, &p, target)
+			if tc.claim && err != nil {
+				t.Fatalf("pool-declared runtime label behind the startup taint must be claimable: %v", err)
+			}
+			if !tc.claim && (err == nil || !strings.Contains(err.Error(), "unfenced runtime state")) {
+				t.Fatalf("expected unfenced runtime state refusal, got %v", err)
+			}
+		})
+	}
+}

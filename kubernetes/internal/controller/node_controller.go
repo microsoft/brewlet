@@ -65,7 +65,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	// Reflect the node's provisioning state.
-	if node.Labels[brewlet.LabelRuntimeReady] == brewlet.ValueReady {
+	if brewlet.RuntimeReady(&node) {
 		return ctrl.Result{}, r.markReady(ctx, &node)
 	}
 

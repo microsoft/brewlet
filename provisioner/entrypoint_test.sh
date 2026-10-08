@@ -1258,6 +1258,23 @@ for capability in jdk.temurin-21 jdk.microsoft-25 jdk-feature.21 jdk-feature.25 
   grep -Fxq "brewlet.sh/$capability=true" "$node_calls"
 done
 grep -Fxq 'brewlet.sh/runtime=ready' "$node_calls"
+# The optional Cluster Autoscaler startup taint is released only after readiness.
+grep -Fxq 'startup-taint.cluster-autoscaler.kubernetes.io/brewlet-' "$node_calls"
+[[ "$(grep -Fxn 'brewlet.sh/runtime=ready' "$node_calls" | cut -d: -f1)" -lt \
+   "$(grep -Fxn 'startup-taint.cluster-autoscaler.kubernetes.io/brewlet-' "$node_calls" | cut -d: -f1)" ]]
+(
+  NODE_NAME=taint-node
+  kubectl() { echo 'error: taint "startup-taint.cluster-autoscaler.kubernetes.io/brewlet" not found' >&2; return 1; }
+  release_startup_taint
+)
+if (
+  NODE_NAME=taint-node
+  kubectl() { echo 'error: nodes "taint-node" is forbidden' >&2; return 1; }
+  release_startup_taint
+) 2>/dev/null; then
+  echo "release_startup_taint must fail when the taint cannot be removed" >&2
+  exit 1
+fi
 for clear in clear_node_advertisement unlabel_node; do
   : >"$node_calls"
   (

@@ -726,7 +726,7 @@ func (r *NodeProfileReconciler) poolCounts(profile *nodev1alpha1.NodeProfile, re
 		assigned++
 		appliedRevision := node.Annotations[brewlet.AnnotationProfile] == profile.Name &&
 			node.Annotations[brewlet.AnnotationProfileGeneration] == strconv.FormatInt(profile.Generation, 10)
-		if node.Labels[brewlet.LabelRuntimeReady] == brewlet.ValueReady &&
+		if brewlet.RuntimeReady(node) &&
 			(profile.Generation == 0 || appliedRevision) {
 			ready++
 		}

@@ -333,8 +333,9 @@ mutating+validating. For every pod on CREATE with `runtimeClassName: brewlet` it
   the selected Pod image; the shim resolves the JAR from containerd-owned
   metadata and the content store by digest, not from the hints;
 - **matches** any requested JDK/launcher/AppCDS-regeneration combination against
-  the ready fleet, denying with `NoCompatibleJDK`, `NoCompatibleLauncher`, or
-  `AppCDSRegenerationDisabled`;
+  the ready fleet plus valid `NodeProfile`s, denying with `NoCompatibleJDK`,
+  `NoCompatibleLauncher`, or `AppCDSRegenerationDisabled` (a request only a
+  profile satisfies is admitted with a warning, enabling scale-from-zero);
 - **steers** scheduling via `nodeAffinity` onto per-capability node labels.
 
 Its NodeProfile endpoint also rejects mutable source references and mirrors
@@ -445,7 +446,7 @@ Pod-side annotations the webhook reads (developer-facing) — see
 |---|---|---|
 | `brewlet.sh/jdk` | `21` or `temurin-21` | Request a specific JDK feature (any distro) or exact `<dist>-<feature>`. |
 | `brewlet.sh/launcher` | `jaz` | Request a launcher. Empty / `java` = vanilla OpenJDK launcher. |
-| `brewlet.sh/cds-regenerate` | `true` | Request node-side AppCDS regeneration. Requires a ready node whose `NodeProfile.spec.appCDS.regenerationEnabled` is true. |
+| `brewlet.sh/cds-regenerate` | `true` | Request node-side AppCDS regeneration. Requires a ready node or valid NodeProfile whose `spec.appCDS.regenerationEnabled` is true. |
 | `brewlet.sh/artifact-container` | `app` | Selects which regular container's `image` the webhook mirrors into Pod-wide compatibility hints. The webhook normalizes this value to the selected container name; other tasks ignore the shared hints and remain bound to their own CRI images. |
 
 ---
