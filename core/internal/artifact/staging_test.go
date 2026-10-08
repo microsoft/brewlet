@@ -271,14 +271,14 @@ func TestRunnableStageIndependentProcesses(t *testing.T) {
 }
 
 func TestRunnableStageFailureDoesNotPublish(t *testing.T) {
-	for _, failure := range []string{"app", "classpath", "modulepath", "missing jar", "missing cds"} {
+	for _, failure := range []string{"app", "classpath", "modulepath", "missing jar", "missing cds", "missing aot"} {
 		t.Run(failure, func(t *testing.T) {
 			t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
 			store, man, digest, expected := runnableLayersFixture(t)
 			broken := man
 			broken.Layers = append([]Descriptor(nil), man.Layers...)
 			switch failure {
-			case "missing jar", "missing cds":
+			case "missing jar", "missing cds", "missing aot":
 				cfg, err := man.RunnableConfig()
 				if err != nil {
 					t.Fatal(err)
@@ -286,6 +286,8 @@ func TestRunnableStageFailureDoesNotPublish(t *testing.T) {
 				if failure == "missing jar" {
 					cfg.MainJar = "missing.jar"
 					cfg.Entry = Entry{Mode: "jar"}
+				} else if failure == "missing aot" {
+					cfg.CDS, cfg.AOT = nil, &AOT{Cache: "missing.aot"}
 				} else {
 					cfg.CDS.Archive = "missing.jsa"
 				}
@@ -315,6 +317,8 @@ func TestRunnableStageFailureDoesNotPublish(t *testing.T) {
 			}
 			if _, err := ResolveRunnableBlobs(store, broken, digest); err == nil {
 				t.Fatal("broken staging succeeded")
+			} else if failure == "missing aot" && !strings.Contains(err.Error(), `runnable image app layer missing aot cache "missing.aot"`) {
+				t.Fatalf("error = %v, want missing aot cache", err)
 			}
 			root, err := runnableStageDir(digest)
 			if err != nil {

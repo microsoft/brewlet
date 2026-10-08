@@ -28,7 +28,7 @@ type ResolvedBlobs struct {
 	JarHostPath         string   // on-disk path of the JAR payload
 	ClasspathHostPaths  []string // on-disk paths of the optional classpath layer tars
 	ModulepathHostPaths []string // on-disk paths of the optional modulepath layer tars
-	CDSHostPath         string   // on-disk path of the optional AppCDS archive, or ""
+	CDSHostPath         string   // on-disk path of the optional AppCDS archive or AOT cache, or ""
 	ManifestDigest      string   // verified digest of the resolved platform manifest
 	Format              string   // "native" or "image"
 }
@@ -141,8 +141,14 @@ func ResolveNativeBlobs(src BlobSource, man Manifest, manifestDigest string) (Re
 		return ResolvedBlobs{}, err
 	}
 	var cdsPath string
-	if l, ok := man.CDSLayer(); ok {
-		if cdsPath, err = verifiedBlobPath(src, l, "cds"); err != nil {
+	archive, ok := man.CDSLayer()
+	kind := "cds"
+	if cfg.AOT != nil {
+		archive, ok = man.AOTLayer()
+		kind = "aot"
+	}
+	if ok {
+		if cdsPath, err = verifiedBlobPath(src, archive, kind); err != nil {
 			return ResolvedBlobs{}, err
 		}
 	}
@@ -314,13 +320,17 @@ func runnableStagedBlobs(cfg JVMConfig, man Manifest, manifestDigest, stageDir s
 		return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing jar %q: %w", jarName, err)
 	}
 	var cdsPath string
-	if cfg.CDS != nil && cfg.CDS.Archive != "" {
-		cdsPath, err = stagedPath(appDir, cfg.CDS.Archive)
+	if name, _, ok := cfg.StartupArchive(); ok && name != "" {
+		noun := "cds archive"
+		if cfg.AOT != nil {
+			noun = "aot cache"
+		}
+		cdsPath, err = stagedPath(appDir, name)
 		if err != nil {
-			return ResolvedBlobs{}, fmt.Errorf("runnable image cds archive: %w", err)
+			return ResolvedBlobs{}, fmt.Errorf("runnable image %s: %w", noun, err)
 		}
 		if err := requireStagedFile(cdsPath); err != nil {
-			return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing cds archive %q: %w", cfg.CDS.Archive, err)
+			return ResolvedBlobs{}, fmt.Errorf("runnable image app layer missing %s %q: %w", noun, name, err)
 		}
 	}
 

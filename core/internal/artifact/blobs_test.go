@@ -415,7 +415,11 @@ func pushRunnableFixture(t *testing.T, cfg JVMConfig, withCDS bool) (Store, Mani
 	}
 	cdsPath := ""
 	if withCDS {
-		cdsPath = filepath.Join(work, "orders.jsa")
+		name := "orders.jsa"
+		if n, _, ok := cfg.StartupArchive(); ok {
+			name = n
+		}
+		cdsPath = filepath.Join(work, name)
 		if err := os.WriteFile(cdsPath, []byte("JSA"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -507,6 +511,30 @@ func TestResolveRunnableBlobsPathsStayUnderStaging(t *testing.T) {
 		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 			t.Errorf("%s = %q escapes staging root %q", name, p, stage)
 		}
+	}
+}
+
+func TestResolveRunnableBlobsAOTPathStaysUnderStaging(t *testing.T) {
+	stage := t.TempDir()
+	t.Setenv("BREWLET_RUNNABLE_STAGE", stage)
+	cfg := JVMConfig{
+		SchemaVersion: 1,
+		MainJar:       "orders.jar",
+		Entry:         Entry{Mode: "jar"},
+		AOT:           &AOT{Cache: "orders.aot"},
+	}
+	store, man, digest := pushRunnableFixture(t, cfg, true)
+
+	got, err := ResolveRunnableBlobs(store, man, digest)
+	if err != nil {
+		t.Fatalf("ResolveRunnableBlobs: %v", err)
+	}
+	if filepath.Base(got.CDSHostPath) != "orders.aot" {
+		t.Fatalf("CDSHostPath = %q, want the staged orders.aot", got.CDSHostPath)
+	}
+	rel, err := filepath.Rel(stage, got.CDSHostPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		t.Errorf("CDSHostPath = %q escapes staging root %q", got.CDSHostPath, stage)
 	}
 }
 

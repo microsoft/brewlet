@@ -435,6 +435,74 @@ func TestPushWithCDSAndResolve(t *testing.T) {
 	}
 }
 
+func TestPushWithAOTAndResolve(t *testing.T) {
+	dir := t.TempDir()
+	jarPath := filepath.Join(dir, "app.jar")
+	if err := os.WriteFile(jarPath, []byte("PK\x03\x04"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	aotPath := filepath.Join(dir, "app.aot")
+	if err := os.WriteFile(aotPath, []byte("AOT-CACHE-BYTES"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}, AOT: &AOT{Cache: "app.aot"}}
+	s := Store{Root: filepath.Join(dir, "oci")}
+	if _, err := s.PushWithCDS("demo/aot:1.0.0", cfg, jarPath, nil, nil, aotPath); err != nil {
+		t.Fatalf("PushWithCDS: %v", err)
+	}
+	man, got, err := s.Resolve("demo/aot:1.0.0")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got.AOT == nil || got.AOT.Cache != "app.aot" {
+		t.Errorf("cfg.AOT round-trip = %+v", got.AOT)
+	}
+	l, ok := man.AOTLayer()
+	if !ok || l.MediaType != AOTLayerMediaType {
+		t.Fatalf("AOTLayer() = %+v, %v", l, ok)
+	}
+	if l.Annotations["org.opencontainers.image.title"] != "app.aot" {
+		t.Errorf("aot layer title = %q", l.Annotations["org.opencontainers.image.title"])
+	}
+	if _, ok := man.CDSLayer(); ok {
+		t.Error("CDSLayer() present for an AOT artifact")
+	}
+	blobs, err := s.ResolveBlobs("demo/aot:1.0.0")
+	if err != nil {
+		t.Fatalf("ResolveNativeBlobs: %v", err)
+	}
+	if b, err := os.ReadFile(blobs.CDSHostPath); err != nil || string(b) != "AOT-CACHE-BYTES" {
+		t.Errorf("CDSHostPath content = %q (err %v)", b, err)
+	}
+}
+
+func TestPushAOTPairingErrors(t *testing.T) {
+	dir := t.TempDir()
+	jarPath := filepath.Join(dir, "app.jar")
+	aotPath := filepath.Join(dir, "app.aot")
+	for _, p := range []string{jarPath, aotPath} {
+		if err := os.WriteFile(p, []byte("PK"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := Store{Root: filepath.Join(dir, "oci")}
+	jarCfg := JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}}
+
+	withHint := jarCfg
+	withHint.AOT = &AOT{Cache: "app.aot"}
+	if _, err := s.PushWithCDS("demo/a:1", withHint, jarPath, nil, nil, ""); err == nil {
+		t.Error("accepted aot.cache with no shipped file")
+	}
+	if _, err := s.PushWithCDS("demo/b:1", jarCfg, jarPath, nil, nil, aotPath); err == nil {
+		t.Error("accepted a shipped file with no hint")
+	}
+	mismatch := jarCfg
+	mismatch.AOT = &AOT{Cache: "other.aot"}
+	if _, err := s.PushWithCDS("demo/c:1", mismatch, jarPath, nil, nil, aotPath); err == nil {
+		t.Error("accepted mismatched basename")
+	}
+}
+
 func TestPushNoCDSLayerWhenAbsent(t *testing.T) {
 	dir := t.TempDir()
 	jarPath := filepath.Join(dir, "app.jar")

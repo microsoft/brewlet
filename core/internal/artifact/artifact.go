@@ -610,18 +610,18 @@ func (s Store) PushWithTypedLayers(ref string, cfg JVMConfig, jarPath string, cl
 	return s.PushWithCDS(ref, cfg, jarPath, classpathTars, modulepathTars, "")
 }
 
-// PushWithCDS is PushWithTypedLayers with an optional Application Class-Data
-// Sharing archive. When cdsArchivePath is non-empty the `.jsa` file it names is
-// written as a single cds.layer.v1+jsa layer (appended after the JAR/classpath/
-// modulepath layers), and the launch config MUST carry a matching cds.archive
-// hint (whose basename equals the archive's basename) so the shim mounts it at
-// /app/<archive> and launch adds `-Xshare:auto -XX:SharedArchiveFile=…`. Pass ""
-// for the common no-CDS case. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
+// PushWithCDS is PushWithTypedLayers with an optional startup archive: an
+// Application Class-Data Sharing `.jsa` or a JDK AOT cache. When cdsArchivePath
+// is non-empty the file it names is written as a single layer (appended after
+// the JAR/classpath/modulepath layers) whose media type comes from
+// cfg.StartupArchive(), and the launch config MUST carry a matching cds.archive
+// or aot.cache hint (whose name equals the file's basename) so the shim mounts
+// it at /app/<name>. Pass "" for the common no-archive case. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 func (s Store) PushWithCDS(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string, cdsArchivePath string) (Descriptor, error) {
 	if err := cfg.Validate(); err != nil {
 		return Descriptor{}, fmt.Errorf("invalid launch config: %w", err)
 	}
-	if err := validateCDSPairing(cfg, cdsArchivePath); err != nil {
+	if err := validateStartupArchivePairing(cfg, cdsArchivePath); err != nil {
 		return Descriptor{}, err
 	}
 	cfgBytes, err := json.MarshalIndent(cfg, "", "  ")
@@ -661,7 +661,8 @@ func (s Store) PushWithCDS(ref string, cfg JVMConfig, jarPath string, classpathT
 		if err != nil {
 			return Descriptor{}, err
 		}
-		cdsDesc.MediaType = CDSLayerMediaType
+		_, mediaType, _ := cfg.StartupArchive() // pairing check guarantees ok
+		cdsDesc.MediaType = mediaType
 		cdsDesc.Annotations = map[string]string{titleAnnotation: filepath.Base(cdsArchivePath)}
 		layers = append(layers, cdsDesc)
 	}
@@ -694,23 +695,28 @@ func (s Store) PushWithCDS(ref string, cfg JVMConfig, jarPath string, classpathT
 	return mDesc, nil
 }
 
-// validateCDSPairing enforces the CDS layer <-> config invariant: an archive
-// file may only be shipped alongside a matching cds.archive hint, and a config
-// declaring a cds.archive must be given an archive to ship. This keeps the
-// on-disk archive filename and the launch config's expected /app/<archive> in
-// lockstep so the shim mount and the -XX:SharedArchiveFile path agree.
-func validateCDSPairing(cfg JVMConfig, cdsArchivePath string) error {
-	if cdsArchivePath == "" {
-		if cfg.CDS != nil {
-			return fmt.Errorf("launch config declares cds.archive %q but no CDS archive file was provided to ship", cfg.CDS.Archive)
+// validateStartupArchivePairing enforces the layer <-> config invariant: an
+// archive file (CDS .jsa or AOT cache) may only be shipped alongside a matching
+// cds.archive / aot.cache hint, and a config declaring one must be given a file
+// to ship. This keeps the on-disk filename and the launch config's expected
+// /app/<name> in lockstep so the shim mount and the JVM flag path agree.
+func validateStartupArchivePairing(cfg JVMConfig, archivePath string) error {
+	name, _, declared := cfg.StartupArchive()
+	field := "cds.archive"
+	if cfg.AOT != nil {
+		field = "aot.cache"
+	}
+	if archivePath == "" {
+		if declared {
+			return fmt.Errorf("launch config declares %s %q but no startup archive file was provided to ship", field, name)
 		}
 		return nil
 	}
-	if cfg.CDS == nil {
-		return fmt.Errorf("a CDS archive file was provided but the launch config has no cds.archive hint")
+	if !declared {
+		return fmt.Errorf("a startup archive file was provided but the launch config has no cds.archive or aot.cache hint")
 	}
-	if base := filepath.Base(cdsArchivePath); base != cfg.CDS.Archive {
-		return fmt.Errorf("CDS archive filename %q does not match cds.archive %q (they must agree so the archive maps to /app/%s)", base, cfg.CDS.Archive, cfg.CDS.Archive)
+	if base := filepath.Base(archivePath); base != name {
+		return fmt.Errorf("startup archive filename %q does not match %s %q (they must agree so the archive maps to /app/%s)", base, field, name, name)
 	}
 	return nil
 }
@@ -880,9 +886,15 @@ func (m Manifest) ModulepathLayers() []Descriptor {
 // archive layer and true when present, or a zero descriptor and false otherwise.
 // An artifact ships at most one CDS archive (the first is returned). See
 // https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
-func (m Manifest) CDSLayer() (Descriptor, bool) {
+func (m Manifest) CDSLayer() (Descriptor, bool) { return m.layerOf(CDSLayerMediaType) }
+
+// AOTLayer returns the descriptor of the optional JDK AOT cache layer and true
+// when present, or a zero descriptor and false otherwise.
+func (m Manifest) AOTLayer() (Descriptor, bool) { return m.layerOf(AOTLayerMediaType) }
+
+func (m Manifest) layerOf(mediaType string) (Descriptor, bool) {
 	for _, l := range m.Layers {
-		if l.MediaType == CDSLayerMediaType {
+		if l.MediaType == mediaType {
 			return l, true
 		}
 	}

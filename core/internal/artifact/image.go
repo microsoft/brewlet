@@ -76,7 +76,7 @@ const (
 
 // Runnable-image layer roles (values of LayerRoleAnnotation).
 const (
-	LayerRoleApp        = "app"        // tar of the primary JAR (+ optional CDS archive), flat
+	LayerRoleApp        = "app"        // tar of the primary JAR (+ optional CDS archive or AOT cache), flat
 	LayerRoleClasspath  = "classpath"  // tar of dependency JARs, unpacked to /app/lib
 	LayerRoleModulepath = "modulepath" // tar of library module JARs, unpacked to /app/mods
 )
@@ -135,8 +135,8 @@ type RunnableImageOptions struct {
 //
 // The launch contract (cfg) is carried verbatim on each platform manifest under
 // the brewlet.sh/jvm-config annotation; the shim reads it from there instead of
-// a Brewlet config blob. Pass "" for cdsArchivePath when the app ships no CDS
-// archive. See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md.
+// a Brewlet config blob. cdsArchivePath is the shipped startup archive (CDS .jsa or AOT cache); pass "" when the app ships none.
+// See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md.
 func (s Store) PushRunnableImage(ref string, cfg JVMConfig, jarPath string, classpathTars, modulepathTars []string, cdsArchivePath string) (Descriptor, error) {
 	return s.PushRunnableImageWithOptions(ref, cfg, jarPath, classpathTars, modulepathTars, cdsArchivePath, RunnableImageOptions{})
 }
@@ -145,7 +145,7 @@ func (s Store) PushRunnableImageWithOptions(ref string, cfg JVMConfig, jarPath s
 	if err := cfg.Validate(); err != nil {
 		return Descriptor{}, fmt.Errorf("invalid launch config: %w", err)
 	}
-	if err := validateCDSPairing(cfg, cdsArchivePath); err != nil {
+	if err := validateStartupArchivePairing(cfg, cdsArchivePath); err != nil {
 		return Descriptor{}, err
 	}
 
@@ -403,7 +403,7 @@ type tarEntry struct {
 }
 
 // appLayerFiles gathers the flat files the app layer tar carries: the primary
-// JAR (named MainJarName(cfg)) and, when shipped, the CDS archive.
+// JAR (named MainJarName(cfg)) and, when shipped, the CDS archive or AOT cache.
 func appLayerFiles(cfg JVMConfig, jarPath, cdsArchivePath string) ([]tarEntry, error) {
 	jarName, err := MainJarName(cfg)
 	if err != nil {
@@ -417,11 +417,11 @@ func appLayerFiles(cfg JVMConfig, jarPath, cdsArchivePath string) ([]tarEntry, e
 	if cdsArchivePath != "" {
 		cdsBytes, err := os.ReadFile(cdsArchivePath)
 		if err != nil {
-			return nil, fmt.Errorf("read cds archive %q: %w", cdsArchivePath, err)
+			return nil, fmt.Errorf("read startup archive %q: %w", cdsArchivePath, err)
 		}
 		name := filepath.Base(cdsArchivePath)
-		if cfg.CDS != nil && cfg.CDS.Archive != "" {
-			name = cfg.CDS.Archive
+		if n, _, ok := cfg.StartupArchive(); ok && n != "" {
+			name = n
 		}
 		files = append(files, tarEntry{name: name, content: cdsBytes})
 	}
