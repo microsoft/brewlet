@@ -249,6 +249,9 @@ profile is deleted or Brewlet is uninstalled, the pool's nodes stay tainted;
 delete the pool or remove its Brewlet labels and initialization taint. AKS
 reapplies the initialization taint when a node is reimaged, and the provisioner
 removes it again once the runtime is ready.
+Cluster Autoscaler scale-in and node-image upgrades remove claimed nodes before
+Brewlet can clean them, so the profile reports `RetirementPending` and its
+deletion waits for [retirement evidence](#scale-in-consolidation-and-replacement).
 
 On EKS, add synthetic node-template labels to the backing Auto Scaling group:
 
