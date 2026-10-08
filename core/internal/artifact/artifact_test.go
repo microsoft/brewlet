@@ -564,3 +564,51 @@ func TestLauncherNameRejectsUnsafeRequests(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateAOT(t *testing.T) {
+	base := func(aot *AOT, cds *CDS) JVMConfig {
+		return JVMConfig{SchemaVersion: 1, MainJar: "app.jar", Entry: Entry{Mode: "jar"}, AOT: aot, CDS: cds}
+	}
+	if err := base(&AOT{Cache: "app.aot"}, nil).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, cfg := range map[string]JVMConfig{
+		"empty":     base(&AOT{}, nil),
+		"traversal": base(&AOT{Cache: "../x.aot"}, nil),
+		"with cds":  base(&AOT{Cache: "app.aot"}, &CDS{Archive: "app.jsa"}),
+	} {
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s: want error", name)
+		}
+	}
+}
+
+func TestStartupArchive(t *testing.T) {
+	cases := []struct {
+		name     string
+		cfg      JVMConfig
+		wantName string
+		wantMT   string
+		wantOK   bool
+	}{
+		{"cds", JVMConfig{CDS: &CDS{Archive: "app.jsa"}}, "app.jsa", CDSLayerMediaType, true},
+		{"aot", JVMConfig{AOT: &AOT{Cache: "app.aot"}}, "app.aot", AOTLayerMediaType, true},
+		{"neither", JVMConfig{}, "", "", false},
+	}
+	for _, tc := range cases {
+		n, mt, ok := tc.cfg.StartupArchive()
+		if n != tc.wantName || mt != tc.wantMT || ok != tc.wantOK {
+			t.Errorf("%s: got (%q,%q,%v)", tc.name, n, mt, ok)
+		}
+	}
+}
+
+func TestDecodeConfigAcceptsAOT(t *testing.T) {
+	c, err := DecodeConfig([]byte(`{"schemaVersion":1,"aot":{"cache":"app.aot"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.AOT == nil || c.AOT.Cache != "app.aot" {
+		t.Fatalf("AOT = %+v", c.AOT)
+	}
+}

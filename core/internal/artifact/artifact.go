@@ -39,6 +39,11 @@ const (
 	// speed startup. It is best-effort seed data: a build/version/classpath
 	// mismatch falls back to base CDS rather than failing. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	CDSLayerMediaType = "application/vnd.brewlet.cds.layer.v1+jsa"
+	// AOTLayerMediaType marks an optional layer carrying a single JDK AOT cache
+	// file that the shim bind-mounts read-only at /app/<cache>; launch then adds
+	// `-XX:AOTCache=…` (never -XX:AOTMode, so the default `auto` falls back
+	// safely on a mismatch). It requires JDK 24+ to consume and 25+ to train.
+	AOTLayerMediaType = "application/vnd.brewlet.aot.layer.v1+aot"
 
 	ociManifestMediaType = "application/vnd.oci.image.manifest.v1+json"
 	refNameAnnotation    = "org.opencontainers.image.ref.name"
@@ -109,6 +114,35 @@ type JVMConfig struct {
 	// and `-Xshare:auto` makes any mismatch fall back to base CDS instead of
 	// failing. Leave it UNSET for the common case. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	CDS *CDS `json:"cds,omitempty"`
+
+	// AOT is the optional JDK AOT cache hint. When set, the shim mounts the cache
+	// read-only at /app/<cache> and launch adds `-XX:AOTCache=/app/<cache>`. Like
+	// CDS it is a best-effort startup accelerator bound to the exact JDK build +
+	// classpath, never a correctness constraint. It is mutually exclusive with
+	// CDS. Leave it UNSET for the common case.
+	AOT *AOT `json:"aot,omitempty"`
+}
+
+// AOT carries the optional JDK AOT cache hint (see JVMConfig.AOT).
+type AOT struct {
+	// Cache is the bare filename the AOT cache is materialized as under /app
+	// (e.g. "app.aot"). It must be a plain filename — no path separators, no
+	// "..", no wildcard — since the cache always lives at the /app top level
+	// beside the primary JAR.
+	Cache string `json:"cache"`
+}
+
+// StartupArchive returns the shipped startup-archive file name and its layer
+// media type: the CDS archive or the AOT cache, whichever is set. ok is false
+// when neither is. Validate guarantees at most one is set.
+func (c JVMConfig) StartupArchive() (name, mediaType string, ok bool) {
+	switch {
+	case c.CDS != nil:
+		return c.CDS.Archive, CDSLayerMediaType, true
+	case c.AOT != nil:
+		return c.AOT.Cache, AOTLayerMediaType, true
+	}
+	return "", "", false
 }
 
 // CDS carries the optional Application Class-Data Sharing archive hint (see
@@ -381,6 +415,17 @@ func (c JVMConfig) Validate() error {
 		}
 		if _, ok := KnownCDSModes[c.CDS.Mode]; c.CDS.Mode != "" && !ok {
 			return fmt.Errorf("cds.mode %q is not recognized (expected \"dynamic\", \"static\", or omitted)", c.CDS.Mode)
+		}
+	}
+	if c.AOT != nil {
+		if c.CDS != nil {
+			return fmt.Errorf("cds and aot are mutually exclusive")
+		}
+		if strings.TrimSpace(c.AOT.Cache) == "" {
+			return fmt.Errorf("aot.cache is required (e.g. \"app.aot\")")
+		}
+		if err := validateBareFilename("aot.cache", c.AOT.Cache); err != nil {
+			return fmt.Errorf("%w: the cache is mounted at /app/<cache>", err)
 		}
 	}
 	return nil
