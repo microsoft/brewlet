@@ -67,6 +67,7 @@ type profileSummary struct {
 	Reason             string          `json:"reason"`
 	AssignedNodes      int             `json:"assignedNodes"`
 	ReadyNodes         int             `json:"readyNodes"`
+	PendingRetirements int             `json:"pendingRetirements"`
 	ManagedBy          string          `json:"managedBy,omitempty"`
 	Spec               json.RawMessage `json:"spec"`
 	Conditions         []condition     `json:"conditions"`
@@ -78,8 +79,8 @@ func summarizeProfile(obj object) profileSummary {
 		Name: obj.Metadata.Name, UID: obj.Metadata.UID, Generation: obj.Metadata.Generation,
 		ObservedGeneration: obj.Status.ObservedGeneration,
 		Ready:              ready, Reason: reason, AssignedNodes: obj.Status.AssignedNodes,
-		ReadyNodes: obj.Status.ReadyNodes, ManagedBy: managedBy(obj),
-		Spec: obj.Spec, Conditions: obj.Status.Conditions,
+		ReadyNodes: obj.Status.ReadyNodes, PendingRetirements: len(obj.Status.DetachedRetirements),
+		ManagedBy: managedBy(obj), Spec: obj.Spec, Conditions: obj.Status.Conditions,
 	}
 }
 
@@ -101,7 +102,7 @@ func (c *client) profiles() error {
 
 func (c *client) profileTable(rows []profileSummary) error {
 	w := tabwriter.NewWriter(c.out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "PROFILE\tPOOLS\tDESIRED JDKS\tDESIRED LAUNCHERS\tREADY\tNODES\tREASON")
+	fmt.Fprintln(w, "PROFILE\tPOOLS\tDESIRED JDKS\tDESIRED LAUNCHERS\tREADY\tNODES\tPENDING RETIREMENTS\tREASON")
 	for _, row := range rows {
 		var spec struct {
 			NodePool struct {
@@ -124,9 +125,9 @@ func (c *client) profileTable(rows []profileSummary) error {
 		if pools == "" {
 			pools = "(all eligible nodes)"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t%d/%d\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t%d/%d\t%d\t%s\n",
 			row.Name, pools, strings.Join(jdks, ","), strings.Join(launchers, ","),
-			row.Ready, row.ReadyNodes, row.AssignedNodes, row.Reason)
+			row.Ready, row.ReadyNodes, row.AssignedNodes, row.PendingRetirements, row.Reason)
 	}
 	return w.Flush()
 }

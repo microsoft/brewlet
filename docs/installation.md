@@ -396,6 +396,8 @@ Only after a read-back checkpoint does it remove that target from active
 membership. Healthy targets and distinct replacement hosts then provision
 without an attestation. `RetirementPending=True` exposes unresolved history
 independently of `Ready`; assigned/ready counts describe active targets only.
+`brewlet k8s profile list` (`PENDING RETIREMENTS`) and the
+`brewlet_nodeprofile_detached_retirements` metric report the unresolved count.
 Repeated losses retain separate obligations with their original policy and
 generation. This is not abandonment or evidence of successful host cleanup.
 

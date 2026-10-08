@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -1033,6 +1034,30 @@ func TestProfileTableIncludesDesiredInventory(t *testing.T) {
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProfileListReportsPendingRetirements(t *testing.T) {
+	profile := objectJSON(t, fixtureProfile())
+	profile.Status.DetachedRetirements = []nodeRetirement{{Phase: "Missing"}, {Phase: "Missing"}}
+	for _, output := range []string{"table", "json"} {
+		out, _, err := runTest(t, []string{"profile", "list", "--output", output},
+			func(context.Context, string, []string, []byte) ([]byte, error) {
+				return listJSON(t, profile), nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := `"pendingRetirements": 2`
+		if output == "table" {
+			want = "PENDING RETIREMENTS"
+			if !regexp.MustCompile(`true\s+1/1\s+2\s+AllNodesProvisioned`).MatchString(out) {
+				t.Fatalf("profile table lacks pending retirement count: %s", out)
+			}
+		}
+		if !strings.Contains(out, want) {
+			t.Fatalf("profile %s output lacks %q: %s", output, want, out)
+		}
 	}
 }
 

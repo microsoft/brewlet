@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
-	"brewlet-operator/internal/brewlet"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -161,61 +160,97 @@ func sameHost(target nodev1alpha1.NodeTarget, node *corev1.Node) bool {
 		(target.SystemUUID != "" && strings.EqualFold(target.SystemUUID, node.Status.NodeInfo.SystemUUID))
 }
 
+type retiredHost struct {
+	target nodev1alpha1.NodeTarget
+	source string
+}
+
 // Include resolved, independent evidence so deleting a profile cannot make a
 // previously retired host eligible for silent adoption by a new profile.
-func (r *NodeProfileReconciler) retiredHostConflict(ctx context.Context, node *corev1.Node) error {
+func (r *NodeProfileReconciler) retiredHosts(ctx context.Context) ([]retiredHost, error) {
 	var profiles nodev1alpha1.NodeProfileList
 	if err := r.apiReader().List(ctx, &profiles); err != nil {
-		return err
+		return nil, err
 	}
+	var hosts []retiredHost
 	for _, p := range profiles.Items {
 		for _, record := range p.Status.DetachedRetirements {
 			for _, target := range record.Targets {
-				if sameHost(target, node) {
-					return &retiredHostError{fmt.Sprintf("node %s conflicts with detached host %s (%s) of profile %s (%s); restore and resolve the original cleanup obligation before host reuse", node.Name, target.Name, target.UID, p.Name, p.UID)}
-				}
+				hosts = append(hosts, retiredHost{target, fmt.Sprintf("detached host %s (%s) of profile %s (%s); restore and resolve the original cleanup obligation before host reuse", target.Name, target.UID, p.Name, p.UID)})
 			}
 		}
 	}
 	var evidence nodev1alpha1.NodeRetirementEvidenceList
 	if err := r.apiReader().List(ctx, &evidence); err != nil {
-		return err
+		return nil, err
 	}
 	for _, e := range evidence.Items {
 		if e.Status.Phase != nodev1alpha1.EvidenceAccepted && e.Status.Phase != nodev1alpha1.EvidenceResolved {
 			continue
 		}
 		target := nodev1alpha1.NodeTarget{UID: e.Spec.NodeUID, ProviderID: e.Spec.ProviderID, SystemUUID: e.Spec.SystemUUID}
-		if sameHost(target, node) {
-			return &retiredHostError{fmt.Sprintf("node %s conflicts with retained retirement evidence %s (%s); refusing host reuse", node.Name, e.Name, e.UID)}
+		hosts = append(hosts, retiredHost{target, fmt.Sprintf("retained retirement evidence %s (%s); refusing host reuse", e.Name, e.UID)})
+	}
+	return hosts, nil
+}
+
+func retiredHostMatch(hosts []retiredHost, node *corev1.Node) error {
+	for _, host := range hosts {
+		if sameHost(host.target, node) {
+			return &retiredHostError{fmt.Sprintf("node %s conflicts with %s", node.Name, host.source)}
 		}
 	}
 	return nil
 }
 
-func (r *NodeProfileReconciler) excludeRetiredHosts(ctx context.Context, p *nodev1alpha1.NodeProfile, wanted []nodev1alpha1.NodeTarget) ([]nodev1alpha1.NodeTarget, error) {
+func (r *NodeProfileReconciler) retiredHostConflict(ctx context.Context, node *corev1.Node) error {
+	hosts, err := r.retiredHosts(ctx)
+	if err != nil {
+		return err
+	}
+	return retiredHostMatch(hosts, node)
+}
+
+// excludeRetiredHosts removes known retired hosts from the wanted set and
+// withdraws Brewlet runtime advertisements from every Node matching a retired
+// identity, whatever its ownership metadata or pool membership. Withdrawal
+// only removes scheduling eligibility; ownership metadata is retained for
+// diagnosis, and no host cleanup is attempted or recorded.
+func (r *NodeProfileReconciler) excludeRetiredHosts(ctx context.Context, p *nodev1alpha1.NodeProfile, wanted []nodev1alpha1.NodeTarget, nodes []corev1.Node) ([]nodev1alpha1.NodeTarget, error) {
+	hosts, err := r.retiredHosts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(hosts) == 0 {
+		return wanted, nil
+	}
+	for i := range nodes {
+		conflict := retiredHostMatch(hosts, &nodes[i])
+		if conflict == nil {
+			continue
+		}
+		node := nodes[i].DeepCopy()
+		base := node.DeepCopy()
+		removeNodeAdvertisements(node)
+		if reflect.DeepEqual(base.Labels, node.Labels) && reflect.DeepEqual(base.Annotations, node.Annotations) {
+			continue
+		}
+		if err := r.Patch(ctx, node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
+		r.Recorder.Eventf(p, corev1.EventTypeWarning, nodev1alpha1.ReasonOwnershipConflict, "%s; withdrew Brewlet runtime advertisements", conflict)
+	}
 	var eligible []nodev1alpha1.NodeTarget
 	for _, target := range wanted {
 		var node corev1.Node
 		if err := r.apiReader().Get(ctx, types.NamespacedName{Name: target.Name}, &node); err != nil {
 			return nil, err
 		}
-		if err := r.retiredHostConflict(ctx, &node); err != nil {
-			// API failures must not masquerade as a known host conflict.
-			var conflict *retiredHostError
-			if !errors.As(err, &conflict) {
-				return nil, err
-			}
+		if err := retiredHostMatch(hosts, &node); err != nil {
 			r.Recorder.Eventf(p, corev1.EventTypeWarning, nodev1alpha1.ReasonOwnershipConflict, "%s", err)
-			if node.Labels[brewlet.LabelNodeOwner] == string(p.UID) &&
-				node.Annotations[brewlet.AnnotationNodeOwner] == p.Name &&
-				node.Annotations[brewlet.AnnotationProfile] == p.Name {
-				base := node.DeepCopy()
-				removeNodeAdvertisements(&node)
-				if err := r.Patch(ctx, &node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
-					return nil, err
-				}
-			}
 			continue
 		}
 		eligible = append(eligible, target)

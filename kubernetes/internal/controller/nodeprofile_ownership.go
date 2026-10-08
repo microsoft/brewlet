@@ -202,7 +202,7 @@ func (r *NodeProfileReconciler) reconcileTargets(ctx context.Context, profile *n
 		}
 	}
 	wanted := desiredTargets(profile, profiles, nodes)
-	wanted, err := r.excludeRetiredHosts(ctx, profile, wanted)
+	wanted, err := r.excludeRetiredHosts(ctx, profile, wanted, nodes)
 	if err != nil {
 		return true, ctrl.Result{}, err
 	}

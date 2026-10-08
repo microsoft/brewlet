@@ -238,6 +238,7 @@ and the [activation checks](installation.md#activating-runnable-stage-gc).
 |---|---|---|---|
 | `brewlet_admission_requests_total` | Counter | `outcome`, `reason` | Brewlet pod admission outcomes: `admitted`, `denied`, `error`, or `fail_open`. Reasons are bounded decision/error categories such as `none`, `decode`, `encode`, `fleet_unavailable`, or a compatibility denial reason. Non-Brewlet pods are not counted. |
 | `brewlet_nodeprofile_nodes` | Gauge | `profile`, `state` | Current node counts for each profile, with `state="assigned"` or `state="ready"`. |
+| `brewlet_nodeprofile_detached_retirements` | Gauge | `profile` | Unresolved missing-host cleanup obligations in `status.detachedRetirements`. A nonzero value can coexist with `Ready=True`; profile deletion and uninstall stay blocked until it reaches `0`. |
 | `brewlet_nodeprofile_condition` | Gauge | `profile`, `reason`, `status` | Current NodeProfile readiness condition. The active condition series has value `1`; previous reason series for that profile are removed. |
 | `brewlet_node_provision_transitions_total` | Counter | `state` | Node provisioning state transitions grouped by bounded state. |
 

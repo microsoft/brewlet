@@ -157,7 +157,7 @@ func TestDetachedRetirementsKeepSeparatePoliciesAndBlockDeletion(t *testing.T) {
 }
 
 func TestDetachedHostIdentityConflictsDoNotStopDistinctProvisioning(t *testing.T) {
-	for _, identity := range []string{"providerID", "systemUUID", "same-name-providerID", "returning-advertisements"} {
+	for _, identity := range []string{"providerID", "systemUUID", "same-name-providerID", "returning-advertisements", "unowned-advertisements", "unselected-foreign-advertisements"} {
 		t.Run(identity, func(t *testing.T) {
 			f := newCleanupFixture(t, 1)
 			p := getProfile(t, f.ctx, f.client, f.profile.Name)
@@ -174,6 +174,9 @@ func TestDetachedHostIdentityConflictsDoNotStopDistinctProvisioning(t *testing.T
 				name = target.Name
 			}
 			node := corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{"agentpool": p.Spec.NodePool.Names[0]}}}
+			if identity == "unselected-foreign-advertisements" {
+				node.Labels = map[string]string{"agentpool": "unselected-" + p.Name}
+			}
 			if identity != "systemUUID" {
 				node.Spec.ProviderID = target.ProviderID
 			}
@@ -181,13 +184,23 @@ func TestDetachedHostIdentityConflictsDoNotStopDistinctProvisioning(t *testing.T
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = f.client.Delete(context.Background(), &node) })
-			if identity == "returning-advertisements" {
+			switch identity {
+			case "returning-advertisements":
 				node.Labels[brewlet.LabelNodeOwner] = string(p.UID)
 				node.Labels[brewlet.LabelNodeIdentity] = string(target.UID)
 				node.Labels[brewlet.LabelRuntimeReady] = brewlet.ValueReady
 				node.Annotations = map[string]string{
 					brewlet.AnnotationNodeOwner: p.Name, brewlet.AnnotationProfile: p.Name,
 				}
+			case "unowned-advertisements":
+				node.Labels[brewlet.LabelRuntimeReady] = brewlet.ValueReady
+				node.Labels[brewlet.LabelLauncherPrefix+"jaz"] = "true"
+			case "unselected-foreign-advertisements":
+				node.Labels[brewlet.LabelNodeOwner] = "foreign-profile-uid"
+				node.Labels[brewlet.LabelRuntimeReady] = brewlet.ValueReady
+				node.Annotations = map[string]string{brewlet.AnnotationNodeOwner: "foreign", brewlet.AnnotationProfile: "foreign"}
+			}
+			if strings.HasSuffix(identity, "advertisements") {
 				if err := f.client.Update(f.ctx, &node); err != nil {
 					t.Fatal(err)
 				}
@@ -207,12 +220,24 @@ func TestDetachedHostIdentityConflictsDoNotStopDistinctProvisioning(t *testing.T
 			if err := f.client.Get(f.ctx, client.ObjectKeyFromObject(&node), &node); err != nil {
 				t.Fatal(err)
 			}
-			if identity == "returning-advertisements" {
+			switch identity {
+			case "returning-advertisements":
 				if node.Labels[brewlet.LabelRuntimeReady] != "" || node.Labels[brewlet.LabelNodeIdentity] != string(target.UID) {
 					t.Fatal("returning host kept stale readiness or lost original ownership")
 				}
-			} else if node.Labels[brewlet.LabelNodeOwner] != "" {
-				t.Fatal("same physical host was silently claimed as fresh")
+			case "unowned-advertisements":
+				if node.Labels[brewlet.LabelRuntimeReady] != "" || node.Labels[brewlet.LabelLauncherPrefix+"jaz"] != "" || node.Labels[brewlet.LabelNodeOwner] != "" {
+					t.Fatal("unowned returning host kept stale advertisements or was claimed")
+				}
+			case "unselected-foreign-advertisements":
+				if node.Labels[brewlet.LabelRuntimeReady] != "" || node.Labels[brewlet.LabelNodeOwner] != "foreign-profile-uid" ||
+					node.Annotations[brewlet.AnnotationNodeOwner] != "foreign" {
+					t.Fatal("unselected returning host kept stale readiness or lost foreign ownership metadata")
+				}
+			default:
+				if node.Labels[brewlet.LabelNodeOwner] != "" {
+					t.Fatal("same physical host was silently claimed as fresh")
+				}
 			}
 			e := retirementEvidence(f, target)
 			submitEvidence(t, f, e)
