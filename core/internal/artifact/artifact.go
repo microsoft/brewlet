@@ -92,8 +92,8 @@ type JVMConfig struct {
 	// netty-tcnative, RocksDB, some crypto libs) that only run on the arch(es)
 	// whose natives were bundled. Each entry is a GOARCH / kubernetes.io/arch
 	// token ("amd64" or "arm64"). When set, the admission webhook steers the pod
-	// onto matching nodes (kubernetes.io/arch In […]) and denies with
-	// NoCompatibleArch when no ready node of a required arch exists.
+	// onto matching nodes (kubernetes.io/arch In […]); it never denies on arch,
+	// so a pod may wait Pending for an autoscaled node of that arch.
 	//
 	// Leave it UNSET for the common case: a pure-bytecode JAR is
 	// architecture-neutral and runs unchanged on any provisioned arch, so an

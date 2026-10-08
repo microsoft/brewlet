@@ -133,6 +133,9 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["node.brewlet.sh"]
+    resources: ["nodeprofiles"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

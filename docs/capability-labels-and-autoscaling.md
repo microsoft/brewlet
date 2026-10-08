@@ -27,8 +27,8 @@ Related: [Installation](installation.md) · [Configuration](configuration.md) ·
    and only then publishes `brewlet.sh/runtime=ready` and the corresponding
    capability labels.
 4. For an explicit workload request, admission verifies the current ready fleet
-   and injects required affinity for the requested JDK, launcher, architecture,
-   and AppCDS policy.
+   plus the inventory declared by valid `NodeProfile`s, and injects required
+   affinity for the requested JDK, launcher, architecture, and AppCDS policy.
 
 For example, this profile prepares an EKS managed node group:
 
@@ -113,13 +113,29 @@ required node affinity, Brewlet adds its requirements to every existing selector
 term so the author's alternatives remain intact while every alternative still
 requires the requested Brewlet capabilities.
 
-Admission validates explicit requests against the **current ready fleet** before
-the scheduler sees the pod. A regeneration request with no otherwise-compatible
-authorized node is denied with `AppCDSRegenerationDisabled`. The label is only a
-scheduling hint: the shim independently requires the root-owned
-`/opt/brewlet/policy/appcds-regeneration-enabled` sentinel. Keep at least one
-compatible node ready; current Brewlet admission cannot use a request to wake a
-completely zero-sized capability pool.
+Admission validates explicit requests against the **ready fleet plus every valid
+`NodeProfile`** before the scheduler sees the pod. One candidate (a ready node or
+a profile) must provide the whole request; capabilities are never combined
+across candidates. A request nothing provides is denied (`NoCompatibleJDK`,
+`NoCompatibleLauncher`); a regeneration request with no otherwise-compatible
+authorized node or profile is denied with `AppCDSRegenerationDisabled`.
+
+When only a profile provides the request, such as a pool scaled to zero, the pod
+is admitted with an admission warning and stays `Pending` until the autoscaler
+adds a node and the profile provisions it:
+
+```text
+Warning: brewlet: no ready node currently provides jdk=temurin-21; the pod will
+stay Pending until matching capacity is provisioned (declared by NodeProfile "jdk21")
+```
+
+Architecture is never a denial. Profiles do not declare architecture (it comes
+from the VM size), so a `brewlet.sh/arch` request without a ready node of that
+architecture is admitted with the same warning and resolved by
+`kubernetes.io/arch` affinity.
+
+The AppCDS label is only a scheduling hint: the shim independently requires the
+root-owned `/opt/brewlet/policy/appcds-regeneration-enabled` sentinel.
 
 ---
 
@@ -128,6 +144,45 @@ completely zero-sized capability pool.
 Cluster Autoscaler simulates whether a future node from a group could schedule a
 pending pod. Its node-group template must therefore advertise the same runtime,
 JDK, launcher, and AppCDS labels that the group's `NodeProfile` will install.
+
+On AKS, set the node-template labels as node pool tags, which propagate to the
+pool's VMSS. The Azure provider maps `_` in the label part of the tag name to
+`/`:
+
+```bash
+P=k8s.io_cluster-autoscaler_node-template_label_brewlet.sh
+for pool in javax64 javaarm; do
+  az aks nodepool update -g "$RG" --cluster-name "$CLUSTER" -n "$pool" \
+    --enable-cluster-autoscaler --min-count 0 --max-count 5 \
+    --tags "${P}_runtime=ready" "${P}_jdk.temurin-21=true" \
+           "${P}_jdk-feature.21=true" "${P}_launcher.java=true"
+done
+```
+
+A single profile can then cover both pools, and workloads pick an architecture
+with `spec.arch` instead of naming a pool:
+
+```yaml
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata:
+  name: jdk21
+spec:
+  nodePool:
+    key: agentpool
+    names: [javax64, javaarm]
+  jdks:
+    - distribution: temurin
+      feature: 21
+      source:
+        image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
+        javaHome: /opt/java/openjdk
+```
+
+`kubernetes.io/arch` is derived from the VM size, so no arch tag is needed. Do
+**not** use `--labels` for Brewlet labels: AKS applies them to real nodes at
+registration, before the runtime is installed. Confirm that your Cluster
+Autoscaler honors VMSS template tags before setting `--min-count 0`.
 
 On EKS, add synthetic node-template labels to the backing Auto Scaling group:
 
@@ -235,9 +290,9 @@ reject regeneration if only the label exists.
 
 | Provisioning model | Autoscaler configuration | Scale-from-zero for capability requests |
 |---|---|---|
-| Cluster Autoscaler + `NodeProfile` | Synthetic node-template labels matching the profile; provisioner publishes the real labels | No; keep at least one compatible ready node for admission |
+| Cluster Autoscaler + `NodeProfile` | Synthetic node-template labels matching the profile; provisioner publishes the real labels | Yes; admission counts the profile's declared inventory |
 | Karpenter + post-registration `NodeProfile` | Select the Karpenter pool in `NodeProfile.spec.nodePool`; do not template Brewlet readiness labels | No; suitable for nodes created for other demand |
-| Karpenter + pre-baked or pre-registration Brewlet bootstrap | Template the complete labels only after the image/bootstrap makes them true | Not end-to-end with a zero-sized pool while current admission requires a compatible ready node |
+| Karpenter + pre-baked or pre-registration Brewlet bootstrap | Template the complete labels only after the image/bootstrap makes them true | Yes, when a valid `NodeProfile` declares the same inventory (admission needs a ready node or profile) |
 
 ## Scale-in, consolidation, and replacement
 

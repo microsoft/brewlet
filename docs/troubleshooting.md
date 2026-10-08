@@ -301,6 +301,26 @@ request to use the vanilla `java` launcher (omit the annotation). See
 
 ---
 
+## Pod is Pending after a "no ready node currently provides" warning
+
+**Symptom:** creating the pod printed
+`Warning: brewlet: no ready node currently provides ...`, and the pod stays
+`Pending` with a `FailedScheduling` event.
+
+Admission accepted the request because a valid `NodeProfile` declares it (or,
+for `brewlet.sh/arch`, because architecture never denies), but no ready node
+offers it yet. The pod waits for capacity:
+
+- **Autoscaled pool at zero:** check that Cluster Autoscaler is enabled for the
+  pool and its node-template labels match the profile (see
+  [Capability labels and autoscaling](capability-labels-and-autoscaling.md#cluster-autoscaler)).
+- **Fixed-size pool:** add a node to a pool the named profile targets, or check
+  the profile's `Ready` condition and provisioner logs.
+- **Architecture:** no pool provides that `kubernetes.io/arch`; add one or drop
+  `spec.arch` if the JAR is architecture-neutral.
+
+---
+
 ## ImagePull-style failure
 
 **Symptom:** the pod can't fetch the OCI image.

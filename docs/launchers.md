@@ -154,7 +154,7 @@ spec:
 ```
 
 The admission webhook rejects a request with `NoCompatibleLauncher` when no
-ready node advertises that launcher. Installed nodes expose:
+ready node advertises that launcher and no valid NodeProfile declares it. Installed nodes expose:
 
 ```bash
 kubectl get node node-1 \

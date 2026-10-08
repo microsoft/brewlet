@@ -142,14 +142,21 @@ to every existing node selector term. Expressions within a term remain ANDed
 and terms remain ORed, so Brewlet preserves the pod author's existing selection
 logic while requiring the requested runtime capabilities in every alternative.
 
-Admission first verifies explicit requests against the current ready fleet. If
-no ready node jointly advertises the requested JDK, launcher, architecture, and
-AppCDS authorization, the pod is denied with `NoCompatibleJDK`,
-`NoCompatibleLauncher`, `NoCompatibleArch`, or
-`AppCDSRegenerationDisabled`. Consequently, a dynamically provisioned capability pool
-must retain at least one ready node advertising the requested capability;
-current Brewlet admission does not support waking a completely zero-sized
-capability fleet.
+Admission verifies explicit requests against the runtime inventory: the
+current ready fleet plus every eligible `NodeProfile` (not deleting, valid under
+the operator's admission policy, and free of pool conflicts). A single
+candidate, a ready node or a profile, must jointly provide the requested JDK,
+launcher and AppCDS authorization; otherwise the pod is denied with
+`NoCompatibleJDK`, `NoCompatibleLauncher`, or `AppCDSRegenerationDisabled`.
+
+When only a `NodeProfile` satisfies the request, for example a pool that is
+currently scaled to zero, the pod is admitted with the affinity above plus an
+admission warning, and stays `Pending` until an autoscaler adds a node that the
+profile provisions. Architecture is not checked against profiles (it comes from
+the VM size, not the profile) and never denies: a request for an architecture
+with no ready node is admitted with a warning and resolved by
+`kubernetes.io/arch` affinity. `NoCompatibleArch` is reserved and no longer
+emitted.
 
 The AppCDS label is a scheduling hint, not the authorization boundary. The shim
 requires `/opt/brewlet/policy/appcds-regeneration-enabled` independently, so a
@@ -160,10 +167,40 @@ stale or forged label cannot grant cache-write access.
 ### Cluster Autoscaler with a NodeProfile-managed node group
 
 Cluster Autoscaler must see the labels that a future node will eventually
-publish when it simulates scheduling. Keep at least one node in the group for
-Brewlet's admission check, and configure the group template with synthetic
-labels for `runtime=ready` and every capability installed by the matching
-`NodeProfile`.
+publish when it simulates scheduling. Configure the group template with
+synthetic labels for `runtime=ready` and every capability installed by the
+matching `NodeProfile`. Because admission counts the profile's declared
+inventory, the group may scale to zero.
+
+#### AKS
+
+For an AKS node pool, Cluster Autoscaler's Azure provider reads node-template
+labels from VMSS tags named `k8s.io_cluster-autoscaler_node-template_label_<key>`,
+where `_` in `<key>` stands for `/` (and `~2` for a literal `_`). Node pool tags
+propagate to the pool's VMSS:
+
+```bash
+P=k8s.io_cluster-autoscaler_node-template_label_brewlet.sh
+az aks nodepool update -g "$RG" --cluster-name "$CLUSTER" -n javax64 \
+  --enable-cluster-autoscaler --min-count 0 --max-count 5 \
+  --tags \
+    "${P}_runtime=ready" \
+    "${P}_jdk.temurin-21=true" \
+    "${P}_jdk-feature.21=true" \
+    "${P}_launcher.java=true" \
+    "${P}_launcher.jaz=true" \
+    "${P}_appcds-regeneration=true"
+```
+
+`kubernetes.io/arch` comes from the VM size, so arch-constrained workloads need
+no extra tag; a profile can target `amd64` and `arm64` pools together
+(`nodePool: {key: agentpool, names: [javax64, javaarm]}`) and each pool gets the
+same tags. Never use `az aks nodepool add/update --labels` for Brewlet labels:
+those label real nodes at registration, before the provisioner installs the
+runtime. Verify that your Cluster Autoscaler build honors VMSS template tags
+before relying on scale-from-zero; otherwise keep `--min-count 1`.
+
+#### EKS
 
 For an EKS managed node group backed by Auto Scaling group `$ASG`, the Cluster
 Autoscaler tag convention is:
@@ -185,7 +222,7 @@ The EKS node joins with its normal
 places a provisioner pod on it, and only that provisioner publishes the real
 runtime and capability labels after installation succeeds.
 
-The template labels MUST exactly match the profile inventory. A template that
+On either provider, the template labels MUST exactly match the profile inventory. A template that
 advertises more capabilities than the profile installs can cause unnecessary
 scale-ups, although the Kubernetes scheduler still waits for the real labels
 before placing the workload.

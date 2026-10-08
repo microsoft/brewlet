@@ -169,8 +169,9 @@ const (
 	// artifact needs (those bundling JNI natives / arch-specific deps), as a
 	// comma-separated list of GOARCH / kubernetes.io/arch tokens (e.g. "amd64"
 	// or "amd64,arm64"). When set, the webhook steers scheduling onto matching
-	// nodes (kubernetes.io/arch In […]) and denies with NoCompatibleArch when no
-	// ready node of a required arch exists. When unset, the artifact is treated
+	// nodes (kubernetes.io/arch In […]); when no ready node of a required arch
+	// exists the pod is admitted with a warning (never denied), leaving the
+	// scheduler/autoscaler to resolve it. When unset, the artifact is treated
 	// as architecture-neutral (the common case) and no arch constraint applies.
 	AnnotationRequestedArch = "brewlet.sh/arch"
 
@@ -257,16 +258,17 @@ const (
 	// Degraded/EmptyPool (§14).
 	ReasonNodeUnmatched = "NodeUnmatched"
 
-	// ReasonNoCompatibleJDK — a brewlet pod requested a JDK no ready node
-	// provides; the admission webhook denies it (§14).
+	// ReasonNoCompatibleJDK — a brewlet pod requested a JDK no ready node or
+	// eligible NodeProfile provides; the admission webhook denies it (§14).
 	ReasonNoCompatibleJDK = "NoCompatibleJDK"
 	// ReasonNoCompatibleLauncher — a brewlet pod requested a launcher no ready
-	// node provides; the admission webhook denies it (§14).
+	// node or eligible NodeProfile provides; the admission webhook denies it (§14).
 	ReasonNoCompatibleLauncher = "NoCompatibleLauncher"
-	// ReasonNoCompatibleArch — a non-portable brewlet pod requested an
-	// architecture no ready node provides; the admission webhook denies it (§14).
+	// ReasonNoCompatibleArch — retained for telemetry/back-compat. Admission no
+	// longer emits it: an unavailable architecture is admitted with a warning
+	// and steered by kubernetes.io/arch affinity (§14).
 	ReasonNoCompatibleArch = "NoCompatibleArch"
 	// ReasonAppCDSRegenerationDisabled — a pod requested AppCDS regeneration but
-	// no otherwise-compatible ready node is policy-authorized.
+	// no otherwise-compatible ready node or eligible NodeProfile authorizes it.
 	ReasonAppCDSRegenerationDisabled = "AppCDSRegenerationDisabled"
 )

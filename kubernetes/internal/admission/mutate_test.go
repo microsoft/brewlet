@@ -33,7 +33,7 @@ func readyFleet() []NodeCapability {
 
 func TestMutatePod_NonBrewletUntouched(t *testing.T) {
 	pod := &corev1.Pod{Spec: corev1.PodSpec{Containers: []corev1.Container{{Image: "nginx"}}}}
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if res.Applies {
 		t.Fatal("non-brewlet pod must not be considered")
 	}
@@ -45,7 +45,7 @@ func TestMutatePod_NonBrewletUntouched(t *testing.T) {
 func TestMutatePod_StampsRefAndDigest(t *testing.T) {
 	pod := brewletPod("registry.example.com/demo/hello@sha256:"+
 		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil)
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if !res.Applies || res.DenyReason != "" {
 		t.Fatalf("expected clean apply, got %+v", res)
 	}
@@ -62,7 +62,7 @@ func TestMutatePod_TagRefNoDigest(t *testing.T) {
 	pod := brewletPod("registry.example.com/demo/hello:1.0.0", map[string]string{
 		brewlet.AnnotationArtifactDigest: "sha256:" + hex64(),
 	})
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if pod.Annotations[brewlet.AnnotationArtifactRef] != "registry.example.com/demo/hello:1.0.0" {
 		t.Fatalf("ref = %q", pod.Annotations[brewlet.AnnotationArtifactRef])
 	}
@@ -80,7 +80,7 @@ func TestMutatePod_OverwritesExistingIdentityHints(t *testing.T) {
 		brewlet.AnnotationArtifactRef:    "attacker.example.com/other@sha256:" + strings64("b"),
 		brewlet.AnnotationArtifactDigest: "sha256:" + strings64("b"),
 	})
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if got := pod.Annotations[brewlet.AnnotationArtifactRef]; got != "registry.example.com/team/app@"+imageDigest {
 		t.Fatalf("artifact-ref = %q", got)
 	}
@@ -102,7 +102,7 @@ func TestMutatePod_ArtifactContainerOverride(t *testing.T) {
 		},
 	}}
 	pod.Annotations = map[string]string{"brewlet.sh/artifact-container": "app"}
-	MutatePod(pod, readyFleet())
+	MutatePod(pod, readyFleet(), nil)
 	if pod.Annotations[brewlet.AnnotationArtifactContainer] != "app" {
 		t.Fatalf("container = %q, want app", pod.Annotations[brewlet.AnnotationArtifactContainer])
 	}
@@ -115,7 +115,7 @@ func TestMutatePod_OverwritesInvalidArtifactContainer(t *testing.T) {
 	pod := brewletPod("the/jar:2", map[string]string{
 		brewlet.AnnotationArtifactContainer: "missing",
 	})
-	MutatePod(pod, readyFleet())
+	MutatePod(pod, readyFleet(), nil)
 	if got := pod.Annotations[brewlet.AnnotationArtifactContainer]; got != "app" {
 		t.Fatalf("container = %q, want app", got)
 	}
@@ -123,7 +123,7 @@ func TestMutatePod_OverwritesInvalidArtifactContainer(t *testing.T) {
 
 func TestMutatePod_NoRequestNoAffinity(t *testing.T) {
 	pod := brewletPod("demo/hello:1", nil)
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if res.DenyReason != "" {
 		t.Fatalf("unexpected deny: %+v", res)
 	}
@@ -134,7 +134,7 @@ func TestMutatePod_NoRequestNoAffinity(t *testing.T) {
 
 func TestMutatePod_InjectsFeatureAffinity(t *testing.T) {
 	pod := brewletPod("demo/hello:1", map[string]string{brewlet.AnnotationRequestedJDK: "21"})
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if res.DenyReason != "" {
 		t.Fatalf("unexpected deny: %+v", res)
 	}
@@ -150,7 +150,7 @@ func TestMutatePod_InjectsDistAndLauncherAffinity(t *testing.T) {
 		brewlet.AnnotationRequestedJDK:      "microsoft-25",
 		brewlet.AnnotationRequestedLauncher: "jaz",
 	})
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if res.DenyReason != "" {
 		t.Fatalf("unexpected deny: %+v", res)
 	}
@@ -177,7 +177,7 @@ func TestMutatePod_ANDsIntoExistingTerms(t *testing.T) {
 			},
 		},
 	}}
-	MutatePod(pod, readyFleet())
+	MutatePod(pod, readyFleet(), nil)
 	terms := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
 	if len(terms) != 2 {
 		t.Fatalf("expected 2 terms preserved, got %d", len(terms))
@@ -197,7 +197,7 @@ func TestMutatePod_ANDsIntoExistingTerms(t *testing.T) {
 
 func TestMutatePod_DeniesNoCompatibleJDK(t *testing.T) {
 	pod := brewletPod("demo/hello:1", map[string]string{brewlet.AnnotationRequestedJDK: "temurin-17"})
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if res.DenyReason != brewlet.ReasonNoCompatibleJDK {
 		t.Fatalf("expected NoCompatibleJDK, got %+v", res)
 	}
@@ -211,7 +211,7 @@ func TestMutatePod_DeniesNoCompatibleLauncher(t *testing.T) {
 		brewlet.AnnotationRequestedJDK:      "temurin-21",
 		brewlet.AnnotationRequestedLauncher: "jaz",
 	})
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if res.DenyReason != brewlet.ReasonNoCompatibleLauncher {
 		t.Fatalf("expected NoCompatibleLauncher, got %+v", res)
 	}
@@ -223,7 +223,7 @@ func TestMutatePod_InjectsArchAffinity(t *testing.T) {
 		{Name: "b", Ready: true, Arch: "arm64", JDKs: []string{"temurin-21"}, Launchers: []string{"java"}},
 	}
 	pod := brewletPod("demo/hello:1", map[string]string{brewlet.AnnotationRequestedArch: "amd64"})
-	res := MutatePod(pod, fleet)
+	res := MutatePod(pod, fleet, nil)
 	if res.DenyReason != "" {
 		t.Fatalf("unexpected deny: %+v", res)
 	}
@@ -234,17 +234,59 @@ func TestMutatePod_InjectsArchAffinity(t *testing.T) {
 	}
 }
 
-func TestMutatePod_DeniesNoCompatibleArch(t *testing.T) {
+// Architecture is a node-pool property that NodeProfiles do not declare, so an
+// arch with no ready node is admitted with a warning and steered by affinity:
+// the scheduler/autoscaler resolve it (e.g. scale up an arm64 pool from zero).
+func TestMutatePod_UnavailableArchAdmittedWithWarning(t *testing.T) {
 	fleet := []NodeCapability{
 		{Name: "a", Ready: true, Arch: "amd64", JDKs: []string{"temurin-21"}, Launchers: []string{"java"}},
 	}
 	pod := brewletPod("demo/hello:1", map[string]string{brewlet.AnnotationRequestedArch: "arm64"})
-	res := MutatePod(pod, fleet)
-	if res.DenyReason != brewlet.ReasonNoCompatibleArch {
-		t.Fatalf("expected NoCompatibleArch, got %+v", res)
+	res := MutatePod(pod, fleet, nil)
+	if res.DenyReason != "" {
+		t.Fatalf("arch must not deny: %+v", res)
 	}
-	if pod.Spec.Affinity != nil {
-		t.Fatal("denied pod should not be mutated with affinity")
+	if !strings.Contains(res.Warning, "arch=arm64") {
+		t.Fatalf("expected pending-capacity warning naming arch, got %q", res.Warning)
+	}
+	reqs := requirementsFromPod(t, pod)
+	if len(reqs) != 1 || reqs[0].Key != brewlet.LabelArch || reqs[0].Values[0] != "arm64" {
+		t.Fatalf("arch affinity = %+v", reqs)
+	}
+}
+
+// Issue #239: a scale-from-zero pool has no ready node, but its NodeProfile
+// declares the requested capabilities. The pod must be admitted (so it can go
+// Pending and trigger the autoscaler) with full capability affinity.
+func TestMutatePod_ScaleFromZeroAdmittedFromProfile(t *testing.T) {
+	profiles := []ProfileCapability{{Name: "java21", JDKs: []string{"microsoft-21"}, Launchers: []string{"jaz"}}}
+	pod := brewletPod("demo/hello:1", map[string]string{
+		brewlet.AnnotationRequestedJDK:      "21",
+		brewlet.AnnotationRequestedLauncher: "jaz",
+		brewlet.AnnotationRequestedArch:     "arm64",
+	})
+	res := MutatePod(pod, nil, profiles)
+	if res.DenyReason != "" {
+		t.Fatalf("scale-from-zero pod denied: %+v", res)
+	}
+	if !strings.Contains(res.Warning, `"java21"`) {
+		t.Fatalf("warning should name the profile: %q", res.Warning)
+	}
+	keys := map[string]bool{}
+	for _, r := range requirementsFromPod(t, pod) {
+		keys[r.Key] = true
+	}
+	for _, k := range []string{brewlet.LabelJDKFeaturePrefix + "21", brewlet.LabelLauncherPrefix + "jaz", brewlet.LabelArch} {
+		if !keys[k] {
+			t.Errorf("missing affinity key %s in %v", k, keys)
+		}
+	}
+}
+
+func TestMutatePod_ReadyMatchHasNoWarning(t *testing.T) {
+	pod := brewletPod("demo/hello:1", map[string]string{brewlet.AnnotationRequestedJDK: "21"})
+	if res := MutatePod(pod, readyFleet(), nil); res.DenyReason != "" || res.Warning != "" {
+		t.Fatalf("ready match must admit silently: %+v", res)
 	}
 }
 
@@ -255,7 +297,7 @@ func TestMutatePod_AppCDSRegenerationPolicy(t *testing.T) {
 		brewlet.AnnotationRequestedJDK:  "temurin-21",
 		brewlet.AnnotationCDSRegenerate: "TrUe",
 	})
-	res := MutatePod(pod, authorized)
+	res := MutatePod(pod, authorized, nil)
 	if res.DenyReason != "" {
 		t.Fatalf("unexpected denial: %+v", res)
 	}
@@ -274,7 +316,7 @@ func TestMutatePod_AppCDSRegenerationPolicy(t *testing.T) {
 		brewlet.AnnotationRequestedJDK:  "temurin-21",
 		brewlet.AnnotationCDSRegenerate: "true",
 	})
-	if denied := MutatePod(deniedPod, readyFleet()); denied.DenyReason != brewlet.ReasonAppCDSRegenerationDisabled {
+	if denied := MutatePod(deniedPod, readyFleet(), nil); denied.DenyReason != brewlet.ReasonAppCDSRegenerationDisabled {
 		t.Fatalf("expected AppCDS policy denial, got %+v", denied)
 	}
 }
@@ -283,7 +325,7 @@ func TestMutatePod_AppCDSRegenerationTrimsValue(t *testing.T) {
 	pod := brewletPod("demo/hello:1", map[string]string{
 		brewlet.AnnotationCDSRegenerate: " true ",
 	})
-	res := MutatePod(pod, readyFleet())
+	res := MutatePod(pod, readyFleet(), nil)
 	if res.DenyReason != brewlet.ReasonAppCDSRegenerationDisabled {
 		t.Fatalf("whitespace-padded true must request regeneration: result=%+v", res)
 	}
@@ -341,7 +383,7 @@ func TestMutatePod_DeniesUnsafeLauncherName(t *testing.T) {
 			pod := brewletPod("demo/hello:1", map[string]string{
 				brewlet.AnnotationRequestedLauncher: name,
 			})
-			res := MutatePod(pod, readyFleet())
+			res := MutatePod(pod, readyFleet(), nil)
 			if res.DenyReason != brewlet.ReasonNoCompatibleLauncher {
 				t.Fatalf("MutatePod(launcher=%q) DenyReason = %q, want %q", name, res.DenyReason, brewlet.ReasonNoCompatibleLauncher)
 			}
@@ -360,7 +402,7 @@ func TestMutatePod_AllowsVanillaAndTokenLaunchers(t *testing.T) {
 			pod := brewletPod("demo/hello:1", map[string]string{
 				brewlet.AnnotationRequestedLauncher: name,
 			})
-			if res := MutatePod(pod, readyFleet()); res.DenyReason != "" {
+			if res := MutatePod(pod, readyFleet(), nil); res.DenyReason != "" {
 				t.Fatalf("MutatePod(launcher=%q) denied: %+v", name, res)
 			}
 		})

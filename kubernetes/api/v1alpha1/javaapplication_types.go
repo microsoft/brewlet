@@ -37,8 +37,9 @@ type JavaApplicationSpec struct {
 	// bundled. Each entry is a GOARCH / kubernetes.io/arch token ("amd64" or
 	// "arm64"). When set, the controller folds it into the brewlet.sh/arch pod
 	// annotation so the admission webhook steers scheduling onto matching nodes
-	// (kubernetes.io/arch In […]) and denies with NoCompatibleArch when no ready
-	// node of a required arch exists. Leave it UNSET for the common case: a
+	// (kubernetes.io/arch In […]). Architecture is never an admission denial: when
+	// no ready node of a required arch exists the pod is admitted with a warning
+	// and stays Pending until such a node is provisioned. Leave it UNSET for the common case: a
 	// pure-bytecode JAR is architecture-neutral and runs on any provisioned arch.
 	Arch []string `json:"arch,omitempty"`
 }

@@ -107,7 +107,7 @@ spec:
 ## Requesting a specific JDK or launcher
 
 For raw Kubernetes workloads, request the JDK/launcher with pod annotations. The
-admission webhook validates them against the ready fleet, injects `nodeAffinity`,
+admission webhook validates them against the ready fleet and valid NodeProfiles, injects `nodeAffinity`,
 and the shim reads the propagated JDK/launcher annotations at launch while still
 resolving the workload image digest from containerd metadata. A bare
 `brewlet.sh/jdk: "21"` accepts any distribution of that feature; the shim picks
@@ -137,9 +137,9 @@ spec:
 
 | Annotation | Values | Effect |
 |---|---|---|
-| `brewlet.sh/jdk` | `21` (any distro of that feature) or `temurin-21` (exact) | Validated against ready nodes; injects `nodeAffinity`. If none compatible → pod rejected with `NoCompatibleJDK`. |
+| `brewlet.sh/jdk` | `21` (any distro of that feature) or `temurin-21` (exact) | Validated against ready nodes and NodeProfiles; injects `nodeAffinity`. If none compatible → pod rejected with `NoCompatibleJDK`; if only a NodeProfile provides it (pool at zero) → admitted with a warning and stays `Pending` until scale-up. |
 | `brewlet.sh/launcher` | `jaz`, or empty/`java` | Same, but for launchers → `NoCompatibleLauncher`. |
-| `brewlet.sh/arch` | `amd64`, or `amd64,arm64` | Optional; only for **non-portable JARs** bundling JNI natives. Injects `kubernetes.io/arch` nodeAffinity; if no ready node of a required arch exists → `NoCompatibleArch`. Omit for arch-neutral bytecode. |
+| `brewlet.sh/arch` | `amd64`, or `amd64,arm64` | Optional; only for **non-portable JARs** bundling JNI natives. Injects `kubernetes.io/arch` nodeAffinity; if no ready node of a required arch exists → admitted with a warning and stays `Pending` until one is provisioned. Omit for arch-neutral bytecode. |
 | `brewlet.sh/artifact-container` | container name | Selects which regular container's `image` the webhook mirrors into Pod-wide compatibility hints. The webhook normalizes this value to the selected container name; other tasks ignore the shared hints and resolve their own CRI image independently. |
 
 If you set **no** annotation, the pod is admitted (the webhook still overwrites
@@ -315,8 +315,8 @@ spec:
 | `jvm.distribution` | Optional administrator-defined inventory name (`temurin`, `microsoft`, `temurin-canary`). With `jvm.version` selects an exact `<distribution>-<feature>` entry; omit to choose the lexicographically first active, compatible entry of that feature on each node. See [JDK selection](#jdk-selection). |
 | `jvm.launcher` | `java` (default) or `jaz` ([Launchers](launchers.md)). |
 | `jvm.args` | Your JVM tuning flags, delivered as argv via the `brewlet.sh/jvm-args` pod annotation and applied after the artifact's own launch knobs (so they win on conflict). May not select the entrypoint (`-jar`, `-cp`, `-p`, `-m`, `@argfile`). Omit under `jaz`. |
-| `jvm.cds.regenerate` | Request **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). Default `false`. Requires an otherwise-compatible ready node whose `NodeProfile.spec.appCDS.regenerationEnabled` is true; otherwise admission denies with `AppCDSRegenerationDisabled`, and the shim independently enforces the host policy. The private cache key includes the trusted namespace, the verified platform manifest derived from the CRI/containerd-resolved image, the JDK build, and the CRI process UID. Any shipped `cds.archive` becomes optional seed data. |
-| `arch` | Optional architecture constraint (`amd64`, `arm64`). Only for **non-portable JARs** bundling JNI native libraries; steers scheduling to matching-arch nodes and denies admission with `NoCompatibleArch` when unsatisfiable. Omit for arch-neutral bytecode (runs on any arch). |
+| `jvm.cds.regenerate` | Request **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). Default `false`. Requires an otherwise-compatible ready node or NodeProfile whose `spec.appCDS.regenerationEnabled` is true; otherwise admission denies with `AppCDSRegenerationDisabled`, and the shim independently enforces the host policy. The private cache key includes the trusted namespace, the verified platform manifest derived from the CRI/containerd-resolved image, the JDK build, and the CRI process UID. Any shipped `cds.archive` becomes optional seed data. |
+| `arch` | Optional architecture constraint (`amd64`, `arm64`). Only for **non-portable JARs** bundling JNI native libraries; steers scheduling to matching-arch nodes; with no ready node of that arch, the pod is admitted with a warning and stays `Pending`. Omit for arch-neutral bytecode (runs on any arch). |
 | `env` / `ports` / `service` / `probes` | Wired through to the generated objects. |
 
 The `status` subresource surfaces `readyReplicas`, the `selectedJdk`, and `Ready`
