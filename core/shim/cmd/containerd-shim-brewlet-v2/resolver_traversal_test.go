@@ -45,7 +45,7 @@ func tamperManifest(t *testing.T, root, manifestDigest string, mutate func(*arti
 }
 
 // writeNativeContentStore lays down a native Brewlet artifact (config + jar,
-// classpath, modulepath and CDS layers) in an OCI-style content store and
+// classpath, modulepath, CDS and AOT layers) in an OCI-style content store and
 // returns the store root and the manifest digest.
 func writeNativeContentStore(t *testing.T) (root, manifestDigest string) {
 	t.Helper()
@@ -54,12 +54,14 @@ func writeNativeContentStore(t *testing.T) (root, manifestDigest string) {
 	depsDigest := writeContentBlob(t, root, []byte("deps-tar"))
 	modsDigest := writeContentBlob(t, root, []byte("mods-tar"))
 	jsaDigest := writeContentBlob(t, root, []byte("cds-archive"))
+	aotDigest := writeContentBlob(t, root, []byte("aot-cache"))
 
 	cfg := artifact.JVMConfig{
 		SchemaVersion: 1,
 		MainJar:       "app.jar",
 		Entry:         artifact.Entry{Mode: "jar"},
 		CDS:           &artifact.CDS{Archive: "app.jsa"},
+		AOT:           &artifact.AOT{Cache: "app.aot"},
 	}
 	cfgBytes, err := json.Marshal(cfg)
 	if err != nil {
@@ -77,6 +79,7 @@ func writeNativeContentStore(t *testing.T) (root, manifestDigest string) {
 			{MediaType: artifact.ClasspathLayerMediaType, Digest: depsDigest},
 			{MediaType: artifact.ModulepathLayerMediaType, Digest: modsDigest},
 			{MediaType: artifact.CDSLayerMediaType, Digest: jsaDigest},
+			{MediaType: artifact.AOTLayerMediaType, Digest: aotDigest},
 		},
 	}
 	manBytes, err := json.Marshal(man)
@@ -99,6 +102,9 @@ func TestContentStoreBlobsRejectsTraversalDescriptorDigests(t *testing.T) {
 	if baseline.JarHostPath == "" {
 		t.Fatal("baseline resolution produced no jar path")
 	}
+	if baseline.AOTHostPath == "" {
+		t.Fatal("baseline resolution produced no AOT cache path")
+	}
 
 	// Every case must be rejected *by digest validation*, not incidentally.
 	// Before the fix some of these digests resolved to "/", and reads of "/"
@@ -114,6 +120,7 @@ func TestContentStoreBlobsRejectsTraversalDescriptorDigests(t *testing.T) {
 		{"classpath layer", func(m *artifact.Manifest) { m.Layers[1].Digest = traversalDigest }, "invalid digest"},
 		{"modulepath layer", func(m *artifact.Manifest) { m.Layers[2].Digest = traversalDigest }, "invalid digest"},
 		{"cds layer", func(m *artifact.Manifest) { m.Layers[3].Digest = traversalDigest }, "invalid digest"},
+		{"aot layer", func(m *artifact.Manifest) { m.Layers[4].Digest = traversalDigest }, "invalid digest"},
 		{"config blob", func(m *artifact.Manifest) { m.Config.Digest = traversalDigest; m.Config.Size = 0 }, "invalid digest"},
 		{"uppercase jar digest", func(m *artifact.Manifest) {
 			m.Layers[0].Digest = strings.ToUpper(m.Layers[0].Digest[len("sha256:"):])
@@ -247,6 +254,9 @@ func assertNoHostPaths(t *testing.T, blobs artifactBlobs) {
 	}
 	if blobs.CDSHostPath != "" {
 		t.Errorf("CDSHostPath = %q after rejection, want empty", blobs.CDSHostPath)
+	}
+	if blobs.AOTHostPath != "" {
+		t.Errorf("AOTHostPath = %q after rejection, want empty", blobs.AOTHostPath)
 	}
 	if len(blobs.ClasspathHostPaths) != 0 {
 		t.Errorf("ClasspathHostPaths = %v after rejection, want none", blobs.ClasspathHostPaths)

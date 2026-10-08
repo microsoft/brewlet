@@ -26,6 +26,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/shim"
 	"github.com/containerd/containerd/v2/pkg/shutdown"
 	"github.com/containerd/containerd/v2/plugins"
+	"github.com/containerd/log"
 	"github.com/containerd/plugin"
 	"github.com/containerd/plugin/registry"
 	"github.com/containerd/ttrpc"
@@ -432,7 +433,7 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 	// hint, since HotSpot refuses both together.
 	gated, dropped := kcruntime.GateAOTCache(ra.Config, ra.JDKHome)
 	if dropped {
-		fmt.Printf("shim: dropping AOT cache %q: JDK at %s does not support it (needs JDK 24+)\n", ra.Config.AOT.Cache, ra.JDKHome)
+		logAOTDrop(ctx, ra.Config.AOT.Cache, ra.JDKHome)
 	}
 	ra.Config = gated
 
@@ -493,6 +494,13 @@ func artifactBackend(ic imageConfig) string {
 		return "layout"
 	}
 	return "containerd"
+}
+
+// logAOTDrop reports a gated-out AOT cache through containerd's log; the
+// long-running shim's stdout is not read by anyone.
+func logAOTDrop(ctx context.Context, cache, jdkHome string) {
+	log.G(ctx).WithField("aot_cache", cache).WithField("jdk_home", jdkHome).
+		Warn("dropping AOT cache: JDK does not support it (needs JDK 24+)")
 }
 
 func emitPhase(phase string, start time.Time, err error) {

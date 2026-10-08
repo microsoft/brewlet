@@ -81,7 +81,7 @@ its `app` layer.
 | Shipped | JDK | Emitted (illustrative) and mounted |
 |---|---|---|
 | `aot` only | 24+ | `java -XX:AOTCache=/app/app.aot -jar /app/app.jar`; `app.aot` mounted |
-| `aot` only | older than 24, or identity unreadable | no flag and no mount; a one-line notice says the cache was ignored |
+| `aot` only | older than 24, or identity unreadable | no flag and no mount; a one-line warning says the cache was ignored (in containerd's log for the shim, on stderr for `brewlet run` and `brewlet bundle`) |
 | `cds` and `aot` | 24+ | `java -XX:AOTCache=/app/app.aot -jar /app/app.jar`; only `app.aot` mounted, no `-XX:SharedArchiveFile` |
 | `cds` and `aot` | older than 24, or identity unreadable | `java -Xshare:auto -XX:SharedArchiveFile=/app/app.jsa -jar /app/app.jar`; only `app.jsa` mounted, plus the ignored-cache notice |
 | either, with `brewlet.sh/cds-regenerate` / `--appcds-regenerate` | any | neither `-XX:AOTCache` nor the shipped `-XX:SharedArchiveFile`; node-side AppCDS regeneration wins, seeded from the shipped `.jsa` when there is one |

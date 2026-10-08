@@ -7,6 +7,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	taskAPI "github.com/containerd/containerd/api/runtime/task/v3"
 	runcoptions "github.com/containerd/containerd/api/types/runc/options"
 	runtimeoptions "github.com/containerd/containerd/api/types/runtimeoptions/v1"
+	"github.com/containerd/log"
 	"github.com/containerd/typeurl/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -1107,5 +1109,23 @@ func TestNormalizeRuncOptionsPassthrough(t *testing.T) {
 	}
 	if empty.Options != nil {
 		t.Errorf("nil options became %v", empty.Options)
+	}
+}
+
+// The shim is long-running and its stdout goes nowhere useful; the AOT drop
+// notice must reach containerd's log.
+func TestLogAOTDropWarnsThroughContainerdLog(t *testing.T) {
+	var buf bytes.Buffer
+	old := log.L.Logger.Out
+	log.L.Logger.SetOutput(&buf)
+	defer log.L.Logger.SetOutput(old)
+
+	logAOTDrop(context.Background(), "app.aot", "/opt/brewlet/jdks/temurin-21")
+
+	got := buf.String()
+	for _, want := range []string{"level=warning", "dropping AOT cache", "app.aot", "/opt/brewlet/jdks/temurin-21"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("containerd log %q missing %q", got, want)
+		}
 	}
 }
