@@ -230,16 +230,20 @@ public class JvmConfig {
             }
         }
         // Optional JDK AOT cache hint (JDK 24+): mounted at /app/<cache> and
-        // consumed with -XX:AOTCache; a workload ships one startup archive.
+        // consumed with -XX:AOTCache. It may ship alongside cds: the AOT cache
+        // wins on JDK 24+, the .jsa is used below that.
         if (aot != null) {
-            if (cds != null) {
-                throw new IllegalStateException("cds and aot are mutually exclusive");
-            }
             String cache = aot.getCache();
             if (cache == null || cache.trim().isEmpty()) {
                 throw new IllegalStateException("aot.cache is required (e.g. \"app.aot\")");
             }
             requireBareFilename("aot.cache", cache, "the cache is mounted at /app/<cache>");
+            // Both files land flat under /app (and in one runnable app tar), so a
+            // shared name would let one silently overwrite the other.
+            if (cds != null && cache.equals(cds.getArchive())) {
+                throw new IllegalStateException("cds.archive and aot.cache must differ: both are materialized at /app/"
+                        + cache);
+            }
         }
     }
 
@@ -320,8 +324,8 @@ public class JvmConfig {
     /**
      * Optional JDK AOT cache hint. The artifact ships the cache as an AOT layer,
      * the shim mounts it read-only at {@code /app/<cache>}, and launch adds
-     * {@code -XX:AOTCache=/app/<cache>} (JDK 24+, best-effort). Mutually
-     * exclusive with {@link Cds}.
+     * {@code -XX:AOTCache=/app/<cache>} (JDK 24+, best-effort). May ship with
+     * {@link Cds}: the AOT cache wins on JDK 24+, the {@code .jsa} otherwise.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class Aot {

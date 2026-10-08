@@ -85,7 +85,7 @@ public class InspectMojo extends AbstractBrewletMojo {
                 getLog().info("  cds: " + name + " folded into app layer ("
                         + resolvedCdsArchive.length() + " bytes, " + sha256(resolvedCdsArchive) + ")");
             } else {
-                ArtifactLayer cdsLayer = startupArchiveLayer(cfg, resolvedCdsArchive);
+                ArtifactLayer cdsLayer = startupArchiveLayer(resolvedCdsArchive, sh.brewlet.maven.plugin.oci.MediaTypes.CDS_LAYER_MEDIA_TYPE);
                 getLog().info("  cds layer: " + cdsLayer.name() + ": " + cdsLayer.mediaType()
                         + " (" + cdsLayer.tar().length + " bytes, "
                         + LocalStore.sha256Hex(cdsLayer.tar()) + ")");
@@ -100,7 +100,7 @@ public class InspectMojo extends AbstractBrewletMojo {
                 getLog().info("  aot: " + name + " folded into app layer ("
                         + resolvedAotCache.length() + " bytes, " + sha256(resolvedAotCache) + ")");
             } else {
-                ArtifactLayer aotLayer = startupArchiveLayer(cfg, resolvedAotCache);
+                ArtifactLayer aotLayer = startupArchiveLayer(resolvedAotCache, sh.brewlet.maven.plugin.oci.MediaTypes.AOT_LAYER_MEDIA_TYPE);
                 getLog().info("  aot layer: " + aotLayer.name() + ": " + aotLayer.mediaType()
                         + " (" + aotLayer.tar().length + " bytes, "
                         + LocalStore.sha256Hex(aotLayer.tar()) + ")");

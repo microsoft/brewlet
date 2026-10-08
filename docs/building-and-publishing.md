@@ -59,6 +59,7 @@ you can author it and pass `--config`.
 | `addExports` | Optional module/package export tokens; expands to repeated `--add-exports`. |
 | `systemProperties` | Optional string map expanded as sorted `-D<key>=<value>` flags. |
 | `cds` | Optional AppCDS block. `cds.archive` is a bare `/app`-relative `.jsa` filename shipped as a CDS layer (`brewlet push --appcds-archive`); `cds.mode` (`dynamic`\|`static`) is informational. Launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`, so a JDK-build mismatch falls back safely to base CDS. The artifact carries only this shipped *seed* archive; node-side regeneration is a deployment choice set via `spec.jvm.cds.regenerate` on the `JavaApplication` CRD (or `brewlet run/bundle --appcds-regenerate`), not a field in the artifact. See [AppCDS](appcds.md). |
+| `aot` | Optional JDK AOT cache block. `aot.cache` is a bare `/app`-relative filename shipped as an AOT layer (`brewlet push --aot-cache` or `--aot`). Launches with `-XX:AOTCache=/app/<cache>` on JDK 24+ and is dropped on older JDKs. May ship next to `cds` under a different filename: JDK 24+ uses the AOT cache, older JDKs the `.jsa`. See [JDK AOT cache](aot-cache.md). |
 | `env` | Environment variables baked into the artifact. |
 
 Ports are **not** an artifact field — they are a deployment concern

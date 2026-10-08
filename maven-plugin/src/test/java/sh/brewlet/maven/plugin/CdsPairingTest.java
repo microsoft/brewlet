@@ -102,14 +102,18 @@ class CdsPairingTest {
     }
 
     @Test
-    void cdsArchiveAndAotCache_bothSet_fails() throws IOException {
+    void cdsArchiveAndAotCache_bothSet_ok() throws IOException, MojoExecutionException {
         BuildMojo mojo = new BuildMojo();
         mojo.cdsArchive = archive("app.jsa");
         mojo.aotCache = archive("app.aot");
+        JvmConfig cfg = sampleConfig();
 
-        MojoExecutionException e = assertThrows(MojoExecutionException.class,
-                () -> mojo.applyAotCache(sampleConfig()));
-        assertTrue(e.getMessage().contains("mutually exclusive"), e.getMessage());
+        mojo.applyCdsArchive(cfg);
+        mojo.applyAotCache(cfg);
+
+        org.junit.jupiter.api.Assertions.assertEquals("app.jsa", cfg.getCds().getArchive());
+        org.junit.jupiter.api.Assertions.assertEquals("app.aot", cfg.getAot().getCache());
+        assertDoesNotThrow(cfg::validate);
     }
 
     @Test

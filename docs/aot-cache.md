@@ -1,8 +1,8 @@
 # JDK AOT cache
 
 Brewlet can ship a JDK AOT cache ([JEP 483](https://openjdk.org/jeps/483),
-created in one step with [JEP 514](https://openjdk.org/jeps/514)) as an
-alternative to an [AppCDS](appcds.md) archive. It uses the
+created in one step with [JEP 514](https://openjdk.org/jeps/514)) instead of,
+or next to, an [AppCDS](appcds.md) archive. It uses the
 `application/vnd.brewlet.aot.layer.v1+aot` layer, `brewlet push --aot-cache` or
 `--aot`, and the Maven `brewlet:aotcache` goal. The launch path adds only
 `-XX:AOTCache`, so a mismatch falls back to a normal start.
@@ -11,15 +11,20 @@ alternative to an [AppCDS](appcds.md) archive. It uses the
 
 ## 1. TL;DR
 
-- **An AOT cache stores loaded and linked classes, which AppCDS does not.** The
-  JVM maps it at startup in place of loading and linking those classes.
+- **An AOT cache stores classes already loaded and linked.** AppCDS stores
+  loaded (parsed) classes too; the AOT cache adds their linked state and, from
+  JDK 25, method profiles. The JVM maps it at startup in place of loading and
+  linking those classes.
 - **It is bound to the JDK build and the class path, like AppCDS.** A cache made
   on another build, or for a different class path, is not used. The JVM logs a
   warning and starts without it. It is a best-effort accelerator, never a
   correctness constraint.
 - **Floors:** consuming a cache needs **JDK 24+**. Training one with
   `-XX:AOTCacheOutput` needs **JDK 25+**.
-- **One startup archive per workload.** `cds` and `aot` are mutually exclusive.
+- **An artifact may ship both a `.jsa` and an AOT cache.** The JDK picks one: on
+  JDK 24+ the AOT cache wins and the `.jsa` is neither mounted nor passed; on
+  older JDKs, or when the JDK identity cannot be read, the `.jsa` is used.
+  Node-side AppCDS regeneration suppresses both.
 
 ---
 
@@ -48,36 +53,47 @@ is folded into the `brewlet.sh/layer=app` layer next to the JAR.
   Choose the training JDK with `--aot-java` (a binary or a `JAVA_HOME` dir; the
   default is `$JAVA_HOME/bin/java`, else `java` on `PATH`). Drive startup with
   repeatable `--aot-arg`, and bound the run with `--aot-timeout` (seconds,
-  default 120). `--aot` and `--aot-cache` are mutually exclusive with each other
-  and with `--appcds`/`--appcds-archive`. `--aot` rejects `--classpath-layer`
-  and `--module-layer`, and neither flag works with `--dependency-bundle`.
+  default 120). `--aot` and `--aot-cache` are mutually exclusive with each
+  other, but either combines with `--appcds` or `--appcds-archive` to ship both
+  archives. `--aot` rejects `--classpath-layer` and `--module-layer`, and
+  neither flag works with `--dependency-bundle`.
 - **Maven:** `mvn package brewlet:aotcache` writes
   `target/brewlet/app.aot`. Attach it with `-Dbrewlet.aotCache=target/brewlet/app.aot`
-  on `brewlet:push`, `brewlet:build` or `brewlet:inspect`. The goal shares
+  on `brewlet:push`, `brewlet:build` or `brewlet:inspect`, together with
+  `-Dbrewlet.cdsArchive=...` if you also ship a `.jsa`. The goal shares
   `brewlet:appcds`'s training modes and staged layouts (fat JAR, layered class
   path, Spring Boot, JPMS). See the
   [Maven plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#aot-cache-brewletaotcache).
 
 The push summary reports
-`aot cache: app.aot (mounted /app/app.aot; -XX:AOTCache, JDK 24+, best-effort)`.
+`aot cache: app.aot (mounted /app/app.aot; -XX:AOTCache, JDK 24+, best-effort)`,
+after the `cds archive:` line when a `.jsa` ships too.
+
+When both archives ship, `cds.archive` and `aot.cache` must differ: both land
+flat under `/app` (`cds.archive and aot.cache must differ`). A native artifact
+carries two layers, one per media type; a runnable image folds both files into
+its `app` layer.
 
 ---
 
 ## 3. Launch behavior
 
-| Situation | Emitted (illustrative) |
-|---|---|
-| `aot.cache: app.aot`, JDK 24+ | `java -XX:AOTCache=/app/app.aot -jar /app/app.jar` |
-| JDK older than 24, or the JDK identity cannot be read | no flag and no mount; a one-line notice says the cache was ignored |
-| `brewlet.sh/cds-regenerate` / `--appcds-regenerate` on | no `-XX:AOTCache`; node-side AppCDS regeneration wins |
+| Shipped | JDK | Emitted (illustrative) and mounted |
+|---|---|---|
+| `aot` only | 24+ | `java -XX:AOTCache=/app/app.aot -jar /app/app.jar`; `app.aot` mounted |
+| `aot` only | older than 24, or identity unreadable | no flag and no mount; a one-line notice says the cache was ignored |
+| `cds` and `aot` | 24+ | `java -XX:AOTCache=/app/app.aot -jar /app/app.jar`; only `app.aot` mounted, no `-XX:SharedArchiveFile` |
+| `cds` and `aot` | older than 24, or identity unreadable | `java -Xshare:auto -XX:SharedArchiveFile=/app/app.jsa -jar /app/app.jar`; only `app.jsa` mounted, plus the ignored-cache notice |
+| either, with `brewlet.sh/cds-regenerate` / `--appcds-regenerate` | any | neither `-XX:AOTCache` nor the shipped `-XX:SharedArchiveFile`; node-side AppCDS regeneration wins, seeded from the shipped `.jsa` when there is one |
 
-- `-XX:AOTCache` takes the first launch slot, where a CDS archive's
-  `-Xshare:auto -XX:SharedArchiveFile` would go. Artifact knobs, descriptor
-  `jvm.args` and the entrypoint follow it.
+- `-XX:AOTCache` and a CDS archive's `-Xshare:auto -XX:SharedArchiveFile` share
+  the first launch slot and are never emitted together (HotSpot refuses the
+  pair). Artifact knobs, descriptor `jvm.args` and the entrypoint follow.
 - Brewlet never emits `-XX:AOTMode`. The JDK default, `auto`, warns about an
   unusable cache and continues. This matches the `-Xshare:auto` posture for
-  AppCDS. Add `-XX:AOTMode=on` (or `required`, accepted by JDK 27) to
-  `jvm.args` only when you want a stale cache to fail the start.
+  AppCDS. Add `-XX:AOTMode=on` to `jvm.args` only when you want a stale cache
+  to fail the start. Use `on` on JDK 25 and 26. `-XX:AOTMode=required` is JDK 27+
+  only; JDK 25 and 26 reject it as an unrecognized value.
 - `-XX:AOTCache` is a fatal unrecognized option before JDK 24, so the shim,
   `brewlet bundle` and `brewlet run` drop the hint for the JDK actually
   selected.
@@ -117,7 +133,8 @@ When training fails, the goal stops the assembly child JVM and leaves no
   shipped cache stops mapping until you rebuild it. Node-side AOT regeneration
   is [roadmap](https://github.com/microsoft/brewlet/blob/main/ROADMAP.md) work.
   AppCDS regeneration (`spec.jvm.cds.regenerate`) is available today and wins
-  over a shipped cache.
+  over a shipped cache. Shipping a `.jsa` next to the cache gives JDKs below 24
+  a startup archive too.
 - **Pre-GA incompatibility.** `aot` is a new launch-config key. Shims and CLIs
   that predate it reject the config as an unknown field. Upgrade the node shim
   before deploying artifacts that carry a cache. See

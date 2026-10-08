@@ -208,12 +208,21 @@ class ConfigValidationTest {
     }
 
     @Test
-    void aot_withCds_rejected() {
+    void aot_withCds_allowed() {
         JvmConfig cfg = withEntry(new Entry("jar"));
         cfg.setCds(new JvmConfig.Cds("app.jsa", "dynamic"));
         cfg.setAot(new JvmConfig.Aot("app.aot"));
+        assertDoesNotThrow(cfg::validate);
+    }
+
+    @Test
+    void aot_sameNameAsCds_rejected() {
+        JvmConfig cfg = withEntry(new Entry("jar"));
+        cfg.setCds(new JvmConfig.Cds("app.bin", "dynamic"));
+        cfg.setAot(new JvmConfig.Aot("app.bin"));
         IllegalStateException e = assertThrows(IllegalStateException.class, cfg::validate);
-        assertTrue(e.getMessage().contains("mutually exclusive"), e.getMessage());
+        assertTrue(e.getMessage().contains(
+                "cds.archive and aot.cache must differ: both are materialized at /app/app.bin"), e.getMessage());
     }
 
     @Test

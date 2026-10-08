@@ -103,9 +103,9 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     protected File cdsArchive;
 
     /**
-     * Optional prebuilt JDK AOT cache (JDK 24+) to ship as an OCI layer.
-     * Mutually exclusive with {@code cdsArchive}. Mirrors the CLI's
-     * {@code --aot-cache}.
+     * Optional prebuilt JDK AOT cache (JDK 24+) to ship as an OCI layer. May
+     * ship alongside {@code cdsArchive}: the AOT cache wins on JDK 24+, the
+     * {@code .jsa} otherwise. Mirrors the CLI's {@code --aot-cache}.
      */
     @Parameter(property = "brewlet.aotCache")
     protected File aotCache;
@@ -801,10 +801,6 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
         if (aotCache == null) {
             return null;
         }
-        if (cdsArchive != null) {
-            throw new MojoExecutionException(
-                    "cdsArchive and aotCache are mutually exclusive: a workload ships one startup archive");
-        }
         if (!aotCache.exists()) {
             throw new MojoExecutionException(
                     "Configured aotCache does not exist: " + aotCache.getAbsolutePath());
@@ -822,17 +818,16 @@ public abstract class AbstractBrewletMojo extends AbstractMojo {
     }
 
     /**
-     * Builds the optional startup-archive layer (AppCDS {@code .jsa} or AOT
-     * cache; the config picks the media type). The layer is appended after any
-     * classpath/modulepath layers and mounted by the shim at {@code /app/<name>}.
+     * Builds an optional startup-archive layer ({@link MediaTypes#CDS_LAYER_MEDIA_TYPE}
+     * for an AppCDS {@code .jsa}, {@link MediaTypes#AOT_LAYER_MEDIA_TYPE} for an
+     * AOT cache). The layer is appended after any classpath/modulepath layers and
+     * mounted by the shim at {@code /app/<name>}.
      */
-    protected ArtifactLayer startupArchiveLayer(JvmConfig cfg, File resolvedArchive)
+    protected ArtifactLayer startupArchiveLayer(File resolvedArchive, String mediaType)
             throws MojoExecutionException {
         if (resolvedArchive == null) {
             return null;
         }
-        String mediaType = cfg.getAot() != null
-                ? MediaTypes.AOT_LAYER_MEDIA_TYPE : MediaTypes.CDS_LAYER_MEDIA_TYPE;
         try {
             return new ArtifactLayer(resolvedArchive.getName(),
                     Files.readAllBytes(resolvedArchive.toPath()),

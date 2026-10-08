@@ -65,6 +65,30 @@ class InspectMojoCdsTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"artifact", "image"})
+    void bothArchivesAppearInPreview(String format) throws Exception {
+        Path archive = root.resolve("app.jsa");
+        Files.write(archive, new byte[] {1, 2, 3, 4});
+        Path cache = root.resolve("app.aot");
+        Files.write(cache, new byte[] {5, 6, 7});
+
+        InspectMojo inspect = mojo(format);
+        inspect.cdsArchive = archive.toFile();
+        inspect.aotCache = cache.toFile();
+        String out = run(inspect);
+
+        assertTrue(out.contains("cds archive: app.jsa (mounted /app/app.jsa"), out);
+        assertTrue(out.contains("aot cache: app.aot (mounted /app/app.aot"), out);
+        if ("artifact".equals(format)) {
+            assertTrue(out.contains("cds layer: app.jsa: " + MediaTypes.CDS_LAYER_MEDIA_TYPE), out);
+            assertTrue(out.contains("aot layer: app.aot: " + MediaTypes.AOT_LAYER_MEDIA_TYPE), out);
+        } else {
+            assertTrue(out.contains("cds: app.jsa folded into app layer"), out);
+            assertTrue(out.contains("aot: app.aot folded into app layer"), out);
+        }
+    }
+
     @Test
     void missingCdsArchiveFailsLikeBuild() throws Exception {
         InspectMojo inspect = mojo("artifact");

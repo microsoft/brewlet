@@ -4,8 +4,9 @@
 
 # Tier 2 — local developer experience: the CLI + node-resident JVM path.
 # Covers: push (OCI artifact, no Dockerfile), inspect, run (java -jar + live curl,
-# plus a shipped AppCDS archive mapping under -Xshare:on and a shipped JDK AOT
-# cache under -XX:AOTMode=required/on),
+# plus a shipped AppCDS archive mapping under -Xshare:on, a shipped JDK AOT
+# cache under -XX:AOTMode=required/on, and both shipped together with the AOT
+# cache winning),
 # bundle (resource->JVM/cgroup mapping in config.json), layered classpath, and
 # modular (JPMS) apps, including supplementary non-modular class-path helpers,
 # and the Maven plugin's config / inspect / build / appcds goals (tier2_maven_goals).
@@ -124,8 +125,9 @@ tier2_cli() {
   # -XX:AOTMode=required (JDK 27+; `on` before) so an unusable cache is a
   # startup failure instead of the default auto-mode warning. AOTMode alone
   # passes without any -XX:AOTCache, so Main must also load from the cache.
+  # Training (--aot) and `run` (--jdk-root) both use $JAVA_HOME, so probe it too.
   local jfeat aotref="demo/aot-hello:1.0.0" aotmode=on
-  jfeat="$(java -XshowSettings:properties -version 2>&1 \
+  jfeat="$("$JAVA_HOME/bin/java" -XshowSettings:properties -version 2>&1 \
     | sed -n 's/^ *java.specification.version = //p' | head -1)"
   if [[ ! "$jfeat" =~ ^[0-9]+$ ]] || (( jfeat < 25 )); then
     skip "run+aot: shipped AOT cache maps under brewlet run" "needs JDK 25"
@@ -136,7 +138,7 @@ tier2_cli() {
     if "$bin" push "$cdsdir/app.jar" "$aotref" --store "$store" --format=artifact --aot \
          >"$WORK/t2-aot-build.log" 2>&1; then
       pass "run+aot: push --aot trains and ships an AOT cache"
-      if out="$(cd "$cdsdir/elsewhere" && "$bin" run "$aotref" --store "$store" \
+      if out="$(cd "$cdsdir/elsewhere" && "$bin" run "$aotref" --store "$store" --jdk-root "$JAVA_HOME" \
                   -- "-XX:AOTMode=$aotmode" -Xlog:class+load=info 2>&1)"; then
         pass "run+aot: JVM starts with -XX:AOTMode=$aotmode from an unrelated cwd"
         assert_contains "run+aot: app output" "$out" "cds-hello"
@@ -149,6 +151,44 @@ tier2_cli() {
     else
       fail "run+aot: push --aot" "see $WORK/t2-aot-build.log"
     fi
+  fi
+
+  # --- run + both archives: the AOT cache wins on JDK 24+ -------------------
+  # Ship a .jsa and an AOT cache in one artifact. On the JDK 25+ runtime the
+  # launch must take -XX:AOTCache only: Main loads from the AOT cache (a .jsa
+  # would log "(top)") and the launch argv carries no -XX:SharedArchiveFile.
+  local bothref="demo/both-hello:1.0.0" launch
+  if [[ ! "$jfeat" =~ ^[0-9]+$ ]] || (( jfeat < 25 )); then
+    skip "run+appcds+aot: AOT cache wins over a shipped .jsa" "needs JDK 25"
+  elif [[ ! -f "$cdsdir/app.jar" ]]; then
+    fail "run+appcds+aot: AOT cache wins over a shipped .jsa" "no $cdsdir/app.jar (see $WORK/t2-cds-build.log)"
+  elif "$bin" push "$cdsdir/app.jar" "$bothref" --store "$store" --format=artifact --appcds --aot \
+         >"$WORK/t2-both-build.log" 2>&1; then
+    assert_contains "run+appcds+aot: push ships both archives" \
+      "$(cat "$WORK/t2-both-build.log")" "cds archive: app.jsa"
+    assert_contains "run+appcds+aot: push summary lists the AOT cache" \
+      "$(cat "$WORK/t2-both-build.log")" "aot cache: app.aot"
+    # The argv checks run whatever the exit status: with the .jsa passed,
+    # -XX:AOTMode alone already aborts the JVM, and the argv names the cause.
+    local rc=0
+    out="$(cd "$cdsdir/elsewhere" && "$bin" run "$bothref" --store "$store" --jdk-root "$JAVA_HOME" \
+             -- "-XX:AOTMode=$aotmode" -Xlog:class+load=info 2>&1)" || rc=$?
+    launch="$(grep -m1 '^\[brewlet\] launch' <<<"$out" || true)"
+    assert_contains "run+appcds+aot: launch passes -XX:AOTCache" "$launch" "-XX:AOTCache="
+    assert_not_contains "run+appcds+aot: launch does not pass the shipped .jsa" \
+      "$launch" "SharedArchiveFile"
+    if (( rc == 0 )); then
+      pass "run+appcds+aot: JVM starts with -XX:AOTMode=$aotmode"
+      assert_contains "run+appcds+aot: Main loaded from a shared archive" \
+        "$out" "Main source: shared objects file"
+      assert_not_contains "run+appcds+aot: Main not loaded from the dynamic .jsa" \
+        "$out" "Main source: shared objects file (top)"
+    else
+      printf '%s\n' "$out" >"$WORK/t2-both-run.log"
+      fail "run+appcds+aot: JVM starts with -XX:AOTMode=$aotmode" "see $WORK/t2-both-run.log"
+    fi
+  else
+    fail "run+appcds+aot: push --appcds --aot" "see $WORK/t2-both-build.log"
   fi
 
   # --- bundle: OCI runc bundle + resource->JVM/cgroup mapping --------------

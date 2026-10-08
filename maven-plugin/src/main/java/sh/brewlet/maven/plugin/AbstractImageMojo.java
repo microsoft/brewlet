@@ -98,8 +98,6 @@ public abstract class AbstractImageMojo extends AbstractBrewletMojo {
         validateFinalConfig(cfg);
         validateCdsPairing(cfg, resolvedCdsArchive);
         validateAotPairing(cfg, resolvedAotCache);
-        // At most one of the two is set (applyAotCache and validate enforce it).
-        java.io.File startupArchive = resolvedAotCache != null ? resolvedAotCache : resolvedCdsArchive;
 
         boolean runnable = "image".equals(format);
         if (!"artifact".equals(format) && !runnable) {
@@ -130,8 +128,10 @@ public abstract class AbstractImageMojo extends AbstractBrewletMojo {
         List<ArtifactLayer> layers = managedBundle == null
                 ? new ArrayList<>(buildArtifactLayers(cfg.getEntry().getMode())) : new ArrayList<>();
         if (!runnable) {
-            ArtifactLayer startup = startupArchiveLayer(cfg, startupArchive);
-            if (startup != null) layers.add(startup);
+            ArtifactLayer cdsLayer = startupArchiveLayer(resolvedCdsArchive, MediaTypes.CDS_LAYER_MEDIA_TYPE);
+            if (cdsLayer != null) layers.add(cdsLayer);
+            ArtifactLayer aotLayer = startupArchiveLayer(resolvedAotCache, MediaTypes.AOT_LAYER_MEDIA_TYPE);
+            if (aotLayer != null) layers.add(aotLayer);
         }
         try {
             Map<String, String> identityAnnotations = new java.util.TreeMap<>(annotations);
@@ -142,8 +142,9 @@ public abstract class AbstractImageMojo extends AbstractBrewletMojo {
             inputs.add(MAPPER.readTree(MAPPER.writeValueAsBytes(cfg)));
             inputs.add(identityAnnotations);
             inputs.add(LocalStore.sha256Hex(Files.readAllBytes(jar.toPath())));
-            inputs.add(startupArchive == null ? null
-                    : LocalStore.sha256Hex(Files.readAllBytes(startupArchive.toPath())));
+            for (java.io.File archive : new java.io.File[] {resolvedCdsArchive, resolvedAotCache}) {
+                inputs.add(archive == null ? null : LocalStore.sha256Hex(Files.readAllBytes(archive.toPath())));
+            }
             for (ArtifactLayer layer : layers) {
                 inputs.add(List.of(layer.name(), layer.mediaType(), LocalStore.sha256Hex(layer.tar())));
             }
@@ -171,13 +172,14 @@ public abstract class AbstractImageMojo extends AbstractBrewletMojo {
             }
             ApplicationImage assembled;
             if (runnable) {
-                Path cds = startupArchive == null ? null : startupArchive.toPath();
+                Path cds = resolvedCdsArchive == null ? null : resolvedCdsArchive.toPath();
+                Path aot = resolvedAotCache == null ? null : resolvedAotCache.toPath();
                 RunnableImageBuilder.Result result = managedBundle == null
-                        ? RunnableImageBuilder.build(cfg, jar.toPath(), layers, cds, annotations)
+                        ? RunnableImageBuilder.build(cfg, jar.toPath(), layers, cds, aot, annotations)
                         : RunnableImageBuilder.buildWithManagedDependencyLayer(cfg, jar.toPath(),
                                 new RunnableImageBuilder.ManagedDependencyLayer(
                                         managedBundle.compressedLayer(), managedBundle.config().getLayerDigest(),
-                                        managedBundle.config().getLayerDiffId(), "dependencies"), cds, annotations);
+                                        managedBundle.config().getLayerDiffId(), "dependencies"), cds, aot, annotations);
                 assembled = ApplicationImage.runnable(result);
             } else {
                 assembled = ApplicationImage.artifact(cfg, Files.readAllBytes(jar.toPath()), layers, annotations);

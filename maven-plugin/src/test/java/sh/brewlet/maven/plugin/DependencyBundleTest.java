@@ -112,7 +112,7 @@ class DependencyBundleTest {
                 RunnableImageBuilder.buildWithManagedDependencyLayer(
                         jvm, jar, new RunnableImageBuilder.ManagedDependencyLayer(
                                 bundle.compressedLayer(), bundle.config().getLayerDigest(),
-                                bundle.config().getLayerDiffId(), "dependencies"), null,
+                                bundle.config().getLayerDiffId(), "dependencies"), null, null,
                         java.util.Map.of(MediaTypes.MANAGED_DEPENDENCY_EVIDENCE_ANNOTATION,
                                 evidence));
         JsonNode manifest = MAPPER.readTree(result.manifests.get(0).data());

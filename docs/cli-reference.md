@@ -128,8 +128,8 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
                           [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
                           [--signing-key PEM --builder-identity IDENTITY]]
                          [--appcds-archive JSA | --appcds [--appcds-java JAVA]
-                          [--appcds-timeout SEC] [--appcds-arg ARG ...]
-                          | --aot-cache FILE | --aot [--aot-java JAVA]
+                          [--appcds-timeout SEC] [--appcds-arg ARG ...]]
+                         [--aot-cache FILE | --aot [--aot-java JAVA]
                           [--aot-timeout SEC] [--aot-arg ARG ...]]
                          [--push-result FILE]
                          [--insecure-registry HOST[:PORT] ...]
@@ -187,13 +187,13 @@ or build into a local layout with `--store`.
 | `--trusted-signer-identity` | *(none)* | Expected bundle-publisher identity in signed bundle provenance; paired with `--trusted-public-key`. |
 | `--signing-key` | *(none)* | PKCS#8 PEM ECDSA P-256 private key used to sign final-image managed-dependency evidence; paired with `--builder-identity`. |
 | `--builder-identity` | *(none)* | Application-builder identity recorded in the signed final-image evidence; paired with `--signing-key`. |
-| `--appcds-archive` | *(none)* | Prebuilt Application Class-Data Sharing archive (`.jsa`) to ship, mounted at `/app/<name>` and launched with `-Xshare:auto -XX:SharedArchiveFile`. Sets `cds.archive` in the config from the file's basename (unless `--config` already declares one, which must then match). Best-effort startup accelerator; see [AppCDS](appcds.md). |
+| `--appcds-archive` | *(none)* | Prebuilt Application Class-Data Sharing archive (`.jsa`) to ship, mounted at `/app/<name>` and launched with `-Xshare:auto -XX:SharedArchiveFile` (only on JDKs older than 24 when an AOT cache is also shipped). Sets `cds.archive` in the config from the file's basename (unless `--config` already declares one, which must then match). Best-effort startup accelerator; see [AppCDS](appcds.md). |
 | `--appcds` | `false` | Generate the AppCDS archive **turnkey** — run a self-terminating training JVM against the JAR, then ship the result (the generate-it-for-me equivalent of `--appcds-archive`). Fat-JAR only; mutually exclusive with `--appcds-archive`, `--classpath-layer`, and `--module-layer`. See [AppCDS §4.2](appcds.md). |
 | `--appcds-java` | *(auto)* | `java` executable (or a `JAVA_HOME` directory) used for `--appcds` training. Defaults to `$JAVA_HOME/bin/java`, then `java` on `PATH`. |
 | `--appcds-timeout` | `120` | Seconds to wait for the `--appcds` training JVM to self-terminate. |
 | `--appcds-arg` | *(none)* | Workload argument passed to the `--appcds` training JVM to drive class loading (repeatable). |
-| `--aot-cache` | *(none)* | Prebuilt JDK AOT cache to ship, mounted at `/app/<name>` and launched with `-XX:AOTCache` on JDK 24+ (dropped on older JDKs). Sets `aot.cache` in the config from the file's basename (unless `--config` already declares one, which must then match). Mutually exclusive with `--aot`, `--appcds` and `--appcds-archive`. See [JDK AOT cache](aot-cache.md). |
-| `--aot` | `false` | Generate the AOT cache **turnkey**: run a self-terminating training JVM with `-XX:AOTCacheOutput` (JDK 25+) against the JAR, then ship `<jar-name>.aot` like `--aot-cache`. Fat-JAR only; mutually exclusive with `--aot-cache`, `--appcds`, `--appcds-archive`, `--classpath-layer` and `--module-layer`. |
+| `--aot-cache` | *(none)* | Prebuilt JDK AOT cache to ship, mounted at `/app/<name>` and launched with `-XX:AOTCache` on JDK 24+ (dropped on older JDKs). Sets `aot.cache` in the config from the file's basename (unless `--config` already declares one, which must then match). Mutually exclusive with `--aot`; may be combined with `--appcds` or `--appcds-archive`, in which case the AOT cache wins on JDK 24+. See [JDK AOT cache](aot-cache.md). |
+| `--aot` | `false` | Generate the AOT cache **turnkey**: run a self-terminating training JVM with `-XX:AOTCacheOutput` (JDK 25+) against the JAR, then ship `<jar-name>.aot` like `--aot-cache`. Fat-JAR only; mutually exclusive with `--aot-cache`, `--classpath-layer` and `--module-layer`; may be combined with `--appcds` or `--appcds-archive`. |
 | `--aot-java` | *(auto)* | `java` executable (or a `JAVA_HOME` directory) used for `--aot` training. Defaults to `$JAVA_HOME/bin/java`, then `java` on `PATH`. |
 | `--aot-timeout` | `120` | Seconds to wait for the `--aot` training JVM to self-terminate. |
 | `--aot-arg` | *(none)* | Workload argument passed to the `--aot` training JVM to drive class loading (repeatable). |
@@ -207,9 +207,11 @@ constraint automatically for non-portable artifacts (pass `--arch` to override, 
 `--appcds-archive`, or let the CLI build one with `--appcds` (the two are mutually
 exclusive). During `--appcds` training the CLI prints a heartbeat to stderr at
 least every 30 seconds and reports the archive size and training time when done.
-A [JDK AOT cache](aot-cache.md) is the alternative startup archive: ship one with
+A [JDK AOT cache](aot-cache.md) is the other startup archive: ship one with
 `--aot-cache`, or train one with `--aot`. The summary then prints
 `aot cache: <name> (mounted /app/<name>; -XX:AOTCache, JDK 24+, best-effort)`.
+An artifact may ship both (for example `--appcds --aot`); the summary prints both
+lines, JDK 24+ launches with the AOT cache, and older JDKs use the `.jsa`.
 
 ```bash
 brewlet push ./target/app.jar demo/hello:1.0.0                        # runnable image (default)

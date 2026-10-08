@@ -251,7 +251,7 @@ For output preview, see [Dry-run behavior](#dry-run-behavior).
 | `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) from the same fat/thin/Boot/module payload used for publication, using a self-terminating run or explicit signal-mode training. Attach it later with `-Dbrewlet.cdsArchive=...`. |
 | `brewlet:aotcache` | — | Generate a JDK AOT cache (`target/brewlet/app.aot`) with `-XX:AOTCacheOutput` (JDK 25+), using the same payloads and training modes as `appcds`. Attach it later with `-Dbrewlet.aotCache=...`. See [AOT cache](#aot-cache-brewletaotcache). |
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
-| `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. Honors `brewlet.cdsArchive` and `brewlet.aotCache` exactly like `build`/`push` (`cds` or `aot` block + archive layer with digest). |
+| `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. Honors `brewlet.cdsArchive` and `brewlet.aotCache` exactly like `build`/`push` (`cds` and/or `aot` block + archive layer with digest). |
 | `brewlet:manifest` | — | Generate a development `JavaApplication` YAML for this invocation's built/pushed image. No independent image input, publication, or cluster access. |
 | `brewlet:help` | — | List goals and parameters; use `-Ddetail=true -Dgoal=push` for detailed publishing help. |
 
@@ -292,7 +292,7 @@ URL schemes or query strings in `image`. Docker Hub references such as
 | `trustedSignerIdentity` | `brewlet.trustedSignerIdentity` | — | Expected identity in signed bundle provenance. Required when the selected bundle has provenance. |
 | `builderIdentity` | `brewlet.builderIdentity` | — | Application publisher identity asserted in optional final-image provenance. Required with `signingKey` when pushing a managed application. |
 | `cdsArchive` | `brewlet.cdsArchive` | — | Optional prebuilt AppCDS `.jsa` archive to append as a `application/vnd.brewlet.cds.layer.v1+jsa` layer after dependency layers. The archive basename becomes `cds.archive`, is mounted at `/app/<name>`, and launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<name>` as best-effort acceleration. See [AppCDS §4.1](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#41-build-time-archive-layer-recommended-primary). |
-| `aotCache` | `brewlet.aotCache` | — | Optional prebuilt JDK AOT cache to append as an `application/vnd.brewlet.aot.layer.v1+aot` layer (folded into the `app` layer of a runnable image). The basename becomes `aot.cache`, is mounted at `/app/<name>`, and launches with `-XX:AOTCache=/app/<name>` on JDK 24+. Mutually exclusive with `cdsArchive`. See [JDK AOT cache](https://github.com/microsoft/brewlet/blob/main/docs/aot-cache.md). |
+| `aotCache` | `brewlet.aotCache` | — | Optional prebuilt JDK AOT cache to append as an `application/vnd.brewlet.aot.layer.v1+aot` layer (folded into the `app` layer of a runnable image). The basename becomes `aot.cache`, is mounted at `/app/<name>`, and launches with `-XX:AOTCache=/app/<name>` on JDK 24+. May be combined with `cdsArchive` (different basenames): both are shipped, the AOT cache wins on JDK 24+ and the `.jsa` is used otherwise. See [JDK AOT cache](https://github.com/microsoft/brewlet/blob/main/docs/aot-cache.md). |
 
 ### Layered Spring Boot JARs
 
@@ -651,7 +651,7 @@ no AppCDS benefit); see [AppCDS §7](https://github.com/microsoft/brewlet/blob/m
 ## AOT cache (`brewlet:aotcache`)
 
 A [JDK AOT cache](https://github.com/microsoft/brewlet/blob/main/docs/aot-cache.md)
-is the JDK 24+ alternative to an AppCDS archive. The goal trains with
+is the JDK 24+ counterpart to an AppCDS archive. The goal trains with
 `-XX:AOTCacheOutput` (JEP 514), so it needs a **JDK 25+** training runtime, and
 writes `app.aot`. Ship it as an extra layer:
 
@@ -664,6 +664,10 @@ mvn brewlet:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2 \
   -Dbrewlet.aotCache=target/brewlet/app.aot
 ```
+
+Add `-Dbrewlet.cdsArchive=target/brewlet/app.jsa` to ship an AppCDS archive in the
+same artifact: JDK 24+ nodes launch with the AOT cache and older JDKs fall back to
+the `.jsa`. The two basenames must differ.
 
 Training works like [`brewlet:appcds`](#appcds-brewletappcds): the same `exit` and
 [`signal`](#long-running-servers--signal-mode) modes, readiness signals, cleanup

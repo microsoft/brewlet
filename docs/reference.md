@@ -158,7 +158,7 @@ Full flag reference: [CLI reference](cli-reference.md#brewlet-push) and the
 | `addExports` | array | Optional; each token expands to `--add-exports <module>/<package>=<target>`. |
 | `systemProperties` | object | Optional string map expanded, sorted by key, as `-D<key>=<value>`. |
 | `cds` | object | Optional Application Class-Data Sharing hint: `{archive, mode}`. `archive` is a bare filename (e.g. `app.jsa`) shipped as a `cds.layer.v1+jsa` layer, mounted read-only at `/app/<archive>`; launch prepends `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`. `mode` (`dynamic`\|`static`, informational) records how it was produced. Best-effort accelerator: a build/version/classpath mismatch falls back to base CDS, never fails. See [AppCDS](appcds.md). |
-| `aot` | object | Optional JDK AOT cache hint: `{cache}`. `cache` is required and is a bare filename (e.g. `app.aot`) shipped as an `aot.layer.v1+aot` layer, mounted read-only at `/app/<cache>`; launch prepends `-XX:AOTCache=/app/<cache>` (never `-XX:AOTMode`). Dropped on JDKs older than 24. Mutually exclusive with `cds`. See [JDK AOT cache](aot-cache.md). |
+| `aot` | object | Optional JDK AOT cache hint: `{cache}`. `cache` is required and is a bare filename (e.g. `app.aot`) shipped as an `aot.layer.v1+aot` layer, mounted read-only at `/app/<cache>`; launch prepends `-XX:AOTCache=/app/<cache>` (never `-XX:AOTMode`). Dropped on JDKs older than 24. May ship with `cds` under a different filename: the AOT cache wins on JDK 24+, the `.jsa` is used otherwise. See [JDK AOT cache](aot-cache.md). |
 | `arch` | array | Optional architecture constraint (`amd64`, `arm64`). Omit for arch-neutral bytecode (the default — runs on any provisioned arch). Set only for **non-portable JARs** that bundle JNI native libraries or arch-specific deps; steers scheduling to matching-arch nodes via `kubernetes.io/arch` nodeAffinity, and denies admission with `NoCompatibleArch` when no ready node of a required arch exists. The CLI (`brewlet push`) and Maven plugin auto-detect bundled natives and default this accordingly. |
 | `env` | array | `{name, value}`. |
 
@@ -168,7 +168,8 @@ bundles use the trusted `brewlet bundle --uid/--gid` flags.
 
 Artifact launch knobs expand first in this order: `-Xshare:auto`
 `-XX:SharedArchiveFile` (when `cds` is set) or `-XX:AOTCache` (when `aot` is
-set; neither under node-side regeneration), `--enable-preview`, `--add-modules`,
+set; never both: with both set, JDK 24+ takes the AOT cache and older JDKs the
+`.jsa`; neither under node-side regeneration), `--enable-preview`, `--add-modules`,
 `--add-opens`, `--add-exports`, sorted `-D` flags. Descriptor `jvm.args` follows
 for deployment tuning/escape-hatch flags, then the entrypoint. Because the JVM
 resolves conflicting options last-wins, descriptor `jvm.args` **override**

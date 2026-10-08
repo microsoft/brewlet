@@ -78,7 +78,7 @@ func usage() {
 	fmt.Print(`Brewlet PoC — the JVM analogue to SpinKube
 
 USAGE:
-  brewlet push    <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE] [--arch amd64,arm64] [--no-arch] [--classpath-layer TAR ...] [--dependency-bundle REF --dependency-lock FILE [--trusted-public-key PEM --trusted-signer-identity IDENTITY] [--signing-key PEM --builder-identity IDENTITY]] [--main-class CLASS] [--module-layer TAR ...] [--appcds-archive JSA | --aot-cache FILE | --aot] [--push-result FILE] [--insecure-registry HOST[:PORT] ...] [--allowed-token-realm HOST[:PORT] ...]
+  brewlet push    <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE] [--arch amd64,arm64] [--no-arch] [--classpath-layer TAR ...] [--dependency-bundle REF --dependency-lock FILE [--trusted-public-key PEM --trusted-signer-identity IDENTITY] [--signing-key PEM --builder-identity IDENTITY]] [--main-class CLASS] [--module-layer TAR ...] [--appcds-archive JSA | --appcds] [--aot-cache FILE | --aot] [--push-result FILE] [--insecure-registry HOST[:PORT] ...] [--allowed-token-realm HOST[:PORT] ...]
   brewlet dependency-bundle <classpath-tar> <ref> --name NAME --version VERSION --source-bom G:A:V --lock FILE [--signing-key PEM --signer-identity IDENTITY] [--compatible-jdks 21,25] [--store DIR]
   brewlet keygen --private FILE --public FILE
   brewlet inspect <ref>       [--store DIR] [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
@@ -169,7 +169,7 @@ func cmdPush(args []string) error {
 	mainClass := fs.String("main-class", "", "application main class; required with --dependency-bundle unless supplied by a classpath-mode --config")
 	var mpLayers stringSlice
 	fs.Var(&mpLayers, "module-layer", "optional library-module tar for a modular (JPMS) app, unpacked to /app/mods (repeatable); see https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md")
-	cdsArchive := fs.String("appcds-archive", "", "optional prebuilt AppCDS archive (.jsa) to ship; mounted at /app/<name> and launched with -Xshare:auto -XX:SharedArchiveFile; see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md")
+	cdsArchive := fs.String("appcds-archive", "", "optional prebuilt AppCDS archive (.jsa) to ship; mounted at /app/<name> and launched with -Xshare:auto -XX:SharedArchiveFile (when an AOT cache is also shipped, only on JDK < 24); see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md")
 	appcds := fs.Bool("appcds", false, "generate an AppCDS archive by running a self-terminating training JVM against the JAR, then ship it (turnkey equivalent of --appcds-archive); fat-JAR only. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.2")
 	appcdsJava := fs.String("appcds-java", "", "java executable (or JAVA_HOME dir) for --appcds training; defaults to $JAVA_HOME/bin/java, else java on PATH")
 	appcdsTimeout := fs.Int("appcds-timeout", 120, "seconds to wait for the --appcds training JVM to self-terminate")

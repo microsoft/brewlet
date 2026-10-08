@@ -82,7 +82,7 @@ class RegistryClientMountTest {
         cfg.setEntry(entry);
         var expected = RunnableImageBuilder.buildWithManagedDependencyLayer(cfg, jar,
                 new RunnableImageBuilder.ManagedDependencyLayer(bundle.compressedLayer(), digest,
-                        bundle.config().getLayerDiffId(), "dependencies"), null, Map.of());
+                        bundle.config().getLayerDiffId(), "dependencies"), null, null, Map.of());
 
         Map<String, byte[]> blobs = new ConcurrentHashMap<>();
         for (var blob : expected.blobs) {

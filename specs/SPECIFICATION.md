@@ -226,8 +226,11 @@ describes how a runnable image carries that contract.
 - The optional `aot` object has exactly one field, `cache` (required when `aot`
   is present: `aot.cache is required`), the bare filename the paired
   `aot.layer.v1+aot` layer is materialized as under `/app` (e.g. `"app.aot"`).
-  `cds` and `aot` are mutually exclusive (`cds and aot are mutually
-  exclusive`): an artifact ships at most one startup archive. The `aot` key is
+  An artifact MAY carry both `cds` and `aot`, but their filenames MUST differ
+  (`cds.archive and aot.cache must differ`), since both are materialized flat
+  under `/app`. The launching JDK picks one: on feature 24+ the AOT cache wins and
+  the `.jsa` is neither mounted nor passed; below 24, or when the JDK identity
+  cannot be read, the `.jsa` is used and the AOT cache is dropped. The `aot` key is
   an incompatible pre-GA addition — shims and CLIs that predate it reject the
   config as an unknown field.
 - Non-empty `mainJar` values, `cds.archive` and `aot.cache` MUST be bare filenames (no path separator, no
@@ -261,7 +264,10 @@ describes how a runnable image carries that contract.
   node-side regeneration — §13) **or** `-XX:AOTCache=/app/<cache>` (same slot,
   same regeneration rule; dropped together with its mount when the selected JDK
   is older than feature 24 or its identity cannot be read; `-XX:AOTMode` is never
-  emitted, so the JDK default `auto` warns and continues on a mismatch),
+  emitted, so the JDK default `auto` warns and continues on a mismatch). Never
+  both: when an artifact ships both archives, JDK 24+ takes `-XX:AOTCache`, an
+  older or unidentifiable JDK takes the `.jsa`, and node-side regeneration
+  suppresses both (the shipped `.jsa` still seeds the node cache). Then follow
   `--enable-preview`, `--add-modules`,
   `--add-opens`, `--add-exports`, sorted `-D` system properties, descriptor
   `jvm.args`, then the entrypoint (`-jar`, `-cp … <MainClass>`, or `-p … -m …`).
@@ -389,7 +395,7 @@ publishes the *same* JAR as a **standard, kubelet-pullable OCI image**:
 - a real `application/vnd.oci.image.config.v1+json` config (with `rootfs.diff_ids`
   over the **uncompressed** layer tars, as the OCI image spec requires);
 - **`application/vnd.oci.image.layer.v1.tar+gzip`** layers — the app JAR (plus an
-  optional AppCDS `.jsa` or JDK AOT cache) in one layer, and the same classpath/modulepath tars a
+  optional AppCDS `.jsa` and/or JDK AOT cache) in one layer, and the same classpath/modulepath tars a
   native artifact would ship as additional layers, each tagged with its role via a
   `brewlet.sh/layer` annotation (`app` / `classpath` / `modulepath`);
 - the launch config (§4.2) carried verbatim in the manifest annotation
@@ -2083,12 +2089,13 @@ and JVM features:
   patch. Workloads receive only their single entry directory, never the
   node-shared cache root. See the
   [AppCDS note](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md).
-- **JDK AOT cache (JEP 483/514):** alternatively ship a JDK AOT cache as an
+- **JDK AOT cache (JEP 483/514):** also ship a JDK AOT cache as an
   `aot.layer.v1+aot` layer (`brewlet push --aot-cache`, or `--aot` to train one
-  with `-XX:AOTCacheOutput` on JDK 25+). It is mounted at `/app/<cache>` and
-  consumed with `-XX:AOTCache` on JDK 24+, without `-XX:AOTMode`, so a mismatch
-  falls back to a normal start. Older JDKs drop the hint. Node-side regeneration
-  wins over a shipped cache; node-side AOT regeneration itself is
+  with `-XX:AOTCacheOutput` on JDK 25+), alone or next to a `.jsa`. It is mounted
+  at `/app/<cache>` and consumed with `-XX:AOTCache` on JDK 24+, without
+  `-XX:AOTMode`, so a mismatch falls back to a normal start. When both ship, the
+  AOT cache wins on JDK 24+ and the `.jsa` is used otherwise. Older JDKs drop the
+  hint. Node-side regeneration suppresses both; node-side AOT regeneration itself is
   [roadmap](../ROADMAP.md) work. See the
   [AOT cache note](https://github.com/microsoft/brewlet/blob/main/docs/aot-cache.md).
 
