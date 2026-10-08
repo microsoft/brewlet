@@ -10,6 +10,7 @@ import org.apache.maven.plugins.annotations.ResolutionScope;
 import sh.brewlet.maven.plugin.model.JvmConfig;
 import sh.brewlet.maven.plugin.oci.ArtifactLayer;
 import sh.brewlet.maven.plugin.oci.LocalStore;
+import sh.brewlet.maven.plugin.oci.MediaTypes;
 
 import java.io.File;
 import java.io.IOException;
@@ -85,7 +86,7 @@ public class InspectMojo extends AbstractBrewletMojo {
                 getLog().info("  cds: " + name + " folded into app layer ("
                         + resolvedCdsArchive.length() + " bytes, " + sha256(resolvedCdsArchive) + ")");
             } else {
-                ArtifactLayer cdsLayer = startupArchiveLayer(resolvedCdsArchive, sh.brewlet.maven.plugin.oci.MediaTypes.CDS_LAYER_MEDIA_TYPE);
+                ArtifactLayer cdsLayer = startupArchiveLayer(resolvedCdsArchive, MediaTypes.CDS_LAYER_MEDIA_TYPE);
                 getLog().info("  cds layer: " + cdsLayer.name() + ": " + cdsLayer.mediaType()
                         + " (" + cdsLayer.tar().length + " bytes, "
                         + LocalStore.sha256Hex(cdsLayer.tar()) + ")");
@@ -100,7 +101,7 @@ public class InspectMojo extends AbstractBrewletMojo {
                 getLog().info("  aot: " + name + " folded into app layer ("
                         + resolvedAotCache.length() + " bytes, " + sha256(resolvedAotCache) + ")");
             } else {
-                ArtifactLayer aotLayer = startupArchiveLayer(resolvedAotCache, sh.brewlet.maven.plugin.oci.MediaTypes.AOT_LAYER_MEDIA_TYPE);
+                ArtifactLayer aotLayer = startupArchiveLayer(resolvedAotCache, MediaTypes.AOT_LAYER_MEDIA_TYPE);
                 getLog().info("  aot layer: " + aotLayer.name() + ": " + aotLayer.mediaType()
                         + " (" + aotLayer.tar().length + " bytes, "
                         + LocalStore.sha256Hex(aotLayer.tar()) + ")");

@@ -430,6 +430,11 @@ public final class TrainingRun {
 
         /** Signals the training JVM and every descendant seen so far. */
         void kill(boolean force) {
+            // ponytail: Java has no process-group kill. A child forked after this
+            // snapshot but before the parent dies is reparented and never reaped here
+            // (waitForCleanup only re-snapshots while the parent is alive). Upgrade
+            // path: start training in its own process group (setsid wrapper) and kill
+            // the group, as the Go CLI does, if that window ever leaks a JVM.
             snapshotDescendants();
             for (ProcessHandle handle : descendants) {
                 if (force) handle.destroyForcibly(); else handle.destroy();

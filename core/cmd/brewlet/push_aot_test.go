@@ -5,11 +5,11 @@ package main
 
 import (
 	"os"
-
-	"github.com/microsoft/brewlet/internal/artifact"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/microsoft/brewlet/internal/artifact"
 )
 
 func TestPushAOTFlagValidation(t *testing.T) {

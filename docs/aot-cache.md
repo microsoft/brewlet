@@ -92,8 +92,8 @@ its `app` layer.
 - Brewlet never emits `-XX:AOTMode`. The JDK default, `auto`, warns about an
   unusable cache and continues. This matches the `-Xshare:auto` posture for
   AppCDS. Add `-XX:AOTMode=on` to `jvm.args` only when you want a stale cache
-  to fail the start. Use `on` on JDK 25 and 26. `-XX:AOTMode=required` is JDK 27+
-  only; JDK 25 and 26 reject it as an unrecognized value.
+  to fail the start. Use `on` on JDK 24–26. `-XX:AOTMode=required` is JDK 27+
+  only; JDK 24–26 reject it as an unrecognized value.
 - `-XX:AOTCache` is a fatal unrecognized option before JDK 24, so the shim,
   `brewlet bundle` and `brewlet run` drop the hint for the JDK actually
   selected.
