@@ -103,6 +103,8 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
   content, so a runtime patch is actually effective.
 - Allow dependencies to be published and governed **independently** from
   applications while still being delivered as ordinary image layers.
+- Let platform teams approve large runtime inventories without installing every
+  runtime on every node, by installing selected runtimes on first use.
 - Keep the Maven plugin as an optional **Java producer** of 2.0 artifacts.
 
 ## 4. Non-goals
@@ -127,6 +129,7 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
 | **Runtime image** | An administrator-approved OCI image (or image index) that supplies the complete userland and language runtime a workload executes on. Also called a *golden image*. |
 | **Runtime image ID** | The stable name of a runtime image in the inventory, for example `java-21` or `python-3.12`. Never contains a digest or tag. |
 | **Generation** | One digest bound to an ID at a point in time. Rotating the digest creates a new generation of the same ID. |
+| **On-demand install** | Installing a runtime image ID on a node only when a container on that node first needs it (§7.5). |
 | **Runtime root** | A runtime image generation unpacked read-only on a node by the provisioner. |
 | **Application artifact** | The developer's OCI image: application layers, optional dependency layers, and one launch layer. |
 | **Launch layer** | The layer carrying `launch.json`, the authoritative launch configuration (§6.3). |
@@ -349,7 +352,8 @@ a new ID. This is the contract that makes digest-free workload references safe.
 ### 7.3 Placement and rotation (`NodeProfile`)
 
 `NodeProfile` keeps pool selection, tolerations, mirrors, and rollout policy, and
-replaces `jdks`, `launchers`, and `appCDS` with one list of IDs:
+replaces `jdks`, `launchers`, and `appCDS` with one list of runtime image
+entries:
 
 ```yaml
 apiVersion: node.brewlet.sh/v2alpha1
@@ -357,15 +361,27 @@ kind: NodeProfile
 metadata: { name: web }
 spec:
   nodePool: { names: ["web"] }
-  runtimeImages: ["java-21", "python-3.12", "node-22", "static"]
+  runtimeImages:
+    - id: java-21                 # install: Eager is the default
+    - id: python-3.12
+    - id: node-22
+      install: OnDemand           # installed on first use on each node (§7.5)
+      idleTTL: 72h                # optional; uninstall after 72h without leases
+    - id: static
+      install: OnDemand
   rollout:
     maxUnavailable: 1
     validate: true
     containerdRestart: validated
 ```
 
+- `id` is required and unique within the profile. `install` is `Eager`
+  (default) or `OnDemand`; any other value is rejected. `idleTTL` is permitted
+  only with `OnDemand`.
 - Unknown IDs make the profile not ready (`UnknownRuntimeImage`) without blocking
   other IDs.
+- `Eager` IDs are installed when the node joins the pool and gate node readiness
+  as in 1.x.
 - The provisioner installs each generation under
   `/opt/brewlet/runtimes/<id>/<generation>/` read-only and atomically flips
   `/opt/brewlet/runtimes/<id>/current` once extraction and validation succeed.
@@ -385,6 +401,69 @@ while others move forward asks the platform team for a **separate ID** (for
 example `java-21-legacy-tls`) whose digest the platform team chooses to freeze.
 Holding is therefore an explicit, inventory-visible, administrator-owned decision
 rather than a digest scattered across application manifests.
+
+### 7.5 On-demand installation
+
+A large inventory installed eagerly on every node costs provisioning time, disk,
+and registry egress for runtimes most nodes never run. An `OnDemand` entry
+defers installation of an ID on each node until a container on that node first
+needs it.
+
+**Per-node states.** For each `OnDemand` ID the provisioner tracks one of:
+
+| State | Capability label `brewlet.sh/runtime.<id>` | Meaning |
+|---|---|---|
+| `available` | `available` | Approved for the node's pool; not installed. |
+| `installing` | `available` | An install request is being processed. |
+| `ready` | `ready` | A validated `current` generation is installed. |
+| `failed` | *(absent until backoff expires)* | The last install attempt failed; reported as a `provision-error`. |
+
+`available` is derived from the profile alone, so a node is labelled as soon as
+it joins the pool and before any runtime bytes are fetched. Cluster autoscaler
+node templates can therefore declare `available` labels statically and scale a
+pool from zero for an `OnDemand` ID.
+
+**Install request.** When `Create` (§8.2) resolves an ID that is `available` on
+the node, the shim records an install request and does not fetch anything
+itself:
+
+1. The shim writes an empty marker `/opt/brewlet/runtimes/.requests/<id>` in a
+   root-owned, host-only directory that is never mounted into a sandbox. The
+   marker carries no data other than the already-validated ID in its name;
+   creating it is idempotent, so concurrent containers produce one request.
+2. The provisioner — still the only writer of runtime roots — accepts the
+   request only if `<id>` is an `OnDemand` entry of the node's current profile
+   and its `RuntimeImage` is approved; any other marker is deleted and logged.
+   It installs the ID's `current` generation with the same digest pinning,
+   mirror policy, extraction, and validation as an `Eager` install (§7.2,
+   §7.3), then updates the label to `ready` and removes the marker.
+3. The shim waits for the generation to become `current` for at most a bounded
+   interval (default 30 seconds, always below the kubelet runtime request
+   timeout). If installation completes, `Create` proceeds normally. Otherwise
+   it fails with `RuntimeImageInstalling`; kubelet retries container creation
+   with its standard backoff, and a later attempt succeeds once the ID is
+   `ready`. No pod is rescheduled and no workload code runs before the runtime
+   is fully installed and validated.
+
+**Failure.** A failed install moves the ID to `failed`, removes the capability
+label so the scheduler stops placing new pods for that ID on the node, and
+retries with exponential backoff, returning to `available` before each retry.
+While `failed`, `Create` returns `RuntimeImageInstallFailed` without issuing a
+new request.
+
+**Rotation.** Once installed, an `OnDemand` ID follows the same rotation and
+lease rules as an `Eager` ID (§7.3). Rotating a `RuntimeImage` never installs it
+on nodes where it is still `available`.
+
+**Idle reclamation.** With `idleTTL` set, an installed `OnDemand` ID whose
+generations have held no shim lease for `idleTTL` is uninstalled and returns to
+`available`. Without `idleTTL`, it stays installed until removed from the
+profile.
+
+**Profile changes.** Switching an entry from `OnDemand` to `Eager` installs it
+on every node in the pool. Switching from `Eager` to `OnDemand` leaves existing
+installations in place as `ready` (subject to `idleTTL`) rather than removing
+them.
 
 ## 8. Workload contract
 
@@ -430,10 +509,12 @@ spec:
    layer; anything else that is not a plain image fails with `UnsupportedArtifact`.
 2. **Load and validate** `launch.json` (§6.3) and the image-config mirror (§6.4).
 3. **Resolve the runtime image** from the pod annotation, carried into the OCI
-   runtime spec annotations by CRI. Fail with `RuntimeImageNotInstalled` if the ID
-   has no `current` generation on this node and with `RuntimeImageIncompatible`
-   if `requires.runtimeImages` excludes it. Take a lease on the resolved
-   generation.
+   runtime spec annotations by CRI. Fail with `RuntimeImageIncompatible` if
+   `requires.runtimeImages` excludes it. If the ID is `available` on this node,
+   request installation and wait as described in §7.5 (`RuntimeImageInstalling`
+   or `RuntimeImageInstallFailed` on timeout or failure). Fail with
+   `RuntimeImageNotInstalled` if the node's profile does not offer the ID at all.
+   Take a lease on the resolved `current` generation.
 4. **Stage and validate layers** (§6.2) from the content store into the existing
    verified per-digest stage.
 5. **Assemble the rootfs** as an overlay: `lowerdir` = launch-layer-excluded
@@ -479,8 +560,11 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   `RuntimeImage` with that ID exists and is approved; denial reasons
   `RuntimeImageRequired`, `InvalidRuntimeImageID`, `UnknownRuntimeImage`.
 - **Steers** scheduling by injecting a required `nodeAffinity` term on the
-  capability label `brewlet.sh/runtime.<id>` `In ["ready"]`, or denies with
-  `NoCompatibleRuntime` when no ready node offers the ID.
+  capability label `brewlet.sh/runtime.<id>` `In ["ready", "available"]` and a
+  preferred term (weight 100) on `In ["ready"]`, so pods land on nodes that
+  already have the runtime installed whenever one fits and otherwise trigger an
+  on-demand install (§7.5). Admission denies with `NoCompatibleRuntime` when no
+  node carries either value for the ID.
 - **Defaults** the container user (§8.4) and **overwrites** the existing
   `brewlet.sh/artifact-*` compatibility hints (SPEC §8.3, unchanged).
 - **Does not** read the application artifact from the registry. Artifact-side
@@ -500,12 +584,14 @@ The provisioner publishes, per node:
 |---|---|---|
 | `brewlet.sh/runtime` | `ready` | Unchanged; `RuntimeClass/brewlet` scheduling selector. |
 | `brewlet.sh/runtime.<id>` | `ready` | The node has a validated `current` generation of `<id>`. |
+| `brewlet.sh/runtime.<id>` | `available` | `<id>` is an `OnDemand` entry of the node's profile and is not yet installed (§7.5). |
 
 The label value is deliberately not the digest or generation: during a rotation,
 a node still converging remains schedulable for the ID because the previous
 generation honors the same compatibility promise (§7.2). Generation detail is
 published in the node annotation `brewlet.sh/runtime-images` as JSON
-`{ "<id>": { "generation": 7, "digest": "sha256:…", "state": "current" } }`.
+`{ "<id>": { "install": "OnDemand", "state": "ready", "generation": 7, "digest": "sha256:…" } }`,
+where `state` is one of the §7.5 states (`ready` for an installed `Eager` ID).
 
 `jdk.*`, `jdk-feature.*`, `launcher.*`, and `appcds-regeneration` labels are
 removed. The [capability label contract](../CAPABILITY_LABELS.md) gains a v2 key
@@ -574,6 +660,14 @@ brewlet push registry.example.com/apps/api \
   every workload using the ID on the next container start. RBAC on
   `RuntimeImage`, signature verification of golden images (a natural extension of
   the existing Ratify example), and audit logging SHOULD be treated accordingly.
+- **On-demand requests cannot widen the inventory.** A container can only cause
+  installation of an ID that its node's profile already lists as `OnDemand` and
+  whose `RuntimeImage` is approved. The request channel is a root-owned,
+  host-only directory, the provisioner validates every request against its
+  profile, and installation uses the same digest-pinned source and validation as
+  an eager install. The worst a workload can do is install, earlier than it
+  otherwise would be, a runtime the administrator already approved for the pool;
+  `idleTTL` bounds how long such an install occupies disk without use.
 - **Unchanged boundaries.** The privileged provisioner, host-path layout under
   `/opt/brewlet`, fail-open admission, and runc isolation retain their 1.x
   properties and caveats (SPEC §11).
@@ -602,8 +696,13 @@ brewlet push registry.example.com/apps/api \
   condition `RotationProgressing` / `RotationComplete` per `RuntimeImage`.
 - Operators answer "which pods still run the vulnerable generation?" from the
   info metric, since the pod spec intentionally does not record a digest.
+- Provisioner metrics `brewlet_runtime_image_install_requests_total{id,outcome}`
+  and `brewlet_runtime_image_install_duration_seconds{id}` for on-demand
+  installs, and a container event `RuntimeImageInstalling` when `Create` waits
+  for one.
 - New reason codes: `RuntimeImageRequired`, `InvalidRuntimeImageID`,
   `UnknownRuntimeImage`, `NoCompatibleRuntime`, `RuntimeImageNotInstalled`,
+  `RuntimeImageInstalling`, `RuntimeImageInstallFailed`,
   `RuntimeImageIncompatible`, `UnsupportedArtifact`, `LaunchConfigMismatch`,
   `LayerPathViolation`, `UnsupportedAnnotation`.
 
@@ -682,7 +781,7 @@ On acceptance, `SPECIFICATION.md` would be revised as follows:
 | SPEC §1–§3 | Reframe as language-agnostic | §1–§3 |
 | SPEC §4 | Replace | §6 |
 | SPEC §5.3–§5.4 | Replace | §7.1–§7.2 |
-| SPEC §5.6 | Update `NodeProfile` | §7.3 |
+| SPEC §5.6 | Update `NodeProfile`, add on-demand install | §7.3, §7.5 |
 | SPEC §6.1 | Replace `Create` lifecycle | §8.2–§8.4 |
 | SPEC §7 | Retain; revisit overhead | §10 |
 | SPEC §8.2, §9 | Remove `JavaApplication` | §11 |
