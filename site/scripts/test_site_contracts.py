@@ -95,14 +95,15 @@ class SiteContractsTest(unittest.TestCase):
     def test_landing_page_includes_inventory_command(self):
         self.assertIn("brewlet k8s jdk list", self.page.inline_code)
 
-    def test_devoxx_promotion_links_to_talk_slides_and_video(self):
+    def test_devoxx_promotion_links_to_video_and_slides(self):
         links = {href for href, _ in self.page.links}
-        self.assertIn(
+        video_url = "https://youtu.be/fszyRIZXjQM?is=w3zYjtOoIFceAAOT"
+        self.assertEqual(sum(href == video_url for href, _ in self.page.links), 2)
+        self.assertNotIn(
             "https://m.devoxx.com/events/dvbe26/talks/25048/"
             "java-on-kubernetes-without-container-images-the-webassembly-way",
             links,
         )
-        self.assertIn("https://youtu.be/fszyRIZXjQM?is=w3zYjtOoIFceAAOT", links)
         self.assertIn(
             "https://firebasestorage.googleapis.com/v0/b/cfp-dev-mobile-app.firebasestorage.app/"
             "o/slide-decks%2Fdvbe26%2F25048%2F7WShgfQPHBS17BstTJ9Lq5wEwH02%2F"
