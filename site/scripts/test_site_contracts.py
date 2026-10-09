@@ -95,6 +95,27 @@ class SiteContractsTest(unittest.TestCase):
     def test_landing_page_includes_inventory_command(self):
         self.assertIn("brewlet k8s jdk list", self.page.inline_code)
 
+    def test_devoxx_promotion_links_to_talk_slides_and_video(self):
+        links = {href for href, _ in self.page.links}
+        self.assertIn(
+            "https://m.devoxx.com/events/dvbe26/talks/25048/"
+            "java-on-kubernetes-without-container-images-the-webassembly-way",
+            links,
+        )
+        self.assertIn("https://youtu.be/fszyRIZXjQM?is=w3zYjtOoIFceAAOT", links)
+        self.assertIn(
+            "https://firebasestorage.googleapis.com/v0/b/cfp-dev-mobile-app.firebasestorage.app/"
+            "o/slide-decks%2Fdvbe26%2F25048%2F7WShgfQPHBS17BstTJ9Lq5wEwH02%2F"
+            "slides_brewlet_deck_devoxx_2026.pdf_1791453467623.pdf"
+            "?alt=media&token=3d365570-6fed-4ce8-9faa-ea6f71145b97",
+            links,
+        )
+
+    def test_devoxx_promotion_uses_the_selected_featured_video_design(self):
+        source = (ROOT / "site/index.html").read_text(encoding="utf-8")
+        self.assertIn('class="devoxx-promo devoxx-promo--feature"', source)
+        self.assertFalse((ROOT / "site/index-devoxx-options.html").exists())
+
     def test_desktop_navigation_titles_scroll_with_their_links(self):
         css = (ROOT / "docs/stylesheets/brewlet-docs.css").read_text(encoding="utf-8")
         for rail, breakpoint in (("primary", "76.25"), ("secondary", "60")):
