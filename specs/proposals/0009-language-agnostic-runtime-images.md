@@ -83,8 +83,8 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
   test matrix while providing value only to one ecosystem.
 - **Runtime patching without application rebuilds.** Because pods name an ID
   rather than a digest, a platform team rotates the digest behind
-  `python-3.12` once; every new container on every node picks up the patched
-  runtime without touching application repositories or manifests.
+  `python-3.12` once; new containers pick up the patched runtime as their nodes
+  converge, without touching application repositories or manifests.
 - **Shared runtime pages.** One read-only runtime root per ID per node is shared by
   every container that uses it, preserving Brewlet's density and pull-cost
   benefits for every language rather than only for the JVM.
@@ -98,15 +98,19 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
 - Require pods using `runtimeClassName: brewlet` to name exactly one runtime image
   ID through an annotation, with **no digest** in the workload.
 - Keep Kubernetes-native semantics: `command`, `args`, `env`, `workingDir`,
-  `securityContext`, probes, volumes, and resources behave as for any container.
-- Guarantee that the platform-owned runtime cannot be shadowed by application
-  content, so a runtime patch is actually effective.
+  probes, volumes, and resources retain their normal override behavior.
+  Intentional restrictions are runtime-owned `PATH`, non-root identities and
+  no privilege escalation, synthesized `HOME`, and read-only packaged `/app`
+  content (§8.2–§8.4).
+- Guarantee that application layers cannot replace platform-owned runtime
+  file paths; this does not patch application-bundled copies of libraries.
 - Allow dependencies to be published and governed **independently** from
   applications while still being delivered as ordinary image layers.
 - Let platform teams approve large runtime inventories without installing every
   runtime on every node, by installing selected runtimes on first use.
 - Keep the `brewlet` CLI language-agnostic: it packages and validates
-  hand-written descriptors and never inspects application content (§11.1).
+  hand-written descriptors and never derives launch or platform fields from
+  application content (§11.1).
 - Keep the Maven plugin as an optional **Java producer** of 2.0 artifacts, the
   only place where Java-specific intelligence lives (§11.2).
 
@@ -141,7 +145,7 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
 |---|---|
 | **Runtime image** | An administrator-approved OCI image (or image index) that supplies the complete userland and language runtime a workload executes on. Also called a *golden image*. |
 | **Runtime image ID** | The stable name of a runtime image in the inventory, for example `java-21` or `python-3.12`. Never contains a digest or tag. |
-| **Generation** | One digest bound to an ID at a point in time. Rotating the digest creates a new generation of the same ID. |
+| **Generation** | One digest bound to an ID within a `RuntimeImage` resource UID (the inventory epoch). Rotating the digest creates a new generation within that epoch. |
 | **On-demand install** | Installing a runtime image ID on a node only when a container on that node first needs it (§7.5). |
 | **Runtime root** | A runtime image generation unpacked read-only on a node by the provisioner. |
 | **Application artifact** | The developer's OCI image: application layers, optional dependency layers, and one launch layer. |
@@ -175,6 +179,8 @@ with identical layer digests in each platform manifest so nodes deduplicate them
 Content with native code (static binaries, wheels or addons with shared objects,
 JNI libraries) MUST be published only for the platforms it supports; Kubernetes
 then fails such a pod on an unsupported node at image pull, as for any image.
+Producers require explicit platform declarations (§11.1); content neutrality
+is an author assertion, never inferred by the CLI.
 
 The 1.x native-artifact media types (`application/vnd.brewlet.jar.layer.v1+jar`
 and siblings) and the `brewlet.sh/jvm-config` annotation are removed.
@@ -189,19 +195,32 @@ reject, before any mount, a layer containing:
   escapes `app/` through a symlink or hardlink target;
 - device, FIFO, or socket nodes;
 - setuid or setgid bits;
-- regular files that are not readable by others, or directories that are not
-  readable and searchable by others (the process never runs as the file owner,
-  §8.4);
+- regular files that are not readable by others, directories that are not
+  readable and searchable by others, or files with any execute bit but no
+  execute bit for others (arbitrary non-root identities are supported, §8.4);
+- extended attributes, including `security.capability`;
 - whiteouts or opaque-directory markers that target anything outside `app/`.
 
-These rules make the runtime root **unshadowable**: no application or dependency
-layer can replace `/usr`, `/etc`, `/lib`, or the language runtime. A patched
-runtime generation is therefore effective for every workload that uses its ID.
+OCI whiteout/opaque tar markers are metadata, not packaged executable files:
+their standardized empty-file encoding is validated separately and is exempt
+from regular-file readability rules. Device entries in input tars remain
+forbidden; privileged overlay whiteout representations may only be produced
+internally by the validated materializer.
+
+These rules protect **runtime-owned file paths**: no application or dependency
+layer can replace `/usr`, `/etc`, or `/lib`. Applications can still bundle their
+own libraries under `/app` or change language/library lookup through environment
+variables. Runtime rotation does not remediate those copies; the application
+team must rebuild them. This is file-path confinement, not a guarantee about
+every library a process loads.
 Violations fail the container with reason `LayerPathViolation`.
 
 Layers stack in manifest order, so later application layers may overwrite
 earlier dependency files under `/app`. Producers SHOULD order layers from least to
 most frequently changed (dependency layers first) to maximize reuse.
+Safe relative symlinks are allowed; absolute symlinks, including a virtualenv
+link to `/usr/bin/python`, are not. Python producers can package site-packages
+and use the golden image's interpreter instead of shipping such a virtualenv.
 
 ### 6.3 Launch layer and `launch.json`
 
@@ -241,6 +260,15 @@ Field contract (unknown fields MUST be rejected at publish and launch time):
 | `process.env` | no | Ordered list of unique names. `PATH` is forbidden (§8.3). |
 | `requires.runtimeImages` | no | Allow-list of runtime image IDs the artifact was built and tested against. When present, the shim MUST refuse any other ID with `RuntimeImageIncompatible`. When absent, any approved ID is accepted. |
 
+The allow-list is deliberately strict and name-based, not a language capability
+matcher. Composed, hold, and variant IDs must be explicitly listed even if they
+provide the same language version. Adding such an ID requires republishing the
+launch layer/config, not rebuilding unchanged application/dependency layers.
+Authors wanting inventory-independent artifacts omit the optional allow-list
+and accept responsibility for testing their explicitly selected workload ID.
+Admission cannot precheck this constraint without registry access; mismatches
+are reported at container creation.
+
 The launch configuration intentionally contains **no** language-specific fields.
 Everything a 1.x `jvm.config` expressed (`mainJar`, `entry.mode`, `addOpens`,
 system properties, preview flags, AppCDS hints) becomes plain argv. Outside the
@@ -268,6 +296,24 @@ virtue of matching the launch layer, CRI's normal merge of the image config with
 the pod spec (`command` replaces `Entrypoint`, `args` replaces `Cmd`, `env` and
 `workingDir` override) then yields exactly Kubernetes semantics, and the shim
 consumes the CRI-produced process fields as-is (§8.3).
+
+**Canonical mirror.** Missing optional `args` and `env` render as empty arrays;
+absent or null config arrays compare as empty arrays. `entrypoint` remains
+non-empty, and a missing launch `workingDir` renders as `/app` (an empty config
+`WorkingDir` is not equivalent). Array order and strings are compared exactly,
+including environment order; duplicate environment names are rejected.
+Config `User` is absent or empty. `ExposedPorts`, `Volumes`, `Healthcheck`, and
+`StopSignal` MUST be absent or empty: they must not introduce behavior outside
+the launch contract. Other labels are informational and are ignored for mirror
+comparison. OCI `architecture`, `os`, `variant`, and `rootfs.diff_ids` must match
+the declared platform and verified layers. Non-execution metadata such as
+`created`, `author`, and `history` is ignored.
+
+The CLI, Maven plugin, and shim MUST share published conformance fixtures for
+valid and invalid descriptors, canonical mirrors, layer paths and links,
+permissions, whiteouts, and platform declarations. Acceptance requires all
+three implementations to produce the same normalized process fields and
+reason codes; separate language implementations do not justify contract drift.
 
 `launch.json` remains the authoritative, versioned document: it carries
 `requires`, it is what tooling inspects, and it is the input to the bake exporter
@@ -331,8 +377,12 @@ status:
   conditions: [ { type: Approved, status: "True" } ]
 ```
 
-- `metadata.name` **is** the ID. It MUST be an RFC 1123 DNS label of at most 55
-  characters so that `brewlet.sh/runtime.<id>` is a valid label key (§9).
+- `metadata.name` **is** the ID. It MUST match
+  `[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*`
+  and be at most 55 characters: lowercase DNS subdomain components, allowing
+  dots as in `python-3.12`, with no empty component. This also makes
+  `brewlet.sh/runtime.<id>` a valid label key (§9). Admission, the shim, CLI,
+  and Maven plugin use the same grammar.
 - `spec.source.image` MUST be a canonical `repo@sha256:<64 lowercase hex>`
   reference, subject to the existing source policy and mirror allowlist (SPEC §5.3).
   Tags are rejected.
@@ -340,11 +390,38 @@ status:
   immutable: they identify the image's `app` account (§7.2, §8.4) and are part of
   the ID's compatibility promise.
 - Changing `spec.source.image` is a **rotation**: the controller increments
-  `status.generation` and every node that offers the ID converges to the new
-  generation (§7.3). Changing any other identity-bearing field requires a new ID.
+  `status.generation` monotonically within `metadata.uid`; recovery must never
+  reuse a generation for a different digest. Nodes that have the ID installed
+  converge to the new generation (§7.3). Changing any other identity-bearing
+  field requires a new ID.
 - Creating, updating, or deleting `RuntimeImage` is the approval act; it SHOULD be
   restricted to platform administrators through RBAC. Validating admission applies
   the same checks as the reconciler, which remains the enforcement point.
+
+**Revocation and inventory epochs.** `metadata.uid` is the inventory epoch,
+persisted with every generation and restart barrier. Deleting and recreating
+the same name creates a different epoch; a barrier or root from the old epoch
+MUST NOT authorize a start against the new resource. Generations are never
+compared across epochs.
+
+Deleting the resource, setting `Approved=False`, or making its source invalid
+revokes authorization for new starts. The operator withdraws its capability
+labels and the provisioner atomically publishes a revoked local authorization
+record. The shim checks that record on every `Create` and rejects with
+`RuntimeImageRevoked`; an offered ID or existing root alone is not approval.
+Already-running tasks retain their roots until leases drain; revocation does
+not kill them. A deletion finalizer retains UID-bound inventory evidence until
+labels are withdrawn, local authorizations expire or are revoked, and root
+cleanup finishes. Re-creation never adopts old-epoch roots.
+
+Node-local authorization has a short expiry (default `5m`, renewed by the
+provisioner only after fresh inventory and ownership checks). An unreachable
+node cannot retain approval indefinitely: expired authorization makes new
+starts fail closed with `RuntimeImageAuthorizationExpired`, even when
+admission fails open. Revocation propagation is bounded by this expiry, not
+instantaneous. Operators may shorten it at the availability cost of blocking
+new starts during control-plane outages. Provisioner restart cannot extend an
+authorization without rechecking the cluster.
 
 ### 7.2 Golden image requirements
 
@@ -356,6 +433,10 @@ architecture of the pools that offer it. Its **config** contributes:
   `Volumes`, and `Healthcheck` are ignored; the application artifact and the pod
   own those.
 
+The selected config MUST provide exactly one `PATH` with non-empty absolute
+directories outside `/app`, no `.` or empty component, and no duplicate
+environment names. Validation verifies those directories against the root.
+
 Its root filesystem MUST NOT contain a non-empty `/app`; the shim requires `/app`
 to be absent or an empty directory so application content never merges with
 runtime content. `/app` is the only application prefix for every ecosystem.
@@ -363,11 +444,22 @@ runtime content. `/app` is the only application prefix for every ecosystem.
 Its root filesystem MUST define a non-root account named **`app`** in
 `/etc/passwd` (and its primary group in `/etc/group`) whose UID and GID equal
 `RuntimeImage.spec.user`, with an existing home directory. The provisioner
-verifies this during validation and refuses a generation that does not match. Runtime images SHOULD be minimal, SHOULD NOT contain setuid
-binaries or package managers, and SHOULD carry an SBOM referrer. The provisioner
+verifies this during validation and refuses a generation that does not match.
+Runtime roots MUST NOT contain setuid/setgid binaries or file capabilities;
+the provisioner rejects such roots rather than silently changing approved
+bytes. Runtime images SHOULD be minimal, SHOULD NOT contain package managers,
+and SHOULD carry an SBOM referrer. The provisioner
 applies the existing safe-extraction rules (SPEC §5.3) and records
 `.brewlet-source` with the resolved digest; the 1.x `.brewlet-java-home` marker is
 removed.
+
+Alongside each root the provisioner persists immutable, root-owned metadata:
+inventory ID and UID, generation, source and platform manifest digests,
+selected OCI platform/config `Env`, and the validated `app` UID/GID/home.
+The `current` pointer publishes this metadata and its root as one unit.
+Mutable authorization/expiry and revocation records are separately written
+atomically by the fenced provisioner; the shim consumes trusted local records,
+not pod-supplied environment or user data, as the runtime authority.
 
 **Deriving from third-party images.** Vendor images rarely meet these rules out
 of the box. A platform team customizes them in its own image pipeline and
@@ -416,7 +508,6 @@ spec:
       install: OnDemand
   rollout:
     maxUnavailable: 1
-    validate: true
     containerdRestart: validated
 ```
 
@@ -428,14 +519,27 @@ spec:
 - `Eager` IDs are installed when the node joins the pool and gate node readiness
   as in 1.x.
 - The provisioner installs each generation under
-  `/opt/brewlet/runtimes/<id>/<generation>/` read-only and atomically flips
+  `/opt/brewlet/runtimes/<id>/<inventory-uid>/<generation>/` read-only and atomically flips
   `/opt/brewlet/runtimes/<id>/current` once extraction and validation succeed.
 - **New containers** always resolve the `current` generation at `Create`.
   **Running containers** keep the generation they started on; the shim holds a
-  lease on it for the task lifetime. A non-current generation is reclaimed once it
+  durable, root-owned lease record binding the container/task identity to the
+  inventory UID and generation for the task lifetime. Lease acquisition,
+  `current` resolution, and collection share a per-ID lock. Shim restart
+  recovers leases from durable records and live task/mount evidence; uncertainty
+  blocks collection. A lease is released only after the task, exec processes,
+  and rootfs mounts are gone. A non-current generation is reclaimed once it
   has no leases and has aged past the grace period. This closes the 1.x roadmap
   item on reference-counted root collection for the general case.
-- Validation (`rollout.validate: true`) executes no workload code; it checks the
+- Provisioning configures containerd's runtime-handler pod-annotation
+  allow-list to forward `brewlet.sh/runtime-image` and
+  `brewlet.sh/rotated-to-generation` into each application container's OCI
+  spec. Annotation propagation is not assumed from arbitrary pod metadata.
+  Readiness validation checks this configuration; missing runtime selection
+  fails closed, and an end-to-end barrier test covers initial and replacement
+  pods.
+- Required security and identity validation cannot be disabled.
+  Validation executes no workload code; it checks the
   extracted root (`/app` empty, `PATH` entries present, required platforms
   covered). Image-specific smoke tests remain the image pipeline's job.
 
@@ -463,8 +567,10 @@ needs it.
 | `ready` | `ready` | A validated `current` generation is installed. |
 | `failed` | *(absent until backoff expires)* | The last install attempt failed; reported as a `provision-error`. |
 
-`available` is derived from the profile alone, so a node is labelled as soon as
-it joins the pool and before any runtime bytes are fetched. Cluster autoscaler
+`available` is derived from the approved inventory and valid profile/ownership
+authority, so a node is labelled as soon as it joins the pool and before any
+runtime bytes are fetched. Revoked or expired authorizations never advertise
+`available` or `ready`. Cluster autoscaler
 node templates can therefore declare `available` labels statically and scale a
 pool from zero for an `OnDemand` ID.
 
@@ -514,6 +620,8 @@ label so the scheduler stops placing new pods for that ID on the node, and
 retries with exponential backoff, returning to `available` before each retry.
 While `failed`, `Create` returns `RuntimeImageInstallFailed` without issuing a
 new request.
+Ownership-fence failures instead follow the non-mutating rules above; approval
+revocation follows §7.1 rather than retrying an unauthorized installation.
 
 **Rotation.** Once installed, an `OnDemand` ID follows the same rotation and
 lease rules as an `Eager` ID (§7.3). Rotating a `RuntimeImage` never installs it
@@ -568,7 +676,8 @@ are excluded and listed in `status.rotation.excludedNodes` with Node UID,
 reason, and last observed runtime generation. Their runtime capability label
 MUST be withdrawn before completing the rotation. A node whose progress stalls
 for `operator.rotationRestarts.nodeProgressDeadline` (default `10m`, measured
-from its last target-generation progress) reports `RotationStalled` and is
+from target assignment if no progress has occurred, otherwise from its last
+target-generation progress) reports `RotationStalled` and is
 quarantined for this ID by withdrawing the capability label. Once withdrawal
 is confirmed, it is recorded as excluded rather than blocking all healthy
 nodes indefinitely. If withdrawal cannot be confirmed, completion remains
@@ -589,14 +698,22 @@ one of its running pods started before `status.rotationCompletedAt`. Workloads
 created or rolled after completion are therefore left alone.
 
 **Mechanism.** The operator patches the pod template annotation
-`brewlet.sh/rotated-to-generation: "<generation>"`. This is the same mechanism as
+`brewlet.sh/rotated-to-generation` with a JSON object
+`{"id":"java-21","inventoryUID":"<RuntimeImage UID>","generation":7}`.
+This is the same template-change mechanism as
 `kubectl rollout restart`: the workload's own controller performs the rollout
 and honors its update strategy (`maxUnavailable`, `maxSurge`, partitions,
 `minReadySeconds`). The annotation also makes the patch idempotent: a workload
-whose template already records the current generation is not patched again.
+whose template already records the same ID, epoch, and current generation is
+not patched again. Per-workload status is keyed by workload UID and target
+epoch/generation so controller restarts cannot repeat a completed patch.
 
 The annotation is also a **minimum-generation barrier**, propagated by CRI to
-the shim. For that pod's runtime image ID, `Create` MUST refuse a local
+the shim. Its ID MUST match the pod's runtime image ID, its inventory UID MUST
+match the currently authorized epoch, and its generation MUST be a positive
+integer. An epoch mismatch fails with `RuntimeImageEpochMismatch`, never a
+numerical comparison or silent barrier removal. For that ID and epoch,
+`Create` MUST refuse a local
 generation older than the requested generation with `RuntimeImageUpdating`
 after waiting for authorized provisioning under §7.5's bounded wait rules,
 and let kubelet retry. An uninstalled `OnDemand` entry uses the install marker;
@@ -606,13 +723,18 @@ install request. A newer approved generation satisfies the barrier. Malformed
 barrier values fail with `InvalidRuntimeGeneration`. This applies even to a pod
 already bound to an excluded node or placed without admission; a scheduling
 label alone cannot prevent stale starts. The shim never changes `current`
-itself. Switching a workload's runtime ID requires removing or updating the
-barrier, since generation numbers are scoped to an ID.
+itself. Switching a workload's runtime ID or recreating its inventory resource
+requires explicitly removing or updating the barrier. The operator MUST NOT
+automatically overwrite an old-epoch barrier as though it were a normal rotation;
+it reports the mismatch until the workload owner acknowledges the new epoch.
 
 **Unsupported or deferred rollouts.** A StatefulSet or DaemonSet using
-`OnDelete` is not patched: the operator reports `RestartNotApplicable` in
+`OnDelete` receives the same template barrier, but the operator reports
+`RestartNotApplicable` in
 per-workload restart status and emits an event explaining that manual pod
-replacement is required. It MUST NOT delete pods or change the update strategy.
+replacement is required. Template changes do not trigger replacement under
+`OnDelete`; subsequent manual replacements inherit the safety barrier.
+The operator MUST NOT delete pods or change the update strategy.
 Paused Deployments and partitioned StatefulSets are reported as
 `RestartDeferred` while their controller settings prevent a full rollout; a
 template patch is not evidence that their old-generation pods were replaced.
@@ -626,6 +748,24 @@ also applies to controllers without a native progress deadline. Deferred and
 non-actionable workloads do not retain a slot. A failed rollout is reported and
 does not block other workloads. A newer rotation of the same ID supersedes
 pending restarts for the older generation.
+
+**Cold nodes and stuck pods.** Restart-created pods retain the normal
+`ready` preference and may use `available` nodes; requiring only warm nodes
+would prevent legitimate autoscaling. Per-workload status distinguishes
+`RuntimeImageInstalling` from an application rollout failure and records the
+blocked Pod UID and node. Cold installation time counts toward the configured
+workload progress deadline; exceeding it reports `RestartDeferred` for runtime
+installation, frees the slot, and continues observing eventual recovery rather
+than claiming the runtime is unhealthy or repeatedly patching the template.
+
+Pods already bound to excluded nodes can remain blocked by the barrier;
+container-create failures do not reschedule them. Status reports
+`RestartDeferred` with the node, Pod UID, and minimum generation. The operator
+does not bypass the barrier, delete pods, or override volume/node affinity to
+repair this. Recovery is to restore authorized provisioning on that node, or
+have the workload owner drain/replace the pod using the controller's normal
+availability and storage constraints. A reported rollout timeout is not a
+completed runtime restart.
 
 **Out of scope.** Bare pods, Jobs, and CronJobs are not restarted (their next
 pod uses the current generation). Other workload controllers can watch the
@@ -667,38 +807,76 @@ spec:
   any other ID.
 - The application `image:` MUST be digest-pinned, exactly as in 1.x (SPEC §4.4); the
   shim's CRI identity checks are unchanged.
-- Init and sidecar containers that are ordinary images MAY be present; as in 1.x,
-  the shim runs them through the standard runc path when their image is not a
-  Brewlet 2.0 application artifact.
+- All application, init, sidecar, and ephemeral containers MUST use 2.0
+  application artifacts and the pod-wide runtime image. Ordinary-image
+  pass-through is not supported. Only the CRI infrastructure sandbox takes the
+  standard runc path; it does not run application code.
 
 ### 8.2 Sandbox assembly (shim `Create`)
 
 1. **Resolve the artifact** exactly as SPEC §6.4 does today (protected CRI metadata,
    content-store digest verification, strict platform match). Recognize a 2.0
    artifact by `brewlet.sh/artifact-version=2` and a final `brewlet.sh/layer=launch`
-   layer; anything else that is not a plain image fails with `UnsupportedArtifact`.
+   layer; any other application container image fails with `UnsupportedArtifact`.
 2. **Load and validate** `launch.json` (§6.3) and the image-config mirror (§6.4).
 3. **Resolve the runtime image** from the pod annotation, carried into the OCI
    runtime spec annotations by CRI. Fail with `RuntimeImageIncompatible` if
-   `requires.runtimeImages` excludes it. If the ID is `available` on this node,
+   `requires.runtimeImages` excludes it. Check live node-local authorization,
+   revocation, and inventory epoch (§7.1); a cached root without current
+   authorization cannot be used. If the ID is `available` on this node,
    request installation and wait as described in §7.5 (`RuntimeImageInstalling`
    or `RuntimeImageInstallFailed` on timeout or failure). Fail with
    `RuntimeImageNotInstalled` if the node's profile does not offer the ID at all.
    Enforce any `brewlet.sh/rotated-to-generation` minimum-generation barrier
    (§7.6), then atomically resolve and take a lease on `current` so a concurrent
    rotation cannot substitute an older generation or reclaim the leased root.
-4. **Stage and validate layers** (§6.2) from the content store into the existing
-   verified per-digest stage.
+4. **Materialize and validate layers** from the content store using the 2.0
+   per-layer-digest cache contract below. The 1.x Java-oriented extractor is
+   not reused as-is.
 5. **Assemble the rootfs** as an overlay: `lowerdir` = launch-layer-excluded
    application and dependency layers (top to bottom in reverse manifest order)
    over the runtime root; `upperdir`/`workdir` = per-container scratch. The CRI
-   `readOnlyRootFilesystem` flag is preserved as in 1.x.
+   `readOnlyRootFilesystem` flag is preserved as in 1.x. Packaged `/app` is
+   explicitly mounted read-only, independent of that flag. Writable application
+   data uses explicit Kubernetes volumes (including mounts beneath `/app`) or
+   runtime-provided writable directories; image layers are not writable storage.
 6. **Generate `config.json`** from the CRI-provided spec with the process fields
    of §8.3 and the user of §8.4; resources, mounts, namespaces, and the CNI
    network namespace pass through unchanged. No language-specific arguments are
    injected.
-7. **Delegate to runc.** Signals, exit codes, logs, probes, and `kubectl exec`
-   behave as in SPEC §6.2.
+7. **Delegate to runc.** Signals, exit codes, and logs retain normal behavior.
+   Exec, exec probes, and exec lifecycle hooks use the shim's `Exec` handling
+   specified in §8.3, not unmodified CRI process environment.
+
+**Materialization contract.** Compressed layers are streamed from the local
+content store while verifying the descriptor digest and the uncompressed diff
+ID. Both gzip and zstd layer formats are supported. Extraction occurs only in
+an isolated temporary cache entry, never directly over a runtime or live stage;
+the entry becomes usable through atomic publication after complete verification
+and validation. Cache entries are keyed by layer digest and extraction-policy
+version, immutable and shared across artifacts. Whole compressed layers MUST
+NOT be loaded into memory merely for extraction.
+
+The extractor preserves regular-file contents, executable mode bits, and
+mtimes (including those required by shipped AppCDS archives), and accepts
+directories and confined relative symlinks. Hardlinks must reference a regular
+file in the same layer under `app/`; unresolved/escaping links fail validation.
+Ownership is normalized to `0:0`, never trusted to select the process identity.
+Extended attributes are rejected. OCI whiteouts and opaque markers are
+validated as scoped to `/app` and converted to the snapshotter's overlay
+semantics; they are not ordinary `.wh.*` files in the final filesystem.
+Validation handles link traversal across the composed layers, not just textual
+archive path prefixes.
+
+The cache is on persistent node storage at `/var/lib/brewlet/layers`, not
+`/tmp`. Container upper/work directories use containerd-managed snapshot
+storage. Cache leases and live mount references prevent collection while in
+use. The provisioner reports shared cache/runtime-root disk consumption
+separately; per-container writable snapshots MUST be integrated with CRI
+filesystem usage so kubelet ephemeral-storage accounting and eviction see
+them. Claiming accounting support requires a conformance test of CRI usage and
+eviction, not merely locating files on disk. Disk exhaustion is an explicit
+provisioning/container error, never a partially published cache entry.
 
 ### 8.3 Process fields
 
@@ -706,14 +884,29 @@ spec:
   which already reflects Kubernetes `command`/`args`/`workingDir` over the
   mirrored image config.
 - **Environment** is merged in increasing precedence: runtime image `Env`, then
-  the CRI-provided environment (image config mirror of `process.env`, then pod
-  `env`/`envFrom`, then Kubernetes service variables).
+  the CRI-provided environment. Within CRI, image-config defaults are overlaid
+  by kubelet's environment: service variables fill only names not explicitly
+  supplied through pod `envFrom`/`env`; explicit `env` wins over `envFrom`.
+  The shim uses the final CRI values and does not reimplement that resolution.
 - **`PATH` is runtime-owned.** The shim always uses the runtime image's `PATH`
   and discards any `PATH` from CRI, because containerd injects a default `PATH`
   that is indistinguishable from an explicit one and because executable lookup
   must be stable across rotations. Admission emits a warning when a pod sets
   `PATH`. Applications add directories through ecosystem variables or
   absolute `entrypoint` paths.
+
+**Exec parity.** `Create` persists the effective merged environment (including
+`PATH` and `HOME`), identity, and leased inventory UID/generation in protected
+per-container state. The shim MUST override `Exec` and rewrite the
+`ExecProcessRequest.Spec` using that state before delegating to runc. Exec
+commands, probes, and lifecycle hooks retain the requested argv, terminal, and
+working-directory behavior but use the same effective environment and non-root
+security restrictions as the container's initial process. They use its leased
+runtime, not a newly rotated `current`. Missing state fails with
+`ExecStateUnavailable` rather than falling back to containerd's default
+environment. Conformance tests cover
+relative executable lookup and runtime `Env`/`HOME` for both initial and exec
+processes; editing bundle `config.json` alone does not establish exec parity.
 
 ### 8.4 User identity
 
@@ -722,20 +915,33 @@ image's `app` account.
 
 - The application image config `User` is empty, so CRI derives the process user
   from the pod `securityContext` alone.
-- When a container sets no `runAsUser` (directly or through the pod
-  `securityContext`), admission sets `runAsUser`/`runAsGroup` to
-  `RuntimeImage.spec.user` and `runAsNonRoot: true`.
+- Admission defaults each missing effective `runAsUser` and `runAsGroup`
+  independently to `RuntimeImage.spec.user`, respecting container-over-pod
+  precedence, and sets `runAsNonRoot: true`. A custom UID without a group
+  therefore uses the non-zero `app` GID, not CRI's implicit GID 0.
 - An explicit non-zero `runAsUser` is permitted (for example, platforms that
   assign UIDs per namespace). Files under `/app` are world-readable (§6.2), so any
   non-root UID can run the application.
-- Admission denies `runAsUser: 0` and `runAsNonRoot: false` with
+- Admission denies UID or primary GID 0, supplementary GID 0, and
+  `runAsNonRoot: false` with
   `RootNotSupported`.
-- **The shim enforces the rule independently**: a process UID of 0 in the
-  CRI-provided spec fails `Create` with `RootNotSupported`. Because CRI yields
+- Admission defaults `allowPrivilegeEscalation: false`, drops all Linux
+  capabilities, and rejects privileged containers, explicit privilege
+  escalation, or added capabilities with `PrivilegeEscalationNotSupported`.
+  The shim independently enforces `noNewPrivileges` and empty capability sets
+  for initial and exec processes; ordinary runc privilege defaults are not
+  sufficient to promise no root.
+- **The shim enforces the rule independently**: a process UID, primary GID,
+  or supplementary GID of 0 in the CRI-provided spec fails `Create` or `Exec`
+  with `RootNotSupported`. Because CRI yields
   UID 0 when no user is set, a pod that bypassed fail-open admission fails closed
   rather than running as root.
 - When the pod does not set `HOME`, the shim sets it from the runtime image's
   `/etc/passwd` entry for the process UID, or `/tmp` when the UID has no entry.
+  This synthesized fallback is a deliberate Brewlet behavior, also applied to
+  exec. Custom UIDs do not acquire passwd/group entries; `getpwuid`-based
+  application APIs can fail. Use the default `app` identity for software that
+  requires a named account.
 
 ## 9. Admission and scheduling
 
@@ -748,8 +954,17 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   capability label `brewlet.sh/runtime.<id>` `In ["ready", "available"]` and a
   preferred term (weight 100) on `In ["ready"]`, so pods land on nodes that
   already have the runtime installed whenever one fits and otherwise trigger an
-  on-demand install (§7.5). Admission denies with `NoCompatibleRuntime` when no
-  node carries either value for the ID.
+  on-demand install (§7.5). Admission validates placement against active,
+  approved `NodeProfile` inventory, not only live Node labels. Eligible profiles
+  are non-deleting, pass source/mirror policy, and have no pool ownership
+  conflict. It denies with
+  `NoCompatibleRuntime` only when no valid profile offers the ID; an empty pool
+  yields an admitted Pending pod so its autoscaler can act. Autoscaler templates
+  must publish the runtime selector and capability labels and follow the
+  supported startup-taint/initialization contract. Inventory approval does not
+  itself prove that a provider's autoscaler template is correctly configured.
+  When only profile inventory satisfies placement, admission warns with the
+  profile names and leaves scheduling to Kubernetes and the configured scaler.
 - **Defaults** the container user and denies root (§8.4), and **overwrites** the existing
   `brewlet.sh/artifact-*` compatibility hints (SPEC §8.3, unchanged).
 - **Does not** read the application artifact from the registry, and therefore
@@ -776,8 +991,11 @@ The label value is deliberately not the digest or generation: during a rotation,
 a node still converging remains schedulable for the ID because the previous
 generation honors the same compatibility promise (§7.2). Generation detail is
 published in the node annotation `brewlet.sh/runtime-images` as JSON
-`{ "<id>": { "install": "OnDemand", "state": "ready", "generation": 7, "digest": "sha256:…" } }`,
+`{ "<id>": { "install": "OnDemand", "state": "ready", "inventoryUID": "<uid>", "generation": 7, "digest": "sha256:…" } }`,
 where `state` is one of the §7.5 states (`ready` for an installed `Eager` ID).
+Revocation, expired authorization, and rotation quarantine withdraw the
+capability label regardless of an old generation remaining on disk. Node
+annotations are diagnostic, not authority for the shim.
 
 `jdk.*`, `jdk-feature.*`, `launcher.*`, and `appcds-regeneration` labels are
 removed. The [capability label contract](../CAPABILITY_LABELS.md) gains a v2 key
@@ -823,6 +1041,7 @@ layers; the CLI validates and packages them:
 
 ```bash
 brewlet push registry.example.com/apps/api \
+  --platform linux/amd64 \
   --launch ./launch.json \
   --layer dependency=./venv/lib/python3.12/site-packages:/app/site-packages \
   --layer app=./src:/app/src
@@ -831,6 +1050,12 @@ brewlet push registry.example.com/apps/api \
 The CLI MUST:
 
 - validate `launch.json` against the schema and reject unknown fields;
+- require explicit `--platform <os/arch[/variant]>` declarations, with no
+  host-platform or language-based inference. Repeating this flag asserts that
+  the supplied layers work unchanged on every listed platform. Different
+  native layer groups are published as separate platform manifests and combined
+  through an explicitly supplied index descriptor; no automatic native-file
+  discovery or grouping occurs;
 - enforce the layer content rules of §6.2 at build time (paths under `/app`,
   world-readable, no devices, setuid, or escaping links), producing the same
   reason codes the shim would;
@@ -838,6 +1063,13 @@ The CLI MUST:
   mirror `launch.json` into the image config (§6.4), and push;
 - consume layer sets (§6.5) named with `--layer-set <ref>` by reusing their
   layers byte-for-byte.
+
+Determinism is for identical source bytes, modes, mtimes, descriptors, and
+platform declarations: entries are sorted, ownership rendered as `0:0`, and
+compression metadata is fixed. File modes and mtimes are preserved, not silently
+normalized; invalid permissions and extended attributes are rejected before
+publish. Authors repair source permissions explicitly. This avoids changing
+executable semantics or invalidating AppCDS metadata to make packaging pass.
 
 The CLI MUST NOT inspect application content to derive any field: it never
 detects a language, guesses an entrypoint, splits dependencies, chooses
@@ -871,11 +1103,19 @@ remains an explicit decision in the reviewed manifest.
 ## 12. Security model
 
 - **Trust roots.** The only executable bytes outside `/app` are runtime roots
-  extracted from administrator-approved, digest-pinned `RuntimeImage` sources.
-  The application image is verified by digest exactly as in 1.x.
-- **Unshadowable runtime.** §6.2 confines application and dependency content to
-  `/app`, and §7.2 requires the runtime's `/app` to be empty, so remediation of a
-  runtime CVE cannot be undone by an application layer.
+  extracted from administrator-approved, digest-pinned `RuntimeImage` sources,
+  apart from explicitly mounted Kubernetes volumes. The application image is
+  verified by digest exactly as in 1.x; ordinary-image sidecars cannot bypass
+  this contract.
+- **Runtime file-path confinement.** §6.2 confines application and dependency
+  layers to `/app`, and §7.2 requires the runtime's `/app` to be empty. This
+  prevents layer replacement of runtime paths, not loading application-bundled
+  libraries through `LD_*`, language lookup variables, or explicit volume
+  mounts. Those dependencies remain application-owned remediation.
+- **Packaged files are not secret storage.** World-readable `/app` supports
+  arbitrary non-root UIDs, not per-user confidentiality inside a sandbox.
+  Credentials MUST NOT be baked into these layers; use appropriately scoped
+  Kubernetes Secret volumes or another secret-delivery mechanism.
 - **Digest-free workloads are not trust-free.** The ID is resolved only from
   node-local state written by the provisioner from the approved inventory; the pod
   annotation selects among approved roots but cannot introduce one. A mutable tag
@@ -893,7 +1133,9 @@ remains an explicit decision in the reviewed manifest.
   otherwise would be, a runtime the administrator already approved for the pool;
   `idleTTL` bounds how long such an install occupies disk without use.
 - **No root.** Every Brewlet container runs with a non-zero UID, defaulted by
-  admission and enforced by the shim (§8.4).
+  admission and enforced by the shim (§8.4), with non-zero groups, no new
+  privileges, and no Linux capabilities. Golden roots reject setuid/setgid
+  binaries and file capabilities; application layers reject xattrs.
 - **Restart RBAC is opt-in.** The operator's permission to patch Deployments,
   StatefulSets, and DaemonSets exists only when rotation restarts are enabled
   in the chart (§7.6).
@@ -904,8 +1146,8 @@ remains an explicit decision in the reviewed manifest.
 ## 13. Observability
 
 - Shim event `RuntimeImageResolved` on each container start with ID, generation,
-  and digest; the same values are exported as
-  `brewlet_container_runtime_image_info{id,generation,digest}`.
+  inventory UID, and digest; the same values are exported as
+  `brewlet_container_runtime_image_info{id,inventory_uid,generation,digest}`.
 - `brewlet_runtime_image_generations{id,state}` on each node, and a controller
   condition `RotationProgressing` / `RotationComplete` per `RuntimeImage`.
 - Rotation restarts (§7.6) report `status.restarts` counts per `RuntimeImage`
@@ -925,7 +1167,10 @@ remains an explicit decision in the reviewed manifest.
   `RuntimeImageInstalling`, `RuntimeImageInstallFailed`,
   `RuntimeImageIncompatible`, `UnsupportedArtifact`, `LaunchConfigMismatch`,
   `LayerPathViolation`, `UnsupportedAnnotation`, `RootNotSupported`,
-  `RuntimeImageUpdating`, `InvalidRuntimeGeneration`, `ownership-fence-failed`.
+  `RuntimeImageUpdating`, `InvalidRuntimeGeneration`, `RuntimeImageEpochMismatch`,
+  `RuntimeImageRevoked`, `RuntimeImageAuthorizationExpired`,
+  `PrivilegeEscalationNotSupported`, `ExecStateUnavailable`,
+  `ownership-fence-failed`.
 
 ## 14. Open questions
 
