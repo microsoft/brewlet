@@ -444,37 +444,6 @@ code {
   color: rgba(255, 255, 255, 0.68);
   font-size: 0.85rem;
 }
-.devoxx-play-meta a { color: var(--cream); }
-.devoxx-promo--split {
-  color: var(--ink);
-  background: var(--cream-soft);
-  border-block: 1px solid var(--line);
-}
-.devoxx-promo--split .devoxx-copy h2 { color: var(--ink); }
-.devoxx-promo--split .devoxx-copy h2 span { color: var(--coffee); }
-.devoxx-promo--split .devoxx-kicker { color: var(--coffee); }
-.devoxx-promo--split .devoxx-copy p { color: var(--muted); }
-.devoxx-promo--split .devoxx-play {
-  color: #fff;
-  background:
-    radial-gradient(260px 220px at 100% 0%, rgba(50, 108, 229, 0.45), transparent 75%),
-    linear-gradient(135deg, var(--coffee-dark), var(--coffee-deep));
-}
-.devoxx-promo--editorial {
-  background: linear-gradient(110deg, var(--coffee-deep) 0 34%, #493020 34% 100%);
-}
-.devoxx-promo--editorial .devoxx-layout {
-  grid-template-columns: 0.8fr 1.2fr;
-  gap: 64px;
-}
-.devoxx-promo--editorial .devoxx-copy h2 {
-  font-size: clamp(1.75rem, 2.9vw, 2.4rem);
-}
-.devoxx-promo--editorial .devoxx-play {
-  min-height: 260px;
-  padding: 40px;
-}
-
 /* ---------- Sections ---------- */
 .section { padding: 76px 0; }
 .section[id] { scroll-margin-top: 84px; }
@@ -793,7 +762,7 @@ details p { padding-bottom: 16px; margin: 0; color: var(--muted); }
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .hero-grid { grid-template-columns: 1fr; gap: 44px; }
-  .devoxx-layout, .devoxx-promo--editorial .devoxx-layout { grid-template-columns: 1fr; gap: 28px; }
+  .devoxx-layout { grid-template-columns: 1fr; gap: 28px; }
   .lede { max-width: none; }
   .code-compare { grid-template-columns: 1fr; }
   .value-layout { grid-template-columns: 1fr; gap: 34px; }
@@ -873,8 +842,6 @@ details p { padding-bottom: 16px; margin: 0; color: var(--muted); }
   .devoxx-promo { padding: 38px 0; }
   .devoxx-play { min-height: 200px; padding: 24px; }
   .devoxx-links { gap: 16px; }
-  .devoxx-promo--editorial { background: var(--coffee-deep); }
-  .devoxx-promo--editorial .devoxx-play { min-height: 220px; padding: 24px; }
   .section { padding: 56px 0; }
 }
 

@@ -35,7 +35,6 @@ of truth for building and publishing the landing page and `/docs/`.
 |---|---|
 | `index.html`, `assets/` | Static landing page and its visual assets |
 | `index-value-prop.html` | Standalone value-proposition landing page; intentionally not linked from `index.html` |
-| `index-devoxx-options.html` | No-index visual preview of three Devoxx Belgium promotion designs |
 | `../docs/` | User and operator documentation |
 | `../docs/workshops/` | Role-based workshop material for operators and developers |
 | `assets/images/` | Brand assets and architecture diagrams |
@@ -57,10 +56,6 @@ The alternate landing page is available directly at
 <http://localhost:8099/index-value-prop.html>. It has isolated styles and does
 not change the primary homepage. It is marked `noindex` to keep this parallel
 version out of search results; the URL remains publicly accessible.
-
-The three Devoxx Belgium promotion designs are previewed at
-<http://localhost:8099/index-devoxx-options.html>. The primary homepage uses
-the featured-video design.
 
 Documentation site (`/docs/` with left navigation):
 

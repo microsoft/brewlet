@@ -111,11 +111,10 @@ class SiteContractsTest(unittest.TestCase):
             links,
         )
 
-    def test_devoxx_design_preview_has_three_distinct_options(self):
-        preview = (ROOT / "site/index-devoxx-options.html").read_text(encoding="utf-8")
-        for option in ("feature", "split", "editorial"):
-            with self.subTest(option=option):
-                self.assertIn(f"devoxx-promo--{option}", preview)
+    def test_devoxx_promotion_uses_the_selected_featured_video_design(self):
+        source = (ROOT / "site/index.html").read_text(encoding="utf-8")
+        self.assertIn('class="devoxx-promo devoxx-promo--feature"', source)
+        self.assertFalse((ROOT / "site/index-devoxx-options.html").exists())
 
     def test_desktop_navigation_titles_scroll_with_their_links(self):
         css = (ROOT / "docs/stylesheets/brewlet-docs.css").read_text(encoding="utf-8")
