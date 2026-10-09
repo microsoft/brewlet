@@ -112,9 +112,9 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
 
 ## 4. Non-goals
 
-- In-place migration of 1.x clusters or artifacts. Under the
-  [pre-GA compatibility policy](../../docs/compatibility.md), 2.0 is installed by
-  teardown and reinstallation; 1.x artifacts are republished (§13).
+- Compatibility or migration tooling for previous Brewlet releases. 2.0 is a
+  total pivot; previous artifacts, descriptors, and deployments are outside
+  this proposal's contract.
 - Per-workload digest pinning of the runtime. A workload that must pin an exact
   runtime digest should use an ordinary image with the stock runc RuntimeClass, or
   a dedicated, narrowly scoped runtime image ID (§7.4).
@@ -478,7 +478,8 @@ itself:
    creating it is idempotent, so concurrent containers produce one request.
 2. The provisioner — still the only writer of runtime roots — accepts the
    request only if `<id>` is an `OnDemand` entry of the node's current profile
-   and its `RuntimeImage` is approved; any other marker is deleted and logged.
+   and its `RuntimeImage` is approved; an unauthorized marker is deleted and
+   logged only after the provisioner has verified its ownership authority.
    It installs the ID's `current` generation with the same digest pinning,
    mirror policy, extraction, and validation as an `Eager` install (§7.2,
    §7.3), then updates the label to `ready` and removes the marker.
@@ -489,6 +490,24 @@ itself:
    with its standard backoff, and a later attempt succeeds once the ID is
    `ready`. No pod is rescheduled and no workload code runs before the runtime
    is fully installed and validated.
+
+**Ownership fencing.** On-demand processing MUST use the same exclusive
+ownership and claim-fencing protocol as eager provisioning (SPEC §5.6); it is
+not an independent writer authority. Before any host mutation, the worker
+MUST verify the Node UID, the UID-bound node claim, its literal
+`BREWLET_PROFILE_UID`, and durable provisioning authority for the current
+profile UID and generation. The profile MUST not be deleting or retiring this
+target. The worker rechecks those fences immediately before flipping `current`
+and publishing `ready`, and verifies that the ID remains authorized and the
+approved digest/generation has not changed.
+
+A failed initial fence leaves host state, markers, and node advertisements
+untouched and reports `ownership-fence-failed`. Losing authority during an
+installation stops publication and further host mutation; staged data is left
+for the authorized provisioning or retirement worker to reconcile. Retargeting
+and deletion stop and join on-demand workers before cleanup or claim release.
+Markers confer no authority and MUST be revalidated by any successor worker,
+never replayed using a retired profile's configuration.
 
 **Failure.** A failed install moves the ID to `failed`, removes the capability
 label so the scheduler stops placing new pods for that ID on the node, and
@@ -520,15 +539,49 @@ restart.
 
 1. **Cluster:** the chart value `operator.rotationRestarts.enabled` (default
    `false`) grants the operator `get`/`list`/`watch`/`patch` on Deployments,
-   StatefulSets, and DaemonSets. Without it the operator has no such RBAC.
+   StatefulSets, and DaemonSets, plus read access to their Pods for restart
+   selection and rollout observation. Without it the operator has no such
+   workload-patching RBAC.
 2. **Workload:** the annotation `brewlet.sh/restart-on-rotation: "true"` on the
    Deployment, StatefulSet, or DaemonSet object (not its pod template).
 
-**Trigger.** A `RuntimeImage` rotation sets condition `RotationComplete` and
-`status.rotationCompletedAt` once every node that has the ID installed (an
-`Eager` entry, or an `OnDemand` entry in state `ready`) has the new generation
-`current`. Waiting for completion guarantees that restarted pods cannot land on
-a node still serving the previous generation.
+**Trigger and participating nodes.** A rotation tracks the approved target
+generation and digest. Participants are live, `Ready=True`, schedulable,
+non-deleting nodes with a valid profile ownership claim that offers the ID,
+either as `Eager` or as an already-installed `OnDemand` entry. An installed
+`OnDemand` entry remains a participant while updating or retrying a failed
+rotation; changing its state from `ready` does not silently remove it.
+Uninstalled `OnDemand` entries do not participate and are not installed by a
+rotation.
+
+The operator sets `RotationComplete=True` and `status.rotationCompletedAt`
+when all participants report the target generation as validated and `current`.
+The condition records the target generation and digest; it means completion
+on participating nodes, not that every node or running container is patched.
+Node deletion, readiness, cordon, ownership, and installation changes cause
+reconciliation of the participant set. A newer target invalidates completion
+for the previous target. The completion timestamp is recorded once per target,
+not rewritten on each reconciliation or when an excluded node recovers.
+
+**Excluded nodes and recovery.** NotReady, cordoned, deleting, or retiring nodes
+are excluded and listed in `status.rotation.excludedNodes` with Node UID,
+reason, and last observed runtime generation. Their runtime capability label
+MUST be withdrawn before completing the rotation. A node whose progress stalls
+for `operator.rotationRestarts.nodeProgressDeadline` (default `10m`, measured
+from its last target-generation progress) reports `RotationStalled` and is
+quarantined for this ID by withdrawing the capability label. Once withdrawal
+is confirmed, it is recorded as excluded rather than blocking all healthy
+nodes indefinitely. If withdrawal cannot be confirmed, completion remains
+blocked and reports the node and error; expiry alone is not success.
+
+The provisioner MUST NOT republish `ready` for an excluded or returning node
+until its ownership fences pass and its validated `current` matches the latest
+approved target. An uninstalled `OnDemand` entry can advertise `available` and
+install that latest target on demand. Existing containers keep their leases;
+quarantine does not terminate them. Status and events MUST retain excluded
+nodes and outstanding old-generation containers so partial completion is
+visible. Recovery is to restore the node and complete provisioning, or retire
+it through the existing fenced cleanup protocol, not bypass validation.
 
 **Selection.** The operator then considers each opted-in workload whose pod
 template carries `brewlet.sh/runtime-image: <id>`, and restarts it if at least
@@ -542,9 +595,35 @@ and honors its update strategy (`maxUnavailable`, `maxSurge`, partitions,
 `minReadySeconds`). The annotation also makes the patch idempotent: a workload
 whose template already records the current generation is not patched again.
 
+The annotation is also a **minimum-generation barrier**, propagated by CRI to
+the shim. For that pod's runtime image ID, `Create` MUST refuse a local
+generation older than the requested generation with `RuntimeImageUpdating`
+after waiting for authorized provisioning under §7.5's bounded wait rules,
+and let kubelet retry. An uninstalled `OnDemand` entry uses the install marker;
+an already-installed entry, whether `Eager` or `OnDemand`, waits for the
+provisioner's normal rotation reconciliation rather than creating a first-use
+install request. A newer approved generation satisfies the barrier. Malformed
+barrier values fail with `InvalidRuntimeGeneration`. This applies even to a pod
+already bound to an excluded node or placed without admission; a scheduling
+label alone cannot prevent stale starts. The shim never changes `current`
+itself. Switching a workload's runtime ID requires removing or updating the
+barrier, since generation numbers are scoped to an ID.
+
+**Unsupported or deferred rollouts.** A StatefulSet or DaemonSet using
+`OnDelete` is not patched: the operator reports `RestartNotApplicable` in
+per-workload restart status and emits an event explaining that manual pod
+replacement is required. It MUST NOT delete pods or change the update strategy.
+Paused Deployments and partitioned StatefulSets are reported as
+`RestartDeferred` while their controller settings prevent a full rollout; a
+template patch is not evidence that their old-generation pods were replaced.
+These workloads do not count as completed restarts.
+
 **Pacing.** At most `operator.rotationRestarts.maxConcurrent` workloads (default
 `5`) roll at the same time cluster-wide. A slot is freed when the rollout
-completes or exceeds its progress deadline; a failed rollout is reported and
+completes or exceeds `operator.rotationRestarts.workloadProgressDeadline`
+(default `10m`, or an earlier Deployment progress-deadline failure); this bound
+also applies to controllers without a native progress deadline. Deferred and
+non-actionable workloads do not retain a slot. A failed rollout is reported and
 does not block other workloads. A newer rotation of the same ID supersedes
 pending restarts for the older generation.
 
@@ -605,7 +684,9 @@ spec:
    request installation and wait as described in §7.5 (`RuntimeImageInstalling`
    or `RuntimeImageInstallFailed` on timeout or failure). Fail with
    `RuntimeImageNotInstalled` if the node's profile does not offer the ID at all.
-   Take a lease on the resolved `current` generation.
+   Enforce any `brewlet.sh/rotated-to-generation` minimum-generation barrier
+   (§7.6), then atomically resolve and take a lease on `current` so a concurrent
+   rotation cannot substitute an older generation or reclaim the leased root.
 4. **Stage and validate layers** (§6.2) from the content store into the existing
    verified per-digest stage.
 5. **Assemble the rootfs** as an overlay: `lowerdir` = launch-layer-excluded
@@ -706,7 +787,7 @@ family and its dual-publication exception does not extend to 1.x keys.
 
 `RuntimeClass/brewlet` is unchanged (SPEC §7): one handler, one scheduling selector,
 one overhead. Runtime image selection is per pod rather than per RuntimeClass
-(see §16 for the rejected per-ID RuntimeClass alternative). `overhead.podFixed`
+(see §15 for the rejected per-ID RuntimeClass alternative). `overhead.podFixed`
 SHOULD be revisited, since 1.x sized it as "JVM/runtime baseline"; in 2.0 it
 covers only shim and staging overhead.
 
@@ -820,22 +901,7 @@ remains an explicit decision in the reviewed manifest.
   `/opt/brewlet`, fail-open admission, and runc isolation retain their 1.x
   properties and caveats (SPEC §11).
 
-## 13. Migration from 1.x
-
-2.0 is a breaking release. The supported path is:
-
-1. Teardown 1.x per the uninstallation guide.
-2. For each `NodeProfile.jdks` entry, create a `RuntimeImage` from the same
-   digest; for each launcher, publish a runtime image that includes it.
-3. Republish applications with the 2.0 Maven plugin or CLI. A
-   `brewlet migrate` command MAY convert a 1.x runnable image to a 2.0 artifact by
-   reusing its layers byte-for-byte, relocating them under `/app` when needed,
-   and rendering `launch.json` from `brewlet.sh/jvm-config` using the 1.x
-   expansion order.
-4. Replace `JavaApplication` resources with Deployments carrying
-   `brewlet.sh/runtime-image`.
-
-## 14. Observability
+## 13. Observability
 
 - Shim event `RuntimeImageResolved` on each container start with ID, generation,
   and digest; the same values are exported as
@@ -843,7 +909,11 @@ remains an explicit decision in the reviewed manifest.
 - `brewlet_runtime_image_generations{id,state}` on each node, and a controller
   condition `RotationProgressing` / `RotationComplete` per `RuntimeImage`.
 - Rotation restarts (§7.6) report `status.restarts` counts per `RuntimeImage`
-  and an event on each restarted workload.
+  and per-workload outcomes, including `RestartNotApplicable`,
+  `RestartDeferred`, and rollout failures, with corresponding workload events.
+  Rotation status records participating and excluded Node UIDs, their observed
+  generations, and exclusion reasons; `RotationStalled` identifies nodes that
+  exceeded the progress deadline. Completion does not clear these diagnostics.
 - Operators answer "which pods still run the vulnerable generation?" from the
   info metric, since the pod spec intentionally does not record a digest.
 - Provisioner metrics `brewlet_runtime_image_install_requests_total{id,outcome}`
@@ -854,9 +924,10 @@ remains an explicit decision in the reviewed manifest.
   `UnknownRuntimeImage`, `NoCompatibleRuntime`, `RuntimeImageNotInstalled`,
   `RuntimeImageInstalling`, `RuntimeImageInstallFailed`,
   `RuntimeImageIncompatible`, `UnsupportedArtifact`, `LaunchConfigMismatch`,
-  `LayerPathViolation`, `UnsupportedAnnotation`, `RootNotSupported`.
+  `LayerPathViolation`, `UnsupportedAnnotation`, `RootNotSupported`,
+  `RuntimeImageUpdating`, `InvalidRuntimeGeneration`, `ownership-fence-failed`.
 
-## 15. Open questions
+## 14. Open questions
 
 1. **Baked export ([proposal 0007](0007-baked-golden-image-delivery.md)).**
    Should Brewlet offer a standard way to bake an application and its runtime
@@ -881,7 +952,7 @@ remains an explicit decision in the reviewed manifest.
      deterministic composition rules so a bake exporter can be added without
      changing the 2.0 contract.
 
-## 16. Alternatives considered
+## 15. Alternatives considered
 
 ### One RuntimeClass per runtime image ID
 
@@ -942,5 +1013,5 @@ On acceptance, `SPECIFICATION.md` would be revised as follows:
 | SPEC §10 | Remove JVM resource mapping | §11 |
 | SPEC §11 | Add non-root enforcement | §8.4, §12 |
 | SPEC §13 | Move AppCDS guidance to Maven plugin docs | §11 |
-| SPEC §14 | Update reason codes, annotations, host layout | §7.3, §14 |
+| SPEC §14 | Update reason codes, annotations, host layout | §7.3, §13 |
 | [CAPABILITY_LABELS](../CAPABILITY_LABELS.md) | New v2 key family | §9.1 |
