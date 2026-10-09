@@ -59,13 +59,12 @@ YAML
   printf '%s' "$out"
 }
 
-# _wh_arch_pod NS NAME ARCH [retry] -> a brewlet pod requesting a specific arch
-# constraint (as a non-portable/JNI JAR would). With retry set, a transient
-# NoCompatibleArch (node cache not yet synced) is retried a few times.
+# _wh_arch_pod NS NAME ARCH -> a brewlet pod requesting a specific arch
+# constraint (as a non-portable/JNI JAR would). Architecture never denies: it is
+# steered by kubernetes.io/arch affinity and resolved by the scheduler/autoscaler.
 _wh_arch_pod() {
-  local ns="$1" name="$2" arch="$3" retry="${4:-}" out
-  for _ in 1 2 3 4 5; do
-    out="$(_wh_apply "$ns" <<YAML
+  local ns="$1" name="$2" arch="$3"
+  _wh_apply "$ns" <<YAML
 apiVersion: v1
 kind: Pod
 metadata:
@@ -78,11 +77,6 @@ spec:
     - name: app
       image: registry.example.com/team/orders:1.0.0
 YAML
-)"
-    if [[ -n "$retry" && "$out" == *NoCompatibleArch* ]]; then sleep 1; continue; fi
-    break
-  done
-  printf '%s' "$out"
 }
 
 # webhook_cases NS LABEL -> run every admission assertion against the webhook
@@ -191,7 +185,8 @@ YAML
   # --- arch constraint for non-portable (JNI) JARs -------------------------
   # arch is the standard kubelet-provided kubernetes.io/arch label (no
   # provisioner setup needed). A pod requesting the ready node's own arch is
-  # steered onto it; a pod requesting the OTHER (absent) arch is denied.
+  # steered onto it; a pod requesting the OTHER (absent) arch is admitted with a
+  # pending-capacity warning (an autoscaled pool of that arch may scale up).
   local node_arch other_arch
   node_arch="$(kubectl get "$WH_NODE" -o jsonpath='{.metadata.labels.kubernetes\.io/arch}' 2>/dev/null)"
   if [[ -z "$node_arch" ]]; then
@@ -199,7 +194,7 @@ YAML
   else
     if [[ "$node_arch" == "amd64" ]]; then other_arch="arm64"; else other_arch="amd64"; fi
 
-    out="$(_wh_arch_pod "$ns" wh-arch-match "$node_arch" retry)"
+    out="$(_wh_arch_pod "$ns" wh-arch-match "$node_arch")"
     if [[ "$out" == *created* ]]; then
       aff="$(_wh_affinity_keys "$ns" wh-arch-match)"
       assert_contains "$label: non-portable JAR requesting the node's arch ($node_arch) is steered (kubernetes.io/arch affinity)" \
@@ -209,12 +204,14 @@ YAML
     fi
 
     out="$(_wh_arch_pod "$ns" wh-arch-absent "$other_arch")"
-    if [[ "$out" == *NoCompatibleArch* ]]; then
-      pass "$label: an arch no ready node provides ($other_arch) is denied (NoCompatibleArch)"
+    if [[ "$out" == *created* && "$out" == *"Warning: brewlet: no ready node"* ]]; then
+      aff="$(_wh_affinity_keys "$ns" wh-arch-absent)"
+      assert_contains "$label: an arch no ready node provides ($other_arch) is admitted with a warning and steered" \
+        "$aff" "kubernetes.io/arch"
     else
-      kubectl delete pod wh-arch-absent -n "$ns" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-      fail "$label: NoCompatibleArch for an absent arch" "$(printf '%s' "$out" | tail -1)"
+      fail "$label: absent arch ($other_arch) admitted with pending-capacity warning" "$(printf '%s' "$out" | tail -2)"
     fi
+    kubectl delete pod wh-arch-absent -n "$ns" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   fi
   return 0
 }

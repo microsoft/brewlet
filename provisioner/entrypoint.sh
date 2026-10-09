@@ -15,7 +15,8 @@
 #   4. Register the `brewlet` runtime through a host-enabled drop-in or validated
 #      in-place fallback, then activate it through the selected restart mode.
 #   5. Label the node brewlet.sh/runtime=ready and advertise the installed
-#      JDKs/launchers via annotations.
+#      JDKs/launchers via annotations, then remove the optional
+#      startup-taint.cluster-autoscaler.kubernetes.io/brewlet startup taint.
 #
 # The script is idempotent: it is safe to re-run, and only does work that is
 # still missing. It publishes a container-local completion marker, then runs
@@ -205,6 +206,11 @@ truncate_error_message() {
 # Node annotations the operator reads to fail a node whose provisioning errored.
 # The first carries the stable reason code (§14); the second the human detail.
 ANNOTATION_PROVISION_ERROR="brewlet.sh/provision-error"
+# Optional node-pool startup taint. Cluster Autoscaler ignores taints with this
+# prefix when it builds scale-from-zero templates, so a pool can pre-declare
+# Brewlet capability labels while the taint keeps workloads off the node until
+# the provisioner has actually installed the runtime and removes it.
+STARTUP_TAINT_KEY="startup-taint.cluster-autoscaler.kubernetes.io/brewlet"
 ANNOTATION_PROVISION_ERROR_MESSAGE="brewlet.sh/provision-error-message"
 
 # ---------------------------------------------------------------------------
@@ -1681,13 +1687,81 @@ label_node() {
   fi
   if [[ "$BREWLET_APP_CDS_REGENERATION_ENABLED" == "true" ]]; then
     caps+=( "brewlet.sh/appcds-regeneration=true" )
-  else
-    kubectl label node "$NODE_NAME" brewlet.sh/appcds-regeneration- >/dev/null 2>&1 || return 1
   fi
+  prune_stale_capabilities "${caps[@]}" || return 1
   log "advertising scheduling labels: ${caps[*]}"
   kubectl label node "$NODE_NAME" "${caps[@]}" --overwrite || return 1
   verify_profile_identity
   kubectl label node "$NODE_NAME" brewlet.sh/runtime=ready --overwrite || return 1
+  release_startup_taint
+}
+
+# Removes the optional startup taint once the node is ready. Absent taints are
+# the common case and are not an error.
+release_startup_taint() {
+  local out
+  if out="$(kubectl taint node "$NODE_NAME" "${STARTUP_TAINT_KEY}-" 2>&1)"; then
+    [[ -z "$out" ]] || log "released startup taint ${STARTUP_TAINT_KEY}"
+    return 0
+  fi
+  [[ "$out" == *"not found"* ]] && return 0
+  log "ERROR: could not remove startup taint ${STARTUP_TAINT_KEY}: ${out}"
+  return 1
+}
+
+# Reports whether a failed label write was refused because the node pool pins
+# the label (for example, the AKS node validating webhook for pool --labels).
+pool_pinned_refusal() {
+  [[ "$1" == *"refused"* && "$1" == *"node pool"* ]]
+}
+
+# A node is never runtime-ready while it carries the startup taint, so the taint
+# withdraws readiness that pool-pinned labels would otherwise keep advertising.
+fence_with_startup_taint() {
+  local out
+  if out="$(kubectl taint node "$NODE_NAME" "${STARTUP_TAINT_KEY}=provisioning:NoSchedule" --overwrite 2>&1)"; then
+    log "fenced readiness with startup taint ${STARTUP_TAINT_KEY}"
+    return 0
+  fi
+  log "ERROR: could not apply startup taint ${STARTUP_TAINT_KEY}: ${out}"
+  return 1
+}
+
+# Removes each label separately so one pool-pinned label doesn't block the rest.
+# Pinned labels stay in place, fenced by the startup taint.
+remove_node_labels() {
+  local key out fenced=false
+  for key in "$@"; do
+    out="$(kubectl label node "$NODE_NAME" "${key}-" 2>&1)" && continue
+    pool_pinned_refusal "$out" || { log "ERROR: could not remove node label ${key}: ${out}"; return 1; }
+    if [[ "$fenced" != true ]]; then
+      fence_with_startup_taint || return 1
+      fenced=true
+    fi
+    log "node pool pins label ${key}; leaving it behind the startup taint"
+  done
+}
+
+# Withdraws capability labels the installed inventory doesn't provide, such as
+# labels an autoscaler templated onto the node. A pool-pinned label that
+# overclaims the inventory can never be withdrawn, so readiness is refused.
+prune_stale_capabilities() {
+  local entry key keys out wanted=$'\n'
+  for entry in "$@"; do wanted+="${entry%%=*}"$'\n'; done
+  keys="$(kubectl get node "$NODE_NAME" -o go-template='{{range $k, $v := .metadata.labels}}{{$k}}{{"\n"}}{{end}}')" || return 1
+  while IFS= read -r key; do
+    case "$key" in
+      brewlet.sh/jdk.*|brewlet.sh/jdk-feature.*|brewlet.sh/launcher.*|brewlet.sh/appcds-regeneration) ;;
+      *) continue ;;
+    esac
+    [[ "$wanted" != *$'\n'"$key"$'\n'* ]] || continue
+    out="$(kubectl label node "$NODE_NAME" "${key}-" 2>&1)" && continue
+    if pool_pinned_refusal "$out"; then
+      die node-advertisement-failed "node pool pins ${key}, which profile ${BREWLET_PROFILE_NAME} does not provide; make the pool labels match the profile inventory"
+    fi
+    log "ERROR: could not remove stale capability label ${key}: ${out}"
+    return 1
+  done <<<"$keys"
 }
 
 verify_profile_identity() {
@@ -1771,16 +1845,13 @@ clear_node_advertisement() {
   IFS=',' read -ra _old_jdks <<<"$old_jdks"
   for j in "${_old_jdks[@]:-}"; do
     [[ -n "$j" ]] || continue
-    caps+=( "brewlet.sh/jdk.${j}-" "brewlet.sh/jdk-feature.${j##*-}-" )
+    caps+=( "brewlet.sh/jdk.${j}" "brewlet.sh/jdk-feature.${j##*-}" )
   done
   IFS=',' read -ra _old_launchers <<<"$old_launchers"
   for l in "${_old_launchers[@]:-}"; do
-    [[ -n "$l" ]] && caps+=( "brewlet.sh/launcher.${l}-" )
+    [[ -n "$l" ]] && caps+=( "brewlet.sh/launcher.${l}" )
   done
-  kubectl label node "$NODE_NAME" brewlet.sh/runtime- brewlet.sh/appcds-regeneration- >/dev/null 2>&1 || return 1
-  if (( ${#caps[@]} > 0 )); then
-    kubectl label node "$NODE_NAME" "${caps[@]}" >/dev/null 2>&1 || return 1
-  fi
+  remove_node_labels brewlet.sh/runtime brewlet.sh/appcds-regeneration ${caps[@]+"${caps[@]}"} || return 1
   kubectl annotate node "$NODE_NAME" \
     brewlet.sh/jdks- brewlet.sh/jdks-info- brewlet.sh/launchers- \
     brewlet.sh/profile- brewlet.sh/profile-generation- \

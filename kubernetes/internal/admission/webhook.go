@@ -8,10 +8,13 @@ import (
 	"encoding/json"
 	"net/http"
 
+	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
+	"brewlet-operator/internal/controller"
 	"brewlet-operator/internal/observability"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -20,11 +23,14 @@ import (
 
 // PodMutator is the controller-runtime admission handler that applies the
 // Brewlet admission/scheduling seam (§8/§14) to pods on CREATE. It reads the
-// ready-node fleet through the manager's cached client, then delegates to the
-// pure MutatePod logic.
+// node fleet and the NodeProfile inventory through the manager's cached client,
+// then delegates to the pure MutatePod logic.
 type PodMutator struct {
 	Client  client.Reader
 	Decoder admission.Decoder
+	// Policy is the NodeProfile source policy; profiles it rejects are not
+	// counted as provisionable inventory.
+	Policy controller.NodeProfilePolicy
 }
 
 // Handle implements admission.Handler.
@@ -49,8 +55,14 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 		observability.ObserveAdmission("fail_open", "fleet_unavailable")
 		return admission.Allowed("fleet unavailable")
 	}
+	profiles, err := m.profiles(ctx)
+	if err != nil {
+		log.Error(err, "listing NodeProfiles for inventory check; allowing pod without steering")
+		observability.ObserveAdmission("fail_open", "profiles_unavailable")
+		return admission.Allowed("node profiles unavailable")
+	}
 
-	res := MutatePod(pod, fleet)
+	res := MutatePod(pod, fleet, profiles)
 	if res.DenyReason != "" {
 		log.Info("denying brewlet pod", "reason", res.DenyReason, "message", res.DenyMessage)
 		observability.ObserveAdmission("denied", res.DenyReason)
@@ -62,10 +74,18 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 		observability.ObserveAdmission("error", "encode")
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
+	resp := admission.PatchResponseFromRaw(req.Object.Raw, marshaled)
+	if res.Warning != "" {
+		log.Info("admitted brewlet pod pending capacity",
+			"artifactRef", res.ArtifactRef, "artifactDigest", res.ArtifactDigest, "warning", res.Warning)
+		observability.ObserveAdmission("admitted", "pending_capacity")
+		resp.Warnings = append(resp.Warnings, res.Warning)
+		return resp
+	}
 	log.Info("admitted brewlet pod",
 		"artifactRef", res.ArtifactRef, "artifactDigest", res.ArtifactDigest)
 	observability.ObserveAdmission("admitted", "none")
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaled)
+	return resp
 }
 
 // fleet reads the current node inventory and projects it to capabilities.
@@ -79,6 +99,38 @@ func (m *PodMutator) fleet(ctx context.Context) ([]NodeCapability, error) {
 		fleet = append(fleet, NodeCapabilityFrom(&nodes.Items[i]))
 	}
 	return fleet, nil
+}
+
+// profiles reads the NodeProfiles whose pools can supply new capacity. Deleting
+// profiles and profiles the reconciler would refuse to provision (source policy
+// or pool-ownership violations) are excluded.
+func (m *PodMutator) profiles(ctx context.Context) ([]ProfileCapability, error) {
+	var list nodev1alpha1.NodeProfileList
+	if err := m.Client.List(ctx, &list); err != nil {
+		// Without the NodeProfile CRD there is no declared inventory: only
+		// ready nodes count, which is the pre-profile behavior.
+		if meta.IsNoMatchError(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return EligibleProfiles(list.Items, m.Policy), nil
+}
+
+// EligibleProfiles projects the provisionable NodeProfiles to capabilities.
+func EligibleProfiles(items []nodev1alpha1.NodeProfile, policy controller.NodeProfilePolicy) []ProfileCapability {
+	out := make([]ProfileCapability, 0, len(items))
+	for i := range items {
+		p := &items[i]
+		if !p.DeletionTimestamp.IsZero() {
+			continue
+		}
+		if policy.Validate(p) != nil || controller.ValidateNoPoolConflicts(p, items) != nil {
+			continue
+		}
+		out = append(out, ProfileCapabilityFrom(p))
+	}
+	return out
 }
 
 // denied builds a Forbidden admission response carrying the fleet-policy reason

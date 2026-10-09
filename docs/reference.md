@@ -52,7 +52,7 @@ for the retained contracts and support boundaries.
 |---|---|---|---|
 | `brewlet.sh/jdk` | `21` or `temurin-21` | you | Request a JDK feature (any distro) or an exact `<dist>-<feature>`. Validated + scheduled by the webhook. |
 | `brewlet.sh/launcher` | `jaz` | you | Request a launcher. Empty / `java` = vanilla OpenJDK launcher. |
-| `brewlet.sh/arch` | `amd64` or `amd64,arm64` | you (or the `JavaApplication` controller from `spec.arch`) | Optional architecture constraint for **non-portable JARs** bundling JNI natives. Injects `kubernetes.io/arch` nodeAffinity; if no ready node of a required arch exists → `NoCompatibleArch`. Omit for arch-neutral bytecode. |
+| `brewlet.sh/arch` | `amd64` or `amd64,arm64` | you (or the `JavaApplication` controller from `spec.arch`) | Optional architecture constraint for **non-portable JARs** bundling JNI natives. Injects `kubernetes.io/arch` nodeAffinity; if no ready node of a required arch exists → admitted with a warning, stays `Pending`. Omit for arch-neutral bytecode. |
 | `brewlet.sh/artifact-container` | `app` | you + webhook | Selects which regular container's `image` is mirrored into Pod-wide compatibility hints. The webhook normalizes the value to the selected container name; other tasks ignore those hints and remain bound to their own CRI images. |
 | `brewlet.sh/artifact-ref` | `repo:tag` | webhook | Compatibility hint mirrored from the selected Pod image. |
 | `brewlet.sh/artifact-digest` | `sha256:…` | webhook | Compatibility hint mirroring the selected Pod image digest. The shim resolves executable content from containerd metadata, not from this annotation. |
@@ -68,9 +68,9 @@ Recorded by the operator / admission webhook (see [Troubleshooting](troubleshoot
 | `Provisioning` | The operator has requested provisioning for a node. |
 | `NodeReady` | A node is provisioned and advertising the brewlet runtime. |
 | `ProvisionFailed` | The provisioner reports a validation/reconfiguration error, or its pod is failing (for example `CrashLoopBackOff`). |
-| `NoCompatibleJDK` | A pod requested a JDK no ready node provides → admission denied. |
-| `NoCompatibleLauncher` | A pod requested a launcher no ready node provides → admission denied. |
-| `NoCompatibleArch` | A non-portable JAR requested an `arch` no ready node provides → admission denied. |
+| `NoCompatibleJDK` | A pod requested a JDK no ready node or valid NodeProfile provides → admission denied. |
+| `NoCompatibleLauncher` | A pod requested a launcher no ready node or valid NodeProfile provides → admission denied. |
+| `NoCompatibleArch` | Reserved; no longer emitted. An `arch` with no ready node is admitted with a warning. |
 
 ---
 
@@ -157,7 +157,7 @@ Full flag reference: [CLI reference](cli-reference.md#brewlet-push) and the
 | `addExports` | array | Optional; each token expands to `--add-exports <module>/<package>=<target>`. |
 | `systemProperties` | object | Optional string map expanded, sorted by key, as `-D<key>=<value>`. |
 | `cds` | object | Optional Application Class-Data Sharing hint: `{archive, mode}`. `archive` is a bare filename (e.g. `app.jsa`) shipped as a `cds.layer.v1+jsa` layer, mounted read-only at `/app/<archive>`; launch prepends `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`. `mode` (`dynamic`\|`static`, informational) records how it was produced. Best-effort accelerator: a build/version/classpath mismatch falls back to base CDS, never fails. See [AppCDS](appcds.md). |
-| `arch` | array | Optional architecture constraint (`amd64`, `arm64`). Omit for arch-neutral bytecode (the default — runs on any provisioned arch). Set only for **non-portable JARs** that bundle JNI native libraries or arch-specific deps; steers scheduling to matching-arch nodes via `kubernetes.io/arch` nodeAffinity, and denies admission with `NoCompatibleArch` when no ready node of a required arch exists. The CLI (`brewlet push`) and Maven plugin auto-detect bundled natives and default this accordingly. |
+| `arch` | array | Optional architecture constraint (`amd64`, `arm64`). Omit for arch-neutral bytecode (the default — runs on any provisioned arch). Set only for **non-portable JARs** that bundle JNI native libraries or arch-specific deps; steers scheduling to matching-arch nodes via `kubernetes.io/arch` nodeAffinity, and, when no ready node of a required arch exists, admits the pod with a warning so it waits `Pending` for capacity. The CLI (`brewlet push`) and Maven plugin auto-detect bundled natives and default this accordingly. |
 | `env` | array | `{name, value}`. |
 
 Process credentials are not artifact fields. A config containing `user` is

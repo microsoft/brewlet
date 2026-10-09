@@ -17,12 +17,16 @@ type MutationResult struct {
 	// Applies is true when the pod targets the brewlet RuntimeClass and was
 	// therefore considered. When false the pod is left untouched.
 	Applies bool
-	// DenyReason / DenyMessage are set (from CheckFleet, or from launcher-name
-	// validation) when the pod requested a JDK/launcher no ready node provides,
+	// DenyReason / DenyMessage are set (from CheckInventory, or from launcher-name
+	// validation) when the pod requested a JDK/launcher/AppCDS policy that no
+	// ready node or valid NodeProfile provides,
 	// or a launcher name that is not a safe token. When DenyReason is empty the
 	// mutation succeeded and the (possibly modified) pod should be admitted.
 	DenyReason  string
 	DenyMessage string
+	// Warning is returned to the client when the pod is admitted but no ready
+	// node satisfies it yet (it waits for capacity, e.g. scale-from-zero).
+	Warning string
 	// ArtifactRef / ArtifactDigest are the image-derived informational values
 	// written onto the pod for logging and compatibility.
 	ArtifactRef    string
@@ -39,15 +43,17 @@ func IsBrewletPod(pod *corev1.Pod) bool {
 //  1. overwrites the artifact-container/ref/digest compatibility hints from the
 //     selected container image. The shim derives executable identity from
 //     containerd rather than trusting these Pod annotations;
-//  2. validates explicit JDK/launcher/architecture/AppCDS requests against the
-//     ready fleet, returning the corresponding denial when unsatisfiable;
+//  2. validates explicit JDK/launcher/AppCDS requests against the ready fleet
+//     and the valid NodeProfiles, returning the corresponding denial when no
+//     single node or profile can satisfy them, and a warning when only a
+//     profile can (the pod waits for capacity);
 //  3. injects nodeAffinity so the scheduler only lands the pod on nodes that
 //     advertise all requested capabilities.
 //
 // Non-brewlet pods are left untouched (Applies=false). The function is pure over
-// (pod, fleet): it mutates only the passed pod and is unit-tested without a
+// (pod, fleet, profiles): it mutates only the passed pod and is unit-tested without a
 // cluster.
-func MutatePod(pod *corev1.Pod, fleet []NodeCapability) MutationResult {
+func MutatePod(pod *corev1.Pod, fleet []NodeCapability, profiles []ProfileCapability) MutationResult {
 	if !IsBrewletPod(pod) {
 		return MutationResult{}
 	}
@@ -74,7 +80,7 @@ func MutatePod(pod *corev1.Pod, fleet []NodeCapability) MutationResult {
 		}
 	}
 
-	// 2. Validate runtime capabilities and AppCDS policy against the ready fleet.
+	// 2. Validate runtime capabilities and AppCDS policy against the inventory.
 	jdk := strings.TrimSpace(pod.Annotations[brewlet.AnnotationRequestedJDK])
 	launcher := strings.TrimSpace(pod.Annotations[brewlet.AnnotationRequestedLauncher])
 	arch := splitArch(pod.Annotations[brewlet.AnnotationRequestedArch])
@@ -87,11 +93,13 @@ func MutatePod(pod *corev1.Pod, fleet []NodeCapability) MutationResult {
 		res.DenyMessage = err.Error()
 		return res
 	}
-	if fr := CheckFleet(fleet, jdk, launcher, arch, appCDSRegeneration); !fr.Compatible {
+	fr := CheckInventory(fleet, profiles, jdk, launcher, arch, appCDSRegeneration)
+	if !fr.Compatible {
 		res.DenyReason = fr.DenyReason
 		res.DenyMessage = fr.Message
 		return res
 	}
+	res.Warning = fr.Warning
 
 	// 3. Steer scheduling onto capable nodes.
 	injectNodeAffinity(pod, jdk, launcher, arch, appCDSRegeneration)

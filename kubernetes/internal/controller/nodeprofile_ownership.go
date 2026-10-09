@@ -341,7 +341,11 @@ func (r *NodeProfileReconciler) claimTarget(ctx context.Context, profile *nodev1
 		}
 	}
 	advertised := node.Annotations[brewlet.AnnotationProfile]
-	if advertised != "" || node.Labels[brewlet.LabelRuntimeReady] != "" {
+	// A runtime label with no profile advertisement on a node still carrying the
+	// startup taint was pre-declared by its node pool for autoscaler templates;
+	// no provisioner has run there, so it is not prior runtime state.
+	poolDeclared := advertised == "" && brewlet.HasStartupTaint(&node)
+	if advertised != "" || (node.Labels[brewlet.LabelRuntimeReady] != "" && !poolDeclared) {
 		return fmt.Errorf("node %s has unfenced runtime state from %q; refusing to adopt it", node.Name, advertised)
 	}
 	var pods corev1.PodList
@@ -428,7 +432,7 @@ func (r *NodeProfileReconciler) releaseTargetClaims(ctx context.Context, profile
 		delete(node.Labels, brewlet.LabelNodeOwner)
 		delete(node.Labels, brewlet.LabelNodeIdentity)
 		delete(node.Annotations, brewlet.AnnotationNodeOwner)
-		if err := r.Patch(ctx, &node, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		if err := r.patchNodeWithdrawal(ctx, base, &node); err != nil {
 			return err
 		}
 	}

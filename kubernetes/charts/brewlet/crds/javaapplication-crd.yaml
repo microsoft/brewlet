@@ -227,8 +227,9 @@ spec:
                     Each entry is a GOARCH / kubernetes.io/arch token; the
                     controller folds it into the brewlet.sh/arch pod annotation so
                     the admission webhook steers scheduling (kubernetes.io/arch In
-                    […]) and denies NoCompatibleArch when no ready node of a
-                    required arch exists. Omit for an architecture-neutral JAR (the
+                    […]). Architecture never denies admission: without a ready
+                    node of a required arch the pod is admitted with a warning and
+                    stays Pending until one is provisioned. Omit for an architecture-neutral JAR (the
                     common case — runs on any provisioned arch).
                   items:
                     type: string

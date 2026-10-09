@@ -1258,6 +1258,83 @@ for capability in jdk.temurin-21 jdk.microsoft-25 jdk-feature.21 jdk-feature.25 
   grep -Fxq "brewlet.sh/$capability=true" "$node_calls"
 done
 grep -Fxq 'brewlet.sh/runtime=ready' "$node_calls"
+# The optional Cluster Autoscaler startup taint is released only after readiness.
+grep -Fxq 'startup-taint.cluster-autoscaler.kubernetes.io/brewlet-' "$node_calls"
+[[ "$(grep -Fxn 'brewlet.sh/runtime=ready' "$node_calls" | cut -d: -f1)" -lt \
+   "$(grep -Fxn 'startup-taint.cluster-autoscaler.kubernetes.io/brewlet-' "$node_calls" | cut -d: -f1)" ]]
+(
+  NODE_NAME=taint-node
+  kubectl() { echo 'error: taint "startup-taint.cluster-autoscaler.kubernetes.io/brewlet" not found' >&2; return 1; }
+  release_startup_taint
+)
+if (
+  NODE_NAME=taint-node
+  kubectl() { echo 'error: nodes "taint-node" is forbidden' >&2; return 1; }
+  release_startup_taint
+) 2>/dev/null; then
+  echo "release_startup_taint must fail when the taint cannot be removed" >&2
+  exit 1
+fi
+# A pool-pinned label (AKS refuses its removal) is fenced by the startup taint
+# while the other labels are still withdrawn.
+pinned_refusal='Error from server: admission webhook "aks-node-validating-webhook.azmk8s.io" denied the request: Label delete request "brewlet.sh/runtime:ready" refused. User is attempting to delete a label configured on aks node pool "bwcaz".'
+: >"$node_calls"
+(
+  NODE_NAME=pinned-node
+  kubectl() {
+    printf '%s\n' "$*" >>"$node_calls"
+    [[ "$*" == "label node pinned-node brewlet.sh/runtime-" ]] && { echo "$pinned_refusal"; return 1; }
+    return 0
+  }
+  remove_node_labels brewlet.sh/runtime brewlet.sh/jdk.temurin-21 >/dev/null
+)
+grep -Fxq 'taint node pinned-node startup-taint.cluster-autoscaler.kubernetes.io/brewlet=provisioning:NoSchedule --overwrite' "$node_calls"
+grep -Fxq 'label node pinned-node brewlet.sh/jdk.temurin-21-' "$node_calls"
+if (
+  NODE_NAME=pinned-node
+  kubectl() { [[ "$1" == label ]] && { echo 'error: nodes "pinned-node" is forbidden'; return 1; }; printf '%s\n' "$*" >>"$node_calls"; }
+  : >"$node_calls"
+  remove_node_labels brewlet.sh/runtime >/dev/null
+); then
+  echo "remove_node_labels must fail on errors other than a pool-pinned refusal" >&2
+  exit 1
+fi
+if grep -Fq 'taint node' "$node_calls"; then
+  echo "remove_node_labels must not fence on errors other than a pool-pinned refusal" >&2
+  exit 1
+fi
+# Templated capability labels the inventory doesn't provide are withdrawn before
+# readiness; one the pool pins blocks readiness instead.
+: >"$node_calls"
+(
+  NODE_NAME=prune-node
+  kubectl() {
+    if [[ "$1" == get ]]; then
+      printf '%s\n' agentpool brewlet.sh/runtime brewlet.sh/jdk.temurin-21 brewlet.sh/jdk.temurin-25 brewlet.sh/jdk-feature.25
+      return 0
+    fi
+    printf '%s\n' "$*" >>"$node_calls"
+  }
+  prune_stale_capabilities brewlet.sh/jdk.temurin-21=true brewlet.sh/jdk-feature.21=true >/dev/null
+)
+grep -Fxq 'label node prune-node brewlet.sh/jdk.temurin-25-' "$node_calls"
+grep -Fxq 'label node prune-node brewlet.sh/jdk-feature.25-' "$node_calls"
+if grep -Eq 'brewlet.sh/(runtime|jdk.temurin-21)-|agentpool-' "$node_calls"; then
+  echo "prune_stale_capabilities must only withdraw capabilities missing from the inventory" >&2
+  exit 1
+fi
+pruned="$(
+  NODE_NAME=prune-node
+  BREWLET_PROFILE_NAME=bwcaz
+  die() { printf 'died:%s\n' "$1"; exit 1; }
+  kubectl() {
+    [[ "$1" == get ]] && { printf '%s\n' brewlet.sh/jdk.temurin-25; return 0; }
+    echo "$pinned_refusal"; return 1
+  }
+  prune_stale_capabilities brewlet.sh/jdk.temurin-21=true
+)" || true
+[[ "$pruned" == *"died:node-advertisement-failed"* ]] \
+  || { echo "a pool-pinned overclaiming capability must block readiness" >&2; exit 1; }
 for clear in clear_node_advertisement unlabel_node; do
   : >"$node_calls"
   (

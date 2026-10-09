@@ -846,7 +846,11 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    when policy authorizes it, `brewlet.sh/appcds-regeneration` (§8/§14).
    Their exact keys, token grammar, presence semantics, compatibility guarantees,
    and autoscaler integration are defined by the public
-   [capability-label contract](CAPABILITY_LABELS.md).
+   [capability-label contract](CAPABILITY_LABELS.md). Only after readiness is
+   published does it remove the optional autoscaler startup taint
+   `startup-taint.cluster-autoscaler.kubernetes.io/brewlet`. A node still
+   carrying that taint is not ready, whatever its labels say
+   ([startup taint](CAPABILITY_LABELS.md#startup-taint)).
 9. Publishes the container-local `/tmp/brewlet-complete` marker, then runs
    periodic runnable-stage cleanup when enabled and installation safety is established (§5.2.1).
    Disabled provisioners and completed cleanup-mode workers idle instead.
@@ -1761,7 +1765,8 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 ### 8.3 Pod admission/scheduling webhook
 
 A mutating+validating admission webhook (`brewlet-admission`) closes the loop
-between a brewlet pod and the ready fleet. For every pod on CREATE with
+between a brewlet pod and the runtime inventory: the ready fleet plus eligible
+NodeProfiles. For every pod on CREATE with
 `runtimeClassName: brewlet` it:
 
 - **Overwrites** `brewlet.sh/artifact-container` with the selected regular
@@ -1775,14 +1780,27 @@ between a brewlet pod and the ready fleet. For every pod on CREATE with
   platform manifest against CRI's image-config digest, and reads the JAR from
   containerd's content store by digest (§6.4); malformed or conflicting hints
   are rejected, but hints never select executable content.
-- **Matches** any explicitly requested JDK/launcher/architecture/AppCDS policy
-  (pod annotations
-  `brewlet.sh/jdk` = `<dist>-<feature>` or a bare feature such as `21`, and
-  `brewlet.sh/launcher`, `brewlet.sh/arch` for non-portable artifacts,
-  and `brewlet.sh/cds-regenerate`) against the same ready node. If no ready node
-  is compatible, admission is denied with `NoCompatibleJDK`,
-  `NoCompatibleLauncher`, `NoCompatibleArch`, or
+- **Matches** any explicitly requested JDK/launcher/AppCDS policy (pod
+  annotations `brewlet.sh/jdk` = `<dist>-<feature>` or a bare feature such as
+  `21`, `brewlet.sh/launcher`, and `brewlet.sh/cds-regenerate`) jointly against
+  one candidate: a ready node, or an eligible NodeProfile. A NodeProfile is
+  eligible when it is not being deleted, passes the operator's admission-time
+  policy (immutable sources, allowed mirrors) and has no pool conflict; its
+  `spec.jdks`, `spec.launchers` and `spec.appCDS.regenerationEnabled` are the
+  capabilities it will publish on nodes it provisions. Capabilities are never
+  combined across candidates. If no candidate is compatible, admission is denied
+  with `NoCompatibleJDK`, `NoCompatibleLauncher`, or
   `AppCDSRegenerationDisabled` (§14).
+- **Admits pending capacity with a warning.** When the request is satisfied
+  only by a NodeProfile (for example an autoscaled pool currently at zero
+  nodes), or the requested architecture (`brewlet.sh/arch`, non-portable
+  artifacts) has no ready node, the pod is admitted with an admission warning
+  naming the declaring profile(s) and stays `Pending` until matching capacity
+  exists. This lets Cluster Autoscaler or Karpenter scale from zero.
+  Architecture is never an admission denial: profiles do not constrain arch
+  (that comes from the VM SKU), so arch is resolved by affinity at scheduling
+  time. If NodeProfiles cannot be listed, admission fails open like a webhook
+  outage; if the NodeProfile CRD is absent, only ready nodes count.
 - **Steers** scheduling by injecting `nodeAffinity` onto the provisioner's
   per-capability labels (`brewlet.sh/jdk.<d-f>`, `brewlet.sh/jdk-feature.<f>`,
   `brewlet.sh/launcher.<n>`, `brewlet.sh/appcds-regeneration`) and the standard
@@ -2054,7 +2072,8 @@ other, so each shape behaves as plain Kubernetes does:
   the overlay mount configuration; `runc_create` includes applying that mount and
   creating the sandbox. The operator and admission webhook add
   NodeProfile readiness/provisioning metrics and admission outcomes (including
-  `NoCompatibleJDK`, `NoCompatibleLauncher`, and `NoCompatibleArch`) to their
+  `NoCompatibleJDK`, `NoCompatibleLauncher`, and admissions on pending
+  capacity) to their
   controller-runtime endpoints.
 - **Stage cleanup observability:** the optional exporter exposes
   `brewlet_runnable_stage_bytes` from a read-only host stage mount. It measures
@@ -2129,11 +2148,12 @@ and JVM features:
 
 | Scenario                                   | Behavior                                                            |
 |--------------------------------------------|--------------------------------------------------------------------|
-| No compatible JDK on any ready node        | Pod **rejected at admission**, `403` with `reason: NoCompatibleJDK`   |
-| Requested launcher not installed on node   | Pod **rejected at admission**, `403` with `reason: NoCompatibleLauncher` |
-| Non-portable JAR needs an arch with no ready node | Pod **rejected at admission**, `403` with `reason: NoCompatibleArch` |
+| No compatible JDK on any ready node or eligible NodeProfile | Pod **rejected at admission**, `403` with `reason: NoCompatibleJDK`   |
+| Requested launcher on no ready node or eligible NodeProfile | Pod **rejected at admission**, `403` with `reason: NoCompatibleLauncher` |
+| Request satisfied only by a NodeProfile (e.g. autoscaled pool at zero) | Pod admitted with `nodeAffinity` and an admission warning; stays `Pending` until the pool scales up |
+| Non-portable JAR needs an arch with no ready node | Pod admitted with `kubernetes.io/arch` affinity and an admission warning; stays `Pending` until a node of that arch exists |
 | Requested capability exists but its nodes are momentarily unschedulable | Pod admitted with `nodeAffinity`; stays `Pending` with a scheduler `FailedScheduling` event |
-| AppCDS regeneration requested with no authorized compatible node | Admission denies with `AppCDSRegenerationDisabled`; shim also rejects task creation when the host sentinel is absent or unsafe |
+| AppCDS regeneration requested with no authorized compatible node or NodeProfile | Admission denies with `AppCDSRegenerationDisabled`; shim also rejects task creation when the host sentinel is absent or unsafe |
 | OCI artifact missing/unauthorized          | `ImagePull`-style failure surfaced on the pod                       |
 | JVM OOM                                     | `ExitOnOutOfMemoryError` → exit → kubelet restart per `restartPolicy`|
 | Node provisioning fails                     | Node not labeled `ready`; operator event `ProvisionFailed`          |
@@ -2146,7 +2166,7 @@ and JVM features:
 | cgroup v1-only node                         | Provisioner refuses; node not marked ready (cgroup v2 required)     |
 | containerd 1.x node                         | Provisioner refuses; node not marked ready (protected CRI requested-image metadata requires containerd 2.0+) |
 
-> The `NoCompatibleJDK` / `NoCompatibleLauncher` / `NoCompatibleArch` /
+> The `NoCompatibleJDK` / `NoCompatibleLauncher` /
 > `AppCDSRegenerationDisabled` rows are enforced by the pod admission webhook
 > (§8.3): an incompatible explicit request is denied at admission with that
 > reason, and compatible pods get nodeAffinity so the scheduler skips nodes
@@ -2286,8 +2306,9 @@ Event reasons: `Provisioning`, `NodeReady`, `ProvisionFailed`, `NodeUnmatched`
 (node lifecycle, §8.1); `ReconcileError`, `EnvOptionsOverlap` (`JavaApplication`,
 §8.2). Admission **denial** reasons (§8.3, returned as a `403` `metav1.Status`
 reason — not events): `NoCompatibleJDK`, `NoCompatibleLauncher`,
-`NoCompatibleArch`, `AppCDSRegenerationDisabled`, `InvalidNodeProfile`,
-`PoolConflict`.
+`AppCDSRegenerationDisabled`, `InvalidNodeProfile`, `PoolConflict`.
+`NoCompatibleArch` is reserved and no longer emitted: an unavailable
+architecture is admitted with a warning (§8.3).
 
 ### 14.4 Metrics
 

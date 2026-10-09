@@ -202,8 +202,9 @@ uninstall:
   nodeSelector: {}
 
 # The pod admission/scheduling webhook (§8/§14): overwrites image identity
-# compatibility hints and matches a pod's requested JDK/launcher against the
-# ready fleet (NoCompatibleJDK / NoCompatibleLauncher).
+# compatibility hints and matches a pod's requested JDK/launcher/AppCDS against
+# the ready fleet plus eligible NodeProfiles (NoCompatibleJDK /
+# NoCompatibleLauncher), so autoscaled pools can scale from zero.
 admission:
   enabled: true
   replicas: 1

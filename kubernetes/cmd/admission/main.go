@@ -102,6 +102,9 @@ func main() {
 		Handler: &admission.PodMutator{
 			Client:  mgr.GetClient(),
 			Decoder: decoder,
+			Policy: controller.NodeProfilePolicy{
+				AllowedSourceMirrorHosts: policyHosts,
+			},
 		},
 	})
 	mgr.GetWebhookServer().Register("/validate-nodeprofiles", &admissionpkg.Webhook{

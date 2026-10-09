@@ -428,7 +428,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package brewlet:build \
         </details>
         <details>
           <summary>Does it work on mixed-architecture node pools?</summary>
-          <p>Yes. The provisioner installs a JDK matching each node's architecture, and portable JARs schedule anywhere. A JAR with native (JNI) bits can declare an <code>arch</code> constraint so admission steers it onto matching <code>amd64</code>/<code>arm64</code> nodes (or denies it with <code>NoCompatibleArch</code>). See the <a href="/docs/multi-arch/">multi-arch docs</a>.</p>
+          <p>Yes. The provisioner installs a JDK matching each node's architecture, and portable JARs schedule anywhere. A JAR with native (JNI) bits can declare an <code>arch</code> constraint so admission steers it onto matching <code>amd64</code>/<code>arm64</code> nodes; if no node of that architecture exists yet, the pod waits <code>Pending</code> for one. See the <a href="/docs/multi-arch/">multi-arch docs</a>.</p>
         </details>
         <details>
           <summary>Which JDKs can I target?</summary>
