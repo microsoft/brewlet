@@ -68,6 +68,13 @@ python3 -m mkdocs serve -f site/mkdocs.yml
 
 Then open <http://localhost:8000/docs/>.
 
+`site/requirements.txt` explicitly selects public PyPI for local setup, CI, and
+Pages builds, overriding machine-level pip index settings. This avoids broken
+mirror downloads without changing package versions or disabling integrity
+checks. A hash mismatch whose received SHA-256 is
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+means the download was empty; do not replace the expected hash with it.
+
 ## Validation
 
 After installing the documentation dependencies above, run the same strict

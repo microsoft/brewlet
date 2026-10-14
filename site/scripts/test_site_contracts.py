@@ -95,6 +95,10 @@ class SiteContractsTest(unittest.TestCase):
     def test_landing_page_includes_inventory_command(self):
         self.assertIn("brewlet k8s jdk list", self.page.inline_code)
 
+    def test_site_dependencies_use_public_pypi(self):
+        requirements = (ROOT / "site/requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("--index-url https://pypi.org/simple", requirements.splitlines())
+
     def test_devoxx_promotion_links_to_video_and_slides(self):
         links = {href for href, _ in self.page.links}
         video_url = "https://youtu.be/fszyRIZXjQM?is=w3zYjtOoIFceAAOT"
