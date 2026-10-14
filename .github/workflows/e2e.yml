@@ -154,7 +154,7 @@ jobs:
 
       - name: Create kind cluster
         if: matrix.cluster
-        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
           cluster_name: brewlet-e2e
           config: ${{ matrix.network_policy && 'integration-tests/e2e/kind-network-policy.yaml' || '' }}
@@ -186,7 +186,7 @@ jobs:
 
       - name: Retain tier diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tiers-${{ strategy.job-index }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/brewlet-tier-evidence
@@ -251,7 +251,7 @@ jobs:
 
       - name: Retain tier diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tiers-arm64-${{ github.run_attempt }}
           path: ${{ runner.temp }}/brewlet-tier-evidence
@@ -303,7 +303,7 @@ jobs:
           python3 "integration-tests/e2e/live/${SCENARIO}.py"
       - name: Retain redacted evidence even on failure
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: live-${{ matrix.scenario }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/brewlet-live-evidence
@@ -352,7 +352,7 @@ jobs:
         run: python3 integration-tests/e2e/live/workflows.py
       - name: Retain redacted evidence even on failure
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: live-workflows-${{ matrix.run }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/brewlet-live-evidence
