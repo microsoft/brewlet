@@ -1,2 +1,5 @@
+# Keep public site dependencies independent of machine-level package mirrors.
+--index-url https://pypi.org/simple
+
 mkdocs==1.6.1
 mkdocs-material==9.7.7
