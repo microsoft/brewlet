@@ -128,7 +128,6 @@ for value in true false ""; do
     : >"$COMPLETION_FILE"
     ensure_in_cluster_kubeconfig() { echo unexpected-host-access >>"$calls"; }
     verify_node_ownership() { echo unexpected-host-access >>"$calls"; }
-    remove_appcds_regeneration_policy() { echo unexpected-host-access >>"$calls"; }
     if main >"$PREFIX/error" 2>&1; then
       echo "accepted unsupported acknowledgment" >&2
       exit 1

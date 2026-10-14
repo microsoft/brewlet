@@ -65,7 +65,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
 routing and monitor history using offline fixtures, without accessing a cluster.
 
 The E2E workflow's `suite` selector accepts `all` (default), `tiers` (tiers 1-19
-except retired tier 14, plus host-only tiers 1-3 on arm64), and `live` (isolated
+except retired tiers 8 and 14, plus host-only tiers 1-3 on arm64), and `live` (isolated
 live scenarios).
 Scheduled runs execute both suites. The `scenario` selector affects only live
 jobs and is ignored for `tiers`.
@@ -161,14 +161,14 @@ The harness does not switch branches or modify component sources. It uses
 |---|---|
 | Go | all |
 | Python 3 | 2, 4, 12, 13, 16, 17, 19 |
-| JDK 21+ | 2, 3, 7, 8, 9, 12, 14-19 |
-| Docker | 3, 6, 7, 8-12, 14-19 |
+| JDK 21+ | 2, 3, 7, 9, 12, 15-19 |
+| Docker | 3, 6, 7, 9-12, 15-19 |
 | kubectl and a reachable cluster | 4-19 |
 | Helm | 4 (optional), 10, 15, 17 |
 | OpenSSL | 4, 5, 6, 10, 11 |
 
 Host-only tiers 1-3 need no cluster. Tiers 4-7 and 13 exercise API-server
-behavior. Tiers 6, 8-12, and 15-19 require containerd nodes the harness can
+behavior. Tiers 6, 9-12, and 15-19 require containerd nodes the harness can
 enter: local kind nodes by default, or any Linux node with
 `E2E_NODE_ACCESS=kubectl` (see "Managed clusters"). Otherwise managed clusters
 skip those node-side paths. Tier 13
@@ -211,10 +211,10 @@ the sweeping worker to terminate before removing only its own safety record.
 Re-enabling GC retains runtime readiness but blocks repeated attempts and
 preserves an otherwise eligible stage. No acknowledgment or fabricated record
 enables cleanup. That fabricated stage sits at the canonical path of the
-deterministic demo image that tiers 8 and 9 also deploy, so successful
+deterministic demo image that tier 9 also deploys, so successful
 teardown removes exactly that path and fails if it remains. Fixture teardown
 preserves recovery evidence and finalizers if cleanup cannot complete. The E2E
-workflow's "Tier 17 then 08" entry runs both tiers on one node to guard
+workflow's "Tier 17 then 09" entry runs both tiers on one node to guard
 against such host-state leaks.
 Tier 18 covers a patched-JDK rollout. It provisions a Temurin 21 digest,
 runs a Brewlet workload on it, then replaces the NodeProfile digest with a
@@ -310,7 +310,7 @@ Common environment-specific skips:
 
 - Tier 5 skips when a cluster cannot reach a host-bound webhook; tier 6 covers
   the same assertions in-cluster.
-- Tiers 8, 9, 12, and 14-19 skip if no schedulable containerd node can be
+- Tiers 9, 12, and 15-19 skip if no schedulable containerd node can be
   provisioned (on managed clusters, set `E2E_NODE_ACCESS=kubectl`).
 - Tier 12 skips when the node's `ctr` supports neither `images unpack` nor
   import-time unpack; tier 16 applies the same rule.

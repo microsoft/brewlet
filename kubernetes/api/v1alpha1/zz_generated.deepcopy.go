@@ -32,28 +32,12 @@ func (in *ArtifactSpec) DeepCopy() *ArtifactSpec {
 }
 
 // DeepCopyInto copies the receiver into out.
-func (in *CDSSpec) DeepCopyInto(out *CDSSpec) {
-	*out = *in
-}
-
-// DeepCopy returns a deep copy of the receiver.
-func (in *CDSSpec) DeepCopy() *CDSSpec {
-	if in == nil {
-		return nil
-	}
-	out := new(CDSSpec)
-	in.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies the receiver into out.
 func (in *JVMSpec) DeepCopyInto(out *JVMSpec) {
 	*out = *in
 	if in.Args != nil {
 		out.Args = make([]string, len(in.Args))
 		copy(out.Args, in.Args)
 	}
-	out.CDS = in.CDS
 }
 
 // DeepCopy returns a deep copy of the receiver.

@@ -714,7 +714,6 @@ func cmdRun(args []string) error {
 	store := fs.String("store", "./oci", "OCI layout directory")
 	jdkRoot := fs.String("jdk-root", "", "node JDK home (default: JAVA_HOME)")
 	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
-	appcdsRegen := fs.Bool("appcds-regenerate", false, "opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): maintain a private cache entry keyed by local scope, verified manifest, and JDK build with -XX:+AutoCreateSharedArchive. This is the deployment/fleet equivalent of spec.jvm.cds.regenerate; any shipped archive becomes optional seed data")
 	flagArgs, extra := splitDoubleDash(args)
 	pos, err := parseInterspersed(fs, flagArgs)
 	if err != nil {
@@ -740,44 +739,15 @@ func cmdRun(args []string) error {
 	// Pull: the payload is already in the store (native artifact) or staged from
 	// the runnable image's layers; mount it into a sandbox.
 	cdsSrc := blobs.CDSHostPath
-	sandbox, jarPath, err := runtime.AssembleSandboxWithCDS(cfg, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *appcdsRegen)
+	sandbox, jarPath, err := runtime.AssembleSandboxWithCDS(cfg, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(sandbox)
 
-	plan, err := runtime.BuildPlan(cfg, jarPath, *jdkRoot, *launcher, extra, *appcdsRegen)
+	plan, err := runtime.BuildPlan(cfg, jarPath, *jdkRoot, *launcher, extra)
 	if err != nil {
 		return err
-	}
-
-	// Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): the local `run` path
-	// executes the JVM directly on the host (no sandbox), so the node cache path
-	// is a host path (ArchiveArgDir empty). Prepend the resolved regen args.
-	// Regeneration is a deployment/fleet choice (--appcds-regenerate), not read
-	// from the artifact.
-	if *appcdsRegen {
-		seed := ""
-		if cdsSrc != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
-			seed = cdsSrc
-		}
-		dec, derr := runtime.DecideCDSRegen(runtime.RegenParams{
-			CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
-			CacheScope:     "local",
-			JDKRoot:        plan.JDKHome,
-			ArtifactDigest: blobs.ManifestDigest,
-			SeedArchive:    seed,
-		})
-		if derr != nil {
-			return derr
-		}
-		if len(dec.Args) > 0 {
-			plan.Args = append(append([]string{}, dec.Args...), plan.Args...)
-		}
-		if dec.WriterLease != nil {
-			stopHeartbeat := dec.WriterLease.StartHeartbeat(runtime.DefaultWriterTTL)
-			defer stopHeartbeat()
-		}
 	}
 
 	fmt.Printf("[brewlet] node JDK : %s\n", plan.JDKHome)
@@ -791,7 +761,7 @@ func cmdRun(args []string) error {
 	fmt.Printf("[brewlet] sandbox  : %s\n", sandbox)
 	fmt.Printf("[brewlet] launch   : %s\n", plan.CommandLine())
 	fmt.Printf("[brewlet] ----- JVM output below -----\n")
-	// The sandbox and optional CDS cache now own all payloads.
+	// The sandbox now owns all payloads.
 	_ = guard.Close()
 	return plan.Run()
 }
@@ -807,7 +777,6 @@ func cmdBundle(args []string) error {
 	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
 	launcherRoot := fs.String("launcher-root", "", "node launcher layer root (custom launcher, e.g. jaz)")
 	out := fs.String("out", "./bundle", "output bundle directory")
-	appcdsRegen := fs.Bool("appcds-regenerate", false, "opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): maintain a private cache entry keyed by local scope, verified manifest, process UID, and JDK build with -XX:+AutoCreateSharedArchive. Deployment/fleet equivalent of spec.jvm.cds.regenerate")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
@@ -843,14 +812,8 @@ func cmdBundle(args []string) error {
 	}
 	cfg := blobs.Config
 	cdsSrc := blobs.CDSHostPath
-	if err := runtime.GenerateBundleWithIdentityAndRegen(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
-		res, nil, runtime.ProcessIdentity{UID: uid, GID: gid},
-		runtime.CDSRegenOptions{
-			Regenerate:     *appcdsRegen,
-			CacheScope:     "local",
-			ArtifactDigest: blobs.ManifestDigest,
-			CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
-		}); err != nil {
+	if err := runtime.GenerateBundleWithIdentity(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
+		res, nil, runtime.ProcessIdentity{UID: uid, GID: gid}); err != nil {
 		cleanup()
 		return err
 	}

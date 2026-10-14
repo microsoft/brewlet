@@ -42,7 +42,7 @@ class StrictRunnerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_invalid_tiers_and_strict_mode_fail_before_execution(self):
-        for args, strict in ((["--tier", "14"], "false"), (["--tier"], "true"),
+        for args, strict in ((["--tier", "8"], "false"), (["--tier", "14"], "false"), (["--tier"], "true"),
                              (["--tier", "unknown"], "true"), (["--tier", "2"], "typo")):
             with self.subTest(args=args, strict=strict), tempfile.TemporaryDirectory() as work:
                 result = subprocess.run(

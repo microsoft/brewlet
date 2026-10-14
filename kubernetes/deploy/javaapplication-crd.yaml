@@ -105,24 +105,6 @@ spec:
                         -classpath, --class-path, -p, --module-path, -m, --module)
                         and java @argfiles are rejected. Brewlet injects no tuning
                         of its own (§8.2/§10) — set heap %, GC, etc. here.
-                    cds:
-                      type: object
-                      properties:
-                        regenerate:
-                          type: boolean
-                          default: false
-                          description: >-
-                            Request node-side AppCDS regeneration (see
-                            https://github.com/microsoft/brewlet). Requires an
-                            otherwise-compatible ready node whose NodeProfile
-                            authorizes regeneration; the shim also enforces the
-                            root-owned host policy. The private entry is keyed by
-                            namespace, verified manifest, and JDK build. Any shipped
-                            archive becomes optional seed data.
-                      description: >-
-                        Deployment-side AppCDS behavior. Node-side regeneration is a
-                        fleet/operational choice, so it lives here rather than in the
-                        artifact.
                 env:
                   type: array
                   items:

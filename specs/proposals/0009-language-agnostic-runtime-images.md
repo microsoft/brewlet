@@ -1017,9 +1017,12 @@ Removed from Brewlet core:
   packages such as `jaz` as a separate node package;
 - the 1.x launch descriptor (`mainJar`, `entry`, `addOpens`, …) and its argv
   expansion rules, including the `jvm.args` entrypoint-selector guard;
-- AppCDS node-side regeneration, its cache, sentinel, and capability label;
 - the JVM resource mapping of SPEC §10 (modern JVMs are container-aware);
 - the `JavaApplication` CRD and controller, and `status.selectedJdk`.
+
+AppCDS node-side regeneration, its cache, sentinel, and capability label have
+already been removed in preparation for this proposal. Build-time archive
+delivery remains available in the current release.
 
 Re-expressed generically:
 

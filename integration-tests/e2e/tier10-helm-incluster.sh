@@ -33,7 +33,7 @@
 #      restarting the admission pod.
 #
 # No brewlet pod is expected to actually RUN here (no node is provisioned ready,
-# so brewlet pods stay Pending/denied) — that path is tiers 8/9. This tier is
+# so brewlet pods stay Pending/denied) — that path is tier 9. This tier is
 # purely about the shipped chart + in-cluster RBAC.
 #
 # SKIPs gracefully unless: kubectl + reachable cluster, docker, helm, and every

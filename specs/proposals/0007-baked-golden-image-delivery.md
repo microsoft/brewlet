@@ -152,12 +152,8 @@ since runtime presence is no longer a per-node property.
 - **Cold start on a fresh node regresses.** The provisioner pre-warms JDK roots
   today; a baked image means the first pod on a node pulls the full base. A
   pre-pull DaemonSet recovers this — which is node provisioning under another name.
-- **Node-side AppCDS regeneration has no obvious home.** The per-`(namespace,
-  verified platform manifest, JDK build, process UID)` cache that self-heals on
-  every central JDK patch (§13) cannot be reproduced at bake time without running
-  the JVM, and reproducing it at runtime reintroduces a node component.
 - **Launch-phase observability moves.** `overlay_setup`, `runc_create`, artifact
-  resolution behavior, and CDS decisions (§12) are shim-emitted and would need a
+  resolution behavior (§12) are shim-emitted and would need a
   different source.
 - **Overlap with existing tools.** "Approved base plus app layer, composed
   automatically in CI" is what Jib, Paketo, and kpack already do, with mature

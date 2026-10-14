@@ -48,7 +48,8 @@ for Maven unit coverage. The suite covers:
 | 4 | operator control plane and Helm packaging | Kubernetes |
 | 5-6 | host and in-cluster admission webhooks | Kubernetes |
 | 7 | Spring PetClinic artifact, layered deployment, runc, reconcile | both + fixtures |
-| 8-9 | AppCDS lifecycle, cross-namespace cache isolation, and serving through kubelet/CRI | core + fixtures |
+| 8 | retired: node-side AppCDS regeneration removed; build-time archives remain covered by tier 2 and `make appcds-verify` | — |
+| 9 | serving through kubelet/CRI | core + fixtures |
 | 10-11 | installed Helm stack and webhook resilience | Kubernetes |
 | 12 | runnable image pulled and unpacked by kubelet | core + fixtures |
 | 13 | NodeProfile lifecycle | Kubernetes |

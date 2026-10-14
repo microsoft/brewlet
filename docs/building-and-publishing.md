@@ -58,7 +58,7 @@ you can author it and pass `--config`.
 | `addOpens` | Optional module/package access tokens such as `java.base/java.lang=ALL-UNNAMED`; expands to repeated `--add-opens`. |
 | `addExports` | Optional module/package export tokens; expands to repeated `--add-exports`. |
 | `systemProperties` | Optional string map expanded as sorted `-D<key>=<value>` flags. |
-| `cds` | Optional AppCDS block. `cds.archive` is a bare `/app`-relative `.jsa` filename shipped as a CDS layer (`brewlet push --appcds-archive`); `cds.mode` (`dynamic`\|`static`) is informational. Launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`, so a JDK-build mismatch falls back safely to base CDS. The artifact carries only this shipped *seed* archive; node-side regeneration is a deployment choice set via `spec.jvm.cds.regenerate` on the `JavaApplication` CRD (or `brewlet run/bundle --appcds-regenerate`), not a field in the artifact. See [AppCDS](appcds.md). |
+| `cds` | Optional AppCDS block. `cds.archive` is a bare `/app`-relative `.jsa` filename shipped as a CDS layer (`brewlet push --appcds-archive`); `cds.mode` (`dynamic`\|`static`) is informational. Launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`, so a JDK-build mismatch falls back safely to base CDS. Archives are trained at build time and consumed read-only. See [AppCDS](appcds.md). |
 | `env` | Environment variables baked into the artifact. |
 
 Ports are **not** an artifact field — they are a deployment concern

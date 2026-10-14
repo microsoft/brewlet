@@ -65,6 +65,13 @@ func TestDecodeAcceptsOverlaySetupPhase(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsRemovedCDSEvent(t *testing.T) {
+	_, err := Decode([]byte(`{"version":1,"kind":"cds","cdsRole":"consume"}`))
+	if err == nil {
+		t.Fatal("Decode accepted the removed AppCDS regeneration event")
+	}
+}
+
 type assertError string
 
 func (e assertError) Error() string { return string(e) }

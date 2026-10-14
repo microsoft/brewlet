@@ -85,6 +85,18 @@ func TestMainCommandSurface(t *testing.T) {
 			t.Fatalf("unknown command: exit=%d stdout=%q stderr=%q", code, out, stderr)
 		}
 	})
+	for _, command := range []string{"run", "bundle"} {
+		t.Run(command+" rejects removed AppCDS flag", func(t *testing.T) {
+			out, stderr, code := run(t, []string{command, "--appcds-regenerate", "demo/hello:1"})
+			if code == 0 || !strings.Contains(stderr, "flag provided but not defined: -appcds-regenerate") {
+				t.Fatalf("removed flag: exit=%d stdout=%q stderr=%q", code, out, stderr)
+			}
+			out, stderr, code = run(t, []string{command, "--help"})
+			if code != 0 || strings.Contains(out+stderr, "appcds-regenerate") {
+				t.Fatalf("help advertises removed flag: exit=%d stdout=%q stderr=%q", code, out, stderr)
+			}
+		})
+	}
 	for _, args := range [][]string{{"--help"}, {"k8s", "--help"}, {"k8s", "jdk", "list", "--help"}, {"k8s", "doctor", "--help"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			out, stderr, code := run(t, args)

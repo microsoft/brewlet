@@ -53,8 +53,8 @@ Issue #1 predates several changes that materially affect the design:
 - Runnable-image delivery is the default, so kubelet/containerd pulls and unpacks
   standard OCI layers before the Brewlet shim resolves them.
 - Managed dependency bundles can supply a shared, governed classpath layer.
-- Node-side AppCDS regeneration maintains a writable per-artifact, per-JDK-build
-  cache on the node.
+- Build-time AppCDS archives are delivered with the application and consumed
+  read-only.
 - Supply-chain admission can verify managed-dependency evidence before a Brewlet
   workload is admitted.
 
@@ -185,14 +185,14 @@ Brewlet's performance model depends on host-backed files:
 - the application JAR is mounted read-only;
 - classpath and module-path layers are staged and mounted read-only;
 - a custom launcher may add another overlay lower layer; and
-- AppCDS regeneration uses a writable node cache with writer election.
+- packaged AppCDS archives are mounted read-only.
 
 The prototype must determine:
 
 - whether gVisor accepts the overlay rootfs emitted by the Brewlet shim;
 - how JDK and JAR pages are cached across sandboxes;
 - whether read-only bind mounts and executable mappings behave correctly;
-- whether AppCDS file creation, locking, rename, and reuse behave correctly;
+- whether packaged AppCDS archives map correctly and fall back safely on mismatch;
 - whether direct filesystem modes alter the security boundary; and
 - whether managed dependency layers remain deduplicated in storage and memory.
 
@@ -306,7 +306,7 @@ following under both runc and the candidate gVisor tier:
 | Managed dependencies | Governed thin JAR using the exact managed classpath layer |
 | JDK inventory | Feature-only and distribution-specific selection, custom JDK source, incompatible JDK denial |
 | Launchers | Vanilla `java` and an installed custom launcher |
-| AppCDS | Seed archive, node-side regeneration, second-start reuse, JDK-patch cache invalidation |
+| AppCDS | Packaged archive mapping and safe fallback after a JDK-build mismatch |
 | Kubernetes networking | CNI, DNS, Service routing, readiness and liveness probes |
 | Resources | CPU and memory limits applied to the complete sandbox; OOM and termination behavior |
 | Security identity | Positive evidence that the workload runs under gVisor; negative test proving no runc downgrade |
@@ -326,7 +326,7 @@ Measure at least:
 
 - pod creation to JVM process start;
 - pod creation to readiness for a representative Spring Boot service;
-- first and second startup with node-side AppCDS regeneration;
+- startup with and without a packaged AppCDS archive;
 - idle RSS and total host memory per pod, including sandbox processes;
 - CPU throughput for a compute-heavy Java workload;
 - request latency and throughput for a network service;

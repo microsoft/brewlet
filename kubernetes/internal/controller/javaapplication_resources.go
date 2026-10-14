@@ -174,13 +174,6 @@ func podAnnotations(app *appsv1alpha1.JavaApplication) map[string]string {
 	if len(arch) > 0 {
 		ann[brewlet.AnnotationRequestedArch] = strings.Join(arch, ",")
 	}
-	// Opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet). This is a
-	// deployment/fleet decision, so it originates here and rides the pod as
-	// brewlet.sh/cds-regenerate. Admission turns it into policy-capability
-	// affinity, and the shim independently enforces the host sentinel.
-	if app.Spec.JVM.CDS.Regenerate {
-		ann[brewlet.AnnotationCDSRegenerate] = "true"
-	}
 	// Deployment JVM tuning rides the pod as a JSON array so the shim can append
 	// it to the launcher argv with argument boundaries intact (§4.2/§8.2). The
 	// containerd runtime config forwards `brewlet.sh/*` pod annotations onto the

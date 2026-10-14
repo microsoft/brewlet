@@ -516,6 +516,15 @@ mvn() {
                           "shim pulls the artifact directly", "~250 MB"):
             self.assertNotIn(old_claim, self.text)
 
+    def test_appcds_is_build_time_only(self):
+        self.assertIn("Brewlet consumes packaged archives read-only", self.text)
+        self.assertNotIn("Authorized node-side regeneration", self.text)
+        appcds = (ROOT / "docs" / "appcds.md").read_text(encoding="utf-8")
+        self.assertIn("Brewlet does not create or refresh archives during workload execution", appcds)
+        for removed in ("--appcds-regenerate", "spec.jvm.cds.regenerate",
+                        "appcds-regeneration-enabled", "AutoCreateSharedArchive"):
+            self.assertNotIn(removed, appcds)
+
     def test_landing_pages_link_preview_validation_limits(self):
         for filename, validation_link in (
             ("index.html", "/docs/live-validation/"),

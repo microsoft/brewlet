@@ -60,7 +60,7 @@ func fixtureProfile() string {
 	  "spec":{"nodePool":{"names":["java"]},"jdks":[{"distribution":"temurin","feature":21,
 	    "source":{"image":"` + testImage + `","javaHome":"/opt/java/openjdk"}}],
 	    "launchers":[{"name":"jaz","source":{"image":"` + testImage + `","path":"/usr/bin/jaz"}}],
-	    "rollout":{"maxUnavailable":1},"appCDS":{"regenerationEnabled":true}},
+	    "rollout":{"maxUnavailable":1}},
 	  "status":{"observedGeneration":3,"assignedNodes":1,"readyNodes":1,
 	    "conditions":[{"type":"Ready","status":"True","observedGeneration":3,"reason":"AllNodesProvisioned"}]}
 	}`
@@ -420,7 +420,7 @@ func TestOfflineProfileAndValuesUpdates(t *testing.T) {
 	}
 	if strings.Contains(out, "resourceVersion") || strings.Contains(out, "finalizers") ||
 		strings.Contains(out, `"status"`) || !strings.Contains(out, `"maxUnavailable"`) ||
-		!strings.Contains(out, `"regenerationEnabled"`) || !strings.Contains(out, `"jaz"`) {
+		!strings.Contains(out, `"jaz"`) {
 		t.Fatalf("manifest did not preserve configuration/strip live metadata: %s", out)
 	}
 	doc, err := decodeDocument([]byte(out))

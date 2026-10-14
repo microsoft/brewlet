@@ -4,7 +4,6 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,27 +65,21 @@ func TestEventMetrics(t *testing.T) {
 	if got := testutil.ToFloat64(metrics.launches.WithLabelValues("error", "NoCompatibleJDK", "jar", "image")); got != 1 {
 		t.Fatalf("launch counter = %v", got)
 	}
-	metrics.observe([]byte(`{"version":99,"kind":"cds","cdsRole":"consume"}`))
+	metrics.observe([]byte(`{"version":99,"kind":"launch"}`))
 	if got := testutil.ToFloat64(metrics.invalid); got != 1 {
 		t.Fatalf("invalid counter = %v", got)
 	}
-	for _, role := range []string{"consume", "write", "defer", "skip"} {
-		for count := 1; count <= 2; count++ {
-			metrics.observe([]byte(fmt.Sprintf(`{"version":1,"kind":"cds","cdsRole":%q}`, role)))
-			if got := testutil.ToFloat64(metrics.cds.WithLabelValues(role)); got != float64(count) {
-				t.Fatalf("CDS counter for %s = %v, want %d", role, got, count)
-			}
-		}
+	metrics.observe([]byte(`{"version":1,"kind":"cds","cdsRole":"consume"}`))
+	if got := testutil.ToFloat64(metrics.invalid); got != 2 {
+		t.Fatalf("removed CDS event was not rejected: invalid counter = %v", got)
 	}
-	expected := `
-# HELP brewlet_cds_regeneration_decisions_total Node-side AppCDS regeneration decisions.
-# TYPE brewlet_cds_regeneration_decisions_total counter
-brewlet_cds_regeneration_decisions_total{role="consume"} 2
-brewlet_cds_regeneration_decisions_total{role="defer"} 2
-brewlet_cds_regeneration_decisions_total{role="skip"} 2
-brewlet_cds_regeneration_decisions_total{role="write"} 2
-`
-	if err := testutil.GatherAndCompare(reg, strings.NewReader(expected), "brewlet_cds_regeneration_decisions_total"); err != nil {
+	families, err := reg.Gather()
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, family := range families {
+		if strings.Contains(family.GetName(), "cds") {
+			t.Fatalf("exporter still exposes removed AppCDS metric %q", family.GetName())
+		}
 	}
 }

@@ -14,7 +14,7 @@ import { closeSections, createParseState, feed, flush } from "./parser.mjs";
 
 export const TIERS = [
     [1, "unit"], [2, "cli"], [3, "runc"], [4, "k8s"], [5, "webhook (host)"],
-    [6, "webhook (in-cluster)"], [7, "petclinic"], [8, "appcds"], [9, "serving"],
+    [6, "webhook (in-cluster)"], [7, "petclinic"], [9, "serving"],
     [10, "helm"], [11, "webhook resilience"], [12, "runnable image"], [13, "nodeprofile"],
     [15, "metrics"], [16, "failure modes"], [17, "stage GC"],
     [18, "JDK patch"], [19, "CVE remediation"],
@@ -26,7 +26,7 @@ const UNITTEST = (dir, pattern) =>
 export const SUITES = {
     tiers: {
         label: "Tiered E2E (run.sh)",
-        description: "integration-tests/e2e/run.sh — tiers 1-19 (14 retired) against the local toolchain and the selected cluster.",
+        description: "integration-tests/e2e/run.sh — tiers 1-19 (8 and 14 retired) against the local toolchain and the selected cluster.",
         usesTiers: true,
         usesCluster: true,
     },

@@ -58,7 +58,7 @@ _t12_cleanup() {
     annotate_node "$n" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
   done
   # The node's shim / JDK root / config.toml patch are left in place (cheap,
-  # idempotent, reused on a re-run), matching tier 8/9.
+  # idempotent, reused on a re-run), matching tier 9.
 }
 
 # _t12_apply_deploy IMAGE_REF [NONCE]: render the workload as a Deployment +
