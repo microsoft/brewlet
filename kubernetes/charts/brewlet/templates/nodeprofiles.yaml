@@ -52,11 +52,6 @@ spec:
     {{- end }}
   jdks:
     {{- include "brewlet.jdkItems" (dict "value" .Values.provisioner.jdks) | nindent 4 }}
-  {{- $launchers := include "brewlet.launcherItems" (dict "value" (default (list) .Values.provisioner.launchers)) }}
-  {{- if trim $launchers }}
-  launchers:
-    {{- $launchers | nindent 4 }}
-  {{- end }}
   {{- with .Values.provisioner.registry }}
   {{- if .mirrors }}
   registry:
@@ -114,11 +109,6 @@ spec:
     {{- end }}
   jdks:
     {{- include "brewlet.jdkItems" (dict "value" $p.jdks) | nindent 4 }}
-  {{- $launchers := include "brewlet.launcherItems" (dict "value" (default (list) $p.launchers)) }}
-  {{- if trim $launchers }}
-  launchers:
-    {{- $launchers | nindent 4 }}
-  {{- end }}
   {{- with $p.registry }}
   {{- if .mirrors }}
   registry:

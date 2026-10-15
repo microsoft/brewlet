@@ -9,7 +9,7 @@
 #   - the shipped chart exposes operator, admission, and node scrape surfaces;
 #   - the real provisioner image contains and runs the metrics exporter sidecar;
 #   - a real Brewlet workload sends shim datagrams to the node exporter;
-#   - JDK/launcher inventory, launch and artifact metrics are exported;
+#   - JDK inventory, launch and artifact metrics are exported;
 #   - admission outcomes and NodeProfile/provisioning transitions are exported;
 #   - NetworkPolicies allow the configured scraper namespace and deny an unrelated
 #     namespace.
@@ -237,10 +237,10 @@ _t15_cleanup() {
     fi
     label_node "$T15_NODE" "$T15_POOL_KEY-" \
       brewlet.sh/runtime- "brewlet.sh/jdk.$T15_JDK-" \
-      "brewlet.sh/jdk-feature.${T15_JDK##*-}-" brewlet.sh/launcher.java- \
+      "brewlet.sh/jdk-feature.${T15_JDK##*-}-" \
       >/dev/null 2>&1 || true
     annotate_node "$T15_NODE" brewlet.sh/jdks- brewlet.sh/jdks-info- \
-      brewlet.sh/launchers- brewlet.sh/profile- brewlet.sh/profile-generation- \
+      brewlet.sh/profile- brewlet.sh/profile-generation- \
       brewlet.sh/provision-state- brewlet.sh/provision-error- >/dev/null 2>&1 || true
     if [[ -z "$T15_JDK_PREEXISTING" ]]; then
       node_exec "$T15_NODE" sh -c \
@@ -849,8 +849,6 @@ YAML
   fi
   _t15_assert_metric "tier15: JDK inventory metric describes provisioned temurin-21" \
     "$node_metrics" 'brewlet_jdk_info\{[^}]*distribution="temurin"[^}]*feature="21"[^}]*\} 1'
-  _t15_assert_metric "tier15: launcher inventory metric includes vanilla java" \
-    "$node_metrics" 'brewlet_launcher_info\{launcher="java"\} 1'
   _t15_assert_metric "tier15: JDK installation timestamp metric is exported" \
     "$node_metrics" 'brewlet_jdk_installed_timestamp_seconds\{[^}]*distribution="temurin"[^}]*feature="21"'
   local allowed_operator_metrics

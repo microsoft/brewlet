@@ -76,8 +76,6 @@ The image must support every architecture in the selected pool, contain
 `<javaHome>/bin/java`, and provide the runtime's required userland libraries.
 `javaHome` may point to a centrally built jlink runtime; Brewlet installs it once
 per node pool rather than placing it in each application artifact. Optional
-launchers use the same explicit-source model with `name`, `source.image`, and
-`source.path`.
 
 ## Install raw manifests
 
@@ -142,9 +140,8 @@ kubeconfigs deliberately have an invalid default context so explicit connection
 and namespace handling are exercised. The existing Kubernetes CI test job runs
 the suite with prerequisites required, rather than silently skipping it.
 
-Coverage includes `brewlet k8s jdk list`, `brewlet k8s launcher list`,
 `brewlet k8s status`, and `brewlet k8s doctor`; profile and application
-inspection; persistent JDK/launcher additions and replacement;
+inspection; persistent JDK additions and replacement;
 non-persisting client/server dry runs; failed dry runs with empty stdout;
 admission and RBAC rejection; Helm ownership and offline values; stale
 resource-version/recreated-UID conflicts; and the existing-CRD install guard.

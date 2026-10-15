@@ -183,7 +183,7 @@ func TestGenerateBundleWithCDSPinsJarModTime(t *testing.T) {
 	}
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"}}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithCDS(cfg, jdkRoot, "", "", jarHost, nil, nil, jsaHost, out, Resources{}, nil); err != nil {
+	if err := GenerateBundleWithCDS(cfg, jdkRoot, jarHost, nil, nil, jsaHost, out, Resources{}, nil); err != nil {
 		t.Fatalf("GenerateBundleWithCDS: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(out, "config.json"))

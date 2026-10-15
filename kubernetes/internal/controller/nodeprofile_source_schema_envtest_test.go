@@ -7,19 +7,16 @@ import (
 	"context"
 	"testing"
 
-	nodev1alpha1 "brewlet-operator/api/nodeprofile/v1alpha1"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // The shipped CRD schema alone, with no admission webhook installed, must
-// refuse mutable or unqualified JDK and launcher source references.
+// refuse mutable or unqualified JDK source references.
 func TestSourceImageCRDValidationWithoutAdmission(t *testing.T) {
 	c := requireEnvtest(t)
 	ctx := testContext(t)
 
 	valid := profileNamed(uniqueName("source-schema"), []string{"schema"}, jdk("zulu", 21))
-	valid.Spec.Launchers = []nodev1alpha1.LauncherRef{launcher("jaz")}
 	if err := c.Create(ctx, &valid); err != nil {
 		t.Fatalf("schema rejected digest-pinned sources: %v", err)
 	}
@@ -38,16 +35,7 @@ func TestSourceImageCRDValidationWithoutAdmission(t *testing.T) {
 				t.Fatalf("schema accepted JDK source %q: %v", image, err)
 			}
 		})
-		t.Run("launcher "+image, func(t *testing.T) {
-			p := profileNamed(uniqueName("tagged-launcher"), []string{"schema"}, jdk("zulu", 21))
-			l := launcher("jaz")
-			l.Source.Image = image
-			p.Spec.Launchers = []nodev1alpha1.LauncherRef{l}
-			if err := c.Create(ctx, &p); !apierrors.IsInvalid(err) {
-				_ = c.Delete(context.Background(), &p)
-				t.Fatalf("schema accepted launcher source %q: %v", image, err)
-			}
-		})
+
 	}
 
 	updated := getProfile(t, ctx, c, valid.Name)

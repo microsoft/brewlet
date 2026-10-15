@@ -59,7 +59,6 @@ func fixtureProfile() string {
 	    "labels":{"team":"platform"},"finalizers":["node.brewlet.sh/cleanup"]},
 	  "spec":{"nodePool":{"names":["java"]},"jdks":[{"distribution":"temurin","feature":21,
 	    "source":{"image":"` + testImage + `","javaHome":"/opt/java/openjdk"}}],
-	    "launchers":[{"name":"jaz","source":{"image":"` + testImage + `","path":"/usr/bin/jaz"}}],
 	    "rollout":{"maxUnavailable":1}},
 	  "status":{"observedGeneration":3,"assignedNodes":1,"readyNodes":1,
 	    "conditions":[{"type":"Ready","status":"True","observedGeneration":3,"reason":"AllNodesProvisioned"}]}
@@ -122,11 +121,11 @@ func flagValue(t *testing.T, args []string, flag string) string {
 func TestCommandValidationBeforeExecution(t *testing.T) {
 	cases := [][]string{
 		{"unknown"}, {"jdk", "remove"}, {"debug", "app", "orders"},
-		{"jdk", "render"}, {"launcher", "render"},
+		{"jdk", "render"},
 		{"status", "extra"}, {"inspect", "app"}, {"profile", "inspect", "--bad"},
 		{"profile", "inspect", "../bad"}, {"jdk", "list", "--output", "yaml"},
 		{"status", "--output", "bogus"}, {"status", "--timeout", "0"},
-		{"jdk", "list", "--timeout", "-1s"}, {"launcher", "list", "--oops"},
+		{"jdk", "list", "--timeout", "-1s"},
 		addArgs("--apply"), addArgs("--file", "missing"), addArgs("--values", "missing"),
 		dryRunArgs("--values", "missing", "--file", "missing"),
 		dryRunArgs("--apply"), addArgs("--output", "table"), dryRunArgs("--output", "table"),
@@ -136,7 +135,6 @@ func TestCommandValidationBeforeExecution(t *testing.T) {
 		addArgs("--distribution", "../jdk"), addArgs("--distribution", "com.example"),
 		addArgs("--image", "temurin:21"), addArgs("--image", "docker.io/library/eclipse-temurin:21@sha256:"+strings.Repeat("a", 64)),
 		addArgs("--java-home", "/"), addArgs("--java-home", "/opt/../jdk"),
-		{"launcher", "add", "--profile", "workers", "--name", "java", "--image", testImage, "--path", "/usr/bin/java"},
 		{"install", "--version", "latest", "-f", "missing"},
 		{"install", "--version", "1.2.3"},
 		{"install", "--version", "1.2.3", "-f", "missing", "--wait-timeout", "-1s"},
@@ -148,7 +146,7 @@ func TestCommandValidationBeforeExecution(t *testing.T) {
 			}
 		})
 	}
-	for _, args := range [][]string{nil, {"--help"}, {"jdk", "--help"}, {"jdk", "add", "--help"}, {"launcher", "add", "--help"}} {
+	for _, args := range [][]string{nil, {"--help"}, {"jdk", "--help"}, {"jdk", "add", "--help"}} {
 		out, _, err := runTest(t, args, noExecution(t))
 		if err != nil || !strings.Contains(out, "Brewlet Kubernetes operations") {
 			t.Fatalf("help = %q, %v", out, err)
@@ -158,9 +156,8 @@ func TestCommandValidationBeforeExecution(t *testing.T) {
 
 func TestInventoryAndConnectionFlags(t *testing.T) {
 	node := objectJSON(t, `{"kind":"Node","metadata":{"name":"worker-a","annotations":{
-		"brewlet.sh/jdks-info":"[{\"distribution\":\"temurin\",\"vendor\":\"Adoptium\",\"feature\":21,\"version\":\"21.0.5\",\"arch\":\"amd64\"}]",
-		"brewlet.sh/launchers":"jaz,jaz, custom"}}}`)
-	for _, command := range []string{"jdk", "launcher"} {
+		"brewlet.sh/jdks-info":"[{\"distribution\":\"temurin\",\"vendor\":\"Adoptium\",\"feature\":21,\"version\":\"21.0.5\",\"arch\":\"amd64\"}]"}}}`)
+	for _, command := range []string{"jdk"} {
 		t.Run(command, func(t *testing.T) {
 			out, _, err := runTest(t, []string{"--context", "staging", command, "list",
 				"--kubeconfig", "/config with spaces", "--selector", "pool=java", "--timeout", "2s", "--output", "json"},
@@ -179,17 +176,10 @@ func TestInventoryAndConnectionFlags(t *testing.T) {
 			if err != nil || !json.Valid([]byte(out)) || !strings.Contains(out, "worker-a") {
 				t.Fatalf("inventory = %s, %v", out, err)
 			}
-			if command == "launcher" {
-				var rows []launcherInventory
-				if err := json.Unmarshal([]byte(out), &rows); err != nil || len(rows) != 2 || len(rows[1].Nodes) != 1 {
-					t.Fatalf("launcher deduplication: %s %v", out, err)
-				}
-			}
 		})
 	}
 	for _, format := range []string{"table", "wide"} {
 		for _, command := range []struct{ name, value, header string }{
-			{"launcher", "jaz", "LAUNCHER"},
 			{"jdk", "temurin", "DISTRIBUTION"},
 		} {
 			out, _, err := runTest(t, []string{command.name, "list", "--output", format},
@@ -205,7 +195,7 @@ func TestInventoryAndConnectionFlags(t *testing.T) {
 }
 
 func TestReadErrorsAreNotEmptySuccess(t *testing.T) {
-	for _, command := range [][]string{{"profile", "list"}, {"jdk", "list"}, {"launcher", "list"}, {"status"}} {
+	for _, command := range [][]string{{"profile", "list"}, {"jdk", "list"}, {"status"}} {
 		for _, response := range []string{`broken`, `{}`, `{"items":null}`} {
 			if _, _, err := runTest(t, command, func(context.Context, string, []string, []byte) ([]byte, error) {
 				return []byte(response), nil
@@ -419,8 +409,7 @@ func TestOfflineProfileAndValuesUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(out, "resourceVersion") || strings.Contains(out, "finalizers") ||
-		strings.Contains(out, `"status"`) || !strings.Contains(out, `"maxUnavailable"`) ||
-		!strings.Contains(out, `"jaz"`) {
+		strings.Contains(out, `"status"`) || !strings.Contains(out, `"maxUnavailable"`) {
 		t.Fatalf("manifest did not preserve configuration/strip live metadata: %s", out)
 	}
 	doc, err := decodeDocument([]byte(out))
@@ -487,7 +476,7 @@ func TestInventoryReplacementAndLimits(t *testing.T) {
 		entries = append(entries, jdk)
 	}
 	spec := document{"jdks": rawJSON(t, entries)}
-	u := updateOptions{jdk: true, distribution: "temurin", feature: 99, image: testImage, path: "/opt/java"}
+	u := updateOptions{distribution: "temurin", feature: 99, image: testImage, path: "/opt/java"}
 	field, entry, err := u.entry()
 	if err != nil {
 		t.Fatal(err)
@@ -650,15 +639,11 @@ func TestAddMutatesByDefaultAndDryRunUsesConditionalPatch(t *testing.T) {
 }
 
 func TestFailedServerDryRunDoesNotRender(t *testing.T) {
-	for _, kind := range []string{"jdk", "launcher"} {
+	for _, kind := range []string{"jdk"} {
 		for _, format := range []string{"yaml", "json"} {
 			for _, failure := range []string{"read", "validation", "conflict", "decode", "metadata"} {
 				t.Run(kind+"/"+format+"/"+failure, func(t *testing.T) {
 					args := addArgs("--dry-run=server", "--output", format)
-					if kind == "launcher" {
-						args = []string{"launcher", "add", "--profile", "workers", "--name", "custom",
-							"--image", testImage, "--path", "/usr/bin/custom", "--dry-run=server", "--output", format}
-					}
 					calls := 0
 					var patchFile string
 					out, stderr, err := runTest(t, args, func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
@@ -1027,7 +1012,7 @@ func TestProfileTableIncludesDesiredInventory(t *testing.T) {
 		func(context.Context, string, []string, []byte) ([]byte, error) {
 			return listJSON(t, objectJSON(t, fixtureProfile())), nil
 		})
-	for _, text := range []string{"DESIRED JDKS", "DESIRED LAUNCHERS", "temurin-21", "jaz", "AllNodesProvisioned"} {
+	for _, text := range []string{"DESIRED JDKS", "temurin-21", "AllNodesProvisioned"} {
 		if !strings.Contains(out, text) {
 			t.Fatalf("profile table lacks %q: %s", text, out)
 		}
@@ -1061,64 +1046,9 @@ func TestProfileListReportsPendingRetirements(t *testing.T) {
 	}
 }
 
-func TestLauncherAdditionAndTerminatingProfile(t *testing.T) {
+func TestTerminatingProfile(t *testing.T) {
 	profile := fixtureProfile()
-	args := []string{"launcher", "add", "--profile", "workers", "--name", "custom",
-		"--image", testImage, "--path", "/usr/bin/custom", "--output", "json"}
-	for _, mode := range []string{"add", "server", "client", "bare"} {
-		t.Run(mode, func(t *testing.T) {
-			command := append([]string(nil), args...)
-			if mode == "bare" {
-				command = append(command, "--dry-run")
-			} else if mode != "add" {
-				command = append(command, "--dry-run="+mode)
-			}
-			patches := 0
-			out, _, err := runTest(t, command, func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
-				if hasArgs(args, "get", profilesResource) {
-					return []byte(profile), nil
-				}
-				if mode == "client" || mode == "bare" || !hasArgs(args, "patch", profilesResource, "workers") {
-					t.Fatalf("unexpected command: %v", args)
-				}
-				patches++
-				if hasArgs(args, "--dry-run=server") != (mode == "server") {
-					t.Fatalf("incorrect launcher mutation/preview mode: %v", args)
-				}
-				raw, err := os.ReadFile(flagValue(t, args, "--patch-file"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				var patch []struct {
-					Op, Path string
-					Value    json.RawMessage
-				}
-				if err := json.Unmarshal(raw, &patch); err != nil || len(patch) != 3 ||
-					patch[0].Path != "/metadata/uid" || patch[1].Path != "/metadata/resourceVersion" ||
-					patch[2].Path != "/spec/launchers" || patch[2].Op != "add" {
-					t.Fatalf("launcher patch is not conditional and narrow: %s %v", raw, err)
-				}
-				doc, err := decodeDocument([]byte(profile))
-				if err != nil {
-					t.Fatal(err)
-				}
-				spec, err := decodeDocument(doc["spec"])
-				if err != nil {
-					t.Fatal(err)
-				}
-				spec["launchers"] = patch[2].Value
-				doc["spec"] = rawJSON(t, spec)
-				return rawJSON(t, doc), nil
-			})
-			if err != nil || !strings.Contains(out, `"name": "custom"`) || !strings.Contains(out, `"name": "jaz"`) ||
-				!strings.Contains(out, `"feature": 21`) {
-				t.Fatalf("launcher %s: %s %v", mode, out, err)
-			}
-			if (mode == "add" || mode == "server") && patches != 1 {
-				t.Fatalf("launcher add did not issue exactly one patch: %d", patches)
-			}
-		})
-	}
+	args := addArgs()
 	for _, field := range []string{`"deletionTimestamp":"2026-09-22T00:00:00Z"`, `"namespace":"forbidden"`} {
 		invalid := strings.Replace(profile, `"generation":3`, `"generation":3,`+field, 1)
 		if _, _, err := runTest(t, args, func(_ context.Context, _ string, args []string, _ []byte) ([]byte, error) {
@@ -1282,11 +1212,9 @@ func TestClusterScopedCommandsRejectNamespace(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"jdk", "list", "--namespace", "x"},
-		{"--namespace", "x", "launcher", "list"},
 		{"profile", "list", "--namespace", "x"},
 		{"profile", "inspect", "workers", "--namespace", "x"},
 		addArgs("--namespace", "x"),
-		{"launcher", "add", "--profile", "workers", "--name", "jaz", "--image", testImage, "--path", "/usr/bin/jaz", "--namespace", "x"},
 	} {
 		_, _, err := runTest(t, args, fail)
 		if err == nil || !strings.Contains(err.Error(), "--namespace is not supported") || !strings.Contains(err.Error(), "cluster-scoped") {

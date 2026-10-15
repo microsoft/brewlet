@@ -33,9 +33,8 @@ func sampleApp() *appsv1alpha1.JavaApplication {
 				},
 			},
 			JVM: appsv1alpha1.JVMSpec{
-				Version:  21,
-				Launcher: "jaz",
-				Args:     []string{"-XX:MaxRAMPercentage=75.0", "-XX:+UseZGC"},
+				Version: 21,
+				Args:    []string{"-XX:MaxRAMPercentage=75.0", "-XX:+UseZGC"},
 			},
 			Env:   []corev1.EnvVar{{Name: "SPRING_PROFILES_ACTIVE", Value: "prod"}},
 			Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}},
@@ -88,13 +87,10 @@ func TestBuildDeployment(t *testing.T) {
 		t.Fatalf("container security context = %+v, want privilege escalation disabled and all capabilities dropped", c.SecurityContext)
 	}
 
-	// JDK/launcher must be stamped for the admission webhook.
+	// JDK must be stamped for the admission webhook.
 	ann := dep.Spec.Template.Annotations
 	if ann[brewlet.AnnotationRequestedJDK] != "21" {
 		t.Errorf("jdk annotation = %q, want 21", ann[brewlet.AnnotationRequestedJDK])
-	}
-	if ann[brewlet.AnnotationRequestedLauncher] != "jaz" {
-		t.Errorf("launcher annotation = %q, want jaz", ann[brewlet.AnnotationRequestedLauncher])
 	}
 
 	// jvm.args ride the brewlet.sh/jvm-args annotation as a JSON array (argv
@@ -231,12 +227,12 @@ func TestUserSetJVMOptionsEnv(t *testing.T) {
 	}
 }
 
-func TestBuildDeploymentDefaultsAndVanillaLauncher(t *testing.T) {
+func TestBuildDeploymentDefaults(t *testing.T) {
 	app := &appsv1alpha1.JavaApplication{
 		ObjectMeta: metav1.ObjectMeta{Name: "hello", Namespace: "default"},
 		Spec: appsv1alpha1.JavaApplicationSpec{
 			Artifact: appsv1alpha1.ArtifactSpec{Image: "registry.example.com/demo/hello:1.0.0"},
-			JVM:      appsv1alpha1.JVMSpec{Launcher: "java"},
+			JVM:      appsv1alpha1.JVMSpec{},
 		},
 	}
 	dep := buildDeployment(app)
@@ -244,7 +240,7 @@ func TestBuildDeploymentDefaultsAndVanillaLauncher(t *testing.T) {
 	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 1 {
 		t.Errorf("replicas default = %v, want 1", dep.Spec.Replicas)
 	}
-	// No version and vanilla launcher => no request annotations at all.
+	// No version => no request annotations at all.
 	if ann := dep.Spec.Template.Annotations; ann != nil {
 		t.Errorf("expected no pod annotations, got %v", ann)
 	}

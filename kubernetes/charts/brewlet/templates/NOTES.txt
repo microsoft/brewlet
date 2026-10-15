@@ -8,7 +8,7 @@ Components:
   • node-provisioner      RBAC/ServiceAccount (the operator creates the DaemonSet)
 {{- if .Values.admission.enabled }}
   • brewlet-admission     pod admission/scheduling webhook (stamps artifact
-                          ref/digest; NoCompatibleJDK / NoCompatibleLauncher)
+                          ref/digest; NoCompatibleJDK)
 {{- if .Values.admission.certManager.enabled }}
                           TLS: cert-manager issuance and automatic renewal enabled
 {{- else }}
@@ -22,7 +22,6 @@ Components:
 
 Node inventory the operator will install (§5.3/§5.4):
   JDKs:      {{ include "brewlet.jdkTokens" (dict "value" .Values.provisioner.jdks) }}
-  Launchers: {{ include "brewlet.launcherNames" (dict "value" .Values.provisioner.launchers) }}
   Method:    copy-from-image (via host containerd)
 
 Next steps:
@@ -46,7 +45,7 @@ Next steps:
 {{- else }}
 
 1. The default NodeProfile is disabled. Define named NodeProfiles (via the
-   chart's `profiles` value or your own CRs) to bind node pools to a JDK/launcher
+   chart's `profiles` value or your own CRs) to bind node pools to a JDK
    inventory — nodes are provisioned only where a profile selects them (§5.6).
 
    WARNING: Provisioning is privileged and mutates the host.
@@ -65,7 +64,6 @@ Next steps:
      metadata:
        annotations:
          brewlet.sh/jdk: "21"        # or "temurin-21"; matched against ready nodes
-         # brewlet.sh/launcher: "jaz"  # only if explicitly installed
      spec:
        runtimeClassName: brewlet
        containers:

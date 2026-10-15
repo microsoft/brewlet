@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
-// NodeProfileSpec binds a node pool to a JDK/launcher inventory (§5.6). Selecting
+// NodeProfileSpec binds a node pool to a JDK inventory (§5.6). Selecting
 // a pool IS the opt-in: every node in the pool — including nodes the autoscaler
 // adds later — is provisioned. The operator reconciles one provisioner DaemonSet
 // per profile.
@@ -22,9 +22,6 @@ type NodeProfileSpec struct {
 	// JDKs is the declarative JDK inventory to install on the pool's nodes. It
 	// replaces the global JDKS string. At least one entry is required.
 	JDKs []JDKRef `json:"jdks"`
-	// Launchers is the optional launcher-layer inventory. The vanilla "java"
-	// launcher comes from each JDK and must not be listed.
-	Launchers []LauncherRef `json:"launchers,omitempty"`
 	// Registry is an optional per-profile registry override for air-gapped /
 	// mirrored clusters (§5.6).
 	Registry *RegistrySpec `json:"registry,omitempty"`
@@ -75,23 +72,6 @@ type JDKSource struct {
 	Image string `json:"image"`
 	// JavaHome is the absolute path to the JDK root inside Image.
 	JavaHome string `json:"javaHome"`
-}
-
-// LauncherRef is one optional launcher binary to install.
-type LauncherRef struct {
-	// Name is the stable lowercase launcher identifier advertised on the node.
-	Name string `json:"name"`
-	// Source is the administrator-provided image and binary path.
-	Source LauncherSource `json:"source"`
-}
-
-// LauncherSource describes an administrator-provided launcher source.
-type LauncherSource struct {
-	// Image is a fully qualified, tagless OCI image reference pinned by SHA-256
-	// digest and containing the launcher binary.
-	Image string `json:"image"`
-	// Path is the absolute path to the launcher binary inside Image.
-	Path string `json:"path"`
 }
 
 // Token renders the JDK as the on-node "<distribution>-<feature>" inventory token
@@ -217,7 +197,7 @@ const (
 	ReasonCleanupResolved = "CleanupResolved"
 )
 
-// NodeProfile binds a node pool to a JDK/launcher inventory (§5.6). Cluster-scoped.
+// NodeProfile binds a node pool to a JDK inventory (§5.6). Cluster-scoped.
 type NodeProfile struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

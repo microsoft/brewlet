@@ -47,8 +47,8 @@ _t16_cleanup() {
   [[ -n "$T16_RC_CREATED" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   for n in ${T16_PROVISIONED_NODES[@]+"${T16_PROVISIONED_NODES[@]}"}; do
     label_node "$n" brewlet.sh/runtime- "brewlet.sh/jdk.$T16_JDK-" \
-      "brewlet.sh/jdk-feature.${T16_JDK##*-}-" brewlet.sh/launcher.java- >/dev/null 2>&1 || true
-    annotate_node "$n" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
+      "brewlet.sh/jdk-feature.${T16_JDK##*-}-" >/dev/null 2>&1 || true
+    annotate_node "$n" brewlet.sh/jdks- >/dev/null 2>&1 || true
   done
 }
 

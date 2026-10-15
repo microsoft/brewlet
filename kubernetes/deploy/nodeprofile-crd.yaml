@@ -40,7 +40,7 @@ spec:
               type: object
               required: [jdks]
               description: |
-                Binds a node pool to a JDK/launcher inventory. See
+                Binds a node pool to a JDK inventory. See
                 https://github.com/microsoft/brewlet/tree/main/specs.
                 Selecting a pool IS the opt-in — every node in the pool, present and
                 future, is provisioned.
@@ -111,43 +111,6 @@ spec:
                             maxLength: 1024
                             pattern: '^/[^[:space:]/]+(/[^[:space:]/]+)*$'
                             description: Absolute JDK root path inside the image.
-                launchers:
-                  type: array
-                  maxItems: 32
-                  description: Optional administrator-provided launcher layers. "java" comes from each JDK and must not be listed.
-                  items:
-                    type: object
-                    maxProperties: 2
-                    required: [name, source]
-                    x-kubernetes-validations:
-                      - rule: "self.name != 'java'"
-                        message: java is provided by every JDK and must not be listed
-                    properties:
-                      name:
-                        type: string
-                        maxLength: 54
-                        pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-                      source:
-                        type: object
-                        maxProperties: 2
-                        required: [image, path]
-                        x-kubernetes-validations:
-                          - rule: "!self.image.contains('://')"
-                            message: image must be an OCI reference without a URL scheme
-                          - rule: "self.path != '/' && !self.path.contains('//') && !self.path.contains('/./') && !self.path.contains('/../') && !self.path.endsWith('/.') && !self.path.endsWith('/..')"
-                            message: path must be a clean absolute path below /
-                        properties:
-                          image:
-                            type: string
-                            minLength: 1
-                            maxLength: 2048
-                            pattern: '^(\[[0-9a-f:.]+\](:[0-9]+)?|localhost(:[0-9]+)?|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]+)?)/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$'
-                            description: Fully qualified, tagless OCI image reference pinned by SHA-256 digest.
-                          path:
-                            type: string
-                            maxLength: 1024
-                            pattern: '^/[^[:space:]/]+(/[^[:space:]/]+)*$'
-                            description: Absolute launcher binary path inside the image.
                 registry:
                   type: object
                   description: Optional per-profile registry override for air-gapped clusters (§5.6).

@@ -20,6 +20,7 @@ func TestContainerdRestartPolicies(t *testing.T) {
 		} else {
 			base = append(base, "--set", profile+".name=workers")
 		}
+
 		modes := []string{"omitted", "validated", "none", "sighup", "reboot", "false"}
 		if profile != "provisioner" {
 			modes = append(modes, "null-rollout")

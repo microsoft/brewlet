@@ -87,21 +87,11 @@ spec:
                         requested version is acceptable and each node picks the
                         lexically-first installed one (no built-in vendor preference).
                         Ignored unless version is also set.
-                    launcher:
-                      type: string
-                      default: java
-                      maxLength: 54
-                      pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'
-                      description: >-
-                        JVM launcher: "java" (vanilla OpenJDK, default) or a custom
-                        launcher such as "jaz" that must be installed on a ready node.
-                        It names a node-installed launcher directory, so it is
-                        restricted to a lowercase DNS-1123 token.
                     args:
                       type: array
                       items: { type: string }
                       description: >-
-                        User-supplied JVM flags, delivered as launcher argv via the
+                        User-supplied JVM flags, delivered as Java argv via the
                         brewlet.sh/jvm-args pod annotation and applied after the
                         artifact's own launch knobs, so they win on conflict
                         (§4.2/§8.2). Args that select the entrypoint (-jar, -cp,

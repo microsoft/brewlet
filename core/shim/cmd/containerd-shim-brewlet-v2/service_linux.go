@@ -43,8 +43,7 @@ import (
 // Node-level locations the provisioner (https://github.com/microsoft/brewlet/tree/main/specs §5.2) materializes on
 // every opted-in node. Overridable via env for testing / non-standard layouts.
 const (
-	defaultJDKRootsDir      = "/opt/brewlet/jdks"
-	defaultLauncherRootsDir = "/opt/brewlet/launchers"
+	defaultJDKRootsDir = "/opt/brewlet/jdks"
 )
 
 // CRI stamps the container role onto every OCI spec it hands the shim. The pod
@@ -308,7 +307,7 @@ func runcOptionsFromGeneric(o *runtimeoptions.Options) (*runcoptions.Options, er
 
 // assembleBrewletBundle rewrites <bundle>/config.json (the OCI spec containerd's
 // CRI layer wrote from the pod) into the Brewlet launch: it resolves the JAR
-// artifact, selects the node JDK/launcher, and injects the `java -jar` process,
+// artifact, selects the node JDK, and injects the `java -jar` process,
 // JDK/JAR mounts and JVM env — while preserving everything CRI set up
 // (namespaces incl. the CNI-provided network namespace, cgroup resources, user,
 // and standard pod mounts).
@@ -342,14 +341,12 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 	}
 
 	ic := imageConfig{
-		Ref:              identity.ImageName,
-		JDKRootsDir:      envOr("BREWLET_JDK_ROOTS", defaultJDKRootsDir),
-		LauncherRootsDir: envOr("BREWLET_LAUNCHER_ROOTS", defaultLauncherRootsDir),
-		// The JDK/launcher the deployment descriptor requested, carried on the
+		Ref:         identity.ImageName,
+		JDKRootsDir: envOr("BREWLET_JDK_ROOTS", defaultJDKRootsDir),
+		// The JDK the deployment descriptor requested, carried on the
 		// pod annotations and propagated onto the OCI spec. The descriptor is
 		// the single source of truth for runtime selection.
-		JDKRequest:   spec.Annotations[annRequestedJDK],
-		LauncherName: spec.Annotations[annRequestedLauncher],
+		JDKRequest: spec.Annotations[annRequestedJDK],
 		// Kubernetes execution is always bound to the image containerd resolved
 		// for this CRI container. The layout backend remains available only to
 		// the explicit prepare-bundle/local harness path.
@@ -376,7 +373,7 @@ func assembleBrewletBundle(ctx context.Context, r *taskAPI.CreateTaskRequest, id
 	})
 	emitPhase("artifact_resolve", resolveStart, err)
 	if err != nil {
-		return launchInfo{format: format}, err // NoCompatibleJDK / NoCompatibleLauncher surface as task-create failures
+		return launchInfo{format: format}, err // NoCompatibleJDK surface as task-create failures
 	}
 	info := launchInfo{entryMode: ra.Config.Entry.Mode, format: format}
 	if info.entryMode == "" {
@@ -485,17 +482,11 @@ func setupOverlayRootfs(r *taskAPI.CreateTaskRequest, ra resolvedArtifact) error
 			return fmt.Errorf("overlay scratch: %w", err)
 		}
 	}
-	// lowerdir is highest-priority first: a custom launcher layer (if any)
-	// overlays the JDK userland so its binaries win on PATH.
-	lowers := []string{ra.JDKRoot}
-	if !artifact.IsVanillaLauncher(ra.LauncherName) && ra.LauncherRoot != "" {
-		lowers = append([]string{ra.LauncherRoot}, lowers...)
-	}
 	r.Rootfs = []*apitypes.Mount{{
 		Type:   "overlay",
 		Source: "overlay",
 		Options: []string{
-			"lowerdir=" + strings.Join(lowers, ":"),
+			"lowerdir=" + ra.JDKRoot,
 			"upperdir=" + upper,
 			"workdir=" + work,
 		},
@@ -504,7 +495,7 @@ func setupOverlayRootfs(r *taskAPI.CreateTaskRequest, ra resolvedArtifact) error
 }
 
 // applyBrewletLaunch mutates spec in place to run the JAR under the selected
-// JDK, mirroring the mount/env/arg layout of runtime.GenerateBundleWithLauncher
+// JDK, mirroring the mount/env/arg layout of runtime.GenerateBundleWithLayers
 // but leaving CRI's namespaces, resources and pod mounts untouched. bundleDir is
 // the container bundle root (r.Bundle), used to stage a canonical-mtime copy of
 // the app JAR when the artifact ships an AppCDS archive (see below).
@@ -524,7 +515,7 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 	}
 	// Deployment tuning (spec.jvm.args on a JavaApplication, or the
 	// brewlet.sh/jvm-args annotation on a raw pod) is delivered as argv rather
-	// than through JDK_JAVA_OPTIONS: the launcher PREPENDS that env var, which
+	// than through JDK_JAVA_OPTIONS: `java` PREPENDS that env var, which
 	// would put deployment tuning BEFORE the artifact's own flags and let the
 	// artifact win — the inverse of the §4.2 contract.
 	extraArgs, err := decodeJVMArgs(spec.Annotations[annJVMArgs])
@@ -537,30 +528,10 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 		return err
 	}
 
-	// argv[0] is the launcher; LauncherName re-checks the tenant-supplied request
-	// at the point it becomes an executed program name.
-	launcherBin, err := artifact.LauncherName(ra.LauncherName)
-	if err != nil {
-		return err
-	}
-	spec.Process.Args = append([]string{launcherBin}, jvmArgs...)
+	spec.Process.Args = append([]string{"/opt/jdk/bin/java"}, jvmArgs...)
 	spec.Process.Cwd = "/app"
 
-	// PATH: prepend the custom launcher layer when present so e.g. `jaz`
-	// resolves ahead of the JDK's own bin.
-	path := "/opt/jdk/bin:/usr/bin:/bin"
-	var launcherMount []specs.Mount
-	if !artifact.IsVanillaLauncher(ra.LauncherName) && ra.LauncherRoot != "" {
-		launcherMount = []specs.Mount{{
-			Destination: "/opt/brewlet/launcher",
-			Type:        "bind",
-			Source:      ra.LauncherRoot,
-			Options:     []string{"rbind", "ro"},
-		}}
-		path = "/opt/brewlet/launcher/bin:" + path
-	}
-
-	env := []string{"PATH=" + path, "JAVA_HOME=/opt/jdk"}
+	env := []string{"PATH=/opt/jdk/bin:/usr/bin:/bin", "JAVA_HOME=/opt/jdk"}
 	for _, e := range ra.Config.Env {
 		env = append(env, e.Name+"="+e.Value)
 	}
@@ -604,7 +575,6 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 			Options:     []string{"rbind", "ro"},
 		})
 	}
-	brewletMounts = append(brewletMounts, launcherMount...)
 	spec.Mounts = append(spec.Mounts, brewletMounts...)
 	return nil
 }
@@ -613,7 +583,7 @@ func applyBrewletLaunch(spec *specs.Spec, ra resolvedArtifact, bundleDir string)
 // deployment (https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md): it stages each optional
 // classpath.layer.v1+tar into a per-container host dir and bind-mounts it
 // read-only at /app/lib, so a `-cp /app/app.jar:/app/lib/*` launch resolves the
-// dependency JARs. This mirrors runtime.GenerateBundleWithLauncher so the
+// dependency JARs. This mirrors runtime.GenerateBundleWithLayers so the
 // production shim and the CLI/harness bundle path behave identically. A no-op
 // when the artifact carries no classpath layers.
 func mountClasspathLayers(spec *specs.Spec, ra resolvedArtifact, bundleDir string) error {
@@ -644,7 +614,7 @@ func mountClasspathLayers(spec *specs.Spec, ra resolvedArtifact, bundleDir strin
 // mountModulepathLayers is the module-path twin of mountClasspathLayers: it
 // stages each optional modulepath.layer.v1+tar into a per-container host dir and
 // bind-mounts it read-only at /app/mods, so a `-p /app/app.jar:/app/mods` launch
-// resolves the library modules. This mirrors runtime.GenerateBundleWithLauncher
+// resolves the library modules. This mirrors runtime.GenerateBundleWithLayers
 // so the production shim and the CLI/harness bundle path behave identically. A
 // no-op when the artifact carries no modulepath layers. See https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md.
 func mountModulepathLayers(spec *specs.Spec, ra resolvedArtifact, bundleDir string) error {
@@ -670,7 +640,7 @@ func mountModulepathLayers(spec *specs.Spec, ra resolvedArtifact, bundleDir stri
 }
 
 // mergeEnv overlays Brewlet's launch env onto whatever CRI provided: Brewlet's
-// PATH/JAVA_HOME/launcher/app values win over pod defaults for the same key,
+// PATH/JAVA_HOME/app values win over pod defaults for the same key,
 // but pod-specified variables Brewlet doesn't set are preserved.
 func mergeEnv(base, overlay []string) []string {
 	idx := make(map[string]int, len(base))

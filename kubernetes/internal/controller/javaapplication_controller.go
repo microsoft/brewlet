@@ -300,7 +300,7 @@ func equalJavaApplicationStatus(a, b *appsv1alpha1.JavaApplicationStatus) bool {
 
 // setJVMArgsCondition records how spec.jvm.args reached the JVM. They are always
 // delivered — as the brewlet.sh/jvm-args pod annotation, appended to the
-// launcher argv — so the condition is informational rather than a failure. It
+// Java argv — so the condition is informational rather than a failure. It
 // exists because the previous JDK_JAVA_OPTIONS wiring silently DISCARDED
 // jvm.args whenever the user set a JVM options env var themselves (common with
 // APM agents); the overlap is now reported instead of swallowed.
@@ -312,12 +312,12 @@ func (r *JavaApplicationReconciler) setJVMArgsCondition(app *appsv1alpha1.JavaAp
 	}
 
 	reason := appsv1alpha1.ReasonArgsDelivered
-	msg := fmt.Sprintf("%d jvm.args delivered as launcher argv via the %s pod annotation",
+	msg := fmt.Sprintf("%d jvm.args delivered as Java argv via the %s pod annotation",
 		len(args), brewlet.AnnotationJVMArgs)
 	if envName := userSetJVMOptionsEnv(app); envName != "" {
 		reason = appsv1alpha1.ReasonEnvOptionsOverlap
 		msg = fmt.Sprintf(
-			"%d jvm.args delivered as launcher argv via the %s pod annotation; spec.env also sets %s, which the JVM applies BEFORE argv, so jvm.args win on conflict",
+			"%d jvm.args delivered as Java argv via the %s pod annotation; spec.env also sets %s, which the JVM applies BEFORE argv, so jvm.args win on conflict",
 			len(args), brewlet.AnnotationJVMArgs, envName)
 		// Only on entry into the overlap state. Reconciles are frequent and the
 		// overlap is a steady-state property, so emitting unconditionally would

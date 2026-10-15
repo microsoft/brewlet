@@ -30,7 +30,7 @@ const (
 // tuning precedence. Using JDK_JAVA_OPTIONS instead would prepend tuning before
 // the artifact's flags, letting the artifact win; whitespace-joining would also
 // corrupt arguments containing spaces.
-// JDK_JAVA_OPTIONS is the modern, launcher-scoped variable (JDK 9+); it is
+// JDK_JAVA_OPTIONS is the modern, Java-command-scoped variable (JDK 9+); it is
 // unsupported on JDK 8, where JAVA_TOOL_OPTIONS is the only option.
 // See https://bugs.openjdk.org/browse/JDK-8170832.
 const (
@@ -40,7 +40,7 @@ const (
 
 // userSetJVMOptionsEnv returns the name of the JVM options env var the user set
 // in spec.env, or "" when they set neither. Such a variable is still honored by
-// the JVM (Brewlet passes spec.env through untouched), but the launcher applies
+// the JVM (Brewlet passes spec.env through untouched), but `java` applies
 // it BEFORE the argv-delivered jvm.args, so jvm.args win on conflict. That is
 // reported as an overlap rather than silently discarding either side.
 func userSetJVMOptionsEnv(app *appsv1alpha1.JavaApplication) string {
@@ -64,7 +64,7 @@ func selectorLabels(app *appsv1alpha1.JavaApplication) map[string]string {
 
 // buildDeployment renders the managed Deployment for a JavaApplication (§8.2):
 // runtimeClassName=brewlet, container image = the runnable OCI image, resources
-// copied verbatim, JDK/launcher stamped as pod annotations for the admission
+// copied verbatim, JDK stamped as pod annotations for the admission
 // webhook, and user env/ports/probes/jvm.args wired through.
 func buildDeployment(app *appsv1alpha1.JavaApplication) *appsv1.Deployment {
 	labels := selectorLabels(app)
@@ -142,10 +142,9 @@ func desiredReplicas(app *appsv1alpha1.JavaApplication) *int32 {
 	return &one
 }
 
-// podAnnotations stamps the JDK/launcher requests the admission webhook (§8.3)
-// reads to validate compatibility and steer scheduling. A zero version or a
-// vanilla/empty launcher contributes nothing (the webhook then imposes no
-// constraint).
+// podAnnotations stamps the runtime requests the admission webhook (§8.3)
+// reads to validate compatibility and steer scheduling. A zero JDK version
+// contributes no JDK constraint.
 func podAnnotations(app *appsv1alpha1.JavaApplication) map[string]string {
 	ann := map[string]string{}
 	if v := app.Spec.JVM.Version; v > 0 {
@@ -158,9 +157,6 @@ func podAnnotations(app *appsv1alpha1.JavaApplication) map[string]string {
 		} else {
 			ann[brewlet.AnnotationRequestedJDK] = strconv.Itoa(int(v))
 		}
-	}
-	if l := strings.TrimSpace(app.Spec.JVM.Launcher); l != "" && l != brewlet.VanillaLauncher {
-		ann[brewlet.AnnotationRequestedLauncher] = l
 	}
 	// Fold the optional non-portable arch constraint into the brewlet.sh/arch
 	// annotation the webhook reads (trimmed, non-empty tokens, comma-joined). An
@@ -175,7 +171,7 @@ func podAnnotations(app *appsv1alpha1.JavaApplication) map[string]string {
 		ann[brewlet.AnnotationRequestedArch] = strings.Join(arch, ",")
 	}
 	// Deployment JVM tuning rides the pod as a JSON array so the shim can append
-	// it to the launcher argv with argument boundaries intact (§4.2/§8.2). The
+	// it to the Java argv with argument boundaries intact (§4.2/§8.2). The
 	// containerd runtime config forwards `brewlet.sh/*` pod annotations onto the
 	// OCI spec, so this needs no node reconfiguration. Marshalling a []string
 	// cannot fail, so an encoding error can only mean a programming mistake —
@@ -192,7 +188,7 @@ func podAnnotations(app *appsv1alpha1.JavaApplication) map[string]string {
 }
 
 // trimmedJVMArgs returns spec.jvm.args with blank entries dropped. An empty or
-// whitespace-only arg is meaningless to the launcher and would otherwise become
+// whitespace-only arg is meaningless to Java and would otherwise become
 // an empty argv element, so it is discarded here and by validateJVMArgs.
 func trimmedJVMArgs(app *appsv1alpha1.JavaApplication) []string {
 	var args []string
@@ -206,7 +202,7 @@ func trimmedJVMArgs(app *appsv1alpha1.JavaApplication) []string {
 
 // buildEnv wires the user's env through verbatim. jvm.args are NOT delivered
 // here: they ride the brewlet.sh/jvm-args pod annotation and are appended to the
-// launcher argv by the shim (§4.2/§8.2). A user-set JDK_JAVA_OPTIONS /
+// Java argv by the shim (§4.2/§8.2). A user-set JDK_JAVA_OPTIONS /
 // JAVA_TOOL_OPTIONS (common with APM agents) is passed through untouched and
 // still applied by the JVM — the controller reports the overlap rather than
 // dropping either side.

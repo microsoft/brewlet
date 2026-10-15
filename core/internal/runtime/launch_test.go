@@ -118,6 +118,9 @@ func TestGenerateBundleDefaultsToNonRootIdentity(t *testing.T) {
 		t.Fatalf("GenerateBundle: %v", err)
 	}
 	got := readBundleSpec(t, out)
+	if got.Process.Args[0] != "/opt/jdk/bin/java" {
+		t.Fatalf("entrypoint = %q, want selected JDK java", got.Process.Args[0])
+	}
 	if got.Process.User.UID != DefaultProcessUID || got.Process.User.GID != DefaultProcessGID {
 		t.Fatalf("process user = %d:%d, want default %d:%d",
 			got.Process.User.UID, got.Process.User.GID, DefaultProcessUID, DefaultProcessGID)
@@ -148,7 +151,7 @@ func TestGenerateBundleUsesExplicitRuntimeIdentity(t *testing.T) {
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
 	want := ProcessIdentity{UID: 1234, GID: 5678}
 	if err := GenerateBundleWithIdentity(
-		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
+		cfg, filepath.Join(dir, "jdk"), filepath.Join(dir, "app.jar"),
 		nil, nil, "", out, Resources{}, nil, want,
 	); err != nil {
 		t.Fatalf("GenerateBundleWithIdentityAndRegen: %v", err)
@@ -164,7 +167,7 @@ func TestGenerateBundleRejectsReservedProcessIdentity(t *testing.T) {
 	dir := t.TempDir()
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
 	err := GenerateBundleWithIdentity(
-		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
+		cfg, filepath.Join(dir, "jdk"), filepath.Join(dir, "app.jar"),
 		nil, nil, "", filepath.Join(dir, "bundle"), Resources{}, nil,
 		ProcessIdentity{UID: MaxProcessID + 1, GID: DefaultProcessGID},
 	)
@@ -202,7 +205,7 @@ func TestGenerateBundleWithCDS(t *testing.T) {
 	}
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"}}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithCDS(cfg, jdkRoot, "", "", jarHost, nil, nil, jsaHost, out, Resources{}, nil); err != nil {
+	if err := GenerateBundleWithCDS(cfg, jdkRoot, jarHost, nil, nil, jsaHost, out, Resources{}, nil); err != nil {
 		t.Fatalf("GenerateBundleWithCDS: %v", err)
 	}
 	b, err := os.ReadFile(filepath.Join(out, "config.json"))
@@ -483,8 +486,8 @@ func TestGenerateBundleWithClasspathLayers(t *testing.T) {
 		Entry:   artifact.Entry{Mode: "classpath", ClassPath: []string{"app.jar", "lib/*"}, MainClass: "com.acme.Main"},
 	}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithLauncher(cfg, jdkRoot, "", "", jarHost, []string{depsTar}, nil, out, Resources{}, nil); err != nil {
-		t.Fatalf("GenerateBundleWithLauncher: %v", err)
+	if err := GenerateBundleWithLayers(cfg, jdkRoot, jarHost, []string{depsTar}, nil, out, Resources{}, nil); err != nil {
+		t.Fatalf("GenerateBundleWithLayers: %v", err)
 	}
 
 	// The dependency layer was extracted to the host staging dir.
@@ -550,8 +553,8 @@ func TestGenerateBundleWithModulepathLayers(t *testing.T) {
 		Entry:   artifact.Entry{Mode: "module", Module: "com.acme.orders", ModulePath: []string{"orders.jar", "mods"}},
 	}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithLauncher(cfg, jdkRoot, "", "", jarHost, nil, []string{modsTar}, out, Resources{}, nil); err != nil {
-		t.Fatalf("GenerateBundleWithLauncher: %v", err)
+	if err := GenerateBundleWithLayers(cfg, jdkRoot, jarHost, nil, []string{modsTar}, out, Resources{}, nil); err != nil {
+		t.Fatalf("GenerateBundleWithLayers: %v", err)
 	}
 
 	// The module layer was extracted to the host staging dir.
@@ -632,8 +635,8 @@ func TestGenerateBundleWithMixedLayers(t *testing.T) {
 		},
 	}
 	out := filepath.Join(dir, "bundle")
-	if err := GenerateBundleWithLauncher(cfg, jdkRoot, "", "", jarHost, []string{depsTar}, []string{modsTar}, out, Resources{}, nil); err != nil {
-		t.Fatalf("GenerateBundleWithLauncher: %v", err)
+	if err := GenerateBundleWithLayers(cfg, jdkRoot, jarHost, []string{depsTar}, []string{modsTar}, out, Resources{}, nil); err != nil {
+		t.Fatalf("GenerateBundleWithLayers: %v", err)
 	}
 
 	// Both layer kinds were extracted to their host staging dirs.
@@ -660,47 +663,6 @@ func TestGenerateBundleWithMixedLayers(t *testing.T) {
 		if !strings.Contains(cfgJSON, want) {
 			t.Errorf("config.json missing mixed argv token %s:\n%s", want, cfgJSON)
 		}
-	}
-}
-
-// TestResolveLauncherRejectsPaths pins the local-run contract: --launcher names
-// a launcher, never a path. Accepting a path (absolute or traversing) would let
-// a descriptor pick an arbitrary host binary to front the entrypoint.
-func TestResolveLauncherRejectsPaths(t *testing.T) {
-	jdkHome := t.TempDir()
-	bin := filepath.Join(jdkHome, "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "java"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// A real, executable binary at an absolute path: rejected on name grounds,
-	// not because it is missing.
-	planted := filepath.Join(t.TempDir(), "jaz")
-	if err := os.WriteFile(planted, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, name := range []string{planted, "/bin/sh", "..", "../..", "sub/jaz", `sub\jaz`, ".", "./jaz", "jaz*", " jaz", "JAZ"} {
-		t.Run(name, func(t *testing.T) {
-			got, err := resolveLauncher(name, jdkHome)
-			if err == nil {
-				t.Fatalf("resolveLauncher(%q) = %q, want rejection", name, got)
-			}
-			if !strings.Contains(err.Error(), "NoCompatibleLauncher") {
-				t.Fatalf("resolveLauncher(%q) error = %v, want NoCompatibleLauncher", name, err)
-			}
-		})
-	}
-
-	// The vanilla launcher still resolves to the selected JDK's own java.
-	got, err := resolveLauncher("", jdkHome)
-	if err != nil {
-		t.Fatalf("resolveLauncher(vanilla): %v", err)
-	}
-	if want := filepath.Join(bin, "java"); got != want {
-		t.Fatalf("resolveLauncher(vanilla) = %q, want %q", got, want)
 	}
 }
 
@@ -840,7 +802,7 @@ func TestPlanRunsFromSandboxAppDir(t *testing.T) {
 	}
 	defer os.RemoveAll(sandbox)
 
-	plan, err := BuildPlan(cfg, jarPath, jdkHome, "", nil)
+	plan, err := BuildPlan(cfg, jarPath, jdkHome, nil)
 	if err != nil {
 		t.Fatalf("BuildPlan: %v", err)
 	}

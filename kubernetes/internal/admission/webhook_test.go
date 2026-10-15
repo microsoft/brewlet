@@ -46,8 +46,7 @@ func newPodMutator(t *testing.T, objs ...client.Object) *PodMutator {
 
 func scaleFromZeroPod() *corev1.Pod {
 	pod := brewletPod("demo/hello:1", map[string]string{
-		brewlet.AnnotationRequestedJDK:      "21",
-		brewlet.AnnotationRequestedLauncher: "jaz",
+		brewlet.AnnotationRequestedJDK: "21",
 	})
 	pod.Name = "app"
 	return pod

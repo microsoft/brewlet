@@ -14,8 +14,8 @@ and [SPECIFICATION](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFI
 
 The
 [canonical capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
-defines the stable runtime, JDK, launcher, and architecture keys, their token
-grammar, and compatibility guarantees. JDK and launcher capabilities are
+defines the stable runtime, JDK and architecture keys, their token
+grammar, and compatibility guarantees. JDK capabilities are
 boolean-presence labels: admission matches their keys with `Operator: Exists`,
 not by requiring the current value `true`.
 
@@ -30,12 +30,11 @@ the provisioning, affinity, Cluster Autoscaler, and Karpenter workflows.
 |---|---|---|
 | `brewlet.sh/jdks` | `temurin-21,microsoft-25` | Current compact JDK inventory for compatibility admission, node-ready events, and CLI status/profile inspection. Contains distribution/feature tokens, not detailed runtime metadata. |
 | `brewlet.sh/jdks-info` | `[{"distribution":"temurin","vendor":"Eclipse Adoptium","feature":21,"version":"21.0.5","arch":"amd64"}]` | Structured diagnostic inventory used by `brewlet k8s jdk list` and doctor's JDK check. `vendor`/`version`/`arch` are read from the installed JDK itself. A root whose `java` cannot be run is omitted. |
-| `brewlet.sh/launchers` | `java,jaz` | Advertised launcher layers. Always includes the implicit `java`. |
 | `brewlet.sh/profile` | `default` | `metadata.name` of the `NodeProfile` that last provisioned this node. |
 | `brewlet.sh/profile-generation` | `4` | That profile's `metadata.generation`, so a stale node can be told from an up-to-date one. |
 | `brewlet.sh/provision-state` | `Provisioning` \| `Ready` \| `Failed` | The operator's view of the node's lifecycle (distinct from the provisioner-owned `runtime=ready` label). |
-| `brewlet.sh/provision-error` | `launcher-jaz-not-executable` | **Stable reason code** for a provisioner failure — safe to parse and alert on. Enumerated in [SPECIFICATION §14.2](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md). The operator uses it for `ProvisionFailed` events and clears it after a successful run. |
-| `brewlet.sh/provision-error-message` | `launcher jaz binary at /opt/brewlet/… is not executable` | Human detail for the code above. **Not a contract** — wording may change at any time, so branch on the code instead. |
+| `brewlet.sh/provision-error` | `jdk-validation-failed` | Stable machine-readable provisioning failure code; see [SPECIFICATION section 14.2](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md). |
+| `brewlet.sh/provision-error-message` | `JDK root failed its java -version probe` | Human detail for the code above. **Not a contract** — wording may change at any time, so branch on the code instead. |
 
 These annotations do not drive scheduler affinity; the per-capability labels
 do. Compact inventory is still used by compatibility admission's fleet check.
@@ -51,7 +50,6 @@ for the retained contracts and support boundaries.
 | Key | Example | Set by | Meaning |
 |---|---|---|---|
 | `brewlet.sh/jdk` | `21` or `temurin-21` | you | Request a JDK feature (any distro) or an exact `<dist>-<feature>`. Validated + scheduled by the webhook. |
-| `brewlet.sh/launcher` | `jaz` | you | Request a launcher. Empty / `java` = vanilla OpenJDK launcher. |
 | `brewlet.sh/arch` | `amd64` or `amd64,arm64` | you (or the `JavaApplication` controller from `spec.arch`) | Optional architecture constraint for **non-portable JARs** bundling JNI natives. Injects `kubernetes.io/arch` nodeAffinity; if no ready node of a required arch exists → admitted with a warning, stays `Pending`. Omit for arch-neutral bytecode. |
 | `brewlet.sh/artifact-container` | `app` | you + webhook | Selects which regular container's `image` is mirrored into Pod-wide compatibility hints. The webhook normalizes the value to the selected container name; other tasks ignore those hints and remain bound to their own CRI images. |
 | `brewlet.sh/artifact-ref` | `repo:tag` | webhook | Compatibility hint mirrored from the selected Pod image. |
@@ -69,7 +67,6 @@ Recorded by the operator / admission webhook (see [Troubleshooting](troubleshoot
 | `NodeReady` | A node is provisioned and advertising the brewlet runtime. |
 | `ProvisionFailed` | The provisioner reports a validation/reconfiguration error, or its pod is failing (for example `CrashLoopBackOff`). |
 | `NoCompatibleJDK` | A pod requested a JDK no ready node or valid NodeProfile provides → admission denied. |
-| `NoCompatibleLauncher` | A pod requested a launcher no ready node or valid NodeProfile provides → admission denied. |
 | `NoCompatibleArch` | Reserved; no longer emitted. An `arch` with no ready node is admitted with a warning. |
 
 ---
@@ -82,7 +79,6 @@ Recorded by the operator / admission webhook (see [Troubleshooting](troubleshoot
 | Provisioner DaemonSet | `brewlet-node-provisioner` | Managed by the operator. |
 | Default namespace | `brewlet` | Created by the Helm chart. |
 | containerd runtime type | `io.containerd.brewlet.v2` | Registered in the effective containerd config through an imported drop-in or the primary file. |
-| Vanilla launcher name | `java` | Provided by every JDK; needs no layer. |
 
 ---
 
@@ -173,15 +169,15 @@ app-embedded flags.
 
 Descriptor `jvm.args` are delivered as **argv**, carried on the pod as the
 `brewlet.sh/jvm-args` annotation (a JSON array of strings). Brewlet does not set
-`JDK_JAVA_OPTIONS`/`JAVA_TOOL_OPTIONS`, which the launcher would *prepend* and so
+`JDK_JAVA_OPTIONS`/`JAVA_TOOL_OPTIONS`, which `java` would *prepend* and so
 invert that precedence. Args that select the entrypoint — `-jar`, `-cp` /
 `-classpath` / `--class-path`, `-p` / `--module-path`, `-m` / `--module`, and
 `@argfile` — are rejected: the artifact owns the entrypoint.
 
-JDK feature/distribution and launcher are not part of this artifact config. They
+JDK feature and distribution are not part of this artifact config. They
 are specified in the deployment descriptor (`spec.jvm.version` /
-`spec.jvm.distribution` / `spec.jvm.launcher`) or raw pod annotations
-(`brewlet.sh/jdk` / `brewlet.sh/launcher`).
+`spec.jvm.distribution`) or raw pod annotations
+(`brewlet.sh/jdk`).
 
 **Mode owns its fields (validated).** Each `entry.mode` uses a fixed set of
 fields; fields foreign to the selected mode are **rejected**, not silently
@@ -216,7 +212,6 @@ Full field semantics: [Building & publishing](building-and-publishing.md#2-the-l
 |---|---|
 | `/opt/brewlet/bin/containerd-shim-brewlet-v2` | The shim binary (also linked into `/usr/local/bin`). |
 | `/opt/brewlet/jdks/<dist>-<feature>/bin/java` | A shared, read-only JDK runtime root. |
-| `/opt/brewlet/launchers/<name>/bin/<name>` | A shared, read-only launcher layer. |
 | `/etc/containerd/config.toml` | Primary containerd config; patched only when imported drop-ins are unavailable. |
 | `/etc/containerd/config.toml.d/99-brewlet.toml` | Preferred Brewlet-managed runtime drop-in when the primary config imports the directory. |
 | `/app/<mainJar>` | The JAR, mounted read-only inside the sandbox. |
@@ -252,7 +247,6 @@ verifies the live runtime handler, and automatically rolls back failed changes.
 | **containerd Runtime v2 shim** | Pluggable per-runtime process containerd talks to (TTRPC) to manage a container/task — the integration seam SpinKube/runwasi use. |
 | **RuntimeClass** | Kubernetes object selecting which node runtime/handler executes a pod. |
 | **JDK runtime root** | A minimal, read-only Linux userland + JDK installed on the node and overlay-mounted into every JVM sandbox. |
-| **Launcher** | The java-compatible program that fronts the entrypoint (`java`, or `jaz`). |
 | **Overlay rootfs** | The sandbox filesystem: shared RO JDK lower + per-container upper/work, JAR at `/app`. |
 | **AppCDS** | Application Class-Data Sharing — a class archive that cuts startup (ships as a `cds.layer`). |
 

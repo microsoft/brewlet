@@ -81,26 +81,6 @@ func (policy NodeProfilePolicy) Validate(profile *nodev1alpha1.NodeProfile) erro
 			return err
 		}
 	}
-	launchers := make(map[string]struct{}, len(profile.Spec.Launchers))
-	for i, launcher := range profile.Spec.Launchers {
-		if errs := validation.IsDNS1123Label(launcher.Name); len(errs) > 0 {
-			return fmt.Errorf("spec.launchers[%d].name %q is invalid: %s", i, launcher.Name, strings.Join(errs, "; "))
-		}
-		const maxLauncherNameLength = validation.DNS1123LabelMaxLength - len("launcher.")
-		if len(launcher.Name) > maxLauncherNameLength {
-			return fmt.Errorf("spec.launchers[%d].name %q exceeds %d characters", i, launcher.Name, maxLauncherNameLength)
-		}
-		if launcher.Name == "java" {
-			return fmt.Errorf("spec.launchers[%d].name must not be %q because java is provided by every JDK", i, launcher.Name)
-		}
-		if _, exists := launchers[launcher.Name]; exists {
-			return fmt.Errorf("spec.launchers[%d] duplicates %q", i, launcher.Name)
-		}
-		launchers[launcher.Name] = struct{}{}
-		if err := validateLauncherSource(i, launcher); err != nil {
-			return err
-		}
-	}
 	if err := validateRegistryMirrors(profile.Spec.Registry, allowedMirrors); err != nil {
 		return err
 	}
@@ -158,16 +138,6 @@ func validateJDKSource(index int, j nodev1alpha1.JDKRef) error {
 	}
 	if err := validateAbsolutePath(j.Source.JavaHome); err != nil {
 		return fmt.Errorf("spec.jdks[%d].source.javaHome %q must be a clean absolute path below /", index, j.Source.JavaHome)
-	}
-	return nil
-}
-
-func validateLauncherSource(index int, launcher nodev1alpha1.LauncherRef) error {
-	if err := validateImageReference(launcher.Source.Image); err != nil {
-		return fmt.Errorf("spec.launchers[%d].source.image: %w", index, err)
-	}
-	if err := validateAbsolutePath(launcher.Source.Path); err != nil {
-		return fmt.Errorf("spec.launchers[%d].source.path %q must be a clean absolute path below /", index, launcher.Source.Path)
 	}
 	return nil
 }

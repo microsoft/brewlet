@@ -247,8 +247,6 @@ func (f *fixture) profile(t *testing.T, name string) *nodeapi.NodeProfile {
 			NodePool: nodeapi.NodePoolRef{Names: []string{name}, Key: "example.com/pool"},
 			JDKs: []nodeapi.JDKRef{{Distribution: "temurin", Feature: 21,
 				Source: nodeapi.JDKSource{Image: sourceImage, JavaHome: "/opt/java/openjdk"}}},
-			Launchers: []nodeapi.LauncherRef{{Name: "jaz",
-				Source: nodeapi.LauncherSource{Image: sourceImage, Path: "/usr/bin/jaz"}}},
 			Rollout: nodeapi.RolloutSpec{MaxUnavailable: ptr.To(intstr.FromInt(1)), Validate: ptr.To(true)},
 		},
 	}
@@ -276,11 +274,6 @@ func jdkArgs(profile string, extra ...string) []string {
 		"--feature", "25", "--image", sourceImage, "--java-home", "/opt/java/openjdk", "--output", "json"}, extra...)
 }
 
-func launcherArgs(profile string, extra ...string) []string {
-	return append([]string{"launcher", "add", "--profile", profile, "--name", "custom",
-		"--image", sourceImage, "--path", "/usr/bin/custom", "--output", "json"}, extra...)
-}
-
 func (f *fixture) node(t *testing.T, p *nodeapi.NodeProfile) *corev1.Node {
 	t.Helper()
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: p.Name + "-node", Labels: map[string]string{
@@ -288,7 +281,7 @@ func (f *fixture) node(t *testing.T, p *nodeapi.NodeProfile) *corev1.Node {
 		"brewlet.sh/runtime": "ready", "brewlet.sh/owner-uid": string(p.UID),
 	}, Annotations: map[string]string{
 		"brewlet.sh/owner-name": p.Name, "brewlet.sh/profile-generation": fmt.Sprint(p.Generation),
-		"brewlet.sh/jdks": "temurin-21", "brewlet.sh/launchers": "jaz",
+		"brewlet.sh/jdks":      "temurin-21",
 		"brewlet.sh/jdks-info": `[{"distribution":"temurin","vendor":"Adoptium","feature":21,"version":"21.0.5","arch":"amd64"}]`,
 	}}}
 	must(t, f.api.Create(f.ctx, node))
@@ -345,11 +338,7 @@ func (f *fixture) testReadCommands(t *testing.T) {
 	if len(decode[[]json.RawMessage](t, empty)) != 0 {
 		t.Fatalf("node selector was ignored: %s", empty)
 	}
-	launchers := f.cli(t, "launcher", "list", "--output", "json").success(t)
-	if !strings.Contains(launchers, `"jaz"`) || !strings.Contains(launchers, `"inventory-node"`) {
-		t.Fatal(launchers)
-	}
-	for _, command := range []string{"jdk", "launcher"} {
+	for _, command := range []string{"jdk"} {
 		if out := f.cli(t, command, "list", "--output", "wide").success(t); !strings.Contains(out, "inventory-node") {
 			t.Fatalf("%s per-node inventory missing node: %s", command, out)
 		}
@@ -413,7 +402,7 @@ func (f *fixture) testReadCommands(t *testing.T) {
 func (f *fixture) testInventoryUpdates(t *testing.T) {
 	p := f.profile(t, "updates")
 	for _, args := range [][]string{jdkArgs(p.Name, "--image", "invalid:source", "--dry-run"),
-		launcherArgs(p.Name, "--path", "/usr/../bin/custom", "--dry-run")} {
+		jdkArgs(p.Name, "--java-home", "/usr/../bin/custom", "--dry-run")} {
 		r := f.cli(t, args...)
 		if r.code != 1 || r.stdout != "" || r.stderr == "" {
 			t.Fatalf("invalid client dry run should fail with empty output: %+v", r)
@@ -421,18 +410,17 @@ func (f *fixture) testInventoryUpdates(t *testing.T) {
 		f.assertUnchanged(t, p)
 	}
 	for _, flags := range [][]string{{"--dry-run"}, {"--dry-run=client"}, {"--dry-run=server"}} {
-		for _, args := range [][]string{jdkArgs(p.Name, flags...), launcherArgs(p.Name, flags...)} {
+		for _, args := range [][]string{jdkArgs(p.Name, flags...)} {
 			proposal := decode[nodeapi.NodeProfile](t, f.cli(t, args...).success(t))
-			if len(proposal.Spec.JDKs)+len(proposal.Spec.Launchers) != 3 {
+			if len(proposal.Spec.JDKs) != 2 {
 				t.Fatalf("dry run did not render addition: %+v", proposal.Spec)
 			}
 			f.assertUnchanged(t, p)
 		}
 	}
 	f.cli(t, jdkArgs(p.Name)...).success(t)
-	f.cli(t, launcherArgs(p.Name)...).success(t)
 	updated := f.getProfile(t, p.Name)
-	if len(updated.Spec.JDKs) != 2 || len(updated.Spec.Launchers) != 2 ||
+	if len(updated.Spec.JDKs) != 2 ||
 		!reflect.DeepEqual(updated.Spec.Rollout, p.Spec.Rollout) || updated.Labels["fixture"] != p.Name ||
 		updated.Generation <= p.Generation {
 		t.Fatalf("live updates did not preserve/apply configuration: %+v", updated)
@@ -461,11 +449,11 @@ func (f *fixture) testInventoryUpdates(t *testing.T) {
 	for _, entry := range ds.Spec.Template.Spec.Containers[0].Env {
 		env[entry.Name] = entry.Value
 	}
-	if env["JDK_SOURCE_COUNT"] != "2" || env["LAUNCHER_SOURCE_COUNT"] != "2" {
+	if env["JDK_SOURCE_COUNT"] != "2" {
 		t.Fatalf("controller did not consume CLI additions: %+v", env)
 	}
 	inspected := f.cli(t, "profile", "inspect", p.Name, "--output", "json").success(t)
-	if !strings.Contains(inspected, replacementImage) || !strings.Contains(inspected, "custom") {
+	if !strings.Contains(inspected, replacementImage) {
 		t.Fatal("profile inspection did not show the reconciled desired inventory", inspected)
 	}
 }
@@ -483,7 +471,7 @@ func (f *fixture) testHelmOwnership(t *testing.T) {
 	f.command(t, "kubectl", "--kubeconfig", f.kubeconfig, "--context", "selected",
 		"apply", "-f", manifest).success(t)
 	p := f.getProfile(t, "default")
-	for _, args := range [][]string{jdkArgs("default"), launcherArgs("default"), jdkArgs("default", "--dry-run=server")} {
+	for _, args := range [][]string{jdkArgs("default"), jdkArgs("default", "--dry-run=server")} {
 		f.cli(t, args...).failure(t, "managed by")
 		f.assertUnchanged(t, p)
 	}
@@ -496,9 +484,9 @@ func (f *fixture) testHelmOwnership(t *testing.T) {
 		t.Fatal("CLI-generated Helm values lost or failed to add inventory", rendered)
 	}
 	f.assertUnchanged(t, p)
-	offline := f.cli(t, launcherArgs("default", "--dry-run", "--file", manifest)...).success(t)
-	if len(decode[nodeapi.NodeProfile](t, offline).Spec.Launchers) != 1 {
-		t.Fatal("offline profile proposal omitted launcher")
+	offline := f.cli(t, jdkArgs("default", "--dry-run", "--file", manifest)...).success(t)
+	if len(decode[nodeapi.NodeProfile](t, offline).Spec.JDKs) != 2 {
+		t.Fatal("offline profile proposal omitted JDK")
 	}
 	f.assertUnchanged(t, p)
 }

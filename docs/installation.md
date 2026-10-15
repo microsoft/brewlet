@@ -42,7 +42,7 @@ are not upgrade support decisions.
 | Nodes you control | Provisioning is privileged and host-mutating. |
 | `kubectl` + `helm` (for the Helm path) | To install and manage node provisioning. |
 | A reachable **OCI registry** | Where developers push OCI artifacts (and where component + vendor JDK images live). |
-| Node access to **JDK images** | Vendor JDK/launcher images (Temurin, MS OpenJDK) pulled copy-from-image via the host containerd; mirror them for air-gapped clusters. |
+| Node access to **JDK images** | Vendor JDK images (Temurin, MS OpenJDK) pulled copy-from-image via the host containerd; mirror them for air-gapped clusters. |
 
 ### Released components
 
@@ -166,7 +166,7 @@ Every release produced by the current release workflow carries build provenance.
 The [`charts/brewlet`](https://github.com/microsoft/brewlet/tree/main/kubernetes/charts/brewlet) chart installs the operator, the
 provisioner RBAC, and the admission webhook. The operator then creates and
 reconciles the provisioner DaemonSet and the `brewlet` RuntimeClass from the chart's
-values — so there is a single runtime source of truth for the JDK/launcher inventory.
+values — so there is a single runtime source of truth for the JDK inventory.
 
 The install must name two things, and the chart fails to render without either.
 
@@ -228,22 +228,9 @@ it unset on AKS, EKS, and GKE, where the well-known provider label is
 auto-detected; set it explicitly on bare metal or kubeadm.
 
 Every entry in `my-jdks.yaml` needs a fully qualified, tagless, SHA-256
-digest-pinned image and the JDK root inside it. If required, add a separately
-approved launcher to the same `provisioner` mapping (vanilla `java` is implicit):
-
-```yaml
-provisioner:
-  # Keep the jdks list from my-jdks.yaml above.
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
-        path: /usr/bin/jaz
-```
-
-Pick the digests you intend to patch on your own schedule; see
-[JDK management](jdk-management.md#helm-examples-temurin-and-microsoft) and
-[Launchers](launchers.md#helm-example-jaz).
+digest-pinned image and the JDK root inside it. Pick the digests you intend
+to patch on your own schedule; see
+[JDK management](jdk-management.md#helm-examples-temurin-and-microsoft).
 
 > Control-plane nodes are excluded **by default** by node affinity regardless of taints, and
 > the provisioner tolerates only what a profile declares. On a single-node kind
@@ -263,9 +250,7 @@ Pick the digests you intend to patch on your own schedule; see
 The default rollout is fail-safe:
 
 - `provisioner.rollout.validate=true` executes every installed JDK's
-  `java -version` and checks that each staged launcher is executable before
-  readiness or capability labels are published. Arbitrary launchers are not
-  executed as probes.
+  `java -version` before readiness or capability labels are published.
 - `provisioner.rollout.containerdRestart=validated` renders an imported
   `/etc/containerd/config.toml.d/99-brewlet.toml` drop-in when supported, or a
   backed-up in-place configuration otherwise. It validates the effective config,
@@ -278,7 +263,7 @@ The default rollout is fail-safe:
   [SPECIFICATION §14](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 
 Use `containerdRestart: none` when containerd registration is managed in the node
-image or by another system; the JDK smoke tests and launcher executable checks
+image or by another system; the JDK smoke tests
 still run.
 See [Configuration](configuration.md#helm-chart-values) for the values.
 
@@ -631,7 +616,7 @@ provisioner:
 ```
 
 Combine it with the `my-jdks.yaml` inventory from the [Helm](#helm-recommended)
-section, or put both lists in a single file. Any other chart values — launchers,
+section, or put both lists in a single file. Any other chart values —
 `provisioner.poolKey`, `provisioner.includeControlPlane`, mirrors, or your own
 profiles with `defaultProfile.enabled=false` — go in the same files. See
 [Configuration](configuration.md#helm-chart-values) for every setting.
@@ -756,8 +741,6 @@ kubectl get nodes -L brewlet.sh/runtime
 # 3. Inspect what a node advertises:
 kubectl get node node-1 -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks}{"\n"}'
 #   temurin-21             ← must match your chosen inventory
-kubectl get node node-1 -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}{"\n"}'
-#   java                   ← additional launchers only if configured
 
 # 4. The RuntimeClass exists:
 kubectl get runtimeclass brewlet
@@ -793,7 +776,7 @@ kubectl logs -l app=hello
 ```
 
 For the full deploy story (raw Deployment, `JavaApplication` CRD, requesting a
-specific JDK/launcher), see [Deploying workloads](deploying-workloads.md).
+specific JDK), see [Deploying workloads](deploying-workloads.md).
 
 ---
 
@@ -830,4 +813,3 @@ Do not delete a manifest bundle containing CRDs or a namespace as a shortcut.
   connect node-pool provisioning to workload scheduling.
 - **[JDK management](jdk-management.md)** — add/patch JDK roots (copy-from-image),
   go multi-arch.
-- **[Launchers](launchers.md)** — install and use `jaz`.

@@ -3,8 +3,7 @@
 Every knob Brewlet exposes, in one place: Helm chart values, node-provisioner
 environment variables, operator/admission flags, the `RuntimeClass`, and how the
 different layers relate. For *how* to install, see [Installation](installation.md);
-for JDKs and launchers specifically, see [JDK management](jdk-management.md) and
-[Launchers](launchers.md). For how the resulting node labels drive scheduling
+for JDKs specifically, see [JDK management](jdk-management.md). For how the resulting node labels drive scheduling
 and autoscaling, see
 [Capability labels and autoscaling](capability-labels-and-autoscaling.md).
 For the operational workflow behind the metrics values, see
@@ -16,18 +15,21 @@ For runnable-image cache reclamation and consumer-safety prerequisites, see
 
 ## Configuration layers (how they connect)
 
-There is **one source of truth** for the JDK/launcher inventory: each
+There is **one source of truth** for the JDK inventory: each
 `NodeProfile` contains complete, immutable source declarations.
 
+Brewlet executes the selected JDK's `bin/java` directly. Configure JVM
+tuning with `jvm.args` (`brewlet.sh/jvm-args` on raw pods).
+
 ```
-Helm values (provisioner.jdks / .launchers + source-mirror allowlist)
+Helm values (provisioner.jdks + source-mirror allowlist)
         │  render NodeProfiles and operator/admission flags
         ▼
 Admission + reconciliation validate each digest, path, name, and mirror
         │  render indexed source variables into a DaemonSet
         ▼
-Provisioner env (JDK_SOURCE_* / LAUNCHER_SOURCE_* / mirror policy)
-        │  derives JDKS and LAUNCHERS, then copies approved image content
+Provisioner env (JDK_SOURCE_* / mirror policy)
+        │  derives JDKS, then copies approved image content
         ▼
 Node state: /opt/brewlet/jdks/<dist>-<feature>/ + capability labels/annotations
 ```
@@ -37,7 +39,7 @@ hand-wire the DaemonSet, set env vars. Don't mix — the operator overwrites the
 DaemonSet it manages.
 
 > **Note on examples.** The Helm chart is installable with editable,
-> digest-pinned Temurin 21, Microsoft JDK 25, and `jaz` entries. They are ordinary
+> digest-pinned Temurin 21 and Microsoft JDK 25 entries. They are ordinary
 > values, not a Brewlet-maintained catalog. The manager binary has no runtime
 > inventory defaults; outside Helm you must create a `NodeProfile`.
 
@@ -60,15 +62,14 @@ with `--set key=value` or a values file.
 | `images.digests.provisioner` | recorded at release | Immutable digest for the node-provisioner image. |
 | `images.digests.admission` | recorded at release | Immutable digest for the admission webhook image. |
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
-| `security.allowedSourceMirrorHosts` | `[]` | Exact registry destination hosts, including explicit ports, that NodeProfiles may use for JDK/launcher mirrors. Empty disables mirrors. The chart passes the same list to manager and admission. |
+| `security.allowedSourceMirrorHosts` | `[]` | Exact registry destination hosts, including explicit ports, that NodeProfiles may use for JDK mirrors. Empty disables mirrors. The chart passes the same list to manager and admission. |
 | `provisioner.pools` | `[]` (**required**) | Node pool names the chart-managed default `NodeProfile` may provision. Use names exactly as your provider reports them (AKS pool names are lowercase alphanumeric, with no dashes). The privileged provisioner is never cluster-wide by default: rendering fails when `defaultProfile.enabled` is `true` and this is empty. |
 | `provisioner.poolKey` | `""` | Node label carrying the pool name. Empty auto-detects the well-known provider keys (AKS, EKS, GKE); set it explicitly on bare metal or kubeadm. |
 | `provisioner.includeControlPlane` | `false` | Allow the default profile onto control-plane nodes. Off by default, and only needed on single-node clusters such as kind or Docker Desktop, which label their node as the control plane without tainting it. |
 | `provisioner.tolerations` | `[]` | Tolerations for the default profile's provisioner pods. Standard Kubernetes toleration entries; each must name a `key`. Nothing is tolerated implicitly. |
 | `provisioner.jdks` | `[]` (**required**) | JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` ([§JDK management](jdk-management.md#source-model)). Brewlet ships no built-in runtime catalog, so rendering fails when `defaultProfile.enabled` is `true` and this is empty. |
-| `provisioner.launchers` | `[]` | Optional launcher entries with `name`, digest-pinned `source.image`, and absolute `source.path` ([§Launchers](launchers.md#helm-example-jaz)). Empty = vanilla `java` only. |
 | `provisioner.rollout.maxUnavailable` | `null` | Bounds the default profile's provisioner DaemonSet rolling update. `null` keeps the DaemonSet default. |
-| `provisioner.rollout.validate` | `true` | Gate node readiness on post-install JDK smoke tests and staged-launcher executable checks. Arbitrary launchers are not executed as a probe. Renders the provisioner `BREWLET_VALIDATE` env. |
+| `provisioner.rollout.validate` | `true` | Gate node readiness on post-install JDK smoke tests. Renders the provisioner `BREWLET_VALIDATE` env. |
 | `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`), or no containerd mutation/signal (`none`). Invalid values are rejected. Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `provisioner.registry.mirrors` | `{}` | `<upstream-host>: <mirror-host[/path]>` map applied to digest-pinned source pulls. Every destination host must appear in `security.allowedSourceMirrorHosts`. |
 | `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Requires `provisioner.pools`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
@@ -101,7 +102,7 @@ with `--set key=value` or a values file.
 | `admission.disableAKSAdmissionsEnforcer` | `false` | AKS only, not recommended: opt both webhook configurations out of the Admissions Enforcer with `admissions.enforcer/disabled: "true"`. |
 | `admission.resources` | requests `50m/64Mi`, limits `200m/128Mi` | Webhook pod resources. |
 
-Example production values (own runtime source, no optional launcher):
+Example production values (own runtime source):
 
 ```yaml
 # values-production.yaml
@@ -119,7 +120,6 @@ provisioner:
       source:
         image: registry.example.com/java/runtime@sha256:<digest>
         javaHome: /opt/java/runtime
-  launchers: []
 ```
 
 ```bash
@@ -132,7 +132,7 @@ This selects the latest released chart. To pin a release, add
 component-image overrides match it. For an existing installation, follow
 [Upgrading](installation.md#upgrading) to update matching CRDs and retain your values.
 
-> JDKs and launchers are always obtained **copy-from-image** from explicit,
+> JDKs are always obtained **copy-from-image** from explicit,
 > tagless SHA-256 digest references. For air-gapped clusters, mirror the exact
 > digest and approve the destination host explicitly.
 
@@ -270,11 +270,7 @@ configure the profile and operator settings rather than editing worker environme
 | `JDK_SOURCE_<n>_TOKEN` | required | Safe `<distribution>-<feature>` inventory token. |
 | `JDK_SOURCE_<n>_IMAGE` | required | Fully qualified, tagless `repository@sha256:<64 lowercase hex>` source image. |
 | `JDK_SOURCE_<n>_JAVA_HOME` | required | Clean absolute Java-home path inside the image. |
-| `LAUNCHER_SOURCE_COUNT` | `0` | Number of indexed optional launcher sources. |
-| `LAUNCHER_SOURCE_<n>_NAME` | required per entry | Lowercase launcher name; `java` is reserved. |
-| `LAUNCHER_SOURCE_<n>_IMAGE` | required per entry | Fully qualified, tagless SHA-256 digest source image. |
-| `LAUNCHER_SOURCE_<n>_PATH` | required per entry | Clean absolute launcher path inside the image. |
-| `JDKS` / `LAUNCHERS` | derived | Internal comma-separated inventories derived from the indexed entries. They are not accepted as independent inputs. |
+| `JDKS` | derived | Internal comma-separated inventory derived from the indexed entries; never accepted as an independent input. |
 | `BREWLET_STAGE_GC_ENABLED` | `true` | Enable the periodic GC loop after provisioning, subject to installation safety checks. Rendered from operator-wide `stageGC.enabled`. |
 | `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Delay between GC attempts, plus up to 10% jitter; integer seconds in `1..2147483647`. |
 | `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age; integer seconds in `1..2147483647`. |
@@ -285,7 +281,7 @@ configure the profile and operator settings rather than editing worker environme
 | `BREWLET_PROFILE_UID` | *(empty)* | Operator-managed profile UID paired with node ownership and persisted writer authority. Required: provisioning and cleanup always verify node UID/owner labels and durable profile authority. |
 | `BREWLET_TARGET_UIDS` | *(empty)* | Operator-generated immutable space-separated authorized Node UIDs for this worker. Both modes refuse writes outside this set; missing/empty sets authorize no host. Never supply this manually to adopt a host. |
 | `BREWLET_PROFILE_GENERATION` | `0` | Operator-managed generation paired with `BREWLET_PROFILE_UID`. |
-| `BREWLET_PREFIX` | `/opt/brewlet` | Host install prefix (`bin/`, `jdks/`, `launchers/`). |
+| `BREWLET_PREFIX` | `/opt/brewlet` | Host install prefix (`bin/`, `jdks/`). |
 | `CONTAINERD_CONFIG` | `/etc/containerd/config.toml` | Primary containerd configuration. Validated mode uses an imported drop-in when supported and otherwise patches this file with a backup. |
 | `CONTAINERD_DROPIN_DIR` | `/etc/containerd/config.toml.d` | Drop-in directory used when the primary config imports `*.toml` from it. |
 | `CONTAINERD_DROPIN_FILE` | `/etc/containerd/config.toml.d/99-brewlet.toml` | Brewlet-managed runtime drop-in. |
@@ -293,7 +289,7 @@ configure the profile and operator settings rather than editing worker environme
 | `CONTAINERD_NAMESPACE` | `k8s.io` | containerd namespace for image pulls; does not restrict GC, which checks all namespaces. |
 | `BREWLET_MODE` | `provision` | `provision` installs the runtime; `cleanup` reverses recorded host state for a retiring target or deleted profile. Managed cleanup uses the frozen per-node containerd policy and runs in `brewlet-cleanup-<profile>` (§5.6). |
 | `BREWLET_CONTAINERD_RESTART` | `validated` | `validated` validates the effective config with `containerd config dump`, restarts the host service only when needed, checks containerd and the live `brewlet` handler, and restores known-good config on activation failure. `none` neither mutates nor signals containerd during provisioning or cleanup. Rendered from `spec.rollout.containerdRestart`; other values fail before host operations. |
-| `BREWLET_VALIDATE` | `true` | Run `java -version` for every JDK and verify every staged launcher is executable before publishing runtime or capability labels. Arbitrary launchers are not executed. `false` skips both sets of checks. Rendered from `spec.rollout.validate`. |
+| `BREWLET_VALIDATE` | `true` | Run `java -version` for every JDK before publishing runtime or capability labels. `false` skips these checks. Rendered from `spec.rollout.validate`. |
 | `MIRRORS` | *(empty)* | Strict comma-separated `<upstream-host>=<mirror-host[/path]>` pairs rendered from `spec.registry.mirrors`. Schemes, whitespace, empty entries, duplicates, self-mappings, and unapproved destinations fail closed. |
 | `SOURCE_ALLOWED_MIRROR_HOSTS` | *(empty)* | Exact destination host allowlist rendered from the operator's `--allowed-source-mirror-hosts`; empty disables `MIRRORS`. |
 | `SOURCE_POLICY_BIN` | `/opt/brewlet-dist/brewlet-source-policy` | Baked validator for digest references, source paths, registry hosts, and mirror targets. |
@@ -309,9 +305,8 @@ mutating+validating. For every pod on CREATE with `runtimeClassName: brewlet` it
   `brewlet.sh/artifact-digest` (when digest-pinned) as compatibility hints from
   the selected Pod image; the shim resolves the JAR from containerd-owned
   metadata and the content store by digest, not from the hints;
-- **matches** any requested JDK/launcher combination against
-  the ready fleet plus valid `NodeProfile`s, denying with `NoCompatibleJDK` or
-  `NoCompatibleLauncher` (a request only a
+- **matches** any requested JDK combination against
+  the ready fleet plus valid `NodeProfile`s, denying with `NoCompatibleJDK` (a request only a
   profile satisfies is admitted with a warning, enabling scale-from-zero);
 - **steers** scheduling via `nodeAffinity` onto per-capability node labels.
 
@@ -320,7 +315,7 @@ outside `--allowed-source-mirror-hosts`. The `NodeProfileReconciler` repeats the
 same checks before creating a privileged DaemonSet, so webhook disablement or
 bypass does not weaken the source boundary.
 
-Admission matches JDK and launcher capability keys with `Operator: Exists`.
+Admission matches JDK capability keys with `Operator: Exists`.
 The [Capability labels and autoscaling](capability-labels-and-autoscaling.md)
 guide explains the end-to-end scheduling flow and autoscaler integration. The
 [canonical capability-label contract](https://github.com/microsoft/brewlet/blob/main/specs/CAPABILITY_LABELS.md)
@@ -419,7 +414,6 @@ Pod-side annotations the webhook reads (developer-facing) — see
 | Annotation | Example | Meaning |
 |---|---|---|
 | `brewlet.sh/jdk` | `21` or `temurin-21` | Request a specific JDK feature (any distro) or exact `<dist>-<feature>`. |
-| `brewlet.sh/launcher` | `jaz` | Request a launcher. Empty / `java` = vanilla OpenJDK launcher. |
 | `brewlet.sh/artifact-container` | `app` | Selects which regular container's `image` the webhook mirrors into Pod-wide compatibility hints. The webhook normalizes this value to the selected container name; other tasks ignore the shared hints and remain bound to their own CRI images. |
 
 ---
@@ -454,8 +448,7 @@ footprint.
 
 - **JVM launch flags:** artifact structured knobs carry app-intrinsic correctness
   flags; deployment-descriptor `jvm.args` carries heap/GC/agent tuning and comes
-  after those knobs. The descriptor's `jvm.launcher` / `brewlet.sh/launcher`
-  selects `java` or a node-installed launcher. Brewlet injects **no** `-XX` flags
+  after those knobs. Brewlet uses the selected JDK's `java` binary. Brewlet injects **no** `-XX` flags
   itself. See [Resource requests, limits & JVM tuning](resource-tuning.md).
 - **JDK selection:** the deployment descriptor is authoritative:
   `spec.jvm.version` (plus optional `spec.jvm.distribution`) on `JavaApplication`,
@@ -485,7 +478,6 @@ footprint.
 
 - **[JDK management](jdk-management.md)** — explicit source requirements,
   copy-from-image mechanics, and patching.
-- **[Launchers](launchers.md)** — installing and choosing `jaz`.
 - **[Capability labels and autoscaling](capability-labels-and-autoscaling.md)** —
   connect `NodeProfile` inventories to workload affinity and node-pool scaling.
 - **[Deploying workloads](deploying-workloads.md)** — put these knobs to use.

@@ -79,8 +79,8 @@ USAGE:
   brewlet dependency-bundle <classpath-tar> <ref> --name NAME --version VERSION --source-bom G:A:V --lock FILE [--signing-key PEM --signer-identity IDENTITY] [--compatible-jdks 21,25] [--store DIR]
   brewlet keygen --private FILE --public FILE
   brewlet inspect <ref>       [--store DIR] [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
-  brewlet run     <ref>       [--store DIR] [--jdk-root DIR] [--launcher NAME] [-- <extra jvm args>]
-  brewlet bundle  <ref>       [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--out DIR]
+  brewlet run     <ref>       [--store DIR] [--jdk-root DIR] [-- <extra jvm args>]
+  brewlet bundle  <ref>       [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--out DIR]
   brewlet k8s jdk list        [--output table|wide|json] [--kubeconfig FILE] [--context CTX] [--selector SEL]
   brewlet k8s doctor          [--namespace NS] [--output table|json|yaml] [--kubeconfig FILE] [--context CTX]
   brewlet stage-gc            [--stage-root DIR] [--address SOCKET] [--min-age 24h] [--dry-run]
@@ -637,7 +637,6 @@ func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	store := fs.String("store", "./oci", "OCI layout directory")
 	jdkRoot := fs.String("jdk-root", "", "node JDK home (default: JAVA_HOME)")
-	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
 	flagArgs, extra := splitDoubleDash(args)
 	pos, err := parseInterspersed(fs, flagArgs)
 	if err != nil {
@@ -669,19 +668,12 @@ func cmdRun(args []string) error {
 	}
 	defer os.RemoveAll(sandbox)
 
-	plan, err := runtime.BuildPlan(cfg, jarPath, *jdkRoot, *launcher, extra)
+	plan, err := runtime.BuildPlan(cfg, jarPath, *jdkRoot, extra)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("[brewlet] node JDK : %s\n", plan.JDKHome)
-	if !artifact.IsVanillaLauncher(*launcher) {
-		name, err := artifact.LauncherName(*launcher)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("[brewlet] launcher : %s (owns JVM tuning)\n", name)
-	}
 	fmt.Printf("[brewlet] sandbox  : %s\n", sandbox)
 	fmt.Printf("[brewlet] launch   : %s\n", plan.CommandLine())
 	fmt.Printf("[brewlet] ----- JVM output below -----\n")
@@ -698,8 +690,6 @@ func cmdBundle(args []string) error {
 	uidFlag := fs.String("uid", strconv.FormatUint(uint64(runtime.DefaultProcessUID), 10), "trusted runtime process UID (default: 65532)")
 	gidFlag := fs.String("gid", strconv.FormatUint(uint64(runtime.DefaultProcessGID), 10), "trusted runtime process GID (default: 65532)")
 	jdkRoot := fs.String("jdk-root", "/opt/brewlet/jdks/temurin-21", "node JDK runtime root")
-	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
-	launcherRoot := fs.String("launcher-root", "", "node launcher layer root (custom launcher, e.g. jaz)")
 	out := fs.String("out", "./bundle", "output bundle directory")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -736,19 +726,12 @@ func cmdBundle(args []string) error {
 	}
 	cfg := blobs.Config
 	cdsSrc := blobs.CDSHostPath
-	if err := runtime.GenerateBundleWithIdentity(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
+	if err := runtime.GenerateBundleWithIdentity(cfg, *jdkRoot, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
 		res, nil, runtime.ProcessIdentity{UID: uid, GID: gid}); err != nil {
 		cleanup()
 		return err
 	}
 	fmt.Printf("wrote OCI runtime bundle to %s/config.json\n", *out)
-	if !artifact.IsVanillaLauncher(*launcher) {
-		name, err := artifact.LauncherName(*launcher)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("  launcher: %s (owns JVM tuning)\n", name)
-	}
 	fmt.Printf("on a Linux node the shim runs:  runc run -b %s brewlet-<id>\n", *out)
 	return nil
 }

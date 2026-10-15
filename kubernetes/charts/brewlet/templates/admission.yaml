@@ -55,8 +55,8 @@ auto-renewal path for long-lived clusters — see the chart README.
 {{/*
 brewlet-admission: the pod admission/scheduling webhook (§8/§14). It overwrites
 brewlet.sh/artifact-ref + artifact-digest compatibility hints from the selected
-Pod image, and matches a pod's requested JDK/launcher against the ready node fleet
-(NoCompatibleJDK / NoCompatibleLauncher), steering scheduling via nodeAffinity.
+Pod image, and matches a pod's requested JDK against the ready node fleet
+(NoCompatibleJDK), steering scheduling via nodeAffinity.
 
 By default, the serving cert is generated at render time. cert-manager mode
 instead owns the Secret and injects the webhook CA bundle automatically.
@@ -228,7 +228,7 @@ webhooks:
     admissionReviewVersions: ["v1"]
     sideEffects: None
     # Ignore keeps a webhook outage from blocking workloads; the shim still
-    # enforces runtime image identity and JDK/launcher compatibility.
+    # enforces runtime image identity and JDK compatibility.
     failurePolicy: {{ .Values.admission.failurePolicy }}
     clientConfig:
       service:

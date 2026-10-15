@@ -6,9 +6,9 @@
 [![License](https://img.shields.io/github/license/microsoft/brewlet)](../LICENSE.txt)
 
 The node provisioner prepares a Linux Kubernetes node to run Brewlet workloads.
-Its privileged entrypoint first validates every configured JDK and launcher
+Its privileged entrypoint first validates every configured JDK
 source, then installs the containerd shim, materializes runtime
-roots and launcher layers, registers the `brewlet` containerd runtime, validates
+roots, registers the `brewlet` containerd runtime, validates
 the installation, and advertises node readiness.
 The host must run containerd 2.0 or newer.
 
@@ -40,7 +40,7 @@ architecture and packages them with the entrypoint.
 
 ## Runtime source model
 
-Brewlet has no built-in JDK or launcher catalog. The operator renders every
+Brewlet has no built-in JDK catalog. The operator renders every
 `NodeProfile` source as indexed environment variables. Each image must be a
 fully qualified, tagless
 `repository@sha256:<64 lowercase hex>` reference, and each source path must be a
@@ -49,7 +49,7 @@ clean absolute path below `/`.
 The provisioner validates **all** entries and mirrors before it installs the shim
 or performs a host containerd operation. Missing indexed fields, mutable or
 malformed images, invalid paths or names, duplicate inventory entries, and
-unapproved mirrors fail closed. `JDKS` and `LAUNCHERS` are derived only after
+unapproved mirrors fail closed. `JDKS` are derived only after
 this preflight, so an independent inventory cannot diverge from its sources.
 
 ### Supply-chain integrity
@@ -91,11 +91,7 @@ the checksum gate to reject each build.
 | `JDK_SOURCE_<n>_TOKEN` | required | Safe `<distribution>-<feature>` inventory token |
 | `JDK_SOURCE_<n>_IMAGE` | required | Fully qualified, tagless `repository@sha256:<64 lowercase hex>` reference containing the runtime and its userland |
 | `JDK_SOURCE_<n>_JAVA_HOME` | required | Clean absolute JDK or jlink runtime path inside that image |
-| `LAUNCHER_SOURCE_COUNT` | `0` | Number of indexed optional launcher sources |
-| `LAUNCHER_SOURCE_<n>_NAME` | required per entry | Lowercase launcher name; `java` is reserved |
-| `LAUNCHER_SOURCE_<n>_IMAGE` | required per entry | Fully qualified, tagless SHA-256 digest reference |
-| `LAUNCHER_SOURCE_<n>_PATH` | required per entry | Clean absolute binary path inside that image |
-| `JDKS` / `LAUNCHERS` | derived | Internal inventories; never accepted as independent input |
+| `JDKS` | derived | Internal inventories; never accepted as independent input |
 | `BREWLET_STAGE_GC_ENABLED` | `true` | Periodically reclaim unreferenced runnable-image stages after successful provisioning |
 | `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Positive whole seconds between sweeps, plus up to 10% jitter |
 | `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age, not unused age; positive whole seconds |
@@ -114,12 +110,12 @@ the checksum gate to reject each build.
 | `CONTAINERD_NAMESPACE` | `k8s.io` | containerd namespace |
 | `BREWLET_MODE` | `provision` | `provision` installs; `cleanup` reverses it |
 | `BREWLET_CONTAINERD_RESTART` | `validated` | `validated` or `none` |
-| `BREWLET_VALIDATE` | `true` | Run JDK smoke tests and launcher executable checks before readiness |
+| `BREWLET_VALIDATE` | `true` | Run JDK smoke tests before readiness |
 | `MIRRORS` | empty | Strict comma-separated `<upstream-host>=<mirror-host[/path]>` mappings |
 | `SOURCE_ALLOWED_MIRROR_HOSTS` | empty | Comma-separated exact destination registry hosts; empty disables mirrors |
 | `SOURCE_POLICY_BIN` | `/opt/brewlet-dist/brewlet-source-policy` | Digest-reference, path, registry-host, and mirror-target validator |
 
-Distribution and launcher names are administrator-owned inventory identifiers;
+Distribution names are administrator-owned inventory identifiers;
 they do not select images. The provisioner copies each JDK image's complete root
 filesystem so the sandbox has the loader and native libraries required by
 `bin/java`. The source image need not contain shell or copy tools.
@@ -207,7 +203,7 @@ from a cleanup ledger; they are never converted to a different host operation.
 When Helm runtime metrics are enabled, the profile-managed DaemonSet includes a
 best-effort exporter sidecar that serves `/metrics` and listens for shim
 telemetry on `/opt/brewlet/metrics/telemetry.sock`. It also reads the installed
-JDK and launcher roots directly, including each JDK's exact `release` metadata,
+JDK roots directly, including each JDK's exact `release` metadata,
 source image, and node installation timestamp. The sidecar mounts `/opt/brewlet`
 read-only and receives a separate read-write mount of `/opt/brewlet/metrics` for
 the socket alone. The sidecar is disabled by default.
@@ -215,9 +211,6 @@ the socket alone. The sidecar is disabled by default.
 Copy-from-image commands run through the bundled `ctr` client in the host mount
 namespace. This is required because the provisioner connects to the host
 containerd socket and unpack mounts must be visible in the node's namespace.
-Launcher extraction uses `ctr image pull` + `ctr images mount` and a host-side
-`install`; it does not execute the source image, grant host networking, or
-expose a writable host bind mount.
 
 ## Readiness validation
 
@@ -262,13 +255,9 @@ images must be deployed together; missing/pruned ledger fields fail closed.
 With `BREWLET_VALIDATE=true`, the provisioner validates every configured
 runtime component before it advertises runtime or capability labels:
 
-- each JDK root runs `bin/java -version` inside its installed root;
-- each staged launcher must be present as an executable regular file.
-
-Arbitrary launcher binaries are not executed because Brewlet cannot assume a
-universal safe probe. A missing/non-executable launcher or failed JDK probe
+Each JDK root runs `bin/java -version` inside its installed root. A failed JDK probe
 leaves the node unready and records a bounded component-specific reason in
-`brewlet.sh/provision-error`. No JDK or launcher capability labels are retained
+`brewlet.sh/provision-error`. No JDK capability labels are retained
 after failure. `BREWLET_VALIDATE=false` skips these checks and preserves the
 opt-out behavior. It does not disable the completion-based readiness gate.
 

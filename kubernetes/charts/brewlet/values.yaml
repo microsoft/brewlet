@@ -34,11 +34,11 @@ images:
 
 # Cluster-level trust policy. NodeProfiles may request mirrors only when the
 # destination registry host (including any explicit port) appears here exactly.
-# Empty disables all JDK/launcher source mirrors.
+# Empty disables all JDK source mirrors.
 security:
   allowedSourceMirrorHosts: []
 
-# What the operator installs on the node pools you name. `provisioner.jdks/launchers`
+# What the operator installs on the node pools you name. `provisioner.jdks`
 # seed the chart-rendered **default** NodeProfile. See §5.6.
 provisioner:
   # REQUIRED when defaultProfile.enabled is true: the node pool name(s) the
@@ -75,15 +75,6 @@ provisioner:
   #         image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
   #         javaHome: /opt/java/openjdk
   jdks: []
-  # Optional launcher sources. Vanilla java comes from each JDK and is implicit,
-  # so this may stay empty. Same digest-pinning rule as jdks, e.g.
-  #
-  #   launchers:
-  #     - name: jaz
-  #       source:
-  #         image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
-  #         path: /usr/bin/jaz
-  launchers: []
   # Rollout policy for the default profile's provisioner DaemonSet (proposal 0002).
   rollout:
     # maxUnavailable bounds the DaemonSet rolling update. null = DaemonSet default.
@@ -104,7 +95,7 @@ defaultProfile:
   enabled: true
 
 # Additional per-pool NodeProfiles rendered as CRs (§5.6). Each entry binds one or
-# more node pools to their own JDK/launcher inventory. Example:
+# more node pools to their own JDK inventory. Example:
 #   - name: batch
 #     pools: ["batch"]        # pool name(s), matched on the resolved pool key
 #     key: ""                 # optional explicit node label key (auto-detected if empty)
@@ -117,11 +108,6 @@ defaultProfile:
 #         source:
 #           image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
 #           javaHome: /usr/lib/jvm/msopenjdk-25
-#     launchers:              # optional explicit launcher sources
-#       - name: jaz
-#         source:
-#           image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
-#           path: /usr/bin/jaz
 #     rollout: { maxUnavailable: 1, validate: true, containerdRestart: validated }
 #     registry: { mirrors: { "mcr.microsoft.com": "mirror.internal/mcr" } }
 profiles: []
@@ -197,9 +183,8 @@ uninstall:
   nodeSelector: {}
 
 # The pod admission/scheduling webhook (§8/§14): overwrites image identity
-# compatibility hints and matches a pod's requested JDK/launcher against
-# the ready fleet plus eligible NodeProfiles (NoCompatibleJDK /
-# NoCompatibleLauncher), so autoscaled pools can scale from zero.
+# compatibility hints and matches a pod's requested JDK against
+# the ready fleet plus eligible NodeProfiles (NoCompatibleJDK), so autoscaled pools can scale from zero.
 admission:
   enabled: true
   replicas: 1

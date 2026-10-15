@@ -3,7 +3,7 @@
 
 // Package runnablestage accounts for and conservatively reclaims immutable
 // runnable-image stages. The root must be administrator-owned and must not be
-// renamed or replaced while launchers or the reaper are running.
+// renamed or replaced while runtime consumers or the reaper are running.
 package runnablestage
 
 import (
@@ -34,7 +34,7 @@ type Result struct {
 	RemainingBytes int64
 }
 
-// ErrBusy means a launcher or another reaper holds the staging root lock.
+// ErrBusy means a runtime consumer or another reaper holds the staging root lock.
 var ErrBusy = errors.New("runnable staging root is busy")
 
 // LinuxDefaultRoot is fixed rather than derived from TMPDIR so the shim, which

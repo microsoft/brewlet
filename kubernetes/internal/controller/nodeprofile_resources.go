@@ -217,20 +217,6 @@ func jdkSourceEnv(profile *nodev1alpha1.NodeProfile) []corev1.EnvVar {
 	return sources
 }
 
-func launcherSourceEnv(profile *nodev1alpha1.NodeProfile) []corev1.EnvVar {
-	sources := make([]corev1.EnvVar, 0, 1+len(profile.Spec.Launchers)*3)
-	sources = append(sources, corev1.EnvVar{Name: "LAUNCHER_SOURCE_COUNT", Value: strconv.Itoa(len(profile.Spec.Launchers))})
-	for i, launcher := range profile.Spec.Launchers {
-		prefix := fmt.Sprintf("LAUNCHER_SOURCE_%d_", i)
-		sources = append(sources,
-			corev1.EnvVar{Name: prefix + "NAME", Value: launcher.Name},
-			corev1.EnvVar{Name: prefix + "IMAGE", Value: launcher.Source.Image},
-			corev1.EnvVar{Name: prefix + "PATH", Value: launcher.Source.Path},
-		)
-	}
-	return sources
-}
-
 // mirrorEnv encodes a profile's registry mirrors as a deterministic
 // comma-separated "host=mirror" list for the provisioner's MIRRORS env (§5.6).
 // Returns "" when no mirrors are configured.
@@ -288,7 +274,6 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		{Name: "BREWLET_STAGE_GC_ALLOW_NESTED_PID_NAMESPACE", Value: strconv.FormatBool(cfg.StageGCAllowNestedPIDNamespace)},
 	}
 	env = append(env, jdkSourceEnv(profile)...)
-	env = append(env, launcherSourceEnv(profile)...)
 	if m := mirrorEnv(profile); m != "" {
 		env = append(env, corev1.EnvVar{Name: "MIRRORS", Value: m})
 	}

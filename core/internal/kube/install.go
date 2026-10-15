@@ -127,7 +127,7 @@ func (c *client) install(i installOptions) error {
 		return err
 	}
 	if !i.dryRun {
-		fmt.Fprintf(c.err, "Helm release is ready. Node provisioning is separate; run brewlet k8s status --namespace %s with the same kubeconfig/context and inspect advertised JDK/launcher inventory.\n", ns)
+		fmt.Fprintf(c.err, "Helm release is ready. Node provisioning is separate; run brewlet k8s status --namespace %s with the same kubeconfig/context and inspect advertised JDK inventory.\n", ns)
 	}
 	return nil
 }

@@ -1,7 +1,7 @@
 # Runtime metrics and Grafana dashboards
 
 Brewlet can expose Prometheus telemetry for the control plane, runtime launch
-path, and node-installed JDK and launcher inventory. This telemetry complements
+path, and node-installed JDK inventory. This telemetry complements
 application metrics such as Micrometer, JMX, and OpenTelemetry; it describes
 what Brewlet itself is doing.
 
@@ -77,7 +77,7 @@ flowchart LR
         SHIM["containerd-shim-brewlet-v2"]
         SOCK["/opt/brewlet/metrics/telemetry.sock"]
         EXP["metrics-exporter sidecar :9090"]
-        INV[("active JDK and launcher state")]
+        INV[("active JDK state")]
         SHIM -->|"bounded Unix datagrams"| SOCK
         SOCK --> EXP
         INV -.->|"inventory collection"| EXP
@@ -107,7 +107,7 @@ observability must never block or fail workload launch.
 
 The `metrics-exporter` sidecar runs in every profile-managed provisioner
 DaemonSet. It receives shim events, exposes them as Prometheus counters and
-histograms, and derives inventory gauges from the node's active JDK and launcher
+histograms, and derives inventory gauges from the node's active JDK
 state under `/opt/brewlet`. It also measures runnable-image stage bytes through
 a read-only host mount of `/tmp/brewlet-runnable`.
 
@@ -133,7 +133,7 @@ the Brewlet-specific collectors described below.
 |---|---:|---|---|
 | `brewlet-operator-metrics` | 8080 | Control plane | NodeProfile assigned/ready state, readiness conditions, provisioning transitions, controller-runtime metrics |
 | `brewlet-admission` port `metrics` | 8080 | Control plane | Admitted, denied, errored, and fail-open admission outcomes |
-| `brewlet-node-metrics` | 9090 | Each provisioned node | Launch phases/outcomes, artifact resolution, invalid telemetry, JDK and launcher inventory |
+| `brewlet-node-metrics` | 9090 | Each provisioned node | Launch phases/outcomes, artifact resolution, invalid telemetry, JDK inventory |
 
 `brewlet-node-metrics` is headless so Prometheus can scrape each exporter pod
 instead of aggregating behind one virtual IP.
@@ -210,7 +210,6 @@ If you changed `metrics.nodePort`, replace `9090` with that value.
 | `brewlet_telemetry_events_invalid_total` | Counter | None | Malformed, unknown-version, or unsupported shim datagrams rejected by the exporter. |
 | `brewlet_jdk_info` | Gauge | `distribution`, `feature`, `version`, `vendor`, `arch`, `source` | Value `1` identifies each active JDK build on a node. |
 | `brewlet_jdk_installed_timestamp_seconds` | Gauge | `distribution`, `feature`, `version` | Unix timestamp when that JDK root was installed on the node. It is **not** the upstream JDK patch release date. |
-| `brewlet_launcher_info` | Gauge | `launcher` | Value `1` identifies an available launcher. Vanilla `java` is always emitted; additional installed launchers such as `jaz` are also reported. |
 | `brewlet_runnable_stage_bytes` | Gauge | None | Logical regular-file bytes under the host staging root, including non-evictable unmanaged layouts and pending trees. Refreshed on each scrape without following symlinks. This is not allocated disk space, free space, or reclaimable bytes. |
 
 Stage inspection errors fail the scrape instead of reporting a misleading zero.
@@ -226,7 +225,7 @@ observes usage; it never deletes stages. See
 and the [activation checks](installation.md#activating-runnable-stage-gc).
 
 `brewlet_sandbox_launches_total` uses these bounded failure reasons:
-`NoCompatibleJDK`, `NoCompatibleLauncher`, `NoCompatibleArch`,
+`NoCompatibleJDK`, `NoCompatibleArch`,
 `MissingArtifactReference`, `ArtifactResolution`, `OverlaySetup`,
 `RuntimeCreate`, `ProcessStart`, and `BundlePreparation`. Successful launches use
 `reason="none"`.
@@ -344,12 +343,6 @@ Installed JDK inventory:
 brewlet_jdk_info
 ```
 
-Available launchers:
-
-```promql
-brewlet_launcher_info
-```
-
 Malformed telemetry observed recently:
 
 ```promql
@@ -358,8 +351,8 @@ increase(brewlet_telemetry_events_invalid_total[15m])
 
 Use `rate()` or `increase()` for counters and histogram series when you want
 activity over a time window. Query inventory and current-state gauges directly
-as instant vectors; applying `rate()` to `brewlet_jdk_info`,
-`brewlet_launcher_info`, or `brewlet_nodeprofile_nodes` does not describe their
+as instant vectors; applying `rate()` to `brewlet_jdk_info` or
+`brewlet_nodeprofile_nodes` does not describe their
 intended meaning.
 
 ---
@@ -431,7 +424,7 @@ before attaching alerts:
 - sustained admission `error` or `fail_open` outcomes;
 - NodeProfiles with assigned nodes that do not become ready;
 - unexpected or repeatedly changing provisioning states;
-- missing JDK or launcher inventory after a profile reports ready.
+- missing JDK inventory after a profile reports ready.
 
 ### Cardinality and privacy
 

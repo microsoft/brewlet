@@ -14,7 +14,7 @@ registry. By default it publishes a **runnable, kubelet-pullable OCI image** (a
 The plugin wraps steps 2–3 of the [build & publish flow](../specs/SPECIFICATION.md#43-build--publish-flow-developer-experience)
 so you never touch `oras` or hand-author a `jvm-config.json`. It infers as much as
 possible (entry mode, main class, runtime dependencies) from the project and
-the built JAR. JDK selection, launcher, ports and probes belong to deployment
+the built JAR. JDK selection, ports and probes belong to deployment
 configuration, not the artifact config. The optional `manifest` goal generates
 a development starting point for the image built in the current invocation.
 
@@ -208,7 +208,7 @@ generation**, not to the image:
 | Setting | Property / configuration | Default |
 |---|---|---|
 | Name / namespace / replicas | `brewlet.appName`, `brewlet.namespace`, `brewlet.replicas` | artifact ID / `default` / `1` |
-| Runtime | `brewlet.jdkFeature`, `brewlet.jdkDistribution`, `brewlet.launcher` | inferred feature / any distribution / `java` |
+| Runtime | `brewlet.jdkFeature`, `brewlet.jdkDistribution` | inferred feature / any distribution |
 | CPU request / limit | `brewlet.resources.cpuRequest`, `brewlet.resources.cpuLimit` | `500m` / `2` |
 | Memory request / limit | `brewlet.resources.memoryRequest`, `brewlet.resources.memoryLimit` | `256Mi` / `512Mi` |
 | JVM tuning | `<jvmArgs><jvmArg>...</jvmArg></jvmArgs>` | none |

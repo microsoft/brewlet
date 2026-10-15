@@ -251,26 +251,23 @@ foreground using a node-resident JDK and the invoking OS user's credentials.
 This is the Layer‑1 demo path (no cgroups).
 
 ```
-brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [-- <extra jvm args>]
+brewlet run <ref> [--store DIR] [--jdk-root DIR] [-- <extra jvm args>]
 ```
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--jdk-root` | *(none)* | Node JDK home to launch with. When unset, falls back to `BREWLET_JDK_HOME`, then `JAVA_HOME`, then `java` on `PATH`. |
-| `--launcher` | `java` | Launcher binary **name** under the selected JDK (or a compatible node-installed launcher name such as `jaz`), resolved on `PATH`. It is a lowercase DNS-1123 token, never a path: separators, `..` and absolute paths are rejected. |
 | `-- <args>` | *(none)* | Everything after `--` is appended as extra JVM args, immediately before the artifact's entrypoint (the local-dev equivalent of descriptor `jvm.args`). Args that select the entrypoint — `-jar`, `-cp`/`-classpath`/`--class-path`, `-p`/`--module-path`, `-m`/`--module`, and `@argfile` — are rejected: the artifact owns the entrypoint. |
 
 ```bash
 brewlet run demo/hello:1.0.0
 brewlet run demo/hello:1.0.0 -- -Dspring.profiles.active=dev -XX:+UseZGC
 brewlet run demo/hello:1.0.0 --jdk-root /opt/brewlet/jdks/temurin-21
-brewlet run demo/hello:1.0.0 --launcher jaz
 ```
 
-It prints the selected node JDK, the launcher (if a custom one like `jaz` is
-configured), the sandbox path, and the exact launch command line before the JVM's
-own output.
+It prints the selected node JDK, the sandbox path, and the exact launch command
+line before the JVM's own output.
 
 ---
 
@@ -280,7 +277,7 @@ Emit the **OCI runtime bundle** (`config.json` + rootfs layout) that the contain
 shim feeds to runc. Useful to see exactly what will run on a node.
 
 ```
-brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--out DIR]
+brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--out DIR]
 ```
 
 | Flag | Default | Meaning |
@@ -291,8 +288,6 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID
 | `--uid` | `65532` | Trusted runtime process UID (`0`–`4294967294`) written to the OCI bundle. Artifact metadata cannot set it. |
 | `--gid` | `65532` | Trusted runtime process GID (`0`–`4294967294`) written to the OCI bundle. Artifact metadata cannot set it. |
 | `--jdk-root` | `/opt/brewlet/jdks/temurin-21` | Node JDK runtime root to mount read-only. |
-| `--launcher` | `java` | Launcher binary **name** to record in the runtime spec annotations and execute. Same token rule as `brewlet run --launcher`. |
-| `--launcher-root` | *(none)* | Node launcher-layer root for a custom launcher (e.g. `jaz`). |
 | `--out` | `./bundle` | Output bundle directory. |
 
 Supplied limits must be positive and representable. Malformed values, unsupported
@@ -450,7 +445,6 @@ opens a debugger.
 
 ```text
 brewlet k8s jdk list
-brewlet k8s launcher list
 brewlet k8s profile list
 brewlet k8s profile inspect NAME
 brewlet k8s profile delete NAME [--wait] [--wait-timeout 10m] [--yes]
@@ -461,7 +455,6 @@ brewlet k8s status
 brewlet k8s doctor
 brewlet k8s install --version X.Y.Z --values FILE
 brewlet k8s jdk add --profile NAME --distribution NAME --feature N --image REF --java-home PATH
-brewlet k8s launcher add --profile NAME --name NAME --image REF --path PATH
 ```
 
 **Command verbs describe their effects:** `add` updates the live profile,
@@ -483,7 +476,7 @@ Flags may also follow positional names.
 | `--context NAME` | Current context | Explicit context, without modifying kubeconfig. |
 | `--namespace NAME` | Command-dependent | The namespace the command operates on, as in `kubectl`. See [Namespaces](#namespaces). |
 | `--timeout DURATION` | `30s` | Deadline for each kubectl invocation, including credential helpers. |
-| `--output FORMAT` | Command-dependent | Read commands default to `table` and support `json`/`yaml`. JDK/launcher inventory supports `table`/`wide`/`json` instead. `add`, including dry runs, defaults to `yaml` and also supports `json`. Installation reports step-by-step progress and live rollout status on stderr (a spinner on terminals, periodic lines otherwise) and prints Helm output to stdout after a successful command. |
+| `--output FORMAT` | Command-dependent | Read commands default to `table` and support `json`/`yaml`. JDK inventory supports `table`/`wide`/`json` instead. `add`, including dry runs, defaults to `yaml` and also supports `json`. Installation reports step-by-step progress and live rollout status on stderr (a spinner on terminals, periodic lines otherwise) and prints Helm output to stdout after a successful command. |
 
 ### Namespaces
 
@@ -496,7 +489,7 @@ Flags may also follow positional names.
 | `inspect app` | Application namespace | Current context namespace |
 | `app status`, `app wait` | Application namespace | Current context namespace |
 | `doctor` | Application namespace for the permission check | Current context namespace, else `default` |
-| `jdk list`, `launcher list`, `profile list`, `profile inspect`, `profile delete`, `jdk add`, `launcher add` | Not applicable: these resources are cluster-scoped | Rejected with an error |
+| `jdk list`, `profile list`, `profile inspect`, `profile delete`, `jdk add` | Not applicable: these resources are cluster-scoped | Rejected with an error |
 
 Inspection's default output is a structured YAML report rather than a flattened
 table. All commands propagate tool/API failures; RBAC-denied reads are not
@@ -507,7 +500,6 @@ stderr.
 
 ```bash
 brewlet k8s jdk list --output wide
-brewlet k8s launcher list --selector brewlet.sh/runtime=ready
 brewlet k8s profile list --output json
 brewlet k8s profile inspect java-workers
 brewlet k8s status --namespace brewlet --output json
@@ -516,13 +508,11 @@ brewlet k8s doctor --namespace my-team
 ```
 
 JDK inventory uses [structured-only JDK aggregation](#brewlet-k8s-jdk-list).
-Launcher inventory aggregates optional launcher
-names from `brewlet.sh/launchers`; the JDK's implicit `java` launcher is not a
-separate entry. Both inventories describe **node-advertised state**, not a
+This inventory describes **node-advertised state**, not a
 catalog, a live probe of node files, or proof that a particular Pod uses a JDK.
 Use `--selector` to restrict nodes, such as to runtime-ready nodes.
 
-Profile listing shows **desired** JDK/launcher inventories, pool selection,
+Profile listing shows **desired** JDK inventories, pool selection,
 readiness, node counts, and `PENDING RETIREMENTS` (`pendingRetirements` in
 JSON/YAML): the number of unresolved detached missing-host cleanup obligations.
 A profile can be ready while this count is nonzero; deletion and uninstall
@@ -656,12 +646,10 @@ they are required while `defaultProfile.enabled` is true. Copying the chart's
 default file unchanged will therefore fail. You do not need to copy every
 setting into your own file; include your pool, complete JDK inventory, and any
 other overrides you need. Additional JDKs are entries in the same `jdks` list.
-Optional launchers belong in `provisioner.launchers`; omit that list to use the
-JDK's implicit `java` launcher.
 
 The [full Helm values reference](configuration.md#helm-chart-values) and
 [annotated chart defaults](https://github.com/microsoft/brewlet/blob/main/kubernetes/charts/brewlet/values.yaml)
-describe optional settings, including launchers, mirrors, tolerations, rollout
+describe optional settings, including mirrors, tolerations, rollout
 policy, and additional profiles. Use settings supported by the chart version
 you select. For GitOps-managed profiles, you may instead disable
 `defaultProfile.enabled` and supply your own NodeProfiles; see
@@ -711,17 +699,16 @@ and the installation namespace as `--namespace`. Sources are never chosen for yo
 control-plane provisioning is never implicitly enabled, and no cleanup or
 uninstall is attempted after a failed installation.
 
-### Safe JDK and launcher additions
+### Safe JDK additions
 
-`jdk add` and `launcher add` **update the live NodeProfile by default**. They
-always select an existing profile and return its updated declaration. The
+`jdk add` **updates the live NodeProfile by default**. It
+always selects an existing profile and returns its updated declaration. The
 source image must be a fully qualified, tagless SHA-256 digest reference; paths
-and inventory names follow the [JDK](jdk-management.md#source-model) and
-[launcher](launchers.md#launcher-names-are-tokens-not-paths) source contracts.
+and inventory names follow the [JDK source contract](jdk-management.md#source-model).
 
 | Command mode | Effect |
 | --- | --- |
-| `jdk add` / `launcher add` | Persist the inventory change to the live profile. |
+| `jdk add` | Persist the inventory change to the live profile. |
 | `add --dry-run` | Validate locally and print the proposed declaration; equivalent to `--dry-run=client`. |
 | `add --dry-run=client` | Validate the requested source and inventory change locally without sending a patch to the API server. |
 | `add --dry-run=server` | Validate the conditional patch through the API server and print the result without saving it. |
@@ -750,17 +737,17 @@ brewlet k8s jdk add --profile java-workers \
   --image 'docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>' \
   --java-home /opt/java/openjdk
 
-# Validate a launcher addition through the API server without saving it.
-brewlet k8s launcher add --profile java-workers \
-  --name jaz \
-  --image 'mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>' \
-  --path /usr/bin/jaz --dry-run=server
+# Validate a JDK addition through the API server without saving it.
+brewlet k8s jdk add --profile java-workers \
+  --distribution temurin --feature 25 \
+  --image 'docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>' \
+  --java-home /opt/java/openjdk --dry-run=server
 
 # Validate and print a GitOps change entirely offline from its source manifest.
-brewlet k8s launcher add --dry-run --profile java-workers --file profile.yaml \
-  --name jaz \
-  --image 'mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>' \
-  --path /usr/bin/jaz > profile-next.yaml
+brewlet k8s jdk add --dry-run --profile java-workers --file profile.yaml \
+  --distribution temurin --feature 25 \
+  --image 'docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>' \
+  --java-home /opt/java/openjdk > profile-next.yaml
 
 # Generate proposed values for a Helm-owned profile; does not deploy them.
 brewlet k8s jdk add --dry-run --profile default --values values.yaml \
@@ -782,7 +769,7 @@ complete inventory-owning values, not a partial list overlay: Helm replaces
 arrays rather than merging entries.
 
 Adding an identical entry is idempotent. Replacing the source for an existing
-distribution/feature or launcher name requires `--replace`. Duplicate identities
+distribution/feature requires `--replace`. Duplicate identities
 and inventories above the CRD's 32-entry limit are rejected. Local generation
 validates the supplied entry, not registry contents, node architecture
 compatibility, or the cluster's full admission policy.
@@ -820,7 +807,7 @@ not remove the Helm release or its retained CRDs.
 
 `profile delete NAME` deletes an unmanaged live NodeProfile and, with `--wait`,
 follows the operator's host cleanup until the profile is gone. **Deletion is
-destructive:** the operator removes the profile's JDK/launcher runtimes,
+destructive:** the operator removes the profile's JDK runtimes,
 shim, and runtime labels from every node it claimed (see
 [provisioning completion and deletion](jdk-management.md#provisioning-completion-and-deletion)).
 

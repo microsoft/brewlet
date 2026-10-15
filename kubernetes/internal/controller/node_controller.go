@@ -141,9 +141,8 @@ func (r *NodeReconciler) markReady(ctx context.Context, node *corev1.Node) error
 		return nil // already reconciled; avoid event spam
 	}
 	jdks := prettyInventory(node.Annotations[brewlet.AnnotationJDKs])
-	launchers := prettyInventory(node.Annotations[brewlet.AnnotationLaunchers])
 	r.Recorder.Eventf(node, corev1.EventTypeNormal, brewlet.ReasonNodeReady,
-		"node provisioned; JDKs=[%s] launchers=[%s]", jdks, launchers)
+		"node provisioned; JDKs=[%s]", jdks)
 	observability.ObserveProvisionTransition(brewlet.StateReady)
 	return r.setState(ctx, node, brewlet.StateReady)
 }

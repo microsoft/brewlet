@@ -142,7 +142,6 @@ class InstallationExamplesTest(unittest.TestCase):
                                   profile)
                     self.assertIn("        javaHome: /opt/java/openjdk\n", profile)
                     self.assertNotIn("includeControlPlane: true", profile)
-                    self.assertNotIn("\n  launchers:", profile)
                     if "values.yaml" in args:
                         for image in saved_images.values():
                             self.assertIn(image, result.stdout, "Render lost administrator image choice")
@@ -150,7 +149,7 @@ class InstallationExamplesTest(unittest.TestCase):
     def test_cli_values_example_is_self_contained_and_renders(self):
         document = (ROOT / "docs/cli-reference.md").read_text()
         installation = document.split("### Installation\n", 1)[1].split(
-            "### Safe JDK and launcher additions\n", 1
+            "### Safe JDK additions\n", 1
         )[0]
         inventory = self.inventory(installation)
         self.assertIn("    - javaworkers\n", inventory)
@@ -179,7 +178,6 @@ class InstallationExamplesTest(unittest.TestCase):
         )
         self.assertIn("        javaHome: /opt/java/openjdk\n", profile)
         self.assertNotIn("includeControlPlane: true", profile)
-        self.assertNotIn("\n  launchers:", profile)
 
     def test_fresh_install_guides_default_to_latest_chart(self):
         for filename in ("README.md", "docs/installation.md",

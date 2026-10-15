@@ -117,8 +117,7 @@ a CI-side bake.
 
 Admission validates that the image records the golden base digest it was built
 from — as an annotation covered by the publisher's signature — and that the digest
-appears in the operator's allow-list. This replaces the `NoCompatibleJDK` /
-`NoCompatibleLauncher` node-capability checks (§14) with a single policy check,
+appears in the operator's allow-list. This replaces the `NoCompatibleJDK` node-capability check (§14) with a single policy check,
 since runtime presence is no longer a per-node property.
 
 ## 6. Tradeoff analysis
@@ -146,9 +145,9 @@ since runtime presence is no longer a per-node property.
   applications × golden bases × architectures — before anything can roll. **G5**
   weakens from "independent of the artifact" to "independent of the developer's
   source build".
-- **Image combinatorics.** The shim resolves JDK distribution and launcher
-  late and per node. Baking freezes them, so the matrix becomes one image per
-  (golden base, architecture, JDK feature/distribution, launcher) tuple.
+- **Image combinatorics.** The shim resolves JDK distribution late and per node.
+  Baking freezes it, so the matrix becomes one image per
+  (golden base, architecture, JDK feature/distribution) tuple.
 - **Cold start on a fresh node regresses.** The provisioner pre-warms JDK roots
   today; a baked image means the first pod on a node pulls the full base. A
   pre-pull DaemonSet recovers this — which is node provisioning under another name.

@@ -53,7 +53,6 @@ func withdrawalTestNode() *corev1.Node {
 			Labels: map[string]string{
 				brewlet.LabelRuntimeReady:             brewlet.ValueReady,
 				brewlet.LabelJDKPrefix + "temurin-21": "true",
-				brewlet.LabelLauncherPrefix + "java":  "true",
 				"kubernetes.azure.com/agentpool":      "bwcaz",
 				brewlet.LabelJDKFeaturePrefix + "21":  "true",
 			},

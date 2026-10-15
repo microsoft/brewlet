@@ -81,10 +81,6 @@ public class ManifestMojo extends AbstractMojo {
     @Parameter(property = "brewlet.jdkDistribution")
     String jdkDistribution;
 
-    /** Development launcher, defaulting to java. */
-    @Parameter(property = "brewlet.launcher", defaultValue = "java")
-    String launcher;
-
     /**
      * Kubernetes namespace for the generated manifest.
      * Defaults to {@code default}.
@@ -281,10 +277,6 @@ public class ManifestMojo extends AbstractMojo {
         String resolvedDistribution = isBlank(jdkDistribution) ? null : jdkDistribution.trim();
         if (resolvedDistribution != null) {
             w.println("    distribution: " + yamlString(resolvedDistribution));
-        }
-        String resolvedLauncher = isBlank(launcher) ? "java" : launcher.trim();
-        if (!"java".equals(resolvedLauncher)) {
-            w.println("    launcher: " + yamlString(resolvedLauncher));
         }
 
         if (jvmArgs != null && !jvmArgs.isEmpty()) {

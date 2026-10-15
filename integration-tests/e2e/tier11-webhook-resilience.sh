@@ -7,7 +7,7 @@
 # Tiers 5/6 only exercise the webhook while it is UP (admit/deny logic). A webhook
 # outage is a real production concern with a deliberate design choice (§8/§14):
 # the chart ships failurePolicy: Ignore so an outage never blocks workloads (the
-# shim still enforces JDK/launcher compatibility at runtime). This tier proves
+# shim still enforces JDK compatibility at runtime). This tier proves
 # both stances end to end, in-cluster, against the real admission binary:
 #
 #   A) fail-open  (Ignore) + webhook scaled to 0  -> brewlet pod is ADMITTED but

@@ -15,10 +15,9 @@ import java.util.Map;
  * {@code JVMConfig} struct in {@code src/internal/artifact/artifact.go} so
  * that the JSON produced by this plugin is byte-compatible with the CLI.
  *
- * <p>The JDK feature/distribution and launcher are deliberately NOT part of
- * this config: they are set once, in the deployment descriptor (the CRD's
- * {@code jvm.version}/{@code jvm.launcher}, or the raw-Deployment pod
- * annotations {@code brewlet.sh/jdk} and {@code brewlet.sh/launcher}). See
+ * <p>The JDK feature/distribution is deliberately NOT part of this config:
+ * it is set in the deployment descriptor via {@code jvm.version} and
+ * {@code jvm.distribution}, or the pod annotation {@code brewlet.sh/jdk}. See
  * https://github.com/microsoft/brewlet/blob/main/docs/jdk-management.md.
  *
  * <p>Media type of the serialized blob:

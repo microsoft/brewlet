@@ -26,8 +26,7 @@ spec:
   jvm:
     version: 21                # JDK feature version; must match a node-installed JDK
     distribution: temurin      # optional: pin the distribution (temurin|microsoft); omit to accept any of this feature
-    launcher: jaz              # auto-tunes heap/GC/CPU from the cgroup limits (§9.3)
-    args: ["-XX:+ExitOnOutOfMemoryError"]  # only truly app-specific flags under jaz
+    args: ["-XX:+ExitOnOutOfMemoryError"]
   env:
     - name: SPRING_PROFILES_ACTIVE
       value: prod

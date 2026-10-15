@@ -27,16 +27,6 @@ func jdk(dist string, feature int32) nodev1alpha1.JDKRef {
 	}
 }
 
-func launcher(name string) nodev1alpha1.LauncherRef {
-	return nodev1alpha1.LauncherRef{
-		Name: name,
-		Source: nodev1alpha1.LauncherSource{
-			Image: "registry.example.com/launchers/" + name + "@" + testImageDigest,
-			Path:  "/usr/bin/" + name,
-		},
-	}
-}
-
 func profileNamed(name string, names []string, jdks ...nodev1alpha1.JDKRef) nodev1alpha1.NodeProfile {
 	return nodev1alpha1.NodeProfile{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
@@ -154,52 +144,6 @@ func TestValidateNodeProfile(t *testing.T) {
 					JavaHome: "/opt/jdk",
 				},
 			}}},
-			wantErr: true,
-		},
-		{
-			name: "launcher accepted",
-			spec: nodev1alpha1.NodeProfileSpec{
-				JDKs:      []nodev1alpha1.JDKRef{jdk("temurin", 21)},
-				Launchers: []nodev1alpha1.LauncherRef{launcher("jaz")},
-			},
-			wantErr: false,
-		},
-		{
-			name: "launcher source required",
-			spec: nodev1alpha1.NodeProfileSpec{
-				JDKs:      []nodev1alpha1.JDKRef{jdk("temurin", 21)},
-				Launchers: []nodev1alpha1.LauncherRef{{Name: "jaz"}},
-			},
-			wantErr: true,
-		},
-		{
-			name: "java launcher is implicit",
-			spec: nodev1alpha1.NodeProfileSpec{
-				JDKs:      []nodev1alpha1.JDKRef{jdk("temurin", 21)},
-				Launchers: []nodev1alpha1.LauncherRef{launcher("java")},
-			},
-			wantErr: true,
-		},
-		{
-			name: "duplicate launcher rejected",
-			spec: nodev1alpha1.NodeProfileSpec{
-				JDKs:      []nodev1alpha1.JDKRef{jdk("temurin", 21)},
-				Launchers: []nodev1alpha1.LauncherRef{launcher("jaz"), launcher("jaz")},
-			},
-			wantErr: true,
-		},
-		{
-			name: "launcher path must be clean and absolute",
-			spec: nodev1alpha1.NodeProfileSpec{
-				JDKs: []nodev1alpha1.JDKRef{jdk("temurin", 21)},
-				Launchers: []nodev1alpha1.LauncherRef{{
-					Name: "jaz",
-					Source: nodev1alpha1.LauncherSource{
-						Image: "registry.example.com/launchers/jaz@" + testImageDigest,
-						Path:  "/usr/../jaz",
-					},
-				}},
-			},
 			wantErr: true,
 		},
 		{

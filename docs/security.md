@@ -180,7 +180,7 @@ Node provisioning is **privileged and mutates the host**. The
 `brewlet-node-provisioner` DaemonSet:
 
 - runs privileged with `hostPID`;
-- writes the shim to the host `PATH` and JDK/launcher roots under `/opt/brewlet`;
+- writes the shim to the host `PATH` and JDK roots under `/opt/brewlet`;
 - writes an imported containerd drop-in when supported, or a backed-up primary
   config otherwise, and activates it through the host service manager.
 
@@ -194,13 +194,13 @@ Mitigations and guardrails:
 | **Scope to platform-owned pools** | Use named `NodeProfile` pools to restrict provisioning to nodes your platform team controls. Do **not** provision shared/hostile multi-tenant nodes. |
 | **Host writers require verified authority** | Provisioning and cleanup both require UID-bound node claims and durable profile authority; claim fencing cannot be disabled. Failed initial fences and pre-authorization errors leave host policy and node advertisements untouched. Competing or unfenced workers are refused, never adopted. |
 | **Build inputs fail closed** | The provisioner verifies repository-pinned SHA-256 values for `kubectl`, `ctr`, `crictl`, and downloaded notices before extraction. Its runtime image receives only verified outputs, all repository Dockerfile bases are digest-pinned, and CI and release workflows reject corrupt assets or future unpinned/download-bypass changes. |
-| **Sources are immutable before host access** | Every JDK and launcher source must be a fully qualified, tagless `repository@sha256:<digest>` reference with an explicit path. All entries are validated before shim installation or any host containerd/filesystem operation. Brewlet has no built-in runtime catalog. |
+| **Sources are immutable before host access** | Every JDK source must be a fully qualified, tagless `repository@sha256:<digest>` reference with an explicit path. All entries are validated before shim installation or any host containerd/filesystem operation. Brewlet has no built-in runtime catalog. |
 | **Mirror destinations are externally allowlisted** | Configure exact destination registry hosts through `security.allowedSourceMirrorHosts`; empty disables mirrors. Admission, reconciliation, and the provisioner reject malformed, duplicate, self, or unapproved mappings, while approved rewrites retain the reviewed digest. |
 | **Admission is not the security boundary** | The operator repeats source, mirror, and pool validation before creating a privileged DaemonSet. Invalid profiles receive `Ready=False` with reason `InvalidProfile`; their DaemonSet and profile-owned node advertisements are removed. |
 | **Stale provisioners cannot republish readiness** | Provisioner DaemonSets are deleted in the foreground, reconciliation waits for their pods to terminate, and each managed provisioner rechecks its profile UID, generation, and deletion state immediately before advertising node capabilities. |
-| **Runtime selection cannot leave the runtime roots** | A requested launcher or JDK distribution must be a lowercase DNS-1123 token — no path separator, parent reference, wildcard, or absolute path — and must be listed in the node's `.brewlet-active` inventory. The shim resolves symlinks and proves with `filepath.Rel` that the selected root is a direct child of `/opt/brewlet/{launchers,jdks}` before it becomes an overlay lower layer or a bind-mount source. Admission rejects a malformed `brewlet.sh/launcher` annotation, but the node-side check does not depend on it. |
-| **Stale or hostile image roots are not trusted** | Existing JDK roots are not executed until `.brewlet-source` matches the newly verified digest. Launcher images are pulled and mounted for host-side copying; they are not executed, do not receive host networking, and do not receive a writable host bind mount. |
-| **Host mutation is validated and reversible** | The provisioner rejects containerd servers older than 2.0, validates the effective config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK smoke tests and launcher executable checks pass. |
+| **Runtime selection cannot leave the runtime roots** | A requested JDK distribution must be a lowercase DNS-1123 token — no path separator, parent reference, wildcard, or absolute path — and must be listed in the node's `.brewlet-active` inventory. The shim resolves symlinks and proves with `filepath.Rel` that the selected root is a direct child of `/opt/brewlet/jdks` before it becomes an overlay lower layer or a bind-mount source. |
+| **Stale or hostile image roots are not trusted** | Existing JDK roots are not executed until `.brewlet-source` matches the newly verified digest. JDK images are pulled and mounted for host-side copying; source image entrypoints are not executed, do not receive host networking, and do not receive a writable host bind mount. |
+| **Host mutation is validated and reversible** | The provisioner rejects containerd servers older than 2.0, validates the effective config before activation, checks the live runtime handler afterward, and restores known-good configuration if restart or health checks fail. Nodes remain unready until JDK smoke tests pass. |
 | **The operator is unprivileged** | The operator only talks to the API server; only the DaemonSet it manages is privileged. Its cluster-wide grants exclude `daemonsets` — the privileged workload it creates is authorized by a `Role` in its own namespace, so the operator cannot write a privileged DaemonSet anywhere else. |
 | **Webhook outages do not cross the security boundary** | Pod and NodeProfile transport failures default to `Ignore`; the shim and NodeProfile reconciler independently repeat the security-critical checks before execution or privileged work. Set `admission.nodeProfileFailurePolicy=Fail` after certificate bootstrap when synchronous profile-write rejection is preferred. |
 | **Webhook credentials can rotate automatically** | The simple Helm path uses a 90-day self-signed certificate. Enable `admission.certManager` for continuous issuance, renewal, and CA-bundle injection. |
@@ -236,8 +236,8 @@ Mitigations and guardrails:
       `./scripts/verify-release-provenance.sh <version>` (or `gh attestation
       verify`) before promoting a release. See
       [Verify a release](installation.md#verify-a-release).
-- [ ] Use reviewed SHA-256 digest pins and absolute paths for every JDK and
-      launcher source; never use mutable tags.
+- [ ] Use reviewed SHA-256 digest pins and absolute paths for every JDK
+      source; never use mutable tags.
 - [ ] Allowlist only platform-operated mirror hosts and ensure mirrored OCI
       manifests retain their original digests.
 - [ ] Run workloads `runAsNonRoot`, drop capabilities, `readOnlyRootFilesystem`.

@@ -50,8 +50,7 @@ func TestBuildProfileDaemonSet(t *testing.T) {
 				jdk("temurin", 21),
 				jdk("microsoft", 25),
 			},
-			Launchers: []nodev1alpha1.LauncherRef{launcher("jaz")},
-			Registry:  &nodev1alpha1.RegistrySpec{Mirrors: map[string]string{"mcr.microsoft.com": "registry.internal/mcr"}},
+			Registry: &nodev1alpha1.RegistrySpec{Mirrors: map[string]string{"mcr.microsoft.com": "registry.internal/mcr"}},
 		},
 		Status: nodev1alpha1.NodeProfileStatus{
 			OwnershipInitialized:   true,
@@ -116,9 +115,6 @@ func TestBuildProfileDaemonSet(t *testing.T) {
 	}
 	if env["JDK_SOURCE_0_TOKEN"] != "temurin-21" || env["JDK_SOURCE_1_TOKEN"] != "microsoft-25" {
 		t.Errorf("JDK source tokens = %q, %q", env["JDK_SOURCE_0_TOKEN"], env["JDK_SOURCE_1_TOKEN"])
-	}
-	if env["LAUNCHER_SOURCE_COUNT"] != "1" || env["LAUNCHER_SOURCE_0_NAME"] != "jaz" {
-		t.Errorf("launcher source env = count %q name %q", env["LAUNCHER_SOURCE_COUNT"], env["LAUNCHER_SOURCE_0_NAME"])
 	}
 	if env["MIRRORS"] != "mcr.microsoft.com=registry.internal/mcr" {
 		t.Errorf("MIRRORS env = %q", env["MIRRORS"])

@@ -11,11 +11,10 @@
 #   1. Install the shim binary into the host PATH (/opt/brewlet/bin + /usr/local/bin).
 #   2. Install one or more read-only JDK runtime roots under /opt/brewlet/jdks/
 #      via copy-from-image (ctr against the host containerd).
-#   3. Optionally install launcher layers (e.g. jaz) under /opt/brewlet/launchers/.
-#   4. Register the `brewlet` runtime through a host-enabled drop-in or validated
+#   3. Register the `brewlet` runtime through a host-enabled drop-in or validated
 #      in-place fallback, then activate it through the selected restart mode.
-#   5. Label the node brewlet.sh/runtime=ready and advertise the installed
-#      JDKs/launchers via annotations, then remove the optional
+#   4. Label the node brewlet.sh/runtime=ready and advertise the installed
+#      JDKs via annotations, then remove the optional
 #      startup-taint.cluster-autoscaler.kubernetes.io/brewlet startup taint.
 #
 # The script is idempotent: it is safe to re-run, and only does work that is
@@ -57,8 +56,6 @@ HOST_CRICTL_PATH="${HOST_CRICTL_PATH:-/usr/local/bin/brewlet-crictl}"
 JDK_HOME_METADATA=".brewlet-java-home"
 JDK_SOURCE_METADATA=".brewlet-source"
 JDK_ACTIVE_INVENTORY=".brewlet-active"
-LAUNCHER_SOURCE_METADATA=".brewlet-source"
-LAUNCHER_ACTIVE_INVENTORY=".brewlet-active"
 SOURCE_POLICY_BIN="${SOURCE_POLICY_BIN:-/opt/brewlet-dist/brewlet-source-policy}"
 STAGE_GC_SRC="${STAGE_GC_SRC:-/opt/brewlet-dist/brewlet}"
 HOST_STAGE_GC_PATH="${HOST_STAGE_GC_PATH:-/usr/local/bin/brewlet-stage-gc}"
@@ -75,18 +72,16 @@ STAGE_GC_GROUP=""
 # hostPID today, but the reaper must not depend on that to join the host PID
 # namespace it verifies.
 STAGE_GC_NSENTER_FLAGS=(--mount --pid)
-# How long a rotated-out JDK/launcher root must age before it may be reclaimed.
+# How long a rotated-out JDK root must age before it may be reclaimed.
 # Belt-and-braces alongside the live-mount check in reclaim_retired_roots.
 RETIRED_GRACE_SECONDS="${BREWLET_RETIRED_GRACE_SECONDS:-3600}"
 
 # Runtime sources are transported as indexed environment variables so image
 # references and paths never need delimiter escaping. JDK_SOURCE_COUNT must be
-# positive. LAUNCHER_SOURCE_COUNT may be zero because vanilla java comes from
-# every JDK root.
+# positive.
 JDK_SOURCE_COUNT="${JDK_SOURCE_COUNT:-}"
-LAUNCHER_SOURCE_COUNT="${LAUNCHER_SOURCE_COUNT:-0}"
 
-# JDKs and launchers are obtained exclusively via copy-from-image after strict
+# JDKs are obtained exclusively via copy-from-image after strict
 # validation of administrator-provided digest pins. The image is pulled through
 # host containerd and copied out, so no source image is executed and no host
 # package manager is involved (§5.3).
@@ -94,7 +89,7 @@ CONTAINERD_ADDRESS="${CONTAINERD_ADDRESS:-/run/containerd/containerd.sock}"
 CONTAINERD_NAMESPACE="${CONTAINERD_NAMESPACE:-k8s.io}"
 
 # Operating mode, set by the DaemonSet the operator renders per NodeProfile:
-#   provision (default) = install the shim/JDKs/launchers and mark the node ready
+#   provision (default) = install the shim/JDKs and mark the node ready
 #   cleanup             = reverse all host state for a deleted profile (§5.6)
 BREWLET_MODE="${BREWLET_MODE:-provision}"
 
@@ -305,32 +300,23 @@ mirror_ref() {
   printf '%s' "$ref"
 }
 
-# Parsed runtime inventory. JDKS and LAUNCHERS are derived outputs used by the
+# Parsed runtime inventory. JDKS is a derived output used by the
 # existing installation, validation, and node-advertisement paths; they are
 # never accepted as independent inputs.
 JDK_TOKENS=()
 JDK_IMAGES=()
 JDK_JAVA_HOMES=()
-LAUNCHER_NAMES=()
-LAUNCHER_IMAGES=()
-LAUNCHER_PATHS=()
 JDKS=""
-LAUNCHERS=""
 
 parse_runtime_sources() {
   [[ -x "$SOURCE_POLICY_BIN" ]] \
     || die source-policy-validator-missing "source policy validator not found or executable at ${SOURCE_POLICY_BIN}"
   [[ "$JDK_SOURCE_COUNT" =~ ^[1-9][0-9]*$ ]] \
     || die invalid-jdk-source "JDK_SOURCE_COUNT must be a positive integer"
-  [[ "$LAUNCHER_SOURCE_COUNT" =~ ^[0-9]+$ ]] \
-    || die invalid-launcher-source "LAUNCHER_SOURCE_COUNT must be a non-negative integer"
 
   JDK_TOKENS=()
   JDK_IMAGES=()
   JDK_JAVA_HOMES=()
-  LAUNCHER_NAMES=()
-  LAUNCHER_IMAGES=()
-  LAUNCHER_PATHS=()
 
   local i token_var image_var home_var token image java_home existing
   for ((i = 0; i < JDK_SOURCE_COUNT; i++)); do
@@ -355,37 +341,8 @@ parse_runtime_sources() {
     JDK_JAVA_HOMES+=("$java_home")
   done
 
-  local name_var path_var name source_path
-  for ((i = 0; i < LAUNCHER_SOURCE_COUNT; i++)); do
-    name_var="LAUNCHER_SOURCE_${i}_NAME"
-    image_var="LAUNCHER_SOURCE_${i}_IMAGE"
-    path_var="LAUNCHER_SOURCE_${i}_PATH"
-    name="$(printenv "$name_var" 2>/dev/null || true)"
-    image="$(printenv "$image_var" 2>/dev/null || true)"
-    source_path="$(printenv "$path_var" 2>/dev/null || true)"
-    [[ -n "$name" && -n "$image" && -n "$source_path" ]] \
-      || die invalid-launcher-source "launcher source ${i} requires ${name_var}, ${image_var}, and ${path_var}"
-    [[ "$name" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] \
-      || die invalid-launcher-source "launcher source ${i} name must be a lowercase DNS label"
-    (( ${#name} <= 54 )) || die invalid-launcher-source "launcher source ${i} name exceeds 54 characters"
-    [[ "$name" != "java" ]] \
-      || die invalid-launcher-source "launcher source ${i} must not use reserved name 'java'"
-    validate_digest_image "$image" "launcher source ${i} image is not digest-pinned"
-    validate_source_path "$source_path" "launcher source ${i} path is invalid"
-    for existing in "${LAUNCHER_NAMES[@]:-}"; do
-      [[ "$existing" != "$name" ]] || die invalid-launcher-source "duplicate launcher source for ${name}"
-    done
-    LAUNCHER_NAMES+=("$name")
-    LAUNCHER_IMAGES+=("$image")
-    LAUNCHER_PATHS+=("$source_path")
-  done
-
   JDKS="$(IFS=,; printf '%s' "${JDK_TOKENS[*]}")"
-  if (( ${#LAUNCHER_NAMES[@]} > 0 )); then
-    LAUNCHERS="$(IFS=,; printf '%s' "${LAUNCHER_NAMES[*]}")"
-  else
-    LAUNCHERS=""
-  fi
+
 }
 
 # Map `uname -m` to the OCI platform token (used only for logging here; the copy
@@ -823,108 +780,15 @@ jdk_from_image() {
   printf '%s\n%s\n' "$image" "$src" >"$dest/$JDK_SOURCE_METADATA"
 }
 
-# ---------------------------------------------------------------------------
-# Step 2b — install launcher layers (e.g. jaz). Independent of the JDKs (§5.4).
-# ---------------------------------------------------------------------------
-LAUNCHER_SOURCE_IMAGE=""
-LAUNCHER_SOURCE_PATH=""
-
-resolve_launcher_source() {
-  local name="$1" i
-  LAUNCHER_SOURCE_IMAGE=""
-  LAUNCHER_SOURCE_PATH=""
-  for i in "${!LAUNCHER_NAMES[@]}"; do
-    if [[ "${LAUNCHER_NAMES[$i]}" == "$name" ]]; then
-      LAUNCHER_SOURCE_IMAGE="${LAUNCHER_IMAGES[$i]}"
-      LAUNCHER_SOURCE_PATH="${LAUNCHER_PATHS[$i]}"
-      break
-    fi
-  done
-  [[ -n "$LAUNCHER_SOURCE_IMAGE" && -n "$LAUNCHER_SOURCE_PATH" ]] \
-    || die launcher-source-missing "no configured source exists for launcher ${name}"
-  LAUNCHER_SOURCE_IMAGE="$(mirror_ref "$LAUNCHER_SOURCE_IMAGE")"
-  validate_digest_image "$LAUNCHER_SOURCE_IMAGE" "resolved launcher source for ${name} is invalid"
-}
-
-launcher_source_has_symlink() {
-  local mount_dir="$1" source_path="$2" current="$1" component
-  local -a components=()
-  if host_exec test -L "$current"; then
-    return 0
-  fi
-  IFS='/' read -r -a components <<<"${source_path#/}"
-  for component in "${components[@]}"; do
-    current="${current}/${component}"
-    if host_exec test -L "$current"; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-install_launcher() {
-  local name="$1" dest stage retired digest mount_dir source_file
-  dest="$PREFIX/launchers/${name}"
-  if [[ "$name" == "java" ]]; then
-    log "launcher 'java' is provided by the JDK root; nothing to stage"
-    return 0
-  fi
-  resolve_launcher_source "$name"
-  if [[ -f "$dest/$LAUNCHER_SOURCE_METADATA" ]] &&
-    cmp -s <(printf '%s\n%s\n' "$LAUNCHER_SOURCE_IMAGE" "$LAUNCHER_SOURCE_PATH") "$dest/$LAUNCHER_SOURCE_METADATA" &&
-    [[ -x "$dest/bin/${name}" ]]; then
-    log "launcher ${name} already present — skipping"
-    return 0
-  fi
-  log "installing launcher ${name} -> $dest/bin/${name}"
-  stage="${dest}.staging.$$"
-  chmod -R u+w "$stage" 2>/dev/null || true
-  rm -rf "$stage"
-  mkdir -p "$stage/bin"
-  log "  pulling $LAUNCHER_SOURCE_IMAGE"
-  host_ctr image pull "$LAUNCHER_SOURCE_IMAGE" >/dev/null
-  digest="${LAUNCHER_SOURCE_IMAGE##*@sha256:}"
-  mount_dir="$PREFIX/.image-mount-launcher-${name}-${digest}"
-  host_exec mkdir -p "$mount_dir"
-  track_source_mount "$mount_dir"
-  if ! host_ctr images mount "$LAUNCHER_SOURCE_IMAGE" "$mount_dir" >/dev/null; then
-    release_source_mount "$mount_dir" || true
-    die launcher-install-failed "could not mount launcher source image $LAUNCHER_SOURCE_IMAGE"
-  fi
-  source_file="${mount_dir}${LAUNCHER_SOURCE_PATH}"
-  if ! host_exec test -f "$source_file" || launcher_source_has_symlink "$mount_dir" "$LAUNCHER_SOURCE_PATH"; then
-    release_source_mount "$mount_dir" || true
-    die launcher-install-failed "launcher ${name} source must be a regular file reached without symlink path components"
-  fi
-  if ! host_exec install -m 0755 "$source_file" "$stage/bin/$name"; then
-    release_source_mount "$mount_dir" || true
-    die launcher-install-failed "could not copy launcher ${name} from $LAUNCHER_SOURCE_IMAGE"
-  fi
-  release_source_mount "$mount_dir" || die launcher-install-failed "could not unmount launcher source image $LAUNCHER_SOURCE_IMAGE"
-  printf '%s\n%s\n' "$LAUNCHER_SOURCE_IMAGE" "$LAUNCHER_SOURCE_PATH" >"$stage/$LAUNCHER_SOURCE_METADATA"
-  chmod -R a-w "$stage" 2>/dev/null || true
-  if [[ -e "$dest" ]]; then
-    retired="${dest}.retired.$(date +%s).$$"
-    mv "$dest" "$retired" || die launcher-install-failed "could not retain the previous launcher ${name}"
-  fi
-  if ! mv "$stage" "$dest"; then
-    [[ -n "${retired:-}" && -e "$retired" ]] && mv "$retired" "$dest" || true
-    die launcher-install-failed "could not activate launcher ${name}"
-  fi
-}
-
 preflight_sources() {
-  local j l
+  local j
   for j in "${JDK_TOKENS[@]}"; do
     resolve_jdk_source "${j%-*}" "${j##*-}"
   done
-  for l in "${LAUNCHER_NAMES[@]}"; do
-    resolve_launcher_source "$l"
-  done
-  log "validated all configured JDK and launcher sources"
+  log "validated all configured JDK sources"
 }
 
-# Rotating a JDK or launcher root renames the previous one to
+# Rotating a JDK root renames the previous one to
 # "<root>.retired.<epoch>.<pid>" rather than deleting it, because overlayfs
 # resolves lowerdir at mount time: removing a root a live sandbox still uses
 # would break that container. Roots are therefore "versioned and additive"
@@ -940,7 +804,7 @@ preflight_sources() {
 # Mount *option strings* cannot answer gate 1: overlay lowerdir= and
 # /proc/mounts keep the path the root had when the sandbox started, which after
 # rotation is the NEW root's name. Every Brewlet sandbox also bind-mounts its
-# JDK home (and launcher root) from inside the runtime root, and the kernel
+# JDK home from inside the runtime root, and the kernel
 # renders a bind mount's mountinfo "root" field from the live dentry, so it
 # follows the rename. Matching that field plus the device number identifies a
 # retired root that a running container still uses.
@@ -1050,7 +914,7 @@ reclaim_retired_roots() {
     log "reclaiming retired root $dir"
     chmod -R u+w "$dir" 2>/dev/null || true
     rm -rf "$dir" || log "WARN: could not reclaim retired root $dir"
-  done < <(find "$PREFIX/jdks" "$PREFIX/launchers" -maxdepth 1 -type d -name '*.retired.*' 2>/dev/null)
+  done < <(find "$PREFIX/jdks" -maxdepth 1 -type d -name '*.retired.*' 2>/dev/null)
   [[ -z "$snapshot" ]] || rm -f -- "$snapshot"
 
   # Staging directories are only ever visible mid-install, so one left behind
@@ -1060,31 +924,25 @@ reclaim_retired_roots() {
     log "removing stale staging directory $dir"
     chmod -R u+w "$dir" 2>/dev/null || true
     rm -rf "$dir" || log "WARN: could not remove stale staging directory $dir"
-  done < <(find "$PREFIX/jdks" "$PREFIX/launchers" -maxdepth 1 -type d -name '*.staging.*' 2>/dev/null)
+  done < <(find "$PREFIX/jdks" -maxdepth 1 -type d -name '*.staging.*' 2>/dev/null)
 }
 
 # Remove every installed runtime root. Used only by cleanup mode, where the
 # NodeProfile that authorized these roots is being deleted.
 remove_runtime_roots() {
-  local dir
-  for dir in "$PREFIX/jdks" "$PREFIX/launchers"; do
-    [[ -d "$dir" ]] || continue
-    log "removing runtime roots under $dir"
-    chmod -R u+w "$dir" 2>/dev/null || true
-    rm -rf "${dir:?}" || log "WARN: could not remove runtime roots under $dir"
-  done
+  local dir="$PREFIX/jdks"
+  [[ -d "$dir" ]] || return 0
+  log "removing runtime roots under $dir"
+  chmod -R u+w "$dir" 2>/dev/null || true
+  rm -rf "${dir:?}" || log "WARN: could not remove runtime roots under $dir"
 }
 
 install_runtime_sources() {
-  local j launcher
+  local j
   for j in "${JDK_TOKENS[@]}"; do
     install_jdk "$j"
   done
   write_active_jdk_inventory
-  for launcher in "${LAUNCHER_NAMES[@]}"; do
-    install_launcher "$launcher"
-  done
-  write_active_launcher_inventory
 }
 
 # ---------------------------------------------------------------------------
@@ -1182,46 +1040,13 @@ render_containerd_runtime() {
 [plugins."${plugin}".containerd.runtimes.brewlet]
   runtime_type = "io.containerd.brewlet.v2"
   # Propagate the deployment-descriptor annotations the admission webhook stamps
-  # onto the OCI spec so the shim can apply JDK, launcher, and JVM tuning requests.
+  # onto the OCI spec so the shim can apply JDK and JVM tuning requests.
   # Executable identity comes from CRI and containerd's content store.
   pod_annotations = ["brewlet.sh/*"]
   [plugins."${plugin}".containerd.runtimes.brewlet.options]
     SystemdCgroup = ${systemd_cgroup}
 # --- end brewlet ---
 EOF
-}
-
-# Keep launcher-derived provision-error reasons concise and bounded even if a
-# future inventory source passes an invalid or unexpectedly long token. The
-# budget is 39 characters so that the longest composed code —
-# "launcher-<id>-not-executable" (9 + 39 + 15) — still fits the 63-character
-# reason-code limit normalize_reason_code enforces, which truncates from the
-# tail and would otherwise eat the semantic suffix.
-LAUNCHER_REASON_ID_MAX=39
-launcher_reason_id() {
-  local name="$1"
-  name="${name//[^[:alnum:]._-]/_}"
-  printf '%.*s' "$LAUNCHER_REASON_ID_MAX" "$name"
-}
-
-validate_launcher() {
-  local name="$1" root binary reason_id
-  [[ "$name" != "java" ]] || return 0
-  root="$PREFIX/launchers/${name}"
-  binary="$root/bin/${name}"
-  reason_id="$(launcher_reason_id "$name")"
-
-  # §5.2 requires an executable REGULAR file. -e alone also accepts a directory,
-  # a device, or a dangling symlink's target class, and -x on a directory means
-  # "searchable" — so a staged launcher that is a directory would previously have
-  # passed both checks and then failed at exec time, on the first workload rather
-  # than at provisioning. -f is checked before -x so the diagnostic names the
-  # real problem.
-  [[ -e "$binary" ]] || die "launcher-${reason_id}-missing" "launcher ${name} binary not found at ${binary}"
-  [[ -f "$binary" ]] || die "launcher-${reason_id}-not-executable" "launcher ${name} at ${binary} is not a regular file"
-  [[ -x "$binary" ]] || die "launcher-${reason_id}-not-executable" "launcher ${name} binary at ${binary} is not executable"
-
-  log "launcher ${name} is present and executable"
 }
 
 containerd_config_has_runtime() {
@@ -1395,14 +1220,13 @@ configure_containerd_validated() {
   fi
 }
 
-# Before readiness is advertised, smoke-test every installed JDK and verify each
-# staged launcher exists and is executable. Honors BREWLET_VALIDATE=false.
+# Before readiness is advertised, smoke-test every installed JDK. Honors BREWLET_VALIDATE=false.
 validate_runtime() {
   if [[ "${BREWLET_VALIDATE}" == "false" ]]; then
     log "validation disabled (BREWLET_VALIDATE=false); skipping runtime checks"
     return 0
   fi
-  local spec dist feature root java_home launcher
+  local spec dist feature root java_home
   IFS=',' read -ra _jdks <<<"$JDKS"
   for spec in "${_jdks[@]}"; do
     [[ -n "$spec" ]] || continue
@@ -1412,11 +1236,7 @@ validate_runtime() {
     jdk_root_complete "$root" \
       || die jdk-validation-failed "validation failed: '${java_home%/}/bin/java -version' errored inside ${root} for ${spec}"
   done
-  IFS=',' read -ra _launchers <<<"$LAUNCHERS"
-  for launcher in "${_launchers[@]}"; do
-    [[ -n "$launcher" ]] && validate_launcher "$launcher"
-  done
-  log "validation passed: all JDKs smoke-tested and launchers checked"
+  log "validation passed: all JDKs smoke-tested"
 }
 
 validate_restart_mode() {
@@ -1605,39 +1425,29 @@ label_node() {
   command -v kubectl >/dev/null || { log "WARN: kubectl not present; skipping node labelling"; return 0; }
   # Publish the current compact contract used by compatibility admission,
   # node-ready events, and CLI status/inspection alongside detailed inventory.
-  local jdk_ann launcher_ann jdks_info
+  local jdk_ann jdks_info
   jdk_ann="${JDKS}"
-  launcher_ann="java${LAUNCHERS:+,${LAUNCHERS}}"
   IFS=',' read -ra _jdks <<<"$JDKS"
   # Rich, developer-facing inventory (vendor, major, minor version, arch) so
   # devs can inspect prod JDKs via `kubectl get nodes` or `brewlet k8s jdk list`.
   jdks_info="$(jdks_info_json "${_jdks[@]}")"
-  log "labelling node ${NODE_NAME} ready; jdks=${jdk_ann} launchers=${launcher_ann}"
+  log "labelling node ${NODE_NAME} ready; jdks=${jdk_ann}"
   log "advertising jdks-info=${jdks_info}"
   kubectl annotate node "$NODE_NAME" \
     "brewlet.sh/jdks=${jdk_ann}" \
     "brewlet.sh/jdks-info=${jdks_info}" \
-    "brewlet.sh/launchers=${launcher_ann}" \
     "brewlet.sh/profile=${BREWLET_PROFILE_NAME}" \
     "brewlet.sh/profile-generation=${BREWLET_PROFILE_GENERATION}" --overwrite || return 1
 
   # Per-capability labels drive the admission webhook's nodeAffinity so the
   # scheduler skips incompatible nodes (annotations can't drive nodeAffinity).
   # For each JDK <dist>-<feature> we emit both an exact label and a
-  # distribution-agnostic feature label; for each launcher (including implicit java)
-  # a presence label. See https://github.com/microsoft/brewlet/tree/main/specs §8/§14.
+  # distribution-agnostic feature label. See https://github.com/microsoft/brewlet/tree/main/specs §8/§14.
   local caps=()
   for j in "${_jdks[@]}"; do
     [[ -n "$j" ]] || continue
     caps+=( "brewlet.sh/jdk.${j}=true" "brewlet.sh/jdk-feature.${j##*-}=true" )
   done
-  caps+=( "brewlet.sh/launcher.java=true" )
-  if [[ -n "$LAUNCHERS" ]]; then
-    IFS=',' read -ra _launchers <<<"$LAUNCHERS"
-    for l in "${_launchers[@]}"; do
-      [[ -n "$l" ]] && caps+=( "brewlet.sh/launcher.${l}=true" )
-    done
-  fi
   prune_stale_capabilities "${caps[@]}" || return 1
   log "advertising scheduling labels: ${caps[*]}"
   kubectl label node "$NODE_NAME" "${caps[@]}" --overwrite || return 1
@@ -1701,7 +1511,7 @@ prune_stale_capabilities() {
   keys="$(kubectl get node "$NODE_NAME" -o go-template='{{range $k, $v := .metadata.labels}}{{$k}}{{"\n"}}{{end}}')" || return 1
   while IFS= read -r key; do
     case "$key" in
-      brewlet.sh/jdk.*|brewlet.sh/jdk-feature.*|brewlet.sh/launcher.*) ;;
+      brewlet.sh/jdk.*|brewlet.sh/jdk-feature.*) ;;
       *) continue ;;
     esac
     [[ "$wanted" != *$'\n'"$key"$'\n'* ]] || continue
@@ -1789,21 +1599,16 @@ verify_node_ownership() {
 
 clear_node_advertisement() {
   command -v kubectl >/dev/null || return 0
-  local old_jdks old_launchers caps=() _old_jdks=() _old_launchers=()
+  local old_jdks caps=() _old_jdks=()
   old_jdks="$(kubectl get node "$NODE_NAME" -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks}' 2>/dev/null || true)"
-  old_launchers="$(kubectl get node "$NODE_NAME" -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}' 2>/dev/null || true)"
   IFS=',' read -ra _old_jdks <<<"$old_jdks"
   for j in "${_old_jdks[@]:-}"; do
     [[ -n "$j" ]] || continue
     caps+=( "brewlet.sh/jdk.${j}" "brewlet.sh/jdk-feature.${j##*-}" )
   done
-  IFS=',' read -ra _old_launchers <<<"$old_launchers"
-  for l in "${_old_launchers[@]:-}"; do
-    [[ -n "$l" ]] && caps+=( "brewlet.sh/launcher.${l}" )
-  done
   remove_node_labels brewlet.sh/runtime ${caps[@]+"${caps[@]}"} || return 1
   kubectl annotate node "$NODE_NAME" \
-    brewlet.sh/jdks- brewlet.sh/jdks-info- brewlet.sh/launchers- \
+    brewlet.sh/jdks- brewlet.sh/jdks-info- \
     brewlet.sh/profile- brewlet.sh/profile-generation- \
     "${ANNOTATION_PROVISION_ERROR}-" "${ANNOTATION_PROVISION_ERROR_MESSAGE}-" >/dev/null 2>&1 || return 1
 }
@@ -1813,17 +1618,6 @@ write_active_jdk_inventory() {
   mkdir -p "$PREFIX/jdks"
   tr ',' '\n' <<<"$JDKS" >"$tmp"
   mv "$tmp" "$PREFIX/jdks/$JDK_ACTIVE_INVENTORY"
-}
-
-write_active_launcher_inventory() {
-  local tmp="$PREFIX/launchers/${LAUNCHER_ACTIVE_INVENTORY}.tmp.$$"
-  mkdir -p "$PREFIX/launchers"
-  if [[ -n "$LAUNCHERS" ]]; then
-    tr ',' '\n' <<<"$LAUNCHERS" >"$tmp"
-  else
-    : >"$tmp"
-  fi
-  mv "$tmp" "$PREFIX/launchers/$LAUNCHER_ACTIVE_INVENTORY"
 }
 
 # ---------------------------------------------------------------------------
@@ -1887,7 +1681,7 @@ cleanup_host() {
   if [[ "${BREWLET_CLEANUP_RUNTIME_ROOTS:-true}" == "true" ]]; then
     remove_runtime_roots
   else
-    log "BREWLET_CLEANUP_RUNTIME_ROOTS=false; leaving installed JDK/launcher roots in place"
+    log "BREWLET_CLEANUP_RUNTIME_ROOTS=false; leaving installed JDK roots in place"
   fi
   unlabel_node
 }

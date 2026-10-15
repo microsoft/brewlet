@@ -35,7 +35,7 @@ go -C core test ./...
 
 ## Kubernetes operations
 
-`brewlet k8s` provides JDK/launcher inventory, profile and application inspection,
+`brewlet k8s` provides JDK inventory, profile and application inspection,
 application readiness status and waiting, control-plane/node status, readiness checks, fresh Helm installation, and safe
 profile additions. It uses installed `kubectl`/Helm binaries and existing
 kubeconfig credentials rather than embedding a Kubernetes client.
@@ -49,7 +49,7 @@ brewlet k8s app status orders --namespace my-team
 brewlet k8s app wait orders --namespace my-team --wait-timeout 5m
 ```
 
-`jdk add` and `launcher add` update live profiles by default; use `--dry-run`
+`jdk add` update live profiles by default; use `--dry-run`
 for client-validated previews or `--dry-run=server` for server validation.
 Proposed YAML/JSON is printed only after validation succeeds; a failed dry run
 returns an error without rendering output. Helm and GitOps-owned profiles must

@@ -23,8 +23,8 @@ installs a containerd shim and JDK roots on nodes, and the root-privileged shim
 constructs OCI bundles, overlay lower layers, and bind mounts for tenant
 workloads.
 
-The review identified one Critical, four High, five Medium, and one Low issue.
-All eleven have since been remediated through merged pull requests.
+The review identified one Critical, four High, four Medium, and one Low issue.
+All ten have since been remediated through merged pull requests.
 
 Finding 1 was a confirmed path traversal in OCI descriptor digest resolution:
 descriptor digest strings were converted into host filesystem paths without
@@ -38,8 +38,7 @@ read, staged, or mounted.
 
 The remediations bind executed content to protected CRI image identity, confine
 content-addressed paths and verify blob contents before use, preserve the
-CRI-selected pod UID/GID, require
-explicit digest-pinned JDK and launcher sources, constrain runtime-selection
+CRI-selected pod UID/GID, require explicit digest-pinned JDK sources, constrain runtime-selection
 annotations to safe tokens confined to the node's runtime roots, and verify every
 provisioner download and external container image.
 
@@ -65,14 +64,13 @@ control-plane nodes are excluded unless a profile opts in.
 | 1 | Critical | Tenant-controlled OCI digests can bind-mount arbitrary node paths **(Remediated)** | [#19](https://github.com/microsoft/brewlet/issues/19) | [#43](https://github.com/microsoft/brewlet/pull/43) | 9/10 |
 | 2 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | [#21](https://github.com/microsoft/brewlet/issues/21) | [#37](https://github.com/microsoft/brewlet/pull/37) | 9/10 |
 | 3 | High | Attestation enforcement verifies a different identity from the executed artifact **(Remediated)** | [#22](https://github.com/microsoft/brewlet/issues/22) | [#33](https://github.com/microsoft/brewlet/pull/33) | 8/10 |
-| 4 | Medium | The launcher annotation can traverse outside the launcher root **(Remediated)** | [#23](https://github.com/microsoft/brewlet/issues/23) | [#62](https://github.com/microsoft/brewlet/pull/62) | 7/10 |
-| 5 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
-| 6 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
-| 7 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
-| 8 | Medium | Registry credentials can be forwarded cross-origin or over HTTP **(Remediated)** | [#27](https://github.com/microsoft/brewlet/issues/27) | [#61](https://github.com/microsoft/brewlet/pull/61) | 8/10 |
-| 9 | Medium | The privileged provisioner defaults to every node **(Remediated)** | [#28](https://github.com/microsoft/brewlet/issues/28) | [#63](https://github.com/microsoft/brewlet/pull/63) | 9/10 |
-| 10 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity **(Remediated)** | [#29](https://github.com/microsoft/brewlet/issues/29) | [#42](https://github.com/microsoft/brewlet/pull/42) | 9/10 |
-| 11 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth **(Remediated)** | [#30](https://github.com/microsoft/brewlet/issues/30) | [#39](https://github.com/microsoft/brewlet/pull/39) | 9/10 |
+| 4 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
+| 5 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
+| 6 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
+| 7 | Medium | Registry credentials can be forwarded cross-origin or over HTTP **(Remediated)** | [#27](https://github.com/microsoft/brewlet/issues/27) | [#61](https://github.com/microsoft/brewlet/pull/61) | 8/10 |
+| 8 | Medium | The privileged provisioner defaults to every node **(Remediated)** | [#28](https://github.com/microsoft/brewlet/issues/28) | [#63](https://github.com/microsoft/brewlet/pull/63) | 9/10 |
+| 9 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity **(Remediated)** | [#29](https://github.com/microsoft/brewlet/issues/29) | [#42](https://github.com/microsoft/brewlet/pull/42) | 9/10 |
+| 10 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth **(Remediated)** | [#30](https://github.com/microsoft/brewlet/issues/30) | [#39](https://github.com/microsoft/brewlet/pull/39) | 9/10 |
 
 ## Threat model
 
@@ -83,7 +81,7 @@ control-plane nodes are excluded unless a profile opts in.
 2. Kubelet client credentials and configuration under `/var/lib/kubelet`.
 3. Secrets, projected service-account tokens, and persistent data mounted into
    every workload on a Brewlet-enabled node.
-4. Node JDK and launcher roots used as shared OCI rootfs lower layers.
+4. Node JDK roots used as shared OCI rootfs lower layers.
 5. The integrity and identity of executed application artifacts.
 6. The containerd socket, runtime configuration, and Brewlet shim binary.
 7. Operator, admission, and provisioner service-account privileges.
@@ -116,7 +114,7 @@ workload creation, not cluster-scoped RBAC or direct node access.
 - Node labels and annotations used for scheduling and fleet compatibility.
 - Helm values and rendered RBAC, webhook, RuntimeClass, and DaemonSet resources.
 - Registry authentication challenges, token endpoints, manifests, and blobs.
-- Provisioner image downloads, JDK and launcher source images, GitHub Actions, and
+- Provisioner image downloads, JDK source images, GitHub Actions, and
   release workflows.
 
 ### Trust boundaries
@@ -359,73 +357,7 @@ selected platform manifest's config digest against CRI's recorded image
 identity. It never selects executable content through a mutable config-digest
 image alias. Conflicting hints and tag-only requests fail closed.
 
-### 4. The launcher annotation can traverse outside the launcher root — remediated
-
-**Severity:** Medium  
-**Confidence:** 7/10  
-**STRIDE:** Information Disclosure  
-**CWE:** CWE-22  
-**Type:** Confirmed traversal with constrained exploitation
-
-**Status:** Remediated by [issue #23](https://github.com/microsoft/brewlet/issues/23)
-via [pull request #62](https://github.com/microsoft/brewlet/pull/62)
-
-**Attacker prerequisites:** Permission to create a Brewlet Pod.
-
-**Original evidence at the assessed revision:**
-
-- `core/shim/cmd/containerd-shim-brewlet-v2/bundle_prepare.go:320-336` joins the
-  raw launcher annotation to the launcher roots directory.
-- `core/internal/artifact/artifact.go:160-165` performs no sanitization.
-- `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:295,429-435,
-  530-537` uses the selected directory as an overlay lower layer and bind-mount
-  source.
-- Unlike JDK selection, no `.brewlet-active` inventory allowlist is applied.
-
-**Attack path and impact:** A value such as `../../..` resolves the selected
-launcher root to `/`, and the existing guard can succeed. The same raw string
-is also used as `argv[0]`, which currently prevents a demonstrated runnable
-container for the traversal payload. The host directory is nevertheless
-accepted into privileged mount construction and could become directly
-exploitable after minor launcher-path changes.
-
-**Remediation:** Restrict launcher names to a safe DNS-like token, reject path
-separators and dot segments, apply the active launcher inventory allowlist, and
-verify with `filepath.Rel` that the resolved root remains under the configured
-launcher directory.
-
-**Remediation test:** Table-test traversal and separator variants and assert
-they fail before mount construction.
-
-**Resolution:** A launcher request is now a lowercase DNS-1123 token or nothing.
-`artifact.LauncherName` validates before returning the binary name, so every
-caller that joins it onto a host directory, uses it as a mount source, or
-executes it as `argv[0]` fails closed — separators (either flavor), dot
-segments, wildcards, whitespace, absolute paths, and uppercase are all rejected.
-The shim's `selectLauncher` then layers the remaining defenses in order:
-token validation, the administrator-owned `.brewlet-active` allowlist (already
-required, never skipped), symlink resolution, and a `filepath.Rel` proof that the
-resolved root is a direct child of the configured launcher roots — the same
-containment check `resolveJDKHome` applies to a Java home. The *resolved* root is
-returned, so the path that reaches overlay and bind-mount construction is exactly
-the one whose containment was proven, and a `bin/<name>` symlink that escapes the
-layer is refused. The local `brewlet run` path no longer accepts a launcher path
-at all, matching the documented `--launcher NAME` contract. Admission rejects a
-malformed `brewlet.sh/launcher` annotation before scheduling, and the
-`JavaApplication` CRD constrains `spec.jvm.launcher` with the same pattern, but
-the node-side guarantee does not depend on either. The same treatment closes the
-matching gap on the JDK half of the annotation pair: the requested distribution
-is validated as a token, the JDK `.brewlet-active` inventory is now required
-rather than optional (so a node without one fails closed instead of joining an
-unvetted name onto the roots directory), and the selected JDK root gets the same
-symlink-resolved containment check. Tests table-test traversal, separator,
-dot-segment, whitespace, wildcard, case and length variants against
-`ValidateLauncherName`, `selectLauncher`, `selectJDK`, `resolveLauncher`, and
-admission — including payloads deliberately listed in the active inventory, to
-prove name validation stands on its own — plus symlink escapes for both the
-runtime root and the launcher binary.
-
-### 5. Mutable, unsigned JDK images become root-executed node runtimes — remediated
+### 4. Mutable, unsigned JDK images become root-executed node runtimes — remediated
 
 **Severity:** High  
 **Confidence:** 9/10  
@@ -448,8 +380,6 @@ control of a NodeProfile registry mirror through cluster/GitOps compromise.
   host.
 - `provisioner/entrypoint.sh:280-305` executes the copied Java binary through
   `chroot` as root.
-- `provisioner/entrypoint.sh:420-430` runs a mutable launcher image with host
-  networking and a writable host bind mount.
 - `kubernetes/internal/controller/nodeprofile_resources.go:155-170` passes
   registry mirrors to the provisioner.
 - `kubernetes/internal/controller/nodeprofile_validate.go:24-100` does not
@@ -464,26 +394,24 @@ Java binary during validation. The malicious tree then underlies every Brewlet
 workload on that node. This provides root execution and persistent compromise
 across the provisioned fleet.
 
-**Remediation:** Remove implicit distribution mappings and require every JDK and
-launcher to declare an administrator-reviewed, digest-pinned source and absolute
-path. Validate and allowlist mirror hosts, and mount/copy launcher images without
+**Remediation:** Remove implicit distribution mappings and require every JDK to declare an administrator-reviewed, digest-pinned source and absolute
+path. Validate and allowlist mirror hosts, and mount/copy source images without
 host networking or a writable host bind mount.
 
-**Remediation test:** Reject every JDK or launcher without a canonical
+**Remediation test:** Reject every JDK without a canonical
 `@sha256:` source and absolute path. Reject mirror values containing schemes,
 whitespace, empty hosts, or unapproved destinations. Verify invalid input fails
 closed before any host operation or node readiness label.
 
 **Resolution:** `NodeProfile` now requires an explicit structured source for
-every JDK and launcher. Admission and reconciliation require canonical
+every JDK. Admission and reconciliation require canonical
 digest-pinned OCI references and clean absolute source paths, and registry
 mirror destinations must match an operator-controlled exact-host allowlist.
 The provisioner validates the complete inventory before host mutation, mounts
-digest-specific source images, copies JDK roots, and installs launcher regular
-files without executing source images with host networking or writable host
+digest-specific source images, copies JDK roots without executing source images with host networking or writable host
 bind mounts.
 
-### 6. Unverified downloaded binaries are installed on every node — remediated
+### 5. Unverified downloaded binaries are installed on every node — remediated
 
 **Severity:** High  
 **Confidence:** 9/10  
@@ -530,7 +458,7 @@ runtime image receives only verified outputs and no longer contains `curl`, and
 repository policy tests reject unpinned images or direct Dockerfile downloads.
 Build corruption tests cover every downloaded binary and license asset.
 
-### 7. `mainJar` can escape staging and select arbitrary host paths — remediated
+### 6. `mainJar` can escape staging and select arbitrary host paths — remediated
 
 **Severity:** Medium  
 **Confidence:** 8/10  
@@ -580,7 +508,7 @@ applies the identical rule at publish time. Tests reject `../x.jar`,
 names through config validation, through image resolution, and at the shim, and
 assert that successfully resolved JAR and CDS paths remain under staging.
 
-### 8. Registry credentials can be forwarded cross-origin or over HTTP — remediated
+### 7. Registry credentials can be forwarded cross-origin or over HTTP — remediated
 
 **Severity:** Medium  
 **Confidence:** 8/10  
@@ -650,7 +578,7 @@ upload `Location` receives the PUT without `Authorization`; unit tests cover
 `localhost`, loopback literals, bracketed IPv6, explicit ports, lookalike public
 names, Docker Hub realm lookalikes, and malformed configuration entries.
 
-### 9. The privileged provisioner defaults to every node — remediated
+### 8. The privileged provisioner defaults to every node — remediated
 
 **Severity:** Medium  
 **Confidence:** 9/10  
@@ -744,7 +672,7 @@ nor allowed to hold a profile short of `Ready`. E2E tier 13 repeats the
 assertions against a live cluster and, when a distinct control-plane node
 exists, verifies that no provisioner pod is scheduled onto it.
 
-### 10. Mutable GitHub Actions and absent provenance weaken release integrity — remediated
+### 9. Mutable GitHub Actions and absent provenance weaken release integrity — remediated
 
 **Severity:** Medium  
 **Confidence:** 9/10  
@@ -813,7 +741,7 @@ identity; the release workflow runs it against the version it just published, an
 the website release smoke test runs it for every release at or after `0.4.0`.
 Dependabot keeps the SHA pins current.
 
-### 11. Long-lived webhook credentials and absent NetworkPolicies — remediated
+### 10. Long-lived webhook credentials and absent NetworkPolicies — remediated
 
 **Severity:** Low  
 **Confidence:** 9/10  
@@ -922,13 +850,13 @@ to stay under the content store's blob directory, and blob bytes are verified
 against the digest that named them before they are read, staged, or mounted.
 The blast radius of any future node-level primitive is also narrower: the
 privileged provisioner no longer defaults to every node, and it is excluded from
-control-plane nodes unless a profile explicitly opts in (Finding 9).
+control-plane nodes unless a profile explicitly opts in (Finding 8).
 
 ### B. Historical upstream software to root on every node — remediated
 
 The original chain relied on mutable runtime tags, unrestricted mirrors, and
 unverified tool archives. Runtime sources are now explicit and digest-pinned,
-mirror targets are allowlisted, launcher images are mounted rather than run, and
+mirror targets are allowlisted, source images are mounted for copying, and
 downloaded tools and external build images are checksum- or digest-pinned.
 
 ## Documentation alignment status
@@ -936,12 +864,11 @@ downloaded tools and external build images are checksum- or digest-pinned.
 | Claim | Location | Implemented behavior |
 |-------|----------|----------------------|
 | The JVM is non-root unless root is explicitly requested through the Pod security context | `specs/SPECIFICATION.md:1228-1229`; `docs/security.md` | **Remediated:** artifact credentials are rejected and the CRI-populated user is authoritative |
-| Every runtime root arrives through a content-addressable, digest-verified pull | `specs/SPECIFICATION.md:664` | **Remediated:** every JDK and launcher source is explicit and digest-pinned |
+| Every runtime root arrives through a content-addressable, digest-verified pull | `specs/SPECIFICATION.md:664` | **Remediated:** every JDK source is explicit and digest-pinned |
 | Only a small per-container upper/scratch layer is writable | `docs/security.md` | JDK and application payload bind mounts are read-only; writable state follows CRI process identity and volume policy |
 | The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | **Remediated:** artifact selection is bound to protected CRI image identity, every descriptor digest is validated before path construction, resolved paths are confined to the content store, and blob bytes are verified against their declared digest before use |
 | Ratify/Gatekeeper requires the final-image attestation and fails closed | `docs/security.md` | **Remediated:** the shim resolves the exact digest-pinned CRI request and verifies its target, config, and platform-manifest identity |
-| Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | **Remediated:** JDK and launcher sources require explicit digest-pinned references |
-| A requested launcher resolves to a node-installed launcher layer | `specs/SPECIFICATION.md:766-805`; `docs/launchers.md` | **Remediated:** launcher (and JDK distribution) requests must be lowercase DNS-1123 tokens, must appear in the node's active inventory, and the selected root is proven by `filepath.Rel` to be a direct child of the configured runtime roots before it is mounted |
+| Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | **Remediated:** JDK sources require explicit digest-pinned references |
 | The fail-open mutating webhook is presented as a security guardrail | `docs/security.md` | **Remediated for artifact identity:** the webhook overwrites compatibility hints, while the shim independently fails closed using protected CRI metadata |
 | Provisioning is scoped to platform-owned pools and stays off control-plane nodes | `docs/security.md`; `docs/configuration.md`; `specs/SPECIFICATION.md` §5.1/§5.6 | **Remediated:** the chart requires `provisioner.pools`, every profile excludes both control-plane role labels unless it opts in, and tolerations are declared rather than blanket |
 
@@ -959,13 +886,12 @@ downloaded tools and external build images are checksum- or digest-pinned.
 
 ### P1: Next release
 
-1. **Remediated:** Sanitize and allowlist launcher names.
-2. **Remediated:** Restrict `mainJar` to a contained bare filename.
-3. **Remediated:** Verify every binary downloaded by the provisioner image and
+1. **Remediated:** Restrict `mainJar` to a contained bare filename.
+2. **Remediated:** Verify every binary downloaded by the provisioner image and
    digest-pin base images.
-4. **Remediated:** Require administrator-provided, digest-pinned JDK and launcher
+3. **Remediated:** Require administrator-provided, digest-pinned JDK
    images, and validate and allowlist NodeProfile registry mirrors.
-5. **Remediated:** Enforce same-origin HTTPS registry token realms and exact
+4. **Remediated:** Enforce same-origin HTTPS registry token realms and exact
    loopback matching.
 
 ### P2: Defense in depth
@@ -988,23 +914,21 @@ downloaded tools and external build images are checksum- or digest-pinned.
    of Finding 1.
 3. **Prevent artifact configuration from overriding Pod UID/GID (remediated in
    issue #21 and pull request #37).** Covers Finding 2.
-4. **Validate launcher and `mainJar` path components.** Covers Findings 4 and 7,
-   which share the same path-input validation fix. The `mainJar` half is
-   remediated in issue #26 and pull request #41; the launcher half (Finding 4)
-   is remediated in issue #23 and pull request #62.
+4. **Validate `mainJar` path components (remediated in issue #26 and
+   pull request #41).** Covers Finding 6.
 5. **Require digest-pinned administrator-provided runtime sources and validate
    registry mirrors (remediated in issue #24 and pull request #34).** Covers
-   Finding 5.
+   Finding 4.
 6. **Verify provisioner binary downloads and pin base images (remediated in
-   issue #25 and pull request #32).** Covers Finding 6.
+   issue #25 and pull request #32).** Covers Finding 5.
 7. **Restrict registry token authentication to approved HTTPS origins
-   (remediated in issue #27 and pull request #61).** Covers Finding 8.
+   (remediated in issue #27 and pull request #61).** Covers Finding 7.
 8. **Pin Actions and publish release signatures and provenance (remediated in
-   issue #29 and pull request #42).** Covers Finding 10.
+   issue #29 and pull request #42).** Covers Finding 9.
 9. **Make privileged node provisioning opt-in and exclude control-plane nodes
-    (remediated in issue #28 and pull request #63).** Covers Finding 9.
+    (remediated in issue #28 and pull request #63).** Covers Finding 8.
 10. **Add NetworkPolicies and automated webhook certificate rotation
-    (remediated in issue #30 and pull request #39).** Covers Finding 11.
+    (remediated in issue #30 and pull request #39).** Covers Finding 10.
 11. **Align security documentation with enforced controls.** Covers remaining
     documentation mismatches and future remediation updates.
 
@@ -1016,16 +940,13 @@ control runtime configuration and shared node software. Dedicated Brewlet node
 pools, strong workload admission, restricted NodeProfile administration,
 immutable and signed node software, runtime monitoring, and rapid credential
 rotation remain necessary. Without a stronger sandbox such as a
-virtual-machine-based RuntimeClass, a vulnerability in the shim, JDK, launcher,
+virtual-machine-based RuntimeClass, a vulnerability in the shim, JDK,
 or OCI runtime can still cross workload and node boundaries.
 
 ## Assessment limitations
 
 - No live cluster was provisioned and no exploit was executed. Findings are
   based on static control-flow and data-flow analysis.
-- Finding 4 was reported as constrained because, at the assessed revision, the
-  same traversal string was also used as the executable path and prevented a
-  demonstrated successful workload start.
 - Third-party dependencies were not scanned against an external vulnerability
   database.
 - Integration harnesses were not executed because they mutate clusters and

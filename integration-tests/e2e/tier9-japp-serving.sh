@@ -49,8 +49,8 @@ _t9_cleanup() {
   kubectl delete ns "$T9_NS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   [[ -n "$T9_RC_CREATED" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   for n in ${T9_PROVISIONED_NODES[@]+"${T9_PROVISIONED_NODES[@]}"}; do
-    label_node "$n" brewlet.sh/runtime- "brewlet.sh/jdk.$T9_JDK-" "brewlet.sh/jdk-feature.${T9_JDK##*-}-" brewlet.sh/launcher.java- >/dev/null 2>&1 || true
-    annotate_node "$n" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
+    label_node "$n" brewlet.sh/runtime- "brewlet.sh/jdk.$T9_JDK-" "brewlet.sh/jdk-feature.${T9_JDK##*-}-" >/dev/null 2>&1 || true
+    annotate_node "$n" brewlet.sh/jdks- >/dev/null 2>&1 || true
   done
   # The node's shim binary / JDK root / config.toml patch are left in place: they
   # are cheap, idempotent, and reused on a re-run (as in tier8).
@@ -153,10 +153,9 @@ _t9_advertise() {
   label_node "$node" --overwrite \
     brewlet.sh/runtime=ready \
     "brewlet.sh/jdk.$T9_JDK=true" \
-    "brewlet.sh/jdk-feature.${T9_JDK##*-}=true" \
-    brewlet.sh/launcher.java=true || return 1
+    "brewlet.sh/jdk-feature.${T9_JDK##*-}=true" || return 1
   annotate_node "$node" --overwrite \
-    "brewlet.sh/jdks=$T9_JDK" "brewlet.sh/launchers="
+    "brewlet.sh/jdks=$T9_JDK"
 }
 
 # _t9_apply_deploy: render the demo JavaApplication-equivalent as a Deployment +

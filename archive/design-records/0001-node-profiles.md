@@ -24,13 +24,13 @@ This document preserves the design rationale for the `NodeProfile` API. The
 [specification](../../specs/SPECIFICATION.md) and shipped API are authoritative.
 
 The implemented security contract requires an administrator-provided,
-canonical, tagless SHA-256 digest reference and absolute path for every JDK and
-launcher. Brewlet has no runtime-source catalog. Mirror destinations are
+canonical, tagless SHA-256 digest reference and absolute path for every JDK.
+Brewlet has no runtime-source catalog. Mirror destinations are
 separately allowlisted by operator/admission configuration and revalidated by
 the reconciler and privileged provisioner. This design record reflects that
 fail-closed behavior.
 
-> **Amendment (security review finding 10, issue #28).** Where this record says
+> **Amendment (security review finding 8, issue #28).** Where this record says
 > an empty `nodePool` means "every node", the shipped behaviour is narrower. The
 > catch-all remains in the API — bare-metal clusters with no pool label still
 > need it — but it is no longer reachable by default: the Helm chart requires
@@ -49,7 +49,7 @@ fail-closed behavior.
 
 Make preparing a Kubernetes cluster for Brewlet **configurable for heterogeneous
 production fleets** by introducing a cluster-scoped **`NodeProfile`** CRD. A profile
-binds a **node pool** to a **JDK/launcher inventory** (plus rollout policy and an
+binds a **node pool** to a **JDK inventory** (plus rollout policy and an
 optional registry override). The operator reconciles **one provisioner DaemonSet per
 profile**, so GPU pools, arm64 pools, and team-specific JDK sets are first-class
 instead of a single global string.
@@ -61,7 +61,7 @@ so there is no separate per-node `kubectl annotate` step. Cloud node pools are d
 (a node belongs to exactly one), which removes the per-node ownership/overlap machinery
 an arbitrary node-selector model would need.
 
-The one-command path remains: the chart's editable structured JDK and launcher
+The one-command path remains: the chart's editable structured JDK
 examples generate a **default profile** that provisions every node pool (the
 bare-metal / no-pool fallback).
 
@@ -74,7 +74,7 @@ host-hardening work it depends on (validated restart, smoke gate) lives in
 ## 2. Motivation — where the current model gets hard in production
 
 Before `NodeProfile`, inventory was a single global value:
-`provisioner.jdks` / `provisioner.launchers` (Helm) → one `buildDaemonSet` whose
+`provisioner.jdks` (Helm) → one `buildDaemonSet` whose
 `nodeAffinity` was just `brewlet.sh/provision In [true]`
 (see [`resources.go`](../../kubernetes/internal/controller/resources.go),
 [`node_controller.go`](../../kubernetes/internal/controller/node_controller.go)).
@@ -128,7 +128,7 @@ with a reversal path.** `NodeProfile` closes the remaining gap in Brewlet.
 ## 4. Goals / non-goals
 
 **Goals**
-- Per-pool JDK/launcher inventories via a cluster-scoped CRD.
+- Per-pool JDK inventories via a cluster-scoped CRD.
 - **Node-pool-level targeting**: name a pool, provision every node in it (present and
   future) — autoscaler-safe, no per-node annotation.
 - Keep the one-command install trivially simple (default profile from Helm values).
@@ -177,11 +177,6 @@ spec:
       source:
         image: docker.io/library/azul-zulu@sha256:2e230d906cffcc7bb7360ce82836f2ff0e0be74a1d5ebaf929e4e6ac99d61bf2
         javaHome: /usr/lib/jvm/zulu21
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
   # Optional per-profile registry override for air-gapped / mirrored clusters.
   # NOTE: copy-from-image pulls via `ctr` against the host containerd, so mirroring
   # is expressed as a containerd registry mirror the provisioner configures for the
@@ -233,7 +228,7 @@ entirely to mean "every node" (the default-profile fallback, §5.3).
 - `spec.registry.mirrors` configures digest-preserving copy-from-image rewrites.
   Every destination registry host must exactly match the external
   operator/admission allowlist (§5.10).
-- Every JDK and launcher requires a source whose `source.image` is a fully
+- Every JDK requires a source whose `source.image` is a fully
   qualified, tagless
   `repository@sha256:<64 lowercase hex>` reference.
 - A JDK source may be a complete vendor JDK or a jlink runtime containing a
@@ -260,7 +255,7 @@ NodeProfileReconciler (watches NodeProfile + Node):
   3. resolvePoolKey(profile)                     # auto-detect provider key or use spec override
   4. ds := buildProfileDaemonSet(cfg, profile)   # nodeAffinity =
         #   <poolKey> In [<names...>]
-        #   (indexed JDK/launcher source env + mirrors + external allowlist)
+        #   (indexed JDK source env + mirrors + external allowlist)
      SetControllerReference(profile, ds)        # cluster owner, namespaced dep — OK
      CreateOrUpdate(ds)
   5. updateStatus(profile): assignedNodes / readyNodes / Ready|Degraded
@@ -277,7 +272,6 @@ NodeProfileReconciler (watches NodeProfile + Node):
 type NodeProfileSpec struct {
     NodePool  NodePoolRef   `json:"nodePool,omitempty"`
     JDKs      []JDKRef      `json:"jdks"`
-    Launchers []LauncherRef `json:"launchers,omitempty"`
     Registry  *RegistrySpec `json:"registry,omitempty"`
     Rollout   RolloutSpec   `json:"rollout,omitempty"`
 }
@@ -302,16 +296,6 @@ type JDKSource struct {
     JavaHome string `json:"javaHome"`
 }
 
-type LauncherRef struct {
-    Name   string         `json:"name"`
-    Source LauncherSource `json:"source"`
-}
-
-type LauncherSource struct {
-    Image string `json:"image"`
-    Path  string `json:"path"`
-}
-
 type RegistrySpec struct {
     // Mirrors maps an upstream host to an externally allowlisted mirror
     // host/path while retaining the source digest. See §5.10.
@@ -328,7 +312,7 @@ type RolloutSpec struct {
 Key points:
 - `buildProfileDaemonSet` is the existing `buildDaemonSet` generalized: the pod
   `nodeAffinity` becomes `<resolvedPoolKey> In [<names...>]`, and
-  indexed `JDK_SOURCE_*`/`LAUNCHER_SOURCE_*` and mirror env come from the
+  indexed `JDK_SOURCE_*` and mirror env come from the
   profile while `SOURCE_ALLOWED_MIRROR_HOSTS` comes from operator policy. The
   provisioner derives its inventory strings from those entries. Pool
   disjointness enforces single ownership — no assignment label required.
@@ -347,7 +331,7 @@ Key points:
 ### 5.3 Helm bridge — the default profile
 
 The chart renders a single **default `NodeProfile`** from the structured
-`provisioner.jdks` / `provisioner.launchers` values:
+`provisioner.jdks` values:
 
 ```yaml
 # templates/nodeprofiles.yaml
@@ -358,7 +342,6 @@ metadata:
 spec:
   nodePool: {}                     # no names => every node (bare-metal fallback)
   jdks: {{ toYaml .Values.provisioner.jdks | nindent 4 }}
-  launchers: {{ toYaml .Values.provisioner.launchers | nindent 4 }}
 ```
 
 The one-command install retains the same targeting behavior: an empty `nodePool`
@@ -366,7 +349,7 @@ means "every node." The values are structured because every source and path is
 mandatory; comma-separated source inventories are rejected. When a user later adds an
 explicit pool-scoped profile, they narrow the default (or delete it) — because pools are
 disjoint there is no priority to reason about; a node is either in a named pool or falls
-through to the empty-pool default. The operator has no JDK or launcher inventory
+through to the empty-pool default. The operator has no JDK inventory
 flags; the CRD is authoritative.
 
 ### 5.4 Membership, the catch-all default, and unmatched pools
@@ -437,7 +420,7 @@ deleting it when automatic reversal is required.
 ### 5.8 Validating webhook for `NodeProfile`
 
 A small validating admission webhook rejects malformed profiles early: empty
-`jdks`, invalid distribution or launcher identifiers, any JDK/launcher missing
+`jdks`, invalid distribution identifiers, any JDK missing
 its source, any image not using a canonical SHA-256 digest reference, malformed
 or non-absolute source paths,
 malformed mirror mappings, destinations outside
@@ -488,11 +471,6 @@ provisioner:
       source:
         image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
         javaHome: /opt/java/openjdk
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
 
 # Mirror authority is operator-level, not profile-level.
 security:
@@ -539,7 +517,7 @@ profiles:
 
 The implementation is end-to-end-test driven. Additions:
 
-- **Unit (operator):** mandatory digest-only JDK and launcher sources,
+- **Unit (operator):** mandatory digest-only JDK sources,
   exact-host mirror allowlists, provider pool-key auto-detection
   (GKE/AKS/EKS/Karpenter + explicit-key override), catch-all default `NotIn`
   exclusion of named pools, empty-pool `NodeUnmatched` handling, per-profile
@@ -551,11 +529,10 @@ The implementation is end-to-end-test driven. Additions:
   finalizer blocks GC until cleanup completes.
 - **Webhook unit:** rejects missing sources, mutable/malformed digest
   refs, unauthorized mirrors, empty jdks, two profiles naming the same pool, and
-  unknown pool keys; accepts valid arbitrary JDK and launcher names.
+  unknown pool keys; accepts valid arbitrary JDK names.
 - **Provisioner/source policy:** verifies strict digest/path validation,
   missing/duplicate source failures, strict mirror rewrite with digest preservation,
-  preflight-before-host-operation, stale-root ordering, safe launcher
-  extraction, and stale-label removal.
+  preflight-before-host-operation, stale-root ordering and stale-label removal.
 - **e2e tier:** a new tier proving two pool profiles materialize different inventories on
   their pools, that a node the autoscaler adds to a pool is provisioned without manual
   annotation, and that `kubectl delete nodeprofile` + cleanup reverses host state

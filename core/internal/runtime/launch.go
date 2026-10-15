@@ -58,7 +58,7 @@ type Plan struct {
 	Dir string
 }
 
-// BuildJVMArgs assembles the launcher argv and appends the entrypoint. Brewlet
+// BuildJVMArgs assembles the Java argv and appends the entrypoint. Brewlet
 // injects NO resource/environment tuning (heap/GC/CPU): that is the deployment
 // descriptor's job via jvm.args. The only launch flags derived from the artifact
 // are the app-intrinsic correctness knobs (preview features, module-system
@@ -132,7 +132,7 @@ func BuildJVMArgs(cfg artifact.JVMConfig, jarPath string, extraArgs []string) ([
 	return args, nil
 }
 
-// entrypointSelectingFlags are the `java` launcher options that choose WHAT the
+// entrypointSelectingFlags are the `java` options that choose WHAT the
 // JVM runs, as opposed to how it runs. They belong to the artifact's launch
 // config (§4.2), never to deployment tuning.
 var entrypointSelectingFlags = map[string]struct{}{
@@ -210,16 +210,9 @@ func joinAppPaths(entries []string, jarPath string) string {
 	return strings.Join(parts, ":")
 }
 
-// BuildPlan resolves the node JDK/launcher and assembles the launch argv. The
-// launcher name comes from the deployment descriptor (not the artifact); pass
-// "" or "java" for the vanilla OpenJDK launcher.
-func BuildPlan(cfg artifact.JVMConfig, jarPath, jdkHome, launcherName string, extraArgs []string) (Plan, error) {
-	_, home, err := resolveJDK(jdkHome)
-	if err != nil {
-		return Plan{}, err
-	}
-
-	launcherBin, err := resolveLauncher(launcherName, home)
+// BuildPlan resolves the node JDK and assembles the Java argv.
+func BuildPlan(cfg artifact.JVMConfig, jarPath, jdkHome string, extraArgs []string) (Plan, error) {
+	javaBin, home, err := resolveJDK(jdkHome)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -230,15 +223,13 @@ func BuildPlan(cfg artifact.JVMConfig, jarPath, jdkHome, launcherName string, ex
 	}
 
 	env := os.Environ()
-	// A custom launcher (e.g. jaz) locates the JVM via JAVA_HOME; pin it to the
-	// selected node JDK. Harmless for the vanilla `java` path.
 	env = append(env, "JAVA_HOME="+home)
 	for _, e := range cfg.Env {
 		env = append(env, e.Name+"="+e.Value)
 	}
 
 	return Plan{
-		JavaBin: launcherBin,
+		JavaBin: javaBin,
 		JDKHome: home,
 		Args:    args,
 		Env:     env,
@@ -306,29 +297,6 @@ func resolveJDK(jdkHome string) (javaBin, home string, err error) {
 		return "", "", fmt.Errorf("no node-resident JDK found (set --jdk-root or JAVA_HOME)")
 	}
 	return bin, filepath.Dir(filepath.Dir(bin)), nil
-}
-
-// resolveLauncher returns the launcher binary that fronts the entrypoint. The
-// vanilla launcher is the selected JDK's own `java`. A custom launcher (e.g.
-// "jaz") is a separate node-installed package resolved by NAME on PATH —
-// independent of the JDK root. The name must be a safe DNS-1123 token
-// (artifact.ValidateLauncherName): `--launcher` names a launcher, never a path,
-// so a separator or parent reference is rejected rather than executed. A missing
-// launcher surfaces as NoCompatibleLauncher, mirroring NoCompatibleJDK. The
-// launcher name is supplied by the deployment descriptor, not the artifact.
-func resolveLauncher(launcherName, jdkHome string) (string, error) {
-	if artifact.IsVanillaLauncher(launcherName) {
-		return filepath.Join(jdkHome, "bin", "java"), nil
-	}
-	name, err := artifact.LauncherName(launcherName)
-	if err != nil {
-		return "", fmt.Errorf("NoCompatibleLauncher: %w", err)
-	}
-	bin, err := exec.LookPath(name)
-	if err != nil {
-		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q not on PATH", name)
-	}
-	return bin, nil
 }
 
 // AssembleSandbox creates a per-container working dir and links the JAR at
@@ -416,7 +384,7 @@ func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars
 // StageClasspathLayers extracts each dependency-layer tar into libDir (creating
 // it if needed), so the directory can be bind-mounted read-only at /app/lib in
 // the sandbox. It is the shared implementation used by both the CLI/harness
-// bundle path (GenerateBundleWithLauncher) and the production containerd shim's
+// bundle path (GenerateBundleWithLayers) and the production containerd shim's
 // Create() hook, keeping layered-classpath deployment
 // (https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md) identical across both.
 func StageClasspathLayers(classpathTars []string, libDir string) error {

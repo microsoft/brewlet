@@ -8,7 +8,7 @@ Run `python3 integration-tests/e2e/live/hpa.py`,
 `python3 integration-tests/e2e/live/workflows.py` from the repository root.
 `workflows.py` builds the CLI, Maven plugin, operator, admission and provisioner
 images from the checkout and drives `brewlet push`, `brewlet k8s app
-status|wait`, `status`, `doctor`, `jdk|launcher list|add`, `profile
+status|wait`, `status`, `doctor`, `jdk list|add`, `profile
 list|inspect|delete`, `inspect app`, the `install` guards and
 `mvn package brewlet:push` with a separate kubectl/CLI deployment handoff end to end.
 `retirement.py` provisions a private three-node kind cluster, permanently removes
@@ -147,7 +147,7 @@ integration-tests/e2e/run.sh --reset --tier 1 --tier 2  # ...or list every tier
 - `DOCKER_DEFAULT_PLATFORM` defaults to the selected nodes' architecture, so an
   arm64 workstation builds amd64 images for an amd64 pool.
 - Node-side tiers really modify the selected node: they install the shim,
-  JDKs and launchers under `/opt/brewlet`, rewrite and restore
+  JDKs under `/opt/brewlet`, rewrite and restore
   `/etc/containerd/config.toml`, and restart containerd. Use a dedicated pool.
 - Tier 5 still skips because the cluster cannot reach a host-bound webhook.
 
@@ -177,8 +177,8 @@ also proves the control-plane guard: a NodeProfile that does not set
 node. Because kind and Docker Desktop label their single node as the control
 plane, the node-side tiers set that opt-in explicitly. Tier 18
 first proves an induced post-restart handler failure rolls containerd back,
-then installs digest-pinned JDK and `jaz` sources and runs a live workload
-through both across a JDK patch rotation. Tier 14 is retired (no renumbering). Tier 10 also exercises cert-manager issuance and certificate hot reload
+then installs a digest-pinned JDK source and runs a live workload
+across a JDK patch rotation. Tier 14 is retired (no renumbering). Tier 10 also exercises cert-manager issuance and certificate hot reload
 when cert-manager is installed. Tier 15 installs the
 chart with metrics enabled, provisions one node through the real DaemonSet,
 launches a Brewlet workload, and scrapes all metrics surfaces. Tier 16 covers
@@ -225,7 +225,7 @@ checks that the running pod keeps its original JDK and container, and that a
 retired-root sweep keeps the root that pod still uses. Finally, it asserts
 that `kubectl rollout restart` moves the same application image onto the
 patched JDK, after which an idle sweep reclaims the retired root.
-A cold node pulls roughly 1 GB of JDK and `jaz` images here, so each wait for
+A cold node pulls the JDK images here, so each wait for
 the node to advertise a JDK is progress-aware rather than fixed. It keeps
 waiting while the node's in-flight containerd ingests or the provisioner log
 advance. It fails after `E2E_PROVISION_IDLE_TIMEOUT` seconds without progress

@@ -6,7 +6,7 @@ its Java home lives inside the source image.
 
 Related: [Configuration](configuration.md) ·
 [Capability labels and autoscaling](capability-labels-and-autoscaling.md) ·
-[Launchers](launchers.md) · [Custom CA certificates](custom-ca-certificates.md) ·
+[Custom CA certificates](custom-ca-certificates.md) ·
 [Security](security.md).
 
 ---
@@ -41,14 +41,13 @@ that inventory: a root that is present on disk but absent from the inventory —
 and any request made on a node with no inventory at all — is refused with
 `NoCompatibleJDK`. A requested `distribution` must also be a lowercase DNS-1123
 token, and the shim verifies after symlink resolution that the selected root is a
-direct child of `/opt/brewlet/jdks` before mounting it. Launchers follow the
-identical rules (see [Launchers](launchers.md)).
+direct child of `/opt/brewlet/jdks` before mounting it.
 
 Mutable tags are intentionally rejected. A tag may resolve to different bytes
 between reviews or nodes; a digest identifies the exact OCI manifest or
 multi-platform index the administrator approved.
 
-The CLI's [`brewlet k8s jdk add`](cli-reference.md#safe-jdk-and-launcher-additions)
+The CLI's [`brewlet k8s jdk add`](cli-reference.md#safe-jdk-additions)
 updates an unmanaged live NodeProfile by default. `--dry-run` validates locally
 and prints the proposed change; `--dry-run=server` validates through the API
 server without saving. Failed dry runs print no rendered output. Use client
@@ -473,7 +472,7 @@ either the same explicit key everywhere or auto-detection everywhere.
 Changing a selector, pool label, or node role triggers retirement of previously
 recorded targets. All provisioner and node-metrics workers for the profile pause
 while the operator cleans departing nodes and waits for their cleanup workers
-to terminate. Retained nodes' JDK/launcher roots and capability advertisements
+to terminate. Retained nodes' JDK roots and capability advertisements
 are preserved. Only then are claims released and the latest desired targets
 provisioned. Repeated edits or a controller restart do not cancel a frozen
 retirement episode.

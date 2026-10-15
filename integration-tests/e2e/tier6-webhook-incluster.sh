@@ -31,7 +31,7 @@ _t6_cleanup() {
   [[ -n "$T6_RC_CREATED" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   if [[ -n "$WH_NODE" ]]; then
     kubectl label "$WH_NODE" brewlet.sh/runtime- >/dev/null 2>&1 || true
-    kubectl annotate "$WH_NODE" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
+    kubectl annotate "$WH_NODE" brewlet.sh/jdks- >/dev/null 2>&1 || true
   fi
   # Best-effort: drop the side-loaded image from each node and the host.
   for n in ${T6_LOADED_NODES[@]+"${T6_LOADED_NODES[@]}"}; do

@@ -94,17 +94,15 @@ independent required scenarios, tested source revisions, evidence and limits.
   env vars, operator/admission flags, the RuntimeClass, and precedence rules.
 - **[JDK management](jdk-management.md)** — installing, versioning, patching, and
   multi-arch JDK runtime roots on nodes (copy-from-image).
-- **[Launchers](launchers.md)** — vanilla `java` vs. `jaz`, installing launcher
-  layers, choosing one, and how launcher selection is resolved.
 
 ### Ship workloads
 - **[Building & publishing application artifacts](building-and-publishing.md)** — build a
   fat JAR (or a layered classpath app), author the launch config, and push it with the `brewlet` CLI or ORAS.
 - **[Deploying workloads](deploying-workloads.md)** — the raw `Deployment` path,
-  the `JavaApplication` CRD, and requesting a specific JDK/launcher via annotations.
+  the `JavaApplication` CRD, and requesting a specific JDK via annotations.
 - **[Resource requests, limits & JVM tuning](resource-tuning.md)** — how requests
   affect scheduling/HPA, limits become cgroup constraints, and the container-aware
-  JVM (and `jaz`) react.
+  JVM reacts.
 
 ### Operate it
 - **[Uninstallation and reinstallation](uninstallation.md)** — stop workloads,

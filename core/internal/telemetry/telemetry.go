@@ -85,7 +85,7 @@ func Decode(payload []byte) (Event, error) {
 		}
 	case KindLaunch:
 		if !oneOf(event.Outcome, "success", "error") ||
-			!oneOf(event.Reason, "none", "NoCompatibleJDK", "NoCompatibleLauncher", "NoCompatibleArch", "MissingArtifactReference", "ArtifactResolution", "OverlaySetup", "RuntimeCreate", "ProcessStart", "BundlePreparation") ||
+			!oneOf(event.Reason, "none", "NoCompatibleJDK", "NoCompatibleArch", "MissingArtifactReference", "ArtifactResolution", "OverlaySetup", "RuntimeCreate", "ProcessStart", "BundlePreparation") ||
 			!oneOf(event.EntryMode, "jar", "classpath", "module", "unknown") ||
 			!oneOf(event.Format, "native", "image", "unknown") {
 			return Event{}, errors.New("invalid launch event")
@@ -125,7 +125,6 @@ func Reason(err error) string {
 	message := err.Error()
 	for _, reason := range []string{
 		"NoCompatibleJDK",
-		"NoCompatibleLauncher",
 		"NoCompatibleArch",
 	} {
 		if strings.Contains(message, reason) {

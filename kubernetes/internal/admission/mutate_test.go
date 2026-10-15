@@ -26,8 +26,8 @@ func brewletPod(image string, annotations map[string]string) *corev1.Pod {
 
 func readyFleet() []NodeCapability {
 	return []NodeCapability{
-		{Name: "a", Ready: true, JDKs: []string{"temurin-21"}, Launchers: []string{"java"}},
-		{Name: "b", Ready: true, JDKs: []string{"microsoft-25"}, Launchers: []string{"java", "jaz"}},
+		{Name: "a", Ready: true, JDKs: []string{"temurin-21"}},
+		{Name: "b", Ready: true, JDKs: []string{"microsoft-25"}},
 	}
 }
 
@@ -128,7 +128,7 @@ func TestMutatePod_NoRequestNoAffinity(t *testing.T) {
 		t.Fatalf("unexpected deny: %+v", res)
 	}
 	if pod.Spec.Affinity != nil {
-		t.Fatal("no explicit JDK/launcher => no affinity should be injected")
+		t.Fatal("no explicit JDK => no affinity should be injected")
 	}
 }
 
@@ -145,10 +145,9 @@ func TestMutatePod_InjectsFeatureAffinity(t *testing.T) {
 	}
 }
 
-func TestMutatePod_InjectsDistAndLauncherAffinity(t *testing.T) {
+func TestMutatePod_InjectsDistributionAffinity(t *testing.T) {
 	pod := brewletPod("demo/hello:1", map[string]string{
-		brewlet.AnnotationRequestedJDK:      "microsoft-25",
-		brewlet.AnnotationRequestedLauncher: "jaz",
+		brewlet.AnnotationRequestedJDK: "microsoft-25",
 	})
 	res := MutatePod(pod, readyFleet(), nil)
 	if res.DenyReason != "" {
@@ -158,8 +157,8 @@ func TestMutatePod_InjectsDistAndLauncherAffinity(t *testing.T) {
 	for _, r := range requirementsFromPod(t, pod) {
 		keys[r.Key] = true
 	}
-	if !keys[brewlet.LabelJDKPrefix+"microsoft-25"] || !keys[brewlet.LabelLauncherPrefix+"jaz"] {
-		t.Fatalf("expected dist + launcher labels, got %v", keys)
+	if !keys[brewlet.LabelJDKPrefix+"microsoft-25"] {
+		t.Fatalf("expected distribution label, got %v", keys)
 	}
 }
 
@@ -206,21 +205,10 @@ func TestMutatePod_DeniesNoCompatibleJDK(t *testing.T) {
 	}
 }
 
-func TestMutatePod_DeniesNoCompatibleLauncher(t *testing.T) {
-	pod := brewletPod("demo/hello:1", map[string]string{
-		brewlet.AnnotationRequestedJDK:      "temurin-21",
-		brewlet.AnnotationRequestedLauncher: "jaz",
-	})
-	res := MutatePod(pod, readyFleet(), nil)
-	if res.DenyReason != brewlet.ReasonNoCompatibleLauncher {
-		t.Fatalf("expected NoCompatibleLauncher, got %+v", res)
-	}
-}
-
 func TestMutatePod_InjectsArchAffinity(t *testing.T) {
 	fleet := []NodeCapability{
-		{Name: "a", Ready: true, Arch: "amd64", JDKs: []string{"temurin-21"}, Launchers: []string{"java"}},
-		{Name: "b", Ready: true, Arch: "arm64", JDKs: []string{"temurin-21"}, Launchers: []string{"java"}},
+		{Name: "a", Ready: true, Arch: "amd64", JDKs: []string{"temurin-21"}},
+		{Name: "b", Ready: true, Arch: "arm64", JDKs: []string{"temurin-21"}},
 	}
 	pod := brewletPod("demo/hello:1", map[string]string{brewlet.AnnotationRequestedArch: "amd64"})
 	res := MutatePod(pod, fleet, nil)
@@ -239,7 +227,7 @@ func TestMutatePod_InjectsArchAffinity(t *testing.T) {
 // the scheduler/autoscaler resolve it (e.g. scale up an arm64 pool from zero).
 func TestMutatePod_UnavailableArchAdmittedWithWarning(t *testing.T) {
 	fleet := []NodeCapability{
-		{Name: "a", Ready: true, Arch: "amd64", JDKs: []string{"temurin-21"}, Launchers: []string{"java"}},
+		{Name: "a", Ready: true, Arch: "amd64", JDKs: []string{"temurin-21"}},
 	}
 	pod := brewletPod("demo/hello:1", map[string]string{brewlet.AnnotationRequestedArch: "arm64"})
 	res := MutatePod(pod, fleet, nil)
@@ -259,11 +247,10 @@ func TestMutatePod_UnavailableArchAdmittedWithWarning(t *testing.T) {
 // declares the requested capabilities. The pod must be admitted (so it can go
 // Pending and trigger the autoscaler) with full capability affinity.
 func TestMutatePod_ScaleFromZeroAdmittedFromProfile(t *testing.T) {
-	profiles := []ProfileCapability{{Name: "java21", JDKs: []string{"microsoft-21"}, Launchers: []string{"jaz"}}}
+	profiles := []ProfileCapability{{Name: "java21", JDKs: []string{"microsoft-21"}}}
 	pod := brewletPod("demo/hello:1", map[string]string{
-		brewlet.AnnotationRequestedJDK:      "21",
-		brewlet.AnnotationRequestedLauncher: "jaz",
-		brewlet.AnnotationRequestedArch:     "arm64",
+		brewlet.AnnotationRequestedJDK:  "21",
+		brewlet.AnnotationRequestedArch: "arm64",
 	})
 	res := MutatePod(pod, nil, profiles)
 	if res.DenyReason != "" {
@@ -276,7 +263,7 @@ func TestMutatePod_ScaleFromZeroAdmittedFromProfile(t *testing.T) {
 	for _, r := range requirementsFromPod(t, pod) {
 		keys[r.Key] = true
 	}
-	for _, k := range []string{brewlet.LabelJDKFeaturePrefix + "21", brewlet.LabelLauncherPrefix + "jaz", brewlet.LabelArch} {
+	for _, k := range []string{brewlet.LabelJDKFeaturePrefix + "21", brewlet.LabelArch} {
 		if !keys[k] {
 			t.Errorf("missing affinity key %s in %v", k, keys)
 		}
@@ -324,46 +311,4 @@ func requirementsFromPod(t *testing.T, pod *corev1.Pod) []corev1.NodeSelectorReq
 		t.Fatalf("expected 1 term, got %d", len(terms))
 	}
 	return terms[0].MatchExpressions
-}
-
-// TestMutatePod_DeniesUnsafeLauncherName: the launcher annotation becomes a
-// directory name under the node's launcher roots and the sandbox argv[0], so a
-// traversal or separator payload is denied at admission — before it can be
-// scheduled or turned into a malformed brewlet.sh/launcher.<name> affinity key.
-// The node shim enforces the same rule independently.
-func TestMutatePod_DeniesUnsafeLauncherName(t *testing.T) {
-	unsafe := []string{
-		"..", "../..", "../../..", "../outside", "jaz/../../outside",
-		"sub/jaz", `sub\jaz`, "/opt/brewlet/launchers/jaz", ".", "./jaz",
-		"jaz*", "JAZ", "-jaz", "jaz-", "jaz.sh", strings.Repeat("j", 55),
-	}
-	for _, name := range unsafe {
-		t.Run(name, func(t *testing.T) {
-			pod := brewletPod("demo/hello:1", map[string]string{
-				brewlet.AnnotationRequestedLauncher: name,
-			})
-			res := MutatePod(pod, readyFleet(), nil)
-			if res.DenyReason != brewlet.ReasonNoCompatibleLauncher {
-				t.Fatalf("MutatePod(launcher=%q) DenyReason = %q, want %q", name, res.DenyReason, brewlet.ReasonNoCompatibleLauncher)
-			}
-			if pod.Spec.Affinity != nil {
-				t.Fatalf("MutatePod(launcher=%q) injected affinity %+v for a denied pod", name, pod.Spec.Affinity)
-			}
-		})
-	}
-}
-
-// TestMutatePod_AllowsVanillaAndTokenLaunchers keeps the validation from
-// regressing into rejecting legitimate requests.
-func TestMutatePod_AllowsVanillaAndTokenLaunchers(t *testing.T) {
-	for _, name := range []string{"", "java", "jaz"} {
-		t.Run(name, func(t *testing.T) {
-			pod := brewletPod("demo/hello:1", map[string]string{
-				brewlet.AnnotationRequestedLauncher: name,
-			})
-			if res := MutatePod(pod, readyFleet(), nil); res.DenyReason != "" {
-				t.Fatalf("MutatePod(launcher=%q) denied: %+v", name, res)
-			}
-		})
-	}
 }

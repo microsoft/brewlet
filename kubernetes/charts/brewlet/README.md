@@ -5,14 +5,14 @@ Runtime Class Manager and Spin Operator. `helm install` deploys:
 
 - **brewlet-operator** — the node lifecycle controller (§8.1). It creates and
   reconciles one `brewlet-node-provisioner-<profile>` DaemonSet per
-  `NodeProfile` plus the shared `brewlet` RuntimeClass. Every JDK and launcher
+  `NodeProfile` plus the shared `brewlet` RuntimeClass. Every JDK
   source is declared explicitly in its profile and pinned to an OCI digest.
 - **node-provisioner RBAC** — the `ServiceAccount` + `ClusterRole` the DaemonSet
   the operator creates runs as (it labels/annotates the nodes it provisions).
 - **brewlet-admission** — the pod admission/scheduling webhook (§8/§14): it
   stamps `brewlet.sh/artifact-ref` + `brewlet.sh/artifact-digest` onto brewlet
-  pods, matches a pod's requested JDK/launcher against the ready fleet
-  (`NoCompatibleJDK` / `NoCompatibleLauncher` / `NoCompatibleArch`), and injects nodeAffinity so the
+  pods, matches a pod's requested JDK against the ready fleet
+  (`NoCompatibleJDK` / `NoCompatibleArch`), and injects nodeAffinity so the
   scheduler only lands pods on capable nodes. Its NodeProfile endpoint rejects
   mutable sources and unauthorized mirror destinations; the operator repeats
   that policy during reconciliation. Can be disabled with
@@ -96,13 +96,12 @@ for upgrades; pass them again rather than substituting example defaults.
 | `images.digests.provisioner` | recorded at release | Immutable digest for the node-provisioner image. |
 | `images.digests.admission` | recorded at release | Immutable digest for the admission image. |
 | `images.pullPolicy` | `IfNotPresent` | Image pull policy for all components. |
-| `security.allowedSourceMirrorHosts` | `[]` | Exact destination registry hosts, including explicit ports, approved for JDK/launcher mirror rewrites. Empty disables mirrors. |
+| `security.allowedSourceMirrorHosts` | `[]` | Exact destination registry hosts, including explicit ports, approved for JDK mirror rewrites. Empty disables mirrors. |
 | `provisioner.pools` | `[]` (**required**) | Node pool names the default profile may provision. Rendering fails when `defaultProfile.enabled` is true and this is empty — the privileged provisioner is never cluster-wide by default. |
 | `provisioner.poolKey` | `""` | Node label carrying the pool name. Empty auto-detects the well-known provider keys. |
 | `provisioner.includeControlPlane` | `false` | Allow the default profile onto control-plane nodes. Needed only on single-node clusters such as kind. |
 | `provisioner.tolerations` | `[]` | Tolerations for the default profile's provisioner pods. Each entry must name a `key`; nothing is tolerated implicitly. |
 | `provisioner.jdks` | `[]` (**required**) | Administrator-chosen JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` (§5.3). No built-in runtime catalog. |
-| `provisioner.launchers` | `[]` | Optional entries with `name`, digest-pinned `source.image`, and absolute `source.path` (§5.4). Empty = vanilla `java` only. |
 | `provisioner.registry.mirrors` | `{}` | Upstream host → approved mirror host/path map. Rewrites preserve the source digest. |
 | `stageGC.enabled` | `true` | Automatically reclaim orphaned runnable-image stages on managed nodes, independently of metrics. |
 | `stageGC.interval` | `5m` | Time between sweeps, plus up to 10% jitter. |
@@ -181,16 +180,6 @@ tagless `repository@sha256:<64 lowercase hex>` reference. An image may contain a
 full JDK or a centrally built jlink runtime, but must include the userland
 libraries required by `javaHome/bin/java`.
 
-Optional launchers use the same explicit form:
-
-```yaml
-provisioner:
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
-        path: /usr/bin/jaz
-```
 
 For an air-gapped mirror, approve its exact registry host outside the profile:
 
@@ -243,16 +232,15 @@ The namespace and CRDs are retained; the shared RuntimeClass is operator-created
 not chart-owned. See [installation and recovery guidance](../../../docs/installation.md#uninstall)
 for retained-resource review and manually managed profiles.
 
-## Requesting a JDK / launcher
+## Requesting a JDK
 
-A pod (or the raw Deployment) opts into a specific JDK/launcher via annotations,
+A pod (or the raw Deployment) opts into a specific JDK via annotations,
 which the webhook validates and turns into scheduling constraints:
 
 ```yaml
 metadata:
   annotations:
     brewlet.sh/jdk: "21"          # bare feature (any distribution) or "temurin-21"
-    brewlet.sh/launcher: "jaz"    # optional; omit/"java" for the vanilla launcher
 spec:
   runtimeClassName: brewlet
   containers:
@@ -262,11 +250,10 @@ spec:
 Replace the workload digest with the one reported by your image publication.
 It is not a runnable example until you supply that digest.
 
-If no ready node provides a compatible JDK/launcher or authorizes requested
-the pod is rejected with `NoCompatibleJDK` or
-`NoCompatibleLauncher`, surfaced on the owning
-controller (§14). With no annotation, the pod is admitted (ref/digest still
-stamped) and the shim keeps its runtime compatibility check.
+If no ready node or valid NodeProfile provides a compatible JDK, the pod is
+rejected with `NoCompatibleJDK`. Profile-only capacity is admitted with a
+warning and waits for provisioning. With no annotation, the pod is admitted
+and the shim keeps its runtime compatibility check.
 
 ## Runtime metrics
 
@@ -280,7 +267,7 @@ release values or maintaining the installed release.
 
 - `brewlet-node-metrics` discovers the exporter in every profile-managed
   provisioner pod and reports sandbox launch phases/outcomes, artifact resolution,
-  and JDK/launcher inventory.
+  and JDK inventory.
 - `brewlet-operator-metrics` exposes controller-runtime metrics plus Brewlet
   NodeProfile readiness and provisioning transitions.
 - `brewlet-admission` exposes webhook metrics on its `metrics` Service port,

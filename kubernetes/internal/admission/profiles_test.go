@@ -18,21 +18,13 @@ func inventoryProfile(name string, pools ...string) nodev1alpha1.NodeProfile {
 	p.Name = name
 	p.Spec.NodePool.Names = pools
 	p.Spec.JDKs = []nodev1alpha1.JDKRef{webhookJDK("microsoft", 21)}
-	p.Spec.Launchers = []nodev1alpha1.LauncherRef{{
-		Name: "jaz",
-		Source: nodev1alpha1.LauncherSource{
-			Image: "registry.example.com/jdks/microsoft@sha256:1111111111111111111111111111111111111111111111111111111111111111",
-			Path:  "/usr/bin/jaz",
-		},
-	}}
 	return p
 }
 
 func TestProfileCapabilityFrom(t *testing.T) {
 	p := inventoryProfile("java21", "javaarm")
 	c := ProfileCapabilityFrom(&p)
-	if c.Name != "java21" || len(c.JDKs) != 1 || c.JDKs[0] != "microsoft-21" ||
-		len(c.Launchers) != 1 || c.Launchers[0] != "jaz" {
+	if c.Name != "java21" || len(c.JDKs) != 1 || c.JDKs[0] != "microsoft-21" {
 		t.Fatalf("projection = %+v", c)
 	}
 }
