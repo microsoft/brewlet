@@ -33,7 +33,7 @@ mkdir -p "$WORK"
 for arg in "$@"; do
   case "$arg" in
     --list)
-      printf '1 unit  2 cli  3 runc  4 k8s  5 webhook(host)  6 webhook(in-cluster)  7 petclinic  8 appcds(in-cluster)  9 serving(in-cluster)  10 helm(in-cluster)  11 webhook-resilience  12 runnable-image(in-cluster)  13 nodeprofile  15 metrics(in-cluster)  16 failure-modes(in-cluster)  17 stage-gc(in-cluster)  18 jdk-patch(in-cluster)  19 cve-remediation(in-cluster)\n'
+      printf '1 unit  2 cli  3 runc  4 k8s  5 webhook(host)  6 webhook(in-cluster)  7 petclinic  9 serving(in-cluster)  10 helm(in-cluster)  11 webhook-resilience  12 runnable-image(in-cluster)  13 nodeprofile  15 metrics(in-cluster)  16 failure-modes(in-cluster)  17 stage-gc(in-cluster)  18 jdk-patch(in-cluster)  19 cve-remediation(in-cluster)\n'
       exit 0
       ;;
   esac
@@ -89,7 +89,6 @@ source "$E2E_DIR/webhook-cases.sh"
 source "$E2E_DIR/tier5-webhook.sh"
 source "$E2E_DIR/tier6-webhook-incluster.sh"
 source "$E2E_DIR/tier7-petclinic.sh"
-source "$E2E_DIR/tier8-appcds-incluster.sh"
 source "$E2E_DIR/tier9-japp-serving.sh"
 source "$E2E_DIR/tier10-helm-incluster.sh"
 source "$E2E_DIR/tier11-webhook-resilience.sh"
@@ -114,12 +113,12 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tier)
       case "${2:-}" in
-        1|2|3|4|5|6|7|8|9|10|11|12|13|15|16|17|18|19) TIERS+=("$2"); shift 2 ;;
+        1|2|3|4|5|6|7|9|10|11|12|13|15|16|17|18|19) TIERS+=("$2"); shift 2 ;;
         *) printf 'ERROR: --tier requires an implemented tier number\n' >&2; exit 2 ;;
       esac
       ;;
     --reset) DO_RESET=1; shift ;;
-    --list) printf '1 unit  2 cli  3 runc  4 k8s  5 webhook(host)  6 webhook(in-cluster)  7 petclinic  8 appcds(in-cluster)  9 serving(in-cluster)  10 helm(in-cluster)  11 webhook-resilience  12 runnable-image(in-cluster)  13 nodeprofile  15 metrics(in-cluster)  16 failure-modes(in-cluster)  17 stage-gc(in-cluster)  18 jdk-patch(in-cluster)  19 cve-remediation(in-cluster)\n'; exit 0 ;;
+    --list) printf '1 unit  2 cli  3 runc  4 k8s  5 webhook(host)  6 webhook(in-cluster)  7 petclinic  9 serving(in-cluster)  10 helm(in-cluster)  11 webhook-resilience  12 runnable-image(in-cluster)  13 nodeprofile  15 metrics(in-cluster)  16 failure-modes(in-cluster)  17 stage-gc(in-cluster)  18 jdk-patch(in-cluster)  19 cve-remediation(in-cluster)\n'; exit 0 ;;
     -h|--help) usage; exit 0 ;;
     *) warn "unknown arg: $1"; usage; exit 2 ;;
   esac
@@ -154,7 +153,7 @@ if [[ "$DO_RESET" -eq 1 ]]; then
   [[ ${#TIERS[@]} -eq 0 ]] && exit 0
 fi
 
-[[ ${#TIERS[@]} -eq 0 ]] && TIERS=(1 2 3 4 5 6 7 8 9 10 11 12 13 15 16 17 18 19)
+[[ ${#TIERS[@]} -eq 0 ]] && TIERS=(1 2 3 4 5 6 7 9 10 11 12 13 15 16 17 18 19)
 
 # Tier 17 must see a fresh node; see e2e_order_tiers in lib.sh.
 _requested="${TIERS[*]}"
@@ -244,7 +243,6 @@ for t in "${TIERS[@]}"; do
     5) tier5_webhook ;;
     6) tier6_webhook_incluster ;;
     7) tier7_petclinic ;;
-    8) tier8_appcds_incluster ;;
     9) tier9_serving ;;
     10) tier10_helm_incluster ;;
     11) tier11_webhook_resilience ;;

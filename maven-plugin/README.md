@@ -19,8 +19,7 @@ configuration, not the artifact config. The optional `manifest` goal generates
 a development starting point for the image built in the current invocation.
 
 - **Coordinates:** `sh.brewlet:brewlet-maven-plugin` on [Maven Central](https://central.sonatype.com/artifact/sh.brewlet/brewlet-maven-plugin)
-- **Requires:** Maven 3.10+, JDK 17+ (to run the build). The `appcds`
-  training goal requires a JDK 21+ training runtime.
+- **Requires:** Maven 3.10+, JDK 17+ (to run the build).
 
 ---
 
@@ -247,7 +246,6 @@ For output preview, see [Dry-run behavior](#dry-run-behavior).
 | `brewlet:config` | `package` | Generate `target/brewlet/jvm-config.json` from POM metadata + the JAR manifest. Input for `build`/`push`. |
 | `brewlet:build` | — | Assemble the OCI artifact into a local **OCI image-layout** dir (`target/brewlet/oci`) without pushing. Good for inspection, air-gapped flows, or local-registry tests. |
 | `brewlet:push` | `deploy` | Build and push to the registry in `<image>`. By default (`image` format) this pushes a **runnable OCI image** — a standard, kubelet-pullable image (see [Delivery format](#delivery-format-native-artifact-vs-runnable-image)). With `-Dbrewlet.format=artifact` it pushes the native Brewlet artifact instead (JAR layer + launch-config blob + manifest with `artifactType: application/vnd.brewlet.app.v1+json`). |
-| `brewlet:appcds` | — | Generate a dynamic AppCDS archive (`target/brewlet/app.jsa`) from the same fat/thin/Boot/module payload used for publication, using a self-terminating run or explicit signal-mode training. Attach it later with `-Dbrewlet.cdsArchive=...`. |
 | `brewlet:dependency-bundle` | `package` | Resolve the runtime dependency closure, create a canonical lock and deterministic flat classpath tar, write `target/brewlet/dependency-bundle-oci`, and publish an OCI dependency bundle. |
 | `brewlet:inspect` | — | Print the fully-resolved launch config and OCI descriptor that *would* be pushed — a dry run to verify inference. Honors `brewlet.cdsArchive` exactly like `build`/`push` (`cds` block + CDS layer with digest). |
 | `brewlet:manifest` | — | Generate a development `JavaApplication` YAML for this invocation's built/pushed image. No independent image input, publication, or cluster access. |
@@ -289,7 +287,7 @@ URL schemes or query strings in `image`. Docker Hub references such as
 | `signerIdentity` | `brewlet.signerIdentity` | — | Bundle-publisher identity used only by `dependency-bundle`; required when that goal uses `signingKey`. |
 | `trustedSignerIdentity` | `brewlet.trustedSignerIdentity` | — | Expected identity in signed bundle provenance. Required when the selected bundle has provenance. |
 | `builderIdentity` | `brewlet.builderIdentity` | — | Application publisher identity asserted in optional final-image provenance. Required with `signingKey` when pushing a managed application. |
-| `cdsArchive` | `brewlet.cdsArchive` | — | Optional prebuilt AppCDS `.jsa` archive to append as a `application/vnd.brewlet.cds.layer.v1+jsa` layer after dependency layers. The archive basename becomes `cds.archive`, is mounted at `/app/<name>`, and launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<name>` as best-effort acceleration. See [AppCDS §4.1](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#41-build-time-archive-layer-recommended-primary). |
+| `cdsArchive` | `brewlet.cdsArchive` | — | Optional externally prebuilt AppCDS `.jsa` archive to append as a `application/vnd.brewlet.cds.layer.v1+jsa` layer after dependency layers. The archive basename becomes `cds.archive`, is mounted at `/app/<name>`, and launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<name>` as best-effort acceleration. See [prebuilt AppCDS delivery](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#4-package-a-prebuilt-archive-with-maven). |
 
 ### Layered Spring Boot JARs
 
@@ -307,7 +305,7 @@ launch command:
   alter class resolution.
 
 Prepared files live under `target/brewlet/prepared/` by default. Build, push,
-config, inspect, and AppCDS training use the same prepared application. The input
+config and inspect use the same prepared application. The input
 JAR is unchanged, and the plugin does not guess a sibling `.original` file.
 Without `layered=true`, ordinary Boot fat-JAR launching is unchanged.
 
@@ -551,97 +549,27 @@ the OCI referrer is the cryptographic evidence.
 
 ---
 
-## AppCDS (`brewlet:appcds`)
+## Prebuilt AppCDS archives
 
-AppCDS is Brewlet's optional startup accelerator from
-[AppCDS §4.2](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#42-turnkey-generation-in-the-maven-plugin--cli):
-run the app once with `-XX:ArchiveClassesAtExit`, produce `app.jsa`, then ship it
-as an extra artifact layer.
+Attach an archive prepared by your own external build tooling:
 
 ```bash
-mvn package brewlet:appcds \
-  -Dbrewlet.appcds.trainingArgs=--warmup \
-  -Dbrewlet.appcds.timeoutSeconds=180
-
-mvn brewlet:push \
+mvn package brewlet:push \
   -Dbrewlet.image=registry.example.com/team/app:1.4.2 \
-  -Dbrewlet.cdsArchive=target/brewlet/app.jsa
+  -Dbrewlet.cdsArchive=./archives/app.jsa
 ```
 
-You can also bind `appcds` to `pre-integration-test` when your application has a
-short startup/warmup mode that exits on its own.
+`config`, `inspect`, `build`, and `push` honor `brewlet.cdsArchive`. The plugin
+packages the supplied bytes; it does not run application training. The runtime
+mounts the archive read-only and uses `-Xshare:auto` so incompatibility falls back
+without application sharing.
 
-### Long-running servers — `signal` mode
-
-Most Brewlet workloads are long-running servers that never exit on their own.
-Dynamic CDS only writes the archive when the JVM exits cleanly, so for these use
-`-Dbrewlet.appcds.mode=signal`: the goal starts the app, waits for a readiness
-signal, then sends `SIGTERM` so the shutdown hook runs and the archive flushes.
-
-```bash
-# Spring Boot: wait for the "Started … in … seconds" line, then SIGTERM
-mvn package brewlet:appcds \
-  -Dbrewlet.appcds.mode=signal \
-  -Dbrewlet.appcds.readyLog='Started .* in .* seconds' \
-  -Dbrewlet.appcds.timeoutSeconds=180
-
-# …or poll a health endpoint until it answers 2xx/3xx
-mvn package brewlet:appcds \
-  -Dbrewlet.appcds.mode=signal \
-  -Dbrewlet.appcds.readyHttp=http://localhost:8080/actuator/health
-
-# …or just warm up for a fixed number of seconds
-mvn package brewlet:appcds \
-  -Dbrewlet.appcds.mode=signal \
-  -Dbrewlet.appcds.readyDelaySeconds=20
-```
-
-`signal` mode is Unix-oriented: it relies on a graceful `SIGTERM` shutdown to flush
-the archive (Brewlet nodes are Linux). The app **must** shut down cleanly on
-`SIGTERM` within `shutdownGraceSeconds`, or the archive won't be written.
-
-Parameters:
-
-| Parameter | Property | Default | Notes |
-|---|---|---|---|
-| `cdsArchiveOutput` | — | `${project.build.directory}/brewlet/app.jsa` | Where `brewlet:appcds` writes the generated dynamic-CDS archive. |
-| `trainingArgs` | `brewlet.appcds.trainingArgs` | — | Extra program args passed after `-jar <mainJar>` during training. Use these to exercise startup paths (and, in `exit` mode, to make the app terminate). |
-| `timeoutSeconds` | `brewlet.appcds.timeoutSeconds` | `120` | Execution budget in `exit` mode; combined readiness and settling budget in `signal` mode. Shutdown grace and failure cleanup are separate bounded waits. |
-| `trainingJavaHome` | `brewlet.appcds.javaHome` | Maven's `java.home` | JDK used for training. Must be JDK 21+ per [AppCDS §2.2](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#22-minimum-jdk-version). |
-| `mode` | `brewlet.appcds.mode` | `exit` | `exit` (self-terminating app) or `signal` (start → wait for readiness → `SIGTERM`). |
-| `readyLog` | `brewlet.appcds.readyLog` | — | `signal` mode: regex matched line-by-line against the app's stdout/stderr; readiness fires on first match. |
-| `readyHttp` | `brewlet.appcds.readyHttp` | — | `signal` mode: HTTP(S) URL polled until it returns 2xx/3xx. |
-| `readyDelaySeconds` | `brewlet.appcds.readyDelaySeconds` | `0` | `signal` mode: fixed warmup delay before `SIGTERM` (used alone, or as a settle time after `readyLog`/`readyHttp`). |
-| `shutdownGraceSeconds` | `brewlet.appcds.shutdownGraceSeconds` | `30` | `signal` mode: time allowed after `SIGTERM` for a graceful shutdown that flushes the archive. |
-| `readyPollMillis` | `brewlet.appcds.readyPollMillis` | `500` | `signal` mode: poll interval for `readyHttp`. |
-
-Every training attempt owns its JVM and output reader through completion.
-Readiness failure, timeout, or interruption triggers bounded termination and
-reaping rather than leaving a server behind. Failure cleanup allows up to five
-seconds for graceful termination and another five for forced reaping, with
-bounded output draining; interruption is preserved. Output-reader errors fail
-the attempt, although a process wait may reach its timeout before reporting them.
-
-Outside dry-run, the configured output archive is cleared before training and
-configuration validation (after protecting the source JAR). Failed attempts
-also remove partial output: an older archive must not masquerade as newly
-trained output. Preserve a prebuilt archive elsewhere if it must survive a
-failed attempt. Dry-run leaves archives untouched.
-
-Layered class-path and JPMS module apps are supported: run `brewlet:appcds` with
-the **same** `-Dbrewlet.layered=true` (and module shape) you push with. Plain thin
-JARs use POM runtime dependencies in `lib/`; prepared Boot JARs use the exact
-packaged libraries and explicit classpath order described above. Modular apps
-stage dependencies into `mods/`. Training and publication share the prepared
-payload and its hashes, matching the shim's `/app/lib` or `/app/mods` layout.
-If you push a fat JAR, train a fat JAR; the training layout must match runtime.
-
-Pairing caveat: HotSpot validates dynamic-CDS archives against each app-classpath
-JAR's basename, size, and mtime, and Brewlet nodes pin the app JAR mtime to a
-canonical timestamp. `brewlet:appcds` trains against a copy with that same mtime,
-but the archive is still tied to the exact JDK build and classpath layout. With
-`-Xshare:auto`, a mismatch safely falls back to base CDS (no correctness risk, just
-no AppCDS benefit); see [AppCDS §7](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md#7-the-jdk-coupling-problem-design-core).
+Prepare the archive for the exact JDK build, CPU architecture, application and
+dependency bytes, and final launch layout. For layered apps this means the
+prepared thin JAR and its actual libraries or modules. JAR mtimes must match
+Brewlet's canonical Unix second `946684800` (2000-01-01 UTC). Recreate the archive
+externally when needed after application or runtime updates. See the
+[AppCDS guide](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md).
 
 ---
 
@@ -688,7 +616,6 @@ shape (media types, `jvm-config` annotation, platforms). See
 
 - `target/brewlet/jvm-config.json` — the generated launch config
   (`application/vnd.brewlet.jvm.config.v1+json`).
-- `target/brewlet/app.jsa` — optional AppCDS archive from `brewlet:appcds`.
 - `target/brewlet/oci/` — a local OCI image-layout (from `brewlet:build`); readable
   with `brewlet inspect` or pushable with `oras push`.
 - `target/brewlet/push.json` — the last successful push (`image`, `digest`,

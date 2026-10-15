@@ -20,7 +20,6 @@ const (
 	KindLaunchPhase        = "launch_phase"
 	KindLaunch             = "launch"
 	KindArtifactResolution = "artifact_resolution"
-	KindCDS                = "cds"
 )
 
 // Event is the bounded-cardinality telemetry contract between the short-lived
@@ -34,7 +33,6 @@ type Event struct {
 	Backend         string  `json:"backend,omitempty"`
 	Format          string  `json:"format,omitempty"`
 	EntryMode       string  `json:"entryMode,omitempty"`
-	CDSRole         string  `json:"cdsRole,omitempty"`
 	DurationSeconds float64 `json:"durationSeconds,omitempty"`
 }
 
@@ -97,10 +95,6 @@ func Decode(payload []byte) (Event, error) {
 			!oneOf(event.Format, "native", "image", "unknown") ||
 			!oneOf(event.Outcome, "success", "error") {
 			return Event{}, errors.New("invalid artifact resolution event")
-		}
-	case KindCDS:
-		if !oneOf(event.CDSRole, "consume", "write", "defer", "skip") {
-			return Event{}, errors.New("invalid CDS event")
 		}
 	default:
 		return Event{}, errors.New("unknown telemetry event kind")

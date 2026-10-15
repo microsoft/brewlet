@@ -35,31 +35,6 @@ final class TestApplications {
             }
             """;
 
-    static final String SERVER = """
-            public class TrainingServer {
-                public static void main(String[] args) throws Exception {
-                    java.nio.file.Files.writeString(java.nio.file.Path.of(args[0]),
-                        Long.toString(ProcessHandle.current().pid()));
-                    if (args.length > 1 && args[1].equals("slow-shutdown"))
-                        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                            try { Thread.sleep(60000); } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                            }
-                        }));
-                    if (args.length > 1 && args[1].equals("report-shutdown"))
-                        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                            System.out.println("SERVER STOPPING");
-                            System.err.println("SERVER STDERR STOPPING");
-                            System.out.print("SERVER STOPPED WITHOUT NEWLINE");
-                            System.out.flush();
-                        }));
-                    System.out.println("SERVER STARTED");
-                    System.out.flush();
-                    Thread.sleep(60000);
-                }
-            }
-            """;
-
     record Boot(Path source, Map<String, byte[]> entries, byte[] first, byte[] second) {}
 
     static Boot boot(Path root) throws Exception {
@@ -150,7 +125,9 @@ final class TestApplications {
 
     static String java(Path directory, List<String> args) throws Exception {
         List<String> command = new ArrayList<>();
-        command.add(AppCdsMojo.javaBinary(new java.io.File(System.getProperty("java.home"))).toString());
+        String executable = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+                ? "java.exe" : "java";
+        command.add(Path.of(System.getProperty("java.home"), "bin", executable).toString());
         command.addAll(args);
         Path log = directory.resolve("jvm.log");
         Process process = new ProcessBuilder(command).directory(directory.toFile())

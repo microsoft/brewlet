@@ -60,11 +60,11 @@ async function finish(manager, run) {
     return result;
 }
 
-test("suite choices contain every active tier (14 retired)", () => {
+test("suite choices contain every active tier (8 and 14 retired)", () => {
     assert.deepEqual(Object.keys(SUITES), ["tiers", "reset", "live-hpa", "live-admission", "offline"]);
     assert.equal(SUITES.tiers.usesTiers, true);
     assert.equal(SUITES.tiers.usesCluster, true);
-    assert.deepEqual(TIERS.map((tier) => tier.n), Array.from({ length: 19 }, (_, i) => i + 1).filter((n) => n !== 14));
+    assert.deepEqual(TIERS.map((tier) => tier.n), Array.from({ length: 19 }, (_, i) => i + 1).filter((n) => ![8, 14].includes(n)));
 });
 
 test("new runs enforce input and concurrency guards", async (t) => {

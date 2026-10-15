@@ -108,7 +108,7 @@ func TestAssembleSandboxWithCDSPinsJarModTime(t *testing.T) {
 		Entry:   artifact.Entry{Mode: "classpath", MainClass: "com.acme.Main", ClassPath: []string{"app.jar", "lib/*"}},
 		CDS:     &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"},
 	}
-	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, []string{libTar}, nil, jsaSrc, false)
+	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, []string{libTar}, nil, jsaSrc)
 	if err != nil {
 		t.Fatalf("AssembleSandboxWithCDS: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestGenerateBundleNoCDSMountsOriginalJar(t *testing.T) {
 }
 
 func TestCDSModTimeValue(t *testing.T) {
-	// Must match the Maven plugin's canonical value (epoch second 946684800 =
+	// External archive builders must use this canonical value (epoch second 946684800 =
 	// 2000-01-01T00:00:00Z). Keep the two in lockstep — see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	if got := CDSModTime.Unix(); got != 946684800 {
 		t.Errorf("CDSModTime = %d, want 946684800 (2000-01-01T00:00:00Z)", got)

@@ -27,9 +27,6 @@ type NodeCapability struct {
 	Arch      string   // kubernetes.io/arch value, e.g. "amd64" or "arm64"
 	JDKs      []string // "<dist>-<feature>" tokens, e.g. ["temurin-21","microsoft-25"]
 	Launchers []string // launcher names, e.g. ["java","jaz"]
-	// AppCDSRegeneration is true when the node's active profile authorizes
-	// node-side AppCDS archive regeneration.
-	AppCDSRegeneration bool
 }
 
 // NodeCapabilityFrom extracts a NodeCapability from a Node object. Readiness is
@@ -37,24 +34,13 @@ type NodeCapability struct {
 // inventory comes from the comma-separated brewlet.sh/jdks|launchers
 // annotations the provisioner advertises; the architecture comes from the
 // standard kubelet-provided kubernetes.io/arch label.
-//
-// The AppCDS capability is a boolean-presence label: per the public
-// capability-label contract (specs/CAPABILITY_LABELS.md, "Contract v1"),
-// consumers MUST match these keys with Operator: Exists and MUST NOT require
-// the value "true". Brewlet's own provisioner writes "true", but a node
-// bootstrapped from an immutable image or an autoscaler template may publish the
-// key with any value, and the affinity Brewlet injects already uses Exists. So
-// this fleet pre-check tests key presence to stay consistent with both the
-// contract and injectNodeAffinity.
 func NodeCapabilityFrom(node *corev1.Node) NodeCapability {
-	_, appCDSRegeneration := node.Labels[brewlet.LabelAppCDSRegeneration]
 	return NodeCapability{
-		Name:               node.Name,
-		Ready:              brewlet.RuntimeReady(node),
-		Arch:               node.Labels[brewlet.LabelArch],
-		JDKs:               splitInventory(node.Annotations[brewlet.AnnotationJDKs]),
-		Launchers:          splitInventory(node.Annotations[brewlet.AnnotationLaunchers]),
-		AppCDSRegeneration: appCDSRegeneration,
+		Name:      node.Name,
+		Ready:     brewlet.RuntimeReady(node),
+		Arch:      node.Labels[brewlet.LabelArch],
+		JDKs:      splitInventory(node.Annotations[brewlet.AnnotationJDKs]),
+		Launchers: splitInventory(node.Annotations[brewlet.AnnotationLaunchers]),
 	}
 }
 
@@ -150,24 +136,22 @@ func jdkFeature(jdk string) int {
 	return n
 }
 
-// ProfileCapability is the admission view of a valid NodeProfile: the JDKs,
-// launchers, and AppCDS policy any node of its pool will advertise once
-// provisioned. It lets admission accept pods whose capacity does not exist yet
+// ProfileCapability is the admission view of a valid NodeProfile: the JDKs and
+// launchers any node of its pool will advertise once provisioned. It lets
+// admission accept pods whose capacity does not exist yet
 // (scale-from-zero) without inventing node capabilities. NodeProfiles carry no
 // architecture, so architecture is never decided from a profile.
 type ProfileCapability struct {
-	Name               string
-	JDKs               []string // "<dist>-<feature>" tokens
-	Launchers          []string
-	AppCDSRegeneration bool
+	Name      string
+	JDKs      []string // "<dist>-<feature>" tokens
+	Launchers []string
 }
 
 // ProfileCapabilityFrom projects a NodeProfile's declared inventory. Callers
 // are responsible for passing only valid, non-deleting profiles.
 func ProfileCapabilityFrom(profile *nodev1alpha1.NodeProfile) ProfileCapability {
 	c := ProfileCapability{
-		Name:               profile.Name,
-		AppCDSRegeneration: profile.Spec.AppCDS != nil && profile.Spec.AppCDS.RegenerationEnabled,
+		Name: profile.Name,
 	}
 	for _, j := range profile.Spec.JDKs {
 		c.JDKs = append(c.JDKs, j.Token())
@@ -178,24 +162,23 @@ func ProfileCapabilityFrom(profile *nodev1alpha1.NodeProfile) ProfileCapability 
 	return c
 }
 
-// node projects a profile onto the NodeCapability matcher so JDK, launcher, and
-// AppCDS requests are evaluated identically for nodes and profiles.
+// node projects a profile onto the NodeCapability matcher so JDK and launcher
+// requests are evaluated identically for nodes and profiles.
 func (p ProfileCapability) node() NodeCapability {
 	return NodeCapability{
-		Name:               p.Name,
-		JDKs:               p.JDKs,
-		Launchers:          p.Launchers,
-		AppCDSRegeneration: p.AppCDSRegeneration,
+		Name:      p.Name,
+		JDKs:      p.JDKs,
+		Launchers: p.Launchers,
 	}
 }
 
-// FleetResult is the outcome of checking JDK, launcher, architecture, and
-// AppCDS-regeneration requests against the ready fleet and declared profiles.
+// FleetResult is the outcome of checking JDK, launcher, and architecture
+// requests against the ready fleet and declared profiles.
 type FleetResult struct {
 	// Compatible is true if a ready node or a single valid NodeProfile jointly
-	// satisfies every explicit JDK, launcher, and AppCDS request.
+	// satisfies every explicit JDK and launcher request.
 	Compatible bool
-	// DenyReason identifies the unsatisfied capability or policy; empty when
+	// DenyReason identifies the unsatisfied capability; empty when
 	// Compatible is true.
 	DenyReason string
 	// Message is a human-readable explanation for the admission response/event.
@@ -209,17 +192,17 @@ type FleetResult struct {
 }
 
 // CheckInventory decides whether a pod requesting the given JDK, launcher,
-// architecture, and AppCDS policy can run on the cluster's declared inventory:
+// and architecture can run on the cluster's declared inventory:
 // the ready Brewlet nodes plus the valid NodeProfiles whose pools can provide
 // new nodes. Each request must be satisfied jointly by one ready node or one
 // profile; capabilities are never combined across candidates.
 //
-// It only ever denies for an explicit JDK, launcher, or AppCDS request, checked
+// It only ever denies for an explicit JDK or launcher request, checked
 // in that order. Architecture is a node-pool property NodeProfiles do not
 // declare, so it never causes a denial: the injected kubernetes.io/arch
 // affinity steers scheduling and autoscaling, and a pod admitted without a
 // matching ready node receives a warning instead.
-func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, launcher string, arch []string, appCDSRegeneration bool) FleetResult {
+func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, launcher string, arch []string) FleetResult {
 	ready := make([]NodeCapability, 0, len(fleet))
 	for _, n := range fleet {
 		if n.Ready {
@@ -230,13 +213,12 @@ func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, l
 	jdkExplicit := jdk != ""
 	launcherExplicit := launcher != "" && launcher != brewlet.VanillaLauncher
 	archExplicit := len(arch) > 0
-	if !jdkExplicit && !launcherExplicit && !archExplicit && !appCDSRegeneration {
+	if !jdkExplicit && !launcherExplicit && !archExplicit {
 		return FleetResult{Compatible: true}
 	}
 
 	satisfies := func(n NodeCapability) bool {
-		return n.supportsJDK(jdk) && n.supportsLauncher(launcher) &&
-			(!appCDSRegeneration || n.AppCDSRegeneration)
+		return n.supportsJDK(jdk) && n.supportsLauncher(launcher)
 	}
 	readyMatch := false
 	for _, n := range ready {
@@ -263,14 +245,13 @@ func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, l
 		return FleetResult{
 			Compatible:      true,
 			PendingProfiles: pending,
-			Warning:         pendingWarning(jdk, launcher, arch, appCDSRegeneration, pending),
+			Warning:         pendingWarning(jdk, launcher, arch, pending),
 		}
 	}
 
 	// Nothing matched. Attribute the denial first to an axis no candidate
-	// satisfies at all (JDK -> launcher), then to AppCDS policy when some
-	// candidate satisfies the runtime requests, then to the narrowest explicit
-	// runtime axis for a joint failure.
+	// satisfies at all (JDK -> launcher), then to the narrowest explicit runtime
+	// axis for a joint failure.
 	switch {
 	case jdkExplicit && !anySupportsJDK(candidates, jdk):
 		return FleetResult{
@@ -283,12 +264,6 @@ func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, l
 			DenyReason: brewlet.ReasonNoCompatibleLauncher,
 			Message: "no ready brewlet node or NodeProfile provides launcher " + strconv.Quote(launcher) +
 				"; available launchers=" + strconv.Quote(fleetLaunchers(candidates)),
-		}
-	case appCDSRegeneration && (!jdkExplicit && !launcherExplicit ||
-		anySupportsWorkload(candidates, jdk, launcher)):
-		return FleetResult{
-			DenyReason: brewlet.ReasonAppCDSRegenerationDisabled,
-			Message:    "AppCDS regeneration is not enabled on any otherwise-compatible ready brewlet node or NodeProfile",
 		}
 	case launcherExplicit:
 		return FleetResult{
@@ -306,7 +281,7 @@ func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, l
 }
 
 // pendingWarning explains why an admitted pod may stay Pending.
-func pendingWarning(jdk, launcher string, arch []string, appCDSRegeneration bool, profiles []string) string {
+func pendingWarning(jdk, launcher string, arch []string, profiles []string) string {
 	var want []string
 	if jdk != "" {
 		want = append(want, "jdk="+jdk)
@@ -316,9 +291,6 @@ func pendingWarning(jdk, launcher string, arch []string, appCDSRegeneration bool
 	}
 	if len(arch) > 0 {
 		want = append(want, "arch="+strings.Join(arch, ","))
-	}
-	if appCDSRegeneration {
-		want = append(want, "appcds-regeneration")
 	}
 	msg := "brewlet: no ready node currently provides " + strings.Join(want, " ") +
 		"; the pod will stay Pending until matching capacity is provisioned"
@@ -330,15 +302,6 @@ func pendingWarning(jdk, launcher string, arch []string, appCDSRegeneration bool
 		msg += " (declared by NodeProfile " + strings.Join(quoted, ", ") + ")"
 	}
 	return msg
-}
-
-func anySupportsWorkload(fleet []NodeCapability, jdk, launcher string) bool {
-	for _, n := range fleet {
-		if n.supportsJDK(jdk) && n.supportsLauncher(launcher) {
-			return true
-		}
-	}
-	return false
 }
 
 func anySupportsJDK(fleet []NodeCapability, jdk string) bool {

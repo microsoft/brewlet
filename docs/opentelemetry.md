@@ -182,8 +182,7 @@ Caveats:
   with a `lib/*` wildcard, the agent JAR would also land on the application
   class path, which the OpenTelemetry project advises against. In that mode,
   prefer the [node JDK image](#agent-in-the-node-jdk-image) approach.
-- The turnkey `brewlet push --appcds` option cannot be combined with
-  `--classpath-layer`. Also see [AppCDS interaction](#appcds-interaction).
+- For prebuilt archives, see [AppCDS interaction](#appcds-interaction).
 
 ---
 

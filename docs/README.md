@@ -39,6 +39,7 @@ Implemented functionality and live end-to-end validation are different:
 | Managed-dependency admission | Component tests use substituted registry access and plugin transport; source-built live tests exercise real registries, the external verifier, Ratify/Gatekeeper and Kubernetes API enforcement. | The live fixture uses test-specific cache, registry and TLS settings. It does not establish ordinary ephemeral-debug execution support; see the [runbook](live-validation.md). |
 | CPU autoscaling | Alongside HPA creation and simulated HPA ownership tests, source-built live tests exercise real metrics-server-driven scale-up/down, Ready Pods, serving endpoints and HPA ownership. | The GC scenario covers verified warm reuse, not cold startup after source layers disappear; see the [runbook](live-validation.md). |
 | CLI and Maven workflows | Source-built live tests exercise CLI operations and Maven publication followed by separate Kubernetes deployment in fresh environments. | These runs build the checkout's components and chart; they do not validate installation of published release artifacts. |
+| Prebuilt AppCDS delivery | Tier 2 prepares its fixture directly with `java` and checks archive packaging and mapping. | Archive preparation is external to Brewlet. Generation-only tier 8 is retired without renumbering; shared-node cleanup coverage runs tier 17 followed by tier 9 serving. |
 
 Live admission and CPU HPA validation each require two consecutive fresh disposable
 clusters to pass, with mandatory assertions, failure diagnostics, and bounded cleanup.
@@ -130,6 +131,8 @@ independent required scenarios, tested source revisions, evidence and limits.
 - **[CLI reference](cli-reference.md)** — `brewlet push / inspect / run / bundle / k8s`.
 - **[Reference](reference.md)** — labels & annotations, OCI media types, the
   artifact & launch-config schema, well-known paths, and a glossary.
+- **[Prebuilt AppCDS archives](appcds.md)** — package an externally prepared archive
+  with the CLI or Maven plugin, match runtime/payload metadata, and retain safe fallback.
 - **[JPMS support](jpms-support.md)** — how Brewlet runs modular
   (JPMS) apps on the module path rather than only fat JARs; `entry.mode: module` and the
   optional module/classpath layer.

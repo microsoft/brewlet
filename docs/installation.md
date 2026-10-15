@@ -819,7 +819,8 @@ namespace, shared RuntimeClass, or host files.
 
 ### Retained AppCDS cache files
 
-Uninstall does not remove the AppCDS cache or prove retained files are unused.
+Older installations may retain node-generated AppCDS cache files. Uninstall
+does not remove those historical files or prove they are unused.
 See [retained AppCDS cache files](uninstallation.md#retained-appcds-cache-files)
 for the ownership review and safe reclamation rules. Also review
 [retained runnable stage roots](uninstallation.md#retained-runnable-stage-roots).

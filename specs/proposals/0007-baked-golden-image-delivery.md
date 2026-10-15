@@ -146,18 +146,17 @@ since runtime presence is no longer a per-node property.
   applications × golden bases × architectures — before anything can roll. **G5**
   weakens from "independent of the artifact" to "independent of the developer's
   source build".
-- **Image combinatorics.** The shim resolves JDK distribution, launcher, and CDS
+- **Image combinatorics.** The shim resolves JDK distribution and launcher
   late and per node. Baking freezes them, so the matrix becomes one image per
-  (golden base, architecture, JDK feature/distribution, launcher, CDS) tuple.
+  (golden base, architecture, JDK feature/distribution, launcher) tuple.
 - **Cold start on a fresh node regresses.** The provisioner pre-warms JDK roots
   today; a baked image means the first pod on a node pulls the full base. A
   pre-pull DaemonSet recovers this — which is node provisioning under another name.
-- **Node-side AppCDS regeneration has no obvious home.** The per-`(namespace,
-  verified platform manifest, JDK build, process UID)` cache that self-heals on
-  every central JDK patch (§13) cannot be reproduced at bake time without running
-  the JVM, and reproducing it at runtime reintroduces a node component.
+- **Prebuilt AppCDS remains runtime-coupled.** Externally prepared archives must
+  match the baked JDK build, architecture, and final application layout. A
+  runtime patch may require archive replacement to retain acceleration.
 - **Launch-phase observability moves.** `overlay_setup`, `runc_create`, artifact
-  resolution behavior, and CDS decisions (§12) are shim-emitted and would need a
+  resolution behavior (§12) are shim-emitted and would need a
   different source.
 - **Overlap with existing tools.** "Approved base plus app layer, composed
   automatically in CI" is what Jib, Paketo, and kpack already do, with mature
@@ -201,7 +200,8 @@ paths coexist.
   config) so the output is independently verifiable?
 - What is the supported remediation workflow for a golden-image CVE, and can it be
   driven without a rebake stampede across every derived image?
-- Is there an acceptable AppCDS story that does not reintroduce a node component?
+- How will externally prebuilt AppCDS archives be validated against baked runtime
+  updates without making application correctness depend on archive acceptance?
 - Does a baked workload still report enough for Brewlet's observable contract
   (§14.1), or does that contract become mode-specific?
 

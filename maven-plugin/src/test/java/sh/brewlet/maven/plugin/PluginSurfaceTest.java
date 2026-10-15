@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class PluginSurfaceTest {
     @Test
-    void descriptorExposesOfflineManifestButNoDeploymentGoal() throws Exception {
+    void descriptorExposesOfflineManifestButNoDeploymentOrArchiveGenerationGoal() throws Exception {
         try (var input = getClass().getResourceAsStream("/META-INF/maven/plugin.xml")) {
             assertNotNull(input);
             var factory = DocumentBuilderFactory.newInstance();
@@ -25,7 +25,8 @@ class PluginSurfaceTest {
                 var mojo = (org.w3c.dom.Element) nodes.item(i);
                 goals.add(mojo.getElementsByTagName("goal").item(0).getTextContent());
             }
-            assertEquals(Set.of("config", "build", "push", "appcds", "dependency-bundle", "inspect", "help", "manifest"), goals);
+            assertEquals(Set.of("config", "build", "push", "dependency-bundle", "inspect", "help", "manifest"), goals);
+            assertFalse(goals.contains("appcds"), "Archive generation must not be exposed");
 
             Set<String> removed = Set.of("kubeconfig", "kubeContext", "kubectl", "waitForReady", "waitTimeout");
             Set<String> manifestOnly = Set.of("namespace", "appName", "replicas", "ports", "probes", "readinessPath", "livenessPath",

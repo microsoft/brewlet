@@ -19,8 +19,7 @@ Related: [Installation](installation.md) · [Configuration](configuration.md) ·
 ## How capabilities reach the scheduler
 
 1. A `NodeProfile` selects one or more node pools with `spec.nodePool`, declares
-   the JDKs and launchers Brewlet must install, and optionally authorizes AppCDS
-   regeneration with `spec.appCDS.regenerationEnabled`.
+   the JDKs and launchers Brewlet must install.
 2. The operator durably records matching node identities, acquires exclusive
    UID-bound claims, and only then places provisioners on those nodes.
 3. The provisioner installs and validates the inventory, registers the runtime,
@@ -28,7 +27,7 @@ Related: [Installation](installation.md) · [Configuration](configuration.md) ·
    capability labels.
 4. For an explicit workload request, admission verifies the current ready fleet
    plus the inventory declared by valid `NodeProfile`s, and injects required
-   affinity for the requested JDK, launcher, architecture, and AppCDS policy.
+   affinity for the requested JDK, launcher, and architecture.
 
 For example, this profile prepares an EKS managed node group:
 
@@ -52,8 +51,6 @@ spec:
       source:
         image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
         path: /usr/bin/jaz
-  appCDS:
-    regenerationEnabled: true
 ```
 
 After preparation succeeds, the node advertises the runtime and inventory:
@@ -64,13 +61,12 @@ brewlet.sh/jdk.temurin-21=true
 brewlet.sh/jdk-feature.21=true
 brewlet.sh/launcher.java=true
 brewlet.sh/launcher.jaz=true
-brewlet.sh/appcds-regeneration=true
 ```
 
-The capability-label values are not the scheduling contract. JDK, launcher, and
-AppCDS capabilities are matched by **key presence**, using `Operator: Exists`;
-do not write policies that require `=true`. Disabled AppCDS policy removes its
-key. The exact `runtime=ready` value is value-sensitive and is selected by the
+The capability-label values are not the scheduling contract. JDK and launcher
+capabilities are matched by **key presence**, using `Operator: Exists`;
+do not write policies that require `=true`. The exact `runtime=ready` value is
+value-sensitive and is selected by the
 `brewlet` `RuntimeClass`.
 
 Operator-managed provisioning selects nodes through `NodeProfile.spec.nodePool`.
@@ -79,8 +75,8 @@ Operator-managed provisioning selects nodes through `NodeProfile.spec.nodePool`.
 
 ## Admission-injected affinity
 
-A distribution-agnostic JDK 21 request with the `jaz` launcher and AppCDS
-regeneration produces requirements equivalent to:
+A distribution-agnostic JDK 21 request with the `jaz` launcher produces
+requirements equivalent to:
 
 ```yaml
 spec:
@@ -94,8 +90,6 @@ spec:
                 operator: Exists
               - key: brewlet.sh/launcher.jaz
                 operator: Exists
-              - key: brewlet.sh/appcds-regeneration
-                operator: Exists
 ```
 
 The `brewlet` `RuntimeClass` additionally selects:
@@ -107,8 +101,7 @@ nodeSelector:
 
 An exact distribution request uses a key such as
 `brewlet.sh/jdk.temurin-21`. A non-portable artifact also receives a
-`kubernetes.io/arch In [...]` requirement. AppCDS affinity is added only when
-`brewlet.sh/cds-regenerate: "true"` is requested. If the pod already has
+`kubernetes.io/arch In [...]` requirement. If the pod already has
 required node affinity, Brewlet adds its requirements to every existing selector
 term so the author's alternatives remain intact while every alternative still
 requires the requested Brewlet capabilities.
@@ -117,8 +110,7 @@ Admission validates explicit requests against the **ready fleet plus every valid
 `NodeProfile`** before the scheduler sees the pod. One candidate (a ready node or
 a profile) must provide the whole request; capabilities are never combined
 across candidates. A request nothing provides is denied (`NoCompatibleJDK`,
-`NoCompatibleLauncher`); a regeneration request with no otherwise-compatible
-authorized node or profile is denied with `AppCDSRegenerationDisabled`.
+`NoCompatibleLauncher`).
 
 When only a profile provides the request, such as a pool scaled to zero, the pod
 is admitted with an admission warning and stays `Pending` until the autoscaler
@@ -134,16 +126,13 @@ from the VM size), so a `brewlet.sh/arch` request without a ready node of that
 architecture is admitted with the same warning and resolved by
 `kubernetes.io/arch` affinity.
 
-The AppCDS label is only a scheduling hint: the shim independently requires the
-root-owned `/opt/brewlet/policy/appcds-regeneration-enabled` sentinel.
-
 ---
 
 ## Cluster Autoscaler
 
 Cluster Autoscaler simulates whether a future node from a group could schedule a
 pending pod. Its node-group template must therefore advertise the same runtime,
-JDK, launcher, and AppCDS labels that the group's `NodeProfile` will install.
+JDK, and launcher labels that the group's `NodeProfile` will install.
 
 On AKS, the managed Cluster Autoscaler builds a scale-from-zero template only
 from the agent pool spec (`--labels`, `--node-taints`, and the VM size). It
@@ -261,8 +250,7 @@ aws autoscaling create-or-update-tags --tags \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk.temurin-21,Value=true,PropagateAtLaunch=false" \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk-feature.21,Value=true,PropagateAtLaunch=false" \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.java,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.jaz,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/appcds-regeneration,Value=true,PropagateAtLaunch=false"
+  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.jaz,Value=true,PropagateAtLaunch=false"
 ```
 
 These tags are simulation hints, not real node readiness claims.
@@ -321,8 +309,6 @@ spec:
       source:
         image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
         path: /usr/bin/jaz
-  appCDS:
-    regenerationEnabled: true
 ```
 
 This ensures created nodes receive the inventory, but it is not
@@ -400,14 +386,11 @@ spec:
         brewlet.sh/jdk-feature.21: "true"
         brewlet.sh/launcher.java: "true"
         brewlet.sh/launcher.jaz: "true"
-        brewlet.sh/appcds-regeneration: "true"
 ```
 
 The image inventory and labels must move together. Publishing
 `brewlet.sh/runtime=ready` before bootstrap has made that claim true is
-unsupported. Publishing `brewlet.sh/appcds-regeneration` additionally requires
-the bootstrap to install the root-owned AppCDS policy sentinel; the shim will
-reject regeneration if only the label exists.
+unsupported.
 
 ---
 

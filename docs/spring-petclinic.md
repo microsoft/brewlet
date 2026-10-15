@@ -110,8 +110,8 @@ autoscaling.
 After [configuring the Maven plugin from Central](building-and-publishing.md#option-c-maven-plugin),
 you can prepare a standard Boot executable JAR directly with
 `-Dbrewlet.layered=true`: it relocates application classes/resources, preserves
-packaged library bytes and classpath order, and shares that preparation with
-AppCDS training. See [building and publishing](building-and-publishing.md#layered-thin-jar-apps).
+packaged library bytes and classpath order, and shares that preparation across
+config, inspection, and publication. See [building and publishing](building-and-publishing.md#layered-thin-jar-apps).
 The fixture-based CLI walkthrough below remains a separate explicit split.
 
 A fat JAR is one large blob, so any code change produces a new blob. The fixture's

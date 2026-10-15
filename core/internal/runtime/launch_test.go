@@ -7,7 +7,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +39,7 @@ func writeTar(t *testing.T, path string, files map[string]string) {
 
 func TestBuildJVMArgsJarMode(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +58,7 @@ func TestBuildJVMArgsStructuredLaunchKnobs(t *testing.T) {
 		// Deliberately out of lexical order to prove deterministic sorting.
 		SystemProperties: map[string]string{"z.prop": "2", "a.prop": "1"},
 	}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", []string{"-Xmx512m"}, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", []string{"-Xmx512m"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +76,7 @@ func TestBuildJVMArgsStructuredLaunchKnobs(t *testing.T) {
 
 func TestBuildJVMArgsCDS(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"}}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +90,7 @@ func TestBuildJVMArgsCDSArchivePathTracksJar(t *testing.T) {
 	// The archive is resolved beside the JAR, so a non-default main JAR path
 	// still yields /<dir>/<archive>.
 	cfg := artifact.JVMConfig{MainJar: "orders.jar", Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "orders.jsa"}}
-	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +101,7 @@ func TestBuildJVMArgsCDSArchivePathTracksJar(t *testing.T) {
 
 func TestBuildJVMArgsNoCDS(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +147,11 @@ func TestGenerateBundleUsesExplicitRuntimeIdentity(t *testing.T) {
 	out := filepath.Join(dir, "bundle")
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
 	want := ProcessIdentity{UID: 1234, GID: 5678}
-	if err := GenerateBundleWithIdentityAndRegen(
+	if err := GenerateBundleWithIdentity(
 		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
-		nil, nil, "", out, Resources{}, nil, want, CDSRegenOptions{},
+		nil, nil, "", out, Resources{}, nil, want,
 	); err != nil {
-		t.Fatalf("GenerateBundleWithIdentityAndRegen: %v", err)
+		t.Fatalf("GenerateBundleWithIdentity: %v", err)
 	}
 	got := readBundleSpec(t, out)
 	if got.Process.User.UID != want.UID || got.Process.User.GID != want.GID {
@@ -164,31 +163,13 @@ func TestGenerateBundleUsesExplicitRuntimeIdentity(t *testing.T) {
 func TestGenerateBundleRejectsReservedProcessIdentity(t *testing.T) {
 	dir := t.TempDir()
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
-	err := GenerateBundleWithIdentityAndRegen(
+	err := GenerateBundleWithIdentity(
 		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
 		nil, nil, "", filepath.Join(dir, "bundle"), Resources{}, nil,
 		ProcessIdentity{UID: MaxProcessID + 1, GID: DefaultProcessGID},
-		CDSRegenOptions{},
 	)
 	if err == nil {
-		t.Fatal("GenerateBundleWithIdentityAndRegen accepted Linux's reserved UID sentinel")
-	}
-}
-
-func TestGenerateBundleRejectsRegenIdentityBeyondPlatformInt(t *testing.T) {
-	if uint64(math.MaxInt) > uint64(math.MaxInt32) {
-		t.Skip("platform int represents every uint32 value")
-	}
-	dir := t.TempDir()
-	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}}
-	err := GenerateBundleWithIdentityAndRegen(
-		cfg, filepath.Join(dir, "jdk"), "", "", filepath.Join(dir, "app.jar"),
-		nil, nil, "", filepath.Join(dir, "bundle"), Resources{}, nil,
-		ProcessIdentity{UID: math.MaxInt32 + 1, GID: DefaultProcessGID},
-		CDSRegenOptions{Regenerate: true},
-	)
-	if err == nil {
-		t.Fatal("GenerateBundleWithIdentityAndRegen accepted a UID that overflows int")
+		t.Fatal("GenerateBundleWithIdentity accepted Linux's reserved UID sentinel")
 	}
 }
 
@@ -251,7 +232,7 @@ func TestAssembleSandboxWithCDS(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := artifact.JVMConfig{MainJar: "app.jar", Entry: artifact.Entry{Mode: "jar"}, CDS: &artifact.CDS{Archive: "app.jsa"}}
-	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, nil, nil, jsaSrc, false)
+	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, nil, nil, jsaSrc)
 	if err != nil {
 		t.Fatalf("AssembleSandboxWithCDS: %v", err)
 	}
@@ -264,7 +245,7 @@ func TestAssembleSandboxWithCDS(t *testing.T) {
 
 func TestBuildJVMArgsEnablePreviewOnly(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}, EnablePreview: true}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,14 +256,14 @@ func TestBuildJVMArgsEnablePreviewOnly(t *testing.T) {
 
 func TestBuildJVMArgsRejectsBlankAddOpens(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}, AddOpens: []string{"  "}}
-	if _, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false); err == nil {
+	if _, err := BuildJVMArgs(cfg, "/app/app.jar", nil); err == nil {
 		t.Error("expected error for blank addOpens entry, got nil")
 	}
 }
 
 func TestBuildJVMArgsClasspathModeSingleJar(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "classpath", MainClass: "com.acme.Main"}}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,7 +276,7 @@ func TestBuildJVMArgsClasspathModeWithClassPath(t *testing.T) {
 	cfg := artifact.JVMConfig{
 		Entry: artifact.Entry{Mode: "classpath", ClassPath: []string{"app.jar", "lib/*"}, MainClass: "com.acme.orders.Main"},
 	}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +290,7 @@ func TestBuildJVMArgsClassPathOrderPreserved(t *testing.T) {
 	cfg := artifact.JVMConfig{
 		Entry: artifact.Entry{Mode: "classpath", ClassPath: []string{"app.jar", "lib/a.jar", "lib/b.jar"}, MainClass: "M"},
 	}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,14 +303,14 @@ func TestBuildJVMArgsRejectsInconsistentConfig(t *testing.T) {
 	// mode=jar with a stray mainClass must fail fast rather than silently
 	// running the manifest's Main-Class and ignoring mainClass.
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar", MainClass: "com.acme.Main"}}
-	if _, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false); err == nil {
+	if _, err := BuildJVMArgs(cfg, "/app/app.jar", nil); err == nil {
 		t.Error("BuildJVMArgs accepted mode=jar with mainClass, want error")
 	}
 }
 
 func TestBuildJVMArgsModuleModeSingleJar(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "module", Module: "com.acme.orders"}}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +321,7 @@ func TestBuildJVMArgsModuleModeSingleJar(t *testing.T) {
 
 func TestBuildJVMArgsModuleModeWithMainClass(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "module", Module: "com.acme.orders", MainClass: "com.acme.orders.Main"}}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +335,7 @@ func TestBuildJVMArgsModuleModeWithModulePath(t *testing.T) {
 	cfg := artifact.JVMConfig{
 		Entry: artifact.Entry{Mode: "module", Module: "com.acme.orders", ModulePath: []string{"orders.jar", "mods"}},
 	}
-	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +354,7 @@ func TestBuildJVMArgsMixedModuleAndClassPath(t *testing.T) {
 			ClassPath:  []string{"lib/*"},
 		},
 	}
-	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +375,7 @@ func TestBuildJVMArgsMixedClassPathOrderPreserved(t *testing.T) {
 			ClassPath:  []string{"classpath/a.jar", "classpath/b.jar", "lib/*"},
 		},
 	}
-	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil, false)
+	args, err := BuildJVMArgs(cfg, "/app/orders.jar", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -406,7 +387,7 @@ func TestBuildJVMArgsMixedClassPathOrderPreserved(t *testing.T) {
 
 func TestBuildJVMArgsModuleModeRejectsMissingModule(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "module"}}
-	if _, err := BuildJVMArgs(cfg, "/app/app.jar", nil, false); err == nil {
+	if _, err := BuildJVMArgs(cfg, "/app/app.jar", nil); err == nil {
 		t.Error("BuildJVMArgs accepted mode=module without module name, want error")
 	}
 }
@@ -735,7 +716,7 @@ func TestBuildJVMArgsExtraArgsWinOverArtifactKnobs(t *testing.T) {
 		SystemProperties: map[string]string{"app.mode": "embedded"},
 	}
 	extra := []string{"-Dapp.mode=platform", "-XX:MaxRAMPercentage=75.0"}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", extra, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", extra)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -756,7 +737,7 @@ func TestBuildJVMArgsFullExpansionOrder(t *testing.T) {
 		AddExports:       []string{"java.base/sun.nio.ch=ALL-UNNAMED"},
 		SystemProperties: map[string]string{"a": "1"},
 	}
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", []string{"-Xmx1g"}, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", []string{"-Xmx1g"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -780,7 +761,7 @@ func TestBuildJVMArgsFullExpansionOrder(t *testing.T) {
 func TestBuildJVMArgsPreservesArgsContainingSpaces(t *testing.T) {
 	cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}}
 	arg := `-XX:OnOutOfMemoryError=kill -9 %p`
-	args, err := BuildJVMArgs(cfg, "/app/app.jar", []string{arg}, false)
+	args, err := BuildJVMArgs(cfg, "/app/app.jar", []string{arg})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -825,7 +806,7 @@ func TestValidateExtraArgs(t *testing.T) {
 			// BuildJVMArgs must enforce the same rule, so a hijacking arg can
 			// never reach argv through any caller.
 			cfg := artifact.JVMConfig{Entry: artifact.Entry{Mode: "jar"}}
-			_, err := BuildJVMArgs(cfg, "/app/app.jar", tc.args, false)
+			_, err := BuildJVMArgs(cfg, "/app/app.jar", tc.args)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("BuildJVMArgs(extra=%q) error = %v, wantErr %v", tc.args, err, tc.wantErr)
 			}
@@ -859,7 +840,7 @@ func TestPlanRunsFromSandboxAppDir(t *testing.T) {
 	}
 	defer os.RemoveAll(sandbox)
 
-	plan, err := BuildPlan(cfg, jarPath, jdkHome, "", nil, false)
+	plan, err := BuildPlan(cfg, jarPath, jdkHome, "", nil)
 	if err != nil {
 		t.Fatalf("BuildPlan: %v", err)
 	}

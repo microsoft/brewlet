@@ -7,7 +7,7 @@
 # plus a shipped AppCDS archive mapping under -Xshare:on),
 # bundle (resource->JVM/cgroup mapping in config.json), layered classpath, and
 # modular (JPMS) apps, including supplementary non-modular class-path helpers,
-# and the Maven plugin's config / inspect / build / appcds goals (tier2_maven_goals).
+# and the Maven plugin's config / inspect / build goals (tier2_maven_goals).
 # Prereqs: go, java, python3 (mvn for the Maven goals; docker for the registry)
 
 tier2_cli() {
@@ -94,6 +94,7 @@ tier2_cli() {
   # The archive records the classpath relative to the training cwd, so `run`
   # must launch the JVM from the sandbox app dir (the shim's /app). -Xshare:on
   # turns a silent -Xshare:auto fallback into a hard failure (issue #212).
+  # External fixtures must use Brewlet's canonical JAR mtime (2000-01-01 UTC).
   local cdsdir="$WORK/t2-cds" cdsref="demo/cds-hello:1.0.0"
   rm -rf "$cdsdir"; mkdir -p "$cdsdir/src" "$cdsdir/elsewhere"
   printf 'public class Main { public static void main(String[] a) { System.out.println("cds-hello"); } }\n' \
@@ -101,9 +102,13 @@ tier2_cli() {
   printf 'Main-Class: Main\n' >"$cdsdir/manifest.mf"
   if javac -d "$cdsdir/src" "$cdsdir/src/Main.java" >"$WORK/t2-cds-build.log" 2>&1 \
        && jar cfm "$cdsdir/app.jar" "$cdsdir/manifest.mf" -C "$cdsdir/src" Main.class >>"$WORK/t2-cds-build.log" 2>&1 \
-       && "$bin" push "$cdsdir/app.jar" "$cdsref" --store "$store" --format=artifact --appcds \
+       && python3 -c 'import os,sys; os.utime(sys.argv[1], (946684800, 946684800))' "$cdsdir/app.jar" \
+       && (cd "$cdsdir" && "$JAVA_HOME/bin/java" -XX:ArchiveClassesAtExit=app.jsa -jar app.jar) \
+            >>"$WORK/t2-cds-build.log" 2>&1 \
+       && "$bin" push "$cdsdir/app.jar" "$cdsref" --store "$store" --format=artifact \
+            --appcds-archive "$cdsdir/app.jsa" \
             >>"$WORK/t2-cds-build.log" 2>&1; then
-    pass "run+appcds: push trains and ships an AppCDS archive"
+    pass "run+appcds: push ships an externally prebuilt AppCDS archive"
     if out="$(cd "$cdsdir/elsewhere" && "$bin" run "$cdsref" --store "$store" \
                 -- -Xshare:on -Xlog:class+load=info 2>&1)"; then
       pass "run+appcds: JVM starts with -Xshare:on from an unrelated cwd"
@@ -115,7 +120,7 @@ tier2_cli() {
       fail "run+appcds: JVM starts with -Xshare:on" "see $WORK/t2-cds-run.log"
     fi
   else
-    fail "run+appcds: push --appcds" "see $WORK/t2-cds-build.log"
+    fail "run+appcds: push --appcds-archive" "see $WORK/t2-cds-build.log"
   fi
 
   # --- bundle: OCI runc bundle + resource->JVM/cgroup mapping --------------
@@ -367,7 +372,7 @@ tier2_cli() {
       fail "maven: install checkout-built brewlet-maven-plugin" "see $WORK/t2-maven-plugin.log"
     fi
   else
-    skip "maven goals: config / inspect / build / appcds" "mvn is required"
+    skip "maven goals: config / inspect / build" "mvn is required"
   fi
 
   # --- managed dependencies: live OCI registry referrers --------------------
@@ -612,12 +617,12 @@ tier2_cli() {
   fi
 }
 
-# --- Maven plugin goals: config / inspect / build / appcds -----------------
+# --- Maven plugin goals: config / inspect / build --------------------------
 # Drives the goals no other tier invokes, host-only, against a private copy of
 # the demo fixture (the shared pom and its target/ stay untouched). The copy
 # adds plugin configuration so app-intrinsic launch data (system properties,
 # env) is observable end to end. Every image ref points at a local HTTP
-# sentinel that must never be contacted: build/inspect/appcds are offline.
+# sentinel that must never be contacted: build/inspect are offline.
 tier2_maven_goals() {
   local bin="$1"
   local plugin="sh.brewlet:brewlet-maven-plugin:0.1.0-SNAPSHOT"
@@ -854,16 +859,7 @@ PY
   kill "$run_pid" 2>/dev/null || true
   wait "$run_pid" 2>/dev/null || true
 
-  # --- brewlet:appcds: signal-mode training against the live demo server -----
-  local jfeature
-  jfeature="$("$JAVA_HOME/bin/java" -XshowSettings:properties -version 2>&1 \
-    | sed -n 's/^ *java.specification.version = //p' | head -1)"
-  if [[ ! "$jfeature" =~ ^[0-9]+$ ]] || (( jfeature < 21 )); then
-    skip "maven appcds: generate and ship an AppCDS archive" \
-      "training requires JDK 21+; JAVA_HOME reports ${jfeature:-unknown}"
-  else
-    tier2_maven_appcds "$bin" "$app" "$gdir" "$plugin" "$layout" "$cds_ref" "$jfeature"
-  fi
+  tier2_maven_prebuilt_cds "$bin" "$app" "$gdir" "$plugin" "$layout" "$cds_ref"
 
   if grep -Eq '"(GET|HEAD|POST|PUT|PATCH|DELETE) ' "$sentinel_log"; then
     fail "maven goals: never contact the registry in the image ref" "see $sentinel_log"
@@ -874,44 +870,42 @@ PY
   wait "$sentinel_pid" 2>/dev/null || true
 }
 
-tier2_maven_appcds() {
-  local bin="$1" app="$2" gdir="$3" plugin="$4" layout="$5" cds_ref="$6" jfeature="$7"
+tier2_maven_prebuilt_cds() {
+  local bin="$1" app="$2" gdir="$3" plugin="$4" layout="$5" cds_ref="$6"
   local mvn_app=(mvn -B -f "$app/pom.xml") log out
   local cport
   cport="$(free_port)"
   local cds_args=(-Dbrewlet.e2e.port="$cport" -Dbrewlet.entryMode=classpath -Dbrewlet.mainClass=com.example.Hello)
-  local jsa="$app/target/brewlet/app.jsa"
-
-  log="$gdir/appcds-no-readiness.log"
-  if "${mvn_app[@]}" "$plugin:appcds" "${cds_args[@]}" -Dbrewlet.appcds.mode=signal >"$log" 2>&1; then
-    fail "maven appcds: signal mode requires a readiness signal" "goal unexpectedly succeeded"
-  else
-    assert_contains "maven appcds: signal mode requires a readiness signal" "$(cat "$log")" \
-      "requires a readiness signal"
-  fi
-
-  log="$gdir/appcds.log"
-  if "${mvn_app[@]}" "$plugin:appcds" "${cds_args[@]}" -Dbrewlet.appcds.mode=signal \
-       -Dbrewlet.appcds.readyHttp="http://127.0.0.1:$cport/healthz" \
-       -Dbrewlet.appcds.timeoutSeconds=90 >"$log" 2>&1; then
-    out="$(cat "$log")"
-    assert_contains "maven appcds: trains on the JDK running Maven (JDK $jfeature)" "$out" "(feature $jfeature)"
-    assert_contains "maven appcds: waits for the demo server's /healthz" "$out" "readiness reached via HTTP probe"
-    assert_contains "maven appcds: trains the classpath launch" "$out" "-cp app.jar com.example.Hello"
-  else
-    fail "maven appcds: signal-mode training run" "see $log"
+  local training="$gdir/prebuilt-cds" jsa="$gdir/prebuilt-cds/app.jsa"
+  mkdir -p "$training"
+  cp "$app/target/app.jar" "$training/app.jar"
+  python3 - "$training/app.jar" <<'PY'
+import os, sys
+os.utime(sys.argv[1], (946684800, 946684800))
+PY
+  log="$gdir/prebuilt-cds.log"
+  (cd "$training" && exec "$JAVA_HOME/bin/java" \
+    -XX:ArchiveClassesAtExit=app.jsa -Dserver.port="$cport" \
+    -cp app.jar com.example.Hello) >"$log" 2>&1 &
+  local training_pid=$!
+  local ready=0
+  retry_curl "http://localhost:$cport/healthz" 40 0.5 >/dev/null && ready=1
+  kill "$training_pid" 2>/dev/null || true
+  wait "$training_pid" 2>/dev/null || true
+  if [[ "$ready" -ne 1 ]]; then
+    fail "maven prebuilt CDS: prepare an external fixture" "see $log"
     return 0
   fi
   if [[ -s "$jsa" ]]; then
-    pass "maven appcds: writes a non-empty target/brewlet/app.jsa"
+    pass "maven prebuilt CDS: external fixture contains an archive"
   else
-    fail "maven appcds: writes a non-empty target/brewlet/app.jsa" "see $log"
+    fail "maven prebuilt CDS: external fixture contains an archive" "see $log"
     return 0
   fi
   if curl -sf "http://127.0.0.1:$cport/healthz" >/dev/null 2>&1; then
-    fail "maven appcds: training server is stopped after the archive flushes" "port $cport still answers"
+    fail "maven prebuilt CDS: fixture server is stopped" "port $cport still answers"
   else
-    pass "maven appcds: training server is stopped after the archive flushes"
+    pass "maven prebuilt CDS: fixture server is stopped"
   fi
 
   log="$gdir/build-cds.log"
@@ -940,25 +934,23 @@ PY
 )"
     assert_eq "maven build: ships app.jsa as the CDS layer named by cds.archive" "$(printf '%s' "$out" | tail -1)" "match"
   else
-    fail "maven build: attach the generated CDS archive" "see $log"
+    fail "maven build: attach the prebuilt CDS archive" "see $log"
     return 0
   fi
 
   # Replay the shim's runc launch on the host: the bundle's /app mounts are
   # copied (with their pinned mtimes) into a host app dir used as the cwd, and
   # -Xshare:on turns a silent -Xshare:auto fallback into a startup failure.
-  # `brewlet run` is not used here because it does not set the JVM cwd
-  # (microsoft/brewlet#212); brewlet:inspect CDS parity is unasserted (#211).
   local bdir="$gdir/bundle-cds" rdir="$gdir/replay-cds" rport
   rm -rf "$bdir" "$rdir"
   mkdir -p "$rdir/app"
   rport="$(free_port)"
   if ! "$bin" bundle "$cds_ref" --store "$layout" --jdk-root "$JAVA_HOME" --out "$bdir" \
        >"$gdir/bundle-cds.log" 2>&1; then
-    fail "maven appcds: emit a runc bundle for the CDS artifact" "see $gdir/bundle-cds.log"
+    fail "maven prebuilt CDS: emit a runc bundle for the CDS artifact" "see $gdir/bundle-cds.log"
     return 0
   fi
-  assert_contains "maven appcds: bundle launches with -XX:SharedArchiveFile=/app/app.jsa" \
+  assert_contains "maven prebuilt CDS: bundle launches with -XX:SharedArchiveFile=/app/app.jsa" \
     "$(cat "$bdir/config.json")" "-XX:SharedArchiveFile=/app/app.jsa"
   local replay=() line
   while IFS= read -r line; do replay+=("$line"); done < <(python3 - "$bdir/config.json" "$rdir" \
@@ -979,18 +971,18 @@ for a in args[:sel] + extra + args[sel:]:
 PY
 )
   if (( ${#replay[@]} < 3 )); then
-    fail "maven appcds: JVM maps the shipped archive (-Xshare:on)" "could not replay $bdir/config.json"
+    fail "maven prebuilt CDS: JVM maps the shipped archive (-Xshare:on)" "could not replay $bdir/config.json"
     return 0
   fi
   local replay_log="$gdir/replay-cds.log"
   (cd "${replay[0]}" && exec "${replay[@]:1}") >"$replay_log" 2>&1 &
   local replay_pid=$!
   if retry_curl "http://localhost:$rport/healthz" 40 0.5 >/dev/null; then
-    pass "maven appcds: JVM maps the shipped archive (-Xshare:on)"
-    assert_contains "maven appcds: com.example.Hello loads from the dynamic archive" \
+    pass "maven prebuilt CDS: JVM maps the shipped archive (-Xshare:on)"
+    assert_contains "maven prebuilt CDS: com.example.Hello loads from the dynamic archive" \
       "$(cat "$replay_log")" "com.example.Hello source: shared objects file (top)"
   else
-    fail "maven appcds: JVM maps the shipped archive (-Xshare:on)" "see $replay_log"
+    fail "maven prebuilt CDS: JVM maps the shipped archive (-Xshare:on)" "see $replay_log"
   fi
   kill "$replay_pid" 2>/dev/null || true
   wait "$replay_pid" 2>/dev/null || true

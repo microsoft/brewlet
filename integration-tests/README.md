@@ -7,7 +7,7 @@ manifests, and specifications remain in their owning monorepo directories.
 ## Layout
 
 ```text
-e2e/       runner, reset helper, shared library, and tiers 1-17
+e2e/       runner, reset helper, shared library, and tiers 1-19 (8 and 14 retired)
 fixtures/  harness-owned Java demo applications and PetClinic build fixture
 ```
 
@@ -26,7 +26,7 @@ testing external checkouts.
 ## Running
 
 ```bash
-integration-tests/e2e/run.sh                 # all 17 tiers
+integration-tests/e2e/run.sh                 # all active tiers (8 and 14 retired)
 integration-tests/e2e/run.sh --list          # tier catalog
 integration-tests/e2e/run.sh --tier 4        # one tier
 integration-tests/e2e/run.sh --reset         # remove Brewlet test state
@@ -43,12 +43,13 @@ for Maven unit coverage. The suite covers:
 | Tier | Scope | Primary components |
 |---:|---|---|
 | 1 | Go unit/component suites | core + Kubernetes |
-| 2 | CLI push, inspect, run, bundle, classpath, and JPMS; Maven plugin `config`, `inspect`, `build`, `appcds`, and `push` | core + maven-plugin + fixtures |
+| 2 | CLI push, inspect, run, bundle, classpath, JPMS, and prebuilt AppCDS mapping (fixture prepared directly with `java`); Maven plugin `config`, `inspect`, `build`, and `push` | core + maven-plugin + fixtures |
 | 3 | shim to runc under Linux cgroups | core + fixtures |
 | 4 | operator control plane and Helm packaging | Kubernetes |
 | 5-6 | host and in-cluster admission webhooks | Kubernetes |
 | 7 | Spring PetClinic artifact, layered deployment, runc, reconcile | both + fixtures |
-| 8-9 | AppCDS lifecycle, cross-namespace cache isolation, and serving through kubelet/CRI | core + fixtures |
+| 8 | Retired (AppCDS generation; no renumbering) | — |
+| 9 | Serving through kubelet/CRI | core + fixtures |
 | 10-11 | installed Helm stack and webhook resilience | Kubernetes |
 | 12 | runnable image pulled and unpacked by kubelet | core + fixtures |
 | 13 | NodeProfile lifecycle | Kubernetes |
@@ -67,6 +68,8 @@ Kubernetes tier, uses the first fresh node, and reports SKIP with instructions
 if no node is fresh; run alone, Tier 17 FAILs on a used node. The CI matrix
 runs it separately on a new kind cluster. Never clear retained host files or
 manufacture a safety record to satisfy this preflight.
+The shared-node cleanup regression runs tier 17 followed by tier 9 serving to
+prove GC fixture teardown leaves the node usable.
 
 See [AGENTS.md](AGENTS.md) for cluster requirements, cleanup, and troubleshooting.
 

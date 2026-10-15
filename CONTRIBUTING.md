@@ -265,7 +265,8 @@ entry points on amd64/arm64, reusing one Buildx builder. Corrupt-download builds
 run for provisioner Dockerfile/download/checksum/test changes and full runs, not
 ordinary source edits. The separate `E2E` workflow still runs the complete
 tier matrix and native arm64 tests nightly/manually, including repeated
-fresh-cluster live scenarios. AppCDS (8), metrics (15), GC (17), JDK rollout (18),
+fresh-cluster live scenarios. Tiers 8 and 14 are retired without renumbering.
+Metrics (15), GC (17), JDK rollout (18),
 dependency remediation (19), and the comprehensive admission/HPA/workflow
 scenarios belong only to E2E, not the CI merge gate, main-push CI, or scheduled CI.
 For high-risk changes, explicitly dispatch E2E on the candidate branch before
