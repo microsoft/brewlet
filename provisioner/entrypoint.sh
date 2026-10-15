@@ -122,7 +122,6 @@ BREWLET_PROFILE_NAME="${BREWLET_PROFILE_NAME:-default}"
 BREWLET_PROFILE_UID="${BREWLET_PROFILE_UID:-}"
 BREWLET_PROFILE_GENERATION="${BREWLET_PROFILE_GENERATION:-0}"
 NODE_WRITE_AUTHORIZED=false
-BREWLET_APP_CDS_REGENERATION_ENABLED="${BREWLET_APP_CDS_REGENERATION_ENABLED:-false}"
 POLICY_DIR="${POLICY_DIR:-$PREFIX/policy}"
 APP_CDS_REGENERATION_SENTINEL="${APP_CDS_REGENERATION_SENTINEL:-$POLICY_DIR/appcds-regeneration-enabled}"
 
@@ -1188,9 +1187,8 @@ render_containerd_runtime() {
 [plugins."${plugin}".containerd.runtimes.brewlet]
   runtime_type = "io.containerd.brewlet.v2"
   # Propagate the deployment-descriptor annotations the admission webhook stamps
-  # onto the OCI spec so the shim can resolve the artifact and apply node-side
-  # AppCDS regeneration. The shim verifies the resolved manifest from the content
-  # store; it does not trust artifact-digest as the cache identity.
+  # onto the OCI spec so the shim can apply JDK, launcher, and JVM tuning requests.
+  # Executable identity comes from CRI and containerd's content store.
   pod_annotations = ["brewlet.sh/*"]
   [plugins."${plugin}".containerd.runtimes.brewlet.options]
     SystemdCgroup = ${systemd_cgroup}
@@ -1562,44 +1560,10 @@ verify_shim() {
     || die shim-install-failed "shim binary missing after install"
 }
 
-# The shim treats this root-owned host sentinel as the authoritative policy
-# decision. Write it by rename so it is never observed partially created.
-policy_chown_root() {
-  chown 0:0 "$@"
-}
-
-ensure_appcds_policy_directory() {
-  [[ ! -L "$POLICY_DIR" ]] || return 1
-  install -d -m 0755 "$POLICY_DIR" || return 1
-  policy_chown_root "$POLICY_DIR" || return 1
-  chmod 0755 "$POLICY_DIR" || return 1
-}
-
+# Remove policy left by releases that supported node-side archive generation.
 remove_appcds_regeneration_policy() {
   [[ ! -L "$POLICY_DIR" ]] || return 1
   rm -f "$APP_CDS_REGENERATION_SENTINEL"
-}
-
-configure_appcds_regeneration_policy() {
-  case "$BREWLET_APP_CDS_REGENERATION_ENABLED" in
-    false)
-      ensure_appcds_policy_directory || return 1
-      remove_appcds_regeneration_policy
-      ;;
-    true)
-      ensure_appcds_policy_directory || return 1
-      local tmp="${APP_CDS_REGENERATION_SENTINEL}.tmp.$$"
-      rm -f "$tmp"
-      : >"$tmp" || return 1
-      policy_chown_root "$tmp" || { rm -f "$tmp"; return 1; }
-      chmod 0444 "$tmp" || { rm -f "$tmp"; return 1; }
-      mv -f "$tmp" "$APP_CDS_REGENERATION_SENTINEL" || { rm -f "$tmp"; return 1; }
-      ;;
-    *)
-      log "ERROR: invalid BREWLET_APP_CDS_REGENERATION_ENABLED='$BREWLET_APP_CDS_REGENERATION_ENABLED' (want: true|false)"
-      return 1
-      ;;
-  esac
 }
 
 # ---------------------------------------------------------------------------
@@ -1684,9 +1648,6 @@ label_node() {
     for l in "${_launchers[@]}"; do
       [[ -n "$l" ]] && caps+=( "brewlet.sh/launcher.${l}=true" )
     done
-  fi
-  if [[ "$BREWLET_APP_CDS_REGENERATION_ENABLED" == "true" ]]; then
-    caps+=( "brewlet.sh/appcds-regeneration=true" )
   fi
   prune_stale_capabilities "${caps[@]}" || return 1
   log "advertising scheduling labels: ${caps[*]}"
@@ -2038,8 +1999,6 @@ main() {
   activate_containerd_config
   verify_shim
   verify_profile_identity
-  configure_appcds_regeneration_policy \
-    || die policy-apply-failed "could not apply AppCDS regeneration policy"
   label_node || die node-advertisement-failed "could not publish node runtime inventory"
   # Clear any stale provision-error from a previous failed attempt now we're good.
   command -v kubectl >/dev/null && kubectl annotate node "$NODE_NAME" \

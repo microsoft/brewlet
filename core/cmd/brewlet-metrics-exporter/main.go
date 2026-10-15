@@ -29,7 +29,6 @@ type eventMetrics struct {
 	launchPhases *prometheus.HistogramVec
 	launches     *prometheus.CounterVec
 	artifacts    *prometheus.HistogramVec
-	cds          *prometheus.CounterVec
 	invalid      prometheus.Counter
 }
 
@@ -49,16 +48,12 @@ func newEventMetrics(reg prometheus.Registerer) *eventMetrics {
 			Help:    "Time spent resolving Brewlet application content already available to the shim.",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 		}, []string{"backend", "artifact_format", "outcome"}),
-		cds: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "brewlet_cds_regeneration_decisions_total",
-			Help: "Node-side AppCDS regeneration decisions.",
-		}, []string{"role"}),
 		invalid: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "brewlet_telemetry_events_invalid_total",
 			Help: "Malformed or unsupported shim telemetry events.",
 		}),
 	}
-	reg.MustRegister(m.launchPhases, m.launches, m.artifacts, m.cds, m.invalid)
+	reg.MustRegister(m.launchPhases, m.launches, m.artifacts, m.invalid)
 	return m
 }
 
@@ -75,8 +70,6 @@ func (m *eventMetrics) observe(payload []byte) {
 		m.launches.WithLabelValues(event.Outcome, event.Reason, event.EntryMode, event.Format).Inc()
 	case telemetry.KindArtifactResolution:
 		m.artifacts.WithLabelValues(event.Backend, event.Format, event.Outcome).Observe(event.DurationSeconds)
-	case telemetry.KindCDS:
-		m.cds.WithLabelValues(event.CDSRole).Inc()
 	}
 }
 

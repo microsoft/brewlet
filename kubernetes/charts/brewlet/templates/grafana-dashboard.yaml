@@ -47,15 +47,9 @@ data:
           "targets": [{"expr": "brewlet_nodeprofile_nodes", "legendFormat": "{{ "{{profile}}" }}/{{ "{{state}}" }}"}]
         },
         {
-          "type": "timeseries",
-          "title": "AppCDS regeneration decisions",
-          "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
-          "targets": [{"expr": "sum by (role) (rate(brewlet_cds_regeneration_decisions_total[5m]))", "legendFormat": "{{ "{{role}}" }}"}]
-        },
-        {
           "type": "table",
           "title": "Installed JDK builds",
-          "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+          "gridPos": {"x": 0, "y": 16, "w": 24, "h": 8},
           "targets": [{"expr": "brewlet_jdk_info", "format": "table", "instant": true}]
         }
       ]

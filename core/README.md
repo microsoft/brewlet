@@ -15,7 +15,7 @@ internal/                            Artifact, diagnostics, inventory, and runti
 shim/cmd/containerd-shim-brewlet-v2/ containerd runtime shim
 ```
 
-When runtime metrics are enabled, the shim emits best-effort launch and AppCDS
+When runtime metrics are enabled, the shim emits best-effort launch
 telemetry to the node exporter over a Unix datagram socket. The contract
 intentionally excludes artifact references, digests, pod names, and arbitrary
 errors from labels. Metrics are opt-in in the Helm chart.

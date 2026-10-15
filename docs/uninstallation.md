@@ -320,11 +320,10 @@ not justify deletion, and their absence does not establish clean host state.
 
 ### Retained AppCDS cache files
 
-Helm uninstall and provisioner teardown do not remove the AppCDS cache.
-Maintenance manages only
-[64-hex private entries and writer markers](appcds.md#43-node-side-regeneration-the-durable-answer-for-a-patched-fleet);
-unrecognized paths are untouched. Review `/opt/brewlet/cds` or the configured
-`BREWLET_CDS_CACHE` with its owner.
+Older releases could create AppCDS cache files under `/opt/brewlet/cds` or a
+custom `BREWLET_CDS_CACHE` path. Archive generation and cache maintenance are
+no longer supported. Uninstall does not remove those files or prove they are
+unused; review retained paths with their owners.
 
 Before manual reclamation, drain workloads, stop cache consumers and writers,
 pause provisioning automation, and finish host cleanup and worker teardown.

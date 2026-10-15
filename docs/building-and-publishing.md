@@ -58,7 +58,7 @@ you can author it and pass `--config`.
 | `addOpens` | Optional module/package access tokens such as `java.base/java.lang=ALL-UNNAMED`; expands to repeated `--add-opens`. |
 | `addExports` | Optional module/package export tokens; expands to repeated `--add-exports`. |
 | `systemProperties` | Optional string map expanded as sorted `-D<key>=<value>` flags. |
-| `cds` | Optional AppCDS block. `cds.archive` is a bare `/app`-relative `.jsa` filename shipped as a CDS layer (`brewlet push --appcds-archive`); `cds.mode` (`dynamic`\|`static`) is informational. Launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`, so a JDK-build mismatch falls back safely to base CDS. The artifact carries only this shipped *seed* archive; node-side regeneration is a deployment choice set via `spec.jvm.cds.regenerate` on the `JavaApplication` CRD (or `brewlet run/bundle --appcds-regenerate`), not a field in the artifact. See [AppCDS](appcds.md). |
+| `cds` | Optional AppCDS block. `cds.archive` is a bare `/app`-relative `.jsa` filename shipped as a CDS layer (`brewlet push --appcds-archive`); `cds.mode` (`dynamic`\|`static`) is informational. Launches with `-Xshare:auto -XX:SharedArchiveFile=/app/<archive>`, so a JDK-build mismatch falls back safely to base CDS. Archives must be generated externally; Brewlet only ships and consumes them. See [AppCDS](appcds.md). |
 | `env` | Environment variables baked into the artifact. |
 
 Ports are **not** an artifact field — they are a deployment concern
@@ -187,7 +187,7 @@ for the full option reference.
 For Boot JARs, `BOOT-INF/classpath.idx` defines library order when present and
 must name every packaged library exactly once; otherwise archive order is used.
 The generated classpath lists dependencies explicitly rather than relying on
-wildcard ordering. Build, push, inspect/config, and AppCDS share the same prepared
+wildcard ordering. Build, push, and inspect/config share the same prepared
 bytes, while the source JAR is left unchanged. See the
 [supported layouts and signature handling](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#layered-spring-boot-jars).
 
@@ -446,8 +446,7 @@ Goals: `brewlet:config` (generate the launch config), `brewlet:build` (assemble 
 local OCI layout), `brewlet:push` (publish to a registry),
 `brewlet:manifest` (generate development YAML for the current build),
 `brewlet:inspect` (dry-run preview), `brewlet:dependency-bundle` (publish shared
-runtime dependencies), `brewlet:help` (goal and parameter reference),
-and `brewlet:appcds` (generate an AppCDS startup archive — see [AppCDS](appcds.md)).
+runtime dependencies), and `brewlet:help` (goal and parameter reference).
 See the [plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md) for the full goal and
 parameter reference.
 

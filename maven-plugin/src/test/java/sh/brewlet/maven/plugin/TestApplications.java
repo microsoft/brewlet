@@ -150,7 +150,8 @@ final class TestApplications {
 
     static String java(Path directory, List<String> args) throws Exception {
         List<String> command = new ArrayList<>();
-        command.add(AppCdsMojo.javaBinary(new java.io.File(System.getProperty("java.home"))).toString());
+        command.add(Path.of(System.getProperty("java.home"), "bin",
+                System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java").toString());
         command.addAll(args);
         Path log = directory.resolve("jvm.log");
         Process process = new ProcessBuilder(command).directory(directory.toFile())
@@ -166,5 +167,33 @@ final class TestApplications {
                 assertTrue(process.waitFor(5, TimeUnit.SECONDS));
             }
         }
+    }
+
+    static List<String> launchSelector(sh.brewlet.maven.plugin.model.JvmConfig config, String mainJar) {
+        var entry = config.getEntry();
+        List<String> args = new ArrayList<>();
+        String mode = entry == null ? "jar" : entry.getMode();
+        if ("classpath".equals(mode) || ("module".equals(mode)
+                && entry.getClassPath() != null && !entry.getClassPath().isEmpty())) {
+            var paths = entry.getClassPath();
+            args.add("-cp");
+            args.add(String.join(java.io.File.pathSeparator,
+                    paths == null || paths.isEmpty() ? List.of(mainJar) : paths));
+        }
+        if ("module".equals(mode)) {
+            var paths = entry.getModulePath();
+            args.add("-p");
+            args.add(String.join(java.io.File.pathSeparator,
+                    paths == null || paths.isEmpty() ? List.of(mainJar) : paths));
+            args.add("-m");
+            args.add(entry.getModule() + (entry.getMainClass() == null || entry.getMainClass().isBlank()
+                    ? "" : "/" + entry.getMainClass()));
+        } else if ("classpath".equals(mode)) {
+            args.add(entry.getMainClass());
+        } else {
+            args.add("-jar");
+            args.add(mainJar);
+        }
+        return args;
     }
 }

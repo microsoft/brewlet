@@ -96,7 +96,6 @@ the checksum gate to reject each build.
 | `LAUNCHER_SOURCE_<n>_IMAGE` | required per entry | Fully qualified, tagless SHA-256 digest reference |
 | `LAUNCHER_SOURCE_<n>_PATH` | required per entry | Clean absolute binary path inside that image |
 | `JDKS` / `LAUNCHERS` | derived | Internal inventories; never accepted as independent input |
-| `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Authorize node-side AppCDS regeneration for the active profile |
 | `BREWLET_STAGE_GC_ENABLED` | `true` | Periodically reclaim unreferenced runnable-image stages after successful provisioning |
 | `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Positive whole seconds between sweeps, plus up to 10% jitter |
 | `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age, not unused age; positive whole seconds |
@@ -131,12 +130,9 @@ its recorded source matches the newly verified source. Runtime roots retain the 
 filesystem modes; the shim keeps the shared lower layer and Java-home bind mount
 read-only for workloads.
 
-When AppCDS regeneration is enabled, the provisioner atomically creates the
-root-owned, mode `0444`
-`/opt/brewlet/policy/appcds-regeneration-enabled` sentinel before publishing
-`brewlet.sh/appcds-regeneration=true`. Disabling the policy, cleanup, or any
-provisioning failure removes both. The node label is a scheduling hint; the shim
-checks the sentinel authoritatively.
+Provisioning and cleanup remove the authorization sentinel and capability
+label left by older releases that supported AppCDS regeneration. Archive
+generation is no longer supported; retained cache files are not deleted.
 
 After readiness, the provisioner runs `brewlet stage-gc` through the installed
 `/usr/local/bin/brewlet-stage-gc` helper in the host PID/mount namespaces. It
