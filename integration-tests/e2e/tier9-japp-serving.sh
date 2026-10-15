@@ -37,7 +37,6 @@ T9_TEMURIN_IMG="eclipse-temurin:21"
 T9_NS="brewlet-serving"
 T9_APP="orders"
 T9_PORT=8080
-T9_CACHE="/opt/brewlet/cds"
 T9_JDK_ROOT="/opt/brewlet/jdks/$T9_JDK"
 T9_SHIM_DST="/usr/local/bin/containerd-shim-brewlet-v2"
 T9_IMAGE_REF=""
@@ -324,7 +323,6 @@ tier9_serving() {
   # --- provision the node: shim binary, JDK userland, containerd runtime -----
   node_cp "$shimbin" "$T9_NODE":"$T9_SHIM_DST" >>"$WORK/t9-prov.log" 2>&1
   node_exec "$T9_NODE" chmod +x "$T9_SHIM_DST" >>"$WORK/t9-prov.log" 2>&1
-  node_exec "$T9_NODE" mkdir -p "$T9_CACHE" >>"$WORK/t9-prov.log" 2>&1
   if ! _t9_stage_jdk "$T9_NODE" "$arch"; then
     skip "tier9: serving on a real node" "could not stage temurin JDK userland (see $WORK/t9-jdk.log)"; return 0
   fi

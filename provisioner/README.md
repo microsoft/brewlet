@@ -126,10 +126,6 @@ its recorded source matches the newly verified source. Runtime roots retain the 
 filesystem modes; the shim keeps the shared lower layer and Java-home bind mount
 read-only for workloads.
 
-Provisioning and cleanup remove the authorization sentinel and capability
-label left by older releases that supported AppCDS regeneration. Archive
-generation is no longer supported; retained cache files are not deleted.
-
 After readiness, the provisioner runs `brewlet stage-gc` through the installed
 `/usr/local/bin/brewlet-stage-gc` helper in the host PID/mount namespaces. It
 rechecks managed node/profile ownership before every sweep and stops when a

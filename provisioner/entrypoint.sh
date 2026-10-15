@@ -117,8 +117,6 @@ BREWLET_PROFILE_NAME="${BREWLET_PROFILE_NAME:-default}"
 BREWLET_PROFILE_UID="${BREWLET_PROFILE_UID:-}"
 BREWLET_PROFILE_GENERATION="${BREWLET_PROFILE_GENERATION:-0}"
 NODE_WRITE_AUTHORIZED=false
-POLICY_DIR="${POLICY_DIR:-$PREFIX/policy}"
-APP_CDS_REGENERATION_SENTINEL="${APP_CDS_REGENERATION_SENTINEL:-$POLICY_DIR/appcds-regeneration-enabled}"
 
 # Registry mirrors for air-gapped / pull-through setups (§5.6): a
 # comma-separated list of "<registry-host>=<mirror-host>" pairs the operator
@@ -152,13 +150,10 @@ die()  {
   local code="$1"; shift
   code="$(normalize_reason_code "$code")"
   printf '[brewlet-provisioner] ERROR: %s: %s\n' "$code" "$*" >&2
-  # Even failure handling mutates host policy and node advertisements. A
-  # container that failed the ownership fence must leave both untouched.
+  # A container that failed the ownership fence must leave node advertisements
+  # untouched, including during failure handling.
   if [[ "$NODE_WRITE_AUTHORIZED" != "true" ]]; then
     exit 1
-  fi
-  if [[ "$code" != "invalid-restart-mode" ]] && command -v remove_appcds_regeneration_policy >/dev/null 2>&1; then
-    remove_appcds_regeneration_policy || true
   fi
   if [[ "${BREWLET_MODE}" != "cleanup" ]] && command -v kubectl >/dev/null 2>&1 && [[ -n "${NODE_NAME:-}" ]]; then
     if command -v clear_node_advertisement >/dev/null 2>&1; then
@@ -1380,12 +1375,6 @@ verify_shim() {
     || die shim-install-failed "shim binary missing after install"
 }
 
-# Remove policy left by releases that supported node-side archive generation.
-remove_appcds_regeneration_policy() {
-  [[ ! -L "$POLICY_DIR" ]] || return 1
-  rm -f "$APP_CDS_REGENERATION_SENTINEL"
-}
-
 # ---------------------------------------------------------------------------
 # Step 5 — advertise readiness on the Node object.
 # ---------------------------------------------------------------------------
@@ -1522,7 +1511,7 @@ prune_stale_capabilities() {
   keys="$(kubectl get node "$NODE_NAME" -o go-template='{{range $k, $v := .metadata.labels}}{{$k}}{{"\n"}}{{end}}')" || return 1
   while IFS= read -r key; do
     case "$key" in
-      brewlet.sh/jdk.*|brewlet.sh/jdk-feature.*|brewlet.sh/appcds-regeneration) ;;
+      brewlet.sh/jdk.*|brewlet.sh/jdk-feature.*) ;;
       *) continue ;;
     esac
     [[ "$wanted" != *$'\n'"$key"$'\n'* ]] || continue
@@ -1617,7 +1606,7 @@ clear_node_advertisement() {
     [[ -n "$j" ]] || continue
     caps+=( "brewlet.sh/jdk.${j}" "brewlet.sh/jdk-feature.${j##*-}" )
   done
-  remove_node_labels brewlet.sh/runtime brewlet.sh/appcds-regeneration ${caps[@]+"${caps[@]}"} || return 1
+  remove_node_labels brewlet.sh/runtime ${caps[@]+"${caps[@]}"} || return 1
   kubectl annotate node "$NODE_NAME" \
     brewlet.sh/jdks- brewlet.sh/jdks-info- \
     brewlet.sh/profile- brewlet.sh/profile-generation- \
@@ -1674,8 +1663,6 @@ unlabel_node() {
 
 cleanup_host() {
   validate_restart_mode
-  remove_appcds_regeneration_policy \
-    || die cleanup-failed "could not remove AppCDS regeneration policy during cleanup"
   clear_node_advertisement \
     || die cleanup-failed "could not remove node readiness before cleanup"
   # Remove the runtime first so no new brewlet pods land while we tear down, then
@@ -1773,8 +1760,6 @@ main() {
   verify_profile_identity
 
   log "provisioning node ${NODE_NAME} (arch $(host_arch_oci), copy-from-image)"
-  remove_appcds_regeneration_policy \
-    || die policy-apply-failed "could not remove stale AppCDS regeneration policy before provisioning"
   clear_node_advertisement || die node-advertisement-failed "could not remove stale node readiness before provisioning"
   parse_mirrors
   parse_runtime_sources

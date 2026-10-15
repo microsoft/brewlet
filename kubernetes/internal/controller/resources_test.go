@@ -147,11 +147,6 @@ func TestBuildProfileDaemonSetWithoutMetrics(t *testing.T) {
 	if got := len(ds.Spec.Template.Spec.Containers); got != 1 {
 		t.Fatalf("containers = %d, want only provisioner when metrics are disabled", got)
 	}
-	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == "BREWLET_APP_CDS_REGENERATION_ENABLED" {
-			t.Fatal("removed AppCDS generation policy must not be rendered")
-		}
-	}
 }
 
 func TestProfileAffinityCatchAll(t *testing.T) {

@@ -215,6 +215,82 @@ def failed(stderr, args=("kubectl",)):
     return fixtures.subprocess.CalledProcessError(1, list(args), output="", stderr=stderr)
 
 
+class NodeReleaseTest(unittest.TestCase):
+    INVALID = "The request is invalid: the server rejected our request due to an error in our request"
+
+    def setUp(self):
+        self.node = {"metadata": {
+            "name": "worker", "uid": "node-uid", "resourceVersion": "1",
+            "labels": {fixtures.OWNER: "owner", fixtures.IDENTITY: "node-uid"},
+            "annotations": {fixtures.OWNER_NAME: "batch"},
+        }}
+        self.updated = copy.deepcopy(self.node)
+        self.updated["metadata"]["resourceVersion"] = "2"
+        env = patch.dict(fixtures.os.environ, {"E2E_RETRIES": "3"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def release(self):
+        fixtures.release_node(self.node, "batch", "owner", {"worker": "node-uid"}, {"worker"})
+
+    def test_status_update_retries_with_fresh_resource_version(self):
+        self.updated["status"] = {"conditions": []}
+        with patch.object(fixtures, "get", return_value=self.updated) as get, \
+             patch.object(fixtures, "kubectl", side_effect=[failed(self.INVALID), ""]) as command, \
+             patch("builtins.print"):
+            self.release()
+        get.assert_called_once_with("node", "worker")
+        versions = [json.loads(c.args[-1])[1]["value"] for c in command.call_args_list]
+        self.assertEqual(versions, ["1", "2"])
+
+    def test_changed_ownership_identity_or_runtime_prevents_retry_patch(self):
+        for location, key, value in (
+            ("labels", fixtures.OWNER, "foreign"),
+            ("labels", fixtures.IDENTITY, "replacement"),
+            ("annotations", fixtures.OWNER_NAME, "foreign"),
+            ("labels", "brewlet.sh/runtime", "ready"),
+            ("annotations", "brewlet.sh/profile", "batch"),
+        ):
+            with self.subTest(key=key):
+                updated = copy.deepcopy(self.updated)
+                updated["metadata"][location][key] = value
+                with patch.object(fixtures, "get", return_value=updated), \
+                     patch.object(fixtures, "kubectl", side_effect=failed(self.INVALID)) as command:
+                    with self.assertRaises(AssertionError):
+                        self.release()
+                self.assertEqual(command.call_count, 1)
+
+    def test_replacement_node_and_unchanged_version_preserve_failure(self):
+        replacement = copy.deepcopy(self.updated)
+        replacement["metadata"]["uid"] = "replacement"
+        for updated in (self.node, replacement):
+            with self.subTest(node=updated), \
+                 patch.object(fixtures, "get", return_value=updated), \
+                 patch.object(fixtures, "kubectl", side_effect=failed(self.INVALID)) as command:
+                with self.assertRaises(fixtures.subprocess.CalledProcessError):
+                    self.release()
+                self.assertEqual(command.call_count, 1)
+
+    def test_unrelated_patch_errors_are_not_retried(self):
+        with patch.object(fixtures, "get") as get, \
+             patch.object(fixtures, "kubectl", side_effect=failed("Error from server (Forbidden)")):
+            with self.assertRaises(fixtures.subprocess.CalledProcessError):
+                self.release()
+        get.assert_not_called()
+
+    def test_resource_version_retries_are_bounded(self):
+        def updated(*args):
+            self.updated["metadata"]["resourceVersion"] = str(
+                int(self.updated["metadata"]["resourceVersion"]) + 1)
+            return copy.deepcopy(self.updated)
+
+        with patch.object(fixtures, "get", side_effect=updated), \
+             patch.object(fixtures, "kubectl", side_effect=failed(self.INVALID)) as command:
+            with self.assertRaises(fixtures.subprocess.CalledProcessError):
+                self.release()
+        self.assertEqual(command.call_count, 3)
+
+
 class TransientRetryTest(unittest.TestCase):
     RESET = "Unable to connect to the server: read tcp 10.0.0.1:5->1.2.3.4:443: read: connection reset by peer"
 

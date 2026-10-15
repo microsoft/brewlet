@@ -302,11 +302,6 @@ capability-driven Karpenter `NodePool`.
 
 ## Compatibility and versioning
 
-AppCDS archive generation has been removed. The former
-`brewlet.sh/appcds-regeneration` key is reserved, no longer advertised or
-matched by admission, and withdrawn by provisioning/cleanup. It must not be
-reused for a different capability. Other capability-key contracts are unchanged.
-
 This public scheduling contract is an explicit exception to the
 [pre-GA compatibility policy](../docs/compatibility.md). The versioning and
 dual-publication migration guarantees below remain in force; they do not

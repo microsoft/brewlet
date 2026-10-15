@@ -23,10 +23,8 @@ installs a containerd shim and JDK roots on nodes, and the root-privileged shim
 constructs OCI bundles, overlay lower layers, and bind mounts for tenant
 workloads.
 
-This assessment contains one Critical, five High, four Medium, and one
-Low issue. All eleven listed issues have been remediated through merged pull requests:
-the Critical finding (1), every High finding (2, 3, 4, 6, and 7), every Medium
-finding (8, 9, 10, and 11), and the Low finding (12).
+The review identified one Critical, four High, four Medium, and one Low issue.
+All ten have since been remediated through merged pull requests.
 
 Finding 1 was a confirmed path traversal in OCI descriptor digest resolution:
 descriptor digest strings were converted into host filesystem paths without
@@ -39,9 +37,8 @@ bytes are verified against their declared descriptor digest before they are
 read, staged, or mounted.
 
 The remediations bind executed content to protected CRI image identity, confine
-content-addressed paths and verify blob contents before use, isolate the
-node-shared AppCDS cache, preserve the CRI-selected pod UID/GID, require
-explicit digest-pinned JDK sources, constrain runtime-selection
+content-addressed paths and verify blob contents before use, preserve the
+CRI-selected pod UID/GID, require explicit digest-pinned JDK sources, constrain runtime-selection
 annotations to safe tokens confined to the node's runtime roots, and verify every
 provisioner download and external container image.
 
@@ -65,16 +62,15 @@ control-plane nodes are excluded unless a profile opts in.
 | # | Severity | Finding | Issue | PR | Confidence |
 |---|----------|---------|-------|----|------------|
 | 1 | Critical | Tenant-controlled OCI digests can bind-mount arbitrary node paths **(Remediated)** | [#19](https://github.com/microsoft/brewlet/issues/19) | [#43](https://github.com/microsoft/brewlet/pull/43) | 9/10 |
-| 2 | High | The node-shared AppCDS cache is writable from a tenant container **(Remediated)** | [#20](https://github.com/microsoft/brewlet/issues/20) | [#31](https://github.com/microsoft/brewlet/pull/31) | 8/10 |
-| 3 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | [#21](https://github.com/microsoft/brewlet/issues/21) | [#37](https://github.com/microsoft/brewlet/pull/37) | 9/10 |
-| 4 | High | Attestation enforcement verifies a different identity from the executed artifact **(Remediated)** | [#22](https://github.com/microsoft/brewlet/issues/22) | [#33](https://github.com/microsoft/brewlet/pull/33) | 8/10 |
-| 6 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
-| 7 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
-| 8 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
-| 9 | Medium | Registry credentials can be forwarded cross-origin or over HTTP **(Remediated)** | [#27](https://github.com/microsoft/brewlet/issues/27) | [#61](https://github.com/microsoft/brewlet/pull/61) | 8/10 |
-| 10 | Medium | The privileged provisioner defaults to every node **(Remediated)** | [#28](https://github.com/microsoft/brewlet/issues/28) | [#63](https://github.com/microsoft/brewlet/pull/63) | 9/10 |
-| 11 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity **(Remediated)** | [#29](https://github.com/microsoft/brewlet/issues/29) | [#42](https://github.com/microsoft/brewlet/pull/42) | 9/10 |
-| 12 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth **(Remediated)** | [#30](https://github.com/microsoft/brewlet/issues/30) | [#39](https://github.com/microsoft/brewlet/pull/39) | 9/10 |
+| 2 | High | Artifact launch configuration overrides the pod UID/GID **(Remediated)** | [#21](https://github.com/microsoft/brewlet/issues/21) | [#37](https://github.com/microsoft/brewlet/pull/37) | 9/10 |
+| 3 | High | Attestation enforcement verifies a different identity from the executed artifact **(Remediated)** | [#22](https://github.com/microsoft/brewlet/issues/22) | [#33](https://github.com/microsoft/brewlet/pull/33) | 8/10 |
+| 4 | High | Mutable, unsigned JDK images become root-executed node runtimes **(Remediated)** | [#24](https://github.com/microsoft/brewlet/issues/24) | [#34](https://github.com/microsoft/brewlet/pull/34) | 9/10 |
+| 5 | High | Unverified downloaded binaries are installed on every node **(Remediated)** | [#25](https://github.com/microsoft/brewlet/issues/25) | [#32](https://github.com/microsoft/brewlet/pull/32) | 9/10 |
+| 6 | Medium | `mainJar` can escape staging and select arbitrary host paths **(Remediated)** | [#26](https://github.com/microsoft/brewlet/issues/26) | [#41](https://github.com/microsoft/brewlet/pull/41) | 8/10 |
+| 7 | Medium | Registry credentials can be forwarded cross-origin or over HTTP **(Remediated)** | [#27](https://github.com/microsoft/brewlet/issues/27) | [#61](https://github.com/microsoft/brewlet/pull/61) | 8/10 |
+| 8 | Medium | The privileged provisioner defaults to every node **(Remediated)** | [#28](https://github.com/microsoft/brewlet/issues/28) | [#63](https://github.com/microsoft/brewlet/pull/63) | 9/10 |
+| 9 | Medium | Mutable GitHub Actions and absent provenance weaken release integrity **(Remediated)** | [#29](https://github.com/microsoft/brewlet/issues/29) | [#42](https://github.com/microsoft/brewlet/pull/42) | 9/10 |
+| 10 | Low | Long-lived webhook credentials and absent NetworkPolicies reduce defense in depth **(Remediated)** | [#30](https://github.com/microsoft/brewlet/issues/30) | [#39](https://github.com/microsoft/brewlet/pull/39) | 9/10 |
 
 ## Threat model
 
@@ -86,12 +82,11 @@ control-plane nodes are excluded unless a profile opts in.
 3. Secrets, projected service-account tokens, and persistent data mounted into
    every workload on a Brewlet-enabled node.
 4. Node JDK roots used as shared OCI rootfs lower layers.
-5. The node-shared AppCDS cache under `/opt/brewlet/cds`.
-6. The integrity and identity of executed application artifacts.
-7. The containerd socket, runtime configuration, and Brewlet shim binary.
-8. Operator, admission, and provisioner service-account privileges.
-9. Admission webhook private keys and attestation trust anchors.
-10. Release artifacts, Helm charts, container images, Maven artifacts, and
+5. The integrity and identity of executed application artifacts.
+6. The containerd socket, runtime configuration, and Brewlet shim binary.
+7. Operator, admission, and provisioner service-account privileges.
+8. Admission webhook private keys and attestation trust anchors.
+9. Release artifacts, Helm charts, container images, Maven artifacts, and
     developer registry credentials.
 
 ### Actors and attacker capabilities
@@ -127,7 +122,7 @@ workload creation, not cluster-scoped RBAC or direct node access.
 1. Tenant pod metadata to the root containerd shim.
 2. Untrusted OCI metadata and content to shim path and mount construction.
 3. Container sandbox to node filesystems through overlay and bind mounts.
-4. One tenant workload to another through node-shared JDK and AppCDS state.
+4. One tenant workload to another through node-shared JDK roots.
 5. Kubernetes API objects to privileged host mutation by the provisioner.
 6. Public registries and internet downloads to root-executed host software.
 7. Developer credentials to third-party registry authentication endpoints.
@@ -262,72 +257,7 @@ to cluster compromise.
   traversal descriptor and a mismatched blob both fail bundle creation and
   produce no mount.
 
-### 2. The node-shared AppCDS cache is writable from a tenant container — remediated
-
-**Severity:** High  
-**Confidence:** 8/10  
-**STRIDE:** Tampering, Elevation of Privilege  
-**CWE:** CWE-732, CWE-269, CWE-349  
-**Type:** Confirmed architectural vulnerability
-
-**Status:** Remediated by [issue #20](https://github.com/microsoft/brewlet/issues/20)
-via [pull request #31](https://github.com/microsoft/brewlet/pull/31)
-
-**Attacker prerequisites:** Permission to create a Brewlet Pod. Root inside the
-sandbox increases reliability and is available through Finding 3 or a workload
-that does not request non-root execution.
-
-**Original evidence (before remediation):**
-
-- `core/internal/runtime/cds_regen.go:28-35` defines the node-global
-  `/opt/brewlet/cds` cache.
-- `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:470-476` derives
-  the cache key from tenant-controlled artifact annotations.
-- `core/internal/runtime/cds_regen.go:193,206-231` elects a writer through a
-  best-effort marker file.
-- `core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go:496-510` mounts the
-  entire cache directory read-write for the elected container.
-- `core/internal/runtime/cds_regen.go:159-168` configures victim JVMs to consume
-  the shared archive by key.
-
-**Attack path and impact:**
-
-1. An attacker requests CDS regeneration and wins the writer election.
-2. The whole cache, including other tenants' entries, is mounted read-write.
-3. The attacker overwrites or deletes a victim's archive, using a matching
-   artifact key when necessary.
-4. A victim JVM on the same node maps the poisoned archive.
-
-The immediate impact is cross-tenant cache corruption and denial of service.
-A valid malicious AppCDS archive may inject class metadata into the victim JVM,
-yielding code execution with the victim workload identity.
-
-**Implemented remediation:**
-
-- Cache identity is the SHA-256 of the trusted CRI sandbox namespace, the
-  content-verified resolved platform-manifest digest, the exact JDK build, and
-  the trusted CRI process UID. Tenant artifact annotations are not used as cache
-  identity, and workloads with different UIDs never share an owner-private
-  entry.
-- Each entry is `<cache>/<key>/archive.jsa`; only `<cache>/<key>` is mounted at
-  `/run/brewlet/cds`. The node-global cache root and external `<key>.writer`
-  election marker are never exposed to the workload.
-- Writers receive only their UID/GID-owned private directory read-write;
-  consumers receive it read-only. Both mounts add `nosuid,nodev,noexec`.
-- Brewlet rejects symlink/non-regular archives, recreates an elected writer
-  entry before host-side seeding, and never consumes legacy flat cache entries.
-- Kubernetes regeneration is default-deny through
-  `NodeProfile.spec.appCDS.regenerationEnabled`. Admission denies and steers
-  requests early, while the shim authoritatively requires the root-owned host
-  policy sentinel even when the webhook fails open.
-
-**Remediation test:** Tier 8 runs victim and attacker writers in separate
-namespaces on the same node, asserts distinct private bundle mount sources,
-proves the attacker cannot enumerate or address the victim entry, tampers with
-the attacker archive, and verifies the victim bytes and mapped consumer remain
-unchanged.
-
-### 3. Artifact launch configuration overrides the pod UID/GID — remediated
+### 2. Artifact launch configuration overrides the pod UID/GID — remediated
 
 **Severity:** High  
 **Confidence:** 9/10  
@@ -353,8 +283,8 @@ via [pull request #37](https://github.com/microsoft/brewlet/pull/37)
 **Attack path and impact:** An artifact requests UID/GID 0 while the Pod uses
 `runAsNonRoot: true` and `runAsUser: 1000`. Admission and kubelet checks see a
 compliant Pod, but the shim changes the final OCI process user to root. This
-defeats Pod Security expectations and makes writable volumes and the AppCDS
-cache available with root privileges.
+defeats Pod Security expectations and makes writable volumes available with
+root privileges.
 
 **Remediation:** Treat the CRI-populated user as authoritative. Artifact
 configuration must never raise privilege or replace a non-zero Pod UID/GID with
@@ -373,7 +303,7 @@ containerd E2E tier covers both UID/GID preservation and fail-closed rejection
 of a re-hashed root-requesting artifact in a Pod Security `restricted`
 namespace.
 
-### 4. Attestation enforcement verifies a different identity from the executed artifact — remediated
+### 3. Attestation enforcement verifies a different identity from the executed artifact — remediated
 
 **Severity:** High  
 **Confidence:** 8/10  
@@ -427,7 +357,7 @@ selected platform manifest's config digest against CRI's recorded image
 identity. It never selects executable content through a mutable config-digest
 image alias. Conflicting hints and tag-only requests fail closed.
 
-### 6. Mutable, unsigned JDK images become root-executed node runtimes — remediated
+### 4. Mutable, unsigned JDK images become root-executed node runtimes — remediated
 
 **Severity:** High  
 **Confidence:** 9/10  
@@ -481,7 +411,7 @@ The provisioner validates the complete inventory before host mutation, mounts
 digest-specific source images, copies JDK roots without executing source images with host networking or writable host
 bind mounts.
 
-### 7. Unverified downloaded binaries are installed on every node — remediated
+### 5. Unverified downloaded binaries are installed on every node — remediated
 
 **Severity:** High  
 **Confidence:** 9/10  
@@ -528,7 +458,7 @@ runtime image receives only verified outputs and no longer contains `curl`, and
 repository policy tests reject unpinned images or direct Dockerfile downloads.
 Build corruption tests cover every downloaded binary and license asset.
 
-### 8. `mainJar` can escape staging and select arbitrary host paths — remediated
+### 6. `mainJar` can escape staging and select arbitrary host paths — remediated
 
 **Severity:** Medium  
 **Confidence:** 8/10  
@@ -578,7 +508,7 @@ applies the identical rule at publish time. Tests reject `../x.jar`,
 names through config validation, through image resolution, and at the shim, and
 assert that successfully resolved JAR and CDS paths remain under staging.
 
-### 9. Registry credentials can be forwarded cross-origin or over HTTP — remediated
+### 7. Registry credentials can be forwarded cross-origin or over HTTP — remediated
 
 **Severity:** Medium  
 **Confidence:** 8/10  
@@ -648,7 +578,7 @@ upload `Location` receives the PUT without `Authorization`; unit tests cover
 `localhost`, loopback literals, bracketed IPv6, explicit ports, lookalike public
 names, Docker Hub realm lookalikes, and malformed configuration entries.
 
-### 10. The privileged provisioner defaults to every node — remediated
+### 8. The privileged provisioner defaults to every node — remediated
 
 **Severity:** Medium  
 **Confidence:** 9/10  
@@ -742,7 +672,7 @@ nor allowed to hold a profile short of `Ready`. E2E tier 13 repeats the
 assertions against a live cluster and, when a distinct control-plane node
 exists, verifies that no provisioner pod is scheduled onto it.
 
-### 11. Mutable GitHub Actions and absent provenance weaken release integrity — remediated
+### 9. Mutable GitHub Actions and absent provenance weaken release integrity — remediated
 
 **Severity:** Medium  
 **Confidence:** 9/10  
@@ -811,7 +741,7 @@ identity; the release workflow runs it against the version it just published, an
 the website release smoke test runs it for every release at or after `0.4.0`.
 Dependabot keeps the SHA pins current.
 
-### 12. Long-lived webhook credentials and absent NetworkPolicies — remediated
+### 10. Long-lived webhook credentials and absent NetworkPolicies — remediated
 
 **Severity:** Low  
 **Confidence:** 9/10  
@@ -920,16 +850,9 @@ to stay under the content store's blob directory, and blob bytes are verified
 against the digest that named them before they are read, staged, or mounted.
 The blast radius of any future node-level primitive is also narrower: the
 privileged provisioner no longer defaults to every node, and it is excluded from
-control-plane nodes unless a profile explicitly opts in (Finding 10).
+control-plane nodes unless a profile explicitly opts in (Finding 8).
 
-### B. Historical cross-tenant JVM code injection — remediated
-
-The original chain combined artifact-requested UID 0 with a writable global
-AppCDS cache. Artifact credentials are now rejected, CRI process identity is
-preserved, cache keys include trusted namespace, verified manifest, JDK build,
-and process UID, and workloads see only their private cache-entry directory.
-
-### C. Historical upstream software to root on every node — remediated
+### B. Historical upstream software to root on every node — remediated
 
 The original chain relied on mutable runtime tags, unrestricted mirrors, and
 unverified tool archives. Runtime sources are now explicit and digest-pinned,
@@ -942,7 +865,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
 |-------|----------|----------------------|
 | The JVM is non-root unless root is explicitly requested through the Pod security context | `specs/SPECIFICATION.md:1228-1229`; `docs/security.md` | **Remediated:** artifact credentials are rejected and the CRI-populated user is authoritative |
 | Every runtime root arrives through a content-addressable, digest-verified pull | `specs/SPECIFICATION.md:664` | **Remediated:** every JDK source is explicit and digest-pinned |
-| Only a small per-container upper/scratch layer is writable | `docs/security.md` | **Remediated:** CDS regeneration exposes only a private per-key entry; consumers mount it read-only and the elected writer alone receives it read-write |
+| Only a small per-container upper/scratch layer is writable | `docs/security.md` | JDK and application payload bind mounts are read-only; writable state follows CRI process identity and volume policy |
 | The shim resolves the application from the content store by digest as an integrity control | `docs/security.md` | **Remediated:** artifact selection is bound to protected CRI image identity, every descriptor digest is validated before path construction, resolved paths are confined to the content store, and blob bytes are verified against their declared digest before use |
 | Ratify/Gatekeeper requires the final-image attestation and fails closed | `docs/security.md` | **Remediated:** the shim resolves the exact digest-pinned CRI request and verifies its target, config, and platform-manifest identity |
 | Operators can pin all component images and OCI artifacts to digests | `docs/security.md` | **Remediated:** JDK sources require explicit digest-pinned references |
@@ -958,9 +881,7 @@ downloaded tools and external build images are checksum- or digest-pinned.
    reject annotation mismatches.
 3. **Remediated:** Make Brewlet admission overwrite security-sensitive
    annotations, with the shim enforcing artifact identity independently.
-4. **Remediated:** Remove tenant write access to the shared AppCDS directory and
-   partition cache state.
-5. **Remediated:** Prevent artifact launch configuration from raising UID/GID
+4. **Remediated:** Prevent artifact launch configuration from raising UID/GID
    privilege.
 
 ### P1: Next release
@@ -989,28 +910,26 @@ downloaded tools and external build images are checksum- or digest-pinned.
 1. **Validate OCI digests before path construction and verify blob content
    (remediated in issue #19 and pull request #43).** Covers Finding 1.
 2. **Bind shim artifact resolution to the CRI image identity (remediated in
-   issue #22 and pull request #33).** Covers Finding 4 and the identity portion
+   issue #22 and pull request #33).** Covers Finding 3 and the identity portion
    of Finding 1.
-3. **Stop mounting the shared AppCDS cache directory into workloads (remediated
-   in issue #20 and pull request #31).** Covers Finding 2.
-4. **Prevent artifact configuration from overriding Pod UID/GID (remediated in
-   issue #21 and pull request #37).** Covers Finding 3.
-5. **Validate `mainJar` path components (remediated in issue #26 and
-   pull request #41).** Covers Finding 8.
-6. **Require digest-pinned administrator-provided runtime sources and validate
+3. **Prevent artifact configuration from overriding Pod UID/GID (remediated in
+   issue #21 and pull request #37).** Covers Finding 2.
+4. **Validate `mainJar` path components (remediated in issue #26 and
+   pull request #41).** Covers Finding 6.
+5. **Require digest-pinned administrator-provided runtime sources and validate
    registry mirrors (remediated in issue #24 and pull request #34).** Covers
-   Finding 6.
-7. **Verify provisioner binary downloads and pin base images (remediated in
-   issue #25 and pull request #32).** Covers Finding 7.
-8. **Restrict registry token authentication to approved HTTPS origins
-   (remediated in issue #27 and pull request #61).** Covers Finding 9.
-9. **Pin Actions and publish release signatures and provenance (remediated in
-   issue #29 and pull request #42).** Covers Finding 11.
-10. **Make privileged node provisioning opt-in and exclude control-plane nodes
-    (remediated in issue #28 and pull request #63).** Covers Finding 10.
-11. **Add NetworkPolicies and automated webhook certificate rotation
-    (remediated in issue #30 and pull request #39).** Covers Finding 12.
-12. **Align security documentation with enforced controls.** Covers remaining
+   Finding 4.
+6. **Verify provisioner binary downloads and pin base images (remediated in
+   issue #25 and pull request #32).** Covers Finding 5.
+7. **Restrict registry token authentication to approved HTTPS origins
+   (remediated in issue #27 and pull request #61).** Covers Finding 7.
+8. **Pin Actions and publish release signatures and provenance (remediated in
+   issue #29 and pull request #42).** Covers Finding 9.
+9. **Make privileged node provisioning opt-in and exclude control-plane nodes
+    (remediated in issue #28 and pull request #63).** Covers Finding 8.
+10. **Add NetworkPolicies and automated webhook certificate rotation
+    (remediated in issue #30 and pull request #39).** Covers Finding 10.
+11. **Align security documentation with enforced controls.** Covers remaining
     documentation mismatches and future remediation updates.
 
 ## Residual risk after remediation

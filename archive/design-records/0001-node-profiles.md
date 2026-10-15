@@ -30,7 +30,7 @@ separately allowlisted by operator/admission configuration and revalidated by
 the reconciler and privileged provisioner. This design record reflects that
 fail-closed behavior.
 
-> **Amendment (security review finding 10, issue #28).** Where this record says
+> **Amendment (security review finding 8, issue #28).** Where this record says
 > an empty `nodePool` means "every node", the shipped behaviour is narrower. The
 > catch-all remains in the API — bare-metal clusters with no pool label still
 > need it — but it is no longer reachable by default: the Helm chart requires

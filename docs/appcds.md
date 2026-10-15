@@ -1,8 +1,6 @@
 # AppCDS (Application Class Data Sharing)
 
 Brewlet can ship and consume an **externally generated** AppCDS archive.
-Brewlet does not generate archives: the Maven `brewlet:appcds` goal, CLI
-training options, and node-side regeneration are no longer available.
 The JDK's own default CDS archive remains available independently.
 
 ## Prebuilt archive delivery
@@ -44,9 +42,6 @@ and the containerd shim. At runtime the archive is read-only at
 -Xshare:auto -XX:SharedArchiveFile=/app/<archive>
 ```
 
-There is no writable node archive cache, writer election, or automatic refresh.
-No generation flag is injected into the JVM.
-
 ## Compatibility and timestamps
 
 An archive is tied to the **exact JDK build**, CPU architecture, application
@@ -72,19 +67,3 @@ preventing startup. A central JDK patch therefore preserves correctness, but
 the application-archive benefit is lost until an externally rebuilt archive
 is published. Measure startup with the exact production JDK, layout, and agents;
 archive delivery alone does not prove that HotSpot mapped it.
-
-## Migration from archive generation
-
-Remove the old generation settings from build and deployment configuration:
-
-- Maven `brewlet:appcds` lifecycle bindings and `brewlet.appcds.*` properties.
-- CLI `push --appcds`, `--appcds-java`, `--appcds-timeout`, and `--appcds-arg`.
-- CLI `run`/`bundle --appcds-regenerate` and `BREWLET_CDS_CACHE`.
-- `JavaApplication.spec.jvm.cds`, the `brewlet.sh/cds-regenerate` pod annotation,
-  and `NodeProfile.spec.appCDS` / chart `appCDS` settings.
-
-The provisioner removes the old authorization sentinel and capability label
-when provisioning or cleaning up a node. It does not delete archives left by
-older releases or stop an already-running old JVM/shim. Review retained files
-with their owners before removing them; follow the
-[retained-cache cleanup guidance](uninstallation.md#retained-appcds-cache-files).

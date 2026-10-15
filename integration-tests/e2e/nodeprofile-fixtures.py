@@ -231,6 +231,46 @@ def teardown(namespace, name, uid, image):
     retrying(_teardown_once, namespace, name, uid, image)
 
 
+def release_node(node, name, uid, targets, claimed):
+    tries = max(1, int(os.environ.get("E2E_RETRIES", "5")))
+    for attempt in range(1, tries + 1):
+        meta = node["metadata"]
+        labels, annotations = meta.get("labels", {}), meta.get("annotations", {})
+        if labels.get(OWNER) != uid:
+            require(meta["name"] not in claimed or not labels.get(OWNER),
+                    "fixture target belongs to another owner")
+            return
+        require(targets.get(meta["name"]) == meta["uid"] == labels.get(IDENTITY),
+                "fixture node identity changed")
+        require(annotations.get(OWNER_NAME) == name, "fixture owner name changed")
+        require(not labels.get("brewlet.sh/runtime") and
+                not annotations.get("brewlet.sh/profile"), "node advertises runtime state")
+        patch = [
+            {"op": "test", "path": "/metadata/uid", "value": meta["uid"]},
+            {"op": "test", "path": "/metadata/resourceVersion", "value": meta["resourceVersion"]},
+        ]
+        for location, key in (("labels", OWNER), ("labels", IDENTITY), ("annotations", OWNER_NAME)):
+            patch.append({"op": "remove", "path": f"/metadata/{location}/{key.replace('/', '~1')}"})
+        if "brewlet.sh/provision-state" in annotations:
+            patch.append({"op": "remove", "path": "/metadata/annotations/brewlet.sh~1provision-state"})
+        try:
+            kubectl("patch", "node", meta["name"], "--type=json", "-p", json.dumps(patch))
+        except subprocess.CalledProcessError as error:
+            # Node status writers can invalidate the CAS even with the manager
+            # stopped. Re-read and revalidate; never replay a stale JSON patch.
+            if attempt >= tries or not any(message in (error.stderr or "") for message in (
+                    "Error from server (Conflict)", "The request is invalid:")):
+                raise
+            current = get("node", meta["name"])
+            fresh = current["metadata"]
+            if fresh["uid"] != meta["uid"] or fresh["resourceVersion"] == meta["resourceVersion"]:
+                raise
+            node = current
+            continue
+        print(f"Removed exact fixture fence from {meta['name']} ({meta['uid']})", flush=True)
+        return
+
+
 def _teardown_once(namespace, name, uid, image):
     raw = kubectl("get", "nodeprofile", name, "--ignore-not-found", "-o", "json")
     if not raw.strip():
@@ -269,27 +309,7 @@ def _teardown_once(namespace, name, uid, image):
     targets = {t["name"]: t["uid"] for t in profile.get("status", {}).get("targets", [])}
     claimed = {t["name"] for t in profile.get("status", {}).get("targets", []) if t.get("claimed")}
     for node in get("nodes")["items"]:
-        meta = node["metadata"]
-        labels, annotations = meta.get("labels", {}), meta.get("annotations", {})
-        if labels.get(OWNER) != uid:
-            require(meta["name"] not in claimed or not labels.get(OWNER),
-                    "fixture target belongs to another owner")
-            continue
-        require(targets.get(meta["name"]) == meta["uid"] == labels.get(IDENTITY),
-                "fixture node identity changed")
-        require(annotations.get(OWNER_NAME) == name, "fixture owner name changed")
-        require(not labels.get("brewlet.sh/runtime") and
-                not annotations.get("brewlet.sh/profile"), "node advertises runtime state")
-        patch = [
-            {"op": "test", "path": "/metadata/uid", "value": meta["uid"]},
-            {"op": "test", "path": "/metadata/resourceVersion", "value": meta["resourceVersion"]},
-        ]
-        for location, key in (("labels", OWNER), ("labels", IDENTITY), ("annotations", OWNER_NAME)):
-            patch.append({"op": "remove", "path": f"/metadata/{location}/{key.replace('/', '~1')}"})
-        if "brewlet.sh/provision-state" in annotations:
-            patch.append({"op": "remove", "path": "/metadata/annotations/brewlet.sh~1provision-state"})
-        kubectl("patch", "node", meta["name"], "--type=json", "-p", json.dumps(patch))
-        print(f"Removed exact fixture fence from {meta['name']} ({meta['uid']})", flush=True)
+        release_node(node, name, uid, targets, claimed)
     current = get("nodeprofile", name)["metadata"]
     patch = [
         {"op": "test", "path": "/metadata/uid", "value": uid},

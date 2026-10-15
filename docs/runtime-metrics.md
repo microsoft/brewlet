@@ -400,16 +400,11 @@ The bundled dashboard includes:
 - NodeProfile readiness;
 - installed JDK inventory.
 
-![Brewlet Grafana runtime dashboard showing launch latency, outcomes, admission denials, NodeProfile readiness, and JDK inventory](images/runtime-metrics/brewlet-metrics-dashboard.png)
-
-*An earlier dashboard populated by live integration-test telemetry. The AppCDS
-regeneration panel shown in this capture has since been removed.*
-
 ![Grafana Explore displaying Brewlet Prometheus metric series and labels](images/runtime-metrics/brewlet-grafana-explore.png)
 
 *Brewlet metrics inspected directly in Grafana Explore.*
 
-These captures used Grafana 12.1.0 backed by Prometheus 3.5.0. They document the
+This capture used Grafana 12.1.0 backed by Prometheus 3.5.0. It documents the
 tested setup, not minimum supported versions.
 
 If the dashboard appears but panels have no data, verify that Grafana has a

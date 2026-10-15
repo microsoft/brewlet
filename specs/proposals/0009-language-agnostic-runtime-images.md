@@ -78,7 +78,7 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
   still need CA bundles, tzdata, and a hardened userland) benefit from a
   centrally governed runtime that ships separately from application bytes.
 - **The Java-specific surface is the expensive surface.** JDK feature/distribution
-  matching, the JVM flag grammar, AppCDS cache governance, and
+  matching, the JVM flag grammar, and
   the `JavaApplication` controller account for most of Brewlet's contract and
   test matrix while providing value only to one ecosystem.
 - **Runtime patching without application rebuilds.** Because pods name an ID
@@ -489,7 +489,7 @@ a new ID. This is the contract that makes digest-free workload references safe.
 ### 7.3 Placement and rotation (`NodeProfile`)
 
 `NodeProfile` keeps pool selection, tolerations, mirrors, and rollout policy, and
-replaces `jdks` and `appCDS` with one list of runtime image
+replaces `jdks` with one list of runtime image
 entries:
 
 ```yaml
@@ -973,7 +973,7 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   the shim and by kubelet's pull, so fail-open admission never weakens them.
 
 The 1.x `brewlet.sh/jdk`, `brewlet.sh/jvm-args`,
-`brewlet.sh/cds-regenerate`, and `brewlet.sh/arch` annotations are removed and
+and `brewlet.sh/arch` annotations are removed and
 MUST be rejected on a 2.0 pod (`UnsupportedAnnotation`) so a stale manifest
 fails loudly instead of silently losing its intent.
 
@@ -997,7 +997,7 @@ Revocation, expired authorization, and rotation quarantine withdraw the
 capability label regardless of an old generation remaining on disk. Node
 annotations are diagnostic, not authority for the shim.
 
-`jdk.*`, `jdk-feature.*`, and `appcds-regeneration` labels are
+`jdk.*` and `jdk-feature.*` labels are
 removed. The [capability label contract](../CAPABILITY_LABELS.md) gains a v2 key
 family and its dual-publication exception does not extend to 1.x keys.
 
@@ -1016,7 +1016,6 @@ Removed from Brewlet core:
 - JDK inventory, `javaHome`, and the `/opt/jdk` alias;
 - the 1.x launch descriptor (`mainJar`, `entry`, `addOpens`, …) and its argv
   expansion rules, including the `jvm.args` entrypoint-selector guard;
-- AppCDS node-side regeneration, its cache, sentinel, and capability label;
 - the JVM resource mapping of SPEC §10 (modern JVMs are container-aware);
 - the `JavaApplication` CRD and controller, and `status.selectedJdk`.
 
@@ -1084,7 +1083,7 @@ The Maven plugin is the one place where Java knowledge remains. It MAY:
   properties;
 - split dependencies into layers (for example `/app/lib` and `/app/mods`) or
   consume a published `java` layer set;
-- emit an AppCDS archive as an ordinary application file and add the matching
+- attach a prebuilt AppCDS archive as an ordinary application file and add the matching
   flags to argv;
 - propose `requires.runtimeImages` from `maven.compiler.release` and a configured
   mapping to inventory IDs (for example `21 → java-21`), so the
