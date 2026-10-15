@@ -5,7 +5,7 @@
 # Tier 16 — the SPECIFICATION §14 failure modes, proven on a live node.
 #
 # §14 is the user-visible error contract: what an operator sees when something
-# goes wrong. The happy paths are covered by tiers 8, 9 and 12; the documented
+# goes wrong. The happy paths are covered by tiers 9 and 12; the documented
 # failure rows were not exercised anywhere, so the contract could drift without
 # any test noticing. This tier closes three of them end to end:
 #

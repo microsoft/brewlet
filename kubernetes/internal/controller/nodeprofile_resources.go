@@ -259,10 +259,6 @@ func containerdRestart(profile *nodev1alpha1.NodeProfile) string {
 	return nodev1alpha1.ContainerdRestartValidated
 }
 
-func appCDSRegenerationEnabled(profile *nodev1alpha1.NodeProfile) bool {
-	return profile.Spec.AppCDS != nil && profile.Spec.AppCDS.RegenerationEnabled
-}
-
 // buildProfileDaemonSet constrains provisioning to durably recorded node claims
 // that still match the profile's current pool and role selectors.
 func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolvedKey string, otherPools []string) *appsv1.DaemonSet {
@@ -280,7 +276,6 @@ func buildProfileDaemonSet(cfg Config, profile *nodev1alpha1.NodeProfile, resolv
 		{Name: "NODE_NAME", ValueFrom: &corev1.EnvVarSource{
 			FieldRef: &corev1.ObjectFieldSelector{FieldPath: "spec.nodeName"},
 		}},
-		{Name: "BREWLET_APP_CDS_REGENERATION_ENABLED", Value: strconv.FormatBool(appCDSRegenerationEnabled(profile))},
 		{Name: "BREWLET_CONTAINERD_RESTART", Value: containerdRestart(profile)},
 		{Name: "BREWLET_PROFILE_NAME", Value: profile.Name},
 		{Name: "BREWLET_PROFILE_UID", Value: string(profile.UID)},

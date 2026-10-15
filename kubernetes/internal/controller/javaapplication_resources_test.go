@@ -166,27 +166,6 @@ func TestPodAnnotationsArch(t *testing.T) {
 	}
 }
 
-func TestPodAnnotationsCDSRegenerate(t *testing.T) {
-	cases := []struct {
-		name       string
-		regenerate bool
-		want       string // "" means the annotation must be absent
-	}{
-		{"unset omits annotation", false, ""},
-		{"regenerate stamps true", true, "true"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			app := sampleApp()
-			app.Spec.JVM.CDS = appsv1alpha1.CDSSpec{Regenerate: tc.regenerate}
-			ann := buildDeployment(app).Spec.Template.Annotations
-			if got := ann[brewlet.AnnotationCDSRegenerate]; got != tc.want {
-				t.Errorf("brewlet.sh/cds-regenerate = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestPodAnnotationsJVMArgs(t *testing.T) {
 	cases := []struct {
 		name string

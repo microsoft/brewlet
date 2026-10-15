@@ -56,11 +56,6 @@ jobs:
             java: true
             cluster: true
             helm: true
-          - name: "Tier 08: Node-side AppCDS"
-            tiers: --tier 8
-            java: true
-            cluster: true
-            helm: false
           - name: "Tier 09: Serving and cgroups"
             tiers: --tier 9
             java: true
@@ -99,9 +94,9 @@ jobs:
             cluster: true
             helm: true
           # Shared-node regression guard: tier 17 must leave no host fixture
-          # that breaks a later tier deploying the same demo image.
-          - name: "Tier 17 then 08: Shared-node cleanup"
-            tiers: --tier 17 --tier 8
+          # that breaks tier 9 deploying the same demo image.
+          - name: "Tier 17 then 09: Shared-node cleanup"
+            tiers: --tier 17 --tier 9
             java: true
             cluster: true
             helm: true

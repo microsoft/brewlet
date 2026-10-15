@@ -128,57 +128,22 @@ func GenerateBundleWithLauncher(cfg artifact.JVMConfig, jdkRoot, launcherRoot, l
 // path BuildJVMArgs derives, so the JVM maps the app archive on startup. Pass ""
 // for the common no-CDS case. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 func GenerateBundleWithCDS(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string) error {
-	return GenerateBundleWithRegen(cfg, jdkRoot, launcherRoot, launcherName, jarHostPath, classpathTars, modulepathTars, cdsHostPath, outDir, res, extraArgs, CDSRegenOptions{})
-}
-
-// CDSRegenOptions carries the node context needed for node-side AppCDS
-// regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3). Regeneration is a deployment/fleet
-// decision (the brewlet.sh/cds-regenerate annotation / --appcds-regenerate flag),
-// so Regenerate is passed in here rather than read from the artifact.
-type CDSRegenOptions struct {
-	// Regenerate reflects the deployment's node-side regeneration choice. When
-	// false the shipped archive (if any) is consumed verbatim as before.
-	Regenerate bool
-	// CacheScope is the isolation boundary for sharing. Kubernetes uses the
-	// trusted sandbox namespace; local commands use a fixed local scope.
-	CacheScope string
-	// ArtifactDigest is the verified resolved platform-manifest digest.
-	ArtifactDigest string
-	// CacheDir overrides the node cache directory (default DefaultCDSCacheDir).
-	CacheDir string
-}
-
-// GenerateBundleWithRegen is GenerateBundleWithCDS plus node-side regeneration.
-// When the deployment opts in, it resolves a private per-(scope, artifact,
-// JDK-build, process-UID) entry, bind-mounts only that directory at
-// InSandboxCDSDir (writable only for the elected writer), and treats any shipped
-// archive as optional seed data rather than mounting it at /app/<archive>.
-func GenerateBundleWithRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, regen CDSRegenOptions) error {
-	return GenerateBundleWithIdentityAndRegen(
+	return GenerateBundleWithIdentityAndCDS(
 		cfg, jdkRoot, launcherRoot, launcherName, jarHostPath,
 		classpathTars, modulepathTars, cdsHostPath, outDir, res, extraArgs,
-		DefaultProcessIdentity(), regen,
+		DefaultProcessIdentity(),
 	)
 }
 
-// GenerateBundleWithIdentityAndRegen is GenerateBundleWithRegen with an
-// explicit trusted runtime identity. It is used by deployment-side callers such
-// as `brewlet bundle`; artifact metadata is intentionally not consulted.
-func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity, regen CDSRegenOptions) error {
+// GenerateBundleWithIdentityAndCDS is GenerateBundleWithCDS with an explicit
+// trusted runtime identity.
+func GenerateBundleWithIdentityAndCDS(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity) error {
 	resources, err := buildResources(res)
 	if err != nil {
 		return err
 	}
 	if identity.UID > MaxProcessID || identity.GID > MaxProcessID {
 		return fmt.Errorf("process UID/GID must be between 0 and %d", MaxProcessID)
-	}
-	var writerOwner *RegenOwner
-	if regen.Regenerate {
-		regenUID, regenGID := uint64(identity.UID), uint64(identity.GID)
-		if regenUID > math.MaxInt || regenGID > math.MaxInt {
-			return fmt.Errorf("process UID/GID must be between 0 and %d for CDS regeneration on this platform", math.MaxInt)
-		}
-		writerOwner = &RegenOwner{UID: int(regenUID), GID: int(regenGID)}
 	}
 	if err := os.MkdirAll(filepath.Join(outDir, "rootfs"), 0o755); err != nil {
 		return err
@@ -193,59 +158,15 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 		return err
 	}
 	inSandboxJar := "/app/" + mainJar
-	jvmArgs, err := BuildJVMArgs(cfg, inSandboxJar, extraArgs, regen.Regenerate)
+	jvmArgs, err := BuildJVMArgs(cfg, inSandboxJar, extraArgs)
 	if err != nil {
 		return err
 	}
 
-	// Node-side regeneration: resolve a private cache entry and prepend its launch
-	// args. Only that entry is mounted at InSandboxCDSDir.
-	var cdsCacheMount []ociMount
-	if regen.Regenerate {
-		seed := ""
-		if cdsHostPath != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
-			seed = cdsHostPath
-		}
-		cacheDir := regen.CacheDir
-		if cacheDir == "" {
-			cacheDir = DefaultCDSCacheDir
-		}
-		dec, derr := DecideCDSRegen(RegenParams{
-			CacheDir:           cacheDir,
-			CacheScope:         regen.CacheScope,
-			JDKRoot:            jdkRoot,
-			ArtifactDigest:     regen.ArtifactDigest,
-			SeedArchive:        seed,
-			WriterOwner:        writerOwner,
-			AllowUnownedWriter: true,
-			ArchiveArgDir:      InSandboxCDSDir,
-		})
-		if derr != nil {
-			return derr
-		}
-		if len(dec.Args) > 0 {
-			jvmArgs = append(append([]string{}, dec.Args...), jvmArgs...)
-		}
-		if dec.Role == RegenConsume || dec.Role == RegenWrite {
-			opts := []string{"rbind"}
-			if dec.MountRW {
-				opts = append(opts, "rw")
-			} else {
-				opts = append(opts, "ro")
-			}
-			opts = append(opts, "nosuid", "nodev", "noexec")
-			cdsCacheMount = []ociMount{{
-				Destination: InSandboxCDSDir, Type: "bind",
-				Source: dec.HostMount, Options: opts,
-			}}
-		}
-	}
-
 	// Pin the app JAR (and any staged lib/mods entries) to the canonical mtime
-	// whenever CDS is in play — either a shipped archive or node-side
-	// regeneration — so the archive maps rather than being silently rejected
+	// whenever a shipped archive is in play, so the archive maps rather than being silently rejected
 	// under -Xshare:auto (see CDSModTime / https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.4).
-	pinMtime := shipsCDS(cfg) || regen.Regenerate
+	pinMtime := shipsCDS(cfg)
 
 	// Stage classpath dependency layers into a host dir bind-mounted at /app/lib.
 	var libMount []ociMount
@@ -285,7 +206,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	}
 
 	// The app JAR is normally bind-mounted read-only straight from its host blob.
-	// When CDS is in play (shipped archive or regeneration), mount a
+	// When a shipped archive is in play, mount a
 	// canonical-mtime copy instead: the archive records the JAR's mtime and
 	// HotSpot rejects it under -Xshare:auto if the on-disk mtime differs (see
 	// CDSModTime), and a bind-mount inherits the source blob's non-deterministic
@@ -300,12 +221,9 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 	}
 
 	// Bind-mount the optional AppCDS archive read-only at /app/<archive> so the
-	// -XX:SharedArchiveFile path BuildJVMArgs emitted resolves. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
-	// Skipped when the deployment opts into node-side regeneration: there the
-	// shipped archive is only seed data for the node cache (mounted at
-	// InSandboxCDSDir instead).
+	// -XX:SharedArchiveFile path BuildJVMArgs emitted resolves.
 	var cdsMount []ociMount
-	if !regen.Regenerate && cdsHostPath != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
+	if cdsHostPath != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
 		cdsMount = []ociMount{{
 			Destination: "/app/" + cfg.CDS.Archive, Type: "bind",
 			Source: cdsHostPath, Options: []string{"rbind", "ro"},
@@ -372,7 +290,7 @@ func GenerateBundleWithIdentityAndRegen(cfg artifact.JVMConfig, jdkRoot, launche
 			// resources and mis-sizes itself.
 			{Destination: "/sys/fs/cgroup", Type: "cgroup", Source: "cgroup", Options: []string{"nosuid", "noexec", "nodev", "relatime", "ro"}},
 			{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"nosuid", "nodev", "mode=1777"}},
-		}, append(append(append(append(libMount, modsMount...), cdsMount...), cdsCacheMount...), launcherMount...)...),
+		}, append(append(append(libMount, modsMount...), cdsMount...), launcherMount...)...),
 		Linux: ociLinux{
 			// PoC omits the "network" namespace so it shares the host netns and
 			// can be curled directly. The real shim instead JOINS the pod netns

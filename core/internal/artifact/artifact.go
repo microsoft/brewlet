@@ -119,14 +119,14 @@ type CDS struct {
 	// no "..", no wildcard — since the archive always lives at the /app top level
 	// beside the primary JAR.
 	Archive string `json:"archive"`
-	// Mode records how the archive was produced ("dynamic" via
+	// Mode records how the archive was created ("dynamic" via
 	// -XX:ArchiveClassesAtExit, or "static" via -Xshare:dump). It is
 	// informational only — consumption is identical either way — and may be
 	// omitted. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §2.
 	Mode string `json:"mode,omitempty"`
 }
 
-// KnownCDSModes are the recognized CDS archive-production modes for the optional
+// KnownCDSModes are the recognized CDS archive modes for the optional
 // JVMConfig.CDS hint. An empty mode is also accepted (unspecified).
 var KnownCDSModes = map[string]struct{}{
 	"dynamic": {},

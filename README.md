@@ -181,8 +181,8 @@ package visibility is managed separately from repository visibility.
 ## Build and test
 
 Development requires Go 1.26 or newer. Maven plugin development requires Maven
-3.9+ and JDK 17+, while the optional AppCDS integration test requires a full JDK
-17 or newer. Docker with Buildx is required for provisioner images.
+3.9+ and JDK 17+; the optional prebuilt-AppCDS integration test also needs a full
+JDK 17 or newer. Docker with Buildx is required for provisioner images.
 
 Run all checks that do not require a Kubernetes cluster:
 

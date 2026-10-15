@@ -35,14 +35,6 @@ const (
 	// single source of truth for which JDK/launcher the workload runs on.
 	annRequestedJDK      = "brewlet.sh/jdk"
 	annRequestedLauncher = "brewlet.sh/launcher"
-	// annCDSRegenerate opts the workload into node-side AppCDS regeneration
-	// (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3). Value "true" (set by the operator from
-	// spec.jvm.cds.regenerate, or by the user on a raw Deployment) tells the shim
-	// to maintain a namespace-scoped cache keyed by the verified manifest, JDK
-	// build, and trusted CRI process UID with -XX:+AutoCreateSharedArchive rather
-	// than consume a shipped archive. It is a deployment/fleet decision, so it
-	// lives on the pod, not in the artifact.
-	annCDSRegenerate = "brewlet.sh/cds-regenerate"
 	// annJVMArgs carries the deployment descriptor's jvm.args onto the pod (set
 	// by the operator from spec.jvm.args, or by the user on a raw Deployment) as
 	// a JSON array of strings. The shim appends them to the launcher argv ahead
@@ -97,12 +89,6 @@ type imageConfig struct {
 	// OpenJDK launcher.
 	JDKRequest   string `json:"jdkRequest,omitempty"`
 	LauncherName string `json:"launcherName,omitempty"`
-
-	// CDSRegenerate mirrors the brewlet.sh/cds-regenerate pod annotation (set by
-	// the operator from spec.jvm.cds.regenerate): opt into node-side AppCDS
-	// regeneration. Like JDKRequest/LauncherName it is a deployment decision
-	// carried on the pod, not read from the artifact. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3.
-	CDSRegenerate bool `json:"cdsRegenerate,omitempty"`
 
 	// Content-store resolution (production path). When Backend is "containerd",
 	// the runnable image manifest is read from containerd's own content store by
@@ -199,13 +185,7 @@ func prepareBundle(args []string) error {
 	}
 
 	res := kcruntime.Resources{CPULimit: ic.CPULimit, MemoryLimit: ic.MemoryLimit}
-	regen := kcruntime.CDSRegenOptions{
-		Regenerate:     ic.CDSRegenerate,
-		CacheScope:     "local",
-		ArtifactDigest: ra.ManifestDigest,
-		CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
-	}
-	if err := kcruntime.GenerateBundleWithIdentityAndRegen(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, ic.processIdentity(), regen); err != nil {
+	if err := kcruntime.GenerateBundleWithIdentityAndCDS(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, ic.processIdentity()); err != nil {
 		return fmt.Errorf("generate bundle: %w", err)
 	}
 

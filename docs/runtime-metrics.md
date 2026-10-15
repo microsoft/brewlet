@@ -133,7 +133,7 @@ the Brewlet-specific collectors described below.
 |---|---:|---|---|
 | `brewlet-operator-metrics` | 8080 | Control plane | NodeProfile assigned/ready state, readiness conditions, provisioning transitions, controller-runtime metrics |
 | `brewlet-admission` port `metrics` | 8080 | Control plane | Admitted, denied, errored, and fail-open admission outcomes |
-| `brewlet-node-metrics` | 9090 | Each provisioned node | Launch phases/outcomes, artifact resolution, AppCDS decisions, invalid telemetry, JDK and launcher inventory |
+| `brewlet-node-metrics` | 9090 | Each provisioned node | Launch phases/outcomes, artifact resolution, invalid telemetry, JDK and launcher inventory |
 
 `brewlet-node-metrics` is headless so Prometheus can scrape each exporter pod
 instead of aggregating behind one virtual IP.
@@ -207,7 +207,6 @@ If you changed `metrics.nodePort`, replace `9090` with that value.
 | `brewlet_sandbox_launch_duration_seconds` | Histogram | `phase`, `outcome` | Time spent in bounded launch phases: `artifact_resolve`, `bundle_prepare`, `overlay_setup`, `runc_create`, and `process_start`; outcome is `success` or `error`. |
 | `brewlet_sandbox_launches_total` | Counter | `outcome`, `reason`, `entry_mode`, `artifact_format` | Completed launch results. Entry mode is `jar`, `classpath`, `module`, or `unknown`; format is `native`, `image`, or `unknown`. Failure reasons use a fixed vocabulary rather than raw error text. |
 | `brewlet_artifact_resolution_duration_seconds` | Histogram | `backend`, `artifact_format`, `outcome` | Time spent resolving content already available to the shim. Backend is `layout` or `containerd`; this is **not** registry pull or cache timing. |
-| `brewlet_cds_regeneration_decisions_total` | Counter | `role` | AppCDS decisions: `consume`, `write`, `defer`, or `skip`. Counts decisions, not proof that the JVM mapped an archive. |
 | `brewlet_telemetry_events_invalid_total` | Counter | None | Malformed, unknown-version, or unsupported shim datagrams rejected by the exporter. |
 | `brewlet_jdk_info` | Gauge | `distribution`, `feature`, `version`, `vendor`, `arch`, `source` | Value `1` identifies each active JDK build on a node. |
 | `brewlet_jdk_installed_timestamp_seconds` | Gauge | `distribution`, `feature`, `version` | Unix timestamp when that JDK root was installed on the node. It is **not** the upstream JDK patch release date. |
@@ -337,17 +336,7 @@ sum by (state) (
 )
 ```
 
-### AppCDS and inventory
-
-AppCDS decisions:
-
-```promql
-sum by (role) (
-  rate(brewlet_cds_regeneration_decisions_total[5m])
-)
-```
-
-Installed JDK inventory:
+### JDK inventory
 
 ```promql
 brewlet_jdk_info
@@ -414,13 +403,7 @@ The bundled dashboard includes:
 - sandbox launch outcomes;
 - admission denials;
 - NodeProfile readiness;
-- AppCDS decisions;
 - installed JDK inventory.
-
-![Brewlet Grafana runtime dashboard showing launch latency, outcomes, admission denials, NodeProfile readiness, AppCDS decisions, and JDK inventory](images/runtime-metrics/brewlet-metrics-dashboard.png)
-
-*The bundled Brewlet runtime dashboard populated by live integration-test
-telemetry.*
 
 ![Grafana Explore displaying Brewlet Prometheus metric series and labels](images/runtime-metrics/brewlet-grafana-explore.png)
 
@@ -447,7 +430,6 @@ before attaching alerts:
 - NodeProfiles with assigned nodes that do not become ready;
 - unexpected or repeatedly changing provisioning states;
 - missing JDK or launcher inventory after a profile reports ready;
-- changes in AppCDS decisions after JDK installation or patching.
 
 ### Cardinality and privacy
 

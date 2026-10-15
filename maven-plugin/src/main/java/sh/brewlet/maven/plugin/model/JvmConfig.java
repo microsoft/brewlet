@@ -71,7 +71,7 @@ public class JvmConfig {
      * mirroring {@code KnownArches} in the Go artifact package. */
     public static final java.util.Set<String> KNOWN_ARCHES = java.util.Set.of("amd64", "arm64");
 
-    /** Recognized CDS archive-production modes for the optional {@code cds} hint. */
+    /** Recognized AppCDS archive modes for the optional {@code cds} hint. */
     public static final java.util.Set<String> KNOWN_CDS_MODES = java.util.Set.of("dynamic", "static");
 
     public int getSchemaVersion() { return schemaVersion; }

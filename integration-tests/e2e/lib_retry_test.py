@@ -175,14 +175,15 @@ class TierOrderTest(LibShell):
         return [int(t) for t in result.stdout.split()]
 
     def test_tier17_runs_before_kubernetes_tiers(self):
-        self.assertEqual(self.order(*range(1, 20)),
-                         [1, 2, 3, 17, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19])
+        active = [*range(1, 8), *range(9, 14), *range(15, 20)]
+        self.assertEqual(self.order(*active),
+                         [1, 2, 3, 17, 4, 5, 6, 7, 9, 10, 11, 12, 13, 15, 16, 18, 19])
         self.assertEqual(self.order(4, 13, 17), [17, 4, 13])
         self.assertEqual(self.order(12, 1, 17), [17, 12, 1])
 
     def test_order_is_unchanged_without_tier17_or_alone(self):
         self.assertEqual(self.order(17), [17])
-        self.assertEqual(self.order(8, 4, 12), [8, 4, 12])
+        self.assertEqual(self.order(9, 4, 12), [9, 4, 12])
         self.assertEqual(self.order(1, 2, 17), [1, 2, 17])
 
 

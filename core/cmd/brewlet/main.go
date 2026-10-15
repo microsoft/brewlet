@@ -19,15 +19,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/microsoft/brewlet/internal/artifact"
 	"github.com/microsoft/brewlet/internal/kube"
-	"github.com/microsoft/brewlet/internal/progress"
 	"github.com/microsoft/brewlet/internal/runnablestage"
 	"github.com/microsoft/brewlet/internal/runtime"
 )
@@ -170,12 +167,7 @@ func cmdPush(args []string) error {
 	var mpLayers stringSlice
 	fs.Var(&mpLayers, "module-layer", "optional library-module tar for a modular (JPMS) app, unpacked to /app/mods (repeatable); see https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md")
 	cdsArchive := fs.String("appcds-archive", "", "optional prebuilt AppCDS archive (.jsa) to ship; mounted at /app/<name> and launched with -Xshare:auto -XX:SharedArchiveFile; see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md")
-	appcds := fs.Bool("appcds", false, "generate an AppCDS archive by running a self-terminating training JVM against the JAR, then ship it (turnkey equivalent of --appcds-archive); fat-JAR only. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.2")
-	appcdsJava := fs.String("appcds-java", "", "java executable (or JAVA_HOME dir) for --appcds training; defaults to $JAVA_HOME/bin/java, else java on PATH")
-	appcdsTimeout := fs.Int("appcds-timeout", 120, "seconds to wait for the --appcds training JVM to self-terminate")
 	format := fs.String("format", "image", "delivery format: \"image\" (default; a standard, kubelet-pullable runnable image for runtimeClassName: brewlet pods) or \"artifact\" (native artifact with custom media types for local OCI-layout / CLI / prepare-bundle workflows, not Kubernetes execution). Both use the current launch contract. See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md")
-	var appcdsArgs stringSlice
-	fs.Var(&appcdsArgs, "appcds-arg", "workload argument passed to the --appcds training JVM to drive class loading (repeatable)")
 	pushResult := fs.String("push-result", "", "registry push only: write a push.json handoff ({image, digest, deployImage, format}) to this file")
 	var insecureRegistries, allowedTokenRealms stringSlice
 	fs.Var(&insecureRegistries, "insecure-registry", "registry push only: HOST[:PORT] reachable over plain HTTP (repeatable; loopback registries always are)")
@@ -257,7 +249,7 @@ func cmdPush(args []string) error {
 		if len(cpLayers) > 0 || len(mpLayers) > 0 {
 			return fmt.Errorf("--dependency-bundle is mutually exclusive with --classpath-layer and --module-layer")
 		}
-		if *appcds || *cdsArchive != "" {
+		if *cdsArchive != "" {
 			return fmt.Errorf("--dependency-bundle does not support AppCDS in the MVP")
 		}
 		if err := artifact.ValidateThinJar(jarPath); err != nil {
@@ -348,43 +340,6 @@ func cmdPush(args []string) error {
 		} else if len(scan.Unrecognized) > 0 {
 			fmt.Printf("  warning: %d bundled native library(ies) found but their architecture could not be inferred; publishing arch-neutral. Set --arch explicitly if this JAR is not portable (e.g. %s)\n", len(scan.Unrecognized), scan.Unrecognized[0])
 		}
-	}
-
-	// --appcds turnkey generation (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.2): run a self-terminating
-	// training JVM against the fat JAR to produce a .jsa, then treat it exactly
-	// like a prebuilt --appcds-archive below. Mutually exclusive with a prebuilt
-	// archive and with layered/module layers (fat-JAR only).
-	if *appcds {
-		if *cdsArchive != "" {
-			return fmt.Errorf("--appcds and --appcds-archive are mutually exclusive: --appcds generates the archive, --appcds-archive ships a prebuilt one")
-		}
-		if len(cpLayers) > 0 || len(mpLayers) > 0 {
-			return fmt.Errorf("--appcds supports fat-JAR only; drop --classpath-layer/--module-layer or use the Maven brewlet:appcds goal for layered/module training")
-		}
-		javaBin, err := resolveJavaBinary(*appcdsJava)
-		if err != nil {
-			return err
-		}
-		genDir, err := os.MkdirTemp("", "brewlet-appcds-out-")
-		if err != nil {
-			return err
-		}
-		defer os.RemoveAll(genDir)
-		archiveName := strings.TrimSuffix(filepath.Base(jarPath), ".jar") + ".jsa"
-		genArchive := filepath.Join(genDir, archiveName)
-		fmt.Printf("  training AppCDS archive with %s (timeout %ds)...\n", javaBin, *appcdsTimeout)
-		// The training JVM shares the terminal, so report plain heartbeat lines
-		// rather than redrawing a spinner over its output.
-		start := time.Now()
-		if err := progress.Plain(os.Stderr).Await("training AppCDS archive", nil, func() error {
-			return runtime.GenerateAppCDSArchive(cfg, jarPath, javaBin, genArchive, time.Duration(*appcdsTimeout)*time.Second, appcdsArgs)
-		}); err != nil {
-			return fmt.Errorf("--appcds: %w (after %s)", err, progress.FormatElapsed(time.Since(start)))
-		}
-		if info, err := os.Stat(genArchive); err == nil {
-			fmt.Printf("  trained AppCDS archive %s (%d KiB) in %s\n", archiveName, info.Size()/1024, progress.FormatElapsed(time.Since(start)))
-		}
-		*cdsArchive = genArchive
 	}
 
 	// Wire the optional AppCDS archive (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md). When --appcds-archive is
@@ -499,37 +454,6 @@ func splitArchFlag(v string) []string {
 		}
 	}
 	return out
-}
-
-// resolveJavaBinary picks the java executable for --appcds training. An explicit
-// hint may be either the java binary itself or a JAVA_HOME directory (in which
-// case bin/java is appended); it must exist. With no hint, $JAVA_HOME/bin/java is
-// used when JAVA_HOME is set, otherwise "java" is resolved on PATH.
-func resolveJavaBinary(hint string) (string, error) {
-	if hint = strings.TrimSpace(hint); hint != "" {
-		if fi, err := os.Stat(hint); err == nil && fi.IsDir() {
-			cand := filepath.Join(hint, "bin", "java")
-			if _, err := os.Stat(cand); err != nil {
-				return "", fmt.Errorf("--appcds-java %q: %w", hint, err)
-			}
-			return cand, nil
-		}
-		if _, err := os.Stat(hint); err != nil {
-			return "", fmt.Errorf("--appcds-java %q: %w", hint, err)
-		}
-		return hint, nil
-	}
-	if jh := strings.TrimSpace(os.Getenv("JAVA_HOME")); jh != "" {
-		cand := filepath.Join(jh, "bin", "java")
-		if _, err := os.Stat(cand); err == nil {
-			return cand, nil
-		}
-	}
-	p, err := exec.LookPath("java")
-	if err != nil {
-		return "", fmt.Errorf("--appcds: no java found (set --appcds-java or JAVA_HOME, or put java on PATH): %w", err)
-	}
-	return p, nil
 }
 
 func cmdInspect(args []string) error {
@@ -714,7 +638,6 @@ func cmdRun(args []string) error {
 	store := fs.String("store", "./oci", "OCI layout directory")
 	jdkRoot := fs.String("jdk-root", "", "node JDK home (default: JAVA_HOME)")
 	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
-	appcdsRegen := fs.Bool("appcds-regenerate", false, "opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): maintain a private cache entry keyed by local scope, verified manifest, and JDK build with -XX:+AutoCreateSharedArchive. This is the deployment/fleet equivalent of spec.jvm.cds.regenerate; any shipped archive becomes optional seed data")
 	flagArgs, extra := splitDoubleDash(args)
 	pos, err := parseInterspersed(fs, flagArgs)
 	if err != nil {
@@ -740,44 +663,15 @@ func cmdRun(args []string) error {
 	// Pull: the payload is already in the store (native artifact) or staged from
 	// the runnable image's layers; mount it into a sandbox.
 	cdsSrc := blobs.CDSHostPath
-	sandbox, jarPath, err := runtime.AssembleSandboxWithCDS(cfg, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *appcdsRegen)
+	sandbox, jarPath, err := runtime.AssembleSandboxWithCDS(cfg, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc)
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(sandbox)
 
-	plan, err := runtime.BuildPlan(cfg, jarPath, *jdkRoot, *launcher, extra, *appcdsRegen)
+	plan, err := runtime.BuildPlan(cfg, jarPath, *jdkRoot, *launcher, extra)
 	if err != nil {
 		return err
-	}
-
-	// Node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): the local `run` path
-	// executes the JVM directly on the host (no sandbox), so the node cache path
-	// is a host path (ArchiveArgDir empty). Prepend the resolved regen args.
-	// Regeneration is a deployment/fleet choice (--appcds-regenerate), not read
-	// from the artifact.
-	if *appcdsRegen {
-		seed := ""
-		if cdsSrc != "" && cfg.CDS != nil && cfg.CDS.Archive != "" {
-			seed = cdsSrc
-		}
-		dec, derr := runtime.DecideCDSRegen(runtime.RegenParams{
-			CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
-			CacheScope:     "local",
-			JDKRoot:        plan.JDKHome,
-			ArtifactDigest: blobs.ManifestDigest,
-			SeedArchive:    seed,
-		})
-		if derr != nil {
-			return derr
-		}
-		if len(dec.Args) > 0 {
-			plan.Args = append(append([]string{}, dec.Args...), plan.Args...)
-		}
-		if dec.WriterLease != nil {
-			stopHeartbeat := dec.WriterLease.StartHeartbeat(runtime.DefaultWriterTTL)
-			defer stopHeartbeat()
-		}
 	}
 
 	fmt.Printf("[brewlet] node JDK : %s\n", plan.JDKHome)
@@ -791,7 +685,7 @@ func cmdRun(args []string) error {
 	fmt.Printf("[brewlet] sandbox  : %s\n", sandbox)
 	fmt.Printf("[brewlet] launch   : %s\n", plan.CommandLine())
 	fmt.Printf("[brewlet] ----- JVM output below -----\n")
-	// The sandbox and optional CDS cache now own all payloads.
+	// The sandbox now owns all staged payloads.
 	_ = guard.Close()
 	return plan.Run()
 }
@@ -807,7 +701,6 @@ func cmdBundle(args []string) error {
 	launcher := fs.String("launcher", "java", "launcher name (deployment descriptor's brewlet.sh/launcher; \"java\" for vanilla)")
 	launcherRoot := fs.String("launcher-root", "", "node launcher layer root (custom launcher, e.g. jaz)")
 	out := fs.String("out", "./bundle", "output bundle directory")
-	appcdsRegen := fs.Bool("appcds-regenerate", false, "opt into node-side AppCDS regeneration (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): maintain a private cache entry keyed by local scope, verified manifest, process UID, and JDK build with -XX:+AutoCreateSharedArchive. Deployment/fleet equivalent of spec.jvm.cds.regenerate")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
@@ -843,14 +736,8 @@ func cmdBundle(args []string) error {
 	}
 	cfg := blobs.Config
 	cdsSrc := blobs.CDSHostPath
-	if err := runtime.GenerateBundleWithIdentityAndRegen(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
-		res, nil, runtime.ProcessIdentity{UID: uid, GID: gid},
-		runtime.CDSRegenOptions{
-			Regenerate:     *appcdsRegen,
-			CacheScope:     "local",
-			ArtifactDigest: blobs.ManifestDigest,
-			CacheDir:       os.Getenv("BREWLET_CDS_CACHE"),
-		}); err != nil {
+	if err := runtime.GenerateBundleWithIdentityAndCDS(cfg, *jdkRoot, *launcherRoot, *launcher, blobs.JarHostPath, blobs.ClasspathHostPaths, blobs.ModulepathHostPaths, cdsSrc, *out,
+		res, nil, runtime.ProcessIdentity{UID: uid, GID: gid}); err != nil {
 		cleanup()
 		return err
 	}

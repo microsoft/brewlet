@@ -342,7 +342,7 @@ See the [pre-GA compatibility policy](compatibility.md).
    schema. The CLI refuses existing Brewlet CRDs. Use a fresh evaluation
    environment if the old one cannot safely be prepared, while preserving the
    old environment's recovery and cleanup obligations.
-   Include [retained AppCDS cache files](#retained-appcds-cache-files) in the
+   Include [legacy AppCDS cache files](#legacy-appcds-cache-files) in the
    host-state review; uninstall does not establish that retained files are unused.
    Use the [explicit empty-CRD review and removal procedure](uninstallation.md#inspect-and-remove-reviewed-empty-crds),
    including recovery from the CLI's
@@ -817,11 +817,10 @@ Use the guide's [retained-resource review](uninstallation.md#5-review-retained-r
 before removing reviewed empty CRDs; do not blindly delete the retained
 namespace, shared RuntimeClass, or host files.
 
-### Retained AppCDS cache files
+### Legacy AppCDS cache files
 
-Uninstall does not remove the AppCDS cache or prove retained files are unused.
-See [retained AppCDS cache files](uninstallation.md#retained-appcds-cache-files)
-for the ownership review and safe reclamation rules. Also review
+Uninstall does not inspect or remove cache files left by older Brewlet releases.
+Review `/opt/brewlet/cds` with its owner before reclaiming any legacy files. Also review
 [retained runnable stage roots](uninstallation.md#retained-runnable-stage-roots).
 
 ### Manual control-plane removal

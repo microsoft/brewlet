@@ -9,12 +9,12 @@
 #   - the shipped chart exposes operator, admission, and node scrape surfaces;
 #   - the real provisioner image contains and runs the metrics exporter sidecar;
 #   - a real Brewlet workload sends shim datagrams to the node exporter;
-#   - JDK/launcher inventory, launch, artifact, and AppCDS metrics are exported;
+#   - JDK/launcher inventory, launch, and artifact metrics are exported;
 #   - admission outcomes and NodeProfile/provisioning transitions are exported;
 #   - NetworkPolicies allow the configured scraper namespace and deny an unrelated
 #     namespace.
 #
-# The provisioner performs the same targeted host mutation as tiers 8, 9, and 14.
+# The provisioner performs the same targeted host mutation as tiers 9 and 14.
 # Cleanup deletes the profile first so its real cleanup DaemonSet reverses the
 # runtime registration before Helm is uninstalled.
 
@@ -50,7 +50,6 @@ T15_CONTAINERD_DROPIN_SNAPSHOT=""
 T15_CONTAINERD_DROPIN_CHANGED=""
 T15_IMAGE_DIGEST=""
 T15_IMAGE_REF=""
-T15_CDS_SNAPSHOT=""
 declare -a T15_LOADED_NODES=()
 declare -a T15_BUILT_IMAGES=()
 
@@ -188,24 +187,6 @@ _t15_prepare_containerd_fallback_baseline() {
   return 1
 }
 
-_t15_remove_created_cds_files() {
-  [[ -n "$T15_CDS_SNAPSHOT" && -f "$T15_CDS_SNAPSHOT" ]] || return 0
-  local after="$WORK/t15-cds-after.txt" path
-  # Each regeneration entry is now the private directory /opt/brewlet/cds/<key>
-  # (holding archive.jsa), with a flat /opt/brewlet/cds/<key>.writer marker
-  # alongside it — not a flat <key>.jsa file. List both kinds at depth 1 and
-  # rm -rf them so newly created entries (files or directories) are removed.
-  node_exec "$T15_NODE" find /opt/brewlet/cds -mindepth 1 -maxdepth 1 -print \
-    2>/dev/null | sort >"$after" || true
-  while IFS= read -r path; do
-    case "$path" in
-      /opt/brewlet/cds/*)
-        node_exec "$T15_NODE" sh -c 'rm -rf "$1"' sh "$path" >/dev/null 2>&1 || true
-        ;;
-    esac
-  done < <(comm -13 "$T15_CDS_SNAPSHOT" "$after")
-}
-
 _t15_cleanup() {
   info "tier15: cleaning up"
   if [[ -n "$T15_APP_NS_CREATED" ]]; then
@@ -254,7 +235,6 @@ _t15_cleanup() {
     if ! _t15_restore_containerd_config; then
       fail "tier15: restore the node's original containerd configuration"
     fi
-    _t15_remove_created_cds_files
     label_node "$T15_NODE" "$T15_POOL_KEY-" \
       brewlet.sh/runtime- "brewlet.sh/jdk.$T15_JDK-" \
       "brewlet.sh/jdk-feature.${T15_JDK##*-}-" brewlet.sh/launcher.java- \
@@ -692,8 +672,6 @@ spec:
       source:
         image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
         javaHome: /opt/java/openjdk
-  appCDS:
-    regenerationEnabled: true
   rollout:
     validate: true
     containerdRestart: validated
@@ -892,12 +870,6 @@ YAML
     pass "tier15: NetworkPolicy denies metrics from an unrelated namespace"
   fi
 
-  T15_CDS_SNAPSHOT="$WORK/t15-cds-before.txt"
-  # Snapshot both the per-key entry directories and the flat .writer markers
-  # (see _t15_remove_created_cds_files) so the post-run diff catches every
-  # regeneration artifact this test causes to be created.
-  node_exec "$T15_NODE" find /opt/brewlet/cds -mindepth 1 -maxdepth 1 -print \
-    2>/dev/null | sort >"$T15_CDS_SNAPSHOT" || true
   if ! kubectl apply -n "$T15_APP_NS" -f - >>"$WORK/t15-app.log" 2>&1 <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -912,7 +884,6 @@ spec:
       labels: { app: $T15_APP }
       annotations:
         brewlet.sh/jdk: "$T15_JDK"
-        brewlet.sh/cds-regenerate: "true"
     spec:
       runtimeClassName: brewlet
       nodeSelector:
@@ -958,10 +929,6 @@ YAML
   _t15_assert_metric "tier15: successful containerd image resolution is exported" \
     "$node_metrics" \
     'brewlet_artifact_resolution_duration_seconds_count\{artifact_format="image",backend="containerd",outcome="success"\} 1'
-  _t15_assert_metric "tier15: AppCDS launch decision is exported" \
-    "$node_metrics" \
-    'brewlet_cds_regeneration_decisions_total\{role="(consume|write|defer|skip)"\} [1-9][0-9]*'
-
   local deny
   deny="$(kubectl apply -n "$T15_APP_NS" -f - 2>&1 <<'YAML'
 apiVersion: v1

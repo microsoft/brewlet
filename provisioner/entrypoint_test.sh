@@ -1182,45 +1182,11 @@ second")" == "first second" ]]
 long_msg="$(truncate_error_message "$(printf 'b%.0s' {1..2000})")"
 (( ${#long_msg} == 512 ))
 
-# AppCDS regeneration policy is a root-controlled, read-only sentinel created
-# atomically and removed when the profile disables it.
+# Old releases could leave this node policy marker behind; cleanup and
+# reprovisioning must continue to remove it.
 policy_root="$(mktemp -d "$TEST_TMP_ROOT/policy-root.XXXXXX")"
-(
-  POLICY_DIR="$policy_root/policy"
-  APP_CDS_REGENERATION_SENTINEL="$POLICY_DIR/appcds-regeneration-enabled"
-  BREWLET_APP_CDS_REGENERATION_ENABLED=true
-  policy_chown_root() { :; }
-  configure_appcds_regeneration_policy
-  [[ -f "$APP_CDS_REGENERATION_SENTINEL" ]]
-  [[ "$(file_mode "$APP_CDS_REGENERATION_SENTINEL")" == "444" ]]
-  [[ "$(file_mode "$POLICY_DIR")" == "755" ]]
-  if compgen -G "${APP_CDS_REGENERATION_SENTINEL}.tmp.*" >/dev/null; then
-    echo "temporary AppCDS policy file was not cleaned up" >&2
-    exit 1
-  fi
-
-  BREWLET_APP_CDS_REGENERATION_ENABLED=false
-  configure_appcds_regeneration_policy
-  [[ ! -e "$APP_CDS_REGENERATION_SENTINEL" ]]
-)
-
-# Readiness advertisement publishes the policy capability only when enabled;
-# both ordinary clearing and cleanup remove it.
 : >"$node_calls"
 (
-  PREFIX="$policy_root"
-  JDKS="temurin-21"
-  LAUNCHERS=""
-  BREWLET_APP_CDS_REGENERATION_ENABLED=true
-  mock_writer_authority
-  kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
-  label_node
-)
-assert_contains "brewlet.sh/appcds-regeneration=true" "$node_calls"
-
-: >"$node_calls"
-(
-  BREWLET_APP_CDS_REGENERATION_ENABLED=false
   JDKS="temurin-21"
   mock_writer_authority
   kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
@@ -1239,7 +1205,6 @@ assert_contains "brewlet.sh/appcds-regeneration-" "$node_calls"
   PREFIX="$policy_root"
   JDKS="temurin-21,microsoft-25"
   LAUNCHERS="jaz"
-  BREWLET_APP_CDS_REGENERATION_ENABLED=false
   jdk_home_in_root() { printf '/opt/java/openjdk'; }
   jdk_root_complete() { return 0; }
   jdk_java() {
@@ -1716,7 +1681,6 @@ completion_case() (
   activate_containerd_config() { completion_step activate-containerd; }
   verify_shim() { completion_step verify-shim; }
   verify_profile_identity() { completion_step verify-profile; }
-  configure_appcds_regeneration_policy() { completion_step configure-policy; }
   label_node() { completion_step label-node; }
   cleanup_host() { completion_step cleanup-host; }
   run_stage_gc_loop() {

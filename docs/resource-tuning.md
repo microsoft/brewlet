@@ -172,10 +172,9 @@ Cold start is the JVM's classic weakness vs. Wasm. Brewlet mitigates it with:
 - **Shared, pre-warmed JDK** on the node → no per-pod JDK pull/unpack.
 - **Artifact caching:** containerd's content store caches the JAR layer; only the
   (small) JAR moves over the network, not a full image.
-- **AppCDS / dynamic CDS:** ships a class-data archive as a dedicated
-  `cds.layer` — build-time via the Maven `brewlet:appcds` goal / `brewlet push
-  --appcds-archive`, plus opt-in node-side regeneration — to cut startup. See
-  [AppCDS](appcds.md).
+- **AppCDS / dynamic CDS:** optionally ships a prebuilt class-data archive as a
+  dedicated `cds.layer` via `brewlet push --appcds-archive` or the Maven
+  `brewlet.cdsArchive` property. See [AppCDS](appcds.md).
 
 See [SPECIFICATION §13](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md).
 

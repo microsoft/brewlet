@@ -14,10 +14,9 @@ accepted and implemented.
   that it is deferred as a separate architecture. See
   [proposal 0006](specs/proposals/0006-sandbox-isolation-tiers.md).
 - **Per-sandbox and JVM runtime metrics.** Brewlet already exports launch-phase
-  latency and outcomes, artifact-resolution behavior, AppCDS regeneration
-  decisions, and installed JDK/launcher inventory (see SPECIFICATION §12). Still
-  to come: per-sandbox resource usage and in-JVM runtime metrics from the node
-  runtime.
+  latency and outcomes, artifact-resolution behavior, and installed
+  JDK/launcher inventory (see SPECIFICATION §12). Still to come: per-sandbox
+  resource usage and in-JVM runtime metrics from the node runtime.
 - **Reference-counted JDK root collection.** Rotated-out roots are already
   reclaimed once no mount references them and they have aged past a grace period,
   and profile cleanup removes a profile's roots. Still to come: collecting roots

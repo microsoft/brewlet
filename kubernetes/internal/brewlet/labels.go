@@ -179,14 +179,6 @@ const (
 	// as architecture-neutral (the common case) and no arch constraint applies.
 	AnnotationRequestedArch = "brewlet.sh/arch"
 
-	// AnnotationCDSRegenerate optionally opts a pod into node-side AppCDS
-	// regeneration (https://github.com/microsoft/brewlet). Value "true" tells the shim to maintain
-	// a per-(namespace, artifact, JDK-build) archive cache with
-	// -XX:+AutoCreateSharedArchive instead of consuming a shipped archive
-	// verbatim. The admission webhook constrains such pods to policy-authorized
-	// nodes; the root-owned sentinel remains the authoritative enforcement point.
-	AnnotationCDSRegenerate = "brewlet.sh/cds-regenerate"
-
 	// AnnotationJVMArgs carries the deployment descriptor's JVM tuning args onto
 	// the pod as a **JSON array of strings** (set by the operator from
 	// spec.jvm.args, or by the user on a raw Deployment). The shim decodes it and
@@ -217,10 +209,6 @@ const (
 	// LabelLauncherPrefix + "<name>" (e.g. brewlet.sh/launcher.jaz) marks a node
 	// that has that launcher layer installed.
 	LabelLauncherPrefix = "brewlet.sh/launcher."
-	// LabelAppCDSRegeneration marks a node whose active profile authorizes AppCDS
-	// regeneration. It is a scheduling hint; the host sentinel is authoritative.
-	LabelAppCDSRegeneration = "brewlet.sh/appcds-regeneration"
-
 	// StartupTaintKey is the optional node-pool startup taint for autoscalers
 	// that build scale-from-zero templates only from node-pool labels (for
 	// example the AKS-managed Cluster Autoscaler). Such a pool may pre-declare
@@ -281,9 +269,6 @@ const (
 	// longer emits it: an unavailable architecture is admitted with a warning
 	// and steered by kubernetes.io/arch affinity (§14).
 	ReasonNoCompatibleArch = "NoCompatibleArch"
-	// ReasonAppCDSRegenerationDisabled — a pod requested AppCDS regeneration but
-	// no otherwise-compatible ready node or eligible NodeProfile authorizes it.
-	ReasonAppCDSRegenerationDisabled = "AppCDSRegenerationDisabled"
 )
 
 // HasStartupTaint reports whether the node still carries StartupTaintKey.

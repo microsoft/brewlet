@@ -318,13 +318,11 @@ Inspect both and coordinate any removal with their owners; do not blindly
 delete them. Neither is the CLI's **existing-CRD guard**. Their presence does
 not justify deletion, and their absence does not establish clean host state.
 
-### Retained AppCDS cache files
+### Legacy AppCDS cache files
 
-Helm uninstall and provisioner teardown do not remove the AppCDS cache.
-Maintenance manages only
-[64-hex private entries and writer markers](appcds.md#43-node-side-regeneration-the-durable-answer-for-a-patched-fleet);
-unrecognized paths are untouched. Review `/opt/brewlet/cds` or the configured
-`BREWLET_CDS_CACHE` with its owner.
+Older Brewlet releases could leave AppCDS cache files under `/opt/brewlet/cds`.
+Current releases do not generate or consume this node-local cache. Review any
+remaining files with their owner before reclaiming them.
 
 Before manual reclamation, drain workloads, stop cache consumers and writers,
 pause provisioning automation, and finish host cleanup and worker teardown.
