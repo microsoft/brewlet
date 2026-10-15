@@ -127,8 +127,7 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
                           --main-class CLASS
                           [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
                           [--signing-key PEM --builder-identity IDENTITY]]
-                         [--appcds-archive JSA | --appcds [--appcds-java JAVA]
-                          [--appcds-timeout SEC] [--appcds-arg ARG ...]]
+                         [--appcds-archive JSA]
                          [--push-result FILE]
                          [--insecure-registry HOST[:PORT] ...]
                          [--allowed-token-realm HOST[:PORT] ...]
@@ -186,10 +185,6 @@ or build into a local layout with `--store`.
 | `--signing-key` | *(none)* | PKCS#8 PEM ECDSA P-256 private key used to sign final-image managed-dependency evidence; paired with `--builder-identity`. |
 | `--builder-identity` | *(none)* | Application-builder identity recorded in the signed final-image evidence; paired with `--signing-key`. |
 | `--appcds-archive` | *(none)* | Prebuilt Application Class-Data Sharing archive (`.jsa`) to ship, mounted at `/app/<name>` and launched with `-Xshare:auto -XX:SharedArchiveFile`. Sets `cds.archive` in the config from the file's basename (unless `--config` already declares one, which must then match). Best-effort startup accelerator; see [AppCDS](appcds.md). |
-| `--appcds` | `false` | Generate the AppCDS archive **turnkey** — run a self-terminating training JVM against the JAR, then ship the result (the generate-it-for-me equivalent of `--appcds-archive`). Fat-JAR only; mutually exclusive with `--appcds-archive`, `--classpath-layer`, and `--module-layer`. See [AppCDS §4.2](appcds.md). |
-| `--appcds-java` | *(auto)* | `java` executable (or a `JAVA_HOME` directory) used for `--appcds` training. Defaults to `$JAVA_HOME/bin/java`, then `java` on `PATH`. |
-| `--appcds-timeout` | `120` | Seconds to wait for the `--appcds` training JVM to self-terminate. |
-| `--appcds-arg` | *(none)* | Workload argument passed to the `--appcds` training JVM to drive class loading (repeatable). |
 | `--push-result` | *(none)* | Registry push only: write a `push.json` handoff — `{"image","digest","deployImage","format"}`, the same schema as the Maven plugin's `target/brewlet/push.json` — to this file. |
 | `--insecure-registry` | *(none)* | Registry push only: `HOST[:PORT]` that may be reached (and whose token realm may be reached) over plain HTTP (repeatable). Loopback registries always may. |
 | `--allowed-token-realm` | *(none)* | Registry push only: `HOST[:PORT]` of a cross-origin token service trusted to receive registry credentials (repeatable). |
@@ -197,9 +192,7 @@ or build into a local layout with `--store`.
 By default `push` scans the JAR for bundled native libraries and sets the `arch`
 constraint automatically for non-portable artifacts (pass `--arch` to override, or
 `--no-arch` to opt out). AppCDS is opt-in: ship a prebuilt archive with
-`--appcds-archive`, or let the CLI build one with `--appcds` (the two are mutually
-exclusive). During `--appcds` training the CLI prints a heartbeat to stderr at
-least every 30 seconds and reports the archive size and training time when done.
+`--appcds-archive`.
 
 ```bash
 brewlet push ./target/app.jar demo/hello:1.0.0                        # runnable image (default)
@@ -210,7 +203,6 @@ brewlet push ./target/app.jar demo/hello:1.0.0 --config ./jvm-config.json
 brewlet push ./target/app.jar demo/hello:1.0.0 --config ./cfg.json --classpath-layer deps.tar
 brewlet push ./target/orders.jar demo/orders:1.0.0 --module-layer mods.tar
 brewlet push ./target/app.jar demo/hello:1.0.0 --appcds-archive ./target/app.jsa
-brewlet push ./target/app.jar demo/hello:1.0.0 --appcds                # generate + ship an AppCDS archive
 brewlet push ./target/native-app.jar demo/native:1.0.0 --arch amd64,arm64   # non-portable (JNI) JAR
 brewlet push ./target/orders.jar apps/orders:1.4.2 \
   --store ./oci --format image \
@@ -917,7 +909,7 @@ Source builds without release linker flags print `dev`.
 
 | Variable | Used by | Meaning |
 | --- | --- | --- |
-| `JAVA_HOME` | `run`, `push --appcds` | Default node JDK home if `--jdk-root` is unset (`run`); default training JVM if `--appcds-java` is unset (`push --appcds`). |
+| `JAVA_HOME` | `run` | Default node JDK home if `--jdk-root` is unset. |
 | `BREWLET_JDK_HOME` | `run` | Overrides `JAVA_HOME` for JDK resolution. |
 | `BREWLET_STORE_ROOT` | shim (`layout` resolver) | OCI layout root used by the local layout resolver. |
 | `BREWLET_CDS_CACHE` | `run`, `bundle`, shim | AppCDS cache root (default `/opt/brewlet/cds`). Entries are private `<key>/archive.jsa` directories; Kubernetes keys include the trusted sandbox namespace, verified platform-manifest digest, JDK build, and CRI process UID. The cache root itself is never mounted into a workload. |

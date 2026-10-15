@@ -29,13 +29,12 @@ import (
 // pull time — never the build machine's training time. The path/directory does
 // NOT matter to CDS (verified: an archive trained at one absolute path maps when
 // consumed at another), so pinning the mtime to a shared canonical value on both
-// the training side (the Maven plugin / CLI) and the node side (here) is
-// sufficient and necessary for a build-time archive to actually map.
+// the training side and the node side (here) is sufficient and necessary for a
+// build-time archive to actually map.
 //
-// Value: 2000-01-01T00:00:00Z (Unix 946684800, nanoseconds zero). The Maven
-// plugin stamps the identical value on the JAR it trains against; keep the two in
-// sync. Stamping happens ONLY when CDS is present, so the common no-CDS path is
-// byte-for-byte unchanged.
+// Value: 2000-01-01T00:00:00Z (Unix 946684800, nanoseconds zero). Stamping
+// happens ONLY when CDS is present, so the common no-CDS path is byte-for-byte
+// unchanged.
 var CDSModTime = time.Unix(946684800, 0).UTC()
 
 // pinCDSModTime sets path's atime+mtime to CDSModTime. It is a no-op-safe helper

@@ -2,7 +2,7 @@
 
 Brewlet supports build-time archive delivery
 (`application/vnd.brewlet.cds.layer.v1+jsa`, `brewlet push
---appcds-archive`, and Maven `brewlet:appcds`) and node-side regeneration
+--appcds-archive`, and Maven `-Dbrewlet.cdsArchive`) and node-side regeneration
 (`spec.jvm.cds.regenerate`, `brewlet run/bundle --appcds-regenerate`). The
 launch path uses `-Xshare:auto -XX:SharedArchiveFile` so mismatches safely fall
 back while preserving correctness.
@@ -19,7 +19,7 @@ back while preserving correctness.
   the overlay lower layer (`setupOverlayRootfs`). It's shared across every sandbox
   on the node and warm in the page cache — a genuine, already-realized advantage.
 - **Application CDS extends the shared archive to your app and its libraries.**
-  Generate it with a training run or let Brewlet regenerate it on the node.
+  Attach a prebuilt archive or let Brewlet regenerate it on the node.
 - **The sharp constraint: an AppCDS archive is bound to the exact JDK build (and
   classpath layout).** The binding is to the JVM's *full build identity* — not the
   feature release, not even the minor/patch version, but the exact
@@ -33,7 +33,7 @@ back while preserving correctness.
   evaporates after any JDK patch**. Node-side regeneration handles this
   (§4.3, §6).
 - **Brewlet carries an optional archive layer and launch-config hint.** The Maven
-  plugin and CLI generate these values for you.
+  plugin and CLI wire these values when you attach a prebuilt archive.
 
 ---
 
@@ -152,75 +152,21 @@ containerd shim.
 Point `--appcds-archive` at a prebuilt `.jsa`; the CLI writes the launch-config
 field.
 
-### 4.2 Turnkey generation in the Maven plugin / CLI
+### 4.2 Producing a prebuilt archive
 
-First [configure the Maven plugin from Central](building-and-publishing.md#option-c-maven-plugin)
-in your application's POM, using the same release as your platform. It automates
-the training run with a dedicated goal:
+If your CI pipeline produces a prebuilt `.jsa` archive, you can attach it with
+`brewlet push --appcds-archive app.jsa` or Maven `-Dbrewlet.cdsArchive=target/app.jsa`:
 
-- **Maven plugin — `brewlet:appcds`:** stages a copy of the built JAR with a
-  canonical mtime (§4.4), then runs a training JVM with
-  `-XX:ArchiveClassesAtExit=<target>/brewlet/app.jsa` (dynamic CDS — one run, no
-  class-list file) using a JDK 21+ runtime (the AppCDS floor, §2.2). App-intrinsic
-  launch knobs (`enablePreview`, `addModules`, `addOpens`, `addExports`,
-  `systemProperties`) are replayed so the training flags match production. Extra
-  warmup arguments go through `-Dbrewlet.appcds.trainingArgs`, and
-  `-Dbrewlet.appcds.timeoutSeconds` bounds the run. Feed the result into
-  `brewlet:push`/`brewlet:build` with `-Dbrewlet.cdsArchive=target/brewlet/app.jsa`,
-  which attaches it as the CDS layer. Bind the goal to `pre-integration-test` when
-  the build already has a short startup/warmup path.
-
-  The training layout mirrors how the artifact is pushed, so the recorded archive
-  matches the shim's layout (verified: HotSpot validates each classpath/module-path
-  entry by basename+size+mtime, not absolute path, and expands `lib/*` in sorted
-  order — see §4.4):
-  - **fat JAR** (`entry.mode=jar`): `-jar <mainJar>`.
-  - **layered class-path** (`-Dbrewlet.layered=true`, non-modular): plain thin
-    JARs use resolved POM dependencies in `lib/` with
-    `-cp <mainJar>:lib/* <mainClass>`. Standard Boot executable JARs use a
-    prepared thin application JAR and their exact packaged libraries, with
-    explicit `classpath.idx`/archive order matching the published classpath.
-  - **JPMS module** (`-Dbrewlet.layered=true`, modular): dependencies staged into
-    `mods/`, trained with `-p <mainJar>:mods -m <module>[/<mainClass>]`, matching
-    `/app/mods`.
-
-  Run the goal with the **same** `layered`/module settings you push with; every
-  staged file (app JAR + deps) is mtime-pinned. The training JAR bytes must be
-  identical to the pushed JAR (same resolved artifact, no rebuild between `appcds`
-  and `push`).
-
-- **CLI (`brewlet push --appcds`):** turnkey for a **fat JAR** — runs a
-  self-terminating training JVM (`-XX:ArchiveClassesAtExit`) against a
-  canonical-mtime copy of the JAR, then ships the resulting archive exactly like
-  `--appcds-archive`. The training `java` is `--appcds-java` (a binary or a
-  `JAVA_HOME` dir), else `$JAVA_HOME/bin/java`, else `java` on `PATH`; drive
-  startup with repeatable `--appcds-arg` and bound the run with `--appcds-timeout`
-  (seconds). It is mutually exclusive with `--appcds-archive`, `--classpath-layer`,
-  and `--module-layer` — for layered class-path / JPMS module training use the
-  Maven `brewlet:appcds` goal (which stages `lib/`, `mods/`), or ship a prebuilt
-  archive with `--appcds-archive`.
-
-Emit clear guidance that the training run should exercise startup paths (Spring
-context refresh, etc.) for the archive to be worthwhile. Because the training JVM
-must exit cleanly for dynamic CDS to write the archive, the default `exit` mode
-requires a self-terminating app; for long-running servers, `brewlet:appcds
--Dbrewlet.appcds.mode=signal` starts the app, waits for a readiness signal
-(`readyLog` regex / `readyHttp` poll / `readyDelaySeconds`), then sends `SIGTERM`
-so the shutdown hook runs and the archive flushes (verified: a `SIGTERM`'d JVM with
-`-XX:ArchiveClassesAtExit` produces an archive that maps cleanly under
-`-Xshare:on`). Signal mode is Unix-oriented and needs the app to shut down
-gracefully on `SIGTERM`.
-
-Signal-mode readiness and settling share `timeoutSeconds`; the configured
-shutdown grace is a separate budget. Timeouts, readiness failures, and
-interruptions terminate and reap the training JVM with bounded cleanup and
-preserved interruption. Output-reader failures fail the attempt, but may be
-reported after an outstanding process wait finishes or times out.
-
-Non-dry-run training clears the configured archive before starting and removes
-partial output on failure. Keep any prebuilt archive that must survive a failed
-attempt at a separate path; stale output is not accepted as fresh training.
-Dry-run does not remove existing archives.
+- Stamp the staged JAR (and any staged `lib/` or `mods/` entries) with the
+  canonical mtime (`2000-01-01T00:00:00Z`, Unix second `946684800`; see §4.4)
+  before running the training JVM with `-XX:ArchiveClassesAtExit=app.jsa`.
+- Launch the training run from the staged directory using the same entry shape
+  (`-jar`, `-cp`, or `-p ... -m`) and app-intrinsic launch flags (`--enable-preview`,
+  `--add-modules`, `--add-opens`, `--add-exports`) that the published artifact
+  will run with.
+- Because the archive is bound to the exact JDK build and architecture (§2.1),
+  treat any shipped archive as best-effort seed data paired with `-Xshare:auto`
+  or node-side regeneration (§4.3).
 
 ### 4.3 Node-side regeneration (the durable answer for a patched fleet)
 
@@ -394,12 +340,7 @@ containerd-owned metadata rather than those annotations.
 
 ### 4.4 Deterministic JAR mtime — why a shipped archive maps on the node
 
-**This is the subtle piece that makes §4.1/§4.2 actually work** (guarded by an
-automated JDK integration test — `TestAppCDSTrainThenMapIntegration` in
-`core/internal/runtime/cds_train_integration_test.go`, runnable via
-`make appcds-verify`; it trains a real archive through the `push --appcds` code
-path, then asserts it maps under `-Xshare:on` from a *different* directory with the
-canonical mtime and is *refused* when the mtime drifts):
+**This is the subtle piece that makes §4.1/§4.2 actually work:**
 
 - CDS validates each classpath entry by **basename + file size + mtime** — *not* by
   the training directory. An archive trained at `/x/traindir/app.jar` maps
@@ -418,15 +359,15 @@ canonical mtime and is *refused* when the mtime drifts):
   machine's. Without intervention, every build-time archive would be silently
   rejected on the node.
 
-**Fix: normalize the JAR mtime to a canonical fixed value on both sides.** Both the
-training run and the node stamp the JAR (and any staged `lib/`/`mods/` entries) with
+**Fix: normalize the JAR mtime to a canonical fixed value on both sides.** Both a
+prebuilt archive's training run and the node stamp the JAR (and any staged `lib/`/`mods/` entries) with
 `2000-01-01T00:00:00Z` = Unix second **946684800** (ns=0). This is a shared
 invariant that must stay in lockstep:
 
 - Go: `runtime.CDSModTime = time.Unix(946684800, 0).UTC()`
   (`core/internal/runtime/cds_mtime.go`).
-- Java: `FileTime.from(Instant.ofEpochSecond(946684800L))`
-  (`AppCdsMojo.CANONICAL_APP_MTIME`).
+- Java: `Instant.ofEpochSecond(946684800L)`
+  (`PreparedApplication.CANONICAL_MTIME`).
 
 Normalization happens whenever the artifact ships a CDS archive **or** the
 deployment requests node-side regeneration, so the common no-CDS path remains

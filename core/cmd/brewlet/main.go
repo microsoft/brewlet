@@ -19,15 +19,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/microsoft/brewlet/internal/artifact"
 	"github.com/microsoft/brewlet/internal/kube"
-	"github.com/microsoft/brewlet/internal/progress"
 	"github.com/microsoft/brewlet/internal/runnablestage"
 	"github.com/microsoft/brewlet/internal/runtime"
 )
@@ -170,12 +167,7 @@ func cmdPush(args []string) error {
 	var mpLayers stringSlice
 	fs.Var(&mpLayers, "module-layer", "optional library-module tar for a modular (JPMS) app, unpacked to /app/mods (repeatable); see https://github.com/microsoft/brewlet/blob/main/docs/jpms-support.md")
 	cdsArchive := fs.String("appcds-archive", "", "optional prebuilt AppCDS archive (.jsa) to ship; mounted at /app/<name> and launched with -Xshare:auto -XX:SharedArchiveFile; see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md")
-	appcds := fs.Bool("appcds", false, "generate an AppCDS archive by running a self-terminating training JVM against the JAR, then ship it (turnkey equivalent of --appcds-archive); fat-JAR only. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.2")
-	appcdsJava := fs.String("appcds-java", "", "java executable (or JAVA_HOME dir) for --appcds training; defaults to $JAVA_HOME/bin/java, else java on PATH")
-	appcdsTimeout := fs.Int("appcds-timeout", 120, "seconds to wait for the --appcds training JVM to self-terminate")
 	format := fs.String("format", "image", "delivery format: \"image\" (default; a standard, kubelet-pullable runnable image for runtimeClassName: brewlet pods) or \"artifact\" (native artifact with custom media types for local OCI-layout / CLI / prepare-bundle workflows, not Kubernetes execution). Both use the current launch contract. See https://github.com/microsoft/brewlet/blob/main/docs/runnable-image.md")
-	var appcdsArgs stringSlice
-	fs.Var(&appcdsArgs, "appcds-arg", "workload argument passed to the --appcds training JVM to drive class loading (repeatable)")
 	pushResult := fs.String("push-result", "", "registry push only: write a push.json handoff ({image, digest, deployImage, format}) to this file")
 	var insecureRegistries, allowedTokenRealms stringSlice
 	fs.Var(&insecureRegistries, "insecure-registry", "registry push only: HOST[:PORT] reachable over plain HTTP (repeatable; loopback registries always are)")
@@ -257,7 +249,7 @@ func cmdPush(args []string) error {
 		if len(cpLayers) > 0 || len(mpLayers) > 0 {
 			return fmt.Errorf("--dependency-bundle is mutually exclusive with --classpath-layer and --module-layer")
 		}
-		if *appcds || *cdsArchive != "" {
+		if *cdsArchive != "" {
 			return fmt.Errorf("--dependency-bundle does not support AppCDS in the MVP")
 		}
 		if err := artifact.ValidateThinJar(jarPath); err != nil {
@@ -348,43 +340,6 @@ func cmdPush(args []string) error {
 		} else if len(scan.Unrecognized) > 0 {
 			fmt.Printf("  warning: %d bundled native library(ies) found but their architecture could not be inferred; publishing arch-neutral. Set --arch explicitly if this JAR is not portable (e.g. %s)\n", len(scan.Unrecognized), scan.Unrecognized[0])
 		}
-	}
-
-	// --appcds turnkey generation (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.2): run a self-terminating
-	// training JVM against the fat JAR to produce a .jsa, then treat it exactly
-	// like a prebuilt --appcds-archive below. Mutually exclusive with a prebuilt
-	// archive and with layered/module layers (fat-JAR only).
-	if *appcds {
-		if *cdsArchive != "" {
-			return fmt.Errorf("--appcds and --appcds-archive are mutually exclusive: --appcds generates the archive, --appcds-archive ships a prebuilt one")
-		}
-		if len(cpLayers) > 0 || len(mpLayers) > 0 {
-			return fmt.Errorf("--appcds supports fat-JAR only; drop --classpath-layer/--module-layer or use the Maven brewlet:appcds goal for layered/module training")
-		}
-		javaBin, err := resolveJavaBinary(*appcdsJava)
-		if err != nil {
-			return err
-		}
-		genDir, err := os.MkdirTemp("", "brewlet-appcds-out-")
-		if err != nil {
-			return err
-		}
-		defer os.RemoveAll(genDir)
-		archiveName := strings.TrimSuffix(filepath.Base(jarPath), ".jar") + ".jsa"
-		genArchive := filepath.Join(genDir, archiveName)
-		fmt.Printf("  training AppCDS archive with %s (timeout %ds)...\n", javaBin, *appcdsTimeout)
-		// The training JVM shares the terminal, so report plain heartbeat lines
-		// rather than redrawing a spinner over its output.
-		start := time.Now()
-		if err := progress.Plain(os.Stderr).Await("training AppCDS archive", nil, func() error {
-			return runtime.GenerateAppCDSArchive(cfg, jarPath, javaBin, genArchive, time.Duration(*appcdsTimeout)*time.Second, appcdsArgs)
-		}); err != nil {
-			return fmt.Errorf("--appcds: %w (after %s)", err, progress.FormatElapsed(time.Since(start)))
-		}
-		if info, err := os.Stat(genArchive); err == nil {
-			fmt.Printf("  trained AppCDS archive %s (%d KiB) in %s\n", archiveName, info.Size()/1024, progress.FormatElapsed(time.Since(start)))
-		}
-		*cdsArchive = genArchive
 	}
 
 	// Wire the optional AppCDS archive (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md). When --appcds-archive is
@@ -499,37 +454,6 @@ func splitArchFlag(v string) []string {
 		}
 	}
 	return out
-}
-
-// resolveJavaBinary picks the java executable for --appcds training. An explicit
-// hint may be either the java binary itself or a JAVA_HOME directory (in which
-// case bin/java is appended); it must exist. With no hint, $JAVA_HOME/bin/java is
-// used when JAVA_HOME is set, otherwise "java" is resolved on PATH.
-func resolveJavaBinary(hint string) (string, error) {
-	if hint = strings.TrimSpace(hint); hint != "" {
-		if fi, err := os.Stat(hint); err == nil && fi.IsDir() {
-			cand := filepath.Join(hint, "bin", "java")
-			if _, err := os.Stat(cand); err != nil {
-				return "", fmt.Errorf("--appcds-java %q: %w", hint, err)
-			}
-			return cand, nil
-		}
-		if _, err := os.Stat(hint); err != nil {
-			return "", fmt.Errorf("--appcds-java %q: %w", hint, err)
-		}
-		return hint, nil
-	}
-	if jh := strings.TrimSpace(os.Getenv("JAVA_HOME")); jh != "" {
-		cand := filepath.Join(jh, "bin", "java")
-		if _, err := os.Stat(cand); err == nil {
-			return cand, nil
-		}
-	}
-	p, err := exec.LookPath("java")
-	if err != nil {
-		return "", fmt.Errorf("--appcds: no java found (set --appcds-java or JAVA_HOME, or put java on PATH): %w", err)
-	}
-	return p, nil
 }
 
 func cmdInspect(args []string) error {

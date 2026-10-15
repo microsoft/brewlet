@@ -4,9 +4,11 @@
 package sh.brewlet.maven.plugin;
 
 import org.apache.maven.project.MavenProject;
+import sh.brewlet.maven.plugin.model.JvmConfig;
 
 import javax.tools.ToolProvider;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,31 +33,6 @@ final class TestApplications {
                         System.out.println(lib.Dependency.message() + ":" +
                             new String(resource.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
                     }
-                }
-            }
-            """;
-
-    static final String SERVER = """
-            public class TrainingServer {
-                public static void main(String[] args) throws Exception {
-                    java.nio.file.Files.writeString(java.nio.file.Path.of(args[0]),
-                        Long.toString(ProcessHandle.current().pid()));
-                    if (args.length > 1 && args[1].equals("slow-shutdown"))
-                        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                            try { Thread.sleep(60000); } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                            }
-                        }));
-                    if (args.length > 1 && args[1].equals("report-shutdown"))
-                        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                            System.out.println("SERVER STOPPING");
-                            System.err.println("SERVER STDERR STOPPING");
-                            System.out.print("SERVER STOPPED WITHOUT NEWLINE");
-                            System.out.flush();
-                        }));
-                    System.out.println("SERVER STARTED");
-                    System.out.flush();
-                    Thread.sleep(60000);
                 }
             }
             """;
@@ -148,9 +125,32 @@ final class TestApplications {
         throw new NoSuchFieldException(name);
     }
 
+    static List<String> launchSelector(JvmConfig cfg, String mainJar) {
+        var entry = cfg != null ? cfg.getEntry() : null;
+        String mode = entry != null && entry.getMode() != null ? entry.getMode() : "jar";
+        return switch (mode) {
+            case "classpath" -> {
+                String cp = entry.getClassPath() != null && !entry.getClassPath().isEmpty()
+                        ? String.join(File.pathSeparator, entry.getClassPath())
+                        : mainJar + File.pathSeparator + "lib/*";
+                yield List.of("-cp", cp, entry.getMainClass());
+            }
+            case "module" -> {
+                String mp = entry.getModulePath() != null && !entry.getModulePath().isEmpty()
+                        ? String.join(File.pathSeparator, entry.getModulePath())
+                        : mainJar;
+                String target = entry.getMainClass() != null && !entry.getMainClass().isEmpty()
+                        ? entry.getModule() + "/" + entry.getMainClass()
+                        : entry.getModule();
+                yield List.of("-p", mp, "-m", target);
+            }
+            default -> List.of("-jar", mainJar);
+        };
+    }
+
     static String java(Path directory, List<String> args) throws Exception {
         List<String> command = new ArrayList<>();
-        command.add(AppCdsMojo.javaBinary(new java.io.File(System.getProperty("java.home"))).toString());
+        command.add(Path.of(System.getProperty("java.home"), "bin", "java").toString());
         command.addAll(args);
         Path log = directory.resolve("jvm.log");
         Process process = new ProcessBuilder(command).directory(directory.toFile())

@@ -187,7 +187,7 @@ for the full option reference.
 For Boot JARs, `BOOT-INF/classpath.idx` defines library order when present and
 must name every packaged library exactly once; otherwise archive order is used.
 The generated classpath lists dependencies explicitly rather than relying on
-wildcard ordering. Build, push, inspect/config, and AppCDS share the same prepared
+wildcard ordering. Build, push, and inspect/config share the same prepared
 bytes, while the source JAR is left unchanged. See the
 [supported layouts and signature handling](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#layered-spring-boot-jars).
 
@@ -446,8 +446,7 @@ Goals: `brewlet:config` (generate the launch config), `brewlet:build` (assemble 
 local OCI layout), `brewlet:push` (publish to a registry),
 `brewlet:manifest` (generate development YAML for the current build),
 `brewlet:inspect` (dry-run preview), `brewlet:dependency-bundle` (publish shared
-runtime dependencies), `brewlet:help` (goal and parameter reference),
-and `brewlet:appcds` (generate an AppCDS startup archive — see [AppCDS](appcds.md)).
+runtime dependencies), and `brewlet:help` (goal and parameter reference).
 See the [plugin README](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md) for the full goal and
 parameter reference.
 

@@ -82,7 +82,7 @@ class ImpactTests(unittest.TestCase):
 
     def test_high_risk_and_dependency_paths_keep_pr_smoke_not_exhaustive_suites(self):
         for path in (
-            "core/internal/runtime/cds_train.go", "core/shim/stage_gc.go",
+            "core/internal/runtime/cds_mtime.go", "core/shim/stage_gc.go",
             "kubernetes/internal/controller/nodeprofile_controller.go",
             "core/cmd/brewlet-metrics-exporter/main.go", "core/pkg/attest/verify.go",
             "core/go.mod", "kubernetes/go.sum",

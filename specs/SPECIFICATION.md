@@ -348,7 +348,7 @@ thin application JAR from `BOOT-INF/classes/` and byte-identical nested
 `BOOT-INF/lib/*.jar` dependencies. `BOOT-INF/classpath.idx`, when present, must
 list each packaged library exactly once; otherwise ZIP library order applies.
 The emitted classpath preserves that order explicitly. Publication in either
-native or runnable format, config/inspect, and AppCDS training MUST use the same
+native or runnable format and config/inspect MUST use the same
 prepared payload and dependency bytes. The input archive remains unchanged.
 Verified signed containers yield a new unsigned application JAR; dependency
 signatures remain intact. Unsafe/ambiguous ZIP entries and unsupported
