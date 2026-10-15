@@ -318,20 +318,6 @@ Inspect both and coordinate any removal with their owners; do not blindly
 delete them. Neither is the CLI's **existing-CRD guard**. Their presence does
 not justify deletion, and their absence does not establish clean host state.
 
-### Retained AppCDS cache files
-
-Older releases could create AppCDS cache files under `/opt/brewlet/cds` or a
-custom `BREWLET_CDS_CACHE` path. Archive generation and cache maintenance are
-no longer supported. Uninstall does not remove those files or prove they are
-unused; review retained paths with their owners.
-
-Before manual reclamation, drain workloads, stop cache consumers and writers,
-pause provisioning automation, and finish host cleanup and worker teardown.
-Remove only individually verified unused paths belonging to the retired
-installation. Do not follow symlinks, purge the root, use wildcard deletion,
-delete live files, or discard recovery evidence. Unverifiable ownership or use
-requires investigation, not deletion.
-
 ### Retained runnable stage roots
 
 Uninstall does not remove runnable staging trees or prove their files unused.

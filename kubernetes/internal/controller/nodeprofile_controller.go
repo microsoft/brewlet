@@ -382,7 +382,7 @@ func (r *NodeProfileReconciler) patchNodeWithdrawal(ctx context.Context, base, n
 }
 
 func isNodeAdvertisementLabel(key string) bool {
-	return key == brewlet.LabelRuntimeReady || key == "brewlet.sh/appcds-regeneration" ||
+	return key == brewlet.LabelRuntimeReady ||
 		strings.HasPrefix(key, brewlet.LabelJDKPrefix) ||
 		strings.HasPrefix(key, brewlet.LabelJDKFeaturePrefix) ||
 		strings.HasPrefix(key, brewlet.LabelLauncherPrefix)

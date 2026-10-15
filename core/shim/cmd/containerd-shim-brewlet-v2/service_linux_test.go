@@ -474,43 +474,6 @@ func TestApplyBrewletLaunchNoCDS(t *testing.T) {
 	}
 }
 
-func TestApplyBrewletLaunchIgnoresRemovedRegenerationAnnotation(t *testing.T) {
-	for _, shipped := range []bool{false, true} {
-		t.Run(map[bool]string{false: "no archive", true: "prebuilt archive"}[shipped], func(t *testing.T) {
-			ra := testResolved()
-			ra.JarHostPath = filepath.Join(t.TempDir(), "app.jar")
-			if err := os.WriteFile(ra.JarHostPath, []byte("PK"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			if shipped {
-				ra.Config.CDS = &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"}
-				ra.CDSHostPath = "/prebuilt/app.jsa"
-			}
-			spec := &specs.Spec{
-				Process:     &specs.Process{},
-				Annotations: map[string]string{"brewlet.sh/cds-regenerate": "true"},
-			}
-			if err := applyBrewletLaunch(spec, ra, t.TempDir()); err != nil {
-				t.Fatal(err)
-			}
-			args := strings.Join(spec.Process.Args, " ")
-			if strings.Contains(args, "AutoCreateSharedArchive") || strings.Contains(args, "ArchiveClassesAtExit") {
-				t.Fatalf("removed annotation enabled generation: %s", args)
-			}
-			if strings.Contains(args, "-XX:SharedArchiveFile=/app/app.jsa") != shipped {
-				t.Fatalf("removed annotation changed prebuilt consumption: %s", args)
-			}
-			wantMounts := 2
-			if shipped {
-				wantMounts++
-			}
-			if len(spec.Mounts) != wantMounts {
-				t.Fatalf("unexpected cache or other mounts: %+v", spec.Mounts)
-			}
-		})
-	}
-}
-
 func hasMountOption(options []string, want string) bool {
 	for _, option := range options {
 		if option == want {

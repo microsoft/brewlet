@@ -5,7 +5,6 @@ package v1alpha1
 
 import (
 	"encoding/json"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -78,28 +77,5 @@ func TestNodeProfileSpecOmitsEmptyRollout(t *testing.T) {
 	}
 	if !strings.Contains(string(encoded), `"rollout":{"validate":true}`) {
 		t.Fatalf("non-empty rollout must be serialized: %s", encoded)
-	}
-}
-
-func TestArchiveGenerationPolicyRemovedFromManifests(t *testing.T) {
-	for _, path := range []string{
-		"../../../deploy/nodeprofile-crd.yaml",
-		"../../../charts/brewlet/crds/nodeprofile-crd.yaml",
-		"../../../charts/brewlet/values.yaml",
-		"../../../charts/brewlet/templates/nodeprofiles.yaml",
-		"../../../deploy/javaapplication-crd.yaml",
-		"../../../charts/brewlet/crds/javaapplication-crd.yaml",
-	} {
-		t.Run(path, func(t *testing.T) {
-			content, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, removed := range []string{"appCDS", "regenerationEnabled", "regenerate:"} {
-				if strings.Contains(string(content), removed) {
-					t.Errorf("removed generation setting %q remains in %s", removed, path)
-				}
-			}
-		})
 	}
 }

@@ -56,7 +56,7 @@ jobs:
             java: true
             cluster: true
             helm: true
-          - name: "Tier 08: Node-side AppCDS"
+          - name: "Tier 08: Prebuilt AppCDS consumption"
             tiers: --tier 8
             java: true
             cluster: true

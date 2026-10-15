@@ -25,7 +25,7 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-/** One application payload shared by config inference, publication, and CDS training. */
+/** One application payload shared by config inference and publication. */
 public record PreparedApplication(File jar, List<LayerBuilder.Dep> dependencies, boolean springBoot) {
     public static final FileTime CANONICAL_MTIME = FileTime.fromMillis(946684800000L);
     private static final String CLASSES = "BOOT-INF/classes/";

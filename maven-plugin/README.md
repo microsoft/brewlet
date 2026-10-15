@@ -551,7 +551,7 @@ the OCI referrer is the cryptographic evidence.
 
 ## Prebuilt AppCDS archives
 
-The plugin does not generate AppCDS archives. Attach an externally generated
+Attach an externally generated
 archive with `-Dbrewlet.cdsArchive=target/app.jsa` when running `brewlet:build`
 or `brewlet:push`. It must match the exact JDK build, architecture, prepared
 application bytes, classpath layout, and canonical timestamps. See

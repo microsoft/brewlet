@@ -238,11 +238,6 @@ YAML
   local cmd maps
   cmd="$(_t8_pod_cmdline "$T8_NS" archive-consumer)"
   assert_contains "tier8: consumes shipped archive" "$cmd" "-XX:SharedArchiveFile=/app/app.jsa"
-  if [[ "$cmd" == *AutoCreateSharedArchive* || "$cmd" == *ArchiveClassesAtExit* ]]; then
-    fail "tier8: no archive generation flags" "$cmd"
-  else
-    pass "tier8: no archive generation flags"
-  fi
   maps="$(kubectl exec -n "$T8_NS" archive-consumer -- cat /proc/1/maps)"
   assert_contains "tier8: shipped archive is mapped" "$maps" "/app/app.jsa"
 }

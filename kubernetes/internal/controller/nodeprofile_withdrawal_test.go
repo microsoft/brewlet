@@ -56,7 +56,6 @@ func withdrawalTestNode() *corev1.Node {
 				brewlet.LabelLauncherPrefix + "java":  "true",
 				"kubernetes.azure.com/agentpool":      "bwcaz",
 				brewlet.LabelJDKFeaturePrefix + "21":  "true",
-				"brewlet.sh/appcds-regeneration":      "true",
 			},
 			Annotations: map[string]string{
 				brewlet.AnnotationProfile: "bwcaz",
