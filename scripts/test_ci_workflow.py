@@ -133,8 +133,9 @@ class WorkflowTests(unittest.TestCase):
         for scenario in ("hpa.py", "admission.py", "workflows.py"):
             self.assertNotIn(scenario, WORKFLOW)
         nightly = (ROOT / ".github/workflows/e2e.yml").read_text()
-        for tier in (8, 15, 17, 18, 19):
+        for tier in (15, 17, 18, 19):
             self.assertIn(f"tiers: --tier {tier}\n", nightly)
+        self.assertNotRegex(nightly, r"--tier 8\b")
         self.assertIn('python3 "integration-tests/e2e/live/${SCENARIO}.py"', nightly)
         self.assertIn("python3 integration-tests/e2e/live/workflows.py", nightly)
         self.assertIn('cron: "30 6 * * *"', nightly)

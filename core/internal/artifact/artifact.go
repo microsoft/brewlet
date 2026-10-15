@@ -36,7 +36,7 @@ const (
 	// CDSLayerMediaType marks an optional layer carrying a single Application
 	// Class-Data Sharing archive (`.jsa`) that the shim bind-mounts read-only at
 	// /app/<archive>; launch then adds `-Xshare:auto -XX:SharedArchiveFile=…` to
-	// speed startup. It is best-effort seed data: a build/version/classpath
+	// speed startup. It is a best-effort accelerator: a build/version/classpath
 	// mismatch falls back to base CDS rather than failing. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	CDSLayerMediaType = "application/vnd.brewlet.cds.layer.v1+jsa"
 
@@ -122,7 +122,7 @@ type CDS struct {
 	// Mode records how the archive was produced ("dynamic" via
 	// -XX:ArchiveClassesAtExit, or "static" via -Xshare:dump). It is
 	// informational only — consumption is identical either way — and may be
-	// omitted. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §2.
+	// omitted. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	Mode string `json:"mode,omitempty"`
 }
 

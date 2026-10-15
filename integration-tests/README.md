@@ -43,12 +43,13 @@ for Maven unit coverage. The suite covers:
 | Tier | Scope | Primary components |
 |---:|---|---|
 | 1 | Go unit/component suites | core + Kubernetes |
-| 2 | CLI push, inspect, run, bundle, classpath, and JPMS; Maven plugin `config`, `inspect`, `build`, `appcds`, and `push` | core + maven-plugin + fixtures |
+| 2 | CLI push, inspect, run, bundle, prebuilt AppCDS consumption, classpath, and JPMS; Maven plugin `config`, `inspect`, `build`, and `push` | core + maven-plugin + fixtures |
 | 3 | shim to runc under Linux cgroups | core + fixtures |
 | 4 | operator control plane and Helm packaging | Kubernetes |
 | 5-6 | host and in-cluster admission webhooks | Kubernetes |
 | 7 | Spring PetClinic artifact, layered deployment, runc, reconcile | both + fixtures |
-| 8-9 | AppCDS lifecycle, cross-namespace cache isolation, and serving through kubelet/CRI | core + fixtures |
+| 8 | retired: AppCDS archive generation has been removed | — |
+| 9 | serving through kubelet/CRI | core + fixtures |
 | 10-11 | installed Helm stack and webhook resilience | Kubernetes |
 | 12 | runnable image pulled and unpacked by kubelet | core + fixtures |
 | 13 | NodeProfile lifecycle | Kubernetes |

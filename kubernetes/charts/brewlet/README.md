@@ -104,7 +104,6 @@ for upgrades; pass them again rather than substituting example defaults.
 | `provisioner.jdks` | `[]` (**required**) | Administrator-chosen JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` (§5.3). No built-in runtime catalog. |
 | `provisioner.launchers` | `[]` | Optional entries with `name`, digest-pinned `source.image`, and absolute `source.path` (§5.4). Empty = vanilla `java` only. |
 | `provisioner.registry.mirrors` | `{}` | Upstream host → approved mirror host/path map. Rewrites preserve the source digest. |
-| `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the default profile. |
 | `stageGC.enabled` | `true` | Automatically reclaim orphaned runnable-image stages on managed nodes, independently of metrics. |
 | `stageGC.interval` | `5m` | Time between sweeps, plus up to 10% jitter. |
 | `stageGC.minAge` | `24h` | Minimum stage directory age, not time since last use or loss of references. |
@@ -169,8 +168,6 @@ All JDK distributions use the structured inventory form:
 
 ```yaml
 provisioner:
-  appCDS:
-    regenerationEnabled: false
   jdks:
     - distribution: zulu
       feature: 21
@@ -212,31 +209,6 @@ The admission webhook, reconciler, and privileged provisioner all enforce the
 allowlist. Schemes, whitespace, duplicate/self mappings, and unapproved
 destinations fail closed. The mirror must preserve the original OCI
 manifest/index digest.
-
-AppCDS regeneration is denied by default. Enable it only on profiles whose
-nodes are authorized to maintain namespace-partitioned cache entries:
-
-```yaml
-defaultProfile:
-  enabled: false
-profiles:
-  - name: appcds-builders
-    pools: ["cdsbuilders"]
-    jdks:
-      - distribution: temurin
-        feature: 21
-        source:
-          image: docker.io/library/eclipse-temurin@sha256:<64-lowercase-hex>
-          javaHome: /opt/java/openjdk
-    appCDS:
-      regenerationEnabled: true
-```
-
-The provisioner creates the root-owned
-`/opt/brewlet/policy/appcds-regeneration-enabled` authorization sentinel and
-advertises `brewlet.sh/appcds-regeneration=true`. The webhook requires that
-label when `brewlet.sh/cds-regenerate: "true"` is requested; the shim's sentinel
-check remains authoritative.
 
 > **Release updates:** A fresh Helm install creates the chart's CRDs when absent.
 > Helm does not upgrade existing CRDs. Follow the
@@ -290,9 +262,8 @@ spec:
 Replace the workload digest with the one reported by your image publication.
 It is not a runnable example until you supply that digest.
 
-If no ready node provides a compatible JDK/launcher or authorizes requested
-AppCDS regeneration, the pod is rejected with `NoCompatibleJDK`,
-`NoCompatibleLauncher`, or `AppCDSRegenerationDisabled`, surfaced on the owning
+If no ready node or eligible profile provides a compatible JDK/launcher,
+the pod is rejected with `NoCompatibleJDK` or `NoCompatibleLauncher`, surfaced on the owning
 controller (§14). With no annotation, the pod is admitted (ref/digest still
 stamped) and the shim keeps its runtime compatibility check.
 
@@ -308,7 +279,7 @@ release values or maintaining the installed release.
 
 - `brewlet-node-metrics` discovers the exporter in every profile-managed
   provisioner pod and reports sandbox launch phases/outcomes, artifact resolution,
-  AppCDS decisions, and JDK/launcher inventory.
+  and JDK/launcher inventory.
 - `brewlet-operator-metrics` exposes controller-runtime metrics plus Brewlet
   NodeProfile readiness and provisioning transitions.
 - `brewlet-admission` exposes webhook metrics on its `metrics` Service port,

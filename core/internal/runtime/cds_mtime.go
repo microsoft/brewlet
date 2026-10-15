@@ -21,7 +21,7 @@ import (
 // entry's basename, file size, and last-modified time; if any differ from what
 // the training (dump) run recorded, the archive is rejected. Under Brewlet's
 // -Xshare:auto default that rejection is silent — the JVM just falls back to base
-// CDS and the app-archive win evaporates (verified; see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §2.1).
+// CDS and the app-archive win evaporates (see https://github.com/microsoft/brewlet/blob/main/docs/appcds.md).
 //
 // The node runs the exact same JAR bytes shipped in the artifact (same basename,
 // same size), so the ONLY axis that would otherwise drift is the on-disk mtime:
@@ -29,11 +29,11 @@ import (
 // pull time — never the build machine's training time. The path/directory does
 // NOT matter to CDS (verified: an archive trained at one absolute path maps when
 // consumed at another), so pinning the mtime to a shared canonical value on both
-// the training side (the Maven plugin / CLI) and the node side (here) is
+// externally prepared archive inputs and the node side (here) is
 // sufficient and necessary for a build-time archive to actually map.
 //
 // Value: 2000-01-01T00:00:00Z (Unix 946684800, nanoseconds zero). The Maven
-// plugin stamps the identical value on the JAR it trains against; keep the two in
+// plugin stamps the identical value on its prepared application payload; keep the two in
 // sync. Stamping happens ONLY when CDS is present, so the common no-CDS path is
 // byte-for-byte unchanged.
 var CDSModTime = time.Unix(946684800, 0).UTC()

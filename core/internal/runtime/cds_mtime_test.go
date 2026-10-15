@@ -108,7 +108,7 @@ func TestAssembleSandboxWithCDSPinsJarModTime(t *testing.T) {
 		Entry:   artifact.Entry{Mode: "classpath", MainClass: "com.acme.Main", ClassPath: []string{"app.jar", "lib/*"}},
 		CDS:     &artifact.CDS{Archive: "app.jsa", Mode: "dynamic"},
 	}
-	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, []string{libTar}, nil, jsaSrc, false)
+	sandbox, jarPath, err := AssembleSandboxWithCDS(cfg, jarSrc, []string{libTar}, nil, jsaSrc)
 	if err != nil {
 		t.Fatalf("AssembleSandboxWithCDS: %v", err)
 	}

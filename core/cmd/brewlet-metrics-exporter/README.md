@@ -2,7 +2,7 @@
 
 The node-local exporter receives bounded, best-effort telemetry from the
 containerd shim over `/opt/brewlet/metrics/telemetry.sock` and exposes
-Prometheus metrics for sandbox launches, artifact resolution, AppCDS decisions,
+Prometheus metrics for sandbox launches, artifact resolution,
 installed JDK and launcher inventory, and runnable-image staging usage.
 
 `brewlet_runnable_stage_bytes` reports logical regular-file bytes under

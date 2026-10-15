@@ -4,6 +4,7 @@
 package sh.brewlet.maven.plugin;
 
 import org.apache.maven.project.MavenProject;
+import sh.brewlet.maven.plugin.model.JvmConfig;
 
 import javax.tools.ToolProvider;
 import java.io.ByteArrayOutputStream;
@@ -148,9 +149,26 @@ final class TestApplications {
         throw new NoSuchFieldException(name);
     }
 
+    static List<String> launchArgs(JvmConfig config, String mainJar) {
+        var entry = config.getEntry();
+        return switch (entry.getMode()) {
+            case "jar" -> List.of("-jar", mainJar);
+            case "classpath" -> List.of("-cp",
+                    entry.getClassPath() == null || entry.getClassPath().isEmpty()
+                            ? mainJar : String.join(":", entry.getClassPath()), entry.getMainClass());
+            case "module" -> List.of("-p",
+                    entry.getModulePath() == null || entry.getModulePath().isEmpty()
+                            ? mainJar : String.join(":", entry.getModulePath()),
+                    "-m", entry.getModule() + (entry.getMainClass() == null ? "" : "/" + entry.getMainClass()));
+            default -> throw new IllegalArgumentException("Unexpected entry mode: " + entry.getMode());
+        };
+    }
+
     static String java(Path directory, List<String> args) throws Exception {
         List<String> command = new ArrayList<>();
-        command.add(AppCdsMojo.javaBinary(new java.io.File(System.getProperty("java.home"))).toString());
+        String executable = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+                ? "java.exe" : "java";
+        command.add(Path.of(System.getProperty("java.home"), "bin", executable).toString());
         command.addAll(args);
         Path log = directory.resolve("jvm.log");
         Process process = new ProcessBuilder(command).directory(directory.toFile())

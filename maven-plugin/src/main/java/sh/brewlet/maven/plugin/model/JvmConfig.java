@@ -273,7 +273,7 @@ public class JvmConfig {
      * {@code .jsa} archive as a CDS layer, the shim mounts it read-only at
      * {@code /app/<archive>}, and launch adds
      * {@code -Xshare:auto -XX:SharedArchiveFile=/app/<archive>} to cut class-load
-     * time. It is best-effort seed data: archives are bound to the exact JDK build
+     * time. It is a best-effort accelerator: archives are bound to the exact JDK build
      * and classpath layout, and {@code -Xshare:auto} falls back to base CDS on
      * mismatch. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
      */

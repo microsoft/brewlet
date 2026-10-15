@@ -5,13 +5,13 @@
 # Tier 9 — a brewlet workload behind a Service, proven to SERVE REAL TRAFFIC under
 # REAL cgroup limits, through kubelet/CRI on a provisioned node.
 #
-# This is the coverage tiers 4–8 leave open: nothing else runs a brewlet workload
+# This is the coverage tiers 4–7 leave open: nothing else runs a brewlet workload
 # behind a Deployment + Service and (a) curls it for a 200, (b) proves Brewlet's
 # central promise — the cgroup-aware JVM whose availableProcessors / maxMemory are
 # driven by spec.resources.limits (not the node's host capacity) — end to end
 # through kubelet, or (c) exercises scaling + rolling updates of brewlet pods.
 #
-# Like tier8, it provisions a real brewlet node by hand (shim + full-userland JDK
+# It provisions a real brewlet node by hand (shim + full-userland JDK
 # root + containerd `brewlet` runtime), imports the demo runnable image into the
 # node content store, and uses that digest-pinned image directly in the Pod. The
 # shim derives the same target from containerd before replacing the image rootfs
@@ -22,7 +22,7 @@
 # identity hints + affinity) are covered by tiers 4–7; this tier closes the
 # "does the image-bound workload actually run and serve?" gap.
 #
-# Unlike tier8, it uses a Deployment + Service (not a raw pod), curls the Service
+# It uses a Deployment + Service (not a raw pod), curls the Service
 # from an in-cluster client, and asserts the JVM's cgroup-aware view + scaling +
 # rolling update behaviour.
 #
@@ -54,7 +54,7 @@ _t9_cleanup() {
     annotate_node "$n" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
   done
   # The node's shim binary / JDK root / config.toml patch are left in place: they
-  # are cheap, idempotent, and reused on a re-run (as in tier8).
+  # are cheap, idempotent, and reused on a re-run.
 }
 
 # _t9_node_arch NODE -> prints go-style arch (amd64|arm64) for the node.

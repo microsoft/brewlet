@@ -290,47 +290,6 @@ func TestMutatePod_ReadyMatchHasNoWarning(t *testing.T) {
 	}
 }
 
-func TestMutatePod_AppCDSRegenerationPolicy(t *testing.T) {
-	authorized := readyFleet()
-	authorized[0].AppCDSRegeneration = true
-	pod := brewletPod("demo/hello:1", map[string]string{
-		brewlet.AnnotationRequestedJDK:  "temurin-21",
-		brewlet.AnnotationCDSRegenerate: "TrUe",
-	})
-	res := MutatePod(pod, authorized, nil)
-	if res.DenyReason != "" {
-		t.Fatalf("unexpected denial: %+v", res)
-	}
-	reqs := requirementsFromPod(t, pod)
-	found := false
-	for _, req := range reqs {
-		if req.Key == brewlet.LabelAppCDSRegeneration && req.Operator == corev1.NodeSelectorOpExists {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("regeneration policy affinity missing from %+v", reqs)
-	}
-
-	deniedPod := brewletPod("demo/hello:1", map[string]string{
-		brewlet.AnnotationRequestedJDK:  "temurin-21",
-		brewlet.AnnotationCDSRegenerate: "true",
-	})
-	if denied := MutatePod(deniedPod, readyFleet(), nil); denied.DenyReason != brewlet.ReasonAppCDSRegenerationDisabled {
-		t.Fatalf("expected AppCDS policy denial, got %+v", denied)
-	}
-}
-
-func TestMutatePod_AppCDSRegenerationTrimsValue(t *testing.T) {
-	pod := brewletPod("demo/hello:1", map[string]string{
-		brewlet.AnnotationCDSRegenerate: " true ",
-	})
-	res := MutatePod(pod, readyFleet(), nil)
-	if res.DenyReason != brewlet.ReasonAppCDSRegenerationDisabled {
-		t.Fatalf("whitespace-padded true must request regeneration: result=%+v", res)
-	}
-}
-
 func TestRefDigest(t *testing.T) {
 	cases := map[string]string{
 		"repo/x:1":                        "",
