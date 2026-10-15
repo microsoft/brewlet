@@ -135,7 +135,6 @@ spec:
   jvm:
     version: 21
     distribution: temurin
-    launcher: jaz
     args: ["-XX:MaxRAMPercentage=75.0", "-XX:OnOutOfMemoryError=kill -9 %p"]
   ports:
     - name: http
@@ -161,14 +160,11 @@ YAML
       "$(kubectl get deploy orders -n "$T4_NS_APP" -o jsonpath='{.spec.template.spec.runtimeClassName}')" "brewlet"
     assert_eq "controller: Deployment is owned by the JavaApplication" \
       "$(kubectl get deploy orders -n "$T4_NS_APP" -o jsonpath='{.metadata.ownerReferences[0].kind}')" "JavaApplication"
-    # spec.jvm.distribution + launcher fold into the pod-template annotations the
-    # webhook/shim consume: "<dist>-<feature>" and the launcher name.
+    # spec.jvm.distribution folds into the "<dist>-<feature>" pod annotation.
     assert_eq "controller: jvm.distribution+version fold into brewlet.sh/jdk annotation" \
       "$(kubectl get deploy orders -n "$T4_NS_APP" -o jsonpath='{.spec.template.metadata.annotations.brewlet\.sh/jdk}')" "temurin-21"
-    assert_eq "controller: jvm.launcher folds into brewlet.sh/launcher annotation" \
-      "$(kubectl get deploy orders -n "$T4_NS_APP" -o jsonpath='{.spec.template.metadata.annotations.brewlet\.sh/launcher}')" "jaz"
     # spec.jvm.args are delivered as argv via a JSON-array annotation (§4.2/§8.2),
-    # not JDK_JAVA_OPTIONS: the launcher PREPENDS that env var, which would let an
+    # not JDK_JAVA_OPTIONS: `java` PREPENDS that env var, which would let an
     # app-embedded flag beat the platform team's. The array form also keeps an
     # argument containing spaces in one piece.
     assert_eq "controller: jvm.args fold into the brewlet.sh/jvm-args JSON array" \

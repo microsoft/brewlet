@@ -14,7 +14,7 @@ accepted and implemented.
   that it is deferred as a separate architecture. See
   [proposal 0006](specs/proposals/0006-sandbox-isolation-tiers.md).
 - **Per-sandbox and JVM runtime metrics.** Brewlet already exports launch-phase
-  latency and outcomes, artifact-resolution behavior, and installed JDK/launcher inventory (see SPECIFICATION §12). Still
+  latency and outcomes, artifact-resolution behavior, and installed JDK inventory (see SPECIFICATION §12). Still
   to come: per-sandbox resource usage and in-JVM runtime metrics from the node
   runtime.
 - **Reference-counted JDK root collection.** Rotated-out roots are already
@@ -66,7 +66,7 @@ accepted and implemented.
   VM-isolated sandbox, at the cost of centralized JDK patching. See
   [proposal 0007](specs/proposals/0007-baked-golden-image-delivery.md).
 - **Language-agnostic runtime images (Brewlet 2.0).** Replace the JDK and
-  launcher inventory with administrator-approved, digest-pinned runtime images
+  JDK inventory with administrator-approved, digest-pinned runtime images
   selected by pods through an ID-only `brewlet.sh/runtime-image` annotation, and
   generalize the application artifact to code and dependency layers under `/app`
   plus a language-neutral launch layer. Java-specific features would leave the

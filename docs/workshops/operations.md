@@ -87,8 +87,8 @@ helm template brewlet oci://ghcr.io/microsoft/charts/brewlet \
 ```
 
 Both the pool name and JDK sources are required: leave `provisioner.pools` or
-`provisioner.jdks` empty and rendering fails. Brewlet has no built-in JDK or
-launcher catalog; vanilla `java` comes from your chosen JDK. Set
+`provisioner.jdks` empty and rendering fails. Brewlet has no built-in JDK
+catalog; `java` comes from your chosen JDK. Set
 `provisioner.poolKey` for a custom node-pool label on bare metal or kubeadm.
 Control-plane nodes are excluded by default regardless of taints; only for a
 single-node development cluster, add `--set provisioner.includeControlPlane=true`
@@ -146,8 +146,7 @@ Inspect the advertised runtime inventory:
 kubectl get nodes -o custom-columns=\
 NAME:.metadata.name,\
 STATE:.metadata.annotations.brewlet\\.sh/provision-state,\
-JDKS:.metadata.annotations.brewlet\\.sh/jdks,\
-LAUNCHERS:.metadata.annotations.brewlet\\.sh/launchers
+JDKS:.metadata.annotations.brewlet\\.sh/jdks
 ```
 
 If a node does not become ready:
@@ -189,7 +188,6 @@ Continue with [Part 2: Build and deploy a workload](developers.md).
 ## 7. Optional platform exercises
 
 - Configure named `NodeProfile`s for different node pools or JDK inventories.
-- Add the `jaz` launcher.
 - Mirror component and JDK images into an internal registry.
 - Run `./integration-tests/e2e/run.sh --tier 13` on a disposable test cluster to
   exercise the complete `NodeProfile` lifecycle.

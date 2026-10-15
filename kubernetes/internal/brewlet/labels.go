@@ -41,9 +41,6 @@ const (
 	// affinity — the per-capability labels do (see LabelJDKPrefix). A root whose
 	// java binary cannot be run is omitted.
 	AnnotationJDKsInfo = "brewlet.sh/jdks-info"
-	// AnnotationLaunchers advertises the installed launcher layers, similarly
-	// comma-separated, e.g. "java,jaz".
-	AnnotationLaunchers = "brewlet.sh/launchers"
 
 	// AnnotationProvisionState reflects the operator's view of a node's
 	// provisioning lifecycle: "Provisioning", "Ready", or "Failed". It is the
@@ -165,10 +162,6 @@ const (
 	// scheduling via nodeAffinity. When unset, no JDK constraint is imposed and
 	// the shim surfaces NoCompatibleJDK at runtime as before.
 	AnnotationRequestedJDK = "brewlet.sh/jdk"
-	// AnnotationRequestedLauncher optionally declares the launcher a pod needs
-	// (e.g. "jaz"). Empty or "java" means the vanilla OpenJDK launcher, which
-	// every ready node provides.
-	AnnotationRequestedLauncher = "brewlet.sh/launcher"
 	// AnnotationRequestedArch optionally declares the architecture(s) a NON-portable
 	// artifact needs (those bundling JNI natives / arch-specific deps), as a
 	// comma-separated list of GOARCH / kubernetes.io/arch tokens (e.g. "amd64"
@@ -182,14 +175,14 @@ const (
 	// AnnotationJVMArgs carries the deployment descriptor's JVM tuning args onto
 	// the pod as a **JSON array of strings** (set by the operator from
 	// spec.jvm.args, or by the user on a raw Deployment). The shim decodes it and
-	// appends the args to the launcher argv immediately before the entrypoint, so
+	// appends the args to the Java argv immediately before the entrypoint, so
 	// deployment tuning is applied AFTER the artifact's own launch knobs and wins
 	// on conflict (§4.2).
 	//
 	// A JSON array rather than a whitespace-joined string is deliberate: argv
 	// delivery preserves argument boundaries, so a flag whose value contains a
 	// space (e.g. -XX:OnOutOfMemoryError="kill -9 %p") survives intact. Brewlet
-	// does NOT also set JDK_JAVA_OPTIONS/JAVA_TOOL_OPTIONS — the launcher
+	// does NOT also set JDK_JAVA_OPTIONS/JAVA_TOOL_OPTIONS — Java
 	// PREPENDS those, which would invert the documented precedence, and setting
 	// both would double-apply every arg.
 	AnnotationJVMArgs = "brewlet.sh/jvm-args"
@@ -206,10 +199,6 @@ const (
 	// node that has some JDK of that feature version, for distribution-agnostic
 	// requests.
 	LabelJDKFeaturePrefix = "brewlet.sh/jdk-feature."
-	// LabelLauncherPrefix + "<name>" (e.g. brewlet.sh/launcher.jaz) marks a node
-	// that has that launcher layer installed.
-	LabelLauncherPrefix = "brewlet.sh/launcher."
-
 	// StartupTaintKey is the optional node-pool startup taint for autoscalers
 	// that build scale-from-zero templates only from node-pool labels (for
 	// example the AKS-managed Cluster Autoscaler). Such a pool may pre-declare
@@ -224,10 +213,6 @@ const (
 	// AnnotationRequestedArch constraint.
 	LabelArch = "kubernetes.io/arch"
 )
-
-// VanillaLauncher is the implicit OpenJDK launcher name; it needs no launcher
-// layer and is available on every ready node.
-const VanillaLauncher = "java"
 
 // Provisioning-state values written to AnnotationProvisionState.
 const (
@@ -263,9 +248,6 @@ const (
 	// ReasonNoCompatibleJDK — a brewlet pod requested a JDK no ready node or
 	// eligible NodeProfile provides; the admission webhook denies it (§14).
 	ReasonNoCompatibleJDK = "NoCompatibleJDK"
-	// ReasonNoCompatibleLauncher — a brewlet pod requested a launcher no ready
-	// node or eligible NodeProfile provides; the admission webhook denies it (§14).
-	ReasonNoCompatibleLauncher = "NoCompatibleLauncher"
 	// ReasonNoCompatibleArch — retained for telemetry/back-compat. Admission no
 	// longer emits it: an unavailable architecture is admitted with a warning
 	// and steered by kubernetes.io/arch affinity (§14).

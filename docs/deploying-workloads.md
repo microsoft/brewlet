@@ -104,18 +104,17 @@ spec:
 
 ---
 
-## Requesting a specific JDK or launcher
+## Requesting a specific JDK
 
-For raw Kubernetes workloads, request the JDK/launcher with pod annotations. The
+For raw Kubernetes workloads, request the JDK with pod annotations. The
 admission webhook validates them against the ready fleet and valid NodeProfiles, injects `nodeAffinity`,
-and the shim reads the propagated JDK/launcher annotations at launch while still
+and the shim reads the propagated JDK annotations at launch while still
 resolving the workload image digest from containerd metadata. A bare
 `brewlet.sh/jdk: "21"` accepts any distribution of that feature; the shim picks
 the lexicographically first active, compatible inventory name on the selected
 node. If the annotation is absent, the shim defaults to feature 21 and uses the
 same selection rule. Pin a name such as `"temurin-21"` or `"temurin-canary-21"`
 when the choice matters (see [JDK selection](#jdk-selection)).
-Omit `brewlet.sh/launcher` for vanilla `java`.
 
 ```yaml
 apiVersion: apps/v1
@@ -126,7 +125,6 @@ spec:
     metadata:
       annotations:
         brewlet.sh/jdk: "21"          # bare feature (any distro) or "temurin-21"
-        brewlet.sh/launcher: "jaz"    # optional; omit/"java" = vanilla launcher
     spec:
       runtimeClassName: brewlet
       containers:
@@ -138,14 +136,13 @@ spec:
 | Annotation | Values | Effect |
 |---|---|---|
 | `brewlet.sh/jdk` | `21` (any distro of that feature) or `temurin-21` (exact) | Validated against ready nodes and NodeProfiles; injects `nodeAffinity`. If none compatible → pod rejected with `NoCompatibleJDK`; if only a NodeProfile provides it (pool at zero) → admitted with a warning and stays `Pending` until scale-up. |
-| `brewlet.sh/launcher` | `jaz`, or empty/`java` | Same, but for launchers → `NoCompatibleLauncher`. |
 | `brewlet.sh/arch` | `amd64`, or `amd64,arm64` | Optional; only for **non-portable JARs** bundling JNI natives. Injects `kubernetes.io/arch` nodeAffinity; if no ready node of a required arch exists → admitted with a warning and stays `Pending` until one is provisioned. Omit for arch-neutral bytecode. |
 | `brewlet.sh/artifact-container` | container name | Selects which regular container's `image` the webhook mirrors into Pod-wide compatibility hints. The webhook normalizes this value to the selected container name; other tasks ignore the shared hints and resolve their own CRI image independently. |
 
 If you set **no** annotation, the pod is admitted (the webhook still overwrites
 its compatibility hints) and the shim performs its own runtime identity and JDK
 compatibility checks. See
-[Launchers](launchers.md) and [Troubleshooting](troubleshooting.md).
+[Troubleshooting](troubleshooting.md).
 
 ---
 
@@ -279,7 +276,6 @@ spec:
   jvm:
     version: 21                  # JDK feature version
     distribution: temurin        # selects the node's temurin-21 inventory entry
-    launcher: java               # vanilla OpenJDK (default); or "jaz"
     args:                        # YOUR tuning — Brewlet injects none
       - "-XX:MaxRAMPercentage=75.0"
       - "-XX:+UseZGC"
@@ -311,8 +307,7 @@ spec:
 | `resources` | Requests → scheduling/HPA; limits → sandbox cgroup ceilings ([Resource requests, limits & JVM tuning](resource-tuning.md)). |
 | `jvm.version` | JDK feature version to run on (e.g. `21`); must match a node-installed JDK. |
 | `jvm.distribution` | Optional administrator-defined inventory name (`temurin`, `microsoft`, `temurin-canary`). With `jvm.version` selects an exact `<distribution>-<feature>` entry; omit to choose the lexicographically first active, compatible entry of that feature on each node. See [JDK selection](#jdk-selection). |
-| `jvm.launcher` | `java` (default) or `jaz` ([Launchers](launchers.md)). |
-| `jvm.args` | Your JVM tuning flags, delivered as argv via the `brewlet.sh/jvm-args` pod annotation and applied after the artifact's own launch knobs (so they win on conflict). May not select the entrypoint (`-jar`, `-cp`, `-p`, `-m`, `@argfile`). Omit under `jaz`. |
+| `jvm.args` | Your JVM tuning flags, delivered as argv via the `brewlet.sh/jvm-args` pod annotation and applied after the artifact's own launch knobs (so they win on conflict). May not select the entrypoint (`-jar`, `-cp`, `-p`, `-m`, `@argfile`). |
 | `arch` | Optional architecture constraint (`amd64`, `arm64`). Only for **non-portable JARs** bundling JNI native libraries; steers scheduling to matching-arch nodes; with no ready node of that arch, the pod is admitted with a warning and stays `Pending`. Omit for arch-neutral bytecode (runs on any arch). |
 | `env` / `ports` / `service` / `probes` | Wired through to the generated objects. |
 
@@ -393,7 +388,7 @@ contract. For Spring Boot Actuator, enable the health endpoints shown above.
 Without a readiness probe, Kubernetes does not wait for application-specific
 readiness.
 
-Set `spec.jvm.version`, optional `spec.jvm.distribution`, and `spec.jvm.launcher`
+Set `spec.jvm.version`, optional `spec.jvm.distribution`
 in the deployment manifest to request a compatible node runtime. Maven's
 `brewlet.jdkFeature` checks managed-dependency compatibility and supplies the
 runtime feature in the optional development manifest. It never changes an
@@ -480,6 +475,5 @@ Brewlet workloads and ordinary containers in the same namespace and cluster.
 ## Next steps
 
 - **[Resource requests, limits & JVM tuning](resource-tuning.md)** — get heap/GC/CPU right.
-- **[Launchers](launchers.md)** — `java` vs `jaz`.
 - **[Observability & day‑2](observability.md)** — logs, metrics, probes, upgrades.
 - **[Troubleshooting](troubleshooting.md)** — when a pod won't schedule/start.

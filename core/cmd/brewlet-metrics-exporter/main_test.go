@@ -19,14 +19,8 @@ func TestInventoryCollector(t *testing.T) {
 	if err := os.MkdirAll(jdk, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, launcher := range []string{"jaz", "stale"} {
-		if err := os.MkdirAll(filepath.Join(root, "launchers", launcher), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
 	files := map[string]string{
 		filepath.Join(root, "jdks", ".brewlet-active"):                     "temurin-21\n",
-		filepath.Join(root, "launchers", ".brewlet-active"):                "jaz\n",
 		filepath.Join(root, "jdks", "temurin-21", ".brewlet-java-home"):    "/opt/java/openjdk\n",
 		filepath.Join(root, "jdks", "temurin-21", ".brewlet-source"):       "docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b\n/opt/java/openjdk\n",
 		filepath.Join(root, "jdks", "temurin-21", ".brewlet-installed-at"): "2026-08-31T12:00:00Z\n",
@@ -47,10 +41,6 @@ brewlet_jdk_info{arch="aarch64",distribution="temurin",feature="21",source="dock
 # HELP brewlet_jdk_installed_timestamp_seconds Unix timestamp when this JDK root was installed on the node; this is not the upstream patch release date.
 # TYPE brewlet_jdk_installed_timestamp_seconds gauge
 brewlet_jdk_installed_timestamp_seconds{distribution="temurin",feature="21",version="21.0.8"} 1.7881776e+09
-# HELP brewlet_launcher_info JVM launchers installed and active on this Brewlet node.
-# TYPE brewlet_launcher_info gauge
-brewlet_launcher_info{launcher="jaz"} 1
-brewlet_launcher_info{launcher="java"} 1
 `
 	if err := testutil.GatherAndCompare(reg, strings.NewReader(expected)); err != nil {
 		t.Fatal(err)

@@ -4,7 +4,7 @@ Brewlet maps Kubernetes resource requests and limits to the workload and lets th
 **container-aware JVM** react — it injects **no** `-XX` flags of its own. This page
 explains their distinct effects and how to tune the JVM correctly.
 
-Related: [Launchers](launchers.md) · [Deploying workloads](deploying-workloads.md).
+Related: [Deploying workloads](deploying-workloads.md).
 
 ---
 
@@ -41,13 +41,10 @@ You can see this for real in integration-test tier 3. Its Linux/runc harness pin
 
 ## Who tunes the JVM
 
-**Brewlet never injects tuning flags.** Tuning is either yours or your launcher's:
-
-- **Vanilla `java`** → *you* tune heap/GC/agents/container flags via descriptor
-  `jvm.args`. The artifact carries only app-intrinsic correctness knobs such as
-  preview features, module access, and system properties.
-- **`jaz`** → the launcher derives sensible ergonomics (heap/GC/CPU) from the cgroup
-  limits, so you usually pass no tuning flags. See [Launchers](launchers.md).
+**Brewlet never injects tuning flags.** The selected JDK's `java` binary
+executes the application directly. Set heap, GC, agents, and other runtime
+tuning via descriptor `jvm.args`. The artifact carries only app-intrinsic
+correctness knobs such as preview features, module access, and system properties.
 
 Precedence for the vanilla path: artifact structured launch knobs
 (`--enable-preview`, `--add-modules`, `--add-opens`, `--add-exports`, sorted
@@ -120,20 +117,12 @@ jvm:
 ```yaml
 jvm:
   version: 21
-  launcher: java
   args:
     - "-XX:MaxRAMPercentage=75.0"
     - "-XX:+UseZGC"
     - "-XX:+ExitOnOutOfMemoryError"
 ```
 
-Or hand it all to `jaz` and pass nothing:
-
-```yaml
-jvm:
-  version: 21
-  launcher: jaz
-```
 
 ---
 
@@ -186,7 +175,7 @@ See [SPECIFICATION §13](https://github.com/microsoft/brewlet/blob/main/specs/SP
 - [ ] Set resource **requests** for schedulability and capacity planning.
 - [ ] Set resource **limits** for deterministic JVM sizing and cgroup ceilings.
 - [ ] Vanilla `java`: set `-XX:MaxRAMPercentage` (reserve non-heap headroom) and
-      `-XX:+ExitOnOutOfMemoryError`; pick a GC. **Or** use `jaz` and set nothing.
+      `-XX:+ExitOnOutOfMemoryError`; pick a GC.
 - [ ] Don't expect Brewlet to add flags — it doesn't.
 - [ ] Remember the `RuntimeClass` `overhead.podFixed` accounts for baseline JVM
       overhead in scheduling/quotas ([Configuration](configuration.md#runtimeclass)).

@@ -107,7 +107,6 @@ func TestAssembleBrewletBundleUsesResolvedImageWithoutHints(t *testing.T) {
 	mkJDK(t, jdkRoots, "temurin-21")
 	t.Setenv("BREWLET_CONTENT_ROOT", contentRoot)
 	t.Setenv("BREWLET_JDK_ROOTS", jdkRoots)
-	t.Setenv("BREWLET_LAUNCHER_ROOTS", t.TempDir())
 	t.Setenv("BREWLET_RUNNABLE_STAGE", t.TempDir())
 
 	for _, tc := range []struct {
@@ -224,7 +223,6 @@ func TestAssembleBrewletBundleRejectsNativeArtifact(t *testing.T) {
 	mkJDK(t, jdkRoots, "temurin-21")
 	t.Setenv("BREWLET_CONTENT_ROOT", contentRoot)
 	t.Setenv("BREWLET_JDK_ROOTS", jdkRoots)
-	t.Setenv("BREWLET_LAUNCHER_ROOTS", t.TempDir())
 
 	bundle := t.TempDir()
 	writeSpecJSON(t, bundle, specs.Spec{
@@ -273,31 +271,14 @@ func TestSetupOverlayRootfs(t *testing.T) {
 	}
 }
 
-func TestSetupOverlayRootfsLauncherLower(t *testing.T) {
-	bundle := t.TempDir()
-	r := &taskAPI.CreateTaskRequest{ID: "task-2", Bundle: bundle}
-	ra := testResolved()
-	ra.LauncherName = "jaz"
-	ra.LauncherRoot = "/opt/brewlet/launchers/jaz"
-
-	if err := setupOverlayRootfs(r, ra); err != nil {
-		t.Fatal(err)
-	}
-	opts := strings.Join(r.Rootfs[0].Options, ",")
-	// launcher layer must be higher priority (listed before the JDK) in lowerdir.
-	if !strings.Contains(opts, "lowerdir=/opt/brewlet/launchers/jaz:/opt/brewlet/jdks/temurin-21") {
-		t.Errorf("launcher not layered above JDK: %q", opts)
-	}
-}
-
 func TestApplyBrewletLaunch(t *testing.T) {
 	spec := &specs.Spec{Process: &specs.Process{Env: []string{"POD_VAR=keepme", "JAVA_HOME=/wrong"}}}
 	if err := applyBrewletLaunch(spec, testResolved(), t.TempDir()); err != nil {
 		t.Fatalf("applyBrewletLaunch: %v", err)
 	}
 
-	if got := spec.Process.Args[0]; got != "java" {
-		t.Errorf("args[0] = %q, want java", got)
+	if got := spec.Process.Args[0]; got != "/opt/jdk/bin/java" {
+		t.Errorf("args[0] = %q, want /opt/jdk/bin/java", got)
 	}
 	if spec.Process.Args[len(spec.Process.Args)-1] != "/app/app.jar" {
 		t.Errorf("last arg = %q, want /app/app.jar", spec.Process.Args[len(spec.Process.Args)-1])

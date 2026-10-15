@@ -11,53 +11,6 @@ import (
 	"text/tabwriter"
 )
 
-type launcherInventory struct {
-	Name  string   `json:"name"`
-	Nodes []string `json:"nodes"`
-}
-
-func (c *client) launchers() error {
-	nodes, err := c.list("nodes", c.nodeArgs()...)
-	if err != nil {
-		return err
-	}
-	byName := map[string][]string{}
-	for _, node := range nodes {
-		seen := map[string]bool{}
-		for _, name := range strings.Split(node.Metadata.Annotations["brewlet.sh/launchers"], ",") {
-			name = strings.TrimSpace(name)
-			if name != "" && !seen[name] {
-				byName[name] = append(byName[name], node.Metadata.Name)
-				seen[name] = true
-			}
-		}
-	}
-	rows := []launcherInventory{}
-	for name, nodes := range byName {
-		sort.Strings(nodes)
-		rows = append(rows, launcherInventory{Name: name, Nodes: nodes})
-	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
-	if c.opts.output == "json" {
-		return encode(c.out, rows, "json")
-	}
-	w := tabwriter.NewWriter(c.out, 0, 4, 2, ' ', 0)
-	if c.opts.output == "wide" {
-		fmt.Fprintln(w, "LAUNCHER\tNODE")
-		for _, row := range rows {
-			for _, node := range row.Nodes {
-				fmt.Fprintf(w, "%s\t%s\n", row.Name, node)
-			}
-		}
-	} else {
-		fmt.Fprintln(w, "LAUNCHER\tNODES")
-		for _, row := range rows {
-			fmt.Fprintf(w, "%s\t%d\n", row.Name, len(row.Nodes))
-		}
-	}
-	return w.Flush()
-}
-
 type profileSummary struct {
 	Name               string          `json:"name"`
 	UID                string          `json:"uid"`
@@ -102,31 +55,27 @@ func (c *client) profiles() error {
 
 func (c *client) profileTable(rows []profileSummary) error {
 	w := tabwriter.NewWriter(c.out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "PROFILE\tPOOLS\tDESIRED JDKS\tDESIRED LAUNCHERS\tREADY\tNODES\tPENDING RETIREMENTS\tREASON")
+	fmt.Fprintln(w, "PROFILE\tPOOLS\tDESIRED JDKS\tREADY\tNODES\tPENDING RETIREMENTS\tREASON")
 	for _, row := range rows {
 		var spec struct {
 			NodePool struct {
 				Names []string `json:"names"`
 			} `json:"nodePool"`
-			JDKs      []jdkSource      `json:"jdks"`
-			Launchers []launcherSource `json:"launchers"`
+			JDKs []jdkSource `json:"jdks"`
 		}
 		if err := json.Unmarshal(row.Spec, &spec); err != nil {
 			return fmt.Errorf("decode profile %s spec: %w", row.Name, err)
 		}
-		jdks, launchers := []string{}, []string{}
+		jdks := []string{}
 		for _, jdk := range spec.JDKs {
 			jdks = append(jdks, fmt.Sprintf("%s-%d", jdk.Distribution, jdk.Feature))
-		}
-		for _, launcher := range spec.Launchers {
-			launchers = append(launchers, launcher.Name)
 		}
 		pools := strings.Join(spec.NodePool.Names, ",")
 		if pools == "" {
 			pools = "(all eligible nodes)"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%t\t%d/%d\t%d\t%s\n",
-			row.Name, pools, strings.Join(jdks, ","), strings.Join(launchers, ","),
+		fmt.Fprintf(w, "%s\t%s\t%s\t%t\t%d/%d\t%d\t%s\n",
+			row.Name, pools, strings.Join(jdks, ","),
 			row.Ready, row.ReadyNodes, row.AssignedNodes, row.PendingRetirements, row.Reason)
 	}
 	return w.Flush()
@@ -143,7 +92,6 @@ type nodeSummary struct {
 	Error             string `json:"error,omitempty"`
 	Message           string `json:"message,omitempty"`
 	JDKs              string `json:"advertisedJdks,omitempty"`
-	Launchers         string `json:"advertisedLaunchers,omitempty"`
 }
 
 func summarizeNodes(objects []object, profileUID string) ([]nodeSummary, error) {
@@ -176,7 +124,7 @@ func summarizeNodes(objects []object, profileUID string) ([]nodeSummary, error) 
 			RuntimeReady:      labels["brewlet.sh/runtime"] == "ready", NodeReady: nodeReady,
 			Unschedulable: spec.Unschedulable, ProvisionState: labels["brewlet.sh/provision-state"],
 			Error: ann["brewlet.sh/provision-error"], Message: ann["brewlet.sh/provision-error-message"],
-			JDKs: ann["brewlet.sh/jdks"], Launchers: ann["brewlet.sh/launchers"],
+			JDKs: ann["brewlet.sh/jdks"],
 		})
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
@@ -406,7 +354,6 @@ type podSummary struct {
 	Restarts   int      `json:"restarts"`
 	Problems   []string `json:"problems"`
 	JDKRequest string   `json:"jdkRequest,omitempty"`
-	Launcher   string   `json:"launcher,omitempty"`
 }
 
 type eventSummary struct {
@@ -423,7 +370,6 @@ type appReport struct {
 	Reason      string              `json:"reason"`
 	Image       string              `json:"image"`
 	JDKRequest  string              `json:"jdkRequest"`
-	Launcher    string              `json:"launcher"`
 	Arch        []string            `json:"arch,omitempty"`
 	Conditions  []condition         `json:"conditions"`
 	Deployments []deploymentSummary `json:"deployments"`
@@ -447,7 +393,6 @@ func (c *client) inspectApp(name string) error {
 		JVM struct {
 			Version      int    `json:"version"`
 			Distribution string `json:"distribution"`
-			Launcher     string `json:"launcher"`
 		} `json:"jvm"`
 		Arch []string `json:"arch"`
 	}
@@ -457,11 +402,8 @@ func (c *client) inspectApp(name string) error {
 	ready, reason := readyCondition(app)
 	report := appReport{
 		Name: name, Namespace: app.Metadata.Namespace, Ready: ready, Reason: reason,
-		Image: spec.Artifact.Image, Launcher: spec.JVM.Launcher, Arch: spec.Arch,
+		Image: spec.Artifact.Image, Arch: spec.Arch,
 		Conditions: app.Status.Conditions, Deployments: []deploymentSummary{}, Pods: []podSummary{}, Events: []eventSummary{},
-	}
-	if report.Launcher == "" {
-		report.Launcher = "java"
 	}
 	if spec.JVM.Version > 0 {
 		report.JDKRequest = fmt.Sprint(spec.JVM.Version)

@@ -33,6 +33,18 @@ microsoft_ref="mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d15924525
 zulu_digest="${zulu_ref##*@sha256:}"
 microsoft_digest="${microsoft_ref##*@sha256:}"
 
+(
+  JDK_TOKENS=(temurin-21 microsoft-25)
+  j=caller-value
+  installed=()
+  inventory_written=false
+  install_jdk() { installed+=("$1"); }
+  write_active_jdk_inventory() { inventory_written=true; }
+  install_runtime_sources
+  [[ "$j" == caller-value ]] || { echo "runtime installation leaked its loop variable" >&2; exit 1; }
+  [[ "${installed[*]}" == "temurin-21 microsoft-25" && "$inventory_written" == true ]]
+)
+
 host_ctr() {
   printf '%s\n' "$*" >>"$calls"
 }
@@ -46,11 +58,9 @@ export JDK_SOURCE_COUNT=1
 export JDK_SOURCE_0_TOKEN=zulu-21
 export JDK_SOURCE_0_IMAGE="$zulu_ref"
 export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-export LAUNCHER_SOURCE_COUNT=0
 
 parse_runtime_sources
 [[ "$JDKS" == "zulu-21" ]]
-[[ -z "$LAUNCHERS" ]]
 jdk_from_image zulu 21 "$dest"
 
 grep -Fq "image pull $zulu_ref" "$calls"
@@ -66,7 +76,6 @@ resolved="$(
   export JDK_SOURCE_0_TOKEN=temurin-21
   export JDK_SOURCE_0_IMAGE="$temurin_ref"
   export JDK_SOURCE_0_JAVA_HOME=/opt/java/openjdk
-  export LAUNCHER_SOURCE_COUNT=0
   parse_runtime_sources
   resolve_jdk_source temurin 21
   printf '%s\t%s' "$JDK_SOURCE_IMAGE" "$JDK_SOURCE_JAVA_HOME"
@@ -78,7 +87,6 @@ if (
   export JDK_SOURCE_0_TOKEN=temurin-21
   export JDK_SOURCE_0_IMAGE="$temurin_ref"
   export JDK_SOURCE_0_JAVA_HOME=/opt/java/openjdk
-  export LAUNCHER_SOURCE_COUNT=0
   parse_runtime_sources
   resolve_jdk_source unknown 21
 ) >/dev/null 2>&1; then
@@ -91,27 +99,11 @@ resolved="$(
   export JDK_SOURCE_0_TOKEN=microsoft-25
   export JDK_SOURCE_0_IMAGE="$microsoft_ref"
   export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/msopenjdk-25
-  export LAUNCHER_SOURCE_COUNT=0
   parse_runtime_sources
   resolve_jdk_source microsoft 25
   printf '%s\t%s' "$JDK_SOURCE_IMAGE" "$JDK_SOURCE_JAVA_HOME"
 )"
 [[ "$resolved" == "$microsoft_ref"$'\t'"/usr/lib/jvm/msopenjdk-25" ]]
-
-resolved="$(
-  export JDK_SOURCE_COUNT=1
-  export JDK_SOURCE_0_TOKEN=zulu-21
-  export JDK_SOURCE_0_IMAGE="$zulu_ref"
-  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=1
-  export LAUNCHER_SOURCE_0_NAME=jaz
-  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
-  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
-  parse_runtime_sources
-  resolve_launcher_source jaz
-  printf '%s\t%s\t%s\t%s' "$JDKS" "$LAUNCHERS" "$LAUNCHER_SOURCE_IMAGE" "$LAUNCHER_SOURCE_PATH"
-)"
-[[ "$resolved" == "zulu-21"$'\t'"jaz"$'\t'"$microsoft_ref"$'\t'"/usr/bin/jaz" ]]
 
 (
   export JDK_SOURCE_COUNT=2
@@ -121,19 +113,13 @@ resolved="$(
   export JDK_SOURCE_1_TOKEN=microsoft-25
   export JDK_SOURCE_1_IMAGE="$microsoft_ref"
   export JDK_SOURCE_1_JAVA_HOME=/usr/lib/jvm/msopenjdk-25
-  export LAUNCHER_SOURCE_COUNT=1
-  export LAUNCHER_SOURCE_0_NAME=jaz
-  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
-  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
   parse_runtime_sources
   preflight_sources
   [[ "$JDKS" == "temurin-21,microsoft-25" ]]
-  [[ "$LAUNCHERS" == "jaz" ]]
 ) >/dev/null
 
 if (
   export JDK_SOURCE_COUNT=0
-  export LAUNCHER_SOURCE_COUNT=0
   parse_runtime_sources
 ) >/dev/null 2>&1; then
   echo "expected an empty JDK source inventory to fail" >&2
@@ -145,7 +131,6 @@ if (
   export JDK_SOURCE_0_TOKEN=zulu-21
   export JDK_SOURCE_0_IMAGE=docker.io/library/azul-zulu:21
   export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=0
   parse_runtime_sources
 ) >/dev/null 2>&1; then
   echo "expected a tagged JDK image reference to fail" >&2
@@ -157,7 +142,6 @@ if (
   export JDK_SOURCE_0_TOKEN=zulu-21
   export JDK_SOURCE_0_IMAGE="$zulu_ref"
   export JDK_SOURCE_0_JAVA_HOME=/
-  export LAUNCHER_SOURCE_COUNT=0
   parse_runtime_sources
 ) >/dev/null 2>&1; then
   echo "expected javaHome=/ to fail" >&2
@@ -169,7 +153,6 @@ if (
   export JDK_SOURCE_0_TOKEN=../../../host-21
   export JDK_SOURCE_0_IMAGE="$zulu_ref"
   export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=0
   parse_runtime_sources
 ) >/dev/null 2>&1; then
   echo "expected a path-traversing JDK token to fail" >&2
@@ -178,51 +161,6 @@ fi
 
 validation_root="$(mktemp -d "$TEST_TMP_ROOT/validation.XXXXXX")"
 chmod -R u+w "$validation_root" 2>/dev/null || true
-
-if (
-  export JDK_SOURCE_COUNT=1
-  export JDK_SOURCE_0_TOKEN=zulu-21
-  export JDK_SOURCE_0_IMAGE="$zulu_ref"
-  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=1
-  export LAUNCHER_SOURCE_0_NAME=java
-  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
-  export LAUNCHER_SOURCE_0_PATH=/usr/bin/java
-  parse_runtime_sources
-) >/dev/null 2>&1; then
-  echo "expected reserved launcher name java to fail" >&2
-  exit 1
-fi
-
-if (
-  export JDK_SOURCE_COUNT=1
-  export JDK_SOURCE_0_TOKEN=zulu-21
-  export JDK_SOURCE_0_IMAGE="$zulu_ref"
-  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=1
-  export LAUNCHER_SOURCE_0_NAME=jaz
-  export LAUNCHER_SOURCE_0_IMAGE=mcr.microsoft.com/openjdk/jdk:25
-  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
-  parse_runtime_sources
-) >/dev/null 2>&1; then
-  echo "expected a tagged launcher image reference to fail" >&2
-  exit 1
-fi
-
-if (
-  export JDK_SOURCE_COUNT=1
-  export JDK_SOURCE_0_TOKEN=zulu-21
-  export JDK_SOURCE_0_IMAGE="$zulu_ref"
-  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=1
-  export LAUNCHER_SOURCE_0_NAME=jaz
-  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
-  export LAUNCHER_SOURCE_0_PATH=/usr/../jaz
-  parse_runtime_sources
-) >/dev/null 2>&1; then
-  echo "expected an unclean launcher path to fail" >&2
-  exit 1
-fi
 
 rewritten="$(
   SOURCE_ALLOWED_MIRROR_HOSTS=registry.internal
@@ -270,7 +208,6 @@ printf '%s\n%s\n' \
   export JDK_SOURCE_0_TOKEN=zulu-21
   export JDK_SOURCE_0_IMAGE="$zulu_ref"
   export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=0
   parse_runtime_sources
   jdk_root_complete() {
     printf 'jdk-root-complete\n' >>"$calls"
@@ -285,95 +222,9 @@ printf '%s\n%s\n' \
 grep -Fxq "jdk-root-complete" "$calls"
 
 if grep -Fq -- "--net-host" "$repo_root/provisioner/entrypoint.sh"; then
-  echo "launcher installation must not execute the source image with host networking" >&2
+  echo "runtime installation must not execute the source image with host networking" >&2
   exit 1
 fi
-
-: >"$calls"
-(
-  PREFIX="$dest"
-  export JDK_SOURCE_COUNT=1
-  export JDK_SOURCE_0_TOKEN=zulu-21
-  export JDK_SOURCE_0_IMAGE="$zulu_ref"
-  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=1
-  export LAUNCHER_SOURCE_0_NAME=jaz
-  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
-  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
-  parse_runtime_sources
-  install_launcher jaz
-)
-grep -Fq "image pull $microsoft_ref" "$calls"
-grep -Fq "images mount $microsoft_ref $dest/.image-mount-launcher-jaz-$microsoft_digest" "$calls"
-grep -Fq "test -f $dest/.image-mount-launcher-jaz-$microsoft_digest/usr/bin/jaz" "$calls"
-grep -Fq "test -L $dest/.image-mount-launcher-jaz-$microsoft_digest/usr" "$calls"
-grep -Fq "test -L $dest/.image-mount-launcher-jaz-$microsoft_digest/usr/bin/jaz" "$calls"
-grep -Fq "install -m 0755 $dest/.image-mount-launcher-jaz-$microsoft_digest/usr/bin/jaz $dest/launchers/jaz.staging." "$calls"
-grep -Fq "images unmount --rm $dest/.image-mount-launcher-jaz-$microsoft_digest" "$calls"
-grep -Fxq "$microsoft_ref" "$dest/launchers/jaz/.brewlet-source"
-
-if (
-  PREFIX="$dest/symlink-launcher"
-  export JDK_SOURCE_COUNT=1
-  export JDK_SOURCE_0_TOKEN=zulu-21
-  export JDK_SOURCE_0_IMAGE="$zulu_ref"
-  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=1
-  export LAUNCHER_SOURCE_0_NAME=jaz
-  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
-  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
-  parse_runtime_sources
-  host_exec() {
-    printf '%s\n' "$*" >>"$calls"
-    if [[ "$*" == "test -L $PREFIX/.image-mount-launcher-jaz-$microsoft_digest/usr/bin/jaz" ]]; then
-      return 0
-    fi
-    [[ "${1:-} ${2:-}" != "test -L" ]]
-  }
-  install_launcher jaz
-) >/dev/null 2>&1; then
-  echo "expected a symlink launcher source to fail closed" >&2
-  exit 1
-fi
-
-if (
-  PREFIX="$dest/symlink-launcher-ancestor"
-  export JDK_SOURCE_COUNT=1
-  export JDK_SOURCE_0_TOKEN=zulu-21
-  export JDK_SOURCE_0_IMAGE="$zulu_ref"
-  export JDK_SOURCE_0_JAVA_HOME=/usr/lib/jvm/zulu21
-  export LAUNCHER_SOURCE_COUNT=1
-  export LAUNCHER_SOURCE_0_NAME=jaz
-  export LAUNCHER_SOURCE_0_IMAGE="$microsoft_ref"
-  export LAUNCHER_SOURCE_0_PATH=/usr/bin/jaz
-  parse_runtime_sources
-  host_exec() {
-    printf '%s\n' "$*" >>"$calls"
-    if [[ "$*" == "test -L $PREFIX/.image-mount-launcher-jaz-$microsoft_digest/usr" ]]; then
-      return 0
-    fi
-    [[ "${1:-} ${2:-}" != "test -L" ]]
-  }
-  install_launcher jaz
-) >/dev/null 2>&1; then
-  echo "expected a symlinked launcher source ancestor to fail closed" >&2
-  exit 1
-fi
-
-active_prefix="$dest/active-inventory"
-mkdir -p "$active_prefix/launchers/stale"
-(
-  PREFIX="$active_prefix"
-  LAUNCHERS="jaz,custom"
-  write_active_launcher_inventory
-)
-printf 'jaz\ncustom\n' | cmp -s - "$active_prefix/launchers/.brewlet-active"
-(
-  PREFIX="$active_prefix"
-  LAUNCHERS=""
-  write_active_launcher_inventory
-)
-[[ ! -s "$active_prefix/launchers/.brewlet-active" ]]
 
 : >"$calls"
 stale_mount="$dest/.image-mount-stale"
@@ -442,7 +293,6 @@ if (
   export JDK_SOURCE_0_TOKEN=temurin-21
   export JDK_SOURCE_0_IMAGE="$temurin_ref"
   export JDK_SOURCE_0_JAVA_HOME=/opt/java/openjdk
-  export LAUNCHER_SOURCE_COUNT=0
   BREWLET_MODE=provision
   NODE_NAME=test-node
   mock_writer_authority
@@ -495,106 +345,20 @@ if [[ "$(cat "$calls")" != "$expected_order" ]]; then
   exit 1
 fi
 
-mkdir -p "$validation_root/launchers/jaz/bin"
-cat >"$validation_root/launchers/jaz/bin/jaz" <<'EOF'
-#!/usr/bin/env bash
-[[ "${JAZ_PRINT_VERSION:-}" == "1" ]]
-[[ "${JAZ_EXIT_WITHOUT_FLUSH:-}" == "1" ]]
-printf 'jaz-probed\n' >>"$LAUNCHER_PROBE_CALLS"
-EOF
-chmod 0755 "$validation_root/launchers/jaz/bin/jaz"
-
 (
   PREFIX="$validation_root"
   JDKS=temurin-21
-  LAUNCHERS=jaz
-  BREWLET_VALIDATE=true
-  LAUNCHER_PROBE_CALLS="$calls"
-  export LAUNCHER_PROBE_CALLS
-  jdk_root_complete() { return 0; }
-  validate_runtime
-)
-if grep -Fxq "jaz-probed" "$calls"; then
-  echo "launcher validation must not execute administrator-provided binaries" >&2
-  exit 1
-fi
-
-assert_launcher_validation_fails() {
-  local expected="$1"
-  local output
-  if output="$(
-    (
-      PREFIX="$validation_root"
-      JDKS=temurin-21
-      LAUNCHERS=jaz
-      BREWLET_VALIDATE=true
-      BREWLET_MODE=cleanup
-      jdk_root_complete() { return 0; }
-      validate_runtime
-    ) 2>&1
-  )"; then
-    echo "expected launcher validation to fail with ${expected}" >&2
-    exit 1
-  fi
-  grep -Fq "ERROR: ${expected}" <<<"$output"
-}
-
-rm -f "$validation_root/launchers/jaz/bin/jaz"
-assert_launcher_validation_fails "launcher-jaz-missing"
-
-printf '#!/usr/bin/env bash\nexit 0\n' >"$validation_root/launchers/jaz/bin/jaz"
-chmod 0644 "$validation_root/launchers/jaz/bin/jaz"
-assert_launcher_validation_fails "launcher-jaz-not-executable"
-
-printf '#!/usr/bin/env bash\nexit 7\n' >"$validation_root/launchers/jaz/bin/jaz"
-chmod 0755 "$validation_root/launchers/jaz/bin/jaz"
-(
-  PREFIX="$validation_root"
-  JDKS=temurin-21
-  LAUNCHERS=jaz
   BREWLET_VALIDATE=true
   jdk_root_complete() { return 0; }
   validate_runtime
 )
-
 (
   PREFIX="$validation_root"
   JDKS=temurin-21
-  LAUNCHERS=jaz
   BREWLET_VALIDATE=false
   jdk_root_complete() { return 1; }
   validate_runtime
 )
-
-long_launcher="launcher-name-that-is-deliberately-longer-than-forty-eight-characters"
-bounded_launcher="${long_launcher:0:39}"
-if output="$(
-  (
-    PREFIX="$validation_root"
-    JDKS=temurin-21
-    LAUNCHERS="$long_launcher"
-    BREWLET_VALIDATE=true
-    BREWLET_MODE=cleanup
-    jdk_root_complete() { return 0; }
-    validate_runtime
-  ) 2>&1
-)"; then
-  echo "expected a missing long-named launcher to fail validation" >&2
-  exit 1
-fi
-# The REASON CODE is bounded even for an absurd launcher name; the human message
-# may still name it in full, which is exactly why they are separate annotations.
-grep -Fq "ERROR: launcher-${bounded_launcher}-missing" <<<"$output"
-bounded_code="$(normalize_reason_code "launcher-${bounded_launcher}-missing")"
-[[ "$bounded_code" == "launcher-${bounded_launcher}-missing" ]]
-(( ${#bounded_code} <= 63 ))
-# Truncation must never eat the semantic suffix.
-[[ "$bounded_code" == *-missing ]]
-[[ "$(normalize_reason_code "launcher-${bounded_launcher}-not-executable")" == *-not-executable ]]
-if grep -Fq "ERROR: launcher-${long_launcher}-missing" <<<"$output"; then
-  echo "launcher validation reason code was not bounded" >&2
-  exit 1
-fi
 
 new_containerd_test_dir() {
   local dir version="${1:-2}"
@@ -1171,7 +935,7 @@ fi
 [[ "$(normalize_reason_code "  ")" == "internal-error" ]]
 [[ "$(normalize_reason_code "")" == "internal-error" ]]
 [[ "$(normalize_reason_code "--weird--")" == "weird" ]]
-[[ "$(normalize_reason_code "launcher-jaz-missing")" == "launcher-jaz-missing" ]]
+[[ "$(normalize_reason_code "jdk-validation-failed")" == "jdk-validation-failed" ]]
 long_code="$(normalize_reason_code "$(printf 'a%.0s' {1..200})")"
 (( ${#long_code} == 63 ))
 
@@ -1213,7 +977,6 @@ assert_contains "brewlet.sh/appcds-regeneration-" "$node_calls"
   mock_writer_authority
   PREFIX="$policy_root"
   JDKS="temurin-21,microsoft-25"
-  LAUNCHERS="jaz"
 
   jdk_home_in_root() { printf '/opt/java/openjdk'; }
   jdk_root_complete() { return 0; }
@@ -1229,7 +992,7 @@ assert_contains "brewlet.sh/appcds-regeneration-" "$node_calls"
 )
 grep -Fxq 'brewlet.sh/jdks=temurin-21,microsoft-25' "$node_calls"
 grep -Fxq 'brewlet.sh/jdks-info=[{"distribution":"temurin","vendor":"Adoptium","feature":21,"version":"21.0.5","arch":"amd64"},{"distribution":"microsoft","vendor":"Microsoft","feature":25,"version":"25.0.1","arch":"amd64"}]' "$node_calls"
-for capability in jdk.temurin-21 jdk.microsoft-25 jdk-feature.21 jdk-feature.25 launcher.java launcher.jaz; do
+for capability in jdk.temurin-21 jdk.microsoft-25 jdk-feature.21 jdk-feature.25; do
   grep -Fxq "brewlet.sh/$capability=true" "$node_calls"
 done
 grep -Fxq 'brewlet.sh/runtime=ready' "$node_calls"
@@ -1349,7 +1112,7 @@ rm -rf "$rollback_dir"
 # them -- otherwise it would break a running sandbox.
 # ---------------------------------------------------------------------------
 reclaim_root="$(mktemp -d "$TEST_TMP_ROOT/reclaim.XXXXXX")"
-mkdir -p "$reclaim_root/jdks" "$reclaim_root/launchers"
+mkdir -p "$reclaim_root/jdks"
 
 new_retired() {
   local path="$1"
@@ -1448,8 +1211,6 @@ unknown="$(new_retired "$reclaim_root/jdks/temurin-21.retired.400.4")"
 [[ -e "$unknown" ]] || { echo "unreadable mount table must fail safe and retain the root" >&2; exit 1; }
 rm -rf "$unknown"
 
-# Launcher roots use the same rotation scheme.
-launcher_gone="$(new_retired "$reclaim_root/launchers/jaz.retired.100.5")"
 # A staging directory only exists mid-install, so one left behind is orphaned.
 staging="$(new_retired "$reclaim_root/jdks/temurin-21.staging.999")"
 set_container_mounts
@@ -1459,18 +1220,17 @@ set_container_mounts
   RETIRED_GRACE_SECONDS=0
   reclaim_retired_roots
 )
-[[ ! -e "$launcher_gone" ]] || { echo "retired launcher root should have been reclaimed" >&2; exit 1; }
 [[ ! -e "$staging" ]] || { echo "orphaned staging directory should have been removed" >&2; exit 1; }
 
 # Cleanup mode removes the whole runtime inventory, and honours the opt-out for
 # nodes whose roots are baked into an immutable image.
 cleanup_roots="$(mktemp -d "$TEST_TMP_ROOT/cleanuproots.XXXXXX")"
-mkdir -p "$cleanup_roots/jdks/temurin-21" "$cleanup_roots/launchers/jaz"
+mkdir -p "$cleanup_roots/jdks/temurin-21"
 (
   PREFIX="$cleanup_roots"
   remove_runtime_roots
 )
-[[ ! -e "$cleanup_roots/jdks" && ! -e "$cleanup_roots/launchers" ]] \
+[[ ! -e "$cleanup_roots/jdks" ]] \
   || { echo "cleanup should remove installed runtime roots" >&2; exit 1; }
 
 mkdir -p "$cleanup_roots/jdks/temurin-21"
@@ -1488,50 +1248,6 @@ mkdir -p "$cleanup_roots/jdks/temurin-21"
 )
 [[ -e "$cleanup_roots/jdks/temurin-21" ]] \
   || { echo "BREWLET_CLEANUP_RUNTIME_ROOTS=false must retain runtime roots" >&2; exit 1; }
-
-# --- launcher readiness requires an executable REGULAR file (§5.2) ----------
-# -e also accepts a directory and -x on a directory only means "searchable", so
-# a staged launcher that is a directory used to pass validation and fail later at
-# exec time, on the first workload instead of at provisioning.
-launcher_check_root="$(mktemp -d "$TEST_TMP_ROOT/launcher-check.XXXXXX")"
-mkdir -p "$launcher_check_root/launchers/dirlauncher/bin/dirlauncher"
-if output="$(
-  (
-    PREFIX="$launcher_check_root"
-    BREWLET_MODE=cleanup
-    validate_launcher dirlauncher
-  ) 2>&1
-)"; then
-  echo "expected a directory-shaped launcher to fail validation" >&2
-  exit 1
-fi
-grep -Fq "ERROR: launcher-dirlauncher-not-executable" <<<"$output"
-grep -Fq "is not a regular file" <<<"$output"
-
-# A real, executable regular file still passes.
-mkdir -p "$launcher_check_root/launchers/goodlauncher/bin"
-printf '#!/bin/sh\n' >"$launcher_check_root/launchers/goodlauncher/bin/goodlauncher"
-chmod +x "$launcher_check_root/launchers/goodlauncher/bin/goodlauncher"
-(
-  PREFIX="$launcher_check_root"
-  validate_launcher goodlauncher
-) >/dev/null
-
-# A present but non-executable regular file still reports not-executable.
-mkdir -p "$launcher_check_root/launchers/nox/bin"
-printf '#!/bin/sh\n' >"$launcher_check_root/launchers/nox/bin/nox"
-chmod -x "$launcher_check_root/launchers/nox/bin/nox"
-if output="$(
-  (
-    PREFIX="$launcher_check_root"
-    BREWLET_MODE=cleanup
-    validate_launcher nox
-  ) 2>&1
-)"; then
-  echo "expected a non-executable launcher to fail validation" >&2
-  exit 1
-fi
-grep -Fq "is not executable" <<<"$output"
 
 # --- cgroup driver detection is TOML-section aware -------------------------
 # A file-wide grep would inherit SystemdCgroup from an unrelated handler and make

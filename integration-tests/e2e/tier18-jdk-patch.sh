@@ -14,8 +14,8 @@
 #   6. once nothing uses it, the retired root is reclaimed.
 #
 # Before the rollout, an induced post-restart handler failure must roll the
-# real containerd config back. The profile also installs a digest-pinned `jaz`
-# launcher layer, and the workload runs through it across the JDK rotation.
+# real containerd config back. The workload uses the selected JDK directly
+# across the JDK rotation.
 #
 # Prereqs: kubectl + reachable cluster, Docker with a local containerd node
 # (kind / Docker Desktop worker), Go, a host JDK 21+, and network access.
@@ -32,8 +32,6 @@ T18_OLD_IMAGE="docker.io/library/eclipse-temurin@sha256:8a79c84cdf6967ae437eba13
 T18_OLD_VERSION="21.0.11"
 T18_NEW_IMAGE="docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b"
 T18_NEW_VERSION="21.0.12"
-T18_LAUNCHER="jaz"
-T18_LAUNCHER_IMAGE="mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575"
 T18_REF="demo/hello:jdk-patch-e2e"
 T18_APP="patched-orders"
 T18_PORT=8080
@@ -46,14 +44,11 @@ T18_CONTAINERD_SNAPSHOT=""
 T18_JDK_SNAPSHOT=""
 T18_JDK_ACTIVE_SNAPSHOT=""
 T18_JDK_ACTIVE_STATE=""
-T18_LAUNCHER_SNAPSHOT=""
-T18_LAUNCHER_ACTIVE_SNAPSHOT=""
-T18_LAUNCHER_ACTIVE_STATE=""
 T18_PRE_RETIRED=""
-# JDK/launcher tree snapshots stay on the node: streaming a JDK through
+# JDK tree snapshots stay on the node: streaming a JDK through
 # `kubectl exec` to the workstation and back is slow on managed clusters.
 T18_NODE_SNAPSHOT_DIR="/var/tmp/brewlet-e2e-t18-$$"
-# A cold node pulls ~1 GB of JDK and launcher images; on a slow link that
+# A cold node pulls JDK images; on a slow link that
 # outlasts any fixed deadline. Fail only after IDLE seconds with no pull or
 # provisioner progress, or at the overall TIMEOUT.
 T18_PROVISION_IDLE="${E2E_PROVISION_IDLE_TIMEOUT:-240}"
@@ -116,28 +111,11 @@ _t18_cleanup() {
       absent)
         node_exec "$T18_NODE" rm -f /opt/brewlet/jdks/.brewlet-active >/dev/null 2>&1 || true ;;
     esac
-    node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
-      sh "/opt/brewlet/launchers/$T18_LAUNCHER" >/dev/null 2>&1 || true
-    node_exec "$T18_NODE" mkdir -p /opt/brewlet/launchers >/dev/null 2>&1 || true
-    if [[ -n "$T18_LAUNCHER_SNAPSHOT" ]]; then
-      node_exec "$T18_NODE" tar -C /opt/brewlet/launchers -xf "$T18_LAUNCHER_SNAPSHOT" >/dev/null 2>&1 ||
-        warn "tier18: could not restore $T18_NODE:/opt/brewlet/launchers/$T18_LAUNCHER from $T18_LAUNCHER_SNAPSHOT"
-    fi
-    case "$T18_LAUNCHER_ACTIVE_STATE" in
-      present)
-        node_cp "$T18_LAUNCHER_ACTIVE_SNAPSHOT" \
-          "$T18_NODE:/opt/brewlet/launchers/.brewlet-active.t18" >/dev/null 2>&1 || true
-        node_exec "$T18_NODE" mv \
-          /opt/brewlet/launchers/.brewlet-active.t18 /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
-      absent)
-        node_exec "$T18_NODE" rm -f /opt/brewlet/launchers/.brewlet-active >/dev/null 2>&1 || true ;;
-    esac
     node_exec "$T18_NODE" rm -rf "$T18_NODE_SNAPSHOT_DIR" >/dev/null 2>&1 || true
     label_node "$T18_NODE" "$T18_POOL_KEY-" brewlet.sh/runtime- \
-      "brewlet.sh/jdk.$T18_JDK-" "brewlet.sh/jdk-feature.${T18_JDK##*-}-" \
-      brewlet.sh/launcher.java- "brewlet.sh/launcher.$T18_LAUNCHER-" >/dev/null 2>&1 || true
+      "brewlet.sh/jdk.$T18_JDK-" "brewlet.sh/jdk-feature.${T18_JDK##*-}-" >/dev/null 2>&1 || true
     annotate_node "$T18_NODE" brewlet.sh/jdks- brewlet.sh/jdks-info- \
-      brewlet.sh/launchers- brewlet.sh/profile- brewlet.sh/profile-generation- \
+      brewlet.sh/profile- brewlet.sh/profile-generation- \
       brewlet.sh/provision-error- >/dev/null 2>&1 || true
     node_exec "$T18_NODE" ctr -n k8s.io images rm "$T18_PROVISIONER_IMAGE" \
       >/dev/null 2>&1 || true
@@ -153,12 +131,10 @@ _t18_retired_roots() {
 
 # _t18_node_at VERSION GENERATION: the node is ready, advertises the given
 # profile generation, and its inventory reports the given temurin-21 build
-# plus the jaz launcher.
 _t18_node_at() {
   local version="$1" generation="$2"
   [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/runtime}' 2>/dev/null)" == "ready" ]] &&
     [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/jdk\.temurin-21}' 2>/dev/null)" == "true" ]] &&
-    [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/launcher\.jaz}' 2>/dev/null)" == "true" ]] &&
     [[ "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/profile-generation}' 2>/dev/null)" == "$generation" ]] &&
     kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks-info}' 2>/dev/null |
       grep -q "\"version\":\"${version}"
@@ -406,28 +382,9 @@ tier18_jdk_patch() {
     fi
   fi
   T18_PRE_RETIRED="$(_t18_retired_roots)"
-  if node_exec "$T18_NODE" test -f /opt/brewlet/launchers/.brewlet-active; then
-    T18_LAUNCHER_ACTIVE_SNAPSHOT="$WORK/t18-launcher-active-before"
-    if node_cp "$T18_NODE:/opt/brewlet/launchers/.brewlet-active" \
-        "$T18_LAUNCHER_ACTIVE_SNAPSHOT" >/dev/null 2>&1; then
-      T18_LAUNCHER_ACTIVE_STATE=present
-    else
-      fail "tier18: snapshot existing launcher active inventory"; return 0
-    fi
-  else
-    T18_LAUNCHER_ACTIVE_STATE=absent
-  fi
-  if node_exec "$T18_NODE" test -e "/opt/brewlet/launchers/$T18_LAUNCHER"; then
-    T18_LAUNCHER_SNAPSHOT="$T18_NODE_SNAPSHOT_DIR/launcher-before.tar"
-    if ! node_exec "$T18_NODE" sh -c 'mkdir -p "$1" && tar -C /opt/brewlet/launchers -cf "$2" "$3"' \
-        sh "$T18_NODE_SNAPSHOT_DIR" "$T18_LAUNCHER_SNAPSHOT" "$T18_LAUNCHER" >/dev/null 2>&1; then
-      T18_LAUNCHER_SNAPSHOT=""
-      fail "tier18: snapshot existing launcher directory"; return 0
-    fi
-  fi
   trap _t18_cleanup RETURN
-  node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" "$2" 2>/dev/null || true; rm -rf "$1" "$2"' \
-    sh "/opt/brewlet/jdks/$T18_JDK" "/opt/brewlet/launchers/$T18_LAUNCHER" >/dev/null 2>&1 || true
+  node_exec "$T18_NODE" sh -c 'chmod -R u+w "$1" 2>/dev/null || true; rm -rf "$1"' \
+    sh "/opt/brewlet/jdks/$T18_JDK" >/dev/null 2>&1 || true
 
   # Build the real provisioner and load it into the node's k8s.io namespace.
   local -a build_args=(--platform "linux/$arch" -t "$T18_PROVISIONER_IMAGE")
@@ -538,11 +495,6 @@ spec:
       source:
         image: $T18_OLD_IMAGE
         javaHome: $T18_JAVA_HOME
-  launchers:
-    - name: $T18_LAUNCHER
-      source:
-        image: $T18_LAUNCHER_IMAGE
-        path: /usr/bin/jaz
   rollout:
     validate: true
     containerdRestart: validated
@@ -566,16 +518,6 @@ YAML
   assert_eq "tier18: operator passed the Java home to the provisioner" \
     "$(kubectl get ds "$ds" -n "$T18_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="JDK_SOURCE_0_JAVA_HOME")].value}')" \
     "$T18_JAVA_HOME"
-  assert_eq "tier18: operator passed the launcher image to the provisioner" \
-    "$(kubectl get ds "$ds" -n "$T18_NS_OP" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LAUNCHER_SOURCE_0_IMAGE")].value}')" \
-    "$T18_LAUNCHER_IMAGE"
-  assert_contains "tier18: node launcher inventory includes jaz" \
-    "$(kubectl get node "$T18_NODE" -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}')" \
-    "$T18_LAUNCHER"
-  check "tier18: installed jaz version probe succeeds" \
-    node_exec "$T18_NODE" env JAZ_PRINT_VERSION=1 JAZ_EXIT_WITHOUT_FLUSH=1 \
-    "/opt/brewlet/launchers/$T18_LAUNCHER/bin/$T18_LAUNCHER"
-
   # --- 2. Run a workload on the older build -------------------------------
   local jar="$FIXTURES_DIR/demo-app/target/app.jar"
   local jh; jh="$(resolve_java_home)"
@@ -614,13 +556,11 @@ spec:
       labels: { app: $T18_APP }
       annotations:
         brewlet.sh/jdk: "$T18_JDK"
-        brewlet.sh/launcher: "$T18_LAUNCHER"
     spec:
       runtimeClassName: brewlet
       nodeSelector:
         brewlet.sh/runtime: ready
         brewlet.sh/jdk.temurin-21: "true"
-        brewlet.sh/launcher.jaz: "true"
       containers:
         - name: app
           image: "$image_ref"

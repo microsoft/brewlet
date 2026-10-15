@@ -252,7 +252,7 @@ approach to get the same result through the provisioner.
 ## Delivering the `-javaagent` flag
 
 Prefer **`jvm.args`** (`spec.jvm.args`, or `brewlet.sh/jvm-args` on a raw Pod).
-Brewlet passes these directly on the launcher command line, just before the
+Brewlet passes these directly on the Java command line, just before the
 entrypoint ([details](resource-tuning.md#who-tunes-the-jvm)).
 
 `JAVA_TOOL_OPTIONS` in `env` also works, and is common in APM vendor

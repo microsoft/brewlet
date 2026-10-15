@@ -25,7 +25,7 @@ authoritative.
 
 The proposal is fully implemented:
 
-- The provisioner emits the exact-JDK, JDK-feature, launcher, and runtime-ready
+- The provisioner emits the exact-JDK, JDK-feature and runtime-ready
   labels described by this proposal.
 - The label keys are centralized in `internal/brewlet/labels.go`, and the
   admission webhook injects matching node affinity for requested capabilities.
@@ -50,7 +50,6 @@ matches `nodeAffinity` against (`labels.go`, `label_node`):
 |---|---|---|
 | `brewlet.sh/jdk.<dist>-<feature>` | exact JDK root installed | `brewlet.sh/jdk.temurin-21=true` |
 | `brewlet.sh/jdk-feature.<feature>` | some JDK of that feature (distribution-agnostic) | `brewlet.sh/jdk-feature.21=true` |
-| `brewlet.sh/launcher.<name>` | launcher layer installed (including implicit `java`) | `brewlet.sh/launcher.jaz=true` |
 | `brewlet.sh/runtime=ready` | shim + JDK installed, runtime registered | — |
 | `kubernetes.io/arch` (reused) | node architecture for non-portable artifacts | `amd64` |
 

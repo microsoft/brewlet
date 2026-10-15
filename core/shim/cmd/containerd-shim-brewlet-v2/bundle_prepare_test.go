@@ -85,7 +85,7 @@ func TestImageConfigProcessIdentity(t *testing.T) {
 
 // decodeJVMArgs is the node-side half of the brewlet.sh/jvm-args contract: the
 // operator stamps a JSON array so argument boundaries survive delivery, and the
-// shim appends the decoded args to the launcher argv ahead of the entrypoint.
+// shim appends the decoded args to the Java argv ahead of the entrypoint.
 func TestDecodeJVMArgs(t *testing.T) {
 	cases := []struct {
 		name    string

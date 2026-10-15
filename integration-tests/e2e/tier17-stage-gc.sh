@@ -195,10 +195,10 @@ _t17_cleanup() {
     fi
     label_node "$T17_NODE" "$T17_POOL_KEY-" \
       brewlet.sh/runtime- "brewlet.sh/jdk.$T17_JDK-" \
-      "brewlet.sh/jdk-feature.${T17_JDK##*-}-" brewlet.sh/launcher.java- \
+      "brewlet.sh/jdk-feature.${T17_JDK##*-}-" \
       >/dev/null 2>&1 || true
     annotate_node "$T17_NODE" brewlet.sh/jdks- brewlet.sh/jdks-info- \
-      brewlet.sh/launchers- brewlet.sh/profile- brewlet.sh/profile-generation- \
+      brewlet.sh/profile- brewlet.sh/profile-generation- \
       brewlet.sh/provision-state- brewlet.sh/provision-error- >/dev/null 2>&1 || true
     if [[ -z "$T17_JDK_PREEXISTING" ]]; then
       node_exec "$T17_NODE" sh -c \

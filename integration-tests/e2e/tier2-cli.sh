@@ -62,10 +62,9 @@ tier2_cli() {
     assert_contains "inspect: shows manifest section" "$out" "== manifest =="
     assert_contains "inspect: shows jvm config section" "$out" "== jvm config =="
     assert_contains "inspect: records main jar" "$out" "app.jar"
-    # The artifact is deployment-agnostic: JDK feature/distribution and launcher
+    # The artifact is deployment-agnostic: JDK feature/distribution
     # live in the deployment descriptor, never in jvm-config.json.
     assert_not_contains "inspect: artifact carries no JDK feature" "$out" "\"feature\""
-    assert_not_contains "inspect: artifact carries no launcher" "$out" "\"launcher\""
     assert_not_contains "inspect: artifact carries no ports" "$out" "\"ports\""
   else
     fail "inspect artifact" "$(printf '%s' "$out" | tail -1)"
@@ -158,27 +157,6 @@ tier2_cli() {
   else
     fail "bundle: trusted --uid/--gid identity override" "see $WORK/t2-bundle-identity.log"
   fi
-
-  # --- bundle: --launcher overrides argv[0] (local launcher selection) ------
-  # The launcher lives only in the deployment descriptor / CLI, never the
-  # artifact. `--launcher jaz` must make the launcher the process entrypoint
-  # (argv[0]) in place of vanilla `java`, independent of any launcher layer.
-  local ldir="$WORK/bundle-launcher"
-  rm -rf "$ldir"
-  if "$bin" bundle "$ref" --store "$store" --launcher jaz --out "$ldir" \
-       >"$WORK/t2-bundle-launcher.log" 2>&1 && [[ -f "$ldir/config.json" ]]; then
-    if have python3; then
-      local argv0
-      argv0="$(python3 -c "import json; print(json.load(open('$ldir/config.json'))['process']['args'][0])" 2>/dev/null)"
-      assert_eq "bundle: --launcher sets argv[0] to the requested launcher" "$argv0" "jaz"
-    else
-      assert_contains "bundle: --launcher sets argv[0] to the requested launcher" \
-        "$(cat "$ldir/config.json")" '"jaz"'
-    fi
-  else
-    fail "bundle: --launcher jaz" "see $WORK/t2-bundle-launcher.log"
-  fi
-
 
   local libtar="$WORK/dep-layer.tar" ref2="demo/hello-layered:1.0.0"
   ( cd "$WORK" && mkdir -p _lib && echo dummy > _lib/dep.jar && tar -cf "$libtar" -C _lib . )
@@ -696,8 +674,8 @@ print(",".join(sorted(set(c) - {"schemaVersion", "mainJar", "entry", "systemProp
     "{\"brewlet.e2e.goal\": \"maven-goals\", \"server.port\": \"$port\"}"
   assert_eq "maven config: records POM env" "$(printf '%s\n' "$out" | sed -n 3p)" \
     '[{"name": "BREWLET_E2E", "value": "maven-goals"}]'
-  # JDK feature/distribution and launcher belong to the deployment descriptor.
-  assert_eq "maven config: carries no JDK feature, launcher, or other deployment fields" \
+  # JDK feature/distribution belong to the deployment descriptor.
+  assert_eq "maven config: carries no JDK feature or other deployment fields" \
     "$(printf '%s\n' "$out" | sed -n 4p)" "-"
 
   log="$gdir/config-classpath.log"

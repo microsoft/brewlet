@@ -28,29 +28,23 @@ const (
 	annArtifactContainer = "brewlet.sh/artifact-container"
 	annArtifactRef       = "brewlet.sh/artifact-ref"
 	annArtifactDigest    = "brewlet.sh/artifact-digest"
-	// annRequestedJDK / annRequestedLauncher carry the deployment descriptor's
-	// JDK and launcher request onto the pod (set by the operator from
-	// jvm.version/jvm.launcher, or by the user on a raw Deployment). They are
-	// propagated onto the OCI runtime spec like annArtifactRef, and are the
-	// single source of truth for which JDK/launcher the workload runs on.
-	annRequestedJDK      = "brewlet.sh/jdk"
-	annRequestedLauncher = "brewlet.sh/launcher"
+	// annRequestedJDK carries the deployment descriptor's JDK request.
+	annRequestedJDK = "brewlet.sh/jdk"
 	// annJVMArgs carries the deployment descriptor's jvm.args onto the pod (set
 	// by the operator from spec.jvm.args, or by the user on a raw Deployment) as
-	// a JSON array of strings. The shim appends them to the launcher argv ahead
+	// a JSON array of strings. The shim appends them to the Java argv ahead
 	// of the entrypoint, so deployment tuning is applied AFTER the artifact's own
 	// launch knobs and therefore wins under the JVM's last-wins semantics (§4.2).
 	// A JSON array — not a whitespace-joined string — is the wire form so an
 	// argument that itself contains spaces (e.g.
 	// -XX:OnOutOfMemoryError="kill -9 %p") survives delivery intact.
-	annJVMArgs              = "brewlet.sh/jvm-args"
-	jdkHomeMetadata         = ".brewlet-java-home"
-	jdkActiveInventory      = ".brewlet-active"
-	launcherActiveInventory = ".brewlet-active"
+	annJVMArgs         = "brewlet.sh/jvm-args"
+	jdkHomeMetadata    = ".brewlet-java-home"
+	jdkActiveInventory = ".brewlet-active"
 )
 
 // decodeJVMArgs decodes the brewlet.sh/jvm-args annotation into the extra
-// launcher args BuildJVMArgs appends before the entrypoint. An absent or empty
+// JVM args BuildJVMArgs appends before the entrypoint. An absent or empty
 // annotation means "no deployment tuning" and is not an error; anything else
 // must be a JSON array of strings, and a malformed value fails the launch
 // rather than silently dropping the platform team's tuning.
@@ -69,26 +63,17 @@ func decodeJVMArgs(raw string) ([]string, error) {
 // imageConfig describes where a Brewlet image or local artifact lives and the
 // deployment/runtime choices used to assemble its bundle.
 type imageConfig struct {
-	StoreRoot        string  `json:"storeRoot"`        // OCI content store / layout root
-	Ref              string  `json:"ref"`              // image/artifact reference
-	JDKRootsDir      string  `json:"jdkRootsDir"`      // e.g. /opt/brewlet/jdks
-	LauncherRootsDir string  `json:"launcherRootsDir"` // e.g. /opt/brewlet/launchers
-	CPULimit         string  `json:"cpuLimit"`         // from container.resources.limits.cpu
-	MemoryLimit      string  `json:"memoryLimit"`      // from container.resources.limits.memory
-	ProcessUID       *uint32 `json:"processUID,omitempty"`
-	ProcessGID       *uint32 `json:"processGID,omitempty"`
+	StoreRoot   string  `json:"storeRoot"`   // OCI content store / layout root
+	Ref         string  `json:"ref"`         // image/artifact reference
+	JDKRootsDir string  `json:"jdkRootsDir"` // e.g. /opt/brewlet/jdks
+	CPULimit    string  `json:"cpuLimit"`    // from container.resources.limits.cpu
+	MemoryLimit string  `json:"memoryLimit"` // from container.resources.limits.memory
+	ProcessUID  *uint32 `json:"processUID,omitempty"`
+	ProcessGID  *uint32 `json:"processGID,omitempty"`
 
-	// JDKRequest / LauncherName are the JDK and launcher the *deployment
-	// descriptor* asked for, carried on the pod as the brewlet.sh/jdk and
-	// brewlet.sh/launcher annotations and propagated onto the OCI runtime spec.
-	// They are NOT read from the artifact's launch config: the descriptor is the
-	// single source of truth for which JDK feature/distribution and launcher a
-	// workload runs on. JDKRequest is a
-	// "<dist>-<feature>" token (e.g. "temurin-21") or a bare feature ("21");
-	// empty means the node default. LauncherName is "" or "java" for the vanilla
-	// OpenJDK launcher.
-	JDKRequest   string `json:"jdkRequest,omitempty"`
-	LauncherName string `json:"launcherName,omitempty"`
+	// JDKRequest is the deployment descriptor's "<dist>-<feature>" token or
+	// bare feature, carried by brewlet.sh/jdk. Empty means the node default.
+	JDKRequest string `json:"jdkRequest,omitempty"`
 
 	// Content-store resolution (production path). When Backend is "containerd",
 	// the runnable image manifest is read from containerd's own content store by
@@ -110,7 +95,7 @@ func (ic imageConfig) processIdentity() kcruntime.ProcessIdentity {
 }
 
 // resolvedArtifact is everything the shim needs after disassembling a Brewlet
-// image or local artifact against the node's installed JDK/launcher roots.
+// image or local artifact against the node's installed JDK roots.
 type resolvedArtifact struct {
 	Config              artifact.JVMConfig
 	JarHostPath         string   // on-disk path of the JAR payload blob
@@ -120,16 +105,13 @@ type resolvedArtifact struct {
 	ManifestDigest      string   // verified digest of the resolved platform manifest
 	JDKRoot             string   // selected node-resident userland root (e.g. /opt/brewlet/jdks/temurin-21)
 	JDKHome             string   // JDK or jlink runtime within JDKRoot; mounted at /opt/jdk
-	LauncherRoot        string   // node-installed launcher layer, or "" for vanilla `java`
-	LauncherName        string   // launcher the descriptor requested ("" or "java" for vanilla)
 	Format              string   // native artifact or runnable image
 }
 
 // resolveArtifact performs the shared §6.1 steps 1-2b: read the artifact,
 // separate the JVM config from the JAR layer (from whichever blob source the
-// deployment uses), and select the node-resident JDK (and optional custom
-// launcher) the *deployment descriptor* requested. Failures map to
-// NoCompatibleJDK / NoCompatibleLauncher pod events in the real shim.
+// deployment uses), and select the node-resident JDK the deployment
+// descriptor requested. Failures map to NoCompatibleJDK in the real shim.
 func resolveArtifact(ic imageConfig) (resolvedArtifact, error) {
 	blobs, err := loadArtifactBlobs(ic)
 	if err != nil {
@@ -143,10 +125,6 @@ func resolveArtifact(ic imageConfig) (resolvedArtifact, error) {
 	if err != nil {
 		return resolvedArtifact{}, err
 	}
-	launcherRoot, err := selectLauncher(ic.LauncherRootsDir, ic.LauncherName)
-	if err != nil {
-		return resolvedArtifact{}, err
-	}
 	return resolvedArtifact{
 		Config:              blobs.Config,
 		JarHostPath:         blobs.JarHostPath,
@@ -156,8 +134,6 @@ func resolveArtifact(ic imageConfig) (resolvedArtifact, error) {
 		ManifestDigest:      blobs.ManifestDigest,
 		JDKRoot:             jdkRoot,
 		JDKHome:             jdkHome,
-		LauncherRoot:        launcherRoot,
-		LauncherName:        ic.LauncherName,
 		Format:              blobs.Format,
 	}, nil
 }
@@ -185,19 +161,11 @@ func prepareBundle(args []string) error {
 	}
 
 	res := kcruntime.Resources{CPULimit: ic.CPULimit, MemoryLimit: ic.MemoryLimit}
-	if err := kcruntime.GenerateBundleWithIdentity(ra.Config, ra.JDKHome, ra.LauncherRoot, ra.LauncherName, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, ic.processIdentity()); err != nil {
+	if err := kcruntime.GenerateBundleWithIdentity(ra.Config, ra.JDKHome, ra.JarHostPath, ra.ClasspathHostPaths, ra.ModulepathHostPaths, ra.CDSHostPath, bundleDir, res, nil, ic.processIdentity()); err != nil {
 		return fmt.Errorf("generate bundle: %w", err)
 	}
 
-	fmt.Printf("shim: prepared bundle %s (jdk=%s", bundleDir, ra.JDKRoot)
-	if !artifact.IsVanillaLauncher(ra.LauncherName) {
-		name, err := artifact.LauncherName(ra.LauncherName)
-		if err != nil {
-			return err
-		}
-		fmt.Printf(", launcher=%s", name)
-	}
-	fmt.Printf(")\n")
+	fmt.Printf("shim: prepared bundle %s (jdk=%s)\n", bundleDir, ra.JDKRoot)
 	fmt.Printf("shim: containerd Start() would now exec: runc run -b %s <container-id>\n", bundleDir)
 	return nil
 }
@@ -290,17 +258,6 @@ func activeJDKs(rootsDir string) (map[string]bool, error) {
 	return active, nil
 }
 
-func activeLaunchers(rootsDir string) (map[string]bool, error) {
-	active, err := activeRuntimeInventory(rootsDir, launcherActiveInventory, "NoCompatibleLauncher")
-	if err != nil {
-		return nil, err
-	}
-	if active == nil {
-		return nil, fmt.Errorf("NoCompatibleLauncher: active inventory missing under %s", rootsDir)
-	}
-	return active, nil
-}
-
 func activeRuntimeInventory(rootsDir, inventory, reason string) (map[string]bool, error) {
 	data, err := os.ReadFile(filepath.Join(rootsDir, inventory))
 	if os.IsNotExist(err) {
@@ -369,62 +326,12 @@ func parseJDKRequest(request string) (dist string, feature int) {
 	return "", feature
 }
 
-// selectLauncher resolves the node-installed launcher layer for a custom
-// launcher named by the deployment descriptor (brewlet.sh/launcher). The vanilla
-// `java` launcher needs no layer (returns ""). A missing layer surfaces as
-// NoCompatibleLauncher, mirroring selectJDK/NoCompatibleJDK.
-//
-// The launcher name is tenant-controlled input that ends up joined onto the
-// node's launcher roots, used as an overlay lower layer and a privileged
-// bind-mount source, and executed as argv[0]. It is therefore validated in
-// depth and fail-closed, in this order: the name must be a safe DNS-1123 token
-// (no separator, no parent reference), it must appear in the administrator-owned
-// `.brewlet-active` inventory, and the resolved root must provably remain a
-// direct child of the configured roots directory — the same containment check
-// resolveJDKHome applies to a JDK home. The RESOLVED root is returned, so the
-// path that reaches mount construction is exactly the one that was checked.
-func selectLauncher(rootsDir, launcherName string) (string, error) {
-	if artifact.IsVanillaLauncher(launcherName) {
-		return "", nil
-	}
-	name, err := artifact.LauncherName(launcherName)
-	if err != nil {
-		return "", fmt.Errorf("NoCompatibleLauncher: %w", err)
-	}
-	if rootsDir == "" {
-		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q requested but no launcher roots on node", name)
-	}
-	active, err := activeLaunchers(rootsDir)
-	if err != nil {
-		return "", err
-	}
-	if !active[name] {
-		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q is not active under %s", name, rootsDir)
-	}
-	root, err := resolveRuntimeRoot(rootsDir, name, "NoCompatibleLauncher")
-	if err != nil {
-		return "", err
-	}
-	bin := filepath.Join(root, "bin", name)
-	if _, err := os.Stat(bin); err != nil {
-		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q not installed under %s", name, rootsDir)
-	}
-	resolvedBin, err := filepath.EvalSymlinks(bin)
-	if err != nil {
-		return "", fmt.Errorf("NoCompatibleLauncher: resolve launcher %q under %s: %w", name, rootsDir, err)
-	}
-	if !containedIn(root, resolvedBin) {
-		return "", fmt.Errorf("NoCompatibleLauncher: launcher %q resolves outside %s", name, root)
-	}
-	return root, nil
-}
-
 // resolveRuntimeRoot joins a validated runtime name onto a roots directory and
 // proves the result is a direct child of that directory after symlink
 // resolution. Name validation alone is not enough: a symlinked entry inside the
 // roots directory would otherwise redirect a privileged bind-mount or overlay
 // lower layer at an arbitrary host path. reason prefixes the error so failures
-// surface as the NoCompatibleJDK / NoCompatibleLauncher pod events.
+// surface as the NoCompatibleJDK pod events.
 func resolveRuntimeRoot(rootsDir, name, reason string) (string, error) {
 	resolvedRoots, err := filepath.EvalSymlinks(rootsDir)
 	if err != nil {

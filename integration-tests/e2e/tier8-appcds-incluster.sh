@@ -22,7 +22,7 @@ _t8_cleanup() {
   [[ -n "$T8_RC_CREATED" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   for n in ${T8_PROVISIONED_NODES[@]+"${T8_PROVISIONED_NODES[@]}"}; do
     label_node "$n" brewlet.sh/runtime- >/dev/null 2>&1 || true
-    annotate_node "$n" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
+    annotate_node "$n" brewlet.sh/jdks- >/dev/null 2>&1 || true
   done
   if [[ -n "$T8_NODE" && "$T8_TRAINING_DIR" == /tmp/brewlet-e2e-cds-* ]]; then
     node_exec "$T8_NODE" rm -f "$T8_JDK_ROOT$T8_TRAINING_DIR/app.jar" "$T8_JDK_ROOT$T8_TRAINING_DIR/app.jsa" >/dev/null 2>&1 || true
@@ -160,7 +160,7 @@ tier8_appcds_incluster() {
   fi
   T8_PROVISIONED_NODES+=("$T8_NODE")
   label_node "$T8_NODE" --overwrite brewlet.sh/runtime=ready >>"$WORK/t8-prov.log" 2>&1
-  annotate_node "$T8_NODE" --overwrite "brewlet.sh/jdks=$T8_JDK" "brewlet.sh/launchers=" >>"$WORK/t8-prov.log" 2>&1
+  annotate_node "$T8_NODE" --overwrite "brewlet.sh/jdks=$T8_JDK" >>"$WORK/t8-prov.log" 2>&1
 
   # Java itself creates this fixture using the exact node JDK; Brewlet only ships it.
   local fixture="$WORK/t8-fixture"

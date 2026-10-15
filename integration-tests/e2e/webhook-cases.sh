@@ -110,28 +110,6 @@ YAML
     fail "$label: stamps artifact annotations on a brewlet pod" "$(printf '%s' "$out" | tail -1)"
   fi
 
-  # --- negative: unsatisfiable launcher is denied --------------------------
-  out="$(_wh_apply "$ns" <<'YAML'
-apiVersion: v1
-kind: Pod
-metadata:
-  name: wh-deny-probe
-  annotations:
-    brewlet.sh/launcher: "nonexistent-launcher"
-spec:
-  runtimeClassName: brewlet
-  containers:
-    - name: app
-      image: registry.example.com/team/orders:1.0.0
-YAML
-)"
-  if [[ "$out" == *NoCompatibleLauncher* ]]; then
-    pass "$label: denies a pod requesting a launcher no node provides (NoCompatibleLauncher)"
-  else
-    kubectl delete pod wh-deny-probe -n "$ns" --ignore-not-found --wait=false >/dev/null 2>&1 || true
-    fail "$label: NoCompatibleLauncher denial" "$(printf '%s' "$out" | tail -1)"
-  fi
-
   # --- two JDKs installed on a SINGLE node ---------------------------------
   # Mark one node ready and advertise two JDK roots on it (as the provisioner
   # would with JDKS=temurin-21,microsoft-25). That one node must then satisfy

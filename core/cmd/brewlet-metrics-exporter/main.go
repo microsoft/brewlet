@@ -77,7 +77,6 @@ type inventoryCollector struct {
 	root         string
 	jdkInfo      *prometheus.Desc
 	jdkInstalled *prometheus.Desc
-	launcherInfo *prometheus.Desc
 }
 
 func newInventoryCollector(root string) *inventoryCollector {
@@ -93,18 +92,12 @@ func newInventoryCollector(root string) *inventoryCollector {
 			"Unix timestamp when this JDK root was installed on the node; this is not the upstream patch release date.",
 			[]string{"distribution", "feature", "version"}, nil,
 		),
-		launcherInfo: prometheus.NewDesc(
-			"brewlet_launcher_info",
-			"JVM launchers installed and active on this Brewlet node.",
-			[]string{"launcher"}, nil,
-		),
 	}
 }
 
 func (c *inventoryCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.jdkInfo
 	ch <- c.jdkInstalled
-	ch <- c.launcherInfo
 }
 
 func (c *inventoryCollector) Collect(ch chan<- prometheus.Metric) {
@@ -126,19 +119,7 @@ func (c *inventoryCollector) Collect(ch chan<- prometheus.Metric) {
 			ch <- prometheus.MustNewConstMetric(c.jdkInstalled, prometheus.GaugeValue, float64(installed), dist, feature, version)
 		}
 	}
-	emittedLaunchers := map[string]struct{}{"java": {}}
-	ch <- prometheus.MustNewConstMetric(c.launcherInfo, prometheus.GaugeValue, 1, "java")
-	for _, name := range readWords(filepath.Join(c.root, "launchers", ".brewlet-active")) {
-		info, err := os.Stat(filepath.Join(c.root, "launchers", name))
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		if _, emitted := emittedLaunchers[name]; emitted {
-			continue
-		}
-		emittedLaunchers[name] = struct{}{}
-		ch <- prometheus.MustNewConstMetric(c.launcherInfo, prometheus.GaugeValue, 1, name)
-	}
+
 }
 
 func readWords(path string) []string {

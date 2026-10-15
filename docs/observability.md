@@ -162,7 +162,6 @@ kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/provision-s
 
 # What each node offers:
 kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/jdks}{"\n"}'
-kubectl get node <n> -o jsonpath='{.metadata.annotations.brewlet\.sh/launchers}{"\n"}'
 
 # Operator/provisioner events:
 kubectl get events --field-selector reason=NodeReady

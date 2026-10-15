@@ -30,19 +30,11 @@ type jdkSource struct {
 	} `json:"source"`
 }
 
-type launcherSource struct {
-	Name   string `json:"name"`
-	Source struct {
-		Image string `json:"image"`
-		Path  string `json:"path"`
-	} `json:"source"`
-}
-
 type updateOptions struct {
-	profile, file, values, distribution, name, image, path string
-	feature                                                int64
-	jdk, replace                                           bool
-	dryRun                                                 dryRunMode
+	profile, file, values, distribution, image, path string
+	feature                                          int64
+	replace                                          bool
+	dryRun                                           dryRunMode
 }
 
 type dryRunMode string
@@ -66,22 +58,16 @@ func (m *dryRunMode) Set(value string) error {
 	return nil
 }
 
-func (u *updateOptions) flags(fs *flag.FlagSet, jdk bool) {
-	u.jdk = jdk
+func (u *updateOptions) flags(fs *flag.FlagSet) {
 	fs.StringVar(&u.profile, "profile", "", "explicit target NodeProfile name")
 	fs.StringVar(&u.file, "file", "", "read a NodeProfile YAML/JSON file (requires --dry-run=client)")
 	fs.StringVar(&u.values, "values", "", "read complete Helm values (requires --dry-run=client)")
 	fs.Var(&u.dryRun, "dry-run", "validate and print without saving: client (default when bare) or server")
 	fs.StringVar(&u.image, "image", "", "fully qualified, tagless SHA-256 digest reference")
 	fs.BoolVar(&u.replace, "replace", false, "replace a source with the same inventory identity")
-	if jdk {
-		fs.StringVar(&u.distribution, "distribution", "", "JDK distribution token")
-		fs.Int64Var(&u.feature, "feature", 0, "JDK feature version")
-		fs.StringVar(&u.path, "java-home", "", "absolute JDK home inside the image")
-	} else {
-		fs.StringVar(&u.name, "name", "", "optional launcher name (not java)")
-		fs.StringVar(&u.path, "path", "", "absolute launcher binary path inside the image")
-	}
+	fs.StringVar(&u.distribution, "distribution", "", "JDK distribution token")
+	fs.Int64Var(&u.feature, "feature", 0, "JDK feature version")
+	fs.StringVar(&u.path, "java-home", "", "absolute JDK home inside the image")
 }
 
 var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
@@ -119,55 +105,30 @@ func (u updateOptions) entry() (string, json.RawMessage, error) {
 	if err := validateSource(u.image, u.path); err != nil {
 		return "", nil, err
 	}
-	if u.jdk {
-		if err := validateToken(u.distribution, 48); err != nil {
-			return "", nil, err
-		}
-		if u.feature < 1 || u.feature > 2147483647 {
-			return "", nil, fmt.Errorf("--feature must be between 1 and 2147483647")
-		}
-		jdk := jdkSource{Distribution: u.distribution, Feature: u.feature}
-		jdk.Source.Image, jdk.Source.JavaHome = u.image, u.path
-		raw, err := json.Marshal(jdk)
-		return "jdks", raw, err
-	}
-	if err := validateToken(u.name, 54); err != nil {
+	if err := validateToken(u.distribution, 48); err != nil {
 		return "", nil, err
 	}
-	if u.name == "java" {
-		return "", nil, fmt.Errorf("java is supplied by each JDK and must not be added as a launcher")
+	if u.feature < 1 || u.feature > 2147483647 {
+		return "", nil, fmt.Errorf("--feature must be between 1 and 2147483647")
 	}
-	launcher := launcherSource{Name: u.name}
-	launcher.Source.Image, launcher.Source.Path = u.image, u.path
-	raw, err := json.Marshal(launcher)
-	return "launchers", raw, err
+	jdk := jdkSource{Distribution: u.distribution, Feature: u.feature}
+	jdk.Source.Image, jdk.Source.JavaHome = u.image, u.path
+	raw, err := json.Marshal(jdk)
+	return "jdks", raw, err
 }
 
-func entryIdentity(field string, raw json.RawMessage) (string, error) {
-	if field == "jdks" {
-		var entry jdkSource
-		if err := json.Unmarshal(raw, &entry); err != nil {
-			return "", err
-		}
-		if err := validateToken(entry.Distribution, 48); err != nil {
-			return "", err
-		}
-		if entry.Feature < 1 || entry.Feature > 2147483647 {
-			return "", fmt.Errorf("invalid JDK feature %d", entry.Feature)
-		}
-		return fmt.Sprintf("%s-%d", entry.Distribution, entry.Feature), nil
-	}
-	var entry launcherSource
+func entryIdentity(raw json.RawMessage) (string, error) {
+	var entry jdkSource
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return "", err
 	}
-	if err := validateToken(entry.Name, 54); err != nil {
+	if err := validateToken(entry.Distribution, 48); err != nil {
 		return "", err
 	}
-	if entry.Name == "java" {
-		return "", fmt.Errorf("java must not appear in the launcher inventory")
+	if entry.Feature < 1 || entry.Feature > 2147483647 {
+		return "", fmt.Errorf("invalid JDK feature %d", entry.Feature)
 	}
-	return entry.Name, nil
+	return fmt.Sprintf("%s-%d", entry.Distribution, entry.Feature), nil
 }
 
 func updateInventory(spec document, field string, entry json.RawMessage, replace bool) error {
@@ -177,14 +138,14 @@ func updateInventory(spec document, field string, entry json.RawMessage, replace
 			return fmt.Errorf("decode %s: %w", field, err)
 		}
 	}
-	key, err := entryIdentity(field, entry)
+	key, err := entryIdentity(entry)
 	if err != nil {
 		return err
 	}
 	found := false
 	seen := map[string]bool{}
 	for i, existing := range entries {
-		id, err := entryIdentity(field, existing)
+		id, err := entryIdentity(existing)
 		if err != nil {
 			return fmt.Errorf("invalid existing %s entry: %w", field, err)
 		}

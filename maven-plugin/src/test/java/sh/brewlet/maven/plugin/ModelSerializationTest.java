@@ -109,13 +109,12 @@ class ModelSerializationTest {
     }
 
     @Test
-    void jvmConfig_jdkAndLauncherAreNotArtifactFields() throws IOException {
-        // JDK and launcher live in the deployment descriptor, never the artifact.
+    void jvmConfig_jdkIsNotAnArtifactField() throws IOException {
+        // JDK selection lives in the deployment descriptor, never the artifact.
         JvmConfig cfg = roundTrip(buildSampleConfig());
         String json = MAPPER.writeValueAsString(cfg);
         JsonNode node = MAPPER.readTree(json);
         assertFalse(node.has("jdk"), "jdk must not be an artifact-config field");
-        assertFalse(node.has("launcher"), "launcher must not be an artifact-config field");
         assertFalse(node.has("labels"), "labels must not be an artifact-config field");
         assertFalse(node.has("ports"), "ports must not be an artifact-config field");
         assertFalse(node.has("user"), "user must not be an artifact-config field");

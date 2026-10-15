@@ -56,7 +56,7 @@ for Maven unit coverage. The suite covers:
 | 15 | live opt-in Prometheus metrics through Helm, provisioner, shim, and exporter | both + fixtures |
 | 16 | SPECIFICATION §14 failure modes on a live node | core + fixtures |
 | 17 | default-enabled runnable-stage GC: fresh activation, installation safety blocking, reference protection, and reclamation | both + fixtures |
-| 18 | containerd restart rollback, sourced JDK + `jaz` launcher provisioning, and patched JDK digest rollout under a live workload | both + fixtures |
+| 18 | containerd restart rollback, sourced JDK provisioning, and patched JDK digest rollout under a live workload | both + fixtures |
 | 19 | dependency CVE remediation across environments | both + fixtures |
 
 Run Tier 17 alone against a dedicated fresh node. It refuses existing shim,

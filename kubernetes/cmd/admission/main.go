@@ -4,8 +4,8 @@
 // Command admission runs the brewlet pod admission/scheduling webhook
 // (https://github.com/microsoft/brewlet/tree/main/specs). It intercepts pods on CREATE, overwrites
 // brewlet.sh/artifact-ref + artifact-digest informational hints from the image,
-// validates any requested JDK/launcher against the ready node fleet
-// (NoCompatibleJDK / NoCompatibleLauncher), and injects nodeAffinity so the
+// validates any requested JDK against the ready node fleet
+// (NoCompatibleJDK), and injects nodeAffinity so the
 // scheduler only lands brewlet pods on capable nodes.
 package main
 

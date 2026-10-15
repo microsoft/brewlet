@@ -28,9 +28,6 @@ The following parts have shipped:
   environment wiring.
 - A post-install `java -version` smoke test for every configured JDK root before
   the node is labelled `brewlet.sh/runtime=ready`.
-- An executable-file check for every configured launcher layer before
-  runtime-ready or launcher capability labels are advertised. Arbitrary
-  administrator-provided launchers are not executed as probes.
 - Removal of stale readiness advertisements before provisioning starts, so a
   failed reprovisioning attempt does not leave the node advertised as ready.
 - The `brewlet.sh/provision-error` annotation and controller propagation into
@@ -54,9 +51,8 @@ are rejected, not converted. Release replacement follows
 Make the provisioner's host mutation **safe to fail**: validate the containerd
 reconfiguration before committing it, restart containerd through a validated,
 reversible path (drop-in + `config dump` + backup restore on failure), and gate the
-`brewlet.sh/runtime=ready` label behind an explicit `java -version` (and, if a
-launcher is installed, an executable-file check) run against each installed
-root. On any failure the node is left in its prior state and reported `Failed`
+`brewlet.sh/runtime=ready` label behind an explicit `java -version` run against
+each installed JDK root. On any failure the node is left in its prior state and reported `Failed`
 instead of half-provisioned.
 
 ## 2. Historical motivation — behavior before this proposal
@@ -73,7 +69,7 @@ But two gaps remained:
 | Gap | Behavior before this proposal | Why it hurts |
 |---|---|---|
 | **Non-reversible restart** | The block is appended directly to `config.toml`; containerd is reloaded via `SIGHUP` to the host process (`reload_containerd`). A backup is written but **nothing restores it** on a bad edit, and `SIGHUP` is unreliable on some distros. | A malformed edit or a distro that ignores `SIGHUP` can disturb `runc` workloads on the node with no automatic recovery. |
-| **Ready label not gated on final validation** | `java -version` runs at *install* time, but the terminal `label_node` step flips `brewlet.sh/runtime=ready` without re-verifying the JDK executes or checking staged launcher executability. | A root that installs but can't execute (or a broken launcher layer) still advertises the node as ready, and the RuntimeClass schedules onto it. |
+| **Ready label not gated on final validation** | `java -version` runs at *install* time, but the terminal `label_node` step flips `brewlet.sh/runtime=ready` without re-verifying the JDK executes. | A root that installs but can't execute still advertises the node as ready, and the RuntimeClass schedules onto it. |
 
 ## 3. Design
 
@@ -103,11 +99,9 @@ default `validated`):
 Add `validate` (env `BREWLET_VALIDATE`, default `true`). Before `label_node` flips
 `brewlet.sh/runtime=ready`, run a one-shot:
 
-- `java -version` from **every** installed `/opt/brewlet/jdks/<dist>-<feature>/bin/java`, and
-- an existence and executable-file check for every installed launcher layer.
+`java -version` from **every** installed `/opt/brewlet/jdks/<dist>-<feature>/bin/java`.
 
-Arbitrary launchers are not run because there is no universal safe probe
-argument. Only if all checks pass does the node get labelled ready. A failure exits non-zero,
+Only if all checks pass does the node get labelled ready. A failure exits non-zero,
 leaving the node unready.
 
 ### 3.3 Reporting failure back to the operator
@@ -140,7 +134,6 @@ reason explicit in the `ProvisionFailed` event (§14) instead of only inferring
 
 - **§5.2 step 4:** validated restart with `config dump` + backup restore (not
   `SIGHUP`-and-hope).
-- **§5.2 step 5:** `runtime=ready` only after the JDK smoke tests and launcher
-  executable checks pass.
+- **§5.2 step 5:** `runtime=ready` only after the JDK smoke tests pass.
 - **§14:** add `brewlet.sh/provision-error` as the reason source for
   `ProvisionFailed`.

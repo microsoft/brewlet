@@ -80,7 +80,6 @@ class ManifestMojoTest {
         ManifestMojo mojo = mojo();
         mojo.project.setVersion(value);
         mojo.jdkDistribution = value;
-        mojo.launcher = value;
         for (String field : List.of("appName", "namespace", "cpuRequest", "memoryRequest",
                 "cpuLimit", "memoryLimit")) {
             set(mojo, field, value);
@@ -92,7 +91,7 @@ class ManifestMojoTest {
         String yaml = render(mojo, config);
         for (String prefix : List.of("  name: ", "  namespace: ", "    app: ",
                 "    app.kubernetes.io/name: ", "    app.kubernetes.io/version: ",
-                "    distribution: ", "    launcher: ", "      value: ")) {
+                "    distribution: ", "      value: ")) {
             assertEquals(List.of(value), scalars(yaml, prefix), prefix);
         }
         assertEquals(List.of(value, value), scalars(yaml, "      cpu: "));

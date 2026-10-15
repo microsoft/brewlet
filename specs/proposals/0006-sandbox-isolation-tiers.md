@@ -43,13 +43,13 @@ Issue #1 predates several changes that materially affect the design:
 
 - Brewlet now has a production containerd Runtime v2 shim that decorates
   containerd's runc task service. Its `Create()` hook rewrites the OCI bundle,
-  resolves the artifact from containerd, selects a node JDK and launcher, creates
+  resolves the artifact from containerd, selects a node JDK, creates
   the overlay rootfs, and mounts application layers before delegating the
   lifecycle to runc.
 - `NodeProfile` now provides platform-owned, per-pool node preparation,
   validated rollout, cleanup, immutable-image operation, and status.
 - Capability labels and admission-injected node affinity now steer workloads by
-  JDK, launcher, and architecture.
+  JDK and architecture.
 - Runnable-image delivery is the default, so kubelet/containerd pulls and unpacks
   standard OCI layers before the Brewlet shim resolves them.
 - Managed dependency bundles can supply a shared, governed classpath layer.
@@ -88,7 +88,7 @@ The current Brewlet shim is not a thin executable alias.
 3. On workload `Create()`, Brewlet:
    - normalizes CRI runtime options into runc options;
    - resolves the runnable image or native artifact;
-   - chooses the requested node JDK and launcher;
+   - chooses the requested node JDK;
    - rewrites the OCI process, mounts, environment, and rootfs;
    - stages classpath, module-path, and AppCDS data; and
    - delegates the completed task lifecycle to containerd's runc service.
@@ -184,7 +184,6 @@ Brewlet's performance model depends on host-backed files:
 - the selected JDK root is the overlay lower layer;
 - the application JAR is mounted read-only;
 - classpath and module-path layers are staged and mounted read-only;
-- a custom launcher may add another overlay lower layer; and
 - AppCDS regeneration uses a writable node cache with writer election.
 
 The prototype must determine:
@@ -248,7 +247,7 @@ semantics should be:
 - reject overlapping or ambiguous backend ownership.
 
 The provisioner should advertise an exact node capability such as
-`brewlet.sh/isolation=gvisor`. This joins the existing runtime, JDK, launcher,
+`brewlet.sh/isolation=gvisor`. This joins the existing runtime, JDK,
 and architecture capability model.
 
 ### 8.2 Distinct RuntimeClasses
@@ -305,14 +304,13 @@ following under both runc and the candidate gVisor tier:
 | Launch modes | JAR, layered classpath, JPMS module path, and mixed module/classpath |
 | Managed dependencies | Governed thin JAR using the exact managed classpath layer |
 | JDK inventory | Feature-only and distribution-specific selection, custom JDK source, incompatible JDK denial |
-| Launchers | Vanilla `java` and an installed custom launcher |
 | AppCDS | Seed archive, node-side regeneration, second-start reuse, JDK-patch cache invalidation |
 | Kubernetes networking | CNI, DNS, Service routing, readiness and liveness probes |
 | Resources | CPU and memory limits applied to the complete sandbox; OOM and termination behavior |
 | Security identity | Positive evidence that the workload runs under gVisor; negative test proving no runc downgrade |
 | Multi-architecture | amd64 and arm64 where the chosen gVisor platform and Brewlet release support them |
 | Operations | NodeProfile rollout, immutable-image mode, readiness, upgrade, failure status, and cleanup |
-| Admission | JDK/launcher/arch checks plus mandatory-isolation enforcement |
+| Admission | JDK/arch checks plus mandatory-isolation enforcement |
 
 Compatibility exceptions must be explicit and documented. They must not be
 hidden behind a success-shaped fallback.

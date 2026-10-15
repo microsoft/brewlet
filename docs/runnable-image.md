@@ -117,7 +117,7 @@ CLI / prepare-bundle workflows only. For a runnable image the shim:
    `java -jar` / `-cp` / `-p -m` sandbox on the node-resident JDK, under the pod's
    cgroup limits.
 
-Nothing about JVM launch, cgroup-awareness, JDK/launcher selection, or Brewlet's
+Nothing about JVM launch, cgroup-awareness, JDK selection, or Brewlet's
 overlay rootfs (shared read-only JDK lower + per-container upper) changes.
 
 Shims publish stages under an `immutable-v2` subdirectory of
@@ -161,7 +161,7 @@ sudo brewlet stage-gc --stage-root /var/lib/brewlet/runnable \
 Manual commands do not enforce `stageGC.enabled`, node ownership, or the
 provisioner's installation safety record. The reaper's
 reference, mount, and locking checks still apply, but they cannot make
-unguarded consumers safe. Retire unguarded launchers and exported bundles that
+unguarded consumers safe. Retire unguarded runtime consumers and exported bundles that
 reference stage paths before cleanup. Do not use manual deletion or an additional
 timer to bypass blocked automatic activation.
 
@@ -170,7 +170,7 @@ timer to bypass blocked automatic activation.
 shim even when containerd sets `TMPDIR`) or `os.TempDir()/brewlet-runnable`
 elsewhere. `--min-age` must be positive and defaults to
 24 hours. Keep the stage root administrator-owned and do not rename or replace
-it while launchers or cleanup are running. Only published
+it while runtime consumers or cleanup are running. Only published
 `immutable-v2/<manifest-hex>` directories older than
 that floor are eligible. The command preserves stages whose manifest remains
 in containerd image or content metadata in **any namespace**, including platform

@@ -295,7 +295,7 @@ additionally permitting `entry.classPath`:
 }
 ```
 
-The launcher emits the supplementary class path **before** the module path so the
+Brewlet emits the supplementary class path **before** the module path so the
 terminal `-m <module>` (after which everything is a program argument) stays last:
 
 ```
@@ -396,7 +396,7 @@ Both modes still resolve the named `com.example.greeter` module.
 - [Spring Boot layered jars & `layers.idx`](https://docs.spring.io/spring-boot/reference/packaging/efficient.html)
 - [Google Jib](https://github.com/GoogleContainerTools/jib) and
   [Cloud Native Buildpacks](https://buildpacks.io/) — automatic dependency/app layering
-- `java` launcher class-path wildcard (`-cp 'lib/*'`)
+- `java` class-path wildcard (`-cp 'lib/*'`)
 - Brewlet: [SPECIFICATION §4 (artifact)](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md#4-the-oci-application-artifact),
   [JPMS support](jpms-support.md),
   [building & publishing](building-and-publishing.md),

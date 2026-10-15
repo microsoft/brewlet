@@ -17,11 +17,7 @@ type MutationResult struct {
 	// Applies is true when the pod targets the brewlet RuntimeClass and was
 	// therefore considered. When false the pod is left untouched.
 	Applies bool
-	// DenyReason / DenyMessage are set (from CheckInventory, or from launcher-name
-	// validation) when the pod requested a JDK/launcher policy that no
-	// ready node or valid NodeProfile provides,
-	// or a launcher name that is not a safe token. When DenyReason is empty the
-	// mutation succeeded and the (possibly modified) pod should be admitted.
+	// DenyReason / DenyMessage identify a JDK request that no ready node or valid NodeProfile provides.
 	DenyReason  string
 	DenyMessage string
 	// Warning is returned to the client when the pod is admitted but no ready
@@ -43,7 +39,7 @@ func IsBrewletPod(pod *corev1.Pod) bool {
 //  1. overwrites the artifact-container/ref/digest compatibility hints from the
 //     selected container image. The shim derives executable identity from
 //     containerd rather than trusting these Pod annotations;
-//  2. validates explicit JDK/launcher requests against the ready fleet
+//  2. validates explicit JDK requests against the ready fleet
 //     and the valid NodeProfiles, returning the corresponding denial when no
 //     single node or profile can satisfy them, and a warning when only a
 //     profile can (the pod waits for capacity);
@@ -82,17 +78,8 @@ func MutatePod(pod *corev1.Pod, fleet []NodeCapability, profiles []ProfileCapabi
 
 	// 2. Validate runtime capabilities against the inventory.
 	jdk := strings.TrimSpace(pod.Annotations[brewlet.AnnotationRequestedJDK])
-	launcher := strings.TrimSpace(pod.Annotations[brewlet.AnnotationRequestedLauncher])
 	arch := splitArch(pod.Annotations[brewlet.AnnotationRequestedArch])
-	// The launcher name reaches the node shim as a directory name under the
-	// launcher roots and as the sandbox argv[0]; reject anything that is not a
-	// safe token before it can be scheduled or turned into an affinity key.
-	if err := brewlet.ValidateLauncherName(launcher); err != nil {
-		res.DenyReason = brewlet.ReasonNoCompatibleLauncher
-		res.DenyMessage = err.Error()
-		return res
-	}
-	fr := CheckInventory(fleet, profiles, jdk, launcher, arch)
+	fr := CheckInventory(fleet, profiles, jdk, arch)
 	if !fr.Compatible {
 		res.DenyReason = fr.DenyReason
 		res.DenyMessage = fr.Message
@@ -101,7 +88,7 @@ func MutatePod(pod *corev1.Pod, fleet []NodeCapability, profiles []ProfileCapabi
 	res.Warning = fr.Warning
 
 	// 3. Steer scheduling onto capable nodes.
-	injectNodeAffinity(pod, jdk, launcher, arch)
+	injectNodeAffinity(pod, jdk, arch)
 	return res
 }
 
@@ -156,11 +143,11 @@ func refDigest(ref string) string {
 }
 
 // requiredCapabilityLabels returns the node-label selector requirements a pod
-// needs, derived from its explicit runtime requests. JDK and
-// launcher map to presence matches (Operator: Exists) against
+// needs, derived from its explicit runtime requests. JDK requests
+// map to presence matches (Operator: Exists) against
 // provisioner-emitted capability labels; arch maps to an In match against the
 // standard kubernetes.io/arch label. An empty request contributes nothing.
-func requiredCapabilityLabels(jdk, launcher string, arch []string) []corev1.NodeSelectorRequirement {
+func requiredCapabilityLabels(jdk string, arch []string) []corev1.NodeSelectorRequirement {
 	var reqs []corev1.NodeSelectorRequirement
 	if jdk != "" {
 		key := brewlet.LabelJDKPrefix + jdk
@@ -168,11 +155,6 @@ func requiredCapabilityLabels(jdk, launcher string, arch []string) []corev1.Node
 			key = brewlet.LabelJDKFeaturePrefix + strconv.Itoa(feature)
 		}
 		reqs = append(reqs, corev1.NodeSelectorRequirement{Key: key, Operator: corev1.NodeSelectorOpExists})
-	}
-	if launcher != "" && launcher != brewlet.VanillaLauncher {
-		reqs = append(reqs, corev1.NodeSelectorRequirement{
-			Key: brewlet.LabelLauncherPrefix + launcher, Operator: corev1.NodeSelectorOpExists,
-		})
 	}
 	if len(arch) > 0 {
 		reqs = append(reqs, corev1.NodeSelectorRequirement{
@@ -187,8 +169,8 @@ func requiredCapabilityLabels(jdk, launcher string, arch []string) []corev1.Node
 // matchExpressions within a term are ANDed while terms are ORed, the
 // requirements are appended to every existing term (and a fresh term is created
 // when the pod has none), preserving any operator/user-supplied affinity.
-func injectNodeAffinity(pod *corev1.Pod, jdk, launcher string, arch []string) {
-	reqs := requiredCapabilityLabels(jdk, launcher, arch)
+func injectNodeAffinity(pod *corev1.Pod, jdk string, arch []string) {
+	reqs := requiredCapabilityLabels(jdk, arch)
 	if len(reqs) == 0 {
 		return
 	}

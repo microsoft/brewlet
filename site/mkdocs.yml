@@ -88,7 +88,6 @@ nav:
       - Configuration: configuration.md
       - Capability labels and autoscaling: capability-labels-and-autoscaling.md
       - JDK management: jdk-management.md
-      - Launchers: launchers.md
   - Ship workloads:
       - Building & publishing: building-and-publishing.md
       - Managed dependency bundles: managed-dependency-bundles.md

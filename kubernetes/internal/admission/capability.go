@@ -19,28 +19,26 @@ import (
 )
 
 // NodeCapability is the brewlet-relevant view of a Node: whether it is ready and
-// which JDKs / launchers it advertises. It is derived from the labels and
+// which JDKs it advertises. It is derived from the labels and
 // annotations the provisioner writes (see provisioner/entrypoint.sh, §5.2).
 type NodeCapability struct {
-	Name      string
-	Ready     bool
-	Arch      string   // kubernetes.io/arch value, e.g. "amd64" or "arm64"
-	JDKs      []string // "<dist>-<feature>" tokens, e.g. ["temurin-21","microsoft-25"]
-	Launchers []string // launcher names, e.g. ["java","jaz"]
+	Name  string
+	Ready bool
+	Arch  string   // kubernetes.io/arch value, e.g. "amd64" or "arm64"
+	JDKs  []string // "<dist>-<feature>" tokens, e.g. ["temurin-21","microsoft-25"]
 }
 
 // NodeCapabilityFrom extracts a NodeCapability from a Node object. Readiness is
-// the provisioner-owned brewlet.sh/runtime=ready label; the JDK/launcher
-// inventory comes from the comma-separated brewlet.sh/jdks|launchers
+// the provisioner-owned brewlet.sh/runtime=ready label; the JDK
+// inventory comes from the comma-separated brewlet.sh/jdks
 // annotations the provisioner advertises; the architecture comes from the
 // standard kubelet-provided kubernetes.io/arch label.
 func NodeCapabilityFrom(node *corev1.Node) NodeCapability {
 	return NodeCapability{
-		Name:      node.Name,
-		Ready:     brewlet.RuntimeReady(node),
-		Arch:      node.Labels[brewlet.LabelArch],
-		JDKs:      splitInventory(node.Annotations[brewlet.AnnotationJDKs]),
-		Launchers: splitInventory(node.Annotations[brewlet.AnnotationLaunchers]),
+		Name:  node.Name,
+		Ready: brewlet.RuntimeReady(node),
+		Arch:  node.Labels[brewlet.LabelArch],
+		JDKs:  splitInventory(node.Annotations[brewlet.AnnotationJDKs]),
 	}
 }
 
@@ -77,21 +75,6 @@ func (c NodeCapability) supportsJDK(request string) bool {
 	}
 	for _, jdk := range c.JDKs {
 		if jdk == request {
-			return true
-		}
-	}
-	return false
-}
-
-// supportsLauncher reports whether this node provides the requested launcher.
-// The vanilla "java" launcher (empty or "java") is provided by every JDK root,
-// so it is always available on a ready node.
-func (c NodeCapability) supportsLauncher(request string) bool {
-	if request == "" || request == brewlet.VanillaLauncher {
-		return true
-	}
-	for _, l := range c.Launchers {
-		if l == request {
 			return true
 		}
 	}
@@ -137,14 +120,13 @@ func jdkFeature(jdk string) int {
 }
 
 // ProfileCapability is the admission view of a valid NodeProfile: the JDKs
-// and launchers any node of its pool will advertise once
+// any node of its pool will advertise once
 // provisioned. It lets admission accept pods whose capacity does not exist yet
 // (scale-from-zero) without inventing node capabilities. NodeProfiles carry no
 // architecture, so architecture is never decided from a profile.
 type ProfileCapability struct {
-	Name      string
-	JDKs      []string // "<dist>-<feature>" tokens
-	Launchers []string
+	Name string
+	JDKs []string // "<dist>-<feature>" tokens
 }
 
 // ProfileCapabilityFrom projects a NodeProfile's declared inventory. Callers
@@ -156,25 +138,21 @@ func ProfileCapabilityFrom(profile *nodev1alpha1.NodeProfile) ProfileCapability 
 	for _, j := range profile.Spec.JDKs {
 		c.JDKs = append(c.JDKs, j.Token())
 	}
-	for _, l := range profile.Spec.Launchers {
-		c.Launchers = append(c.Launchers, l.Name)
-	}
 	return c
 }
 
-// node projects a profile onto the NodeCapability matcher so JDK and launcher requests are evaluated identically for nodes and profiles.
+// node projects a profile onto the NodeCapability matcher so JDK requests are evaluated identically for nodes and profiles.
 func (p ProfileCapability) node() NodeCapability {
 	return NodeCapability{
-		Name:      p.Name,
-		JDKs:      p.JDKs,
-		Launchers: p.Launchers,
+		Name: p.Name,
+		JDKs: p.JDKs,
 	}
 }
 
-// FleetResult is the outcome of checking JDK, launcher, and architecture requests against the ready fleet and declared profiles.
+// FleetResult is the outcome of checking JDK and architecture requests against the ready fleet and declared profiles.
 type FleetResult struct {
 	// Compatible is true if a ready node or a single valid NodeProfile jointly
-	// satisfies every explicit JDK and launcher request.
+	// satisfies every explicit JDK request.
 	Compatible bool
 	// DenyReason identifies the unsatisfied capability or policy; empty when
 	// Compatible is true.
@@ -189,18 +167,17 @@ type FleetResult struct {
 	PendingProfiles []string
 }
 
-// CheckInventory decides whether a pod requesting the given JDK, launcher,
+// CheckInventory decides whether a pod requesting the given JDK
 // and architecture can run on the cluster's declared inventory:
 // the ready Brewlet nodes plus the valid NodeProfiles whose pools can provide
 // new nodes. Each request must be satisfied jointly by one ready node or one
 // profile; capabilities are never combined across candidates.
 //
-// It only ever denies for an explicit JDK or launcher request, checked
-// in that order. Architecture is a node-pool property NodeProfiles do not
+// It only ever denies for an explicit JDK request. Architecture is a node-pool property NodeProfiles do not
 // declare, so it never causes a denial: the injected kubernetes.io/arch
 // affinity steers scheduling and autoscaling, and a pod admitted without a
 // matching ready node receives a warning instead.
-func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, launcher string, arch []string) FleetResult {
+func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk string, arch []string) FleetResult {
 	ready := make([]NodeCapability, 0, len(fleet))
 	for _, n := range fleet {
 		if n.Ready {
@@ -209,14 +186,13 @@ func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, l
 	}
 
 	jdkExplicit := jdk != ""
-	launcherExplicit := launcher != "" && launcher != brewlet.VanillaLauncher
 	archExplicit := len(arch) > 0
-	if !jdkExplicit && !launcherExplicit && !archExplicit {
+	if !jdkExplicit && !archExplicit {
 		return FleetResult{Compatible: true}
 	}
 
 	satisfies := func(n NodeCapability) bool {
-		return n.supportsJDK(jdk) && n.supportsLauncher(launcher)
+		return n.supportsJDK(jdk)
 	}
 	readyMatch := false
 	for _, n := range ready {
@@ -243,49 +219,22 @@ func CheckInventory(fleet []NodeCapability, profiles []ProfileCapability, jdk, l
 		return FleetResult{
 			Compatible:      true,
 			PendingProfiles: pending,
-			Warning:         pendingWarning(jdk, launcher, arch, pending),
+			Warning:         pendingWarning(jdk, arch, pending),
 		}
 	}
 
-	// Nothing matched. Attribute the denial first to an axis no candidate
-	// satisfies at all (JDK -> launcher), then to the narrowest explicit
-	// runtime axis for a joint failure.
-	switch {
-	case jdkExplicit && !anySupportsJDK(candidates, jdk):
-		return FleetResult{
-			DenyReason: brewlet.ReasonNoCompatibleJDK,
-			Message: "no ready brewlet node or NodeProfile provides JDK " + strconv.Quote(jdk) +
-				"; available JDKs=" + strconv.Quote(fleetJDKs(candidates)),
-		}
-	case launcherExplicit && !anySupportsLauncher(candidates, launcher):
-		return FleetResult{
-			DenyReason: brewlet.ReasonNoCompatibleLauncher,
-			Message: "no ready brewlet node or NodeProfile provides launcher " + strconv.Quote(launcher) +
-				"; available launchers=" + strconv.Quote(fleetLaunchers(candidates)),
-		}
-	case launcherExplicit:
-		return FleetResult{
-			DenyReason: brewlet.ReasonNoCompatibleLauncher,
-			Message: "no ready brewlet node or NodeProfile jointly provides launcher " + strconv.Quote(launcher) +
-				" with JDK " + strconv.Quote(jdk) + "; available launchers=" + strconv.Quote(fleetLaunchers(candidates)),
-		}
-	default:
-		return FleetResult{
-			DenyReason: brewlet.ReasonNoCompatibleJDK,
-			Message: "no ready brewlet node or NodeProfile provides JDK " + strconv.Quote(jdk) +
-				"; available JDKs=" + strconv.Quote(fleetJDKs(candidates)),
-		}
+	return FleetResult{
+		DenyReason: brewlet.ReasonNoCompatibleJDK,
+		Message: "no ready brewlet node or NodeProfile provides JDK " + strconv.Quote(jdk) +
+			"; available JDKs=" + strconv.Quote(fleetJDKs(candidates)),
 	}
 }
 
 // pendingWarning explains why an admitted pod may stay Pending.
-func pendingWarning(jdk, launcher string, arch []string, profiles []string) string {
+func pendingWarning(jdk string, arch []string, profiles []string) string {
 	var want []string
 	if jdk != "" {
 		want = append(want, "jdk="+jdk)
-	}
-	if launcher != "" && launcher != brewlet.VanillaLauncher {
-		want = append(want, "launcher="+launcher)
 	}
 	if len(arch) > 0 {
 		want = append(want, "arch="+strings.Join(arch, ","))
@@ -302,30 +251,8 @@ func pendingWarning(jdk, launcher string, arch []string, profiles []string) stri
 	return msg
 }
 
-func anySupportsJDK(fleet []NodeCapability, jdk string) bool {
-	for _, n := range fleet {
-		if n.supportsJDK(jdk) {
-			return true
-		}
-	}
-	return false
-}
-
-func anySupportsLauncher(fleet []NodeCapability, launcher string) bool {
-	for _, n := range fleet {
-		if n.supportsLauncher(launcher) {
-			return true
-		}
-	}
-	return false
-}
-
 func fleetJDKs(fleet []NodeCapability) string {
 	return joinInventory(fleet, func(n NodeCapability) []string { return n.JDKs })
-}
-
-func fleetLaunchers(fleet []NodeCapability) string {
-	return joinInventory(fleet, func(n NodeCapability) []string { return n.Launchers })
 }
 
 // joinInventory returns the sorted, de-duplicated union of an inventory across

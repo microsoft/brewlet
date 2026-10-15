@@ -221,7 +221,7 @@ Some apps run library JARs on the class path and only the app (plus modular
 dependencies) on the module path — e.g. a JPMS app that also depends on
 automatic-module or non-modular libraries best carried on the class path. Brewlet
 supports this by keeping `entry.mode: module` and additionally permitting
-`entry.classPath`: the launcher emits `-cp <classPath>` **before**
+`entry.classPath`: Brewlet emits `-cp <classPath>` **before**
 `-p <modulePath> -m <module>` so the terminal `-m` stays last:
 
 ```
@@ -283,7 +283,7 @@ The tooling implements module detection and layout end to end:
 
 - [JEP 261: Module System](https://openjdk.org/jeps/261)
 - [JSR 376: Java Platform Module System](https://openjdk.org/projects/jigsaw/spec/)
-- `java` launcher: `--module-path` / `--module`, `jar --describe-module`
+- `java` command: `--module-path` / `--module`, `jar --describe-module`
 - [Layered classpath deployment](layered-classpath-deployment.md) — the
   class-path counterpart (thin JAR + dependency layers for registry dedup)
 - Brewlet: [SPECIFICATION §4 (artifact)](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md),

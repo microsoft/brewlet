@@ -25,7 +25,6 @@ USAGE:
 
 COMMANDS:
   jdk list                       advertised node JDKs (table, wide, json)
-  launcher list                  advertised optional launchers (table, wide, json)
   profile list                   desired inventories and profile readiness
   profile inspect NAME           profile configuration and its claimed nodes
   profile delete NAME            delete an unmanaged profile; --wait follows host cleanup
@@ -36,7 +35,6 @@ COMMANDS:
   doctor                         developer and cluster readiness checks
   install --version X.Y.Z -f FILE install the released Helm chart on a fresh cluster
   jdk add --profile NAME --distribution NAME --feature N --image REF --java-home PATH
-  launcher add --profile NAME --name NAME --image REF --path PATH
 
 COMMON FLAGS (before the command or after its full name):
   --kubeconfig FILE   kubeconfig path (otherwise kubectl/Helm defaults)
@@ -49,7 +47,7 @@ NAMESPACE (--namespace NAME, the namespace the command operates on):
   inspect app  application namespace (default: current context namespace)
   app          application namespace (default: current context namespace)
   doctor       application namespace (default: current context namespace)
-  jdk, launcher and profile commands are cluster-scoped and reject --namespace.
+  jdk and profile commands are cluster-scoped and reject --namespace.
 
 READ FLAGS:
   --output table|json|yaml  default table (inventory also supports wide, not yaml)
@@ -63,7 +61,6 @@ PROFILE ADD FLAGS:
   --profile NAME     existing target profile
   --image REF        digest-pinned runtime source
   JDK: --distribution NAME --feature N --java-home PATH
-  Launcher: --name NAME --path PATH
   --output yaml|json default yaml; prints the full updated declaration
   --replace          explicitly replace an existing source with the same identity
 
@@ -82,7 +79,7 @@ OFFLINE INPUT (requires --dry-run or --dry-run=client):
   Input files are never overwritten.
 
 PROFILE DELETE FLAGS:
-  Deletion is asynchronous: the operator removes the profile's JDK/launcher
+  Deletion is asynchronous: the operator removes the profile's JDK
   runtimes from its nodes before releasing the cleanup finalizer.
   --wait             follow per-node cleanup until the profile is gone
   --wait-timeout 10m overall --wait deadline (requires --wait)
@@ -137,7 +134,7 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	}
 	command := args[0]
 	args = args[1:]
-	if command == "jdk" || command == "launcher" || command == "profile" || command == "inspect" || command == "app" {
+	if command == "jdk" || command == "profile" || command == "inspect" || command == "app" {
 		if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 			_, err := fmt.Fprint(out, help)
 			return err
@@ -154,15 +151,15 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	var del deleteOptions
 	var waitTimeout time.Duration
 	switch command {
-	case "jdk list", "launcher list":
+	case "jdk list":
 		fs.StringVar(&opts.output, "output", "table", "table, wide, or json")
 		fs.StringVar(&opts.selector, "selector", "", "node label selector")
 	case "status", "profile list", "profile inspect", "inspect app", "app status", "doctor":
 		fs.StringVar(&opts.output, "output", "table", "table, json, or yaml")
 	case "app wait":
 		fs.DurationVar(&waitTimeout, "wait-timeout", 5*time.Minute, "overall readiness deadline")
-	case "jdk add", "launcher add":
-		update.flags(fs, command == "jdk add")
+	case "jdk add":
+		update.flags(fs)
 		fs.StringVar(&opts.output, "output", "yaml", "yaml or json")
 	case "profile delete":
 		del.flags(fs)
@@ -203,9 +200,9 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	}
 	allowed := []string{"table", "json", "yaml"}
 	switch command {
-	case "jdk list", "launcher list":
+	case "jdk list":
 		allowed = []string{"table", "wide", "json"}
-	case "jdk add", "launcher add":
+	case "jdk add":
 		allowed = []string{"yaml", "json"}
 	case "install", "app wait":
 		allowed = []string{""}
@@ -217,8 +214,6 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 	switch command {
 	case "jdk list":
 		return c.jdks()
-	case "launcher list":
-		return c.launchers()
 	case "profile list":
 		return c.profiles()
 	case "profile inspect":
@@ -236,7 +231,7 @@ func run(ctx context.Context, args []string, out, stderr io.Writer, exec executo
 		return c.status()
 	case "doctor":
 		return c.doctor()
-	case "jdk add", "launcher add":
+	case "jdk add":
 		return c.updateProfile(update)
 	case "install":
 		return c.install(install)
@@ -263,7 +258,7 @@ func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
 }
 
 func clusterScoped(command string) bool {
-	return oneOf(command, "jdk list", "launcher list", "profile list", "profile inspect", "profile delete", "jdk add", "launcher add")
+	return oneOf(command, "jdk list", "profile list", "profile inspect", "profile delete", "jdk add")
 }
 
 func flagSet(fs *flag.FlagSet, name string) bool {

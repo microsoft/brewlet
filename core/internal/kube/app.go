@@ -148,7 +148,6 @@ func summarizePod(obj object) (podSummary, error) {
 	pod := podSummary{
 		Name: obj.Metadata.Name, Node: podSpec.NodeName, Phase: obj.Status.Phase,
 		Problems: []string{}, JDKRequest: obj.Metadata.Annotations["brewlet.sh/jdk"],
-		Launcher: obj.Metadata.Annotations["brewlet.sh/launcher"],
 	}
 	for _, cond := range obj.Status.Conditions {
 		if cond.Type == "Ready" {

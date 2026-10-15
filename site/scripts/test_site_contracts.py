@@ -210,7 +210,7 @@ class SiteContractsTest(unittest.TestCase):
         self.assertEqual(config["schemaVersion"], 1)
         self.assertEqual(config["mainJar"], "app.jar")
         self.assertEqual(config["entry"], {"mode": "jar"})
-        for deployment_field in ("jdk", "launcher", "ports", "jvmArgs", "resources"):
+        for deployment_field in ("jdk", "ports", "jvmArgs", "resources"):
             self.assertNotIn(deployment_field, config)
 
     def test_blocked_cleanup_recovery_preserves_host_authority(self):

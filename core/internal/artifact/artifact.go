@@ -48,10 +48,9 @@ const (
 // JVMConfig is the launch descriptor carried in the artifact's config blob.
 //
 // It carries only what the *application build* needs to launch correctly —
-// never deployment concerns. The JDK feature/distribution and the launcher live
-// solely in the deployment descriptor (the CRD's jvm.version/jvm.distribution/
-// jvm.launcher, or the raw-Deployment pod annotations brewlet.sh/jdk and
-// brewlet.sh/launcher). Likewise there is deliberately NO free-form JVM-args
+// never deployment concerns. The JDK feature/distribution lives solely in
+// the deployment descriptor (the CRD's jvm.version/jvm.distribution, or the
+// raw-Deployment pod annotation brewlet.sh/jdk). There is NO free-form JVM-args
 // field: resource/environment tuning (heap, GC, agents, …) belongs in the
 // descriptor's jvm.args. The only launch knobs here are the app-intrinsic
 // correctness flags below (preview features, module-system access, system
@@ -148,26 +147,8 @@ func IsKnownArch(s string) bool {
 	return ok
 }
 
-// VanillaLauncher is the implicit OpenJDK launcher name. An empty or "java"
-// launcher request means the stock `java` binary from the selected JDK, which
-// every ready node provides and which needs no launcher layer.
-const VanillaLauncher = "java"
-
-// IsVanillaLauncher reports whether a launcher request names the stock OpenJDK
-// `java` launcher (empty or "java"), as opposed to a custom node-installed
-// launcher such as "jaz".
-func IsVanillaLauncher(name string) bool {
-	return name == "" || name == VanillaLauncher
-}
-
-// MaxLauncherNameLength bounds a custom launcher name. It is the DNS-1123 label
-// budget left after the "launcher." prefix the Kubernetes platform stamps onto
-// nodes as the brewlet.sh/launcher.<name> capability label, so every name the
-// runtime accepts can also be advertised and scheduled on.
-const MaxLauncherNameLength = 63 - len("launcher.")
-
 // runtimeTokenPattern is the DNS-1123 label rule node-resident runtime directory
-// names must satisfy — custom launcher names and JDK distributions alike:
+// names must satisfy, including JDK distributions:
 // lowercase alphanumerics and dashes, starting and ending alphanumeric. It is
 // written out rather than pulled from k8s.io/apimachinery so the core module
 // stays dependency-free; NodeProfile validation
@@ -178,7 +159,7 @@ var runtimeTokenPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // ValidateRuntimeToken enforces that value can only ever name a directory
 // *directly inside* the node's runtime roots. Such a token is not a cosmetic
-// hint: the shim joins it onto /opt/brewlet/{jdks,launchers} to pick an overlay
+// hint: the shim joins it onto /opt/brewlet/jdks to pick an overlay
 // lower layer and a privileged bind-mount source. A value carrying a path
 // separator or a parent reference (e.g. "../../..") is therefore a
 // host-path-traversal primitive (CWE-22). The pattern rejects separators (either
@@ -192,41 +173,6 @@ func ValidateRuntimeToken(field, value string, maxLen int) error {
 		return fmt.Errorf("%s %q must be a lowercase DNS-1123 token (letters, digits and dashes; no path separator, parent reference or wildcard)", field, value)
 	}
 	return nil
-}
-
-// validateLauncherName enforces that a custom launcher request is a safe
-// DNS-1123 token (see ValidateRuntimeToken). Beyond the shared runtime-root
-// traversal risk, the launcher name is also the sandbox argv[0]. The vanilla
-// launcher ("" or "java") needs no layer and is always accepted.
-func validateLauncherName(name string) error {
-	if IsVanillaLauncher(name) {
-		return nil
-	}
-	return ValidateRuntimeToken("launcher", name, MaxLauncherNameLength)
-}
-
-// ValidateLauncherName is validateLauncherName for callers outside this package
-// (the shim's launcher selection, the local runtime, and the CLI), which
-// re-check a launcher request at the point it is joined onto a host directory,
-// used as a bind-mount source, or used as argv[0].
-func ValidateLauncherName(name string) error {
-	return validateLauncherName(name)
-}
-
-// LauncherName resolves a launcher request to the launcher binary name,
-// defaulting to the vanilla "java" launcher for an empty request, after
-// re-checking that the request is a safe token. Every caller that joins the name
-// onto a host directory, uses it as a mount source, or executes it as argv[0]
-// resolves it through here (mirroring MainJarName) so an unvalidated annotation
-// cannot escape the launcher roots.
-func LauncherName(name string) (string, error) {
-	if IsVanillaLauncher(name) {
-		return VanillaLauncher, nil
-	}
-	if err := validateLauncherName(name); err != nil {
-		return "", err
-	}
-	return name, nil
 }
 
 type Entry struct {
@@ -248,7 +194,7 @@ type Entry struct {
 	// ClassPath is an optional, ordered list of /app-relative class-path entries
 	// (e.g. ["app.jar", "lib/*"]). Entries are joined with the node path separator,
 	// in order, and passed to `java -cp`. The "lib/*" wildcard is expanded by the
-	// JVM launcher. It is used in "classpath" mode (where, when empty, launch falls
+	// Java executable. It is used in "classpath" mode (where, when empty, launch falls
 	// back to the single MainJar) and, optionally, in "module" mode to add a
 	// supplementary class path next to the module path (the mixed form). See
 	// https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md.

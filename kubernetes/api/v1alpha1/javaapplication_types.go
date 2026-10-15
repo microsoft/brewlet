@@ -19,7 +19,7 @@ type JavaApplicationSpec struct {
 	// Resources is copied verbatim onto the container and enforced as the
 	// sandbox cgroup (§10). The container-aware JDK reads these limits directly.
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
-	// JVM selects the JDK/launcher and carries user JVM tuning (§9.3/§10).
+	// JVM selects the JDK and carries user JVM tuning (§9.3/§10).
 	JVM JVMSpec `json:"jvm,omitempty"`
 	// Env is wired through to the container verbatim.
 	Env []corev1.EnvVar `json:"env,omitempty"`
@@ -54,7 +54,7 @@ type ArtifactSpec struct {
 	PullSecrets []string `json:"pullSecrets,omitempty"`
 }
 
-// JVMSpec selects the JDK/launcher and carries deployment-side JVM tuning. Per
+// JVMSpec selects the JDK and carries deployment-side JVM tuning. Per
 // §8.2/§10 Brewlet injects no tuning of its own. Args here is the DEPLOYMENT's
 // tuning (heap %, GC, agents, container flags), appended after the artifact's
 // app-intrinsic launch knobs (enablePreview/addOpens/addExports/addModules/
@@ -71,23 +71,15 @@ type JVMSpec struct {
 	// "<distribution>-<version>" node JDK (e.g. "microsoft-25"); when omitted,
 	// any distribution providing the requested Version is acceptable and each
 	// node selects the lexically-first installed distribution for it (no
-	// built-in vendor preference). Ignored unless Version is also set. Like
-	// Launcher it names a node-installed runtime root directory, so it is
+	// built-in vendor preference). Ignored unless Version is also set. It
+	// names a node-installed runtime root directory, so it is
 	// constrained to a lowercase DNS-1123 token.
 	// +kubebuilder:validation:MaxLength=48
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	Distribution string `json:"distribution,omitempty"`
-	// Launcher selects the JVM launcher: "java" (vanilla OpenJDK, default) or a
-	// custom launcher such as "jaz" (§9.3). Stamped as the brewlet.sh/launcher
-	// pod annotation. It names a node-installed launcher layer directory, so it
-	// is constrained to a lowercase DNS-1123 token — a separator or parent
-	// reference would be a host-path-traversal primitive on the node.
-	// +kubebuilder:validation:MaxLength=54
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
-	Launcher string `json:"launcher,omitempty"`
 	// Args are user-supplied JVM flags. They are stamped on the pod as the
 	// brewlet.sh/jvm-args annotation (a JSON array) and appended by the shim to
-	// the launcher argv immediately before the entrypoint, so they are applied
+	// the Java argv immediately before the entrypoint, so they are applied
 	// AFTER the artifact's own launch knobs and win on conflict (§4.2/§8.2).
 	// Args that select the entrypoint (-jar/-cp/-p/-m and their long forms) and
 	// java @argfiles are rejected: the artifact owns the entrypoint.
@@ -159,7 +151,7 @@ const (
 	ConditionJVMArgsApplied = "JVMArgsApplied"
 
 	// ReasonArgsDelivered — jvm.args were stamped on the pod as the
-	// brewlet.sh/jvm-args annotation and are appended to the launcher argv.
+	// brewlet.sh/jvm-args annotation and are appended to the Java argv.
 	ReasonArgsDelivered = "ArgsDelivered"
 	// ReasonEnvOptionsOverlap — jvm.args were delivered as argv, but the user
 	// also set JDK_JAVA_OPTIONS/JAVA_TOOL_OPTIONS in spec.env. The JVM applies

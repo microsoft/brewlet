@@ -17,13 +17,12 @@ spec:
   template:
     metadata:
       labels: { app: hello }
-      # Optional: request a specific JDK/launcher. The brewlet-admission webhook
-      # validates these against ready nodes (NoCompatibleJDK/NoCompatibleLauncher)
+      # Optional: request a specific JDK. The brewlet-admission webhook
+      # validates these against ready nodes (NoCompatibleJDK)
       # and injects nodeAffinity so the scheduler skips incompatible nodes. Omit
-      # to accept any provisioned JDK and the vanilla `java` launcher.
+      # to use the default JDK feature selection.
       annotations:
         brewlet.sh/jdk: "21"        # bare feature (any distribution) or e.g. "temurin-21"
-        brewlet.sh/launcher: "java" # vanilla launcher; use "jaz" for auto-tuning (§9.3)
         # brewlet.sh/arch: "amd64"  # optional; only for non-portable JARs bundling JNI natives
     spec:
       runtimeClassName: brewlet          # <-- the only Brewlet-specific line

@@ -10,7 +10,6 @@ failure-mode summary is from [SPECIFICATION §14](https://github.com/microsoft/b
 | Scenario | Behavior you'll see | Where to look |
 |---|---|---|
 | No compatible JDK on any ready node | Pod stays `Pending`; event `NoCompatibleJDK`; scheduler skips nodes | [→ JDK issues](#pod-is-pending-with-nocompatiblejdk) |
-| Requested launcher not installed | Pod stays `Pending`; event `NoCompatibleLauncher`; scheduler skips nodes | [→ launcher issues](#pod-is-pending-with-nocompatiblelauncher) |
 | OCI artifact missing/unauthorized | `ImagePull`-style failure on the pod | [→ artifact pull](#imagepull-style-failure) |
 | JavaApplication replacement rollout is incomplete | `Ready=False/Progressing` even while old replicas remain ready | [→ rollout status](#javaapplication-is-not-ready-during-a-rollout) |
 | JVM OOM | `ExitOnOutOfMemoryError` → exit → kubelet restart | [→ OOM](#pod-restarts-oomkilled) |
@@ -95,11 +94,9 @@ contract — do not parse it.
   [JDK management](jdk-management.md#source-model).
 - **can't reach the registry / socket** — verify the containerd
   socket mount and that the node can pull the JDK image.
-- **JDK or launcher validation failed** — `brewlet.sh/provision-error`
+- **JDK validation failed** — `brewlet.sh/provision-error`
   identifies the failed component. Confirm each configured JDK has an executable
-  `<javaHome>/bin/java` that passes `java -version`; confirm each launcher source
-  is a regular non-symlink file and the staged copy is executable. Arbitrary
-  launchers are not executed as readiness probes. A failure removes stale
+  `<javaHome>/bin/java` that passes `java -version`. A failure removes stale
   runtime and capability labels.
 - **containerd config validation failed** — in `validated` mode, Brewlet runs
   `containerd config dump` and requires the exact `brewlet` handler before
@@ -187,7 +184,6 @@ Correct the condition message:
 - replace every tagged `spec.jdks[].source.image` with a fully qualified,
   tagless `repository@sha256:<64 lowercase hex>` reference;
 - supply `source.image` and `source.javaHome` for every JDK;
-- supply `name`, `source.image`, and `source.path` for every optional launcher;
 - add the exact mirror destination host, including any explicit port, to
   `security.allowedSourceMirrorHosts`, or remove the mapping; and
 - remove duplicate/self mirror mappings and conflicting named-pool ownership.
@@ -285,21 +281,6 @@ Apply the values with `helm upgrade ... -f values.yaml`, wait for
 
 ---
 
-## Pod is Pending with `NoCompatibleLauncher`
-
-Same as above, for launchers. The pod requested `spec.jvm.launcher` or
-`brewlet.sh/launcher: <name>` that no ready node has.
-
-```bash
-kubectl get nodes -o custom-columns=NODE:.metadata.name,LAUNCHERS:.metadata.annotations.brewlet\\.sh/launchers
-```
-
-**Fix:** add a structured launcher entry with `name`, digest-pinned
-`source.image`, and absolute `source.path`, then re-provision; or drop the
-request to use the vanilla `java` launcher (omit the annotation). See
-[Launchers](launchers.md#helm-example-jaz).
-
----
 
 ## Pod is Pending after a "no ready node currently provides" warning
 
@@ -348,7 +329,6 @@ offers it yet. The pod waits for capacity:
   `-XX:MaxRAMPercentage=75.0` (not 100%) so Metaspace/threads/code-cache/direct
   buffers fit under `limits.memory`. See [Resource requests, limits & JVM tuning](resource-tuning.md#memory-leave-headroom-for-non-heap).
 - Add `-XX:+ExitOnOutOfMemoryError` so an OOM is a clean restart, not a hang.
-- Or switch to `jaz`, which sizes the heap from the cgroup automatically.
 - Raise `limits.memory` if the workload genuinely needs more.
 
 ---
@@ -443,7 +423,7 @@ containerd --config /etc/containerd/config.toml config dump | grep -A4 runtimes.
 
 - Re-read the relevant guide: [Installation](installation.md),
   [Configuration](configuration.md), [JDK management](jdk-management.md),
-  [Launchers](launchers.md), [Resource requests, limits & JVM tuning](resource-tuning.md).
+  [Resource requests, limits & JVM tuning](resource-tuning.md).
 - The provisioner entrypoint is **idempotent** — safe to let it re-run after you fix
   node state.
 - Component logs: `kubectl logs -n brewlet <operator|admission|provisioner pod>`.

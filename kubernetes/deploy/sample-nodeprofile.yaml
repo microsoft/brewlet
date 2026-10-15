@@ -3,7 +3,7 @@
 
 # Sample NodeProfile manifests. See https://github.com/microsoft/brewlet/tree/main/specs.
 #
-# A NodeProfile binds a node pool to a JDK/launcher inventory. Selecting a pool
+# A NodeProfile binds a node pool to a JDK inventory. Selecting a pool
 # IS the opt-in: every node in the pool — present and future — is provisioned by
 # a per-profile brewlet-node-provisioner DaemonSet the operator reconciles.
 #
@@ -22,7 +22,7 @@
 ---
 # The catch-all default profile: no nodePool.names => it owns every node NOT
 # claimed by a named-pool profile below (control-plane nodes still excluded).
-# The Helm chart renders one of these for you from provisioner.jdks/launchers,
+# The Helm chart renders one of these for you from provisioner.jdks,
 # scoped to the pools you name in provisioner.pools; this is what it looks like.
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
@@ -40,11 +40,6 @@ spec:
       source:
         image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
         javaHome: /usr/lib/jvm/msopenjdk-25
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
   rollout:
     validate: true
     containerdRestart: validated
@@ -94,11 +89,6 @@ spec:
       source:
         image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
         javaHome: /usr/lib/jvm/msopenjdk-25
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
   # Air-gapped clusters: pull immutable sources through an internal mirror. The
   # destination host must be present in the operator/admission mirror allowlist.
   registry:

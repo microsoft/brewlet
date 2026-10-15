@@ -11,9 +11,9 @@ invocation-owned registry and disposable kind cluster:
             rejected credentials; --store; unqualified refs; repeat publication)
   apps      `brewlet k8s app status|wait` (namespaces, outputs, generations,
             missing resources, rollout and API timeouts)
-  inventory `brewlet k8s status|doctor`, `jdk|launcher list`, `profile
+  inventory `brewlet k8s status|doctor`, `jdk list`, `profile
             list|inspect`, `inspect app` (outputs, namespaces, ground truth),
-            `jdk|launcher add` (client/server dry runs without mutation,
+            `jdk add` (client/server dry runs without mutation,
             offline --file, Helm refusal, live add on a disposable profile)
             and `install` validation plus its fresh-install-only guard
   maven     `mvn package brewlet:push` (immutable handoff -> kubectl apply ->
@@ -491,7 +491,6 @@ def app_scenario(f, image, published):
 
 INVENTORY_PROFILE = "wf-inventory"
 JDK17 = ("--distribution", "temurin", "--feature", "17", "--image", JDK_IMAGE, "--java-home", "/opt/java/openjdk")
-JAZ = ("--name", "jaz", "--image", JDK_IMAGE, "--path", "/opt/java/openjdk/bin/java")
 
 
 def quiet_failure(result, needle, what):
@@ -568,21 +567,6 @@ def inventory_reads(f, kc, alpha, profile, advertised, annotations):
     f.record("k8s-jdk-list-node-inventory", {"node": f.node, "jdks": jdks, "formats": ["json", "wide", "table"],
              "selectors": {"brewlet.sh/e2e-pool=live": len(selected), "brewlet.sh/e2e-pool=wf-none": 0}})
 
-    launchers = json.loads(f.k8s("launcher-list-json", kc, "launcher", "list", "--output", "json").stdout)
-    names = sorted({n.strip() for n in annotations.get("brewlet.sh/launchers", "").split(",") if n.strip()})
-    require(launchers == [{"name": n, "nodes": [f.node]} for n in names],
-            f"launcher list differs from brewlet.sh/launchers {names}: {launchers}")
-    # Every JDK supplies the implicit "java" launcher next to any declared ones.
-    declared = sorted({"java", *(l["name"] for l in profile["spec"].get("launchers", []))})
-    require(names == declared, f"advertised launchers {names} differ from the live NodeProfile declaration {declared}")
-    wide = f.k8s("launcher-list-wide", kc, "launcher", "list", "--output", "wide").stdout.splitlines()
-    require(wide[0].split() == ["LAUNCHER", "NODE"] and len(wide) == 1 + len(names), f"launcher wide table: {wide}")
-    selected = json.loads(f.k8s("launcher-list-selector-empty", kc, "launcher", "list", "--selector",
-                                "brewlet.sh/e2e-pool=wf-none", "--output", "json").stdout)
-    require(selected == [], "non-matching launcher selector returned inventory")
-    f.record("k8s-launcher-list-node-inventory", {"launchers": launchers, "nodeAnnotation": names,
-             "declared": profile["spec"].get("launchers", [])})
-
     rows = json.loads(f.k8s("profile-list-json", kc, "profile", "list", "--output", "json").stdout)
     declared = sorted(p["metadata"]["name"] for p in f.get("nodeprofile")["items"])
     require([r["name"] for r in rows] == declared == ["live"], f"profile list names {rows} vs {declared}")
@@ -617,9 +601,8 @@ def inventory_reads(f, kc, alpha, profile, advertised, annotations):
              "claimedNodes": owners, "formats": {"list": ["json", "table"], "inspect": ["json", "yaml", "default"]}})
 
     rejected = {}
-    for command in (["jdk", "list"], ["launcher", "list"], ["profile", "list"], ["profile", "inspect", "live"],
-                    ["jdk", "add", "--profile", "live", *JDK17, "--dry-run"],
-                    ["launcher", "add", "--profile", "live", *JAZ, "--dry-run"]):
+    for command in (["jdk", "list"], ["profile", "list"], ["profile", "inspect", "live"],
+                    ["jdk", "add", "--profile", "live", *JDK17, "--dry-run"]):
         verb = " ".join(command[:2])
         result = f.k8s(f"{verb.replace(' ', '-')}-namespace-rejected", alpha, *command, "--namespace", APP_NS,
                        expect="fail")
@@ -733,7 +716,7 @@ def inspect_app(f, alpha, image):
     ready_pods = [p for p in report["pods"] if p["ready"]]
     require(report["name"] == "wf-app" and report["namespace"] == APP_NS and report["ready"] and
             report["image"] == app["spec"]["artifact"]["image"] == image and report["jdkRequest"] == "temurin-21" and
-            report["launcher"] == "java" and owned and [d["name"] for d in report["deployments"]] == owned and
+            owned and [d["name"] for d in report["deployments"]] == owned and
             all(d["ready"] for d in report["deployments"]) and ready_pods and
             all(p["node"] == f.node for p in report["pods"]) and
             all(p["jdkRequest"] == "temurin-21" for p in ready_pods),
@@ -806,27 +789,6 @@ def profile_add(f, kc, uid):
     f.record("k8s-jdk-add-dry-runs-nonmutating", {"profile": before, "client": doc["spec"]["jdks"],
              "server": served["spec"]["jdks"], "conflictRefused": True, "replaceDryRun": True})
 
-    jaz = {"name": "jaz", "source": {"image": JDK_IMAGE, "path": "/opt/java/openjdk/bin/java"}}
-    client = add("launcher-add-client-dry-run", "launcher", *JAZ, "--dry-run", "--output", "json")
-    ldoc = json.loads(client.stdout)
-    check_doc(ldoc, "launcher add --dry-run")
-    require(ldoc["spec"].get("launchers") == live["spec"].get("launchers", []) + [jaz] and
-            ldoc["spec"]["jdks"] == live["spec"]["jdks"] and "Server validation was not performed" in client.stderr,
-            f"launcher client dry run: {ldoc['spec']}")
-    server = add("launcher-add-server-dry-run", "launcher", *JAZ, "--dry-run=server", "--output", "json")
-    lserved = json.loads(server.stdout)
-    check_doc(lserved, "launcher add --dry-run=server")
-    require(lserved["spec"].get("launchers") == [jaz] and "Server dry run succeeded" in server.stderr,
-            f"launcher server dry run: {lserved['spec']}")
-    quiet_failure(add("launcher-add-java-refused", "launcher", "--name", "java", "--image", JDK_IMAGE, "--path",
-                      "/opt/java/openjdk/bin/java", "--dry-run", expect="fail"),
-                  "java is supplied by each JDK", "launcher add java")
-    quiet_failure(add("launcher-add-relative-path", "launcher", "--name", "jaz", "--image", JDK_IMAGE, "--path",
-                      "bin/java", "--dry-run=server", expect="fail"), "must be a clean absolute path below /",
-                  "relative launcher path")
-    f.record("k8s-launcher-add-dry-runs-nonmutating", {"profile": before, "client": ldoc["spec"]["launchers"],
-             "server": lserved["spec"]["launchers"], "javaRefused": True})
-
     source = f.private / "live-nodeprofile.json"
     h.write_private(source, json.dumps(live))
     digest = sha256(source)
@@ -836,10 +798,13 @@ def profile_add(f, kc, uid):
     require(offline["spec"] == doc["spec"], "offline file input differs from the live client dry run")
     yaml_file = f.private / "live-server-dry-run.yaml"
     h.write_private(yaml_file, yaml_out)
-    roundtrip = json.loads(add("launcher-add-offline-yaml-file", "launcher", *JAZ, "--file", yaml_file, "--dry-run",
-                               "--output", "json").stdout)
-    require(roundtrip["spec"]["jdks"] == served["spec"]["jdks"] and roundtrip["spec"].get("launchers") == [jaz],
-            f"YAML file input does not round-trip the server dry-run declaration: {roundtrip['spec']}")
+    roundtrip = json.loads(add("jdk-add-offline-yaml-file", "jdk", "--distribution", "temurin-offline", "--feature", "17",
+                               "--image", JDK_IMAGE, "--java-home", "/opt/java/openjdk", "--file", yaml_file,
+                               "--dry-run", "--output", "json").stdout)
+    check_doc(roundtrip, "jdk add --file YAML")
+    extra_jdk = {"distribution": "temurin-offline", "feature": 17, "source": jdk17["source"]}
+    require(roundtrip["spec"]["jdks"] == served["spec"]["jdks"] + [extra_jdk],
+            f"YAML file input did not preserve the declaration and add a JDK: {roundtrip['spec']}")
     refusals = {}
     for flags in ([], ["--dry-run=server"]):
         name = "jdk-add-offline-file-requires-client" + "".join(flags).replace("-", "_").replace("=", "_")
@@ -855,8 +820,7 @@ def profile_add(f, kc, uid):
         before = snapshot(f, "live")
         refused = {}
         for name, kind, args, flags in (("jdk-add-helm-live", "jdk", JDK17, []),
-                                        ("jdk-add-helm-server-dry-run", "jdk", JDK17, ["--dry-run=server"]),
-                                        ("launcher-add-helm-live", "launcher", JAZ, [])):
+                                        ("jdk-add-helm-server-dry-run", "jdk", JDK17, ["--dry-run=server"])):
             result = add(name, kind, *args, *flags, expect="fail")
             quiet_failure(result, 'profile "live" is managed by Helm; edit its source of truth', name)
             refused[name] = result.stderr.strip()
@@ -875,7 +839,7 @@ def disposable_add(f, kc):
     """Real (non-dry-run) additions on a profile whose pool matches no node."""
     # rollout is explicit like `live`: the operator's finalizer Update otherwise
     # serializes `rollout: {}` under its own field manager ("entry"), which
-    # `jdk|launcher add` then refuses as foreign ownership (microsoft/brewlet#210).
+    # `jdk add` then refuses as foreign ownership (microsoft/brewlet#210).
     f.apply({"apiVersion": "node.brewlet.sh/v1alpha1", "kind": "NodeProfile", "metadata": {"name": INVENTORY_PROFILE},
              "spec": {"nodePool": {"key": "brewlet.sh/e2e-pool", "names": ["wf-inventory-unclaimed"]},
                       "jdks": [{"distribution": "temurin", "feature": 21,
@@ -885,29 +849,20 @@ def disposable_add(f, kc):
          ["metadata"].get("finalizers"), timeout=60)
     try:
         first = f.get("nodeprofile", INVENTORY_PROFILE)["metadata"]
-        jaz = {"name": "jaz", "source": {"image": JDK_IMAGE, "path": "/opt/java/openjdk/bin/java"}}
-        result = f.k8s("launcher-add-live", kc, "launcher", "add", "--profile", INVENTORY_PROFILE, *JAZ,
-                       "--output", "json")
-        printed = json.loads(result.stdout)
-        after = f.get("nodeprofile", INVENTORY_PROFILE)
-        require("Profile update accepted; provisioning is asynchronous." in result.stderr and
-                printed["spec"]["launchers"] == after["spec"]["launchers"] == [jaz] and
-                after["metadata"]["uid"] == first["uid"] and after["metadata"]["generation"] == first["generation"] + 1,
-                f"live launcher add did not persist exactly once: {after['metadata']} {after['spec']}")
         result = f.k8s("jdk-add-live", kc, "jdk", "add", "--profile", INVENTORY_PROFILE, *JDK17)
         after = f.get("nodeprofile", INVENTORY_PROFILE)
         managers = sorted({m["manager"] for m in f.get("nodeprofile", INVENTORY_PROFILE, "--show-managed-fields")
                            ["metadata"].get("managedFields", [])})
         require(re.search(r"^kind: NodeProfile$", result.stdout, re.M) and
                 [(j["distribution"], j["feature"]) for j in after["spec"]["jdks"]] == [("temurin", 21), ("temurin", 17)]
-                and after["spec"]["launchers"] == [jaz] and after["metadata"]["generation"] == first["generation"] + 2
+                and after["metadata"]["generation"] == first["generation"] + 1
                 and "brewlet" in managers, f"live jdk add: {after['spec']} managers={managers}")
         live_rows = {r["name"]: r for r in json.loads(f.k8s("profile-list-after-add", kc, "profile", "list",
                                                              "--output", "json").stdout)}
         require(live_rows[INVENTORY_PROFILE]["spec"] == after["spec"] and live_rows["live"]["ready"],
                 "profile list does not reflect the live addition")
         updated = {"generation": after["metadata"]["generation"], "jdks": after["spec"]["jdks"],
-                   "launchers": after["spec"]["launchers"], "fieldManagers": managers}
+                   "fieldManagers": managers}
     finally:
         f.kube("delete", "nodeprofile", INVENTORY_PROFILE, "--ignore-not-found", "--wait=true", "--timeout=180s")
     require(f.kube("get", "nodeprofile", INVENTORY_PROFILE, check=False).returncode != 0,

@@ -11,7 +11,7 @@ Kubernetes node.**
 
 Brewlet separates the application from the Java runtime. Developers publish
 their JAR and launch metadata as a standard OCI artifact, while platform teams
-control the JDK distributions and launchers installed on each node. Kubernetes
+control the JDK distributions installed on each node. Kubernetes
 schedules the workload onto a compatible node and containerd starts it through
 the Brewlet runtime shim.
 
@@ -44,8 +44,8 @@ Evaluate it in a disposable environment, not a production or shared cluster.
  Platform operator                   Developer
  ─────────────────                   ─────────
  NodeProfile: approved JDKs          JAR + launch metadata,
- and launchers, pinned to            packaged by the CLI or
- OCI digests                         the Maven plugin
+ pinned to OCI digests               packaged by the CLI or
+                                     the Maven plugin
                │                                   │
                ▼                                   ▼
  ┌────────────────────────────┐      ┌────────────────────────────┐
@@ -72,8 +72,8 @@ Evaluate it in a disposable environment, not a production or shared cluster.
                            Java application
 ```
 
-1. The platform operator installs Brewlet and defines the supported JDK and
-   launcher inventory through one or more `NodeProfile` resources. Every runtime
+1. The platform operator installs Brewlet and defines the supported JDK
+   inventory through one or more `NodeProfile` resources. Every runtime
    source is administrator-provided and pinned to an OCI SHA-256 digest.
 2. The node provisioner installs the containerd shim and approved runtimes on
    matching nodes, then advertises their capabilities through node metadata.
@@ -89,7 +89,7 @@ Evaluate it in a disposable environment, not a production or shared cluster.
 | Subproject | Path | Responsibility |
 | --- | --- | --- |
 | Core runtime | [`core/`](core/) | Contains the Brewlet CLI, artifact tooling, shared runtime packages, and containerd Runtime v2 shim. |
-| Node provisioner | [`provisioner/`](provisioner/) | Installs and removes the shim, JDK roots, launchers, and containerd configuration on Linux nodes. |
+| Node provisioner | [`provisioner/`](provisioner/) | Installs and removes the shim, JDK roots, and containerd configuration on Linux nodes. |
 | Kubernetes platform | [`kubernetes/`](kubernetes/) | Provides the operator, admission webhook, `NodeProfile` and `JavaApplication` APIs, RBAC, manifests, and Helm chart. |
 | Maven plugin | [`maven-plugin/`](maven-plugin/) | Builds and publishes Brewlet OCI artifacts from Maven projects, recording an immutable image handoff for separate deployment tooling. |
 | Specifications | [`specs/`](specs/) | Defines the architecture, artifact formats, runtime contracts, APIs, and compatibility rules. Future work is tracked in the [roadmap](ROADMAP.md). |

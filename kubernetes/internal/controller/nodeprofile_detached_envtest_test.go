@@ -194,7 +194,7 @@ func TestDetachedHostIdentityConflictsDoNotStopDistinctProvisioning(t *testing.T
 				}
 			case "unowned-advertisements":
 				node.Labels[brewlet.LabelRuntimeReady] = brewlet.ValueReady
-				node.Labels[brewlet.LabelLauncherPrefix+"jaz"] = "true"
+				node.Labels[brewlet.LabelJDKPrefix+"temurin-21"] = "true"
 			case "unselected-foreign-advertisements":
 				node.Labels[brewlet.LabelNodeOwner] = "foreign-profile-uid"
 				node.Labels[brewlet.LabelRuntimeReady] = brewlet.ValueReady
@@ -226,7 +226,7 @@ func TestDetachedHostIdentityConflictsDoNotStopDistinctProvisioning(t *testing.T
 					t.Fatal("returning host kept stale readiness or lost original ownership")
 				}
 			case "unowned-advertisements":
-				if node.Labels[brewlet.LabelRuntimeReady] != "" || node.Labels[brewlet.LabelLauncherPrefix+"jaz"] != "" || node.Labels[brewlet.LabelNodeOwner] != "" {
+				if node.Labels[brewlet.LabelRuntimeReady] != "" || node.Labels[brewlet.LabelJDKPrefix+"temurin-21"] != "" || node.Labels[brewlet.LabelNodeOwner] != "" {
 					t.Fatal("unowned returning host kept stale advertisements or was claimed")
 				}
 			case "unselected-foreign-advertisements":

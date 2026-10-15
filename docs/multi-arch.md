@@ -8,8 +8,7 @@ components for both architectures.
 ## Portable JARs
 
 For a JAR without native libraries, omit the architecture constraint. Kubernetes
-can schedule the workload on any ready node that offers the requested JDK and
-launcher:
+can schedule the workload on any ready node that offers the requested JDK:
 
 ```yaml
 apiVersion: apps.brewlet.sh/v1alpha1

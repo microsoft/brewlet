@@ -13,10 +13,9 @@ explicit workload request.
 | `brewlet.sh/runtime=ready` | The Brewlet shim, at least one JDK, and the containerd runtime registration are ready on the node. | Brewlet provisioner | `In: ["ready"]`, through the `brewlet` `RuntimeClass` |
 | `brewlet.sh/jdk.<distribution>-<feature>` | The exact JDK root is installed. | Brewlet provisioner | `Exists` |
 | `brewlet.sh/jdk-feature.<feature>` | At least one JDK distribution for the feature version is installed. | Brewlet provisioner | `Exists` |
-| `brewlet.sh/launcher.<name>` | The launcher is available. The provisioner always publishes `brewlet.sh/launcher.java`; configured launcher layers add more keys. | Brewlet provisioner | `Exists` for non-`java` requests |
 | `kubernetes.io/arch=<architecture>` | The kubelet-reported node architecture. Brewlet reuses this standard label rather than publishing an architecture label of its own. | Kubelet | `In: [...]` |
 
-The dynamic JDK and launcher labels are **boolean-presence labels**.
+The dynamic JDK labels are **boolean-presence labels**.
 Brewlet currently writes the value `true`, but the value is not part of the
 scheduling test. Consumers MUST match these keys with Kubernetes
 `Operator: Exists` and MUST NOT require `=true`.
@@ -43,11 +42,6 @@ Capability keys are derived from the inventory declared by the platform team:
 - `<distribution>-<feature>` is limited to 59 characters so that
   `jdk.<distribution>-<feature>` fits the 63-character Kubernetes label-name
   segment.
-- `<name>` is a launcher identifier. To produce a valid capability label, names
-  use lowercase DNS-1123 label syntax and are limited to 54 characters so that
-  `launcher.<name>` fits the Kubernetes label-name segment. `java` is reserved
-  for the OpenJDK launcher supplied by every configured JDK. Admission and
-  reconciliation reject invalid or duplicate launcher names.
 - `<architecture>` is a Kubernetes architecture token such as `amd64` or
   `arm64`.
 
@@ -73,11 +67,6 @@ spec:
       source:
         image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
         javaHome: /usr/lib/jvm/msopenjdk-25
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
 ```
 
 causes each successfully provisioned `batch` node to publish:
@@ -88,18 +77,16 @@ brewlet.sh/jdk.temurin-21=true
 brewlet.sh/jdk-feature.21=true
 brewlet.sh/jdk.microsoft-25=true
 brewlet.sh/jdk-feature.25=true
-brewlet.sh/launcher.java=true
-brewlet.sh/launcher.jaz=true
 ```
 
 The provider's kubelet separately publishes `kubernetes.io/arch`.
 
 ## Admission-injected affinity
 
-`JavaApplication.spec.jvm.version`, `.distribution`, and `.launcher` become pod
+`JavaApplication.spec.jvm.version`, `.distribution` become pod
 annotations before pod admission. Equivalent raw pods can set the annotations
 directly. For a distribution-agnostic JDK 21
-request with the `jaz` launcher, the Brewlet webhook
+request, the Brewlet webhook
 injects the following requirements:
 
 ```yaml
@@ -111,8 +98,6 @@ spec:
         nodeSelectorTerms:
           - matchExpressions:
               - key: brewlet.sh/jdk-feature.21
-                operator: Exists
-              - key: brewlet.sh/launcher.jaz
                 operator: Exists
 ```
 
@@ -126,8 +111,7 @@ nodeSelector:
 An exact `temurin-21` request uses
 `brewlet.sh/jdk.temurin-21 Exists` instead. A non-portable artifact requesting
 `amd64` or `arm64` adds `kubernetes.io/arch In [...]`. A missing JDK request adds
-no JDK affinity, and the implicit `java` launcher adds no launcher affinity
-because every ready Brewlet node provides it.
+no JDK affinity.
 
 When a pod already has required node affinity, Brewlet appends its requirements
 to every existing node selector term. Expressions within a term remain ANDed
@@ -137,9 +121,8 @@ logic while requiring the requested runtime capabilities in every alternative.
 Admission verifies explicit requests against the runtime inventory: the
 current ready fleet plus every eligible `NodeProfile` (not deleting, valid under
 the operator's admission policy, and free of pool conflicts). A single
-candidate, a ready node or a profile, must jointly provide the requested JDK,
-and launcher; otherwise the pod is denied with
-`NoCompatibleJDK` or `NoCompatibleLauncher`.
+candidate, a ready node or a profile, must jointly provide the requested JDK; otherwise the pod is denied with
+`NoCompatibleJDK`.
 
 When only a `NodeProfile` satisfies the request, for example a pool that is
 currently scaled to zero, the pod is admitted with the affinity above plus an
@@ -196,9 +179,7 @@ Autoscaler tag convention is:
 aws autoscaling create-or-update-tags --tags \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/runtime,Value=ready,PropagateAtLaunch=false" \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk.temurin-21,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk-feature.21,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.java,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.jaz,Value=true,PropagateAtLaunch=false"
+  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk-feature.21,Value=true,PropagateAtLaunch=false"
 ```
 
 These tags are scheduling hints to Cluster Autoscaler; with
@@ -253,11 +234,6 @@ spec:
       source:
         image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
         javaHome: /opt/java/openjdk
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
 
 ```
 
@@ -310,8 +286,6 @@ spec:
         brewlet.sh/runtime: ready
         brewlet.sh/jdk.temurin-21: "true"
         brewlet.sh/jdk-feature.21: "true"
-        brewlet.sh/launcher.java: "true"
-        brewlet.sh/launcher.jaz: "true"
     spec:
       requirements:
         - key: kubernetes.io/arch
@@ -342,7 +316,7 @@ The labels in the contract-v1 table are public scheduling API:
 
 - Brewlet may add new capability-key families or publish additional keys on a
   node without changing contract v1.
-- Brewlet may add support for new distributions, feature versions, launchers,
+- Brewlet may add support for new distributions, feature versions,
   and architectures when their tokens follow the grammar above.
 - Brewlet MUST NOT rename or remove a listed key family, change the meaning of
   `runtime=ready`, or change an `Exists` capability into value-sensitive
@@ -355,7 +329,6 @@ The labels in the contract-v1 table are public scheduling API:
   that standard key rather than a Brewlet-specific replacement.
 
 Node inventory annotations such as `brewlet.sh/jdks` and
-`brewlet.sh/launchers` are used by Brewlet admission for current-fleet
 validation. They are not substitutes for the scheduling labels and are not
 part of this public autoscaler-template contract.
 

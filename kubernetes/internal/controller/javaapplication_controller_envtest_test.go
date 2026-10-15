@@ -63,7 +63,7 @@ func newJavaApp(ns, name string) *appsv1alpha1.JavaApplication {
 		Spec: appsv1alpha1.JavaApplicationSpec{
 			Artifact: appsv1alpha1.ArtifactSpec{Image: "registry.example.com/team/orders:1.4.2"},
 			Replicas: &replicas,
-			JVM:      appsv1alpha1.JVMSpec{Version: 21, Launcher: "jaz"},
+			JVM:      appsv1alpha1.JVMSpec{Version: 21},
 			Ports:    []corev1.ContainerPort{{Name: "http", ContainerPort: 8080}},
 		},
 	}

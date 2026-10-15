@@ -122,10 +122,10 @@ accepting two sources of truth. Apply equivalent CRD validation and controller
 validation so admission availability is not the sole guard.
 
 The shim already appends deployment arguments after artifact launch properties;
-the Java launcher applies `JAVA_TOOL_OPTIONS` and `JDK_JAVA_OPTIONS` before its
+`java` applies `JAVA_TOOL_OPTIONS` and `JDK_JAVA_OPTIONS` before its
 command-line arguments. Thus the generated properties should win over ordinary
 duplicate system properties in those sources. Verify that precedence for the
-supported launcher paths before shipping; preserve existing environment-overlap
+Java execution paths before shipping; preserve existing environment-overlap
 reporting. Application code can still construct a different TLS context.
 
 No truststore bytes enter annotations, status, or the application image. No
@@ -192,7 +192,7 @@ Required coverage before treating the proposal as shipped:
 - Exact volume source, single-key mapping, non-optional delivery, fixed path,
   read-only permissions, and generated arguments for both formats and sources.
 - Argument boundaries for spaces/special characters, precedence against artifact
-  properties and both JVM environment variables, and supported launchers.
+  properties and both JVM environment variables, and supported JDKs.
 - A live non-root Brewlet application connecting to a private-CA TLS endpoint;
   an unrelated CA and hostname mismatch still fail. Test the public-root
   replacement semantics as well as a deliberately combined store.

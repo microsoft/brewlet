@@ -29,7 +29,7 @@ would.
 ## 2. The launch config
 
 Every artifact carries a small JSON **launch config** describing how to run the JAR.
-It is deployment-agnostic: the JDK feature and launcher are requested later in the
+It is deployment-agnostic: the JDK feature is requested later in the
 deployment descriptor. The `brewlet push` CLI generates a minimal config for you, or
 you can author it and pass `--config`.
 
@@ -71,13 +71,12 @@ Artifact launch knobs are app-intrinsic correctness flags. They expand before
 descriptor `jvm.args`, which is where deployment tuning and escape-hatch JVM args
 belong.
 
-The JDK and launcher are set once in the deployment descriptor: `spec.jvm.version`
-and `spec.jvm.launcher` for `JavaApplication`, or pod annotations
-`brewlet.sh/jdk` and `brewlet.sh/launcher` for raw Deployments.
+The JDK is selected once in the deployment descriptor: `spec.jvm.version`
+and `spec.jvm.distribution` for `JavaApplication`, or pod annotations
+`brewlet.sh/jdk` for raw Deployments.
 
 > **Tuning is yours, not Brewlet's.** The container-aware JVM reads the sandbox
-> cgroup limits directly; set heap/GC in descriptor `jvm.args` (or let `jaz` derive
-> them). The artifact only carries app-intrinsic launch knobs. See [Resource requests, limits & JVM tuning](resource-tuning.md).
+> cgroup limits directly; set heap/GC in descriptor `jvm.args`. The artifact only carries app-intrinsic launch knobs. See [Resource requests, limits & JVM tuning](resource-tuning.md).
 
 ### Class-path / non-`-jar` entry
 
@@ -496,5 +495,4 @@ See [Security](security.md).
 ## Next steps
 
 - **[Deploying workloads](deploying-workloads.md)** — run the artifact on a cluster.
-- **[Launchers](launchers.md)** — pick `java` vs `jaz`.
 - **[Resource requests, limits & JVM tuning](resource-tuning.md)** — set the right JVM flags.

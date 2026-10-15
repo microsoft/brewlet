@@ -19,7 +19,7 @@ Related: [Installation](installation.md) · [Configuration](configuration.md) ·
 ## How capabilities reach the scheduler
 
 1. A `NodeProfile` selects one or more node pools with `spec.nodePool`, declares
-   the JDKs and launchers Brewlet must install.
+   the JDKs Brewlet must install.
 2. The operator durably records matching node identities, acquires exclusive
    UID-bound claims, and only then places provisioners on those nodes.
 3. The provisioner installs and validates the inventory, registers the runtime,
@@ -27,7 +27,7 @@ Related: [Installation](installation.md) · [Configuration](configuration.md) ·
    capability labels.
 4. For an explicit workload request, admission verifies the current ready fleet
    plus the inventory declared by valid `NodeProfile`s, and injects required
-   affinity for the requested JDK, launcher, and architecture.
+   affinity for the requested JDK and architecture.
 
 For example, this profile prepares an EKS managed node group:
 
@@ -46,11 +46,6 @@ spec:
       source:
         image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
         javaHome: /opt/java/openjdk
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
 ```
 
 After preparation succeeds, the node advertises the runtime and inventory:
@@ -59,11 +54,9 @@ After preparation succeeds, the node advertises the runtime and inventory:
 brewlet.sh/runtime=ready
 brewlet.sh/jdk.temurin-21=true
 brewlet.sh/jdk-feature.21=true
-brewlet.sh/launcher.java=true
-brewlet.sh/launcher.jaz=true
 ```
 
-The capability-label values are not the scheduling contract. JDK and launcher
+The capability-label values are not the scheduling contract. JDK
 capabilities are matched by **key presence**, using `Operator: Exists`;
 do not write policies that require `=true`. The exact `runtime=ready` value is
 value-sensitive and is selected by the `brewlet` `RuntimeClass`.
@@ -74,7 +67,7 @@ Operator-managed provisioning selects nodes through `NodeProfile.spec.nodePool`.
 
 ## Admission-injected affinity
 
-A distribution-agnostic JDK 21 request with the `jaz` launcher produces
+A distribution-agnostic JDK 21 request produces
 requirements equivalent to:
 
 ```yaml
@@ -86,8 +79,6 @@ spec:
         nodeSelectorTerms:
           - matchExpressions:
               - key: brewlet.sh/jdk-feature.21
-                operator: Exists
-              - key: brewlet.sh/launcher.jaz
                 operator: Exists
 ```
 
@@ -108,8 +99,7 @@ requires the requested Brewlet capabilities.
 Admission validates explicit requests against the **ready fleet plus every valid
 `NodeProfile`** before the scheduler sees the pod. One candidate (a ready node or
 a profile) must provide the whole request; capabilities are never combined
-across candidates. A request nothing provides is denied (`NoCompatibleJDK`,
-`NoCompatibleLauncher`).
+across candidates. A request nothing provides is denied (`NoCompatibleJDK`).
 
 When only a profile provides the request, such as a pool scaled to zero, the pod
 is admitted with an admission warning and stays `Pending` until the autoscaler
@@ -131,7 +121,7 @@ architecture is admitted with the same warning and resolved by
 
 Cluster Autoscaler simulates whether a future node from a group could schedule a
 pending pod. Its node-group template must therefore advertise the same runtime,
-JDK and launcher labels that the group's `NodeProfile` will install.
+JDK labels that the group's `NodeProfile` will install.
 
 On AKS, the managed Cluster Autoscaler builds a scale-from-zero template only
 from the agent pool spec (`--labels`, `--node-taints`, and the VM size). It
@@ -201,7 +191,7 @@ the provisioner has installed the runtime and removed the taint.
      --node-vm-size Standard_D4ds_v5 --node-count 0 \
      --enable-cluster-autoscaler --min-count 0 --max-count 5 \
      --labels brewlet.sh/runtime=ready brewlet.sh/jdk.temurin-21=true \
-              brewlet.sh/jdk-feature.21=true brewlet.sh/launcher.java=true
+              brewlet.sh/jdk-feature.21=true
    ```
 
 3. Add the initialization taint to that pool only. AKS rejects
@@ -247,9 +237,7 @@ On EKS, add synthetic node-template labels to the backing Auto Scaling group:
 aws autoscaling create-or-update-tags --tags \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/runtime,Value=ready,PropagateAtLaunch=false" \
   "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk.temurin-21,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk-feature.21,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.java,Value=true,PropagateAtLaunch=false" \
-  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/launcher.jaz,Value=true,PropagateAtLaunch=false"
+  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/jdk-feature.21,Value=true,PropagateAtLaunch=false"
 ```
 
 These tags are simulation hints, not real node readiness claims.
@@ -303,11 +291,6 @@ spec:
       source:
         image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
         javaHome: /opt/java/openjdk
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
 ```
 
 This ensures created nodes receive the inventory, but it is not
@@ -337,7 +320,6 @@ spec:
         brewlet.sh/runtime: ready
         brewlet.sh/jdk.temurin-21: "true"
         brewlet.sh/jdk-feature.21: "true"
-        brewlet.sh/launcher.java: "true"
     spec:
       startupTaints:
         - key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet
@@ -383,8 +365,6 @@ spec:
         brewlet.sh/runtime: ready
         brewlet.sh/jdk.temurin-21: "true"
         brewlet.sh/jdk-feature.21: "true"
-        brewlet.sh/launcher.java: "true"
-        brewlet.sh/launcher.jaz: "true"
 ```
 
 The image inventory and labels must move together. Publishing

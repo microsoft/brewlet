@@ -384,8 +384,7 @@ func (r *NodeProfileReconciler) patchNodeWithdrawal(ctx context.Context, base, n
 func isNodeAdvertisementLabel(key string) bool {
 	return key == brewlet.LabelRuntimeReady || key == "brewlet.sh/appcds-regeneration" ||
 		strings.HasPrefix(key, brewlet.LabelJDKPrefix) ||
-		strings.HasPrefix(key, brewlet.LabelJDKFeaturePrefix) ||
-		strings.HasPrefix(key, brewlet.LabelLauncherPrefix)
+		strings.HasPrefix(key, brewlet.LabelJDKFeaturePrefix)
 }
 
 func removeNodeAdvertisements(node *corev1.Node) {
@@ -394,7 +393,7 @@ func removeNodeAdvertisements(node *corev1.Node) {
 			delete(node.Labels, key)
 		}
 	}
-	for _, key := range []string{brewlet.AnnotationJDKs, brewlet.AnnotationJDKsInfo, brewlet.AnnotationLaunchers,
+	for _, key := range []string{brewlet.AnnotationJDKs, brewlet.AnnotationJDKsInfo,
 		brewlet.AnnotationProfile, brewlet.AnnotationProfileGeneration, brewlet.AnnotationProvisionError,
 		brewlet.AnnotationProvisionErrorMessage, brewlet.AnnotationProvisionState} {
 		delete(node.Annotations, key)

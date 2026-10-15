@@ -98,16 +98,10 @@ type ociCPU struct {
 // rootfs = node JDK runtime root (lower) with the JAR mounted at /app. This is
 // exactly what containerd-shim-brewlet-v2 produces on a Linux node.
 func GenerateBundle(cfg artifact.JVMConfig, jdkRoot, jarHostPath, outDir string, res Resources, extraArgs []string) error {
-	return GenerateBundleWithLauncher(cfg, jdkRoot, "", "", jarHostPath, nil, nil, outDir, res, extraArgs)
+	return GenerateBundleWithLayers(cfg, jdkRoot, jarHostPath, nil, nil, outDir, res, extraArgs)
 }
 
-// GenerateBundleWithLauncher is GenerateBundle with an optional node-side
-// launcher layer. launcherName is the launcher the deployment descriptor
-// requested ("" or "java" for the vanilla OpenJDK launcher); launcherRoot is the
-// host path of a read-only layer that the provisioner installed for a custom
-// launcher (e.g. jaz); it is overlaid into the sandbox and prepended to PATH so
-// the launcher binary resolves there. Pass "" for both for the vanilla `java`
-// path.
+// GenerateBundleWithLayers is GenerateBundle with optional dependency layers.
 //
 // classpathTars are optional dependency-layer tars (see
 // https://github.com/microsoft/brewlet/blob/main/docs/layered-classpath-deployment.md). When present they are extracted into a
@@ -118,18 +112,18 @@ func GenerateBundle(cfg artifact.JVMConfig, jdkRoot, jarHostPath, outDir string,
 // When present they are extracted into a host staging dir and bind-mounted
 // read-only at /app/mods, so a module-mode `-p /app/app.jar:/app/mods` resolves
 // the library modules.
-func GenerateBundleWithLauncher(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, outDir string, res Resources, extraArgs []string) error {
-	return GenerateBundleWithCDS(cfg, jdkRoot, launcherRoot, launcherName, jarHostPath, classpathTars, modulepathTars, "", outDir, res, extraArgs)
+func GenerateBundleWithLayers(cfg artifact.JVMConfig, jdkRoot, jarHostPath string, classpathTars, modulepathTars []string, outDir string, res Resources, extraArgs []string) error {
+	return GenerateBundleWithCDS(cfg, jdkRoot, jarHostPath, classpathTars, modulepathTars, "", outDir, res, extraArgs)
 }
 
-// GenerateBundleWithCDS is GenerateBundleWithLauncher with an optional AppCDS
+// GenerateBundleWithCDS is GenerateBundleWithLayers with an optional AppCDS
 // archive. When cdsHostPath is non-empty the `.jsa` file it names is bind-mounted
 // read-only at /app/<archive> (cfg.CDS.Archive), matching the -XX:SharedArchiveFile
 // path BuildJVMArgs derives, so the JVM maps the app archive on startup. Pass ""
 // for the common no-CDS case. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
-func GenerateBundleWithCDS(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string) error {
+func GenerateBundleWithCDS(cfg artifact.JVMConfig, jdkRoot, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string) error {
 	return GenerateBundleWithIdentity(
-		cfg, jdkRoot, launcherRoot, launcherName, jarHostPath,
+		cfg, jdkRoot, jarHostPath,
 		classpathTars, modulepathTars, cdsHostPath, outDir, res, extraArgs,
 		DefaultProcessIdentity(),
 	)
@@ -137,7 +131,7 @@ func GenerateBundleWithCDS(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launch
 
 // GenerateBundleWithIdentity generates a bundle with an explicit trusted runtime
 // identity. Artifact metadata never controls the process UID/GID.
-func GenerateBundleWithIdentity(cfg artifact.JVMConfig, jdkRoot, launcherRoot, launcherName, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity) error {
+func GenerateBundleWithIdentity(cfg artifact.JVMConfig, jdkRoot, jarHostPath string, classpathTars, modulepathTars []string, cdsHostPath, outDir string, res Resources, extraArgs []string, identity ProcessIdentity) error {
 	resources, err := buildResources(res)
 	if err != nil {
 		return err
@@ -226,31 +220,10 @@ func GenerateBundleWithIdentity(cfg artifact.JVMConfig, jdkRoot, launcherRoot, l
 		}}
 	}
 
-	// argv[0] is the launcher: "java" (vanilla, from /opt/jdk/bin) or a custom
-	// launcher such as "jaz" resolved from the launcher layer on PATH.
-	// LauncherName re-checks the request: it is both argv[0] here and (below) the
-	// name the launcher root was selected by on the node.
-	launcherBin, err := artifact.LauncherName(launcherName)
-	if err != nil {
-		return err
-	}
-	args := append([]string{launcherBin}, jvmArgs...)
-
-	path := "/opt/jdk/bin:/usr/bin:/bin"
-	var launcherMount []ociMount
-	if !artifact.IsVanillaLauncher(launcherName) && launcherRoot != "" {
-		// Overlay the launcher layer read-only and make it the first PATH entry.
-		// The JDK root stays a generic, unmodified OpenJDK; the launcher is
-		// composed in, not baked into the JDK image.
-		launcherMount = []ociMount{{
-			Destination: "/opt/brewlet/launcher", Type: "bind",
-			Source: launcherRoot, Options: []string{"rbind", "ro"},
-		}}
-		path = "/opt/brewlet/launcher/bin:" + path
-	}
+	args := append([]string{"/opt/jdk/bin/java"}, jvmArgs...)
 
 	env := []string{
-		"PATH=" + path,
+		"PATH=/opt/jdk/bin:/usr/bin:/bin",
 		"JAVA_HOME=/opt/jdk",
 		"HOME=/tmp",
 	}
@@ -286,7 +259,7 @@ func GenerateBundleWithIdentity(cfg artifact.JVMConfig, jdkRoot, launcherRoot, l
 			// resources and mis-sizes itself.
 			{Destination: "/sys/fs/cgroup", Type: "cgroup", Source: "cgroup", Options: []string{"nosuid", "noexec", "nodev", "relatime", "ro"}},
 			{Destination: "/tmp", Type: "tmpfs", Source: "tmpfs", Options: []string{"nosuid", "nodev", "mode=1777"}},
-		}, append(append(append(libMount, modsMount...), cdsMount...), launcherMount...)...),
+		}, append(append(libMount, modsMount...), cdsMount...)...),
 		Linux: ociLinux{
 			// PoC omits the "network" namespace so it shares the host netns and
 			// can be curled directly. The real shim instead JOINS the pod netns

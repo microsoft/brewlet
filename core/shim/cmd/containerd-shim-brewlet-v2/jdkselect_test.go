@@ -51,17 +51,6 @@ func wantRoot(t *testing.T, rootsDir, name string) string {
 	return resolved
 }
 
-func mkLauncher(t *testing.T, rootsDir, name string) {
-	t.Helper()
-	bin := filepath.Join(rootsDir, name, "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSelectJDKBareFeaturePicksLexicallyFirst(t *testing.T) {
 	dir := t.TempDir()
 	// Install two distributions of feature 21, out of lexical order, plus an
@@ -210,128 +199,30 @@ func TestSelectJDKIgnoresInactiveRoots(t *testing.T) {
 	}
 }
 
-func TestSelectLauncherIgnoresInactiveRoots(t *testing.T) {
-	dir := t.TempDir()
-	mkLauncher(t, dir, "jaz")
-	mkLauncher(t, dir, "stale")
-	if err := os.WriteFile(filepath.Join(dir, launcherActiveInventory), []byte("jaz\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := selectLauncher(dir, "jaz")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := wantRoot(t, dir, "jaz"); got != want {
-		t.Fatalf("selectLauncher(jaz) = %q, want active root %q", got, want)
-	}
-	if _, err := selectLauncher(dir, "stale"); err == nil {
-		t.Fatal("selectLauncher(stale) selected an inactive root")
-	}
-}
-
-func TestSelectLauncherRequiresActiveInventory(t *testing.T) {
-	dir := t.TempDir()
-	mkLauncher(t, dir, "jaz")
-
-	if _, err := selectLauncher(dir, "jaz"); err == nil {
-		t.Fatal("selectLauncher(jaz) selected a root without an active inventory")
-	}
-}
-
 // unsafeRuntimeNames are the traversal, separator and dot-segment variants a
-// tenant can put in the brewlet.sh/launcher (or brewlet.sh/jdk) annotation. None
+// tenant can put in the brewlet.sh/jdk annotation. None
 // may reach mount construction.
 var unsafeRuntimeNames = []string{
 	"..",
 	"../..",
 	"../../..",
 	"../outside",
-	"jaz/../../outside",
-	"sub/jaz",
-	`sub\jaz`,
+	"jdk/../../outside",
+	"sub/jdk",
+	`sub\jdk`,
 	"/etc",
-	"/opt/brewlet/launchers/jaz",
+	"/opt/brewlet/jdks/jdk",
 	".",
-	"./jaz",
-	"jaz*",
-	"jaz?",
-	" jaz",
-	"jaz ",
-	"JAZ",
-	"-jaz",
-	"jaz-",
-	"jaz\n../outside",
+	"./jdk",
+	"jdk*",
+	"jdk?",
+	" jdk",
+	"jdk ",
+	"JDK",
+	"-jdk",
+	"jdk-",
+	"jdk\n../outside",
 	strings.Repeat("j", 64),
-}
-
-// TestSelectLauncherRejectsUnsafeNames asserts every traversal variant fails
-// *before* a launcher root is returned for overlay/bind-mount construction. Each
-// payload is also written into the active inventory, so the test proves name
-// validation rejects it on its own rather than relying on the allowlist.
-func TestSelectLauncherRejectsUnsafeNames(t *testing.T) {
-	for _, name := range unsafeRuntimeNames {
-		t.Run(name, func(t *testing.T) {
-			dir := t.TempDir()
-			mkLauncher(t, dir, "jaz")
-			// A real launcher layer sits one level above the roots directory, so
-			// "../outside" would resolve onto it if traversal were accepted.
-			mkLauncher(t, filepath.Dir(dir), "outside")
-			if err := os.WriteFile(filepath.Join(dir, launcherActiveInventory), []byte("jaz\n"+name+"\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			got, err := selectLauncher(dir, name)
-			if err == nil {
-				t.Fatalf("selectLauncher(%q) selected %q, want rejection", name, got)
-			}
-			if got != "" {
-				t.Fatalf("selectLauncher(%q) returned root %q alongside an error", name, got)
-			}
-		})
-	}
-}
-
-// TestSelectLauncherRejectsRootSymlinkOutsideRoots covers the case a name check
-// cannot: a well-named entry inside the launcher roots that is a symlink to an
-// arbitrary host directory, which would otherwise become an overlay lower layer
-// and a privileged bind-mount source.
-func TestSelectLauncherRejectsRootSymlinkOutsideRoots(t *testing.T) {
-	dir := t.TempDir()
-	outside := t.TempDir()
-	mkLauncher(t, outside, "jaz")
-	if err := os.Symlink(filepath.Join(outside, "jaz"), filepath.Join(dir, "jaz")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, launcherActiveInventory), []byte("jaz\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := selectLauncher(dir, "jaz"); err == nil {
-		t.Fatalf("selectLauncher(jaz) selected symlinked root %q outside %s", got, dir)
-	}
-}
-
-// TestSelectLauncherRejectsBinarySymlinkOutsideRoot rejects a launcher whose
-// bin/<name> escapes the layer it was selected from.
-func TestSelectLauncherRejectsBinarySymlinkOutsideRoot(t *testing.T) {
-	dir := t.TempDir()
-	outside := t.TempDir()
-	evil := filepath.Join(outside, "evil")
-	if err := os.WriteFile(evil, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	bin := filepath.Join(dir, "jaz", "bin")
-	if err := os.MkdirAll(bin, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(evil, filepath.Join(bin, "jaz")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, launcherActiveInventory), []byte("jaz\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := selectLauncher(dir, "jaz"); err == nil {
-		t.Fatalf("selectLauncher(jaz) selected %q with a launcher binary outside the layer", got)
-	}
 }
 
 // TestSelectJDKRejectsUnsafeDistribution applies the same rule to the JDK half
@@ -374,7 +265,7 @@ func TestSelectJDKRequiresActiveInventory(t *testing.T) {
 	}
 }
 
-// TestSelectJDKRejectsRootSymlinkOutsideRoots mirrors the launcher case: a
+// TestSelectJDKRejectsRootSymlinkOutsideRoots covers a
 // listed JDK root that symlinks out of the roots directory is refused.
 func TestSelectJDKRejectsRootSymlinkOutsideRoots(t *testing.T) {
 	dir := t.TempDir()

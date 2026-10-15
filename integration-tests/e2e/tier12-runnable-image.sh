@@ -54,8 +54,8 @@ _t12_cleanup() {
   kubectl delete ns "$T12_NS" --ignore-not-found --wait=true --timeout=120s >/dev/null 2>&1 || true
   [[ -n "$T12_RC_CREATED" ]] && kubectl delete runtimeclass brewlet --ignore-not-found >/dev/null 2>&1 || true
   for n in ${T12_PROVISIONED_NODES[@]+"${T12_PROVISIONED_NODES[@]}"}; do
-    label_node "$n" brewlet.sh/runtime- "brewlet.sh/jdk.$T9_JDK-" "brewlet.sh/jdk-feature.${T9_JDK##*-}-" brewlet.sh/launcher.java- >/dev/null 2>&1 || true
-    annotate_node "$n" brewlet.sh/jdks- brewlet.sh/launchers- >/dev/null 2>&1 || true
+    label_node "$n" brewlet.sh/runtime- "brewlet.sh/jdk.$T9_JDK-" "brewlet.sh/jdk-feature.${T9_JDK##*-}-" >/dev/null 2>&1 || true
+    annotate_node "$n" brewlet.sh/jdks- >/dev/null 2>&1 || true
   done
   # The node's shim / JDK root / config.toml patch are left in place (cheap,
   # idempotent, reused on a re-run), matching tier 8/9.

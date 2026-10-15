@@ -154,23 +154,3 @@ annotations:
 {{- fail "JDK inventory must be a list of explicit JDK source objects" -}}
 {{- end -}}
 {{- end -}}
-
-{{/* Render structured launcher inventory, or nothing when empty. */}}
-{{- define "brewlet.launcherItems" -}}
-{{- if kindIs "slice" .value -}}
-{{- if gt (len .value) 0 -}}
-{{- toYaml .value -}}
-{{- end -}}
-{{- else -}}
-{{- fail "launcher inventory must be a list of explicit launcher source objects" -}}
-{{- end -}}
-{{- end -}}
-
-{{/* Render structured launcher inventory as a human-readable name list. */}}
-{{- define "brewlet.launcherNames" -}}
-{{- $names := list -}}
-{{- range $launcher := .value -}}
-{{- $names = append $names $launcher.name -}}
-{{- end -}}
-{{- default "(vanilla java only)" (join "," $names) -}}
-{{- end -}}

@@ -29,7 +29,7 @@ class PluginSurfaceTest {
 
             Set<String> removed = Set.of("kubeconfig", "kubeContext", "kubectl", "waitForReady", "waitTimeout");
             Set<String> manifestOnly = Set.of("namespace", "appName", "replicas", "ports", "probes", "readinessPath", "livenessPath",
-                    "cpuRequest", "cpuLimit", "memoryRequest", "memoryLimit", "jvmArgs", "jdkDistribution", "launcher");
+                    "cpuRequest", "cpuLimit", "memoryRequest", "memoryLimit", "jvmArgs", "jdkDistribution");
             for (int i = 0; i < nodes.getLength(); i++) {
                 var mojo = (org.w3c.dom.Element) nodes.item(i);
                 String goal = mojo.getElementsByTagName("goal").item(0).getTextContent();

@@ -170,13 +170,6 @@ func TestNodeProfileCRDAcceptsIPv6RuntimeSources(t *testing.T) {
 					JavaHome: "/opt/jdk",
 				},
 			}},
-			Launchers: []nodev1alpha1.LauncherRef{{
-				Name: "custom",
-				Source: nodev1alpha1.LauncherSource{
-					Image: "[2001:db8::2]/java/launcher@" + testImageDigest,
-					Path:  "/usr/bin/custom",
-				},
-			}},
 			Registry: &nodev1alpha1.RegistrySpec{Mirrors: map[string]string{
 				"docker.io": "[2001:db8::3]:5000/cache",
 			}},
@@ -214,10 +207,8 @@ func TestNodeProfileInvalidUpdateWithdrawsProvisioning(t *testing.T) {
 	patch := client.MergeFrom(node.DeepCopy())
 	node.Labels[brewlet.LabelJDKPrefix+"temurin-21"] = "true"
 	node.Labels[brewlet.LabelJDKFeaturePrefix+"21"] = "true"
-	node.Labels[brewlet.LabelLauncherPrefix+"jaz"] = "true"
 	node.Annotations[brewlet.AnnotationJDKs] = "temurin-21"
 	node.Annotations[brewlet.AnnotationJDKsInfo] = `{"jdks":[]}`
-	node.Annotations[brewlet.AnnotationLaunchers] = "java,jaz"
 	if err := c.Patch(ctx, &node, patch); err != nil {
 		t.Fatalf("adding node capabilities: %v", err)
 	}
@@ -272,7 +263,6 @@ func TestNodeProfileInvalidUpdateWithdrawsProvisioning(t *testing.T) {
 		brewlet.LabelRuntimeReady,
 		brewlet.LabelJDKPrefix + "temurin-21",
 		brewlet.LabelJDKFeaturePrefix + "21",
-		brewlet.LabelLauncherPrefix + "jaz",
 	} {
 		if _, exists := node.Labels[key]; exists {
 			t.Errorf("node still advertises %s", key)
@@ -281,7 +271,6 @@ func TestNodeProfileInvalidUpdateWithdrawsProvisioning(t *testing.T) {
 	for _, key := range []string{
 		brewlet.AnnotationJDKs,
 		brewlet.AnnotationJDKsInfo,
-		brewlet.AnnotationLaunchers,
 		brewlet.AnnotationProfile,
 		brewlet.AnnotationProfileGeneration,
 	} {

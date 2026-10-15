@@ -5,7 +5,7 @@ The independent admission and CPU HPA scenarios in
 target the existing native managed-dependency and basic CPU-autoscaling
 contracts. The [executable workflows](#executable-workflows) scenario covers
 `brewlet push`, `brewlet k8s app status|wait`, `status`, `doctor`,
-`jdk|launcher list|add`, `profile list|inspect|delete`, `inspect app`, the
+`jdk list|add`, `profile list|inspect|delete`, `inspect app`, the
 `install` guards and `mvn package brewlet:push` with a separate kubectl/CLI
 deployment handoff through their shipped entry points. They are not
 production certification, a performance benchmark, or the broader zero-skip
@@ -369,9 +369,8 @@ files are redacted and any command that prints one fails.
 3. **Cluster inventory and profile additions.** With `live` provisioned and
    `wf-app` Ready, every read is compared with the cluster itself. `jdk list`
    (json, wide, table, `--selector`) must equal the node's
-   `brewlet.sh/jdks-info` and the profile's declared JDKs; `launcher list`
-   must equal `brewlet.sh/launchers`. `profile list` must match the live
-   generation, Ready condition and node counts, and `profile inspect` (json,
+   `brewlet.sh/jdks-info` and the profile's declared JDKs. `profile list` must match
+   live profile names, generation, Ready condition and node counts, and `profile inspect` (json,
    yaml, default) must list exactly the node carrying the profile's
    `owner-uid`. `status` must auto-discover `brewlet` from a kubeconfig whose
    namespace is `wf-alpha`, report both rollouts as their Deployments do and
@@ -380,11 +379,11 @@ files are redacted and any command that prints one fails.
    `developer-rbac` failure for a ServiceAccount that cannot create
    JavaApplications. `inspect app` must report the owned Deployment and pods on
    the node, and `--namespace` must reach the unready `wf-beta` app. Cluster-scoped
-   commands reject `--namespace`. With the operator paused, `jdk|launcher add`
+   commands reject `--namespace`. With the operator paused, `jdk add`
    client and server dry runs, conflict/`--replace`, invalid sources, offline
    `--file` (JSON and the server dry run's YAML, both left unmodified) and a
    temporary Helm ownership label must leave the profile's UID and
-   resourceVersion unchanged. A real `launcher add` and `jdk add` then update a
+   resourceVersion unchanged. A real `jdk add` then updates a
    disposable profile whose pool matches no node, which is deleted. That
    profile declares `spec.rollout` explicitly: otherwise the operator's
    finalizer update writes `rollout: {}` under its own field manager and the
@@ -450,9 +449,9 @@ runtime is not claimed.
 | Profile concurrency and blocked cleanup | envtest `profile-deletion/uid-resource-version-preconditions`, `profile-deletion/blocked-timeout-and-attach` |
 | Remote push anonymous/authenticated/rejected | `cli-push-anonymous-verifiable-index`, `cli-push-authenticated-and-rejected`, `cli-push-store-and-unqualified-targets`, `cli-push-repeat-publication-intact` |
 | Runnable digest-pinned workload | `cli-push-digest-pinned-workload-serves` |
-| Cluster reads against ground truth | `k8s-jdk-list-node-inventory`, `k8s-launcher-list-node-inventory`, `k8s-profile-list-and-inspect`, `k8s-status-control-plane-and-profiles`, `k8s-inspect-app-workloads`, `k8s-cluster-scoped-commands-reject-namespace` |
+| Cluster reads against ground truth | `k8s-jdk-list-node-inventory`, `k8s-profile-list-and-inspect`, `k8s-status-control-plane-and-profiles`, `k8s-inspect-app-workloads`, `k8s-cluster-scoped-commands-reject-namespace` |
 | Doctor checks, namespaces, RBAC | `k8s-doctor-checks-and-namespace`, `k8s-doctor-restricted-identity-fails` |
-| Profile additions | `k8s-jdk-add-dry-runs-nonmutating`, `k8s-launcher-add-dry-runs-nonmutating`, `k8s-profile-add-offline-file-input`, `k8s-profile-add-refuses-helm-managed`, `k8s-profile-add-live-update` |
+| Profile additions | `k8s-jdk-add-dry-runs-nonmutating`, `k8s-profile-add-offline-file-input`, `k8s-profile-add-refuses-helm-managed`, `k8s-profile-add-live-update` |
 | Install guards (no chart render) | `k8s-install-validation-and-fresh-install-guard` |
 | Maven push handoff → kubectl apply → CLI Ready → response | `maven-push-kubectl-apply-cli-ready-response` |
 | Maven encrypted credentials and dry run | `maven-encrypted-settings-credentials`, `maven-push-dry-run-nonmutating` |

@@ -83,7 +83,7 @@ func TestValidateMirrorTarget(t *testing.T) {
 }
 
 func TestValidateAbsolutePath(t *testing.T) {
-	for _, value := range []string{"/opt/java/openjdk", "/usr/bin/jaz"} {
+	for _, value := range []string{"/opt/java/openjdk", "/usr/lib/jvm/openjdk"} {
 		if err := ValidateAbsolutePath(value); err != nil {
 			t.Errorf("valid path %q rejected: %v", value, err)
 		}

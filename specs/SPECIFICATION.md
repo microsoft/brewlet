@@ -202,9 +202,9 @@ describes how a runnable image carries that contract.
 ```
 
 - The launch config records the artifact's launch contract only. JDK feature +
-  distribution and launcher are specified once in the deployment descriptor
-  (`spec.jvm.version` / `spec.jvm.distribution` / `spec.jvm.launcher` on
-  `JavaApplication`, or `brewlet.sh/jdk` / `brewlet.sh/launcher` pod annotations
+  distribution are specified once in the deployment descriptor
+  (`spec.jvm.version` / `spec.jvm.distribution` on
+  `JavaApplication`, or `brewlet.sh/jdk` pod annotations
   for raw Deployments). The artifact is deployment-agnostic.
 - The artifact field set is exactly `schemaVersion`, `mainJar`, `entry`,
   `enablePreview`, `addModules`, `addOpens`, `addExports`, `systemProperties`,
@@ -230,17 +230,8 @@ describes how a runnable image carries that contract.
 - An omitted or empty `mainJar` means `app.jar` for both publication and
   consumption, independent of the source JAR's filename. Producers that choose
   another name MUST record it explicitly in the launch config.
-- The descriptor's launcher selects the JVM launcher that fronts the entrypoint. It is **generic
-  and OpenJDK-neutral**: omitted (or `"java"`) means the stock `java` launcher from
-  the selected JDK. Brewlet injects **no JVM tuning flags** in either case — the
-  container-aware JDK reads the sandbox cgroup limits and the user supplies any
-  tuning via descriptor `jvm.args`. Any other name (e.g. `jaz`, the [Azure
-  Command Launcher for Java](https://learn.microsoft.com/java/jaz/overview)) is a
-  **node-installed, drop-in java-compatible launcher** that additionally auto-tunes
-  the JVM from the cgroup limits on the user's behalf. A launcher is a separate node
-  package (not part of any JDK), so it composes over any OpenJDK distribution. If the
-  requested launcher is not installed on the node, the pod fails to admit (event
-  `NoCompatibleLauncher`).
+- Brewlet executes the selected JDK's `bin/java` directly. The deployment
+  descriptor's `jvm.args` owns JVM tuning; Brewlet adds no tuning flags.
 - Artifact launch knobs (`enablePreview`, `addModules`, `addOpens`, `addExports`,
   `systemProperties`) carry app-intrinsic correctness flags. Deployment tuning
   (heap, GC, agents, container flags) belongs in descriptor `jvm.args`, which is
@@ -762,10 +753,9 @@ profile authority (§5.6). Runtime-ready observation (§8.1) grants no ownership
 or cleanup authority.
 
 ### 5.2 What the provisioner does on each opted-in node
-Before step 1, the provisioner validates every indexed JDK and launcher source.
+Before step 1, the provisioner validates every indexed JDK source.
 Every source image is mandatory and must be a canonical, fully qualified,
-tagless `repository@sha256:<64 lowercase hex>` reference; every Java home and
-launcher path must be a clean absolute path below `/`. Missing fields, malformed
+tagless `repository@sha256:<64 lowercase hex>` reference; every Java home must be a clean absolute path below `/`. Missing fields, malformed
 or duplicate entries, mutable references, reserved names, or invalid mirrors
 cause provisioning to fail with no shim installation, source pull/mount/copy,
 or readiness advertisement. Brewlet has no built-in runtime catalog.
@@ -773,11 +763,6 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
 1. Installs the shim binary `containerd-shim-brewlet-v2` into `$PATH` (e.g. `/opt/brewlet/bin`).
 2. Installs one or more **JDK runtime roots** under `/opt/brewlet/jdks/<dist>-<feature>/`
    (a minimal, read-only Linux userland + JDK installation; shared by all workloads). See §5.3.
-2b. Optionally installs one or more **launcher layers** under
-   `/opt/brewlet/launchers/<name>/` (e.g. `jaz`) — read-only, drop-in
-   java-compatible launchers overlaid into the sandbox and prepended to `PATH`.
-   These are independent of the JDK roots, so any launcher composes over any JDK.
-   See §5.4.
 3. Registers a runtime entry through
    `/etc/containerd/config.toml.d/99-brewlet.toml` when the host's primary
    configuration imports that drop-in directory. Hosts without an enabled
@@ -807,9 +792,7 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    advertised, then applies the readiness smoke gate and configured containerd
    lifecycle. Unless validation is disabled, it runs `java -version` inside
    every configured JDK
-   root and verifies that each staged launcher is an executable regular file.
-   Arbitrary launchers are not executed because the contract has no universal
-   safe probe. In the default `validated` mode, these checks run before
+   root. In the default `validated` mode, these checks run before
    `containerd config dump` validates the
    effective host configuration and requires both a successful parse and the
    exact `brewlet` runtime handler before restarting containerd through the host
@@ -833,11 +816,10 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    before publishing the final readiness label. Standalone provisioners omit
    the UID and skip this profile identity check.
 8. On success, labels the node `brewlet.sh/runtime=ready` and annotates with the
-   available JDKs, e.g. `brewlet.sh/jdks=temurin-17,temurin-21,temurin-25`, and
-   any installed launchers, e.g. `brewlet.sh/launchers=java,jaz`. It also emits
+   available JDKs, e.g. `brewlet.sh/jdks=temurin-17,temurin-21,temurin-25`. It also emits
    per-capability **scheduling labels** the admission webhook matches nodeAffinity
    against (annotations can't drive nodeAffinity): `brewlet.sh/jdk.<dist>-<feature>`,
-   `brewlet.sh/jdk-feature.<feature>`, `brewlet.sh/launcher.<name>` (§8/§14).
+   `brewlet.sh/jdk-feature.<feature>` (§8/§14).
    Their exact keys, token grammar, presence semantics, compatibility guarantees,
    and autoscaler integration are defined by the public
    [capability-label contract](CAPABILITY_LABELS.md). Only after readiness is
@@ -974,10 +956,9 @@ pods are unaffected until they restart. Install one root per node architecture
 
 > **Configuration interface.** The operator renders `JDK_SOURCE_COUNT` and
 > indexed `JDK_SOURCE_<n>_{TOKEN,IMAGE,JAVA_HOME}` variables for every profile
-> entry. Optional launchers use `LAUNCHER_SOURCE_COUNT` and indexed
-> `LAUNCHER_SOURCE_<n>_{NAME,IMAGE,PATH}` variables. The provisioner validates
-> the complete set, then derives internal `JDKS` and `LAUNCHERS` inventories;
-> those inventories are never accepted as independent inputs. Full reference is
+> entry. The provisioner validates the complete set, then derives its internal
+> `JDKS` inventory;
+> that inventory is never accepted as independent inputs. Full reference is
 > in
 > [`provisioner/README.md`](https://github.com/microsoft/brewlet/blob/main/provisioner/README.md).
 
@@ -998,66 +979,16 @@ digest.
 > **Licensing:** ship only OpenJDK builds whose license you accept. Brewlet is
 > distribution-neutral; the platform team chooses every digest-pinned build.
 
-### 5.4 Installing a launcher on nodes (e.g. `jaz`)
+### 5.4 Java execution
 
-A launcher is installed the same declarative way, independently of the JDKs:
+Brewlet runs the selected JDK's `bin/java` directly, exposed in the sandbox
+as `/opt/jdk/bin/java`. Configure JVM tuning through `spec.jvm.args`.
 
-```yaml
-# values.yaml
-launchers:
-  - name: jaz
-    source:
-      image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-      path: /usr/bin/jaz
-```
-
-The provisioner stages each declared binary into
-`/opt/brewlet/launchers/<name>/bin/<name>` so it can be overlaid into the
-sandbox and put on `PATH` (§6). The provisioner pulls and mounts the explicit
-digest-pinned source image, rejects a missing source file or a symlink in any
-source-path component, copies the binary from the mounted filesystem, and
-atomically activates the launcher layer:
-
-```bash
-# conceptual — the provisioner handles this automatically
-ref=mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-ctr -n k8s.io image pull "$ref"
-ctr -n k8s.io images mount "$ref" /opt/brewlet/.jaz-image
-install -m 0755 /opt/brewlet/.jaz-image/usr/bin/jaz \
-  /opt/brewlet/launchers/jaz/bin/jaz
-ctr -n k8s.io images unmount --rm /opt/brewlet/.jaz-image
-```
-
-The source image is never executed, receives no host networking, and receives
-no writable host bind mount. `.brewlet-source` records the exact image and
-source path; matching metadata is required before an existing launcher layer is
-reused. The provisioner atomically rewrites
-`/opt/brewlet/launchers/.brewlet-active`; the shim MUST reject a launcher root
-that is not listed in that inventory, and MUST fail closed when the inventory is
-absent. The shim MUST also reject a requested launcher name (and JDK
-distribution) that is not a lowercase DNS-1123 token, and MUST verify after
-symlink resolution that the selected root is a direct child of the configured
-runtime roots directory before using it as an overlay lower layer or bind-mount
-source. The same requirement applies to `/opt/brewlet/jdks/.brewlet-active`.
-
-If a bundled/copied launcher needs shared libraries not present in the JDK root,
-include them under the launcher root (e.g. `lib/`); the layer is mounted read-only
-alongside the JDK. Because `jaz` locates the JVM via `JAVA_HOME` (which Brewlet
-pins to the selected JDK), the **same** launcher layer works with any installed
-OpenJDK. The node advertises what it installed via `brewlet.sh/launchers=…`, and
-a descriptor requesting a launcher the node lacks fails admission with
-`NoCompatibleLauncher` (§14).
-
-Before launcher capabilities are advertised, the provisioner verifies each
-staged launcher is an executable regular file. It does not execute arbitrary
-administrator-provided launchers because there is no universal safe version
-probe. Validation failure leaves the node unready and reports a concise
-launcher-specific provisioning error. Setting `BREWLET_VALIDATE=false` skips
-this check together with the JDK smoke tests.
-
-> **Security note (shared with Runtime Class Manager):** node provisioning is privileged and
-> modifies the host. It must be scoped to nodes the platform team controls, and is
-> not recommended for hostile multi-tenant nodes without further isolation (§11).
+JDK distributions must be lowercase DNS-1123 tokens. The shim requires the
+selected JDK to appear in `/opt/brewlet/jdks/.brewlet-active` and verifies
+after symlink resolution that its runtime root is a direct child of the
+configured JDK roots directory. Missing inventories or paths outside that
+directory fail closed.
 
 ### 5.5 Provisioner
 
@@ -1079,22 +1010,19 @@ operator's per-profile provisioning and cleanup DaemonSets:
   (single arch) or `make provisioner-image-push` (multi-arch via buildx).
 - **Entrypoint** — an idempotent script that first verifies the node/profile
   identities and durable writer authority (§5.6), then performs all §5.2 steps:
-  validates all indexed JDK/launcher sources before host mutation; installs
+  validates all indexed JDK sources before host mutation; installs
   the shim to `/opt/brewlet/bin` and the host `/usr/local/bin` (containerd's
   PATH); materializes each declared JDK root under `/opt/brewlet/jdks/<dist>-<feature>/`
-  via digest-pinned **copy-from-image** (`ctr` against the host containerd); stages launcher layers
-  (e.g. `jaz`) under `/opt/brewlet/launchers/`; registers the
+  via digest-pinned **copy-from-image** (`ctr` against the host containerd); registers the
   `runtimes.brewlet` handler through a host-enabled drop-in or backed-up
   in-place fallback, validates the effective configuration, and activates it
   through a transactional service restart (or leaves containerd untouched in
-  `none` mode) — gated by post-install JDK smoke tests and launcher
-  executable checks and
+  `none` mode) — gated by post-install JDK smoke tests and
   configurable per the restart policy in §5.6 (`validate` /
   `containerdRestart`); then labels the
   node `brewlet.sh/runtime=ready`,
-  annotates the installed JDKs/launchers, and emits the per-capability scheduling
-  labels the admission webhook uses (`brewlet.sh/jdk.*`, `brewlet.sh/jdk-feature.*`,
-  `brewlet.sh/launcher.*`). The Helm chart or raw
+  annotates the installed JDKs, and emits the per-capability scheduling
+  labels the admission webhook uses (`brewlet.sh/jdk.*`, `brewlet.sh/jdk-feature.*`). The Helm chart or raw
   [`deploy/provisioner-rbac.yaml`](../kubernetes/deploy/provisioner-rbac.yaml)
   supplies the Namespace, `ServiceAccount`, and `ClusterRole`/binding needed
   to inspect node/profile authority and publish node state, without deploying
@@ -1116,7 +1044,7 @@ Provisioning every node identically via a cluster-wide default profile ignores t
 clusters are heterogeneous: a batch pool wants a different JDK than the web pool,
 an air-gapped pool needs a registry mirror, some pools must never have containerd
 restarted. The cluster-scoped **`NodeProfile`** CRD (`node.brewlet.sh/v1alpha1`)
-binds a **node pool** to a **JDK/launcher inventory** and rollout
+binds a **node pool** to a **JDK inventory** and rollout
 policy.
 *Selecting a pool is the opt-in* — every node in the pool, present and future, is
 provisioned; there is no per-node label to manage.
@@ -1146,16 +1074,11 @@ spec:
       source:
         image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
         javaHome: /usr/lib/jvm/msopenjdk-25
-  launchers:
-    - name: jaz
-      source:
-        image: mcr.microsoft.com/openjdk/jdk@sha256:bfde2ed613f4c67c112d1592452575d3a1dc9ce5f7d75821bb7752aa786fa575
-        path: /usr/bin/jaz
   registry:                  # optional, air-gapped pulls (see below)
     mirrors: { "mcr.microsoft.com": "mirror.internal/mcr" }
   rollout:
     maxUnavailable: 1
-    validate: true           # JDK probes plus launcher executable checks
+    validate: true           # JDK smoke tests
     containerdRestart: validated   # validated | none
 ```
 
@@ -1179,7 +1102,7 @@ spec:
   (all the same explicit key, or all auto-detected) and disjoint pool names.
   Different named-profile keys, including explicit/auto mixtures, are rejected
   because a future node could satisfy both selectors. The Helm
-  chart renders one from `provisioner.jdks/launchers`, scoped to the pools named
+  chart renders one from `provisioner.jdks`, scoped to the pools named
   in the required `provisioner.pools`; the catch-all form remains available to
   administrators who author a `NodeProfile` directly. Additional chart profiles
   also require nonempty named pools; omitted pools never create a catch-all.
@@ -1202,11 +1125,10 @@ spec:
   reconciles each profile into its own `brewlet-node-provisioner-<profile>`
   DaemonSet whose pod affinity requires a recorded node name and UID-bound
   ownership labels, plus applicable provisioning pool/role constraints. Every JDK is rendered
-  as indexed `JDK_SOURCE_*` variables; every optional launcher is rendered as
-  indexed `LAUNCHER_SOURCE_*` variables.
+  as indexed `JDK_SOURCE_*` variables.
   `MIRRORS`,
   `SOURCE_ALLOWED_MIRROR_HOSTS`, and `BREWLET_CONTAINERD_RESTART` come from the
-  spec and external policy. `JDKS` and `LAUNCHERS` are derived inside the
+  spec and external policy. `JDKS` is derived inside the
   provisioner, preventing source/inventory mismatches.
 - **Exclusive ownership.** Before granting scheduling authority, the operator
   durably records each target's node name and UID. Optimistic node updates claim
@@ -1239,7 +1161,7 @@ spec:
 - **Fail-closed reconciliation.** The reconciler repeats source, mirror, and pool
   conflict validation before creating/updating the privileged DaemonSet. An
   invalid stored or updated profile has its provisioner DaemonSet withheld or
-  deleted, loses runtime/JDK/feature/launcher advertisements only on nodes owned
+  deleted, loses runtime/JDK/feature advertisements only on nodes owned
   by that profile, and reports `Ready=False`, reason `InvalidProfile`, with an
   actionable message. Admission remains an early-feedback layer, not the
   security boundary.
@@ -1249,7 +1171,7 @@ spec:
   gone. Only then does it run a
   short-lived `brewlet-cleanup-<profile>` DaemonSet (`BREWLET_MODE=cleanup`) that
   restores the containerd config backup, removes the AppCDS authorization
-  sentinel, the shim, and the profile's installed JDK/launcher roots (unless
+  sentinel, the shim, and the profile's installed JDK roots (unless
   `BREWLET_CLEANUP_RUNTIME_ROOTS=false`, for nodes whose roots are baked into an
   immutable image), and drops the runtime + capability labels; only once every
   recorded target is cleaned or explicitly resolved by external-retirement
@@ -1411,19 +1333,18 @@ bundle and delegates isolation to runc*. This maximizes correctness and reuse.
    resolved platform-manifest digest against its bytes (and descriptor size when
    present), and separate the `jvm.config.v1+json` blob from the
    `jar.layer.v1+jar` blob (containerd content store already cached them).
-2. **Select JDK/launcher.** Read `brewlet.sh/jdk` and `brewlet.sh/launcher` from
+2. **Select JDK.** Read `brewlet.sh/jdk` from
    the OCI runtime spec annotations that originated on the pod. The JDK annotation
    selects the node-resident JDK root (a bare feature or empty request picks the
    lexically-first installed distribution for that feature — feature 21 when the
-   annotation is absent — while `<dist>-<feature>` pins an exact root), and
-   the launcher annotation selects `java` or a node-installed launcher such as `jaz`.
+   annotation is absent — while `<dist>-<feature>` pins an exact root).
    Fail fast with a clear event if the requested runtime is unavailable.
 3. **Assemble rootfs (overlayfs):**
    - `lowerdir` = the selected read-only JDK runtime root (shared across all pods).
    - `upperdir`/`workdir` = per-container writable scratch.
    - The JAR layer is mounted read-only at `/app/`.
 4. **Generate `config.json` (OCI runtime spec):**
-   - `process.args = ["java", <merged JVM args>, "-jar", "/app/app.jar"]`
+   - `process.args = ["/opt/jdk/bin/java", <merged JVM args>, "-jar", "/app/app.jar"]`
      (or `-cp ... <mainClass>` in classpath mode).
    - `process.user` from config / pod `securityContext`.
    - `linux.resources` populated from the **pod container resource limits**
@@ -1442,7 +1363,7 @@ bundle and delegates isolation to runc*. This maximizes correctness and reuse.
   `terminationGracePeriodSeconds` and `preStop`.
 - Exit code of the `java` process is the container exit code (drives restarts).
 
-### 6.3 Why runc-backed (vs. a from-scratch JVM launcher)
+### 6.3 Why runc-backed (vs. a from-scratch process supervisor)
 - Reuses battle-tested cgroup v2, namespace, seccomp/AppArmor, and CNI plumbing.
 - Probes (`exec`, `httpGet`, `tcpSocket`), `kubectl exec`, and metrics-server use
   the normal containerd/runc mechanisms.
@@ -1465,7 +1386,7 @@ and builds/runs on Linux:
   runc-backed Task service for the full lifecycle (`Create`/`Start`/`Kill`/
   `Delete`/`Exec`/`Wait`) (`main_linux.go`, `service_linux.go`).
 - The Brewlet-specific work is a `Create()` decorator that performs §6.1
-  steps 1–4: it resolves the workload image, selects the node JDK/launcher,
+  steps 1–4: it resolves the workload image, selects the node JDK,
   assembles the **overlay rootfs** (shared RO JDK lower + per-container
   upper/work, JAR at `/app`), and rewrites the OCI spec's args/env/mounts — while
   preserving the CRI-provided namespaces (incl. the CNI netns) and cgroup
@@ -1504,7 +1425,7 @@ and builds/runs on Linux:
   unlinked (`<path>//deleted`, e.g. a bind-mounted socket that was recreated)
   are tolerated and still protect their former path, but a stage whose own
   filesystem resolves through such a mount is not reclaimed.
-  Launchers hold a shared staging guard through resolution and mount creation
+  Runtime consumers hold a shared staging guard through resolution and mount creation
   (or direct execution); cleanup requires the exclusive guard. Reclamation
   requires complete reference inspection in the initial host PID/user and host
   mount namespaces with a complete `/proc`; ambiguous or unreadable evidence
@@ -1584,7 +1505,7 @@ Manager, and workload reconciliation analogous to Spin Operator:
 >   `NodeProfile` it validates the complete profile policy, resolves the pool
 >   key, and builds the per-profile
 >   `brewlet-node-provisioner-<profile>` DaemonSet (pool `nodeAffinity`, indexed
->   `JDK_SOURCE_*`/`LAUNCHER_SOURCE_*`, `MIRRORS`,
+>   `JDK_SOURCE_*`, `MIRRORS`,
 >   `SOURCE_ALLOWED_MIRROR_HOSTS`, and `BREWLET_CONTAINERD_RESTART` env from the
 >   spec and operator policy),
 >   ensures the `brewlet` RuntimeClass, and reports `assignedNodes` / `readyNodes`
@@ -1592,7 +1513,7 @@ Manager, and workload reconciliation analogous to Spin Operator:
 >   `Provisioning`, `EmptyPool`, `NodeFailure`, `InvalidProfile`,
 >   `CleanupPending` — §14.3). A
 >   validation failure reports `Ready=False`, reason `InvalidProfile`, deletes
->   or withholds the profile DaemonSet, and removes runtime/JDK/feature/launcher
+>   or withholds the profile DaemonSet, and removes runtime/JDK/feature
 >   labels and inventory annotations only from nodes whose profile annotation
 >   identifies that profile. A
 >   `node.brewlet.sh/cleanup` finalizer holds a deleted profile while a
@@ -1609,8 +1530,8 @@ Manager, and workload reconciliation analogous to Spin Operator:
 > RBAC + Deployment ship in
 > [`config/operator.yaml`](../kubernetes/config/operator.yaml)
 > and the [`charts/brewlet`](../kubernetes/charts/brewlet)
-> Helm chart. The `NoCompatibleJDK` / `NoCompatibleLauncher`
-> events are owned by the pod admission/scheduling webhook (§8.3).
+> Helm chart. The `NoCompatibleJDK`
+> denials are owned by the pod admission/scheduling webhook (§8.3).
 
 ### 8.2 `JavaApplication` controller (developer ergonomics)
 - Watches the `JavaApplication` CRD (§9) and reconciles it into a managed
@@ -1679,7 +1600,7 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 > module (`internal/controller/javaapplication_controller.go`, with pure,
 > unit-tested builders in `javaapplication_resources.go`). It reconciles the
 > Deployment/Service/HPA, owns them via controller references, stamps the
-> `brewlet.sh/jdk` / `brewlet.sh/launcher` pod annotations the admission webhook
+> `brewlet.sh/jdk` pod annotations the admission webhook
 > (§8.3) consumes, delivers `jvm.args` as argv via the
 > `brewlet.sh/jvm-args` pod annotation, and reports
 > `readyReplicas` / `selectedJdk` / a `Ready` condition on status. The API types
@@ -1708,18 +1629,18 @@ as per deployment descriptor.”* The descriptor is the `JavaApplication`.
 > **`jvm.args` delivery (`brewlet.sh/jvm-args`) — public contract.** The value is
 > a **JSON array of strings**, e.g. `["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]`.
 > The operator stamps it from `spec.jvm.args`; a user may set it directly on a raw
-> pod (§9.2). The shim decodes it and appends the elements to the launcher argv
+> pod (§9.2). The shim decodes it and appends the elements to the Java argv
 > immediately before the entrypoint (§4.2). The containerd runtime configuration
 > forwards `brewlet.sh/*` pod annotations onto the OCI spec (§5.2), so no node
 > reconfiguration is required to adopt it.
 >
 > Brewlet does **not** set `JDK_JAVA_OPTIONS` (or `JAVA_TOOL_OPTIONS`). The `java`
-> launcher *prepends* those variables to the command line, which would place
+> command *prepends* those variables to the command line, which would place
 > deployment tuning **before** the artifact's own flags and let the artifact win —
 > the inverse of the §4.2 contract — and joining the args with whitespace would
 > corrupt any argument containing a space. A user-supplied
 > `JDK_JAVA_OPTIONS`/`JAVA_TOOL_OPTIONS` in `spec.env` is still passed through
-> untouched and still honored by the JVM; because the launcher applies it before
+> untouched and still honored by the JVM; because `java` applies it before
 > argv, `jvm.args` win on conflict. That overlap is reported as a
 > `JVMArgsApplied=True` condition with reason `EnvOptionsOverlap` plus a warning
 > event. Both are applied — neither side is dropped. Args that would select the
@@ -1759,16 +1680,16 @@ NodeProfiles. For every pod on CREATE with
   platform manifest against CRI's image-config digest, and reads the JAR from
   containerd's content store by digest (§6.4); malformed or conflicting hints
   are rejected, but hints never select executable content.
-- **Matches** any explicitly requested JDK/launcher (pod
+- **Matches** any explicitly requested JDK (pod
   annotations `brewlet.sh/jdk` = `<dist>-<feature>` or a bare feature such as
-  `21`, and `brewlet.sh/launcher`) jointly against
+  `21`) against
   one candidate: a ready node, or an eligible NodeProfile. A NodeProfile is
   eligible when it is not being deleted, passes the operator's admission-time
   policy (immutable sources, allowed mirrors) and has no pool conflict; its
-  `spec.jdks` and `spec.launchers` are the
+  `spec.jdks` declares the
   capabilities it will publish on nodes it provisions. Capabilities are never
   combined across candidates. If no candidate is compatible, admission is denied
-  with `NoCompatibleJDK` or `NoCompatibleLauncher` (§14).
+  with `NoCompatibleJDK` (§14).
 - **Admits pending capacity with a warning.** When the request is satisfied
   only by a NodeProfile (for example an autoscaled pool currently at zero
   nodes), or the requested architecture (`brewlet.sh/arch`, non-portable
@@ -1780,16 +1701,15 @@ NodeProfiles. For every pod on CREATE with
   time. If NodeProfiles cannot be listed, admission fails open like a webhook
   outage; if the NodeProfile CRD is absent, only ready nodes count.
 - **Steers** scheduling by injecting `nodeAffinity` onto the provisioner's
-  per-capability labels (`brewlet.sh/jdk.<d-f>`, `brewlet.sh/jdk-feature.<f>`,
-  `brewlet.sh/launcher.<n>`) and the standard
+  per-capability labels (`brewlet.sh/jdk.<d-f>`, `brewlet.sh/jdk-feature.<f>`) and the standard
   `kubernetes.io/arch` label, using the operators defined by the public
   [capability-label contract](CAPABILITY_LABELS.md), so the scheduler skips
   incompatible nodes rather than failing at runtime.
 
-Non-brewlet pods pass through untouched; a pod with no explicit JDK/launcher
+Non-brewlet pods pass through untouched; a pod with no explicit JDK
 request is admitted with just the compatibility hints overwritten,
 and the shim defaults the JDK to feature 21 (lexically-first installed
-distribution) and the launcher to `java`. `failurePolicy: Ignore` ensures a
+distribution). `failurePolicy: Ignore` ensures a
 webhook outage never blocks workloads. Runtime identity resolution fails closed
 if the shim cannot determine the containerd-resolved image.
 
@@ -1802,7 +1722,7 @@ if the shim cannot determine the containerd-resolved image.
 >
 > **NodeProfile validation.** The same binary also serves a *validating* webhook
 > at `/validate-nodeprofiles` (`NodeProfileValidator`): on `NodeProfile`
-> CREATE/UPDATE it rejects an empty JDK list, any JDK or launcher missing its
+> CREATE/UPDATE it rejects an empty JDK list, any JDK missing its
 > source, any source not using a canonical SHA-256 digest ref, invalid names or
 > paths, malformed mirror mappings, destinations outside
 > `--allowed-source-mirror-hosts`, an invalid
@@ -1839,7 +1759,6 @@ spec:
   jvm:
     version: 21                  # JDK feature version; authoritative scheduling/runtime request
     distribution: temurin        # optional; pins <distribution>-<feature>. Omit to accept any distribution of this feature
-    launcher: java               # vanilla OpenJDK launcher (default/omittable); tune the JVM yourself via args
     # Brewlet injects no -XX flags of its own; the container-aware JDK reads the
     # cgroup memory/cpu limits directly. Set any tuning explicitly here:
     args: ["-XX:MaxRAMPercentage=75.0", "-XX:+UseZGC", "-XX:+ExitOnOutOfMemoryError"]
@@ -1896,9 +1815,8 @@ spec:
       labels: { app: hello }
       annotations:
         brewlet.sh/jdk: "21"
-        brewlet.sh/launcher: java
         # The raw-pod equivalent of spec.jvm.args (§8.2). A JSON array of
-        # strings, appended to the launcher argv before the entrypoint (§4.2).
+        # strings, appended to the Java argv before the entrypoint (§4.2).
         brewlet.sh/jvm-args: '["-XX:MaxRAMPercentage=75.0","-XX:+UseZGC"]'
     spec:
       runtimeClassName: brewlet
@@ -1914,40 +1832,19 @@ enforcement point: a value that is not a JSON array of strings, or that contains
 an entrypoint-selecting flag (§4.2), fails task creation rather than launching
 with the tuning silently dropped.
 
-### 9.3 Choosing a launcher: vanilla `java` vs. `jaz`
+### 9.3 JVM tuning
 
-The two launchers represent two philosophies of JVM tuning. Brewlet itself injects
-**no** `-XX` flags in either case — the difference is who does the tuning.
-
-**Vanilla `java` (default) — you tune it.** The container-aware JDK reads the
-cgroup limits; you set heap/GC/etc. explicitly:
+The container-aware JDK reads the cgroup limits.
+Brewlet injects no tuning flags; configure heap and GC explicitly:
 
 ```yaml
-  jvm:
-    version: 21
-    launcher: java                 # default; may be omitted
-    args:                          # tuning is YOUR responsibility
-      - "-XX:MaxRAMPercentage=75.0"
-      - "-XX:+UseZGC"
-      - "-XX:+ExitOnOutOfMemoryError"
+jvm:
+  version: 21
+  args:
+    - "-XX:MaxRAMPercentage=75.0"
+    - "-XX:+UseZGC"
+    - "-XX:+ExitOnOutOfMemoryError"
 ```
-
-**`jaz` — it tunes for you.** The [Azure Command Launcher for
-Java](https://learn.microsoft.com/java/jaz/overview) inspects the container's
-resources and picks sensible JVM ergonomics automatically, so you typically pass
-**no** manual tuning flags. Do not restate what `jaz` derives (e.g.
-`MaxRAMPercentage`); reserve `args` for genuinely app-specific flags only:
-
-```yaml
-  jvm:
-    version: 21
-    launcher: jaz                  # auto-tunes heap/GC/CPU from the cgroup limits
-    # no MaxRAMPercentage / GC selection needed — jaz derives them
-    # args: ["-Dfoo=bar"]          # only truly app-specific flags, if any
-```
-
-> The node must have the requested launcher installed (§5.4); otherwise the pod
-> fails admission with `NoCompatibleLauncher`.
 
 ---
 
@@ -1977,8 +1874,6 @@ forwarding or Kubernetes resource semantics.
   `-XX:MaxRAMPercentage` (e.g. `75.0`, reserving ~25%) via `jvm.args`.
 - `-XX:+ExitOnOutOfMemoryError` recommended so OOM → clean restart by the kubelet.
 - Modern JDKs are cgroup-v2 aware; Brewlet **requires cgroup v2** on nodes.
-- A custom launcher (e.g. `jaz`) can auto-tune these from the cgroup limits on the
-  user's behalf.
 
 **Requests vs. limits.** Only *limits* become the sandbox cgroup and therefore only
 limits are visible to the container-aware JDK; *requests* are a scheduling concern.
@@ -2044,11 +1939,11 @@ other, so each shape behaves as plain Kubernetes does:
   bounded-cardinality events over a Unix datagram socket under `/opt/brewlet`;
   exporter loss never changes launch behavior. The endpoint reports launch phase
   latency/outcomes, artifact-resolution behavior,
-  and installed JDK/launcher inventory. `overlay_setup` measures preparation of
+  and installed JDK inventory. `overlay_setup` measures preparation of
   the overlay mount configuration; `runc_create` includes applying that mount and
   creating the sandbox. The operator and admission webhook add
   NodeProfile readiness/provisioning metrics and admission outcomes (including
-  `NoCompatibleJDK`, `NoCompatibleLauncher`, and admissions on pending
+  `NoCompatibleJDK`, and admissions on pending
   capacity) to their
   controller-runtime endpoints.
 - **Stage cleanup observability:** the optional exporter exposes
@@ -2079,7 +1974,7 @@ other, so each shape behaves as plain Kubernetes does:
   rotated-out root once no live mount references it *and* it has aged past a
   grace period (`BREWLET_RETIRED_GRACE_SECONDS`, default 1h). Mount option
   strings keep the pre-rename path, so references are found by device number
-  and the mountinfo root field of each sandbox's JDK/launcher bind mount, which
+  and the mountinfo root field of each sandbox's JDK bind mount, which
   the kernel renders from the renamed directory, across every mount namespace.
   If the mount tables cannot be read, the root is retained. Deleting a `NodeProfile` removes the
   profile's installed roots during cleanup unless
@@ -2116,7 +2011,6 @@ and JVM features:
 | Scenario                                   | Behavior                                                            |
 |--------------------------------------------|--------------------------------------------------------------------|
 | No compatible JDK on any ready node or eligible NodeProfile | Pod **rejected at admission**, `403` with `reason: NoCompatibleJDK`   |
-| Requested launcher on no ready node or eligible NodeProfile | Pod **rejected at admission**, `403` with `reason: NoCompatibleLauncher` |
 | Request satisfied only by a NodeProfile (e.g. autoscaled pool at zero) | Pod admitted with `nodeAffinity` and an admission warning; stays `Pending` until the pool scales up |
 | Non-portable JAR needs an arch with no ready node | Pod admitted with `kubernetes.io/arch` affinity and an admission warning; stays `Pending` until a node of that arch exists |
 | Requested capability exists but its nodes are momentarily unschedulable | Pod admitted with `nodeAffinity`; stays `Pending` with a scheduler `FailedScheduling` event |
@@ -2132,7 +2026,7 @@ and JVM features:
 | cgroup v1-only node                         | Provisioner refuses; node not marked ready (cgroup v2 required)     |
 | containerd 1.x node                         | Provisioner refuses; node not marked ready (protected CRI requested-image metadata requires containerd 2.0+) |
 
-> The `NoCompatibleJDK` / `NoCompatibleLauncher` rows are enforced by the pod admission webhook
+> The `NoCompatibleJDK` row is enforced by the pod admission webhook
 > (§8.3): an incompatible explicit request is denied at admission with that
 > reason, and compatible pods get nodeAffinity so the scheduler skips nodes
 > lacking the requested capability.
@@ -2162,7 +2056,6 @@ that is explicitly *not* a contract.
 |---|---|---|
 | `brewlet.sh/jdks` | Comma-separated `<distribution>-<feature>` tokens, e.g. `temurin-21,microsoft-25` | Current compact installed-JDK contract for compatibility admission, node-ready events, and CLI status/profile inspection |
 | `brewlet.sh/jdks-info` | JSON array, one object per root: `{"distribution","vendor","feature","version","arch"}` | Structured diagnostic contract for detailed JDK listing and doctor's JDK inventory check. `vendor`/`version`/`arch` are read from the installed JDK itself. A root whose `java` cannot be executed is omitted |
-| `brewlet.sh/launchers` | Comma-separated launcher names, always including the implicit `java` | Installed launcher inventory |
 | `brewlet.sh/profile` | The owning `NodeProfile`'s `metadata.name` | Which profile last provisioned this node |
 | `brewlet.sh/profile-generation` | Decimal `metadata.generation` of that profile | Distinguishes an up-to-date node from a stale one |
 | `brewlet.sh/provision-error` | A reason **code** from §14.2 | Machine-readable failure cause |
@@ -2210,11 +2103,10 @@ repurposed.
 | Code | Meaning |
 |---|---|
 | `invalid-source-ref` | A configured source image is not a fully qualified, tagless, digest-pinned reference |
-| `invalid-source-path` | A configured `javaHome`/launcher path failed path-policy validation |
+| `invalid-source-path` | A configured `javaHome` path failed path-policy validation |
 | `invalid-mirror-config` | `registry.mirrors` / the mirror allowlist is malformed, self-referential, duplicated, or names an unapproved destination |
 | `source-policy-validator-missing` | The source-policy validator binary is absent or not executable in the provisioner image |
 | `invalid-jdk-source` | A JDK source entry is missing fields, has a malformed `<distribution>-<feature>` token, or is duplicated |
-| `invalid-launcher-source` | A launcher source entry is missing fields, has a malformed or reserved name, or is duplicated |
 | `invalid-restart-mode` | The configured or per-node cleanup policy is not `validated` / `none`; rejected before host operations |
 | `invalid-stage-gc-config` | Provisioner GC configuration is invalid |
 | `stage-gc-state-failed` | GC installation safety inspection/recording or helper installation failed; distinct from a periodic sweep failure, which is logged and retried |
@@ -2231,10 +2123,6 @@ repurposed.
 | `jdk-source-missing` | No configured source exists for a requested JDK token (there is no built-in catalog — §5.2) |
 | `jdk-install-failed` | Mounting, copying, activating, or retaining a JDK root failed |
 | `jdk-validation-failed` | An installed JDK failed its `java -version` smoke test |
-| `launcher-source-missing` | No configured source exists for a requested launcher |
-| `launcher-install-failed` | Mounting, copying, activating, or retaining a launcher failed |
-| `launcher-<name>-missing` | The named launcher's binary is absent. `<name>` is sanitized and truncated to 39 characters so the whole code stays within the 63-character limit |
-| `launcher-<name>-not-executable` | The named launcher's binary is present but not executable |
 | `containerd-config-missing` | The host containerd configuration file was not found |
 | `containerd-config-invalid` | The rendered containerd configuration failed validation |
 | `restart-failed` | The containerd service could not be restarted |
@@ -2267,7 +2155,7 @@ reason (§5.5).
 Event reasons: `Provisioning`, `NodeReady`, `ProvisionFailed`, `NodeUnmatched`
 (node lifecycle, §8.1); `ReconcileError`, `EnvOptionsOverlap` (`JavaApplication`,
 §8.2). Admission **denial** reasons (§8.3, returned as a `403` `metav1.Status`
-reason — not events): `NoCompatibleJDK`, `NoCompatibleLauncher`,
+reason — not events): `NoCompatibleJDK`,
 `InvalidNodeProfile`, `PoolConflict`.
 `NoCompatibleArch` is reserved and no longer emitted: an unavailable
 architecture is admitted with a warning (§8.3).
@@ -2281,7 +2169,7 @@ All are opt-in (`metrics.enabled=true`) and bounded-cardinality.
 |---|---|
 | `brewlet_sandbox_launches_total`, `brewlet_sandbox_launch_duration_seconds` | Shim → node exporter |
 | `brewlet_artifact_resolution_duration_seconds` | Shim → node exporter |
-| `brewlet_jdk_info`, `brewlet_jdk_installed_timestamp_seconds`, `brewlet_launcher_info` | Node exporter |
+| `brewlet_jdk_info`, `brewlet_jdk_installed_timestamp_seconds` | Node exporter |
 | `brewlet_runnable_stage_bytes` | Node exporter; logical regular-file bytes under the host stage root, refreshed per scrape, with no metric-specific labels |
 | `brewlet_telemetry_events_invalid_total` | Node exporter |
 | `brewlet_node_provision_transitions_total` | Operator |
@@ -2299,10 +2187,8 @@ read-only mounts §6.1 describes.
 | `bin/containerd-shim-brewlet-v2` | The installed shim binary |
 | `jdks/<distribution>-<feature>/` | An installed JDK runtime root. `.brewlet-java-home` records the JDK home inside it and `.brewlet-source` its source ref |
 | `jdks/.brewlet-active` | Newline-separated list of the currently inventoried JDK tokens |
-| `launchers/<name>/bin/<name>` | An installed launcher, bind-mounted at `/opt/brewlet/launcher` in the sandbox |
-| `launchers/.brewlet-active` | Newline-separated list of the currently inventoried launchers |
 | `metrics/telemetry.sock` | Unix datagram socket the shim writes best-effort telemetry to |
-| `<root>.retired.<epoch>.<pid>/` | A rotated-out JDK/launcher root, retained while live mounts may reference it (§12) |
+| `<root>.retired.<epoch>.<pid>/` | A rotated-out JDK root, retained while live mounts may reference it (§12) |
 | `.image-mount-*` | Transient source-image mount points; reclaimed on the next pass |
 | `.stage-gc-compatible` | Root-owned installation safety record bound to both installed shim copies and stage path; checked at startup, invalidated before binary replacement, and removed during teardown. Not an in-place release compatibility promise |
 
