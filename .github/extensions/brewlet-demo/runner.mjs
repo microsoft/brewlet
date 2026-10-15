@@ -4,19 +4,32 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { appendFile, mkdir, open, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { DEPENDENCY_GOAL, MAIN_CLASS, SOURCE_BOM, prepareManaged } from "./managed.mjs";
 
 export const REVISION = "3bab16bf108bb9d2cdf0268fd22213870ae37408";
 export const CONTEXT = "docker-desktop";
+export const APPLICATION_NAME = "showmyjvm-java";
+export function renderApplicationYaml(template, namespace, image) {
+    if (!template.includes("__NAMESPACE__") || !template.includes("__IMAGE__")) throw new Error("JavaApplication YAML template is missing required placeholders.");
+    return template.replaceAll("__NAMESPACE__", JSON.stringify(namespace)).replaceAll("__IMAGE__", JSON.stringify(image));
+}
+export function assertApplicationOwner(resource, app) {
+    if (!app.metadata?.uid || !resource.metadata?.ownerReferences?.some((owner) =>
+        owner.controller === true && owner.kind === "JavaApplication" && owner.uid === app.metadata.uid)) {
+        throw new Error(`${resource.kind ?? "Resource"} ${resource.metadata?.name} is not controlled by this JavaApplication.`);
+    }
+}
 const INSPECTION_OPENS = "jdk.management/com.sun.management.internal=ALL-UNNAMED";
 const INSPECTION_LOGGING = "logging.level.io.brunoborges.showmyjvm.core.PrintFlagsFinal";
 export const STEPS = {
     preflight: { title: "Check prerequisites", detail: "Read-only checks of tools, local Temurin 25 and Docker Desktop." },
     setup: { title: "Prepare Docker Desktop", detail: "Explicit opt-in: install Brewlet and both digest-pinned Temurin JDKs on one worker. Existing installations are never upgraded." },
     local: { title: "1. Build & run locally", detail: "Build ShowMyJVM's Spring Boot module with Temurin 25. Serve only on loopback." },
-    package: { title: "2. Package an OCI image", detail: "Package the executable JAR only, without a base image or bundled JDK." },
-    deploy: { title: "3. Deploy with Temurin 25", detail: "Import into the selected worker's containerd, deploy with runtimeClassName: brewlet, and verify the running JVM." },
-    upgrade: { title: "4. Switch to Temurin 27", detail: "Patch the Deployment's JDK annotation. Roll out and verify Java 27 with the exact same OCI digest." },
-    rollback: { title: "5. Switch back to JDK 25", detail: "Patch back to Temurin 25 and verify the running JVM. Same image, same Service, no rebuild." },
+    package: { title: "2. Publish bundle & compose OCI image", detail: "Publish a managed runtime dependency bundle, verify its lock, and compose a thin application layer plus a separate dependency layer. No bundled JDK." },
+    artifact: { title: "3. Inspect the OCI artifact", detail: "Show verified platform manifests, layer digests and their file listings. Read-only: no extraction or rebuild." },
+    deploy: { title: "4. Deploy with Temurin 25", detail: "Apply javaapplication.yaml. Brewlet manages the Deployment and Service; verify the running JVM." },
+    upgrade: { title: "5. Switch to Temurin 27", detail: "Patch JavaApplication.spec.jvm.version. Roll out and verify Java 27 with the exact same OCI digest." },
+    rollback: { title: "6. Switch back to JDK 25", detail: "Patch back to Temurin 25 and verify the running JVM. Same image, same Service, no rebuild." },
     inspect: { title: "Inspect deployment", detail: "Show workload state, recent logs, and verified runtime identity." },
 };
 
@@ -28,37 +41,6 @@ export function runtimeEvidence(data, feature) {
     }
     if (!/Eclipse Adoptium|Temurin/i.test(vendor)) throw new Error(`Expected Temurin, got vendor ${vendor || "(missing)"}.`);
     return { feature, version, vendor, name: data.vmName, process: data.pidHostname };
-}
-
-export function deployment(namespace, node, image) {
-    return {
-        apiVersion: "apps/v1", kind: "Deployment", metadata: { name: "showmyjvm", namespace },
-        spec: {
-            replicas: 1, selector: { matchLabels: { app: "showmyjvm" } },
-            template: {
-                metadata: { labels: { app: "showmyjvm" }, annotations: { "brewlet.sh/jdk": "temurin-25" } },
-                spec: {
-                    runtimeClassName: "brewlet", nodeSelector: { "kubernetes.io/hostname": node },
-                    securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, seccompProfile: { type: "RuntimeDefault" } },
-                    containers: [{
-                        name: "showmyjvm", image, imagePullPolicy: "Never",
-                        securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } },
-                        env: [{ name: "PORT", value: "8080" }],
-                        ports: [{ containerPort: 8080, name: "http" }],
-                        resources: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "1", memory: "768Mi" } },
-                        readinessProbe: { httpGet: { path: "/actuator/health", port: 8080 }, periodSeconds: 3 },
-                    }],
-                },
-            },
-        },
-    };
-}
-
-export function service(namespace) {
-    return {
-        apiVersion: "v1", kind: "Service", metadata: { name: "showmyjvm", namespace },
-        spec: { type: "ClusterIP", selector: { app: "showmyjvm" }, ports: [{ name: "http", port: 8080, targetPort: "http" }] },
-    };
 }
 
 const sha256 = (data) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
@@ -98,8 +80,9 @@ export function podArtifactEvidence(current, replicasets, pods, image, feature, 
         pod.status.conditions?.some((item) => item.type === "Ready" && item.status === "True"));
     if (!ready.length) throw new Error("No ready Pod owned by this Deployment; artifact proof unavailable.");
     return ready.map((pod) => {
-        const container = pod.spec.containers.find((item) => item.name === "showmyjvm");
-        const status = pod.status.containerStatuses?.find((item) => item.name === "showmyjvm");
+        const name = current.spec.template.spec.containers[0].name;
+        const container = pod.spec.containers.find((item) => item.name === name);
+        const status = pod.status.containerStatuses?.find((item) => item.name === name);
         if (container?.image !== image || pod.metadata.annotations?.["brewlet.sh/jdk"] !== `temurin-${feature}` ||
             !status?.ready || !status.state?.running) throw new Error(`Pod ${pod.metadata.name} does not match the requested image/runtime.`);
         const runtimeDigest = status.imageID?.match(/sha256:[a-f0-9]{64}$/)?.[0];
@@ -133,15 +116,15 @@ export function commandPreviews(state) {
     const image = state.image ?? `<packaged-image@sha256:digest>`;
     const ref = `localhost/${namespace}/showmyjvm:demo`;
     const kube = (...args) => ["kubectl", "--context", CONTEXT, ...args].map(quote).join(" ");
-    const rollout = kube("-n", namespace, "rollout", "status", "deployment/showmyjvm", "--timeout=5m");
+    const rollout = kube("-n", namespace, "wait", "--for=condition=Ready", `javaapplication/${APPLICATION_NAME}`, "--timeout=5m");
     const runtime = (feature) => ({
         commands: [
-            kube("-n", namespace, "patch", "deployment", "showmyjvm", "--type=merge", "-p",
-                JSON.stringify({ spec: { template: { metadata: { annotations: { "brewlet.sh/jdk": `temurin-${feature}` } } } } })),
+            kube("-n", namespace, "patch", "javaapplication", APPLICATION_NAME, "--type=merge", "-p",
+                JSON.stringify({ spec: { jvm: { version: feature } } })),
             rollout,
         ],
-        input: { "brewlet.sh/jdk": `temurin-${feature}`, unchangedImage: image, service: "showmyjvm", verification: `/jvm/inspect.json: Eclipse Adoptium / Java ${feature}` },
-        note: "Only the pod-template JDK annotation changes. No rebuild or repackaging; the Service URL stays the same.",
+        input: { "spec.jvm.version": feature, "spec.jvm.distribution": "temurin", unchangedImage: image, service: APPLICATION_NAME, verification: `/jvm/inspect.json: Eclipse Adoptium / Java ${feature}` },
+        note: "Only JavaApplication.spec.jvm.version changes. The operator updates the Deployment. No rebuild or repackaging; the Service URL stays the same.",
     });
     return {
         preflight: {
@@ -170,32 +153,43 @@ export function commandPreviews(state) {
         },
         package: {
             commands: [
-                ["brewlet", "push", jar, ref, "--store", path.join(dir, "oci"), "--format", "image", "--config", path.join(dir, "jvm-config.json")].map(quote).join(" "),
+                `mvn -pl spring-boot -am -Djib.skip=true package ${DEPENDENCY_GOAL} -DincludeScope=runtime -DoutputAbsoluteArtifactFilename=true -DoutputFile=${quote(path.join(dir, "runtime-dependencies.txt"))}`,
+                `brewlet dependency-bundle <dependencies.tar> localhost/${namespace}/showmyjvm-dependencies:demo --store ${quote(path.join(dir, "oci"))} --name showmyjvm-runtime --version ${REVISION.slice(0,12)} --source-bom ${SOURCE_BOM} --lock <dependency-lock.json> --compatible-jdks 25,27`,
+                ["brewlet", "push", state.managedBundle?.thinJar ?? "<thin-application.jar>", ref, "--store", path.join(dir, "oci"), "--format", "image", "--config", path.join(dir, "jvm-config.json"), "--dependency-bundle", `localhost/${namespace}/showmyjvm-dependencies:demo`, "--dependency-lock", state.managedBundle?.lockFile ?? "<dependency-lock.json>"].map(quote).join(" "),
                 `tar -C ${quote(path.join(dir, "oci"))} -cf ${quote(path.join(dir, "showmyjvm.oci.tar"))} oci-layout index.json blobs`,
             ],
-            input: { schemaVersion: 1, mainJar: "app.jar", entry: { mode: "jar" }, addOpens: [INSPECTION_OPENS], systemProperties: { [INSPECTION_LOGGING]: "WARN" } },
-            note: "Input: jvm-config.json. Application-only OCI image; no bundled JDK or registry upload. The digest is resolved after packaging.",
+            input: { sourceBom: SOURCE_BOM, bundle: state.managedBundle ?? "<resolved during packaging>", schemaVersion: 1, mainJar: "app.jar", entry: { mode: "classpath", mainClass: MAIN_CLASS, classPath: ["app.jar","lib/*"] }, addOpens: [INSPECTION_OPENS], systemProperties: { [INSPECTION_LOGGING]: "WARN" } },
+            note: "Demo publisher creates an unsigned managed bundle from the actual Maven runtime graph, then verifies that graph during composition. Thin JAR contains application classes only. Dependencies are a separately digest-pinned, reused classpath layer. No registry upload or JDK.",
+        },
+        artifact: {
+            commands: [
+                ["brewlet", "inspect", state.ref ?? ref, "--store", path.join(dir, "oci")].map(quote).join(" "),
+                `tar -tvf ${quote(path.join(dir, "oci/blobs/sha256/<layer-digest>"))}`,
+                `jar --list --file ${quote(jar)}`,
+            ],
+            input: { image, store: path.join(dir, "oci"), platforms: "All platforms in the application index", contents: "Every layer's archive entries; files are never extracted" },
+            note: "Verify index, manifests, configs and layer SHA-256 digests. Expose JVM annotation/config metadata separately. Verify the local JAR matches packaged app.jar before listing its embedded dependencies. No registry or Kubernetes access.",
         },
         deploy: {
             commands: [
                 `${kube("exec", "-i", "-n", "brewlet", "<ready-provisioner-pod>", "-c", "provisioner", "--", "ctr", "-n", "k8s.io", "images", "import", "--digests", "-")} < ${quote(state.archive ?? path.join(dir, "showmyjvm.oci.tar"))}`,
                 kube("exec", "-n", "brewlet", "<ready-provisioner-pod>", "-c", "provisioner", "--", "ctr", "-n", "k8s.io", "images", "tag", "--force", ref, image),
-                kube("apply", "-f", "-"),
+                kube("apply", "-f", path.join(dir, "javaapplication.yaml")),
                 rollout,
             ],
-            input: { deployment: deployment(namespace, node, image), service: service(namespace) },
-            note: "Apply receives the Deployment and Service as separate JSON inputs. Namespace ownership is checked first. Worker hostname and provisioner Pod are selected at execution time.",
+            input: { file: path.join(dir, "javaapplication.yaml"), template: ".github/extensions/brewlet-demo/javaapplication.yaml", image, namespace },
+            note: "The external YAML is rendered with this session's namespace and OCI digest, then applied. The operator owns the Deployment and Service. Use Show JavaApplication YAML to present the exact file.",
         },
         upgrade: runtime(27),
         rollback: runtime(25),
         inspect: {
             commands: [
-                kube("-n", namespace, "get", "deployment,pods", "-o", "wide"),
+                kube("-n", namespace, "get", "javaapplication,deployment,pods", "-o", "wide"),
                 kube("-n", namespace, "get", "replicasets,pods", "-o", "json"),
-                kube("-n", namespace, "logs", "deployment/showmyjvm", "--tail=40"),
-                kube("proxy", "--address=127.0.0.1", "--port=0", `--accept-paths=^/api/v1/namespaces/${namespace}/services/http:showmyjvm:http/proxy/`),
+                kube("-n", namespace, "logs", `deployment/${APPLICATION_NAME}`, "--tail=40"),
+                kube("proxy", "--address=127.0.0.1", "--port=0", `--accept-paths=^/api/v1/namespaces/${namespace}/services/http:${APPLICATION_NAME}:http/proxy/`),
             ],
-            input: { service: `http:showmyjvm:http`, endpoint: "/jvm/inspect.json", expectedJDK: "From the current Deployment annotation: temurin-25 or temurin-27", expectedImage: image },
+            input: { service: `http:${APPLICATION_NAME}:http`, endpoint: "/jvm/inspect.json", expectedJDK: "From JavaApplication.spec.jvm: temurin-25 or temurin-27", expectedImage: image },
             note: "Restores the Service proxy if needed. Follows controller-owner UIDs, checks ready Pod imageIDs against hashed local OCI content, and matches the Service JVM response to a verified Pod.",
         },
     };
@@ -236,6 +230,7 @@ export class DemoManager extends EventEmitter {
 
     async init() {
         await mkdir(this.dir, { recursive: true });
+        this.applicationTemplate = await readFile(new URL("javaapplication.yaml", import.meta.url), "utf8");
         try {
             const saved = JSON.parse(await readFile(path.join(this.dir, "state.json"), "utf8"));
             if (saved.namespace !== this.namespace) throw new Error("Saved demo namespace does not match this session.");
@@ -263,6 +258,13 @@ export class DemoManager extends EventEmitter {
             if (error.code !== "ENOENT") throw error;
         }
         this.state.workspace = this.dir;
+        if (this.state.steps.deploy?.status === "passed" && !this.state.managedApplication) {
+            for (const step of ["deploy", "upgrade", "rollback", "inspect"]) {
+                delete this.state.steps[step];
+                delete this.state.evidence[step];
+            }
+            this.log("\nJavaApplication demo enabled. Run stage 4 to create showmyjvm-java. The old raw showmyjvm Deployment is retained, not adopted or deleted.\n");
+        }
         await this.save();
     }
 
@@ -289,20 +291,31 @@ export class DemoManager extends EventEmitter {
     }
 
     snapshot() {
+        const applied = Boolean(this.state.appliedApplication && this.state.appliedApplication.image === this.state.image);
         return { ...structuredClone(this.state), definitions: STEPS, commandPreviews: commandPreviews(this.state),
+            applicationYaml: { file: ".github/extensions/brewlet-demo/javaapplication.yaml", template: this.applicationTemplate,
+                rendered: applied ? this.state.appliedApplication.yaml :
+                    renderApplicationYaml(this.applicationTemplate, this.namespace, this.state.image ?? "<package-stage-2-image@sha256:digest>"),
+                applied,
+                path: path.join(this.dir, "javaapplication.yaml"), ready: Boolean(this.state.image) },
             artifactComparison: artifactComparison(this.state.evidence, this.state.image), services: [...this.children.keys()] };
     }
 
-    async run(file, args = [], { input, env, service, timeout = 180000, quiet = false } = {}) {
+    async run(file, args = [], { input, env, service, timeout = 180000, quiet = false, hashOutput = false } = {}) {
         if (this.cancelled) throw new Error("Demo stopped.");
         this.log(`\n$ ${[file, ...args].map(quote).join(" ")}\n`);
-        if (this.command) return this.command(file, args, { input, env, service, timeout, quiet });
+        if (this.command) return this.command(file, args, { input, env, service, timeout, quiet, hashOutput });
         const child = spawn(file, args, { cwd: this.dir, env: env ?? process.env, stdio: ["pipe", "pipe", "pipe"] });
         const key = service ?? "command";
         this.children.set(key, child);
         let output = "";
+        const outputHash = hashOutput ? createHash("sha256") : null;
         let spawnError;
         child.stdout.on("data", (data) => {
+            if (outputHash) {
+                outputHash.update(data);
+                return;
+            }
             output = (output + data.toString()).slice(-4 * 1024 * 1024);
             child.outputTail = output.slice(-8192);
             if (!quiet) this.log(data.toString());
@@ -338,7 +351,7 @@ export class DemoManager extends EventEmitter {
                 if (spawnError || inputError || (code !== 0 && !child.expectedStop) || expired) reject(new Error(expired
                     ? `${file} timed out after ${timeout / 1000}s.`
                     : spawnError?.message ?? inputError?.message ?? `${file} exited ${code ?? signal}. See terminal output.`));
-                else resolve(output);
+                else resolve(outputHash ? `sha256:${outputHash.digest("hex")}` : output);
             });
         });
         if (service) {
@@ -515,11 +528,26 @@ export class DemoManager extends EventEmitter {
         const ref = `localhost/${this.namespace}/showmyjvm:demo`;
         const store = path.join(this.dir, "oci");
         const config = path.join(this.dir, "jvm-config.json");
+        const java = await this.java();
+        const env = { ...process.env, JAVA_HOME: this.javaHome, PATH: `${this.javaHome}/bin:${process.env.PATH}` };
+        const graphFile = path.join(this.dir, "runtime-dependencies.txt");
+        await this.run("mvn", ["-B", "-ntp", "-f", path.join(this.dir, "showmyjvm/pom.xml"), "-pl", "spring-boot", "-am", "-Djib.skip=true",
+            "package", DEPENDENCY_GOAL, "-DincludeScope=runtime", "-DoutputAbsoluteArtifactFilename=true", `-DoutputFile=${graphFile}`], { env, timeout: 900000 });
+        const managed = await prepareManaged(this.dir, await readFile(graphFile, "utf8"));
+        await this.run(path.join(path.dirname(java), "jar"), ["--create", "--file", managed.thinJar, "--date=2026-01-01T00:00:00Z",
+            "-C", path.join(this.dir, "showmyjvm/spring-boot/target/classes"), "."]);
+        await this.run("tar", ["-C", managed.deps, "-cf", managed.tar, ...managed.lock.artifacts.map((item) => item.fileName)], { env: { ...env, COPYFILE_DISABLE: "1" } });
+        const bundleRef = `localhost/${this.namespace}/showmyjvm-dependencies:demo`;
+        await this.run("brewlet", ["dependency-bundle", managed.tar, bundleRef, "--store", store, "--name", "showmyjvm-runtime",
+            "--version", REVISION.slice(0, 12), "--source-bom", SOURCE_BOM, "--lock", managed.lockFile, "--compatible-jdks", "25,27"]);
+        await this.run("brewlet", ["inspect", bundleRef, "--store", store]);
         await writeFile(config, JSON.stringify({
-            schemaVersion: 1, mainJar: "app.jar", entry: { mode: "jar" },
+            schemaVersion: 1, mainJar: "app.jar", entry: { mode: "classpath", mainClass: MAIN_CLASS, classPath: ["app.jar", "lib/*"] },
             addOpens: [INSPECTION_OPENS], systemProperties: { [INSPECTION_LOGGING]: "WARN" },
         }, null, 2));
-        await this.run("brewlet", ["push", this.state.jar, ref, "--store", store, "--format", "image", "--config", config]);
+        await this.run("brewlet", ["push", managed.thinJar, ref, "--store", store, "--format", "image", "--config", config,
+            "--dependency-bundle", bundleRef, "--dependency-lock", managed.lockFile]);
+        this.state.managedBundle = { ref: bundleRef, lockFile: managed.lockFile, dependencies: managed.lock.artifacts.length, thinJar: managed.thinJar, sourceBom: SOURCE_BOM };
         const index = JSON.parse(await readFile(path.join(store, "index.json"), "utf8"));
         const digest = index.manifests.find((item) => item.annotations?.["org.opencontainers.image.ref.name"] === ref)?.digest;
         if (!/^sha256:[a-f0-9]{64}$/.test(digest ?? "")) throw new Error("Packaged OCI layout has no valid image digest.");
@@ -544,42 +572,167 @@ export class DemoManager extends EventEmitter {
         }
     }
 
+    async artifact() {
+        const store = path.join(this.dir, "oci");
+        await this.run("brewlet", ["inspect", this.state.ref, "--store", store]);
+        const indexDigest = this.state.image?.split("@")[1];
+        const readDescriptor = async (descriptor) => {
+            if (!/^sha256:[a-f0-9]{64}$/.test(descriptor?.digest ?? "")) throw new Error("Invalid OCI descriptor digest.");
+            const file = path.join(store, "blobs/sha256", descriptor.digest.slice(7));
+            const bytes = await readFile(file);
+            if (sha256(bytes) !== descriptor.digest || bytes.length !== descriptor.size) throw new Error(`OCI descriptor digest or size mismatch: ${descriptor.digest}`);
+            return { file, bytes };
+        };
+        const layout = JSON.parse(await readFile(path.join(store, "index.json"), "utf8"));
+        const application = layout.manifests?.find((item) => item.digest === indexDigest &&
+            item.annotations?.["org.opencontainers.image.ref.name"] === this.state.ref);
+        if (!application) throw new Error("Packaged OCI layout does not contain the expected application reference and digest.");
+        const index = JSON.parse((await readDescriptor(application)).bytes);
+        if (!index.manifests?.length) throw new Error("OCI application index contains no platforms.");
+        const platforms = [];
+        const layers = [];
+        for (const descriptor of index.manifests) {
+            const platform = `${descriptor.platform?.os}/${descriptor.platform?.architecture}`;
+            const manifest = JSON.parse((await readDescriptor(descriptor)).bytes);
+            const config = JSON.parse((await readDescriptor(manifest.config)).bytes);
+            if (`${config.os}/${config.architecture}` !== platform) throw new Error("OCI configuration platform does not match its manifest descriptor.");
+            if (!manifest.layers?.length) throw new Error(`OCI manifest for ${platform} contains no layers.`);
+            this.log(`\nPlatform: ${platform}\nManifest: ${descriptor.digest}\nConfig: ${manifest.config.digest}\nLayers: ${manifest.layers.length}\n`);
+            const launch = manifest.annotations?.["brewlet.sh/jvm-config"];
+            const managedEvidence = manifest.annotations?.["brewlet.sh/managed-dependency-evidence"];
+            const jvmConfig = launch ? JSON.parse(launch) : null;
+            platforms.push({ platform, manifestDigest: descriptor.digest, configDigest: manifest.config.digest,
+                imageConfig: config, jvmConfig, managedDependency: managedEvidence ? JSON.parse(managedEvidence) : null, layers: manifest.layers.map((layer) => layer.digest) });
+            for (const [position, layer] of manifest.layers.entries()) {
+                this.log(`\nLayer ${position + 1}: ${layer.digest} (${layer.size} bytes)\nMedia type: ${layer.mediaType}\n`);
+                const existing = layers.find((item) => item.digest === layer.digest);
+                if (existing) {
+                    if (existing.size !== layer.size || existing.mediaType !== layer.mediaType) throw new Error("Conflicting descriptors for the same OCI layer.");
+                    this.log("Shared layer; file listing shown above and in the artifact viewer.\n");
+                    continue;
+                }
+                if (!["application/vnd.oci.image.layer.v1.tar", "application/vnd.oci.image.layer.v1.tar+gzip"].includes(layer.mediaType)) throw new Error(`Unsupported layer media type: ${layer.mediaType}`);
+                const { file } = await readDescriptor(layer);
+                const contents = await this.run("tar", ["-tvf", file]);
+                const names = await this.run("tar", ["-tf", file], { quiet: true });
+                if ([contents, names].some((listing) => Buffer.byteLength(listing) >= 4 * 1024 * 1024)) throw new Error("Layer listing exceeds the demo output limit; cannot present a complete listing.");
+                layers.push({ digest: layer.digest, size: layer.size, mediaType: layer.mediaType, contents,
+                    role: layer.annotations?.["brewlet.sh/layer"] ?? null,
+                    entries: names.split(/\r?\n/).filter(Boolean) });
+            }
+        }
+        let embedded = null;
+        const appLayer = layers.find((layer) => layer.role === "app" && layer.entries.includes("app.jar"));
+        if (appLayer && this.state.jar && !platforms.some((platform) => platform.managedDependency)) {
+            const packagedHash = await this.run("tar", ["-xOf", path.join(store, "blobs/sha256", appLayer.digest.slice(7)), "app.jar"], { quiet: true, hashOutput: true });
+            if (sha256(await readFile(this.state.jar)) !== packagedHash) throw new Error("Local application JAR no longer matches app.jar in the OCI layer; repackage before inspecting embedded dependencies.");
+            const listing = await this.run("jar", ["--list", "--file", this.state.jar], { quiet: true });
+            if (Buffer.byteLength(listing) >= 4 * 1024 * 1024) throw new Error("Embedded JAR listing exceeds the demo output limit.");
+            const entries = listing.split(/\r?\n/).filter(Boolean);
+            embedded = { layerDigest: appLayer.digest, jarDigest: packagedHash,
+                dependencies: entries.filter((entry) => /^BOOT-INF\/lib\/[^/]+\.jar$/.test(entry)),
+                entries };
+            this.log(`\nSpring Boot archive: ${embedded.dependencies.length} embedded dependency JARs in BOOT-INF/lib/ (inside app.jar, not separate OCI layers).\nJVM launch configuration: brewlet.sh/jvm-config manifest annotation, not a filesystem layer.\n`);
+        }
+        let bundle = null;
+        if (platforms.some((platform) => platform.managedDependency)) {
+            const evidence = platforms[0].managedDependency;
+            if (!evidence || platforms.some((platform) => JSON.stringify(platform.managedDependency) !== JSON.stringify(evidence))) throw new Error("Managed dependency evidence differs across platforms.");
+            const bundleDescriptor = layout.manifests.find((item) => item.digest === evidence.dependencyBundleDigest);
+            if (!bundleDescriptor) throw new Error("Managed dependency bundle is missing from local OCI layout.");
+            const manifest = JSON.parse((await readDescriptor(bundleDescriptor)).bytes);
+            const config = JSON.parse((await readDescriptor(manifest.config)).bytes);
+            const lockDescriptor = manifest.layers.find((layer) => layer.digest === evidence.dependencyLockDigest);
+            const lock = JSON.parse((await readDescriptor(lockDescriptor)).bytes);
+            const dependencyLayer = layers.find((layer) => layer.digest === evidence.dependencyLayerDigest && layer.role === "classpath");
+            const publishedLayer = manifest.layers.find((layer) => layer.digest === evidence.dependencyLayerDigest);
+            if (!evidence.thinJar || !dependencyLayer || !publishedLayer ||
+                publishedLayer.size !== dependencyLayer.size || publishedLayer.mediaType !== dependencyLayer.mediaType ||
+                config.layerDigest !== dependencyLayer.digest || config.lockDigest !== lockDescriptor.digest ||
+                config.sourceBom !== evidence.sourceBom ||
+                platforms.some((platform) => !platform.layers.includes(dependencyLayer.digest)) ||
+                lock.schemaVersion !== 1 || !lock.artifacts?.length ||
+                lock.artifacts.some((entry) => !dependencyLayer.entries.includes(entry.fileName))) {
+                throw new Error("Managed bundle evidence does not match the composed dependency layer.");
+            }
+            const packagedHash = await this.run("tar", ["-xOf", path.join(store, "blobs/sha256", appLayer?.digest?.slice(7) ?? ""), "app.jar"], { quiet: true, hashOutput: true });
+            if (packagedHash !== evidence.applicationJarDigest) throw new Error("Managed application JAR digest does not match composition evidence.");
+            bundle = { evidence, config, lock, layerDigest: dependencyLayer.digest };
+            this.log(`\nManaged bundle: ${evidence.dependencyBundleDigest}\nSource BOM: ${config.sourceBom}\nVerified reuse of dependency layer: ${dependencyLayer.digest}\n${lock.artifacts.length} locked dependencies; thin application JAR verified. Demo bundle is unsigned.\n`);
+        }
+        const result = { image: this.state.image, platforms, layers, embedded, bundle };
+        this.state.evidence.artifact = result;
+        this.log(`\nVerified ${platforms.length} platform manifests and ${layers.length} unique layers. Archive entries listed only; nothing extracted or changed.\n`);
+        return result;
+    }
+
     async deploy() {
-        const node = selectWorker(await this.nodes(), true);
+        const nodes = await this.nodes();
+        const node = selectWorker(nodes, true);
         await this.kube(["get", "runtimeclass", "brewlet"]);
+        await this.kube(["get", "crd", "javaapplications.apps.brewlet.sh"]);
         const pods = (await this.json(["get", "pods", "-n", "brewlet"])).items;
-        const provisioner = pods.find((pod) => pod.spec.nodeName === node.metadata.name &&
-            pod.spec.containers?.some((container) => container.name === "provisioner") &&
-            pod.status.containerStatuses?.some((container) => container.name === "provisioner" && container.ready));
-        if (!provisioner) throw new Error("No ready Brewlet provisioner on the selected worker; cannot import into node containerd.");
-        await this.kube(["exec", "-i", "-n", "brewlet", provisioner.metadata.name, "-c", "provisioner", "--",
-            "ctr", "-n", "k8s.io", "images", "import", "--digests", "-"],
-        { input: createReadStream(this.state.archive), timeout: 180000 });
-        await this.kube(["exec", "-n", "brewlet", provisioner.metadata.name, "-c", "provisioner", "--",
-            "ctr", "-n", "k8s.io", "images", "tag", "--force", this.state.ref, this.state.image]);
+        for (const worker of nodes.filter((item) => readyNode(item) &&
+            !("node-role.kubernetes.io/control-plane" in (item.metadata.labels ?? {})) &&
+            !("node-role.kubernetes.io/master" in (item.metadata.labels ?? {})) &&
+            item.metadata.labels?.["brewlet.sh/runtime"] === "ready" &&
+            ["temurin-25", "temurin-27"].every((jdk) => (item.metadata.annotations?.["brewlet.sh/jdks"] ?? "").split(",").includes(jdk)))) {
+            const provisioner = pods.find((pod) => pod.spec.nodeName === worker.metadata.name &&
+                pod.spec.containers?.some((container) => container.name === "provisioner") &&
+                pod.status.containerStatuses?.some((container) => container.name === "provisioner" && container.ready));
+            if (!provisioner) throw new Error(`No ready Brewlet provisioner on ${worker.metadata.name}; cannot import into node containerd.`);
+            await this.kube(["exec", "-i", "-n", "brewlet", provisioner.metadata.name, "-c", "provisioner", "--",
+                "ctr", "-n", "k8s.io", "images", "import", "--digests", "-"],
+            { input: createReadStream(this.state.archive), timeout: 180000 });
+            await this.kube(["exec", "-n", "brewlet", provisioner.metadata.name, "-c", "provisioner", "--",
+                "ctr", "-n", "k8s.io", "images", "tag", "--force", this.state.ref, this.state.image]);
+        }
         await this.ownNamespace();
-        const manifest = deployment(this.namespace, node.metadata.labels["kubernetes.io/hostname"], this.state.image);
-        await writeFile(path.join(this.dir, "deployment.json"), JSON.stringify(manifest, null, 2));
-        await this.kube(["apply", "-f", "-"], { input: JSON.stringify(manifest) });
+        // Do not let the operator adopt or overwrite unrelated, same-name resources.
+        const existing = (await this.json(["get", "javaapplications", "-n", this.namespace])).items.find((item) => item.metadata.name === APPLICATION_NAME);
+        if (existing && existing.metadata.labels?.["brewlet-demo-owner"] !== this.namespace) throw new Error("JavaApplication exists but is not owned by this demo.");
+        for (const kind of ["deployments", "services"]) {
+            const resource = (await this.json(["get", kind, "-n", this.namespace])).items.find((item) => item.metadata.name === APPLICATION_NAME);
+            if (resource) {
+                if (!existing) throw new Error(`Refusing to adopt existing ${kind}/${APPLICATION_NAME}.`);
+                assertApplicationOwner(resource, existing);
+            }
+        }
+        this.applicationTemplate = await readFile(new URL("javaapplication.yaml", import.meta.url), "utf8");
+        const rendered = renderApplicationYaml(this.applicationTemplate, this.namespace, this.state.image);
+        const file = path.join(this.dir, "javaapplication.yaml");
+        await writeFile(file, rendered);
+        await this.kube(["apply", "-f", file]);
+        this.state.appliedApplication = {image: this.state.image, yaml: rendered};
+        this.state.managedApplication = true;
         this.state.node = node.metadata.name;
-        await this.rollout();
+        await this.rollout(25);
         await this.forward();
         this.state.evidence.deploy = await this.verifyCluster(25);
         return this.state.evidence.deploy;
     }
 
-    async rollout() {
-        await this.kube(["-n", this.namespace, "rollout", "status", "deployment/showmyjvm", "--timeout=5m"], { timeout: 330000 });
+    async rollout(feature) {
+        await this.until(async () => {
+            const app = await this.json(["get", "javaapplication", APPLICATION_NAME, "-n", this.namespace]);
+            const condition = app.status?.conditions?.find((item) => item.type === "Ready");
+            if (condition?.reason === "ReconcileError" && condition.observedGeneration === app.metadata.generation) throw new Error(`JavaApplication reconciliation failed: ${condition.message}`);
+            return app.spec.jvm.version === feature && app.status?.observedGeneration === app.metadata.generation &&
+                condition?.status === "True" && condition.observedGeneration === app.metadata.generation;
+        }, 300000, "Waiting for current JavaApplication generation to become Ready");
+        await this.kube(["-n", this.namespace, "rollout", "status", `deployment/${APPLICATION_NAME}`, "--timeout=5m"], { timeout: 330000 });
     }
 
     async forward() {
         if (this.children.has("forward") && this.state.clusterURL) return;
         await this.ownNamespace();
-        await this.kube(["apply", "-f", "-"], { input: JSON.stringify(service(this.namespace)) });
+        const app = await this.application();
+        const svc = await this.json(["get", "service", APPLICATION_NAME, "-n", this.namespace]);
+        assertApplicationOwner(svc, app);
         await this.stopService("forward");
         // Service port-forward also pins a Pod. The API Service proxy resolves ready endpoints per request.
         const child = await this.kube(["proxy", "--address=127.0.0.1", "--port=0",
-            `--accept-paths=^/api/v1/namespaces/${this.namespace}/services/http:showmyjvm:http/proxy/`], { service: "forward" });
+            `--accept-paths=^/api/v1/namespaces/${this.namespace}/services/http:${APPLICATION_NAME}:http/proxy/`], { service: "forward" });
         let port;
         await this.until(() => {
             if (!this.children.has("forward") && !this.command) throw new Error("Service proxy exited. See terminal output.");
@@ -587,24 +740,37 @@ export class DemoManager extends EventEmitter {
             if (match) port = Number(match[1]);
             return port;
         }, 30000, "Waiting for Service proxy");
-        this.state.clusterURL = `http://127.0.0.1:${port}/api/v1/namespaces/${this.namespace}/services/http:showmyjvm:http/proxy`;
+        this.state.clusterURL = `http://127.0.0.1:${port}/api/v1/namespaces/${this.namespace}/services/http:${APPLICATION_NAME}:http/proxy`;
+    }
+
+    async application() {
+        if (!this.state.managedApplication) throw new Error("Run stage 4 to create the JavaApplication first.");
+        const app = await this.json(["get", "javaapplication", APPLICATION_NAME, "-n", this.namespace]);
+        if (app.metadata.labels?.["brewlet-demo-owner"] !== this.namespace || app.spec.artifact.image !== this.state.image ||
+            app.spec.jvm.distribution !== "temurin") throw new Error("JavaApplication ownership, image or distribution changed unexpectedly.");
+        return app;
     }
 
     async verifyCluster(feature) {
-        const current = await this.json(["get", "deployment", "showmyjvm", "-n", this.namespace]);
+        const app = await this.application();
+        if (app.spec.jvm.version !== feature) throw new Error("JavaApplication JDK version does not match the requested runtime.");
+        const current = await this.json(["get", "deployment", APPLICATION_NAME, "-n", this.namespace]);
+        assertApplicationOwner(current, app);
         if (current.spec.template.spec.containers[0].image !== this.state.image) throw new Error("Deployment image changed unexpectedly.");
         if (current.spec.template.metadata.annotations["brewlet.sh/jdk"] !== `temurin-${feature}`) throw new Error("Deployment JDK annotation does not match the requested runtime.");
         const result = await this.probe(this.state.clusterURL, feature, "forward");
-        const node = await this.json(["get", "node", this.state.node]);
-        const info = node.status.nodeInfo;
-        const artifact = await artifactIdentity(path.join(this.dir, "oci"), this.state.image, info.operatingSystem, info.architecture);
         const replicasets = (await this.json(["get", "replicasets", "-n", this.namespace])).items;
         const pods = (await this.json(["get", "pods", "-n", this.namespace])).items;
+        const serving = pods.find((pod) => result.process?.endsWith(`@${pod.metadata.name}`));
+        if (!serving) throw new Error("Service JVM response did not identify a verified ready Deployment Pod.");
+        const node = await this.json(["get", "node", serving.spec.nodeName]);
+        const info = node.status.nodeInfo;
+        const artifact = await artifactIdentity(path.join(this.dir, "oci"), this.state.image, info.operatingSystem, info.architecture);
         const podProof = podArtifactEvidence(current, replicasets, pods, this.state.image, feature, artifact);
-        if (podProof.some((pod) => pod.node !== this.state.node)) throw new Error("Ready Pod is not on the selected demo worker.");
+        if (podProof.some((pod) => pod.node !== serving.spec.nodeName)) throw new Error("Ready Pods span multiple workers; this single-replica demo cannot compare platforms.");
         const servingPod = podProof.find((pod) => result.process?.endsWith(`@${pod.name}`));
         if (!servingPod) throw new Error("Service JVM response did not identify a verified ready Deployment Pod.");
-        const proof = { ...result, image: this.state.image, node: this.state.node,
+        const proof = { ...result, image: this.state.image, node: serving.spec.nodeName, applicationUID: app.metadata.uid,
             artifact: { ...artifact, pods: podProof, servingPod: servingPod.name, verifiedAt: new Date().toISOString() } };
         const baseline = this.state.evidence.deploy?.artifact;
         if (baseline && ["indexDigest", "manifestDigest", "configDigest", "platform"].some((key) => baseline[key] !== artifact[key])) {
@@ -625,15 +791,12 @@ export class DemoManager extends EventEmitter {
     async switchRuntime(feature, step) {
         await this.nodes();
         await this.ownNamespace();
-        const nodes = await this.nodes();
-        const node = nodes.find((item) => item.metadata.name === this.state.node);
-        selectWorker(node ? [node] : [], true);
-        const before = await this.json(["get", "deployment", "showmyjvm", "-n", this.namespace]);
-        if (before.spec.template.spec.containers[0].image !== this.state.image) throw new Error("Refusing to patch a deployment with a different image.");
-        const patch = { spec: { template: { metadata: { annotations: { "brewlet.sh/jdk": `temurin-${feature}` } } } } };
+        selectWorker(await this.nodes(), true);
+        await this.application();
+        const patch = { spec: { jvm: { version: feature } } };
         await this.forward();
-        await this.kube(["-n", this.namespace, "patch", "deployment", "showmyjvm", "--type=merge", "-p", JSON.stringify(patch)]);
-        await this.rollout();
+        await this.kube(["-n", this.namespace, "patch", "javaapplication", APPLICATION_NAME, "--type=merge", "-p", JSON.stringify(patch)]);
+        await this.rollout(feature);
         await this.forward();
         this.state.evidence[step] = await this.verifyCluster(feature);
         this.log("\nSame application digest. New Temurin runtime. No rebuild, no repackaging.\n");
@@ -642,13 +805,12 @@ export class DemoManager extends EventEmitter {
 
     async inspect() {
         await this.nodes();
-        await this.kube(["-n", this.namespace, "get", "deployment,pods", "-o", "wide"]);
-        await this.kube(["-n", this.namespace, "logs", "deployment/showmyjvm", "--tail=40"]);
+        await this.kube(["-n", this.namespace, "get", "javaapplication,deployment,pods", "-o", "wide"]);
+        await this.kube(["-n", this.namespace, "logs", `deployment/${APPLICATION_NAME}`, "--tail=40"]);
         await this.forward();
-        const current = await this.json(["get", "deployment", "showmyjvm", "-n", this.namespace]);
-        const jdk = current.spec.template.metadata.annotations?.["brewlet.sh/jdk"];
-        if (!["temurin-25", "temurin-27"].includes(jdk)) throw new Error(`Unexpected deployment JDK: ${jdk}`);
-        const feature = jdk === "temurin-27" ? 27 : 25;
+        const current = await this.application();
+        const feature = current.spec.jvm.version;
+        if (![25, 27].includes(feature)) throw new Error(`Unexpected JavaApplication JDK: ${feature}`);
         this.state.evidence.inspect = await this.verifyCluster(feature);
         return this.state.evidence.inspect;
     }
@@ -656,7 +818,7 @@ export class DemoManager extends EventEmitter {
     async start(step) {
         if (!Object.hasOwn(STEPS, step)) throw new Error("Unknown demo step.");
         if (this.state.active || this.stopping) throw new Error("A demo step is active or stopping. Wait for it to finish.");
-        const prerequisites = { package: "local", deploy: "package", upgrade: "deploy", rollback: "upgrade", inspect: "deploy" };
+        const prerequisites = { package: "local", artifact: "package", deploy: "package", upgrade: "deploy", rollback: "upgrade", inspect: "deploy" };
         const prerequisite = prerequisites[step];
         if (prerequisite && this.state.steps[prerequisite]?.status !== "passed") throw new Error(`Complete ${STEPS[prerequisite].title} first.`);
         this.cancelled = false;
@@ -665,7 +827,7 @@ export class DemoManager extends EventEmitter {
         delete this.state.evidence[step];
         if (["local", "package", "deploy", "upgrade", "rollback"].includes(step)) delete this.state.evidence.inspect;
         // Rebuilding or repackaging invalidates downstream evidence and completion badges.
-        const downstream = { local: ["package", "deploy", "upgrade", "rollback"], package: ["deploy", "upgrade", "rollback"], deploy: ["upgrade", "rollback"], upgrade: ["rollback"] };
+        const downstream = { local: ["package", "artifact", "deploy", "upgrade", "rollback"], package: ["artifact", "deploy", "upgrade", "rollback"], deploy: ["upgrade", "rollback"], upgrade: ["rollback"] };
         for (const item of downstream[step] ?? []) {
             delete this.state.steps[item];
             delete this.state.evidence[item];

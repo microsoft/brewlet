@@ -23,10 +23,22 @@ test("terminal stays visible and dark across viewport sizes, themes and guide sc
         const output = document.querySelector("#terminal");
         const guide = document.querySelector(".demo-guide");
         const form = document.querySelector("#command-form");
+        const themedCard = document.createElement("article");
+        themedCard.className = "step";
+        themedCard.dataset.phase = "package";
+        const themedButton = document.createElement("button");
+        themedButton.dataset.step = "package";
+        themedButton.textContent = "Run stage";
+        themedCard.append(themedButton);
+        document.querySelector("#steps").prepend(themedCard);
         for (const theme of ["light", "dark"]) {
             document.documentElement.dataset.colorMode = theme;
             document.documentElement.style.setProperty("--background-color-default", theme === "light" ? "#ffffff" : "#222222");
             document.documentElement.style.setProperty("--text-color-default", theme === "light" ? "#111111" : "#eeeeee");
+            expect(getComputedStyle(themedCard).borderLeftWidth === "4px", theme + ": phase accent rail");
+            expect(getComputedStyle(themedCard).backgroundImage.includes("linear-gradient"), theme + ": tinted phase surface");
+            expect(getComputedStyle(document.querySelector("header")).backgroundImage.includes("linear-gradient"), theme + ": colored hero");
+            expect(getComputedStyle(themedButton).color === (theme === "light" ? "rgb(255, 255, 255)" : "rgb(11, 18, 32)"), theme + ": contrasting action text");
             for (const scroll of [0, guide.scrollHeight]) {
                 guide.scrollTop = scroll;
                 const rect = panel.getBoundingClientRect();
@@ -81,6 +93,9 @@ test("Open live app button invokes browser-open endpoint instead of iframe navig
         const profile = await mkdtemp(path.join(tmpdir(), "brewlet-demo-button-"));
         t.after(() => rm(profile, { recursive: true, force: true }));
         const state = { definitions: STEPS, commandPreviews: commandPreviews({}), steps: { deploy: { status: "passed" } }, evidence: {}, services: [], terminal: "" };
+        const template = await readFile(new URL("javaapplication.yaml", import.meta.url), "utf8");
+        state.applicationYaml = {file:"javaapplication.yaml", path:"/session/javaapplication.yaml", template,
+            rendered:template.replaceAll("__NAMESPACE__", '"demo"').replaceAll("__IMAGE__", '"image@sha256:abc"'), ready:true};
         const script = `
             const testState = ${JSON.stringify(state)};
             window.EventSource = class { constructor() { queueMicrotask(() => this.onmessage({data:JSON.stringify(testState)})); } };
@@ -93,6 +108,16 @@ test("Open live app button invokes browser-open endpoint instead of iframe navig
             };
             ${await readFile(new URL("ui.js", import.meta.url), "utf8")}
             queueMicrotask(() => {
+                document.querySelector("#show-manifest").click();
+                if (document.querySelector("#manifest-view").hidden || !document.querySelector("#manifest-content").textContent.includes('image@sha256:abc')) throw new Error("Rendered YAML not visible");
+                document.querySelector("#manifest-template").click();
+                if (!document.querySelector("#manifest-content").textContent.includes("__IMAGE__")) throw new Error("Template file not visible");
+                render(testState);
+                if (document.querySelector("#manifest-view").hidden || !document.querySelector("#manifest-content").textContent.includes("__IMAGE__")) throw new Error("Live update reset YAML viewer");
+                document.querySelector("#manifest-resolved").click();
+                if (document.querySelector("#manifest-content").textContent.includes("__IMAGE__")) throw new Error("Rendered view not restored");
+                document.querySelector("#show-manifest").click();
+                if (!document.querySelector("#manifest-view").hidden) throw new Error("YAML viewer did not close");
                 const previews = document.querySelectorAll("[data-preview]");
                 if (previews.length !== Object.keys(testState.definitions).length) throw new Error("Every phase needs a preview");
                 for (const button of previews) {
@@ -109,7 +134,93 @@ test("Open live app button invokes browser-open endpoint instead of iframe navig
                     if (!content.hidden) throw new Error("Preview did not close");
                 }
                 const rollback = document.querySelector('[data-step="rollback"]');
-                if (!rollback || !rollback.disabled || !rollback.closest("article").textContent.includes("5. Switch back to JDK 25")) throw new Error("Missing gated rollback phase");
+                if (!rollback || !rollback.disabled || !rollback.closest("article").textContent.includes("6. Switch back to JDK 25")) throw new Error("Missing gated rollback phase");
+                const phaseIds = [...document.querySelectorAll("#steps [data-step]")].map(button => button.dataset.step);
+                if (phaseIds.join(",") !== "local,package,artifact,deploy,upgrade,rollback") throw new Error("Artifact phase out of order");
+                const cards = [...document.querySelectorAll("#steps > article")];
+                for (let i = 1; i < cards.length; i++) {
+                    if (cards[i].getBoundingClientRect().top < cards[i-1].getBoundingClientRect().bottom) throw new Error("Phases must use a single column");
+                }
+                if (!document.querySelector('[data-step="artifact"]').disabled) throw new Error("Artifact inspection must require packaging");
+                testState.steps.package = {status:"passed"};
+                testState.image = "image@sha256:demo";
+                testState.evidence.artifact = {image:testState.image, platforms:[
+                    {platform:"linux/arm64",manifestDigest:"manifest",configDigest:"config",layers:["layer","other"]},
+                    {platform:"linux/amd64",manifestDigest:"manifest2",configDigest:"config2",layers:["layer"]}],
+                    layers:[{digest:"layer",size:123,mediaType:"application/vnd.oci.image.layer.v1.tar+gzip",contents:"-rw-r--r-- app.jar\\n",entries:["app.jar","lib/a.jar","<script>alert(1)</script>"]},
+                        {digest:"other",size:50,mediaType:"application/vnd.oci.image.layer.v1.tar+gzip",contents:"-rw-r--r-- config.json\\n",entries:["config.json"]}]};
+                render(testState);
+                if (document.querySelector('[data-step="artifact"]').disabled) throw new Error("Artifact phase still disabled");
+                const viewer = document.querySelector(".oci-viewer");
+                for (const text of ["linux/arm64","manifest","config","layer","123","app.jar"]) {
+                    if (!viewer.textContent.includes(text)) throw new Error("Missing artifact content: "+text);
+                }
+                if (!viewer.textContent.includes("SHARED BY 2 PLATFORMS")) throw new Error("Missing shared layer badge");
+                if (viewer.querySelector("script")) throw new Error("File names rendered as markup");
+                viewer.querySelector(".oci-raw").open = true;
+                const search = viewer.querySelector(".oci-search");
+                search.focus();
+                search.value = "lib/";
+                search.dispatchEvent(new Event("input"));
+                if (viewer.querySelector(".oci-files").textContent.includes("app.jar") || !viewer.querySelector(".oci-files").textContent.includes("lib/a.jar")) throw new Error("File filtering failed");
+                render(testState);
+                if (document.querySelector(".oci-viewer") !== viewer || !viewer.querySelector(".oci-raw").open || viewer.querySelector(".oci-search").value !== "lib/" || document.activeElement !== search) throw new Error("Live update reset explorer state");
+                const clickVisibleLayer = (digest) => {
+                    const button = viewer.querySelector('[data-layer="'+digest+'"]');
+                    button.scrollIntoView({block:"center"});
+                    const bounds = button.getBoundingClientRect();
+                    const target = document.elementFromPoint(bounds.left+bounds.width/2, Math.max(bounds.top+5, Math.min(bounds.bottom-5, document.querySelector(".demo-guide").getBoundingClientRect().bottom-5)));
+                    if (!target || !button.contains(target)) throw new Error("Layer card is not pointer accessible: "+digest);
+                    target.click();
+                    if (viewer.querySelector('[data-layer="'+digest+'"]').getAttribute("aria-pressed") !== "true") throw new Error("Clicked layer not selected");
+                };
+                clickVisibleLayer("other");
+                if (!viewer.querySelector(".oci-files").textContent.includes("config.json")) throw new Error("Layer selection failed");
+                if (getComputedStyle(viewer.querySelector(".oci-layer")).boxShadow !== "none") throw new Error("Decorative shadows imply nonexistent layers");
+                clickVisibleLayer("layer");
+                if (!viewer.querySelector(".oci-files").textContent.includes("app.jar")) throw new Error("Cannot return to first layer");
+                clickVisibleLayer("other");
+                [...viewer.querySelectorAll(".oci-platform")].find(button => button.textContent.includes("linux/amd64")).click();
+                if (viewer.querySelector('[data-layer="other"]') || viewer.querySelector('[data-layer="layer"]').getAttribute("aria-pressed") !== "true") throw new Error("Platform filtering failed");
+                for (const width of ["390px","100%"]) {
+                    viewer.style.width = width;
+                    if (viewer.scrollWidth > viewer.clientWidth + 1) throw new Error("Explorer overflows at "+width);
+                }
+                if (document.documentElement.scrollWidth > innerWidth) throw new Error("Artifact viewer overflows viewport");
+                testState.evidence.artifact.platforms[0].jvmConfig = {mainJar:"app.jar",schemaVersion:1};
+                testState.evidence.artifact.platforms[0].imageConfig = {architecture:"arm64"};
+                testState.evidence.artifact.embedded = {jarDigest:"sha256:verified",dependencies:["BOOT-INF/lib/spring-core.jar","BOOT-INF/lib/test.jar"]};
+                render(testState);
+                const components = document.querySelector(".oci-viewer");
+                components.querySelector('[data-content="jvm"]').click();
+                if (!components.querySelector(".oci-inspector").textContent.includes('"mainJar"')) throw new Error("JVM config hidden");
+                components.querySelector('[data-content="config"]').click();
+                if (!components.querySelector(".oci-inspector").textContent.includes('"architecture"')) throw new Error("Image config hidden");
+                components.querySelector('[data-content="dependencies"]').click();
+                if (!components.querySelector(".oci-files").textContent.includes("spring-core.jar")) throw new Error("Embedded dependencies hidden");
+                const dependencySearch = components.querySelector(".oci-search");
+                dependencySearch.value = "spring";
+                dependencySearch.dispatchEvent(new Event("input"));
+                if (components.querySelector(".oci-files").textContent.includes("test.jar")) throw new Error("Dependency filter failed");
+                components.querySelector('[data-layer="layer"]').click();
+                if (!components.querySelector(".oci-files").textContent.includes("app.jar")) throw new Error("Cannot return from metadata to layer");
+                testState.evidence.artifact.bundle = {config:{sourceBom:"org.example:bom:1"},
+                    evidence:{dependencyBundleDigest:"bundle",dependencyLockDigest:"lock",thinJar:true},layerDigest:"other",
+                    lock:{artifacts:[{groupId:"org.springframework",artifactId:"spring-core",version:"7",scope:"compile",fileName:"spring-core.jar",sha256:"abc"}]}};
+                testState.evidence.artifact.layers[1].role = "classpath";
+                render(testState);
+                const managedViewer = document.querySelector(".oci-viewer");
+                managedViewer.querySelector('[data-content="dependencies"]').click();
+                for (const text of ["org.example:bom:1","spring-core","bundle","lock","unsigned"]) {
+                    if (!managedViewer.querySelector(".oci-inspector").textContent.includes(text)) throw new Error("Missing managed bundle field: "+text);
+                }
+                managedViewer.querySelector('[data-layer="other"]').click();
+                if (!managedViewer.querySelector(".oci-inspector").textContent.includes("config.json")) throw new Error("Managed layer not selectable");
+                const single = structuredClone(testState.evidence.artifact);
+                single.layers = [single.layers[0]];
+                single.platforms = single.platforms.map(platform => ({...platform,layers:["layer"]}));
+                const singleViewer = artifactExplorer(single);
+                if (singleViewer.querySelectorAll("[data-layer]").length !== 1 || !singleViewer.textContent.includes("1 actual layer")) throw new Error("Single shared layer must not imply multiple cards");
                 testState.steps.upgrade = {status:"passed"};
                 render(testState);
                 if (document.querySelector('[data-step="rollback"]').disabled) throw new Error("Rollback remains disabled after upgrade");

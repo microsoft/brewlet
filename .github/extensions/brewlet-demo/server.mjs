@@ -96,7 +96,7 @@ export async function startServer(manager, { launchBrowser = openBrowser } = {})
                 const input = JSON.parse(raw || "{}");
                 if (url.pathname === "/api/open-app") {
                     if (Object.keys(input).length) return json(res, 400, { error: "Browser destination is fixed to this demo." });
-                    if (manager.snapshot().steps?.deploy?.status !== "passed") return json(res, 409, { error: "Complete stage 3 first." });
+                    if (manager.snapshot().steps?.deploy?.status !== "passed") return json(res, 409, { error: "Complete stage 4 first." });
                     const destination = `${origin}/live/${token}/`;
                     await launchBrowser(destination);
                     return json(res, 200, { ...manager.snapshot(), openedURL: destination });

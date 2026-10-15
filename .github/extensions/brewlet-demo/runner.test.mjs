@@ -4,9 +4,73 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { DemoManager, CONTEXT, REVISION, STEPS, commandPreviews, deployment, service, runtimeEvidence, selectWorker, artifactIdentity, podArtifactEvidence, artifactComparison } from "./runner.mjs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { DemoManager, CONTEXT, REVISION, STEPS, commandPreviews, runtimeEvidence, selectWorker, artifactIdentity, podArtifactEvidence, artifactComparison, APPLICATION_NAME, renderApplicationYaml, assertApplicationOwner } from "./runner.mjs";
 
-async function ociFixture(store, ref = "localhost/demo:demo") {
+test("external YAML renders only namespace and image; source stays unchanged", async () => {
+    const source = await readFile(new URL("javaapplication.yaml", import.meta.url), "utf8");
+    const rendered = renderApplicationYaml(source, "demo-ns", "localhost/demo@sha256:abc");
+    assert.match(rendered, /kind: JavaApplication/);
+    assert.match(rendered, /namespace: "demo-ns"/);
+    assert.match(rendered, /image: "localhost\/demo@sha256:abc"/);
+    assert.match(rendered, /distribution: temurin\n    version: 25/);
+    assert.ok(!rendered.includes("__IMAGE__"));
+    assert.equal(await readFile(new URL("javaapplication.yaml", import.meta.url), "utf8"), source);
+    assert.throws(() => renderApplicationYaml("kind: Other", "demo", "image"), /missing required/);
+    assert.throws(() => assertApplicationOwner({metadata:{name:"foreign",ownerReferences:[{kind:"JavaApplication",uid:"other",controller:true}]}}, {metadata:{uid:"app"}}), /not controlled/);
+    assert.doesNotThrow(() => assertApplicationOwner({metadata:{ownerReferences:[{kind:"JavaApplication",uid:"app",controller:true}]}}, {metadata:{uid:"app"}}));
+});
+
+test("rollout ignores stale Ready conditions and waits for the current generation", async (t) => {
+    let calls = 0;
+    const demo = await manager(t, { command: async (file, args) => {
+        if (!args.includes("javaapplication")) return "";
+        calls++;
+        return JSON.stringify({metadata:{generation:2},spec:{jvm:{version:27}},
+            status:{observedGeneration:calls===1 ? 1 : 2,conditions:[{type:"Ready",status:"True",observedGeneration:calls===1 ? 1 : 2}]}});
+    } });
+    demo.until = async (check) => {
+        assert.equal(await check(), false);
+        assert.equal(await check(), true);
+    };
+    await demo.rollout(27);
+    assert.equal(calls, 2);
+});
+
+test("YAML viewer distinguishes previews from captured deployment input", async (t) => {
+    const demo = await manager(t);
+    assert.equal(demo.snapshot().applicationYaml.applied, false);
+    assert.match(demo.snapshot().applicationYaml.rendered, /package-stage-2-image/);
+    demo.state.image = "localhost/demo@sha256:abc";
+    const captured = renderApplicationYaml(demo.applicationTemplate, demo.namespace, demo.state.image);
+    demo.state.appliedApplication = { image: demo.state.image, yaml: captured };
+    demo.applicationTemplate += "\n# Edited after deployment\n";
+    assert.equal(demo.snapshot().applicationYaml.applied, true);
+    assert.equal(demo.snapshot().applicationYaml.rendered, captured);
+    assert.match(demo.snapshot().applicationYaml.template, /Edited after deployment/);
+    demo.state.image = "localhost/demo@sha256:def";
+    assert.equal(demo.snapshot().applicationYaml.applied, false);
+    assert.match(demo.snapshot().applicationYaml.rendered, /sha256:def/);
+});
+
+test("old raw demo progress is invalidated without adopting or deleting resources", async (t) => {
+    const demo = await manager(t);
+    for (const step of ["deploy","upgrade","rollback","inspect"]) {
+        demo.state.steps[step] = {status:"passed"};
+        demo.state.evidence[step] = {feature:25};
+    }
+    demo.state.steps.package = {status:"passed"};
+    await demo.save();
+    const recovered = new DemoManager(path.dirname(demo.dir), "abcdef1234567890");
+    await recovered.init();
+    assert.equal(recovered.state.steps.package.status, "passed");
+    assert.equal(recovered.state.steps.deploy, undefined);
+    assert.equal(recovered.state.evidence.deploy, undefined);
+    assert.match(recovered.state.terminal, /retained, not adopted or deleted/);
+});
+
+async function ociFixture(store, ref = "localhost/demo:demo", layers = [], architectures = ["arm64"], annotations = {}) {
     await mkdir(path.join(store, "blobs/sha256"), { recursive: true });
     async function blob(value) {
         const bytes = JSON.stringify(value);
@@ -14,24 +78,122 @@ async function ociFixture(store, ref = "localhost/demo:demo") {
         await writeFile(path.join(store, "blobs/sha256", hash), bytes);
         return { digest: `sha256:${hash}`, size: bytes.length };
     }
-    const config = await blob({ os: "linux", architecture: "arm64" });
-    const manifest = await blob({ schemaVersion: 2, config, layers: [] });
-    const index = await blob({ schemaVersion: 2, manifests: [{ ...manifest, platform: { os: "linux", architecture: "arm64" } }] });
+    const manifests = [];
+    for (const architecture of architectures) {
+        const config = await blob({ os: "linux", architecture });
+        const manifest = await blob({ schemaVersion: 2, config, layers, annotations });
+        manifests.push({ ...manifest, platform: { os: "linux", architecture } });
+    }
+    const index = await blob({ schemaVersion: 2, manifests });
     await writeFile(path.join(store, "index.json"), JSON.stringify({ schemaVersion: 2, manifests: [{ ...index, annotations: { "org.opencontainers.image.ref.name": ref } }] }));
     const image = `${ref.split(":")[0]}@${index.digest}`;
     return { image, identity: await artifactIdentity(store, image, "linux", "arm64") };
 }
 
+test("artifact phase verifies shared layers, lists real archives without extraction and persists evidence", async (t) => {
+    const calls = [];
+    const exec = promisify(execFile);
+    const demo = await manager(t, { command: async (file, args) => {
+        calls.push([file, args]);
+        if (file === "brewlet") return "Application metadata\n";
+        assert.equal(file, "tar");
+        assert.ok(["-tvf", "-tf"].includes(args[0]));
+        return (await exec(file, args)).stdout;
+    } });
+    await assert.rejects(demo.start("artifact"), /Publish bundle/);
+    const payload = path.join(demo.dir, "payload");
+    await mkdir(payload);
+    await writeFile(path.join(payload, "app.jar"), "application bytes");
+    const archive = path.join(demo.dir, "test-layer.tar.gz");
+    await exec("tar", ["-czf", archive, "-C", payload, "app.jar"]);
+    const bytes = await readFile(archive);
+    const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    const layer = { digest, size: bytes.length, mediaType: "application/vnd.oci.image.layer.v1.tar+gzip" };
+    const store = path.join(demo.dir, "oci");
+    const { image } = await ociFixture(store, "localhost/demo:demo", [layer], ["arm64", "amd64"]);
+    const file = path.join(store, "blobs/sha256", digest.slice(7));
+    await writeFile(file, bytes);
+    Object.assign(demo.state, { image, ref: "localhost/demo:demo" });
+    demo.state.steps.package = { status: "passed" };
+    await demo.start("artifact");
+    await demo.task;
+    assert.equal(demo.state.steps.artifact.status, "passed", demo.state.steps.artifact.error);
+    assert.equal(demo.state.evidence.artifact.platforms.length, 2);
+    assert.equal(demo.state.evidence.artifact.layers.length, 1);
+    assert.match(demo.state.evidence.artifact.layers[0].contents, /app.jar/);
+    assert.deepEqual(demo.state.evidence.artifact.layers[0].entries, ["app.jar"]);
+    assert.equal(calls.filter(([file]) => file === "tar").length, 2);
+    assert.deepEqual(await readFile(file), bytes);
+    const recovered = new DemoManager(path.dirname(demo.dir), "abcdef1234567890");
+    await recovered.init();
+    assert.deepEqual(recovered.state.evidence.artifact, demo.state.evidence.artifact);
+    await writeFile(file, "tampered");
+    await assert.rejects(demo.artifact(), /digest or size mismatch/);
+    await writeFile(file, bytes);
+    demo.state.ref = "different:ref";
+    await assert.rejects(demo.artifact(), /expected application reference and digest/);
+    demo.state.ref = "localhost/demo:demo";
+    demo.command = async () => { throw new Error("inspection tool failed"); };
+    await demo.start("artifact");
+    await demo.task;
+    assert.equal(demo.state.steps.artifact.status, "failed");
+    assert.equal(demo.state.evidence.artifact, undefined);
+});
+
+test("managed inspection proves bundle descriptor reuse and rejects mismatched composition evidence", async (t) => {
+    const hash = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    const appHash = hash("thin jar");
+    const demo = await manager(t, {command: async (file, args, options) => {
+        if (file === "brewlet") return "";
+        assert.equal(file, "tar");
+        if (options?.hashOutput) return appHash;
+        return args[1].endsWith(hash("application archive").slice(7)) ? "app.jar\n" : "g.a-1.jar\n";
+    }});
+    const store = path.join(demo.dir, "oci");
+    await mkdir(path.join(store, "blobs/sha256"), {recursive:true});
+    const blob = async (value) => {
+        const bytes = typeof value === "string" ? value : JSON.stringify(value);
+        const descriptor = {digest:hash(bytes),size:Buffer.byteLength(bytes)};
+        await writeFile(path.join(store, "blobs/sha256",descriptor.digest.slice(7)),bytes);
+        return descriptor;
+    };
+    const dep = {...await blob("dependency archive"),mediaType:"application/vnd.oci.image.layer.v1.tar+gzip",annotations:{"brewlet.sh/layer":"classpath"}};
+    const app = {...await blob("application archive"),mediaType:dep.mediaType,annotations:{"brewlet.sh/layer":"app"}};
+    const lock = await blob({schemaVersion:1,artifacts:[{fileName:"g.a-1.jar"}]});
+    const config = await blob({layerDigest:dep.digest,lockDigest:lock.digest,sourceBom:"g:bom:1"});
+    const bundle = await blob({config,layers:[dep,lock]});
+    const evidence = {thinJar:true,applicationJarDigest:appHash,dependencyBundleDigest:bundle.digest,dependencyLayerDigest:dep.digest,dependencyLockDigest:lock.digest,sourceBom:"g:bom:1"};
+    async function compose() {
+        const {image} = await ociFixture(store,"localhost/demo:demo",[app,dep],["arm64","amd64"],{"brewlet.sh/managed-dependency-evidence":JSON.stringify(evidence)});
+        const layout = JSON.parse(await readFile(path.join(store,"index.json")));
+        layout.manifests.push(bundle);
+        await writeFile(path.join(store,"index.json"),JSON.stringify(layout));
+        Object.assign(demo.state,{image,ref:"localhost/demo:demo"});
+    }
+    await compose();
+    const result = await demo.artifact();
+    assert.equal(result.bundle.layerDigest,dep.digest);
+    assert.equal(result.layers.length,2);
+    assert.equal(result.embedded,null);
+    evidence.applicationJarDigest = hash("wrong jar");
+    await compose();
+    await assert.rejects(demo.artifact(),/JAR digest does not match/);
+    evidence.applicationJarDigest = appHash;
+    evidence.sourceBom = "wrong:bom:1";
+    await compose();
+    await assert.rejects(demo.artifact(),/does not match the composed/);
+});
+
 function workloadFixture(image, identity, feature = 25) {
-    const current = deployment("demo", "desktop-worker", image);
-    current.metadata.uid = "deployment-uid";
+    const current = {metadata:{name:APPLICATION_NAME,uid:"deployment-uid"},spec:{template:{
+        metadata:{annotations:{"brewlet.sh/jdk":`temurin-${feature}`}},spec:{containers:[{name:"app",image}]}}}};
     const replicasets = [{ metadata: { uid: "rs-uid", ownerReferences: [{ controller: true, kind: "Deployment", uid: current.metadata.uid }] } }];
     const pod = {
         metadata: { name: `pod-${feature}`, uid: `uid-${feature}`, annotations: { "brewlet.sh/jdk": `temurin-${feature}` },
             ownerReferences: [{ controller: true, kind: "ReplicaSet", uid: "rs-uid" }] },
-        spec: { nodeName: "desktop-worker", containers: [{ name: "showmyjvm", image }] },
+        spec: { nodeName: "desktop-worker", containers: [{ name: "app", image }] },
         status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }],
-            containerStatuses: [{ name: "showmyjvm", ready: true, state: { running: {} }, imageID: `import@${identity.importDigest}` }] },
+            containerStatuses: [{ name: "app", ready: true, state: { running: {} }, imageID: `import@${identity.importDigest}` }] },
     };
     return { current, replicasets, pods: [pod] };
 }
@@ -90,18 +252,18 @@ test("every phase previews key commands and input using current session values",
         assert.ok(preview.commands.length > 0 && preview.commands.length <= 5);
         assert.ok(preview.input && preview.note);
     }
-    assert.deepEqual(previews.deploy.input.deployment, deployment(state.namespace, state.node, state.image));
-    assert.deepEqual(previews.deploy.input.service, service(state.namespace));
+    assert.equal(previews.deploy.input.image, state.image);
+    assert.match(previews.deploy.input.file, /javaapplication.yaml$/);
     assert.match(previews.local.commands.join("\n"), new RegExp(REVISION));
-    assert.match(previews.package.commands[0], /\/demo\/app.jar/);
-    assert.match(previews.package.commands[0], /'\/demo workspace\/oci'/);
+    assert.match(previews.package.commands[2], /--dependency-bundle/);
+    assert.match(previews.package.commands[2], /'\/demo workspace\/oci'/);
     assert.match(previews.setup.note, /Conditional install/);
     for (const [step, feature] of [["upgrade", 27], ["rollback", 25]]) {
         const patch = previews[step].commands[0].match(/-p '(.*)'$/)[1];
-        assert.deepEqual(JSON.parse(patch), { spec: { template: { metadata: { annotations: { "brewlet.sh/jdk": `temurin-${feature}` } } } } });
+        assert.deepEqual(JSON.parse(patch), { spec: { jvm: { version: feature } } });
         assert.equal(previews[step].input.unchangedImage, state.image);
     }
-    assert.match(commandPreviews({}).deploy.input.deployment.spec.template.spec.containers[0].image, /<packaged-image/);
+    assert.match(commandPreviews({}).deploy.input.image, /<packaged-image/);
 });
 
 async function manager(t, options) {
@@ -149,27 +311,9 @@ test("JDK inventory is an annotation, not a node label", () => {
     assert.throws(() => selectWorker([worker], true), /both temurin-25 and temurin-27/);
 });
 
-test("deployment uses raw Brewlet runtime, immutable image and exact Temurin 25", () => {
-    const image = `localhost/demo/showmyjvm@sha256:${"a".repeat(64)}`;
-    const value = deployment("demo", "desktop-worker", image);
-    assert.equal(value.spec.template.spec.runtimeClassName, "brewlet");
-    assert.equal(value.spec.template.spec.containers[0].image, image);
-    assert.equal(value.spec.template.spec.containers[0].imagePullPolicy, "Never");
-    assert.equal(value.spec.template.metadata.annotations["brewlet.sh/jdk"], "temurin-25");
-    assert.deepEqual(value.spec.template.spec.nodeSelector, { "kubernetes.io/hostname": "desktop-worker" });
-});
-
-test("Service selects the deployment labels rather than a Pod identity", () => {
-    const value = service("demo");
-    assert.equal(value.kind, "Service");
-    assert.equal(value.metadata.namespace, "demo");
-    assert.deepEqual(value.spec.selector, deployment("demo", "worker", "image").spec.selector.matchLabels);
-    assert.deepEqual(value.spec.ports, [{ name: "http", port: 8080, targetPort: "http" }]);
-});
-
 test("step prerequisites, unknown commands and concurrent starts are rejected", async (t) => {
     const demo = await manager(t);
-    await assert.rejects(demo.start("deploy"), /Package/);
+    await assert.rejects(demo.start("deploy"), /Publish bundle/);
     await assert.rejects(demo.start("rollback"), /Switch to Temurin 27/);
     await assert.rejects(demo.start("shell"), /Unknown/);
     demo.preflight = () => new Promise((resolve) => { demo.release = resolve; });
@@ -211,14 +355,14 @@ test("reload marks in-flight work interrupted and drops dead service URLs", asyn
 
 test("rebuilding invalidates downstream badges and proof", async (t) => {
     const demo = await manager(t);
-    for (const key of ["local", "package", "deploy", "upgrade", "rollback"]) {
+    for (const key of ["local", "package", "artifact", "deploy", "upgrade", "rollback"]) {
         demo.state.steps[key] = { status: "passed" };
         demo.state.evidence[key] = { feature: 25 };
     }
     demo.local = async () => ({});
     await demo.start("local");
     await demo.task;
-    for (const key of ["package", "deploy", "upgrade", "rollback"]) {
+    for (const key of ["package", "artifact", "deploy", "upgrade", "rollback"]) {
         assert.equal(demo.state.steps[key], undefined);
         assert.equal(demo.state.evidence[key], undefined);
     }
@@ -227,6 +371,9 @@ test("rebuilding invalidates downstream badges and proof", async (t) => {
 test("real subprocess streams output and surfaces nonzero exits/missing tools/timeouts", async (t) => {
     const demo = await manager(t);
     assert.equal(await demo.run(process.execPath, ["-e", "process.stdout.write('live output')"]), "live output");
+    const binary = Buffer.from([0, 255, 128, 42]);
+    assert.equal(await demo.run(process.execPath, ["-e", "process.stdout.write(Buffer.from([0,255,128,42]))"], { hashOutput: true }),
+        `sha256:${createHash("sha256").update(binary).digest("hex")}`);
     assert.match(demo.state.terminal, /live output/);
     await assert.rejects(demo.run(process.execPath, ["-e", "process.exit(7)"]), /exited 7/);
     await assert.rejects(demo.run("/no-such-brewlet-demo-tool"), /ENOENT/);
@@ -245,13 +392,17 @@ test("stop terminates only tracked processes", async (t) => {
 
 test("long Kubernetes rollouts/imports and port forwards do not inherit a short API timeout", async (t) => {
     const calls = [];
-    const demo = await manager(t, { command: async (file, args) => { calls.push([file, args]); return ""; } });
+    const demo = await manager(t, { command: async (file, args) => {
+        calls.push([file, args]);
+        if (args.includes("javaapplication")) return JSON.stringify({metadata:{generation:2},spec:{jvm:{version:25}},status:{observedGeneration:2,conditions:[{type:"Ready",status:"True",observedGeneration:2}]}});
+        return "";
+    } });
     await demo.kube(["get", "nodes"]);
-    await demo.rollout();
+    await demo.rollout(25);
     await demo.kube(["port-forward"], { service: "forward" });
     assert.ok(calls[0][1].includes("--request-timeout=30s"));
-    assert.ok(calls[1][1].includes("--request-timeout=330s"));
-    assert.ok(calls[2][1].includes("--request-timeout=0"));
+    assert.ok(calls.find(([,args])=>args.includes("rollout"))[1].includes("--request-timeout=330s"));
+    assert.ok(calls.find(([,args])=>args.includes("port-forward"))[1].includes("--request-timeout=0"));
 });
 
 test("Docker Desktop name alone cannot redirect actions to a remote endpoint", async (t) => {
@@ -316,10 +467,11 @@ test("new installation pins both Temurin digests and scopes provisioning to one 
     assert.equal(install[2].env.HELM_DRIVER, "secret");
 });
 
-test("five stages and repeated switches patch ONLY the JDK and preserve Service access", async (t) => {
+test("deployment stages and repeated switches patch ONLY the JDK and preserve Service access", async (t) => {
     const calls = [];
     let demo;
     let manifest;
+    let app;
     let feature = 25;
     let packaged;
     demo = await manager(t, {
@@ -330,7 +482,13 @@ test("five stages and repeated switches patch ONLY the JDK and preserve Service 
             if (options.input?.pipe) {
                 for await (const chunk of options.input) assert.ok(chunk);
             }
-            if (file === "brewlet") {
+            if (file === "mvn" && args.some((arg) => arg.startsWith("-DoutputFile="))) {
+                const dependency = path.join(demo.dir, "fixture-dependency.jar");
+                await writeFile(dependency, "dependency");
+                await writeFile(path.join(demo.dir, "runtime-dependencies.txt"), `example:dependency:jar:1.0:compile:${dependency}\n`);
+            }
+            if (file.endsWith("/jar") && args.includes("--create")) await writeFile(args[args.indexOf("--file")+1], "thin");
+            if (file === "brewlet" && args[0] === "push") {
                 const store = args[args.indexOf("--store") + 1];
                 packaged = await ociFixture(store, args[2]);
             }
@@ -340,18 +498,32 @@ test("five stages and repeated switches patch ONLY the JDK and preserve Service 
                 if (args.includes("nodes")) return JSON.stringify({ items: [node()] });
                 if (args.includes("node")) return JSON.stringify({ status: { nodeInfo: { operatingSystem: "linux", architecture: "arm64" } } });
                 if (args.includes("replicasets")) return JSON.stringify({ items: workloadFixture(demo.state.image, packaged.identity, feature).replicasets });
+                if (args.includes("javaapplications")) return JSON.stringify({ items: app ? [app] : [] });
+                if (args.includes("javaapplication") && args.includes("get")) return JSON.stringify(app);
+                if (args.includes("services") || args.includes("deployments")) return JSON.stringify({items:[]});
+                if (args.includes("service")) return JSON.stringify({kind:"Service",metadata:{name:APPLICATION_NAME,ownerReferences:[{controller:true,kind:"JavaApplication",uid:"app-uid"}]}});
                 if (args.includes("pods")) return JSON.stringify({ items: args.includes("brewlet") ?
                     [{ metadata: { name: "provisioner-1" }, spec: { nodeName: "desktop-worker", containers: [{ name: "provisioner" }] }, status: { containerStatuses: [{ name: "provisioner", ready: true }] } }] :
                     workloadFixture(demo.state.image, packaged.identity, feature).pods });
                 if (args.includes("namespaces")) return JSON.stringify({ items: [] });
-                if (args.includes("apply") && JSON.parse(options.input).kind === "Deployment") {
-                    manifest = JSON.parse(options.input);
+                if (args.includes("apply") && args.some((arg) => arg.endsWith("javaapplication.yaml"))) {
+                    const yaml = await readFile(args[args.indexOf("-f")+1], "utf8");
+                    assert.ok(yaml.includes(JSON.stringify(demo.state.image)));
+                    app = {metadata:{uid:"app-uid",name:APPLICATION_NAME,generation:1,labels:{"brewlet-demo-owner":demo.namespace}},spec:{artifact:{image:demo.state.image},jvm:{version:25,distribution:"temurin"}},status:{observedGeneration:1,conditions:[{type:"Ready",status:"True",observedGeneration:1}]}};
+                    manifest = workloadFixture(demo.state.image,packaged.identity).current;
+                    manifest.metadata.name = APPLICATION_NAME;
                     manifest.metadata.uid = "deployment-uid";
+                    manifest.metadata.ownerReferences = [{controller:true,kind:"JavaApplication",uid:"app-uid"}];
                 }
                 if (args.includes("patch")) {
                     const patch = JSON.parse(args[args.indexOf("-p") + 1]);
                     const target = demo.state.active === "rollback" ? 25 : 27;
-                    assert.deepEqual(patch, { spec: { template: { metadata: { annotations: { "brewlet.sh/jdk": `temurin-${target}` } } } } });
+                    assert.ok(args.includes("javaapplication"));
+                    assert.deepEqual(patch, { spec: { jvm: { version: target } } });
+                    app.spec.jvm.version = target;
+                    app.metadata.generation++;
+                    app.status.observedGeneration = app.metadata.generation;
+                    app.status.conditions[0].observedGeneration = app.metadata.generation;
                     manifest.spec.template.metadata.annotations["brewlet.sh/jdk"] = `temurin-${target}`;
                     feature = target;
                 }
@@ -380,6 +552,8 @@ test("five stages and repeated switches patch ONLY the JDK and preserve Service 
             assert.equal(demo.state.evidence.rollback.image, demo.state.evidence.deploy.image);
         }
         if (step === "deploy") {
+            assert.equal(demo.snapshot().applicationYaml.applied, true);
+            assert.equal(demo.snapshot().applicationYaml.rendered, await readFile(path.join(demo.dir, "javaapplication.yaml"), "utf8"));
             serviceURL = demo.state.clusterURL;
             demo.children.set("forward", { kill: () => { throw new Error("Upgrade must not stop the Service proxy."); } });
         }
@@ -396,12 +570,13 @@ test("five stages and repeated switches patch ONLY the JDK and preserve Service 
     assert.ok(!JSON.stringify(demo.state.evidence).includes("DO_NOT_STORE"));
     assert.ok(calls.some(([file, args]) => file === "mvn" && args.includes("-Djib.skip=true") && args.includes("spring-boot")));
     assert.ok(calls.some(([file, args]) => file === "git" && args.includes(REVISION)));
-    assert.equal(calls.filter(([file]) => file === "brewlet").length, 1);
-    assert.equal(calls.filter(([file]) => file === "mvn").length, 1);
+    assert.equal(calls.filter(([file, args]) => file === "brewlet" && args[0] === "push").length, 1);
+    assert.equal(calls.filter(([file, args]) => file === "brewlet" && args[0] === "dependency-bundle").length, 1);
+    assert.equal(calls.filter(([file]) => file === "mvn").length, 2);
     assert.equal(calls.filter(([file, args]) => file === "kubectl" && args.includes("proxy")).length, 1);
     assert.ok(!calls.some(([, args]) => args.includes("port-forward")));
-    assert.match(demo.state.clusterURL, /\/services\/http:showmyjvm:http\/proxy$/);
-    assert.match(await readFile(path.join(demo.dir, "deployment.json"), "utf8"), /temurin-25/);
+    assert.match(demo.state.clusterURL, /\/services\/http:showmyjvm-java:http\/proxy$/);
+    assert.match(await readFile(path.join(demo.dir, "javaapplication.yaml"), "utf8"), /version: 25/);
     const fetcher = demo.fetcher;
     demo.fetcher = async () => ({ ok: true, json: async () => ({ vmVersion: "25", vmVendor: "Eclipse Adoptium", pidHostname: "1@foreign-pod" }) });
     await assert.rejects(demo.verifyCluster(25), /did not identify a verified/);

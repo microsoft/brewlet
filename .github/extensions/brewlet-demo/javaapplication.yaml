@@ -1,0 +1,37 @@
+apiVersion: apps.brewlet.sh/v1alpha1
+kind: JavaApplication
+metadata:
+  name: showmyjvm-java
+  namespace: __NAMESPACE__
+  labels:
+    brewlet-demo-owner: __NAMESPACE__
+spec:
+  artifact:
+    image: __IMAGE__
+    pullPolicy: Never
+  replicas: 1
+  jvm:
+    distribution: temurin
+    version: 25
+  env:
+    - name: PORT
+      value: "8080"
+  ports:
+    - name: http
+      containerPort: 8080
+  service:
+    enabled: true
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+  probes:
+    readiness:
+      httpGet:
+        path: /actuator/health
+        port: 8080
+      periodSeconds: 3

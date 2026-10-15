@@ -1,18 +1,264 @@
 const token = new URL(location.href).searchParams.get("token");
 const api = (route) => `${route}?token=${encodeURIComponent(token)}`;
 const $ = (selector) => document.querySelector(selector);
-const steps = ["local", "package", "deploy", "upgrade", "rollback"];
+const steps = ["local", "package", "artifact", "deploy", "upgrade", "rollback"];
 const snippets = {
     local: "mvn -pl spring-boot -am -Djib.skip=true package\njava -jar showmyjvm-springboot.jar",
-    package: "brewlet push <jar> <ref> --format image --store <oci>",
-    deploy: 'runtimeClassName: brewlet\nbrewlet.sh/jdk: "temurin-25"',
-    upgrade: 'kubectl patch deployment showmyjvm\nbrewlet.sh/jdk: "temurin-27"',
-    rollback: 'kubectl patch deployment showmyjvm\nbrewlet.sh/jdk: "temurin-25"',
+    package: "brewlet dependency-bundle <deps.tar> <bundle-ref> --lock <lock>\nbrewlet push <thin.jar> <ref> --dependency-bundle <bundle-ref>",
+    artifact: "brewlet inspect <ref> --store <oci>\ntar -tvf <layer-blob>",
+    deploy: 'kubectl apply -f javaapplication.yaml\nspec.jvm: { distribution: temurin, version: 25 }',
+    upgrade: 'kubectl patch javaapplication showmyjvm-java\nspec.jvm.version: 27',
+    rollback: 'kubectl patch javaapplication showmyjvm-java\nspec.jvm.version: 25',
 };
-const prerequisites = { package: "local", deploy: "package", upgrade: "deploy", rollback: "upgrade", inspect: "deploy" };
+const prerequisites = { package: "local", artifact: "package", deploy: "package", upgrade: "deploy", rollback: "upgrade", inspect: "deploy" };
 let state;
 let posting = false;
 const expandedPreviews = new Set();
+let manifestVisible = false;
+let manifestTemplate = false;
+let artifactViewer;
+
+function artifactExplorer(artifact) {
+    const key = JSON.stringify(artifact);
+    if (artifactViewer?.key === key) return artifactViewer.node;
+    const viewer = element("div", null, "oci-viewer");
+    artifactViewer = { key, node: viewer };
+    const short = (digest) => digest.length > 24 ? `${digest.slice(0, 19)}...${digest.slice(-6)}` : digest;
+    const bytes = (size) => size >= 1048576 ? `${(size / 1048576).toFixed(1)} MiB` : size >= 1024 ? `${(size / 1024).toFixed(1)} KiB` : `${size} B`;
+    const hero = element("div", null, "oci-hero");
+    hero.append(element("span", "OCI / ARTIFACT EXPLORER", "oci-eyebrow"),
+        element("h3", "One payload. Every platform."),
+        element("p", "Follow the manifests down to the actual archive entries. Click a platform, then a layer."));
+    const image = element("code", artifact.image, "oci-image");
+    image.title = artifact.image;
+    hero.append(image);
+    const stats = element("div", null, "oci-stats");
+    for (const [value, label] of [[artifact.platforms.length, "platforms"], [artifact.layers.length, "unique layers"],
+        [bytes(artifact.layers.reduce((sum, layer) => sum + layer.size, 0)), "unique compressed payload"]]) {
+        const stat = element("div");
+        stat.append(element("strong", String(value)), element("span", label));
+        stats.append(stat);
+    }
+    hero.append(stats);
+    viewer.append(hero);
+    const platforms = element("div", null, "oci-platforms");
+    platforms.setAttribute("aria-label", "Filter layers by platform");
+    const workspace = element("div", null, "oci-workspace");
+    const stack = element("div", null, "oci-stack");
+    const inspector = element("div", null, "oci-inspector");
+    inspector.id = "oci-layer-inspector";
+    workspace.append(stack, inspector);
+    viewer.append(platforms, element("div", "MANIFESTS  /  CONTENT-ADDRESSED LAYERS  /  FILES", "oci-flow"), workspace);
+    let selectedPlatform = null;
+    let selectedLayer = artifact.layers[0]?.digest;
+    let selectedContent = "layer";
+    let query = "";
+    const platformButtons = [];
+    function platformButton(label, platform) {
+        const button = element("button", null, "oci-platform");
+        button.type = "button";
+        button.append(element("span", platform ? "MANIFEST" : "APPLICATION INDEX", "oci-eyebrow"), element("strong", label));
+        if (platform) {
+            const digest = element("code", short(platform.manifestDigest));
+            digest.title = platform.manifestDigest;
+            button.append(digest, element("span", `${platform.layers.length} layer references`));
+        }
+        button.onclick = () => {
+            selectedPlatform = platform;
+            if (platform && !platform.layers.includes(selectedLayer)) selectedLayer = platform.layers[0];
+            query = "";
+            draw();
+        };
+        platformButtons.push({ button, platform });
+        platforms.append(button);
+    }
+    platformButton("All platforms", null);
+    for (const platform of artifact.platforms) platformButton(platform.platform, platform);
+    function draw() {
+        for (const { button, platform } of platformButtons) button.setAttribute("aria-pressed", String(platform === selectedPlatform));
+        stack.replaceChildren(element("h4", selectedPlatform ? `${selectedPlatform.platform} layer order` : "Unique layers"));
+        const visible = selectedPlatform ? selectedPlatform.layers.map((digest) => artifact.layers.find((layer) => layer.digest === digest)) : artifact.layers;
+        stack.append(element("p", visible.length === 1 ?
+            "1 actual layer. There are no additional layers behind this card." :
+            `${visible.length} actual layers. Select a card to view its archive entries.`, "oci-layer-count"));
+        const metadataControls = element("div", null, "oci-components");
+        metadataControls.append(element("h4", artifact.bundle ? "Configuration & managed bundle" : "Configuration & embedded content"));
+        for (const [mode, title, description] of [
+            ["jvm", "JVM launch configuration", "Manifest annotation / not a filesystem layer"],
+            ["config", "OCI image configuration", "Config blob / not a filesystem layer"],
+            ["dependencies", artifact.bundle ? "Managed dependency bundle" : "Spring Boot dependencies", artifact.bundle ? `${artifact.bundle.lock.artifacts.length} dependencies / separate classpath layer` : artifact.embedded ? `${artifact.embedded.dependencies.length} JARs inside app.jar / BOOT-INF/lib/` : "Inside app.jar / rerun phase 3 to index"],
+        ]) {
+            const control = element("button", null, "oci-component");
+            control.type = "button";
+            control.dataset.content = mode;
+            control.setAttribute("aria-pressed", String(selectedContent === mode));
+            control.append(element("strong", title), element("span", description));
+            control.onclick = () => { selectedContent = mode; query = ""; draw(); };
+            metadataControls.append(control);
+        }
+        const maximum = Math.max(1, ...artifact.layers.map((layer) => layer.size));
+        for (const [index, layer] of visible.entries()) {
+            const uses = artifact.platforms.filter((platform) => platform.layers.includes(layer.digest));
+            const button = element("button", null, "oci-layer");
+            button.type = "button";
+            button.dataset.layer = layer.digest;
+            button.setAttribute("aria-label", `Select layer ${index + 1}: ${layer.entries?.length === 1 ? layer.entries[0] : layer.digest}`);
+            button.setAttribute("aria-controls", "oci-layer-inspector");
+            button.setAttribute("aria-pressed", String(selectedContent === "layer" && selectedLayer === layer.digest));
+            button.append(element("span", `L${String(index + 1).padStart(2, "0")}`, "oci-layer-number"),
+                element("strong", layer.role === "classpath" ? "Managed dependencies" : layer.role === "app" && artifact.bundle ? "Application / thin JAR" : layer.entries?.length === 1 ? layer.entries[0] : `Archive layer ${index + 1}`),
+                element("span", `${bytes(layer.size)} / ${layer.entries ? `${layer.entries.length} entries` : "rerun to index files"}`),
+                element("span", uses.length > 1 ? `SHARED BY ${uses.length} PLATFORMS` : uses[0]?.platform ?? "Layer", "oci-shared"));
+            const digest = element("code", short(layer.digest));
+            digest.title = layer.digest;
+            const meter = element("span", null, "oci-size-track");
+            const fill = element("span");
+            fill.style.width = `${Math.max(2, layer.size / maximum * 100)}%`;
+            meter.append(fill);
+            button.append(digest, meter);
+            button.onclick = () => {
+                selectedLayer = layer.digest;
+                selectedContent = "layer";
+                query = "";
+                draw();
+                [...stack.querySelectorAll("[data-layer]")].find((item) => item.dataset.layer === selectedLayer)?.focus({ preventScroll: true });
+            };
+            stack.append(button);
+        }
+        stack.append(metadataControls);
+        inspector.replaceChildren();
+        if (selectedContent === "jvm" || selectedContent === "config") {
+            inspector.append(element("span", "METADATA / NOT A FILESYSTEM LAYER", "oci-eyebrow"),
+                element("h4", selectedContent === "jvm" ? "JVM launch configuration" : "OCI image configuration"));
+            inspector.append(element("p", selectedContent === "jvm" ?
+                "Brewlet reads this launch contract from the verified platform manifest's brewlet.sh/jvm-config annotation." :
+                "This verified JSON blob describes the platform, entrypoint and filesystem diff IDs. It is referenced by manifest.config, not manifest.layers."));
+            for (const platform of artifact.platforms.filter((platform) => !selectedPlatform || platform === selectedPlatform)) {
+                inspector.append(element("h4", platform.platform),
+                    element("pre", JSON.stringify(selectedContent === "jvm" ? platform.jvmConfig ?? "Not captured; rerun phase 3." : platform.imageConfig ?? "Not captured; rerun phase 3.", null, 2), "preview-code"));
+            }
+            return;
+        }
+        const layer = artifact.layers.find((item) => item.digest === selectedLayer);
+        if (!layer) return;
+        if (selectedContent === "dependencies") {
+            if (artifact.bundle) {
+                const bundle = artifact.bundle;
+                inspector.append(element("span", "MANAGED BUNDLE / SEPARATE CLASSPATH LAYER", "oci-eyebrow"),
+                    element("h4", "Publish once. Compose by digest."),
+                    element("p", "The publisher creates a bundle and lock from Maven's resolved runtime graph. Brewlet verifies that exact graph and reuses the bundle's classpath layer unchanged in this application. This demo uses an unsigned local bundle, not a signed production approval."),
+                    element("pre", JSON.stringify({ sourceBom: bundle.config.sourceBom, bundleDigest: bundle.evidence.dependencyBundleDigest,
+                        layerDigest: bundle.layerDigest, lockDigest: bundle.evidence.dependencyLockDigest, sbomDigest: bundle.evidence.sbomDigest, thinJar: bundle.evidence.thinJar }, null, 2), "preview-code"));
+                const files = element("div", null, "oci-files");
+                const search = element("input", null, "oci-search");
+                search.type = "search";
+                search.placeholder = "Filter managed dependency coordinates...";
+                search.setAttribute("aria-label", "Filter managed dependencies");
+                search.value = query;
+                const count = element("p");
+                const update = () => {
+                    const matches = bundle.lock.artifacts.filter((entry) => JSON.stringify(entry).toLowerCase().includes(query.toLowerCase()));
+                    count.textContent = `${matches.length} of ${bundle.lock.artifacts.length} locked dependencies${matches.length > 200 ? " / showing first 200" : ""}`;
+                    files.replaceChildren(...matches.slice(0, 200).map((entry) => {
+                        const row = element("div", null, "oci-file");
+                        row.append(element("span", "JAR", "oci-file-type jar"), element("code", `${entry.groupId}:${entry.artifactId}:${entry.version}\n${entry.scope} | ${entry.fileName}\nsha256:${entry.sha256}`));
+                        return row;
+                    }));
+                    if (!matches.length) files.append(element("p", "No matching dependencies."));
+                };
+                search.oninput = () => { query = search.value; update(); };
+                update();
+                inspector.append(search, count, files);
+                return;
+            }
+            inspector.append(element("span", "NESTED ARCHIVE / NOT A SEPARATE OCI LAYER", "oci-eyebrow"),
+                element("h4", "Dependencies inside app.jar"),
+                element("p", "This demo packages a Spring Boot executable JAR. BOOT-INF/lib/ travels inside the application layer; no classpath layer was supplied during packaging."));
+            if (!artifact.embedded) {
+                inspector.append(element("p", "Rerun phase 3 to verify the packaged JAR and index its embedded dependencies."));
+                return;
+            }
+            inspector.append(element("code", `Verified app.jar: ${artifact.embedded.jarDigest}`));
+            const search = element("input", null, "oci-search");
+            search.type = "search";
+            search.placeholder = "Filter dependency JARs...";
+            search.setAttribute("aria-label", "Filter embedded dependencies");
+            search.value = query;
+            const count = element("p");
+            const files = element("div", null, "oci-files");
+            const update = () => {
+                const matches = artifact.embedded.dependencies.filter((entry) => entry.toLowerCase().includes(query.toLowerCase()));
+                count.textContent = `${matches.length} of ${artifact.embedded.dependencies.length} embedded dependency JARs${matches.length > 200 ? " / showing first 200" : ""}`;
+                files.replaceChildren(...matches.slice(0, 200).map((name) => {
+                    const row = element("div", null, "oci-file");
+                    row.append(element("span", "JAR", "oci-file-type jar"), element("code", name));
+                    return row;
+                }));
+                if (!matches.length) files.append(element("p", "No matching embedded dependencies."));
+            };
+            search.oninput = () => { query = search.value; update(); };
+            update();
+            inspector.append(search, count, files);
+            return;
+        }
+        inspector.append(element("span", "LAYER CONTENTS / READ ONLY", "oci-eyebrow"),
+            element("h4", "Inside the payload"));
+        const metadata = element("details", null, "oci-metadata");
+        metadata.append(element("summary", "Digests & media type"),
+            element("pre", `Layer: ${layer.digest}\nSize: ${layer.size.toLocaleString()} bytes\nMedia type: ${layer.mediaType}\n\n${artifact.platforms.filter((platform) => platform.layers.includes(layer.digest)).map((platform) => `${platform.platform}\nManifest: ${platform.manifestDigest}\nConfig: ${platform.configDigest}`).join("\n\n")}`, "preview-code"));
+        inspector.append(metadata);
+        if (layer.entries) {
+            const search = element("input", null, "oci-search");
+            search.type = "search";
+            search.placeholder = "Filter archive paths...";
+            search.setAttribute("aria-label", "Filter files in selected layer");
+            search.value = query;
+            const count = element("p", null, "oci-file-count");
+            const files = element("div", null, "oci-files");
+            files.tabIndex = 0;
+            files.setAttribute("aria-label", "Archive entries");
+            const updateFiles = () => {
+                const matches = layer.entries.filter((entry) => entry.toLowerCase().includes(query.toLowerCase()));
+                count.textContent = `${matches.length} of ${layer.entries.length} archive entries${matches.length > 200 ? " / showing first 200; filter to narrow" : ""}`;
+                files.replaceChildren();
+                for (const name of matches.slice(0, 200)) {
+                    const row = element("div", null, "oci-file");
+                    const type = name.endsWith("/") ? "DIR" : /\.jar$/i.test(name) ? "JAR" : "FILE";
+                    row.append(element("span", type, `oci-file-type ${type.toLowerCase()}`), element("code", name));
+                    files.append(row);
+                }
+                if (!matches.length) files.append(element("p", "No matching paths."));
+            };
+            search.oninput = () => { query = search.value; updateFiles(); };
+            updateFiles();
+            inspector.append(search, count, files);
+        } else {
+            inspector.append(element("p", "Rerun phase 3 to populate the interactive file index. The captured raw listing is available below."));
+        }
+        const raw = element("details", null, "oci-raw");
+        const listing = element("pre", layer.contents, "preview-code");
+        listing.tabIndex = 0;
+        raw.append(element("summary", "Raw archive listing"), listing);
+        inspector.append(raw);
+    }
+    draw();
+    viewer.append(element("p", "Filesystem layers, metadata, and embedded dependencies are distinct. Shared blobs are counted once. Archive paths only; no execution or changes to the image.", "oci-caption"));
+    return viewer;
+}
+
+function renderManifest() {
+    $("#show-manifest").textContent = manifestVisible ? "Hide JavaApplication YAML" : "Show JavaApplication YAML";
+    $("#show-manifest").setAttribute("aria-expanded", String(manifestVisible));
+    $("#manifest-view").hidden = !manifestVisible;
+    $("#manifest-resolved").setAttribute("aria-pressed", String(!manifestTemplate));
+    $("#manifest-template").setAttribute("aria-pressed", String(manifestTemplate));
+    const manifest = state.applicationYaml;
+    $("#manifest-path").textContent = manifestTemplate ? manifest.file : manifest.path;
+    $("#manifest-note").textContent = manifestTemplate ?
+        "Source file on disk. Only __NAMESPACE__ and __IMAGE__ are substituted for deployment." :
+        `${manifest.applied ? "Captured exact stage 4 input" : manifest.ready ? "Ready-to-apply preview" : "Preview - package stage 2 first to resolve the image digest"}. Stages 5 and 6 patch the live JavaApplication version to 27 and back to 25; they do not rewrite this initial YAML. Viewing does not deploy.`;
+    $("#manifest-content").textContent = manifestTemplate ? manifest.template : manifest.rendered;
+}
 
 function previewControl(id) {
     const wrapper = element("div", null, "command-preview");
@@ -115,24 +361,40 @@ function renderArtifactProof() {
     if (state.evidence.inspect?.artifact) panel.append(element("p",
         `Latest inspection (not historical rollout evidence): ${state.evidence.inspect.vendor} ${state.evidence.inspect.version} | Pod ${state.evidence.inspect.artifact.servingPod} | index ${state.evidence.inspect.artifact.indexDigest}`));
     const diff = element("details");
-    diff.append(element("summary", "Only intended change: JDK annotation"),
-        element("pre", 'spec.template.metadata.annotations:\n- brewlet.sh/jdk: temurin-25\n+ brewlet.sh/jdk: temurin-27\n\nSwitch back:\n- brewlet.sh/jdk: temurin-27\n+ brewlet.sh/jdk: temurin-25\n\nspec.template.spec.containers[name=showmyjvm].image: unchanged', "preview-code"));
+    diff.append(element("summary", "Only intended change: JavaApplication JVM version"),
+        element("pre", 'spec.jvm:\n  distribution: temurin\n- version: 25\n+ version: 27\n\nSwitch back:\n- version: 27\n+ version: 25\n\nspec.artifact.image: unchanged\nOperator updates the owned Deployment and Service.', "preview-code"));
     panel.append(diff);
 }
 
 function render(next) {
+    const artifactFocus = artifactViewer?.node.contains(document.activeElement) ? document.activeElement : null;
     state = next;
+    renderManifest();
     renderArtifactProof();
     $("#steps").replaceChildren(...steps.map((id) => {
         const definition = state.definitions[id];
         const status = state.steps[id]?.status ?? "ready";
         const card = element("article", null, "step");
+        card.dataset.phase = id;
         const top = element("div", null, "step-top");
         top.append(element("h2", definition.title), element("span", status, `badge ${status}`));
         const code = element("code", snippets[id]);
         const button = element("button", status === "passed" ? "Run again" : "Run stage");
         button.dataset.step = id;
         card.append(top, element("p", definition.detail), code, button, previewControl(id));
+        if (id === "artifact" && state.evidence.artifact && state.evidence.artifact.image === state.image) {
+            card.classList.add("artifact-step");
+            card.append(artifactExplorer(state.evidence.artifact));
+        }
+        if (id === "deploy") {
+            const showYaml = element("button", "Show JavaApplication YAML");
+            showYaml.onclick = () => {
+                manifestVisible = true;
+                renderManifest();
+                $("#manifest-view").scrollIntoView({ block: "start" });
+            };
+            card.append(showYaml);
+        }
         if (state.steps[id]?.error) card.append(element("p", state.steps[id].error, "failure"));
         return card;
     }));
@@ -164,7 +426,7 @@ function render(next) {
     const liveURL = `/live/${encodeURIComponent(token)}/`;
     const liveLink = $("#live-app-link");
     liveLink.disabled = !deployed;
-    liveLink.title = deployed ? "Open the Service-backed ShowMyJVM dashboard in your default browser. Refreshes every 2 seconds." : "Complete stage 3 to open the deployed app.";
+    liveLink.title = deployed ? "Open the Service-backed ShowMyJVM dashboard in your default browser. Refreshes every 2 seconds." : "Complete stage 4 to open the deployed app.";
     $("#reconnect-app").hidden = !deployed || Boolean(state.clusterURL);
     for (const [id, value] of [["local-link", state.localURL], ["cluster-link", deployed ? liveURL : null]]) {
         const link = $(`#${id}`);
@@ -183,15 +445,23 @@ function render(next) {
     $("#stop").disabled = !state.active && !state.services.length;
     $("#target").textContent = `Context: ${state.context} | Namespace: ${state.namespace}\nArtifacts: ${state.workspace}`;
     if (state.storageError) showError(`Cannot persist demo state: ${state.storageError}`);
+    if (artifactFocus?.isConnected) artifactFocus.focus({ preventScroll: true });
 }
 
 $("#stop").onclick = () => post("/api/stop");
+$("#show-manifest").onclick = () => {
+    manifestVisible = !manifestVisible;
+    renderManifest();
+    if (manifestVisible) $("#manifest-view").scrollIntoView({ block: "start" });
+};
+$("#manifest-template").onclick = () => { manifestTemplate = true; renderManifest(); };
+$("#manifest-resolved").onclick = () => { manifestTemplate = false; renderManifest(); };
 $("#live-app-link").onclick = () => post("/api/open-app");
 $("#command-form").onsubmit = (event) => {
     event.preventDefault();
     const command = $("#command").value.trim().toLowerCase();
     $("#command").value = "";
-    if (command === "help") return showError("Commands: preflight, setup, local, package, deploy, upgrade, rollback, inspect, stop. Stages run real commands; no arbitrary shell execution.");
+    if (command === "help") return showError("Commands: preflight, setup, local, package, artifact, deploy, upgrade, rollback, inspect, stop. Stages run real commands; no arbitrary shell execution.");
     if (command === "stop") return post("/api/stop");
     if (!state || !Object.hasOwn(state.definitions, command)) return showError("Unknown command. Enter help for the guided command list.");
     return run(command);

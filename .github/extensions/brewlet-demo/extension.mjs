@@ -28,12 +28,12 @@ const session = await joinSession({
     canvases: [createCanvas({
         id: "brewlet-demo",
         displayName: "Brewlet live demo",
-        description: "Build ShowMyJVM Spring Boot locally, package its OCI image, deploy on Docker Desktop with Temurin 25, and switch to Temurin 27 and back with live terminal output.",
+        description: "Build ShowMyJVM Spring Boot, package and inspect its OCI layers, deploy on Docker Desktop, and switch Temurin 25 to 27 and back with live terminal output.",
         inputSchema: emptyInput,
         actions: [
             { name: "get_status", description: "Read demo steps, commands, runtime evidence and terminal output.", inputSchema: emptyInput, handler: handler(() => manager.snapshot()) },
-            { name: "run_step", description: "Run preflight, explicit cluster setup, local build/run, package, deploy, upgrade to 27, rollback to 25, or inspection. Setup installs a privileged Brewlet runtime on one Docker Desktop worker only.", inputSchema: runInput, handler: handler(({ step }) => manager.start(step)) },
-            { name: "stop", description: "Cancel the active step and stop this demo's local Java process and port forward. Does not delete cluster resources.", inputSchema: emptyInput, handler: handler(() => manager.stop()) },
+            { name: "run_step", description: "Run preflight, explicit cluster setup, local build/run, package, artifact layer inspection, deploy, upgrade to 27, rollback to 25, or deployment inspection. Setup installs a privileged Brewlet runtime on one Docker Desktop worker only.", inputSchema: runInput, handler: handler(({ step }) => manager.start(step)) },
+            { name: "stop", description: "Cancel the active step and stop this demo's local Java process and Service proxy. Does not delete cluster resources.", inputSchema: emptyInput, handler: handler(() => manager.stop()) },
         ],
         open: async (ctx) => {
             await initialized;

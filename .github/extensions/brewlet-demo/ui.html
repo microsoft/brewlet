@@ -24,6 +24,16 @@
             <div id="preparation-status" role="status"></div>
         </section>
         <section class="steps" id="steps" aria-label="Demo stages"></section>
+        <section class="manifest-panel">
+            <div class="buttons"><button id="show-manifest" aria-expanded="false" aria-controls="manifest-view">Show JavaApplication YAML</button></div>
+            <div id="manifest-view" hidden>
+                <h2>JavaApplication: the application stays, the JVM changes</h2>
+                <p id="manifest-path"></p>
+                <div class="buttons"><button id="manifest-resolved" aria-pressed="true">Deployment YAML</button><button id="manifest-template" aria-pressed="false">Source template</button></div>
+                <p id="manifest-note"></p>
+                <pre id="manifest-content" tabindex="0" aria-label="JavaApplication YAML file"></pre>
+            </div>
+        </section>
         <section class="evidence">
             <h2>Same artifact, different runtime</h2>
             <div id="artifact-proof" aria-live="polite"></div>
@@ -32,14 +42,14 @@
             <div class="buttons"><a id="local-link" hidden target="_blank" rel="noreferrer">Open local app &nearr;</a><a id="cluster-link" hidden target="_blank" rel="noreferrer">Open Kubernetes app &nearr;</a><button data-step="inspect">Inspect deployment</button></div>
             <div id="inspect-preview"></div>
         </section>
-        <footer><code id="target"></code><p>No registry upload, cluster reset, automatic uninstall, or deletion. Stop terminates only this demo's local JVM and port forward; the Kubernetes Deployment keeps running.</p></footer>
+        <footer><code id="target"></code><p>No registry upload, cluster reset, automatic uninstall, or deletion. Stop terminates only this demo's local JVM and Service proxy; the JavaApplication keeps running.</p></footer>
     </main>
     </div>
         <section class="terminal-panel" aria-label="Live demo terminal">
             <div class="terminal-toolbar"><h2>Live terminal <span class="subtle">/ stdout + stderr</span></h2><div class="buttons"><button id="live-app-link" disabled>Open live app &nearr;</button><button id="reconnect-app" data-step="inspect" hidden>Reconnect app</button><button id="stop">Stop processes</button></div></div>
             <div id="error" role="alert" hidden></div>
             <pre id="terminal" tabindex="0" aria-label="Live command output"></pre>
-            <form id="command-form"><label for="command">&gt;</label><input id="command" autocomplete="off" spellcheck="false" placeholder="local, package, deploy, upgrade, rollback, inspect, stop, help" aria-label="Demo command"><button type="submit">Run</button></form>
+            <form id="command-form"><label for="command">&gt;</label><input id="command" autocomplete="off" spellcheck="false" placeholder="local, package, artifact, deploy, upgrade, rollback, inspect, stop, help" aria-label="Demo command"><button type="submit">Run</button></form>
             <p class="terminal-note">Guided commands, not an unrestricted shell. Output streams live; logs survive reloads. Closing this panel does not stop the demo.</p>
         </section>
 </body>
