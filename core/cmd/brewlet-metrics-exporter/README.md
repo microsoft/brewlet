@@ -36,13 +36,9 @@ for reference checks and recovery precautions.
 
 ## Screenshots
 
-These images were captured from Grafana 12.1.0 backed by Prometheus 3.5.0. The
+This image was captured from Grafana 12.1.0 backed by Prometheus 3.5.0. The
 metric samples came from a live metrics-enabled tier 15 integration test and
 are stored with the exporter for reuse by the documentation site.
-
-### Grafana runtime dashboard
-
-![Brewlet runtime metrics dashboard](brewlet-metrics-dashboard.png)
 
 ### Grafana Explore
 

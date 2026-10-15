@@ -468,7 +468,6 @@ if (
   NODE_NAME=test-node
   mock_writer_authority
   host_arch_oci() { printf 'amd64'; }
-  remove_appcds_regeneration_policy() { return 0; }
   clear_node_advertisement() { return 0; }
   parse_mirrors() { return 0; }
   parse_runtime_sources() { return 0; }
@@ -881,7 +880,6 @@ for operation in provision cleanup; do
     NODE_NAME=""
     restart_containerd_service() { printf 'restart\n' >>"$calls"; }
     kill() { printf 'signal\n' >>"$calls"; }
-    remove_appcds_regeneration_policy() { :; }
     clear_node_advertisement() { :; }
     remove_shim() { :; }
     remove_runtime_roots() { :; }
@@ -913,7 +911,6 @@ for mode in sighup reboot; do
         CONTAINERD_DROPIN_FILE="$CONTAINERD_DROPIN_DIR/99-brewlet.toml"
         NODE_NAME=""
         ensure_in_cluster_kubeconfig() { :; }
-        remove_appcds_regeneration_policy() { printf 'remove-policy\n' >>"$calls"; }
         remove_shim() { printf 'remove-shim\n' >>"$calls"; }
         remove_runtime_roots() { printf 'remove-roots\n' >>"$calls"; }
         install_shim() { printf 'install-shim\n' >>"$calls"; }
@@ -1142,7 +1139,6 @@ if output="$(
     NODE_NAME=test-node
     NODE_WRITE_AUTHORIZED=true
     clear_node_advertisement() { printf 'unready\n' >>"$node_calls"; }
-    remove_appcds_regeneration_policy() { printf 'policy-removed\n' >>"$node_calls"; }
     kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
     die containerd-health-check-failed "containerd is not operational"
   ) 2>&1
@@ -1151,7 +1147,6 @@ if output="$(
   exit 1
 fi
 assert_contains "unready" "$node_calls"
-assert_contains "policy-removed" "$node_calls"
 assert_contains "annotate node" "$node_calls"
 # The reason CODE is the stable, parseable contract (§14); the human message is
 # a separate annotation so a consumer never has to parse prose out of it.
@@ -1182,28 +1177,7 @@ second")" == "first second" ]]
 long_msg="$(truncate_error_message "$(printf 'b%.0s' {1..2000})")"
 (( ${#long_msg} == 512 ))
 
-# Retired AppCDS policy is removed during upgrades and cleanup.
-policy_root="$(mktemp -d "$TEST_TMP_ROOT/policy-root.XXXXXX")"
-(
-  POLICY_DIR="$policy_root/policy"
-  mkdir -p "$POLICY_DIR"
-  APP_CDS_REGENERATION_SENTINEL="$POLICY_DIR/appcds-regeneration-enabled"
-  : >"$APP_CDS_REGENERATION_SENTINEL"
-  remove_appcds_regeneration_policy
-  [[ ! -e "$APP_CDS_REGENERATION_SENTINEL" ]]
-)
-
-: >"$node_calls"
-(
-
-  JDKS="temurin-21"
-  mock_writer_authority
-  kubectl() { printf '%s\n' "$*" >>"$node_calls"; }
-  label_node
-  clear_node_advertisement
-  unlabel_node
-)
-assert_contains "brewlet.sh/appcds-regeneration-" "$node_calls"
+inventory_root="$(mktemp -d "$TEST_TMP_ROOT/inventory-root.XXXXXX")"
 
 # Compact admission/status inventory and structured diagnostics are both current
 # contracts; detailed metadata must not replace compact tokens or capability labels.
@@ -1211,7 +1185,7 @@ assert_contains "brewlet.sh/appcds-regeneration-" "$node_calls"
 (
   NODE_NAME=inventory-node
   mock_writer_authority
-  PREFIX="$policy_root"
+  PREFIX="$inventory_root"
   JDKS="temurin-21,microsoft-25"
   LAUNCHERS="jaz"
 
@@ -1321,21 +1295,15 @@ for clear in clear_node_advertisement unlabel_node; do
   grep -Fxq 'brewlet.sh/jdks-info-' "$node_calls"
 done
 
-# Cleanup revokes both the host sentinel and the node advertisement before
-# removing the remaining host state.
-mkdir -p "$policy_root/cleanup-policy"
-: >"$policy_root/cleanup-policy/appcds-regeneration-enabled"
+# Cleanup clears the node advertisement before removing host state.
 : >"$node_calls"
 (
-  POLICY_DIR="$policy_root/cleanup-policy"
-  APP_CDS_REGENERATION_SENTINEL="$POLICY_DIR/appcds-regeneration-enabled"
   BREWLET_CONTAINERD_RESTART=none
   clear_node_advertisement() { printf 'advertisement-cleared\n' >>"$node_calls"; }
   remove_shim() { printf 'shim-removed\n' >>"$node_calls"; }
   unlabel_node() { printf 'labels-removed\n' >>"$node_calls"; }
   cleanup_host
 )
-[[ ! -e "$policy_root/cleanup-policy/appcds-regeneration-enabled" ]]
 assert_contains "advertisement-cleared" "$node_calls"
 assert_contains "shim-removed" "$node_calls"
 assert_contains "labels-removed" "$node_calls"
@@ -1477,8 +1445,6 @@ mkdir -p "$cleanup_roots/jdks/temurin-21"
 : >"$node_calls"
 (
   PREFIX="$cleanup_roots"
-  POLICY_DIR="$policy_root/cleanup-policy"
-  APP_CDS_REGENERATION_SENTINEL="$POLICY_DIR/appcds-regeneration-enabled"
   BREWLET_CONTAINERD_RESTART=none
   BREWLET_CLEANUP_RUNTIME_ROOTS=false
   clear_node_advertisement() { :; }
@@ -1673,7 +1639,6 @@ completion_case() (
   kubectl() { return 0; }
   verify_node_ownership() { completion_step verify-ownership; NODE_WRITE_AUTHORIZED=true; }
   host_arch_oci() { printf 'amd64'; }
-  remove_appcds_regeneration_policy() { completion_step remove-policy; }
   clear_node_advertisement() { completion_step clear-readiness; }
   parse_mirrors() { completion_step parse-mirrors; }
   parse_runtime_sources() { completion_step parse-sources; }
@@ -1738,7 +1703,6 @@ done
 if output="$(
   (
     COMPLETION_FILE="$TEST_TMP_ROOT/missing-completion-directory/complete"
-    remove_appcds_regeneration_policy() { return 0; }
     publish_completion
   ) 2>&1
 )"; then
@@ -1766,7 +1730,6 @@ for mode in provision cleanup; do
         : >"$COMPLETION_FILE"
         ensure_in_cluster_kubeconfig() { :; }
         kubectl() { printf 'unexpected-api-access\n' >>"$calls"; return 1; }
-        remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
         clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
         cleanup_node() { printf 'unexpected-cleanup\n' >>"$calls"; exit 42; }
         verify_profile_identity() { printf 'unexpected-provisioning\n' >>"$calls"; exit 42; }
@@ -1796,7 +1759,6 @@ for mode in provision cleanup; do
       : >"$COMPLETION_FILE"
       ensure_in_cluster_kubeconfig() { :; }
       kubectl() { printf 'unexpected-api-access\n' >>"$calls"; }
-      remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
       clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
       main
     ) 2>&1
@@ -1827,7 +1789,6 @@ ownership_case() (
       *) printf 'unexpected-api-write\n' >>"$calls"; return 1 ;;
     esac
   }
-  remove_appcds_regeneration_policy() { printf 'unexpected-host-write\n' >>"$calls"; }
   clear_node_advertisement() { printf 'unexpected-advertisement-write\n' >>"$calls"; }
   if [[ "$run_main" == true ]]; then
     main
@@ -1917,7 +1878,6 @@ if output="$(
   (
     BREWLET_MODE=provision
     COMPLETION_FILE="$TEST_TMP_ROOT/completion-directory"
-    remove_appcds_regeneration_policy() { return 0; }
     clear_node_advertisement() { exit 42; }
     main
   ) 2>&1

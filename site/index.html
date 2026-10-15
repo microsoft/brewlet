@@ -442,7 +442,7 @@ $ mvn -f integration-tests/fixtures/demo-app/pom.xml package brewlet:build \
         </details>
         <details>
           <summary>How does Brewlet reduce JVM cold starts?</summary>
-          <p>Optional AppCDS can reduce startup work when an archive matches the JDK build, architecture, and application. Archives must be generated externally; Brewlet does not train or regenerate them. Each workload retains its own JVM and heap, so shared JDK storage does not imply automatic memory savings. See the <a href="/docs/appcds/">AppCDS docs</a>.</p>
+          <p>Optional AppCDS can reduce startup work when an externally supplied archive matches the JDK build, architecture, and application. Each workload retains its own JVM and heap, so shared JDK storage does not imply automatic memory savings. See the <a href="/docs/appcds/">AppCDS docs</a>.</p>
         </details>
         <details>
           <summary>Does it work on mixed-architecture node pools?</summary>

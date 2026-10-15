@@ -826,13 +826,12 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    advertised. Unchanged valid configuration is config-dump validated and
    health-checked without another restart.
 5. Verifies the shim responds.
-6. Removes any AppCDS-generation authorization sentinel left by older releases.
-7. For an operator-managed profile, re-reads the cluster-scoped `NodeProfile`
+6. For an operator-managed profile, re-reads the cluster-scoped `NodeProfile`
    and requires its UID and generation to match the provisioner pod and its
    deletion timestamp to remain empty. The same fence is checked immediately
    before publishing the final readiness label. Standalone provisioners omit
    the UID and skip this profile identity check.
-8. On success, labels the node `brewlet.sh/runtime=ready` and annotates with the
+7. On success, labels the node `brewlet.sh/runtime=ready` and annotates with the
    available JDKs, e.g. `brewlet.sh/jdks=temurin-17,temurin-21,temurin-25`, and
    any installed launchers, e.g. `brewlet.sh/launchers=java,jaz`. It also emits
    per-capability **scheduling labels** the admission webhook matches nodeAffinity
@@ -845,7 +844,7 @@ or readiness advertisement. Brewlet has no built-in runtime catalog.
    `startup-taint.cluster-autoscaler.kubernetes.io/brewlet`. A node still
    carrying that taint is not ready, whatever its labels say
    ([startup taint](CAPABILITY_LABELS.md#startup-taint)).
-9. Publishes the container-local `/tmp/brewlet-complete` marker, then runs
+8. Publishes the container-local `/tmp/brewlet-complete` marker, then runs
    periodic runnable-stage cleanup when enabled and installation safety is established (§5.2.1).
    Disabled provisioners and completed cleanup-mode workers idle instead.
    Provisioner and cleanup containers have an exec readiness probe for that
@@ -1248,8 +1247,8 @@ spec:
   managed provisioner and waits for its pods, including terminating pods, to be
   gone. Only then does it run a
   short-lived `brewlet-cleanup-<profile>` DaemonSet (`BREWLET_MODE=cleanup`) that
-  restores the containerd config backup, removes the AppCDS authorization
-  sentinel, the shim, and the profile's installed JDK/launcher roots (unless
+  restores the containerd config backup, removes the shim and the profile's
+  installed JDK/launcher roots (unless
   `BREWLET_CLEANUP_RUNTIME_ROOTS=false`, for nodes whose roots are baked into an
   immutable image), and drops the runtime + capability labels; only once every
   recorded target is cleaned or explicitly resolved by external-retirement
@@ -2105,8 +2104,8 @@ and JVM features:
 - **AppCDS / dynamic CDS:** optionally ship a class-data archive as a
   `cds.layer.v1+jsa` layer (`brewlet push --appcds-archive`) to cut startup; it is
   mounted at `/app/<archive>` and consumed with `-Xshare:auto` so a JDK-build
-  mismatch falls back safely to base CDS. Generate archives externally; Brewlet
-  does not train or regenerate them. See the
+  mismatch falls back safely to base CDS. Supply an archive produced for the
+  target JDK build, architecture, and application layout. See the
   [AppCDS note](https://github.com/microsoft/brewlet/blob/main/docs/appcds.md).
 
 ---
@@ -2244,7 +2243,6 @@ repurposed.
 | `stale-mount-cleanup-failed` | A stale source mount from an earlier attempt could not be removed |
 | `profile-changed` | The owning `NodeProfile` was deleted or changed identity mid-provision |
 | `cleanup-failed` | Profile cleanup could not reverse host state |
-| `policy-apply-failed` | A retired AppCDS generation authorization sentinel could not be removed |
 | `node-advertisement-failed` | Node readiness/inventory could not be published or withdrawn |
 | `internal-error` | A code was empty or unrecognized after normalization |
 
