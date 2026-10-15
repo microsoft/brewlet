@@ -406,13 +406,15 @@ compared across epochs.
 
 Deleting the resource, setting `Approved=False`, or making its source invalid
 revokes authorization for new starts. The operator withdraws its capability
-labels and the provisioner atomically publishes a revoked local authorization
-record. The shim checks that record on every `Create` and rejects with
+labels, or confirms the node-wide startup fence when provider-pinned labels
+cannot be removed (§9.2), and the provisioner atomically publishes a revoked
+local authorization record. The shim checks that record on every `Create` and rejects with
 `RuntimeImageRevoked`; an offered ID or existing root alone is not approval.
 Already-running tasks retain their roots until leases drain; revocation does
 not kill them. A deletion finalizer retains UID-bound inventory evidence until
-labels are withdrawn, local authorizations expire or are revoked, and root
-cleanup finishes. Re-creation never adopts old-epoch roots.
+labels are withdrawn or their node-wide fence is confirmed, local
+authorizations expire or are revoked, and root cleanup finishes. Re-creation
+never adopts old-epoch roots.
 
 Node-local authorization has a short expiry (default `5m`, renewed by the
 provisioner only after fresh inventory and ownership checks). An unreachable
@@ -517,7 +519,12 @@ spec:
 - Unknown IDs make the profile not ready (`UnknownRuntimeImage`) without blocking
   other IDs.
 - `Eager` IDs are installed when the node joins the pool and gate node readiness
-  as in 1.x.
+  as in 1.x. A profile containing only `OnDemand` entries MUST be able to
+  publish `brewlet.sh/runtime=ready` after validating the shim, handler,
+  annotation forwarding, ownership, and local authorizations, without fetching
+  a runtime root. Its approved IDs advertise `available`, so the first pod can
+  schedule and trigger installation. The startup fence is released only after
+  this baseline and all required eager installations are ready (§9.2).
 - The provisioner installs each generation under
   `/opt/brewlet/runtimes/<id>/<inventory-uid>/<generation>/` read-only and atomically flips
   `/opt/brewlet/runtimes/<id>/current` once extraction and validation succeed.
@@ -568,11 +575,14 @@ needs it.
 | `failed` | *(absent until backoff expires)* | The last install attempt failed; reported as a `provision-error`. |
 
 `available` is derived from the approved inventory and valid profile/ownership
-authority, so a node is labelled as soon as it joins the pool and before any
-runtime bytes are fetched. Revoked or expired authorizations never advertise
-`available` or `ready`. Cluster autoscaler
-node templates can therefore declare `available` labels statically and scale a
-pool from zero for an `OnDemand` ID.
+authority, so a node can advertise it before any runtime bytes are fetched,
+behind the startup fence until baseline provisioning completes (§9.2).
+Revoked or expired authorizations withdraw the capability advertisement,
+using the confirmed node-wide fence if labels are provider-pinned.
+Cluster autoscaler templates can declare `available` for scale-from-zero,
+but the corresponding real-node label MUST be mutable: installation, failure,
+and idle reclamation change or remove it. Provider-pinned per-ID labels are
+not supported for `OnDemand` entries (§9.2).
 
 **Install request.** When `Create` (§8.2) resolves an ID that is `available` on
 the node, the shim records an install request and does not fetch anything
@@ -635,7 +645,8 @@ profile.
 **Profile changes.** Switching an entry from `OnDemand` to `Eager` installs it
 on every node in the pool. Switching from `Eager` to `OnDemand` leaves existing
 installations in place as `ready` (subject to `idleTTL`) rather than removing
-them.
+them, but requires removing any provider pin on that ID's capability label
+first (§9.2).
 
 ### 7.6 Opt-in rolling restart on rotation
 
@@ -655,8 +666,9 @@ restart.
 
 **Trigger and participating nodes.** A rotation tracks the approved target
 generation and digest. Participants are live, `Ready=True`, schedulable,
-non-deleting nodes with a valid profile ownership claim that offers the ID,
-either as `Eager` or as an already-installed `OnDemand` entry. An installed
+non-deleting nodes without the startup taint, with a valid profile ownership
+claim that offers the ID, either as `Eager` or as an already-installed
+`OnDemand` entry. An installed
 `OnDemand` entry remains a participant while updating or retrying a failed
 rotation; changing its state from `ready` does not silently remove it.
 Uninstalled `OnDemand` entries do not participate and are not installed by a
@@ -671,23 +683,30 @@ reconciliation of the participant set. A newer target invalidates completion
 for the previous target. The completion timestamp is recorded once per target,
 not rewritten on each reconciliation or when an excluded node recovers.
 
-**Excluded nodes and recovery.** NotReady, cordoned, deleting, or retiring nodes
-are excluded and listed in `status.rotation.excludedNodes` with Node UID,
+**Excluded nodes and recovery.** NotReady, cordoned, deleting, retiring, or
+startup-fenced nodes are excluded and listed in `status.rotation.excludedNodes` with Node UID,
 reason, and last observed runtime generation. Their runtime capability label
-MUST be withdrawn before completing the rotation. A node whose progress stalls
+MUST be withdrawn, or the node-wide startup fence of §9.2 confirmed, before
+completing the rotation. A node whose progress stalls
 for `operator.rotationRestarts.nodeProgressDeadline` (default `10m`, measured
 from target assignment if no progress has occurred, otherwise from its last
 target-generation progress) reports `RotationStalled` and is
-quarantined for this ID by withdrawing the capability label. Once withdrawal
-is confirmed, it is recorded as excluded rather than blocking all healthy
-nodes indefinitely. If withdrawal cannot be confirmed, completion remains
-blocked and reports the node and error; expiry alone is not success.
+quarantined for this ID by withdrawing the capability label. If provider
+admission refuses removal, the fallback fences the whole node, not only this
+ID. Once withdrawal or that fence is confirmed, the node is recorded as
+excluded rather than blocking all healthy nodes indefinitely. If neither can
+be confirmed, completion remains blocked and reports the node and error;
+expiry alone is not success. A node-wide fence excludes the node from every
+affected ID's participant set; each rotation retains the Node UID and
+node-wide exclusion reason rather than treating those runtimes as updated.
 
 The provisioner MUST NOT republish `ready` for an excluded or returning node
 until its ownership fences pass and its validated `current` matches the latest
 approved target. An uninstalled `OnDemand` entry can advertise `available` and
 install that latest target on demand. Existing containers keep their leases;
-quarantine does not terminate them. Status and events MUST retain excluded
+quarantine does not terminate them. Releasing a node-wide fence additionally
+requires the recovery checks of §9.2 for every affected ID, not just the ID
+whose rotation triggered it. Status and events MUST retain excluded
 nodes and outstanding old-generation containers so partial completion is
 visible. Recovery is to restore the node and complete provisioning, or retire
 it through the existing fenced cleanup protocol, not bypass validation.
@@ -950,9 +969,13 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
 - **Validates** `brewlet.sh/runtime-image` (presence, grammar) and that a
   `RuntimeImage` with that ID exists and is approved; denial reasons
   `RuntimeImageRequired`, `InvalidRuntimeImageID`, `UnknownRuntimeImage`.
-- **Steers** scheduling by injecting a required `nodeAffinity` term on the
-  capability label `brewlet.sh/runtime.<id>` `In ["ready", "available"]` and a
-  preferred term (weight 100) on `In ["ready"]`, so pods land on nodes that
+- **Steers** scheduling by ANDing a requirement on the capability label
+  `brewlet.sh/runtime.<id>` `In ["ready", "available"]` into **every** existing
+  required `nodeAffinity` selector term, creating a term only when no required
+  selector exists. It MUST NOT add a separate OR alternative that bypasses the
+  author's constraints; an explicitly empty selector MUST remain unsatisfiable.
+  Admission preserves `matchFields`, `nodeSelector`, and existing preferred
+  rules, and appends a preferred term (weight 100) on `In ["ready"]`, so pods land on nodes that
   already have the runtime installed whenever one fits and otherwise trigger an
   on-demand install (§7.5). Admission validates placement against active,
   approved `NodeProfile` inventory, not only live Node labels. Eligible profiles
@@ -961,10 +984,12 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   `NoCompatibleRuntime` only when no valid profile offers the ID; an empty pool
   yields an admitted Pending pod so its autoscaler can act. Autoscaler templates
   must publish the runtime selector and capability labels and follow the
-  supported startup-taint/initialization contract. Inventory approval does not
+  startup-taint/initialization contract in §9.2. Inventory approval does not
   itself prove that a provider's autoscaler template is correctly configured.
   When only profile inventory satisfies placement, admission warns with the
   profile names and leaves scheduling to Kubernetes and the configured scaler.
+  This inventory check is not a guarantee that capacity satisfies all pod
+  affinity, architecture, taints, resource, or volume constraints.
 - **Defaults** the container user and denies root (§8.4), and **overwrites** the existing
   `brewlet.sh/artifact-*` compatibility hints (SPEC §8.3, unchanged).
 - **Does not** read the application artifact from the registry, and therefore
@@ -983,7 +1008,7 @@ The provisioner publishes, per node:
 
 | Label | Value | Meaning |
 |---|---|---|
-| `brewlet.sh/runtime` | `ready` | Unchanged; `RuntimeClass/brewlet` scheduling selector. |
+| `brewlet.sh/runtime` | `ready` | Validated shim/handler baseline and required eager roots; `RuntimeClass/brewlet` scheduling selector. No installed root is required for an OnDemand-only profile (§7.3). |
 | `brewlet.sh/runtime.<id>` | `ready` | The node has a validated `current` generation of `<id>`. |
 | `brewlet.sh/runtime.<id>` | `available` | `<id>` is an `OnDemand` entry of the node's profile and is not yet installed (§7.5). |
 
@@ -994,17 +1019,121 @@ published in the node annotation `brewlet.sh/runtime-images` as JSON
 `{ "<id>": { "install": "OnDemand", "state": "ready", "inventoryUID": "<uid>", "generation": 7, "digest": "sha256:…" } }`,
 where `state` is one of the §7.5 states (`ready` for an installed `Eager` ID).
 Revocation, expired authorization, and rotation quarantine withdraw the
-capability label regardless of an old generation remaining on disk. Node
-annotations are diagnostic, not authority for the shim.
+capability label, or establish the node-wide fence of §9.2 if the provider
+pins it, regardless of an old generation remaining on disk. A startup-tainted
+node is never runtime-ready, whatever its labels say; readiness/status and
+warm-node observations MUST use that effective state rather than raw labels.
+Node annotations and retained pinned labels are diagnostic or scheduling
+hints, not authority for the shim.
 
 `jdk.*` and `jdk-feature.*` labels are
 removed. The [capability label contract](../CAPABILITY_LABELS.md) gains a v2 key
 family and its dual-publication exception does not extend to 1.x keys.
 
+### 9.2 Startup fencing and provider-managed labels
+
+The startup fence is the `NoSchedule` taint
+`startup-taint.cluster-autoscaler.kubernetes.io/brewlet=provisioning`.
+The [existing startup-taint contract](../CAPABILITY_LABELS.md#startup-taint)
+is retained with the v2 capability keys and the following requirements:
+
+- Autoscaler simulation-only labels, such as EKS node-template tags with
+  `PropagateAtLaunch=false`, MUST match the profile inventory but MUST NOT
+  advertise real-node readiness before provisioning. Pools that copy labels
+  onto real nodes, such as Karpenter templates or AKS pool labels, MUST apply
+  the startup taint before the node can accept workloads. An OnDemand
+  template advertises `available`, not `ready`.
+- The operator MAY claim a fresh startup-tainted node with pool-templated
+  Brewlet labels only when it has no prior Brewlet profile advertisement and
+  passes the existing UID-bound ownership checks. This is not permission to
+  adopt an unmanaged installation or overwrite another profile's claim.
+- Provisioner tolerations remain explicit in `NodeProfile`. Brewlet
+  application pods MUST NOT tolerate the startup taint; admission rejects
+  matching tolerations, including wildcard `Exists` tolerations, with
+  `StartupTaintTolerationNotSupported`. This is a scheduling fence, not an
+  execution authority: fail-open admission or an already-bound pod cannot
+  bypass the shim's local authorization and generation checks.
+- The authorized provisioner validates the baseline and eager roots,
+  reconciles capability labels against the approved inventory, publishes the
+  actual inventory and readiness, and only then removes the taint. Failure
+  to remove it leaves the node unready and is reported explicitly. An
+  OnDemand-only profile releases it without installing roots (§7.3).
+- Providers MUST permit adding and removing this taint. AKS-managed Cluster
+  Autoscaler scale-from-zero uses removable node initialization taints
+  (currently preview), not pinned ordinary `--node-taints`; its pool labels
+  are not simulation-only. EKS synthetic template labels and Karpenter
+  `startupTaints` retain their distinct provider semantics. Provider recipes
+  MUST use v2 keys and document initialization/reimage requirements rather
+  than claiming that an approved profile alone enables scale-from-zero.
+
+**Pinned labels and withdrawal.** An `Eager` entry MAY use provider-pinned
+`ready` labels behind the startup fence. An `OnDemand` entry MUST NOT use a
+provider-pinned per-ID capability label: `available`/`ready` transitions,
+failure backoff, and idle reclamation require changing or removing that label.
+Use mutable real-node labels with simulation-only templates where supported,
+or use `Eager` on a provider that requires pinned capability labels.
+
+On provisioning failure, invalidation, revocation, retirement, or quarantine,
+the authorized controller/worker first attempts capability withdrawal. If
+provider admission refuses label removal, it MUST apply and read back the
+node-wide startup taint, retain the pinned labels, and report the refusal and
+broader fence. Conflicts or Node replacement require a fresh UID/ownership
+check, not a blind fallback write. If neither withdrawal nor fencing succeeds,
+the operation remains blocked with an explicit error. Rotation completion and
+deletion checkpoints MUST NOT treat an attempted write as confirmed fencing.
+Local revocation/expiry and minimum-generation barriers remain enforced
+independently of the label outcome.
+
+The fallback blocks new scheduling for **all** Brewlet runtime IDs on the node,
+not just the failed ID, and also affects ordinary pods without a matching
+toleration. It does not evict running containers or discard leases.
+Rotation status and events MUST report this broader impact (§7.6). Recovery
+MUST revalidate ownership, authorizations, required roots, and every retained
+capability against the current profile before releasing the fence. A pinned
+label for an ID no longer offered, an invalid state/value, or an unsupported
+OnDemand pin leaves the node fenced with `node-advertisement-failed` until the
+platform owner corrects the pool configuration. Completing cleanup or uninstall
+does not authorize removing this fence while stale pinned labels remain;
+provider pool labels and initialization settings require explicit cleanup.
+
+### 9.3 Architecture-aware placement
+
+Removing `brewlet.sh/arch` does not make OCI platform validation a scheduler.
+For native application content, workload authors MUST supply standard
+`kubernetes.io/arch` node selection consistent with the explicitly published
+platforms (§6.1, §11.1), for example:
+
+```yaml
+spec:
+  template:
+    metadata:
+      annotations:
+        brewlet.sh/runtime-image: python-3.12
+    spec:
+      runtimeClassName: brewlet
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      containers:
+        - name: api
+          image: registry.example.com/apps/api@sha256:<64 hex>
+```
+
+Required node affinity with `In ["amd64", "arm64"]` is the equivalent for a
+multi-platform workload. Admission preserves these constraints and does not
+deny solely because no matching architecture is currently ready: an eligible
+profile can admit pending capacity, leaving provider templates and the
+autoscaler to satisfy placement. Profiles do not infer application platforms.
+Admission never fetches the artifact to derive or verify its architecture.
+Without correct workload constraints, an unsupported placement can fail at
+image pull; `ImagePullBackOff` does not itself request a different architecture
+or reschedule the bound pod.
+
 ## 10. `RuntimeClass`
 
-`RuntimeClass/brewlet` is unchanged (SPEC §7): one handler, one scheduling selector,
-one overhead. Runtime image selection is per pod rather than per RuntimeClass
+`RuntimeClass/brewlet` retains one handler, one scheduling selector, and one
+overhead (SPEC §7). Its selector remains `brewlet.sh/runtime=ready`, with the
+generalized readiness and startup-fence semantics of §7.3 and §9.1–§9.2.
+Runtime image selection is per pod rather than per RuntimeClass
 (see §15 for the rejected per-ID RuntimeClass alternative). `overhead.podFixed`
 SHOULD be revisited, since 1.x sized it as "JVM/runtime baseline"; in 2.0 it
 covers only shim and staging overhead.
@@ -1167,7 +1296,29 @@ remains an explicit decision in the reviewed manifest.
   `RuntimeImageUpdating`, `InvalidRuntimeGeneration`, `RuntimeImageEpochMismatch`,
   `RuntimeImageRevoked`, `RuntimeImageAuthorizationExpired`,
   `PrivilegeEscalationNotSupported`, `ExecStateUnavailable`,
+  `StartupTaintTolerationNotSupported`, `node-advertisement-failed`,
   `ownership-fence-failed`.
+
+### 13.1 Control-plane and node acceptance coverage
+
+In addition to the producer/shim fixtures (§6.4), acceptance requires the
+following integration scenarios. API/fake-client tests prove admission and
+reconciliation decisions; real-node tests MUST additionally prove taint-based
+scheduling, annotation propagation, installation, and generation enforcement.
+Provider-pinned-label refusals MUST be exercised through an admission
+interceptor or provider validation, not just by setting labels in a fixture.
+
+| Scenario | Required outcome |
+|---|---|
+| Zero-node pool with valid inventory | Admit with affinity and a warning naming eligible profiles; exclude deleting, invalid, or conflicting profiles. Distinguish this API result from verified provider scale-from-zero. |
+| OnDemand-only pool | Publish baseline readiness and `available` labels, release the startup fence without fetching roots, then install on first use and permit the retried container start. |
+| Joining node with templated `ready` labels and startup taint | Do not count it as ready or schedule application pods there; claim only a fresh, unadvertised node under UID ownership fences. Reject application tolerations that bypass the fence. |
+| Existing multi-term required/preferred affinity, `matchFields`, and node selectors | Preserve all author constraints; AND the runtime requirement into every OR alternative, keep an empty selector unsatisfiable, and append rather than replace warm-node preference. |
+| Native application with no ready node of its required architecture | Preserve standard architecture selection, admit pending capacity, and schedule only on that architecture when it becomes available. An unconstrained unsupported pull must not be reported as successful autoscaling. |
+| Pinned label removal/value-change refusal | Use and confirm the node-wide fallback for Eager withdrawal; reject readiness for an OnDemand pin or stale capability, and retain the fence through cleanup until pool configuration is corrected. |
+| Both withdrawal and fallback-taint writes fail | Report blocked progress; do not complete rotation exclusion or deletion based on an unconfirmed fence. |
+| Rotation/revocation behind retained pinned labels | Report node-wide exclusions for all affected IDs; preserve running leases and reject unauthorized or below-barrier starts even for already-bound pods or fail-open admission. Revalidate all affected inventory before releasing the fence. |
+| Claim-release resource-version race or recreated Node | Re-read and revalidate Node UID, owner, and absence of runtime state before retrying a conditional release; never release a replacement/foreign claim. |
 
 ## 14. Open questions
 
@@ -1246,14 +1397,14 @@ On acceptance, `SPECIFICATION.md` would be revised as follows:
 | SPEC §1–§3 | Reframe as language-agnostic | §1–§3 |
 | SPEC §4 | Replace | §6 |
 | SPEC §5.3–§5.4 | Replace | §7.1–§7.2 |
-| SPEC §5.6 | Update `NodeProfile`, add on-demand install | §7.3, §7.5 |
+| SPEC §5.6 | Update `NodeProfile`, add on-demand install and startup fencing | §7.3, §7.5, §9.2 |
 | SPEC §6.1 | Replace `Create` lifecycle | §8.2–§8.4 |
-| SPEC §7 | Retain; revisit overhead | §10 |
+| SPEC §7 | Generalize readiness; retain handler/selector and revisit overhead | §9.1–§9.2, §10 |
 | SPEC §8 | Add rotation restarts to the operator | §7.6 |
 | SPEC §8.2, §9 | Remove `JavaApplication` | §11 |
-| SPEC §8.3 | Replace admission rules | §9 |
+| SPEC §8.3 | Replace admission rules; preserve affinity and native-platform placement | §9 |
 | SPEC §10 | Remove JVM resource mapping | §11 |
 | SPEC §11 | Add non-root enforcement | §8.4, §12 |
 | SPEC §13 | Move AppCDS guidance to Maven plugin docs | §11 |
-| SPEC §14 | Update reason codes, annotations, host layout | §7.3, §13 |
-| [CAPABILITY_LABELS](../CAPABILITY_LABELS.md) | New v2 key family | §9.1 |
+| SPEC §14 | Update reason codes, annotations, host layout, and acceptance coverage | §7.3, §13 |
+| [CAPABILITY_LABELS](../CAPABILITY_LABELS.md) | New v2 key family and provider/startup-fence semantics | §9.1–§9.3 |
