@@ -71,14 +71,7 @@ type Plan struct {
 // --enable-preview, --add-modules, --add-opens, --add-exports, -D<k>=<v>
 // (sorted), then extraArgs (the local `-- …` args or the descriptor's jvm.args),
 // then the entrypoint.
-//
-// regenerateCDS reflects the DEPLOYMENT's node-side regeneration choice (the
-// brewlet.sh/cds-regenerate annotation / --appcds-regenerate flag), not anything
-// in the artifact: when set, the shipped-archive args are suppressed here because
-// the node injects -XX:+AutoCreateSharedArchive against its own cache separately
-// (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3), and a shipped archive becomes seed data rather than a
-// consumed /app/<archive> mount.
-func BuildJVMArgs(cfg artifact.JVMConfig, jarPath string, extraArgs []string, regenerateCDS bool) ([]string, error) {
+func BuildJVMArgs(cfg artifact.JVMConfig, jarPath string, extraArgs []string) ([]string, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -90,13 +83,8 @@ func BuildJVMArgs(cfg artifact.JVMConfig, jarPath string, extraArgs []string, re
 	// AppCDS (optional): mount-point is /app/<archive>, i.e. beside the JAR, so
 	// derive it from jarPath. `-Xshare:auto` (never `:on`) is deliberate — a
 	// build/version/classpath mismatch falls back to base CDS instead of failing,
-	// preserving Brewlet's safe-fallback posture. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §5, §7.
-	//
-	// Skipped when the deployment opts into node-side regeneration: in that case
-	// the node injects the regeneration args (-XX:+AutoCreateSharedArchive against
-	// the node cache) separately (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3), so BuildJVMArgs must not
-	// also point -XX:SharedArchiveFile at a /app/<archive> that isn't mounted.
-	if cfg.CDS != nil && !regenerateCDS && cfg.CDS.Archive != "" {
+	// preserving Brewlet's safe-fallback posture. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
+	if cfg.CDS != nil && cfg.CDS.Archive != "" {
 		archivePath := filepath.Join(filepath.Dir(jarPath), cfg.CDS.Archive)
 		args = append(args, "-Xshare:auto", "-XX:SharedArchiveFile="+archivePath)
 	}
@@ -224,10 +212,8 @@ func joinAppPaths(entries []string, jarPath string) string {
 
 // BuildPlan resolves the node JDK/launcher and assembles the launch argv. The
 // launcher name comes from the deployment descriptor (not the artifact); pass
-// "" or "java" for the vanilla OpenJDK launcher. regenerateCDS reflects the
-// deployment's node-side AppCDS regeneration choice (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3); the
-// caller injects the regeneration args separately.
-func BuildPlan(cfg artifact.JVMConfig, jarPath, jdkHome, launcherName string, extraArgs []string, regenerateCDS bool) (Plan, error) {
+// "" or "java" for the vanilla OpenJDK launcher.
+func BuildPlan(cfg artifact.JVMConfig, jarPath, jdkHome, launcherName string, extraArgs []string) (Plan, error) {
 	_, home, err := resolveJDK(jdkHome)
 	if err != nil {
 		return Plan{}, err
@@ -238,7 +224,7 @@ func BuildPlan(cfg artifact.JVMConfig, jarPath, jdkHome, launcherName string, ex
 		return Plan{}, err
 	}
 
-	args, err := BuildJVMArgs(cfg, jarPath, extraArgs, regenerateCDS)
+	args, err := BuildJVMArgs(cfg, jarPath, extraArgs)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -351,20 +337,16 @@ func resolveLauncher(launcherName, jdkHome string) (string, error) {
 // and any modulepath layer tars are extracted under /app/mods so
 // `java -p .../mods` resolves the library modules.
 func AssembleSandbox(cfg artifact.JVMConfig, jarSrc string, classpathTars, modulepathTars []string) (sandboxDir, jarPath string, err error) {
-	return AssembleSandboxWithCDS(cfg, jarSrc, classpathTars, modulepathTars, "", false)
+	return AssembleSandboxWithCDS(cfg, jarSrc, classpathTars, modulepathTars, "")
 }
 
 // AssembleSandboxWithCDS is AssembleSandbox with an optional AppCDS archive.
 // When cdsSrc is non-empty the `.jsa` file it names is copied to /app/<archive>
 // (cfg.CDS.Archive) so a `-XX:SharedArchiveFile=/app/<archive>` launch finds it,
 // mirroring the shim's read-only archive bind-mount. Pass "" for the common
-// no-CDS case. regenerate reflects the deployment's node-side regeneration
-// choice (https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §4.3): when set, the JAR mtime is pinned to the
-// canonical value even without a shipped archive, so a node-regenerated archive
-// keeps mapping across runs (CDS validates classpath entries by basename+size+
-// mtime). See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
-func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars, modulepathTars []string, cdsSrc string, regenerate bool) (sandboxDir, jarPath string, err error) {
-	pinMtime := shipsCDS(cfg) || regenerate
+// no-CDS case.
+func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars, modulepathTars []string, cdsSrc string) (sandboxDir, jarPath string, err error) {
+	pinMtime := shipsCDS(cfg)
 	sandboxDir, err = os.MkdirTemp("", "brewlet-sandbox-*")
 	if err != nil {
 		return "", "", err
@@ -385,10 +367,8 @@ func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars
 	if err := os.WriteFile(jarPath, data, 0o644); err != nil {
 		return "", "", err
 	}
-	// When the artifact ships an AppCDS archive (or the deployment regenerates
-	// one), pin the app JAR's mtime to the canonical value the archive was
-	// trained against so it maps on load rather than being silently rejected
-	// under -Xshare:auto (see CDSModTime).
+	// Pin the staged JAR to the archive's canonical training timestamp so
+	// HotSpot does not silently reject it under -Xshare:auto (see CDSModTime).
 	if pinMtime {
 		if err := pinCDSModTime(jarPath); err != nil {
 			return "", "", err
@@ -417,10 +397,8 @@ func AssembleSandboxWithCDS(cfg artifact.JVMConfig, jarSrc string, classpathTars
 		}
 	}
 	// Copy the shipped archive to /app/<archive> so a -XX:SharedArchiveFile=
-	// /app/<archive> launch finds it. Skipped under node-side regeneration: there
-	// the shipped archive is only seed data for the node cache (the caller feeds
-	// cdsSrc to DecideCDSRegen), and the /app copy would go unread.
-	if cdsSrc != "" && cfg.CDS != nil && !regenerate {
+	// /app/<archive> launch finds it.
+	if cdsSrc != "" && cfg.CDS != nil {
 		if err := artifact.ValidateBareFilename("cds.archive", cfg.CDS.Archive); err != nil {
 			return "", "", err
 		}

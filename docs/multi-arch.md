@@ -58,8 +58,7 @@ value when a dependency packages native code under a nonstandard layout.
 ## AppCDS archives
 
 AppCDS archives are tied to both the exact JDK build and the CPU architecture.
-Prefer [node-side regeneration](appcds.md#43-node-side-regeneration-the-durable-answer-for-a-patched-fleet)
-to preserve one-artifact-anywhere portability. If you ship a prebuilt archive,
+Brewlet does not generate or regenerate archives. If you ship a prebuilt archive,
 set the artifact's architecture constraint and rely on `-Xshare:auto` for safe
 fallback when the archive does not match.
 

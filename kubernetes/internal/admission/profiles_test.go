@@ -25,7 +25,6 @@ func inventoryProfile(name string, pools ...string) nodev1alpha1.NodeProfile {
 			Path:  "/usr/bin/jaz",
 		},
 	}}
-	p.Spec.AppCDS = &nodev1alpha1.AppCDSSpec{RegenerationEnabled: true}
 	return p
 }
 
@@ -33,12 +32,8 @@ func TestProfileCapabilityFrom(t *testing.T) {
 	p := inventoryProfile("java21", "javaarm")
 	c := ProfileCapabilityFrom(&p)
 	if c.Name != "java21" || len(c.JDKs) != 1 || c.JDKs[0] != "microsoft-21" ||
-		len(c.Launchers) != 1 || c.Launchers[0] != "jaz" || !c.AppCDSRegeneration {
+		len(c.Launchers) != 1 || c.Launchers[0] != "jaz" {
 		t.Fatalf("projection = %+v", c)
-	}
-	p.Spec.AppCDS = nil
-	if ProfileCapabilityFrom(&p).AppCDSRegeneration {
-		t.Fatal("AppCDS must default to unauthorized")
 	}
 }
 

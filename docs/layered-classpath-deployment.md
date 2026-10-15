@@ -343,7 +343,7 @@ Both modes still resolve the named `com.example.greeter` module.
   `BOOT-INF/lib/*.jar` bytes copied into dependency layers. The generated explicit
   classpath follows `BOOT-INF/classpath.idx` (which must list every library once),
   or ZIP library order when no index exists. The source JAR is unchanged, and
-  build/push/config/inspect/AppCDS all share the same prepared payload. Unsupported
+  build/push/config/inspect all share the same prepared payload. Unsupported
   custom layouts and unsafe ZIP entries fail rather than silently producing an
   unlaunchable image; see the
   [plugin contract](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md#layered-spring-boot-jars).

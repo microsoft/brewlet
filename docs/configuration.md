@@ -67,13 +67,12 @@ with `--set key=value` or a values file.
 | `provisioner.tolerations` | `[]` | Tolerations for the default profile's provisioner pods. Standard Kubernetes toleration entries; each must name a `key`. Nothing is tolerated implicitly. |
 | `provisioner.jdks` | `[]` (**required**) | JDK entries with `distribution`, `feature`, digest-pinned `source.image`, and absolute `source.javaHome` ([§JDK management](jdk-management.md#source-model)). Brewlet ships no built-in runtime catalog, so rendering fails when `defaultProfile.enabled` is `true` and this is empty. |
 | `provisioner.launchers` | `[]` | Optional launcher entries with `name`, digest-pinned `source.image`, and absolute `source.path` ([§Launchers](launchers.md#helm-example-jaz)). Empty = vanilla `java` only. |
-| `provisioner.appCDS.regenerationEnabled` | `false` | Authorize node-side AppCDS regeneration for the chart-managed default `NodeProfile`. |
 | `provisioner.rollout.maxUnavailable` | `null` | Bounds the default profile's provisioner DaemonSet rolling update. `null` keeps the DaemonSet default. |
 | `provisioner.rollout.validate` | `true` | Gate node readiness on post-install JDK smoke tests and staged-launcher executable checks. Arbitrary launchers are not executed as a probe. Renders the provisioner `BREWLET_VALIDATE` env. |
 | `provisioner.rollout.containerdRestart` | `validated` | Select containerd activation: transactional config validation, service restart, live health checks, and rollback (`validated`), or no containerd mutation/signal (`none`). Invalid values are rejected. Renders `BREWLET_CONTAINERD_RESTART` ([§5.5](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `provisioner.registry.mirrors` | `{}` | `<upstream-host>: <mirror-host[/path]>` map applied to digest-pinned source pulls. Every destination host must appear in `security.allowedSourceMirrorHosts`. |
 | `defaultProfile.enabled` | `true` | Render the chart-managed **default** `NodeProfile` from `provisioner.*`. Requires `provisioner.pools`. Disable to manage the default profile yourself, e.g. via GitOps ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
-| `profiles` | `[]` | Additional `NodeProfile` CRs. Each requires a unique name, a nonempty list of named `pools`, and explicit JDK sources; the chart never renders an accidental catch-all. Includes AppCDS, rollout, and registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
+| `profiles` | `[]` | Additional `NodeProfile` CRs. Each requires a unique name, a nonempty list of named `pools`, and explicit JDK sources; the chart never renders an accidental catch-all. Includes rollout and registry policy ([§5.6](https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md)). |
 | `operator.replicas` | `1` | Operator replica count. |
 | `operator.leaderElect` | `true` | Enable leader election for HA. |
 | `operator.nodeSelector` | `{}` | Node labels the operator pod must match (for example, to keep it on a system pool). |
@@ -155,27 +154,6 @@ For existing nodes, follow the [GC activation procedure](installation.md#activat
 Unverified installations stay blocked; there is no acknowledgment override.
 Readiness does not imply that GC is active. Setting `stageGC.enabled=false`
 stops automatic sweeps, not separately scheduled or manually invoked cleanup commands.
-
-### AppCDS regeneration
-
-AppCDS regeneration is default-deny. Enable it for the default profile with
-`--set provisioner.appCDS.regenerationEnabled=true`, or on a named profile with:
-
-```yaml
-profiles:
-  - name: appcds-builders
-    pools: ["cdsbuilders"]
-    jdks:
-      - distribution: temurin
-        feature: 21
-        source:
-          image: docker.io/library/eclipse-temurin@sha256:85f00967bcc624fc19fa9c2cf124ea426a5363898e267141726f31f358c2e14b
-          javaHome: /opt/java/openjdk
-    appCDS:
-      regenerationEnabled: true
-```
-
----
 
 ## Where the provisioner may run
 
@@ -297,7 +275,6 @@ configure the profile and operator settings rather than editing worker environme
 | `LAUNCHER_SOURCE_<n>_IMAGE` | required per entry | Fully qualified, tagless SHA-256 digest source image. |
 | `LAUNCHER_SOURCE_<n>_PATH` | required per entry | Clean absolute launcher path inside the image. |
 | `JDKS` / `LAUNCHERS` | derived | Internal comma-separated inventories derived from the indexed entries. They are not accepted as independent inputs. |
-| `BREWLET_APP_CDS_REGENERATION_ENABLED` | `false` | Internal operator-to-provisioner policy transport. When true, atomically creates the root-owned AppCDS authorization sentinel and publishes `brewlet.sh/appcds-regeneration=true`; when false or during cleanup/failure, removes both. Configure `spec.appCDS.regenerationEnabled`, not this variable directly. |
 | `BREWLET_STAGE_GC_ENABLED` | `true` | Enable the periodic GC loop after provisioning, subject to installation safety checks. Rendered from operator-wide `stageGC.enabled`. |
 | `BREWLET_STAGE_GC_INTERVAL_SECONDS` | `300` | Delay between GC attempts, plus up to 10% jitter; integer seconds in `1..2147483647`. |
 | `BREWLET_STAGE_GC_MIN_AGE_SECONDS` | `86400` | Minimum stage directory age; integer seconds in `1..2147483647`. |
@@ -332,9 +309,9 @@ mutating+validating. For every pod on CREATE with `runtimeClassName: brewlet` it
   `brewlet.sh/artifact-digest` (when digest-pinned) as compatibility hints from
   the selected Pod image; the shim resolves the JAR from containerd-owned
   metadata and the content store by digest, not from the hints;
-- **matches** any requested JDK/launcher/AppCDS-regeneration combination against
-  the ready fleet plus valid `NodeProfile`s, denying with `NoCompatibleJDK`,
-  `NoCompatibleLauncher`, or `AppCDSRegenerationDisabled` (a request only a
+- **matches** any requested JDK/launcher combination against
+  the ready fleet plus valid `NodeProfile`s, denying with `NoCompatibleJDK` or
+  `NoCompatibleLauncher` (a request only a
   profile satisfies is admitted with a warning, enabling scale-from-zero);
 - **steers** scheduling via `nodeAffinity` onto per-capability node labels.
 
@@ -350,10 +327,7 @@ guide explains the end-to-end scheduling flow and autoscaler integration. The
 defines the complete key grammar and compatibility guarantees.
 
 Non-brewlet pods pass through untouched. With `admission.failurePolicy: Ignore`
-(default) a webhook outage never blocks workloads. For AppCDS regeneration this
-is only an availability choice: the shim independently requires the root-owned
-`/opt/brewlet/policy/appcds-regeneration-enabled` sentinel, so fail-open
-admission cannot grant cache-write authority. The shim also fails closed rather
+(default) a webhook outage never blocks workloads. The shim fails closed rather
 than guessing when it cannot resolve runtime image identity from containerd
 metadata.
 
@@ -446,7 +420,6 @@ Pod-side annotations the webhook reads (developer-facing) — see
 |---|---|---|
 | `brewlet.sh/jdk` | `21` or `temurin-21` | Request a specific JDK feature (any distro) or exact `<dist>-<feature>`. |
 | `brewlet.sh/launcher` | `jaz` | Request a launcher. Empty / `java` = vanilla OpenJDK launcher. |
-| `brewlet.sh/cds-regenerate` | `true` | Request node-side AppCDS regeneration. Requires a ready node or valid NodeProfile whose `spec.appCDS.regenerationEnabled` is true. |
 | `brewlet.sh/artifact-container` | `app` | Selects which regular container's `image` the webhook mirrors into Pod-wide compatibility hints. The webhook normalizes this value to the selected container name; other tasks ignore the shared hints and remain bound to their own CRI images. |
 
 ---

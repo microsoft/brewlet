@@ -122,7 +122,7 @@ type CDS struct {
 	// Mode records how the archive was produced ("dynamic" via
 	// -XX:ArchiveClassesAtExit, or "static" via -Xshare:dump). It is
 	// informational only — consumption is identical either way — and may be
-	// omitted. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md §2.
+	// omitted. See https://github.com/microsoft/brewlet/blob/main/docs/appcds.md.
 	Mode string `json:"mode,omitempty"`
 }
 

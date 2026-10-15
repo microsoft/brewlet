@@ -127,8 +127,7 @@ brewlet push <jar> <ref> [--format image|artifact] [--store DIR] [--config FILE]
                           --main-class CLASS
                           [--trusted-public-key PEM --trusted-signer-identity IDENTITY]
                           [--signing-key PEM --builder-identity IDENTITY]]
-                         [--appcds-archive JSA | --appcds [--appcds-java JAVA]
-                          [--appcds-timeout SEC] [--appcds-arg ARG ...]]
+                         [--appcds-archive JSA]
                          [--push-result FILE]
                          [--insecure-registry HOST[:PORT] ...]
                          [--allowed-token-realm HOST[:PORT] ...]
@@ -186,10 +185,6 @@ or build into a local layout with `--store`.
 | `--signing-key` | *(none)* | PKCS#8 PEM ECDSA P-256 private key used to sign final-image managed-dependency evidence; paired with `--builder-identity`. |
 | `--builder-identity` | *(none)* | Application-builder identity recorded in the signed final-image evidence; paired with `--signing-key`. |
 | `--appcds-archive` | *(none)* | Prebuilt Application Class-Data Sharing archive (`.jsa`) to ship, mounted at `/app/<name>` and launched with `-Xshare:auto -XX:SharedArchiveFile`. Sets `cds.archive` in the config from the file's basename (unless `--config` already declares one, which must then match). Best-effort startup accelerator; see [AppCDS](appcds.md). |
-| `--appcds` | `false` | Generate the AppCDS archive **turnkey** — run a self-terminating training JVM against the JAR, then ship the result (the generate-it-for-me equivalent of `--appcds-archive`). Fat-JAR only; mutually exclusive with `--appcds-archive`, `--classpath-layer`, and `--module-layer`. See [AppCDS §4.2](appcds.md). |
-| `--appcds-java` | *(auto)* | `java` executable (or a `JAVA_HOME` directory) used for `--appcds` training. Defaults to `$JAVA_HOME/bin/java`, then `java` on `PATH`. |
-| `--appcds-timeout` | `120` | Seconds to wait for the `--appcds` training JVM to self-terminate. |
-| `--appcds-arg` | *(none)* | Workload argument passed to the `--appcds` training JVM to drive class loading (repeatable). |
 | `--push-result` | *(none)* | Registry push only: write a `push.json` handoff — `{"image","digest","deployImage","format"}`, the same schema as the Maven plugin's `target/brewlet/push.json` — to this file. |
 | `--insecure-registry` | *(none)* | Registry push only: `HOST[:PORT]` that may be reached (and whose token realm may be reached) over plain HTTP (repeatable). Loopback registries always may. |
 | `--allowed-token-realm` | *(none)* | Registry push only: `HOST[:PORT]` of a cross-origin token service trusted to receive registry credentials (repeatable). |
@@ -197,9 +192,7 @@ or build into a local layout with `--store`.
 By default `push` scans the JAR for bundled native libraries and sets the `arch`
 constraint automatically for non-portable artifacts (pass `--arch` to override, or
 `--no-arch` to opt out). AppCDS is opt-in: ship a prebuilt archive with
-`--appcds-archive`, or let the CLI build one with `--appcds` (the two are mutually
-exclusive). During `--appcds` training the CLI prints a heartbeat to stderr at
-least every 30 seconds and reports the archive size and training time when done.
+`--appcds-archive`. Archives must be generated externally.
 
 ```bash
 brewlet push ./target/app.jar demo/hello:1.0.0                        # runnable image (default)
@@ -210,7 +203,6 @@ brewlet push ./target/app.jar demo/hello:1.0.0 --config ./jvm-config.json
 brewlet push ./target/app.jar demo/hello:1.0.0 --config ./cfg.json --classpath-layer deps.tar
 brewlet push ./target/orders.jar demo/orders:1.0.0 --module-layer mods.tar
 brewlet push ./target/app.jar demo/hello:1.0.0 --appcds-archive ./target/app.jsa
-brewlet push ./target/app.jar demo/hello:1.0.0 --appcds                # generate + ship an AppCDS archive
 brewlet push ./target/native-app.jar demo/native:1.0.0 --arch amd64,arm64   # non-portable (JNI) JAR
 brewlet push ./target/orders.jar apps/orders:1.4.2 \
   --store ./oci --format image \
@@ -259,7 +251,7 @@ foreground using a node-resident JDK and the invoking OS user's credentials.
 This is the Layer‑1 demo path (no cgroups).
 
 ```
-brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [--appcds-regenerate] [-- <extra jvm args>]
+brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [-- <extra jvm args>]
 ```
 
 | Flag | Default | Meaning |
@@ -267,7 +259,6 @@ brewlet run <ref> [--store DIR] [--jdk-root DIR] [--launcher NAME] [--appcds-reg
 | `--store` | `./oci` | OCI layout directory to read from. |
 | `--jdk-root` | *(none)* | Node JDK home to launch with. When unset, falls back to `BREWLET_JDK_HOME`, then `JAVA_HOME`, then `java` on `PATH`. |
 | `--launcher` | `java` | Launcher binary **name** under the selected JDK (or a compatible node-installed launcher name such as `jaz`), resolved on `PATH`. It is a lowercase DNS-1123 token, never a path: separators, `..` and absolute paths are rejected. |
-| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local-dev equivalent of the deployment's `spec.jvm.cds.regenerate`). Maintains a private entry keyed by the fixed local scope, verified resolved manifest digest, and exact JDK build under `$BREWLET_CDS_CACHE` (default `/opt/brewlet/cds`). `-XX:+AutoCreateSharedArchive` (JDK 19+) self-heals it after a central JDK patch; any shipped archive is optional seed data. |
 | `-- <args>` | *(none)* | Everything after `--` is appended as extra JVM args, immediately before the artifact's entrypoint (the local-dev equivalent of descriptor `jvm.args`). Args that select the entrypoint — `-jar`, `-cp`/`-classpath`/`--class-path`, `-p`/`--module-path`, `-m`/`--module`, and `@argfile` — are rejected: the artifact owns the entrypoint. |
 
 ```bash
@@ -275,7 +266,6 @@ brewlet run demo/hello:1.0.0
 brewlet run demo/hello:1.0.0 -- -Dspring.profiles.active=dev -XX:+UseZGC
 brewlet run demo/hello:1.0.0 --jdk-root /opt/brewlet/jdks/temurin-21
 brewlet run demo/hello:1.0.0 --launcher jaz
-brewlet run demo/hello:1.0.0 --appcds-regenerate
 ```
 
 It prints the selected node JDK, the launcher (if a custom one like `jaz` is
@@ -290,7 +280,7 @@ Emit the **OCI runtime bundle** (`config.json` + rootfs layout) that the contain
 shim feeds to runc. Useful to see exactly what will run on a node.
 
 ```
-brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--appcds-regenerate] [--out DIR]
+brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID] [--jdk-root DIR] [--launcher NAME] [--launcher-root DIR] [--out DIR]
 ```
 
 | Flag | Default | Meaning |
@@ -303,7 +293,6 @@ brewlet bundle <ref> [--store DIR] [--cpu N] [--memory M] [--uid UID] [--gid GID
 | `--jdk-root` | `/opt/brewlet/jdks/temurin-21` | Node JDK runtime root to mount read-only. |
 | `--launcher` | `java` | Launcher binary **name** to record in the runtime spec annotations and execute. Same token rule as `brewlet run --launcher`. |
 | `--launcher-root` | *(none)* | Node launcher-layer root for a custom launcher (e.g. `jaz`). |
-| `--appcds-regenerate` | `false` | Opt into **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md); the local equivalent of the deployment's `spec.jvm.cds.regenerate`). Bind-mounts only the private local cache entry keyed by `--uid` at `/run/brewlet/cds` and prepends `-XX:+AutoCreateSharedArchive` (JDK 19+). |
 | `--out` | `./bundle` | Output bundle directory. |
 
 Supplied limits must be positive and representable. Malformed values, unsupported
@@ -917,10 +906,9 @@ Source builds without release linker flags print `dev`.
 
 | Variable | Used by | Meaning |
 | --- | --- | --- |
-| `JAVA_HOME` | `run`, `push --appcds` | Default node JDK home if `--jdk-root` is unset (`run`); default training JVM if `--appcds-java` is unset (`push --appcds`). |
+| `JAVA_HOME` | `run` | Default node JDK home if `--jdk-root` is unset. |
 | `BREWLET_JDK_HOME` | `run` | Overrides `JAVA_HOME` for JDK resolution. |
 | `BREWLET_STORE_ROOT` | shim (`layout` resolver) | OCI layout root used by the local layout resolver. |
-| `BREWLET_CDS_CACHE` | `run`, `bundle`, shim | AppCDS cache root (default `/opt/brewlet/cds`). Entries are private `<key>/archive.jsa` directories; Kubernetes keys include the trusted sandbox namespace, verified platform-manifest digest, JDK build, and CRI process UID. The cache root itself is never mounted into a workload. |
 | `BREWLET_METRICS_SOCKET` | `run`, `bundle`, shim | Unix datagram telemetry destination (default `/opt/brewlet/metrics/telemetry.sock`). Unset or blank selects the default, not disabled telemetry. Match the exporter's `--socket-path` when overriding it. Sending is best-effort; an unavailable exporter must not fail workload launch. See [runtime metrics](runtime-metrics.md). |
 
 ---

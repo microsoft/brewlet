@@ -84,10 +84,6 @@ provisioner:
   #         image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
   #         path: /usr/bin/jaz
   launchers: []
-  # Node-side AppCDS archive regeneration is privileged policy and is disabled
-  # unless explicitly enabled for this profile.
-  appCDS:
-    regenerationEnabled: false
   # Rollout policy for the default profile's provisioner DaemonSet (proposal 0002).
   rollout:
     # maxUnavailable bounds the DaemonSet rolling update. null = DaemonSet default.
@@ -126,7 +122,6 @@ defaultProfile:
 #         source:
 #           image: mcr.microsoft.com/openjdk/jdk@sha256:<64-lowercase-hex>
 #           path: /usr/bin/jaz
-#     appCDS: { regenerationEnabled: true } # explicitly authorize regeneration
 #     rollout: { maxUnavailable: 1, validate: true, containerdRestart: validated }
 #     registry: { mirrors: { "mcr.microsoft.com": "mirror.internal/mcr" } }
 profiles: []
@@ -202,7 +197,7 @@ uninstall:
   nodeSelector: {}
 
 # The pod admission/scheduling webhook (§8/§14): overwrites image identity
-# compatibility hints and matches a pod's requested JDK/launcher/AppCDS against
+# compatibility hints and matches a pod's requested JDK/launcher against
 # the ready fleet plus eligible NodeProfiles (NoCompatibleJDK /
 # NoCompatibleLauncher), so autoscaled pools can scale from zero.
 admission:

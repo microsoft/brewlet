@@ -284,8 +284,6 @@ spec:
       - "-XX:MaxRAMPercentage=75.0"
       - "-XX:+UseZGC"
       - "-XX:+ExitOnOutOfMemoryError"
-    cds:
-      regenerate: true           # opt into node-side AppCDS regeneration (fleet choice)
   env:
     - name: SPRING_PROFILES_ACTIVE
       value: prod
@@ -315,7 +313,6 @@ spec:
 | `jvm.distribution` | Optional administrator-defined inventory name (`temurin`, `microsoft`, `temurin-canary`). With `jvm.version` selects an exact `<distribution>-<feature>` entry; omit to choose the lexicographically first active, compatible entry of that feature on each node. See [JDK selection](#jdk-selection). |
 | `jvm.launcher` | `java` (default) or `jaz` ([Launchers](launchers.md)). |
 | `jvm.args` | Your JVM tuning flags, delivered as argv via the `brewlet.sh/jvm-args` pod annotation and applied after the artifact's own launch knobs (so they win on conflict). May not select the entrypoint (`-jar`, `-cp`, `-p`, `-m`, `@argfile`). Omit under `jaz`. |
-| `jvm.cds.regenerate` | Request **node-side AppCDS regeneration** ([AppCDS §4.3](appcds.md)). Default `false`. Requires an otherwise-compatible ready node or NodeProfile whose `spec.appCDS.regenerationEnabled` is true; otherwise admission denies with `AppCDSRegenerationDisabled`, and the shim independently enforces the host policy. The private cache key includes the trusted namespace, the verified platform manifest derived from the CRI/containerd-resolved image, the JDK build, and the CRI process UID. Any shipped `cds.archive` becomes optional seed data. |
 | `arch` | Optional architecture constraint (`amd64`, `arm64`). Only for **non-portable JARs** bundling JNI native libraries; steers scheduling to matching-arch nodes; with no ready node of that arch, the pod is admitted with a warning and stays `Pending`. Omit for arch-neutral bytecode (runs on any arch). |
 | `env` / `ports` / `service` / `probes` | Wired through to the generated objects. |
 
