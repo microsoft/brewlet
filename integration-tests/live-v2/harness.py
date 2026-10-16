@@ -382,7 +382,8 @@ class Harness:
         require(self.node_container is not None, "no owned kind node")
         info = json.loads(self.run(["docker", "inspect", self.node_container]).stdout)[0]
         docker_owned(info, self.run_id, self.node_container, kind_node=True)
-        return self.run(["docker", "exec", self.node_container, *args], **kwargs)
+        stdin = ["-i"] if kwargs.get("input") is not None else []
+        return self.run(["docker", "exec", *stdin, self.node_container, *args], **kwargs)
 
     def ctr(self, *args):
         return self.node_exec("ctr", "-n", "k8s.io", *args).stdout
@@ -1347,12 +1348,18 @@ class Harness:
     def diagnostics(self):
         if not self.kubeconfig.exists():
             return
-        for label, args in (
+        commands = [
             ("objects", ["get", "nodes,nodeprofiles,runtimeimages", "-o", "json"]),
             ("pods", ["get", "pods", "-A", "-o", "json"]),
             ("events", ["get", "events", "-A", "-o", "json"]),
             ("operator", ["-n", self.control_namespace, "logs", "deployment/brewlet-operator", "--tail=1000"]),
-        ):
+        ]
+        profile_uid = self.owned.get(("nodeprofile", "", self.profile))
+        if profile_uid:
+            commands.append(("workers", [
+                "-n", self.control_namespace, "logs", "-l", "brewlet.sh/owner-uid=" + profile_uid,
+                "--all-containers=true", "--prefix=true", "--tail=1000", "--max-log-requests=5"]))
+        for label, args in commands:
             try:
                 result = self.kubectl(*args, check=False, timeout=40)
                 (self.work / ("diagnostic-" + label + ".log")).write_text(result.stdout + result.stderr)

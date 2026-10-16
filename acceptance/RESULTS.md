@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 199 passing offline tests; those
+The live-driver safeguards currently include 203 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -119,6 +119,17 @@ node startup. A separate real-node setup probe passed effective containerd
 configuration readback, strict TLS registry readiness and UID-recorded
 workload pull-secret creation, then destroyed its owned cluster and registries.
 This is prerequisite proof, **not kubelet/runtime pull or lifecycle proof**.
+
+`run-complete-08` reached installation but failed its cold baseline deadline.
+A reduced one-ID reproduction, with newly retained worker logs, identified
+empty node-side CA files: the harness's owned-node `docker exec` helper did not
+forward stdin. The helper now uses `-i` for supplied input, including an empty
+payload; registry file transfers verify SHA-256 readback without printing
+credentials. The focused real-node rerun passed metadata-only authenticated
+TLS validation, cold OnDemand `available` publication and genuine startup-fence
+release. Its lease-recovery marker came from the actual worker. This is not
+four-language application execution or full lifecycle acceptance; the expanded
+suite still requires a fresh pass.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

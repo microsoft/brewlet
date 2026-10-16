@@ -66,6 +66,39 @@ class ProjectWork(unittest.TestCase):
 
 
 class SafetyTests(ProjectWork):
+    def test_worker_failure_logs_are_scoped_to_owned_profile_uid(self):
+        instance = self.harness()
+        instance.kubeconfig.write_text("test-only configuration")
+        instance.owned[("nodeprofile", "", instance.profile)] = "owned-profile-uid"
+        instance.kubectl = mock.Mock(return_value=subprocess.CompletedProcess([], 0, "bounded logs", ""))
+        instance.diagnostics()
+        args = instance.kubectl.call_args.args
+        self.assertEqual(args[:3], ("-n", instance.control_namespace, "logs"))
+        self.assertIn("brewlet.sh/owner-uid=owned-profile-uid", args)
+        self.assertIn("--tail=1000", args)
+        self.assertEqual((self.work / "diagnostic-workers.log").read_text(), "bounded logs")
+
+    def test_owned_node_exec_forwards_stdin_including_empty_payload(self):
+        instance = self.harness()
+        instance.node_container = CONTAINER
+        for value in ("private input", ""):
+            instance.run = mock.Mock(side_effect=[
+                subprocess.CompletedProcess([], 0, json.dumps([docker_info(kind=True)]), ""),
+                subprocess.CompletedProcess([], 0, "", "")])
+            instance.node_exec("cat", input=value)
+            call = instance.run.call_args
+            self.assertEqual(call.args[0], ["docker", "exec", "-i", CONTAINER, "cat"])
+            self.assertEqual(call.kwargs["input"], value)
+
+    def test_owned_node_exec_without_stdin_is_noninteractive(self):
+        instance = self.harness()
+        instance.node_container = CONTAINER
+        instance.run = mock.Mock(side_effect=[
+            subprocess.CompletedProcess([], 0, json.dumps([docker_info(kind=True)]), ""),
+            subprocess.CompletedProcess([], 0, "", "")])
+        instance.node_exec("true")
+        self.assertEqual(instance.run.call_args.args[0], ["docker", "exec", CONTAINER, "true"])
+
     def test_fresh_kind_node_explicitly_enables_cri_trusted_registry_hosts(self):
         instance = self.harness()
         def run(command, **kwargs):

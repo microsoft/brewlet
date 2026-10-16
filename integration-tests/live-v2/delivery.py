@@ -444,6 +444,9 @@ auth:
         self.h.node_exec("chmod", "0700", directory)
         self.h.node_exec("sh", "-ec", 'umask 077; cat > "$1"', "delivery",
                          directory + "/" + name, input=data)
+        observed = self.h.node_exec("sha256sum", directory + "/" + name).stdout.split()
+        require(observed and observed[0] == hashlib.sha256(data.encode()).hexdigest(),
+                "node registry file readback differs from the supplied bytes")
 
     def configure_node(self):
         self.node_private_file(self.authority, "ca.crt", (self.work / "ca.crt").read_text())

@@ -2,6 +2,7 @@
 
 import base64
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -278,6 +279,20 @@ class CommandTests(unittest.TestCase):
             state.node_private_file("shared.example:5000", "ca.crt", "certificate")
         with self.assertRaisesRegex(Failure, "invalid trusted"):
             state.node_private_file(state.authority, "../../shared", "certificate")
+
+    def test_node_trust_transfer_checks_bytes_without_logging_secret(self):
+        h, state = self.state()
+        payload = '{"password":"test-only-private-value"}'
+        expected = hashlib.sha256(payload.encode()).hexdigest()
+        h.node_exec = Mock(return_value=subprocess.CompletedProcess([], 0, expected + "  credentials.json\n", ""))
+        state.node_private_file(state.authority, "credentials.json", payload)
+        calls = h.node_exec.call_args_list
+        self.assertEqual(calls[-2].kwargs["input"], payload)
+        self.assertEqual(calls[-1].args[0], "sha256sum")
+        self.assertNotIn(payload, str([call.args for call in calls]))
+        h.node_exec.return_value = subprocess.CompletedProcess([], 0, "0" * 64 + "  credentials.json\n", "")
+        with self.assertRaisesRegex(Failure, "readback differs"):
+            state.node_private_file(state.authority, "credentials.json", payload)
 
     def test_emulated_producer_prefix_is_rejected(self):
         h, state = self.state()
