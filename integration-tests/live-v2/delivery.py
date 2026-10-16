@@ -739,7 +739,7 @@ auth:
                    for c in h.get("runtimeimage", self.static_id).get("status", {}).get("conditions", [])))
         profile = h.get("nodeprofile", h.profile)
         profile["spec"]["runtimeImages"].append({"id": self.static_id, "install": "OnDemand"})
-        h.apply(profile)
+        h.replace_inventory_spec(profile)
         h.wait("native static runtime available", lambda: h.advertised(self.static_id, "available"))
         self.fresh(self.native[h.arch])
         pod = self.native_pod(h.arch, "delivery-native")

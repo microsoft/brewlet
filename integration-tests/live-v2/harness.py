@@ -97,6 +97,21 @@ def require_owned(obj, run_id, uid=None):
     return metadata["uid"]
 
 
+def inventory_spec_patch(obj, run_id, uid, spec=None):
+    require(obj.get("kind") in ("RuntimeImage", "NodeProfile"), "not a cluster inventory object")
+    metadata = obj["metadata"]
+    require(not metadata.get("namespace") and not metadata.get("deletionTimestamp"),
+            "inventory update target is namespaced or deleting")
+    require_owned(obj, run_id, uid)
+    generation = metadata.get("generation")
+    require(type(generation) is int and generation > 0, "inventory spec generation unavailable")
+    desired = obj["spec"] if spec is None else spec
+    require(isinstance(desired, dict), "inventory spec must be an object")
+    return [{"op": "test", "path": "/metadata/uid", "value": uid},
+            {"op": "test", "path": "/metadata/generation", "value": generation},
+            {"op": "replace", "path": "/spec", "value": copy.deepcopy(desired)}]
+
+
 def docker_owned(info, run_id, expected_id, *, kind_node=False):
     require(info.get("Id") == expected_id, "Docker container identity changed")
     labels = info.get("Config", {}).get("Labels", {}) or {}
@@ -342,12 +357,24 @@ class Harness:
         obj = copy.deepcopy(obj)
         obj.setdefault("metadata", {}).setdefault("labels", {})[OWNER] = self.run_id
         key = (obj["kind"].lower(), obj["metadata"].get("namespace", ""), obj["metadata"]["name"])
+        if obj["kind"] in ("RuntimeImage", "NodeProfile"):
+            require("status" not in obj and "resourceVersion" not in obj["metadata"],
+                    "inventory snapshots require replace_inventory_spec, not apply")
         if key in self.owned:
             require_owned(self.get(key[0], key[2], key[1] or None), self.run_id, self.owned[key])
         result = json.loads(self.kubectl("apply", "-f", "-", "-o", "json",
                                         input=json.dumps(obj)).stdout)
         self.owned[key] = require_owned(result, self.run_id, self.owned.get(key))
         self.save()
+        return result
+
+    def replace_inventory_spec(self, obj, spec=None):
+        key = (obj["kind"].lower(), "", obj["metadata"]["name"])
+        require(key in self.owned, "cannot edit unrecorded inventory")
+        patch = inventory_spec_patch(obj, self.run_id, self.owned[key], spec)
+        result = json.loads(self.kubectl("patch", key[0], key[2], "--type=json",
+                                        "-p", json.dumps(patch), "-o", "json").stdout)
+        require_owned(result, self.run_id, self.owned[key])
         return result
 
     def delete(self, kind, name, namespace=None):
@@ -1110,7 +1137,7 @@ class Harness:
             held_exec = self.start_held_exec(language)
             inventory = self.get("runtimeimage", IDS[language])
             inventory["spec"]["source"]["image"] = self.runtime_images[language]["after"]
-            self.apply(inventory)
+            self.replace_inventory_spec(inventory)
             def converged():
                 ri = self.get("runtimeimage", IDS[language])
                 generation = ri.get("status", {}).get("generation", 0)
@@ -1261,7 +1288,7 @@ class Harness:
         profile = self.get("nodeprofile", self.profile)
         for entry in profile["spec"]["runtimeImages"]:
             entry["install"] = "Eager"
-        self.apply(profile)
+        self.replace_inventory_spec(profile)
         self.wait("profile eager generation reconciled", lambda:
                   self.get("nodeprofile", self.profile).get("status", {}).get("provisioningGeneration")
                   == self.get("nodeprofile", self.profile)["metadata"]["generation"])

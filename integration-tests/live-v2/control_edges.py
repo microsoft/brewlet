@@ -31,7 +31,7 @@ import threading
 import time
 import urllib.request
 
-from harness import API, FENCE, HERE, IDS, OWNER, ROOT, Failure, require, require_owned
+from harness import API, FENCE, HERE, IDS, OWNER, ROOT, Failure, inventory_spec_patch, require, require_owned
 
 
 SELECTED = (
@@ -490,10 +490,8 @@ class ControlEdges:
                 or (kind == "RuntimeImage" and name in self.ids),
                 "control scenario may not edit base runtime inventory")
         # Do not replay status, claims, finalizers, or receipts from a GET.
-        patch = {"metadata": {"uid": obj["metadata"]["uid"],
-                               "resourceVersion": obj["metadata"]["resourceVersion"]},
-                 "spec": copy.deepcopy(spec)}
-        self.h.kubectl("patch", kind, name, "--type=merge", "-p", json.dumps(patch))
+        patch = inventory_spec_patch(obj, self.h.run_id, self.h.owned[key], spec)
+        self.h.kubectl("patch", kind, name, "--type=json", "-p", json.dumps(patch))
 
     def workload(self, name, kind, runtime_id, *, opted=True, strategy=None, bound=False,
                  gated=False):

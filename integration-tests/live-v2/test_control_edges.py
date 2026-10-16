@@ -193,10 +193,11 @@ class IsolationTests(unittest.TestCase):
         im["metadata"]["finalizers"] = ["must-not-replay"]
         c.patch_inventory_spec(im, {"description": "test"})
         body = json.loads(h.kubectl.call_args.args[-1])
-        self.assertEqual(set(body), {"metadata", "spec"})
-        self.assertEqual(body["metadata"], {"uid": EPOCH, "resourceVersion": "37"})
-        self.assertNotIn("status", body)
-        self.assertNotIn("finalizers", body["metadata"])
+        self.assertEqual(body, [
+            {"op": "test", "path": "/metadata/uid", "value": EPOCH},
+            {"op": "test", "path": "/metadata/generation", "value": 2},
+            {"op": "replace", "path": "/spec", "value": {"description": "test"}}])
+        self.assertIn("--type=json", h.kubectl.call_args.args)
 
     def test_inventory_patch_refuses_base_runtime(self):
         h = fake_harness()

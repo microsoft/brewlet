@@ -66,6 +66,64 @@ class ProjectWork(unittest.TestCase):
 
 
 class SafetyTests(ProjectWork):
+    def inventory(self):
+        return {"apiVersion": h.API, "kind": "RuntimeImage",
+                "metadata": {"name": "runtime", "uid": "inventory-uid", "generation": 7,
+                             "resourceVersion": "old-status-version", "labels": {h.OWNER: RUN},
+                             "finalizers": ["controller-owned"],
+                             "annotations": {"node.brewlet.sh/inventory-journal": "controller-owned"}},
+                "spec": {"source": {"image": "registry.test/runtime@sha256:" + "a" * 64}},
+                "status": {"controller": "must-not-replay"}}
+
+    def test_inventory_spec_cas_ignores_status_churn_without_replaying_metadata(self):
+        original = self.inventory()
+        desired = {"source": {"image": "registry.test/runtime@sha256:" + "b" * 64}}
+        patch = h.inventory_spec_patch(original, RUN, "inventory-uid", desired)
+        concurrent = copy.deepcopy(original)
+        concurrent["metadata"]["resourceVersion"] = "new-status-version"
+        concurrent["status"]["controller"] = "new observation"
+        self.assertEqual(patch, h.inventory_spec_patch(concurrent, RUN, "inventory-uid", desired))
+        self.assertEqual([p["path"] for p in patch],
+                         ["/metadata/uid", "/metadata/generation", "/spec"])
+        desired["source"]["image"] = "changed-after-building-patch"
+        self.assertNotEqual(patch[-1]["value"], desired)
+        changed_spec = copy.deepcopy(original)
+        changed_spec["metadata"]["generation"] = 8
+        self.assertNotEqual(patch[1], h.inventory_spec_patch(changed_spec, RUN, "inventory-uid")[1])
+
+    def test_inventory_spec_cas_rejects_foreign_unknown_and_deleting_identity(self):
+        for change in ({"uid": "recreated"}, {"generation": 0}, {"generation": True},
+                       {"namespace": "foreign"}, {"deletionTimestamp": "now"}):
+            obj = self.inventory()
+            obj["metadata"].update(change)
+            with self.subTest(change=change), self.assertRaises(h.Failure):
+                h.inventory_spec_patch(obj, RUN, "inventory-uid")
+        instance = self.harness()
+        instance.kubectl = mock.Mock()
+        with self.assertRaisesRegex(h.Failure, "unrecorded"):
+            instance.replace_inventory_spec(self.inventory())
+        instance.kubectl.assert_not_called()
+        with self.assertRaisesRegex(h.Failure, "snapshots require"):
+            instance.apply(self.inventory())
+        instance.kubectl.assert_not_called()
+
+    def test_inventory_spec_update_sends_atomic_tests_and_checks_response_uid(self):
+        instance = self.harness()
+        obj = self.inventory()
+        instance.owned[("runtimeimage", "", "runtime")] = "inventory-uid"
+        instance.kubectl = mock.Mock(return_value=subprocess.CompletedProcess([], 0, json.dumps(obj), ""))
+        instance.replace_inventory_spec(obj)
+        args, kwargs = instance.kubectl.call_args
+        self.assertEqual(args[:5], ("patch", "runtimeimage", "runtime", "--type=json", "-p"))
+        self.assertEqual(args[-2:], ("-o", "json"))
+        self.assertEqual(json.loads(args[5])[1],
+                         {"op": "test", "path": "/metadata/generation", "value": 7})
+        self.assertEqual(kwargs, {})
+        obj["metadata"]["uid"] = "replacement-after-update"
+        instance.kubectl.return_value.stdout = json.dumps(obj)
+        with self.assertRaises(h.Failure):
+            instance.replace_inventory_spec(self.inventory())
+
     def test_positive_readiness_reports_terminal_start_error_without_timeout(self):
         instance = self.harness()
         instance.owned[("pod", instance.namespace, "positive")] = "pod-uid"

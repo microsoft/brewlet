@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 210 passing offline tests; those
+The live-driver safeguards currently include 213 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -223,6 +223,18 @@ checks, including uncertainty/resume prefix comparisons; a regression verifies
 stderr markers and rejects stale-prefix-only observations. This is a fixture
 read defect, not proof that production recovery failed or that the full
 recovery/GC scenario passed.
+
+`run-complete-15` encountered an earlier fixture conflict while rotating the
+Python inventory: generic `apply` replayed a GET snapshot's status, controller
+journal and resourceVersion while status was changing. Inventory spec edits
+now submit only `/spec`, with atomic UID and spec-generation tests; they never
+replay status, finalizers or controller annotations. The same helper is used
+for base rotations, delivery profile entries, pin-mode changes and control
+inventory edits. Generic `apply` rejects observed inventory snapshots.
+A reduced real-API probe verified successful updates across non-spec
+resourceVersion churn while preserving concurrent metadata, and rejection of
+stale spec intent without changes. It wrote no status, claims or authorization
+and is not a scheduling/recovery proof.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout
