@@ -78,6 +78,32 @@ ambiguous evidence prevent deletion. Staged runtime roots carry ownership and
 snapshot-view records; fresh authority loss cancels and joins acquisition,
 leaving private data for authorized recovery.
 
+### Recovery versus healthy rotation
+
+Healthy rotation can continue advertising an older validated, compatible
+`current` while the approved target advances. Recovery cannot: an excluded or
+withdrawn ID must have fresh authority, a live local authorization, and validated
+`current` matching the latest approved epoch, generation and digest before
+`ready` is republished. A node-wide startup fence applies that requirement to
+every offered/affected ID, including installed OnDemand IDs; recovery cannot
+reclassify a formerly installed ID as cold or reclaim it through idle TTL to
+bypass the check. A genuinely cold OnDemand entry can recover as `available`
+with latest authorization without fetching a root.
+
+The worker checks all IDs before publication and repeats the checks after
+advertisement readback, before removing the startup fence. Target changes in an
+otherwise unaffected ID block release. Retained capability keys, values and
+install modes must be valid and offered. Unknown, obsolete or nonoffered labels
+are not silently deleted or normalized while fenced: actual pool correction is
+required. OnDemand mutability is re-probed during recovery even if an earlier
+healthy probe succeeded; provider refusal preserves its label and the confirmed
+node-wide fence. Node readiness, schedulability, UID-bound ownership and current
+profile authority must also pass.
+
+These recovery behaviors are implemented and covered by focused race/contract
+tests, not yet proven by the complete live recovery matrix. They do not weaken
+per-ID generation barriers or the requirement for genuine cleanup receipts.
+
 Revocation first persists the local authorization tombstone and confirms
 capability withdrawal or a node-wide fence. After all roots drain, the
 UID/generation-bound `brewlet.sh/runtime-revocations` receipt is published and
@@ -141,11 +167,12 @@ This is not yet a complete node-runtime acceptance implementation:
   cover real overlay whiteout representations. Layer composition semantics
   remain governed by the shared artifact materializer/validator.
 * OnDemand capability publication is followed by a real removal/readback
-  mutability probe once per worker lifetime; provider refusals retain the
+  mutability probe, repeated during recovery; provider refusals retain the
   node-wide fence. Fake-client refusal tests exercise the confirmed fence;
   real provider/interceptor integration validation remains necessary.
-  Exclusion-aware all-ID startup recovery and Kubernetes-native event mirroring
-  still need completion. Prometheus/containerd telemetry needs real-node
+  All-ID recovery is implemented as described above; its full live matrix and
+  Kubernetes-native event mirroring remain unverified/incomplete respectively.
+  Prometheus/containerd telemetry needs real-node
   scraping/event validation.
 * The complete four-language rotation/revocation/recovery/cleanup matrix and
   telemetry scraping remain acceptance work. Application metadata/packed
@@ -178,3 +205,11 @@ evidence. `ROOT-01` remains limited by the platform restrictions above.
 evidence. The authoritative cross-component results are tracked in
 [`acceptance/requirements.json`](../acceptance/requirements.json); implementation
 or unit-test presence alone is not an E2E pass.
+
+`FENCE-04`/`ROT-05` recovery contracts are exercised by
+`TestRecoveryQuarantineRejectsOldCurrentButHealthyRotationAllowsIt`,
+`TestRecoveryAllIDsMustBeLatestBeforeNodeWideRelease`,
+`TestRecoveryRechecksEveryTargetAfterAdvertisementReadback`,
+`TestRecoveryPreservesStaleKeysAndProviderPinnedOnDemandEvidence`, and
+`TestRecoveryRetainedInvalidAndUnknownCapabilitiesRequirePoolCorrection`.
+These focused API/local-inventory tests are not real-node recovery evidence.

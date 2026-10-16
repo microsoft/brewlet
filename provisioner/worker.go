@@ -107,6 +107,10 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	if err := policy.Profile(s.Profile, profiles.Items, w.AllowedMirrorHosts); err != nil {
 		return err
 	}
+	recovery, err := w.recoveryPlan(ctx, s)
+	if err != nil {
+		return err
+	}
 	if w.Baseline == nil {
 		return fmt.Errorf("baseline validation unavailable; readiness remains fenced")
 	}
@@ -214,7 +218,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		} else if !os.IsNotExist(err) {
 			return err
 		}
-		if installed && entry.Install == "OnDemand" && entry.IdleTTL != "" && !slices.Contains(requests, entry.ID) && w.Evidence != nil {
+		if installed && !recovery.ids[entry.ID] && entry.Install == "OnDemand" && entry.IdleTTL != "" && !slices.Contains(requests, entry.ID) && w.Evidence != nil {
 			if _, err := w.check(ctx); err != nil {
 				return err
 			}
@@ -246,7 +250,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 				installed = false
 			}
 		}
-		needed := entry.Install == "Eager" || installed || slices.Contains(requests, entry.ID)
+		needed := entry.Install == "Eager" || installed || slices.Contains(requests, entry.ID) || recovery.installed[entry.ID]
 		if needed {
 			state = "installing"
 		}
@@ -346,25 +350,6 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	if len(failures) > 0 {
 		return errors.Join(failures...)
 	}
-	if w.checkedMutable == nil {
-		w.checkedMutable = map[string]bool{}
-	}
-	for id, state := range inventory {
-		if state.Install != "OnDemand" || w.checkedMutable[id] {
-			continue
-		}
-		if err := w.advertiseAvailable(ctx, id); err != nil {
-			return err
-		}
-		broader, err := control.Withdraw(ctx, w.Client, w.Reader, w.Authority, []string{"brewlet.sh/runtime." + id})
-		if err != nil {
-			return err
-		}
-		if broader {
-			return fmt.Errorf("node-advertisement-failed: provider-pinned OnDemand capability; retain startup fence")
-		}
-		w.checkedMutable[id] = true
-	}
 	if err := w.publish(ctx, inventory); err != nil {
 		return err
 	}
@@ -462,6 +447,24 @@ func (w *Worker) publish(ctx context.Context, inventory map[string]api.NodeRunti
 	if err != nil {
 		return err
 	}
+	recovery, err := w.validatePublication(ctx, s, inventory)
+	if err != nil {
+		return err
+	}
+	recovering := recovery.wide
+	for _, value := range recovery.ids {
+		recovering = recovering || value
+	}
+	if err := w.probePublicationMutability(ctx, inventory, recovering); err != nil {
+		return err
+	}
+	s, err = w.check(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := w.validatePublication(ctx, s, inventory); err != nil {
+		return err
+	}
 	n := s.Node.DeepCopy()
 	if n.Labels == nil {
 		n.Labels = map[string]string{}
@@ -493,6 +496,9 @@ func (w *Worker) publish(ctx context.Context, inventory map[string]api.NodeRunti
 	if err != nil {
 		return err
 	}
+	if _, err := w.validatePublication(ctx, s, inventory); err != nil {
+		return err
+	}
 	for id, state := range inventory {
 		if s.Node.Labels["brewlet.sh/runtime."+id] != state.State {
 			return fmt.Errorf("node-advertisement-failed: capability readback")
@@ -509,7 +515,7 @@ func (w *Worker) publish(ctx context.Context, inventory map[string]api.NodeRunti
 	if err != nil {
 		return err
 	}
-	if control.StartupFenced(s.Node) {
+	if control.HasStartupTaint(s.Node) {
 		return fmt.Errorf("node-advertisement-failed: startup fence remains")
 	}
 	return nil

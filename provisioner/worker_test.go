@@ -41,7 +41,7 @@ func authorityFixture(t *testing.T) (*Worker, string) {
 	spec := api.NodeProfileSpec{RuntimeImages: []api.RuntimeEntry{{ID: "static", Install: "OnDemand"}}}
 	target := api.Target{Name: "node", UID: "node-one", Claimed: true, ContainerdRestart: "none"}
 	p := &api.NodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-one", Generation: 1}, Spec: spec, Status: api.NodeProfileStatus{OwnershipInitialized: true, ProvisioningGeneration: 1, ProvisioningSpec: &spec, Targets: []api.Target{target}}}
-	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: "node-one", Labels: map[string]string{api.OwnerUID: "profile-one", api.OwnerNodeUID: "node-one"}, Annotations: map[string]string{api.OwnerName: "profile"}}}
+	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: "node-one", Labels: map[string]string{api.OwnerUID: "profile-one", api.OwnerNodeUID: "node-one"}, Annotations: map[string]string{api.OwnerName: "profile"}}, Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(p, n).Build()
 	a := control.Authority{NodeName: "node", NodeUID: "node-one", ProfileName: "profile", ProfileUID: "profile-one", Generation: 1, TargetUIDs: []types.UID{"node-one"}, Mode: "provisioning"}
 	return &Worker{Client: c, Reader: c, Authority: a, Store: node.NewStore(filepath.Join(root, "runtimes")), Baseline: baselineFailure{}}, root
