@@ -11,7 +11,7 @@ import stat
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import uuid
 
 import delivery
@@ -221,6 +221,43 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(pod["spec"]["imagePullSecrets"], [{"name": state.secret}])
         self.assertEqual(pod["spec"]["nodeSelector"], {"kubernetes.io/arch": "arm64"})
 
+    def test_registry_certificates_support_strict_x509_and_single_line_password(self):
+        h, state = self.state()
+        identity = "8" * 64
+        created = False
+        commands = []
+        info = {"Id": identity, "Config": {"Labels": {OWNER: h.run_id}},
+                "State": {"Running": True},
+                "NetworkSettings": {"Networks": {"kind": {"IPAddress": "172.18.0.9"}},
+                                    "Ports": {"5000/tcp": [{"HostPort": "5443"}]}}}
+        def run(command, **kwargs):
+            nonlocal created
+            commands.append(command)
+            if command[:2] == ["docker", "create"]:
+                created = True
+            if command[:2] == ["openssl", "req"] or command[:2] == ["openssl", "x509"]:
+                Path(command[command.index("-out") + 1]).write_text("fixture-certificate")
+            if command[:2] == ["docker", "inspect"]:
+                return subprocess.CompletedProcess(command, 0 if created else 1, json.dumps([info]), "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        h.run = run
+        h.wait = Mock()
+        private = Mock(return_value=subprocess.CompletedProcess([], 0, delivery.USERNAME + ":$2b$test\n", ""))
+        with patch.object(state, "private_run", private), patch.object(delivery.shutil, "which", return_value="/htpasswd"), \
+                patch.object(delivery.ssl, "create_default_context") as context:
+            state.start_registry()
+        self.assertEqual(len(private.call_args_list), 2)
+        self.assertTrue(all(call.kwargs["input"] == state.password + "\n"
+                            for call in private.call_args_list))
+        ca = next(command for command in commands if command[:3] == ["openssl", "req", "-x509"])
+        self.assertIn("subjectKeyIdentifier=hash", ca)
+        self.assertIn("keyUsage=critical,keyCertSign,cRLSign", ca)
+        extensions = (state.work / "extensions").read_text()
+        self.assertIn("authorityKeyIdentifier=keyid,issuer", extensions)
+        self.assertIn("subjectKeyIdentifier=hash", extensions)
+        self.assertIn("keyUsage=critical,digitalSignature,keyEncipherment", extensions)
+        context.assert_called_once_with(cafile=str(state.work / "ca.crt"))
+
     def test_producer_ca_and_auth_scoped_to_one_trusted_cli(self):
         h, state = self.state()
         command = state.producer()
@@ -322,8 +359,17 @@ class CommandTests(unittest.TestCase):
     def test_cleanup_attempts_registry_even_if_producer_cleanup_fails(self):
         h, state = self.state()
         state.registry_id = "registry-id"
-        with patch.object(state, "cleanup_producer", side_effect=Failure("producer failed")):
+        with patch.object(state, "cleanup_producer", side_effect=Failure("producer failed")), \
+                patch.object(state, "private_run", return_value=subprocess.CompletedProcess([], 0, "", "")):
             with self.assertRaisesRegex(Failure, "producer failed"):
+                state.cleanup()
+        self.assertIn(["docker", "rm", "--force", "--volumes", "registry-id"], h.calls)
+
+    def test_diagnostic_failure_cannot_skip_owned_registry_removal(self):
+        h, state = self.state()
+        state.registry_id = "registry-id"
+        with patch.object(state, "private_run", side_effect=Failure("diagnostics failed")):
+            with self.assertRaisesRegex(Failure, "diagnostics failed"):
                 state.cleanup()
         self.assertIn(["docker", "rm", "--force", "--volumes", "registry-id"], h.calls)
 

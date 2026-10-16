@@ -254,9 +254,11 @@ class Delivery:
         h = self.h
         require(shutil.which("htpasswd"), "mandatory bcrypt htpasswd tool missing")
         auth = self.private_run(["htpasswd", "-niB", USERNAME],
-                                input=self.password + "\n" + self.password + "\n").stdout
+                                input=self.password + "\n").stdout
         require(auth.startswith(USERNAME + ":$2"), "registry requires bcrypt authentication")
         private_file(self.work / "htpasswd", auth)
+        self.private_run(["htpasswd", "-vi", self.work / "htpasswd", USERNAME],
+                         input=self.password + "\n")
         private_file(self.work / "registry.yml", """version: 0.1
 log:
   level: info
@@ -313,6 +315,8 @@ auth:
         private_file(self.work / "tls.key", "")
         h.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
                "-subj", "/CN=delivery-ca-" + h.run_id, "-addext", "basicConstraints=critical,CA:TRUE",
+               "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+               "-addext", "subjectKeyIdentifier=hash",
                "-keyout", self.work / "ca.key", "-out", self.work / "ca.crt"])
         os.chmod(self.work / "ca.key", 0o600)
         h.run(["openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
@@ -322,7 +326,9 @@ auth:
         private_file(self.work / "extensions",
                      "subjectAltName=DNS:" + self.registry_name +
                      ",DNS:host.docker.internal,IP:127.0.0.1,IP:" + address +
-                     "\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n")
+                     "\nextendedKeyUsage=serverAuth\nbasicConstraints=critical,CA:FALSE\n"
+                     "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                     "subjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n")
         # Publish the cert atomically: the registry's wait must not observe a
         # partially written PEM file.
         h.run(["openssl", "x509", "-req", "-in", self.work / "tls.csr",
@@ -332,13 +338,21 @@ auth:
         self.context = ssl.create_default_context(cafile=str(self.work / "ca.crt"))
 
         def challenged():
+            info = self.registry_info()
+            require(info["State"]["Running"],
+                    "TLS registry exited before readiness (exit "
+                    + str(info["State"].get("ExitCode")) + ")")
             try:
                 self.fetch("/v2/", authenticated=False)
             except urllib.error.HTTPError as error:
                 require(error.code == 401 and "basic" in error.headers.get("WWW-Authenticate", "").lower(),
                         "TLS registry did not require basic authentication")
                 return True
-            except (urllib.error.URLError, TimeoutError, ConnectionResetError):
+            except urllib.error.URLError as error:
+                if isinstance(error.reason, ssl.SSLCertVerificationError):
+                    raise Failure("TLS registry certificate verification failed: " + str(error.reason)) from error
+                return False
+            except (TimeoutError, ConnectionResetError):
                 return False
             raise Failure("anonymous registry unexpectedly authorized")
         h.wait("TLS-only registry returns authenticated challenge", challenged, timeout=60)
@@ -757,10 +771,15 @@ auth:
         finally:
             if self.registry_id:
                 info = self.registry_info()
-                self.h.run(["docker", "rm", "--force", "--volumes", info["Id"]])
-                require(self.h.run(["docker", "inspect", info["Id"]], check=False).returncode != 0,
-                        "owned TLS registry remains after cleanup")
-                self.registry_id = None
+                try:
+                    logs = self.private_run(["docker", "logs", self.registry_id], check=False)
+                    private_file(self.work / "registry-redacted.log",
+                                 redact(logs.stdout + logs.stderr, self.password))
+                finally:
+                    self.h.run(["docker", "rm", "--force", "--volumes", info["Id"]])
+                    require(self.h.run(["docker", "inspect", info["Id"]], check=False).returncode != 0,
+                            "owned TLS registry remains after cleanup")
+                    self.registry_id = None
 
 
 def bootstrap(h):
