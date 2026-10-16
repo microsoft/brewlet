@@ -95,6 +95,7 @@ jobs:
         run: |
           go test -c -o bin/artifact.test ./pkg/artifact
           go test -c -o bin/shim.test ./shim/cmd/containerd-shim-brewlet-v2
+          go test -c -o bin/provisioner.test ./provisioner
       - name: Build isolated pinned test userland
         run: >-
           docker build --load --platform "${{ matrix.platform }}"
@@ -122,5 +123,13 @@ jobs:
             --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
             --workdir /src/shim/cmd/containerd-shim-brewlet-v2 --entrypoint /tests/shim.test \
             brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v -test.run '^TestPublishedProducerShimConformance$' | tee shim-conformance.log
+            -test.v -test.run 'TestPublishedProducerShimConformance|TestWarm' | tee shim-conformance.log
           ! grep -q '^--- SKIP' shim-conformance.log
+          docker run --rm --platform "${{ matrix.platform }}" --network none \
+            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
+            --security-opt no-new-privileges --read-only --tmpfs /tmp --tmpfs /work \
+            --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
+            --workdir /work --entrypoint /tests/provisioner.test \
+            brewlet-overlay-contract:${{ github.run_id }} \
+            -test.v -test.run 'TestCacheCollection|TestOriginalContentCollection' | tee cache-gc.log
+          ! grep -q '^--- SKIP' cache-gc.log

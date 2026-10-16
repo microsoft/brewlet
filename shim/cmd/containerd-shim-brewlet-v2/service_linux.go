@@ -23,6 +23,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/shim"
 	"github.com/containerd/containerd/v2/pkg/shutdown"
 	"github.com/containerd/containerd/v2/plugins"
+	"github.com/containerd/errdefs"
 	"github.com/containerd/plugin"
 	"github.com/containerd/plugin/registry"
 	"github.com/containerd/ttrpc"
@@ -278,22 +279,49 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 		return nil, fmt.Errorf("protected CRI image-name does not match requested image")
 	}
 	store := s.client.ContentStore()
+	contentCache := &artifact.ContentCache{Dir: filepath.Join(cacheRoot, ".content"), IsMissing: func(err error) bool { return errdefs.IsNotFound(err) || os.IsNotExist(err) }}
 	contentInfo, err := store.Info(ctx, canonical.Digest())
-	if err != nil {
+	if err != nil && !errdefs.IsNotFound(err) {
 		return nil, err
 	}
-	if contentInfo.Size > 16<<20 {
+	if err == nil && contentInfo.Size > 16<<20 {
 		return nil, fmt.Errorf("image target metadata too large")
 	}
-	target := ocispec.Descriptor{Digest: canonical.Digest(), Size: contentInfo.Size}
-	open := func(d ocispec.Descriptor) (io.ReadCloser, error) {
+	var target ocispec.Descriptor
+	if errdefs.IsNotFound(err) {
+		target, err = contentCache.Target(ctx, canonical.Digest())
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		target = ocispec.Descriptor{Digest: canonical.Digest(), Size: contentInfo.Size}
+	}
+	if target.Size > 16<<20 {
+		return nil, fmt.Errorf("image target metadata too large")
+	}
+	source := func(d ocispec.Descriptor) (io.ReadCloser, error) {
 		r, err := store.ReaderAt(ctx, d)
 		if err != nil {
 			return nil, err
 		}
 		return readCloser{io.NewSectionReader(r, 0, r.Size()), r}, nil
 	}
-	reader, err := open(target)
+	reader, err := source(target)
+	if errdefs.IsNotFound(err) {
+		if target.MediaType == "" {
+			// Content GC may race the successful Info above. Retain the
+			// original descriptor, without masking inconsistent source info.
+			retained, retainedErr := contentCache.Target(ctx, canonical.Digest())
+			if retainedErr != nil {
+				return nil, retainedErr
+			}
+			if retained.Size != target.Size {
+				return nil, fmt.Errorf("retained target differs from protected content info")
+			}
+			target = retained
+		}
+		reader, err = contentCache.Open(ctx, source, target)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -309,6 +337,7 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 		return nil, err
 	}
 	target.MediaType = header.MediaType
+	open := func(d ocispec.Descriptor) (io.ReadCloser, error) { return contentCache.Open(ctx, source, d) }
 	resolved, err := resolveNativeArtifact(ctx, open, target, brewletplatform.Native())
 	if err != nil {
 		return nil, err
@@ -316,6 +345,7 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 	if string(resolved.Manifest.Config.Digest) != cri.ImageRef {
 		return nil, fmt.Errorf("LaunchConfigMismatch: selected manifest config differs from protected CRI config identity")
 	}
+	resolved.ContentRoots = contentCache.References()
 	return resolved, nil
 }
 
@@ -432,7 +462,7 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	appMount := specs.Mount{Destination: "/app", Type: "bind", Source: filepath.Join(r.Bundle, "rootfs", "app"), Options: []string{"rbind", "ro", "nosuid", "nodev"}}
 	// Explicit volume mounts under /app must follow the packaged RO mount.
 	spec.Mounts = append([]specs.Mount{appMount}, spec.Mounts...)
-	if err := store.SaveInitial(node.InitialState{Lease: lease, Process: *spec.Process, LayerRoots: layerRoots}); err != nil {
+	if err := store.SaveInitial(node.InitialState{Lease: lease, Process: *spec.Process, LayerRoots: layerRoots, ContentRoots: resolved.ContentRoots}); err != nil {
 		return err
 	}
 	b, err := json.Marshal(spec)

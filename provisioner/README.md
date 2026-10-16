@@ -207,10 +207,21 @@ This is not yet a complete node-runtime acceptance implementation:
   Workload restart Kubernetes events are emitted by the control plane.
   Prometheus/containerd telemetry needs real-node
   scraping/event validation.
+* The shim retains original digest/size-verified index, manifest, config and
+  compressed layer bytes in a protected, immutable, policy-bound cache.
+  Legitimate containerd content removal (including `discard_unpacked_layers`)
+  permits reuse only when the source is genuinely absent; corrupt, inaccessible
+  or rejected source content never falls back. Resolution still validates the
+  original graph, protected CRI identities, platform, launch/config mirror and
+  payload diff IDs. No metadata is reconstructed and the shim never pulls.
+  Durable task references protect retained originals alongside materialized
+  layers; collection uses the exclusive cache guard, grace, complete mount
+  evidence and fresh authority. Older task records without original-content
+  references conservatively retain that cache. Cold-to-warm source-removal and
+  corruption contracts pass; real-node content-GC repeat-start acceptance
+  remains required.
 * The complete four-language rotation/revocation/recovery/cleanup matrix and
-  telemetry scraping remain acceptance work. Application metadata/packed
-  layers must remain available in containerd's content store; cache reuse does
-  not reconstruct missing launch/config blobs. A focused native-arm64 run
+  telemetry scraping remain acceptance work. A focused native-arm64 run
   verified actual CRI writable-layer growth and kubelet ephemeral-storage
   eviction, without an `emptyDir` proxy or kubelet configuration changes; see
   [the exact component-image evidence](../acceptance/results/cri-accounting.json).

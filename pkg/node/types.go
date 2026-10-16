@@ -94,9 +94,10 @@ type Lease struct {
 }
 
 type InitialState struct {
-	Lease      Lease         `json:"lease"`
-	Process    specs.Process `json:"process"`
-	LayerRoots []string      `json:"layerRoots,omitempty"`
+	Lease        Lease         `json:"lease"`
+	Process      specs.Process `json:"process"`
+	LayerRoots   []string      `json:"layerRoots,omitempty"`
+	ContentRoots []string      `json:"contentRoots,omitempty"`
 }
 
 type EvidenceRequest struct {

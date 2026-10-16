@@ -159,6 +159,7 @@ type Resolved struct {
 	Launch                     *Launch
 	LaunchJSON                 []byte
 	Layers                     []LayerSource
+	ContentRoots               []string
 }
 type BlobOpener func(v1.Descriptor) (io.ReadCloser, error)
 

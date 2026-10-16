@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/microsoft/brewlet/pkg/artifact"
 	"github.com/microsoft/brewlet/pkg/node"
+	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -104,5 +106,73 @@ func TestCacheCollectionUsesDurableReferencesAndBlocksPendingCreateUnit(t *testi
 	}
 	if _, err := os.Stat(entry); err != nil {
 		t.Fatal("durably referenced cache removed", err)
+	}
+}
+
+func TestOriginalContentCollectionRequiresGraceMountEvidenceAndFreshFenceUnit(t *testing.T) {
+	w, cache, _ := cacheFixture(t)
+	ctx := context.Background()
+	raw := "original protected launch bytes"
+	d := ocispec.Descriptor{MediaType: ocispec.MediaTypeImageLayer, Digest: digest.FromString(raw), Size: int64(len(raw))}
+	content := &artifact.ContentCache{Dir: filepath.Join(cache, ".content")}
+	reader, err := content.Open(ctx, func(ocispec.Descriptor) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(raw)), nil
+	}, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.Close()
+	path := content.References()[0]
+	fence := func(context.Context) error { return nil }
+	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, cacheEvidence{gone: true}, fence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("young original content removed", err)
+	}
+	receipt, err := artifact.VerifyContentEntry(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.PublishedAt = time.Now().Add(-2 * time.Hour)
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptPath := filepath.Join(path, "receipt.json")
+	if err := os.Chmod(receiptPath, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(receiptPath, data, 0400); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(receiptPath, 0400); err != nil {
+		t.Fatal(err)
+	}
+	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, cacheEvidence{gone: false}, fence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("mounted original content removed", err)
+	}
+	calls := 0
+	lost := func(context.Context) error {
+		calls++
+		if calls > 1 {
+			return errors.New("ownership-fence-failed")
+		}
+		return nil
+	}
+	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, cacheEvidence{gone: true}, lost); err == nil {
+		t.Fatal("original content collected without fresh authority")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("original content removed after fence loss", err)
+	}
+	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, cacheEvidence{gone: true}, fence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("unreferenced old original content retained", err)
 	}
 }

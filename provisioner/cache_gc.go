@@ -38,6 +38,7 @@ func CollectLayerCache(ctx context.Context, store *node.Store, directory, hostPa
 		return err
 	}
 	references := map[string]bool{}
+	retainContent := false
 	for _, lease := range leases {
 		state, err := store.LoadInitial(lease.TaskID)
 		if err != nil {
@@ -46,7 +47,10 @@ func CollectLayerCache(ctx context.Context, store *node.Store, directory, hostPa
 		if len(state.LayerRoots) == 0 {
 			return fmt.Errorf("cache references unavailable for durable task")
 		}
-		for _, root := range state.LayerRoots {
+		if len(state.ContentRoots) == 0 {
+			retainContent = true
+		}
+		for _, root := range append(append([]string(nil), state.LayerRoots...), state.ContentRoots...) {
 			if filepath.Clean(root) != root || !strings.HasPrefix(root, hostPath+"/") {
 				return fmt.Errorf("unrecognized durable cache reference")
 			}
@@ -88,6 +92,41 @@ func CollectLayerCache(ctx context.Context, store *node.Store, directory, hostPa
 			continue
 		}
 		candidates = append(candidates, path)
+	}
+	contentDirectory := filepath.Join(directory, ".content")
+	contentEntries, contentErr := os.ReadDir(contentDirectory)
+	if contentErr != nil && !os.IsNotExist(contentErr) {
+		return contentErr
+	}
+	if contentErr == nil {
+		if err := node.NewStore(contentDirectory).Check(); err != nil {
+			return err
+		}
+		for _, entry := range contentEntries {
+			if !cacheKey.MatchString(entry.Name()) {
+				continue
+			}
+			path := filepath.Join(contentDirectory, entry.Name())
+			if err := node.NewStore(path).Check(); err != nil {
+				return err
+			}
+			receipt, err := artifact.VerifyContentEntry(ctx, path)
+			if err != nil {
+				return err
+			}
+			hostEntry := filepath.Join(hostPath, ".content", entry.Name())
+			if retainContent || references[hostEntry] || time.Since(receipt.PublishedAt) < grace {
+				continue
+			}
+			gone, err := evidence.MountsGone(ctx, hostEntry)
+			if err != nil {
+				return err
+			}
+			if !gone {
+				continue
+			}
+			candidates = append(candidates, path)
+		}
 	}
 	for _, candidate := range candidates {
 		if err := fence(ctx); err != nil {

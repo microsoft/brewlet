@@ -146,8 +146,13 @@ same digest failed because the final launch-layer blob was absent from
 containerd after unpacking. The pinned node legitimately enables
 `discard_unpacked_layers`; disabling that policy is not an acceptable fix.
 This exposes a **production warm-cache gap**, not an override or vendor-version
-failure. Protected, digest-verified resolution caching is being implemented
-without shim registry access or weaker CRI identity checks. Positive readiness
+failure. Protected, digest-verified original-byte resolution caching is now
+implemented without shim registry access or weaker CRI identity checks.
+Native Linux/arm64 tests passed cold-to-discarded-launch and all-content-missing
+warm resolution, absent/tampered/rejected cache denial, and root-only
+lease/mount/grace/fresh-fence collection contracts. Root race/vet and both Linux
+builds passed. These are contract tests; real repeat-start acceptance remains
+pending. Positive readiness
 checks now report terminal Pod errors immediately instead of waiting ten
 minutes for a Pod that cannot become ready.
 
