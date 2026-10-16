@@ -203,8 +203,15 @@ The run then stopped in controlled worker restart because successor discovery
 read Pod state twice and raced predecessor termination. It now uses one
 identity-checked snapshot, retries only transient absence/non-running state and
 excludes the known predecessor CID before PID inspection. No recovery success
-is claimed yet. A separate persistent failed-Create lease diagnostic is under
-bounded investigation before the next matched-source run.
+is claimed yet. The separate persistent failed-Create lease was traced to
+`privilege-bound`: security validation failed after leasing but before initial
+state publication, and generation-wide mount evidence confused healthy
+siblings with that failed task. New leases now bind protected task-specific
+bundle/snapshot provenance under Create/recovery locking, security preflight
+precedes leasing, and failed Create/Delete cleanup remains gated on complete
+actual task/exec/mount absence. Legacy unscoped leases stay conservative.
+Root Go race/vet, native Linux evidence/mount-scope/warm-cache contracts and both
+Linux builds passed. Real recovery/GC confirmation remains pending.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

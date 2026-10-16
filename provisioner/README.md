@@ -79,6 +79,12 @@ The operator mounts the node at `/host`, plus `/var/lib/containerd` and
 renewed only from fresh approval and ownership reads. A single cross-process
 writer lock prevents competing provisioners. Per-ID locks serialize current
 selection, leases, generation publication, and collection.
+New leases atomically bind the protected task bundle and its managed snapshot
+upper/work paths. Recovery enumerates actual tasks and checks those task-specific
+mounts rather than mistaking a healthy sibling's shared runtime mount for a
+failed Create. Create/recovery locks prevent reaping before delegation completes.
+Failed Create/Delete release remains evidence-gated; leases without task-specific
+provenance retain conservative generation-wide protection.
 Actual unknown/unapproved entries receive no authorization or capability and
 do not block approved siblings. Baseline readiness requires the known approved
 Eager roots, not an impossible install of an unknown ID; the controller still

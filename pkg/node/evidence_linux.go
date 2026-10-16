@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	tasksapi "github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/errdefs"
@@ -49,42 +50,49 @@ func (e LinuxEvidence) Gone(ctx context.Context, l Lease) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if l.TaskID != "" && l.Namespace == "" {
+		return false, fmt.Errorf("task namespace evidence unavailable")
+	}
+	if l.TaskID != "" {
+		all = append(all, l.Namespace)
+	}
+	seen := map[string]bool{}
 	for _, namespace := range all {
+		if l.TaskID == "" || seen[namespace] {
+			continue
+		}
+		seen[namespace] = true
 		nsctx := namespaces.WithNamespace(ctx, namespace)
-		containers, err := e.Client.Containers(nsctx)
+		tasks, err := e.Client.TaskService().List(nsctx, &tasksapi.ListTasksRequest{})
 		if err != nil {
 			return false, err
 		}
-		for _, c := range containers {
-			if l.TaskID == "" {
+		if tasks == nil {
+			return false, fmt.Errorf("incomplete task listing")
+		}
+		for _, task := range tasks.Tasks {
+			if task == nil || (task.ID == "" && task.ContainerID == "") {
+				return false, fmt.Errorf("incomplete task listing")
+			}
+			if namespace != l.Namespace || (task.ID != l.TaskID && task.ContainerID != l.TaskID) {
 				continue
 			}
-			if l.TaskID != "" && (namespace != l.Namespace || c.ID() != l.TaskID) {
-				continue
-			}
-			task, err := c.Task(nsctx, nil)
-			if errdefs.IsNotFound(err) {
-				continue
-			}
-			if err != nil {
-				return false, err
-			}
-			pids, err := task.Pids(nsctx)
-			if err != nil {
-				return false, err
-			}
-			if len(pids) > 0 {
-				return false, nil
-			}
-			// Even a stopped task retains rootfs/mount obligations until Delete.
+			// Query actual tasks, not container metadata: a stopped main or
+			// orphan Exec still owns obligations until the task is deleted.
 			return false, nil
 		}
 	}
-	root := filepath.Join(e.RuntimeRoot, l.Metadata.ID, l.Metadata.InventoryUID, strconv.FormatInt(l.Metadata.Generation, 10))
-	if !filepath.IsAbs(root) || l.Metadata.ID == "" {
-		return false, fmt.Errorf("invalid runtime evidence path")
+	paths, err := leaseMountPaths(l, e.RuntimeRoot)
+	if err != nil {
+		return false, err
 	}
-	return e.MountsGone(ctx, root)
+	for _, path := range paths {
+		gone, err := e.MountsGone(ctx, path)
+		if err != nil || !gone {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (e LinuxEvidence) MountsGone(ctx context.Context, root string) (bool, error) {

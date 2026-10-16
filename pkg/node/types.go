@@ -87,10 +87,11 @@ func ParseBarrier(raw, id string) (*Barrier, error) {
 }
 
 type Lease struct {
-	TaskID     string    `json:"taskID"`
-	Namespace  string    `json:"namespace"`
-	Metadata   Metadata  `json:"runtime"`
-	AcquiredAt time.Time `json:"acquiredAt"`
+	TaskMounts *TaskMounts `json:"taskMounts,omitempty"`
+	TaskID     string      `json:"taskID"`
+	Namespace  string      `json:"namespace"`
+	Metadata   Metadata    `json:"runtime"`
+	AcquiredAt time.Time   `json:"acquiredAt"`
 }
 
 type InitialState struct {

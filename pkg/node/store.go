@@ -298,6 +298,17 @@ func (s *Store) current(id string, a Authorization) (Metadata, string, error) {
 // Resolve leases current under the same cross-process lock as publication and
 // collection. Only an uninstalled OnDemand entry creates an empty request.
 func (s *Store) Resolve(ctx context.Context, id, namespace, task string, barrier *Barrier, wait time.Duration) (Lease, string, error) {
+	return s.resolve(ctx, id, namespace, task, barrier, wait, nil)
+}
+
+func (s *Store) ResolveTask(ctx context.Context, id, namespace, task string, barrier *Barrier, wait time.Duration, mounts TaskMounts) (Lease, string, error) {
+	if err := mounts.Validate(namespace, task); err != nil {
+		return Lease{}, "", err
+	}
+	return s.resolve(ctx, id, namespace, task, barrier, wait, &mounts)
+}
+
+func (s *Store) resolve(ctx context.Context, id, namespace, task string, barrier *Barrier, wait time.Duration, mounts *TaskMounts) (Lease, string, error) {
 	if err := ValidateID(id); err != nil {
 		return Lease{}, "", err
 	}
@@ -328,7 +339,7 @@ func (s *Store) Resolve(ctx context.Context, id, namespace, task string, barrier
 			}
 			return Lease{}, "", err
 		}
-		lease, root, retry, err := s.resolveLocked(id, namespace, task, barrier)
+		lease, root, retry, err := s.resolveLocked(id, namespace, task, barrier, mounts)
 		unlock(f)
 		if !retry || err != nil {
 			return lease, root, err
@@ -346,7 +357,7 @@ func (s *Store) Resolve(ctx context.Context, id, namespace, task string, barrier
 		}
 	}
 }
-func (s *Store) resolveLocked(id, namespace, task string, barrier *Barrier) (Lease, string, bool, error) {
+func (s *Store) resolveLocked(id, namespace, task string, barrier *Barrier, mounts *TaskMounts) (Lease, string, bool, error) {
 	a, err := s.auth(id, time.Now())
 	if err != nil {
 		return Lease{}, "", false, err
@@ -378,7 +389,7 @@ func (s *Store) resolveLocked(id, namespace, task string, barrier *Barrier) (Lea
 	if barrier != nil && m.Generation < barrier.Generation {
 		return Lease{}, "", true, nil
 	}
-	lease := Lease{TaskID: task, Namespace: namespace, Metadata: m, AcquiredAt: time.Now().UTC()}
+	lease := Lease{TaskID: task, Namespace: namespace, Metadata: m, AcquiredAt: time.Now().UTC(), TaskMounts: mounts}
 	dir := filepath.Join(s.Root, ".tasks", task)
 	if err := s.trusted(filepath.Join(s.Root, ".tasks"), true); err != nil {
 		return Lease{}, "", false, err
@@ -394,6 +405,9 @@ func (s *Store) resolveLocked(id, namespace, task string, barrier *Barrier) (Lea
 	if err := s.read(name, &existing); err == nil {
 		if existing.Namespace != namespace || existing.Metadata.InventoryUID != m.InventoryUID || existing.Metadata.Generation != m.Generation {
 			return Lease{}, "", false, fmt.Errorf("task lease already exists")
+		}
+		if mounts != nil && (existing.TaskMounts == nil || *existing.TaskMounts != *mounts) {
+			return Lease{}, "", false, fmt.Errorf("task lease mount provenance cannot be replaced")
 		}
 		lease = existing
 	} else if !os.IsNotExist(err) {
@@ -467,6 +481,11 @@ func (s *Store) Release(ctx context.Context, task string, evidence Evidence) err
 	if evidence == nil || !uidPattern.MatchString(task) {
 		return fmt.Errorf("complete task/mount evidence required")
 	}
+	taskGuard, err := s.AcquireTaskGuard(ctx, task)
+	if err != nil {
+		return err
+	}
+	defer taskGuard.Close()
 	if err := s.Check(); err != nil {
 		return err
 	}

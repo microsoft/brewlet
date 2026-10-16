@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -143,7 +144,7 @@ func loadSpec(bundle string) (*specs.Spec, error) {
 	}
 	return &spec, nil
 }
-func (s *service) Create(ctx context.Context, r *taskapi.CreateTaskRequest) (*taskapi.CreateTaskResponse, error) {
+func (s *service) Create(ctx context.Context, r *taskapi.CreateTaskRequest) (response *taskapi.CreateTaskResponse, createErr error) {
 	if err := normalizeOptions(r); err != nil {
 		return nil, err
 	}
@@ -159,6 +160,23 @@ func (s *service) Create(ctx context.Context, r *taskapi.CreateTaskRequest) (*ta
 		return nil, err
 	}
 	defer cacheGuard.Close()
+	store := node.NewStore(inventoryRoot)
+	taskGuard, err := store.AcquireTaskGuard(ctx, r.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		taskGuard.Close()
+		if createErr != nil {
+			// An error is not proof of absence: runc may have left a task,
+			// exec or mount. Retain the lease whenever inspection is uncertain.
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if err := store.Release(cleanupCtx, r.ID, node.LinuxEvidence{Client: s.client, RuntimeRoot: inventoryRoot}); err != nil && !os.IsNotExist(err) {
+				createErr = fmt.Errorf("%w; failed-create lease release deferred: %v", createErr, err)
+			}
+		}
+	}()
 	if err := s.assemble(ctx, r, spec); err != nil {
 		return nil, err
 	}
@@ -169,8 +187,7 @@ func (s *service) Create(ctx context.Context, r *taskapi.CreateTaskRequest) (*ta
 	if err := node.NewStore(inventoryRoot).ValidateLease(ctx, state.Lease); err != nil {
 		return nil, err
 	}
-	// Failed runc creation retains the durable lease: only a later complete
-	// task/exec/mount inspection can prove reclamation safe.
+	// The deferred unwind uses the same complete evidence as fenced recovery.
 	return s.TTRPCTaskService.Create(ctx, r)
 }
 func (s *service) Exec(ctx context.Context, r *taskapi.ExecProcessRequest) (*emptypb.Empty, error) {
@@ -214,10 +231,11 @@ func (s *service) Delete(ctx context.Context, r *taskapi.DeleteRequest) (*taskap
 		return response, err
 	}
 	store := node.NewStore(inventoryRoot)
-	if _, stateErr := store.LoadInitial(r.ID); stateErr == nil {
-		// Failure retains the lease for fenced recovery; it must not hide the
-		// successful runc Delete from containerd.
-		_ = store.Release(ctx, r.ID, node.LinuxEvidence{Client: s.client, RuntimeRoot: inventoryRoot})
+	// Failed Create can leave a lease without initial.json. Its absence does not
+	// prevent evidence-based release or authorize synthesizing process state.
+	// Failure retains the lease and must not hide successful runc Delete.
+	if err := store.Release(ctx, r.ID, node.LinuxEvidence{Client: s.client, RuntimeRoot: inventoryRoot}); err != nil && !os.IsNotExist(err) {
+		log.Printf("lease-release-deferred: task=%s: %v", r.ID, err)
 	}
 	return response, nil
 }
@@ -357,6 +375,9 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	if err := node.ValidateID(id); err != nil {
 		return err
 	}
+	if err := node.CheckProcess(spec.Process); err != nil {
+		return err
+	}
 	if err := validateHostMounts(spec.Mounts); err != nil {
 		return err
 	}
@@ -380,13 +401,20 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	if err != nil {
 		return err
 	}
+	mounts, err := taskMountScope(r, namespace)
+	if err != nil {
+		return err
+	}
+	if spec.Root == nil || spec.Root.Path != "rootfs" {
+		return fmt.Errorf("CRI bundle must use its managed rootfs path")
+	}
 	store := node.NewStore(inventoryRoot)
 	if current, _, currentErr := store.Current(ctx, id); os.IsNotExist(currentErr) {
 		s.runtimeEvent(ctx, "RuntimeImageInstalling", r.ID, node.Metadata{ID: id})
 	} else if currentErr == nil && barrier != nil && current.Generation < barrier.Generation {
 		s.runtimeEvent(ctx, "RuntimeImageUpdating", r.ID, current)
 	}
-	lease, root, err := store.Resolve(ctx, id, namespace, r.ID, barrier, 30*time.Second)
+	lease, root, err := store.ResolveTask(ctx, id, namespace, r.ID, barrier, 30*time.Second, mounts)
 	if err != nil {
 		return err
 	}
