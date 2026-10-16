@@ -65,10 +65,14 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/fixtures/check.py --brewlet ./bin/brewlet --work-parent "${{ runner.temp }}"
+      - name: Real registry publication (not node acceptance)
+        run: python3 integration-tests/registry.py --brewlet ./bin/brewlet --work-parent "${{ runner.temp }}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: producer-integration-results
-          path: ${{ runner.temp }}/brewlet-v2-fixtures-*/result.json
+          path: |
+            ${{ runner.temp }}/brewlet-v2-fixtures-*/result.json
+            ${{ runner.temp }}/brewlet-v2-registry-*/result.json
           if-no-files-found: warn
           retention-days: 7

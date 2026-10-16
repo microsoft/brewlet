@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -35,17 +36,30 @@ static class Program
             Console.WriteLine(Report(args));
             return;
         }
-        using HttpListener listener = new();
-        listener.Prefixes.Add("http://+:8000/");
+        int port = int.Parse(Environment.GetEnvironmentVariable("BREWLET_TEST_PORT") ?? "8000");
+        using TcpListener listener = new(IPAddress.Any, port);
         listener.Start();
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            listening = ((IPEndPoint)listener.LocalEndpoint).Port
+        }));
         while (true)
         {
-            HttpListenerContext context = await listener.GetContextAsync();
+            using TcpClient client = await listener.AcceptTcpClientAsync();
+            using NetworkStream stream = client.GetStream();
+            using StreamReader reader = new(stream, leaveOpen: true);
+            int headerLength = 0;
+            string? line;
+            while (!string.IsNullOrEmpty(line = await reader.ReadLineAsync()))
+            {
+                headerLength += line.Length;
+                if (headerLength > 8192) throw new InvalidDataException("HTTP headers too large");
+            }
             byte[] body = Encoding.UTF8.GetBytes(Report(args));
-            context.Response.ContentType = "application/json";
-            context.Response.ContentLength64 = body.Length;
-            await context.Response.OutputStream.WriteAsync(body);
-            context.Response.Close();
+            byte[] headers = Encoding.ASCII.GetBytes(
+                $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n");
+            await stream.WriteAsync(headers);
+            await stream.WriteAsync(body);
         }
     }
 }

@@ -42,6 +42,7 @@ class JavaProducerTest {
         assertEquals("java-21", json.at("/requires/runtimeImages/0").textValue());
         assertEquals(Files.getLastModifiedTime(jar),
                 Files.getLastModifiedTime(result.application().resolve("app.jar")));
+        assertEquals(FileTime.fromMillis(0), Files.getLastModifiedTime(result.application()));
         assertFalse(json.has("jvm"));
     }
 

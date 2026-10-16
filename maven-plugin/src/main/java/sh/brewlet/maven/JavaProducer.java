@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -35,7 +36,9 @@ final class JavaProducer {
                 }
                 Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
             }
+            Files.setLastModifiedTime(dependencies, FileTime.fromMillis(0));
         }
+        Files.setLastModifiedTime(app, FileTime.fromMillis(0));
         Path launch = inputs.launch();
         if (launch != null) {
             requireFile(launch);

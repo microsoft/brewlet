@@ -19,8 +19,11 @@ function report() {
 if (process.argv.includes('--probe')) {
   console.log(JSON.stringify(report()));
 } else {
-  http.createServer((_request, response) => {
+  const server = http.createServer((_request, response) => {
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify(report()));
-  }).listen(8000, '0.0.0.0');
+  });
+  server.listen(Number(process.env.BREWLET_TEST_PORT ?? '8000'), '0.0.0.0', () => {
+    console.log(JSON.stringify({ listening: server.address().port }));
+  });
 }

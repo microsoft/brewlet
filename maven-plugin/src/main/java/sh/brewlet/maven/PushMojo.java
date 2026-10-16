@@ -30,7 +30,7 @@ public final class PushMojo extends AbstractMojo {
     @Parameter(property = "brewlet.store")
     private File store;
 
-    @Parameter(property = "brewlet.platforms", required = true)
+    @Parameter(property = "brewlet.platforms")
     private List<String> platforms;
 
     @Parameter(property = "brewlet.launch")
@@ -54,7 +54,7 @@ public final class PushMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException {
         if (platforms == null || platforms.isEmpty() || image == null || image.isBlank()) {
-            throw new MojoExecutionException("brewlet.image and explicit brewlet.platforms are required");
+            throw new MojoExecutionException("InvalidPlatform: brewlet.image and explicit brewlet.platforms are required");
         }
         Artifact application = project.getArtifact();
         if (application == null || application.getFile() == null) {

@@ -34,3 +34,13 @@ Neither command is a real-node test. It does not establish sandbox isolation,
 admission, Kubernetes overrides, probes, runtime rotation, installation,
 startup fencing, exec parity, CRI usage/eviction or provider autoscaling.
 Those requirements remain independently tracked in the acceptance ledger.
+
+On macOS, the system may attach an unremovable `com.apple.provenance` xattr to
+inputs. The producer correctly rejects it; tests must not weaken that policy.
+To exercise packaging on Linux instead, build a Linux arm64 CLI and use
+`integration-tests/linux-cli.sh`, setting `BREWLET_TEST_BINARY` to its absolute
+path, `BREWLET_TEST_WORK_PARENT` to an invocation-owned work directory, and
+`BREWLET_TEST_IMAGE` to the locally built, pinned Python fixture image. Pass the
+same work parent to this harness. The wrapper mounts sources read-only, runs
+without capabilities or networking, and writes only under the test work parent.
+Registry integration separately opts into bridge networking.

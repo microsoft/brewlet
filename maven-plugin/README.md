@@ -6,10 +6,10 @@ array, not a shell. Descriptor, mirror, layer and platform validation are the
 same Go implementation used by the CLI and shim, not a second Java parser.
 The matching Brewlet 2 CLI must be installed explicitly.
 
-After `mvn package`, run:
+Package and publish in the same Maven invocation:
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push \
+mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main

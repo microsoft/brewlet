@@ -34,4 +34,6 @@ else:
             self.end_headers()
             self.wfile.write(body)
 
-    http.server.HTTPServer(("0.0.0.0", 8000), Handler).serve_forever()
+    server = http.server.HTTPServer(("0.0.0.0", int(os.environ.get("BREWLET_TEST_PORT", "8000"))), Handler)
+    print(json.dumps({"listening": server.server_port}), flush=True)
+    server.serve_forever()

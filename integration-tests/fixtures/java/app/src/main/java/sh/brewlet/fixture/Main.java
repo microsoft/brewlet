@@ -44,7 +44,9 @@ public final class Main {
             System.out.println(report(args));
             return;
         }
-        HttpServer server = HttpServer.create(new InetSocketAddress("0.0.0.0", 8000), 0);
+        String configuredPort = System.getenv("BREWLET_TEST_PORT");
+        int port = configuredPort == null ? 8000 : Integer.parseInt(configuredPort);
+        HttpServer server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
         server.createContext("/", exchange -> {
             byte[] body = report(args).getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -54,6 +56,7 @@ public final class Main {
             }
         });
         server.start();
+        System.out.println("{\"listening\":" + server.getAddress().getPort() + "}");
     }
 
     private Main() {}

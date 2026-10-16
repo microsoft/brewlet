@@ -36,6 +36,14 @@ class LedgerTests(unittest.TestCase):
         ]
         self.assertTrue(CHECK.validate(document))
 
+    def test_unit_proof_does_not_replace_real_node_requirement(self):
+        document = copy.deepcopy(self.document)
+        item = next(item for item in document["requirements"] if item["id"] == "RUN-08")
+        item.update(status="verified", evidence=[
+            {"command": "go test ./...", "outcome": "passed", "scope": "unit"}
+        ])
+        self.assertTrue(CHECK.validate(document))
+
 
 if __name__ == "__main__":
     unittest.main()

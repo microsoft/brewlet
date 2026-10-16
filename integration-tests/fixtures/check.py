@@ -6,12 +6,15 @@ This is host/producer integration, never a claim of node/runtime acceptance.
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import selectors
 import subprocess
 import tempfile
+import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -70,6 +73,7 @@ def build_and_probe(work):
     java_app = work / "java-app"
     java_dependencies = work / "java-dependencies"
     java_app.mkdir()
+    (java_app / "lib").mkdir()
     java_dependencies.mkdir()
     shutil.copy2(java / "app/target/fixture-java-2.0.0.jar", java_app / "app.jar")
     shutil.copy2(java / "dependency/target/greeting-2.0.0.jar",
@@ -112,6 +116,27 @@ def build_and_probe(work):
         assert report["value"] == "explicit-contract-value"
         assert report["cwd"] == str(work)
         assert report["uid"] == os.getuid() and report["gid"] == os.getgid()
+        server_environment = dict(process_environment, BREWLET_TEST_PORT="0")
+        server_command = [value for value in command if value != "--probe"]
+        server = subprocess.Popen(list(map(str, server_command)), cwd=work, env=server_environment,
+                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(server.stdout, selectors.EVENT_READ)
+                if not selector.select(timeout=30):
+                    raise AssertionError(f"{language}: HTTP server did not become ready")
+            ready = json.loads(server.stdout.readline())
+            with urllib.request.urlopen(f"http://127.0.0.1:{ready['listening']}/", timeout=10) as response:
+                served = json.loads(response.read())
+            assert served["language"] == language and served["dependency"] == "shared-contract"
+            assert served["arguments"] == ["two words"]
+        finally:
+            server.terminate()
+            try:
+                server.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.communicate(timeout=10)
         reports[language] = report
 
     return reports, {
@@ -154,12 +179,18 @@ def main():
             evidence["images"][language] = digests[0]
         run(["mvn", "-B", "-q", "-f", ROOT / "maven-plugin/pom.xml", "install"])
         run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
+             "package",
              "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push",
              f"-Dbrewlet.executable={brewlet}",
              f"-Dbrewlet.store={work / 'oci-java-maven'}",
              "-Dbrewlet.image=fixtures/java-maven:v2",
              "-Dbrewlet.platforms=linux/amd64,linux/arm64"])
         evidence["images"]["java-maven"] = image_target(work / "oci-java-maven")
+        spec = importlib.util.spec_from_file_location("maven_conformance", ROOT / "integration-tests/maven_conformance.py")
+        conformance = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(conformance)
+        evidence["mavenConformanceCases"] = conformance.run(
+            brewlet, java / "app/pom.xml", work, ROOT / "conformance/artifact-v2.json")
         evidence["scope"] = "host-fixtures-and-producer-integration"
     (work / "result.json").write_text(json.dumps(evidence, indent=2) + "\n")
     print(f"Passed ({evidence['scope']}); NOT real-node acceptance")

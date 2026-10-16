@@ -6,6 +6,13 @@ import json
 from pathlib import Path
 
 
+REAL_NODE_REQUIRED = {
+    "PROF-03", "PROF-05", "LEASE-02", "RUN-07", "RUN-08", "RUN-09",
+    "PROC-03", "E2E-02", "E2E-03", "E2E-05", "E2E-06", "E2E-07",
+    "E2E-08", "LANG-02",
+}
+
+
 def validate(document):
     requirements = document["requirements"]
     seen = set()
@@ -28,6 +35,9 @@ def validate(document):
                 errors.append(f"{identifier}: invalid evidence scope")
             if item["status"] == "verified" and evidence.get("outcome") != "passed":
                 errors.append(f"{identifier}: failed/unexecuted evidence cannot verify a requirement")
+        if item["status"] == "verified" and identifier in REAL_NODE_REQUIRED:
+            if not any(evidence.get("scope") in ("real-node", "provider") for evidence in item["evidence"]):
+                errors.append(f"{identifier}: real-node/provider evidence is mandatory")
     required_scenarios = {f"E2E-{number:02}" for number in range(1, 10)}
     if not required_scenarios <= seen:
         errors.append("missing Proposal 0009 section 13.1 acceptance scenarios")
