@@ -865,8 +865,18 @@ class Harness:
     def ready(self, name):
         obj = self.get("pod", name, self.namespace)
         require_owned(obj, self.run_id, self.owned[("pod", self.namespace, name)])
+        status = obj.get("status", {})
+        if status.get("phase") in ("Failed", "Succeeded"):
+            details = [status.get("message", "")]
+            for container in status.get("containerStatuses", []):
+                stopped = container.get("state", {}).get("terminated")
+                if stopped:
+                    details.append(f'{container["name"]}: {stopped.get("reason", "")} '
+                                   f'exit={stopped.get("exitCode")} {stopped.get("message", "")}')
+            raise Failure(f'positive application {name} became terminal {status["phase"]}: '
+                          + "; ".join(part for part in details if part))
         return obj if any(c["type"] == "Ready" and c["status"] == "True"
-                          for c in obj.get("status", {}).get("conditions", [])) else False
+                          for c in status.get("conditions", [])) else False
 
     def exec(self, name, argv, *, check=True, timeout=40):
         obj = self.get("pod", name, self.namespace)

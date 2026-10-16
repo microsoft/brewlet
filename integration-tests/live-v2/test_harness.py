@@ -66,6 +66,24 @@ class ProjectWork(unittest.TestCase):
 
 
 class SafetyTests(ProjectWork):
+    def test_positive_readiness_reports_terminal_start_error_without_timeout(self):
+        instance = self.harness()
+        instance.owned[("pod", instance.namespace, "positive")] = "pod-uid"
+        obj = owned("pod-uid")
+        obj["status"] = {"phase": "Failed", "containerStatuses": [
+            {"name": "app", "state": {"terminated": {
+                "exitCode": 128, "reason": "StartError",
+                "message": "content digest sha256:test: not found"}}}]}
+        instance.get = mock.Mock(return_value=obj)
+        with self.assertRaisesRegex(h.Failure, "StartError exit=128 content digest"):
+            instance.ready("positive")
+        obj["status"] = {"phase": "Succeeded"}
+        with self.assertRaisesRegex(h.Failure, "terminal Succeeded"):
+            instance.ready("positive")
+        obj["status"] = {"phase": "Running", "containerStatuses": [
+            {"lastState": {"terminated": {"reason": "old failure"}}}]}
+        self.assertFalse(instance.ready("positive"))
+
     def test_worker_failure_logs_are_scoped_to_owned_profile_uid(self):
         instance = self.harness()
         instance.kubeconfig.write_text("test-only configuration")

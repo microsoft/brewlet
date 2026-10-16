@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 204 passing offline tests; those
+The live-driver safeguards currently include 205 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -139,6 +139,17 @@ replacement Pod is ready and rejects reuse of the original Pod as the
 replacement. A focused regression checks distinct old/new exec targets. This
 was a test defect, not evidence that a rotated runtime failed; no vendor-update
 pass is claimed from that run.
+
+`run-complete-10` passed actual Java remote-pull startup, HTTP/dependency,
+exec/probe, identity and read-only/security assertions. Its second start of the
+same digest failed because the final launch-layer blob was absent from
+containerd after unpacking. The pinned node legitimately enables
+`discard_unpacked_layers`; disabling that policy is not an acceptable fix.
+This exposes a **production warm-cache gap**, not an override or vendor-version
+failure. Protected, digest-verified resolution caching is being implemented
+without shim registry access or weaker CRI identity checks. Positive readiness
+checks now report terminal Pod errors immediately instead of waiting ten
+minutes for a Pod that cannot become ready.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout
