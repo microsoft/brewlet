@@ -1,0 +1,215 @@
+Brewlet 2.0 control-plane verification boundaries
+Reference: fa7085335b220e29df6affbece4558c5f1259ecb
+
+Implemented production paths
+----------------------------
+API: github.com/microsoft/brewlet/kubernetes/api/v2alpha1
+RuntimeImage, NodeProfile and immutable NodeRetirementEvidence are registered,
+all cluster-scoped. There is no workload CRD or Java-specific controller.
+RuntimeImage UID is the epoch. Status includes monotonic generation, approved
+source/digest and immutable approved user/compatibility snapshots. A UID-bound
+metadata write-ahead journal survives lost/pruned status and interrupted ABA
+rotations; its allocation is CAS-written/read back before publishing status.
+Unsupported/unverifiable recovery revokes approval rather than synthesizing
+authority. Metadata/finalizer updates are CAS patches, not whole-spec rewrites.
+Omitted/empty runtime compatibility is canonicalized by the CEL schema;
+changing actual ecosystem/ABI identity is still forbidden.
+
+Shared policy: github.com/microsoft/brewlet/kubernetes/policy
+Source, Runtime, Profile, MirrorPolicy, Approved and ValidID are shared with
+workers. Source references are normalized canonical tagless SHA-256 references.
+
+Worker authority: github.com/microsoft/brewlet/pkg/control
+Check(ctx, uncachedReader, Authority) returns Snapshot{Node,Profile,Spec,Target}.
+Authority contains NodeName/UID, ProfileName/UID, Generation, immutable
+TargetUIDs, Mode=provisioning|cleanup. Check requires the fresh Node claim and
+durable matching profile ledger. Check never grants cleanup from a name alone.
+Withdraw uses worker authority. WithdrawAdvertisement is controller-only
+scheduling revocation that remains possible after invalidating spec edits.
+Both use resourceVersion CAS and fresh UID/claim checks; provider Forbidden or
+Invalid label refusal may fall back to a startup taint only after readback.
+ReleaseClaim requires a durable Teardown checkpoint, no DaemonSets or Pods,
+no remaining capabilities/inventory, and a fresh resourceVersion CAS.
+StartupFenced confirms the exact key/value=provisioning/NoSchedule fence;
+HasStartupTaint conservatively detects any same-key NoSchedule observation.
+Fallback normalizes a nonstandard taint value before confirming scheduling safety.
+
+Workers use /brewlet-node and literal BREWLET_PROFILE_NAME,
+BREWLET_PROFILE_UID, BREWLET_PROFILE_GENERATION, BREWLET_TARGET_UIDS (JSON UID
+array), BREWLET_MODE, BREWLET_PROFILE_SPEC, SOURCE_ALLOWED_MIRROR_HOSTS (JSON
+array), and NODE_NAME from spec.nodeName. Worker freezes the actual Node UID
+after checking the immutable target set. Host mounts are / -> /host,
+/var/lib/containerd -> /var/lib/containerd, /run/containerd -> /run/containerd.
+The worker has hostPID/hostNetwork and explicit profile tolerations only.
+Cleanup completion marker is brewlet.sh/cleanup-complete=<profileUID>/<generation>.
+Its readiness probe executes /brewlet-node --health-check, observing the genuine
+pod-local /run/brewlet/ready completion gate maintained by the node worker.
+
+Managers: kubernetes/cmd/operator and kubernetes/cmd/admission.
+Operator supports --cleanup-coordinator with bounded exact-release uninstall.
+Helm chart supplies TLS, admission, namespace-scoped worker mutation RBAC,
+read-only global worker inventory, node-worker RBAC, pre-delete coordinator,
+retained RuntimeClass and CRDs. Restart workload mutation RBAC is absent by
+default, enabled only with operator.rotationRestarts.enabled. Root workload
+opt-in is independently required. A separate kube-system election lease
+serializes restart engines cluster-wide without changing the manager's existing
+component-namespace lease during a rolling feature enablement. Cancellation of
+global leadership cancels in-flight restart API operations.
+
+Normal approval persists status.revocationTargets BEFORE node authorization,
+with Node/profile UIDs, policy generation, physical identity, and the exact
+generation/digest grant ceiling. This ledger survives removal of an entry from
+a profile while old tasks still retain leases. Reauthorization reopens the
+obligation; the node worker clears a stale positive receipt before minting it.
+Profile teardown/receipt consumption cannot discard historical authority until
+the inventory's independent resolution is durably observed.
+Inventory deletion consumes the
+node workstream's pkg/node.RevocationReceipt directly, never a parallel format.
+Exact epoch/known-generation/digest/Node/profile/current-authority checks, RootsCleaned,
+atomic-revocation timestamp, confirmed scheduling withdrawal/fence and separate
+completion readback precede finalizer release. Missing/replaced original Nodes
+need retained resolved external evidence, not absence or expiry alone.
+A proven retired target keeps its last-granted ceiling when the image rotates
+elsewhere; cleanup never replays outside frozen Teardown authority just to
+acknowledge a newer, never-authorized generation.
+
+Missing-host retirement copies each frozen obligation before removing active
+membership, after old workers terminate. Administrative immutable evidence then
+uses four separate checkpoints: retained finalizer, accepted external disposition
+and cleanup snapshot, UID-bound receipt in the profile, resolved evidence.
+Only then is the detached obligation consumed. Resolved evidence survives the
+profile with no owner references. Node UID/providerID/systemUUID conflicts are
+fenced without adopting claims, including the pre-detachment race window.
+Old/unbounded workers, original still-present Nodes, legacy identities without
+explicit mappings, foreign/recreated receipts and pruned snapshots block release.
+
+Profile status reports assignedNodes/readyNodes, EmptyPool, AllNodesProvisioned,
+NodeFailure and independent RetirementPending. Owned-node state is mirrored with
+fresh fences and Provisioning/NodeReady/ProvisionFailed events. Optional
+metrics.enabled exposes controller rotation/restart/profile gauges and enables
+the genuine node metrics endpoint; collection errors fail scrapes explicitly.
+
+Verification performed here
+--------------------------
+PASS: go test -race ./kubernetes/... ./pkg/control/...
+      119 passing test cases/subtests across 5 test packages; zero failures.
+PASS: helm lint kubernetes/charts/brewlet
+PASS: helm template brewlet kubernetes/charts/brewlet --namespace brewlet-system --include-crds
+PASS: GOOS=linux GOARCH=arm64 go build ./kubernetes/cmd/operator
+PASS: GOOS=linux GOARCH=arm64 go build ./kubernetes/cmd/admission
+PASS: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build (both manager binaries)
+CRDs are validated using Kubernetes apiextensions validation, including CEL
+immutability rules, and tested byte-identical between deploy and chart.
+Chart tests verify no default cluster workload mutation RBAC, explicit restart
+opt-in RBAC/flags, and rejection of fractional/out-of-range uninstall timeouts.
+These contract tests use fake APIs and actual Kubernetes schema/CEL validators.
+Private-cluster integration and genuine host execution results belong to the
+parent's independently maintained evidence. Fake tests are NOT real-node proof.
+
+Acceptance-ledger mapping (do not promote cross-component IDs to full success)
+----------------------------------------------------------------------------
+Control-only behavior covered completely by unit/API-policy tests:
+INV-01, INV-02, ADM-01, ADM-02, ADM-03, ADM-04, FENCE-02.
+Tests: policy TestIDAndSource, TestImmutableUserAndCompatibility,
+TestProfilePolicy; admission TestZeroNodeAndAllContainers,
+TestSecurityAndSelectionDenials, TestAffinityConjunctionAndEmptySelectors,
+TestIneligibleProfileAndStartupFencedWarmNode,
+TestDeletingAndConflictingProfilesDoNotOfferCapacity.
+TestPodInventoryOutageWarnsWithoutUnsafePartialMutation preserves retained
+fail-open pod transport semantics with an explicit warning and no partial
+defaults; controller/worker mutations remain fail-closed and local Create still
+requires trusted authorization, identity and barrier checks.
+
+API/controller portions verified; distributed/real-node portions remain partial:
+INV-03: TestMonotonicGenerationsAndRestartRecovery (durable status readback),
+TestAllocationJournalSurvivesPrunedStatusAndInterruptedABA,
+TestMissingAllocationJournalFailsClosed.
+INV-04/ROT-07: admission rejects wrong epochs/malformed barriers; no shim proof.
+PROF-01/02: duplicate/mode/TTL/pool/mirror/restart/toleration validation.
+SEC-01/02/03, PROC-01: all container kinds, independent UID/GID precedence,
+non-root/no escalation/drop ALL and PATH warning; shim enforcement separate.
+FENCE-01: TestFreshTemplatedNodeClaimsCheckpointBeforeWorker.
+FENCE-03/E2E-06/E2E-07: actual fake API admission interceptors refuse label
+removal, taint writes, or drop accepted taints; readback prevents false success.
+ROT-02/03/04: installed retry remains participant, cold IDs do not participate,
+excluded Node UIDs/reasons, once-per-target timestamps, restarted deadline
+tracking, stalled quarantine only after confirmed withdrawal. Tests:
+TestRotationInstalledRetryParticipantAndConfirmedExclusion,
+TestRotationBothFencesFailBlocksCompletion,
+TestStalledRotationQuarantineOnlyAfterConfirmedWithdrawal.
+OWN-01/02: durable claim/retirement checkpoints, prune-readback detection,
+stop/join before cleanup/claim release, missing/reused UID and CAS conflict
+guards. Tests: profile_test.go; control authority_test.go and release_test.go.
+OWN-04: exact release ownership, global workers, UID/resourceVersion deletion,
+bounded wait without stripping finalizers. Tests: uninstall_test.go.
+INV-05: revocation_test.go exercises exact genuine receipt-format consumption,
+durable target/completion ordering, stale epoch/Node/profile/generation rejection,
+leased/incomplete root rejection, confirmed pinned-label fallback, both-write
+failure, and missing-Node external disposition. Actual lease/mount/root proof is
+produced and verified by the node workstream, not inferred in these fake tests.
+OWN-03: evidence_test.go, profile_safety_test.go and policy/evidence_test.go
+exercise copy-before-removal, independent accepted/receipt/resolved checkpoints,
+immutable/no-owner evidence, original-present and identity mismatch denial,
+legacy mapping requirement, bounded-worker coexistence, pruned-checkpoint
+failure, recreated evidence refusal and foreign returning-host quarantine.
+ROT-06/08/09/10: restarts_test.go and restarts_strategy_test.go cover old-running
+Pod selection with UID-owned ReplicaSet hops, no new/foreign-Pod selection,
+idempotent UID/epoch/generation patches, explicit old-epoch acknowledgement,
+global slots and restart recovery, native/custom deadlines, cold/excluded-Pod
+UID/node/minimum-generation diagnostics, eventual recovery without repatching,
+OnDelete NotApplicable, paused/partitioned Deferred, and no Pod deletion or
+strategy mutation. New targets supersede older pending/rolling intents.
+OBS-02/04: observability_test.go covers outcome/profile metrics, explicit scrape
+failure on fresh API error, owned-node state/counts and startup-fence precedence.
+task_observations_test.go verifies durable exact older-task/lease tuples from
+pkg/node.BindingObservation, retaining tuples after missing/incomplete/foreign
+reports and clearing only after a newer complete same-UID observation or
+independent genuine retirement resolution. Observations never authorize cleanup.
+Known outstanding tuples for recorded owned Pod UIDs defer completion despite
+native rollout availability; no template patch is treated as runtime replacement.
+transition_test.go evaluates the actual CEL transition validator for omitted
+compatibility -> typed/finalizer update -> omitted normalization, preserving
+real identity immutability.
+rotation_conditions_test.go verifies explicit RotationProgressing and
+RotationComplete condition types, paired transitions, exact UID/target/digest
+messages, new-target reset and both-false revocation; a reason string is not
+substituted for the normative condition type.
+unknown_inventory_test.go (controller and admission) verifies that a sibling
+unknown ID retains Ready=False/UnknownRuntimeImage without withholding valid
+worker configuration, admission or approved-Eager-only baseline observation.
+Unknown Eager does not become an installable readiness requirement; approved
+Eager still does. An unverified API lookup error is not silently treated as an
+unknown inventory entry.
+TestProducedPreAuthorizationStatusConformsToRealCRDSchema validates the actual
+controller-produced target payload and rejects the former missing generation/
+digest payload (which fake clients alone would accept).
+epoch_obligations_test.go covers normal pre-authorization ledger publication,
+profile-entry removal with outstanding leases, same-ID reauthorization without
+stale receipt inheritance, independent inventory resolution before profile
+claim teardown, later global rotations after frozen cleanup, and missing UID
+rotation diagnostics.
+E2E-01/E2E-04 are verified only at the API/affinity level.
+SCHED-01: preserves author's architecture selectors; no scheduling proof.
+ARCH-01/RC-01/ROT-01: no workload CRD, one RuntimeClass, no default restart RBAC;
+the rest of these cross-component behaviors require integration review.
+
+Boundaries / remaining integration evidence (not success claims)
+---------------------------------------------------------------
+1. Actual host activation, authorization/root receipts, mount/lease inspection,
+   recovery, collection, task execution and node metrics are node-workstream
+   production paths. This controller trusts genuine fenced worker receipts;
+   fake API tests cannot establish real host cleanup or task drain.
+2. Arbitrary nonstandard containerd root/state paths are not modeled by the
+   worker template, which explicitly mounts /var/lib/containerd and
+   /run/containerd. Unsupported host layouts must fail worker validation.
+3. Real scheduling behind provider-pinned labels, all-ID recovery, on-demand pin
+   refusal, generation barriers, StatefulSet storage/partition behavior and
+   actual lease preservation require the parent's isolated-cluster validation.
+   No API/controller test is presented as runc/provider scale-from-zero proof.
+4. Controller observations identify workload/Pod blockers; actual running-task
+   epoch/generation comes from genuine node bindings/events/metrics, never from
+   inferred Pod start time or an assumed successful template patch.
+5. Automatic autoscaler scale-in/consolidation coordination is deliberately not
+   supplied by the retained contract. Planned shrink must finish fenced
+   cleanup/teardown before deleting the original Node/VM, or retain an explicit
+   external-retirement obligation and administrative disposition.

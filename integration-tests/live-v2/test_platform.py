@@ -97,5 +97,66 @@ class WebhookReadinessTests(unittest.TestCase):
                 instance.wait_inventory_admission("registry.test/runtime@sha256:" + "a" * 64)
             self.assertEqual(1, instance.kubectl.call_count)
 
+
+class RealStartEvidenceTests(unittest.TestCase):
+    def test_assigned_container_id_with_epoch_start_error_is_not_execution(self):
+        self.assertFalse(harness.application_started({
+            "containerID": "containerd://allocated-before-start",
+            "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+            "lastState": {"terminated": {"reason": "StartError",
+                                        "startedAt": "1970-01-01T00:00:00Z"}},
+        }))
+
+    def test_running_or_real_start_time_cannot_pass_negative_start_test(self):
+        for status in (
+            {"state": {"running": {}}},
+            {"started": True},
+            {"lastState": {"terminated": {"startedAt": "2026-10-16T16:00:00Z"}}},
+        ):
+            self.assertTrue(harness.application_started(status))
+
+
+class WebhookDiscoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.instance = harness.Harness.__new__(harness.Harness)
+        self.instance.cluster = "brewlet-v2-0123456789ab"
+        self.instance.control_namespace = self.instance.cluster + "-system"
+        self.instance.namespace = self.instance.cluster
+        self.webhook = {
+            "metadata": {"name": "brewlet-pods", "uid": "owned-webhook-uid", "resourceVersion": "1",
+                         "annotations": {"meta.helm.sh/release-name": self.instance.cluster,
+                                         "meta.helm.sh/release-namespace": self.instance.control_namespace},
+                         "labels": {"app.kubernetes.io/managed-by": "Helm"}},
+            "webhooks": [{"clientConfig": {"service": {
+                "namespace": self.instance.control_namespace, "path": "/mutate-pods"}},
+                "namespaceSelector": {"matchLabels": {"existing": "preserved"}}}],
+        }
+        self.instance.get = Mock(return_value={"items": [self.webhook]})
+        self.instance.kubectl = Mock()
+
+    def test_actual_chart_name_is_discovered_and_existing_selector_preserved(self):
+        self.instance.bypass_admission()
+        value = json.loads(self.instance.kubectl.call_args.kwargs["input"])
+        self.assertEqual("brewlet-pods", value["metadata"]["name"])
+        self.assertEqual({"existing": "preserved"}, value["webhooks"][0]["namespaceSelector"]["matchLabels"])
+        self.assertEqual([self.instance.namespace],
+                         value["webhooks"][0]["namespaceSelector"]["matchExpressions"][-1]["values"])
+
+    def test_foreign_release_or_replaced_webhook_cannot_be_patched(self):
+        self.webhook["metadata"]["annotations"]["meta.helm.sh/release-namespace"] = "foreign"
+        with self.assertRaises(harness.Failure):
+            self.instance.bypass_admission()
+        self.instance.kubectl.assert_not_called()
+
+    def test_restore_refuses_recreated_name(self):
+        self.instance.bypass_admission()
+        self.instance.get = Mock(return_value={
+            "metadata": {"name": "brewlet-pods", "uid": "replacement"},
+        })
+        self.instance.kubectl.reset_mock()
+        with self.assertRaises(harness.Failure):
+            self.instance.restore_admission()
+        self.instance.kubectl.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()

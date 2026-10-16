@@ -150,9 +150,11 @@ This is not yet a complete node-runtime acceptance implementation:
 * The complete four-language rotation/revocation/recovery/cleanup matrix and
   telemetry scraping remain acceptance work. Application metadata/packed
   layers must remain available in containerd's content store; cache reuse does
-  not reconstruct missing launch/config blobs. CRI filesystem usage and eviction
-  conformance remain unverified until the live suite proves them; reusing
-  managed upper/work paths alone is not accounting evidence.
+  not reconstruct missing launch/config blobs. A focused native-arm64 run
+  verified actual CRI writable-layer growth and kubelet ephemeral-storage
+  eviction, without an `emptyDir` proxy or kubelet configuration changes; see
+  [the exact component-image evidence](../acceptance/results/cri-accounting.json).
+  This is not a passing complete four-language rotation/cleanup suite.
 
 Portable validation is `go test -race ./pkg/node ./provisioner`.
 Linux builds must cover both `linux/amd64` and `linux/arm64`. Shim RPC tests are

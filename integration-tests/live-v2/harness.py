@@ -131,6 +131,19 @@ def startup_taint_evidence(node, pod, events):
                  or "untolerated taint" in event.get("message", "").lower())]
 
 
+def application_started(status):
+    if status.get("started") is True:
+        return True
+    for state in (status.get("state", {}), status.get("lastState", {})):
+        if "running" in state:
+            return True
+        if "terminated" in state:
+            timestamp = state["terminated"].get("startedAt")
+            if timestamp and timestamp not in ("0001-01-01T00:00:00Z", "1970-01-01T00:00:00Z"):
+                return True
+    return False
+
+
 def failure_class(phase, message):
     setup_network = ("connection reset", "no such host", "tls handshake timeout",
                      "network is unreachable", "failed to resolve", "i/o timeout",
@@ -950,7 +963,7 @@ class Harness:
             obj = self.get("pod", name, self.namespace)
             require_owned(obj, self.run_id, self.owned[("pod", self.namespace, name)])
             for status in obj.get("status", {}).get("containerStatuses", []):
-                require(not status.get("containerID") and "running" not in status.get("state", {}),
+                require(not application_started(status),
                         "unauthorized/below-barrier application actually started")
             events = self.get("events", namespace=self.namespace)["items"]
             text = "\n".join(e.get("message", "") for e in events
@@ -964,19 +977,28 @@ class Harness:
 
     def bypass_admission(self):
         # Only the invocation namespace bypasses the invocation chart's webhook.
-        name = self.cluster + "-pods"
-        webhook = self.get("mutatingwebhookconfiguration", name)
-        require(webhook["metadata"].get("annotations", {}).get("meta.helm.sh/release-name") == self.cluster,
-                "refusing to patch a webhook not owned by the private release")
+        configurations = self.get("mutatingwebhookconfigurations")["items"]
+        candidates = [item for item in configurations
+                      if item["metadata"].get("annotations", {}).get("meta.helm.sh/release-name") == self.cluster
+                      and item["metadata"].get("annotations", {}).get("meta.helm.sh/release-namespace") == self.control_namespace
+                      and item["metadata"].get("labels", {}).get("app.kubernetes.io/managed-by") == "Helm"
+                      and any(hook.get("clientConfig", {}).get("service", {}).get("namespace") == self.control_namespace
+                              and hook.get("clientConfig", {}).get("service", {}).get("path") == "/mutate-pods"
+                              for hook in item.get("webhooks", []))]
+        require(len(candidates) == 1, "exact private-release pod webhook could not be identified")
+        webhook = candidates[0]
         self.original_pod_webhook = copy.deepcopy(webhook)
         for hook in webhook["webhooks"]:
-            hook["namespaceSelector"] = {"matchExpressions": [
-                {"key": "kubernetes.io/metadata.name", "operator": "NotIn",
-                 "values": [self.namespace]}]}
+            if hook.get("clientConfig", {}).get("service", {}).get("path") == "/mutate-pods":
+                hook.setdefault("namespaceSelector", {}).setdefault("matchExpressions", []).append(
+                    {"key": "kubernetes.io/metadata.name", "operator": "NotIn",
+                     "values": [self.namespace]})
         self.kubectl("replace", "-f", "-", input=json.dumps(webhook))
 
     def restore_admission(self):
-        obj = self.get("mutatingwebhookconfiguration", self.cluster + "-pods")
+        obj = self.get("mutatingwebhookconfiguration", self.original_pod_webhook["metadata"]["name"])
+        require(obj["metadata"]["uid"] == self.original_pod_webhook["metadata"]["uid"],
+                "private pod webhook was replaced; refusing restoration")
         obj["webhooks"] = self.original_pod_webhook["webhooks"]
         self.kubectl("replace", "-f", "-", input=json.dumps(obj))
 
