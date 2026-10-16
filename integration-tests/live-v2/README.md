@@ -28,6 +28,11 @@ This runs privileged real provisioning and restarts **its private kind node's**
 containerd. It requires network access to the pinned upstream images and build
 dependencies. An unreachable registry or missing tool is a failure, never a
 skip.
+The fresh kind configuration explicitly enables CRI's trusted-host
+`config_path=/etc/containerd/certs.d` before the node starts. Delivery then
+installs only invocation-owned CA/host credentials there and creates a
+workload-controlled pull secret. This is a test-platform prerequisite, not a
+modification of a shared node or proof that an image has been pulled.
 
 On macOS the CLI is cross-built for the engine's explicit Linux platform and
 runs in the pinned Python fixture userland, with read-only sources and a

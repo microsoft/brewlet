@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tomllib
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -65,6 +66,22 @@ class ProjectWork(unittest.TestCase):
 
 
 class SafetyTests(ProjectWork):
+    def test_fresh_kind_node_explicitly_enables_cri_trusted_registry_hosts(self):
+        instance = self.harness()
+        def run(command, **kwargs):
+            if command[:3] == ["kind", "create", "cluster"]:
+                raise h.Failure("stop before creating a real cluster")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        instance.run = mock.Mock(side_effect=run)
+        with self.assertRaisesRegex(h.Failure, "stop before creating"):
+            instance.provision_cluster()
+        config = json.loads((self.work / "kind.json").read_text())
+        self.assertEqual(config["nodes"], [{"role": "control-plane", "image": h.NODE_IMAGE}])
+        patch = tomllib.loads(config["containerdConfigPatches"][0])
+        self.assertEqual(patch["plugins"]["io.containerd.grpc.v1.cri"]["registry"]["config_path"],
+                         "/etc/containerd/certs.d")
+        self.assertNotIn("skip_verify", config["containerdConfigPatches"][0])
+
     def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
         instance = self.harness()
         result = instance.run([sys.executable, "-c",

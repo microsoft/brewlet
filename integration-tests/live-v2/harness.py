@@ -443,7 +443,10 @@ class Harness:
     def provision_cluster(self):
         # Never use kind's default kubeconfig path, even while creating the cluster.
         config = {"kind": "Cluster", "apiVersion": "kind.x-k8s.io/v1alpha4",
-                  "nodes": [{"role": "control-plane", "image": NODE_IMAGE}]}
+                  "nodes": [{"role": "control-plane", "image": NODE_IMAGE}],
+                  "containerdConfigPatches": [
+                      '[plugins."io.containerd.grpc.v1.cri".registry]\n'
+                      '  config_path = "/etc/containerd/certs.d"\n']}
         config_path = self.work / "kind.json"
         config_path.write_text(json.dumps(config))
         existing = self.run(["kind", "get", "clusters"]).stdout.splitlines()

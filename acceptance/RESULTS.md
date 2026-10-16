@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 198 passing offline tests; those
+The live-driver safeguards currently include 199 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -110,6 +110,15 @@ with regression tests and retained redacted registry diagnostics. A fresh
 owned-registry probe then passed strict X.509/SAN verification, anonymous HTTP
 401 and authenticated HTTP 200; no TLS checks were disabled. Expanded node
 acceptance must still be rerun.
+
+`run-complete-07`, from `13d9b752af439546c863c71ab2761dc1cab62490`,
+passed that TLS/auth startup boundary but also failed before installation:
+the pinned kind node does not enable CRI's registry host directory by default.
+The fresh-cluster configuration now explicitly sets that prerequisite before
+node startup. A separate real-node setup probe passed effective containerd
+configuration readback, strict TLS registry readiness and UID-recorded
+workload pull-secret creation, then destroyed its owned cluster and registries.
+This is prerequisite proof, **not kubelet/runtime pull or lifecycle proof**.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout
