@@ -8,6 +8,9 @@ operator:
 provisioner:
   image: brewlet-node:2.0
   profiles: []
+  gc:
+    grace: 1h
+    sweepInterval: 1m
 security:
   allowedSourceMirrorHosts: []
 admission:

@@ -34,6 +34,8 @@ type ProfileReconciler struct {
 	WorkerImage        string
 	AllowedMirrorHosts []string
 	NodeMetricsAddress string
+	GCGrace            time.Duration
+	GCSweepInterval    time.Duration
 	Recorder           record.EventRecorder
 }
 
@@ -566,6 +568,16 @@ func (r *ProfileReconciler) ensureWorker(ctx context.Context, p *api.NodeProfile
 	}
 	b, _ := json.Marshal(uids)
 	profileJSON, _ := json.Marshal(spec)
+	grace, sweep := r.GCGrace, r.GCSweepInterval
+	if grace == 0 {
+		grace = time.Hour
+	}
+	if sweep == 0 {
+		sweep = time.Minute
+	}
+	if grace <= 0 || sweep <= 0 {
+		return fmt.Errorf("GC grace and sweep interval must be positive")
+	}
 	allowed, _ := json.Marshal(r.AllowedMirrorHosts)
 	labels := map[string]string{api.OwnerUID: string(p.UID), "app.kubernetes.io/name": "brewlet-worker", "brewlet.sh/mode": mode}
 	ds := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: prefix + p.Name, Namespace: r.Namespace, Labels: labels}}
@@ -603,6 +615,8 @@ func (r *ProfileReconciler) ensureWorker(ctx context.Context, p *api.NodeProfile
 						{Name: "BREWLET_MODE", Value: mode},
 						{Name: "BREWLET_PROFILE_SPEC", Value: string(profileJSON)},
 						{Name: "SOURCE_ALLOWED_MIRROR_HOSTS", Value: string(allowed)},
+						{Name: "BREWLET_GC_GRACE", Value: grace.String()},
+						{Name: "BREWLET_GC_SWEEP_INTERVAL", Value: sweep.String()},
 					},
 					VolumeMounts: []corev1.VolumeMount{{
 						Name: "host", MountPath: "/host",

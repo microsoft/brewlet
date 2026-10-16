@@ -33,6 +33,7 @@ func main() {
 	var nodeDeadline time.Duration
 	var maxConcurrent int
 	var workloadDeadline time.Duration
+	var gcGrace, gcSweep time.Duration
 	flag.StringVar(&namespace, "namespace", "brewlet-system", "namespace for managed workers")
 	flag.StringVar(&image, "worker-image", "brewlet-node:2.0", "node worker image")
 	flag.StringVar(&hosts, "allowed-source-mirror-hosts", "", "comma-separated exact mirror hosts")
@@ -47,7 +48,13 @@ func main() {
 	flag.StringVar(&release, "release-name", "", "Helm release name for uninstall")
 	flag.IntVar(&timeout, "uninstall-timeout-seconds", 240, "bounded cleanup coordinator timeout (1-86400)")
 	flag.DurationVar(&nodeDeadline, "node-progress-deadline", 10*time.Minute, "rotation node progress deadline before confirmed quarantine")
+	flag.DurationVar(&gcGrace, "gc-grace", time.Hour, "node unleased runtime generation collection grace")
+	flag.DurationVar(&gcSweep, "gc-sweep-interval", time.Minute, "node runtime/cache collection sweep interval")
 	flag.Parse()
+	if gcGrace <= 0 || gcSweep <= 0 {
+		fmt.Fprintln(os.Stderr, "gc-grace and gc-sweep-interval must be positive")
+		os.Exit(1)
+	}
 	if nodeMetrics != "" {
 		_, port, err := net.SplitHostPort(nodeMetrics)
 		n, parseErr := strconv.Atoi(port)
@@ -89,7 +96,7 @@ func main() {
 	if metricsAddr != "0" {
 		metricregistry.Registry.MustRegister(controller.NewRuntimeMetrics(m.GetAPIReader()))
 	}
-	must((&controller.ProfileReconciler{Client: m.GetClient(), Reader: m.GetAPIReader(), Namespace: namespace, WorkerImage: image, AllowedMirrorHosts: allowed, Recorder: m.GetEventRecorderFor("brewlet-nodeprofile"), NodeMetricsAddress: nodeMetrics}).SetupWithManager(m))
+	must((&controller.ProfileReconciler{Client: m.GetClient(), Reader: m.GetAPIReader(), Namespace: namespace, WorkerImage: image, AllowedMirrorHosts: allowed, Recorder: m.GetEventRecorderFor("brewlet-nodeprofile"), NodeMetricsAddress: nodeMetrics, GCGrace: gcGrace, GCSweepInterval: gcSweep}).SetupWithManager(m))
 	runtimeReconciler := &controller.RuntimeReconciler{Client: m.GetClient(), Reader: m.GetAPIReader(), NodeProgressDeadline: nodeDeadline, AllowedMirrorHosts: allowed}
 	if restarts {
 		global := &controller.RestartLeadership{Config: m.GetConfig()}

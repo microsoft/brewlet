@@ -144,6 +144,8 @@ spec:
             - --worker-image={{ .Values.provisioner.image }}
             - --allowed-source-mirror-hosts={{ join "," .Values.security.allowedSourceMirrorHosts }}
             - --node-progress-deadline={{ .Values.operator.rotationRestarts.nodeProgressDeadline }}
+            - --gc-grace={{ .Values.provisioner.gc.grace }}
+            - --gc-sweep-interval={{ .Values.provisioner.gc.sweepInterval }}
 {{- if .Values.metrics.enabled }}
             - --metrics-bind-address=:8080
             - --node-metrics-address=:{{ .Values.metrics.nodePort }}
