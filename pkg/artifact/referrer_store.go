@@ -31,7 +31,7 @@ func readReferrerIndex(file string) ([]v1.Descriptor, error) {
 	if e = StrictJSON(b, &index); e != nil {
 		return nil, e
 	}
-	if index.SchemaVersion != 2 || index.MediaType != v1.MediaTypeImageIndex {
+	if index.SchemaVersion != 2 || index.MediaType != "" && index.MediaType != v1.MediaTypeImageIndex {
 		return nil, fmt.Errorf("invalid referrer index")
 	}
 	return index.Manifests, nil

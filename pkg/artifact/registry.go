@@ -93,6 +93,13 @@ func NewRegistry(ref string, insecure bool) (*Registry, error) {
 		}
 		return nil
 	}}
+	transport, e := registryTransportFromEnvironment()
+	if e != nil {
+		return nil, e
+	}
+	if transport != nil {
+		r.Client.Transport = transport
+	}
 	return r, nil
 }
 func (r *Registry) sameOrigin(u *url.URL) bool {

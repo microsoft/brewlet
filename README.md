@@ -21,6 +21,20 @@ No language detection, default runtime selection, JVM flag injection,
 Java project intelligence belongs only to the optional
 [Maven producer](maven-plugin/README.md).
 
+## Publishing existing OCI images
+
+`brewlet imagepush REGISTRY/REPOSITORY:TAG --store OCI_LAYOUT` publishes an
+existing OCI graph without changing its bytes or digests. Use `--source` to
+select a local reference or SHA-256 digest when the layout has multiple roots.
+This transport command verifies blob identities, not Brewlet launch or layer
+policy; consumers still validate the artifact. Use `brewlet push` to build and
+validate Brewlet application artifacts.
+
+Registry clients honor `SSL_CERT_FILE` for an additional trusted CA and
+origin-bound `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD` credentials.
+Use `--registry-scheme https` for a TLS-enabled loopback registry. TLS verification
+remains enabled; `--insecure` explicitly selects HTTP instead.
+
 ## Build and validation
 
 ```sh

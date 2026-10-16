@@ -24,7 +24,7 @@ func main() {
 }
 func run(ctx context.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: brewlet push|inspect|layer-set|index REF [options]")
+		return fmt.Errorf("usage: brewlet push|imagepush|inspect|layer-set|index REF [options]")
 	}
 	if args[0] == "conformance" {
 		if len(args) != 2 {
@@ -64,9 +64,11 @@ func run(ctx context.Context, args []string) error {
 	fs.Var(&manifests, "manifest", "explicit OCI manifest descriptor JSON file (index only)")
 	fs.Var(&trustKeys, "trust-key", "SPKI public PEM trusted for layer-set provenance (repeatable)")
 	storeDir := fs.String("store", "", "local OCI layout destination/source; omit to publish remotely")
+	sourceRef := fs.String("source", "", "local root reference or sha256 digest (imagepush only; default unique root)")
 	launchFile := fs.String("launch", "", "author-written launch.json")
 	resultFile := fs.String("push-result", "", "write JSON {reference,digest,mediaType,size}")
 	insecure := fs.Bool("insecure", false, "explicitly permit HTTP to this registry")
+	registryScheme := fs.String("registry-scheme", "", "explicit https, including loopback TLS registries")
 	configFile := fs.String("config", "", "layer set config JSON")
 	lockFile := fs.String("lock", "", "optional layer set lock JSON")
 	sbomFile := fs.String("sbom", "", "explicit CycloneDX 1.5 inventory; otherwise generated from lock/files")
@@ -87,6 +89,21 @@ func run(ctx context.Context, args []string) error {
 	}
 	if command != "layer-set" && (*signingKey != "" || *builderIdentity != "" || *sbomFile != "") {
 		return fmt.Errorf("--signing-key, --builder-identity and --sbom are layer-set publication options")
+	}
+	if command == "imagepush" && *storeDir == "" {
+		return fmt.Errorf("imagepush requires --store OCI_LAYOUT")
+	}
+	if command == "imagepush" && (len(platforms) > 0 || len(layers) > 0 || len(sets) > 0 || len(manifests) > 0 || *launchFile != "" || *configFile != "" || *lockFile != "" || len(trustKeys) > 0 || *signerIdentity != "" || *requireProvenance) {
+		return fmt.Errorf("imagepush verifies and copies OCI bytes only; build and Brewlet trust options do not apply")
+	}
+	if command != "imagepush" && *sourceRef != "" {
+		return fmt.Errorf("--source is an imagepush option")
+	}
+	if *registryScheme != "" && *registryScheme != "https" {
+		return fmt.Errorf("--registry-scheme supports https; use --insecure to explicitly permit HTTP")
+	}
+	if *registryScheme == "https" && *insecure {
+		return fmt.Errorf("--registry-scheme https conflicts with --insecure")
 	}
 	dir := *storeDir
 	if dir == "" && command == "inspect" {
@@ -136,11 +153,19 @@ func run(ctx context.Context, args []string) error {
 		}
 		r.Username = os.Getenv("BREWLET_REGISTRY_USERNAME")
 		r.Password = os.Getenv("BREWLET_REGISTRY_PASSWORD")
+		if *registryScheme == "https" {
+			r.Origin.Scheme = "https"
+		}
 		return r, nil
 	}
 	var target v1.Descriptor
 	var err error
 	switch command {
+	case "imagepush":
+		target, err = store.Target(*sourceRef)
+		if err == nil {
+			err = artifact.VerifyGraph(ctx, store, target)
+		}
 	case "push", "layer-set":
 		var specs []artifact.LayerSpec
 		for _, raw := range layers {
@@ -372,7 +397,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *storeDir != "" {
+	if *storeDir != "" && command != "imagepush" {
 		if err = store.WriteIndex(target, ref); err != nil {
 			return err
 		}

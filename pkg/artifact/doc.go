@@ -31,4 +31,9 @@
 // expected signer identity; at least one complete candidate must validate.
 // Referrers are discovered through OCI layout indexes, the paginated registry
 // Referrers API, or paginated deterministic per-referrer digest tags.
+//
+// VerifyGraph and the imagepush CLI command are byte-preserving OCI transport,
+// not Brewlet semantic validators. They can publish ordinary approved-runtime
+// inputs and negative conformance fixtures. Normal push still validates the
+// launch and layers, and runtime consumers independently enforce the contract.
 package artifact
