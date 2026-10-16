@@ -1,0 +1,114 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+name: Deploy website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/**"
+      - "LICENSE.txt"
+      - ".github/workflows/site-pages.yml"
+  workflow_dispatch:
+    inputs:
+      skip_release_smoke:
+        description: Skip validation of public release artifacts
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  site-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.x"
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Check examples without public downloads or a cluster
+        run: make site-contract-check
+
+  release-smoke:
+    # The installer, the release downloads, and the chart pull are all
+    # unauthenticated, so this job can only pass once brewlet is public. The
+    # deploy job below already treats a skipped smoke test as non-blocking.
+    if: >-
+      ${{ github.event.repository.visibility == 'public'
+      && (github.event_name != 'workflow_dispatch' || !inputs.skip_release_smoke) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Verify installer, public release, and Getting Started
+        # GitHub CLI uses this for attestations, not artifact downloads or
+        # registry pulls; the smoke script isolates saved registry credentials.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./site/scripts/verify-release-artifacts.sh
+
+  deploy:
+    needs: [release-smoke, site-contracts]
+    if: ${{ always() && needs.site-contracts.result == 'success' && (needs.release-smoke.result == 'success' || needs.release-smoke.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.x"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: site/notices/package-lock.json
+      - name: Build docs site
+        run: |
+          python -m pip install --upgrade pip
+          pip install --quiet -r site/requirements.txt
+          npm ci --ignore-scripts --prefix site/notices
+          python site/scripts/generate-notice.py
+          git diff --exit-code -- site/NOTICE.txt
+          python -m mkdocs build --strict -f site/mkdocs.yml
+          rm -rf site/_site/docs/assets/javascripts/lunr
+          test ! -e site/_site/docs/assets/javascripts/lunr
+          grep -Eq '"lang"[[:space:]]*:[[:space:]]*\[[[:space:]]*"en"[[:space:]]*\]' \
+            site/_site/docs/search/search_index.json
+      - name: Assemble publish directory
+        run: |
+          mkdir -p site/_site
+          cp LICENSE.txt site/_site/LICENSE.txt
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='docs' \
+            --exclude='_site' \
+            --exclude='notices' \
+            site/ site/_site/
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/_site
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -1,0 +1,6 @@
+/bin/
+/target/
+**/target/
+/site/
+*.test
+.DS_Store
