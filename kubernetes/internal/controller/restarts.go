@@ -238,7 +238,8 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 			s.CompletedAt = nil
 			e.outcome(w, s, "Deferred", "RestartDeferred", "a later genuine observation reports outstanding older tasks; native rollout availability is not full runtime replacement proof")
 		}
-		s.BlockedPods = restartBlockers(pods, im)
+		runtimeBlockers := restartBlockers(pods, im)
+		s.BlockedPods = runtimeBlockers
 		taskBlockers := olderTaskBlockers(im, s)
 		s.BlockedPods = append(s.BlockedPods, taskBlockers...)
 		raw := w.template.Annotations[api.BarrierAnnotation]
@@ -290,8 +291,8 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 				continue
 			}
 			if e.expired(*s) {
-				if len(s.BlockedPods) > 0 {
-					e.outcome(w, s, "Deferred", "RestartDeferred", "runtime installation or excluded-node generation barrier exceeded the workload deadline")
+				if len(runtimeBlockers) > 0 {
+					e.outcome(w, s, "Deferred", "RestartDeferred", "runtime installation/authorization or excluded-node generation barrier exceeded the workload deadline")
 				} else {
 					e.outcome(w, s, "Failed", "RestartFailed", "workload rollout exceeded progress deadline")
 				}
