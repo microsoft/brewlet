@@ -117,6 +117,33 @@ class MojoContractTest {
         return "'" + path.toString().replace("'", "'\\''") + "'";
     }
 
+    @Test void conformanceDelegatesAllFixturesAndPreservesNormalizedResults() throws Exception {
+        ConformanceMojo mojo = new ConformanceMojo();
+        initialize(mojo, project());
+        Path fixtures = temp.resolve("shared fixtures.json");
+        Files.writeString(fixtures, "{\"schemaVersion\":1,\"cases\":[]}");
+        Path result = temp.resolve("results/conformance.json");
+        Path cli = temp.resolve("conformance cli");
+        String normalized = "[{\"name\":\"unsafe-layer\",\"reason\":\"LayerPathViolation\",\"passed\":true}]";
+        Files.writeString(cli, "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + quote(temp.resolve("argv"))
+                + "\nprintf '%s' '" + normalized + "'\n");
+        assertTrue(cli.toFile().setExecutable(true));
+        mojo.executable = cli.toString();
+        set(mojo, "fixtures", fixtures.toFile());
+        set(mojo, "result", result.toFile());
+        mojo.execute();
+        assertEquals(List.of("conformance", fixtures.toString()), Files.readAllLines(temp.resolve("argv")));
+        assertEquals(normalized, Files.readString(result));
+        Files.writeString(cli, "#!/bin/sh\nexit 9\n");
+        assertThrows(MojoExecutionException.class, mojo::execute);
+        assertEquals(normalized, Files.readString(result), "failed validation must not replace prior evidence");
+    }
+
+    @Test void conformanceRequiresExplicitExistingFixturesAndResult() {
+        ConformanceMojo mojo = new ConformanceMojo();
+        assertThrows(MojoExecutionException.class, mojo::execute);
+    }
+
     @Test void pushInspectsThenPinsWithoutBundlingAndForwardsTrustButNotSigning() throws Exception {
         PushMojo mojo = new PushMojo();
         initialize(mojo, project());

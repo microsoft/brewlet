@@ -92,7 +92,9 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Compile Linux materialization contract
-        run: go test -c -o bin/artifact.test ./pkg/artifact
+        run: |
+          go test -c -o bin/artifact.test ./pkg/artifact
+          go test -c -o bin/shim.test ./shim/cmd/containerd-shim-brewlet-v2
       - name: Build isolated pinned test userland
         run: >-
           docker build --load --platform "${{ matrix.platform }}"
@@ -112,3 +114,13 @@ jobs:
             brewlet-overlay-contract:${{ github.run_id }} \
             -test.v -test.run TestLinuxOverlayWhiteoutMaterialization | tee overlay.log
           ! grep -q '^--- SKIP' overlay.log
+          docker run --rm --platform "${{ matrix.platform }}" --network none \
+            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
+            --security-opt no-new-privileges --read-only --tmpfs /tmp \
+            --tmpfs /src/shim/cmd/containerd-shim-brewlet-v2:rw,mode=755 \
+            --mount "type=bind,source=$PWD,target=/src,readonly" \
+            --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
+            --workdir /src/shim/cmd/containerd-shim-brewlet-v2 --entrypoint /tests/shim.test \
+            brewlet-overlay-contract:${{ github.run_id }} \
+            -test.v -test.run '^TestPublishedProducerShimConformance$' | tee shim-conformance.log
+          ! grep -q '^--- SKIP' shim-conformance.log

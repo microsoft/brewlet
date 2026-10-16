@@ -1,4 +1,4 @@
-"""Run shared launch/platform/ID fixtures through the optional Maven producer."""
+"""Run every shared validator fixture and actual Maven launch publication."""
 
 import json
 from pathlib import Path
@@ -28,6 +28,22 @@ def normalized(process):
 
 def run(executable, project, work, fixture_file):
     fixture = dict(json.loads(Path(fixture_file).read_text(), object_pairs_hook=Pairs))
+    shared = work / "published-artifact-v2.json"
+    shared.write_bytes(Path(fixture_file).read_bytes())
+    report = work / "maven-shared-conformance.json"
+    subprocess.run([
+        "mvn", "-B", "-q", "-f", str(project),
+        "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:conformance",
+        f"-Dbrewlet.executable={executable}",
+        f"-Dbrewlet.fixtures={shared.resolve()}",
+        f"-Dbrewlet.conformanceResult={report.resolve()}",
+    ], check=True)
+    actual = json.loads(report.read_text())
+    expected = json.loads(subprocess.check_output(
+        [str(executable), "conformance", str(shared.resolve())], text=True))
+    assert actual == expected, "Maven and CLI normalized fixture results differ"
+    assert len(actual) == len(fixture["cases"]) and all(item["passed"] for item in actual)
+    print(f"Passed all {len(actual)} shared Maven/CLI validator cases")
     count = 0
     for encoded_case in fixture["cases"]:
         case = dict(encoded_case)

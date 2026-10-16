@@ -6,6 +6,21 @@ array, not a shell. Descriptor, mirror, layer and platform validation are the
 same Go implementation used by the CLI and shim, not a second Java parser.
 The matching Brewlet 2 CLI must be installed explicitly.
 
+The `conformance` goal exercises the producer's shared validator against the
+entire published fixture matrix, including mirrors, links, permissions and
+whiteouts, without implementing a second Java parser:
+
+```sh
+mvn sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:conformance \
+  -Dbrewlet.fixtures=/path/to/conformance/artifact-v2.json \
+  -Dbrewlet.conformanceResult=/path/to/results.json
+```
+
+It preserves the CLI's normalized process fields and reason codes; validation
+failure fails Maven without replacing an existing result. Integration coverage
+also publishes the applicable launch, runtime-ID and platform cases through
+the actual `push` goal.
+
 Package and publish in the same Maven invocation:
 
 ```sh

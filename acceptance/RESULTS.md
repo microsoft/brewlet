@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 65 passing offline tests; those
+The live-driver safeguards currently include 198 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -57,18 +57,59 @@ scope drift with unchanged dependency bytes. Real Distribution publication
 verified signed layer-set provenance, rejected an untrusted key, and reused
 dependency descriptors byte-for-byte.
 
+The latest producer rerun additionally passed **all 65** published cases
+through Maven's `conformance` goal and the actual Linux CLI with identical
+normalized JSON, followed by the 30 applicable actual Maven `push` cases.
+The shim-linked published-fixture test passed natively on Linux/arm64 using
+the same read-only mounts and security shape now wired into the native CI
+matrix. These are contract/integration proofs, not scheduling evidence.
+With `ARTIFACTS` set to the session artifact directory, the native invocation
+was:
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -mod=readonly -c \
+  -o "$ARTIFACTS/shim-conformance-current/shim.test" \
+  ./shim/cmd/containerd-shim-brewlet-v2
+docker run --rm --platform linux/arm64 --network none --user 0:0 \
+  --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
+  --security-opt no-new-privileges --read-only --tmpfs /tmp \
+  --tmpfs /src/shim/cmd/containerd-shim-brewlet-v2:rw,mode=755 \
+  --mount "type=bind,source=$PWD,target=/src,readonly" \
+  --mount "type=bind,source=$ARTIFACTS/shim-conformance-current,target=/tests,readonly" \
+  --workdir /src/shim/cmd/containerd-shim-brewlet-v2 \
+  --entrypoint /tests/shim.test \
+  docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 \
+  -test.v -test.run '^TestPublishedProducerShimConformance$'
+```
+
+The artifact test directory contains a byte-identical
+`conformance/artifact-v2.json`; the actual CI invocation reads the checkout's
+published file directly.
+
 The public branch CI run for `09ac69428b41622f71ff6209e8c36132f8b72650`
 [passed](https://github.com/microsoft/brewlet/actions/runs/38934713032).
 That is contract/producer/native-overlay CI, not full real-node acceptance.
 
 ## Real-node evidence
 
-The final selected suite completed **cleanly**, without manual intervention:
+The previous selected suite completed **cleanly**, without manual intervention:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
   --work integration-tests/live-v2/run-complete-05
 ```
+
+The expanded `run-complete-06`, from published
+`c212a96369ef7dd7505953c583452cc4791e3bd1`, **failed before installation** at
+the TLS registry readiness probe. It provides no new runtime/lifecycle proof.
+A focused reproduction identified missing X.509 authority-key identifiers in
+the generated leaf certificate under Python's strict verification, and a
+second defect where two stdin lines were passed to noninteractive `htpasswd`.
+Certificate key identifiers/usages and single-line password input were fixed,
+with regression tests and retained redacted registry diagnostics. A fresh
+owned-registry probe then passed strict X.509/SAN verification, anonymous HTTP
+401 and authenticated HTTP 200; no TLS checks were disabled. Expanded node
+acceptance must still be rerun.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout
