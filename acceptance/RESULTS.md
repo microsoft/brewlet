@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 209 passing offline tests; those
+The live-driver safeguards currently include 210 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -212,6 +212,17 @@ precedes leasing, and failed Create/Delete cleanup remains gated on complete
 actual task/exec/mount absence. Legacy unscoped leases stay conservative.
 Root Go race/vet, native Linux evidence/mount-scope/warm-cache contracts and both
 Linux builds passed. Real recovery/GC confirmation remains pending.
+
+`run-complete-14` repeated the 50 preceding assertions and successfully selected
+the actual replacement worker container. It then timed out reading recovery
+markers because the fixture consumed only `crictl logs` stdout, while Go's
+worker logger writes stderr. Retained diagnostics contained repeated complete
+18-task recovery markers and no prior missing-initial-state warning.
+Worker-log observation now combines both streams under the same CID/Pod UID
+checks, including uncertainty/resume prefix comparisons; a regression verifies
+stderr markers and rejects stale-prefix-only observations. This is a fixture
+read defect, not proof that production recovery failed or that the full
+recovery/GC scenario passed.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

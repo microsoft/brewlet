@@ -44,6 +44,21 @@ def profile():
 
 
 class WorkerRestartTests(unittest.TestCase):
+    def test_recovery_observes_real_stderr_logs_and_requires_fresh_marker(self):
+        report = {"complete": True, "retainedTasks": [CONTAINER], "removedTasks": []}
+        message = "2026/10/16 runtime-lease-recovery: " + json.dumps(report) + "\n"
+        worker = l.Lifecycle.__new__(l.Lifecycle)
+        worker.inspect = Mock()
+        current = {"cid": "b" * 64, "podUID": "worker-pod"}
+        for stream in ("stdout", "stderr"):
+            with self.subTest(stream=stream):
+                output = {"stdout": "", "stderr": "", stream: message}
+                worker.h = SimpleNamespace(node_exec=Mock(
+                    return_value=subprocess.CompletedProcess([], 0, **output)))
+                self.assertTrue(worker.recovery_log(current, lease()))
+                self.assertFalse(worker.recovery_log(current, lease(), after_prefix=message))
+        worker.inspect.assert_called_with(current["cid"], pod_uid="worker-pod")
+
     def fixture(self):
         worker = l.Lifecycle.__new__(l.Lifecycle)
         worker.profile_uid = "profile-uid"
@@ -418,26 +433,26 @@ class ProcessAndReferenceTests(unittest.TestCase):
         worker = {"cid": "c" * 64, "podUID": "real-worker-pod"}
         report = {"retainedTasks": [CONTAINER], "removedTasks": [], "complete": True}
         h.node_exec.return_value = SimpleNamespace(
-            stdout="2026/10/16 12:00:00 runtime-lease-recovery: " + json.dumps(report))
+            stdout="2026/10/16 12:00:00 runtime-lease-recovery: " + json.dumps(report), stderr="")
         self.assertTrue(fixture.recovery_log(worker, lease())["retained"])
         fixture.inspect.assert_called_once_with("c" * 64, pod_uid="real-worker-pod")
         h.node_exec.assert_called_once_with("crictl", "logs", "c" * 64)
         for output in ("", "unrelated error", "runtime-lease-recovery: " + json.dumps(
                 dict(report, retainedTasks=["b" * 64])),
                 "runtime-lease-recovery: " + json.dumps(dict(report, complete=False))):
-            h.node_exec.return_value = SimpleNamespace(stdout=output)
+            h.node_exec.return_value = SimpleNamespace(stdout=output, stderr="")
             self.assertFalse(fixture.recovery_log(worker, lease()))
         h.node_exec.return_value = SimpleNamespace(
-            stdout="runtime-lease-recovery: " + json.dumps(dict(report, removedTasks=[CONTAINER])))
+            stdout="runtime-lease-recovery: " + json.dumps(dict(report, removedTasks=[CONTAINER])), stderr="")
         with self.assertRaises(Failure):
             fixture.recovery_log(worker, lease())
         prefix = "old runtime-lease-recovery: " + json.dumps(report) + "\n"
-        h.node_exec.return_value = SimpleNamespace(stdout=prefix)
+        h.node_exec.return_value = SimpleNamespace(stdout=prefix, stderr="")
         self.assertFalse(fixture.recovery_log(worker, lease(), after_prefix=prefix))
         h.node_exec.return_value = SimpleNamespace(
-            stdout=prefix + "new runtime-lease-recovery: " + json.dumps(report))
+            stdout=prefix + "new runtime-lease-recovery: " + json.dumps(report), stderr="")
         self.assertTrue(fixture.recovery_log(worker, lease(), after_prefix=prefix)["retained"])
-        h.node_exec.return_value = SimpleNamespace(stdout="rotated-log\n")
+        h.node_exec.return_value = SimpleNamespace(stdout="rotated-log\n", stderr="")
         with self.assertRaises(Failure):
             fixture.recovery_log(worker, lease(), after_prefix=prefix)
 

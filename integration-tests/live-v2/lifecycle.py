@@ -714,9 +714,13 @@ class Lifecycle:
                 "successfulRecovery": report,
                 "proofBoundary": "fresh fenced worker recovery + installed maintenance shim host evidence"}
 
-    def recovery_log(self, worker, lease, *, after_prefix=""):
+    def worker_log_text(self, worker):
         self.inspect(worker["cid"], pod_uid=worker["podUID"])
-        output = self.h.node_exec("crictl", "logs", worker["cid"]).stdout
+        result = self.h.node_exec("crictl", "logs", worker["cid"])
+        return result.stdout + result.stderr
+
+    def recovery_log(self, worker, lease, *, after_prefix=""):
+        output = self.worker_log_text(worker)
         require(output.startswith(after_prefix), "worker recovery log was replaced or truncated")
         for line in output[len(after_prefix):].splitlines():
             if "runtime-lease-recovery: " not in line:
@@ -754,7 +758,7 @@ class Lifecycle:
         require(group_id in (sandbox, lease["taskID"]),
                 "task's parent shim belongs to another sandbox/task group")
         worker = self.worker()
-        prefix = self.h.node_exec("crictl", "logs", worker["cid"]).stdout
+        prefix = self.worker_log_text(worker)
         self.guard()
         self.h.node_exec(*shim_signal_command(shim_pid, start, group_id, "STOP"))
         paused_at = time.monotonic()
@@ -764,8 +768,7 @@ class Lifecycle:
             require(fields[19] == start and fields[0] in ("T", "t"),
                     "actual invocation-owned shim was not stopped")
             def blocked():
-                self.inspect(worker["cid"], pod_uid=worker["podUID"])
-                text = self.h.node_exec("crictl", "logs", worker["cid"]).stdout
+                text = self.worker_log_text(worker)
                 require(text.startswith(prefix), "uncertainty observation log changed identity")
                 return text if "runtime collection blocked:" in text[len(prefix):] else False
             blocked_prefix = self.h.wait("real shim unresponsiveness blocks production lease recovery",
