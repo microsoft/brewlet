@@ -1,10 +1,11 @@
 """RUN-08 real-node callback: execute(harness), before revocation and cleanup.
 
-Requires the approved fixture-python runtime, its loaded application image, a
+Requires the approved fixture-python runtime, its selected application delivery, a
 private invocation-owned kind node, and crictl's real ContainerStats endpoint.
 No fallback to file sizes, stdout counters, emptyDir, or skipped assertions.
 """
 
+import copy
 import json
 import re
 from datetime import datetime, timezone
@@ -267,7 +268,10 @@ def no_collateral(before, pods):
 def manifest(h, name):
     require(bool(re.fullmatch(r"[0-9a-f]{12}", h.run_id)), "invalid invocation ID")
     require("@sha256:" in h.app_images["python"], "digest-pinned Python fixture required")
-    return {
+    delivery = h.pod(name, "python", bound=True)["spec"]
+    image = delivery["containers"][0]
+    require(image["image"] == h.app_images["python"], "accounting delivery changed the selected image")
+    result = {
         "apiVersion": "v1", "kind": "Pod",
         "metadata": {"name": name, "namespace": h.namespace, "labels": {OWNER: h.run_id},
                      "annotations": {"brewlet.sh/runtime-image": "fixture-python"}},
@@ -278,7 +282,7 @@ def manifest(h, name):
             "securityContext": {"runAsNonRoot": True, "runAsUser": 65532,
                                 "runAsGroup": 65532, "seccompProfile": {"type": "RuntimeDefault"}},
             "containers": [{
-                "name": CONTAINER, "image": h.app_images["python"], "imagePullPolicy": "Never",
+                "name": CONTAINER, "image": image["image"], "imagePullPolicy": image["imagePullPolicy"],
                 "command": ["python3"], "args": ["-c", IDLE], "workingDir": "/app",
                 "env": [{"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}],
                 "securityContext": {"readOnlyRootFilesystem": False, "privileged": False,
@@ -288,6 +292,9 @@ def manifest(h, name):
                                           "ephemeral-storage": "32Mi"},
                               "limits": {"cpu": "500m", "memory": "128Mi",
                                          "ephemeral-storage": "48Mi"}}}]}}
+    if "imagePullSecrets" in delivery:
+        result["spec"]["imagePullSecrets"] = copy.deepcopy(delivery["imagePullSecrets"])
+    return result
 
 
 def cleanup(h, name, uid):

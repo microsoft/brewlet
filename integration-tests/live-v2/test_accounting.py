@@ -213,6 +213,8 @@ class AccountingTests(unittest.TestCase):
     def test_manifest_security_no_volume_and_two_bounded_write_stages(self):
         h = SimpleNamespace(run_id=RUN, node=NODE, namespace="private",
                             app_images={"python": "fixture@sha256:" + CID})
+        h.pod = Mock(return_value={"spec": {"containers": [
+            {"image": h.app_images["python"], "imagePullPolicy": "Never"}]}})
         obj = a.manifest(h, "accounting-" + RUN)
         spec = obj["spec"]
         self.assertNotIn("volumes", spec)
@@ -226,6 +228,21 @@ class AccountingTests(unittest.TestCase):
         self.assertEqual(container["resources"]["limits"]["ephemeral-storage"], "48Mi")
         self.assertLess(a.FIRST_BYTES, a.LIMIT_BYTES)
         self.assertGreater(a.TOTAL_BYTES, a.LIMIT_BYTES)
+
+    def test_accounting_uses_selected_remote_delivery_without_inheriting_volumes(self):
+        image = "registry.test/python@sha256:" + CID
+        base = {"spec": {"containers": [{"image": image, "imagePullPolicy": "Always"}],
+                         "imagePullSecrets": [{"name": "owned-pull-secret"}],
+                         "volumes": [{"name": "must-not-be-inherited"}]}}
+        h = SimpleNamespace(run_id=RUN, node=NODE, namespace="private",
+                            app_images={"python": image}, pod=Mock(return_value=base))
+        result = a.manifest(h, "accounting-" + RUN)
+        self.assertEqual(result["spec"]["containers"][0]["imagePullPolicy"], "Always")
+        self.assertEqual(result["spec"]["imagePullSecrets"], [{"name": "owned-pull-secret"}])
+        self.assertNotIn("volumes", result["spec"])
+        self.assertNotIn("volumeMounts", result["spec"]["containers"][0])
+        result["spec"]["imagePullSecrets"][0]["name"] = "changed"
+        self.assertEqual(base["spec"]["imagePullSecrets"][0]["name"], "owned-pull-secret")
         self.assertEqual(a.TOTAL_BYTES, 80 * a.MIB)
         self.assertIn("os.O_NOFOLLOW", a.WRITE)
         self.assertIn("os.O_EXCL", a.WRITE)

@@ -1,0 +1,297 @@
+{
+  "outcome": "passed-selected-scope",
+  "scope": "real-four-language-execution-and-vendor-updates",
+  "cleanSelectedSuitePassed": false,
+  "fullAcceptance": false,
+  "checkout": "cc984dc14c21feda9032001c9a61fd2d04a8c7cb",
+  "productionSourceManifestSHA256": "3bafd554b29c27c46444e68213ec3c46cd6aea87534238795e19afe06f05f161",
+  "architecture": "arm64",
+  "kubeletPullVerified": false,
+  "tlsTransportVerified": false,
+  "providerScaleFromZeroVerified": false,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "java": "172.18.0.11:5000/delivery/apps-java@sha256:68b24b07a518594e9db80f3003613264b35e2135338d4121a9c2680907d63aa3",
+    "python": "172.18.0.11:5000/delivery/apps-python@sha256:87bd639a2e09bbb3f2f1cae73f16a0dae3b62da4ca783337ff7fa15cfe3df951",
+    "node": "172.18.0.11:5000/delivery/apps-node@sha256:ef9d3e379d9f14b6a5b17cac761e782e2eec916b430de8d206275b5f461d27db",
+    "dotnet": "172.18.0.11:5000/delivery/apps-dotnet@sha256:08cc746360d34bfdc468ccd43ddcb173786986dfae2c8ec66a0b45d91f70cd64"
+  },
+  "runtimeImages": {
+    "java": {
+      "before": "172.18.0.11:5000/delivery/runtime-java-before@sha256:582bc3b33028fddba8e71806f355eaf1d37d7322c4cf89dd173cc67741dd66e5",
+      "after": "172.18.0.11:5000/delivery/runtime-java-after@sha256:b522e170c217b4e3faef90291658581db9279d18c0cc836f95d36330d727886f"
+    },
+    "python": {
+      "before": "172.18.0.11:5000/delivery/runtime-python-before@sha256:c8f502138b2186efc012bcb063695b123bb6c81a62edd43c11fd3c316f8a7eea",
+      "after": "172.18.0.11:5000/delivery/runtime-python-after@sha256:534585a20b2e2b42e99277f7d1f0469ae0aac2565c454ccbec508500acd9b574"
+    },
+    "node": {
+      "before": "172.18.0.11:5000/delivery/runtime-node-before@sha256:197e307b8d1cf1e6ba7018872b1005fae5254ef7bbcc4b4c69e58fdc9e76a592",
+      "after": "172.18.0.11:5000/delivery/runtime-node-after@sha256:37654660c3fafd562b2de6410577d02140700a75c0e7018cb9107e15a25e870c"
+    },
+    "dotnet": {
+      "before": "172.18.0.11:5000/delivery/runtime-dotnet-before@sha256:66e62d1d131e224bd02d270ab42b9cbeaac0d1e18b69392770bbe27327727371",
+      "after": "172.18.0.11:5000/delivery/runtime-dotnet-after@sha256:461ebf19522bcdd2b047aa3c99c918bda9b18ec54f7328aa68a1475b25a3b679"
+    }
+  },
+  "runtimeVendorInputs": {
+    "java": {
+      "probe": [
+        "java",
+        "-version"
+      ],
+      "before": {
+        "image": "docker.io/library/eclipse-temurin@sha256:9eb51387a4badf1a874e655d130538b89dfe16a3dab24fb9a4a6e2b08778411c",
+        "version": "21.0.7"
+      },
+      "after": {
+        "image": "docker.io/library/eclipse-temurin@sha256:20e7f7288e1c18eebe8f06a442c9f7183342d9b022d3b9a9677cae2b558ddddd",
+        "version": "21.0.8"
+      }
+    },
+    "python": {
+      "probe": [
+        "python3",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/python@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419",
+        "version": "Python 3.13.5"
+      },
+      "after": {
+        "image": "docker.io/library/python@sha256:2b09112b54420d2e3e814f2cbe34e8e54d32b8c5abd4e72e89cda4758fc6400a",
+        "version": "Python 3.13.6"
+      }
+    },
+    "node": {
+      "probe": [
+        "node",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/node@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0",
+        "version": "v22.17.0"
+      },
+      "after": {
+        "image": "docker.io/library/node@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+        "version": "v22.18.0"
+      }
+    },
+    "dotnet": {
+      "probe": [
+        "dotnet",
+        "--list-runtimes"
+      ],
+      "before": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:d13bea17080a4fea1a7295a4fe29240123b1bf955a78ae08480d07bdf09496db",
+        "version": "Microsoft.NETCore.App 10.0.0 "
+      },
+      "after": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:3b5f026262a6ba63d1b82f2b98949506f4a89956244568a8bc682b4af9c48548",
+        "version": "Microsoft.NETCore.App 10.0.1 "
+      }
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-architecture capacity and unsupported-platform pull",
+    "E2E-06 OnDemand provider pin refusal and stale-pin retention through production uninstall",
+    "E2E-08 inventory delete/recreate epoch with real old roots; all-ID quarantine recovery",
+    "E2E-09 injected resourceVersion race and recreated-Node conditional claim release",
+    "LEASE-02 shim restart recovery and LEASE-03 orphaned exec after initial task exit",
+    "OD-06 idle collection/mode-switch pin rejection and INV-06 offline authorization expiry",
+    "ROT-01/06/08/09 automatic workload restart pacing, OnDelete/partitioned/paused controllers",
+    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
+    "Registry kubelet pull, private authentication and production TLS transport",
+    "Real vendor security patch (rotation here changes approved image Env, not interpreter version)"
+  ],
+  "assertions": [
+    {
+      "name": "java real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04"
+      ]
+    },
+    {
+      "name": "java Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "java custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "python real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04"
+      ]
+    },
+    {
+      "name": "python Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "python custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "node real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04"
+      ]
+    },
+    {
+      "name": "node Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "node custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "dotnet real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04"
+      ]
+    },
+    {
+      "name": "dotnet Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "dotnet custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "java source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "python source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "node source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "dotnet source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    }
+  ],
+  "commandOutcome": "failed",
+  "command": "PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py --work integration-tests/live-v2/run-complete-11",
+  "failurePhase": "cri-accounting",
+  "note": "All16 execution/override/identity/vendor-update assertions passed. Full command later failed at accounting ErrImageNeverPull because that dedicated Pod retained local-import delivery settings. Formal delivery callback and later lifecycle/controller scenarios were not reached.",
+  "observedVendorRuntimeVersions": {
+    "java": {
+      "before": "openjdk version \"21.0.7\" 2025-04-15 LTS\nOpenJDK Runtime Environment Temurin-21.0.7+6 (build 21.0.7+6-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.7+6 (build 21.0.7+6-LTS, mixed mode, sharing)",
+      "after": "openjdk version \"21.0.8\" 2025-07-15 LTS\nOpenJDK Runtime Environment Temurin-21.0.8+9 (build 21.0.8+9-LTS)\nOpenJDK 64-Bit Server VM Temurin-21.0.8+9 (build 21.0.8+9-LTS, mixed mode, sharing)"
+    },
+    "python": {
+      "before": "Python 3.13.5",
+      "after": "Python 3.13.6"
+    },
+    "node": {
+      "before": "v22.17.0",
+      "after": "v22.18.0"
+    },
+    "dotnet": {
+      "before": "Microsoft.NETCore.App 10.0.0 [/usr/share/dotnet/shared/Microsoft.NETCore.App]",
+      "after": "Microsoft.NETCore.App 10.0.1 [/usr/share/dotnet/shared/Microsoft.NETCore.App]"
+    }
+  }
+}

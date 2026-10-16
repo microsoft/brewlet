@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 205 passing offline tests; those
+The live-driver safeguards currently include 206 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -155,6 +155,18 @@ builds passed. These are contract tests; real repeat-start acceptance remains
 pending. Positive readiness
 checks now report terminal Pod errors immediately instead of waiting ten
 minutes for a Pod that cannot become ready.
+
+`run-complete-11`, from `cc984dc1`, passed all four languages' actual startup,
+repeat starts/overrides, dependencies, env/identity, exec/probes and read-only
+checks. All four real vendor-version updates then passed without republishing
+the application artifacts; old tasks/exec retained their old runtime leases.
+[`results/vendor-runtime-updates.json`](results/vendor-runtime-updates.json)
+exports those 16 selected successes with the full command explicitly failed.
+The later accounting fixture retained its old `Never`/no-secret delivery
+settings and received `ErrImageNeverPull`. It now inherits only the selected
+image, pull policy and pull secrets from the workload factory, preserving its
+separate no-volume, writable-root and bounded-storage safeguards. Formal
+delivery and new lifecycle/controller callbacks were not reached in this run.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout
