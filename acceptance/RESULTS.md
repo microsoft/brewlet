@@ -63,6 +63,28 @@ That is contract/producer/native-overlay CI, not full real-node acceptance.
 
 ## Real-node evidence
 
+The final selected suite completed **cleanly**, without manual intervention:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --work integration-tests/live-v2/run-complete-05
+```
+
+[`results/clean-real-node.json`](results/clean-real-node.json) records all 36
+selected assertions passing against checkout
+`f70a2c40fa1139fbc38ef0d4da4e964428bf5164`, with production-source manifest
+`7c286c5590d9e8c604fe64c6cd95aa474972b3f6cf98026d6f498a05acf9bc0b`.
+This includes four-language execution and rotation, fail-closed root/privilege/
+barrier/epoch checks, actual CRI usage and eviction, real admission-interceptor
+double refusal and node-wide fallback, revoked bound starts, active-lease
+cleanup protection and genuine drained-root/finalizer/claim cleanup. Owned
+fixture clusters and image tags were removed.
+
+The suite still explicitly reports `fullAcceptance: false`: its published gaps
+are preserved, and imported execution does not prove kubelet pull or provider
+autoscaling. The diagnostic runs below remain useful regression history, not
+the final clean-suite verdict.
+
 [`results/four-language-execution.json`](results/four-language-execution.json)
 records actual Linux arm64 Java, Python, Node.js and .NET startup, HTTP,
 dependencies, exec, exec probes, Kubernetes overrides, identity/HOME/PATH,
@@ -105,8 +127,8 @@ registry TLS/authentication, or provider autoscaling.
 
 ## Remaining proof and implementation boundaries
 
-The full four-language rotation/barrier/pinned-label/revocation/recovery suite
-must pass, along with the remaining ledger requirements. In particular:
+The selected four-language rotation/barrier/pinned-label/revocation suite now
+passes, but the remaining ledger requirements still need evidence. In particular:
 
 * real alternate-architecture capacity and unsupported-platform pulls;
 * actual provider scale-from-zero, or its explicitly distinguished API proof;
