@@ -10,8 +10,14 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
   </properties>
+  <dependencyManagement><dependencies>
+    <dependency>
+      <groupId>sh.brewlet.fixture</groupId><artifactId>fixture-bom</artifactId><version>2.0.0</version>
+      <type>pom</type><scope>import</scope>
+    </dependency>
+  </dependencies></dependencyManagement>
   <dependencies>
-    <dependency><groupId>sh.brewlet.fixture</groupId><artifactId>greeting</artifactId><version>2.0.0</version></dependency>
+    <dependency><groupId>sh.brewlet.fixture</groupId><artifactId>greeting</artifactId></dependency>
   </dependencies>
   <build><plugins>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
@@ -21,4 +27,16 @@
       <configuration><mainClass>sh.brewlet.fixture.Main</mainClass></configuration>
     </plugin>
   </plugins></build>
+  <profiles>
+    <profile>
+      <id>managed-layer-set</id>
+      <activation><property><name>brewlet.layerSetInput</name></property></activation>
+      <build><plugins><plugin>
+        <groupId>sh.brewlet</groupId><artifactId>brewlet-maven-plugin</artifactId>
+        <configuration>
+          <layerSets><layerSet>${brewlet.layerSetInput}</layerSet></layerSets>
+        </configuration>
+      </plugin></plugins></build>
+    </profile>
+  </profiles>
 </project>

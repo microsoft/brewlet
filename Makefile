@@ -4,6 +4,7 @@ test:
 	go test -race ./...
 	mvn -B -q -f maven-plugin/pom.xml verify
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s acceptance -p '*_test.py' -v
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/live-v2 -p 'test_*.py' -v
 	python3 acceptance/check.py
 
 build:

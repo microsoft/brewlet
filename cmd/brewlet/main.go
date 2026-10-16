@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/microsoft/brewlet/pkg/artifact"
@@ -61,7 +60,7 @@ func run(ctx context.Context, args []string) error {
 	var platforms, layers, sets, manifests, trustKeys repeated
 	fs.Var(&platforms, "platform", "explicit os/arch[/variant] (repeatable)")
 	fs.Var(&layers, "layer", "app=directory:/app/path or dependency=directory:/app/path")
-	fs.Var(&sets, "layer-set", "layer set reference (repeatable; local layout paths or registry refs)")
+	fs.Var(&sets, "layer-set", "layer set reference (repeatable; local DIR[@sha256:DIGEST] or registry ref)")
 	fs.Var(&manifests, "manifest", "explicit OCI manifest descriptor JSON file (index only)")
 	fs.Var(&trustKeys, "trust-key", "SPKI public PEM trusted for layer-set provenance (repeatable)")
 	storeDir := fs.String("store", "", "local OCI layout destination/source; omit to publish remotely")
@@ -90,6 +89,15 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("--signing-key, --builder-identity and --sbom are layer-set publication options")
 	}
 	dir := *storeDir
+	if dir == "" && command == "inspect" {
+		local, _, isLocal, e := localLayerSet(ref)
+		if e != nil {
+			return e
+		}
+		if isLocal {
+			dir = local.Dir
+		}
+	}
 	cleanup := false
 	if dir == "" {
 		if e := os.MkdirAll(".brewlet", 0700); e != nil {
@@ -205,12 +213,12 @@ func run(ctx context.Context, args []string) error {
 			for _, setRef := range sets {
 				var d v1.Descriptor
 				// A directory containing an OCI layout is an explicit local input.
-				if fi, e := os.Stat(filepath.Join(setRef, "oci-layout")); e == nil && !fi.IsDir() {
-					source := artifact.Store{Dir: setRef}
-					d, e = source.Target("")
-					if e != nil {
-						return e
-					}
+				source, localTarget, isLocal, e := localLayerSet(setRef)
+				if e != nil {
+					return e
+				}
+				if isLocal {
+					d = localTarget
 					if e = artifact.CopyGraph(ctx, source, store, d); e != nil {
 						return e
 					}
@@ -232,11 +240,20 @@ func run(ctx context.Context, args []string) error {
 		target, err = artifact.BuildIndex(ctx, store, manifests)
 	case "inspect":
 		if *storeDir == "" {
-			r, e := registry(ref)
+			source, localTarget, isLocal, e := localLayerSet(ref)
 			if e != nil {
 				return e
 			}
-			target, err = r.Pull(ctx, store)
+			if isLocal {
+				store = source
+				target = localTarget
+			} else {
+				r, e := registry(ref)
+				if e != nil {
+					return e
+				}
+				target, err = r.Pull(ctx, store)
+			}
 		} else {
 			target, err = store.Target(ref)
 		}

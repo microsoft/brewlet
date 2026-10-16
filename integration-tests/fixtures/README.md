@@ -23,7 +23,11 @@ python3 integration-tests/fixtures/check.py --brewlet ./bin/brewlet
 
 The harness builds and runs all four on the **host**, packages each twice,
 checks deterministic OCI targets and layer deduplication across declared
-platforms, and packages Java again through Maven. It retains invocation-unique
+platforms, and packages Java again through Maven. Java additionally publishes
+an explicitly BOM-governed layer set, consumes it without duplicate dependency
+layers, and rejects changed Maven scope despite identical dependency bytes.
+Shared raw launch/ID/platform fixtures also pass through the actual Maven
+adapter. It retains invocation-unique
 temporary work and `result.json`. For fixture-only development:
 
 ```sh

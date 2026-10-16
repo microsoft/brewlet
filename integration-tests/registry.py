@@ -95,12 +95,80 @@ def main():
         output = command([executable, "inspect", reference, "--insecure", "--platform", "linux/amd64"],
                          env=environment)
         assert "python3" in output and "launch" in output
+        private_key = work / "test-signing-key.pem"
+        public_key = work / "test-signing-public.pem"
+        command(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
+                 "ec_paramgen_curve:P-256", "-out", private_key])
+        command(["openssl", "pkey", "-in", private_key, "-pubout", "-out", public_key])
+        config_file = work / "layer-set-config.json"
+        lock_file = work / "layer-set-lock.json"
+        config_file.write_text(json.dumps({
+            "schemaVersion": 1, "name": "fixture-dependencies", "version": "2.0.0",
+            "ecosystem": "python", "layers": [],
+        }))
+        lock_file.write_text(json.dumps({
+            "schemaVersion": 1,
+            "entries": [{
+                "ecosystem": "python", "name": "greeting", "version": "1",
+                "path": "/app/dependencies/greeting.py",
+                "sha256": hashlib.sha256((fixture / "dependencies/greeting.py").read_bytes()).hexdigest(),
+                "purl": "pkg:pypi/greeting@1",
+            }],
+        }))
+        layer_set_reference = f"{args.producer_registry_host}:{port}/fixtures/dependencies:v2"
+        identity = "https://brewlet.test/fixture-builder"
+        published = json.loads(command([
+            executable, "layer-set", layer_set_reference, "--insecure",
+            "--config", config_file, "--lock", lock_file,
+            "--layer", f"dependency={fixture / 'dependencies'}:/app/dependencies",
+            "--signing-key", private_key, "--builder-identity", identity,
+        ], env=environment))
+        pinned_set = layer_set_reference.rsplit(":", 1)[0] + "@" + published["digest"]
+        trust = ["--trust-key", public_key, "--signer-identity", identity, "--require-provenance"]
+        inspected = json.loads(command([
+            executable, "inspect", pinned_set, "--insecure", *trust,
+        ], env=environment))
+        assert inspected["evidence"]["attestationDigest"]
+        assert inspected["evidence"]["sbomDigest"]
+        wrong_key = work / "untrusted-private.pem"
+        wrong_public = work / "untrusted-public.pem"
+        command(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
+                 "ec_paramgen_curve:P-256", "-out", wrong_key])
+        command(["openssl", "pkey", "-in", wrong_key, "-pubout", "-out", wrong_public])
+        untrusted = subprocess.run([
+            str(executable), "inspect", pinned_set, "--insecure", "--trust-key", str(wrong_public),
+            "--signer-identity", identity, "--require-provenance",
+        ], env=environment, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert untrusted.returncode != 0
+        assert any(word in untrusted.stderr.lower() for word in ("provenance", "signature", "trusted"))
+        managed_reference = f"{args.producer_registry_host}:{port}/fixtures/managed-python:v2"
+        command([
+            executable, "push", managed_reference, "--insecure",
+            "--platform", "linux/amd64", "--platform", "linux/arm64",
+            "--launch", fixture / "launch.json",
+            "--layer-set", pinned_set, *trust,
+            "--layer", f"app={fixture / 'src'}:/app/src",
+        ], env=environment)
+        managed_index = json.loads(fetch(base + "/fixtures/managed-python/manifests/v2",
+                                         "application/vnd.oci.image.index.v1+json"))
+        managed_descriptor = managed_index["manifests"][0]
+        managed_manifest = json.loads(fetch(
+            base + "/fixtures/managed-python/manifests/" + managed_descriptor["digest"],
+            managed_descriptor["mediaType"]))
+        dependency_digests = [item["digest"] for item in managed_manifest["layers"]
+                              if item["annotations"]["brewlet.sh/layer"] == "dependency"]
+        assert dependency_digests == [item["descriptor"]["digest"] for item in inspected["layers"]]
+        assert "brewlet.sh/layerset-evidence" in managed_manifest["annotations"]
         result = {
             "scope": "registry-producer-integration",
             "registryImage": REGISTRY,
             "imageDigest": "sha256:" + hashlib.sha256(index_bytes).hexdigest(),
             "outcome": "passed",
             "realNode": False,
+            "layerSetDigest": published["digest"],
+            "trustedProvenanceVerified": True,
+            "untrustedProvenanceRejected": True,
+            "dependencyLayersReusedByteForByte": True,
         }
         (work / "result.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result))

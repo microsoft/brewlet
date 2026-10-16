@@ -5,3 +5,4 @@
 *.test
 .DS_Store
 .brewlet/
+/integration-tests/live-v2/run-*/

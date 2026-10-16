@@ -15,6 +15,7 @@ import selectors
 import subprocess
 import tempfile
 import urllib.request
+import xml.etree.ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -69,6 +70,7 @@ def build_and_probe(work):
     java = work / "java"
     shutil.copytree(FIXTURES / "java", java, ignore=shutil.ignore_patterns("target"))
     run(["mvn", "-B", "-q", "-f", java / "dependency/pom.xml", "install"])
+    run(["mvn", "-B", "-q", "-f", java / "bom/pom.xml", "install"])
     run(["mvn", "-B", "-q", "-f", java / "app/pom.xml", "package"])
     java_app = work / "java-app"
     java_dependencies = work / "java-dependencies"
@@ -186,6 +188,54 @@ def main():
              "-Dbrewlet.image=fixtures/java-maven:v2",
              "-Dbrewlet.platforms=linux/amd64,linux/arm64"])
         evidence["images"]["java-maven"] = image_target(work / "oci-java-maven")
+        managed_set = work / "oci-java-layer-set"
+        source_bom = "sh.brewlet.fixture:fixture-bom:2.0.0"
+        run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
+             "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:layer-set",
+             f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={managed_set}",
+             "-Dbrewlet.layerSet=fixtures/java-dependencies:v2",
+             f"-Dbrewlet.sourceBom={source_bom}"])
+        managed_output = work / "oci-java-managed"
+        managed_arguments = [
+            "package", "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push",
+            f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={managed_output}",
+            "-Dbrewlet.image=fixtures/java-managed:v2",
+            "-Dbrewlet.platforms=linux/amd64,linux/arm64",
+            f"-Dbrewlet.layerSetInput={managed_set}", f"-Dbrewlet.sourceBom={source_bom}",
+        ]
+        run(["mvn", "-B", "-q", "-f", java / "app/pom.xml", *managed_arguments])
+        evidence["images"]["java-managed"] = image_target(managed_output)
+        dependency_manifest = blob(managed_set, json.loads(
+            (managed_set / "index.json").read_text())["manifests"][0])
+        application_index = blob(managed_output, json.loads(
+            (managed_output / "index.json").read_text())["manifests"][0])
+        application_manifest = blob(managed_output, application_index["manifests"][0])
+        expected_layers = [layer["digest"] for layer in dependency_manifest["layers"]
+                           if layer.get("annotations", {}).get("brewlet.sh/layer") == "dependency"]
+        actual_layers = [layer["digest"] for layer in application_manifest["layers"]
+                         if layer["annotations"]["brewlet.sh/layer"] == "dependency"]
+        assert actual_layers == expected_layers and len(actual_layers) == 1, (
+            "Java managed dependencies must be reused byte-for-byte, without a duplicate bundled layer")
+        scope_drift = work / "java-scope-drift"
+        shutil.copytree(java / "app", scope_drift, ignore=shutil.ignore_patterns("target"))
+        tree = ET.parse(scope_drift / "pom.xml")
+        namespace = "{http://maven.apache.org/POM/4.0.0}"
+        dependency = tree.getroot().find(f"{namespace}dependencies/{namespace}dependency")
+        assert dependency.find(f"{namespace}artifactId").text == "greeting"
+        ET.SubElement(dependency, namespace + "scope").text = "runtime"
+        ET.register_namespace("", "http://maven.apache.org/POM/4.0.0")
+        ET.register_namespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+        tree.write(scope_drift / "pom.xml", encoding="utf-8", xml_declaration=True)
+        invalid_arguments = [
+            argument if not argument.startswith("-Dbrewlet.store=")
+            else f"-Dbrewlet.store={work / 'oci-java-scope-drift'}"
+            for argument in managed_arguments]
+        rejected = subprocess.run(["mvn", "-B", "-q", "-f", str(scope_drift / "pom.xml"),
+                                   *map(str, invalid_arguments)],
+                                  text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        assert rejected.returncode != 0 and "graph" in rejected.stdout.lower(), (
+            "Maven must reject changed dependency scope even when JAR bytes match: " + rejected.stdout)
+        evidence["mavenManagedScopeDrift"] = "rejected"
         spec = importlib.util.spec_from_file_location("maven_conformance", ROOT / "integration-tests/maven_conformance.py")
         conformance = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(conformance)

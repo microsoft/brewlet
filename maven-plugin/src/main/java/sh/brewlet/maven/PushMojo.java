@@ -2,33 +2,22 @@ package sh.brewlet.maven;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.maven.artifact.Artifact;
-import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.project.ProjectBuildingException;
 
 @Mojo(name = "push", defaultPhase = LifecyclePhase.PACKAGE,
         requiresDependencyResolution = ResolutionScope.RUNTIME, threadSafe = true)
-public final class PushMojo extends AbstractMojo {
-    @Parameter(defaultValue = "${project}", readonly = true, required = true)
-    private MavenProject project;
-
-    @Parameter(property = "brewlet.executable", defaultValue = "brewlet")
-    private String executable;
-
+public final class PushMojo extends AbstractJavaMojo {
     @Parameter(property = "brewlet.image", required = true)
     private String image;
-
-    @Parameter(property = "brewlet.store")
-    private File store;
 
     @Parameter(property = "brewlet.platforms")
     private List<String> platforms;
@@ -39,9 +28,6 @@ public final class PushMojo extends AbstractMojo {
     @Parameter(property = "brewlet.mainClass")
     private String mainClass;
 
-    @Parameter(property = "brewlet.module")
-    private String module;
-
     @Parameter
     private List<String> javaArgs = new ArrayList<>();
 
@@ -50,6 +36,15 @@ public final class PushMojo extends AbstractMojo {
 
     @Parameter
     private List<String> layerSets = new ArrayList<>();
+
+    @Parameter
+    private List<String> trustKeys = new ArrayList<>();
+
+    @Parameter(property = "brewlet.signerIdentity")
+    private String signerIdentity;
+
+    @Parameter(property = "brewlet.requireProvenance", defaultValue = "false")
+    private boolean requireProvenance;
 
     @Override
     public void execute() throws MojoExecutionException {
@@ -61,37 +56,36 @@ public final class PushMojo extends AbstractMojo {
             throw new MojoExecutionException("Package the project before brewlet:push");
         }
         try {
-            Path base = Files.createDirectories(Path.of(project.getBuild().getDirectory(), "brewlet"));
-            Path output = Files.createTempDirectory(base, "producer-");
+            Path output = output();
             List<Path> dependencies = new ArrayList<>();
-            for (Artifact artifact : project.getArtifacts()) {
-                if ("compile".equals(artifact.getScope()) || "runtime".equals(artifact.getScope())) {
-                    if (artifact.getFile() == null) {
-                        throw new IOException("Unresolved runtime dependency: " + artifact);
-                    }
-                    dependencies.add(artifact.getFile().toPath());
+            LayerSets.Trust trust = new LayerSets.Trust(trustKeys, signerIdentity, requireProvenance);
+            List<String> pinned = new ArrayList<>();
+            if (!layerSets.isEmpty()) {
+                if (layerSets.size() != 1) {
+                    throw new IOException("Exactly one managed Java layer set is supported per application");
+                }
+                JavaProducer.requireThinJar(application.getFile().toPath());
+                MavenGraph graph = graph();
+                String reference = layerSets.get(0);
+                String inspected = capture(LayerSets.inspectCommand(executable, reference, trust));
+                pinned.add(LayerSets.verifyAndPin(reference, MavenGraph.JSON.readTree(inspected), graph));
+            } else {
+                for (MavenGraph.Member member : MavenGraph.runtimeMembers(project.getArtifacts())) {
+                    dependencies.add(member.file());
                 }
             }
             JavaProducer.Prepared prepared = JavaProducer.prepare(new JavaProducer.Inputs(
                     application.getFile().toPath(), dependencies,
                     launch == null ? null : launch.toPath(), mainClass, module,
                     javaArgs, runtimeImages), output);
+            if (!pinned.isEmpty()) {
+                JavaProducer.requireThinJar(prepared.application().resolve("app.jar"));
+            }
             List<String> command = JavaProducer.command(executable, image,
-                    store == null ? null : store.toPath(), platforms, layerSets, prepared);
-            Process process = new ProcessBuilder(command)
-                    .directory(project.getBasedir()).inheritIO().start();
-            int status;
-            try {
-                status = process.waitFor();
-            } catch (InterruptedException interrupted) {
-                process.destroy();
-                Thread.currentThread().interrupt();
-                throw new MojoExecutionException("Brewlet publication interrupted", interrupted);
-            }
-            if (status != 0) {
-                throw new MojoExecutionException("Brewlet CLI rejected publication (exit " + status + ")");
-            }
-        } catch (IOException | IllegalArgumentException failure) {
+                    store == null ? null : store.toPath(), platforms, pinned, prepared);
+            trust.append(command);
+            run(command);
+        } catch (IOException | IllegalArgumentException | ProjectBuildingException failure) {
             throw new MojoExecutionException("Brewlet Java producer failed: " + failure.getMessage(), failure);
         }
     }

@@ -71,7 +71,7 @@ func TestInspectLayerSetExposesOnlyVerifiedNeutralLock(t *testing.T) {
 	ref.ArtifactType = artifact.MediaTypeCycloneDX
 	check(store.RecordReferrer(root, ref))
 	check(store.WriteIndex(root, "explicit"))
-	inspect := func() (out []byte, err error) {
+	inspect := func(arguments ...string) (out []byte, err error) {
 		reader, writer, e := os.Pipe()
 		if e != nil {
 			return nil, e
@@ -79,7 +79,10 @@ func TestInspectLayerSetExposesOnlyVerifiedNeutralLock(t *testing.T) {
 		previous := os.Stdout
 		os.Stdout = writer
 		defer func() { os.Stdout = previous; writer.Close(); reader.Close() }()
-		err = run(context.Background(), []string{"inspect", "explicit", "--store", store.Dir})
+		if len(arguments) == 0 {
+			arguments = []string{"inspect", "explicit", "--store", store.Dir}
+		}
+		err = run(context.Background(), arguments)
 		writer.Close()
 		os.Stdout = previous
 		out, e = io.ReadAll(reader)
@@ -99,6 +102,12 @@ func TestInspectLayerSetExposesOnlyVerifiedNeutralLock(t *testing.T) {
 	if result.Digest != root.Digest.String() || len(result.Lock.Entries) != 1 || result.Lock.Entries[0].Path != filePath || result.Lock.Entries[0].SHA256 != hash || result.Evidence.LockDigest != lockDescriptor.Digest {
 		t.Fatalf("verified neutral lock missing from response: %s", out)
 	}
+	out, err = inspect("inspect", store.Dir)
+	check(err)
+	check(json.Unmarshal(out, &result))
+	if result.Digest != root.Digest.String() {
+		t.Fatal("local directory inspect did not select its named root")
+	}
 	lock.Entries[0].SHA256 = digest.FromString("wrong graph bytes").Encoded()
 	badLock, err := store.PutJSON(artifact.MediaTypeLayerSetLock, lock)
 	check(err)
@@ -109,5 +118,24 @@ func TestInspectLayerSetExposesOnlyVerifiedNeutralLock(t *testing.T) {
 	out, err = inspect()
 	if err == nil || len(out) != 0 {
 		t.Fatalf("unverified lock exposed: err=%v output=%s", err, out)
+	}
+	for _, arguments := range [][]string{
+		{"inspect", store.Dir + "@" + root.Digest.String()},
+		{"inspect", root.Digest.String(), "--store", store.Dir},
+	} {
+		out, err = inspect(arguments...)
+		check(err)
+		check(json.Unmarshal(out, &result))
+		if result.Digest != root.Digest.String() {
+			t.Fatal("pinned local inspect followed rotated index")
+		}
+	}
+	sourceStore, pinned, isLocal, err := localLayerSet(store.Dir + "@" + root.Digest.String())
+	check(err)
+	if !isLocal || sourceStore.Dir != store.Dir || pinned.Digest != root.Digest {
+		t.Fatal("local layer-set pin not selected")
+	}
+	if _, _, _, err = localLayerSet(store.Dir + "@" + digest.FromString("missing immutable manifest").String()); err == nil {
+		t.Fatal("missing local pin fell back to mutable index")
 	}
 }

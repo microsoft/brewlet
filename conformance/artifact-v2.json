@@ -56,6 +56,15 @@
     {"name":"inherited-parent-symlink-shadowed","kind":"composition","layers":[[{"path":"app/link","type":"symlink","mode":511,"link":"sub"}],[{"path":"app/link/new","type":"file","mode":420,"data":"upper"}]]},
     {"name":"composed-symlink-dotdot-escape","kind":"composition","layers":[[{"path":"app/alias","type":"symlink","mode":511,"link":"."}],[{"path":"app/link","type":"symlink","mode":511,"link":"alias/../outside"}]],"reason":"LayerPathViolation"},
     {"name":"same-layer-symlink-dotdot-escape","kind":"layer","entries":[{"path":"app/alias","type":"symlink","mode":511,"link":"."},{"path":"app/link","type":"symlink","mode":511,"link":"alias/../outside"}],"reason":"LayerPathViolation"},
-    {"name":"composed-safe-symlink-read","kind":"composition","layers":[[{"path":"app/sub/file","type":"file","mode":420,"data":"lower"}],[{"path":"app/link","type":"symlink","mode":511,"link":"sub/file"}]]}
+    {"name":"composed-safe-symlink-read","kind":"composition","layers":[[{"path":"app/sub/file","type":"file","mode":420,"data":"lower"}],[{"path":"app/link","type":"symlink","mode":511,"link":"sub/file"}]]},
+    {"name":"requires-empty-object","kind":"launch","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{}},"process":{"entrypoint":["runner"],"workingDir":"/app"}},
+    {"name":"runtime-allowlist-empty-array","kind":"launch","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":[]}},"process":{"entrypoint":["runner"],"workingDir":"/app"}},
+    {"name":"runtime-allowlist-null","kind":"launch","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":null}},"reason":"InvalidLaunchConfig"},
+    {"name":"requires-null-object","kind":"launch","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":null},"reason":"InvalidLaunchConfig"},
+    {"name":"runtime-compatibility-absent","kind":"compatibility","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]}},"value":"approved-runtime"},
+    {"name":"runtime-compatibility-empty-object","kind":"compatibility","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{}},"value":"approved-runtime"},
+    {"name":"runtime-compatibility-empty-list","kind":"compatibility","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":[]}},"value":"approved-runtime","reason":"RuntimeImageIncompatible"},
+    {"name":"runtime-compatibility-included","kind":"compatibility","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":["approved-runtime"]}},"value":"approved-runtime"},
+    {"name":"runtime-compatibility-excluded","kind":"compatibility","launch":{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":["approved-runtime"]}},"value":"other-runtime","reason":"RuntimeImageIncompatible"}
   ]
 }

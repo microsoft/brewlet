@@ -48,6 +48,18 @@ type Process struct {
 type Requirements struct {
 	RuntimeImages []string `json:"runtimeImages,omitempty"`
 }
+
+// MarshalJSON preserves an explicit deny-all [] rather than omitting it as
+// though the allow-list were absent.
+func (r Requirements) MarshalJSON() ([]byte, error) {
+	if r.RuntimeImages == nil {
+		return []byte("{}"), nil
+	}
+	return json.Marshal(struct {
+		RuntimeImages []string `json:"runtimeImages"`
+	}{r.RuntimeImages})
+}
+
 type Launch struct {
 	SchemaVersion int           `json:"schemaVersion"`
 	Process       Process       `json:"process"`

@@ -10,6 +10,7 @@ import java.nio.file.attribute.FileTime;
 import java.util.List;
 import java.util.jar.Attributes;
 import java.util.jar.JarOutputStream;
+import java.util.jar.JarEntry;
 import java.util.jar.Manifest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,6 +45,8 @@ class JavaProducerTest {
                 Files.getLastModifiedTime(result.application().resolve("app.jar")));
         assertEquals(FileTime.fromMillis(0), Files.getLastModifiedTime(result.application()));
         assertFalse(json.has("jvm"));
+        String serialized = Files.readString(result.launch());
+        assertTrue(serialized.indexOf("\"args\"") < serialized.indexOf("\"entrypoint\""));
     }
 
     @Test void handWrittenDescriptorIsNotRewritten() throws Exception {
@@ -86,5 +89,33 @@ class JavaProducerTest {
         assertTrue(command.contains(prepared.launch().toString()));
         assertEquals("app=" + prepared.application() + ":/app", command.get(command.size() - 1));
         assertFalse(command.contains("manifest"));
+    }
+
+    @Test void managedConsumptionRejectsNestedJarsRegardlessOfLaunchAuthority() throws Exception {
+        Path thin = jar("thin.jar", "example.Main");
+        JavaProducer.requireThinJar(thin);
+        for (String entry : List.of("BOOT-INF/lib/dependency.jar", "WEB-INF/lib/dependency.JAR",
+                "hidden.jar")) {
+            Path fat = temp.resolve(entry.replace('/', '_'));
+            try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(fat))) {
+                output.putNextEntry(new JarEntry(entry));
+                output.write(new byte[] {1, 2, 3});
+                output.closeEntry();
+            }
+            assertThrows(IOException.class, () -> JavaProducer.requireThinJar(fat));
+        }
+    }
+
+    @Test void handWrittenDescriptorOverridesAllGeneratedLaunchOptions() throws Exception {
+        Path descriptor = temp.resolve("authoritative.json");
+        String json = "{\"schemaVersion\":2,\"process\":{\"entrypoint\":[\"custom java\"],"
+                + "\"args\":[\"hand-written\"]},\"requires\":{\"runtimeImages\":[\"chosen\"]}}";
+        Files.writeString(descriptor, json);
+        var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("app.jar", "manifest.Main"),
+                List.of(), descriptor, "ignored.Main", "ignored.module",
+                List.of("-Dignored=true"), List.of("ignored-runtime")),
+                Files.createDirectory(temp.resolve("authoritative")));
+        assertEquals(descriptor, prepared.launch());
+        assertEquals(json, Files.readString(prepared.launch()));
     }
 }

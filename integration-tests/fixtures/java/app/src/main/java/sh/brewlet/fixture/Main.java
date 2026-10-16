@@ -30,13 +30,22 @@ public final class Main {
     private static String report(String[] args) {
         UnixSystem identity = new UnixSystem();
         return "{\"language\":\"java\",\"runtime\":" + quote(Runtime.version().toString())
-                + ",\"dependency\":" + quote(Greeting.message())
+                + ",\"dependency\":" + quote(dependency())
                 + ",\"arguments\":[" + String.join(",", Arrays.stream(args).map(Main::quote).toList()) + "]"
                 + ",\"cwd\":" + quote(Path.of("").toAbsolutePath().toString())
                 + ",\"uid\":" + identity.getUid() + ",\"gid\":" + identity.getGid()
                 + ",\"path\":" + quote(System.getenv("PATH"))
                 + ",\"home\":" + quote(System.getenv("HOME"))
                 + ",\"value\":" + quote(System.getenv("BREWLET_TEST_VALUE")) + "}";
+    }
+
+    private static String dependency() {
+        try {
+            return (String) Class.forName("sh.brewlet.fixture.Greeting")
+                    .getMethod("message").invoke(null);
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Fixture dependency unavailable", failure);
+        }
     }
 
     public static void main(String[] args) throws Exception {

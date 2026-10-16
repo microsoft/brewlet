@@ -1,0 +1,370 @@
+"""Offline tests: never contact Docker, kind, Kubernetes, or a registry."""
+
+import copy
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import unittest
+from unittest import mock
+import uuid
+
+
+HERE = Path(__file__).resolve().parent
+
+
+def module(name):
+    spec = importlib.util.spec_from_file_location("live_v2_" + name, HERE / (name + ".py"))
+    value = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(value)
+    return value
+
+
+h = module("harness")
+interceptor = module("interceptor")
+RUN = "123456abcdef"
+NODE_UID = "original-node-uid"
+CONTAINER = "a" * 64
+
+
+def owned(uid="resource-uid"):
+    return {"metadata": {"uid": uid, "labels": {h.OWNER: RUN}}}
+
+
+def docker_info(*, kind=False, uid=CONTAINER):
+    return {"Id": uid, "Config": {"Labels":
+            {"io.x-k8s.kind.cluster": "brewlet-v2-" + RUN} if kind else {h.OWNER: RUN}}}
+
+
+class ProjectWork(unittest.TestCase):
+    def setUp(self):
+        self.work = HERE / (".unit-work-" + uuid.uuid4().hex)
+
+    def tearDown(self):
+        if self.work.exists():
+            shutil.rmtree(self.work)
+
+    def harness(self):
+        instance = h.Harness(self.work)
+        instance.run_id = RUN
+        instance.cluster = "brewlet-v2-" + RUN
+        instance.context = "kind-" + instance.cluster
+        instance.namespace = instance.cluster
+        instance.control_namespace = instance.cluster + "-system"
+        instance.profile = instance.cluster
+        instance.node = instance.cluster + "-control-plane"
+        instance.node_uid = NODE_UID
+        instance.arch = "arm64"
+        instance.app_images = {lang: f"registry.brewlet.test/{RUN}/{lang}@sha256:" + "b" * 64
+                               for lang in h.LANGUAGES}
+        return instance
+
+
+class SafetyTests(ProjectWork):
+    def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
+        instance = self.harness()
+        result = instance.run([sys.executable, "-c",
+                               "import os,json; print(json.dumps([os.environ['KUBECONFIG'],"
+                               "os.environ['TMPDIR']]))"])
+        self.assertEqual(json.loads(result.stdout), [str(instance.kubeconfig), str(self.work)])
+        self.assertTrue((self.work / "command-0001.log").exists())
+
+    def test_command_timeout_is_bounded_and_retains_partial_evidence(self):
+        instance = self.harness()
+        with self.assertRaises(h.Failure):
+            instance.run(["/bin/sh", "-c", "printf started; sleep 30"], timeout=2)
+        self.assertIn("started", (self.work / "command-0001.log").read_text())
+
+    def test_run_uid_grammar(self):
+        self.assertEqual(h.validate_run_id(RUN), RUN)
+        for value in ("", "../kind", "default", "ABCDEF123456", "123456789ab", RUN + "0"):
+            with self.subTest(value=value), self.assertRaises(h.Failure):
+                h.validate_run_id(value)
+
+    def test_resource_requires_label_server_uid_and_exact_epoch(self):
+        self.assertEqual(h.require_owned(owned(), RUN), "resource-uid")
+        for obj, uid in (({"metadata": {"uid": "u"}}, None), (owned(""), None),
+                         (owned(), "recreated-uid")):
+            with self.subTest(obj=obj), self.assertRaises(h.Failure):
+                h.require_owned(obj, RUN, uid)
+        foreign = owned()
+        foreign["metadata"]["labels"][h.OWNER] = "abcdef123456"
+        with self.assertRaises(h.Failure):
+            h.require_owned(foreign, RUN)
+
+    def test_docker_identity_and_ownership_are_both_mandatory(self):
+        h.docker_owned(docker_info(), RUN, CONTAINER)
+        h.docker_owned(docker_info(kind=True), RUN, CONTAINER, kind_node=True)
+        with self.assertRaises(h.Failure):
+            h.docker_owned(docker_info(uid="replacement"), RUN, CONTAINER)
+        foreign = docker_info(kind=True)
+        foreign["Config"]["Labels"]["io.x-k8s.kind.cluster"] = "shared"
+        with self.assertRaises(h.Failure):
+            h.docker_owned(foreign, RUN, CONTAINER, kind_node=True)
+
+    def test_kubectl_always_pins_private_config_and_context(self):
+        command = h.kube_command(self.work.resolve() / "kubeconfig", "kind-brewlet-v2-" + RUN,
+                                 ["get", "nodes"])
+        self.assertEqual(command[:5], ["kubectl", "--kubeconfig", str(self.work / "kubeconfig"),
+                                      "--context", "kind-brewlet-v2-" + RUN])
+        self.assertIn("--request-timeout=30s", command)
+        self.assertIn("--request-timeout=0", h.kube_command(
+            self.work.resolve() / "kubeconfig", "kind-brewlet-v2-" + RUN, ["exec"], stream=True))
+        for args in (["--context=shared"], ["--kubeconfig", "/shared"], ["--server=https://shared"],
+                     ["-s", "https://shared"], ["--token=other"], ["--insecure-skip-tls-verify"]):
+            with self.subTest(args=args), self.assertRaises(h.Failure):
+                h.kube_command(self.work.resolve() / "kubeconfig", "kind-brewlet-v2-" + RUN, args)
+        with self.assertRaises(h.Failure):
+            h.kube_command(self.work.resolve() / "kubeconfig", "kind", ["get", "nodes"])
+
+    def test_existing_work_directory_is_refused(self):
+        self.work.mkdir()
+        with self.assertRaises(h.Failure):
+            h.Harness(self.work)
+
+    def test_work_outside_checkout_is_refused_without_creating_it(self):
+        with self.assertRaises(h.Failure):
+            h.Harness(Path("/not-this-checkout/brewlet-acceptance"))
+
+    def test_save_serializes_uid_ownership_without_tuple_keys(self):
+        instance = self.harness()
+        instance.owned[("pod", instance.namespace, "java-old")] = "pod-uid"
+        instance.save()
+        state = json.loads((self.work / "result.json").read_text())
+        self.assertEqual(state["ownership"]["objects"][0]["uid"], "pod-uid")
+        self.assertFalse(state["fullAcceptance"])
+
+    def test_node_exec_refuses_changed_container_before_exec(self):
+        instance = self.harness()
+        instance.node_container = CONTAINER
+        instance.run = mock.Mock(return_value=subprocess.CompletedProcess(
+            [], 0, json.dumps([docker_info(kind=True, uid="new")]), ""))
+        with self.assertRaises(h.Failure):
+            instance.node_exec("rm", "-rf", "/opt/brewlet")
+        self.assertEqual(instance.run.call_count, 1)
+
+    def test_node_snapshot_refuses_recreated_node(self):
+        instance = self.harness()
+        instance.get = mock.Mock(return_value={"metadata": {"uid": "replacement"}})
+        with self.assertRaises(h.Failure):
+            instance.node_snapshot()
+
+    def test_delete_uses_atomic_uid_precondition(self):
+        instance = self.harness()
+        key = ("pod", instance.namespace, "test")
+        instance.owned[key] = "pod-uid"
+        instance.get = mock.Mock(return_value=owned("pod-uid"))
+        instance.kubectl = mock.Mock()
+        instance.delete("pod", "test", instance.namespace)
+        args, kwargs = instance.kubectl.call_args
+        self.assertEqual(args[:2], ("delete", "--raw"))
+        self.assertIn("/namespaces/" + instance.namespace + "/pods/test", args[2])
+        self.assertEqual(json.loads(kwargs["input"])["preconditions"], {"uid": "pod-uid"})
+
+    def test_delete_foreign_or_replaced_object_does_not_issue_delete(self):
+        instance = self.harness()
+        instance.owned[("pod", instance.namespace, "test")] = "old"
+        instance.get = mock.Mock(return_value=owned("new"))
+        instance.kubectl = mock.Mock()
+        with self.assertRaises(h.Failure):
+            instance.delete("pod", "test", instance.namespace)
+        instance.kubectl.assert_not_called()
+
+    def test_destroy_refuses_foreign_node_and_registry(self):
+        instance = self.harness()
+        instance.node_container = CONTAINER
+        instance.registry_id = "registry-id"
+        commands = []
+        def run(command, **kwargs):
+            commands.append(command)
+            if command[:3] == ["docker", "ps", "-aq"]:
+                return subprocess.CompletedProcess(command, 0, CONTAINER, "")
+            return subprocess.CompletedProcess(command, 0, json.dumps([{
+                "Id": "foreign-id", "Config": {"Labels": {}}}]), "")
+        instance.run = run
+        errors = instance.destroy()
+        self.assertEqual(len(errors), 2)
+        self.assertFalse(any(command[:3] == ["kind", "delete", "cluster"] for command in commands))
+        self.assertFalse(any(command[:2] == ["docker", "rm"] for command in commands))
+
+    def test_destroy_removes_only_exact_owned_names_not_image_ids(self):
+        instance = self.harness()
+        instance.node_container = CONTAINER
+        instance.registry_id = "registry-id"
+        tag = "registry.brewlet.test/" + RUN + "/test:v2"
+        instance.images[tag] = "image-id"
+        commands = []
+        removed = set()
+        def run(command, **kwargs):
+            commands.append(command)
+            if command[:3] == ["docker", "ps", "-aq"]:
+                stdout = "" if "cluster" in removed else CONTAINER
+            elif command[:2] == ["docker", "inspect"]:
+                if command[-1] in removed:
+                    return subprocess.CompletedProcess(command, 1, "", "not found")
+                stdout = json.dumps([docker_info(kind=command[-1] == CONTAINER, uid=command[-1])])
+            elif command[:3] == ["docker", "image", "inspect"]:
+                stdout = json.dumps([docker_info(uid="image-id")])
+            else:
+                if command[:3] == ["kind", "delete", "cluster"]:
+                    removed.add("cluster")
+                if command[:2] == ["docker", "rm"]:
+                    removed.add(command[-1])
+                stdout = ""
+            return subprocess.CompletedProcess(command, 0, stdout, "")
+        instance.run = run
+        self.assertEqual(instance.destroy(), [])
+        self.assertIn(["docker", "rm", "-f", "-v", "registry-id"], commands)
+        self.assertIn(["docker", "image", "rm", tag], commands)
+        self.assertFalse(any(command == ["docker", "image", "rm", "image-id"] for command in commands))
+
+    def test_destroy_refuses_retargeted_image_tag(self):
+        instance = self.harness()
+        instance.images["registry.brewlet.test/owned/image:v2"] = "original"
+        instance.run = mock.Mock(return_value=subprocess.CompletedProcess(
+            [], 0, json.dumps([docker_info(uid="replacement")]), ""))
+        self.assertEqual(len(instance.destroy()), 1)
+        self.assertEqual(instance.run.call_count, 1)
+
+
+class ContractTests(ProjectWork):
+    def test_all_language_pods_keep_ro_root_missing_volume_target_and_real_exec_probe(self):
+        instance = self.harness()
+        for language in h.LANGUAGES:
+            pod = instance.pod("contract", language, overrides=True)
+            container = pod["spec"]["containers"][0]
+            self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])
+            self.assertEqual(container["volumeMounts"][0]["mountPath"], "/app/new-volume-target")
+            self.assertEqual(container["imagePullPolicy"], "Never")
+            self.assertIn("--probe", container["readinessProbe"]["exec"]["command"])
+            self.assertEqual(container["workingDir"], "/home/app")
+            self.assertEqual(container["args"][-1], "two words")
+            self.assertEqual(pod["spec"]["nodeSelector"], {"kubernetes.io/arch": "arm64"})
+            self.assertNotIn("nodeName", pod["spec"])
+            self.assertNotIn("tolerations", pod["spec"])
+
+    def test_bound_negative_has_explicit_nonroot_independent_of_admission(self):
+        instance = self.harness()
+        barrier = {"id": h.IDS["python"], "inventoryUID": "epoch", "generation": 3}
+        pod = instance.pod("negative", "python", barrier=barrier, bound=True)
+        self.assertEqual(pod["spec"]["nodeName"], instance.node)
+        security = pod["spec"]["containers"][0]["securityContext"]
+        self.assertEqual((security["runAsUser"], security["runAsGroup"]), (65532, 65532))
+        self.assertFalse(security["allowPrivilegeEscalation"])
+        self.assertEqual(security["capabilities"]["drop"], ["ALL"])
+        self.assertEqual(json.loads(pod["metadata"]["annotations"][
+            "brewlet.sh/rotated-to-generation"]), barrier)
+
+    def test_profile_has_explicit_controlplane_pool_and_exact_toleration(self):
+        profile = self.harness().profile_object()
+        self.assertTrue(profile["spec"]["nodePool"]["includeControlPlane"])
+        self.assertEqual(profile["spec"]["nodePool"]["key"], "brewlet.test/pool")
+        self.assertEqual(profile["spec"]["tolerations"], [{"key": h.FENCE, "operator": "Equal",
+                                                         "value": "provisioning", "effect": "NoSchedule"}])
+        self.assertTrue(all(e["install"] == "OnDemand" for e in profile["spec"]["runtimeImages"]))
+
+    def test_evidence_never_equates_import_to_pull_tls_or_full_acceptance(self):
+        result = h.classify_evidence([{"outcome": "passed"}], ["missing real-node scenario"])
+        self.assertTrue(result["selectedAssertionsPassed"])
+        for key in ("fullAcceptance", "kubeletPullVerified", "tlsTransportVerified",
+                    "providerScaleFromZeroVerified"):
+            self.assertFalse(result[key])
+        self.assertFalse(h.classify_evidence([], [])["fullAcceptance"])
+        self.assertFalse(h.classify_evidence([{"outcome": "passed"}], [])["fullAcceptance"])
+        self.assertFalse(h.classify_evidence([{"outcome": "failed"}], [])["selectedAssertionsPassed"])
+
+    def test_failure_class_keeps_environment_errors_separate_from_contract_failures(self):
+        self.assertEqual(h.failure_class("prerequisites", "tool missing"), "infrastructure")
+        self.assertEqual(h.failure_class("build", "failed to resolve registry: no such host"), "infrastructure")
+        self.assertEqual(h.failure_class("execution", "runtime PATH mismatch"), "acceptance")
+
+    def test_no_start_requires_exact_reason_and_scopes_events_to_pod_uid(self):
+        instance = self.harness()
+        instance.owned[("pod", instance.namespace, "negative")] = "pod-uid"
+        pod = owned("pod-uid")
+        pod["status"] = {"containerStatuses": [{"state": {"waiting": {"reason": "CreateContainerError"}}}]}
+        instance.get = mock.Mock(side_effect=lambda kind, *args, **kwargs:
+                                {"items": [{"involvedObject": {"uid": "foreign"},
+                                             "message": "RuntimeImageRevoked"}]} if kind == "events" else pod)
+        instance.wait = lambda description, predicate, **kwargs: h.require(
+            predicate(), "expected failure was not observed")
+        with self.assertRaises(h.Failure):
+            instance.no_start("negative", "RuntimeImageRevoked")
+
+    def test_no_start_cannot_accept_started_container_with_failure_event(self):
+        instance = self.harness()
+        instance.owned[("pod", instance.namespace, "negative")] = "pod-uid"
+        pod = owned("pod-uid")
+        pod["status"] = {"containerStatuses": [{"containerID": "containerd://running",
+                                               "state": {"running": {}}}]}
+        instance.get = mock.Mock(return_value=pod)
+        instance.wait = lambda description, predicate, **kwargs: predicate()
+        with self.assertRaises(h.Failure):
+            instance.no_start("negative", "RuntimeImageRevoked")
+
+    def test_inner_application_index_not_outer_layout_index(self):
+        layout = self.work
+        blobs = layout / "blobs/sha256"
+        blobs.mkdir(parents=True)
+        def put(value):
+            data = json.dumps(value, sort_keys=True).encode()
+            digest = hashlib.sha256(data).hexdigest()
+            (blobs / digest).write_bytes(data)
+            return {"digest": "sha256:" + digest, "size": len(data)}
+        config = put({"config": {}})
+        manifest = put({"annotations": {"brewlet.sh/artifact-version": "2"}, "config": config,
+                        "layers": [{"annotations": {"brewlet.sh/layer": role}}
+                                   for role in ("dependency", "app", "launch")]})
+        inner = put({"manifests": [manifest]})
+        (layout / "index.json").write_text(json.dumps({"manifests": [inner]}))
+        self.assertEqual(h.artifact_target(layout)[0], inner["digest"])
+        (blobs / inner["digest"][7:]).write_bytes(b"corrupted")
+        with self.assertRaises(h.Failure):
+            h.artifact_target(layout)
+
+
+class InterceptorTests(unittest.TestCase):
+    def request(self):
+        node = {"metadata": {"name": "test-node", "uid": NODE_UID,
+                             "labels": {"brewlet.sh/runtime.python-3.12": "ready"}},
+                "spec": {"taints": []}}
+        return {"resource": {"resource": "nodes"}, "oldObject": node, "object": copy.deepcopy(node)}
+
+    def config(self, **extra):
+        return {"node": "test-node", "nodeUID": NODE_UID, "revision": 1, **extra}
+
+    def test_real_admission_decision_refuses_label_removal_and_value_change(self):
+        for value in (None, "available"):
+            request = self.request()
+            labels = request["object"]["metadata"]["labels"]
+            key = "brewlet.sh/runtime.python-3.12"
+            if value is None:
+                labels.pop(key)
+            else:
+                labels[key] = value
+            allowed, reason = interceptor.decision(request, self.config(pinnedLabels=[key]))
+            self.assertFalse(allowed)
+            self.assertIn("provider-pinned label refusal", reason)
+
+    def test_interceptor_cannot_pin_foreign_node_and_refuses_same_name_replacement(self):
+        request = self.request()
+        request["object"]["metadata"]["name"] = "foreign"
+        self.assertTrue(interceptor.decision(request, self.config(denyFence=True))[0])
+        request = self.request()
+        request["object"]["metadata"]["uid"] = "recreated"
+        self.assertFalse(interceptor.decision(request, self.config())[0])
+
+    def test_fallback_taint_can_be_refused_independently(self):
+        request = self.request()
+        request["object"]["spec"]["taints"].append(
+            {"key": h.FENCE, "value": "provisioning", "effect": "NoSchedule"})
+        self.assertFalse(interceptor.decision(request, self.config(denyFence=True))[0])
+        self.assertTrue(interceptor.decision(request, self.config(denyFence=False))[0])
+        self.assertTrue(interceptor.decision(self.request(), self.config(denyFence=True))[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

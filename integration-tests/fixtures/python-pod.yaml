@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: v2-python-first-use
+  annotations:
+    brewlet.sh/runtime-image: python-3.12
+spec:
+  runtimeClassName: brewlet
+  nodeSelector:
+    kubernetes.io/arch: arm64
+  containers:
+    - name: app
+      image: registry.brewlet.test/apps/python@sha256:b4c296a18475753b5bad8004f91098e7287b605871e5d420412c197d57fd855d
+      imagePullPolicy: Never
+      env:
+        - name: BREWLET_TEST_VALUE
+          value: explicit-contract-value
+        - name: PATH
+          value: /app/not-runtime-path
+      securityContext:
+        readOnlyRootFilesystem: true
+      readinessProbe:
+        exec:
+          command: [python3, /app/src/main.py, --probe]
+        periodSeconds: 2
+        timeoutSeconds: 10
+      volumeMounts:
+        - name: data
+          mountPath: /app/new-volume-target
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+  volumes:
+    - name: data
+      emptyDir: {}

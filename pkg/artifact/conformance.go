@@ -65,6 +65,12 @@ func EvaluateFixture(ctx context.Context, f Fixture) (FixtureResult, error) {
 		err = ValidateRuntimeImageID(f.Value)
 	case "platform":
 		_, err = ParsePlatform(f.Value)
+	case "compatibility":
+		var launch *Launch
+		launch, err = ParseLaunch(f.Launch)
+		if err == nil && !launch.Allows(f.Value) {
+			err = fail("RuntimeImageIncompatible", "runtime image %q excluded by launch allow-list", f.Value)
+		}
 	case "layer":
 		source, e := fixtureSource(f.Entries)
 		if e != nil {

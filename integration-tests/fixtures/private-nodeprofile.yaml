@@ -1,0 +1,20 @@
+apiVersion: node.brewlet.sh/v2alpha1
+kind: NodeProfile
+metadata:
+  name: v2-private-node
+spec:
+  nodePool:
+    key: brewlet.test/pool
+    names: [runtime-test]
+    includeControlPlane: true
+  tolerations:
+    - key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet
+      operator: Equal
+      value: provisioning
+      effect: NoSchedule
+  runtimeImages:
+    - id: python-3.12
+      install: OnDemand
+  rollout:
+    maxUnavailable: 1
+    containerdRestart: validated

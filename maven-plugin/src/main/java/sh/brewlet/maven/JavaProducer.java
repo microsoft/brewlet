@@ -1,6 +1,7 @@
 package sh.brewlet.maven;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -69,7 +70,8 @@ final class JavaProducer {
                 descriptor.put("requires", Map.of("runtimeImages", inputs.runtimeImages()));
             }
             launch = output.resolve("launch.json");
-            new ObjectMapper().writerWithDefaultPrettyPrinter().writeValue(launch.toFile(), descriptor);
+            new ObjectMapper().enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+                    .writerWithDefaultPrettyPrinter().writeValue(launch.toFile(), descriptor);
         }
         return new Prepared(launch, app, dependencies,
                 inputs.module() == null || inputs.module().isBlank() ? "/app/lib" : "/app/mods");
@@ -97,6 +99,20 @@ final class JavaProducer {
         }
         command.addAll(List.of("--layer", "app=" + prepared.application() + ":/app"));
         return command;
+    }
+
+    static void requireThinJar(Path path) throws IOException {
+        requireFile(path);
+        try (JarFile jar = new JarFile(path.toFile())) {
+            var entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                if (!entry.isDirectory() && entry.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".jar")) {
+                    throw new IOException("Managed layer sets require a thin application JAR; nested JAR: "
+                            + entry.getName());
+                }
+            }
+        }
     }
 
     private static void requireFile(Path file) throws IOException {

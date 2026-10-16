@@ -76,3 +76,39 @@ jobs:
             ${{ runner.temp }}/brewlet-v2-registry-*/result.json
           if-no-files-found: warn
           retention-days: 7
+
+  linux-overlay-contract:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - name: Compile Linux materialization contract
+        run: go test -c -o bin/artifact.test ./pkg/artifact
+      - name: Build isolated pinned test userland
+        run: >-
+          docker build --load --platform "${{ matrix.platform }}"
+          --file integration-tests/fixtures/runtimes/python.Dockerfile
+          --tag brewlet-overlay-contract:${{ github.run_id }}
+          integration-tests/fixtures/runtimes
+      - name: Exercise real overlay metadata, not a scheduling test
+        run: |
+          set -euo pipefail
+          docker run --rm --platform "${{ matrix.platform }}" --network none \
+            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
+            --security-opt no-new-privileges --read-only --tmpfs /tmp \
+            --tmpfs /src/pkg/artifact:rw,mode=755 \
+            --mount "type=bind,source=$PWD,target=/src,readonly" \
+            --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
+            --workdir /src/pkg/artifact --entrypoint /tests/artifact.test \
+            brewlet-overlay-contract:${{ github.run_id }} \
+            -test.v -test.run TestLinuxOverlayWhiteoutMaterialization | tee overlay.log
+          ! grep -q '^--- SKIP' overlay.log
