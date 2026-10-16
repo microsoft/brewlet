@@ -20,9 +20,15 @@ func (h *PodHandler) Handle(ctx context.Context, req webhook.Request) webhook.Re
 	if req.Operation != admissionv1.Create && req.Operation != admissionv1.Update {
 		return webhook.Allowed("not an executable pod mutation")
 	}
+	if req.Operation == admissionv1.Update && req.SubResource != "ephemeralcontainers" {
+		return webhook.Allowed("ordinary pod updates do not create executable containers")
+	}
 	p := new(corev1.Pod)
 	if err := json.Unmarshal(req.Object.Raw, p); err != nil {
 		return webhook.Errored(http.StatusBadRequest, err)
+	}
+	if req.Operation == admissionv1.Update {
+		return h.ephemeralUpdate(ctx, req, p)
 	}
 	warnings, err := h.Mutator.Mutate(ctx, p)
 	if err != nil {

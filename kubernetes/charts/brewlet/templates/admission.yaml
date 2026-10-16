@@ -103,10 +103,14 @@ webhooks:
       caBundle: {{ $bundle }}
       service: {name: brewlet-admission, namespace: {{ .Release.Namespace }}, path: /mutate-pods}
     rules:
-      - operations: [CREATE, UPDATE]
+      - operations: [CREATE]
         apiGroups: [""]
         apiVersions: [v1]
-        resources: [pods, pods/ephemeralcontainers]
+        resources: [pods]
+      - operations: [UPDATE]
+        apiGroups: [""]
+        apiVersions: [v1]
+        resources: [pods/ephemeralcontainers]
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration

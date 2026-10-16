@@ -224,6 +224,12 @@ class Harness:
 
     def save(self):
         self.result.update(classify_evidence(self.records, self.result["gaps"]))
+        intervention = self.work / "manual-intervention.json"
+        if intervention.exists():
+            self.result["interventions"] = [json.loads(intervention.read_text())]
+            self.result["cleanSelectedSuitePassed"] = False
+        else:
+            self.result["cleanSelectedSuitePassed"] = self.result["selectedAssertionsPassed"]
         self.result["assertions"] = self.records
         self.result["ownership"] = {"cluster": self.cluster, "context": self.context,
                                     "node": self.node, "nodeUID": self.node_uid,
@@ -1363,6 +1369,8 @@ class Harness:
                 self.pinned_revocation()
             self.phase = "production-cleanup"
             self.production_cleanup()
+            require(not (self.work / "manual-intervention.json").exists(),
+                    "manual intervention invalidates a clean selected-suite acceptance pass")
             self.result["outcome"] = "passed"
             status = 0
         except Exception as exc:
