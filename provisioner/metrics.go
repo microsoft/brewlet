@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/containerd/containerd/v2/client"
@@ -45,7 +44,7 @@ type inventoryCollector struct {
 
 var generationsDesc = prometheus.NewDesc("brewlet_runtime_image_generations", "Installed runtime generations.", []string{"id", "state"}, nil)
 var diskDesc = prometheus.NewDesc("brewlet_shared_storage_bytes", "Logical shared runtime and application-layer storage bytes.", []string{"store"}, nil)
-var runtimeDesc = prometheus.NewDesc("brewlet_container_runtime_image_info", "Live task bindings to approved runtime inventory generations.", []string{"id", "inventory_uid", "generation", "digest"}, nil)
+var runtimeDesc = prometheus.NewDesc("brewlet_container_runtime_image_info", "Live container/Pod bindings to approved runtime inventory generations.", []string{"namespace", "pod", "pod_uid", "container", "container_id", "id", "inventory_uid", "generation", "digest"}, nil)
 
 func (c *inventoryCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- generationsDesc
@@ -145,30 +144,25 @@ func (c *inventoryCollector) Collect(ch chan<- prometheus.Metric) {
 		invalid(err)
 		return
 	}
-	counts := map[string]int{}
+	inspection, cancelInspection := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelInspection()
 	for _, lease := range leases {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		ctx = namespaces.WithNamespace(ctx, lease.Namespace)
+		ctx := namespaces.WithNamespace(inspection, lease.Namespace)
 		container, err := c.client.LoadContainer(ctx, lease.TaskID)
 		if errdefs.IsNotFound(err) {
-			cancel()
 			continue
 		} else if err != nil {
-			cancel()
 			invalid(err)
 			return
 		}
 		task, err := container.Task(ctx, nil)
 		if errdefs.IsNotFound(err) {
-			cancel()
 			continue
 		} else if err != nil {
-			cancel()
 			invalid(err)
 			return
 		}
 		pids, err := task.Pids(ctx)
-		cancel()
 		if err != nil {
 			invalid(err)
 			return
@@ -176,11 +170,20 @@ func (c *inventoryCollector) Collect(ch chan<- prometheus.Metric) {
 		if len(pids) == 0 {
 			continue
 		}
-		m := lease.Metadata
-		key := strings.Join([]string{m.ID, m.InventoryUID, strconv.FormatInt(m.Generation, 10), m.SourceDigest}, "\x00")
-		counts[key]++
+		spec, err := container.Spec(ctx)
+		if err != nil {
+			invalid(err)
+			return
+		}
+		binding, err := bindingFromAnnotations(lease, spec.Annotations, "running")
+		if err != nil {
+			invalid(err)
+			return
+		}
+		ch <- runtimeBindingMetric(binding)
 	}
-	for key, count := range counts {
-		ch <- prometheus.MustNewConstMetric(runtimeDesc, prometheus.GaugeValue, float64(count), strings.Split(key, "\x00")...)
-	}
+}
+
+func runtimeBindingMetric(binding node.RuntimeBinding) prometheus.Metric {
+	return prometheus.MustNewConstMetric(runtimeDesc, prometheus.GaugeValue, 1, binding.PodNamespace, binding.PodName, binding.PodUID, binding.ContainerName, binding.ContainerID, binding.ID, binding.InventoryUID, strconv.FormatInt(binding.Generation, 10), binding.Digest)
 }

@@ -161,6 +161,9 @@ func (w *Worker) validatePublication(ctx context.Context, s *control.Snapshot, i
 		if !exists || state.Install != entry.Mode() || (state.State != "ready" && state.State != "available") {
 			return p, fmt.Errorf("node-advertisement-failed: approved runtime %s lacks valid proposed state", id)
 		}
+		if err := w.validateRuntimePlatforms(ctx, r); err != nil {
+			return p, err
+		}
 		a, exists := byID[id]
 		if !exists || a.ProfileUID != string(w.Authority.ProfileUID) || a.ProfileGeneration != w.Authority.Generation || a.InventoryUID != string(r.UID) || a.Revoked || !time.Now().Before(a.ExpiresAt) || a.Install != entry.Mode() || a.State != state.State {
 			return p, fmt.Errorf("node-advertisement-failed: live local authorization missing for %s", id)

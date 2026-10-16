@@ -13,6 +13,21 @@ requires literal `BREWLET_PROFILE_UID`, `BREWLET_PROFILE_GENERATION`,
 `BREWLET_PROFILE_NAME`, `BREWLET_MODE`, and JSON `BREWLET_TARGET_UIDS`, and reads
 `NODE_NAME`. `SOURCE_ALLOWED_MIRROR_HOSTS` is a JSON array. Source and mirror
 validation is shared with Kubernetes policy.
+Runtime platform coverage is checked by the node worker, not by registry I/O in
+admission or the operator. The worker freshly lists known Nodes and valid active
+profiles offering the ID, applies the existing named/default pool selectors,
+and requires every offered Node's Linux OS/architecture. Missing or conflicting
+Node platform information and API lookup errors fail closed.
+
+Only the pinned OCI index, platform manifests and image configs are needed for
+this check; runtime layers are never fetched/unpacked for a cold OnDemand
+baseline. Descriptor digests/sizes and index/config declarations are verified.
+Containerd normalization handles equivalent names/default variants (for example
+`aarch64`, `arm64/v8`, and `amd64/v1`); a different non-default variant is never
+silently selected. The selected actual manifest digest and normalized platform
+are persisted with the runtime root, and snapshot diff IDs must match that
+selected config. Future, nonexistent autoscaler Nodes cannot provide platform
+evidence; their real platforms are checked when they join.
 Matching CRDs, operator, admission, and worker builds are required. Before
 minting authorization, the worker requires an unresolved
 `RuntimeImage.status.revocationTargets` row for this Node UID/profile UID with
@@ -70,6 +85,14 @@ Idle-TTL reclamation checks all durable leases and initial-host-namespace mount
 evidence before removing current and returning authorization to `available`.
 Generation collection runs conservatively after recovery, retaining current,
 leased, mounted, young, or uncertain generations.
+`BREWLET_GC_GRACE` and `BREWLET_GC_SWEEP_INTERVAL` configure positive real
+durations (defaults `1h` and `1m`). They do not change clocks or bypass evidence.
+A fresh worker's first normal sweep runs fenced `Store.Recover` and, only after
+successful recovery and fresh authority readback, emits
+`runtime-lease-recovery: {"retainedTasks":[...],"removedTasks":[...],"complete":true}`.
+Those sorted task IDs come from actual protected before/after records. This
+proves lease recovery across a fresh worker process, not reconstruction of an
+arbitrarily killed runc task-server process.
 The grace period starts at retirement, not the original installation date.
 Layer-cache collection uses an exclusive cross-process guard shared by Create,
 immutable publication receipts, durable per-task cache references, complete
@@ -113,7 +136,10 @@ than relaxing initial-host namespace evidence requirements inside the worker.
 
 Set `BREWLET_METRICS_ADDRESS` (for example `:9090`) to expose install request
 outcomes/durations, current/retired generation counts, live task/runtime
-bindings, and separate shared runtime/layer logical-byte metrics. Inspection
+bindings, and separate shared runtime/layer logical-byte metrics. The runtime
+info gauge is one per actual container and includes protected namespace, Pod
+name/UID, container name/ID plus ID/epoch/generation/digest labels, so vulnerable
+generation observations can be joined to Pods. Inspection
 errors fail a scrape rather than report zero. Runtime starts and bounded waits
 also publish structured containerd events on `/brewlet/runtime-image`.
 The protected `brewlet.sh/runtime-bindings` Node annotation carries complete,
@@ -157,9 +183,10 @@ This is not yet a complete node-runtime acceptance implementation:
   runtime PATH/HOME, and no capabilities/privilege escalation. Upgrade,
   rollback, and reversal still need the full live acceptance suite. Systemd
   hosts with conventional config/socket paths are required.
-* Custom containerd roots, sockets, snapshotters, and runtime platform variants
-  are unsupported. The selected architecture is checked; coverage of every
-  architecture across a pool is not established by the node worker.
+* Custom containerd roots, sockets and snapshotters remain unsupported.
+  Normalized platform declarations, strict variants and current known-pool
+  architecture coverage are implemented; full live multi-architecture coverage
+  still requires real Nodes of those architectures.
 * Idle-TTL, generation, and layer-cache sweeping are wired and unit-tested, but
   still need full real-node lease/mount/rotation validation.
 * Cache parents are protected, but cache corruption/restart durability needs
@@ -170,8 +197,10 @@ This is not yet a complete node-runtime acceptance implementation:
   mutability probe, repeated during recovery; provider refusals retain the
   node-wide fence. Fake-client refusal tests exercise the confirmed fence;
   real provider/interceptor integration validation remains necessary.
-  All-ID recovery is implemented as described above; its full live matrix and
-  Kubernetes-native event mirroring remain unverified/incomplete respectively.
+  All-ID recovery is implemented as described above; its full live matrix
+  remains acceptance work. The proposal requires shim/container events, emitted
+  through containerd here, rather than prescribing Kubernetes Event mirroring.
+  Workload restart Kubernetes events are emitted by the control plane.
   Prometheus/containerd telemetry needs real-node
   scraping/event validation.
 * The complete four-language rotation/revocation/recovery/cleanup matrix and
@@ -200,7 +229,8 @@ exercise the node portions of `RUN-06`, `RUN-07`, and `RUN-09`.
 
 `RUN-02`–`RUN-05`, `OWN-01`–`OWN-02`, and `OBS-01`–`OBS-03` integrate shared
 artifact/control code and require the live suite for complete production
-evidence. `ROOT-01` remains limited by the platform restrictions above.
+evidence. `ROOT-01` metadata-only coverage/variant contracts are implemented and
+unit-tested; complete live heterogeneous-pool evidence remains separate.
 `RUN-08` is not considered verified without actual CRI usage and eviction
 evidence. The authoritative cross-component results are tracked in
 [`acceptance/requirements.json`](../acceptance/requirements.json); implementation

@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 import uuid
@@ -324,6 +325,114 @@ class ContractTests(ProjectWork):
         (blobs / inner["digest"][7:]).write_bytes(b"corrupted")
         with self.assertRaises(h.Failure):
             h.artifact_target(layout)
+
+
+class CallbackOrderTests(ProjectWork):
+    def test_rotation_pins_select_distinct_real_vendor_versions(self):
+        inputs = json.loads((h.FIXTURES / "runtimes/rotation.json").read_text())
+        self.assertEqual(h.rotation_inputs(inputs), inputs)
+        for language in h.LANGUAGES:
+            invalid = copy.deepcopy(inputs)
+            invalid[language]["after"] = invalid[language]["before"]
+            with self.assertRaises(h.Failure):
+                h.rotation_inputs(invalid)
+        invalid = copy.deepcopy(inputs)
+        invalid["python"]["before"]["image"] = "python:latest"
+        with self.assertRaises(h.Failure):
+            h.rotation_inputs(invalid)
+        invalid["python"] = None
+        with self.assertRaises(h.Failure):
+            h.rotation_inputs(invalid)
+
+    def test_vendor_probe_matches_complete_versions_not_prefixes(self):
+        self.assertTrue(h.runtime_version_matches('openjdk version "21.0.7" 2025-04-15', "21.0.7"))
+        self.assertTrue(h.runtime_version_matches("Microsoft.NETCore.App 10.0.1 [/usr/share/dotnet]",
+                                                 "Microsoft.NETCore.App 10.0.1 "))
+        self.assertFalse(h.runtime_version_matches("Python 3.13.50", "Python 3.13.5"))
+        self.assertFalse(h.runtime_version_matches("v22.18.01", "v22.18.0"))
+
+    def test_remote_evidence_requires_completed_pull_and_tls_proofs(self):
+        receipt = {"bootstrapOnly": False, "kubeletPullVerified": True,
+                   "runtimeSourcePullVerified": True, "tlsTransportVerified": True}
+        for key in receipt:
+            partial = dict(receipt)
+            partial.pop(key)
+            self.assertFalse(h.classify_evidence([{"outcome": "passed"}], [], partial)[
+                "kubeletPullVerified"])
+        result = h.classify_evidence([{"outcome": "passed"}], ["provider capacity"], receipt)
+        self.assertTrue(result["kubeletPullVerified"])
+        self.assertTrue(result["tlsTransportVerified"])
+        self.assertFalse(result["fullAcceptance"])
+        self.assertFalse(result["providerScaleFromZeroVerified"])
+
+    def test_clean_pass_requires_completed_suite_and_fixture_destruction(self):
+        instance = self.harness()
+        instance.records = [{"outcome": "passed"}]
+        instance.save()
+        self.assertFalse(instance.result["cleanSelectedSuitePassed"])
+        instance.result["outcome"] = "passed"
+        instance.save()
+        self.assertFalse(instance.result["cleanSelectedSuitePassed"])
+        instance.result["fixtureDestruction"] = {"outcome": "passed"}
+        instance.save()
+        self.assertTrue(instance.result["cleanSelectedSuitePassed"])
+
+    def configure(self, *, bootstrap_failure=False, cleanup_failure=False):
+        instance = self.harness()
+        calls = []
+        for name in ("preflight", "provision_cluster", "prepare_images", "install",
+                     "startup", "four_language_execution", "barriers_and_rotation",
+                     "pinned_revocation", "production_cleanup", "stop_helpers",
+                     "diagnostics", "save"):
+            setattr(instance, name, mock.Mock(side_effect=lambda name=name: calls.append(name)))
+        instance.destroy = mock.Mock(side_effect=lambda: calls.append("destroy") or [])
+        def callback(name, fail=False):
+            def invoke(_):
+                calls.append(name)
+                if fail:
+                    raise h.Failure(name + " failed")
+            return invoke
+        modules = {
+            "delivery": SimpleNamespace(
+                bootstrap=callback("bootstrap_delivery", bootstrap_failure),
+                execute=callback("delivery"),
+                cleanup=callback("cleanup_delivery", cleanup_failure)),
+            "accounting": SimpleNamespace(execute=callback("accounting")),
+            "lifecycle": SimpleNamespace(execute=callback("lifecycle")),
+            "control_edges": SimpleNamespace(
+                execute=callback("control_edges"),
+                before_cleanup=callback("before_cleanup"),
+                after_cleanup=callback("after_cleanup")),
+        }
+        return instance, calls, modules
+
+    def test_selected_callbacks_are_mandatory_and_ordered(self):
+        instance, calls, modules = self.configure()
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertEqual(calls, [
+            "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
+            "install", "startup", "four_language_execution", "barriers_and_rotation",
+            "accounting", "delivery", "lifecycle", "control_edges", "pinned_revocation",
+            "before_cleanup", "production_cleanup", "after_cleanup",
+            "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
+        self.assertEqual(instance.result["outcome"], "passed")
+
+    def test_partial_bootstrap_still_cleans_registry_and_cluster(self):
+        instance, calls, modules = self.configure(bootstrap_failure=True)
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 1)
+        self.assertNotIn("install", calls)
+        self.assertEqual(calls[-5:], [
+            "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
+        self.assertEqual(instance.result["failurePhase"], "remote-delivery-bootstrap")
+
+    def test_registry_cleanup_error_cannot_skip_cluster_destruction(self):
+        instance, calls, modules = self.configure(cleanup_failure=True)
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 1)
+        self.assertIn("destroy", calls)
+        self.assertEqual(instance.result["outcome"], "failed")
 
 
 class InterceptorTests(unittest.TestCase):

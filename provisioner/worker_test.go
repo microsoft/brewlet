@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"testing"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
 	"github.com/microsoft/brewlet/pkg/control"
 	"github.com/microsoft/brewlet/pkg/node"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +20,11 @@ import (
 )
 
 type baselineFailure struct{}
+type fixturePlatforms struct{}
+
+func (fixturePlatforms) ValidatePlatforms(context.Context, *api.RuntimeImage, []ocispec.Platform) error {
+	return nil
+}
 
 func (baselineFailure) Validate(context.Context) error { return errors.New("handler not configured") }
 func authorityFixture(t *testing.T) (*Worker, string) {
@@ -41,10 +48,10 @@ func authorityFixture(t *testing.T) (*Worker, string) {
 	spec := api.NodeProfileSpec{RuntimeImages: []api.RuntimeEntry{{ID: "static", Install: "OnDemand"}}}
 	target := api.Target{Name: "node", UID: "node-one", Claimed: true, ContainerdRestart: "none"}
 	p := &api.NodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile", UID: "profile-one", Generation: 1}, Spec: spec, Status: api.NodeProfileStatus{OwnershipInitialized: true, ProvisioningGeneration: 1, ProvisioningSpec: &spec, Targets: []api.Target{target}}}
-	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: "node-one", Labels: map[string]string{api.OwnerUID: "profile-one", api.OwnerNodeUID: "node-one"}, Annotations: map[string]string{api.OwnerName: "profile"}}, Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}}}
+	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: "node-one", Labels: map[string]string{api.OwnerUID: "profile-one", api.OwnerNodeUID: "node-one"}, Annotations: map[string]string{api.OwnerName: "profile"}}, Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}, NodeInfo: corev1.NodeSystemInfo{OperatingSystem: "linux", Architecture: goruntime.GOARCH}}}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(p, n).Build()
 	a := control.Authority{NodeName: "node", NodeUID: "node-one", ProfileName: "profile", ProfileUID: "profile-one", Generation: 1, TargetUIDs: []types.UID{"node-one"}, Mode: "provisioning"}
-	return &Worker{Client: c, Reader: c, Authority: a, Store: node.NewStore(filepath.Join(root, "runtimes")), Baseline: baselineFailure{}}, root
+	return &Worker{Client: c, Reader: c, Authority: a, Store: node.NewStore(filepath.Join(root, "runtimes")), Baseline: baselineFailure{}, Platforms: fixturePlatforms{}}, root
 }
 func TestInitialFenceDoesNotMutateHost(t *testing.T) {
 	w, root := authorityFixture(t)

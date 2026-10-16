@@ -56,6 +56,32 @@ def require(value, message):
         raise Failure(message)
 
 
+def rotation_inputs(data):
+    require(isinstance(data, dict) and set(data) == set(LANGUAGES),
+            "rotation inputs must cover exactly the four fixture languages")
+    for language, value in data.items():
+        require(isinstance(value, dict) and set(value) == {"probe", "before", "after"}
+                and isinstance(value["probe"], list) and value["probe"]
+                and all(isinstance(arg, str) and arg and "\0" not in arg for arg in value["probe"]),
+                "invalid fixture runtime probe: " + language)
+        for revision in ("before", "after"):
+            item = value[revision]
+            require(isinstance(item, dict) and set(item) == {"image", "version"}
+                    and isinstance(item["image"], str)
+                    and re.fullmatch(r"[a-z0-9./-]+@sha256:[0-9a-f]{64}", item["image"])
+                    and isinstance(item["version"], str) and item["version"].strip(),
+                    "invalid pinned vendor runtime: " + language + "/" + revision)
+        require(value["before"]["image"] != value["after"]["image"]
+                and value["before"]["version"] != value["after"]["version"],
+                "rotation requires different vendor bytes and versions: " + language)
+    return data
+
+
+def runtime_version_matches(output, expected):
+    return re.search(r"(?<![A-Za-z0-9.])" + re.escape(expected.strip())
+                     + r"(?![A-Za-z0-9.])", output) is not None
+
+
 def validate_run_id(value):
     require(bool(re.fullmatch(r"[0-9a-f]{12}", value)), "invalid invocation UID")
     return value
@@ -93,12 +119,17 @@ def kube_command(kubeconfig, context, args, *, stream=False):
             "--request-timeout=" + ("0" if stream else "30s"), *map(str, args)]
 
 
-def classify_evidence(records, gaps):
+def classify_evidence(records, gaps, delivery=None):
     """Never turn import execution or a partial suite into full acceptance."""
     passed = bool(records) and all(row["outcome"] == "passed" for row in records)
-    return {"scope": "real-node-execution-only", "transport": "verified-local-containerd-import",
+    delivery = delivery or {}
+    remote = (delivery.get("bootstrapOnly") is False
+              and all(delivery.get(key) is True for key in
+                      ("kubeletPullVerified", "runtimeSourcePullVerified", "tlsTransportVerified")))
+    return {"scope": "real-node-execution-and-remote-delivery" if remote else "real-node-execution-only",
+            "transport": "verified-authenticated-tls-pull" if remote else "verified-local-containerd-import",
             "fullAcceptance": False, "selectedAssertionsPassed": passed,
-            "kubeletPullVerified": False, "tlsTransportVerified": False,
+            "kubeletPullVerified": remote, "tlsTransportVerified": remote,
             "providerScaleFromZeroVerified": False}
 
 
@@ -223,13 +254,16 @@ class Harness:
         self.save()
 
     def save(self):
-        self.result.update(classify_evidence(self.records, self.result["gaps"]))
+        self.result.update(classify_evidence(self.records, self.result["gaps"], self.result.get("delivery")))
         intervention = self.work / "manual-intervention.json"
         if intervention.exists():
             self.result["interventions"] = [json.loads(intervention.read_text())]
             self.result["cleanSelectedSuitePassed"] = False
         else:
-            self.result["cleanSelectedSuitePassed"] = self.result["selectedAssertionsPassed"]
+            self.result["cleanSelectedSuitePassed"] = (
+                self.result.get("outcome") == "passed"
+                and self.result.get("fixtureDestruction", {}).get("outcome") == "passed"
+                and self.result["selectedAssertionsPassed"])
         self.result["assertions"] = self.records
         self.result["ownership"] = {"cluster": self.cluster, "context": self.context,
                                     "node": self.node, "nodeUID": self.node_uid,
@@ -399,6 +433,7 @@ class Harness:
                 "fixture requires .NET SDK exactly 10.0.401 (global.json disallows roll-forward)")
         self.result["checkout"] = self.run(["git", "rev-parse", "HEAD"]).stdout.strip()
         pinned_files = [ROOT / "provisioner/Dockerfile", ROOT / "kubernetes/Dockerfile",
+                        FIXTURES / "runtimes/rotation.json",
                         *sorted((FIXTURES / "runtimes").glob("*.Dockerfile"))]
         self.result["inputFileSHA256"] = {
             str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -541,18 +576,27 @@ class Harness:
             self.build(tag, dockerfile, snapshot)
             self.load_image(tag)
             self.result[component + "Image"] = tag
+        self.runtime_vendor_inputs = rotation_inputs(json.loads(
+            (FIXTURES / "runtimes/rotation.json").read_text()))
+        self.result["runtimeVendorInputs"] = self.runtime_vendor_inputs
         for language in LANGUAGES:
-            base = f"registry.brewlet.test/{self.run_id}/runtime/{language}:base"
-            self.build(base, FIXTURES / "runtimes" / (language + ".Dockerfile"),
-                       FIXTURES / "runtimes")
-            config = json.loads(self.run(["docker", "image", "inspect", base]).stdout)[0]["Config"]
-            paths = [entry[5:] for entry in config["Env"] if entry.startswith("PATH=")]
-            require(len(paths) == 1 and paths[0] and all(
-                part.startswith("/") and part != "/app" and not part.startswith("/app/")
-                for part in paths[0].split(":")), "fixture runtime PATH is not explicit")
-            self.runtime_paths[language] = paths[0]
             self.runtime_images[language] = {}
             for revision in ("before", "after"):
+                base_suffix = "base" if revision == "before" else "base-after"
+                base = f"registry.brewlet.test/{self.run_id}/runtime/{language}:{base_suffix}"
+                vendor = self.runtime_vendor_inputs[language][revision]["image"]
+                self.build(base, FIXTURES / "runtimes" / (language + ".Dockerfile"),
+                           FIXTURES / "runtimes", build_args=["--build-arg", "RUNTIME_BASE=" + vendor])
+                config = json.loads(self.run(["docker", "image", "inspect", base]).stdout)[0]["Config"]
+                paths = [entry[5:] for entry in config["Env"] if entry.startswith("PATH=")]
+                require(len(paths) == 1 and paths[0] and all(
+                    part.startswith("/") and part != "/app" and not part.startswith("/app/")
+                    for part in paths[0].split(":")), "fixture runtime PATH is not explicit")
+                if revision == "before":
+                    self.runtime_paths[language] = paths[0]
+                else:
+                    require(paths[0] == self.runtime_paths[language],
+                            "fixture runtime update changes its stable PATH contract")
                 directory = self.work / (language + "-" + revision)
                 directory.mkdir()
                 dockerfile = directory / "Dockerfile"
@@ -601,7 +645,9 @@ class Harness:
                   "--namespace", self.control_namespace, "--wait", "--timeout", "180s",
                   "--set-string", "operator.image=" + self.result["controlImage"],
                   "--set-string", "admission.image=" + self.result["controlImage"],
-                  "--set-string", "provisioner.image=" + self.result["workerImage"]],
+                  "--set-string", "provisioner.image=" + self.result["workerImage"],
+                  "--set-string", "provisioner.gc.grace=20s",
+                  "--set-string", "provisioner.gc.sweepInterval=2s"],
                  timeout=240)
         # Fail-open webhook availability is not proof of admission execution.
         self.kubectl("-n", self.control_namespace, "rollout", "status",
@@ -907,6 +953,14 @@ class Harness:
             self.assert_report(self.http(name), language, arguments=[], cwd="/app")
             self.assert_report(json.loads(self.exec(name, self.probe(language)).stdout), language,
                                arguments=["--probe", "two words"], cwd="/app")
+            versions = {}
+            for revision, pod_name in (("before", language + "-old"), ("after", name)):
+                inputs = self.runtime_vendor_inputs[language]
+                observed = self.exec(pod_name, inputs["probe"])
+                output = observed.stdout + observed.stderr
+                require(runtime_version_matches(output, inputs[revision]["version"]),
+                        language + " did not execute its expected vendor runtime " + revision)
+                versions[revision] = output.strip()
             # The mountpoint deliberately does not exist in the packaged layers.
             self.exec(name, ["/bin/sh", "-ec",
                             "test ! -e /launch.json; "
@@ -1101,7 +1155,8 @@ class Harness:
             self.record(language + " source rotation, unchanged app, retained task/exec lease, new barrier",
                         {"oldLease": old["lease"], "newLease": self.lease(new_obj),
                          "rotation": rotation_status["rotation"], "rotationCompletedAt": completed_at,
-                         "heldExecRevision": "before", "application": self.app_images[language]},
+                         "heldExecRevision": "before", "application": self.app_images[language],
+                         "vendorRuntimeVersions": versions},
                         ["LANG-02", "ROT-07", "LEASE-01", "PROF-05"])
 
     def install_interceptor(self):
@@ -1353,6 +1408,9 @@ class Harness:
             self.provision_cluster()
             self.phase = "build"
             self.prepare_images()
+            self.phase = "remote-delivery-bootstrap"
+            from delivery import bootstrap as bootstrap_delivery
+            bootstrap_delivery(self)
             self.phase = "install"
             self.install()
             self.phase = "startup"
@@ -1364,11 +1422,23 @@ class Harness:
             self.phase = "cri-accounting"
             from accounting import execute as verify_accounting
             verify_accounting(self)
+            self.phase = "remote-delivery"
+            from delivery import execute as verify_delivery
+            verify_delivery(self)
+            self.phase = "lifecycle"
+            from lifecycle import execute as verify_lifecycle
+            verify_lifecycle(self)
+            self.phase = "control-edges"
+            from control_edges import execute as verify_control_edges
+            verify_control_edges(self)
             if self.pinned:
                 self.phase = "pinned-refusal"
                 self.pinned_revocation()
             self.phase = "production-cleanup"
+            from control_edges import before_cleanup, after_cleanup
+            before_cleanup(self)
             self.production_cleanup()
+            after_cleanup(self)
             require(not (self.work / "manual-intervention.json").exists(),
                     "manual intervention invalidates a clean selected-suite acceptance pass")
             self.result["outcome"] = "passed"
@@ -1389,6 +1459,11 @@ class Harness:
             except Exception as exc:
                 errors.append("diagnostic/helper cleanup: " + str(exc))
             finally:
+                try:
+                    from delivery import cleanup as cleanup_delivery
+                    cleanup_delivery(self)
+                except Exception as exc:
+                    errors.append("remote-delivery fixture cleanup: " + str(exc))
                 errors.extend(self.destroy())
             if errors:
                 self.result["outcome"] = "failed"

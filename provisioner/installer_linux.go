@@ -9,27 +9,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/containerd/containerd/v2/client"
-	"github.com/containerd/containerd/v2/core/content"
-	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/core/mount"
-	"github.com/containerd/containerd/v2/core/remotes/docker"
-	registryconfig "github.com/containerd/containerd/v2/core/remotes/docker/config"
 	snapshotapi "github.com/containerd/containerd/v2/core/snapshots"
 	"github.com/containerd/errdefs"
 	"github.com/containerd/platforms"
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
 	"github.com/microsoft/brewlet/kubernetes/policy"
 	"github.com/microsoft/brewlet/pkg/node"
-	digest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type ContainerdInstaller struct {
@@ -70,10 +63,22 @@ func (i *ContainerdInstaller) Stage(ctx context.Context, r *api.RuntimeImage, ba
 	if i.Snapshotter == "" {
 		i.Snapshotter = "overlayfs"
 	}
-	options := []client.RemoteOpt{client.WithPlatform("linux/" + runtime.GOARCH), client.WithPullUnpack, client.WithPullSnapshotter(i.Snapshotter)}
+	declared, err := i.runtimePlatforms(ctx, r)
+	if err != nil {
+		return "", m, err
+	}
+	wanted := platforms.Normalize(platforms.DefaultSpec())
+	selected, err := declared.Select(wanted)
+	if err != nil {
+		return "", m, err
+	}
+	options := []client.RemoteOpt{client.WithPlatformMatcher(platforms.OnlyStrict(wanted)), client.WithPullUnpack, client.WithPullSnapshotter(i.Snapshotter)}
 	if i.RegistryHostsDir != "" {
-		hosts := registryconfig.ConfigureHosts(ctx, registryconfig.HostOptions{HostDir: registryconfig.HostDirFromRoot(i.RegistryHostsDir)})
-		options = append(options, client.WithResolver(docker.NewResolver(docker.ResolverOptions{Hosts: hosts})))
+		resolver, err := registryResolver(ctx, i.RegistryHostsDir)
+		if err != nil {
+			return "", m, err
+		}
+		options = append(options, client.WithResolver(resolver))
 	}
 	image, err := i.Client.GetImage(ctx, ref)
 	if errdefs.IsNotFound(err) && ref != r.Spec.Source.Image {
@@ -88,13 +93,7 @@ func (i *ContainerdInstaller) Stage(ctx context.Context, r *api.RuntimeImage, ba
 	if image.Target().Digest.String() != r.Status.Digest {
 		return "", m, fmt.Errorf("approved source digest mismatch")
 	}
-	targetBytes, err := content.ReadBlob(ctx, i.Client.ContentStore(), image.Target())
-	if err != nil {
-		return "", m, err
-	}
-	if digest.FromBytes(targetBytes) != image.Target().Digest {
-		return "", m, fmt.Errorf("runtime source digest verification failed")
-	}
+	image = client.NewImageWithPlatform(i.Client, image.Metadata(), platforms.OnlyStrict(wanted))
 	unpacked, err := image.IsUnpacked(ctx, i.Snapshotter)
 	if err != nil {
 		return "", m, err
@@ -104,56 +103,11 @@ func (i *ContainerdInstaller) Stage(ctx context.Context, r *api.RuntimeImage, ba
 			return "", m, err
 		}
 	}
-	manifest, err := images.Manifest(ctx, i.Client.ContentStore(), image.Target(), platforms.OnlyStrict(ocispec.Platform{OS: "linux", Architecture: runtime.GOARCH}))
-	if err != nil {
-		return "", m, err
-	}
-	configBytes, err := content.ReadBlob(ctx, i.Client.ContentStore(), manifest.Config)
-	if err != nil {
-		return "", m, err
-	}
-	if digest.FromBytes(configBytes) != manifest.Config.Digest {
-		return "", m, fmt.Errorf("runtime config digest mismatch")
-	}
-	var config ocispec.Image
-	if err := json.Unmarshal(configBytes, &config); err != nil {
-		return "", m, err
-	}
-	if config.OS != "linux" || config.Architecture != runtime.GOARCH || config.Variant != "" {
-		return "", m, fmt.Errorf("runtime image platform mismatch")
-	}
+	config := selected.Config
 	if r.Spec.User.UID <= 0 || r.Spec.User.UID >= 1<<32-1 || r.Spec.User.GID <= 0 || r.Spec.User.GID >= 1<<32-1 {
 		return "", m, fmt.Errorf("invalid runtime app identity")
 	}
-	m = node.Metadata{ID: r.Name, InventoryUID: string(r.UID), Generation: r.Status.Generation, SourceDigest: r.Status.Digest, ManifestDigest: "", Platform: config.Platform, Env: config.Config.Env, UID: uint32(r.Spec.User.UID), GID: uint32(r.Spec.User.GID)}
-	// Re-encode is not an identity operation: select the exact stored manifest
-	// descriptor by matching its config digest under the verified target.
-	if image.Target().MediaType == ocispec.MediaTypeImageManifest {
-		m.ManifestDigest = image.Target().Digest.String()
-	} else {
-		indexBytes, err := content.ReadBlob(ctx, i.Client.ContentStore(), image.Target())
-		if err != nil {
-			return "", m, err
-		}
-		if digest.FromBytes(indexBytes) != image.Target().Digest {
-			return "", m, fmt.Errorf("runtime index digest mismatch")
-		}
-		var index ocispec.Index
-		if err := json.Unmarshal(indexBytes, &index); err != nil {
-			return "", m, err
-		}
-		for _, d := range index.Manifests {
-			if d.Platform != nil && d.Platform.OS == "linux" && d.Platform.Architecture == runtime.GOARCH && d.Platform.Variant == "" {
-				if m.ManifestDigest != "" {
-					return "", m, fmt.Errorf("ambiguous runtime platform")
-				}
-				m.ManifestDigest = d.Digest.String()
-			}
-		}
-		if m.ManifestDigest == "" {
-			return "", m, fmt.Errorf("runtime manifest platform absent")
-		}
-	}
+	m = node.Metadata{ID: r.Name, InventoryUID: string(r.UID), Generation: r.Status.Generation, SourceDigest: r.Status.Digest, ManifestDigest: selected.Manifest.Digest.String(), Platform: selected.Platform, Env: config.Config.Env, UID: uint32(r.Spec.User.UID), GID: uint32(r.Spec.User.GID)}
 	stagingBase := filepath.Join(base, ".staging")
 	if err := os.MkdirAll(stagingBase, 0700); err != nil {
 		return "", m, err

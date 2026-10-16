@@ -42,7 +42,7 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 -m unittest discover -s integration-tests/live-v2 -p 'test_*.py' -v
-      - name: Real execution, rotation, admission refusal and CRI eviction
+      - name: Real TLS pulls, runtime updates, lifecycle, controllers and CRI eviction
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/harness.py --work integration-tests/live-v2/run-${{ github.run_id }}-${{ github.run_attempt }}

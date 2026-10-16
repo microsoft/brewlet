@@ -45,8 +45,9 @@ redirect the node or registry to a different architecture.
   `kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661`.
 * Registry:
   `registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e`.
-* Runtime vendor bases are the immutable index digests in
-  `integration-tests/fixtures/runtimes/{java,python,node,dotnet}.Dockerfile`.
+* Before/after vendor bases and version probes are pinned in
+  `integration-tests/fixtures/runtimes/rotation.json`; the runtime Dockerfiles
+  accept only the explicitly supplied base used by this fixture pipeline.
   Their exact file hashes, checkout commit, tool versions, resulting approved
   runtime digests and application digests are saved in `result.json`.
 * Production images are built from `provisioner/Dockerfile` and
@@ -59,9 +60,14 @@ redirect the node or registry to a different architecture.
 Only kind and OCI image digests are exact tool/image pins; the other host tools
 have the documented minimum versions and recorded actual versions. Dependency
 repositories remain network build inputs. This is not a hermetic build claim.
-Derived runtime revisions change `BREWLET_RUNTIME_REVISION` from `before` to
-`after`, maintaining the account/PATH/ABI. This proves real approved **source
-rotation**, not remediation of an actual interpreter CVE or a vendor patch.
+Runtime revisions retain the same account/PATH/ABI and change the pinned vendor
+release: Temurin 21.0.7 to 21.0.8, Python 3.13.5 to 3.13.6, Node 22.17.0 to
+22.18.0 and .NET 10.0.0 to 10.0.1. Actual old/new exec version output must match
+the inputs; `BREWLET_RUNTIME_REVISION` additionally identifies retained initial
+and long-running exec environments. These are version-update fixtures, not a
+claim that these old releases are currently secure or remediate a specific CVE.
+Historical runs through `run-complete-05` changed only Env and are **not** vendor
+version-update evidence.
 The IDs are `fixture-java`, `fixture-python`, `fixture-node`, `fixture-dotnet`;
 their names intentionally do not invent unverified language-version promises.
 
@@ -115,6 +121,20 @@ The default run fails on any missing protocol, reason, transition or evidence:
   write. It does not change kubelet settings. Initial zero-timestamp CRI
   responses are recorded as pending and bounded-waited, never accepted as
   measured zero usage.
+* Fresh application and approved-runtime targets are published through an
+  invocation-owned TLS/authenticated registry before installation. Workloads
+  use `Always` and a workload pull secret; the worker uses its configured host
+  trust/auth. Exact target checks, kubelet pull events and registry blob reads
+  distinguish pulls from pre-imported execution. Missing credentials, an
+  untrusted certificate, corruption, unsafe layers, malformed launch metadata,
+  config mismatch and unsupported native platforms must fail without executing
+  application code.
+* Dedicated lifecycle IDs exercise same-name inventory recreation, genuine
+  five-minute authorization expiry while renewal is stopped, cold rotation,
+  idle/mode transitions and task/exec lease retention. Dedicated controller
+  workloads exercise restart opt-ins, native strategies, pacing and deadlines.
+  Cleanup hooks induce a real resourceVersion conflict during the production
+  claim-release update; synthetic Node API tests are not replacement-host proof.
 * A real TLS Kubernetes admission interceptor refuses node label
   removal/value-change. Entries are first switched to Eager, since OnDemand
   pins are unsupported. Refusing both withdrawal and taint changes must leave
@@ -133,11 +153,10 @@ barrier/cleanup subset and explicitly records the omitted cases as gaps.
 There are no silent skips. `--timeout 600` is the default per-assertion deadline
 (range 30–1800 seconds); individual builds and commands also have bounds.
 
-## Import proof boundary
+## Delivery and execution proof boundaries
 
-This harness deliberately uses **execution-only local imports**, not private
-registry/TLS transport acceptance. The owned registry is health-checked but is
-not the application/runtime delivery path. Application OCI layouts stream to:
+The initial build stage retains local-import execution inputs. Application OCI
+layouts stream to:
 
 ```text
 docker exec -i OWNED_NODE ctr -n k8s.io images import --all-platforms -
@@ -146,14 +165,24 @@ docker exec -i OWNED_NODE ctr -n k8s.io images import --all-platforms -
 No `--index-name` is used: it would name the *outer* OCI layout index.
 Every producer reference is fully qualified. The named import must target the
 verified **inner application index digest**, and its canonical `repo@sha256:…`
-alias must resolve to the same target. Runtime images are loaded into kind;
+alias must resolve to the same target. Initial runtime images are loaded into kind;
 their actual **ctr target digests**, not Docker config IDs, become approved
-canonical sources. Workloads explicitly set `imagePullPolicy: Never`.
+canonical sources.
 
-`result.json` therefore always reports `scope: real-node-execution-only`,
-`kubeletPullVerified: false`, `tlsTransportVerified: false`, and
-`providerScaleFromZeroVerified: false`. Interceptor TLS is not production
-registry TLS. A passing selected suite is never labelled full acceptance.
+Before installation, `delivery.bootstrap` publishes fresh selected application
+and runtime targets that are not pre-imported, changes the references and sets
+workload `imagePullPolicy: Always` with the owned secret. The later
+`delivery.execute` callback must complete actual pull/TLS/authentication and
+negative-start assertions before remote-delivery evidence is classified as
+verified. Merely publishing, importing or configuring trust never sets those
+proof flags. Historical results, including `run-complete-05`, predate these
+callbacks and remain **local-import-only** evidence.
+
+`providerScaleFromZeroVerified` and `fullAcceptance` remain false. Interceptor
+TLS is not registry TLS, and native single-node execution is not proof of
+alternate-architecture capacity or provider autoscaling. A clean selected-suite
+pass requires successful completion and fixture destruction, not just a
+temporarily passing list of assertions during an unfinished run.
 
 ## Evidence, failure and cleanup
 
@@ -181,21 +210,22 @@ this suite does **not** complete all proposal §13.1 acceptance:
 
 * Invalid/deleting/conflicting zero-node profile permutations belong to the
   separate admission suite.
-* Alternate-architecture capacity actually joining later, unsupported-platform
-  pulls, and provider scale-from-zero are not exercised.
-* OnDemand pinned-label refusal and stale-pin retention through uninstall,
-  same-name inventory recreation with old roots, all-ID recovery checks, and
-  actual conditional claim-release resourceVersion races/recreated Nodes
-  require additional scenarios.
-* Shim restart recovery, orphan exec after initial task exit, idle collection,
-  authorization expiry under control-plane outage, and automatic
-  rolling-restart controller strategies/pacing remain
-  separate proof obligations.
+* Alternate-architecture capacity actually joining later and provider
+  scale-from-zero require genuine additional native infrastructure. Optional
+  `begin_native_capacity` / `finish_native_capacity` callbacks do not replace
+  that prerequisite with emulation or architecture-label edits.
+* Physical recreated-node cleanup refusal, stale-pin retention through
+  production uninstall and controlled cold-install deadline recovery remain
+  additional proof obligations.
+* Newly wired delivery, lifecycle and control-edge callbacks are selected
+  assertions, **not verified evidence until a fresh run passes them**. Their
+  module-level limitations and result receipts distinguish surviving-shim
+  reconnect from killed-shim recovery and API CAS from physical-host proof.
 * Maven producer/shared-conformance acceptance is the existing fixture suite;
   this harness executes the four generic-CLI artifacts, not a second Maven
   application on-node.
-* Real kubelet registry pulls, authentication, production registry TLS and
-  actual vendor-patch remediation remain unproven.
+* The pinned vendor-version rotation is newly selected, not verified until the
+  fresh run executes both versions. No specific CVE remediation is claimed.
 
 ## Offline safeguard checks
 

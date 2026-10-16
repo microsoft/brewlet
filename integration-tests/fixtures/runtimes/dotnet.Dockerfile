@@ -1,4 +1,5 @@
-FROM mcr.microsoft.com/dotnet/runtime@sha256:939555726cae4c916d212323ac3c0792996dcac2614f00e82cc40fcf059e1af3
+ARG RUNTIME_BASE=mcr.microsoft.com/dotnet/runtime@sha256:939555726cae4c916d212323ac3c0792996dcac2614f00e82cc40fcf059e1af3
+FROM ${RUNTIME_BASE}
 USER 0
 COPY prepare-root.sh /tmp/brewlet-fixture-prepare-root.sh
 RUN sh /tmp/brewlet-fixture-prepare-root.sh && rm /tmp/brewlet-fixture-prepare-root.sh

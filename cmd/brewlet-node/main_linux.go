@@ -112,6 +112,14 @@ func run() error {
 	worker.Activation = provisioner.HostActivation{HostRoot: host, InventoryRoot: store.Root, SourceBinary: "/containerd-shim-brewlet-v2", ProfileUID: string(a.ProfileUID), NodeUID: string(a.NodeUID)}
 	worker.Evidence = provisioner.HostEvidence{HostRoot: host, Client: cd}
 	worker.Tasks = cd
+	worker.GCGrace, err = productionDuration("BREWLET_GC_GRACE", time.Hour)
+	if err != nil {
+		return err
+	}
+	worker.GCSweepInterval, err = productionDuration("BREWLET_GC_SWEEP_INTERVAL", time.Minute)
+	if err != nil {
+		return err
+	}
 	worker.CacheDir = host + "/var/lib/brewlet/layers"
 	worker.CacheHostPath = "/var/lib/brewlet/layers"
 	if address := os.Getenv("BREWLET_METRICS_ADDRESS"); address != "" {

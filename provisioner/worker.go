@@ -17,6 +17,7 @@ import (
 	"github.com/microsoft/brewlet/kubernetes/policy"
 	"github.com/microsoft/brewlet/pkg/control"
 	"github.com/microsoft/brewlet/pkg/node"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,6 +26,9 @@ import (
 // Installer only acquires approved runtime bytes; it cannot publish current.
 type Installer interface {
 	Stage(context.Context, *api.RuntimeImage, string) (string, node.Metadata, error)
+}
+type RuntimePlatformValidator interface {
+	ValidatePlatforms(context.Context, *api.RuntimeImage, []ocispec.Platform) error
 }
 type Baseline interface{ Validate(context.Context) error }
 type Activation interface {
@@ -50,6 +54,10 @@ type Worker struct {
 	lastBindingPublication time.Time
 	lastBindingInspection  time.Time
 	lastBindings           []node.RuntimeBinding
+	GCGrace                time.Duration
+	GCSweepInterval        time.Duration
+	Platforms              RuntimePlatformValidator
+	platformProofs         map[string]bool
 }
 
 func (w *Worker) check(ctx context.Context) (*control.Snapshot, error) {
@@ -94,6 +102,11 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	}
 	if w.Authority.Mode != "provisioning" {
 		return fmt.Errorf("cleanup requires explicit Cleanup call")
+	}
+	w.platformProofs = map[string]bool{}
+	gcGrace, gcInterval, err := w.collectionPolicy()
+	if err != nil {
+		return err
 	}
 	defer func() {
 		if err := w.publishBindings(ctx); err != nil {
@@ -195,6 +208,21 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		}
 		if err := w.clearRevocation(ctx, entry.ID); err != nil {
 			return err
+		}
+		platformErr := w.validateRuntimePlatforms(ctx, r)
+		if platformErr != nil {
+			if _, withdrawErr := control.Withdraw(ctx, w.Client, w.Reader, w.Authority, []string{"brewlet.sh/runtime." + entry.ID}); withdrawErr != nil {
+				return withdrawErr
+			}
+			failures = append(failures, platformErr)
+			continue
+		}
+		fresh, readErr := w.runtime(ctx, entry.ID)
+		if readErr != nil {
+			return readErr
+		}
+		if fresh.UID != r.UID || fresh.Status.Generation != r.Status.Generation || fresh.Status.Digest != r.Status.Digest {
+			return fmt.Errorf("RuntimeImageUpdating: platform metadata target changed before authorization")
 		}
 		authorizations, err := w.Store.Authorizations()
 		if err != nil {
@@ -353,13 +381,13 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	if err := w.publish(ctx, inventory); err != nil {
 		return err
 	}
-	if w.Evidence != nil && time.Since(w.lastSweep) >= time.Minute {
+	if w.Evidence != nil && time.Since(w.lastSweep) >= gcInterval {
 		if _, err := w.check(ctx); err != nil {
 			return err
 		}
 		sweepCtx, cancelSweep := context.WithTimeout(ctx, 10*time.Second)
 		recovered := false
-		if err := w.Store.Recover(sweepCtx, w.Evidence); err != nil {
+		if err := w.recoverLeases(sweepCtx); err != nil {
 			log.Printf("runtime collection blocked: %v", err)
 		} else {
 			recovered = true
@@ -368,7 +396,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 					continue
 				}
 				fence := func(ctx context.Context) error { _, err := w.check(ctx); return err }
-				if err := w.Store.Collect(sweepCtx, id, time.Hour, w.Evidence, fence); err != nil {
+				if err := w.Store.Collect(sweepCtx, id, gcGrace, w.Evidence, fence); err != nil {
 					log.Printf("runtime collection blocked for %s: %v", id, err)
 				}
 			}
@@ -377,7 +405,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		if mounts, ok := w.Evidence.(node.MountEvidence); recovered && ok && w.CacheDir != "" {
 			cacheCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			fence := func(ctx context.Context) error { _, err := w.check(ctx); return err }
-			if err := CollectLayerCache(cacheCtx, w.Store, w.CacheDir, w.CacheHostPath, time.Hour, mounts, fence); err != nil {
+			if err := CollectLayerCache(cacheCtx, w.Store, w.CacheDir, w.CacheHostPath, gcGrace, mounts, fence); err != nil {
 				log.Printf("layer cache collection blocked: %v", err)
 			}
 			cancel()

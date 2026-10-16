@@ -1,0 +1,46 @@
+{
+  "java": {
+    "probe": ["java", "-version"],
+    "before": {
+      "image": "docker.io/library/eclipse-temurin@sha256:9eb51387a4badf1a874e655d130538b89dfe16a3dab24fb9a4a6e2b08778411c",
+      "version": "21.0.7"
+    },
+    "after": {
+      "image": "docker.io/library/eclipse-temurin@sha256:20e7f7288e1c18eebe8f06a442c9f7183342d9b022d3b9a9677cae2b558ddddd",
+      "version": "21.0.8"
+    }
+  },
+  "python": {
+    "probe": ["python3", "--version"],
+    "before": {
+      "image": "docker.io/library/python@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419",
+      "version": "Python 3.13.5"
+    },
+    "after": {
+      "image": "docker.io/library/python@sha256:2b09112b54420d2e3e814f2cbe34e8e54d32b8c5abd4e72e89cda4758fc6400a",
+      "version": "Python 3.13.6"
+    }
+  },
+  "node": {
+    "probe": ["node", "--version"],
+    "before": {
+      "image": "docker.io/library/node@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0",
+      "version": "v22.17.0"
+    },
+    "after": {
+      "image": "docker.io/library/node@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+      "version": "v22.18.0"
+    }
+  },
+  "dotnet": {
+    "probe": ["dotnet", "--list-runtimes"],
+    "before": {
+      "image": "mcr.microsoft.com/dotnet/runtime@sha256:d13bea17080a4fea1a7295a4fe29240123b1bf955a78ae08480d07bdf09496db",
+      "version": "Microsoft.NETCore.App 10.0.0 "
+    },
+    "after": {
+      "image": "mcr.microsoft.com/dotnet/runtime@sha256:3b5f026262a6ba63d1b82f2b98949506f4a89956244568a8bc682b4af9c48548",
+      "version": "Microsoft.NETCore.App 10.0.1 "
+    }
+  }
+}
