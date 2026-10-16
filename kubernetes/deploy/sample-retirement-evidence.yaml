@@ -1,0 +1,16 @@
+# Administrative attestation, not a request to delete a Node or clean a host.
+# Verify permanent destruction and the retained platform record before creation.
+apiVersion: node.brewlet.sh/v2alpha1
+kind: NodeRetirementEvidence
+metadata:
+  name: web-original-instance-retired
+spec:
+  profileName: web
+  profileUID: REPLACE_WITH_ORIGINAL_PROFILE_UID
+  nodeName: REPLACE_WITH_ORIGINAL_NODE_NAME
+  nodeUID: REPLACE_WITH_ORIGINAL_NODE_UID
+  providerID: REPLACE_WITH_FROZEN_PROVIDER_ID
+  systemUUID: REPLACE_WITH_FROZEN_SYSTEM_UUID
+  externalInstanceID: REPLACE_WITH_PERMANENTLY_DESTROYED_INSTANCE_ID
+  platformRecord: https://audit.example.com/retirement/REPLACE_WITH_RECORD
+  permanentlyDecommissioned: true

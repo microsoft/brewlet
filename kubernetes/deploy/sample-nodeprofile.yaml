@@ -1,0 +1,20 @@
+apiVersion: node.brewlet.sh/v2alpha1
+kind: NodeProfile
+metadata:
+  name: web
+spec:
+  nodePool:
+    key: agentpool
+    names: [web]
+  runtimeImages:
+    - id: python-3.12
+      install: OnDemand
+      idleTTL: 72h
+  tolerations:
+    - key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet
+      operator: Equal
+      value: provisioning
+      effect: NoSchedule
+  rollout:
+    maxUnavailable: 1
+    containerdRestart: validated

@@ -1,0 +1,154 @@
+{{- if .Values.admission.enabled }}
+{{- $ca := genCA "brewlet-admission-ca" 365 }}
+{{- $dns := printf "brewlet-admission.%s.svc" .Release.Namespace }}
+{{- $cert := genSignedCert $dns nil (list $dns (printf "%s.cluster.local" $dns)) 365 $ca }}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace "brewlet-admission-tls" }}
+{{- $crt := $cert.Cert | b64enc }}
+{{- $key := $cert.Key | b64enc }}
+{{- $bundle := $ca.Cert | b64enc }}
+{{- if $existing }}
+{{- $crt = index $existing.data "tls.crt" }}
+{{- $key = index $existing.data "tls.key" }}
+{{- $bundle = index $existing.data "ca.crt" }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: brewlet-admission
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: {{ .Release.Name }}-brewlet-admission}
+rules:
+  - apiGroups: [node.brewlet.sh]
+    resources: [nodeprofiles, runtimeimages]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: {{ .Release.Name }}-brewlet-admission}
+subjects:
+  - {kind: ServiceAccount, name: brewlet-admission, namespace: {{ .Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ .Release.Name }}-brewlet-admission}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: brewlet-admission-tls
+  namespace: {{ .Release.Namespace }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+  ca.crt: {{ $bundle }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: brewlet-admission
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector: {app.kubernetes.io/name: brewlet-admission}
+  ports: [{port: 443, targetPort: 9443}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brewlet-admission
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: brewlet-admission}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: brewlet-admission}
+    spec:
+      serviceAccountName: brewlet-admission
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532}
+      containers:
+        - name: admission
+          image: {{ .Values.admission.image | quote }}
+          command: [/admission]
+          args:
+            - --cert-dir=/certs
+            - --allowed-source-mirror-hosts={{ join "," .Values.security.allowedSourceMirrorHosts }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          ports: [{name: tls, containerPort: 9443}, {name: health, containerPort: 8081}]
+          readinessProbe: {httpGet: {path: /readyz, port: health}}
+          livenessProbe: {httpGet: {path: /healthz, port: health}}
+          volumeMounts: [{name: certs, mountPath: /certs, readOnly: true}]
+      volumes:
+        - name: certs
+          secret: {secretName: brewlet-admission-tls}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata: {name: {{ .Release.Name }}-brewlet-pods}
+webhooks:
+  - name: pods.brewlet.sh
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Ignore
+    reinvocationPolicy: IfNeeded
+    timeoutSeconds: 5
+    clientConfig:
+      caBundle: {{ $bundle }}
+      service: {name: brewlet-admission, namespace: {{ .Release.Namespace }}, path: /mutate-pods}
+    rules:
+      - operations: [CREATE, UPDATE]
+        apiGroups: [""]
+        apiVersions: [v1]
+        resources: [pods, pods/ephemeralcontainers]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata: {name: {{ .Release.Name }}-brewlet-inventory}
+webhooks:
+  - name: nodeprofiles.brewlet.sh
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.admission.nodeProfileFailurePolicy }}
+    timeoutSeconds: 5
+    clientConfig:
+      caBundle: {{ $bundle }}
+      service: {name: brewlet-admission, namespace: {{ .Release.Namespace }}, path: /validate-nodeprofiles}
+    rules:
+      - operations: [CREATE, UPDATE]
+        apiGroups: [node.brewlet.sh]
+        apiVersions: [v2alpha1]
+        resources: [nodeprofiles]
+  - name: runtimeimages.brewlet.sh
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.admission.nodeProfileFailurePolicy }}
+    timeoutSeconds: 5
+    clientConfig:
+      caBundle: {{ $bundle }}
+      service: {name: brewlet-admission, namespace: {{ .Release.Namespace }}, path: /validate-runtimeimages}
+    rules:
+      - operations: [CREATE, UPDATE]
+        apiGroups: [node.brewlet.sh]
+        apiVersions: [v2alpha1]
+        resources: [runtimeimages]
+  - name: retirement-evidence.brewlet.sh
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 5
+    clientConfig:
+      caBundle: {{ $bundle }}
+      service: {name: brewlet-admission, namespace: {{ .Release.Namespace }}, path: /validate-retirement-evidence}
+    rules:
+      - operations: [CREATE, UPDATE, DELETE]
+        apiGroups: [node.brewlet.sh]
+        apiVersions: [v2alpha1]
+        resources: [noderetirementevidences]
+{{- end }}

@@ -1,0 +1,10 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-brewlet-retirement-attestor
+rules:
+  - apiGroups: [node.brewlet.sh]
+    resources: [noderetirementevidences]
+    verbs: [get, list, watch, create]
+# Deliberately unbound. A platform administrator must separately grant the
+# authority to attest permanent external decommissioning.

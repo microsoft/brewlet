@@ -1,0 +1,25 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: brewlet-operator-metrics
+  namespace: {{ .Release.Namespace }}
+  annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080"}
+spec:
+  selector: {app.kubernetes.io/name: brewlet-operator}
+  ports: [{name: metrics, port: 8080, targetPort: 8080}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: brewlet-node-metrics
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.metrics.nodePort | quote }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: {app.kubernetes.io/name: brewlet-worker}
+  ports: [{name: metrics, port: {{ .Values.metrics.nodePort }}, targetPort: {{ .Values.metrics.nodePort }}}]
+{{- end }}

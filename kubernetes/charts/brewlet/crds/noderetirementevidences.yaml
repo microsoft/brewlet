@@ -1,0 +1,76 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: noderetirementevidences.node.brewlet.sh
+spec:
+  group: node.brewlet.sh
+  scope: Cluster
+  names:
+    plural: noderetirementevidences
+    singular: noderetirementevidence
+    kind: NodeRetirementEvidence
+  versions:
+    - name: v2alpha1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata: {type: object}
+            spec:
+              type: object
+              required: [profileName, profileUID, nodeName, nodeUID, externalInstanceID, platformRecord, permanentlyDecommissioned]
+              x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: external retirement evidence is immutable
+              properties:
+                profileName: {type: string, minLength: 1, maxLength: 253}
+                profileUID: {type: string, minLength: 1, maxLength: 128}
+                nodeName: {type: string, minLength: 1, maxLength: 253}
+                nodeUID: {type: string, minLength: 1, maxLength: 128}
+                providerID: {type: string, maxLength: 8192}
+                systemUUID: {type: string, maxLength: 128}
+                externalInstanceID: {type: string, minLength: 1, maxLength: 8192}
+                platformRecord: {type: string, minLength: 1, maxLength: 8192}
+                permanentlyDecommissioned: {type: boolean, enum: [true]}
+                legacyMapping: {type: string, maxLength: 8192}
+            status:
+              type: object
+              properties:
+                acceptedAt: {type: string, format: date-time}
+                resolvedAt: {type: string, format: date-time}
+                cleanupGeneration: {type: integer, format: int64, minimum: 1}
+                cleanupSpec:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                originalTarget:
+                  type: object
+                  required: [name, uid, claimed, containerdRestart]
+                  properties:
+                    name: {type: string}
+                    uid: {type: string}
+                    claimed: {type: boolean}
+                    containerdRestart: {type: string}
+                    providerID: {type: string}
+                    systemUUID: {type: string}
+                    retirementEvidenceName: {type: string}
+                    retirementEvidenceUID: {type: string}
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status, reason, message, lastTransitionTime]
+                    properties:
+                      type: {type: string}
+                      status: {type: string, enum: ["True", "False", Unknown]}
+                      reason: {type: string}
+                      message: {type: string}
+                      lastTransitionTime: {type: string, format: date-time}
+                      observedGeneration: {type: integer, format: int64}

@@ -1,0 +1,16 @@
+{{- range .Values.provisioner.profiles }}
+{{- if not .spec.nodePool.names }}
+{{- fail "chart provisioner profiles require explicit nonempty named pools; author catch-all profiles separately" }}
+{{- end }}
+---
+apiVersion: node.brewlet.sh/v2alpha1
+kind: NodeProfile
+metadata:
+  name: {{ .name | quote }}
+  labels: {app.kubernetes.io/managed-by: Helm}
+  annotations:
+    meta.helm.sh/release-name: {{ $.Release.Name | quote }}
+    meta.helm.sh/release-namespace: {{ $.Release.Namespace | quote }}
+spec:
+{{ toYaml .spec | indent 2 }}
+{{- end }}

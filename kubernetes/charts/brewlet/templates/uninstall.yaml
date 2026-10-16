@@ -1,0 +1,78 @@
+{{- $timeout := int .Values.uninstall.timeoutSeconds }}
+{{- if or (lt $timeout 1) (gt $timeout 86400) (ne (toString .Values.uninstall.timeoutSeconds) (toString $timeout)) }}
+{{- fail "uninstall.timeoutSeconds must be a whole number from 1 to 86400" }}
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: brewlet-uninstall
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-brewlet-uninstall
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [node.brewlet.sh]
+    resources: [nodeprofiles]
+    verbs: [get, list, delete]
+  - apiGroups: [node.brewlet.sh]
+    resources: [noderetirementevidences]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-brewlet-uninstall
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "-20"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+subjects:
+  - {kind: ServiceAccount, name: brewlet-uninstall, namespace: {{ .Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ .Release.Name }}-brewlet-uninstall}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: brewlet-uninstall
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ add $timeout 10 }}
+  template:
+    spec:
+      serviceAccountName: brewlet-uninstall
+      restartPolicy: Never
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532}
+      containers:
+        - name: coordinator
+          image: {{ .Values.operator.image | quote }}
+          command: [/operator]
+          args:
+            - --cleanup-coordinator
+            - --namespace={{ .Release.Namespace }}
+            - --release-name={{ .Release.Name }}
+            - --uninstall-timeout-seconds={{ $timeout }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}

@@ -1,0 +1,20 @@
+Brewlet 2.0 inventory and admission are installed.
+
+* Rotation-triggered workload restarts require both the cluster/chart opt-in
+  and brewlet.sh/restart-on-rotation=true on the workload object.
+  Deferred/OnDelete outcomes are not successful replacement of running pods.
+* Missing/replaced-node obligations require immutable administrative
+  NodeRetirementEvidence and durable acceptance/receipt/resolution checkpoints.
+  Original Node absence alone never counts as cleanup.
+* RuntimeImage deletion waits for genuine epoch/Node/profile-bound local
+  revocation and drained-root receipts, or retained resolved external evidence.
+* All required CRDs must match the manager/worker build. Helm does not upgrade
+  existing CRD schemas: apply kubernetes/deploy/crds before component upgrades.
+* Rotation restarts use a singleton election lease in kube-system so pacing is
+  cluster-wide. Its extra lease/workload RBAC is granted only by cluster opt-in.
+
+Before uninstall, drain workloads and quiesce profile/GitOps writers.
+Helm's timeout must exceed uninstall.timeoutSeconds + 30 seconds.
+The unprivileged pre-delete coordinator never strips finalizers.
+CRDs, shared RuntimeClass, and the component namespace are retained.
+Fake-client tests do not prove real-node scheduling, startup fencing or execution.

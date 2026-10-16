@@ -1,0 +1,21 @@
+operator:
+  image: brewlet-operator:2.0
+  rotationRestarts:
+    enabled: false
+    maxConcurrent: 5
+    nodeProgressDeadline: 10m
+    workloadProgressDeadline: 10m
+provisioner:
+  image: brewlet-node:2.0
+  profiles: []
+security:
+  allowedSourceMirrorHosts: []
+admission:
+  enabled: true
+  image: brewlet-admission:2.0
+  nodeProfileFailurePolicy: Fail
+uninstall:
+  timeoutSeconds: 240
+metrics:
+  enabled: false
+  nodePort: 9090

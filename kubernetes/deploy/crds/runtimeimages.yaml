@@ -1,0 +1,215 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: runtimeimages.node.brewlet.sh
+spec:
+  group: node.brewlet.sh
+  scope: Cluster
+  names:
+    plural: runtimeimages
+    singular: runtimeimage
+    kind: RuntimeImage
+    shortNames: [ri]
+  versions:
+    - name: v2alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - {name: Generation, type: integer, jsonPath: .status.generation}
+        - {name: Digest, type: string, jsonPath: .status.digest}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            apiVersion: {type: string}
+            kind: {type: string}
+            metadata:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 55
+                  pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
+            spec:
+              type: object
+              required: [source, user]
+              properties:
+                source:
+                  type: object
+                  required: [image]
+                  properties:
+                    image:
+                      type: string
+                      pattern: '^[^@]+@sha256:[0-9a-f]{64}$'
+                description: {type: string}
+                user: &user
+                  type: object
+                  required: [uid, gid]
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: runtime user is immutable; use a new ID
+                  properties:
+                    uid: {type: integer, format: int64, minimum: 1, maximum: 4294967294}
+                    gid: {type: integer, format: int64, minimum: 1, maximum: 4294967294}
+                compatibility: &compatibility
+                  type: object
+                  default: {}
+                  properties:
+                    ecosystem: {type: string}
+                    abi: {type: string}
+              x-kubernetes-validations:
+                - rule: "(has(self.compatibility) && has(self.compatibility.ecosystem) ? self.compatibility.ecosystem : '') == (has(oldSelf.compatibility) && has(oldSelf.compatibility.ecosystem) ? oldSelf.compatibility.ecosystem : '') && (has(self.compatibility) && has(self.compatibility.abi) ? self.compatibility.abi : '') == (has(oldSelf.compatibility) && has(oldSelf.compatibility.abi) ? oldSelf.compatibility.abi : '')"
+                  message: runtime compatibility identity is immutable
+            status:
+              type: object
+              properties:
+                generation: {type: integer, format: int64, minimum: 1}
+                digest: {type: string, pattern: '^sha256:[0-9a-f]{64}$'}
+                sourceImage: {type: string}
+                approvedUser:
+                  type: object
+                  required: [uid, gid]
+                  properties:
+                    uid: {type: integer, format: int64, minimum: 1, maximum: 4294967294}
+                    gid: {type: integer, format: int64, minimum: 1, maximum: 4294967294}
+                approvedCompatibility:
+                  type: object
+                  properties:
+                    ecosystem: {type: string}
+                    abi: {type: string}
+                rotationCompletedAt: {type: string, format: date-time}
+                taskObservations:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [nodeUID, profileUID]
+                  items:
+                    type: object
+                    required: [nodeName, nodeUID, profileUID, profileGeneration, observedAt, current, reason]
+                    properties:
+                      nodeName: {type: string}
+                      nodeUID: {type: string}
+                      profileUID: {type: string}
+                      profileGeneration: {type: integer, format: int64}
+                      observedAt: {type: string, format: date-time}
+                      current: {type: boolean}
+                      reason: {type: string}
+                      bindings:
+                        type: array
+                        items:
+                          type: object
+                          required: [containerID, containerdNamespace, podUID, podName, podNamespace, containerName, inventoryUID, generation, digest, state]
+                          properties:
+                            containerID: {type: string}
+                            containerdNamespace: {type: string}
+                            podUID: {type: string}
+                            podName: {type: string}
+                            podNamespace: {type: string}
+                            containerName: {type: string}
+                            inventoryUID: {type: string}
+                            generation: {type: integer, format: int64, minimum: 1}
+                            digest: {type: string}
+                            state: {type: string}
+                revocationTargets:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [nodeUID, profileUID]
+                  items:
+                    type: object
+                    required: [nodeName, nodeUID, profileName, profileUID, profileGeneration, generation, digest]
+                    properties:
+                      generation: {type: integer, format: int64, minimum: 0}
+                      digest: {type: string}
+                      nodeName: {type: string}
+                      nodeUID: {type: string}
+                      profileName: {type: string}
+                      profileUID: {type: string}
+                      profileGeneration: {type: integer, format: int64, minimum: 1}
+                      observedGeneration: {type: integer, format: int64}
+                      providerID: {type: string}
+                      systemUUID: {type: string}
+                      resolved: {type: boolean}
+                      resolution: {type: string}
+                      evidenceName: {type: string}
+                      evidenceUID: {type: string}
+                restarts:
+                  type: object
+                  properties:
+                    pending: {type: integer, format: int32}
+                    rolling: {type: integer, format: int32}
+                    complete: {type: integer, format: int32}
+                    deferred: {type: integer, format: int32}
+                    notApplicable: {type: integer, format: int32}
+                    failed: {type: integer, format: int32}
+                    workloads:
+                      type: array
+                      x-kubernetes-list-type: map
+                      x-kubernetes-list-map-keys: [uid, inventoryUID, generation]
+                      items:
+                        type: object
+                        required: [kind, name, namespace, uid, inventoryUID, generation, phase, reason]
+                        properties:
+                          kind: {type: string, enum: [Deployment, StatefulSet, DaemonSet]}
+                          name: {type: string}
+                          namespace: {type: string}
+                          uid: {type: string}
+                          inventoryUID: {type: string}
+                          generation: {type: integer, format: int64, minimum: 1}
+                          phase: {type: string, enum: [Pending, Patching, Rolling, Complete, Deferred, NotApplicable, Failed, EpochMismatch, Superseded]}
+                          reason: {type: string}
+                          message: {type: string}
+                          startedAt: {type: string, format: date-time}
+                          completedAt: {type: string, format: date-time}
+                          workloadGeneration: {type: integer, format: int64}
+                          patched: {type: boolean}
+                          observedPodUIDs:
+                            type: array
+                            items: {type: string}
+                          nonActionable: {type: boolean}
+                          blockedPods:
+                            type: array
+                            items:
+                              type: object
+                              required: [name, namespace, uid, reason, minimumGeneration]
+                              properties:
+                                name: {type: string}
+                                namespace: {type: string}
+                                uid: {type: string}
+                                node: {type: string}
+                                reason: {type: string}
+                                minimumGeneration: {type: integer, format: int64, minimum: 1}
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status, reason, message, lastTransitionTime]
+                    properties:
+                      type: {type: string}
+                      status: {type: string, enum: ["True", "False", Unknown]}
+                      reason: {type: string}
+                      message: {type: string}
+                      lastTransitionTime: {type: string, format: date-time}
+                      observedGeneration: {type: integer, format: int64}
+                      assignedAt: {type: string, format: date-time}
+                      lastProgressAt: {type: string, format: date-time}
+                rotation:
+                  type: object
+                  required: [generation, digest]
+                  properties:
+                    generation: {type: integer, format: int64, minimum: 1}
+                    digest: {type: string}
+                    participants: &rotationNodes
+                      type: array
+                      items:
+                        type: object
+                        required: [name, uid]
+                        properties:
+                          name: {type: string}
+                          uid: {type: string}
+                          reason: {type: string}
+                          observedGeneration: {type: integer, format: int64}
+                    excludedNodes: *rotationNodes

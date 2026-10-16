@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: brewlet-operator
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: brewlet-node
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-brewlet-operator
+rules:
+  - apiGroups: [node.brewlet.sh]
+    resources: [nodeprofiles, runtimeimages]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [node.brewlet.sh]
+    resources: [nodeprofiles/status, runtimeimages/status, nodeprofiles/finalizers, runtimeimages/finalizers]
+    verbs: [get, update, patch]
+  - apiGroups: [node.brewlet.sh]
+    resources: [noderetirementevidences, noderetirementevidences/status, noderetirementevidences/finalizers]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, list, watch]
+{{- if .Values.operator.rotationRestarts.enabled }}
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [get, list, watch, patch]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+{{- end }}
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-brewlet-operator
+subjects:
+  - {kind: ServiceAccount, name: brewlet-operator, namespace: {{ .Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ .Release.Name }}-brewlet-operator}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: brewlet-operator
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: brewlet-operator
+  namespace: {{ .Release.Namespace }}
+subjects:
+  - {kind: ServiceAccount, name: brewlet-operator, namespace: {{ .Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: brewlet-operator}
+{{- if .Values.operator.rotationRestarts.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-brewlet-restart-election
+  namespace: kube-system
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [brewlet-operator.node.brewlet.sh]
+    verbs: [get, update, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-brewlet-restart-election
+  namespace: kube-system
+subjects:
+  - {kind: ServiceAccount, name: brewlet-operator, namespace: {{ .Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ .Release.Name }}-brewlet-restart-election}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-brewlet-node
+rules:
+  - apiGroups: [node.brewlet.sh]
+    resources: [nodeprofiles, runtimeimages]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-brewlet-node
+subjects:
+  - {kind: ServiceAccount, name: brewlet-node, namespace: {{ .Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ .Release.Name }}-brewlet-node}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brewlet-operator
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: brewlet-operator}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: brewlet-operator}
+    spec:
+      serviceAccountName: brewlet-operator
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532}
+      containers:
+        - name: operator
+          image: {{ .Values.operator.image | quote }}
+          command: [/operator]
+          args:
+            - --namespace={{ .Release.Namespace }}
+            - --worker-image={{ .Values.provisioner.image }}
+            - --allowed-source-mirror-hosts={{ join "," .Values.security.allowedSourceMirrorHosts }}
+            - --node-progress-deadline={{ .Values.operator.rotationRestarts.nodeProgressDeadline }}
+{{- if .Values.metrics.enabled }}
+            - --metrics-bind-address=:8080
+            - --node-metrics-address=:{{ .Values.metrics.nodePort }}
+{{- end }}
+{{- if .Values.operator.rotationRestarts.enabled }}
+            - --rotation-restarts=true
+            - --restart-max-concurrent={{ .Values.operator.rotationRestarts.maxConcurrent }}
+            - --restart-workload-progress-deadline={{ .Values.operator.rotationRestarts.workloadProgressDeadline }}
+{{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          ports: [{name: health, containerPort: 8081}]
+          readinessProbe: {httpGet: {path: /readyz, port: health}}
+          livenessProbe: {httpGet: {path: /healthz, port: health}}
