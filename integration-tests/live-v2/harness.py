@@ -957,14 +957,6 @@ class Harness:
             self.assert_report(self.http(name), language, arguments=[], cwd="/app")
             self.assert_report(json.loads(self.exec(name, self.probe(language)).stdout), language,
                                arguments=["--probe", "two words"], cwd="/app")
-            versions = {}
-            for revision, pod_name in (("before", language + "-old"), ("after", name)):
-                inputs = self.runtime_vendor_inputs[language]
-                observed = self.exec(pod_name, inputs["probe"])
-                output = observed.stdout + observed.stderr
-                require(runtime_version_matches(output, inputs[revision]["version"]),
-                        language + " did not execute its expected vendor runtime " + revision)
-                versions[revision] = output.strip()
             # The mountpoint deliberately does not exist in the packaged layers.
             self.exec(name, ["/bin/sh", "-ec",
                             "test ! -e /launch.json; "
@@ -1066,6 +1058,19 @@ class Harness:
         obj["webhooks"] = self.original_pod_webhook["webhooks"]
         self.kubectl("replace", "-f", "-", input=json.dumps(obj))
 
+    def rotated_vendor_versions(self, language, replacement):
+        old = language + "-old"
+        require(replacement != old, "vendor update proof requires a distinct replacement pod")
+        versions = {}
+        inputs = self.runtime_vendor_inputs[language]
+        for revision, name in (("before", old), ("after", replacement)):
+            observed = self.exec(name, inputs["probe"])
+            output = observed.stdout + observed.stderr
+            require(runtime_version_matches(output, inputs[revision]["version"]),
+                    language + " did not execute its expected vendor runtime " + revision)
+            versions[revision] = output.strip()
+        return versions
+
     def barriers_and_rotation(self):
         # Bypass mutation to prove the shim rather than an admission-only denial.
         self.bypass_admission()
@@ -1154,6 +1159,7 @@ class Harness:
             self.assert_report(self.http(name), language, arguments=[], cwd="/app")
             self.assert_report(json.loads(self.exec(name, self.probe(language)).stdout), language,
                                arguments=["--probe", "two words"], cwd="/app")
+            versions = self.rotated_vendor_versions(language, name)
             require(self.get("runtimeimage", IDS[language])["status"]["rotationCompletedAt"] == completed_at,
                     "rotation completion timestamp was rewritten for the same target")
             self.record(language + " source rotation, unchanged app, retained task/exec lease, new barrier",

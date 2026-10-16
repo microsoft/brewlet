@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 203 passing offline tests; those
+The live-driver safeguards currently include 204 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -130,6 +130,15 @@ TLS validation, cold OnDemand `available` publication and genuine startup-fence
 release. Its lease-recovery marker came from the actual worker. This is not
 four-language application execution or full lifecycle acceptance; the expanded
 suite still requires a fresh pass.
+
+`run-complete-09` passed the four-ID cold baseline and reached actual Java HTTP
+and exec probing. It then failed a misplaced harness assertion: the new vendor
+version comparison was running during initial execution, before any rotation,
+against the same old Pod twice. The comparison now runs only after the
+replacement Pod is ready and rejects reuse of the original Pod as the
+replacement. A focused regression checks distinct old/new exec targets. This
+was a test defect, not evidence that a rotated runtime failed; no vendor-update
+pass is claimed from that run.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

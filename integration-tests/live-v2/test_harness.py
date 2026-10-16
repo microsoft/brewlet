@@ -378,6 +378,23 @@ class ContractTests(ProjectWork):
 
 
 class CallbackOrderTests(ProjectWork):
+    def test_vendor_update_proof_checks_distinct_old_and_replacement_pods(self):
+        instance = self.harness()
+        instance.runtime_vendor_inputs = {
+            "java": {"probe": ["java", "-version"],
+                     "before": {"version": "21.0.7"}, "after": {"version": "21.0.8"}}}
+        instance.exec = mock.Mock(side_effect=[
+            subprocess.CompletedProcess([], 0, "", 'openjdk version "21.0.7"'),
+            subprocess.CompletedProcess([], 0, "", 'openjdk version "21.0.8"')])
+        result = instance.rotated_vendor_versions("java", "java-new")
+        self.assertIn("21.0.7", result["before"])
+        self.assertIn("21.0.8", result["after"])
+        self.assertEqual([call.args[0] for call in instance.exec.call_args_list], ["java-old", "java-new"])
+        instance.exec.reset_mock()
+        with self.assertRaisesRegex(h.Failure, "distinct replacement"):
+            instance.rotated_vendor_versions("java", "java-old")
+        instance.exec.assert_not_called()
+
     def test_rotation_pins_select_distinct_real_vendor_versions(self):
         inputs = json.loads((h.FIXTURES / "runtimes/rotation.json").read_text())
         self.assertEqual(h.rotation_inputs(inputs), inputs)
