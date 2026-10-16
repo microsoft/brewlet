@@ -11,7 +11,7 @@ def export(source):
         "outcome", "scope", "cleanSelectedSuitePassed", "fullAcceptance",
         "checkout", "productionSourceManifestSHA256", "architecture",
         "kubeletPullVerified", "tlsTransportVerified", "providerScaleFromZeroVerified",
-        "pins", "applicationImages", "runtimeImages", "fixtureDestruction", "gaps",
+        "pins", "applicationImages", "runtimeImages", "runtimeVendorInputs", "fixtureDestruction", "gaps",
     )
     result = {key: source[key] for key in fields if key in source}
     result["assertions"] = [
