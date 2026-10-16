@@ -28,6 +28,10 @@ silently selected. The selected actual manifest digest and normalized platform
 are persisted with the runtime root, and snapshot diff IDs must match that
 selected config. Future, nonexistent autoscaler Nodes cannot provide platform
 evidence; their real platforms are checked when they join.
+The shim independently uses containerd's detected native CPU variant for
+application selection and leased-runtime checks. Host compatibility normalizes
+equivalent default aliases; an index descriptor and its image config must still
+declare identical platform fields. Ambiguous equivalent index entries fail.
 Matching CRDs, operator, admission, and worker builds are required. Before
 minting authorization, the worker requires an unresolved
 `RuntimeImage.status.revocationTargets` row for this Node UID/profile UID with

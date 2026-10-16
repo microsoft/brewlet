@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -31,6 +30,7 @@ import (
 	"github.com/distribution/reference"
 	"github.com/microsoft/brewlet/pkg/artifact"
 	"github.com/microsoft/brewlet/pkg/node"
+	brewletplatform "github.com/microsoft/brewlet/pkg/platform"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -309,7 +309,7 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 		return nil, err
 	}
 	target.MediaType = header.MediaType
-	resolved, err := artifact.Resolve(ctx, open, target, ocispec.Platform{OS: "linux", Architecture: runtime.GOARCH})
+	resolved, err := resolveNativeArtifact(ctx, open, target, brewletplatform.Native())
 	if err != nil {
 		return nil, err
 	}
@@ -360,8 +360,8 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	if err != nil {
 		return err
 	}
-	if lease.Metadata.Platform.OS != "linux" || lease.Metadata.Platform.Architecture != runtime.GOARCH {
-		return fmt.Errorf("runtime platform mismatch")
+	if err := validateRuntimeHostPlatform(lease.Metadata.Platform, brewletplatform.Native()); err != nil {
+		return err
 	}
 	if err := node.MergeProcess(spec.Process, lease.Metadata); err != nil {
 		return err

@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	brewletplatform "github.com/microsoft/brewlet/pkg/platform"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	digest "github.com/opencontainers/go-digest"
@@ -237,6 +239,9 @@ func Resolve(ctx context.Context, open BlobOpener, target v1.Descriptor, platfor
 	if out.Image, e = ParseImage(b); e != nil {
 		return nil, e
 	}
+	if selected.Platform != nil && !sameDeclaredPlatform(out.Image.Platform, *selected.Platform) {
+		return nil, fail("LaunchConfigMismatch", "config differs from declared manifest platform")
+	}
 	if !samePlatform(out.Image.Platform, platform) || out.Image.RootFS.Type != "layers" || len(out.Image.RootFS.DiffIDs) != len(m.Layers) {
 		return nil, fail("LaunchConfigMismatch", "platform or rootfs mismatch")
 	}
@@ -286,5 +291,9 @@ func Resolve(ctx context.Context, open BlobOpener, target v1.Descriptor, platfor
 	return out, nil
 }
 func samePlatform(a, b v1.Platform) bool {
-	return a.OS == b.OS && a.Architecture == b.Architecture && a.Variant == b.Variant && a.OSVersion == b.OSVersion
+	return brewletplatform.Exact(a, b)
+}
+func sameDeclaredPlatform(a, b v1.Platform) bool {
+	return a.OS == b.OS && a.Architecture == b.Architecture && a.Variant == b.Variant &&
+		a.OSVersion == b.OSVersion && slices.Equal(a.OSFeatures, b.OSFeatures)
 }
