@@ -663,7 +663,10 @@ auth:
             messages = [event.get("message", "") for event in events
                         if event.get("involvedObject", {}).get("uid") == obj["metadata"]["uid"]]
             observation = "\n".join(messages) + json.dumps(obj.get("status", {}))
-            return obj if any(re.search(pattern, observation, re.I) for pattern in patterns) else False
+            matched = any(re.search(pattern, observation, re.I) for pattern in patterns)
+            require(matched or obj.get("status", {}).get("phase") not in ("Failed", "Succeeded"),
+                    "remote rejection " + case + " ended with an unexpected reason: " + observation[-2500:])
+            return obj if matched else False
         obj = h.wait("fresh remote rejection " + case, rejected, timeout=180)
         h.record("remote TLS delivery rejects " + case,
                  {"podUID": obj["metadata"]["uid"], "image": pod["spec"]["containers"][0]["image"],

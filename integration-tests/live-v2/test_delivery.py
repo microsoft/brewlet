@@ -294,6 +294,23 @@ class CommandTests(unittest.TestCase):
         with self.assertRaisesRegex(Failure, "readback differs"):
             state.node_private_file(state.authority, "credentials.json", payload)
 
+    def test_terminal_negative_pod_reports_wrong_reason_without_timeout(self):
+        h, state = self.state()
+        state.cases["malformed"] = "registry.test/negative@sha256:" + "a" * 64
+        state.fresh = Mock()
+        state.pod = Mock(return_value={
+            "metadata": {"name": "delivery-malformed"}, "spec": {"containers": [{}]}})
+        obj = {"metadata": {"uid": "owned-pod", "labels": {OWNER: h.run_id}},
+               "status": {"phase": "Failed", "containerStatuses": [{"state": {
+                   "terminated": {"exitCode": 128, "startedAt": "1970-01-01T00:00:00Z",
+                                  "message": "content digest not found"}}}]}}
+        h.owned = {("pod", h.namespace, "delivery-malformed"): "owned-pod"}
+        h.apply = Mock()
+        h.get = Mock(side_effect=[obj, {"items": []}])
+        h.wait = lambda description, predicate, **kwargs: predicate()
+        with self.assertRaisesRegex(Failure, "unexpected reason.*content digest not found"):
+            state.negative("malformed", ["InvalidLaunchConfig"])
+
     def test_emulated_producer_prefix_is_rejected(self):
         h, state = self.state()
         h.cli_command[h.cli_command.index("--platform") + 1] = "linux/amd64"

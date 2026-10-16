@@ -1,7 +1,7 @@
 # Brewlet 2.0 validation status
 
 **Incomplete acceptance; not a release claim.** Proposal 0009 remains the
-contract. The 100-entry ledger deliberately distinguishes verified requirements
+contract. The 101-entry ledger deliberately distinguishes verified requirements
 from implemented or partially tested behavior.
 
 ## Reference and branch
@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 206 passing offline tests; those
+The live-driver safeguards currently include 207 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -143,8 +143,10 @@ pass is claimed from that run.
 `run-complete-10` passed actual Java remote-pull startup, HTTP/dependency,
 exec/probe, identity and read-only/security assertions. Its second start of the
 same digest failed because the final launch-layer blob was absent from
-containerd after unpacking. The pinned node legitimately enables
-`discard_unpacked_layers`; disabling that policy is not an acceptable fix.
+containerd after unpacking. The pinned node defaults to
+`discard_unpacked_layers=true`. Initially treating that setting as immutable
+was incorrect: the retained cold-start contract requires false, as the later
+run12 investigation below established.
 This exposes a **production warm-cache gap**, not an override or vendor-version
 failure. Protected, digest-verified original-byte resolution caching is now
 implemented without shim registry access or weaker CRI identity checks.
@@ -167,6 +169,23 @@ settings and received `ErrImageNeverPull`. It now inherits only the selected
 image, pull policy and pull secrets from the workload factory, preserving its
 separate no-volume, writable-root and bounded-storage safeguards. Formal
 delivery and new lifecycle/controller callbacks were not reached in this run.
+
+`run-complete-12` repeated all language/vendor-update successes, passed actual
+CRI growth/eviction again, and verified four positive authenticated TLS
+application/runtime-source pulls plus unauthorized, untrusted-certificate,
+corrupt and unsafe-layer denials.
+[`results/authenticated-pulls-and-accounting.json`](results/authenticated-pulls-and-accounting.json)
+preserves those nine selected assertions, not a full-suite pass.
+The fresh malformed-artifact case then lost its launch blob **before first
+Create**, so no validated warm cache could exist. Proposal 0009 section 8.2
+retains SPEC section 6.4, whose explicit cold-start requirement is
+`discard_unpacked_layers=false` (`specs/SPECIFICATION.md:378-382`).
+That required effective setting was missing from managed host activation.
+It is being added to the production transaction, validation and restoration
+paths, not merely imposed in the test fixture. Warm-cache retention remains
+useful after original-byte verification but is not a substitute for this
+first-validation prerequisite. Terminal negative cases now surface unexpected
+reasons immediately.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

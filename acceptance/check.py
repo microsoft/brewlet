@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 REAL_NODE_REQUIRED = {
-    "PROF-03", "PROF-05", "LEASE-02", "RUN-07", "RUN-08", "RUN-09",
+    "PROF-03", "PROF-05", "LEASE-02", "RUN-07", "RUN-08", "RUN-09", "RUN-10",
     "PROC-03", "E2E-02", "E2E-03", "E2E-05", "E2E-06", "E2E-07",
     "E2E-08", "LANG-02",
 }
