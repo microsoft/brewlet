@@ -181,8 +181,12 @@ Create**, so no validated warm cache could exist. Proposal 0009 section 8.2
 retains SPEC section 6.4, whose explicit cold-start requirement is
 `discard_unpacked_layers=false` (`specs/SPECIFICATION.md:378-382`).
 That required effective setting was missing from managed host activation.
-It is being added to the production transaction, validation and restoration
-paths, not merely imposed in the test fixture. Warm-cache retention remains
+Production activation now sets it at the correct v2/v3 plugin paths and gates
+baseline readiness on effective configuration; exposed live CRI fields are
+checked without inventing absent values. Native Linux/arm64 root contracts
+passed exact original-byte restoration/rollback, idempotency and non-mutating
+`none`-policy denial. Root race/vet passed. This is not merely a test-fixture
+setting; fresh-node confirmation remains pending. Warm-cache retention remains
 useful after original-byte verification but is not a substitute for this
 first-validation prerequisite. Terminal negative cases now surface unexpected
 reasons immediately.

@@ -131,5 +131,5 @@ jobs:
             --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
             --workdir /work --entrypoint /tests/provisioner.test \
             brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v -test.run 'TestCacheCollection|TestOriginalContentCollection' | tee cache-gc.log
+            -test.v -test.run 'TestCacheCollection|TestOriginalContentCollection|Test.*(Activation|Retention|ContainerdVersions|LiveCRI|EffectiveBaseline)' | tee cache-gc.log
           ! grep -q '^--- SKIP' cache-gc.log

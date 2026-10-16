@@ -25,35 +25,8 @@ func (b HostBaseline) Validate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("containerd effective config validation: %w", err)
 	}
-	var config map[string]any
-	if err := toml.Unmarshal(output, &config); err != nil {
+	if err := validateEffectiveConfig(output); err != nil {
 		return err
-	}
-	found := false
-	var walk func(any)
-	walk = func(value any) {
-		switch v := value.(type) {
-		case map[string]any:
-			if runtime, ok := v["brewlet"].(map[string]any); ok && runtime["runtime_type"] == "io.containerd.brewlet.v2" {
-				allow, ok := runtime["pod_annotations"].([]any)
-				selection, barrier := false, false
-				if ok {
-					for _, raw := range allow {
-						str, _ := raw.(string)
-						selection = selection || str == "brewlet.sh/runtime-image" || str == "brewlet.sh/*"
-						barrier = barrier || str == "brewlet.sh/rotated-to-generation" || str == "brewlet.sh/*"
-					}
-				}
-				found = selection && barrier
-			}
-			for _, child := range v {
-				walk(child)
-			}
-		}
-	}
-	walk(config)
-	if !found {
-		return fmt.Errorf("brewlet handler or required pod_annotations forwarding missing")
 	}
 	live := exec.CommandContext(ctx, "nsenter", "--mount="+b.HostRoot+"/proc/1/ns/mnt", "--root="+b.HostRoot+"/proc/1/root", "--wd=/", "--", "crictl", "--runtime-endpoint", "unix:///run/containerd/containerd.sock", "info", "-o", "json")
 	liveBytes, err := live.Output()
@@ -77,6 +50,33 @@ func (b HostBaseline) Validate(ctx context.Context) error {
 	return nil
 }
 
+func validateEffectiveConfig(data []byte) error {
+	var config map[string]any
+	if err := toml.Unmarshal(data, &config); err != nil {
+		return err
+	}
+	if err := validatePackedLayerRetention(config); err != nil {
+		return err
+	}
+	version, _ := config["version"].(int64)
+	plugin, err := runtimePlugin(version)
+	if err != nil {
+		return err
+	}
+	handler := configAt(config, "plugins", plugin, "containerd", "runtimes", "brewlet")
+	allow, _ := handler["pod_annotations"].([]any)
+	selection, barrier := false, false
+	for _, raw := range allow {
+		annotation, _ := raw.(string)
+		selection = selection || annotation == "brewlet.sh/runtime-image" || annotation == "brewlet.sh/*"
+		barrier = barrier || annotation == "brewlet.sh/rotated-to-generation" || annotation == "brewlet.sh/*"
+	}
+	if handler["runtime_type"] != "io.containerd.brewlet.v2" || !selection || !barrier {
+		return fmt.Errorf("brewlet handler or required pod_annotations forwarding missing")
+	}
+	return nil
+}
+
 func validateLiveConfig(data []byte) error {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(data, &response); err != nil {
@@ -93,6 +93,25 @@ func validateLiveConfig(data []byte) error {
 	var encoded string
 	if json.Unmarshal(config, &encoded) == nil {
 		config = []byte(encoded)
+	}
+	var live map[string]json.RawMessage
+	if err := json.Unmarshal(config, &live); err != nil {
+		return fmt.Errorf("invalid live CRI config: %w", err)
+	}
+	var containerd map[string]json.RawMessage
+	if err := json.Unmarshal(live["containerd"], &containerd); err != nil {
+		return fmt.Errorf("invalid live CRI containerd config: %w", err)
+	}
+	// containerd 1.x exposes this in containerd; 2.x separates image
+	// configuration and may omit it from runtime-service CRI info entirely.
+	// Absence is not a default: effective TOML is checked independently.
+	for _, section := range []map[string]json.RawMessage{live, containerd} {
+		if raw, exposed := section["discardUnpackedLayers"]; exposed {
+			var discard *bool
+			if err := json.Unmarshal(raw, &discard); err != nil || discard == nil || *discard {
+				return fmt.Errorf("running CRI packed-layer retention is not enabled")
+			}
+		}
 	}
 	var runtimeConfig struct {
 		Containerd struct {

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/microsoft/brewlet/pkg/node"
-	"github.com/pelletier/go-toml/v2"
 )
 
 type activationRecord struct {
@@ -192,47 +191,6 @@ func (a HostActivation) load() (activationRecord, error) {
 	}
 	return record, nil
 }
-func mapAt(parent map[string]any, key string) map[string]any {
-	child, _ := parent[key].(map[string]any)
-	if child == nil {
-		child = map[string]any{}
-		parent[key] = child
-	}
-	return child
-}
-func configuredRuntime(original []byte) ([]byte, error) {
-	var config map[string]any
-	if err := toml.Unmarshal(original, &config); err != nil {
-		return nil, err
-	}
-	version, _ := config["version"].(int64)
-	if version != 2 && version != 3 {
-		return nil, fmt.Errorf("containerd config version 2 or 3 required")
-	}
-	plugin := "io.containerd.grpc.v1.cri"
-	if version == 3 {
-		plugin = "io.containerd.cri.v1.runtime"
-	}
-	containerd := mapAt(mapAt(mapAt(config, "plugins"), plugin), "containerd")
-	runtimes := mapAt(containerd, "runtimes")
-	if _, exists := runtimes["brewlet"]; exists {
-		return nil, fmt.Errorf("unmanaged brewlet handler cannot be adopted")
-	}
-	options := map[string]any{}
-	if runc, ok := runtimes["runc"].(map[string]any); ok {
-		if existing, ok := runc["options"].(map[string]any); ok {
-			for k, v := range existing {
-				options[k] = v
-			}
-		}
-	}
-	runtimes["brewlet"] = map[string]any{
-		"runtime_type":    "io.containerd.brewlet.v2",
-		"pod_annotations": []string{"brewlet.sh/runtime-image", "brewlet.sh/rotated-to-generation"},
-		"options":         options,
-	}
-	return toml.Marshal(config)
-}
 func (a HostActivation) prepare(ctx context.Context, policy string, fence func(context.Context) error) (activationRecord, error) {
 	var record activationRecord
 	if entries, err := os.ReadDir(filepath.Join(a.InventoryRoot, ".staging")); err == nil && len(entries) > 0 {
@@ -258,9 +216,11 @@ func (a HostActivation) prepare(ctx context.Context, policy string, fence func(c
 	desired := original
 	if policy == "validated" {
 		desired, err = configuredRuntime(original)
-		if err != nil {
-			return record, err
-		}
+	} else {
+		err = validatePackedLayerConfig(original)
+	}
+	if err != nil {
+		return record, err
 	}
 	if err := fence(ctx); err != nil {
 		return record, err

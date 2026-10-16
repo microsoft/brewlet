@@ -43,8 +43,19 @@ Before baseline readiness, the worker installs its bundled shim and configures
 containerd config version 2 or 3. A root-owned `.host` transaction records the
 original configuration, desired bytes/digests, profile/Node UIDs, and
 Prepared/Applied/Committed phases before changing host files. Validated policy
-restarts containerd only after syntax validation and commits only after live
-CRI handler/annotation checks. Failure rolls back while authority remains
+sets `discard_unpacked_layers=false` at
+`plugins."io.containerd.grpc.v1.cri".containerd` for version 2, or
+`plugins."io.containerd.cri.v1.images"` for version 3. This mandatory packed-layer
+retention prevents GC between CRI unpack and the first verified shim stage;
+an unpacked snapshot or a warm cache is not a substitute for cold source bytes
+(Proposal 0009 §8.2 / retained SPEC §6.4).
+The transaction restarts containerd only after syntax validation and commits
+only after effective-config retention and live CRI handler/annotation checks.
+An exposed live CRI `discardUnpackedLayers` must also be false; its absence
+does not supply an invented default or replace the effective-config check.
+`none` cannot repair retention: missing or enabled discard fails closed without
+editing the config, installing a shim or claiming readiness.
+Failure rolls back while authority remains
 valid; lost authority leaves the journal for the authorized successor.
 Cleanup drains Brewlet tasks (including infrastructure sandboxes), restores the
 original configuration, removes only the owned shim, restarts/read-checks when
@@ -209,8 +220,9 @@ This is not yet a complete node-runtime acceptance implementation:
   scraping/event validation.
 * The shim retains original digest/size-verified index, manifest, config and
   compressed layer bytes in a protected, immutable, policy-bound cache.
-  Legitimate containerd content removal (including `discard_unpacked_layers`)
-  permits reuse only when the source is genuinely absent; corrupt, inaccessible
+  Later content removal permits reuse only when the source is genuinely absent;
+  this is warm-reuse protection, not permission to enable unpacked-layer discard
+  or a solution to the first-Create GC race. Corrupt, inaccessible
   or rejected source content never falls back. Resolution still validates the
   original graph, protected CRI identities, platform, launch/config mirror and
   payload diff IDs. No metadata is reconstructed and the shim never pulls.
