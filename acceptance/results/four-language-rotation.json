@@ -1,0 +1,64 @@
+{
+  "scope": "real-node-execution-only",
+  "selectedRotationAssertions": "passed",
+  "fullSuiteOutcome": "failed",
+  "fullSuiteFailurePhase": "pinned-refusal",
+  "fullSuiteFailure": "Test interceptor omitted Forbidden status metadata, so production correctly refused an unclassified fallback. Interceptor wire status was corrected after this run.",
+  "command": "PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py --work integration-tests/live-v2/run-complete-03",
+  "checkout": "09ac69428b41622f71ff6209e8c36132f8b72650",
+  "productionSourceManifestSHA256": "b740e59e71fed12319ce28fa21b0d224532f7ed8e262b18f484fa13fa5e3b330",
+  "platform": "linux/arm64",
+  "rotations": {
+    "java": {
+      "inventoryUID": "8d2cc5dd-9079-486e-8665-a2b0d98984b8",
+      "fromGeneration": 1, "toGeneration": 2,
+      "fromDigest": "sha256:3faa138212808ab2c99a8d7eaa8d4d4ccf9ded9ebb338841ed2bc14841227b3a",
+      "toDigest": "sha256:bf5280c8ad5eb24eb5e42ecd7039b9d2015ab0c481503d3f25058c0daed3abd8",
+      "unchangedAppDigest": "sha256:a94b795206d511e1fb8f651d0ff5fd58c426a7656fa08941d7cce271a657a555",
+      "heldExecRevision": "before"
+    },
+    "python": {
+      "inventoryUID": "77876097-077d-4397-8c06-3afc01733110",
+      "fromGeneration": 1, "toGeneration": 2,
+      "fromDigest": "sha256:1a877f439636a9d989e66ed58e64147a5e5de21ce773f9d29ffdfc71dc9923ea",
+      "toDigest": "sha256:1cae9c729bb4b97e9452ed20ed652103bf55eba504526445c5eb86bed68e6611",
+      "unchangedAppDigest": "sha256:b4c296a18475753b5bad8004f91098e7287b605871e5d420412c197d57fd855d",
+      "heldExecRevision": "before"
+    },
+    "node": {
+      "inventoryUID": "00027f95-91db-4b60-92dd-13fc9eb0b3ed",
+      "fromGeneration": 1, "toGeneration": 2,
+      "fromDigest": "sha256:51c83a9e639641cb6ae38c71a4622dd6ae11bb99a976e9af4f9012ecd6de8e3f",
+      "toDigest": "sha256:033ce71c3c70da37329df2da23f5e2ddd96e8b12395cf81aa2696f641e52df4c",
+      "unchangedAppDigest": "sha256:66d02173288884933c440790bc58a1ef05113956925e8e6b31d65b978ba3c419",
+      "heldExecRevision": "before"
+    },
+    "dotnet": {
+      "inventoryUID": "4cebeda7-3c5e-44e1-afe6-9630e3ef64b3",
+      "fromGeneration": 1, "toGeneration": 2,
+      "fromDigest": "sha256:2b06106f3a47f1768800c840513c2f22f581a9c7747a986d8dd37b69e9a70a9e",
+      "toDigest": "sha256:b4e6c87a9d11c5ca75a1c66aa783c891ef1c7dfe99b65e0367c58216b184b316",
+      "unchangedAppDigest": "sha256:0e7c047abcba69eb10018aace01c7c6eb623af6b6b98645a9676d7af9138cdfa",
+      "heldExecRevision": "before"
+    }
+  },
+  "passedForEveryLanguage": [
+    "old Pod UID and container ID retained",
+    "old durable inventory epoch/generation lease retained",
+    "old HTTP and exec retained original runtime environment",
+    "long-running exec spanned rotation without switching runtime",
+    "new Pod used matching minimum-generation barrier",
+    "new Pod used latest approved source without application republishing"
+  ],
+  "negativeStartsPassed": [
+    "RootNotSupported",
+    "PrivilegeEscalationNotSupported",
+    "InvalidRuntimeGeneration",
+    "RuntimeImageEpochMismatch",
+    "RuntimeImageUpdating"
+  ],
+  "vendorInterpreterVersionChanged": false,
+  "rotationChangesApprovedImageEnvironment": true,
+  "kubeletPullVerified": false,
+  "fullBrewletAcceptance": false
+}

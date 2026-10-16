@@ -70,6 +70,15 @@ read-only root and packaged files, and writable nested volumes. The run failed
 later on a test-driver webhook-name assumption before rotation. Discovery was
 corrected; this failed run is not reported as a complete suite pass.
 
+[`results/four-language-rotation.json`](results/four-language-rotation.json)
+records the later run's successful source rotations for all four languages.
+Initial tasks and long-running execs kept their original leased runtime, while
+new barrier-bearing pods used generation 2 with unchanged application digests.
+Root, privilege, malformed-barrier, wrong-epoch and future-generation starts
+were denied with their required reasons. This run failed later because the
+test interceptor omitted a typed Forbidden response. The wire response was
+corrected; provider-refusal success is not inferred from that failed run.
+
 [`results/cri-accounting.json`](results/cri-accounting.json) records a separate
 successful native-node accounting callback:
 

@@ -4,6 +4,7 @@ import subprocess
 import sys
 import unittest
 from unittest.mock import Mock
+import interceptor
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import harness
@@ -114,6 +115,15 @@ class RealStartEvidenceTests(unittest.TestCase):
             {"lastState": {"terminated": {"startedAt": "2026-10-16T16:00:00Z"}}},
         ):
             self.assertTrue(harness.application_started(status))
+
+
+class ProviderRefusalWireTests(unittest.TestCase):
+    def test_actual_webhook_denial_has_provider_forbidden_api_status(self):
+        response = interceptor.review_response("request-uid", False, "provider-pinned label refusal")["response"]
+        self.assertEqual("request-uid", response["uid"])
+        self.assertFalse(response["allowed"])
+        self.assertEqual(403, response["status"]["code"])
+        self.assertEqual("Forbidden", response["status"]["reason"])
 
 
 class WebhookDiscoveryTests(unittest.TestCase):

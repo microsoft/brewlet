@@ -32,6 +32,15 @@ def decision(request, config):
     return True, "allowed"
 
 
+def review_response(uid, allowed, message):
+    return {"apiVersion": "admission.k8s.io/v1", "kind": "AdmissionReview",
+            "response": {"uid": uid, "allowed": allowed,
+                         "status": {"status": "Success" if allowed else "Failure",
+                                    "code": 200 if allowed else 403,
+                                    "reason": "Success" if allowed else "Forbidden",
+                                    "message": message}}}
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         config = json.load(open(os.environ["CONFIG"], encoding="utf-8"))
@@ -47,9 +56,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         allowed, message = decision(request, config)
         print(json.dumps({"requestUID": request["uid"], "revision": config["revision"],
                           "allowed": allowed, "message": message}), flush=True)
-        response = {"apiVersion": "admission.k8s.io/v1", "kind": "AdmissionReview",
-                    "response": {"uid": request["uid"], "allowed": allowed,
-                                 "status": {"message": message}}}
+        response = review_response(request["uid"], allowed, message)
         body = json.dumps(response).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
