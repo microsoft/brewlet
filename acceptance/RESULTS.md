@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 207 passing offline tests; those
+The live-driver safeguards currently include 209 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -190,6 +190,21 @@ setting; fresh-node confirmation remains pending. Warm-cache retention remains
 useful after original-byte verification but is not a substitute for this
 first-validation prerequisite. Terminal negative cases now surface unexpected
 reasons immediately.
+
+`run-complete-13` passed all selected remote delivery cases, including fresh
+malformed/config-mismatch rejection, real native binary execution and wrong-
+platform pull rejection. Inventory deletion remained blocked by a real lease,
+then drained/finalized; same-name recreation got a new UID/generation one and
+the shim rejected the old-epoch barrier. Actual five-minute stopped renewal,
+authorization-expired bound rejection and latest-target renewal also passed.
+[`results/delivery-and-authorization.json`](results/delivery-and-authorization.json)
+exports those 19 selected successes; full acceptance remains false.
+The run then stopped in controlled worker restart because successor discovery
+read Pod state twice and raced predecessor termination. It now uses one
+identity-checked snapshot, retries only transient absence/non-running state and
+excludes the known predecessor CID before PID inspection. No recovery success
+is claimed yet. A separate persistent failed-Create lease diagnostic is under
+bounded investigation before the next matched-source run.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

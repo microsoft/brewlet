@@ -478,7 +478,7 @@ class Lifecycle:
         self.finalize(rid, new)
         self.edit_profile({rid: None})
 
-    def worker(self):
+    def worker(self, *, allow_starting=False, predecessor=None):
         self.guard()
         profile = self.h.get("nodeprofile", self.h.profile)
         require_owned(profile, self.h.run_id, self.profile_uid)
@@ -492,6 +492,8 @@ class Lifecycle:
                         and env.get("BREWLET_PROFILE_GENERATION") == str(profile["metadata"]["generation"])
                         and env.get("BREWLET_MODE") == "provisioning"):
                     candidates.append((pod, container))
+        if allow_starting and not candidates:
+            return False
         require(len(candidates) == 1, "could not select the exact current provisioner")
         pod, container = candidates[0]
         settings = {v["name"]: v.get("value") for v in container.get("env", [])
@@ -504,9 +506,13 @@ class Lifecycle:
             o.get("kind") == "NodeProfile" and o.get("uid") == self.profile_uid
             for o in ds["metadata"].get("ownerReferences", [])), "worker ownership chain changed")
         status = [s for s in pod.get("status", {}).get("containerStatuses", [])
-                  if s.get("name") == container["name"] and s.get("state", {}).get("running")]
+                  if s.get("name") == container["name"] and "running" in s.get("state", {})]
+        if allow_starting and not status:
+            return False
         require(len(status) == 1, "worker is not actually running")
         container_id = cid(status[0]["containerID"].removeprefix("containerd://"))
+        if predecessor is not None and container_id == predecessor:
+            return False
         detail = self.inspect(container_id, pod_uid=pod["metadata"]["uid"])
         pid = detail["info"].get("pid")
         require(type(pid) is int and pid > 1, "worker host PID unavailable")
@@ -693,7 +699,7 @@ class Lifecycle:
         self.h.node_exec("crictl", "stop", "--timeout", "10", worker["cid"])
         successor = self.h.wait("actual provisioner container restart", lambda:
             (value if value["cid"] != worker["cid"] else False)
-            if (value := self.worker_if_running()) else False)
+            if (value := self.worker_if_running(worker["cid"])) else False)
         report = self.h.wait("fresh worker successfully recovers the exact durable task lease", lambda:
             self.recovery_log(successor, lease))
         validate_lease(self.read(f"{STORE}/.tasks/{container}/lease.json"), identity, container)
@@ -785,17 +791,8 @@ class Lifecycle:
                       proof, ["LEASE-02"])
         return proof
 
-    def worker_if_running(self):
-        # Only transient rollout/startup absence is retryable; ownership failures
-        # and foreign identities are not swallowed.
-        pods = self.h.get("pods", namespace=self.h.control_namespace)["items"]
-        if not any(any(v.get("name") == "BREWLET_PROFILE_UID" and v.get("value") == self.profile_uid
-                       for c in p.get("spec", {}).get("containers", [])
-                       for v in c.get("env", []))
-                   and any(s.get("state", {}).get("running") for s in
-                           p.get("status", {}).get("containerStatuses", [])) for p in pods):
-            return False
-        return self.worker()
+    def worker_if_running(self, predecessor=None):
+        return self.worker(allow_starting=True, predecessor=predecessor)
 
     def on_demand(self):
         cold = self.inventory("cold")

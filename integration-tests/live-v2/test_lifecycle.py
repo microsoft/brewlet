@@ -43,6 +43,62 @@ def profile():
             "status": {"provisioningGeneration": 3}}
 
 
+class WorkerRestartTests(unittest.TestCase):
+    def fixture(self):
+        worker = l.Lifecycle.__new__(l.Lifecycle)
+        worker.profile_uid = "profile-uid"
+        worker.guard = Mock()
+        current = profile()
+        current["metadata"]["generation"] = 3
+        container = {"name": "provisioner", "env": [
+            {"name": "BREWLET_PROFILE_UID", "value": "profile-uid"},
+            {"name": "BREWLET_PROFILE_GENERATION", "value": "3"},
+            {"name": "BREWLET_MODE", "value": "provisioning"}]}
+        pod = {"metadata": {"name": "worker", "uid": "worker-pod", "ownerReferences": [
+            {"kind": "DaemonSet", "name": "worker-ds", "uid": "ds-uid", "controller": True}]},
+               "spec": {"nodeName": "private-node", "containers": [container]},
+               "status": {"containerStatuses": [{"name": "provisioner",
+                   "containerID": "containerd://" + CONTAINER, "state": {"running": {}}}]}}
+        ds = {"metadata": {"uid": "ds-uid", "ownerReferences": [
+            {"kind": "NodeProfile", "uid": "profile-uid", "controller": True}]}}
+        worker.h = SimpleNamespace(run_id=RUN, profile="private", node="private-node",
+                                   control_namespace="private-system")
+        worker.h.get = Mock(side_effect=lambda kind, *args, **kwargs:
+                            current if kind == "nodeprofile" else
+                            {"items": [pod]} if kind == "pods" else ds)
+        worker.inspect = Mock(return_value={"info": {"pid": 1234}})
+        def node_exec(*args):
+            output = ("/brewlet-node\n" if args[0] == "readlink" else
+                      "1234 (brewlet-node) " + " ".join(["S"] + ["0"] * 18 + ["98765"])
+                      if args[0] == "cat" else "")
+            return subprocess.CompletedProcess(args, 0, output, "")
+        worker.h.node_exec = Mock(side_effect=node_exec)
+        return worker, pod, ds
+
+    def test_successor_wait_retries_stopped_or_previous_container(self):
+        worker, pod, _ = self.fixture()
+        self.assertFalse(worker.worker_if_running(CONTAINER))
+        worker.inspect.assert_not_called()
+        pod["status"]["containerStatuses"][0]["state"] = {"terminated": {"exitCode": 1}}
+        self.assertFalse(worker.worker_if_running(CONTAINER))
+        worker.inspect.assert_not_called()
+        with self.assertRaisesRegex(Failure, "not actually running"):
+            worker.worker()
+
+    def test_successor_selection_uses_one_pod_snapshot_and_checks_owner_chain(self):
+        worker, pod, ds = self.fixture()
+        successor = "b" * 64
+        pod["status"]["containerStatuses"][0]["containerID"] = "containerd://" + successor
+        result = worker.worker_if_running(CONTAINER)
+        self.assertEqual(result["cid"], successor)
+        self.assertEqual(result["podUID"], "worker-pod")
+        self.assertEqual(result["start"], "98765")
+        self.assertEqual(sum(call.args[0] == "pods" for call in worker.h.get.call_args_list), 1)
+        ds["metadata"]["uid"] = "foreign-ds"
+        with self.assertRaisesRegex(Failure, "ownership chain changed"):
+            worker.worker_if_running(CONTAINER)
+
+
 class EpochTests(unittest.TestCase):
     def test_fixture_ids_do_not_overlap_base_or_other_invocations(self):
         for purpose in l.PREFIXES:
