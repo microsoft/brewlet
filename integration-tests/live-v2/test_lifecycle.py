@@ -359,18 +359,17 @@ class ProcessAndReferenceTests(unittest.TestCase):
             with self.subTest(args=args), self.assertRaises(Failure):
                 l.daemon_restart_command(*args)
 
-    def test_shim_signal_is_guarded_by_exact_binary_starttime_namespace_and_owned_sandbox(self):
-        command = l.shim_signal_command(4321, "123456", CONTAINER, "STOP")
-        self.assertEqual(command[-4:], ["4321", "123456", CONTAINER, "STOP"])
-        self.assertIn("/usr/local/bin/containerd-shim-brewlet-v2", command[2])
-        self.assertIn('prev=="-id"&&$0==id', command[2])
-        self.assertIn('prev=="-namespace"&&$0=="k8s.io"', command[2])
-        for args in ((1, "123", CONTAINER, "STOP"),
-                     (4321, "1;kill", CONTAINER, "STOP"),
-                     (4321, "123", "sandbox-name", "STOP"),
-                     (4321, "123", CONTAINER, "KILL")):
+    def test_daemon_signal_is_guarded_by_exact_service_binary_and_starttime(self):
+        command = l.daemon_signal_command(4321, "123456", "/usr/local/bin/containerd", "STOP")
+        self.assertEqual(command[-4:], ["4321", "123456", "/usr/local/bin/containerd", "STOP"])
+        self.assertIn('systemctl show containerd --property=MainPID --value', command[2])
+        self.assertIn('readlink /proc/$1/exe', command[2])
+        for args in ((1, "123", "/usr/bin/containerd", "STOP"),
+                     (4321, "1;kill", "/usr/bin/containerd", "STOP"),
+                     (4321, "123", "/usr/bin/kubelet", "STOP"),
+                     (4321, "123", "/usr/bin/containerd", "KILL")):
             with self.subTest(args=args), self.assertRaises(Failure):
-                l.shim_signal_command(*args)
+                l.daemon_signal_command(*args)
 
     def test_signal_guard_rejects_reused_or_foreign_pid_without_sending_signal(self):
         # Read-only failure before kill: this PID is this test's shell child,
@@ -456,15 +455,16 @@ class ProcessAndReferenceTests(unittest.TestCase):
         with self.assertRaises(Failure):
             fixture.recovery_log(worker, lease(), after_prefix=prefix)
 
-    def test_uncertainty_injection_restores_only_owned_shim_and_requires_new_recovery_marker(self):
-        source = inspect.getsource(l.Lifecycle.uncertain_shim_evidence)
-        self.assertIn('group_id in (sandbox, lease["taskID"])', source)
+    def test_uncertainty_injection_requires_real_api_timeout_and_fresh_recovery(self):
+        source = inspect.getsource(l.Lifecycle.uncertain_runtime_evidence)
         self.assertIn('require_owned(obj, self.h.run_id, self.pods[name])', source)
-        self.assertIn('shim_signal_command(shim_pid, start, group_id, "STOP")', source)
+        self.assertIn('daemon_signal_command(pid, start, executable, "STOP")', source)
         self.assertIn('finally:', source)
-        self.assertIn('shim_signal_command(shim_pid, start, group_id, "CONT")', source)
-        self.assertIn('after_prefix=blocked_prefix', source)
-        self.assertIn('"runtime collection blocked:"', source)
+        self.assertIn('daemon_signal_command(pid, start, executable, "CONT")', source)
+        self.assertIn('after_prefix=prefix', source)
+        self.assertIn('unavailable.returncode == 124', source)
+        self.assertIn('response.get("gone") is False and not response.get("error")', source)
+        self.assertIn('"--brewlet-evidence"', source)
         self.assertNotIn("SIGKILL", source)
         self.assertNotIn("killall", source)
         self.assertNotIn("pkill", source)

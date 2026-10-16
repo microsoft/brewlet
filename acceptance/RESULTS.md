@@ -236,6 +236,23 @@ resourceVersion churn while preserving concurrent metadata, and rejection of
 stale spec intent without changes. It wrote no status, claims or authorization
 and is not a scheduling/recovery proof.
 
+`run-complete-16` passed actual worker replacement, fresh exact-task lease
+recovery, containerd daemon PID replacement and unchanged application
+task/lease/Exec state.
+[`results/worker-recovery-selected.json`](results/worker-recovery-selected.json)
+records that assertion while preserving the failed full command.
+The next fixture overconstrained paused-shim behavior to one error-log string:
+known-active task evidence can legitimately retain a lease without that error.
+Focused one-task probes confirmed this distinction rather than weakening the
+collector. The uncertainty case now temporarily pauses the exact owned
+containerd PID/start identity, proves its previously valid read-only
+task/mount query actually times out, checks the original lease and kernel
+runtime mount remain, resumes in `finally`, and requires fresh complete
+production recovery. The reduced real-node probe passed with timeout exit124,
+unchanged task PID, retained lease/root and fresh recovery after CONT; no
+protected records or clocks were edited. Full retired-generation/GC lifecycle
+acceptance must still run.
+
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout
 `f70a2c40fa1139fbc38ef0d4da4e964428bf5164`, with production-source manifest

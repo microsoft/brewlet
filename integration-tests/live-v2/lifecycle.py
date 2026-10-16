@@ -167,35 +167,27 @@ def signal_command(pid, start, executable, action):
     return ["sh", "-ec", script, "lifecycle-worker", str(pid), start, executable, action]
 
 
-def daemon_restart_command(pid, start, executable):
+def daemon_guard(pid, start, executable):
     require(type(pid) is int and pid > 1, "unsafe containerd PID")
     require(isinstance(start, str) and start.isdigit(), "missing daemon start identity")
     require(executable in ("/usr/bin/containerd", "/usr/local/bin/containerd", "/bin/containerd"),
             "unexpected containerd executable")
-    script = (
+    return (
         'test "$(systemctl show containerd --property=MainPID --value)" = "$1"; '
         'test "$(readlink /proc/$1/exe)" = "$3"; '
         's=$(cat /proc/$1/stat); s=${s##*) }; '
-        'test "$(printf "%s\\n" "$s" | awk \'{print $20}\')" = "$2"; '
-        'systemctl restart containerd')
+        'test "$(printf "%s\\n" "$s" | awk \'{print $20}\')" = "$2"; ')
+
+
+def daemon_restart_command(pid, start, executable):
+    script = daemon_guard(pid, start, executable) + 'systemctl restart containerd'
     return ["sh", "-ec", script, "lifecycle-daemon", str(pid), start, executable]
 
 
-def shim_signal_command(pid, start, sandbox, action):
-    require(type(pid) is int and pid > 1, "unsafe shim PID")
-    require(isinstance(start, str) and start.isdigit(), "missing shim process start identity")
-    cid(sandbox)
-    require(action in ("STOP", "CONT"), "unsupported shim signal")
-    script = (
-        'test "$(readlink /proc/$1/exe)" = /usr/local/bin/containerd-shim-brewlet-v2; '
-        's=$(cat /proc/$1/stat); s=${s##*) }; '
-        'test "$(printf "%s\\n" "$s" | awk \'{print $20}\')" = "$2"; '
-        'tr "\\000" "\\n" < /proc/$1/cmdline | '
-        'awk -v id="$3" \'prev=="-id"&&$0==id {owned=1} '
-        'prev=="-namespace"&&$0=="k8s.io" {namespace=1} '
-        '{prev=$0} END {exit !(owned&&namespace)}\'; '
-        'kill -"$4" "$1"')
-    return ["sh", "-ec", script, "lifecycle-shim", str(pid), start, sandbox, action]
+def daemon_signal_command(pid, start, executable, action):
+    require(action in ("STOP", "CONT"), "unsupported daemon signal")
+    script = daemon_guard(pid, start, executable) + 'kill -"$4" "$1"'
+    return ["sh", "-ec", script, "lifecycle-daemon", str(pid), start, executable, action]
 
 
 def validate_lease(lease, identity, container):
@@ -667,7 +659,7 @@ class Lifecycle:
                       {"oldWorker": worker, "newWorker": successor, "lease": lease,
                        "containerdBefore": before, "containerdAfter": after,
                        "boundary": "surviving task-server reconnect; maintenance lease recovery is separate"})
-        uncertainty = self.uncertain_shim_evidence(name, lease)
+        uncertainty = self.uncertain_runtime_evidence(name, lease)
         return {"timing": timing, "retirement": retirement,
                 "observedAfterGraceAt": datetime.now(timezone.utc).isoformat(),
                 "recovery": maintenance, "uncertainty": uncertainty}
@@ -730,67 +722,61 @@ class Lifecycle:
                 return recovery_proof(report, lease["runtime"], lease["taskID"], retained=True)
         return False
 
-    def uncertain_shim_evidence(self, name, lease):
-        """Temporarily unresponsive owned shim; never kill/reconstruct runc state."""
+    def uncertain_runtime_evidence(self, name, lease):
+        """Make actual task-service evidence unavailable without touching leases."""
         obj = self.h.get("pod", name, self.h.namespace)
         require_owned(obj, self.h.run_id, self.pods[name])
-        require(name.startswith("life-"), "cannot pause a base fixture's shim")
+        require(name.startswith("life-"), "uncertainty probe is not a lifecycle task")
         detail = self.inspect(lease["taskID"], pod_uid=obj["metadata"]["uid"])
-        sandbox = cid(detail.get("info", {}).get("sandboxID"))
-        sandbox_info = json.loads(self.h.node_exec("crictl", "inspectp", sandbox).stdout)
-        sandbox_status = sandbox_info.get("status", {})
-        require(sandbox_status.get("id") == sandbox
-                and sandbox_status.get("metadata", {}).get("uid") == obj["metadata"]["uid"]
-                and sandbox_status["metadata"].get("namespace") == self.h.namespace,
-                "shim's sandbox does not belong to the exact lifecycle Pod UID")
         main_pid = detail.get("info", {}).get("pid")
         require(type(main_pid) is int and main_pid > 1, "live initial task host PID unavailable")
-        status = self.h.node_exec("cat", f"/proc/{main_pid}/status").stdout
-        parent = re.search(r"^PPid:\s+([0-9]+)$", status, re.M)
-        require(parent and int(parent[1]) > 1, "task's real shim parent PID unavailable")
-        shim_pid = int(parent[1])
-        stat = self.h.node_exec("cat", f"/proc/{shim_pid}/stat").stdout
+        pid = int(self.h.node_exec("systemctl", "show", "containerd",
+                                  "--property=MainPID", "--value").stdout.strip())
+        executable = self.h.node_exec("readlink", f"/proc/{pid}/exe").stdout.strip()
+        stat = self.h.node_exec("cat", f"/proc/{pid}/stat").stdout
         start = stat.rsplit(") ", 1)[1].split()[19]
-        argv = self.h.node_exec("cat", f"/proc/{shim_pid}/cmdline").stdout.split("\0")
-        require(argv.count("-id") == 1 and argv.index("-id") + 1 < len(argv),
-                "actual shim has no unambiguous task group identity")
-        group_id = cid(argv[argv.index("-id") + 1])
-        require(group_id in (sandbox, lease["taskID"]),
-                "task's parent shim belongs to another sandbox/task group")
+        query = ["nsenter", "--mount=/proc/1/ns/mnt", "--root=/proc/1/root", "--wd=/",
+                 "--", "/usr/local/bin/containerd-shim-brewlet-v2", "--brewlet-evidence"]
+        request = json.dumps({"lease": lease})
+        known = self.h.node_exec(*query, input=request)
+        response = json.loads(known.stdout)
+        require(response.get("gone") is False and not response.get("error"),
+                "live task absence query is not initially valid")
+        self.h.node_exec("timeout", "--version")
         worker = self.worker()
         prefix = self.worker_log_text(worker)
         self.guard()
-        self.h.node_exec(*shim_signal_command(shim_pid, start, group_id, "STOP"))
+        self.h.node_exec(*daemon_signal_command(pid, start, executable, "STOP"))
         paused_at = time.monotonic()
         try:
-            stat = self.h.node_exec("cat", f"/proc/{shim_pid}/stat").stdout
+            stat = self.h.node_exec("cat", f"/proc/{pid}/stat").stdout
             fields = stat.rsplit(") ", 1)[1].split()
             require(fields[19] == start and fields[0] in ("T", "t"),
-                    "actual invocation-owned shim was not stopped")
-            def blocked():
-                text = self.worker_log_text(worker)
-                require(text.startswith(prefix), "uncertainty observation log changed identity")
-                return text if "runtime collection blocked:" in text[len(prefix):] else False
-            blocked_prefix = self.h.wait("real shim unresponsiveness blocks production lease recovery",
-                                         blocked, timeout=90)
+                    "owned containerd service was not stopped")
+            unavailable = self.h.node_exec(
+                "timeout", "--signal=TERM", "--kill-after=2s", "10s", *query,
+                input=request, check=False, timeout=20)
+            require(unavailable.returncode == 124,
+                    "stopped task service did not produce a bounded inspection timeout")
             validate_lease(self.read(f"{STORE}/.tasks/{lease['taskID']}/lease.json"),
                            lease["runtime"], lease["taskID"])
-            require(self.exists(root_path(lease["runtime"]) + "/rootfs")
-                    and not self.mounts_gone(lease["runtime"]),
-                    "task inspection uncertainty permitted root or lease collection")
+            mounts = self.h.node_exec("cat", f"/proc/{main_pid}/mountinfo").stdout
+            require(self.exists(root_path(lease["runtime"]) + "/rootfs") and re.search(
+                re.escape(root_path(lease["runtime"]) + "/rootfs") + r"(?=$|[/,: \t\n])", mounts),
+                "real task-service uncertainty permitted root or lease collection")
         finally:
-            self.h.node_exec(*shim_signal_command(shim_pid, start, group_id, "CONT"))
-        recovered = self.h.wait("real shim response restores complete fenced lease recovery", lambda:
-            self.recovery_log(worker, lease, after_prefix=blocked_prefix))
+            self.h.node_exec(*daemon_signal_command(pid, start, executable, "CONT"))
+        recovered = self.h.wait("restored task service permits fresh complete fenced recovery", lambda:
+            self.recovery_log(worker, lease, after_prefix=prefix))
         validate_lease(self.read(f"{STORE}/.tasks/{lease['taskID']}/lease.json"),
                        lease["runtime"], lease["taskID"])
-        require(self.task_pids(lease["taskID"]), "shim resume replaced or lost the real task")
-        proof = {"shimPID": shim_pid, "shimStart": start, "sandboxID": sandbox, "groupID": group_id,
+        require(main_pid in self.task_pids(lease["taskID"]), "service resume replaced the real task")
+        proof = {"daemonPID": pid, "daemonStart": start,
                  "lease": lease, "realPausedSeconds": time.monotonic() - paused_at,
-                 "blockedObservation": blocked_prefix[len(prefix):],
+                 "inspectionExitCode": unavailable.returncode,
                  "freshSuccessfulRecovery": recovered,
-                 "boundary": "real STOP/CONT uncertainty; no task-server reconstruction"}
-        self.h.record("actual shim uncertainty retains durable lease/root and recovery resumes after CONT",
+                 "boundary": "real task-service timeout; no task-server reconstruction or forged state"}
+        self.h.record("actual task-service uncertainty retains lease/root and fresh recovery follows CONT",
                       proof, ["LEASE-02"])
         return proof
 
