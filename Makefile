@@ -1,0 +1,17 @@
+.PHONY: test build acceptance ledger
+
+test:
+	go test -race ./...
+	mvn -B -q -f maven-plugin/pom.xml verify
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s acceptance -p '*_test.py' -v
+	python3 acceptance/check.py
+
+build:
+	mkdir -p bin
+	go build -o bin/brewlet ./cmd/brewlet
+
+ledger:
+	python3 acceptance/check.py
+
+acceptance:
+	python3 acceptance/check.py --require-complete

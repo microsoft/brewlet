@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": ["python3"],
+    "args": ["/app/src/main.py"],
+    "workingDir": "/app",
+    "env": [
+      {"name": "PYTHONPATH", "value": "/app/dependencies"},
+      {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}
+    ]
+  }
+}

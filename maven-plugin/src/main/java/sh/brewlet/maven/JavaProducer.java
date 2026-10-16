@@ -1,0 +1,106 @@
+package sh.brewlet.maven;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.jar.JarFile;
+
+/** Java project knowledge stops at this producer; the CLI owns the artifact contract. */
+final class JavaProducer {
+    record Inputs(Path jar, List<Path> dependencies, Path launch, String mainClass,
+                  String module, List<String> javaArgs, List<String> runtimeImages) {}
+    record Prepared(Path launch, Path application, Path dependencies, String dependencyTarget) {}
+
+    static Prepared prepare(Inputs inputs, Path output) throws IOException {
+        requireFile(inputs.jar());
+        Path app = Files.createDirectory(output.resolve("application"));
+        Files.copy(inputs.jar(), app.resolve("app.jar"), StandardCopyOption.COPY_ATTRIBUTES);
+        Path dependencies = null;
+        if (!inputs.dependencies().isEmpty()) {
+            dependencies = Files.createDirectory(output.resolve("dependencies"));
+            for (Path source : inputs.dependencies().stream()
+                    .sorted(Comparator.comparing(path -> path.getFileName().toString())).toList()) {
+                requireFile(source);
+                Path target = dependencies.resolve(source.getFileName().toString());
+                if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                    throw new IOException("Duplicate dependency filename: " + source.getFileName());
+                }
+                Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
+            }
+        }
+        Path launch = inputs.launch();
+        if (launch != null) {
+            requireFile(launch);
+        } else {
+            String mainClass = inputs.mainClass();
+            if (mainClass == null || mainClass.isBlank()) {
+                try (JarFile jar = new JarFile(inputs.jar().toFile())) {
+                    if (jar.getManifest() != null) {
+                        mainClass = jar.getManifest().getMainAttributes().getValue("Main-Class");
+                    }
+                }
+            }
+            List<String> args = new ArrayList<>(inputs.javaArgs());
+            if (inputs.module() != null && !inputs.module().isBlank()) {
+                args.addAll(List.of("--module-path", "/app/app.jar:/app/mods", "--module",
+                        inputs.module() + (mainClass == null ? "" : "/" + mainClass)));
+            } else if (mainClass != null && !mainClass.isBlank()) {
+                args.addAll(List.of("--class-path", "/app/app.jar:/app/lib/*", mainClass));
+            } else {
+                throw new IOException("Set brewlet.mainClass, brewlet.module, or brewlet.launch; "
+                        + "the project JAR has no Main-Class");
+            }
+            Map<String, Object> descriptor = new LinkedHashMap<>();
+            descriptor.put("schemaVersion", 2);
+            descriptor.put("process", Map.of("entrypoint", List.of("java"),
+                    "args", args, "workingDir", "/app"));
+            if (!inputs.runtimeImages().isEmpty()) {
+                descriptor.put("requires", Map.of("runtimeImages", inputs.runtimeImages()));
+            }
+            launch = output.resolve("launch.json");
+            new ObjectMapper().writerWithDefaultPrettyPrinter().writeValue(launch.toFile(), descriptor);
+        }
+        return new Prepared(launch, app, dependencies,
+                inputs.module() == null || inputs.module().isBlank() ? "/app/lib" : "/app/mods");
+    }
+
+    static List<String> command(String executable, String image, Path store,
+                                List<String> platforms, List<String> layerSets, Prepared prepared) {
+        if (platforms.isEmpty()) {
+            throw new IllegalArgumentException("Explicit brewlet.platforms are required");
+        }
+        List<String> command = new ArrayList<>(List.of(executable, "push", image));
+        if (store != null) {
+            command.addAll(List.of("--store", store.toString()));
+        }
+        for (String platform : platforms) {
+            command.addAll(List.of("--platform", platform));
+        }
+        command.addAll(List.of("--launch", prepared.launch().toString()));
+        for (String layerSet : layerSets) {
+            command.addAll(List.of("--layer-set", layerSet));
+        }
+        if (prepared.dependencies() != null) {
+            command.addAll(List.of("--layer",
+                    "dependency=" + prepared.dependencies() + ":" + prepared.dependencyTarget()));
+        }
+        command.addAll(List.of("--layer", "app=" + prepared.application() + ":/app"));
+        return command;
+    }
+
+    private static void requireFile(Path file) throws IOException {
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("Expected a regular, non-symlink producer input: " + file);
+        }
+    }
+
+    private JavaProducer() {}
+}

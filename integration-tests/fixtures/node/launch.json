@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": ["node"],
+    "args": ["/app/src/main.mjs"],
+    "workingDir": "/app"
+  }
+}
