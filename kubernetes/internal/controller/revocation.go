@@ -140,6 +140,10 @@ func (r *RuntimeReconciler) collectRevocationTargets(ctx context.Context, im *ap
 	return changed, nil
 }
 func (r *RuntimeReconciler) revocationCheckpoint(ctx context.Context, im *api.RuntimeImage) error {
+	// Capture intent before Update: a server-pruned response may overwrite im.
+	// Comparing two already-pruned response objects would conceal lost deadlines.
+	expected, _ := json.Marshal(im.Status)
+	uid := im.UID
 	if err := r.Status().Update(ctx, im); err != nil {
 		return err
 	}
@@ -147,12 +151,9 @@ func (r *RuntimeReconciler) revocationCheckpoint(ctx context.Context, im *api.Ru
 	if err := r.Reader.Get(ctx, client.ObjectKeyFromObject(im), fresh); err != nil {
 		return err
 	}
-	a, _ := json.Marshal(im.Status.RevocationTargets)
-	b, _ := json.Marshal(fresh.Status.RevocationTargets)
-	taskA, _ := json.Marshal(im.Status.TaskObservations)
-	taskB, _ := json.Marshal(fresh.Status.TaskObservations)
-	if fresh.UID != im.UID || !bytes.Equal(a, b) || !bytes.Equal(taskA, taskB) {
-		return fmt.Errorf("revocation target checkpoint not observed; matching CRD required")
+	observed, _ := json.Marshal(fresh.Status)
+	if fresh.UID != uid || !bytes.Equal(expected, observed) {
+		return fmt.Errorf("runtime status checkpoint not observed (targets, observations, rotation progress/deadlines); matching CRD required")
 	}
 	return nil
 }

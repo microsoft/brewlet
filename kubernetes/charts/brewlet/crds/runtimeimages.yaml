@@ -194,8 +194,6 @@ spec:
                       message: {type: string}
                       lastTransitionTime: {type: string, format: date-time}
                       observedGeneration: {type: integer, format: int64}
-                      assignedAt: {type: string, format: date-time}
-                      lastProgressAt: {type: string, format: date-time}
                 rotation:
                   type: object
                   required: [generation, digest]
@@ -212,4 +210,6 @@ spec:
                           uid: {type: string}
                           reason: {type: string}
                           observedGeneration: {type: integer, format: int64}
+                          assignedAt: {type: string, format: date-time}
+                          lastProgressAt: {type: string, format: date-time}
                     excludedNodes: *rotationNodes
