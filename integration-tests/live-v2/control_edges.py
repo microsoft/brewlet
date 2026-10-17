@@ -946,9 +946,22 @@ class ControlEdges:
                             "metadata": {"name": name, "annotations": {PROBE: "original"}},
                             "spec": {"unschedulable": True}})
         uid = obj["metadata"]["uid"]
-        path, stale = cas_request(obj, self.h.run_id, uid, self.h.node, "stale")
-        _, changed = cas_request(obj, self.h.run_id, uid, self.h.node, "changed")
-        self.h.kubectl("replace", "--raw", path, "-f", "-", input=json.dumps(changed))
+        def advance():
+            current = self.h.get("node", name)
+            path, stale = cas_request(current, self.h.run_id, uid, self.h.node, "stale")
+            require(current["metadata"]["annotations"].get(PROBE) == "original",
+                    "CAS setup annotation changed unexpectedly")
+            _, changed = cas_request(current, self.h.run_id, uid, self.h.node, "changed")
+            result = self.h.kubectl("replace", "--raw", path, "-f", "-",
+                                    input=json.dumps(changed), check=False)
+            if result.returncode != 0:
+                require("Conflict" in result.stderr,
+                        "CAS setup failed for unrelated reason: " + result.stderr)
+                return False
+            return path, stale
+
+        # Node lifecycle controllers can update a newly created Node immediately.
+        path, stale = self.h.wait("owned fixture Node CAS setup", advance, timeout=30)
         conflict = self.h.kubectl("replace", "--raw", path, "-f", "-",
                                   input=json.dumps(stale), check=False)
         require(conflict.returncode != 0 and "Conflict" in conflict.stderr,

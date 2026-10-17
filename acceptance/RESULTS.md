@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 219 passing offline tests; those
+The live-driver safeguards currently include 221 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -274,6 +274,20 @@ as verified. Its receipt explicitly records whether an exec was observed
 after main exit; forced orphan survival remains unverified. Native conditional
 task/exec/mount uncertainty contracts and real active-reference/drain evidence
 remain separate. No complete lifecycle/controller-suite pass is claimed yet.
+
+`run-complete-18` passed 57 assertions and completed the selected lifecycle
+callback, including actual authorization expiry/recovery, worker and daemon
+recovery, uncertain-inspection retention, retired-generation collection,
+OnDemand mode/idle behavior, and direct-CRI active-reference protection and
+normal drain. It then failed in `control-edges`: the positive setup write for
+the API CAS primitive probe raced a legitimate Node-controller update. This
+was not the intentionally stale write being tested. Setup now re-reads and
+revalidates the exact owned synthetic Node before retrying only conflicts,
+within a 30-second bound; the negative stale write is never retried.
+A fresh isolated actual-API probe passed both stale-resourceVersion and
+recreated-UID rejection after this correction, with fixture destruction
+successful. Controller restart scenarios and final production cleanup have
+not passed as one complete expanded run.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

@@ -580,6 +580,60 @@ class APIRequestTests(unittest.TestCase):
             ce.cas_request(obj, RUN, "test-node", "real-owned-node", "changed")
 
 
+class CASSetupTests(unittest.TestCase):
+    def test_setup_retries_only_conflicts_with_fresh_validated_node(self):
+        first = {"kind": "Node", "metadata": meta("control-cas-" + RUN + "-node", UID),
+                 "spec": {"unschedulable": True}}
+        first["metadata"]["annotations"] = {ce.PROBE: "original"}
+        fresh = copy.deepcopy(first)
+        fresh["metadata"]["resourceVersion"] = "38"
+        h = SimpleNamespace(cluster="fixture", namespace="base", control_namespace="system",
+                            run_id=RUN, node="real-owned-node",
+                            apply=Mock(return_value=first),
+                            get=Mock(side_effect=[first, fresh]),
+                            kubectl=Mock(side_effect=[
+                                SimpleNamespace(returncode=1, stderr="Error (Conflict): modified"),
+                                SimpleNamespace(returncode=0, stderr="")]))
+
+        class SetupObserved(Exception):
+            pass
+
+        def wait(description, predicate, timeout):
+            self.assertEqual(timeout, 30)
+            self.assertFalse(predicate())
+            _, stale = predicate()
+            self.assertEqual(stale["metadata"]["resourceVersion"], "38")
+            self.assertEqual(stale["metadata"]["annotations"][ce.PROBE], "stale")
+            raise SetupObserved()
+
+        h.wait = wait
+        with self.assertRaises(SetupObserved):
+            ce.ControlEdges(h).api_cas()
+        bodies = [json.loads(c.kwargs["input"]) for c in h.kubectl.call_args_list]
+        self.assertEqual([b["metadata"]["resourceVersion"] for b in bodies], ["37", "38"])
+
+    def test_setup_refuses_unrelated_errors_and_replaced_nodes(self):
+        for refusal in ("Forbidden", "replacement"):
+            with self.subTest(refusal=refusal):
+                obj = {"kind": "Node",
+                       "metadata": meta("control-cas-" + RUN + "-node", UID),
+                       "spec": {"unschedulable": True}}
+                obj["metadata"]["annotations"] = {ce.PROBE: "original"}
+                current = copy.deepcopy(obj)
+                if refusal == "replacement":
+                    current["metadata"]["uid"] = "new-uid"
+                h = SimpleNamespace(cluster="fixture", namespace="base",
+                                    control_namespace="system", run_id=RUN, node="real-owned-node",
+                                    apply=Mock(return_value=obj), get=Mock(return_value=current),
+                                    kubectl=Mock(return_value=SimpleNamespace(
+                                        returncode=1, stderr="Forbidden")))
+                h.wait = lambda description, predicate, timeout: predicate()
+                with self.assertRaises(ce.Failure):
+                    ce.ControlEdges(h).api_cas()
+                if refusal == "replacement":
+                    h.kubectl.assert_not_called()
+
+
 class ReleaseCASTests(unittest.TestCase):
     def setUp(self):
         self.config = {"runID": RUN, "node": "real-owned-node", "nodeUID": "real-node-uid",
