@@ -44,14 +44,15 @@ class ObservabilityEvidenceTests(unittest.TestCase):
 
     def test_runtime_event_filter_preserves_exact_generation(self):
         _, _, _, event = self.fixture()
-        events = runtime_events('timestamp k8s.io /tasks/start {"irrelevant":true}\n'
-            'timestamp k8s.io /brewlet/runtime-image ' + json.dumps(event) + '\n')
+        events = runtime_events(json.dumps({"namespace": "k8s.io", "topic": "/brewlet/runtime-image",
+                                           "event": event}) + '\n')
         self.assertEqual(events, [event])
 
     def test_foreign_namespace_and_malformed_event_are_not_evidence(self):
-        for line in ('timestamp foreign /brewlet/runtime-image {}',
-                     'timestamp k8s.io /brewlet/runtime-image {',
-                     'timestamp k8s.io /brewlet/runtime-image []'):
+        for line in ('{"namespace":"foreign","topic":"/brewlet/runtime-image","event":{}}',
+                     '{"namespace":"k8s.io","topic":"/tasks/start","event":{}}',
+                     '{"namespace":"k8s.io","topic":"/brewlet/runtime-image","event":[]}',
+                     'not JSON', '[]'):
             with self.subTest(line=line), self.assertRaises((Failure, ValueError)):
                 runtime_events(line)
 

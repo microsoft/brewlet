@@ -1,6 +1,7 @@
 """Actual containerd events and worker metrics, joined to durable task leases."""
 
 import json
+import hashlib
 import math
 import re
 import subprocess
@@ -42,13 +43,13 @@ def sample_value(samples, name, labels):
 def runtime_events(text):
     events = []
     for line in text.splitlines():
-        prefix, separator, body = line.partition(" /brewlet/runtime-image ")
-        if not separator:
+        if not line:
             continue
-        require(prefix.split()[-1] == "k8s.io", "runtime event came from a foreign namespace")
-        event = json.loads(body)
-        require(isinstance(event, dict), "runtime event is not an object")
-        events.append(event)
+        envelope = json.loads(line)
+        require(isinstance(envelope, dict) and envelope.get("namespace") == "k8s.io"
+                and envelope.get("topic") == "/brewlet/runtime-image"
+                and isinstance(envelope.get("event"), dict), "invalid runtime event envelope")
+        events.append(envelope["event"])
     return events
 
 
@@ -73,17 +74,27 @@ class Observer:
     def __init__(self, h):
         self.h = h
         self.path = h.work / "runtime-events.log"
-        self.pid_path = "/tmp/brewlet-event-observer-" + h.run_id
+        self.binary_path = "/tmp/brewlet-event-observer-" + h.run_id
+        self.pid_path = self.binary_path + ".pid"
         self.process = None
 
     def __enter__(self):
         h = self.h
         h.node_snapshot()
         h.node_exec("true")
+        binary = h.work / "event-observer"
+        h.run(["go", "build", "-mod=readonly", "-o", binary,
+               "./integration-tests/live-v2/eventobserver"],
+              env={"CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": h.arch}, timeout=180)
+        h.node_exec("test", "!", "-e", self.binary_path)
+        h.run(["docker", "cp", binary, h.node_container + ":" + self.binary_path])
+        h.node_exec("chmod", "0700", self.binary_path)
+        require(h.node_exec("sha256sum", self.binary_path).stdout.split()[0]
+                == hashlib.sha256(binary.read_bytes()).hexdigest(), "observer binary transfer changed bytes")
         log = self.path.open("w")
         command = ["docker", "exec", h.node_container, "/bin/sh", "-ec",
                    'test ! -e "$1"; printf "%s %s\\n" "$$" "$(awk \'{print $22}\' /proc/$$/stat)" > "$1"; '
-                   'exec ctr --namespace k8s.io events', "observer", self.pid_path]
+                   'exec "$2"', "observer", self.pid_path, self.binary_path]
         self.process = subprocess.Popen(command, stdout=log, stderr=log, cwd=ROOT,
                                         start_new_session=True)
         h.helpers.append((self.process, log))
@@ -97,8 +108,8 @@ class Observer:
             'read -r pid started < "$1"; '
             'case "$pid:$started" in *[!0-9:]*|:*) exit 81;; esac; '
             'test "$(awk \'{print $22}\' /proc/$pid/stat)" = "$started"; '
-            'test "$(basename "$(readlink /proc/$pid/exe)")" = ctr; '
-            'kill -TERM "$pid"; rm -- "$1"', "observer", self.pid_path)
+            'test "$(readlink /proc/$pid/exe)" = "$2"; '
+            'kill -TERM "$pid"; rm -- "$1" "$2"', "observer", self.pid_path, self.binary_path)
         self.process.communicate(timeout=15)
         require(self.process.returncode in (0, 143), "containerd event observer failed")
 

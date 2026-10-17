@@ -276,6 +276,16 @@ measurements. All **273** offline safeguards passed; those are evidence-parser
 and lifecycle contracts, not proof that actual event delivery has run.
 Actual execution of this new callback remains required.
 
+The pinned kind image's `ctr` binary does not link the protobuf `Struct` type,
+so its generic `events` command cannot decode the shim payload. This was checked
+against the actual pinned binary before accepting any event evidence.
+The callback now builds a test-only native Go subscriber that registers that
+type, filters both namespace and topic, decodes the original protobuf envelope
+and emits strict JSON without numeric generation conversion. Wire/envelope
+contract tests, full Go race/vet checks and both Linux builds passed.
+The superseded first observer CI run `39015465171` was cancelled, not counted
+as passed; corrected actual-node delivery still requires execution.
+
 Runtime-root validation was reconciled separately against §7.2. The complete
 updated native arm64 node suite passed **48** cases/subcases without skips:
 PATH presence/uniqueness and root-relative directory/link validation, `/app`
