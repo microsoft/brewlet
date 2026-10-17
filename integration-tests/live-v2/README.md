@@ -119,6 +119,16 @@ authorization-expiry, recovery, revocation, retention and collection callbacks.
 Only the selected callback is added; omitted suites and fixture languages
 remain explicit in results. Complete/default execution is unchanged.
 
+The existing container-role, authenticated delivery-negative and CRI accounting
+callbacks can likewise be selected with `--scenario roles`, `--scenario
+delivery` or `--scenario accounting`, each with `--without-pinned-scenarios
+--local-language python` and a new work directory. Run them sequentially, not
+alongside other owned node runs. Their selected callback is mandatory and
+unselected callbacks remain listed as gaps. Accounting retains its real
+filesystem-usage/eviction assertions, unchanged disk reserve/write bounds and
+unrelated-container safety checks; insufficient capacity fails rather than
+reducing those safeguards.
+
 Accounting waits for all unrelated running containers to be healthy before
 capturing its baseline. Afterward, disappearance, identity/restart changes or
 readiness loss still fail immediately with before/after identity diagnostics;

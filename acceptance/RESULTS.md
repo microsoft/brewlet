@@ -221,6 +221,28 @@ overwritten.
 
 ## Executed successfully
 
+The optional Maven producer and lifecycle surfaces now pass against the same
+fixed production implementation on local native arm64. Maven run 50 passed
+**20/20** selected assertions: both bundled and BOM-managed artifacts actually
+launched, probed and changed vendor runtime without republishing application
+bytes. Lifecycle run 51 passed **32/32**, including real authorization expiry
+and recovery, inventory deletion/epoch refusal, worker restart/containerd
+reconnect, unavailable-task-service retention, positive GC grace, cold
+OnDemand retargeting, mode/idle transitions, actual task/exec/mount retention
+and normal delegated CRI drain. Both completed production and exact-owned
+fixture cleanup with no manual intervention.
+[`Maven`](results/clean-local-maven-arm64.json) and
+[`lifecycle`](results/clean-local-lifecycle-arm64.json) preserve selected scope.
+Arbitrarily killed shim-server reconstruction and forced orphan-exec survival
+are still not claimed; these successes do not erase those remaining gaps.
+
+The next local runs select the existing container-role, formal delivery-negative
+and CRI accounting callbacks independently to fit current Docker capacity.
+Default complete execution remains unchanged. All **305** driver safeguards
+and **9** acceptance/export checks pass; no new physical results for those
+three cases are claimed before execution. Accounting's reserve, bounded writes,
+actual usage/eviction and unrelated-workload checks are unchanged.
+
 Provider operations documentation now has explicit v2 EKS simulation-only
 tags, a matching validated NodeProfile, a Karpenter real-node/startup-taint
 example, and AKS managed-cluster initialization, pool-scope, feature-registration

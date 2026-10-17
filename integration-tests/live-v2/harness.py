@@ -241,15 +241,18 @@ def artifact_target(layout):
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
                  retain_on_failure=False, local_language=None):
-        require(scenario in ("complete", "control", "runtime", "maven", "lifecycle"),
+        require(scenario in ("complete", "control", "runtime", "maven", "lifecycle",
+                             "roles", "accounting", "delivery"),
                 "unsupported live scenario")
         require(local_language is None or (
             local_language in LANGUAGES and not pinned
             and (scenario == "runtime"
-                 or (scenario in ("control", "lifecycle") and local_language == "python")
+                 or (scenario in ("control", "lifecycle", "roles", "accounting", "delivery")
+                     and local_language == "python")
                  or (scenario == "maven" and local_language == "java"))),
             "local fixture selection requires a supported partial scenario and --without-pinned-scenarios")
-        require(scenario not in ("runtime", "maven", "lifecycle") or local_language is not None,
+        require(scenario not in ("runtime", "maven", "lifecycle", "roles", "accounting", "delivery")
+                or local_language is not None,
                 "local scenario requires --local-language and --without-pinned-scenarios")
         self.scenario = scenario
         self.retain_on_failure = retain_on_failure
@@ -1642,6 +1645,12 @@ class Harness:
             self.result["gaps"].append(
                 "Local lifecycle execution omits CRI accounting, formal remote-delivery negatives, "
                 "Maven node producer, container-role/controller/provider callbacks and companion suites")
+        elif self.scenario in ("roles", "accounting", "delivery"):
+            omitted = [name for name in ("roles", "accounting", "delivery", "maven", "lifecycle", "control")
+                       if name != self.scenario]
+            self.result["gaps"].append(
+                "Local " + self.scenario + " execution omits callbacks: " + ", ".join(omitted)
+                + "; provider interception and companion suites are also omitted")
         try:
             self.phase = "prerequisites"
             self.preflight()
@@ -1664,10 +1673,11 @@ class Harness:
                 self.barriers_and_rotation()
                 self.phase = "observability"
                 observer.verify()
-            if self.scenario == "complete":
+            if self.scenario in ("complete", "accounting"):
                 self.phase = "cri-accounting"
                 from accounting import execute as verify_accounting
                 verify_accounting(self)
+            if self.scenario in ("complete", "delivery"):
                 self.phase = "remote-delivery"
                 from delivery import execute as verify_delivery
                 verify_delivery(self)
@@ -1675,7 +1685,7 @@ class Harness:
                 self.phase = "maven-producer-node"
                 from maven_node import execute as verify_maven_node
                 verify_maven_node(self)
-            if self.scenario == "complete":
+            if self.scenario in ("complete", "roles"):
                 self.phase = "container-role-contract"
                 from container_roles import execute as verify_container_roles
                 verify_container_roles(self)
@@ -1747,9 +1757,10 @@ def main():
                         help="new directory beneath integration-tests/live-v2; retains private kubeconfig/keys")
     parser.add_argument("--timeout", type=int, default=600,
                         help="bounded assertion deadline in seconds (default 600)")
-    parser.add_argument("--scenario", choices=("complete", "control", "runtime", "maven", "lifecycle"),
+    parser.add_argument("--scenario", choices=("complete", "control", "runtime", "maven", "lifecycle",
+                                               "roles", "accounting", "delivery"),
                         default="complete",
-                        help="complete suite (default), partial control, or explicit local runtime/Maven/lifecycle")
+                        help="complete suite (default) or explicitly scoped local component execution")
     parser.add_argument("--without-pinned-scenarios", action="store_true",
                         help="explicit partial execution suite; records the omitted coverage as a gap")
     parser.add_argument("--retain-on-failure", action="store_true",

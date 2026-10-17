@@ -469,7 +469,9 @@ class SafetyTests(ProjectWork):
         for scenario, pinned, language in (("control", False, "java"), ("runtime", True, "node"),
                                             ("runtime", False, None), ("runtime", False, "unknown"),
                                             ("maven", False, "python"), ("lifecycle", False, "java"),
-                                            ("maven", False, None), ("lifecycle", False, None)):
+                                            ("maven", False, None), ("lifecycle", False, None),
+                                            ("roles", False, "java"), ("accounting", False, None),
+                                            ("delivery", True, "python")):
             with self.subTest(scenario=scenario, pinned=pinned, language=language):
                 with self.assertRaises(h.Failure):
                     self.harness(scenario=scenario, pinned=pinned, local_language=language)
@@ -1015,6 +1017,28 @@ class CallbackOrderTests(ProjectWork):
         self.assertEqual(instance.result["failurePhase"], "maven-producer-node")
         self.assertEqual(instance.result["outcome"], "failed")
         self.assertIn("destroy", calls)
+
+    def test_local_role_accounting_and_delivery_callbacks_are_selected_explicitly(self):
+        original = self.work
+        try:
+            for scenario, selected in (("roles", "container_roles"), ("accounting", "accounting"),
+                                       ("delivery", "delivery")):
+                self.work = original / scenario
+                instance, calls, modules = self.configure(scenario=scenario, local_language="python")
+                with self.subTest(scenario=scenario), mock.patch.dict(sys.modules, modules):
+                    self.assertEqual(instance.execute(), 0)
+                self.assertEqual(instance.result["selectedLanguages"], ["python"])
+                self.assertFalse(instance.result["fullAcceptance"])
+                self.assertIn(selected, calls)
+                self.assertIn("production_cleanup", calls)
+                self.assertTrue(any("Local " + scenario + " execution omits callbacks" in gap
+                                    for gap in instance.result["gaps"]))
+                for other in ("maven_node", "lifecycle", "control_edges", "before_cleanup", "after_cleanup",
+                              "container_roles", "accounting", "delivery", "pinned_revocation"):
+                    if other != selected:
+                        self.assertNotIn(other, calls)
+        finally:
+            self.work = original
 
     def test_partial_bootstrap_still_cleans_registry_and_cluster(self):
         instance, calls, modules = self.configure(bootstrap_failure=True)
