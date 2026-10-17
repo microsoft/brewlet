@@ -565,6 +565,11 @@ class ControlEdges:
     def wait_ready(self, name):
         def observed():
             obj, pods = self.get_workload(name), self.pods(name)
+            self.h.result["controlAcceptance"].setdefault("workloadDiagnostics", {})[name] = {
+                "uid": obj["metadata"]["uid"], "generation": obj["metadata"].get("generation"),
+                "status": copy.deepcopy(obj.get("status", {})),
+                "pods": [{"uid": p["metadata"]["uid"], "phase": p.get("status", {}).get("phase"),
+                          "ready": pod_ready(p)} for p in pods]}
             pods = [p for p in pods if p.get("status", {}).get("phase")
                     not in ("Failed", "Succeeded")]
             return pods if native_complete(obj) and len(pods) == 1 and pod_ready(pods[0]) else False
@@ -734,6 +739,10 @@ class ControlEdges:
             def outcome(name=name, rid=rid, expected=expected):
                 image, workload = self.image(rid), self.get_workload(name)
                 row = restart_record(image, workload)
+                self.h.result["controlAcceptance"].setdefault("workloadDiagnostics", {})[name] = {
+                    "uid": workload["metadata"]["uid"],
+                    "generation": workload["metadata"].get("generation"), "expectedPhase": expected,
+                    "status": copy.deepcopy(workload.get("status", {})), "restart": copy.deepcopy(row)}
                 if not row or row["phase"] != expected:
                     return False
                 after = self.pods(name)

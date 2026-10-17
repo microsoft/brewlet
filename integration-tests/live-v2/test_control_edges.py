@@ -79,7 +79,8 @@ def fake_harness():
         cluster="brewlet-v2-" + RUN, run_id=RUN, namespace="base-workloads",
         control_namespace="brewlet-v2-" + RUN + "-system", node="real-owned-node",
         node_uid="real-host-uid", kubeconfig=Path("/private/kubeconfig"),
-        context="kind-brewlet-v2-" + RUN, owned={}, run=Mock(), get=Mock(), kubectl=Mock(),
+        context="kind-brewlet-v2-" + RUN, owned={}, result={"controlAcceptance": {}},
+        run=Mock(), get=Mock(), kubectl=Mock(),
         save=Mock(), apply=Mock(), work=Path(__file__).parent / ("run-offline-" + RUN),
         runtime_images={"python": {"before": "registry/runtime@sha256:" + "a" * 64,
                                    "after": "registry/runtime@sha256:" + "b" * 64}},
@@ -300,6 +301,11 @@ class ControllerReadinessTests(unittest.TestCase):
         control.get_workload = Mock(return_value=obj)
         control.pods = Mock(return_value=[failed, completed, ready])
         self.assertEqual(control.wait_ready("work"), [ready])
+        diagnostic = h.result["controlAcceptance"]["workloadDiagnostics"]["work"]
+        self.assertEqual(diagnostic["uid"], UID)
+        self.assertEqual(diagnostic["status"], obj["status"])
+        self.assertEqual(len(diagnostic["pods"]), 3)
+        self.assertNotIn("spec", diagnostic)
 
     def test_pending_terminating_unready_or_incomplete_rollout_still_blocks(self):
         for state in ("pending", "terminating", "unready", "incomplete"):

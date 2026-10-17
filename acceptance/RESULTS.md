@@ -221,6 +221,15 @@ overwritten.
 
 ## Executed successfully
 
+Focused run `39033035280` failed waiting for the strategy matrix's
+`rolling-deployment` restart record to reach `Complete`. The retained rotation
+snapshots alone do not establish why that workload outcome was missing.
+Readiness and strategy waits now also retain the dedicated workload's UID,
+generation, native status and selected restart record; readiness captures only
+Pod UID/phase/readiness summaries, never raw Pod specs or environments. All
+**284** offline safeguards pass. No further deadline adjustment or production
+restart fix is inferred from this timeout without those observations.
+
 Complete run `39028815384` passed **69** assertions, then timed out waiting for
 the pre-pacing `pace-1` Deployment to become ready. Retained rotation diagnostics
 show both dedicated runtimes' generation-three targets completed with the node
