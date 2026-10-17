@@ -101,12 +101,12 @@ func (w *Worker) recoveryPlan(ctx context.Context, s *control.Snapshot) (recover
 			}
 		}
 		old := previous[id]
-		withdrawn := old.State == "ready" && s.Node.Labels["brewlet.sh/runtime."+id] != "ready"
+		withdrawn := (old.Installed || old.State == "ready") && s.Node.Labels["brewlet.sh/runtime."+id] != "ready"
 		p.ids[id] = p.wide || excluded || withdrawn || unavailable
 		if !p.ids[id] {
 			continue
 		}
-		p.installed[id] = entry.Mode() == "Eager" || old.State == "ready" || s.Node.Labels["brewlet.sh/runtime."+id] == "ready" || previouslyInstalled[id]
+		p.installed[id] = entry.Mode() == "Eager" || old.Installed || old.State == "ready" || s.Node.Labels["brewlet.sh/runtime."+id] == "ready" || previouslyInstalled[id]
 		if _, err := os.Lstat(filepath.Join(w.Store.Root, id, "current")); err == nil {
 			p.installed[id] = true
 		} else if !os.IsNotExist(err) {

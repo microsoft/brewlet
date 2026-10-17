@@ -143,6 +143,8 @@ but `installed: false`; it is not a rotation participant. A validated current
 publishes `installed: true`, and retained installed evidence keeps a retrying
 OnDemand node in the participant set. Publication rejects a contradictory
 installation flag rather than inferring root presence from a positive generation.
+Recovery also retains explicit installed history when a failed authorization and
+lost `current` pointer would otherwise make a formerly installed ID look cold.
 
 The worker checks all IDs before publication and repeats the checks after
 advertisement readback, before removing the startup fence. Target changes in an

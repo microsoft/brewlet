@@ -156,6 +156,48 @@ func TestPublicationRejectsContradictoryInstallationEvidence(t *testing.T) {
 	}
 }
 
+func TestRecoveryInstalledFailedEvidenceCannotBecomeColdAfterPointerLoss(t *testing.T) {
+	w, inventory := recoveryFixture(t, map[string]string{"static": "OnDemand"}, false)
+	ctx := context.Background()
+	n := new(corev1.Node)
+	if err := w.Client.Get(ctx, client.ObjectKey{Name: "node"}, n); err != nil {
+		t.Fatal(err)
+	}
+	value := inventory["static"]
+	value.State = "failed"
+	inventory["static"] = value
+	raw, err := json.Marshal(inventory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.Annotations[api.InventoryAnnotation] = string(raw)
+	delete(n.Labels, "brewlet.sh/runtime.static")
+	if err := w.Client.Update(ctx, n); err != nil {
+		t.Fatal(err)
+	}
+	authorizations, err := w.Store.Authorizations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, authorization := range authorizations {
+		authorization.State = "failed"
+		if err := w.Store.WriteAuthorization(ctx, authorization); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove(filepath.Join(w.Store.Root, "static", "current")); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := w.check(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := w.recoveryPlan(ctx, snapshot)
+	if err != nil || !recovery.ids["static"] || !recovery.installed["static"] {
+		t.Fatalf("explicit installed history was reclassified as cold: %+v, %v", recovery, err)
+	}
+}
+
 func TestRecoveryAllIDsMustBeLatestBeforeNodeWideRelease(t *testing.T) {
 	w, inventory := recoveryFixture(t, map[string]string{"static": "Eager", "unaffected": "Eager"}, true)
 	ctx := context.Background()
