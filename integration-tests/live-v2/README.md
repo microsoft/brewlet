@@ -126,6 +126,12 @@ The default run fails on any missing protocol, reason, transition or evidence:
   environment precedence, runtime-owned PATH, synthesized HOME and UID/GID.
   Explicit command/args/cwd overrides serve real HTTP. Separate custom-UID pods
   verify independently defaulted GID and `/tmp` HOME fallback in initial/exec.
+* One real Pod exercises a completed init container, regular and native init
+  sidecars, an ephemeral container, named task leases, exec/readiness probes and
+  a real postStart hook through the same generic runtime. Malformed artifacts
+  are independently rejected in each non-main role. These tasks remain active
+  until the final production cleanup; a preallocated CRI ID or epoch-zero
+  StartError is never treated as actual application execution.
 * Execution fixtures retain `readOnlyRootFilesystem: true`. `/` and `/app` must actually
   appear read-only in `/proc/self/mountinfo`; writes fail. An explicit
   `/app/new-volume-target` emptyDir, **absent from every packaged layer**, remains

@@ -36,7 +36,7 @@ unverified cases rather than those stale strings; the current ledger below
 remains authoritative.
 
 **This is selected-suite success, not complete Proposal 0009 acceptance.**
-The ledger has **44 verified and 57 not fully verified requirements**.
+The ledger has **45 verified and 56 not fully verified requirements**.
 Only four additional complete rows were promoted from this run: INV-06,
 OD-06, E2E-02 and E2E-08. Worker recovery is not proof of recovery after killing
 the shim task-server; normal backend exec drain is not forced orphan survival.
@@ -90,6 +90,24 @@ private Maven repository, explicit platforms, digest preservation and mandatory
 callback ordering are covered by offline tests. Actual-node execution of that
 new callback is still pending; the Maven-on-node gap is removed from a run only
 after the callback succeeds.
+`run-cold-27` then passed all **11** selected assertions against
+`19c64a5388842d023a791228a0ffdb5060bd1567`, production manifest
+`dc20e47ecf37994e46e531f3c3015243ca6a446aeec2496ddbaabbe34ac2f0c4`.
+The actual cold worker's blocked Pod reported `RuntimeImageInstalling` with its
+UID, Node and minimum generation. Its 60-second workload deadline caused
+`RestartDeferred`; the second slot started 61 seconds after the first.
+Releasing the real TLS transfer yielded latest-runtime execution and Complete
+status for both controllers without another template patch. Both Node claims
+were released by production profile cleanup; fixture destruction separately
+passed. [`results/cold-install-deadline.json`](results/cold-install-deadline.json)
+preserves the sanitized result. ROT-10 is verified; ROT-09 still needs complete
+default/earlier-native-failure reconciliation.
+
+The next combined run also adds actual main/init/regular-sidecar/native-sidecar/
+ephemeral execution, postStart/exec/probe parity, distinct named leases and
+independent malformed-artifact denial for every non-main role. Those cases are
+implemented with offline guards for ephemeral UID/spec CAS and real execution
+versus preallocated StartError identities; actual-node results remain pending.
 
 ## Reference and branch
 
@@ -116,7 +134,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 242 passing offline tests; those
+The live-driver safeguards currently include 248 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 

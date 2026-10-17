@@ -271,7 +271,7 @@ class SafetyTests(ProjectWork):
         instance.node_exec_on = mock.Mock(return_value=response)
         obj = owned()
         obj.update(spec={"nodeName": worker}, status={"containerStatuses": [
-            {"containerID": "containerd://" + CONTAINER}]})
+            {"name": "app", "containerID": "containerd://" + CONTAINER}]})
         self.assertEqual(instance.lease(obj), expected)
         instance.node_exec.assert_not_called()
         self.assertEqual(instance.node_exec_on.call_args.args,
@@ -281,6 +281,26 @@ class SafetyTests(ProjectWork):
         with self.assertRaisesRegex(h.Failure, "recorded private Node"):
             instance.lease(obj)
         instance.node_exec_on.assert_not_called()
+
+    def test_named_lease_finds_init_and_ephemeral_without_selecting_main(self):
+        instance = self.harness()
+        obj = owned()
+        obj.update(spec={"nodeName": instance.node}, status={
+            "containerStatuses": [{"name": "app", "containerID": "containerd://" + "a" * 64}],
+            "initContainerStatuses": [{"name": "native", "containerID": "containerd://" + "b" * 64}],
+            "ephemeralContainerStatuses": [{"name": "debug", "containerID": "containerd://" + "c" * 64}]})
+        def execute(command, path):
+            task = path.split("/")[-2]
+            return subprocess.CompletedProcess([], 0, json.dumps({"taskID": task, "namespace": "k8s.io"}), "")
+        instance.node_exec = mock.Mock(side_effect=execute)
+        self.assertEqual(instance.lease(obj, "native")["taskID"], "b" * 64)
+        self.assertEqual(instance.lease(obj, "debug")["taskID"], "c" * 64)
+        instance.node_exec.reset_mock()
+        obj["status"]["ephemeralContainerStatuses"].append(
+            {"name": "native", "containerID": "containerd://" + "d" * 64})
+        with self.assertRaisesRegex(h.Failure, "ambiguous"):
+            instance.lease(obj, "native")
+        instance.node_exec.assert_not_called()
 
     def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
         instance = self.harness()
@@ -633,6 +653,7 @@ class CallbackOrderTests(ProjectWork):
                 cleanup=callback("cleanup_delivery", cleanup_failure)),
             "accounting": SimpleNamespace(execute=callback("accounting")),
             "maven_node": SimpleNamespace(execute=callback("maven_node")),
+            "container_roles": SimpleNamespace(execute=callback("container_roles")),
             "lifecycle": SimpleNamespace(execute=callback("lifecycle")),
             "control_edges": SimpleNamespace(
                 execute=callback("control_edges"),
@@ -648,7 +669,8 @@ class CallbackOrderTests(ProjectWork):
         self.assertEqual(calls, [
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
             "install", "startup", "four_language_execution", "barriers_and_rotation",
-            "accounting", "delivery", "maven_node", "lifecycle", "control_edges", "pinned_revocation",
+            "accounting", "delivery", "maven_node", "container_roles", "lifecycle",
+            "control_edges", "pinned_revocation",
             "before_cleanup", "production_cleanup", "after_cleanup",
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
         self.assertEqual(instance.result["outcome"], "passed")

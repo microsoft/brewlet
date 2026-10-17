@@ -1016,9 +1016,16 @@ class Harness:
     def current(self, language):
         return json.loads(self.node_exec("cat", STORE + "/" + IDS[language] + "/current/metadata.json").stdout)
 
-    def lease(self, obj):
+    def lease(self, obj, container="app"):
         require_owned(obj, self.run_id)
-        container_id = obj["status"]["containerStatuses"][0]["containerID"].removeprefix("containerd://")
+        statuses = [status for key in ("containerStatuses", "initContainerStatuses",
+                                      "ephemeralContainerStatuses")
+                    for status in obj.get("status", {}).get(key, [])
+                    if status.get("name") == container]
+        require(len(statuses) == 1, "missing or ambiguous named container identity")
+        raw_id = statuses[0].get("containerID", "")
+        require(raw_id.startswith("containerd://"), "container identity is not from containerd")
+        container_id = raw_id.removeprefix("containerd://")
         require(bool(re.fullmatch(r"[0-9a-f]{64}", container_id)), "unexpected container identity")
         path = STORE + "/.tasks/" + container_id + "/lease.json"
         node = obj["spec"].get("nodeName")
@@ -1543,6 +1550,9 @@ class Harness:
             self.phase = "maven-producer-node"
             from maven_node import execute as verify_maven_node
             verify_maven_node(self)
+            self.phase = "container-role-contract"
+            from container_roles import execute as verify_container_roles
+            verify_container_roles(self)
             self.phase = "lifecycle"
             from lifecycle import execute as verify_lifecycle
             verify_lifecycle(self)
