@@ -221,6 +221,17 @@ overwritten.
 
 ## Executed successfully
 
+Smaller local run `run-local-implementation-42` successfully completed Python
+startup, explicit overrides/security, vendor rotation with the same application
+artifact, held-exec preservation, generation barriers, and actual old/new
+containerd-event/metric joins. It then exposed an integration bug in the new
+debugging mode: control entry still required the literal four-language set.
+The guard now requires exactly the explicitly selected language set; default
+four-language runs still reject an incomplete base. A direct control-entry
+regression covers both modes, and all **294** local driver safeguards pass.
+This run is retained as a failed run, not claimed as completed control
+acceptance. Only its exact-owned resources were destroyed before retry.
+
 With no user available to change Docker capacity, local work continues through
 an explicitly smaller Python/controller execution rather than pruning shared
 resources or switching back to Actions. `--local-python-only` requires the

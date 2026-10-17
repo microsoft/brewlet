@@ -88,6 +88,22 @@ def fake_harness():
 
 
 class IsolationTests(unittest.TestCase):
+    def test_control_entry_requires_every_selected_language_not_an_implicit_four(self):
+        h = fake_harness()
+        h.languages = tuple(ce.IDS)
+        h.initial = {"python": {}}
+        with patch.object(ce, "ControlEdges") as constructor:
+            with self.assertRaisesRegex(ce.Failure, "selected application execution"):
+                ce.execute(h)
+            constructor.assert_not_called()
+        for selected in (("python",), tuple(ce.IDS)):
+            h.languages = selected
+            h.initial = {language: {} for language in selected}
+            with self.subTest(selected=selected), \
+                    patch.object(ce, "ControlEdges", side_effect=RuntimeError("entry guard passed")):
+                with self.assertRaisesRegex(RuntimeError, "entry guard passed"):
+                    ce.execute(h)
+
     def test_import_has_no_external_side_effect(self):
         with patch("subprocess.Popen", side_effect=AssertionError("external process")), \
                 patch("subprocess.run", side_effect=AssertionError("external process")), \

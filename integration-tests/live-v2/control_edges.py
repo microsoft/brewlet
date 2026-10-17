@@ -1591,8 +1591,8 @@ def after_cleanup(h):
 
 def execute(h):
     """Parent-scheduled real acceptance; never invoked automatically."""
-    require(bool(h.initial) and set(h.initial) == set(IDS),
-            "control callback must run after base four-language execution/rotations")
+    require(bool(h.initial) and set(h.initial) == set(h.languages),
+            "control callback must run after selected application execution/rotations")
     control = ControlEdges(h)
     control.original_values = control.release_values()
     require(not control.original_values.get("operator", {}).get(
