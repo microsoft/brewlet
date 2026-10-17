@@ -142,6 +142,24 @@ class SafetyTests(ProjectWork):
             {"lastState": {"terminated": {"reason": "old failure"}}}]}
         self.assertFalse(instance.ready("positive"))
 
+    def test_long_running_fixture_retries_create_without_masking_prior_execution(self):
+        instance = self.harness()
+        self.assertEqual(instance.pod("positive", "python")["spec"]["restartPolicy"], "Always")
+        instance.owned[("pod", instance.namespace, "positive")] = "pod-uid"
+        obj = owned("pod-uid")
+        obj["status"] = {"phase": "Running", "conditions": [{"type": "Ready", "status": "True"}],
+            "containerStatuses": [{"name": "app", "restartCount": 2, "state": {"running": {}},
+                "lastState": {"terminated": {"reason": "StartError", "exitCode": 128,
+                    "startedAt": "1970-01-01T00:00:00Z",
+                    "message": "RuntimeImageInstalling: allowed bounded Create retry"}}}]}
+        instance.get = mock.Mock(return_value=obj)
+        self.assertEqual(instance.ready("positive"), obj)
+        prior = obj["status"]["containerStatuses"][0]["lastState"]["terminated"]
+        for reason, code in (("Error", 1), ("OOMKilled", 137), ("Completed", 0), ("StartError", 128)):
+            prior.update(reason=reason, exitCode=code, startedAt="2026-10-17T08:00:00Z")
+            with self.subTest(reason=reason), self.assertRaisesRegex(h.Failure, "actually exited"):
+                instance.ready("positive")
+
     def test_worker_failure_logs_are_scoped_to_owned_profile_uid(self):
         instance = self.harness()
         instance.kubeconfig.write_text("test-only configuration")

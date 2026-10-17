@@ -221,6 +221,30 @@ overwritten.
 
 ## Executed successfully
 
+Native amd64 CI run
+[`39017459558`](https://github.com/microsoft/brewlet/actions/runs/39017459558)
+at `854aad1c0afb094f2ab598bd4c0731b185947c96` passed **61** selected assertions,
+including the new actual containerd event and worker-metric joins for **eight**
+old/new tasks across four languages. All runtime identities matched actual Pod
+UIDs and durable leases. First-use wait events, request counters, durations and
+current/retired gauges passed; separate shared stores measured 1,683,734,607
+runtime bytes and 62,091 layer bytes. Native shim and metric contracts also
+cover failed-start non-publication, lossless generations, failed install counts
+and explicit event delivery errors. This verifies OBS-01 and OBS-03.
+The sanitized receipt is
+[`results/observability-and-recovery-amd64.json`](results/observability-and-recovery-amd64.json).
+
+The same run proved real authorization expiry, exact expired bound-start
+rejection, fresh renewal, worker/containerd recovery and lease-preserving
+inspection uncertainty. It then **failed** on a distinct cold lifecycle Pod:
+the allowed bounded Create timeout produced a never-started `StartError`, but
+the fixture's `restartPolicy: Never` made the Pod terminal rather than allowing
+the expected kubelet retry. Exact-owned fixture destruction passed. Long-running
+acceptance Pods now use `Always`; readiness still rejects a prior **actual**
+application exit, including one hidden by a subsequent successful restart.
+All **276** offline safeguards passed. The cold retry correction still requires
+a complete fresh real-node run; these selected results are not full acceptance.
+
 Complete compiled native Linux/arm64 component suites were also executed:
 **90 artifact, 25 node, 83 provisioner and 20 shim cases/subcases passed with
 zero skips and zero failures**. These are kernel/component contracts, not

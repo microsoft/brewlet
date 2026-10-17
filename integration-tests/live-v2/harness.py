@@ -945,7 +945,7 @@ class Harness:
             launch = self.launch(language)
             container.update(command=launch["entrypoint"], args=launch.get("args", []) + ["two words"],
                              workingDir="/home/app")
-        spec = {"runtimeClassName": "brewlet", "restartPolicy": "Never",
+        spec = {"runtimeClassName": "brewlet", "restartPolicy": "Always",
                 "nodeSelector": {"kubernetes.io/arch": getattr(self, "arch", "arm64")},
                 "securityContext": {"fsGroup": 65532}, "containers": [container],
                 "volumes": [{"name": "data", "emptyDir": {}}]}
@@ -962,6 +962,13 @@ class Harness:
         obj = self.get("pod", name, self.namespace)
         require_owned(obj, self.run_id, self.owned[("pod", self.namespace, name)])
         status = obj.get("status", {})
+        for container in status.get("containerStatuses", []):
+            previous = container.get("lastState", {})
+            if "terminated" in previous and application_started({"state": previous}):
+                stopped = previous["terminated"]
+                raise Failure(f'positive application {name} actually exited before readiness: '
+                              f'{container.get("name", "")}: {stopped.get("reason", "")} '
+                              f'exit={stopped.get("exitCode")} {stopped.get("message", "")}')
         if status.get("phase") in ("Failed", "Succeeded"):
             details = [status.get("message", "")]
             for container in status.get("containerStatuses", []):
