@@ -226,9 +226,11 @@ def artifact_target(layout):
 
 
 class Harness:
-    def __init__(self, work, *, timeout=600, pinned=True, scenario="complete"):
+    def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
+                 retain_on_failure=False):
         require(scenario in ("complete", "control"), "unsupported live scenario")
         self.scenario = scenario
+        self.retain_on_failure = retain_on_failure
         self.run_id = validate_run_id(uuid.uuid4().hex[:12])
         self.work = work.resolve()
         require(self.work.is_relative_to(HERE) and self.work != HERE,
@@ -1010,10 +1012,15 @@ class Harness:
                                    env=dict(os.environ, KUBECONFIG=str(self.kubeconfig),
                                             TMPDIR=str(self.work)))
         self.helpers.append((process, log))
-        self.wait(language + " held exec actually running", lambda:
-                  self.exec(name, ["/bin/sh", "-ec",
-                      "test \"$(cat /app/new-volume-target/exec-started)\" = before"],
-                      check=False).returncode == 0, timeout=60)
+        def started():
+            code = process.poll()
+            require(code is None,
+                    f"{language} held exec exited before rotation with status {code}; stderr: {log.name}")
+            return self.exec(name, ["/bin/sh", "-ec",
+                "test \"$(cat /app/new-volume-target/exec-started)\" = before"],
+                check=False).returncode == 0
+
+        self.wait(language + " held exec actually running", started, timeout=60)
         require(process.poll() is None, "held exec exited before runtime rotation")
         return process
 
@@ -1662,12 +1669,19 @@ class Harness:
             except Exception as exc:
                 errors.append("diagnostic/helper cleanup: " + str(exc))
             finally:
-                try:
-                    from delivery import cleanup as cleanup_delivery
-                    cleanup_delivery(self)
-                except Exception as exc:
-                    errors.append("remote-delivery fixture cleanup: " + str(exc))
-                errors.extend(self.destroy())
+                if self.retain_on_failure and self.result.get("outcome") == "failed":
+                    self.result["fixtureDestruction"] = {
+                        "outcome": "retained", "notProductionCleanupEvidence": True}
+                    self.result["gaps"].append(
+                        "Local debug resources retained after failure; explicit owner-checked cleanup required")
+                    print("Retained failed local environment:", self.cluster, flush=True)
+                else:
+                    try:
+                        from delivery import cleanup as cleanup_delivery
+                        cleanup_delivery(self)
+                    except Exception as exc:
+                        errors.append("remote-delivery fixture cleanup: " + str(exc))
+                    errors.extend(self.destroy())
             if errors:
                 self.result["outcome"] = "failed"
                 self.records.append({"name": "fixture destruction", "outcome": "failed",
@@ -1688,6 +1702,9 @@ def main():
                         help="complete suite (default) or explicitly partial control/cleanup execution")
     parser.add_argument("--without-pinned-scenarios", action="store_true",
                         help="explicit partial execution suite; records the omitted coverage as a gap")
+    parser.add_argument("--retain-on-failure", action="store_true",
+                        help="local debugging only: retain failed owned environment for inspection; "
+                             "requires explicit owner-checked cleanup and never counts as a clean pass")
     args = parser.parse_args()
     require(30 <= args.timeout <= 1800, "timeout must be between 30 and 1800 seconds")
     def interrupted(signum, frame):
@@ -1695,7 +1712,7 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     harness = Harness(args.work, timeout=args.timeout, pinned=not args.without_pinned_scenarios,
-                      scenario=args.scenario)
+                      scenario=args.scenario, retain_on_failure=args.retain_on_failure)
     return harness.execute()
 
 

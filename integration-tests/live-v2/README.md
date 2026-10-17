@@ -36,6 +36,16 @@ container-role and lifecycle callbacks and the separate companion suites.
 Results and public exports retain `selectedScenario` and explicit omissions.
 A focused pass is not a complete-suite or full-proposal pass.
 
+For hands-on **local** debugging, add `--retain-on-failure`. Failed runs still
+exit nonzero and stop their helper processes, but leave the invocation-owned
+cluster, registry and images available for inspection through the private
+`--kubeconfig WORK/kubeconfig --context kind-CLUSTER` arguments. `result.json`
+records destruction as `retained`, never successful cleanup or a clean pass.
+Use its exact recorded Docker IDs and ownership labels when explicitly cleaning
+up afterward; do not prune shared Docker resources. Successful runs still
+perform their normal cleanup even when this option is set. CI does not enable
+this debugging option.
+
 Accounting waits for all unrelated running containers to be healthy before
 capturing its baseline. Afterward, disappearance, identity/restart changes or
 readiness loss still fail immediately with before/after identity diagnostics;

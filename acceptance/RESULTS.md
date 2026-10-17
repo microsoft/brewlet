@@ -221,6 +221,30 @@ overwritten.
 
 ## Executed successfully
 
+**Local-first implementation work is now authoritative; GitHub Actions work is
+deferred by user direction.** Local native arm64 run `run-local-implementation-40`
+at production source `34ddf959` passed initial execution for Java, Python,
+Node.js and .NET, including dependencies, exec/probes, Kubernetes overrides,
+non-root identity, readonly application/runtime mounts, conflicting ignored
+runtime config defaults, and actual admitted RuntimeClass overhead. Java also
+completed its real vendor rotation without rebuilding the application. These
+selected results plus the six platform contracts and shared RuntimeClass
+contract reconcile ROOT-01 and RC-01: **66 verified, 35 not fully verified**.
+The overall run **failed** when Python's held exec reported a `printf` I/O error.
+No filesystem or Brewlet root cause is yet established, and the selected run is
+not a successful whole-suite acceptance result. Exact-owned fixture destruction
+passed; shared Docker resources were not pruned.
+[`results/local-startup-and-java-rotation-arm64.json`](results/local-startup-and-java-rotation-arm64.json)
+preserves the classified failed result and actual selected passes.
+
+For direct local investigation, the driver now has opt-in
+`--retain-on-failure`: helper processes still stop, but failed owned resources
+remain available through the private kubeconfig. Failure remains nonzero,
+destruction is explicitly `retained`, and normal/success cleanup behavior is
+unchanged. Dead held-exec processes now fail immediately with their exit status
+instead of polling the Pod marker for a minute. All **290** offline safeguards
+passed. No workflow changes or new remote runs are part of this work.
+
 Reconciling RC-01 found a genuine implementation omission independent of the
 observation stall: both RuntimeClass manifests omitted the retained pod
 reservation entirely. Raw and Helm installs now retain SPEC section 7's

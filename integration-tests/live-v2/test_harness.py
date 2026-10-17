@@ -401,6 +401,21 @@ class SafetyTests(ProjectWork):
             instance.install()
         instance.kubectl.assert_not_called()
 
+    def test_failed_held_exec_is_reported_before_polling_the_pod(self):
+        instance = self.harness()
+        process = mock.Mock()
+        process.poll.return_value = 1
+        instance.exec = mock.Mock()
+        instance.wait = mock.Mock(side_effect=lambda _, probe, **kwargs: probe())
+        try:
+            with mock.patch.object(h.subprocess, "Popen", return_value=process):
+                with self.assertRaisesRegex(h.Failure, "python held exec exited.*status 1"):
+                    instance.start_held_exec("python")
+            instance.exec.assert_not_called()
+        finally:
+            for _, log in instance.helpers:
+                log.close()
+
     def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
         instance = self.harness()
         result = instance.run([sys.executable, "-c",
@@ -740,8 +755,8 @@ class CallbackOrderTests(ProjectWork):
         self.assertTrue(instance.result["cleanSelectedSuitePassed"])
 
     def configure(self, *, bootstrap_failure=False, cleanup_failure=False, observer_failure=False,
-                  scenario="complete"):
-        instance = self.harness(scenario=scenario)
+                  scenario="complete", retain_on_failure=False):
+        instance = self.harness(scenario=scenario, retain_on_failure=retain_on_failure)
         calls = []
         for name in ("preflight", "provision_cluster", "prepare_images", "install",
                      "startup", "four_language_execution", "barriers_and_rotation",
@@ -809,6 +824,28 @@ class CallbackOrderTests(ProjectWork):
         self.assertNotIn("accounting", calls)
         self.assertEqual(calls[-5:], [
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
+
+    def test_explicit_local_retention_keeps_failed_resources_but_stops_helpers(self):
+        instance, calls, modules = self.configure(observer_failure=True, retain_on_failure=True)
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 1)
+        self.assertEqual(instance.result["outcome"], "failed")
+        self.assertEqual(instance.result["fixtureDestruction"]["outcome"], "retained")
+        self.assertFalse(instance.result["fullAcceptance"])
+        self.assertIn("stop_helpers", calls)
+        self.assertIn("diagnostics", calls)
+        self.assertNotIn("cleanup_delivery", calls)
+        self.assertNotIn("destroy", calls)
+        self.assertTrue(any("owner-checked cleanup required" in gap
+                            for gap in instance.result["gaps"]))
+
+    def test_local_retention_option_never_skips_cleanup_after_success(self):
+        instance, calls, modules = self.configure(retain_on_failure=True)
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertIn("cleanup_delivery", calls)
+        self.assertIn("destroy", calls)
+        self.assertNotEqual(instance.result.get("fixtureDestruction", {}).get("outcome"), "retained")
 
     def test_control_only_scope_keeps_real_bootstrap_fencing_and_cleanup_but_records_omissions(self):
         instance, calls, modules = self.configure(scenario="control")
