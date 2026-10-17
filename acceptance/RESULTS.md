@@ -221,6 +221,22 @@ overwritten.
 
 ## Executed successfully
 
+Complete run `39028815384` passed **69** assertions, then timed out waiting for
+the pre-pacing `pace-1` Deployment to become ready. Retained rotation diagnostics
+show both dedicated runtimes' generation-three targets completed with the node
+excluded as `RotationStalled` after **31 seconds**, still reporting generation
+two. Thus `RotationComplete` did not imply available target-generation capacity.
+Exact-owned fixture destruction passed.
+
+The controller fixture had accidentally configured a **30-second node-install**
+deadline along with its short workload deadlines. It now preserves the proposal's
+**10-minute node progress default**, independently of the **60-second workload**
+pacing bound. Restart disablement moves before all pre-pacing source rotations,
+and positive pacing setup requires actual latest-generation `ready` capacity
+with no startup fence before creating its workload. No exclusion diagnostic,
+status, receipt or clock is overwritten. All **284** offline safeguards pass;
+the corrected real-node run remains required.
+
 Focused native amd64 CI run
 [`39026251031`](https://github.com/microsoft/brewlet/actions/runs/39026251031)
 at `cdad031f7221f593099a2cbb8d8136917af2705c` passed all **44** selected

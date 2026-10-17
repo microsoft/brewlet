@@ -403,12 +403,13 @@ class ReleaseTests(unittest.TestCase):
         c = ce.ControlEdges(h)
         c.helm = Mock()
         c.release_values = Mock(return_value={"operator": {"rotationRestarts": {
-            "enabled": True, "maxConcurrent": 1, "nodeProgressDeadline": "30s",
+            "enabled": True, "maxConcurrent": 1, "nodeProgressDeadline": "10m",
             "workloadProgressDeadline": "30s"}}})
         c.enable()
         upgrade = c.helm.call_args.args[0]
         self.assertIn("operator.rotationRestarts.enabled=true", upgrade)
         self.assertIn("operator.rotationRestarts.workloadProgressDeadline=30s", upgrade)
+        self.assertIn("operator.rotationRestarts.nodeProgressDeadline=10m", upgrade)
         self.assertIn("operator.rotationRestarts.maxConcurrent=1", upgrade)
         self.assertTrue(c.enabled)
         self.assertEqual(h.kubectl.call_count, 12)
@@ -598,7 +599,7 @@ class PacingTests(unittest.TestCase):
         calls = []
         source = "registry.test/runtime@sha256:" + "a" * 64
         control.ids = ["first", "second"]
-        control.image = lambda _: {"spec": {"source": {"image": source}}}
+        control.image = lambda _: {"spec": {"source": {"image": source}}, "status": {"generation": 2}}
         control.workload = lambda name, *_args, **_kwargs: name
         control.apply_workload = lambda name: calls.append("apply " + name)
         control.wait_ready = lambda name: calls.append("ready " + name)
@@ -612,11 +613,15 @@ class PacingTests(unittest.TestCase):
             raise ce.Failure("sampling reached")
 
         control.h = SimpleNamespace(runtime_images={"python": {"before": source}},
-                                    timeout=300, get=sample)
+                                    timeout=300, get=sample, advertised=lambda *_: True,
+                                    node_snapshot=lambda: {"spec": {}},
+                                    wait=lambda description, predicate:
+                                        calls.append("capacity " + description.split()[-1]) or predicate())
         with self.assertRaisesRegex(ce.Failure, "sampling reached"):
             control.pacing()
         self.assertEqual(calls, [
-            "apply pace-0", "ready pace-0", "apply pace-1", "ready pace-1", "disable",
+            "disable", "capacity first", "apply pace-0", "ready pace-0",
+            "capacity second", "apply pace-1", "ready pace-1",
             "rotate first", "rotate second", "installed first", "installed second",
             "enable 60", "sample"])
 

@@ -634,14 +634,14 @@ class ControlEdges:
                    "-n", self.h.control_namespace, "--reuse-values", "--wait", "--timeout", "180s",
                    "--set", "operator.rotationRestarts.enabled=true",
                    "--set", "operator.rotationRestarts.maxConcurrent=1",
-                   "--set-string", "operator.rotationRestarts.nodeProgressDeadline=30s",
+                   "--set-string", "operator.rotationRestarts.nodeProgressDeadline=10m",
                    "--set-string", "operator.rotationRestarts.workloadProgressDeadline="
                    + str(workload_deadline) + "s"])
         self.enabled = True
         values = self.release_values()["operator"]["rotationRestarts"]
         require(values["enabled"] is True and values["maxConcurrent"] == 1
                 and values["workloadProgressDeadline"] == str(workload_deadline) + "s"
-                and values["nodeProgressDeadline"] == "30s", "real chart settings not installed")
+                and values["nodeProgressDeadline"] == "10m", "real chart settings not installed")
         self.check_rbac(True)
 
     def restore_release(self):
@@ -860,14 +860,18 @@ class ControlEdges:
     def pacing(self):
         # Both targets start on 'before'; both replacement probes refuse 'after'.
         deadline = 2 * DEADLINE
+        self.restore_release()
         for index, rid in enumerate(self.ids):
             if self.image(rid)["spec"]["source"]["image"] != self.h.runtime_images["python"]["before"]:
                 self.rotate(rid, "before")
                 self.complete_rotation(rid)
+            self.h.wait("actual warm unfenced capacity before pacing " + rid, lambda rid=rid:
+                self.h.advertised(rid, "ready", self.image(rid)["status"]["generation"])
+                and not any(t["key"] == FENCE for t in
+                            self.h.node_snapshot().get("spec", {}).get("taints", [])))
             name = "pace-" + str(index)
             self.apply_workload(self.workload(name, "Deployment", rid, gated=True))
             self.wait_ready(name)
-        self.restore_release()
         for rid in self.ids:
             self.rotate(rid, "after")
         for rid in self.ids:
