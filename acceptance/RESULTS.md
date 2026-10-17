@@ -221,6 +221,24 @@ overwritten.
 
 ## Executed successfully
 
+**Clean local implementation milestone:** native arm64
+`run-local-implementation-43` at `076fd7fe` passed **all 26 selected assertions**
+and exact-owned fixture teardown, with no manual intervention. It exercised
+real TLS acquisition, on-demand installation, application launch/exec/probes,
+non-root/readonly enforcement, vendor rotation without app rebuild, old/new
+runtime event/metric joins, native controller strategies and barriers, global
+restart pacing/deadlines, all-ID provider-fence recovery, active-lease cleanup
+blocking, actual production root/finalizer/claim release, and a real release
+PUT resourceVersion conflict followed by fresh revalidation.
+This is a clean **Python/controller** local result, not a four-language or
+complete Proposal 0009 acceptance claim. The receipt preserves explicit
+omissions and `fullAcceptance: false`.
+[`results/clean-local-python-control-arm64.json`](results/clean-local-python-control-arm64.json)
+is the classified public record. Together with six targeted restart-selection
+and durable-intent contracts, it reconciles ROT-06: **67 verified,
+34 not fully verified**. GitHub Actions remains deferred and new milestones
+remain local.
+
 Smaller local run `run-local-implementation-42` successfully completed Python
 startup, explicit overrides/security, vendor rotation with the same application
 artifact, held-exec preservation, generation barriers, and actual old/new
