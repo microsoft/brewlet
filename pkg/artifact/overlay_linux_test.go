@@ -57,6 +57,9 @@ func TestLinuxOverlayWhiteoutAndOpaqueEntriesHideOnlyLowerContent(t *testing.T) 
 	lowerRoot, err := cache.Materialize(context.Background(), lower)
 	must(t, err)
 	upperRoot, err := cache.Materialize(context.Background(), upper)
+	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.ENOTSUP) {
+		t.Skipf("requires native whiteout/opaque materialization capabilities: %v", err)
+	}
 	must(t, err)
 	runtimeRoot, merged := filepath.Join(dir, "runtime"), filepath.Join(dir, "merged")
 	must(t, os.Mkdir(runtimeRoot, 0755))

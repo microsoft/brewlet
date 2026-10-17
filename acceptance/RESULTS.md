@@ -240,6 +240,17 @@ No application or production Pod gains that test capability. The new actual
 kernel whiteout/opaque composition test proves lower hiding, surviving upper/
 sibling bytes, marker absence and inherited-symlink isolation.
 
+The first expanded GitHub CI runs failed: ordinary unprivileged Linux execution
+could not materialize the new whiteout fixture, and Ubuntu's overlay mounts
+required `DAC_OVERRIDE` for the artifact suite as well as the shim suite.
+The whiteout test now reports the same explicit missing-capability skip as its
+existing companion during ordinary unit execution; native CI still rejects
+every skip. Only the artifact test container receives the additional capability.
+The complete arm64 artifact suite was rerun successfully without skips using the
+corrected container policy, and a separate non-root, capability-free execution
+confirmed the explicit prerequisite skip. Corrected GitHub CI results remain
+pending; no native amd64 success is inferred from the local arm64 result.
+
 This verifies ART-05 and complements real run 28 to verify PROC-02, PROC-03 and
 SEC-02/03/04. Admission additionally tests explicit pod/container nonroot=false
 and root primary GID; native node contracts reject every capability set, and
