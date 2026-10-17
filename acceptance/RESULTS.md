@@ -253,8 +253,37 @@ resolve Ubuntu's mount denial. Native CI now explicitly exempts only these
 isolated kernel-test containers from Docker's AppArmor mount policy and reports
 kernel AppArmor/overlay diagnostics on failure. Default seccomp,
 `no-new-privileges`, network isolation, read-only roots and narrow capability
-sets remain enforced. Corrected GitHub CI results remain pending; no native
-amd64 success is inferred from the local arm64 result.
+sets remain enforced. GitHub CI run
+[`39014892780`](https://github.com/microsoft/brewlet/actions/runs/39014892780)
+passed all four jobs at `25b475a8b5e4d4af1ad7932fbdba12eb3e337cb4`,
+including complete native amd64 and arm64 suites, host contracts and producer
+integration. Native amd64 success is established by that runner, not inferred
+from the local arm64 result.
+
+Observability hardening adds native shim regressions for exact start-event
+identity, no resolution event on failed/exec starts, and explicit serialization/
+publisher failure logs without changing an already-successful runc start.
+Event `generation` is a decimal string so protobuf's floating-point number
+representation cannot round a valid 64-bit generation. The complete updated
+native arm64 shim suite passed **25** cases/subcases without skips.
+`go test -count=1 -race -mod=readonly ./...`, `go vet -mod=readonly ./...`
+and `GOOS=linux GOARCH=amd64|arm64 go build -mod=readonly ./...` passed.
+The actual-node driver now requires a bounded, exact-owned containerd event
+observer and enabled worker metrics. It joins old/new task events and metrics
+to durable runtime leases and actual Pod UIDs, checks cold-install wait events,
+retained generation gauges, install counters/durations and separate shared-store
+measurements. All **273** offline safeguards passed; those are evidence-parser
+and lifecycle contracts, not proof that actual event delivery has run.
+Actual execution of this new callback remains required.
+
+`run-complete-39` reached **30** passing assertions but again refused the CRI
+accounting write: available disk was **263,868,416** bytes against the unchanged
+**1,157,627,904**-byte minimum. Exact-owned fixture destruction passed.
+Removing redundant runtime preloads did not resolve the shared Docker VM's
+capacity limit. Real-node CI run
+[`39014792810`](https://github.com/microsoft/brewlet/actions/runs/39014792810)
+was dispatched at `5673b4e93509265eb0798c31b19245f9c62ca78a` on a fresh runner;
+its result is pending, and it predates the new observability callback.
 
 This verifies ART-05 and complements real run 28 to verify PROC-02, PROC-03 and
 SEC-02/03/04. Admission additionally tests explicit pod/container nonroot=false

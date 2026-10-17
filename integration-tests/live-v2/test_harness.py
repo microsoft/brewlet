@@ -702,7 +702,7 @@ class CallbackOrderTests(ProjectWork):
         instance.save()
         self.assertTrue(instance.result["cleanSelectedSuitePassed"])
 
-    def configure(self, *, bootstrap_failure=False, cleanup_failure=False):
+    def configure(self, *, bootstrap_failure=False, cleanup_failure=False, observer_failure=False):
         instance = self.harness()
         calls = []
         for name in ("preflight", "provision_cluster", "prepare_images", "install",
@@ -717,7 +717,22 @@ class CallbackOrderTests(ProjectWork):
                 if fail:
                     raise h.Failure(name + " failed")
             return invoke
+        class Observer:
+            def __init__(self, _):
+                pass
+
+            def __enter__(self):
+                calls.append("observer_start")
+                return self
+
+            def verify(self):
+                callback("observability", observer_failure)(instance)
+
+            def __exit__(self, *_):
+                calls.append("observer_stop")
+
         modules = {
+            "observability": SimpleNamespace(Observer=Observer),
             "delivery": SimpleNamespace(
                 bootstrap=callback("bootstrap_delivery", bootstrap_failure),
                 execute=callback("delivery"),
@@ -739,12 +754,23 @@ class CallbackOrderTests(ProjectWork):
             self.assertEqual(instance.execute(), 0)
         self.assertEqual(calls, [
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
-            "install", "startup", "four_language_execution", "barriers_and_rotation",
+            "install", "startup", "observer_start", "four_language_execution", "barriers_and_rotation",
+            "observability", "observer_stop",
             "accounting", "delivery", "maven_node", "container_roles", "lifecycle",
             "control_edges", "pinned_revocation",
             "before_cleanup", "production_cleanup", "after_cleanup",
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
         self.assertEqual(instance.result["outcome"], "passed")
+
+    def test_observability_failure_cannot_be_reported_as_a_pass_or_skip_cleanup(self):
+        instance, calls, modules = self.configure(observer_failure=True)
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 1)
+        self.assertEqual(instance.result["failurePhase"], "observability")
+        self.assertIn("observer_stop", calls)
+        self.assertNotIn("accounting", calls)
+        self.assertEqual(calls[-5:], [
+            "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
 
     def test_partial_bootstrap_still_cleans_registry_and_cluster(self):
         instance, calls, modules = self.configure(bootstrap_failure=True)

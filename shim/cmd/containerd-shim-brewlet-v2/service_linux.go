@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -85,17 +86,26 @@ func (s *service) RegisterTTRPC(server *ttrpc.Server) error {
 
 func (s *service) runtimeEvent(ctx context.Context, reason, id string, m node.Metadata) {
 	if s.publisher == nil {
+		log.Printf("runtime-image-event-failed: task=%s reason=%s: publisher unavailable", id, reason)
 		return
 	}
-	event, err := structpb.NewStruct(map[string]any{"reason": reason, "containerID": id, "id": m.ID, "inventoryUID": m.InventoryUID, "generation": float64(m.Generation), "digest": m.SourceDigest})
-	if err == nil {
-		_ = s.publisher.Publish(ctx, "/brewlet/runtime-image", event)
+	event, err := structpb.NewStruct(map[string]any{"reason": reason, "containerID": id, "id": m.ID, "inventoryUID": m.InventoryUID, "generation": strconv.FormatInt(m.Generation, 10), "digest": m.SourceDigest})
+	if err != nil {
+		log.Printf("runtime-image-event-failed: task=%s reason=%s: encode: %v", id, reason, err)
+		return
+	}
+	if err := s.publisher.Publish(ctx, "/brewlet/runtime-image", event); err != nil {
+		log.Printf("runtime-image-event-failed: task=%s reason=%s: publish: %v", id, reason, err)
 	}
 }
 func (s *service) Start(ctx context.Context, r *taskapi.StartRequest) (*taskapi.StartResponse, error) {
 	response, err := s.TTRPCTaskService.Start(ctx, r)
 	if err == nil && r.ExecID == "" {
-		if state, loadErr := node.NewStore(inventoryRoot).LoadInitial(r.ID); loadErr == nil {
+		load := s.loadInitial
+		if load == nil {
+			load = node.NewStore(inventoryRoot).LoadInitial
+		}
+		if state, loadErr := load(r.ID); loadErr == nil {
 			s.runtimeEvent(ctx, "RuntimeImageResolved", r.ID, state.Lease.Metadata)
 		}
 	}

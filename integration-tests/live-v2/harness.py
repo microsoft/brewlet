@@ -745,6 +745,7 @@ class Harness:
                   "--set-string", "operator.image=" + self.result["controlImage"],
                   "--set-string", "admission.image=" + self.result["controlImage"],
                   "--set-string", "provisioner.image=" + self.result["workerImage"],
+                  "--set", "metrics.enabled=true",
                   "--set-string", "provisioner.gc.grace=20s",
                   "--set-string", "provisioner.gc.sweepInterval=2s"],
                  timeout=240)
@@ -1568,9 +1569,13 @@ class Harness:
             self.phase = "startup"
             self.startup()
             self.phase = "execution"
-            self.four_language_execution()
-            self.phase = "rotation"
-            self.barriers_and_rotation()
+            from observability import Observer
+            with Observer(self) as observer:
+                self.four_language_execution()
+                self.phase = "rotation"
+                self.barriers_and_rotation()
+                self.phase = "observability"
+                observer.verify()
             self.phase = "cri-accounting"
             from accounting import execute as verify_accounting
             verify_accounting(self)
