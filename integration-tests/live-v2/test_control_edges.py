@@ -119,6 +119,7 @@ class IsolationTests(unittest.TestCase):
 
     def test_patch_uses_live_uid_and_resource_version(self):
         h = fake_harness()
+        h.kubectl.return_value = subprocess.CompletedProcess([], 0, "patched", "")
         obj = workload()
         h.get.return_value = obj
         c = ce.ControlEdges(h)
@@ -129,6 +130,59 @@ class IsolationTests(unittest.TestCase):
         body = json.loads(args[-1])
         self.assertEqual(body["metadata"], {"uid": UID, "resourceVersion": "37"})
         self.assertEqual(original, {"spec": {"paused": True}})
+
+    def test_patch_retries_only_status_churn_with_fresh_resource_version(self):
+        h = fake_harness()
+        original, fresh = workload(), workload()
+        fresh["metadata"]["resourceVersion"] = "38"
+        fresh["status"]["observedGeneration"] = 3
+        h.get.side_effect = [original, fresh]
+        h.kubectl.side_effect = [
+            subprocess.CompletedProcess([], 1, "", "Error from server (Conflict): modified"),
+            subprocess.CompletedProcess([], 0, "patched", "")]
+        control = ce.ControlEdges(h)
+        control.workloads["work"] = original
+        with patch.object(ce.time, "sleep"):
+            control.patch_workload("work", {"spec": {"paused": True}})
+        bodies = [json.loads(call.args[-1]) for call in h.kubectl.call_args_list]
+        self.assertEqual([body["metadata"]["resourceVersion"] for body in bodies], ["37", "38"])
+        self.assertTrue(all(body["metadata"]["uid"] == UID for body in bodies))
+        self.assertTrue(all("status" not in body for body in bodies))
+
+    def test_patch_conflict_cannot_adopt_recreated_or_changed_workload(self):
+        for change in ("uid", "generation", "spec", "annotation"):
+            with self.subTest(change=change):
+                h = fake_harness()
+                original, fresh = workload(), workload()
+                fresh["metadata"]["resourceVersion"] = "38"
+                if change in ("uid", "generation"):
+                    fresh["metadata"][change] = "replacement" if change == "uid" else 9
+                elif change == "spec":
+                    fresh["spec"]["paused"] = True
+                else:
+                    fresh["metadata"].setdefault("annotations", {})[ce.OPT_IN] = "changed"
+                h.get.side_effect = [original, fresh]
+                h.kubectl.return_value = subprocess.CompletedProcess(
+                    [], 1, "", "Error from server (Conflict): modified")
+                control = ce.ControlEdges(h)
+                control.workloads["work"] = original
+                with patch.object(ce.time, "sleep"), self.assertRaises(ce.Failure):
+                    control.patch_workload("work", {"metadata": {"annotations": {ce.OPT_IN: "false"}}})
+                self.assertEqual(h.kubectl.call_count, 1)
+
+    def test_patch_does_not_retry_other_failures_or_conflict_forever(self):
+        for message, expected in (("Error from server (Forbidden): denied", 1),
+                                  ("Error from server (Conflict): modified", 6)):
+            with self.subTest(message=message):
+                h = fake_harness()
+                original = workload()
+                h.get.return_value = original
+                h.kubectl.return_value = subprocess.CompletedProcess([], 1, "", message)
+                control = ce.ControlEdges(h)
+                control.workloads["work"] = original
+                with patch.object(ce.time, "sleep"), self.assertRaises(ce.Failure):
+                    control.patch_workload("work", {"spec": {"paused": True}})
+                self.assertEqual(h.kubectl.call_count, expected)
 
     def test_refuse_patch_recreated_workload(self):
         h = fake_harness()

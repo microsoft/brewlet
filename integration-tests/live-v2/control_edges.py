@@ -486,13 +486,31 @@ class ControlEdges:
         return self.workloads[name]
 
     def patch_workload(self, name, patch):
-        obj = self.get_workload(name)
-        patch = copy.deepcopy(patch)
         require("status" not in patch, "acceptance must not write workload status")
-        patch.setdefault("metadata", {}).update(uid=obj["metadata"]["uid"],
-                                                resourceVersion=obj["metadata"]["resourceVersion"])
-        return self.h.kubectl("-n", self.namespace, "patch", obj["kind"], name,
-                              "--type=merge", "-p", json.dumps(patch))
+        original = self.get_workload(name)
+        for attempt in range(6):
+            obj = original if attempt == 0 else self.get_workload(name)
+            require(obj["metadata"]["uid"] == original["metadata"]["uid"]
+                    and obj["metadata"].get("generation") == original["metadata"].get("generation")
+                    and obj["spec"] == original["spec"],
+                    "workload identity or spec changed during conditional patch")
+            for field in ("annotations", "labels"):
+                for key in patch.get("metadata", {}).get(field, {}):
+                    require(obj["metadata"].get(field, {}).get(key)
+                            == original["metadata"].get(field, {}).get(key),
+                            "targeted workload metadata changed during conditional patch")
+            candidate = copy.deepcopy(patch)
+            candidate.setdefault("metadata", {}).update(uid=obj["metadata"]["uid"],
+                                                        resourceVersion=obj["metadata"]["resourceVersion"])
+            response = self.h.kubectl("-n", self.namespace, "patch", obj["kind"], name,
+                                      "--type=merge", "-p", json.dumps(candidate), check=False)
+            if response.returncode == 0:
+                return response
+            require("(Conflict)" in response.stderr,
+                    "conditional workload patch failed: " + response.stderr[-2000:])
+            if attempt < 5:
+                time.sleep(0.2)
+        raise Failure("conditional workload patch repeatedly conflicted; no ownership bypass")
 
     def patch_inventory_spec(self, obj, spec):
         kind, name = obj["kind"], obj["metadata"]["name"]

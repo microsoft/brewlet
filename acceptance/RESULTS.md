@@ -221,6 +221,16 @@ overwritten.
 
 ## Executed successfully
 
+Complete-scope CI run `39023985022` passed **66** assertions, including the
+strict healthy-baseline accounting check and the selected lifecycle cases.
+It failed on an actual API `409 Conflict` while conditionally patching the
+`old-epoch` Deployment; exact-owned fixture destruction passed. Fixture workload
+patching now retries only conflicts, at most six times, using freshly read
+UID/resourceVersion while requiring unchanged spec, generation and targeted
+metadata. Replacement/foreign ownership, concurrent spec/target-metadata edits
+and non-conflict errors still fail without another patch. All **284** offline
+safeguards passed. This does not convert the failed CI run into a complete pass.
+
 Focused control run `39023983077` failed waiting for a dedicated runtime's
 `RotationComplete` condition before reaching the pacing case. It passed **32**
 earlier selected assertions, not the focused suite. The original receipt did
