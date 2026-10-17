@@ -57,6 +57,9 @@ remains pinned. Operator/RBAC, finalizer, claim and startup fence must survive
 failed uninstall. Only explicit pool-owner correction permits normal production
 cleanup and successful Helm removal. No finalizer, cleanup receipt or Helm
 ownership record is forged.
+The pre-delete coordinator uses an explicit, value-scoped startup-fence
+toleration so it can run when all Brewlet nodes are fenced. It remains a normal
+unprivileged runc Pod, not a Brewlet application or host-namespace worker.
 
 Native scheduling with initially no eligible ready pool capacity has its own
 actual-node case:

@@ -172,6 +172,15 @@ subsequent owner changes and removals still receive real API refusals. The test
 arms that policy before adding the stale label, eliminating the unpinned window
 without pausing the writer or forging authority. The complete uninstall result
 remains pending.
+`run-uninstall-34` passed real pin initialization and healthy-node fencing, then
+found the actual pre-delete Job unschedulable behind the very startup fence
+uninstall must retain. The Job expired without ever requesting profile deletion;
+this was not profile/finalizer loss. The chart now gives only the unprivileged
+system coordinator an exact `Equal/provisioning/NoSchedule` Brewlet-fence
+toleration. Rendered contracts verify the exact toleration and absence of
+application RuntimeClass, host namespaces, privilege escalation and capabilities.
+Application toleration rejection is unchanged. Corrected complete actual
+uninstall remains unverified.
 
 ## Reference and branch
 

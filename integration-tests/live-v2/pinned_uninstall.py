@@ -30,8 +30,10 @@ def uninstall(h):
 def blocked_cleanup(h, uid, stale):
     profile = h.get("nodeprofile", h.profile)
     require_owned(profile, h.run_id, uid)
-    require(profile["metadata"].get("deletionTimestamp") and profile["metadata"].get("finalizers"),
-            "blocked uninstall discarded the profile or finalizer")
+    require(profile["metadata"].get("deletionTimestamp"),
+            "pre-delete coordinator never requested profile deletion; inspect actual hook scheduling/execution")
+    require(profile["metadata"].get("finalizers"),
+            "blocked uninstall discarded the profile finalizer")
     node = h.node_snapshot()
     require(node["metadata"]["labels"].get(stale) == "ready"
             and node["metadata"]["labels"].get("brewlet.sh/owner-uid") == uid
