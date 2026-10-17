@@ -221,6 +221,24 @@ overwritten.
 
 ## Executed successfully
 
+**All four language runtime paths now pass locally.** At `2d59927b`, serial
+native arm64 Java, Node.js and .NET runs each passed **18/18 selected assertions**
+with clean production cleanup and exact-owned fixture teardown. Each exercised
+actual TLS acquisition, first-use installation, explicit launch and
+dependencies, command/cwd/identity/exec/probe behavior, readonly confinement,
+negative security/generation starts, real vendor update with unchanged
+application bytes, held-exec/runtime-lease retention, and old/new event/metric
+joins. Combined with Python/controller run 43, all four used the exact same
+production-source manifest
+`2812f5294a5873b6695b4ecd305256b5377e4442a6126fa0d124208dc9b64352`.
+The three public receipts are
+[`Java`](results/clean-local-java-runtime-arm64.json),
+[`Node.js`](results/clean-local-node-runtime-arm64.json), and
+[`.NET`](results/clean-local-dotnet-runtime-arm64.json).
+These are independent serial local results, not a simultaneous four-runtime
+or complete-proposal acceptance pass; their omitted callbacks remain explicit.
+GitHub Actions work stays deferred.
+
 The first serial Java attempt (`run-local-runtime-java-44`) stopped during
 delivery bootstrap: ancillary negative OCI graphs still used a literal
 `oci-python` seed even though only Java was selected. No Java runtime failure
