@@ -221,6 +221,14 @@ overwritten.
 
 ## Executed successfully
 
+PROF-01 is reconciled against its entry-validation and unknown-ID isolation
+contracts. The explicit install/TTL matrix, shared API/admission/controller
+checks and race tests passed. The complete native arm64 provisioner suite now
+passes **89** cases/subcases without skips, including both Eager and OnDemand
+approved siblings beside an unknown ID. Unknown-ID tests use a fake API and
+actual local filesystem state; they are not presented as real scheduling or
+startup-fence proof.
+
 Native amd64 CI run
 [`39017459558`](https://github.com/microsoft/brewlet/actions/runs/39017459558)
 at `854aad1c0afb094f2ab598bd4c0731b185947c96` passed **61** selected assertions,

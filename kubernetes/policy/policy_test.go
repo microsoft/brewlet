@@ -93,3 +93,34 @@ func TestProfilePolicy(t *testing.T) {
 		t.Fatal("suffix allowlist bypass")
 	}
 }
+
+func TestRuntimeEntryInstallModesAndIdleTTL(t *testing.T) {
+	for _, tc := range []struct {
+		mode, ttl string
+		valid     bool
+	}{
+		{"", "", true},
+		{"Eager", "", true},
+		{"OnDemand", "", true},
+		{"OnDemand", "1h30m", true},
+		{"", "1h", false},
+		{"Eager", "1h", false},
+		{"OnDemand", "0s", false},
+		{"OnDemand", "-1s", false},
+		{"OnDemand", "never", false},
+		{"ondemand", "", false},
+		{"Lazy", "", false},
+	} {
+		t.Run(tc.mode+"/"+tc.ttl, func(t *testing.T) {
+			entry := api.RuntimeEntry{ID: "static", Install: tc.mode, IdleTTL: tc.ttl}
+			profile := &api.NodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "profile"},
+				Spec: api.NodeProfileSpec{RuntimeImages: []api.RuntimeEntry{entry}}}
+			if err := Profile(profile, nil, nil); (err == nil) != tc.valid {
+				t.Fatalf("install=%q idleTTL=%q: %v", tc.mode, tc.ttl, err)
+			}
+			if tc.mode == "" && entry.Mode() != "Eager" {
+				t.Fatal("omitted install mode does not default to Eager")
+			}
+		})
+	}
+}
