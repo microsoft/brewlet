@@ -41,12 +41,11 @@ unverified cases rather than those stale strings; the current ledger below
 remains authoritative.
 
 **This is selected-suite success, not complete Proposal 0009 acceptance.**
-The ledger has **45 verified and 56 not fully verified requirements**.
+The ledger has **48 verified and 53 not fully verified requirements**.
 Four complete rows were promoted from run 24: INV-06,
 OD-06, E2E-02 and E2E-08. Worker recovery is not proof of recovery after killing
 the shim task-server; normal backend exec drain is not forced orphan survival.
-Physical recreated-Node cleanup, native pending-capacity scheduling,
-earlier native progress-deadline failure, stale pins through production
+Physical recreated-Node cleanup, stale pins through production
 uninstall and the remaining detailed ledger obligations are still unverified.
 Cold installation deadline/recovery passed separately in run 27 and verifies
 ROT-10. No actual provider autoscaler or alternate-hardware join is claimed.
@@ -120,20 +119,41 @@ Pending and actual boot-fence scheduling, then requires unchanged-Pod execution
 after real capacity becomes available. It separately checks unsupported
 architecture-unconstrained pulls and claims no provider autoscaling or alternate
 CPU hardware. It does not change architecture labels. This is implemented and
-offline-guarded, but complete actual execution is pending; E2E-05 remains unverified.
+offline-guarded; its initial failed run and subsequent complete pass are below.
 `run-native-29` did reach a genuinely Running/Ready native Pod on the real worker,
 but the fixture waited for a taint key that Kubernetes 1.35 omits from its generic
 `untolerated taint(s)` event. The corrected observer reuses the existing strict
 startup-taint evidence guard and briefly delays the actual owned kubelet until
 that scheduling decision is observable, always resuming it in `finally`.
-No architecture, clock or authority record is forged. The complete corrected
-native-pull/cleanup case still needs to pass.
+No architecture, clock or authority record is forged. The complete corrected native-pull/cleanup case subsequently passed in run 30.
 
 The cold runner now also checks exact rendered five-slot/ten-minute defaults
 and creates an actual unready Deployment with a ten-second native progress
 deadline under the sixty-second workload bound. Its new case requires the real
 `ProgressDeadlineExceeded` condition and slot handoff before the longer bound;
-offline evidence guards pass, but this additional actual-node case is pending.
+offline evidence guards passed before the actual run 31 below.
+
+`run-native-30` passed all **8** selected assertions, and `run-cold-31` passed
+all **13**, both at `2f2957dba3e474370194dbfb88502a01e9a81619` with production
+manifest `dc20e47ecf37994e46e531f3c3015243ca6a446aeec2496ddbaabbe34ac2f0c4`.
+The native case preserved the original Pending Pod and architecture selector,
+observed the actual startup fence, executed on the real newly eligible worker,
+rejected the architecture-unconstrained unsupported image at pull, and completed
+production cleanup. The cold case additionally observed an actual ten-second
+Deployment `ProgressDeadlineExceeded`, freeing the global slot after **11
+seconds**, before the configured sixty-second workload deadline.
+[`results/native-capacity.json`](results/native-capacity.json) and
+[`results/cold-and-native-deadlines.json`](results/cold-and-native-deadlines.json)
+preserve sanitized results; both fixture destructions separately passed.
+These results verify E2E-05, SCHED-01 and ROT-09. They do not claim actual provider
+autoscaling, an alternate-hardware join or elapsed ten-minute-default timing.
+
+The next actual case, `pinned_uninstall.py`, creates a genuinely Helm-owned
+profile, exercises real failed pre-delete hooks while tasks and stale provider
+pins remain, and requires operator/RBAC/finalizer/claim/fence retention until
+normal pool correction permits successful uninstall. It is implemented and
+offline-guarded; its actual-node outcome is still pending, and no uninstall
+requirement is promoted from those offline tests.
 
 ## Reference and branch
 
@@ -160,7 +180,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 256 passing offline tests; those
+The live-driver safeguards currently include 259 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 

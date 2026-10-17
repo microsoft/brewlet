@@ -1,0 +1,175 @@
+{
+  "outcome": "passed",
+  "scope": "real-node-execution-only",
+  "cleanSelectedSuitePassed": true,
+  "fullAcceptance": false,
+  "checkout": "2f2957dba3e474370194dbfb88502a01e9a81619",
+  "productionSourceManifestSHA256": "dc20e47ecf37994e46e531f3c3015243ca6a446aeec2496ddbaabbe34ac2f0c4",
+  "architecture": "arm64",
+  "kubeletPullVerified": false,
+  "tlsTransportVerified": false,
+  "providerScaleFromZeroVerified": false,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "java": "172.18.0.12:5000/delivery/apps-java@sha256:08c0807ceb41995e9da442fb873f2b3272dbc6dc97a8c67bb2962ebe10d58fd2",
+    "python": "172.18.0.12:5000/delivery/apps-python@sha256:a187d00e729dbd78fd044dbe26c7f487223cddb074699715828febb2c8b69cf1",
+    "node": "172.18.0.12:5000/delivery/apps-node@sha256:e70c8315f88adb3416753d77bf0feba78d0977fa71b83e1cd538660c003b6f35",
+    "dotnet": "172.18.0.12:5000/delivery/apps-dotnet@sha256:7a001194fcc5016c7879d2113ebdc1a1774fd76e42da72ffb8be44bf93c066e2"
+  },
+  "runtimeImages": {
+    "java": {
+      "before": "172.18.0.12:5000/delivery/runtime-java-before@sha256:108148b262f763ff385cfd4a01ab2f018146ccf9324a18947410856c35feb21a",
+      "after": "172.18.0.12:5000/delivery/runtime-java-after@sha256:d06637ee8c8b2c71f21d8f18ab08f47594c996c8411edd7712a46a7559c4e383"
+    },
+    "python": {
+      "before": "172.18.0.12:5000/delivery/runtime-python-before@sha256:2736353878562f16c53032ff3a05f13ad7afa3003b5458586d9b27185909e777",
+      "after": "172.18.0.12:5000/delivery/runtime-python-after@sha256:cf491d86a5acb3a91927b5ae75c69501c180beeb81fd959dc5ccfdda5d5b3f33"
+    },
+    "node": {
+      "before": "172.18.0.12:5000/delivery/runtime-node-before@sha256:9f0762a804585b349b3005061bbc08d408e01af0a31bb30a72e98ed95a9c96ee",
+      "after": "172.18.0.12:5000/delivery/runtime-node-after@sha256:c7da221d76681a980aeb31bdf2f4ad00047e528b9233be2c0234d3bb59dc757a"
+    },
+    "dotnet": {
+      "before": "172.18.0.12:5000/delivery/runtime-dotnet-before@sha256:d7ba862a4d736532b8643812c1377d3cfdbd2ccef2c95880eca18421b8b23204",
+      "after": "172.18.0.12:5000/delivery/runtime-dotnet-after@sha256:9b9371725bf773eb6fa18f472b99ecabf247f311e7715aaf7f39470e437ff8b3"
+    }
+  },
+  "runtimeVendorInputs": {
+    "java": {
+      "probe": [
+        "java",
+        "-version"
+      ],
+      "before": {
+        "image": "docker.io/library/eclipse-temurin@sha256:9eb51387a4badf1a874e655d130538b89dfe16a3dab24fb9a4a6e2b08778411c",
+        "version": "21.0.7"
+      },
+      "after": {
+        "image": "docker.io/library/eclipse-temurin@sha256:20e7f7288e1c18eebe8f06a442c9f7183342d9b022d3b9a9677cae2b558ddddd",
+        "version": "21.0.8"
+      }
+    },
+    "python": {
+      "probe": [
+        "python3",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/python@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419",
+        "version": "Python 3.13.5"
+      },
+      "after": {
+        "image": "docker.io/library/python@sha256:2b09112b54420d2e3e814f2cbe34e8e54d32b8c5abd4e72e89cda4758fc6400a",
+        "version": "Python 3.13.6"
+      }
+    },
+    "node": {
+      "probe": [
+        "node",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/node@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0",
+        "version": "v22.17.0"
+      },
+      "after": {
+        "image": "docker.io/library/node@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+        "version": "v22.18.0"
+      }
+    },
+    "dotnet": {
+      "probe": [
+        "dotnet",
+        "--list-runtimes"
+      ],
+      "before": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:d13bea17080a4fea1a7295a4fe29240123b1bf955a78ae08480d07bdf09496db",
+        "version": "Microsoft.NETCore.App 10.0.0 "
+      },
+      "after": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:3b5f026262a6ba63d1b82f2b98949506f4a89956244568a8bc682b4af9c48548",
+        "version": "Microsoft.NETCore.App 10.0.1 "
+      }
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
+    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
+    "Focused native scheduling case; combined and cold deadline cases are separate"
+  ],
+  "assertions": [
+    {
+      "name": "mandatory prerequisites and exact kind pin",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "isolated kind node and owned registry",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "java explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "python explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "node explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "dotnet explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "architecture-constrained native Pod waits for real pool capacity then executes unchanged",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-05",
+        "SCHED-01",
+        "E2E-03"
+      ]
+    },
+    {
+      "name": "unsupported native pull on real capacity is not rescheduling or autoscaling success",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-05",
+        "SCHED-01"
+      ]
+    }
+  ]
+}

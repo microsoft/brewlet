@@ -43,6 +43,21 @@ before host access and fixture destruction.
 
 ## Prerequisites and immutable inputs
 
+The stale-pin uninstall case creates its profile through the actual Helm chart,
+not by fabricating release ownership:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/pinned_uninstall.py \
+  --work integration-tests/live-v2/run-uninstall-20261016-01
+```
+
+It uses the real TLS provider-refusal interceptor, first retaining a live task
+through a failed pre-delete hook, then draining the task while a stale capability
+remains pinned. Operator/RBAC, finalizer, claim and startup fence must survive
+failed uninstall. Only explicit pool-owner correction permits normal production
+cleanup and successful Helm removal. No finalizer, cleanup receipt or Helm
+ownership record is forged.
+
 Native scheduling with initially no eligible ready pool capacity has its own
 actual-node case:
 
