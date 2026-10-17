@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 227 passing offline tests; those
+The live-driver safeguards currently include 229 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -312,6 +312,22 @@ canonical Pod factory's pull policy and secret references. Offline safeguards
 cover destination ownership, replacement, duplicate creation and secret-output
 boundaries; the corrected cross-namespace controller launch still needs actual
 node validation.
+
+The corrected `probe-control-21` run passed 36 assertions, including actual
+authenticated cross-namespace launch, double opt-in/default-deny behavior,
+native Deployment/StatefulSet/DaemonSet strategy outcomes, epoch/idempotency
+barriers, superseded deferred targets, global pacing and real application
+deadlines, and bound-node exclusion/defer evidence. It timed out during recovery
+because the fixture counted 356 terminal kubelet `NodeAffinity` rejections as
+live replicas alongside the actual Running/Ready replacement. Readiness now
+excludes only terminal history, still requiring native-controller completion
+and exactly one nonterminal Running/Ready Pod. Pending or terminating replicas
+still block success. The recovered Pod snapshot, not historical rejected Pods,
+is used for actual generation verification.
+[`results/controller-strategies-selected.json`](results/controller-strategies-selected.json)
+preserves sanitized assertion outcomes and the failed overall outcome.
+Excluded-node recovery verification, provider-pin cases and final production
+cleanup remain pending a corrected actual-node run.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

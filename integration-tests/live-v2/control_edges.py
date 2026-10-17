@@ -533,6 +533,8 @@ class ControlEdges:
     def wait_ready(self, name):
         def observed():
             obj, pods = self.get_workload(name), self.pods(name)
+            pods = [p for p in pods if p.get("status", {}).get("phase")
+                    not in ("Failed", "Succeeded")]
             return pods if native_complete(obj) and len(pods) == 1 and pod_ready(pods[0]) else False
         return self.h.wait("actual native controller ready " + name, observed)
 
@@ -911,11 +913,11 @@ class ControlEdges:
             self.conditional_node_update({"spec": {"unschedulable": False}})
         self.h.wait("excluded node returns to latest validated target",
                     lambda: self.h.advertised(rid, "ready", self.image(rid)["status"]["generation"]))
-        self.wait_ready("bound-excluded")
+        recovered = self.wait_ready("bound-excluded")
         self.h.wait("deferred rollout eventually observed complete without repatching", lambda:
                     (restart_record(self.image(rid), self.get_workload("bound-excluded")) or {})
                     .get("phase") == "Complete")
-        self.verify_running_generation(self.pods("bound-excluded"), self.image(rid), "before")
+        self.verify_running_generation(recovered, self.image(rid), "before")
         self.patch_workload("bound-excluded", {"metadata": {"annotations": {OPT_IN: "false"}}})
 
     def delete_object(self, kind, name, namespace=None):

@@ -212,6 +212,44 @@ class IsolationTests(unittest.TestCase):
         h.kubectl.assert_not_called()
 
 
+class ControllerReadinessTests(unittest.TestCase):
+    def test_terminal_history_does_not_count_as_an_active_replica(self):
+        h = fake_harness()
+        h.wait = lambda description, predicate: predicate()
+        control = ce.ControlEdges(h)
+        obj = workload()
+        ready = pod()
+        failed = pod("kubelet-rejected")
+        failed["status"] = {"phase": "Failed", "reason": "NodeAffinity"}
+        completed = pod("completed")
+        completed["status"] = {"phase": "Succeeded"}
+        control.get_workload = Mock(return_value=obj)
+        control.pods = Mock(return_value=[failed, completed, ready])
+        self.assertEqual(control.wait_ready("work"), [ready])
+
+    def test_pending_terminating_unready_or_incomplete_rollout_still_blocks(self):
+        for state in ("pending", "terminating", "unready", "incomplete"):
+            with self.subTest(state=state):
+                h = fake_harness()
+                h.wait = lambda description, predicate: predicate()
+                control = ce.ControlEdges(h)
+                obj, ready = workload(), pod()
+                pods = [ready]
+                if state == "pending":
+                    extra = pod("pending")
+                    extra["status"] = {"phase": "Pending"}
+                    pods.append(extra)
+                elif state == "terminating":
+                    ready["metadata"]["deletionTimestamp"] = "2026-10-16T18:00:00Z"
+                elif state == "unready":
+                    ready["status"]["conditions"][0]["status"] = "False"
+                else:
+                    obj["status"]["updatedReplicas"] = 0
+                control.get_workload = Mock(return_value=obj)
+                control.pods = Mock(return_value=pods)
+                self.assertFalse(control.wait_ready("work"))
+
+
 class ManifestTests(unittest.TestCase):
     def setUp(self):
         self.h = fake_harness()
