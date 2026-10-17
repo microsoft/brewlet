@@ -536,6 +536,38 @@ class BlockedPodTests(unittest.TestCase):
         record = row("Deferred", blockedPods=[blocked])
         self.assertEqual(ce.blocked_pod_evidence(record, [self.waiting_pod()], 2, []), blocked)
 
+    def test_never_started_create_failure_remains_proof_during_backoff_for_every_role(self):
+        for role in ("containerStatuses", "initContainerStatuses", "ephemeralContainerStatuses"):
+            with self.subTest(role=role):
+                p = self.waiting_pod()
+                p["status"]["containerStatuses"] = []
+                p["status"][role] = [{"name": "app",
+                    "state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                    "lastState": {"terminated": {"reason": "StartError",
+                        "startedAt": "1970-01-01T00:00:00Z",
+                        "message": "failed to create task: RuntimeImageInstalling"}}}]
+                blocked = self.blocked()
+                self.assertEqual(ce.blocked_pod_evidence(
+                    row("Deferred", blockedPods=[blocked]), [p], 2, []), blocked)
+
+    def test_running_or_actual_previous_execution_cannot_reuse_stale_failure_text(self):
+        for state in ("running", "previously-started", "application-exit"):
+            with self.subTest(state=state):
+                p = self.waiting_pod()
+                status = {"state": {"waiting": {"reason": "CrashLoopBackOff"}},
+                          "lastState": {"terminated": {"reason": "StartError",
+                              "startedAt": "1970-01-01T00:00:00Z",
+                              "message": "RuntimeImageInstalling"}}}
+                if state == "running":
+                    status["state"] = {"running": {}}
+                elif state == "previously-started":
+                    status["lastState"]["terminated"]["startedAt"] = "2026-10-16T18:00:00Z"
+                else:
+                    status["lastState"]["terminated"]["reason"] = "Error"
+                p["status"]["containerStatuses"] = [status]
+                with self.assertRaises(ce.Failure):
+                    ce.blocked_pod_evidence(row("Deferred", blockedPods=[self.blocked()]), [p], 2, [])
+
     def test_annotation_or_fixture_label_alone_is_not_waiting_proof(self):
         p = pod(ready=False)
         p["metadata"]["annotations"]["fixture/reason"] = "RuntimeImageInstalling"

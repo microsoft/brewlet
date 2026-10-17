@@ -15,6 +15,60 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
+func TestRestartBlockersRetainNeverStartedRuntimeFailureDuringBackoff(t *testing.T) {
+	for _, role := range []string{"main", "init", "ephemeral"} {
+		t.Run(role, func(t *testing.T) {
+			status := corev1.ContainerStatus{Name: "app",
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+				LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+					Reason: "StartError", ExitCode: 128, StartedAt: metav1.NewTime(time.Unix(0, 0)),
+					Message: "failed to create task: RuntimeImageInstalling: example"}}}
+			pod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "blocked", Namespace: "apps", UID: "pod-one"},
+				Spec: corev1.PodSpec{NodeName: "cold-node"}, Status: corev1.PodStatus{Phase: corev1.PodPending}}
+			switch role {
+			case "main":
+				pod.Status.ContainerStatuses = []corev1.ContainerStatus{status}
+			case "init":
+				pod.Status.InitContainerStatuses = []corev1.ContainerStatus{status}
+			case "ephemeral":
+				pod.Status.EphemeralContainerStatuses = []corev1.ContainerStatus{status}
+			}
+			image := &api.RuntimeImage{Status: api.RuntimeImageStatus{Generation: 2}}
+			blocked := restartBlockers([]corev1.Pod{pod}, image)
+			if len(blocked) != 1 || blocked[0].Reason != "RuntimeImageInstalling" ||
+				blocked[0].UID != pod.UID || blocked[0].Node != "cold-node" ||
+				blocked[0].MinimumGeneration != 2 {
+				t.Fatalf("real Create backoff lost runtime blocker: %+v", blocked)
+			}
+		})
+	}
+}
+
+func TestRestartBlockersIgnoreStaleFailureAfterRealExecution(t *testing.T) {
+	for _, state := range []string{"running", "previously-started", "application-exit"} {
+		t.Run(state, func(t *testing.T) {
+			status := corev1.ContainerStatus{Name: "app",
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+				LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+					Reason: "StartError", StartedAt: metav1.NewTime(time.Unix(0, 0)),
+					Message: "RuntimeImageInstalling"}}}
+			switch state {
+			case "running":
+				status.State = corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}
+			case "previously-started":
+				status.LastTerminationState.Terminated.StartedAt = metav1.NewTime(time.Unix(100, 0))
+			case "application-exit":
+				status.LastTerminationState.Terminated.Reason = "Error"
+			}
+			pod := corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning,
+				ContainerStatuses: []corev1.ContainerStatus{status}}}
+			if blocked := restartBlockers([]corev1.Pod{pod}, &api.RuntimeImage{}); len(blocked) != 0 {
+				t.Fatalf("actual execution was deferred using stale runtime text: %+v", blocked)
+			}
+		})
+	}
+}
+
 func TestRestartOnDeletePausedPartitionedHaveBarrierWithoutSlot(t *testing.T) {
 	for _, mode := range []string{"daemon-ondelete", "stateful-ondelete", "partitioned", "paused"} {
 		t.Run(mode, func(t *testing.T) {

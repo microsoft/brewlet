@@ -145,6 +145,11 @@ OnDemand node in the participant set. Publication rejects a contradictory
 installation flag rather than inferring root presence from a positive generation.
 Recovery also retains explicit installed history when a failed authorization and
 lost `current` pointer would otherwise make a formerly installed ID look cold.
+A generation barrier on a genuinely uninstalled OnDemand ID still reports
+`RuntimeImageInstalling` and uses the first-use marker. Only an older installed
+current waits as `RuntimeImageUpdating`. Controller deadline diagnostics preserve
+a never-started kubelet `StartError` while it is in restart backoff; stale errors
+after actual execution do not turn application failures into deferred installs.
 
 The worker checks all IDs before publication and repeats the checks after
 advertisement readback, before removing the startup fence. Target changes in an

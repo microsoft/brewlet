@@ -228,6 +228,28 @@ func TestUntrustedInventoryAndMissingExecState(t *testing.T) {
 		t.Fatal("accepted writable inventory")
 	}
 }
+func TestUninstalledBarrierReportsInstallingAndRequestsFirstUse(t *testing.T) {
+	s := testStore(t)
+	a := testAuthorization()
+	ctx := context.Background()
+	if err := s.WriteAuthorization(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := s.Resolve(ctx, a.ID, "k8s.io", "cold-barrier",
+		&Barrier{ID: a.ID, InventoryUID: a.InventoryUID, Generation: a.Generation},
+		100*time.Millisecond)
+	if reason(err) != "RuntimeImageInstalling" {
+		t.Fatalf("cold generation barrier was confused with installed rotation: %v", err)
+	}
+	requests, err := s.Requests()
+	if err != nil || len(requests) != 1 || requests[0] != a.ID {
+		t.Fatalf("cold barrier did not request its authorized first-use install: %v, %v", requests, err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Root, ".tasks", "cold-barrier", "lease.json")); !os.IsNotExist(err) {
+		t.Fatalf("cold waiting Create published a task lease: %v", err)
+	}
+}
+
 func TestEpochMismatchBeforeInstall(t *testing.T) {
 	s := testStore(t)
 	a := testAuthorization()

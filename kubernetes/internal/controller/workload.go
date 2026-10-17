@@ -173,16 +173,28 @@ func preCompletionPods(pods []corev1.Pod, completed *metav1.Time) bool {
 	}
 	return false
 }
+func neverStartedFailure(t *corev1.ContainerStateTerminated) string {
+	if t != nil && t.Reason == "StartError" && t.StartedAt.Time.Unix() <= 0 {
+		return t.Message
+	}
+	return ""
+}
+
 func restartBlockers(pods []corev1.Pod, im *api.RuntimeImage) []api.RestartBlockedPod {
 	blocked := []api.RestartBlockedPod{}
 	for _, p := range pods {
 		reason := ""
 		statuses := append(append(append([]corev1.ContainerStatus{}, p.Status.ContainerStatuses...), p.Status.InitContainerStatuses...), p.Status.EphemeralContainerStatuses...)
 		for _, s := range statuses {
-			if s.State.Waiting == nil {
+			if s.State.Running != nil {
 				continue
 			}
-			message := s.State.Waiting.Reason + " " + s.State.Waiting.Message
+			message := neverStartedFailure(s.State.Terminated)
+			if s.State.Waiting != nil {
+				// Kubelet retains Create failures in lastState during restart backoff.
+				message += " " + s.State.Waiting.Reason + " " + s.State.Waiting.Message
+				message += " " + neverStartedFailure(s.LastTerminationState.Terminated)
+			}
 			for _, code := range []string{"RuntimeImageInstalling", "RuntimeImageUpdating", "RuntimeImageEpochMismatch", "RuntimeImageAuthorizationExpired", "RuntimeImageRevoked"} {
 				if strings.Contains(message, code) {
 					reason = code

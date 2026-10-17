@@ -132,7 +132,7 @@ jobs:
             --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
             --workdir /work --entrypoint /tests/node.test \
             brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v -test.run 'TestLinuxEvidence|TestTaskMountScope|TestPendingCreateLeaseScope' | tee lease-evidence.log
+            -test.v -test.run 'TestLinuxEvidence|TestTaskMountScope|TestPendingCreateLeaseScope|TestUninstalledBarrier|TestInstalledBarrierLease' | tee lease-evidence.log
           ! grep -q '^--- SKIP' lease-evidence.log
           docker run --rm --platform "${{ matrix.platform }}" --network none \
             --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \

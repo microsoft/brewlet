@@ -323,13 +323,11 @@ func (s *Store) resolve(ctx context.Context, id, namespace, task string, barrier
 	}
 	bounded, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	timeout := func() error {
-		reason := "RuntimeImageInstalling"
-		if barrier != nil {
-			reason = "RuntimeImageUpdating"
-		}
-		return failure(reason, id)
+	waitReason := "RuntimeImageInstalling"
+	if barrier != nil {
+		waitReason = "RuntimeImageUpdating"
 	}
+	timeout := func() error { return failure(waitReason, id) }
 	deadline := time.Now().Add(wait)
 	for {
 		f, err := s.lock(bounded, id)
@@ -339,11 +337,12 @@ func (s *Store) resolve(ctx context.Context, id, namespace, task string, barrier
 			}
 			return Lease{}, "", err
 		}
-		lease, root, retry, err := s.resolveLocked(id, namespace, task, barrier, mounts)
+		lease, root, retryReason, err := s.resolveLocked(id, namespace, task, barrier, mounts)
 		unlock(f)
-		if !retry || err != nil {
+		if retryReason == "" || err != nil {
 			return lease, root, err
 		}
+		waitReason = retryReason
 		if time.Now().After(deadline) {
 			return Lease{}, "", timeout()
 		}
@@ -357,21 +356,21 @@ func (s *Store) resolve(ctx context.Context, id, namespace, task string, barrier
 		}
 	}
 }
-func (s *Store) resolveLocked(id, namespace, task string, barrier *Barrier, mounts *TaskMounts) (Lease, string, bool, error) {
+func (s *Store) resolveLocked(id, namespace, task string, barrier *Barrier, mounts *TaskMounts) (Lease, string, string, error) {
 	a, err := s.auth(id, time.Now())
 	if err != nil {
-		return Lease{}, "", false, err
+		return Lease{}, "", "", err
 	}
 	if barrier != nil && barrier.InventoryUID != a.InventoryUID {
-		return Lease{}, "", false, failure("RuntimeImageEpochMismatch", id)
+		return Lease{}, "", "", failure("RuntimeImageEpochMismatch", id)
 	}
 	m, root, err := s.current(id, a)
 	if os.IsNotExist(err) {
 		if a.Install != "OnDemand" {
-			return Lease{}, "", false, failure("RuntimeImageNotInstalled", id)
+			return Lease{}, "", "", failure("RuntimeImageNotInstalled", id)
 		}
 		if err := s.trusted(filepath.Join(s.Root, ".requests"), true); err != nil {
-			return Lease{}, "", false, err
+			return Lease{}, "", "", err
 		}
 		request := filepath.Join(s.Root, ".requests", id)
 		f, err := os.OpenFile(request, os.O_CREATE|os.O_EXCL|os.O_WRONLY|unix.O_NOFOLLOW, 0600)
@@ -381,44 +380,44 @@ func (s *Store) resolveLocked(id, namespace, task string, barrier *Barrier, moun
 		} else if os.IsExist(err) {
 			err = s.trusted(request, false)
 		}
-		return Lease{}, "", err == nil, err
+		return Lease{}, "", "RuntimeImageInstalling", err
 	}
 	if err != nil {
-		return Lease{}, "", false, err
+		return Lease{}, "", "", err
 	}
 	if barrier != nil && m.Generation < barrier.Generation {
-		return Lease{}, "", true, nil
+		return Lease{}, "", "RuntimeImageUpdating", nil
 	}
 	lease := Lease{TaskID: task, Namespace: namespace, Metadata: m, AcquiredAt: time.Now().UTC(), TaskMounts: mounts}
 	dir := filepath.Join(s.Root, ".tasks", task)
 	if err := s.trusted(filepath.Join(s.Root, ".tasks"), true); err != nil {
-		return Lease{}, "", false, err
+		return Lease{}, "", "", err
 	}
 	if err := os.Mkdir(dir, 0700); err != nil && !os.IsExist(err) {
-		return Lease{}, "", false, err
+		return Lease{}, "", "", err
 	}
 	if err := s.trusted(dir, true); err != nil {
-		return Lease{}, "", false, err
+		return Lease{}, "", "", err
 	}
 	var existing Lease
 	name := filepath.Join(dir, "lease.json")
 	if err := s.read(name, &existing); err == nil {
 		if existing.Namespace != namespace || existing.Metadata.InventoryUID != m.InventoryUID || existing.Metadata.Generation != m.Generation {
-			return Lease{}, "", false, fmt.Errorf("task lease already exists")
+			return Lease{}, "", "", fmt.Errorf("task lease already exists")
 		}
 		if mounts != nil && (existing.TaskMounts == nil || *existing.TaskMounts != *mounts) {
-			return Lease{}, "", false, fmt.Errorf("task lease mount provenance cannot be replaced")
+			return Lease{}, "", "", fmt.Errorf("task lease mount provenance cannot be replaced")
 		}
 		lease = existing
 	} else if !os.IsNotExist(err) {
-		return Lease{}, "", false, err
+		return Lease{}, "", "", err
 	} else if err := atomicJSON(name, lease); err != nil {
-		return Lease{}, "", false, err
+		return Lease{}, "", "", err
 	}
 	if err := atomicJSON(filepath.Join(s.Root, id, "usage.json"), usage{}); err != nil {
-		return Lease{}, "", false, err
+		return Lease{}, "", "", err
 	}
-	return lease, root, false, nil
+	return lease, root, "", nil
 }
 
 func (s *Store) SaveInitial(state InitialState) error {

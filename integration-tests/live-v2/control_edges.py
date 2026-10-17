@@ -223,9 +223,23 @@ def blocked_pod_evidence(record, pods, target, excluded):
                 and blocked.get("namespace") == pod["metadata"]["namespace"]
                 and blocked.get("minimumGeneration") == target,
                 "blocked diagnostic does not identify the actual Pod/node/minimum")
-        waiting = " ".join(
-            json.dumps(s.get("state", {}).get("waiting", {}))
-            for s in pod.get("status", {}).get("containerStatuses", []))
+        messages = []
+        for key in ("containerStatuses", "initContainerStatuses", "ephemeralContainerStatuses"):
+            for status in pod.get("status", {}).get(key, []):
+                state = status.get("state", {})
+                if state.get("running") is not None:
+                    continue
+                messages.append(json.dumps(state.get("waiting", {})))
+                failures = [state.get("terminated")]
+                if state.get("waiting") is not None:
+                    failures.append(status.get("lastState", {}).get("terminated"))
+                for failure in failures:
+                    if not failure or failure.get("reason") != "StartError":
+                        continue
+                    started = failure.get("startedAt")
+                    if not started or timestamp(started) <= 0:
+                        messages.append(failure.get("message", ""))
+        waiting = " ".join(messages)
         reason = blocked.get("reason")
         genuine = reason in ("RuntimeImageInstalling", "RuntimeImageUpdating",
                              "RuntimeImageEpochMismatch", "RuntimeImageAuthorizationExpired",
