@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 224 passing offline tests; those
+The live-driver safeguards currently include 227 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -299,6 +299,19 @@ only after confirmed deletion. Five successive complete synthetic-Node
 create/CAS/delete/recreate/old-UID/delete cycles passed on a fresh actual API,
 with successful fixture destruction. This remains API-primitives evidence,
 not proof of production claim release.
+
+The focused `probe-control-20` run passed 31 assertions, including the complete
+real API CAS primitive probe, then timed out waiting for its first controller
+workload. Actual Pod events showed `FailedToRetrieveImagePullSecret` and an
+unauthorized registry pull: the dedicated controller namespace did not contain
+the base namespace's pull secret. Delivery now creates a namespace-local secret
+only in a recorded, UID-validated owned namespace, with name-only output and a
+metadata-only UID read. It never copies server Secret objects or overwrites an
+existing secret. The controller callback installs that secret and preserves the
+canonical Pod factory's pull policy and secret references. Offline safeguards
+cover destination ownership, replacement, duplicate creation and secret-output
+boundaries; the corrected cross-namespace controller launch still needs actual
+node validation.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

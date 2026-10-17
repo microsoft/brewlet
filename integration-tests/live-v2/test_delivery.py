@@ -222,6 +222,48 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(pod["spec"]["imagePullSecrets"], [{"name": state.secret}])
         self.assertEqual(pod["spec"]["nodeSelector"], {"kubernetes.io/arch": "arm64"})
 
+    def test_pull_secret_is_created_in_exact_owned_destination_without_secret_output(self):
+        h, state = self.state()
+        namespace = h.namespace + "-control"
+        h.owned = {("namespace", "", namespace): "namespace-uid"}
+        h.get = Mock(return_value={"metadata": {
+            "uid": "namespace-uid", "labels": {OWNER: h.run_id}}})
+        h.kubectl = Mock(side_effect=[
+            subprocess.CompletedProcess([], 0, "secret/" + state.secret, ""),
+            subprocess.CompletedProcess([], 0, "secret-uid", "")])
+        state.install_pull_secret(namespace)
+        create, read = h.kubectl.call_args_list
+        self.assertEqual(create.args, ("create", "-f", "-", "-o", "name"))
+        obj = json.loads(create.kwargs["input"])
+        self.assertEqual(obj["metadata"]["namespace"], namespace)
+        self.assertEqual(obj["metadata"]["labels"], {OWNER: h.run_id})
+        auth = json.loads(obj["stringData"][".dockerconfigjson"])["auths"][state.authority]["auth"]
+        self.assertEqual(base64.b64decode(auth).decode(), delivery.USERNAME + ":" + state.password)
+        self.assertEqual(read.args, ("-n", namespace, "get", "secret", state.secret,
+                                    "-o", "jsonpath={.metadata.uid}"))
+        self.assertEqual(h.owned[("secret", namespace, state.secret)], "secret-uid")
+
+    def test_pull_secret_rejects_unowned_replaced_foreign_or_duplicate_destination(self):
+        h, state = self.state()
+        for mutation in ("unowned", "replaced", "foreign", "duplicate"):
+            with self.subTest(mutation=mutation):
+                namespace = h.namespace + "-control"
+                h.owned = {("namespace", "", namespace): "namespace-uid"}
+                obj = {"metadata": {"uid": "namespace-uid", "labels": {OWNER: h.run_id}}}
+                if mutation == "unowned":
+                    h.owned.clear()
+                elif mutation == "replaced":
+                    obj["metadata"]["uid"] = "new-namespace"
+                elif mutation == "foreign":
+                    obj["metadata"]["labels"][OWNER] = "foreign"
+                else:
+                    h.owned[("secret", namespace, state.secret)] = "existing-secret"
+                h.get = Mock(return_value=obj)
+                h.kubectl = Mock()
+                with self.assertRaises(Failure):
+                    state.install_pull_secret(namespace)
+                h.kubectl.assert_not_called()
+
     def test_registry_certificates_support_strict_x509_and_single_line_password(self):
         h, state = self.state()
         identity = "8" * 64

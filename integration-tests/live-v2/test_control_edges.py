@@ -237,9 +237,18 @@ class ManifestTests(unittest.TestCase):
                 self.assertEqual(obj["spec"]["template"]["spec"]["containers"][0]["image"],
                                  self.h.app_images["python"])
                 self.assertEqual(obj["spec"]["template"]["spec"]["containers"][0]["imagePullPolicy"],
-                                 "IfNotPresent")
+                                 "Never")
         self.h.apply.assert_not_called()
         self.h.kubectl.assert_not_called()
+
+    def test_controller_preserves_authenticated_delivery_policy_and_secret_reference(self):
+        template = self.h.pod.return_value
+        template["spec"]["containers"][0]["imagePullPolicy"] = "Always"
+        template["spec"]["imagePullSecrets"] = [{"name": "owned-pull-secret"}]
+        obj = self.control.workload("remote", "Deployment", RID)
+        spec = obj["spec"]["template"]["spec"]
+        self.assertEqual(spec["containers"][0]["imagePullPolicy"], "Always")
+        self.assertEqual(spec["imagePullSecrets"], [{"name": "owned-pull-secret"}])
 
     def test_object_optout_is_distinct_from_template_optin(self):
         obj = self.control.workload("noopt", "Deployment", RID, opted=False)

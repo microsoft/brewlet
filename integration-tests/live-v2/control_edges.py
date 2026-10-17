@@ -503,7 +503,6 @@ class ControlEdges:
             template["metadata"]["annotations"][OPT_IN] = "true"
         template["spec"]["restartPolicy"] = "Always"
         template["spec"]["terminationGracePeriodSeconds"] = 2
-        template["spec"]["containers"][0]["imagePullPolicy"] = "IfNotPresent"
         if kind == "DaemonSet":
             template["spec"].setdefault("tolerations", []).extend([
                 {"key": "node-role.kubernetes.io/control-plane", "operator": "Exists",
@@ -1482,6 +1481,8 @@ def execute(h):
     control.check_rbac(False)
     h.apply({"apiVersion": "v1", "kind": "Namespace",
              "metadata": {"name": control.namespace}})
+    if hasattr(h, "delivery"):
+        h.delivery.install_pull_secret(control.namespace)
     h.apply({"apiVersion": "v1", "kind": "Service",
              "metadata": {"name": "control-headless", "namespace": control.namespace},
              "spec": {"clusterIP": "None", "selector": {OWNER: h.run_id},

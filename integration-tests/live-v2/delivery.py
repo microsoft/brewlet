@@ -460,20 +460,28 @@ auth:
         config = self.h.node_exec("cat", "/etc/containerd/config.toml").stdout
         require("/etc/containerd/certs.d" in config,
                 "containerd CRI trusted host config_path is not configured")
+        self.install_pull_secret(self.h.namespace)
+
+    def install_pull_secret(self, namespace):
+        key = ("namespace", "", namespace)
+        require(key in self.h.owned, "pull secret destination is not an owned namespace")
+        require_owned(self.h.get("namespace", namespace), self.h.run_id, self.h.owned[key])
+        require(("secret", namespace, self.secret) not in self.h.owned,
+                "pull secret already installed in destination namespace")
         auth = base64.b64encode((USERNAME + ":" + self.password).encode()).decode()
         obj = {"apiVersion": "v1", "kind": "Secret",
-               "metadata": {"name": self.secret, "namespace": self.h.namespace,
+               "metadata": {"name": self.secret, "namespace": namespace,
                             "labels": {OWNER: self.h.run_id}},
                "type": "kubernetes.io/dockerconfigjson",
                "stringData": {".dockerconfigjson": json.dumps(
                    {"auths": {self.authority: {"auth": auth}}})}}
         # h.apply prints the returned Secret JSON. Use name-only output and a
         # metadata-only read so private credentials never enter command logs.
-        self.h.kubectl("apply", "-f", "-", "-o", "name", input=json.dumps(obj))
-        uid = self.h.kubectl("-n", self.h.namespace, "get", "secret", self.secret,
+        self.h.kubectl("create", "-f", "-", "-o", "name", input=json.dumps(obj))
+        uid = self.h.kubectl("-n", namespace, "get", "secret", self.secret,
                              "-o", "jsonpath={.metadata.uid}").stdout.strip()
         require(uid, "user-controlled imagePullSecret has no UID")
-        self.h.owned[("secret", self.h.namespace, self.secret)] = uid
+        self.h.owned[("secret", namespace, self.secret)] = uid
 
     def fresh(self, reference):
         target = reference.split("@")[1]
