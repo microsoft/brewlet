@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	taskapi "github.com/containerd/containerd/api/runtime/task/v3"
+	containerd "github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/core/events"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/containerd/typeurl/v2"
@@ -136,6 +138,62 @@ func TestStartPublishesExactRuntimeIdentityOnlyForSuccessfulInitialProcess(t *te
 			if loads != 1 || recorder.topic != "/brewlet/runtime-image" || recorder.event == nil ||
 				!reflect.DeepEqual(recorder.event.AsMap(), want) {
 				t.Fatalf("missing or lossy runtime resolution: %+v", recorder)
+			}
+		})
+	}
+}
+
+type startMetadataStore struct {
+	containers.Store
+	value containers.Container
+	err   error
+}
+
+func (s startMetadataStore) Get(context.Context, string) (containers.Container, error) {
+	return s.value, s.err
+}
+
+func TestInitialStateEventFailureIsReportedExceptForProtectedInfrastructure(t *testing.T) {
+	for _, kind := range []string{"container", "sandbox", "metadata-unavailable"} {
+		t.Run(kind, func(t *testing.T) {
+			spec, err := typeurl.MarshalAny(&specs.Spec{Annotations: map[string]string{
+				"io.kubernetes.cri.container-type": kind,
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := startMetadataStore{value: containers.Container{ID: "task", Spec: spec}}
+			if kind == "metadata-unavailable" {
+				store.err = errors.New("protected metadata unavailable")
+			}
+			c, err := containerd.New("", containerd.WithServices(containerd.WithContainerStore(store)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			var output bytes.Buffer
+			previous := log.Writer()
+			log.SetOutput(&output)
+			defer log.SetOutput(previous)
+			recorder := new(eventRecorder)
+			s := &service{TTRPCTaskService: &startRecorder{}, client: c, publisher: recorder,
+				loadInitial: func(string) (node.InitialState, error) {
+					return node.InitialState{}, &node.Error{Reason: "ExecStateUnavailable", Detail: "initial state missing"}
+				}}
+			response, err := s.Start(context.Background(), &taskapi.StartRequest{ID: "task"})
+			if err != nil || response.Pid != 42 || recorder.event != nil {
+				t.Fatal("state diagnostics changed the actual successful start or fabricated an event", response, err)
+			}
+			if kind == "sandbox" {
+				if output.Len() != 0 {
+					t.Fatal("expected infrastructure state absence was logged as an application failure", output.String())
+				}
+			} else if !strings.Contains(output.String(), "runtime-image-event-failed: task=task") ||
+				!strings.Contains(output.String(), "ExecStateUnavailable") {
+				t.Fatal("initial application-state failure was silently lost", output.String())
+			}
+			if kind == "metadata-unavailable" && !strings.Contains(output.String(), "protected metadata unavailable") {
+				t.Fatal("failed protected-kind lookup was hidden", output.String())
 			}
 		})
 	}

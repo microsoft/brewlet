@@ -221,6 +221,20 @@ overwritten.
 
 ## Executed successfully
 
+With shared-cache cleanup not authorized, no further disk-heavy local repeats
+are started while Docker capacity is insufficient. Offline implementation
+hardening found an additional observability gap: successful initial Start
+silently ignored application-state loading errors and omitted its runtime
+event. Such errors now produce explicit task/reason diagnostics, including
+failed protected-kind lookup; only protected containerd infrastructure-sandbox
+metadata suppresses expected application-state absence. The actual successful
+runc result is preserved and no event identity is invented.
+The full native Linux/arm64 shim suite passes **29 cases/subcases without
+skips**, including application, infrastructure and metadata-error cases. Go
+race tests, vet and both Linux builds pass. OBS-04 is partial, not verified:
+the complete reason matrix and new physical fault checks still need proof.
+GitHub Actions remains deferred; no shared resources were pruned.
+
 The strict JSON fix passed physical bound-Pod verification:
 `run-local-strict-control-55` at `1fb1b6df` completed **29/29 selected assertions**
 and production/fixture cleanup. Duplicate ID and duplicate generation fields

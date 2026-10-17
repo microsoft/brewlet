@@ -107,9 +107,30 @@ func (s *service) Start(ctx context.Context, r *taskapi.StartRequest) (*taskapi.
 		}
 		if state, loadErr := load(r.ID); loadErr == nil {
 			s.runtimeEvent(ctx, "RuntimeImageResolved", r.ID, state.Lease.Metadata)
+		} else {
+			infrastructure, kindErr := s.infrastructureTask(ctx, r.ID)
+			if kindErr != nil || !infrastructure {
+				log.Printf("runtime-image-event-failed: task=%s reason=RuntimeImageResolved: initial-state: %v; protected-kind: %v",
+					r.ID, loadErr, kindErr)
+			}
 		}
 	}
 	return response, err
+}
+
+func (s *service) infrastructureTask(ctx context.Context, id string) (bool, error) {
+	if s.client == nil {
+		return false, fmt.Errorf("containerd metadata client unavailable")
+	}
+	container, err := s.client.LoadContainer(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	spec, err := container.Spec(ctx)
+	if err != nil {
+		return false, err
+	}
+	return spec.Annotations["io.kubernetes.cri.container-type"] == "sandbox", nil
 }
 
 func normalizeOptions(r *taskapi.CreateTaskRequest) error {

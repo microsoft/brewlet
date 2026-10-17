@@ -205,6 +205,12 @@ name/UID, container name/ID plus ID/epoch/generation/digest labels, so vulnerabl
 generation observations can be joined to Pods. Inspection
 errors fail a scrape rather than report zero. Runtime starts and bounded waits
 also publish structured containerd events on `/brewlet/runtime-image`.
+Initial application-state read failures during successful Start are explicitly
+logged as runtime-image event failures; no fabricated resolved event or false
+failed-start result replaces the actual runc outcome. Expected missing
+application state is suppressed only when protected containerd metadata
+identifies the infrastructure sandbox. Failed protected-kind lookups are
+reported rather than silently treated as infrastructure.
 The protected `brewlet.sh/runtime-bindings` Node annotation carries complete,
 UID-bound observations derived from actual containerd tasks, durable runtime
 leases, and protected CRI Pod/container identities. These are diagnostics, never
