@@ -74,6 +74,19 @@ def rotation_inputs(data):
     return data
 
 
+def inventory_webhook_transport_pending(message, namespace):
+    text = message.lower()
+    endpoint = f"https://brewlet-admission.{namespace}.svc:443/validate-runtimeimages"
+    return ('failed calling webhook "runtimeimages.brewlet.sh"' in text
+            and "denied the request" not in text
+            and not any(value in text for value in ("x509:", "tls: bad certificate",
+                                                     "certificate signed by unknown authority"))
+            and (endpoint in text or 'no endpoints available for service "brewlet-admission"' in text)
+            and any(value in text for value in (
+                "connect: connection refused", "no endpoints available for service",
+                "i/o timeout", "tls handshake timeout", "context deadline exceeded")))
+
+
 def runtime_version_matches(output, expected):
     return re.search(r"(?<![A-Za-z0-9.])" + re.escape(expected.strip())
                      + r"(?![A-Za-z0-9.])", output) is not None
@@ -794,9 +807,7 @@ class Harness:
                                     input=json.dumps(probe), check=False)
             if response.returncode == 0:
                 return True
-            transport = ("connect: connection refused", "no endpoints available for service",
-                         "i/o timeout", "tls handshake timeout")
-            require(any(value in response.stderr.lower() for value in transport),
+            require(inventory_webhook_transport_pending(response.stderr, self.control_namespace),
                     "inventory admission failed instead of becoming reachable: " + response.stderr)
             return False
 

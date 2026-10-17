@@ -76,6 +76,7 @@ class WebhookReadinessTests(unittest.TestCase):
     def harness(self, results):
         instance = harness.Harness.__new__(harness.Harness)
         instance.run_id = "0123456789ab"
+        instance.control_namespace = "owned-system"
         instance.kubectl = Mock(side_effect=results)
         instance.wait = lambda description, predicate, timeout: next(
             result for _ in range(3) if (result := predicate()))
@@ -83,7 +84,10 @@ class WebhookReadinessTests(unittest.TestCase):
 
     def test_dry_run_waits_for_service_transport_then_real_success(self):
         instance = self.harness([
-            subprocess.CompletedProcess([], 1, "", "connect: connection refused"),
+            subprocess.CompletedProcess([], 1, "",
+                'failed calling webhook "runtimeimages.brewlet.sh": failed to call webhook: '
+                'Post "https://brewlet-admission.owned-system.svc:443/validate-runtimeimages?timeout=5s": '
+                'connect: connection refused'),
             subprocess.CompletedProcess([], 0, "created (server dry run)", ""),
         ])
         instance.wait_inventory_admission("registry.test/runtime@sha256:" + "a" * 64)

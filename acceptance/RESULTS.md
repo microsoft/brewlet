@@ -221,6 +221,31 @@ overwritten.
 
 ## Executed successfully
 
+**The production Eager fix is physically verified locally.** At `5c96c75c`,
+`run-local-eager-control-47` passed **27/27 selected assertions**, including
+actual incompatible-account installation failure, effective readiness
+withdrawal, real scheduler non-placement, same-Pod recovery after correction,
+unchanged running leases, failed-inventory finalization and subsequent
+controller/provider/production-cleanup checks. The fixed-source Java run
+also passed **18/18** runtime assertions and cleanup.
+[`Eager recovery`](results/clean-local-eager-recovery-arm64.json) and
+[`fixed-source Java`](results/clean-local-java-readiness-fix-arm64.json)
+retain the explicit selected scopes. This reconciles PROF-03:
+**68 verified, 33 not fully verified**.
+
+The serial Node.js run stopped before application execution because the
+owned inventory webhook's first API-server request exceeded its five-second
+transport deadline. Live Pods/endpoints were healthy and the exact same
+dry-run request succeeded afterward without changing the admission server.
+The bounded 60-second startup wait now recognizes that specific owned
+webhook transport failure, while still immediately rejecting admission
+denials, foreign webhook destinations and certificate-identity errors.
+No deadline was increased, no failed application assertion is retried, and the
+failed startup receipt is preserved
+[here](results/local-node-webhook-startup-failure-arm64.json).
+All **301** local safeguards pass. Node.js/.NET fixed-source execution remains
+pending retry; GitHub Actions remains deferred.
+
 The new local approved-Eager case found a **production bug** in
 `run-local-eager-control-46`: after rejecting the actual golden account mismatch
 and marking its authorization failed, the worker left the old aggregate

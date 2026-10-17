@@ -14,6 +14,13 @@ private kubeconfig, an owned registry, namespaces and checkout-built images.
 Every kubectl/Helm command explicitly selects that kubeconfig and context.
 It does **not** touch a running shared cluster or use the tier reset helper.
 
+Inventory webhook startup uses a bounded 60-second dry-run reachability wait.
+Only transport failures tied to this invocation's inventory webhook/service
+are retried, including an API-server webhook request deadline during startup.
+Admission denials, foreign destinations and TLS certificate-identity failures
+fail immediately; application assertions and installation deadlines are not
+relaxed by this readiness check.
+
 The branch's `.github/workflows/e2e.yml` runs this suite by manual dispatch.
 Select the `brewlet-2.0` ref on the existing E2E workflow. GitHub schedules run
 from the repository's default branch, so this orphan branch does not claim

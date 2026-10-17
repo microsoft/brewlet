@@ -371,6 +371,50 @@ class SafetyTests(ProjectWork):
             instance.decommission_worker(name)
         instance.run.assert_not_called()
 
+    def test_inventory_webhook_readiness_retries_only_owned_transport_failures(self):
+        namespace = "owned-system"
+        prefix = ('Error from server (InternalError): failed calling webhook "runtimeimages.brewlet.sh": '
+                  'failed to call webhook: Post "https://brewlet-admission.' + namespace
+                  + '.svc:443/validate-runtimeimages?timeout=5s": ')
+        for cause in ("connect: connection refused", "context deadline exceeded",
+                      "i/o timeout", "tls handshake timeout"):
+            self.assertTrue(h.inventory_webhook_transport_pending(prefix + cause, namespace))
+        self.assertTrue(h.inventory_webhook_transport_pending(
+            'failed calling webhook "runtimeimages.brewlet.sh": failed to call webhook: '
+            'no endpoints available for service "brewlet-admission"', namespace))
+        for message in (prefix.replace(namespace, "foreign") + "context deadline exceeded",
+                        prefix.replace("runtimeimages.brewlet.sh", "other.brewlet.sh") + "i/o timeout",
+                        prefix + "x509: certificate signed by unknown authority",
+                        prefix + "x509: certificate signed by unknown authority; context deadline exceeded",
+                        'admission webhook "runtimeimages.brewlet.sh" denied the request: '
+                        + prefix + "context deadline exceeded",
+                        "Error from server (Forbidden): denied", "unknown admission failure"):
+            self.assertFalse(h.inventory_webhook_transport_pending(message, namespace))
+
+    def test_inventory_webhook_startup_timeout_uses_existing_bound_and_never_retries_denial(self):
+        instance = self.harness()
+        timeout = ('Error from server (InternalError): failed calling webhook "runtimeimages.brewlet.sh": '
+                   'failed to call webhook: Post "https://brewlet-admission.'
+                   + instance.control_namespace
+                   + '.svc:443/validate-runtimeimages?timeout=5s": context deadline exceeded')
+        instance.kubectl = mock.Mock(side_effect=[
+            subprocess.CompletedProcess([], 1, "", timeout),
+            subprocess.CompletedProcess([], 0, "created (server dry run)", "")])
+
+        def wait(_, probe, *, timeout):
+            self.assertEqual(timeout, 60)
+            self.assertFalse(probe())
+            return probe()
+
+        instance.wait = mock.Mock(side_effect=wait)
+        instance.wait_inventory_admission("registry/runtime@sha256:" + "a" * 64)
+        self.assertEqual(instance.kubectl.call_count, 2)
+        instance.kubectl = mock.Mock(return_value=subprocess.CompletedProcess(
+            [], 1, "", 'admission webhook "runtimeimages.brewlet.sh" denied the request: invalid source'))
+        with self.assertRaisesRegex(h.Failure, "inventory admission failed"):
+            instance.wait_inventory_admission("registry/runtime@sha256:" + "a" * 64)
+        self.assertEqual(instance.kubectl.call_count, 1)
+
     def test_runtime_builds_do_not_import_unused_roots_before_authenticated_publication(self):
         instance = self.harness()
         instance.runtime_vendor_inputs = h.rotation_inputs(json.loads(
