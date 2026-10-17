@@ -615,7 +615,7 @@ auth:
         for case, fault in (("unauthorized", None), ("untrusted", None), ("corrupt", None),
                             ("unsafe", "unsafe"), ("malformed", "malformed"), ("mirror", "mirror")):
             layout = self.work / ("negative-" + case)
-            descriptor = mutate_application(self.h.work / "oci-python", layout,
+            descriptor = mutate_application(self.h.work / ("oci-" + self.h.probe_language), layout,
                                             self.h.run_id + "-" + case, fault=fault)
             repository = "delivery/negative-" + case
             self.cases[case] = self.publish(layout, descriptor, repository)
@@ -653,7 +653,7 @@ auth:
         h = self.h
         reference = self.cases[case]
         self.fresh(reference)
-        pod = self.pod("delivery-" + case, "python", bound=True)
+        pod = self.pod("delivery-" + case, h.probe_language, bound=True)
         pod["spec"]["containers"][0]["image"] = reference
         if case == "unauthorized":
             pod["spec"].pop("imagePullSecrets")
@@ -687,7 +687,7 @@ auth:
         self.proofs.add(case)
 
     def native_pod(self, arch, name):
-        pod = self.pod(name, "python")
+        pod = self.pod(name, self.h.probe_language)
         pod["metadata"]["annotations"]["brewlet.sh/runtime-image"] = self.static_id
         pod["spec"]["nodeSelector"] = {"kubernetes.io/arch": arch, "brewlet.test/pool": self.h.run_id}
         pod["spec"]["containers"][0].update(image=self.native[arch],

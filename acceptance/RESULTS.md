@@ -221,6 +221,16 @@ overwritten.
 
 ## Executed successfully
 
+The first serial Java attempt (`run-local-runtime-java-44`) stopped during
+delivery bootstrap: ancillary negative OCI graphs still used a literal
+`oci-python` seed even though only Java was selected. No Java runtime failure
+is inferred from that setup error. Delivery now uses the explicit probe fixture
+for those graphs and related Pod templates. A complete mocked bootstrap wiring
+test covers positive and negative graph selection with Java and the two vendor
+revisions; all **297** local safeguards pass. Exact-owned failed bootstrap
+resources were removed. The actual Java/Node.js/.NET serial execution remains
+pending retry.
+
 The local driver now supports serial, single-fixture runtime execution for
 Java, Node.js and .NET as well as Python. This keeps current disk constraints
 from forcing simultaneous golden-root copies. It changes no production

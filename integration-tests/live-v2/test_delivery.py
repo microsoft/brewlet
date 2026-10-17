@@ -181,6 +181,8 @@ class FakeHarness:
     cluster = "brewlet-v2-" + run_id
     namespace = cluster
     arch = "arm64"
+    languages = ("java", "python", "node", "dotnet")
+    probe_language = "python"
     kubeconfig = Path("/private/invocation/kubeconfig")
 
     def __init__(self, work):
@@ -214,6 +216,36 @@ class CommandTests(unittest.TestCase):
         state.authority = "172.18.0.9:5000"
         state.untrusted_authority = "owned-registry:5000"
         return h, state
+
+    def test_bootstrap_uses_selected_fixture_for_positive_and_negative_graphs(self):
+        h, state = self.state()
+        h.languages = ("java",)
+        h.probe_language = "java"
+        h.app_images = {}
+        h.runtime_images = {"java": {}}
+        h.result = {}
+        h.save = Mock()
+        descriptor = {"digest": "sha256:" + "a" * 64}
+        state.start_registry = Mock()
+        state.configure_node = Mock()
+        state.publish = Mock(return_value="registry/fixture@sha256:" + "c" * 64)
+        state.fresh = Mock()
+        state.golden_layout = Mock(return_value=(self.work, descriptor))
+        state.prepare_native = Mock()
+        state.registry_info = Mock()
+        state.producer_authority = "localhost:5443"
+        blob = json.dumps({"layers": [{"digest": "sha256:" + "b" * 64}]}).encode()
+        with patch.object(delivery, "mutate_application", return_value=descriptor) as mutate, \
+                patch.object(delivery, "read_blob", return_value=blob), \
+                patch.object(delivery, "static_runtime", return_value=descriptor):
+            state.bootstrap()
+        self.assertEqual(mutate.call_count, 7)
+        self.assertTrue(all(call.args[0] == self.work / "oci-java"
+                            for call in mutate.call_args_list))
+        self.assertEqual(set(h.runtime_images["java"]), {"before", "after"})
+        self.assertEqual(set(h.app_images), {"java"})
+        self.assertEqual([entry.args for entry in state.golden_layout.call_args_list],
+                         [("java", "before"), ("java", "after")])
 
     def test_pod_uses_always_user_secret_and_preserves_arch(self):
         _, state = self.state()
