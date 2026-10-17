@@ -221,6 +221,27 @@ overwritten.
 
 ## Executed successfully
 
+Run `39044794472` failed after 34 selected assertions at source `fac84659`.
+The new owner-scoped diagnostics show both selected roots eventually advertised
+at generation 2 without a startup fence, while the retained binding observation
+was older than two minutes. Collection's host task/mount inspection was killed
+at its existing budget, and subsequent binding inspections reported deadline
+expiry. The native Deployment was available at generation 2; its restart record
+correctly remained Deferred rather than treating stale old-task observations as
+absence. Transient Node resourceVersion conflicts and an expired earlier
+authorization were also recorded. These facts narrow the failure to delayed
+provisioning and incomplete timely observation, but do not yet identify the
+expensive or blocked observation operation.
+
+Binding inspection errors now retain their exact stage, containerd namespace
+and task identity while preserving wrapped error identity. There is no change
+to budgets, collection authority or stale-observation retention. The full
+native Linux/arm64 provisioner suite passed **92 cases/subcases without skips**,
+including deterministic namespace/container deadline-error checks;
+`go test -count=1 -race -mod=readonly ./provisioner` also passed.
+[`results/scoped-provisioner-failure-amd64.json`](results/scoped-provisioner-failure-amd64.json)
+preserves the failed run's classified outcome, not private logs or credentials.
+
 The four-language live fixture builder now makes the proposal-listed ignored
 runtime config fields explicitly conflict with application execution: nonexistent entrypoint
 and healthcheck, unrelated arguments/workdir/port/volume, and root `User`.

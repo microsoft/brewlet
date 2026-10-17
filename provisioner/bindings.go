@@ -27,7 +27,7 @@ func bindingFromAnnotations(lease node.Lease, annotations map[string]string, sta
 func observeBindings(ctx context.Context, c *containerd.Client, store *node.Store, evidence node.Evidence) ([]node.RuntimeBinding, error) {
 	leases, err := store.Leases()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read durable binding leases: %w", err)
 	}
 	byID := map[string]node.Lease{}
 	for _, lease := range leases {
@@ -35,21 +35,21 @@ func observeBindings(ctx context.Context, c *containerd.Client, store *node.Stor
 	}
 	all, err := c.NamespaceService().List(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list binding namespaces: %w", err)
 	}
 	bindings := []node.RuntimeBinding{}
 	for _, namespace := range all {
 		nsctx := namespaces.WithNamespace(ctx, namespace)
 		containers, err := c.Containers(nsctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("list binding containers in %q: %w", namespace, err)
 		}
 		for _, container := range containers {
 			info, err := container.Info(nsctx)
 			if errdefs.IsNotFound(err) {
 				continue
 			} else if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("read binding container %q/%q: %w", namespace, container.ID(), err)
 			}
 			if info.Runtime.Name != "io.containerd.brewlet.v2" {
 				continue
@@ -58,11 +58,11 @@ func observeBindings(ctx context.Context, c *containerd.Client, store *node.Stor
 			if errdefs.IsNotFound(err) {
 				continue
 			} else if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("load binding task %q/%q: %w", namespace, container.ID(), err)
 			}
 			spec, err := container.Spec(nsctx)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("read binding spec %q/%q: %w", namespace, container.ID(), err)
 			}
 			if spec.Annotations["io.kubernetes.cri.container-type"] == "sandbox" {
 				continue
@@ -70,15 +70,15 @@ func observeBindings(ctx context.Context, c *containerd.Client, store *node.Stor
 			key := namespace + "\x00" + container.ID()
 			lease, ok := byID[key]
 			if !ok {
-				return nil, fmt.Errorf("live Brewlet application task lacks durable runtime binding")
+				return nil, fmt.Errorf("live Brewlet application task %q/%q lacks durable runtime binding", namespace, container.ID())
 			}
 			status, err := task.Status(nsctx)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("read binding task status %q/%q: %w", namespace, container.ID(), err)
 			}
 			binding, err := bindingFromAnnotations(lease, spec.Annotations, string(status.Status))
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("validate binding identity %q/%q: %w", namespace, container.ID(), err)
 			}
 			bindings = append(bindings, binding)
 			delete(byID, key)
@@ -86,14 +86,14 @@ func observeBindings(ctx context.Context, c *containerd.Client, store *node.Stor
 	}
 	for _, unobserved := range byID {
 		if evidence == nil {
-			return nil, fmt.Errorf("unobserved durable task lacks complete absence evidence")
+			return nil, fmt.Errorf("unobserved durable task %q/%q lacks complete absence evidence", unobserved.Namespace, unobserved.TaskID)
 		}
 		gone, err := evidence.Gone(ctx, unobserved)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("inspect unobserved binding %q/%q absence: %w", unobserved.Namespace, unobserved.TaskID, err)
 		}
 		if !gone {
-			return nil, fmt.Errorf("durable task binding cannot be reconciled with live task/mount evidence")
+			return nil, fmt.Errorf("durable task binding %q/%q cannot be reconciled with live task/mount evidence", unobserved.Namespace, unobserved.TaskID)
 		}
 	}
 	sort.Slice(bindings, func(i, j int) bool {
