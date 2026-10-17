@@ -114,31 +114,31 @@ jobs:
             --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
             --workdir /src/pkg/artifact --entrypoint /tests/artifact.test \
             brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v -test.run TestLinuxOverlayWhiteoutMaterialization | tee overlay.log
-          ! grep -q '^--- SKIP' overlay.log
+            -test.v | tee overlay.log
+          ! grep -q -- '--- SKIP' overlay.log
           docker run --rm --platform "${{ matrix.platform }}" --network none \
-            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
+            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD --cap-add DAC_OVERRIDE \
             --security-opt no-new-privileges --read-only --tmpfs /tmp \
             --tmpfs /src/shim/cmd/containerd-shim-brewlet-v2:rw,mode=755 \
             --mount "type=bind,source=$PWD,target=/src,readonly" \
             --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
             --workdir /src/shim/cmd/containerd-shim-brewlet-v2 --entrypoint /tests/shim.test \
             brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v -test.run 'TestPublishedProducerShimConformance|TestWarm|TestFailedCreateMountProvenance' | tee shim-conformance.log
-          ! grep -q '^--- SKIP' shim-conformance.log
+            -test.v | tee shim-conformance.log
+          ! grep -q -- '--- SKIP' shim-conformance.log
           docker run --rm --platform "${{ matrix.platform }}" --network none \
             --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
             --security-opt no-new-privileges --read-only --tmpfs /tmp --tmpfs /work \
             --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
             --workdir /work --entrypoint /tests/node.test \
             brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v -test.run 'TestLinuxEvidence|TestTaskMountScope|TestPendingCreateLeaseScope|TestUninstalledBarrier|TestInstalledBarrierLease' | tee lease-evidence.log
-          ! grep -q '^--- SKIP' lease-evidence.log
+            -test.v | tee lease-evidence.log
+          ! grep -q -- '--- SKIP' lease-evidence.log
           docker run --rm --platform "${{ matrix.platform }}" --network none \
             --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
             --security-opt no-new-privileges --read-only --tmpfs /tmp --tmpfs /work \
             --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
             --workdir /work --entrypoint /tests/provisioner.test \
             brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v -test.run 'TestCacheCollection|TestOriginalContentCollection|Test.*(Activation|Retention|ContainerdVersions|LiveCRI|EffectiveBaseline)|TestPublicationRejectsContradictoryInstallationEvidence|TestRecovery(Quarantine|AllIDs|Installed)' | tee cache-gc.log
-          ! grep -q '^--- SKIP' cache-gc.log
+            -test.v | tee cache-gc.log
+          ! grep -q -- '--- SKIP' cache-gc.log

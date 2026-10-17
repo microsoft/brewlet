@@ -34,7 +34,7 @@ func TestAbsentAppVolumeMountpointUsesManagedUpper(t *testing.T) {
 	mounts := []specs.Mount{{Destination: "/app/absent/deep", Type: "bind", Source: filepath.Join(base, "volume")}}
 	err = prepareAppMountpoints(filepath.Join(base, "bundle"), "rootfs", []string{filepath.Join(base, "lower")}, filepath.Join(base, "upper"), filepath.Join(base, "work"), mounts)
 	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
-		t.Skip("requires isolated Linux SYS_ADMIN overlay mount capability")
+		t.Skipf("requires isolated Linux SYS_ADMIN overlay mount capability: %v", err)
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestAppVolumeEscapingSymlinkIsRejected(t *testing.T) {
 	mounts := []specs.Mount{{Destination: "/app/escape/new", Type: "bind", Source: filepath.Join(base, "volume")}}
 	err = prepareAppMountpoints(filepath.Join(base, "bundle"), "rootfs", []string{filepath.Join(base, "lower")}, filepath.Join(base, "upper"), filepath.Join(base, "work"), mounts)
 	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
-		t.Skip("requires isolated Linux SYS_ADMIN overlay mount capability")
+		t.Skipf("requires isolated Linux SYS_ADMIN overlay mount capability: %v", err)
 	}
 	if err == nil {
 		t.Fatal("escaping symlink accepted")

@@ -90,10 +90,16 @@ func TestHomeAndRestrictions(t *testing.T) {
 			t.Fatal("accepted root")
 		}
 	}
-	p = testProcess()
-	p.Capabilities = &specs.LinuxCapabilities{Effective: []string{"CAP_CHOWN"}}
-	if reason(MergeProcess(&p, testMetadata())) != "PrivilegeEscalationNotSupported" {
-		t.Fatal("accepted capability")
+	for _, capability := range []*specs.LinuxCapabilities{
+		{Effective: []string{"CAP_CHOWN"}}, {Bounding: []string{"CAP_CHOWN"}},
+		{Permitted: []string{"CAP_CHOWN"}}, {Inheritable: []string{"CAP_CHOWN"}},
+		{Ambient: []string{"CAP_CHOWN"}},
+	} {
+		p = testProcess()
+		p.Capabilities = capability
+		if reason(MergeProcess(&p, testMetadata())) != "PrivilegeEscalationNotSupported" {
+			t.Fatal("accepted capability set", capability)
+		}
 	}
 	p = testProcess()
 	p.NoNewPrivileges = false

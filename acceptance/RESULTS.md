@@ -41,7 +41,7 @@ unverified cases rather than those stale strings; the current ledger below
 remains authoritative.
 
 **This is selected-suite success, not complete Proposal 0009 acceptance.**
-The ledger has **51 verified and 50 not fully verified requirements**.
+The ledger has **57 verified and 44 not fully verified requirements**.
 Four complete rows were promoted from run 24: INV-06,
 OD-06, E2E-02 and E2E-08. Worker recovery is not proof of recovery after killing
 the shim task-server; normal backend exec drain is not forced orphan survival.
@@ -220,6 +220,45 @@ No implementation ancestry was inherited, and no existing remote branch was
 overwritten.
 
 ## Executed successfully
+
+Complete compiled native Linux/arm64 component suites were also executed:
+**90 artifact, 25 node, 83 provisioner and 20 shim cases/subcases passed with
+zero skips and zero failures**. These are kernel/component contracts, not
+fake-client scheduling, provider autoscaling or a replacement for the real-node
+runs. [`results/native-linux-arm64-contracts.json`](results/native-linux-arm64-contracts.json)
+preserves the bounded public summary; the exact reproducible build/container
+commands are the `linux-overlay-contract` steps in `.github/workflows/v2-ci.yml`.
+
+The full suites now run in native amd64 and arm64 CI rather than a small name
+filter. Skip guards include nested subtests. Initial full-shim execution exposed
+two capability skips: the writable overlay-scaffolding contracts additionally
+need test-container `DAC_OVERRIDE`. This was isolated experimentally; relaxing
+seccomp/AppArmor did not resolve the failure, while adding only that capability
+did. The final successful commands keep default syscall policies, network off,
+read-only root, dropped unrelated capabilities and `no-new-privileges`.
+No application or production Pod gains that test capability. The new actual
+kernel whiteout/opaque composition test proves lower hiding, surviving upper/
+sibling bytes, marker absence and inherited-symlink isolation.
+
+This verifies ART-05 and complements real run 28 to verify PROC-02, PROC-03 and
+SEC-02/03/04. Admission additionally tests explicit pod/container nonroot=false
+and root primary GID; native node contracts reject every capability set, and
+native shim contracts verify terminal/argv/cwd preservation and missing-state
+non-delegation. No still-unverified requirement is auto-promoted by package
+success alone.
+
+`run-retirement-37` passed all **8** selected assertions at
+`7107e88e26dced07a9aee58ddb1fd91975977d51`, production manifest
+`2c419e9611fd1111468da1cbb4eddd7e7543574c689f2584b4ebd593f7e20943`.
+Actual worker destruction preserved a detached original-UID obligation while a
+different real Node served before evidence. Even after replacement task drain,
+uninstall could not discard that history. An initially denied actor required
+explicit attestor RBAC, after which original-identity external decommission
+evidence resolved and remained immutable/retained across profile deletion and
+successful actual uninstall. Survivor-only fixture destruction passed.
+[`results/physical-retirement.json`](results/physical-retirement.json) preserves
+the sanitized result. OWN-03 remains partial: this is not returning-physical-host
+or literal recreated-Node cleanup proof.
 
 ```sh
 go test -count=1 -race -mod=readonly ./...

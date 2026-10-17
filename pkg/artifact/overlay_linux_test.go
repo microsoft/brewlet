@@ -39,6 +39,49 @@ func TestLinuxOverlayWhiteoutMaterialization(t *testing.T) {
 	}
 }
 
+func TestLinuxOverlayWhiteoutAndOpaqueEntriesHideOnlyLowerContent(t *testing.T) {
+	dir := testDir(t)
+	store := Store{Dir: filepath.Join(dir, "store")}
+	lower := source(t, store, "gzip", []*tar.Header{
+		fileHeader("app/deleted", "old", 0644),
+		fileHeader("app/data/old", "old data", 0644),
+		fileHeader("app/sibling", "retained", 0644),
+	}, []string{"old", "old data", "retained"})
+	upper := source(t, store, "zstd", []*tar.Header{
+		fileHeader("app/.wh.deleted", "", 0),
+		fileHeader("app/data/.wh..wh..opq", "", 0),
+		fileHeader("app/data/new", "new data", 0644),
+	}, []string{"", "", "new data"})
+	must(t, ValidateComposition(context.Background(), []LayerSource{lower, upper}))
+	cache := LayerCache{Dir: filepath.Join(dir, "cache")}
+	lowerRoot, err := cache.Materialize(context.Background(), lower)
+	must(t, err)
+	upperRoot, err := cache.Materialize(context.Background(), upper)
+	must(t, err)
+	runtimeRoot, merged := filepath.Join(dir, "runtime"), filepath.Join(dir, "merged")
+	must(t, os.Mkdir(runtimeRoot, 0755))
+	must(t, os.Mkdir(merged, 0755))
+	err = unix.Mount("overlay", merged, "overlay", unix.MS_RDONLY,
+		"lowerdir="+upperRoot+":"+lowerRoot+":"+runtimeRoot)
+	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.ENODEV) {
+		t.Skipf("requires actual Linux overlay mount capability: %v", err)
+	}
+	must(t, err)
+	defer unix.Unmount(merged, 0)
+	for _, name := range []string{"app/deleted", "app/data/old", "app/.wh.deleted", "app/data/.wh..wh..opq"} {
+		if _, err := os.Lstat(filepath.Join(merged, name)); !os.IsNotExist(err) {
+			t.Fatalf("whiteout/opaque metadata leaked lower content or literal markers at %s: %v", name, err)
+		}
+	}
+	for name, want := range map[string]string{"app/data/new": "new data", "app/sibling": "retained"} {
+		value, err := os.ReadFile(filepath.Join(merged, name))
+		must(t, err)
+		if string(value) != want {
+			t.Fatalf("overlay changed surviving content %s: %q", name, value)
+		}
+	}
+}
+
 func TestLinuxOverlayInheritedSymlinkShadowing(t *testing.T) {
 	dir := testDir(t)
 	store := Store{Dir: filepath.Join(dir, "store")}

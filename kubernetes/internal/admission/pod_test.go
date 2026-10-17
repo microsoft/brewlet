@@ -67,6 +67,15 @@ func TestSecurityAndSelectionDenials(t *testing.T) {
 		"digest runtime": {func(p *corev1.Pod) { p.Annotations[api.RuntimeAnnotation] = "python@sha256:a" }, "InvalidRuntimeImageID"},
 		"legacy":         {func(p *corev1.Pod) { p.Annotations["brewlet.sh/jdk"] = "21" }, "UnsupportedAnnotation"},
 		"root":           {func(p *corev1.Pod) { p.Spec.SecurityContext = &corev1.PodSecurityContext{RunAsUser: ptr(int64(0))} }, "RootNotSupported"},
+		"primary root group": {func(p *corev1.Pod) {
+			p.Spec.SecurityContext = &corev1.PodSecurityContext{RunAsGroup: ptr(int64(0))}
+		}, "RootNotSupported"},
+		"pod permits root": {func(p *corev1.Pod) {
+			p.Spec.SecurityContext = &corev1.PodSecurityContext{RunAsNonRoot: ptr(false)}
+		}, "RootNotSupported"},
+		"container permits root": {func(p *corev1.Pod) {
+			p.Spec.Containers[0].SecurityContext = &corev1.SecurityContext{RunAsNonRoot: ptr(false)}
+		}, "RootNotSupported"},
 		"supplemental root": {func(p *corev1.Pod) {
 			p.Spec.SecurityContext = &corev1.PodSecurityContext{SupplementalGroups: []int64{0}}
 		}, "RootNotSupported"},
