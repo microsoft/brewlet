@@ -120,6 +120,9 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	if err := policy.Profile(s.Profile, profiles.Items, w.AllowedMirrorHosts); err != nil {
 		return err
 	}
+	if err := w.rejectStaleCapabilities(ctx, s); err != nil {
+		return err
+	}
 	recovery, err := w.recoveryPlan(ctx, s)
 	if err != nil {
 		return err
@@ -503,6 +506,9 @@ func (w *Worker) publish(ctx context.Context, inventory map[string]api.NodeRunti
 	for key := range n.Labels {
 		if len(key) > len("brewlet.sh/runtime.") && key[:len("brewlet.sh/runtime.")] == "brewlet.sh/runtime." {
 			if _, ok := inventory[key[len("brewlet.sh/runtime."):]]; !ok {
+				if err := w.rejectStaleCapabilities(ctx, s); err != nil {
+					return err
+				}
 				return fmt.Errorf("node-advertisement-failed: stale runtime capability requires withdrawal")
 			}
 		}

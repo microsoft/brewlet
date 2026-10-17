@@ -29,6 +29,30 @@ func ineligibleRuntime(err error) bool {
 	return ok && e.Reason == "RuntimeImageRevoked"
 }
 
+func (w *Worker) rejectStaleCapabilities(ctx context.Context, s *control.Snapshot) error {
+	if control.HasStartupTaint(s.Node) {
+		return nil
+	}
+	offered := map[string]bool{}
+	for _, entry := range s.Spec.RuntimeImages {
+		offered[entry.ID] = true
+	}
+	var stale []string
+	for key := range s.Node.Labels {
+		if strings.HasPrefix(key, "brewlet.sh/runtime.") &&
+			!offered[strings.TrimPrefix(key, "brewlet.sh/runtime.")] {
+			stale = append(stale, key)
+		}
+	}
+	if len(stale) == 0 {
+		return nil
+	}
+	if _, err := control.Withdraw(ctx, w.Client, w.Reader, w.Authority, stale); err != nil {
+		return err
+	}
+	return fmt.Errorf("node-advertisement-failed: stale capabilities withdrawn or startup-fenced; pool correction required")
+}
+
 // Retained advertisements are evidence during recovery, not inputs to repair
 // by deleting/normalizing them before deciding whether the fence can be lifted.
 func (w *Worker) recoveryPlan(ctx context.Context, s *control.Snapshot) (recoveryPlan, error) {

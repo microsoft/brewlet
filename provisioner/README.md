@@ -160,6 +160,11 @@ required. OnDemand mutability is re-probed during recovery even if an earlier
 healthy probe succeeded; provider refusal preserves its label and the confirmed
 node-wide fence. Node readiness, schedulability, UID-bound ownership and current
 profile authority must also pass.
+Unexpected nonoffered capabilities on a previously healthy node trigger freshly
+authorized withdrawal before host work. A real provider refusal must establish
+and read back the node-wide startup fence; logging a publication error while
+leaving the node eligible is not safe. Once fenced, stale provider evidence is
+preserved until pool correction.
 
 These recovery behaviors are implemented and covered by focused race/contract
 tests, not yet proven by the complete live recovery matrix. They do not weaken

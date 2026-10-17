@@ -154,6 +154,16 @@ pins remain, and requires operator/RBAC/finalizer/claim/fence retention until
 normal pool correction permits successful uninstall. It is implemented and
 offline-guarded; its actual-node outcome is still pending, and no uninstall
 requirement is promoted from those offline tests.
+The first actual `run-uninstall-32` execution found a production gap before
+uninstall: injecting a genuinely pinned stale capability onto an otherwise
+healthy node caused repeated publication errors, but no startup fence was
+installed. Earlier coverage introduced stale pins only after another fault had
+already fenced the node. Reconciliation and final publication now attempt fresh
+UID/owner-bound withdrawal; provider refusal must confirm the node-wide fence
+before any host work, and fenced retries retain stale evidence. New contracts
+cover both mutable withdrawal and pinned fallback with no host mutation. The
+original exact-owned fixture was destroyed; complete corrected uninstall
+execution remains pending.
 
 ## Reference and branch
 
