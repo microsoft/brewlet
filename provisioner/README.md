@@ -121,6 +121,10 @@ cross-namespace mount evidence, and a positive age floor. Pending creates or
 ambiguous evidence prevent deletion. Staged runtime roots carry ownership and
 snapshot-view records; fresh authority loss cancels and joins acquisition,
 leaving private data for authorized recovery.
+Completing acquisition also stops and joins its authority monitor. Cancellation
+of an in-flight monitor read by that local shutdown is not an installation
+failure; parent cancellation, monitor failures and all publication fences remain
+authoritative.
 
 ### Recovery versus healthy rotation
 

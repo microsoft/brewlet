@@ -356,6 +356,20 @@ through production uninstall, and genuine late native capacity remain separate
 unverified obligations. The strict ledger now has 39 verified and 62 not fully
 verified requirements; successful focused cleanup is not full acceptance.
 
+`run-complete-23` passed 43 assertions through accounting and the complete
+selected remote-delivery callback, then failed on the first lifecycle OnDemand
+installation. Production worker logs exposed a staging-monitor shutdown race:
+successful acquisition canceled the monitor's in-flight approval API read,
+and that internally induced `context canceled` was reported as an installation
+failure, withdrawing the capability. Acquisition now uses a distinct local
+completion cancellation cause and joins the monitor without treating only
+that shutdown-induced read cancellation as authority loss. Real monitor errors,
+monitor deadlines, installer failures and parent cancellation remain failures;
+the fresh publication fences are unchanged.
+Deterministic synchronized race tests exercise the in-flight read at stage
+completion rather than relying on timing; actual-node confirmation remains
+pending.
+
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout
 `f70a2c40fa1139fbc38ef0d4da4e964428bf5164`, with production-source manifest

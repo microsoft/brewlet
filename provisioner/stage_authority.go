@@ -2,6 +2,7 @@ package provisioner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,7 +11,8 @@ import (
 )
 
 func (w *Worker) stage(ctx context.Context, r *api.RuntimeImage) (string, node.Metadata, error) {
-	ctx, cancel := context.WithCancel(ctx)
+	completed := errors.New("runtime staging completed")
+	ctx, cancel := context.WithCancelCause(ctx)
 	stopped := make(chan struct{})
 	lost := make(chan error, 1)
 	go func() {
@@ -32,8 +34,11 @@ func (w *Worker) stage(ctx context.Context, r *api.RuntimeImage) (string, node.M
 					}
 				}
 				if err != nil {
+					if errors.Is(err, context.Canceled) && context.Cause(ctx) == completed {
+						return
+					}
 					lost <- err
-					cancel()
+					cancel(err)
 					return
 				}
 				if time.Since(renewed) >= time.Minute {
@@ -52,8 +57,11 @@ func (w *Worker) stage(ctx context.Context, r *api.RuntimeImage) (string, node.M
 						}
 					}
 					if readErr != nil {
+						if errors.Is(readErr, context.Canceled) && context.Cause(ctx) == completed {
+							return
+						}
 						lost <- readErr
-						cancel()
+						cancel(readErr)
 						return
 					}
 					renewed = time.Now()
@@ -62,7 +70,8 @@ func (w *Worker) stage(ctx context.Context, r *api.RuntimeImage) (string, node.M
 		}
 	}()
 	stage, m, err := w.Installer.Stage(ctx, r, w.Store.Root)
-	cancel()
+	// Joining a completed stage can cancel an in-flight monitor API read.
+	cancel(completed)
 	<-stopped
 	select {
 	case fenceErr := <-lost:
