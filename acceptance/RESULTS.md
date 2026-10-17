@@ -71,6 +71,25 @@ shape, not the previous unrealistic zero-generation fixture. Native Linux
 publication/all-ID recovery contracts passed without skips. Run 25's exact
 two-node fixture destruction passed; cold deadline/recovery proof remains pending
 the corrected execution.
+`run-cold-26` progressed past the corrected participant selection and genuinely
+scheduled restart-created Pods on the cold worker behind the held layer.
+It exposed two further production issues: a minimum-generation barrier forced
+the wrong `RuntimeImageUpdating` timeout reason even when no root existed, and
+the controller lost runtime-install diagnostics when kubelet moved a failed
+Create into `CrashLoopBackOff` with its `StartError` in `lastState`. Cold
+resolution now preserves the actual wait reason, and restart classification
+uses only never-started Create failures during backoff, never stale errors
+after real execution. Main/init/ephemeral status contracts and the corresponding
+actual-evidence guard are covered; the next real execution must still prove
+the complete deadline/slot/recovery protocol.
+The combined driver also now includes actual-node execution of both optional
+Maven producer formats (bundled and BOM-managed dependencies), with exact
+unchanged TLS publication, ordinary initial/exec/probe/security checks and an
+additional runtime rotation without app republish. Its producer commands,
+private Maven repository, explicit platforms, digest preservation and mandatory
+callback ordering are covered by offline tests. Actual-node execution of that
+new callback is still pending; the Maven-on-node gap is removed from a run only
+after the callback succeeds.
 
 ## Reference and branch
 
@@ -97,7 +116,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 237 passing offline tests; those
+The live-driver safeguards currently include 242 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 

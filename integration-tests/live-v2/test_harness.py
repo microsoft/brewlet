@@ -632,6 +632,7 @@ class CallbackOrderTests(ProjectWork):
                 execute=callback("delivery"),
                 cleanup=callback("cleanup_delivery", cleanup_failure)),
             "accounting": SimpleNamespace(execute=callback("accounting")),
+            "maven_node": SimpleNamespace(execute=callback("maven_node")),
             "lifecycle": SimpleNamespace(execute=callback("lifecycle")),
             "control_edges": SimpleNamespace(
                 execute=callback("control_edges"),
@@ -647,7 +648,7 @@ class CallbackOrderTests(ProjectWork):
         self.assertEqual(calls, [
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
             "install", "startup", "four_language_execution", "barriers_and_rotation",
-            "accounting", "delivery", "lifecycle", "control_edges", "pinned_revocation",
+            "accounting", "delivery", "maven_node", "lifecycle", "control_edges", "pinned_revocation",
             "before_cleanup", "production_cleanup", "after_cleanup",
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
         self.assertEqual(instance.result["outcome"], "passed")

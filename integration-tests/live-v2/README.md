@@ -113,6 +113,12 @@ The default run fails on any missing protocol, reason, transition or evidence:
 * Java, Python, Node and .NET are built and host-probed using the existing
   fixture builder. Each is explicitly packaged by this checkout's generic CLI
   with distinct dependency/application roles and one final launch layer.
+* The optional Maven producer separately emits both bundled and BOM-managed
+  Java artifacts. Their exact OCI targets are published unchanged through the
+  authenticated registry and run through the same RuntimeClass, shim, exec,
+  probe and non-root/read-only checks. A further approved Java runtime update
+  retains their initial leases and moves replacements to the new generation
+  without republishing either application. This adds no Java behavior to core.
 * First use executes all four real HTTP applications through kubelet/containerd/
   shim/runc, imports their separate dependencies, then passes relative-executable
   `kubectl exec` and actual exec readiness probes.

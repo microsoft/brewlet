@@ -1540,6 +1540,9 @@ class Harness:
             self.phase = "remote-delivery"
             from delivery import execute as verify_delivery
             verify_delivery(self)
+            self.phase = "maven-producer-node"
+            from maven_node import execute as verify_maven_node
+            verify_maven_node(self)
             self.phase = "lifecycle"
             from lifecycle import execute as verify_lifecycle
             verify_lifecycle(self)
