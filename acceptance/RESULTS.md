@@ -6,14 +6,14 @@ from implemented or partially tested behavior.
 
 ## Latest combined actual-node result
 
-**`run-complete-24` passed all 70 selected assertions with no failures.**
-Tested checkout: `ee166aed665c1317c58fb4f44220699ce7dbab9e`.
+**`run-complete-28` passed all 77 selected assertions with no failures.**
+Tested checkout: `c9391295536688fb20173fdf51ea8d90e8bcc40d`.
 Production-source manifest:
-`fc993e92cf78fb4796befe1a02bbf5f62eea72ed183f657880490894206592d5`.
+`dc20e47ecf37994e46e531f3c3015243ca6a446aeec2496ddbaabbe34ac2f0c4`.
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
-  --work integration-tests/live-v2/run-complete-24
+  --work integration-tests/live-v2/run-complete-28
 ```
 
 Exit status was zero. The same fresh native arm64 node completed authenticated
@@ -21,6 +21,11 @@ TLS delivery, four-language vendor updates without app rebuilds, actual CRI
 accounting/eviction, authorization expiry, worker/daemon recovery, uncertain
 inspection retention, retired-generation/idle collection, native controller
 strategies/pacing/deadlines, provider-pin fencing, and production cleanup.
+Both bundled and BOM-managed Maven artifacts passed actual generic execution,
+probes, security and runtime rotation without app republish. Main, completed
+init, regular/native sidecars and ephemeral containers passed real execution,
+postStart/exec/probe parity and independent malformed-artifact denials; their
+remaining active leases were drained by the final production cleanup.
 Actual operator claim release encountered an injected API resourceVersion
 conflict and completed only after fresh ownership/teardown revalidation.
 Production cleanup and subsequent disposable-fixture destruction each passed.
@@ -28,7 +33,7 @@ No manual intervention was recorded. The staging-monitor correction is now
 confirmed through the previously failing actual OnDemand installation and the
 complete combined callback chain.
 
-[`results/expanded-real-node.json`](results/expanded-real-node.json) is the
+[`results/expanded-producer-roles-real-node.json`](results/expanded-producer-roles-real-node.json) is the
 whitelisted public result, not private logs, credentials or kubeconfig.
 Its historical `gaps` array retains initial legacy strings, including some
 superseded by its passing assertions. The driver now reports the remaining
@@ -37,27 +42,28 @@ remains authoritative.
 
 **This is selected-suite success, not complete Proposal 0009 acceptance.**
 The ledger has **45 verified and 56 not fully verified requirements**.
-Only four additional complete rows were promoted from this run: INV-06,
+Four complete rows were promoted from run 24: INV-06,
 OD-06, E2E-02 and E2E-08. Worker recovery is not proof of recovery after killing
 the shim task-server; normal backend exec drain is not forced orphan survival.
-Physical recreated-Node cleanup, genuine late alternate-native capacity/provider
-autoscaling, controlled cold-install deadlines, stale pins through production
+Physical recreated-Node cleanup, native pending-capacity scheduling,
+earlier native progress-deadline failure, stale pins through production
 uninstall and the remaining detailed ledger obligations are still unverified.
+Cold installation deadline/recovery passed separately in run 27 and verifies
+ROT-10. No actual provider autoscaler or alternate-hardware join is claimed.
 INV-03 was separately reconciled using the allocation-journal contracts:
 controller reconstruction, pruned status, interrupted A/B/A and missing-history
 fail-closed checks passed, along with local digest/generation reuse refusal.
 Those contract tests complement actual monotonic rotations in run 24; they
 are not being presented as real-node scheduling or physical-host recovery proof.
 
-The next separately executed case is
+The separately executed cold-install case is
 `python3 integration-tests/live-v2/cold_install.py --work integration-tests/live-v2/NEW_COLD_RUN`.
 It creates two actual native nodes and uses an authenticated TLS proxy to hold
 one fresh runtime layer beyond the real workload deadline. The initial topology
 probe has verified the additional worker's boot-time startup taint,
 Node/container UID-bound host access and exact two-container destruction.
-The transfer/deadline/recovery assertions are implemented and offline safeguards
-pass, but the actual cold-install case has not yet passed and does not promote
-ROT-09 or ROT-10.
+Its first failed executions and subsequent passing result are preserved below;
+they are not all being described as the current verdict.
 The first actual execution, `run-cold-25`, failed before restart admission:
 the controller incorrectly treated a cold `available` node's positive approved
 generation as proof of an installed root, so it waited for that node to install
@@ -80,16 +86,14 @@ Create into `CrashLoopBackOff` with its `StartError` in `lastState`. Cold
 resolution now preserves the actual wait reason, and restart classification
 uses only never-started Create failures during backoff, never stale errors
 after real execution. Main/init/ephemeral status contracts and the corresponding
-actual-evidence guard are covered; the next real execution must still prove
-the complete deadline/slot/recovery protocol.
+actual-evidence guard were covered before the complete passing run 27 below.
 The combined driver also now includes actual-node execution of both optional
 Maven producer formats (bundled and BOM-managed dependencies), with exact
 unchanged TLS publication, ordinary initial/exec/probe/security checks and an
 additional runtime rotation without app republish. Its producer commands,
 private Maven repository, explicit platforms, digest preservation and mandatory
-callback ordering are covered by offline tests. Actual-node execution of that
-new callback is still pending; the Maven-on-node gap is removed from a run only
-after the callback succeeds.
+callback ordering are covered by offline tests. The later run 28 passed that
+callback for both formats; the Maven-on-node gap is removed only after success.
 `run-cold-27` then passed all **11** selected assertions against
 `19c64a5388842d023a791228a0ffdb5060bd1567`, production manifest
 `dc20e47ecf37994e46e531f3c3015243ca6a446aeec2496ddbaabbe34ac2f0c4`.
@@ -103,11 +107,12 @@ passed. [`results/cold-install-deadline.json`](results/cold-install-deadline.jso
 preserves the sanitized result. ROT-10 is verified; ROT-09 still needs complete
 default/earlier-native-failure reconciliation.
 
-The next combined run also adds actual main/init/regular-sidecar/native-sidecar/
+The passing run 28 also adds actual main/init/regular-sidecar/native-sidecar/
 ephemeral execution, postStart/exec/probe parity, distinct named leases and
 independent malformed-artifact denial for every non-main role. Those cases are
 implemented with offline guards for ephemeral UID/spec CAS and real execution
-versus preallocated StartError identities; actual-node results remain pending.
+versus preallocated StartError identities; all seven producer/role assertions
+passed together with the original 70 and final production cleanup.
 An independent `native_capacity.py` runner now implements the exact §13.1
 no-ready-native-capacity case using truthful native hardware and an initially
 empty eligible pool. It preserves the standard architecture selector, proves
@@ -115,7 +120,20 @@ Pending and actual boot-fence scheduling, then requires unchanged-Pod execution
 after real capacity becomes available. It separately checks unsupported
 architecture-unconstrained pulls and claims no provider autoscaling or alternate
 CPU hardware. It does not change architecture labels. This is implemented and
-offline-guarded, but actual execution is pending; E2E-05 remains unverified.
+offline-guarded, but complete actual execution is pending; E2E-05 remains unverified.
+`run-native-29` did reach a genuinely Running/Ready native Pod on the real worker,
+but the fixture waited for a taint key that Kubernetes 1.35 omits from its generic
+`untolerated taint(s)` event. The corrected observer reuses the existing strict
+startup-taint evidence guard and briefly delays the actual owned kubelet until
+that scheduling decision is observable, always resuming it in `finally`.
+No architecture, clock or authority record is forged. The complete corrected
+native-pull/cleanup case still needs to pass.
+
+The cold runner now also checks exact rendered five-slot/ten-minute defaults
+and creates an actual unready Deployment with a ten-second native progress
+deadline under the sixty-second workload bound. Its new case requires the real
+`ProgressDeadlineExceeded` condition and slot handoff before the longer bound;
+offline evidence guards pass, but this additional actual-node case is pending.
 
 ## Reference and branch
 
@@ -142,7 +160,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 250 passing offline tests; those
+The live-driver safeguards currently include 256 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 

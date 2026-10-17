@@ -1,0 +1,733 @@
+{
+  "outcome": "passed",
+  "scope": "real-node-execution-and-remote-delivery",
+  "cleanSelectedSuitePassed": true,
+  "fullAcceptance": false,
+  "checkout": "c9391295536688fb20173fdf51ea8d90e8bcc40d",
+  "productionSourceManifestSHA256": "dc20e47ecf37994e46e531f3c3015243ca6a446aeec2496ddbaabbe34ac2f0c4",
+  "architecture": "arm64",
+  "kubeletPullVerified": true,
+  "tlsTransportVerified": true,
+  "providerScaleFromZeroVerified": false,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "java": "172.18.0.11:5000/delivery/apps-java@sha256:bc40ffd5e8c98ec0d9a72e103f1866a587c0ec7d5782ea2093a0ef38c4617a49",
+    "python": "172.18.0.11:5000/delivery/apps-python@sha256:fd2bbb754f9d0c219646976e42c0ab684b3a098f37febea7443bbc298c9979c8",
+    "node": "172.18.0.11:5000/delivery/apps-node@sha256:05cb5ea9ec71e7f4765e8b6657082d067d0deda71175fc6af2e932db45a8aedc",
+    "dotnet": "172.18.0.11:5000/delivery/apps-dotnet@sha256:a013aa8d5dc4154064520ae13deb9b1c664d08c192e41ef62cd90e9d8eadf087"
+  },
+  "runtimeImages": {
+    "java": {
+      "before": "172.18.0.11:5000/delivery/runtime-java-before@sha256:a911bbc5e1a1c6186dbbe2be1f350f159a56157210464f24bf8f2465e24a6525",
+      "after": "172.18.0.11:5000/delivery/runtime-java-after@sha256:5b2d64d2ca84663b6e3b32a390640d01dce3852cf70cdc97d1f3c58525eebe5d"
+    },
+    "python": {
+      "before": "172.18.0.11:5000/delivery/runtime-python-before@sha256:bfdf4c34469f9a60b1390dcdac71d3bca0f96b40fe78d7438ce252a3c2e602e2",
+      "after": "172.18.0.11:5000/delivery/runtime-python-after@sha256:677e7b61eb6c2c0b54608fdb008f5bbca5e32b7a0701e15d64f0117ae02c4915"
+    },
+    "node": {
+      "before": "172.18.0.11:5000/delivery/runtime-node-before@sha256:d7eaa5950153e8717c029e8d09a23ad470dcd3b7bb52f0e3f4f08a03ffb7c179",
+      "after": "172.18.0.11:5000/delivery/runtime-node-after@sha256:9bf632f443c41a0dfa230cfb3aa0328c60319d4a00b3f83ba903283b255644cf"
+    },
+    "dotnet": {
+      "before": "172.18.0.11:5000/delivery/runtime-dotnet-before@sha256:b94cc9ec46ce613980f82c141aae025953c2ff124e1274b4785ead75af10d33a",
+      "after": "172.18.0.11:5000/delivery/runtime-dotnet-after@sha256:f302bba2d0bb072334384d3d31b409d1638b87dc56be192b8c8e8e51d0736b61"
+    }
+  },
+  "runtimeVendorInputs": {
+    "java": {
+      "probe": [
+        "java",
+        "-version"
+      ],
+      "before": {
+        "image": "docker.io/library/eclipse-temurin@sha256:9eb51387a4badf1a874e655d130538b89dfe16a3dab24fb9a4a6e2b08778411c",
+        "version": "21.0.7"
+      },
+      "after": {
+        "image": "docker.io/library/eclipse-temurin@sha256:20e7f7288e1c18eebe8f06a442c9f7183342d9b022d3b9a9677cae2b558ddddd",
+        "version": "21.0.8"
+      }
+    },
+    "python": {
+      "probe": [
+        "python3",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/python@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419",
+        "version": "Python 3.13.5"
+      },
+      "after": {
+        "image": "docker.io/library/python@sha256:2b09112b54420d2e3e814f2cbe34e8e54d32b8c5abd4e72e89cda4758fc6400a",
+        "version": "Python 3.13.6"
+      }
+    },
+    "node": {
+      "probe": [
+        "node",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/node@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0",
+        "version": "v22.17.0"
+      },
+      "after": {
+        "image": "docker.io/library/node@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+        "version": "v22.18.0"
+      }
+    },
+    "dotnet": {
+      "probe": [
+        "dotnet",
+        "--list-runtimes"
+      ],
+      "before": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:d13bea17080a4fea1a7295a4fe29240123b1bf955a78ae08480d07bdf09496db",
+        "version": "Microsoft.NETCore.App 10.0.0 "
+      },
+      "after": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:3b5f026262a6ba63d1b82f2b98949506f4a89956244568a8bc682b4af9c48548",
+        "version": "Microsoft.NETCore.App 10.0.1 "
+      }
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
+    "E2E-09 recreatedNodes/foreign physical-host refusal: needs another real owned worker; fixture Node UID/API CAS below is not production claim-release or host-cleanup proof. Real claim-release CAS requires parent before_cleanup/after_cleanup hooks and is not covered by execute alone",
+    "ROT-09 cold-install deadline/recovery: needs a real runtime registry transfer gate held beyond workloadProgressDeadline; no fabricated RuntimeImageInstalling/status/timestamps are accepted",
+    "FENCE-04 production uninstall while stale provider pins remain: callback proves live retention/recovery, not uninstall retention"
+  ],
+  "assertions": [
+    {
+      "name": "mandatory prerequisites and exact kind pin",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "isolated kind node and owned registry",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "java explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "python explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "node explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "dotnet explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "zero-node warning, architecture selector and multi-term/empty affinity preservation",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-01",
+        "E2E-04",
+        "ADM-02"
+      ]
+    },
+    {
+      "name": "actual startup taint blocks application scheduling before provisioning",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-03"
+      ]
+    },
+    {
+      "name": "OnDemand-only baseline advertises available with no current roots",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-02",
+        "PROF-03",
+        "FENCE-01"
+      ]
+    },
+    {
+      "name": "java real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04"
+      ]
+    },
+    {
+      "name": "java Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "java custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "python real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04"
+      ]
+    },
+    {
+      "name": "python Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "python custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "node real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04"
+      ]
+    },
+    {
+      "name": "node Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "node custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "dotnet real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04"
+      ]
+    },
+    {
+      "name": "dotnet Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "dotnet custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "root-bound rejects start: RootNotSupported",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "privilege-bound rejects start: PrivilegeEscalationNotSupported",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-malformed rejects start: InvalidRuntimeGeneration",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-epoch rejects start: RuntimeImageEpochMismatch",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-future rejects start: RuntimeImageUpdating",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "java source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "python source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "node source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "dotnet source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "RUN-08 real CRI writable snapshot usage and ephemeral-storage eviction",
+      "outcome": "passed",
+      "requirements": [
+        "RUN-08"
+      ]
+    },
+    {
+      "name": "java kubelet Always TLS/auth pull and remote approved runtime acquisition",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01",
+        "ROOT-01"
+      ]
+    },
+    {
+      "name": "python kubelet Always TLS/auth pull and remote approved runtime acquisition",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01",
+        "ROOT-01"
+      ]
+    },
+    {
+      "name": "node kubelet Always TLS/auth pull and remote approved runtime acquisition",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01",
+        "ROOT-01"
+      ]
+    },
+    {
+      "name": "dotnet kubelet Always TLS/auth pull and remote approved runtime acquisition",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01",
+        "ROOT-01"
+      ]
+    },
+    {
+      "name": "remote TLS delivery rejects unauthorized",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "remote TLS delivery rejects untrusted",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "remote TLS delivery rejects corrupt",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "remote TLS delivery rejects unsafe",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "remote TLS delivery rejects malformed",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "remote TLS delivery rejects mirror",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "remote native artifact executes with preserved standard architecture selector",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-05",
+        "ART-01"
+      ]
+    },
+    {
+      "name": "remote TLS delivery rejects platform",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "Maven bundled artifact executes, probes and rotates without republishing",
+      "outcome": "passed",
+      "requirements": [
+        "MAV-01",
+        "LANG-01",
+        "LANG-02",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "Maven managed artifact executes, probes and rotates without republishing",
+      "outcome": "passed",
+      "requirements": [
+        "MAV-01",
+        "LANG-01",
+        "LANG-02",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "main, init, regular/native sidecars, ephemeral, exec/probes and postStart share generic contract",
+      "outcome": "passed",
+      "requirements": [
+        "RUN-01",
+        "PROC-02",
+        "PROC-03",
+        "SEC-03"
+      ]
+    },
+    {
+      "name": "malformed artifact independently rejected for init",
+      "outcome": "passed",
+      "requirements": [
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "malformed artifact independently rejected for regular-sidecar",
+      "outcome": "passed",
+      "requirements": [
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "malformed artifact independently rejected for native-sidecar",
+      "outcome": "passed",
+      "requirements": [
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "malformed artifact independently rejected for ephemeral container",
+      "outcome": "passed",
+      "requirements": [
+        "RUN-01"
+      ]
+    },
+    {
+      "name": "inventory deletion is blocked by a real UID-bound task lease",
+      "outcome": "passed",
+      "requirements": [
+        "INV-05",
+        "LEASE-01"
+      ]
+    },
+    {
+      "name": "inventory deletion genuinely cleans roots and finalizes after drain",
+      "outcome": "passed",
+      "requirements": [
+        "INV-05",
+        "OWN-02"
+      ]
+    },
+    {
+      "name": "life-old-epoch-barrier-a810999d3be1 rejects start: RuntimeImageEpochMismatch",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "same-name new UID generation one rejects genuine old-epoch barrier",
+      "outcome": "passed",
+      "requirements": [
+        "INV-04",
+        "ROT-07"
+      ]
+    },
+    {
+      "name": "life-expired-bound-a810999d3be1 rejects start: RuntimeImageAuthorizationExpired",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "real stopped renewal expires authorization and bound starts fail closed",
+      "outcome": "passed",
+      "requirements": [
+        "INV-06"
+      ]
+    },
+    {
+      "name": "fresh inventory checks recover renewal without replacing running tasks",
+      "outcome": "passed",
+      "requirements": [
+        "INV-06",
+        "LEASE-02"
+      ]
+    },
+    {
+      "name": "real worker restart and containerd reconnect preserve task/lease/Exec state",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "actual task-service uncertainty retains lease/root and fresh recovery follows CONT",
+      "outcome": "passed",
+      "requirements": [
+        "LEASE-02"
+      ]
+    },
+    {
+      "name": "positive real GC grace retains recovered live leases then collects after actual drain",
+      "outcome": "passed",
+      "requirements": [
+        "LEASE-01",
+        "LEASE-02"
+      ]
+    },
+    {
+      "name": "cold OnDemand rotation does not install bytes; first use installs latest target",
+      "outcome": "passed",
+      "requirements": [
+        "OD-04",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "mode transitions retain warm roots; idle TTL respects real leases and reinstalls eagerly",
+      "outcome": "passed",
+      "requirements": [
+        "OD-06"
+      ]
+    },
+    {
+      "name": "actual task/exec/mount references retain root, lease and revocation finalizer",
+      "outcome": "passed",
+      "requirements": [
+        "LEASE-02",
+        "LEASE-03"
+      ]
+    },
+    {
+      "name": "managed CRI root releases only after actual exec and task/mount drain",
+      "outcome": "passed",
+      "requirements": [
+        "LEASE-03"
+      ]
+    },
+    {
+      "name": "real API rejects stale resourceVersion and old UID on recreated fixture Node",
+      "outcome": "passed",
+      "requirements": [
+        "API-CAS"
+      ]
+    },
+    {
+      "name": "real release default denies workload patch and leaves opted-in old pods intact",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-01",
+        "ROT-06"
+      ]
+    },
+    {
+      "name": "actual native strategy matrix, previous-epoch refusal and idempotent barriers",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-01",
+        "ROT-06",
+        "ROT-07",
+        "ROT-08"
+      ]
+    },
+    {
+      "name": "new genuine rotation supersedes deferred target without resuming paused workload",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-08"
+      ]
+    },
+    {
+      "name": "cluster-wide maxConcurrent=1 across two runtime IDs; real unready rollouts time out",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-06",
+        "ROT-09"
+      ]
+    },
+    {
+      "name": "already-bound native replacement defers with actual Pod UID/node/minimum",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-05",
+        "ROT-09"
+      ]
+    },
+    {
+      "name": "real TLS provider refuses OnDemand/stale capabilities; all-ID fence retention/recovery",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-06",
+        "E2E-08",
+        "OD-06",
+        "FENCE-04"
+      ]
+    },
+    {
+      "name": "real admission refuses both label withdrawal and taint fallback; deletion blocked",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-07",
+        "FENCE-03"
+      ]
+    },
+    {
+      "name": "revoked-bound rejects start: RuntimeImageRevoked",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "real pinned-label fallback is node-wide; old leases survive and bound revoked start fails",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-06",
+        "E2E-08",
+        "INV-05"
+      ]
+    },
+    {
+      "name": "production profile deletion preserves active roots, finalizer and UID claim",
+      "outcome": "passed",
+      "requirements": [
+        "LEASE-03",
+        "OWN-02"
+      ]
+    },
+    {
+      "name": "production cleanup drains workloads before root/finalizer/claim release",
+      "outcome": "passed",
+      "requirements": [
+        "OWN-02",
+        "LEASE-03"
+      ]
+    },
+    {
+      "name": "real controller claim-release PUT hits API CAS conflict, freshly revalidates and releases",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-09",
+        "OWN-02"
+      ]
+    }
+  ]
+}

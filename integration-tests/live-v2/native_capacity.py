@@ -7,7 +7,8 @@ from pathlib import Path
 import signal
 
 import delivery
-from harness import API, FENCE, OWNER, STORE, Failure, Harness, application_started, require, require_owned
+from harness import (API, FENCE, OWNER, STORE, Failure, Harness, application_started,
+                     docker_owned, require, require_owned, startup_taint_evidence)
 
 
 def enrollment_patch(h, node, pool, runtime_id):
@@ -29,6 +30,39 @@ def enrollment_patch(h, node, pool, runtime_id):
                          "labels": {"brewlet.test/pool": pool, OWNER: h.run_id,
                                     "brewlet.sh/runtime": "ready",
                                     "brewlet.sh/runtime." + runtime_id: "available"}}}
+
+
+def observe_startup_fence(h, worker, pool, runtime_id, original):
+    container = h.node_containers[worker]
+
+    def owned_worker_state():
+        info = json.loads(h.run(["docker", "inspect", container]).stdout)[0]
+        docker_owned(info, h.run_id, container, kind_node=True)
+        return info["State"]
+
+    initial = owned_worker_state()
+    require(initial.get("Running") and not initial.get("Paused"),
+            "native worker was not running normally before the controlled startup delay")
+    try:
+        # Delay the actual kubelet, not authority records or the host clock.
+        h.run(["docker", "pause", container])
+        node = h.get("node", worker)
+        enrolled = json.loads(h.kubectl(
+            "patch", "node", worker, "--type=merge", "-p",
+            json.dumps(enrollment_patch(h, node, pool, runtime_id)), "-o", "json").stdout)
+
+        def fence_evidence():
+            current = h.get("pod", "pending-native", h.namespace)
+            require_owned(current, h.run_id, original["metadata"]["uid"])
+            return startup_taint_evidence(enrolled, current,
+                                          h.get("events", namespace=h.namespace)["items"])
+
+        scheduling = h.wait("real templated native worker startup taint blocks scheduling",
+                           fence_evidence, timeout=30)
+    finally:
+        if owned_worker_state().get("Paused"):
+            h.run(["docker", "unpause", container])
+    return scheduling
 
 
 def exercise(h):
@@ -69,19 +103,7 @@ def exercise(h):
     require(original["spec"]["nodeSelector"]["kubernetes.io/arch"] == h.arch,
             "admission changed the explicit standard architecture constraint")
     d.configure_node(worker)
-    node = h.get("node", worker)
-    h.kubectl("patch", "node", worker, "--type=merge", "-p",
-              json.dumps(enrollment_patch(h, node, pool, d.static_id)))
-
-    def fence_evidence():
-        events = h.get("events", namespace=h.namespace)["items"]
-        matches = [event["message"] for event in events
-                   if event.get("involvedObject", {}).get("uid") == original["metadata"]["uid"]
-                   and FENCE in event.get("message", "")]
-        return matches
-
-    scheduling = h.wait("real templated native worker startup taint blocks scheduling",
-                       fence_evidence, timeout=90)
+    scheduling = observe_startup_fence(h, worker, pool, d.static_id, original)
     ready = h.wait("unchanged Pending native Pod starts after real worker baseline/install",
                    lambda: h.ready("pending-native"))
     require(ready["metadata"]["uid"] == original["metadata"]["uid"]

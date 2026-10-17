@@ -61,6 +61,12 @@ other CPU must fail at the real kubelet pull rather than being represented as
 rescheduling or autoscaling. This covers the §13.1 ready-capacity scenario, not
 an alternate-hardware join or actual provider scale-from-zero. The manual
 workflow executes it separately from the combined and cold-install cases.
+The startup observation briefly pauses only the identity-checked owned worker
+so the actual scheduler can observe template labels behind the real boot fence.
+It accepts the pinned scheduler's generic `untolerated taint(s)` diagnostic only
+with an exact Pod UID and that startup taint as the sole NoSchedule blocker.
+The worker is always resumed in `finally`; clocks and authority records are not
+changed, and a preexisting user pause is never undone.
 
 Use a Linux Docker engine (native Linux or Docker Desktop) on amd64 or arm64,
 with cgroup v2, at least 4 CPUs, 8 GiB Docker memory, and 25 GiB available disk.
