@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -46,7 +47,11 @@ func run() error {
 	if err := removeReady(); err != nil {
 		return err
 	}
-	defer removeReady()
+	defer func() {
+		if err := removeReady(); err != nil {
+			log.Printf("worker readiness removal failed: %v", err)
+		}
+	}()
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 	scheme := runtime.NewScheme()
@@ -177,14 +182,19 @@ func run() error {
 		installer.Rewrite = func(source string) (string, error) {
 			return provisioner.SourceReference(source, s.Spec.Registry.Mirrors, allowed)
 		}
-		if err := worker.Reconcile(ctx); err != nil {
-			_ = removeReady()
-			log.Printf("provision-error: %v", err)
-			if _, fenceErr := control.Check(ctx, c, a); fenceErr != nil {
-				return fenceErr
-			}
-			if err := markReady(fmt.Sprintf("%s/%d/%s/provisioning", a.ProfileUID, a.Generation, a.NodeUID)); err != nil {
+		reconcileErr := worker.Reconcile(ctx)
+		if err := syncProvisioningReadinessAt(readyMarker,
+			fmt.Sprintf("%s/%d/%s/provisioning", a.ProfileUID, a.Generation, a.NodeUID),
+			reconcileErr == nil, func() error {
+				_, err := control.Check(ctx, c, a)
 				return err
+			}); err != nil {
+			return errors.Join(reconcileErr, err)
+		}
+		if reconcileErr != nil {
+			log.Printf("provision-error: %v", reconcileErr)
+			if _, fenceErr := control.Check(ctx, c, a); fenceErr != nil {
+				return errors.Join(reconcileErr, fenceErr)
 			}
 			select {
 			case <-ctx.Done():

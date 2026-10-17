@@ -221,6 +221,31 @@ overwritten.
 
 ## Executed successfully
 
+Local container-role run 52 passed **23/23**, covering actual main/init/native
+sidecar/ephemeral execution, role-specific malformed-artifact refusal and
+production cleanup. Formal delivery run 52 passed **27/27**, including actual
+TLS/auth pulls, malformed/unsafe/mirrored/corrupt/untrusted/unauthorized start
+refusals, native execution and unsupported-platform pull failure. Their
+classified receipts are
+[`roles`](results/clean-local-roles-arm64.json) and
+[`delivery`](results/clean-local-delivery-arm64.json).
+
+The accounting run stopped **before writes** at its unchanged healthy-unrelated
+workload guard. Direct inspection established another production bug: the
+healthy provisioner was Running with zero restarts, but `--health-check` failed
+because `/run/brewlet` did not exist. The main loop wrote the readiness marker
+inside the *reconciliation error branch* and never on ordinary success.
+The fix synchronizes readiness after every outcome: success requires fresh
+authority before atomic publication; failure clears prior readiness; marker
+removal errors are surfaced. Four native Linux/arm64 command tests pass with no
+skips, including success/failure, lost authority, failed removal and protected
+fresh/read-only checking. Go race tests, vet and both Linux builds pass.
+Physical health/accounting recovery with the fix remains pending, and no
+accounting safety reserve or workload-health requirement has been relaxed.
+The pre-write failure is retained
+[here](results/local-accounting-worker-health-failure-arm64.json); fixture
+destruction afterward was exact-owned only and is not production-cleanup proof.
+
 The optional Maven producer and lifecycle surfaces now pass against the same
 fixed production implementation on local native arm64. Maven run 50 passed
 **20/20** selected assertions: both bundled and BOM-managed artifacts actually

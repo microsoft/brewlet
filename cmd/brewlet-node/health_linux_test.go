@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +12,8 @@ import (
 	"github.com/microsoft/brewlet/pkg/node"
 )
 
-func TestCompletionGateIsProtectedFreshAndReadOnly(t *testing.T) {
+func healthTestDirectory(t *testing.T) string {
+	t.Helper()
 	if os.Geteuid() != 0 {
 		t.Skip("requires root-owned isolated Linux working directory")
 	}
@@ -27,6 +29,67 @@ func TestCompletionGateIsProtectedFreshAndReadOnly(t *testing.T) {
 	if err := node.NewStore(dir).Check(); err != nil {
 		t.Skipf("requires root-owned isolated Linux working directory: %v", err)
 	}
+	return dir
+}
+
+func TestProvisioningReadinessTracksSuccessfulReconcileAndFreshAuthority(t *testing.T) {
+	marker := filepath.Join(healthTestDirectory(t), "ready")
+	identity := "profile/1/node/provisioning"
+	checks := 0
+	fence := func() error { checks++; return nil }
+	if err := syncProvisioningReadinessAt(marker, identity, false, fence); err != nil {
+		t.Fatal(err)
+	}
+	if checks != 0 {
+		t.Fatal("failed reconciliation tried to certify completion")
+	}
+	if err := healthCheckAt(marker); err == nil {
+		t.Fatal("failed reconciliation minted readiness")
+	}
+	if err := syncProvisioningReadinessAt(marker, identity, true, fence); err != nil {
+		t.Fatal(err)
+	}
+	if checks != 1 {
+		t.Fatal("successful reconciliation lacked a fresh ownership check")
+	}
+	if err := healthCheckAt(marker); err != nil {
+		t.Fatal("successful reconciliation did not publish readiness", err)
+	}
+	if err := syncProvisioningReadinessAt(marker, identity, false, fence); err != nil {
+		t.Fatal(err)
+	}
+	if err := healthCheckAt(marker); err == nil || checks != 1 {
+		t.Fatal("failure retained a prior success marker")
+	}
+	if err := syncProvisioningReadinessAt(marker, identity, true, fence); err != nil {
+		t.Fatal(err)
+	}
+	lost := errors.New("fresh ownership lost")
+	err := syncProvisioningReadinessAt(marker, identity, true, func() error { return lost })
+	if !errors.Is(err, lost) {
+		t.Fatal("fresh ownership failure was hidden", err)
+	}
+	if err := healthCheckAt(marker); err == nil {
+		t.Fatal("lost ownership retained readiness")
+	}
+}
+
+func TestReadinessRemovalFailureIsNotIgnored(t *testing.T) {
+	marker := filepath.Join(healthTestDirectory(t), "ready")
+	if err := os.Mkdir(marker, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(marker, "unexpected"), []byte("retain"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncProvisioningReadinessAt(marker, "profile/1/node/provisioning", false,
+		func() error { t.Fatal("failed reconciliation checked a success fence"); return nil }); err == nil {
+		t.Fatal("failed marker removal was ignored")
+	}
+}
+
+func TestCompletionGateIsProtectedFreshAndReadOnly(t *testing.T) {
+	dir := healthTestDirectory(t)
 	marker := filepath.Join(dir, "ready")
 	if err := healthCheckAt(marker); err == nil {
 		t.Fatal("missing completion accepted")

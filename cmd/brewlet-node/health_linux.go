@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,12 +34,26 @@ func healthCheckAt(marker string) error {
 	return nil
 }
 func removeReady() error {
-	err := os.Remove(readyMarker)
+	return removeReadyAt(readyMarker)
+}
+func removeReadyAt(marker string) error {
+	err := os.Remove(marker)
 	if os.IsNotExist(err) {
 		return nil
 	}
+
 	return err
 }
+func syncProvisioningReadinessAt(marker, identity string, reconciled bool, fence func() error) error {
+	if !reconciled {
+		return removeReadyAt(marker)
+	}
+	if err := fence(); err != nil {
+		return errors.Join(err, removeReadyAt(marker))
+	}
+	return markReadyAt(marker, identity)
+}
+
 func markReady(identity string) error {
 	return markReadyAt(readyMarker, identity)
 }

@@ -105,6 +105,11 @@ baseline readiness. Readiness returns only through normal validated publication.
 `/run/brewlet/ready` without API or host mutation. The worker removes the marker
 on startup/failure/authority loss and writes it only after confirmed baseline
 or cleanup completion. Successful cleanup stays alive until authorized teardown.
+Every successful provisioning reconcile refreshes the marker only after a fresh
+ownership check. A failed reconcile removes it and never certifies readiness,
+even when the worker still owns the node. Marker-removal failures are explicit
+errors, not a successful health fallback. This pod health gate is separate from
+application execution authorization and from nonfatal collection uncertainty.
 
 Only an uninstalled, currently authorized OnDemand runtime creates an empty
 `.requests/<id>` marker. Create waits at most thirty seconds, including lock
