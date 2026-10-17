@@ -5,7 +5,6 @@ import (
 	_ "crypto/sha256"
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -54,6 +53,14 @@ func Approved(r *api.RuntimeImage) bool {
 	return r.DeletionTimestamp.IsZero() && Runtime(r, nil) == nil && c != nil && c.Status == metav1.ConditionTrue && c.ObservedGeneration == r.Generation && r.Status.Generation > 0 && r.Status.SourceImage == r.Spec.Source.Image && strings.HasSuffix(r.Spec.Source.Image, "@"+r.Status.Digest)
 }
 func MirrorPolicy(m map[string]string, allowed []string) error {
+	approved := make(map[string]bool, len(allowed))
+	for _, host := range allowed {
+		n, err := reference.ParseNormalizedNamed(host + "/brewlet/policy")
+		if host == "" || strings.TrimSpace(host) != host || strings.ContainsAny(host, "/@") || err != nil || reference.Domain(n) != host || n.String() != host+"/brewlet/policy" || approved[host] {
+			return fmt.Errorf("invalid or duplicate mirror allowlist host %q", host)
+		}
+		approved[host] = true
+	}
 	for from, to := range m {
 		// Source keys are exact registry authorities, never repository prefixes.
 		n, err := reference.ParseNormalizedNamed(from + "/brewlet")
@@ -64,7 +71,10 @@ func MirrorPolicy(m map[string]string, allowed []string) error {
 		if err != nil || strings.ContainsAny(to, "@") || strings.HasSuffix(to, "/") || n.String() != to+"/brewlet" {
 			return fmt.Errorf("invalid mirror destination %q", to)
 		}
-		if !slices.Contains(allowed, reference.Domain(n)) {
+		if reference.Domain(n) == from {
+			return fmt.Errorf("self-referential mirror %q", from)
+		}
+		if !approved[reference.Domain(n)] {
 			return fmt.Errorf("mirror host %q not allowed", reference.Domain(n))
 		}
 	}

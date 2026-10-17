@@ -2,7 +2,6 @@ package provisioner
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/distribution/reference"
 	"github.com/microsoft/brewlet/kubernetes/policy"
@@ -26,25 +25,6 @@ func SourceReference(source string, mirrors map[string]string, allowed []string)
 	}
 	if _, tagged := parsed.(reference.Tagged); tagged {
 		return "", fmt.Errorf("source tags forbidden")
-	}
-	allow := map[string]bool{}
-	for _, host := range allowed {
-		if host == "" || strings.TrimSpace(host) != host || strings.ContainsAny(host, "/@ \t\r\n") || strings.Contains(host, "://") || allow[host] {
-			return "", fmt.Errorf("invalid or duplicate mirror allowlist host")
-		}
-		allow[host] = true
-	}
-	for upstream, target := range mirrors {
-		if upstream == "" || strings.TrimSpace(upstream) != upstream || strings.ContainsAny(upstream, "/@ \t\r\n") {
-			return "", fmt.Errorf("invalid source mirror host")
-		}
-		test, err := reference.ParseNormalizedNamed(target + "/probe")
-		if err != nil || test.String() != target+"/probe" {
-			return "", fmt.Errorf("invalid mirror repository prefix")
-		}
-		if !allow[reference.Domain(test)] || reference.Domain(test) == upstream {
-			return "", fmt.Errorf("unapproved or self mirror")
-		}
 	}
 	target, ok := mirrors[reference.Domain(parsed)]
 	if !ok {

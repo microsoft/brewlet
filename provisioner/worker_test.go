@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"testing"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
@@ -68,16 +69,32 @@ func TestInitialFenceDoesNotMutateHost(t *testing.T) {
 	}
 }
 func TestBaselineFailureKeepsHostUntouched(t *testing.T) {
-	w, root := authorityFixture(t)
-	if err := w.Reconcile(context.Background()); err == nil {
-		t.Fatal("accepted missing handler")
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatal("baseline failure published inventory")
+	for _, policy := range []string{"validated", "none"} {
+		t.Run(policy, func(t *testing.T) {
+			w, root := authorityFixture(t)
+			ctx := context.Background()
+			p := new(api.NodeProfile)
+			if err := w.Client.Get(ctx, types.NamespacedName{Name: w.Authority.ProfileName}, p); err != nil {
+				t.Fatal(err)
+			}
+			p.Spec.Rollout.ContainerdRestart = policy
+			snapshot := p.Spec
+			p.Status.ProvisioningSpec = &snapshot
+			p.Status.Targets[0].ContainerdRestart = policy
+			if err := w.Client.Update(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.Reconcile(ctx); err == nil || !strings.Contains(err.Error(), "handler not configured") {
+				t.Fatalf("required baseline validation was bypassed: %v", err)
+			}
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatal("baseline failure published inventory")
+			}
+		})
 	}
 }
 func TestExpiredInventoryApprovalIsNotAuthority(t *testing.T) {

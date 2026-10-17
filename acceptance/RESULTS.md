@@ -221,6 +221,50 @@ overwritten.
 
 ## Executed successfully
 
+Local retained-profile reconciliation found another production inconsistency:
+admission accepted self-referential mirrors and malformed/duplicate mirror
+allowlists that source resolution subsequently rejected. A permanent regression
+first failed on all eight such cases. One shared policy now validates complete
+allowlists and rejects self mirrors before admission, ownership or pull-reference
+creation; duplicate worker-only checks were removed. Valid registry authorities,
+including ports, IPv6 and Docker Hub, remain supported, and digest-preserving
+mirror substitution is unchanged.
+
+Retained pool-conflict/catch-all rules, explicit tolerations, default/validated/
+none rollout policy, exact worker policy preservation and fail-closed
+admission/controller paths now have direct contract coverage. Required handler
+validation runs under both restart policies; `none` is not a validation bypass.
+The complete isolated native Linux/arm64 provisioner suite passed **110
+cases/subcases with zero skips**. This reconciles PROF-02:
+**71 verified, 30 not fully verified**. Fake-API ownership assertions are
+contract evidence, not real scheduling or provider-scaling proof. No new
+real-node suite is claimed while local disk capacity remains insufficient.
+
+```sh
+go test -count=1 -race -mod=readonly ./...
+go vet ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=readonly ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c -mod=readonly \
+  -o "$ARTIFACTS/provisioner-mirror.test" ./provisioner
+docker run --rm --network none --read-only --cap-drop ALL \
+  --cap-add SYS_ADMIN --cap-add MKNOD --security-opt no-new-privileges \
+  --security-opt apparmor=unconfined --tmpfs /work:rw,exec,size=768m \
+  --tmpfs /tmp:rw,exec,size=256m --workdir /work \
+  --mount "type=bind,source=$ARTIFACTS/provisioner-mirror.test,target=/provisioner.test,readonly" \
+  docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 \
+  /provisioner.test -test.v
+```
+
+All commands passed; native output is preserved as
+`provisioner-mirror-native.log` in the session artifacts. `ARTIFACTS` is the
+absolute session artifacts directory, not a shared or repository-root target.
+Only the isolated native kernel tests receive the listed extra capabilities
+and AppArmor setting; application confinement is unchanged. A backed-up,
+completed task-owned build-history reference was released without recovering
+disk capacity. No shared build caches, images or volumes were pruned. Local
+commits remain unpublished to avoid triggering the deferred GitHub Actions.
+
 With shared-cache cleanup not authorized, no further disk-heavy local repeats
 are started while Docker capacity is insufficient. Offline implementation
 hardening found an additional observability gap: successful initial Start

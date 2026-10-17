@@ -3,16 +3,86 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
+
+func TestProfileWorkerPreservesExplicitPlacementAndRolloutPolicy(t *testing.T) {
+	r, p, _ := profileFixture(t)
+	ctx := context.Background()
+	p.Spec.Tolerations = []corev1.Toleration{
+		{Key: api.StartupTaint, Value: "provisioning", Effect: corev1.TaintEffectNoSchedule},
+		{Key: "dedicated", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule},
+	}
+	p.Spec.Registry.Mirrors = map[string]string{"registry.example.com": "mirror.internal/base"}
+	p.Spec.Rollout.MaxUnavailable = 2
+	r.AllowedMirrorHosts = []string{"mirror.internal"}
+	if err := r.Update(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	advance(t, r, p, 6)
+	ds := new(appsv1.DaemonSet)
+	if err := r.Get(ctx, client.ObjectKey{Name: "brewlet-node-provisioner-web", Namespace: r.Namespace}, ds); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(ds.Spec.Template.Spec.Tolerations, p.Spec.Tolerations) {
+		t.Fatalf("worker changed explicit tolerations: %+v", ds.Spec.Template.Spec.Tolerations)
+	}
+	var spec api.NodeProfileSpec
+	if err := json.Unmarshal([]byte(workerEnv(ds, "BREWLET_PROFILE_SPEC")), &spec); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(spec, p.Spec) || workerEnv(ds, "SOURCE_ALLOWED_MIRROR_HOSTS") != `["mirror.internal"]` {
+		t.Fatal("worker lost validated mirror, placement or rollout policy")
+	}
+	if ds.Spec.UpdateStrategy.RollingUpdate == nil || ds.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable == nil || ds.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable.IntValue() != 2 {
+		t.Fatal("worker lost explicit rollout bound")
+	}
+}
+
+func TestInvalidMirrorPolicyCannotGrantClaimsOrCreateWorkers(t *testing.T) {
+	for _, duplicate := range []bool{false, true} {
+		t.Run(fmt.Sprint(duplicate), func(t *testing.T) {
+			r, p, n := profileFixture(t)
+			ctx := context.Background()
+			r.AllowedMirrorHosts = []string{"registry.example.com"}
+			p.Spec.Registry.Mirrors = map[string]string{"registry.example.com": "registry.example.com/base"}
+			if duplicate {
+				p.Spec.Registry.Mirrors = nil
+				r.AllowedMirrorHosts = append(r.AllowedMirrorHosts, r.AllowedMirrorHosts[0])
+			}
+			if err := r.Update(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			advance(t, r, p, 3)
+			if err := r.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(n), n); err != nil {
+				t.Fatal(err)
+			}
+			condition := meta.FindStatusCondition(p.Status.Conditions, "Ready")
+			if condition == nil || condition.Status != metav1.ConditionFalse || len(p.Status.Targets) != 0 || n.Labels[api.OwnerUID] != "" {
+				t.Fatal("invalid mirror policy gained provisioning authority")
+			}
+			err := r.Get(ctx, client.ObjectKey{Name: "brewlet-node-provisioner-web", Namespace: r.Namespace}, new(appsv1.DaemonSet))
+			if !apierrors.IsNotFound(err) {
+				t.Fatalf("invalid mirror policy created a worker: %v", err)
+			}
+		})
+	}
+}
 
 func TestEmptyPoolMetadataFinalizerPatchDoesNotRewriteSpec(t *testing.T) {
 	r, p, n := profileFixture(t)

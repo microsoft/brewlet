@@ -13,6 +13,11 @@ requires literal `BREWLET_PROFILE_UID`, `BREWLET_PROFILE_GENERATION`,
 `BREWLET_PROFILE_NAME`, `BREWLET_MODE`, and JSON `BREWLET_TARGET_UIDS`, and reads
 `NODE_NAME`. `SOURCE_ALLOWED_MIRROR_HOSTS` is a JSON array. Source and mirror
 validation is shared with Kubernetes policy.
+Mirror allowlists contain unique, nonempty registry authorities (optional
+ports are supported), not URLs or repository paths. Mappings must target an
+allowlisted host different from their source host. Admission, reconciliation
+and the worker reject malformed or self-referential policies, including unused
+invalid allowlist entries, before producing any pull reference.
 Runtime platform coverage is checked by the node worker, not by registry I/O in
 admission or the operator. The worker freshly lists known Nodes and valid active
 profiles offering the ID, applies the existing named/default pool selectors,
