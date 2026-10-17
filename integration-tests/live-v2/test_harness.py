@@ -191,6 +191,97 @@ class SafetyTests(ProjectWork):
                          "/etc/containerd/certs.d")
         self.assertNotIn("skip_verify", config["containerdConfigPatches"][0])
 
+    def test_additional_native_worker_starts_with_explicit_startup_fence(self):
+        instance = self.harness()
+        def run(command, **kwargs):
+            if command[:3] == ["kind", "create", "cluster"]:
+                raise h.Failure("stop before creating a real cluster")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        instance.run = mock.Mock(side_effect=run)
+        with self.assertRaisesRegex(h.Failure, "stop before creating"):
+            instance.provision_cluster(workers=1)
+        config = json.loads((self.work / "kind.json").read_text())
+        self.assertEqual(len(config["nodes"]), 2)
+        worker = config["nodes"][1]
+        self.assertEqual(worker["role"], "worker")
+        self.assertEqual(worker["image"], h.NODE_IMAGE)
+        self.assertIn("key: " + h.FENCE, worker["kubeadmConfigPatches"][0])
+        self.assertIn("effect: NoSchedule", worker["kubeadmConfigPatches"][0])
+
+    def test_worker_exec_revalidates_api_uid_and_exact_owned_container(self):
+        instance = self.harness()
+        name = instance.cluster + "-worker"
+        instance.node_containers[name] = CONTAINER
+        instance.node_uids[name] = NODE_UID
+        instance.get = mock.Mock(return_value={"metadata": {"uid": NODE_UID}})
+        info = {**docker_info(kind=True), "Name": "/" + name}
+        instance.run = mock.Mock(side_effect=[
+            subprocess.CompletedProcess([], 0, json.dumps([info]), ""),
+            subprocess.CompletedProcess([], 0, "", "")])
+        instance.node_exec_on(name, "cat", input="")
+        self.assertEqual(instance.run.call_args.args[0], ["docker", "exec", "-i", CONTAINER, "cat"])
+        instance.get.return_value = {"metadata": {"uid": "replacement"}}
+        instance.run.reset_mock()
+        with self.assertRaisesRegex(h.Failure, "Node UID changed"):
+            instance.node_exec_on(name, "true")
+        instance.run.assert_not_called()
+
+    def test_multi_node_destroy_requires_every_recorded_id_and_no_extra_container(self):
+        instance = self.harness()
+        for mutation in ("none", "missing", "extra", "replacement", "foreign", "name"):
+            with self.subTest(mutation=mutation):
+                first, second = instance.cluster + "-control-plane", instance.cluster + "-worker"
+                instance.node_containers = {first: CONTAINER, second: "worker-id"}
+                infos = [{**docker_info(kind=True), "Name": "/" + first},
+                         {**docker_info(kind=True, uid="worker-id"), "Name": "/" + second}]
+                if mutation == "missing":
+                    infos.pop()
+                elif mutation == "extra":
+                    infos.append({**docker_info(kind=True, uid="unexpected"), "Name": "/unexpected"})
+                elif mutation == "replacement":
+                    infos[1]["Id"] = "replacement"
+                elif mutation == "foreign":
+                    infos[1]["Config"]["Labels"] = {}
+                elif mutation == "name":
+                    infos[1]["Name"] = "/different"
+                commands, removed = [], []
+                def run(command, **kwargs):
+                    commands.append(command)
+                    if command[:3] == ["docker", "ps", "-aq"]:
+                        stdout = "" if removed else "\n".join(i["Id"] for i in infos)
+                    elif command[:2] == ["docker", "inspect"]:
+                        stdout = json.dumps([next(i for i in infos if i["Id"] == command[-1])])
+                    else:
+                        if command[:3] == ["kind", "delete", "cluster"]:
+                            removed.append(True)
+                        stdout = ""
+                    return subprocess.CompletedProcess(command, 0, stdout, "")
+                instance.run = run
+                errors = instance.destroy()
+                self.assertEqual(bool(errors), mutation != "none")
+                self.assertEqual(bool(removed), mutation == "none")
+
+    def test_lease_uses_recorded_pod_node_and_refuses_foreign_hosts(self):
+        instance = self.harness()
+        worker = instance.cluster + "-worker"
+        instance.node_containers[worker] = "worker-id"
+        expected = {"taskID": CONTAINER, "namespace": "k8s.io"}
+        response = subprocess.CompletedProcess([], 0, json.dumps(expected), "")
+        instance.node_exec = mock.Mock(return_value=response)
+        instance.node_exec_on = mock.Mock(return_value=response)
+        obj = owned()
+        obj.update(spec={"nodeName": worker}, status={"containerStatuses": [
+            {"containerID": "containerd://" + CONTAINER}]})
+        self.assertEqual(instance.lease(obj), expected)
+        instance.node_exec.assert_not_called()
+        self.assertEqual(instance.node_exec_on.call_args.args,
+                         (worker, "cat", h.STORE + "/.tasks/" + CONTAINER + "/lease.json"))
+        instance.node_exec_on.reset_mock()
+        obj["spec"]["nodeName"] = "foreign-node"
+        with self.assertRaisesRegex(h.Failure, "recorded private Node"):
+            instance.lease(obj)
+        instance.node_exec_on.assert_not_called()
+
     def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
         instance = self.harness()
         result = instance.run([sys.executable, "-c",

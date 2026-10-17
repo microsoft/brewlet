@@ -248,6 +248,8 @@ class Harness:
         self.node = None
         self.node_uid = None
         self.node_container = None
+        self.node_containers = {}
+        self.node_uids = {}
         self.registry_id = None
         self.images = {}
         self.app_images = {}
@@ -280,6 +282,8 @@ class Harness:
         self.result["ownership"] = {"cluster": self.cluster, "context": self.context,
                                     "node": self.node, "nodeUID": self.node_uid,
                                     "nodeContainerID": self.node_container,
+                                    "nodeContainerIDs": self.node_containers,
+                                    "nodeUIDs": self.node_uids,
                                     "registryID": self.registry_id,
                                     "objects": [{"kind": key[0], "namespace": key[1],
                                                  "name": key[2], "uid": uid}
@@ -409,6 +413,18 @@ class Harness:
         stdin = ["-i"] if kwargs.get("input") is not None else []
         return self.run(["docker", "exec", *stdin, self.node_container, *args], **kwargs)
 
+    def node_exec_on(self, name, *args, **kwargs):
+        require(name in self.node_containers and name in self.node_uids,
+                "node execution requires recorded container and API identities")
+        require(self.get("node", name)["metadata"]["uid"] == self.node_uids[name],
+                "private Node UID changed before host execution")
+        container = self.node_containers[name]
+        info = json.loads(self.run(["docker", "inspect", container]).stdout)[0]
+        docker_owned(info, self.run_id, container, kind_node=True)
+        require(info["Name"] == "/" + name, "private Node container name changed")
+        stdin = ["-i"] if kwargs.get("input") is not None else []
+        return self.run(["docker", "exec", *stdin, container, *args], **kwargs)
+
     def ctr(self, *args):
         return self.node_exec("ctr", "-n", "k8s.io", *args).stdout
 
@@ -465,13 +481,23 @@ class Harness:
             for path in pinned_files}
         self.record("mandatory prerequisites and exact kind pin", {"architecture": self.arch})
 
-    def provision_cluster(self):
+    def provision_cluster(self, *, workers=0):
+        require(type(workers) is int and workers in (0, 1),
+                "private acceptance supports zero or one additional native worker")
         # Never use kind's default kubeconfig path, even while creating the cluster.
         config = {"kind": "Cluster", "apiVersion": "kind.x-k8s.io/v1alpha4",
                   "nodes": [{"role": "control-plane", "image": NODE_IMAGE}],
                   "containerdConfigPatches": [
                       '[plugins."io.containerd.grpc.v1.cri".registry]\n'
                       '  config_path = "/etc/containerd/certs.d"\n']}
+        if workers:
+            config["nodes"].append({"role": "worker", "image": NODE_IMAGE,
+                "kubeadmConfigPatches": [
+                    "kind: JoinConfiguration\nnodeRegistration:\n  taints:\n"
+                    "  - key: " + FENCE + "\n    value: provisioning\n    effect: NoSchedule\n"]})
+        expected_names = {self.cluster + "-control-plane"}
+        if workers:
+            expected_names.add(self.cluster + "-worker")
         config_path = self.work / "kind.json"
         config_path.write_text(json.dumps(config))
         existing = self.run(["kind", "get", "clusters"]).stdout.splitlines()
@@ -484,20 +510,35 @@ class Harness:
             # Capture identity even after a partially successful create.
             nodes = self.run(["docker", "ps", "-aq", "--filter",
                               "label=io.x-k8s.kind.cluster=" + self.cluster]).stdout.split()
-            if len(nodes) == 1:
-                info = json.loads(self.run(["docker", "inspect", nodes[0]]).stdout)[0]
-                self.node_container = info["Id"]
-                docker_owned(info, self.run_id, self.node_container, kind_node=True)
-                self.save()
+            for container in nodes:
+                info = json.loads(self.run(["docker", "inspect", container]).stdout)[0]
+                docker_owned(info, self.run_id, info["Id"], kind_node=True)
+                name = info["Name"].removeprefix("/")
+                require(name in expected_names, "unexpected private cluster container name")
+                self.node_containers[name] = info["Id"]
+                if name == self.cluster + "-control-plane":
+                    self.node_container = info["Id"]
+            self.save()
         os.chmod(self.kubeconfig, 0o600)
         require(self.kubectl("config", "current-context").stdout.strip() == self.context,
                 "kind produced an unexpected context")
         nodes = self.get("nodes")["items"]
-        require(len(nodes) == 1, "private cluster must have exactly one node")
-        self.node = nodes[0]["metadata"]["name"]
-        self.node_uid = nodes[0]["metadata"]["uid"]
-        require(self.node == self.cluster + "-control-plane", "unexpected kind node name")
-        require(nodes[0]["metadata"]["labels"]["kubernetes.io/arch"] == self.arch,
+        require({n["metadata"]["name"] for n in nodes} == expected_names
+                and set(self.node_containers) == expected_names,
+                "private cluster node/container inventory differs from requested topology")
+        self.node_uids = {n["metadata"]["name"]: n["metadata"]["uid"] for n in nodes}
+        self.node = self.cluster + "-control-plane"
+        self.node_uid = self.node_uids[self.node]
+        if workers:
+            primary = next(n for n in nodes if n["metadata"]["name"] == self.node)
+            taints = primary.get("spec", {}).get("taints", [])
+            retained = [t for t in taints if t["key"] != "node-role.kubernetes.io/control-plane"]
+            if retained != taints:
+                self.kubectl("patch", "node", self.node, "--type=merge", "-p", json.dumps({
+                    "metadata": {"uid": self.node_uid,
+                                 "resourceVersion": primary["metadata"]["resourceVersion"]},
+                    "spec": {"taints": retained}}))
+        require(all(n["metadata"]["labels"]["kubernetes.io/arch"] == self.arch for n in nodes),
                 "Docker/node architecture mismatch")
         require(self.node_exec("stat", "-fc", "%T", "/sys/fs/cgroup").stdout.strip() == "cgroup2fs",
                 "cgroup v2 is mandatory")
@@ -976,9 +1017,15 @@ class Harness:
         return json.loads(self.node_exec("cat", STORE + "/" + IDS[language] + "/current/metadata.json").stdout)
 
     def lease(self, obj):
+        require_owned(obj, self.run_id)
         container_id = obj["status"]["containerStatuses"][0]["containerID"].removeprefix("containerd://")
         require(bool(re.fullmatch(r"[0-9a-f]{64}", container_id)), "unexpected container identity")
-        lease = json.loads(self.node_exec("cat", STORE + "/.tasks/" + container_id + "/lease.json").stdout)
+        path = STORE + "/.tasks/" + container_id + "/lease.json"
+        node = obj["spec"].get("nodeName")
+        require(node == self.node or node in self.node_containers,
+                "lease inspection requires a recorded private Node")
+        response = self.node_exec("cat", path) if node == self.node else self.node_exec_on(node, "cat", path)
+        lease = json.loads(response.stdout)
         require(lease["taskID"] == container_id and lease["namespace"] == "k8s.io",
                 "durable lease task identity mismatch")
         return lease
@@ -1416,13 +1463,24 @@ class Harness:
     def destroy(self):
         """Disposable-fixture destruction, never evidence of production cleanup."""
         errors = []
-        if self.node_container:
+        if self.node_container or self.node_containers:
             try:
                 nodes = self.run(["docker", "ps", "-aq", "--filter",
                                   "label=io.x-k8s.kind.cluster=" + self.cluster]).stdout.split()
-                require(len(nodes) == 1, "cluster node inventory changed; refusing cluster deletion")
-                info = json.loads(self.run(["docker", "inspect", nodes[0]]).stdout)[0]
-                docker_owned(info, self.run_id, self.node_container, kind_node=True)
+                expected = (self.node_containers or
+                            {self.cluster + "-control-plane": self.node_container})
+                require(len(nodes) == len(expected),
+                        "cluster node inventory changed; refusing cluster deletion")
+                infos = [json.loads(self.run(["docker", "inspect", container]).stdout)[0]
+                         for container in nodes]
+                require({info["Id"] for info in infos} == set(expected.values()),
+                        "cluster node identities changed; refusing cluster deletion")
+                for info in infos:
+                    container = info["Id"]
+                    docker_owned(info, self.run_id, container, kind_node=True)
+                    if self.node_containers:
+                        require(expected.get(info["Name"].removeprefix("/")) == container,
+                                "private cluster container name/identity changed")
                 self.run(["kind", "delete", "cluster", "--name", self.cluster,
                           "--kubeconfig", self.kubeconfig], timeout=180)
                 require(not self.run(["docker", "ps", "-aq", "--filter",

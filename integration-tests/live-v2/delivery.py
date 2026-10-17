@@ -435,32 +435,36 @@ auth:
                 "producer/node-authority target digest changed")
         return canonical(self.authority, repository, descriptor["digest"])
 
-    def node_private_file(self, authority, name, data):
+    def node_private_file(self, authority, name, data, *, node=None):
         require(authority in (self.authority, self.untrusted_authority),
                 "trust mutation outside invocation registry")
         require(name in ("ca.crt", "hosts.toml", "credentials.json"), "invalid trusted host file")
+        execute = self.h.node_exec if node is None else (
+            lambda *args, **kwargs: self.h.node_exec_on(node, *args, **kwargs))
         directory = "/etc/containerd/certs.d/" + authority
-        self.h.node_exec("mkdir", "-p", directory)
-        self.h.node_exec("chmod", "0700", directory)
-        self.h.node_exec("sh", "-ec", 'umask 077; cat > "$1"', "delivery",
-                         directory + "/" + name, input=data)
-        observed = self.h.node_exec("sha256sum", directory + "/" + name).stdout.split()
+        execute("mkdir", "-p", directory)
+        execute("chmod", "0700", directory)
+        execute("sh", "-ec", 'umask 077; cat > "$1"', "delivery",
+                directory + "/" + name, input=data)
+        observed = execute("sha256sum", directory + "/" + name).stdout.split()
         require(observed and observed[0] == hashlib.sha256(data.encode()).hexdigest(),
                 "node registry file readback differs from the supplied bytes")
 
-    def configure_node(self):
-        self.node_private_file(self.authority, "ca.crt", (self.work / "ca.crt").read_text())
+    def configure_node(self, node=None):
+        self.node_private_file(self.authority, "ca.crt", (self.work / "ca.crt").read_text(), node=node)
         self.node_private_file(self.authority, "hosts.toml",
             f'server = "https://{self.authority}"\n[host."https://{self.authority}"]\n'
-            '  capabilities = ["pull", "resolve"]\n  ca = "ca.crt"\n')
+            '  capabilities = ["pull", "resolve"]\n  ca = "ca.crt"\n', node=node)
         # CRI ignores this file: only the worker resolver reads it. Kubelet
         # authorization MUST come from the workload's imagePullSecrets.
         self.node_private_file(self.authority, "credentials.json",
-                               json.dumps({"username": USERNAME, "password": self.password}))
-        config = self.h.node_exec("cat", "/etc/containerd/config.toml").stdout
+                               json.dumps({"username": USERNAME, "password": self.password}), node=node)
+        config = (self.h.node_exec("cat", "/etc/containerd/config.toml") if node is None else
+                  self.h.node_exec_on(node, "cat", "/etc/containerd/config.toml")).stdout
         require("/etc/containerd/certs.d" in config,
                 "containerd CRI trusted host config_path is not configured")
-        self.install_pull_secret(self.h.namespace)
+        if node is None:
+            self.install_pull_secret(self.h.namespace)
 
     def install_pull_secret(self, namespace):
         key = ("namespace", "", namespace)

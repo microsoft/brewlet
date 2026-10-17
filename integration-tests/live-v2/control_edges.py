@@ -589,17 +589,20 @@ class ControlEdges:
                         "actual restart workload RBAC does not match release opt-in: "
                         + verb + " " + resource)
 
-    def enable(self):
+    def enable(self, *, workload_deadline=30):
+        require(type(workload_deadline) is int and 1 <= workload_deadline <= 600,
+                "invalid real workload deadline")
         self.helm(["upgrade", self.h.cluster, ROOT / "kubernetes/charts/brewlet",
                    "-n", self.h.control_namespace, "--reuse-values", "--wait", "--timeout", "180s",
                    "--set", "operator.rotationRestarts.enabled=true",
                    "--set", "operator.rotationRestarts.maxConcurrent=1",
                    "--set-string", "operator.rotationRestarts.nodeProgressDeadline=30s",
-                   "--set-string", "operator.rotationRestarts.workloadProgressDeadline=30s"])
+                   "--set-string", "operator.rotationRestarts.workloadProgressDeadline="
+                   + str(workload_deadline) + "s"])
         self.enabled = True
         values = self.release_values()["operator"]["rotationRestarts"]
         require(values["enabled"] is True and values["maxConcurrent"] == 1
-                and values["workloadProgressDeadline"] == "30s"
+                and values["workloadProgressDeadline"] == str(workload_deadline) + "s"
                 and values["nodeProgressDeadline"] == "30s", "real chart settings not installed")
         self.check_rbac(True)
 

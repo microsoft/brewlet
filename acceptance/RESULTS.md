@@ -44,6 +44,16 @@ Physical recreated-Node cleanup, genuine late alternate-native capacity/provider
 autoscaling, controlled cold-install deadlines, stale pins through production
 uninstall and the remaining detailed ledger obligations are still unverified.
 
+The next separately executed case is
+`python3 integration-tests/live-v2/cold_install.py --work integration-tests/live-v2/NEW_COLD_RUN`.
+It creates two actual native nodes and uses an authenticated TLS proxy to hold
+one fresh runtime layer beyond the real workload deadline. The initial topology
+probe has verified the additional worker's boot-time startup taint,
+Node/container UID-bound host access and exact two-container destruction.
+The transfer/deadline/recovery assertions are implemented and offline safeguards
+pass, but the actual cold-install case has not yet passed and does not promote
+ROT-09 or ROT-10.
+
 ## Reference and branch
 
 Reference main: `fa7085335b220e29df6affbece4558c5f1259ecb`.
@@ -69,7 +79,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 229 passing offline tests; those
+The live-driver safeguards currently include 237 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 

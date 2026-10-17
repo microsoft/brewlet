@@ -20,6 +20,27 @@ from the repository's default branch, so this orphan branch does not claim
 automatic nightly execution. The job uploads only classified `result.json`
 files, never the private work directories.
 
+The separate cold-install case uses two actual native nodes:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/cold_install.py \
+  --work integration-tests/live-v2/run-cold-20261016-01
+```
+
+Its additional worker joins with a real startup taint and no offered pool.
+After old workloads are running on the first node, it is enrolled as a genuinely
+cold OnDemand node. A registry proxy preserves TLS verification and registry
+authentication while withholding one fresh runtime layer. Cordoning the old
+host makes native restart-created Pods land on the cold worker. The case holds
+that real transfer beyond a 60-second workload deadline (longer than the shim's
+30-second Create wait), requires Pod UID/node/barrier installation diagnostics
+and concurrency-slot release, then releases the transfer and requires actual
+latest-generation execution without another template patch. Neither protected
+runtime records nor clocks are edited. This is not alternate-architecture or
+provider-autoscaling proof. The manual E2E workflow runs this case after the
+combined selected suite. Both exact-owned node/container identities are checked
+before host access and fixture destruction.
+
 ## Prerequisites and immutable inputs
 
 Use a Linux Docker engine (native Linux or Docker Desktop) on amd64 or arm64,
