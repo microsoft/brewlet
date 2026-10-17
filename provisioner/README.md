@@ -137,6 +137,12 @@ every offered/affected ID, including installed OnDemand IDs; recovery cannot
 reclassify a formerly installed ID as cold or reclaim it through idle TTL to
 bypass the check. A genuinely cold OnDemand entry can recover as `available`
 with latest authorization without fetching a root.
+The diagnostic inventory records `installed` independently of the advertised
+approval generation. A cold `available` entry has the current approved generation
+but `installed: false`; it is not a rotation participant. A validated current
+publishes `installed: true`, and retained installed evidence keeps a retrying
+OnDemand node in the participant set. Publication rejects a contradictory
+installation flag rather than inferring root presence from a positive generation.
 
 The worker checks all IDs before publication and repeats the checks after
 advertisement readback, before removing the startup fence. Target changes in an

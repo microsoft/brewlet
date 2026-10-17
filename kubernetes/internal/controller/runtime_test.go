@@ -97,17 +97,18 @@ func TestRotationInstalledRetryParticipantAndConfirmedExclusion(t *testing.T) {
 	p := &api.NodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "web", UID: "profile", Generation: 1}, Spec: spec, Status: api.NodeProfileStatus{OwnershipInitialized: true, ProvisioningGeneration: 1, ProvisioningSpec: &spec}}
 	for _, name := range []string{"warm", "retry", "cold", "cordoned"} {
 		n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, UID: typesUID(name), Labels: map[string]string{api.OwnerUID: "profile", api.OwnerNodeUID: name, api.RuntimeLabel: "ready", "brewlet.sh/runtime." + im.Name: "ready"}, Annotations: map[string]string{api.OwnerName: "web"}}, Status: corev1.NodeStatus{Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}}}
-		local := api.NodeRuntime{Install: "OnDemand", State: "ready", InventoryUID: im.UID, Generation: im.Status.Generation, Digest: im.Status.Digest}
+		local := api.NodeRuntime{Install: "OnDemand", State: "ready", Installed: true, InventoryUID: im.UID, Generation: im.Status.Generation, Digest: im.Status.Digest}
 		if name == "retry" {
 			local.State = "failed"
 		}
 		if name == "cold" {
-			local.Generation = 0
 			local.State = "available"
+			local.Installed = false
 		}
 		if name == "cordoned" {
 			n.Spec.Unschedulable = true
 			local.Generation = 0
+			local.Installed = false
 		}
 		b, _ := json.Marshal(map[string]api.NodeRuntime{im.Name: local})
 		n.Annotations[api.InventoryAnnotation] = string(b)
@@ -127,7 +128,7 @@ func TestRotationInstalledRetryParticipantAndConfirmedExclusion(t *testing.T) {
 	}
 	n := new(corev1.Node)
 	_ = r.Get(ctx, client.ObjectKey{Name: "retry"}, n)
-	b, _ := json.Marshal(map[string]api.NodeRuntime{im.Name: {Install: "OnDemand", State: "ready", InventoryUID: im.UID, Generation: im.Status.Generation, Digest: im.Status.Digest}})
+	b, _ := json.Marshal(map[string]api.NodeRuntime{im.Name: {Install: "OnDemand", State: "ready", Installed: true, InventoryUID: im.UID, Generation: im.Status.Generation, Digest: im.Status.Digest}})
 	n.Annotations[api.InventoryAnnotation] = string(b)
 	_ = r.Update(ctx, n)
 	// A cordoned installed entry must be fenced and retained as excluded.

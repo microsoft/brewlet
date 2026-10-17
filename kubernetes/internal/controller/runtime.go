@@ -292,10 +292,10 @@ func (r *RuntimeReconciler) rotation(ctx context.Context, im *api.RuntimeImage) 
 		if err != nil {
 			return fmt.Errorf("invalid node inventory %s: %w", n.Name, err)
 		}
-		local, installed := inventory[im.Name]
+		local, advertised := inventory[im.Name]
 		// An installed OnDemand runtime remains a participant while retrying.
-		// Generation evidence, not state=ready, proves prior installation.
-		if mode == "OnDemand" && (!installed || local.Generation == 0) {
+		// A cold available entry also advertises its approved generation.
+		if mode == "OnDemand" && (!advertised || !local.Installed) {
 			continue
 		}
 		obs := api.RotationNode{Name: n.Name, UID: n.UID, ObservedGeneration: local.Generation}

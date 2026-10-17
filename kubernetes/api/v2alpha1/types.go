@@ -281,6 +281,7 @@ func (e *NodeRetirementEvidenceList) DeepCopyObject() runtime.Object { return cl
 type NodeRuntime struct {
 	Install      string    `json:"install"`
 	State        string    `json:"state"`
+	Installed    bool      `json:"installed"`
 	InventoryUID types.UID `json:"inventoryUID"`
 	Generation   int64     `json:"generation"`
 	Digest       string    `json:"digest"`

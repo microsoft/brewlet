@@ -36,13 +36,18 @@ unverified cases rather than those stale strings; the current ledger below
 remains authoritative.
 
 **This is selected-suite success, not complete Proposal 0009 acceptance.**
-The ledger has **43 verified and 58 not fully verified requirements**.
+The ledger has **44 verified and 57 not fully verified requirements**.
 Only four additional complete rows were promoted from this run: INV-06,
 OD-06, E2E-02 and E2E-08. Worker recovery is not proof of recovery after killing
 the shim task-server; normal backend exec drain is not forced orphan survival.
 Physical recreated-Node cleanup, genuine late alternate-native capacity/provider
 autoscaling, controlled cold-install deadlines, stale pins through production
 uninstall and the remaining detailed ledger obligations are still unverified.
+INV-03 was separately reconciled using the allocation-journal contracts:
+controller reconstruction, pruned status, interrupted A/B/A and missing-history
+fail-closed checks passed, along with local digest/generation reuse refusal.
+Those contract tests complement actual monotonic rotations in run 24; they
+are not being presented as real-node scheduling or physical-host recovery proof.
 
 The next separately executed case is
 `python3 integration-tests/live-v2/cold_install.py --work integration-tests/live-v2/NEW_COLD_RUN`.
@@ -53,6 +58,19 @@ Node/container UID-bound host access and exact two-container destruction.
 The transfer/deadline/recovery assertions are implemented and offline safeguards
 pass, but the actual cold-install case has not yet passed and does not promote
 ROT-09 or ROT-10.
+The first actual execution, `run-cold-25`, failed before restart admission:
+the controller incorrectly treated a cold `available` node's positive approved
+generation as proof of an installed root, so it waited for that node to install
+before completing rotation. The cold root was genuinely absent and the worker
+had never received an install request. The inventory now publishes explicit
+`installed` evidence independently of approval generation; the controller
+excludes genuinely cold OnDemand entries but retains installed retrying entries.
+Publication validates the flag against the ready/available state and actual
+local-current checks. The regression uses the real positive-generation cold
+shape, not the previous unrealistic zero-generation fixture. Native Linux
+publication/all-ID recovery contracts passed without skips. Run 25's exact
+two-node fixture destruction passed; cold deadline/recovery proof remains pending
+the corrected execution.
 
 ## Reference and branch
 

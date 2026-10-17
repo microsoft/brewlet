@@ -161,6 +161,9 @@ func (w *Worker) validatePublication(ctx context.Context, s *control.Snapshot, i
 		if !exists || state.Install != entry.Mode() || (state.State != "ready" && state.State != "available") {
 			return p, fmt.Errorf("node-advertisement-failed: approved runtime %s lacks valid proposed state", id)
 		}
+		if state.Installed != (state.State == "ready") {
+			return p, fmt.Errorf("node-advertisement-failed: installation evidence contradicts capability for %s", id)
+		}
 		if err := w.validateRuntimePlatforms(ctx, r); err != nil {
 			return p, err
 		}

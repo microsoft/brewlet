@@ -99,7 +99,7 @@ func setRecoveryCurrent(t *testing.T, w *Worker, id, mode string, generation int
 	if err := os.Symlink(filepath.Join(uid, strconv.FormatInt(generation, 10)), pointer); err != nil {
 		t.Fatal(err)
 	}
-	return api.NodeRuntime{Install: mode, State: "ready", InventoryUID: types.UID(uid), Generation: generation, Digest: digest}
+	return api.NodeRuntime{Install: mode, State: "ready", Installed: true, InventoryUID: types.UID(uid), Generation: generation, Digest: digest}
 }
 
 func TestRecoveryQuarantineRejectsOldCurrentButHealthyRotationAllowsIt(t *testing.T) {
@@ -108,6 +108,7 @@ func TestRecoveryQuarantineRejectsOldCurrentButHealthyRotationAllowsIt(t *testin
 	if err := w.publish(ctx, inventory); err != nil {
 		t.Fatal("healthy compatible old current rejected", err)
 	}
+
 	r := new(api.RuntimeImage)
 	if err := w.Client.Get(ctx, client.ObjectKey{Name: "static"}, r); err != nil {
 		t.Fatal(err)
@@ -136,6 +137,22 @@ func TestRecoveryQuarantineRejectsOldCurrentButHealthyRotationAllowsIt(t *testin
 	inventory["static"] = setRecoveryCurrent(t, w, "static", "Eager", 2, r.Status.Digest)
 	if err := w.publish(ctx, inventory); err != nil {
 		t.Fatal("latest recovered generation could not rejoin", err)
+	}
+}
+
+func TestPublicationRejectsContradictoryInstallationEvidence(t *testing.T) {
+	for _, state := range []string{"ready", "available"} {
+		t.Run(state, func(t *testing.T) {
+			w, inventory := recoveryFixture(t, map[string]string{"static": "OnDemand"}, false)
+			value := inventory["static"]
+			value.State = state
+			value.Installed = state != "ready"
+			inventory["static"] = value
+			err := w.publish(context.Background(), inventory)
+			if err == nil || !strings.Contains(err.Error(), "installation evidence contradicts capability") {
+				t.Fatalf("contradictory installation evidence accepted: %v", err)
+			}
+		})
 	}
 }
 

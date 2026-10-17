@@ -363,7 +363,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 				return err
 			}
 		}
-		inventory[entry.ID] = api.NodeRuntime{Install: entry.Install, State: state, InventoryUID: r.UID, Generation: r.Status.Generation, Digest: r.Status.Digest}
+		inventory[entry.ID] = api.NodeRuntime{Install: entry.Install, State: state, Installed: state == "ready", InventoryUID: r.UID, Generation: r.Status.Generation, Digest: r.Status.Digest}
 	}
 	for _, id := range requests {
 		if !offered[id] {

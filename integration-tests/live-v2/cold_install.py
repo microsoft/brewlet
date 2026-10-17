@@ -4,12 +4,13 @@
 import argparse
 import json
 from pathlib import Path
+import signal
 import time
 
 from control_edges import (ControlEdges, barrier_for, blocked_pod_evidence, restart_record,
                            timestamp, verify_pacing)
 import delivery
-from harness import FENCE, STORE, Harness, require
+from harness import FENCE, STORE, Failure, Harness, require
 from transfer_gate import TransferGate
 
 
@@ -50,7 +51,10 @@ def exercise(h, control, gate):
 
     def cold_available():
         obj = h.get("node", worker)
+        inventory = json.loads(obj["metadata"].get("annotations", {}).get(
+            "brewlet.sh/runtime-images", "{}"))
         return (obj["metadata"].get("labels", {}).get("brewlet.sh/runtime." + rid) == "available"
+                and inventory.get(rid, {}).get("installed") is False
                 and not any(t["key"] == FENCE for t in obj["spec"].get("taints", [])))
 
     h.wait("genuine cold worker baseline/claim/fence release", cold_available)
@@ -194,4 +198,8 @@ def run(work):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work", required=True, type=Path)
+    def interrupted(signum, frame):
+        raise Failure("cold-install acceptance interrupted by signal " + str(signum))
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     raise SystemExit(run(parser.parse_args().work))
