@@ -1,0 +1,326 @@
+{
+  "outcome": "passed",
+  "scope": "real-node-execution-only",
+  "selectedScenario": "control",
+  "selectedLanguages": [
+    "python"
+  ],
+  "cleanSelectedSuitePassed": true,
+  "fullAcceptance": false,
+  "checkout": "1fb1b6df55d3e45b44e356710dac33f55e751931",
+  "productionSourceManifestSHA256": "bea640105ec68a02a72493b7e2de9a661ad24c43a43aa289a8b4b388d235c472",
+  "architecture": "arm64",
+  "kubeletPullVerified": false,
+  "tlsTransportVerified": false,
+  "providerScaleFromZeroVerified": false,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "python": "172.18.0.11:5000/delivery/apps-python@sha256:f4e738457f6ce3b3646aea59f74ffe350a18a7c0e49eb45c30b7d991328e3cec"
+  },
+  "runtimeImages": {
+    "python": {
+      "before": "172.18.0.11:5000/delivery/runtime-python-before@sha256:445d33e2dc332b0b7cc01ab18750000e75c0edf23e5cbf10b34f022a72afe1e3",
+      "after": "172.18.0.11:5000/delivery/runtime-python-after@sha256:231d20b71889b70e1a4e9228b06759997825bbffb358b7441ca0bad7ce136cdd"
+    }
+  },
+  "runtimeVendorInputs": {
+    "java": {
+      "probe": [
+        "java",
+        "-version"
+      ],
+      "before": {
+        "image": "docker.io/library/eclipse-temurin@sha256:9eb51387a4badf1a874e655d130538b89dfe16a3dab24fb9a4a6e2b08778411c",
+        "version": "21.0.7"
+      },
+      "after": {
+        "image": "docker.io/library/eclipse-temurin@sha256:20e7f7288e1c18eebe8f06a442c9f7183342d9b022d3b9a9677cae2b558ddddd",
+        "version": "21.0.8"
+      }
+    },
+    "python": {
+      "probe": [
+        "python3",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/python@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419",
+        "version": "Python 3.13.5"
+      },
+      "after": {
+        "image": "docker.io/library/python@sha256:2b09112b54420d2e3e814f2cbe34e8e54d32b8c5abd4e72e89cda4758fc6400a",
+        "version": "Python 3.13.6"
+      }
+    },
+    "node": {
+      "probe": [
+        "node",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/node@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0",
+        "version": "v22.17.0"
+      },
+      "after": {
+        "image": "docker.io/library/node@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+        "version": "v22.18.0"
+      }
+    },
+    "dotnet": {
+      "probe": [
+        "dotnet",
+        "--list-runtimes"
+      ],
+      "before": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:d13bea17080a4fea1a7295a4fe29240123b1bf955a78ae08480d07bdf09496db",
+        "version": "Microsoft.NETCore.App 10.0.0 "
+      },
+      "after": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:3b5f026262a6ba63d1b82f2b98949506f4a89956244568a8bc682b4af9c48548",
+        "version": "Microsoft.NETCore.App 10.0.1 "
+      }
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
+    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
+    "E2E-06/07/08 real admission interceptor disabled explicitly",
+    "Local fixture selection omits java, node, dotnet execution and rotation",
+    "Focused control execution omits CRI accounting, formal remote-delivery negatives, Maven node producer, container-role and lifecycle callbacks and companion suites",
+    "E2E-09 recreatedNodes/foreign physical-host refusal: needs another real owned worker; fixture Node UID/API CAS below is not production claim-release or host-cleanup proof. Real claim-release CAS requires parent before_cleanup/after_cleanup hooks and is not covered by execute alone",
+    "ROT-09 cold-install deadline/recovery: needs a real runtime registry transfer gate held beyond workloadProgressDeadline; no fabricated RuntimeImageInstalling/status/timestamps are accepted",
+    "FENCE-04 production uninstall while stale provider pins remain: callback proves live retention/recovery, not uninstall retention"
+  ],
+  "assertions": [
+    {
+      "name": "mandatory prerequisites and exact kind pin",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "isolated kind node and owned registry",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "python explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "zero-node warning, architecture selector and multi-term/empty affinity preservation",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-01",
+        "E2E-04",
+        "ADM-02"
+      ]
+    },
+    {
+      "name": "actual startup taint blocks application scheduling before provisioning",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-03"
+      ]
+    },
+    {
+      "name": "OnDemand-only baseline advertises available with no current roots",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-02",
+        "PROF-03",
+        "FENCE-01"
+      ]
+    },
+    {
+      "name": "python real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04",
+        "RC-01"
+      ]
+    },
+    {
+      "name": "python Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "python custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "root-bound rejects start: RootNotSupported",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "privilege-bound rejects start: PrivilegeEscalationNotSupported",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-malformed rejects start: InvalidRuntimeGeneration",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-duplicate-generation rejects start: InvalidRuntimeGeneration",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-duplicate-id rejects start: InvalidRuntimeGeneration",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-epoch rejects start: RuntimeImageEpochMismatch",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-future rejects start: RuntimeImageUpdating",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "python source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "real initial/rotated task events and metrics retain exact runtime and Pod identities",
+      "outcome": "passed",
+      "requirements": [
+        "OBS-01",
+        "OBS-02",
+        "OBS-03"
+      ]
+    },
+    {
+      "name": "real API rejects stale resourceVersion and old UID on recreated fixture Node",
+      "outcome": "passed",
+      "requirements": [
+        "API-CAS"
+      ]
+    },
+    {
+      "name": "approved Eager root failure blocks real readiness and scheduling until profile correction",
+      "outcome": "passed",
+      "requirements": [
+        "PROF-03"
+      ]
+    },
+    {
+      "name": "real release default denies workload patch and leaves opted-in old pods intact",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-01",
+        "ROT-06"
+      ]
+    },
+    {
+      "name": "actual native strategy matrix, previous-epoch refusal and idempotent barriers",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-01",
+        "ROT-06",
+        "ROT-07",
+        "ROT-08"
+      ]
+    },
+    {
+      "name": "new genuine rotation supersedes deferred target without resuming paused workload",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-08"
+      ]
+    },
+    {
+      "name": "cluster-wide maxConcurrent=1 across two runtime IDs; real unready rollouts time out",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-06",
+        "ROT-09"
+      ]
+    },
+    {
+      "name": "already-bound native replacement defers with actual Pod UID/node/minimum",
+      "outcome": "passed",
+      "requirements": [
+        "ROT-05",
+        "ROT-09"
+      ]
+    },
+    {
+      "name": "real TLS provider refuses OnDemand/stale capabilities; all-ID fence retention/recovery",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-06",
+        "E2E-08",
+        "OD-06",
+        "FENCE-04"
+      ]
+    },
+    {
+      "name": "production profile deletion preserves active roots, finalizer and UID claim",
+      "outcome": "passed",
+      "requirements": [
+        "LEASE-03",
+        "OWN-02"
+      ]
+    },
+    {
+      "name": "production cleanup drains workloads before root/finalizer/claim release",
+      "outcome": "passed",
+      "requirements": [
+        "OWN-02",
+        "LEASE-03"
+      ]
+    },
+    {
+      "name": "real controller claim-release PUT hits API CAS conflict, freshly revalidates and releases",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-09",
+        "OWN-02"
+      ]
+    }
+  ]
+}

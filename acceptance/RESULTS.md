@@ -221,6 +221,26 @@ overwritten.
 
 ## Executed successfully
 
+The strict JSON fix passed physical bound-Pod verification:
+`run-local-strict-control-55` at `1fb1b6df` completed **29/29 selected assertions**
+and production/fixture cleanup. Duplicate ID and duplicate generation fields
+were rejected by the real shim with `InvalidRuntimeGeneration`; ordinary
+epoch/future barriers, runtime rotation and controller behavior still passed.
+[`Strict-barrier receipt`](results/clean-local-strict-barriers-arm64.json).
+Together with exact-int64/parser contracts and the real recreated-inventory
+epoch refusal in lifecycle run 51, this closes ROT-07:
+**70 verified, 31 not fully verified**.
+
+The following Java repeat stopped at a writable-volume I/O error before
+rotation. Live inspection confirmed Docker's Linux filesystem again had
+**zero unreserved available bytes**, with plentiful inodes. This is not
+reclassified as a parser failure or a successful runtime repeat. Only the
+failed invocation's exact-owned resources were removed; available space
+recovered to **2,441,465,856 bytes**, still insufficient for a safe Java repeat.
+The [failed Java receipt](results/local-java-disk-exhaustion-arm64.json) is
+preserved; Node.js/.NET queued behind it did not execute. No shared build cache,
+images or volumes were pruned, and no non-root or storage safeguards changed.
+
 **The worker-health fix is verified by real local accounting.** Run 53 passed
 **19/19** selected assertions with unchanged safeguards: CRI writable snapshot
 usage grew from **8,192** to **16,789,504 bytes** after the bounded 16 MiB write;
