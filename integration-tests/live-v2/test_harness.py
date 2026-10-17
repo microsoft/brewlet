@@ -302,6 +302,40 @@ class SafetyTests(ProjectWork):
             instance.lease(obj, "native")
         instance.node_exec.assert_not_called()
 
+    def test_external_worker_decommission_is_exact_and_preserves_identity_history(self):
+        instance = self.harness()
+        name = instance.cluster + "-worker"
+        instance.node_containers = {instance.node: "primary-id", name: CONTAINER}
+        instance.node_uids[name] = "old-worker"
+        node = {"metadata": {"name": name, "uid": "old-worker"}}
+        instance.get = mock.Mock(return_value=node)
+        instance.run = mock.Mock(side_effect=[
+            subprocess.CompletedProcess([], 0, json.dumps([
+                {**docker_info(kind=True), "Name": "/" + name}]), ""),
+            subprocess.CompletedProcess([], 0, CONTAINER, ""),
+            subprocess.CompletedProcess([], 1, "", "No such container")])
+        frozen, container = instance.decommission_worker(name)
+        self.assertEqual(frozen, node)
+        self.assertEqual(container, CONTAINER)
+        self.assertEqual(instance.run.call_args_list[1].args[0],
+                         ["docker", "rm", "-f", "-v", CONTAINER])
+        self.assertEqual(instance.node_containers, {instance.node: "primary-id"})
+        self.assertEqual(instance.retired_node_containers[name], CONTAINER)
+        self.assertEqual(instance.node_uids[name], "old-worker")
+
+    def test_external_decommission_refuses_control_plane_and_recreated_worker(self):
+        instance = self.harness()
+        instance.run = mock.Mock()
+        with self.assertRaisesRegex(h.Failure, "never the control plane"):
+            instance.decommission_worker(instance.node)
+        name = instance.cluster + "-worker"
+        instance.node_containers[name] = CONTAINER
+        instance.node_uids[name] = "old-worker"
+        instance.get = mock.Mock(return_value={"metadata": {"uid": "replacement"}})
+        with self.assertRaisesRegex(h.Failure, "Node UID changed"):
+            instance.decommission_worker(name)
+        instance.run.assert_not_called()
+
     def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
         instance = self.harness()
         result = instance.run([sys.executable, "-c",

@@ -43,6 +43,24 @@ before host access and fixture destruction.
 
 ## Prerequisites and immutable inputs
 
+Physical missing-host obligations and independent administrative evidence have
+their own actual-node case:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/retirement.py \
+  --work integration-tests/live-v2/run-retirement-20261016-01
+```
+
+It permanently removes only the recorded extra worker's exact Docker container
+and volumes, never the control plane, then removes the exact original Node UID.
+The replacement must serve on a different real Node before any external evidence
+exists. Original missing-host history must block deletion/uninstall even after
+replacement tasks drain. A separate initially unbound actor must be denied
+retirement creation, then explicitly bound to the chart's attestor role before
+attesting the actually destroyed instance. Accepted immutable evidence must
+survive profile deletion and real uninstall. This is external decommission
+resolution, not invented host-cleanup proof or returning-hardware verification.
+
 The stale-pin uninstall case creates its profile through the actual Helm chart,
 not by fabricating release ownership:
 

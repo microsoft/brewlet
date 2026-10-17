@@ -54,11 +54,7 @@ def blocked_cleanup(h, uid, stale):
     return profile
 
 
-def exercise(h):
-    h.kubectl("label", "node", h.node, "brewlet.test/pool=" + h.run_id)
-    h.kubectl("taint", "node", h.node, FENCE + "=provisioning:NoSchedule")
-    spec = h.profile_object()["spec"]
-    spec["runtimeImages"] = [{"id": IDS["python"], "install": "Eager"}]
+def install_chart_profile(h, spec):
     values = h.work / "helm-owned-profile.json"
     values.write_text(json.dumps({"provisioner": {"profiles": [{"name": h.profile, "spec": spec}]},
                                  "uninstall": {"timeoutSeconds": 15}}))
@@ -76,6 +72,15 @@ def exercise(h):
         {"op": "test", "path": "/metadata/labels/app.kubernetes.io~1managed-by", "value": "Helm"},
         {"op": "add", "path": "/metadata/labels/" + OWNER.replace("/", "~1"), "value": h.run_id}]))
     h.owned[("nodeprofile", "", h.profile)] = uid
+    return uid
+
+
+def exercise(h):
+    h.kubectl("label", "node", h.node, "brewlet.test/pool=" + h.run_id)
+    h.kubectl("taint", "node", h.node, FENCE + "=provisioning:NoSchedule")
+    spec = h.profile_object()["spec"]
+    spec["runtimeImages"] = [{"id": IDS["python"], "install": "Eager"}]
+    uid = install_chart_profile(h, spec)
     h.wait("actual chart-owned Eager root ready", lambda: h.advertised(IDS["python"], "ready"))
     h.apply(h.pod("uninstall-active", "python"))
     pod = h.wait("real task holds root during uninstall", lambda: h.ready("uninstall-active"))

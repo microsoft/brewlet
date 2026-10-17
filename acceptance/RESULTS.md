@@ -41,12 +41,12 @@ unverified cases rather than those stale strings; the current ledger below
 remains authoritative.
 
 **This is selected-suite success, not complete Proposal 0009 acceptance.**
-The ledger has **48 verified and 53 not fully verified requirements**.
+The ledger has **51 verified and 50 not fully verified requirements**.
 Four complete rows were promoted from run 24: INV-06,
 OD-06, E2E-02 and E2E-08. Worker recovery is not proof of recovery after killing
 the shim task-server; normal backend exec drain is not forced orphan survival.
-Physical recreated-Node cleanup, stale pins through production
-uninstall and the remaining detailed ledger obligations are still unverified.
+Physical recreated-Node cleanup and the remaining detailed ledger obligations
+are still unverified. Stale-pin production uninstall passed separately in run 35.
 Cold installation deadline/recovery passed separately in run 27 and verifies
 ROT-10. No actual provider autoscaler or alternate-hardware join is claimed.
 INV-03 was separately reconciled using the allocation-journal contracts:
@@ -181,6 +181,23 @@ toleration. Rendered contracts verify the exact toleration and absence of
 application RuntimeClass, host namespaces, privilege escalation and capabilities.
 Application toleration rejection is unchanged. Corrected complete actual
 uninstall remains unverified.
+`run-uninstall-35` passed all **9** selected assertions at
+`a37f8f8564777a2f639b97d55e0948831043c7ed`, production manifest
+`2c419e9611fd1111468da1cbb4eddd7e7543574c689f2584b4ebd593f7e20943`.
+The actual failed Helm hooks retained the operator, cleanup RBAC, profile
+finalizer, UID claim, active leased root and confirmed startup fence. After real
+task drain, the stale provider pin still blocked uninstall. Only explicit pool
+correction enabled normal controller/worker teardown and unforced successful
+Helm removal. Fixture destruction separately passed.
+[`results/pinned-uninstall.json`](results/pinned-uninstall.json) preserves the
+sanitized result. Together with prior actual OnDemand/pin recovery and scoped
+coordinator contracts, this verifies E2E-06, FENCE-04 and OWN-04.
+
+The next `retirement.py` case implements real exact-owned worker destruction,
+fresh replacement serving before evidence, preserved missing-host obligations,
+explicit attestor RBAC and immutable history across profile deletion/uninstall.
+Its safety/identity guards pass offline; actual execution is pending, so it
+does not yet verify detached physical-host retirement or returning-host fencing.
 
 ## Reference and branch
 
@@ -207,7 +224,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 260 passing offline tests; those
+The live-driver safeguards currently include 263 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 

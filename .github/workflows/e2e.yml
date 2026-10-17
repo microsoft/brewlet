@@ -58,6 +58,10 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/pinned_uninstall.py --work integration-tests/live-v2/run-uninstall-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Real worker decommission, replacement and retained external history
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 integration-tests/live-v2/retirement.py --work integration-tests/live-v2/run-retirement-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Retain classified results only, never kubeconfigs or keys
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

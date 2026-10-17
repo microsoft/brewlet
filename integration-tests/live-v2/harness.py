@@ -249,6 +249,7 @@ class Harness:
         self.node_uid = None
         self.node_container = None
         self.node_containers = {}
+        self.retired_node_containers = {}
         self.node_uids = {}
         self.registry_id = None
         self.images = {}
@@ -283,6 +284,7 @@ class Harness:
                                     "node": self.node, "nodeUID": self.node_uid,
                                     "nodeContainerID": self.node_container,
                                     "nodeContainerIDs": self.node_containers,
+                                    "retiredNodeContainerIDs": self.retired_node_containers,
                                     "nodeUIDs": self.node_uids,
                                     "registryID": self.registry_id,
                                     "objects": [{"kind": key[0], "namespace": key[1],
@@ -424,6 +426,24 @@ class Harness:
         require(info["Name"] == "/" + name, "private Node container name changed")
         stdin = ["-i"] if kwargs.get("input") is not None else []
         return self.run(["docker", "exec", *stdin, container, *args], **kwargs)
+
+    def decommission_worker(self, name):
+        require(name != self.node and name in self.node_containers and name in self.node_uids,
+                "decommission requires a recorded extra worker, never the control plane")
+        node = self.get("node", name)
+        require(node["metadata"]["uid"] == self.node_uids[name],
+                "worker Node UID changed before external decommission")
+        container = self.node_containers[name]
+        info = json.loads(self.run(["docker", "inspect", container]).stdout)[0]
+        docker_owned(info, self.run_id, container, kind_node=True)
+        require(info["Name"] == "/" + name, "worker name/container identity changed")
+        self.run(["docker", "rm", "-f", "-v", container])
+        absent = self.run(["docker", "inspect", container], check=False)
+        require(absent.returncode != 0 and "No such" in absent.stderr,
+                "external worker destruction is not confirmed")
+        self.retired_node_containers[name] = self.node_containers.pop(name)
+        self.save()
+        return node, container
 
     def ctr(self, *args):
         return self.node_exec("ctr", "-n", "k8s.io", *args).stdout
