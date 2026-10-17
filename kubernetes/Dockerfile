@@ -5,8 +5,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY kubernetes ./kubernetes
 COPY pkg ./pkg
-RUN CGO_ENABLED=0 go build -o /out/operator ./kubernetes/cmd/operator && \
-    CGO_ENABLED=0 go build -o /out/admission ./kubernetes/cmd/admission
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trimpath -o /out/operator ./kubernetes/cmd/operator && \
+    CGO_ENABLED=0 go build -trimpath -o /out/admission ./kubernetes/cmd/admission
 # Debian 12 distroless nonroot.
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/operator /operator

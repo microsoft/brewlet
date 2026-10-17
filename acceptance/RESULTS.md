@@ -221,6 +221,35 @@ overwritten.
 
 ## Executed successfully
 
+The smallest current-source actual-node repeat,
+`run-local-current-python-57` at `9a693616`, still failed on its mandatory
+writable-volume check. The application served HTTP and completed an exec, but
+the real UID **65532** write returned **errno 28** with **zero available bytes**;
+the remaining **5,778,169,856 bytes** were root-reserved, not usable capacity.
+This is a failed run, not a full execution/rotation/cleanup pass. Only its
+UID/label-verified cluster, registry, helper containers and recorded image tags
+were destroyed; that fixture destruction is not production cleanup evidence.
+The [failed receipt](results/local-python-disk-exhaustion-arm64.json) preserves
+the boundary.
+
+Before/after builder inventories and completed build provenance then identified
+two specific **1.325 GB** controller compiler snapshots belonging to this
+session's runs 57 and 55. Their creation intervals matched exactly one build
+each, with the expected local context, Dockerfile, branch revision, unique
+run label and single usage. Exact anchored-ID pruning reclaimed only those
+records; no pre-existing record was lost during the first removal, and no
+unproven image, volume, compiler-cache mount or other project's cache was
+pruned. Available Docker space recovered to **3,381,813,248 bytes**.
+The private provenance audits and cache inventories are retained.
+
+The controller Dockerfile was keeping its compiler cache in each source-specific
+build snapshot. It now uses the same reusable BuildKit cache-mount mechanism as
+the provisioner, with `-trimpath` for both binaries. An architecture contract
+guards both builders. This addresses repeated build-storage growth without
+changing runtime storage, relaxing non-root enforcement or consuming reserved
+space. The next actual-node repeat must verify the changed build and current
+production behavior; no success is inferred from reclaiming build cache.
+
 Local kernel-level cache checks found and reproduced a production collection
 bug: with cache data on a separate filesystem, a live bind mount did not protect
 its cache entry. `mountinfo` printed its source relative to that filesystem,

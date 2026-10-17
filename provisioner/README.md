@@ -7,6 +7,11 @@ go build ./cmd/brewlet-node
 go build ./shim/cmd/containerd-shim-brewlet-v2
 ```
 
+Both production Docker builders keep Go compiler data in a reusable BuildKit
+cache mount, outside source-specific build snapshots. This bounds repeated local
+build growth without changing node runtime/cache storage or application
+confinement. The operator and admission builds also use `-trimpath`.
+
 `brewlet-node` uses the uncached Kubernetes API client and the UID-bound
 `NodeProfile` authority ledger. It freezes the initially observed Node UID,
 requires literal `BREWLET_PROFILE_UID`, `BREWLET_PROFILE_GENERATION`,

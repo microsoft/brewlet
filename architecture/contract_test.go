@@ -85,6 +85,20 @@ func TestCoreHasNoLanguageProducerOrLaunchVocabulary(t *testing.T) {
 	}
 }
 
+func TestProductionBuildersKeepCompilerCacheOutsideSnapshots(t *testing.T) {
+	for _, name := range []string{"kubernetes", "provisioner"} {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("..", name, "Dockerfile"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(data), "RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trimpath") {
+				t.Fatal("compiler cache would be copied into each source-specific build snapshot")
+			}
+		})
+	}
+}
+
 func TestOnlyInventoryPlacementAndRetirementCRDs(t *testing.T) {
 	files, err := filepath.Glob("../kubernetes/deploy/crds/*.yaml")
 	if err != nil {
