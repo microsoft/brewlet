@@ -536,8 +536,7 @@ auth:
                 with compressed.open("wb") as output:
                     # Vary only the compression envelope, never approved root
                     # files or .brewlet-source. The cold compressed descriptors
-                    # force actual remote golden-layer transfer even though the
-                    # base harness imported equivalent old rootfs diff IDs.
+                    # force invocation-fresh remote golden-layer transfer.
                     with gzip.GzipFile(filename="", fileobj=output, mode="wb",
                                        mtime=int(h.run_id, 16) % (2**32)) as zipped:
                         while chunk := source.read(1024 * 1024):

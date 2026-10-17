@@ -677,6 +677,12 @@ class Harness:
         self.runtime_vendor_inputs = rotation_inputs(json.loads(
             (FIXTURES / "runtimes/rotation.json").read_text()))
         self.result["runtimeVendorInputs"] = self.runtime_vendor_inputs
+        self.build_runtime_images()
+        self.result["applicationImages"] = self.app_images
+        self.result["runtimeImages"] = self.runtime_images
+        self.save()
+
+    def build_runtime_images(self):
         for language in LANGUAGES:
             self.runtime_images[language] = {}
             for revision in ("before", "after"):
@@ -702,14 +708,6 @@ class Harness:
                                       "BREWLET_TEST_VALUE=runtime-default\n")
                 tag = f"registry.brewlet.test/{self.run_id}/runtime/{language}:{revision}"
                 self.build(tag, dockerfile, directory)
-                digest = self.load_image(tag)
-                canonical = tag.rsplit(":", 1)[0] + "@" + digest
-                self.ctr("images", "tag", "--force", tag, canonical)
-                require(self.image_digest(canonical) == digest, "runtime target mismatch")
-                self.runtime_images[language][revision] = canonical
-        self.result["applicationImages"] = self.app_images
-        self.result["runtimeImages"] = self.runtime_images
-        self.save()
 
     def import_layout(self, layout):
         # Do not pass --index-name: it names the outer OCI layout index.
@@ -734,6 +732,9 @@ class Harness:
                     process.wait(timeout=10)
 
     def install(self):
+        require(set(self.runtime_images) == set(LANGUAGES)
+                and all(set(images) == {"before", "after"} for images in self.runtime_images.values()),
+                "approved runtime sources must be published by authenticated delivery before installation")
         # Current schemas must be applied before every Helm install/upgrade.
         crds = ROOT / "kubernetes/deploy/crds"
         require(crds.is_dir(), "current deploy CRDs directory is missing")

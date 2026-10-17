@@ -115,6 +115,12 @@ The fresh kind configuration explicitly enables CRI's trusted-host
 installs only invocation-owned CA/host credentials there and creates a
 workload-controlled pull secret. This is a test-platform prerequisite, not a
 modification of a shared node or proof that an image has been pulled.
+Golden runtime builds remain in the host producer store until authenticated
+publication; unused import-only copies are not preloaded into the test node.
+This avoids duplicating every runtime before the mandatory remote pulls.
+Installation refuses to proceed until both approved source revisions have
+actually been published. Disk safety thresholds are unchanged, and the driver
+never prunes shared images, volumes or builder caches to manufacture headroom.
 
 On macOS the CLI is cross-built for the engine's explicit Linux platform and
 runs in the pinned Python fixture userland, with read-only sources and a

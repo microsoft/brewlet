@@ -353,6 +353,26 @@ class SafetyTests(ProjectWork):
             instance.decommission_worker(name)
         instance.run.assert_not_called()
 
+    def test_runtime_builds_do_not_import_unused_roots_before_authenticated_publication(self):
+        instance = self.harness()
+        instance.runtime_vendor_inputs = h.rotation_inputs(json.loads(
+            (h.FIXTURES / "runtimes/rotation.json").read_text()))
+        instance.build = mock.Mock()
+        instance.run = mock.Mock(return_value=subprocess.CompletedProcess(
+            [], 0, json.dumps([{"Config": {"Env": ["PATH=/usr/bin:/bin"]}}]), ""))
+        instance.load_image = mock.Mock(side_effect=AssertionError("unused runtime imported"))
+        instance.ctr = mock.Mock(side_effect=AssertionError("unused runtime alias created"))
+        instance.build_runtime_images()
+        self.assertEqual(instance.build.call_count, 16)
+        self.assertEqual(instance.runtime_images, {language: {} for language in h.LANGUAGES})
+        self.assertEqual(set(instance.runtime_paths), set(h.LANGUAGES))
+        instance.load_image.assert_not_called()
+        instance.ctr.assert_not_called()
+        instance.kubectl = mock.Mock()
+        with self.assertRaisesRegex(h.Failure, "published by authenticated delivery"):
+            instance.install()
+        instance.kubectl.assert_not_called()
+
     def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
         instance = self.harness()
         result = instance.run([sys.executable, "-c",

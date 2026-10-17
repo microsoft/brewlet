@@ -259,6 +259,17 @@ successful actual uninstall. Survivor-only fixture destruction passed.
 [`results/physical-retirement.json`](results/physical-retirement.json) preserves
 the sanitized result. OWN-03 remains partial: this is not returning-physical-host
 or literal recreated-Node cleanup proof.
+`run-complete-38` passed the first 30 assertions but correctly refused the CRI
+accounting write: measured node free space was 257,613,824 bytes, below the
+unchanged 1,157,627,904-byte safety requirement. Its fixture destruction passed.
+No shared Docker image, volume or builder cache was pruned. Inspection found
+that the mandatory TLS-delivery driver still pre-imported all eight unused
+import-only runtime copies before pulling freshly published golden targets.
+Those redundant node imports are removed; the host producer images, explicit
+vendor pins, exact golden bytes, fresh remote descriptors and mandatory
+authenticated pulls remain. Installation now requires complete published
+before/after source maps. This reduces test-node footprint rather than weakening
+the headroom gate; the corrected actual combined run still needs to pass.
 
 ```sh
 go test -count=1 -race -mod=readonly ./...
@@ -274,7 +285,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 264 passing offline tests; those
+The live-driver safeguards currently include 265 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
