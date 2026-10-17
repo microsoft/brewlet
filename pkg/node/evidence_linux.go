@@ -116,6 +116,10 @@ func (e LinuxEvidence) MountsGone(ctx context.Context, root string) (bool, error
 			return false, fmt.Errorf("complete initial host %s namespace evidence required", ns)
 		}
 	}
+	locations, err := mountLocations(ctx, filepath.Join(proc, "self/mountinfo"), root)
+	if err != nil {
+		return false, err
+	}
 	processes, err := os.ReadDir(proc)
 	if err != nil {
 		return false, err
@@ -146,17 +150,22 @@ func (e LinuxEvidence) MountsGone(ctx context.Context, root string) (bool, error
 		scanner.Buffer(make([]byte, 4096), 4<<20)
 		for scanner.Scan() {
 			line := scanner.Text()
-			fields := strings.Fields(line)
-			if len(fields) < 10 {
+			mount, err := parseMountInfo(line)
+			if err != nil {
 				f.Close()
-				return false, fmt.Errorf("ambiguous mountinfo")
+				return false, err
 			}
 			decoded := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`).Replace(line)
 			if mountReferencesPath(decoded, root) {
 				f.Close()
 				return false, nil
 			}
-
+			for _, location := range locations {
+				if mount.device == location.device && pathWithin(mount.root, location.root) {
+					f.Close()
+					return false, nil
+				}
+			}
 		}
 		err = scanner.Err()
 		f.Close()
@@ -165,6 +174,86 @@ func (e LinuxEvidence) MountsGone(ctx context.Context, root string) (bool, error
 		}
 	}
 	return true, nil
+}
+
+type filesystemMount struct {
+	device, root, point string
+}
+
+func pathWithin(name, root string) bool {
+	return name == root || strings.HasPrefix(name, strings.TrimSuffix(root, "/")+"/")
+}
+
+func parseMountInfo(line string) (filesystemMount, error) {
+	fields := strings.Fields(line)
+	separator := -1
+	for i, field := range fields {
+		if field == "-" {
+			separator = i
+			break
+		}
+	}
+	if len(fields) < 10 || separator < 6 || separator+3 >= len(fields) {
+		return filesystemMount{}, fmt.Errorf("ambiguous mountinfo")
+	}
+	device := strings.Split(fields[2], ":")
+	if len(device) != 2 {
+		return filesystemMount{}, fmt.Errorf("ambiguous mountinfo device")
+	}
+	for _, number := range device {
+		if _, err := strconv.ParseUint(number, 10, 32); err != nil {
+			return filesystemMount{}, fmt.Errorf("ambiguous mountinfo device: %w", err)
+		}
+	}
+	decode := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
+	mount := filesystemMount{device: fields[2], root: decode.Replace(fields[3]), point: decode.Replace(fields[4])}
+	if !filepath.IsAbs(mount.root) || filepath.Clean(mount.root) != mount.root || !filepath.IsAbs(mount.point) || filepath.Clean(mount.point) != mount.point {
+		return filesystemMount{}, fmt.Errorf("ambiguous mountinfo paths")
+	}
+	return mount, nil
+}
+
+// Bind sources are filesystem-relative in mountinfo, not necessarily host
+// paths. Keep every equally specific mapping so stacked mounts fail closed.
+func mountLocations(ctx context.Context, name, root string) ([]filesystemMount, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return nil, fmt.Errorf("host filesystem mount evidence unavailable: %w", err)
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 4096), 4<<20)
+	var locations []filesystemMount
+	longest := -1
+	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		mount, err := parseMountInfo(scanner.Text())
+		if err != nil {
+			return nil, err
+		}
+		if !pathWithin(root, mount.point) || len(mount.point) < longest {
+			continue
+		}
+		if len(mount.point) > longest {
+			locations = nil
+			longest = len(mount.point)
+		}
+		relative, err := filepath.Rel(mount.point, root)
+		if err != nil {
+			return nil, err
+		}
+		mount.root = filepath.Join(mount.root, relative)
+		locations = append(locations, mount)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if len(locations) == 0 {
+		return nil, fmt.Errorf("host filesystem mount identity unavailable")
+	}
+	return locations, nil
 }
 
 func mountReferencesPath(line, root string) bool {

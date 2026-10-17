@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,54 @@ import (
 )
 
 type evidenceNamespaces struct{ namespaces.Store }
+
+func TestMountLocationsMapsHostPathsToFilesystemRoots(t *testing.T) {
+	for _, tc := range []struct {
+		name, table, root string
+		want              []filesystemMount
+	}{
+		{"root filesystem", "1 0 0:1 / / rw - ext4 disk rw\n", "/var/lib/cache/item", []filesystemMount{{device: "0:1", root: "/var/lib/cache/item", point: "/"}}},
+		{"separate volume", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:2 /pool /var/lib/cache rw - ext4 volume rw\n", "/var/lib/cache/item", []filesystemMount{{device: "0:2", root: "/pool/item", point: "/var/lib/cache"}}},
+		{"escaped paths", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:2 /pool\\040data /cache\\040data rw - tmpfs tmpfs rw\n", "/cache data/item", []filesystemMount{{device: "0:2", root: "/pool data/item", point: "/cache data"}}},
+		{"prefix boundary", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:2 /pool /cache-other rw - tmpfs tmpfs rw\n", "/cache/item", []filesystemMount{{device: "0:1", root: "/cache/item", point: "/"}}},
+		{"stacked mounts", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:2 /old /cache rw - tmpfs tmpfs rw\n3 1 0:3 /new /cache rw - tmpfs tmpfs rw\n", "/cache/item", []filesystemMount{{device: "0:2", root: "/old/item", point: "/cache"}, {device: "0:3", root: "/new/item", point: "/cache"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			name := filepath.Join(testDirectory(t), "mountinfo")
+			if err := os.WriteFile(name, []byte(tc.table), 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := mountLocations(context.Background(), name, tc.root)
+			if err != nil || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("filesystem source mapping changed: got=%+v want=%+v error=%v", got, tc.want, err)
+			}
+		})
+	}
+}
+
+func TestMountLocationsRejectsIncompleteFilesystemEvidence(t *testing.T) {
+	for _, table := range []string{
+		"",
+		"malformed\n",
+		"1 0 0:1 / /elsewhere rw - ext4 disk rw\n",
+		"1 0 invalid / / rw - ext4 disk rw\n",
+		"1 0 0:invalid / / rw - ext4 disk rw\n",
+		"1 0 0:1 relative / rw - ext4 disk rw\n",
+		"1 0 0:1 / relative rw - ext4 disk rw\n",
+		"1 0 0:1 / / rw ext4 disk rw\n",
+	} {
+		name := filepath.Join(testDirectory(t), "mountinfo")
+		if err := os.WriteFile(name, []byte(table), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := mountLocations(context.Background(), name, "/cache/item"); err == nil {
+			t.Fatalf("incomplete source mapping accepted: %q", table)
+		}
+	}
+	if _, err := mountLocations(context.Background(), filepath.Join(testDirectory(t), "missing"), "/cache/item"); err == nil {
+		t.Fatal("missing host mount table accepted")
+	}
+}
 
 func (evidenceNamespaces) List(context.Context) ([]string, error) { return []string{"k8s.io"}, nil }
 
@@ -45,6 +94,9 @@ func TestLinuxEvidenceReapsFailedCreateWithoutConfusingSharedRuntimeMounts(t *te
 			if err := os.Symlink(namespace+":[initial]", filepath.Join(proc, process, "ns", namespace)); err != nil {
 				t.Fatal(err)
 			}
+		}
+		if err := os.WriteFile(filepath.Join(proc, "self/mountinfo"), []byte("9 0 0:1 / / rw - overlay overlay rw\n"), 0600); err != nil {
+			t.Fatal(err)
 		}
 	}
 	tasks := &evidenceTasks{}

@@ -18,6 +18,7 @@ import (
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"golang.org/x/sys/unix"
 )
 
 type cacheEvidence struct {
@@ -53,6 +54,7 @@ func TestCacheCollectionRetainsMountsAndRequiresFreshFenceUnit(t *testing.T) {
 	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, cacheEvidence{gone: false}, fence); err != nil {
 		t.Fatal(err)
 	}
+
 	if _, err := os.Stat(entry); err != nil {
 		t.Fatal("mounted cache removed", err)
 	}
@@ -77,6 +79,76 @@ func TestCacheCollectionRetainsMountsAndRequiresFreshFenceUnit(t *testing.T) {
 		t.Fatal("unused old cache retained", err)
 	}
 }
+func TestCacheCollectionRetainsActualBindMountOnSeparateFilesystem(t *testing.T) {
+	w, cache, entry := cacheFixture(t)
+	ctx := context.Background()
+	target := filepath.Join(w.Store.Root, "cache-bind")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	err := unix.Mount(filepath.Join(entry, "rootfs"), target, "", unix.MS_BIND, "")
+	if errors.Is(err, unix.EPERM) {
+		t.Skipf("requires isolated Linux bind mounts and CAP_SYS_ADMIN: %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	mounted := true
+	defer func() {
+		if mounted {
+			if err := unix.Unmount(target, 0); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	fence := func(context.Context) error { return nil }
+	evidence := node.LinuxEvidence{}
+	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, evidence, fence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(entry); err != nil {
+		t.Fatal("actual bind mount failed to protect cache on a separate filesystem", err)
+	}
+	if err := unix.Unmount(target, 0); err != nil {
+		t.Fatal(err)
+	}
+	mounted = false
+	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, evidence, fence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(entry); !os.IsNotExist(err) {
+		t.Fatal("unreferenced cache was not reclaimed after actual unmount", err)
+	}
+}
+
+func TestCacheCollectionWaitsForActualConsumerGuard(t *testing.T) {
+	w, cache, entry := cacheFixture(t)
+	ctx := context.Background()
+	consumer, err := node.AcquireCacheGuard(ctx, cache, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = consumer.Close() })
+	bounded, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	fence := func(context.Context) error { return nil }
+	if err := CollectLayerCache(bounded, w.Store, cache, cache, time.Hour, cacheEvidence{gone: true}, fence); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("collection bypassed an actual in-progress consumer guard: %v", err)
+	}
+	if _, err := os.Stat(entry); err != nil {
+		t.Fatal("collection removed cache while Create could still mount it", err)
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, cacheEvidence{gone: true}, fence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(entry); !os.IsNotExist(err) {
+		t.Fatal("unused cache remained after the actual consumer barrier drained", err)
+	}
+}
+
 func TestCacheCollectionUsesDurableReferencesAndBlocksPendingCreateUnit(t *testing.T) {
 	w, cache, entry := cacheFixture(t)
 	ctx := context.Background()

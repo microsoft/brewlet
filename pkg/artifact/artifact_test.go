@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,6 +158,51 @@ func TestStreamingMaterializationAndLinks(t *testing.T) {
 		})
 	}
 }
+func TestWalkLayerDeliversPayloadBeforeReadingCompleteCompressedLayer(t *testing.T) {
+	payload := make([]byte, 2<<20)
+	_, err := rand.New(rand.NewSource(1)).Read(payload)
+	must(t, err)
+	for _, format := range []string{"gzip", "zstd"} {
+		t.Run(format, func(t *testing.T) {
+			dir := testDir(t)
+			store := Store{Dir: filepath.Join(dir, "store")}
+			src := source(t, store, format, []*tar.Header{fileHeader("app/data", string(payload), 0644)}, []string{string(payload)})
+			open := src.Open
+			var observed *countReader
+			src.Open = func() (io.ReadCloser, error) {
+				input, err := open()
+				if err != nil {
+					return nil, err
+				}
+				observed = &countReader{r: input}
+				return struct {
+					io.Reader
+					io.Closer
+				}{observed, input}, nil
+			}
+			visited := false
+			_, err := WalkLayer(context.Background(), src, func(h *tar.Header, r io.Reader) error {
+				visited = true
+				if observed.n >= src.Descriptor.Size {
+					t.Fatal("extractor read the whole compressed layer before delivering its payload")
+				}
+				n, err := io.Copy(io.Discard, r)
+				if err != nil {
+					return err
+				}
+				if n != int64(len(payload)) {
+					t.Fatalf("streamed payload length changed: %d", n)
+				}
+				return nil
+			})
+			must(t, err)
+			if !visited || observed.n != src.Descriptor.Size {
+				t.Fatal("stream did not consume and verify the complete compressed identity")
+			}
+		})
+	}
+}
+
 func TestOpaqueOnlyDeletesLower(t *testing.T) {
 	dir := testDir(t)
 	s := Store{Dir: filepath.Join(dir, "store")}

@@ -221,6 +221,51 @@ overwritten.
 
 ## Executed successfully
 
+Local kernel-level cache checks found and reproduced a production collection
+bug: with cache data on a separate filesystem, a live bind mount did not protect
+its cache entry. `mountinfo` printed its source relative to that filesystem,
+while the previous inspector searched only for the absolute host path. The
+collector actually deleted the fixture entry before the fix. Production mount
+evidence now maps host paths through the most-specific host mountpoints and
+checks device plus filesystem-relative roots in every inspected namespace.
+Equally specific stacked mappings remain conservative; missing/malformed source
+evidence blocks collection. The same actual bind now retains its entry, and
+normal collection succeeds only after actual unmount.
+
+Independent bounded extraction tests mounted a private **4 MiB tmpfs** and
+genuinely exhausted it with an approximately **9 MB** payload. The resulting
+`ENOSPC` exposed no partial entry or stage. Raising only that disposable mount
+to **16 MiB** let the identical source publish with the expected receipt.
+An actual shared consumer flock also prevented collection until it drained.
+Gzip and zstd checks verify normalized `0:0` ownership from adversarial header
+IDs, exact modes/nanosecond mtimes and forward-hardlink inode identity.
+Incompressible payloads are delivered before all compressed bytes have been
+read, while complete compressed/diff identities are still verified.
+
+Full isolated native Linux/arm64 suites passed with zero skips:
+**artifact 97, node 70, provisioner 112, shim 29 cases/subcases**.
+An initial shim invocation omitted the required shared conformance bind and
+failed exactly that fixture lookup; its failed log is retained separately.
+Repeating with the fixture at the package-relative path passed all 29 cases.
+These are actual Linux filesystem/overlay/flock checks, not a claim that a
+fresh Kubernetes lifecycle or arbitrary killed-shim recovery passed.
+RUN-04 and RUN-05 are reconciled; RUN-06 remains partial pending its full
+current-source real-node lifetime reconciliation:
+**73 verified, 28 not fully verified**.
+
+The native runs use the same pinned Python userland and isolation flags as the
+recipe below, with `CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -c
+-mod=readonly` for each package. They use `/work` and `/tmp` tmpfs, no network,
+a read-only container root, dropped capabilities and `no-new-privileges`.
+All receive `SYS_ADMIN`/`MKNOD` and isolated `apparmor=unconfined`; node also
+receives `SETFCAP`, and shim also receives `DAC_OVERRIDE`.
+Artifact and shim mount repository `conformance/` read-only at
+`/work/conformance` and run from `/work/pkg/artifact` and
+`/work/shim/cmd/containerd-shim-brewlet-v2`, respectively. No shared Docker
+cache or volume is resized or pruned. Detailed outputs are preserved as
+`artifact-cache-native.log`, `node-mount-native.log`,
+`provisioner-cache-native.log` and `shim-mount-native.log` in session artifacts.
+
 Local retained-profile reconciliation found another production inconsistency:
 admission accepted self-referential mirrors and malformed/duplicate mirror
 allowlists that source resolution subsequently rejected. A permanent regression

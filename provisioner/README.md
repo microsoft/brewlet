@@ -143,7 +143,13 @@ The grace period starts at retirement, not the original installation date.
 Layer-cache collection uses an exclusive cross-process guard shared by Create,
 immutable publication receipts, durable per-task cache references, complete
 cross-namespace mount evidence, and a positive age floor. Pending creates or
-ambiguous evidence prevent deletion. Staged runtime roots carry ownership and
+ambiguous evidence prevent deletion. Bind-mount evidence resolves each protected
+host path through the host mount table, then compares filesystem device and
+filesystem-relative roots across process namespaces. This retains mounts of
+cache or runtime data on separate filesystems even when their source path is
+not printed as an absolute host path. Missing or malformed source mappings
+block collection; equally specific stacked mounts are retained conservatively.
+Staged runtime roots carry ownership and
 snapshot-view records; fresh authority loss cancels and joins acquisition,
 leaving private data for authorized recovery.
 Completing acquisition also stops and joins its authority monitor. Cancellation
