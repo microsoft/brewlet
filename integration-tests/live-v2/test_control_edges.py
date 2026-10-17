@@ -268,6 +268,48 @@ class IsolationTests(unittest.TestCase):
 
 
 class ControllerReadinessTests(unittest.TestCase):
+    def test_provisioner_error_capture_is_owner_node_scoped_bounded_and_redacted(self):
+        h = fake_harness()
+        h.profile = "profile"
+        h.delivery = SimpleNamespace(password="fixture-password-not-public")
+        h.owned[("nodeprofile", "", h.profile)] = "profile-uid"
+        profile = {"metadata": {"uid": "profile-uid", "labels": {ce.OWNER: RUN}}}
+        worker = {"metadata": {"uid": "worker-uid", "name": "owned-worker",
+                              "labels": {"brewlet.sh/owner-uid": "profile-uid"}},
+                  "spec": {"nodeName": h.node}, "status": {"phase": "Running"}}
+        foreign = copy.deepcopy(worker)
+        foreign["metadata"]["labels"]["brewlet.sh/owner-uid"] = "foreign"
+        h.get.side_effect = [profile, {"items": [worker, foreign]}]
+        h.kubectl.return_value = subprocess.CompletedProcess([], 0,
+            "ordinary line with private-environment-detail\n"
+            "runtime binding observation unavailable: Authorization: Bearer secret-token "
+            "fixture-password-not-public\n", "")
+        control = ce.ControlEdges(h)
+        control.capture_provisioner_errors()
+        rows = h.result["controlAcceptance"]["provisionerErrors"]
+        self.assertEqual(h.kubectl.call_count, 1)
+        self.assertEqual(rows[0]["podUID"], "worker-uid")
+        self.assertEqual(len(rows[0]["errors"]), 1)
+        retained = json.dumps(rows)
+        for private in ("secret-token", "fixture-password-not-public", "private-environment-detail"):
+            self.assertNotIn(private, retained)
+        self.assertIn("<redacted>", retained)
+
+    def test_failed_provisioning_diagnostics_never_replace_the_original_timeout(self):
+        control = object.__new__(ce.ControlEdges)
+        control.image = lambda _: {"metadata": {"uid": EPOCH}, "status": {}}
+        control.capture_provisioning_diagnostics = Mock(side_effect=ce.Failure("diagnostic API unavailable"))
+
+        def wait(_description, predicate):
+            predicate()
+            raise ce.Failure("original rotation timeout")
+
+        control.h = SimpleNamespace(result={"controlAcceptance": {}}, wait=wait)
+        with self.assertRaisesRegex(ce.Failure, "original rotation timeout"):
+            control.complete_rotation(RID)
+        self.assertEqual(control.h.result["controlAcceptance"]["diagnosticFailure"],
+                         "diagnostic API unavailable")
+
     def test_rotation_timeout_retains_scoped_live_provisioning_state(self):
         control = object.__new__(ce.ControlEdges)
         control.ids = [RID]
@@ -276,7 +318,12 @@ class ControllerReadinessTests(unittest.TestCase):
         node = {"metadata": {"uid": "node-original",
                             "annotations": {"brewlet.sh/runtime-images": json.dumps({
                                 RID: {"generation": 1, "state": "ready"},
-                                "unrelated-runtime": {"private": "not-exported"}})}},
+                                "unrelated-runtime": {"private": "not-exported"}}),
+                            "brewlet.sh/runtime-bindings": json.dumps({
+                                "observedAt": "2026-10-17T13:00:00Z", "complete": True,
+                                "bindings": [{"id": RID, "podUID": "old-pod", "generation": 1,
+                                              "env": "not-exported"},
+                                             {"id": "unrelated", "env": "not-exported"}]})}},
                 "spec": {"taints": [{"key": ce.FENCE, "value": "provisioning", "effect": "NoSchedule"}]}}
         profile = {"metadata": {"uid": "profile-original", "generation": 3},
                    "status": {"provisioningGeneration": 3,
@@ -296,6 +343,9 @@ class ControllerReadinessTests(unittest.TestCase):
         self.assertEqual(diagnostic["nodeUID"], "node-original")
         self.assertEqual(diagnostic["runtimeInventory"], {RID: {"generation": 1, "state": "ready"}})
         self.assertEqual(diagnostic["profileGeneration"], 3)
+        self.assertEqual(diagnostic["bindingObservation"]["observedAt"], "2026-10-17T13:00:00Z")
+        self.assertEqual(len(diagnostic["bindingObservation"]["bindings"]), 1)
+        self.assertEqual(diagnostic["bindingObservation"]["bindings"][0]["podUID"], "old-pod")
         self.assertNotIn("unrelatedPrivateField", diagnostic["profileStatus"])
         self.assertNotIn("not-exported", json.dumps(diagnostic))
 

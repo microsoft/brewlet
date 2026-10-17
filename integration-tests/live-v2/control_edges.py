@@ -598,24 +598,38 @@ class ControlEdges:
         try:
             return self.h.wait("controller RotationComplete " + runtime_id, observed)
         except Failure:
-            node = self.h.node_snapshot()
-            profile = self.h.get("nodeprofile", self.h.profile)
-            metadata = node["metadata"]
-            inventory = json.loads(metadata.get("annotations", {}).get("brewlet.sh/runtime-images", "{}"))
-            self.h.result["controlAcceptance"]["provisioningDiagnostics"] = {
-                "nodeUID": metadata["uid"],
-                "ownerUID": metadata.get("labels", {}).get("brewlet.sh/owner-uid"),
-                "ownerNodeUID": metadata.get("labels", {}).get("brewlet.sh/owner-node-uid"),
-                "startupFences": [copy.deepcopy(t) for t in node.get("spec", {}).get("taints", [])
-                                  if t["key"] == FENCE],
-                "runtimeInventory": {rid: copy.deepcopy(inventory.get(rid)) for rid in self.ids},
-                "profileUID": profile["metadata"]["uid"],
-                "profileGeneration": profile["metadata"].get("generation"),
-                "profileStatus": {key: copy.deepcopy(profile.get("status", {}).get(key))
-                                  for key in ("conditions", "provisioningGeneration", "targets")},
-            }
+            try:
+                self.capture_provisioning_diagnostics()
+            except Exception as diagnostic_error:
+                self.h.result["controlAcceptance"]["diagnosticFailure"] = str(diagnostic_error)
             raise
 
+    def capture_provisioning_diagnostics(self):
+        node = self.h.node_snapshot()
+        profile = self.h.get("nodeprofile", self.h.profile)
+        metadata = node["metadata"]
+        inventory = json.loads(metadata.get("annotations", {}).get("brewlet.sh/runtime-images", "{}"))
+        bindings = json.loads(metadata.get("annotations", {}).get("brewlet.sh/runtime-bindings", "{}"))
+        self.h.result["controlAcceptance"]["provisioningDiagnostics"] = {
+            "nodeUID": metadata["uid"],
+            "ownerUID": metadata.get("labels", {}).get("brewlet.sh/owner-uid"),
+            "ownerNodeUID": metadata.get("labels", {}).get("brewlet.sh/owner-node-uid"),
+            "startupFences": [copy.deepcopy(t) for t in node.get("spec", {}).get("taints", [])
+                              if t["key"] == FENCE],
+            "runtimeInventory": {rid: copy.deepcopy(inventory.get(rid)) for rid in self.ids},
+            "bindingObservation": {
+                **{key: copy.deepcopy(bindings.get(key)) for key in (
+                    "nodeUID", "profileUID", "profileGeneration", "observedAt", "complete")},
+                "bindings": [{key: copy.deepcopy(binding.get(key)) for key in (
+                    "containerID", "containerdNamespace", "podUID", "podName", "podNamespace",
+                    "containerName", "id", "inventoryUID", "generation", "digest", "state")}
+                    for binding in bindings.get("bindings", []) if binding.get("id") in self.ids],
+            },
+            "profileUID": profile["metadata"]["uid"],
+            "profileGeneration": profile["metadata"].get("generation"),
+            "profileStatus": {key: copy.deepcopy(profile.get("status", {}).get(key))
+                              for key in ("conditions", "provisioningGeneration", "targets")},
+        }
     def rotate(self, runtime_id, revision):
         image = self.image(runtime_id)
         previous = image["status"]["generation"]
@@ -623,6 +637,29 @@ class ControlEdges:
         self.patch_inventory_spec(image, image["spec"])
         self.h.wait("real source allocates new target " + runtime_id,
                     lambda: self.image(runtime_id).get("status", {}).get("generation", 0) > previous)
+
+    def capture_provisioner_errors(self):
+        from delivery import redact
+        profile = self.h.get("nodeprofile", self.h.profile)
+        require_owned(profile, self.h.run_id,
+                      self.h.owned[("nodeprofile", "", self.h.profile)])
+        observations = []
+        for pod in self.h.get("pods", namespace=self.h.control_namespace)["items"]:
+            if (pod["metadata"].get("labels", {}).get("brewlet.sh/owner-uid")
+                    != profile["metadata"]["uid"]
+                    or pod.get("spec", {}).get("nodeName") != self.h.node):
+                continue
+            response = self.h.kubectl("-n", self.h.control_namespace, "logs",
+                pod["metadata"]["name"], "-c", "provisioner", "--tail=100", check=False)
+            observations.append({
+                "podUID": pod["metadata"]["uid"], "phase": pod.get("status", {}).get("phase"),
+                "logReadSucceeded": response.returncode == 0,
+                "errors": [redact(line, self.h.delivery.password)[:2000]
+                    for line in response.stdout.splitlines() if any(marker in line for marker in (
+                        "provision-error:", "runtime binding observation unavailable:",
+                        "staging reconciliation blocked:", "runtime collection blocked",
+                        "layer cache collection blocked:"))][-20:]})
+        self.h.result["controlAcceptance"]["provisionerErrors"] = observations
 
     def assert_base_intact(self):
         for language, initial in self.h.initial.items():
@@ -1590,6 +1627,11 @@ def execute(h):
         h.save()
     except BaseException as exc:
         h.result["controlAcceptance"].update(outcome="failed", failure=str(exc))
+        try:
+            control.capture_provisioning_diagnostics()
+            control.capture_provisioner_errors()
+        except Exception as diagnostic_error:
+            h.result["controlAcceptance"]["diagnosticFailure"] = str(diagnostic_error)
         h.save()
         # Leave safety state and resources intact for parent diagnostics/destruction.
         # No forced-finalizer/claim/receipt cleanup is attempted on failed acceptance.

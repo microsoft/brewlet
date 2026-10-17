@@ -221,6 +221,32 @@ overwritten.
 
 ## Executed successfully
 
+Failure diagnostics now include only bounded provisioner error-marker lines
+from the exact profile owner's worker on the recorded Node. Existing registry
+password/basic-auth/bearer-token redaction is applied; ordinary log lines,
+foreign workers and raw Pod environments are excluded. The selected live
+binding snapshot carries its genuine publication timestamp and known binding
+fields. Diagnostic collection errors are recorded separately and never replace
+the original failed wait. All **287** offline safeguards pass. These additions
+are operational evidence capture, not a claimed fix for the unresolved
+provisioning/fresh-observation stall.
+
+Run `39040234666` established a more specific failure: the Deployment itself
+was available at its patched generation, but its restart status remained
+`Deferred` with `StaleOlderRuntimeTaskObservation` for an old Pod UID.
+Both runtime rotations had also retained correctly reported `RotationStalled`
+exclusions. The restart controller did not falsely claim completion or occupy a
+slot while this genuine/stale older-task uncertainty remained.
+
+Neither bounded source review established a production deadlock or a contract
+requiring parallel installs. No old-Pod UID pruning, uncertainty bypass or
+arbitrary install-duration cap was added. Provisioning snapshots now run on
+every control failure, not only rotation timeouts, and retain the selected
+Node binding-observation identity/timestamp and known binding fields alongside
+claim, fence and profile state. Raw specs, environments, unrelated IDs and
+unknown binding fields are excluded. All **285** offline safeguards pass.
+Actual worker-side progress/observation failure diagnosis remains unresolved.
+
 Run `39036910264` retained a genuinely approved generation-two target while the
 participant continued reporting generation one throughout the rotation wait;
 the existing generation-one workloads remained healthy. This is a provisioning
