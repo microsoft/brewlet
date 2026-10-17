@@ -221,6 +221,21 @@ overwritten.
 
 ## Executed successfully
 
+Local retained run `run-local-implementation-41` reproduced the Python held-exec
+failure and established its filesystem cause directly: UID 65532 saw
+**zero available bytes**, while roughly 6.5 GiB remained reserved for root.
+A bounded write in that same owned application volume returned
+**errno 28, `No space left on device`**. Inodes were plentiful. This explains
+the shell's generic `printf: I/O error`; it does not establish the cause of the
+earlier remote controller-observation stalls. The post-failure probe and its
+removal are recorded as manual diagnosis, not a clean acceptance pass.
+After recording the evidence, exact container IDs and labels were checked and
+only this invocation's cluster, registries and image tags were removed.
+Unprivileged Docker filesystem headroom recovered to 4,635,127,808 bytes.
+No shared build cache, unrelated images, containers or volumes were pruned.
+Further full local execution needs more Docker filesystem capacity; neither
+root execution nor root-reserved blocks are a valid application workaround.
+
 **Local-first implementation work is now authoritative; GitHub Actions work is
 deferred by user direction.** Local native arm64 run `run-local-implementation-40`
 at production source `34ddf959` passed initial execution for Java, Python,
