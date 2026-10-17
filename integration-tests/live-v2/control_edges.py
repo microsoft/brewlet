@@ -595,7 +595,26 @@ class ControlEdges:
                              and status.get("rotation", {}).get("generation") == status.get("generation")
                              and any(c["type"] == "RotationComplete" and c["status"] == "True"
                                      for c in status.get("conditions", []))) else False
-        return self.h.wait("controller RotationComplete " + runtime_id, observed)
+        try:
+            return self.h.wait("controller RotationComplete " + runtime_id, observed)
+        except Failure:
+            node = self.h.node_snapshot()
+            profile = self.h.get("nodeprofile", self.h.profile)
+            metadata = node["metadata"]
+            inventory = json.loads(metadata.get("annotations", {}).get("brewlet.sh/runtime-images", "{}"))
+            self.h.result["controlAcceptance"]["provisioningDiagnostics"] = {
+                "nodeUID": metadata["uid"],
+                "ownerUID": metadata.get("labels", {}).get("brewlet.sh/owner-uid"),
+                "ownerNodeUID": metadata.get("labels", {}).get("brewlet.sh/owner-node-uid"),
+                "startupFences": [copy.deepcopy(t) for t in node.get("spec", {}).get("taints", [])
+                                  if t["key"] == FENCE],
+                "runtimeInventory": {rid: copy.deepcopy(inventory.get(rid)) for rid in self.ids},
+                "profileUID": profile["metadata"]["uid"],
+                "profileGeneration": profile["metadata"].get("generation"),
+                "profileStatus": {key: copy.deepcopy(profile.get("status", {}).get(key))
+                                  for key in ("conditions", "provisioningGeneration", "targets")},
+            }
+            raise
 
     def rotate(self, runtime_id, revision):
         image = self.image(runtime_id)

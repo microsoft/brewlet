@@ -268,6 +268,37 @@ class IsolationTests(unittest.TestCase):
 
 
 class ControllerReadinessTests(unittest.TestCase):
+    def test_rotation_timeout_retains_scoped_live_provisioning_state(self):
+        control = object.__new__(ce.ControlEdges)
+        control.ids = [RID]
+        control.image = lambda _: {"metadata": {"uid": EPOCH, "generation": 2},
+                                   "status": {"generation": 2}}
+        node = {"metadata": {"uid": "node-original",
+                            "annotations": {"brewlet.sh/runtime-images": json.dumps({
+                                RID: {"generation": 1, "state": "ready"},
+                                "unrelated-runtime": {"private": "not-exported"}})}},
+                "spec": {"taints": [{"key": ce.FENCE, "value": "provisioning", "effect": "NoSchedule"}]}}
+        profile = {"metadata": {"uid": "profile-original", "generation": 3},
+                   "status": {"provisioningGeneration": 3,
+                              "conditions": [{"type": "Ready", "status": "False"}],
+                              "unrelatedPrivateField": "not-exported"},
+                   "spec": {"private": "not-exported"}}
+
+        def wait(_description, predicate):
+            predicate()
+            raise ce.Failure("original rotation timeout")
+
+        control.h = SimpleNamespace(result={"controlAcceptance": {}}, profile="profile",
+                                    node_snapshot=lambda: node, get=lambda *_: profile, wait=wait)
+        with self.assertRaisesRegex(ce.Failure, "original rotation timeout"):
+            control.complete_rotation(RID)
+        diagnostic = control.h.result["controlAcceptance"]["provisioningDiagnostics"]
+        self.assertEqual(diagnostic["nodeUID"], "node-original")
+        self.assertEqual(diagnostic["runtimeInventory"], {RID: {"generation": 1, "state": "ready"}})
+        self.assertEqual(diagnostic["profileGeneration"], 3)
+        self.assertNotIn("unrelatedPrivateField", diagnostic["profileStatus"])
+        self.assertNotIn("not-exported", json.dumps(diagnostic))
+
     def test_incomplete_rotation_retains_bounded_controller_status_without_raw_objects(self):
         control = object.__new__(ce.ControlEdges)
         original = {"metadata": {"uid": EPOCH, "generation": 3},

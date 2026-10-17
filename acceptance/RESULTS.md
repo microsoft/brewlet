@@ -221,6 +221,21 @@ overwritten.
 
 ## Executed successfully
 
+Run `39036910264` retained a genuinely approved generation-two target while the
+participant continued reporting generation one throughout the rotation wait;
+the existing generation-one workloads remained healthy. This is a provisioning
+progress failure, not evidence that stale task tuples should be discarded.
+Bounded source reviews found no demonstrated lock-order cycle or restart-slot
+defect. Sequential installation alone does not violate the proposal and is not
+established as this run's cause; no parallel-install rewrite or arbitrary install
+timeout was introduced.
+
+Rotation failures now also retain live Node UID/claim identifiers, selected
+runtime-inventory entries, startup fences and bounded profile progress/conditions.
+Unrelated runtime entries, profile specs and other fields are excluded, and the
+original rotation failure remains an error. All **285** offline safeguards pass.
+Actual source-pull/publication failure diagnosis remains outstanding.
+
 Focused run `39033035280` failed waiting for the strategy matrix's
 `rolling-deployment` restart record to reach `Complete`. The retained rotation
 snapshots alone do not establish why that workload outcome was missing.
