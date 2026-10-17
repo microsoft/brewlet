@@ -10,11 +10,18 @@ import time
 from control_edges import (ControlEdges, barrier_for, blocked_pod_evidence, restart_record,
                            timestamp, verify_pacing)
 import delivery
-from harness import FENCE, STORE, Failure, Harness, require
+from harness import FENCE, ROOT, STORE, Failure, Harness, require
 from transfer_gate import TransferGate
 
 
 DEADLINE = 60  # Longer than the real 30-second shim Create wait.
+
+
+def verify_default_restart_arguments(rendered):
+    arguments = {line.strip().removeprefix("- ").strip("'\"") for line in rendered.splitlines()}
+    require("--restart-max-concurrent=5" in arguments
+            and "--restart-workload-progress-deadline=10m" in arguments,
+            "rendered opt-in defaults are not five slots and a ten-minute workload deadline")
 
 
 def exercise(h, control, gate):
@@ -24,6 +31,13 @@ def exercise(h, control, gate):
              "metadata": {"name": control.namespace}})
     h.delivery.install_pull_secret(control.namespace)
     control.original_values = control.release_values()
+    rendered = control.helm(["template", h.cluster, ROOT / "kubernetes/charts/brewlet",
+                             "--show-only", "templates/control-plane.yaml",
+                             "--set", "operator.rotationRestarts.enabled=true"]).stdout
+    verify_default_restart_arguments(rendered)
+    h.record("rendered restart opt-in defaults preserve five slots and ten-minute workload deadline",
+             {"scope": "rendered-config-contract", "notElapsedTenMinuteTimingProof": True},
+             ["ROT-09"])
     control.create_inventory()
     profile = h.get("nodeprofile", h.profile)
     spec = profile["spec"]
@@ -136,6 +150,49 @@ def exercise(h, control, gate):
         control.conditional_node_update({"spec": {"unschedulable": False}})
 
 
+def native_deadline_evidence(first, second, workload):
+    if not first or first.get("phase") != "Failed" or not second or not second.get("startedAt"):
+        return False
+    require(first.get("reason") == "RestartFailed" and not first.get("completedAt"),
+            "earlier native progress failure was claimed complete")
+    require(workload.get("status", {}).get("observedGeneration", 0)
+            >= workload["metadata"]["generation"], "native failure status is stale")
+    conditions = [c for c in workload["status"].get("conditions", [])
+                  if c["type"] == "Progressing" and c["status"] == "False"
+                  and c.get("reason") == "ProgressDeadlineExceeded"]
+    require(bool(conditions), "no actual Deployment progress-deadline failure")
+    elapsed = timestamp(second["startedAt"]) - timestamp(first["startedAt"])
+    require(9 <= elapsed < DEADLINE,
+            "native progress failure did not free its slot before the workload deadline")
+    return {"failed": first, "next": second, "nativeConditions": conditions,
+            "slotHandoffSeconds": elapsed, "workloadDeadlineSeconds": DEADLINE,
+            "nativeProgressDeadlineSeconds": 10}
+
+
+def earlier_native_failure(h, control):
+    rid = control.ids[1]
+    for name in ("early-a", "early-b"):
+        obj = control.workload(name, "Deployment", rid, gated=name == "early-a")
+        obj["spec"]["progressDeadlineSeconds"] = 10
+        control.apply_workload(obj)
+        control.old[name] = control.wait_ready(name)
+    control.rotate(rid, "after")
+    control.complete_rotation(rid)
+
+    def observed():
+        image = control.image(rid)
+        first = control.get_workload("early-a")
+        second = control.get_workload("early-b")
+        verify_pacing([image], 1, time.time(), DEADLINE)
+        return native_deadline_evidence(restart_record(image, first), restart_record(image, second), first)
+
+    proof = h.wait("real earlier Deployment progress failure releases global slot", observed, timeout=90)
+    ready = control.wait_ready("early-b")
+    control.verify_running_generation(ready, control.image(rid), "after")
+    h.record("real Deployment native progress failure frees slot before configured workload deadline",
+             proof, ["ROT-09"])
+
+
 def run(work):
     h = Harness(work)
     gate, control = None, None
@@ -152,6 +209,8 @@ def run(work):
         h.phase = "cold-install"
         gate, control = TransferGate(h), ControlEdges(h)
         exercise(h, control, gate)
+        h.phase = "earlier-native-progress-failure"
+        earlier_native_failure(h, control)
         h.phase = "cold-case-cleanup"
         gate.release()
         control.cleanup()
