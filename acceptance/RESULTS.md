@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 213 passing offline tests; those
+The live-driver safeguards currently include 219 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -252,6 +252,28 @@ production recovery. The reduced real-node probe passed with timeout exit124,
 unchanged task PID, retained lease/root and fresh recovery after CONT; no
 protected records or clocks were edited. Full retired-generation/GC lifecycle
 acceptance must still run.
+
+`run-complete-17` passed 55 assertions, including real inspection uncertainty/
+recovery, positive retired-generation grace and actual post-drain collection,
+cold OnDemand rotation, lease-protected idle TTL and eager reinstallation.
+The remaining direct-CRI fixture failed before application start because its
+sandbox omitted the pinned node's systemd cgroup parent. Reduced probes also
+found missing explicit CRI client labels, unresolved image-config identity,
+and kubelet's legitimate garbage collection of an unmanaged CRI sandbox.
+The fixture now declares the actual resolved config identity plus unchanged
+requested artifact digest, uses a systemd parent and suitable RPC budget, and
+temporarily pauses only the identity-checked owned kubelet, always restoring
+it before API cleanup. A focused real-CRI run passed active main/exec/mount
+lease and revocation-finalizer protection followed by complete normal
+runc/CRI process/mount drain and root reclamation.
+
+**Proof boundary:** delegated runc/CRI normally drains detached exec processes
+with main exit on this backend. The fixture must not require or manufacture
+orphan survival, change the backend lifecycle, or label that absent behavior
+as verified. Its receipt explicitly records whether an exec was observed
+after main exit; forced orphan survival remains unverified. Native conditional
+task/exec/mount uncertainty contracts and real active-reference/drain evidence
+remain separate. No complete lifecycle/controller-suite pass is claimed yet.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

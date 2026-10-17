@@ -44,6 +44,108 @@ def profile():
 
 
 class WorkerRestartTests(unittest.TestCase):
+    def orphan_fixture(self):
+        base = {"metadata": {"name": "python-old", "uid": "base-pod", "labels": {OWNER: RUN}},
+                "status": {"containerStatuses": [{"name": "app", "image": "sha256:" + CONTAINER,
+                                                   "state": {"running": {}}}]}}
+        fixture = l.Lifecycle.__new__(l.Lifecycle)
+        fixture.h = SimpleNamespace(run_id=RUN, namespace="private",
+                                    app_images={"python": "fixture@sha256:" + CONTAINER},
+                                    initial={"python": {"pod": base}}, get=Mock(return_value=base))
+        fixture.inventory = Mock(return_value=RUNTIME)
+        return fixture
+
+    def test_direct_cri_sandbox_declares_systemd_parent_and_shared_pod_pid_namespace(self):
+        fixture = self.orphan_fixture()
+        fixture.cri_file = Mock(side_effect=Failure("stop before CRI file write"))
+        with self.assertRaisesRegex(Failure, "stop before CRI"):
+            fixture.orphan_exec_cri(RUNTIME, Mock())
+        name, sandbox = fixture.cri_file.call_args.args
+        self.assertEqual(name, "sandbox.json")
+        self.assertEqual(sandbox["linux"]["cgroup_parent"], "system.slice")
+        self.assertEqual(sandbox["linux"]["security_context"]["namespace_options"],
+                         {"network": 2, "pid": 0})
+        self.assertEqual(sandbox["metadata"]["namespace"], "private")
+        self.assertTrue(sandbox["metadata"]["uid"])
+
+    def test_direct_cri_container_declares_its_actual_sandbox_identity(self):
+        fixture = self.orphan_fixture()
+        fixture.cri_file = Mock(side_effect=["/owned/sandbox.json", Failure("stop before CRI create")])
+        with self.assertRaisesRegex(Failure, "stop before CRI"):
+            fixture.orphan_exec_cri(RUNTIME, Mock())
+        sandbox = fixture.cri_file.call_args_list[0].args[1]
+        name, container = fixture.cri_file.call_args_list[1].args
+        self.assertEqual(name, "container.json")
+        self.assertEqual(container["labels"]["io.kubernetes.pod.uid"], sandbox["metadata"]["uid"])
+        self.assertEqual(container["labels"]["io.kubernetes.pod.namespace"], "private")
+        self.assertEqual(container["labels"]["io.kubernetes.pod.name"], sandbox["metadata"]["name"])
+        self.assertEqual(container["labels"]["io.kubernetes.container.name"], container["metadata"]["name"])
+        self.assertEqual(container["image"],
+                         {"image": "sha256:" + CONTAINER, "user_specified_image": "fixture@sha256:" + CONTAINER})
+
+    def test_orphan_cri_scope_always_resumes_only_the_exact_owned_kubelet(self):
+        fixture = l.Lifecycle.__new__(l.Lifecycle)
+        fixture.inventory = Mock(return_value=RUNTIME)
+        fixture.guard = Mock()
+        fixture.orphan_exec_cri = Mock(side_effect=Failure("controlled orphan failure"))
+        results = [
+            subprocess.CompletedProcess([], 0, "4321", ""),
+            subprocess.CompletedProcess([], 0, "/usr/bin/kubelet", ""),
+            subprocess.CompletedProcess([], 0, "4321 (kubelet) " + " ".join(
+                ["S"] + ["0"] * 18 + ["98765"]), ""),
+            subprocess.CompletedProcess([], 0, "", ""),
+            subprocess.CompletedProcess([], 0, "", "")]
+        fixture.h = SimpleNamespace(node_exec=Mock(side_effect=results))
+        with self.assertRaisesRegex(Failure, "controlled orphan"):
+            fixture.orphan_exec()
+        signals = fixture.h.node_exec.call_args_list[-2:]
+        self.assertEqual([call.args[-1] for call in signals], ["STOP", "CONT"])
+        self.assertTrue(all(call.args[-4:-1] == ("4321", "98765", "/usr/bin/kubelet")
+                            for call in signals))
+
+    def test_kubelet_pause_rejects_foreign_or_reused_process_identity(self):
+        command = l.kubelet_signal_command(4321, "98765", "/usr/bin/kubelet", "STOP")
+        self.assertIn("systemctl show kubelet --property=MainPID --value", command[2])
+        for args in ((1, "123", "/usr/bin/kubelet", "STOP"),
+                     (4321, "1;kill", "/usr/bin/kubelet", "STOP"),
+                     (4321, "123", "/usr/bin/containerd", "STOP"),
+                     (4321, "123", "/usr/bin/kubelet", "KILL")):
+            with self.subTest(args=args), self.assertRaises(Failure):
+                l.kubelet_signal_command(*args)
+
+    def test_orphan_pid_observation_uses_kernel_identity_not_exited_task_metadata(self):
+        fixture = l.Lifecycle.__new__(l.Lifecycle)
+        identities = {4321: {"start": "98765", "executable": "/usr/bin/python3"}}
+        def stat(state="S", start="98765"):
+            return "4321 (python3) " + " ".join([state] + ["0"] * 18 + [start])
+        fixture.h = SimpleNamespace(node_exec=Mock(
+            return_value=subprocess.CompletedProcess([], 0, stat(), "")))
+        self.assertEqual(fixture.orphan_pids(identities), [4321])
+        fixture.h.node_exec.return_value.stdout = stat("Z")
+        self.assertEqual(fixture.orphan_pids(identities), [])
+        fixture.h.node_exec.return_value.stdout = stat(start="reused")
+        with self.assertRaisesRegex(Failure, "PID was reused"):
+            fixture.orphan_pids(identities)
+        fixture.h.node_exec.side_effect = [
+            subprocess.CompletedProcess([], 1, "", "unreadable"),
+            subprocess.CompletedProcess([], 1, "", "")]
+        with self.assertRaisesRegex(Failure, "evidence unavailable"):
+            fixture.orphan_pids(identities)
+        fixture.h.node_exec.side_effect = [
+            subprocess.CompletedProcess([], 1, "", "gone"),
+            subprocess.CompletedProcess([], 0, "", "")]
+        self.assertEqual(fixture.orphan_pids(identities), [])
+
+    def test_orphan_signal_requires_exact_pid_start_and_executable(self):
+        command = l.orphan_signal_command(4321, "98765", "/usr/local/bin/python3")
+        self.assertEqual(command[-3:], ["4321", "98765", "/usr/local/bin/python3"])
+        self.assertIn('readlink /proc/$1/exe', command[2])
+        self.assertIn('kill -TERM "$1"', command[2])
+        for args in ((1, "123", "/bin/python"), (4321, "1;kill", "/bin/python"),
+                     (4321, "123", "python")):
+            with self.subTest(args=args), self.assertRaises(Failure):
+                l.orphan_signal_command(*args)
+
     def test_recovery_observes_real_stderr_logs_and_requires_fresh_marker(self):
         report = {"complete": True, "retainedTasks": [CONTAINER], "removedTasks": []}
         message = "2026/10/16 runtime-lease-recovery: " + json.dumps(report) + "\n"
@@ -392,11 +494,13 @@ class ProcessAndReferenceTests(unittest.TestCase):
             with self.assertRaises(Failure):
                 l.validate_lease(value, identity(), CONTAINER)
 
-    def test_orphan_proof_requires_live_exec_main_exit_and_exact_root_mount(self):
+    def test_reference_proof_requires_live_exec_actual_main_state_and_exact_mount(self):
         mount = "lowerdir=" + l.root_path(identity()) + "/rootfs,/app-cache"
         good = dict(main_exited=True, exec_pids=[5432], mountinfo=[mount])
         self.assertTrue(l.retained_refs(lease(), identity(), CONTAINER, **good)["mountReferenced"])
-        for patch in ({"main_exited": False}, {"exec_pids": []}, {"exec_pids": [1]},
+        self.assertFalse(l.retained_refs(lease(), identity(), CONTAINER,
+                                        **dict(good, main_exited=False))["mainExited"])
+        for patch in ({"main_exited": None}, {"exec_pids": []}, {"exec_pids": [1]},
                       {"mountinfo": []}, {"mountinfo": [mount.replace("/9/", "/8/")]},
                       {"mountinfo": [mount.replace("/rootfs", "/rootfs-other")]}):
             with self.subTest(patch=patch), self.assertRaises(Failure):

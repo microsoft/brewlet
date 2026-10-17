@@ -1408,6 +1408,13 @@ class Harness:
                 (self.work / ("diagnostic-" + label + ".log")).write_text(result.stdout + result.stderr)
             except Exception as exc:
                 (self.work / ("diagnostic-" + label + ".log")).write_text(str(exc))
+        if self.node_container:
+            try:
+                result = self.node_exec("journalctl", "-u", "containerd", "--no-pager", "-n", "400",
+                                       check=False, timeout=30)
+                (self.work / "diagnostic-containerd.log").write_text(result.stdout + result.stderr)
+            except Exception as exc:
+                (self.work / "diagnostic-containerd.log").write_text(str(exc))
 
     def destroy(self):
         """Disposable-fixture destruction, never evidence of production cleanup."""

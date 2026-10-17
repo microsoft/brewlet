@@ -190,6 +190,34 @@ def daemon_signal_command(pid, start, executable, action):
     return ["sh", "-ec", script, "lifecycle-daemon", str(pid), start, executable, action]
 
 
+def kubelet_signal_command(pid, start, executable, action):
+    require(type(pid) is int and pid > 1, "unsafe kubelet PID")
+    require(isinstance(start, str) and start.isdigit(), "missing kubelet start identity")
+    require(executable in ("/usr/bin/kubelet", "/usr/local/bin/kubelet", "/bin/kubelet"),
+            "unexpected kubelet executable")
+    require(action in ("STOP", "CONT"), "unsupported kubelet signal")
+    script = (
+        'test "$(systemctl show kubelet --property=MainPID --value)" = "$1"; '
+        'test "$(readlink /proc/$1/exe)" = "$3"; '
+        's=$(cat /proc/$1/stat); s=${s##*) }; '
+        'test "$(printf "%s\\n" "$s" | awk \'{print $20}\')" = "$2"; '
+        'kill -"$4" "$1"')
+    return ["sh", "-ec", script, "lifecycle-kubelet", str(pid), start, executable, action]
+
+
+def orphan_signal_command(pid, start, executable):
+    require(type(pid) is int and pid > 1, "unsafe orphan exec PID")
+    require(isinstance(start, str) and start.isdigit(), "missing orphan start identity")
+    require(isinstance(executable, str) and executable.startswith("/") and "\0" not in executable,
+            "missing orphan executable identity")
+    script = (
+        'test "$(readlink /proc/$1/exe)" = "$3"; '
+        's=$(cat /proc/$1/stat); s=${s##*) }; '
+        'test "$(printf "%s\\n" "$s" | awk \'{print $20}\')" = "$2"; '
+        'kill -TERM "$1"')
+    return ["sh", "-ec", script, "lifecycle-orphan", str(pid), start, executable]
+
+
 def validate_lease(lease, identity, container):
     require(lease.get("taskID") == cid(container) and lease.get("namespace") == "k8s.io",
             "lease is not the exact CRI task")
@@ -201,16 +229,16 @@ def validate_lease(lease, identity, container):
 
 def retained_refs(lease, identity, container, *, main_exited, exec_pids, mountinfo):
     validate_lease(lease, identity, container)
-    require(main_exited is True, "initial process has not exited")
+    require(type(main_exited) is bool, "initial process state unavailable")
     require(isinstance(exec_pids, list) and exec_pids
             and all(type(p) is int and p > 1 for p in exec_pids),
-            "no genuine live orphan exec")
+            "no genuine live exec")
     root = root_path(identity)
     require(any(re.search(re.escape(root + "/rootfs") + r"(?=$|[/,: \t\n])", text)
                 for text in mountinfo),
             "live exec mount namespace does not reference the exact runtime root")
     return {"lease": lease, "execPIDs": exec_pids, "root": root,
-            "mainExited": True, "mountReferenced": True}
+            "mainExited": main_exited, "mountReferenced": True}
 
 
 def recovery_proof(report, identity, container, *, retained):
@@ -859,7 +887,27 @@ class Lifecycle:
         return path
 
     def orphan_exec(self):
-        rid = self.inventory("recovery")
+        rid = self.inventory("recovery", install="Eager")
+        # Kubelet otherwise garbage-collects a sandbox absent from its Pod manager.
+        self.guard()
+        pid = int(self.h.node_exec("systemctl", "show", "kubelet",
+                                  "--property=MainPID", "--value").stdout.strip())
+        executable = self.h.node_exec("readlink", f"/proc/{pid}/exe").stdout.strip()
+        stat = self.h.node_exec("cat", f"/proc/{pid}/stat").stdout
+        start = stat.rsplit(") ", 1)[1].split()[19]
+        self.h.node_exec(*kubelet_signal_command(pid, start, executable, "STOP"))
+        resumed = False
+        def resume():
+            nonlocal resumed
+            if not resumed:
+                self.h.node_exec(*kubelet_signal_command(pid, start, executable, "CONT"))
+                resumed = True
+        try:
+            self.orphan_exec_cri(rid, resume)
+        finally:
+            resume()
+
+    def orphan_exec_cri(self, rid, resume_kubelet):
         # A genuine CRI lifecycle, separate from kubelet's eager container
         # teardown. The sandbox UID is invocation-owned CRI metadata, not a
         # fabricated Kubernetes object, lease, or cleanup receipt.
@@ -868,9 +916,21 @@ class Lifecycle:
                                "namespace": self.h.namespace, "uid": sandbox_uid, "attempt": 0},
                    "log_directory": "/var/log/life-" + self.h.run_id,
                    "annotations": {"brewlet.sh/runtime-image": rid},
-                   "linux": {"security_context": {"namespace_options": {"network": 2, "pid": 0}}}}
+                   "linux": {"cgroup_parent": "system.slice",
+                             "security_context": {"namespace_options": {"network": 2, "pid": 0}}}}
+        initial = self.h.initial["python"]["pod"]
+        base = self.h.get("pod", initial["metadata"]["name"], self.h.namespace)
+        require_owned(base, self.h.run_id, initial["metadata"]["uid"])
+        images = [s["image"] for s in base.get("status", {}).get("containerStatuses", [])
+                  if s.get("name") == "app" and "running" in s.get("state", {})]
+        require(len(images) == 1 and re.fullmatch(r"sha256:[0-9a-f]{64}", images[0]),
+                "actual kubelet-resolved CRI image-config identity unavailable")
         config = {"metadata": {"name": "life-orphan", "attempt": 0},
-                  "image": {"image": self.h.app_images["python"]},
+                  "image": {"image": images[0], "user_specified_image": self.h.app_images["python"]},
+                  "labels": {"io.kubernetes.pod.uid": sandbox_uid,
+                             "io.kubernetes.pod.namespace": self.h.namespace,
+                             "io.kubernetes.pod.name": sandbox["metadata"]["name"],
+                             "io.kubernetes.container.name": "life-orphan"},
                   "command": ["python3"], "args": ["-c", MAIN],
                   "envs": [{"key": "PYTHONPATH", "value": "/app/dependencies"}],
                   "log_path": "orphan.log",
@@ -882,16 +942,20 @@ class Lifecycle:
         sandbox_path = self.cri_file("sandbox.json", sandbox)
         config_path = self.cri_file("container.json", config)
         self.guard()
-        sandbox_id = cid(self.h.node_exec("crictl", "runp", "--runtime", "brewlet",
+        sandbox_id = cid(self.h.node_exec("crictl", "--timeout", "60s", "runp", "--runtime", "brewlet",
                                           sandbox_path).stdout.strip())
         self.cri = {"sandbox": sandbox_id, "uid": sandbox_uid, "container": None}
         container = cid(self.h.node_exec("crictl", "create", sandbox_id,
                                          config_path, sandbox_path).stdout.strip())
         self.cri["container"] = container
         self.inspect(container, pod_uid=sandbox_uid)
-        self.h.node_exec("crictl", "start", container)
+        self.h.node_exec("crictl", "--timeout", "60s", "start", container)
         detail = self.inspect(container, pod_uid=sandbox_uid)
         main_pid = detail["info"]["pid"]
+        main_stat = self.h.node_exec("cat", f"/proc/{main_pid}/stat").stdout
+        main_identity = {
+            "start": main_stat.rsplit(") ", 1)[1].split()[19],
+            "executable": self.h.node_exec("readlink", f"/proc/{main_pid}/exe").stdout.strip()}
         lease = self.read(f"{STORE}/.tasks/{container}/lease.json")
         identity = lease["runtime"]
         validate_lease(lease, identity, container)
@@ -900,18 +964,23 @@ class Lifecycle:
         pids = self.task_pids(container)
         exec_pids = [p for p in pids if p != main_pid]
         require(exec_pids, "real detached exec did not start")
-        self.inspect(container, pod_uid=sandbox_uid)
-        self.h.node_exec(*task_command("terminate-main", container))
-        def initial_exited():
-            inspected = self.inspect(container, pod_uid=sandbox_uid)
-            return inspected if inspected.get("status", {}).get("state") == "CONTAINER_EXITED" else False
-        self.h.wait("genuine initial CRI process exit with live exec", initial_exited, timeout=60)
-        maintenance = self.restart_and_recover(lease)
+        exec_identities = {}
+        for pid in exec_pids:
+            stat = self.h.node_exec("cat", f"/proc/{pid}/stat").stdout
+            exec_identities[pid] = {
+                "start": stat.rsplit(") ", 1)[1].split()[19],
+                "executable": self.h.node_exec("readlink", f"/proc/{pid}/exe").stdout.strip()}
+        worker = self.worker()
+        prefix = self.worker_log_text(worker)
+        maintenance = self.h.wait("fresh production recovery observes the real task and exec", lambda:
+            self.recovery_log(worker, lease, after_prefix=prefix))
         self.revoke(rid)
         started = time.monotonic()
         proof = None
         while time.monotonic() - started < RETAIN_SECONDS:
-            live = [p for p in self.task_pids(container) if p in exec_pids]
+            live = self.orphan_pids(exec_identities)
+            require(live and self.orphan_pids({main_pid: main_identity}),
+                    "initial or detached exec ended before the active-reference proof")
             mounts = [self.h.node_exec("cat", f"/proc/{pid}/mountinfo").stdout for pid in live]
             for pid in live:
                 status = self.h.node_exec("cat", f"/proc/{pid}/status").stdout
@@ -921,28 +990,34 @@ class Lifecycle:
                         and re.search(r"^CapEff:\s+0+$", status, re.M),
                         "real orphan exec lost protected nonroot security state")
             proof = retained_refs(self.read(f"{STORE}/.tasks/{container}/lease.json"),
-                                  identity, container, main_exited=True,
+                                  identity, container, main_exited=False,
                                   exec_pids=live, mountinfo=mounts)
             require(self.exists(root_path(identity) + "/rootfs"), "orphan exec root was collected")
             inventory = self.h.get("runtimeimage", rid)
             require_owned(inventory, self.h.run_id, identity["inventoryUID"])
             require(inventory["metadata"].get("finalizers"), "orphan exec lost deletion finalizer")
             time.sleep(2)
-        self.h.record("genuine orphan exec after main exit retains root, lease and deletion finalizer",
+        self.h.record("actual task/exec/mount references retain root, lease and revocation finalizer",
                       {"references": proof, "freshRecovery": maintenance}, ["LEASE-02", "LEASE-03"])
-        self.inspect(container, pod_uid=sandbox_uid)
-        self.h.node_exec(*task_command("terminate-exec", container, exec_id=exec_id))
+        self.h.node_exec(*orphan_signal_command(main_pid, main_identity["start"],
+                                               main_identity["executable"]))
+        self.h.wait("actual managed main process exit", lambda:
+            not self.orphan_pids({main_pid: main_identity}), timeout=20)
+        live = self.orphan_pids(exec_identities)
+        for pid in live:
+            expected = exec_identities[pid]
+            self.h.node_exec(*orphan_signal_command(pid, expected["start"], expected["executable"]))
         self.h.wait("exact detached exec process drain", lambda:
-            not any(p in self.task_pids(container) for p in exec_pids), timeout=60)
-        require(self.exists(root_path(identity) + "/rootfs")
-                and self.exists(f"{STORE}/.tasks/{container}/lease.json"),
-                "lease released before the stopped task/rootfs mount drained")
-        require(not self.mounts_gone(identity),
-                "stopped task no longer holds the rootfs mount required by this proof")
+            not self.orphan_pids(exec_identities), timeout=60)
+        if not self.mounts_gone(identity):
+            require(self.exists(root_path(identity) + "/rootfs")
+                    and self.exists(f"{STORE}/.tasks/{container}/lease.json"),
+                    "lease released before actual remaining rootfs mounts drained")
         self.inspect(container, pod_uid=sandbox_uid)
         self.h.node_exec("crictl", "rm", container)
         self.cri["container"] = None
         self.remove_sandbox()
+        resume_kubelet()
         self.h.wait("real orphan task lease release after exec and mount drain", lambda:
             not self.exists(f"{STORE}/.tasks/{container}/lease.json"))
         require(self.mounts_gone(identity), "runtime mount survived real CRI task teardown")
@@ -955,8 +1030,11 @@ class Lifecycle:
             'rm -- "$1/sandbox.json" "$1/container.json"; rmdir -- "$1"',
             "lifecycle-input-cleanup", self.cri_directory)
         self.cri_directory = None
-        self.h.record("orphan root releases only after actual exec and task/mount drain",
-                      {"identity": identity, "containerID": container, "rootGone": True}, ["LEASE-03"])
+        self.h.record("managed CRI root releases only after actual exec and task/mount drain",
+                      {"identity": identity, "containerID": container, "rootGone": True,
+                       "orphanExecObservedAfterMainExit": bool(live),
+                       "boundary": "normal delegated runc/CRI exit semantics; no forced orphan survival"},
+                      ["LEASE-03"])
 
     def task_pids(self, container):
         output = self.h.node_exec("ctr", "-n", "k8s.io", "tasks", "ps", cid(container)).stdout
@@ -965,6 +1043,21 @@ class Lifecycle:
         require(all(line.split() and line.split()[0].isdigit() for line in lines[1:]),
                 "ambiguous task process evidence")
         return [int(line.split()[0]) for line in lines[1:]]
+
+    def orphan_pids(self, identities):
+        live = []
+        for pid, expected in identities.items():
+            observed = self.h.node_exec("cat", f"/proc/{pid}/stat", check=False)
+            if observed.returncode:
+                require(observed.returncode == 1 and self.h.node_exec(
+                    "test", "!", "-d", f"/proc/{pid}", check=False).returncode == 0,
+                    "orphan process evidence unavailable")
+                continue
+            fields = observed.stdout.rsplit(") ", 1)[1].split()
+            require(fields[19] == expected["start"], "orphan PID was reused")
+            if fields[0] not in ("Z", "X"):
+                live.append(pid)
+        return live
 
     def remove_sandbox(self):
         sandbox = self.cri
@@ -1012,6 +1105,9 @@ class Lifecycle:
                 "durableLeaseMaintenanceRecoveryVerified": True,
                 "retiredGenerationGCVerified": True,
                 "shimCrashReconstructionVerified": False,
+                "orphanExecSurvivalVerified": False,
+                "execLifecycleBoundary": "normal delegated runc/CRI may drain exec with main exit; "
+                                         "actual active refs and complete drain are verified",
                 "proofBoundary": "fresh fenced recovery using real task/mount evidence; "
                                  "no runc task-server reconstruction requirement inferred"}
 
