@@ -221,6 +221,19 @@ overwritten.
 
 ## Executed successfully
 
+Provider operations documentation now has explicit v2 EKS simulation-only
+tags, a matching validated NodeProfile, a Karpenter real-node/startup-taint
+example, and AKS managed-cluster initialization, pool-scope, feature-registration
+and node-image/reimage requirements. The guidance was reconciled with Proposal
+0009, the pinned capability reference and official provider documentation.
+The preserved Pages workflow was read as the site build reference; no workflow
+was changed or executed and no 1.x publication pipeline was activated.
+`go test -count=1 -race -mod=readonly ./architecture` validates the example YAML,
+inventory/label agreement, exact startup toleration/taint and explicit
+unverified-cloud boundaries. This closes documentation requirement LABEL-02:
+**69 verified, 32 not fully verified**. It is offline contract evidence, not a
+claim of EKS/Karpenter/AKS scale-from-zero or live cloud initialization.
+
 Local work now selects the already implemented Maven-producer and lifecycle
 callbacks independently, with their required Java/Python fixture respectively,
 so these implementation surfaces can be checked within current Docker

@@ -67,20 +67,158 @@ remediation.
 
 ## Provider templates
 
-EKS Cluster Autoscaler simulation tags use `PropagateAtLaunch=false`. Their
-capabilities must exactly match valid profile inventory; synthetic readiness
-must not be placed on an unprovisioned real node.
+These are configuration contracts, not a claim of verified cloud autoscaling.
+Only kind-based node execution and controlled provider-refusal policies have
+been exercised locally. No EKS, Karpenter or AKS provider scale-from-zero has
+been verified. An accepted zero-node inventory/profile and a Pending Pod are
+API/placement observations, not proof that a provider will create a usable node.
 
-Karpenter copies template labels to real nodes. Use its `startupTaints` for
-nodes requiring post-registration provisioning. An OnDemand ID needs mutable
-real-node labels; a pinned per-ID `available` label is unsupported.
+All template capabilities must exactly match the approved inventory offered by
+the pool: use `brewlet.sh/runtime=ready` for the validated baseline and
+`brewlet.sh/runtime.<id>=available` for a cold OnDemand ID or `ready` for Eager.
+Do not publish the old JDK, feature, architecture, libc or Java-ABI label family.
+Workloads select native architectures explicitly with `kubernetes.io/arch`;
+template labels never replace image platform validation.
 
-AKS pool labels are real-node labels, not simulation-only tags. Eager pinned
-ready labels require removable **node initialization taints**, not pinned
-ordinary `--node-taints`. Initialization taint changes require the provider's
-feature registration and node-image regeneration. Do not claim scale-from-zero
-solely from an approved profile or a pending Pod. No provider-scale proof has
-been established on this branch.
+### EKS Cluster Autoscaler: simulation-only tags
+
+For an existing managed node group's Auto Scaling group `$ASG`, the following
+tags describe a baseline plus approved OnDemand ID `static`:
+
+```sh
+aws autoscaling create-or-update-tags --tags \
+  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/runtime,Value=ready,PropagateAtLaunch=false" \
+  "ResourceId=$ASG,ResourceType=auto-scaling-group,Key=k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/runtime.static,Value=available,PropagateAtLaunch=false"
+```
+
+`PropagateAtLaunch=false` is essential: these are Cluster Autoscaler simulation
+inputs, not readiness labels on booting nodes. Do not add equivalent labels to
+kubelet bootstrap or another real-node label source. Real nodes join with the
+provider's pool label; only validated Brewlet provisioning publishes their
+actual readiness/capabilities. A matching profile is:
+
+```yaml
+apiVersion: node.brewlet.sh/v2alpha1
+kind: NodeProfile
+metadata:
+  name: runtime-pool
+spec:
+  nodePool:
+    key: eks.amazonaws.com/nodegroup
+    names: [runtime-pool]
+  runtimeImages:
+    - id: static
+      install: OnDemand
+  tolerations:
+    - key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet
+      operator: Equal
+      value: provisioning
+      effect: NoSchedule
+  rollout:
+    containerdRestart: validated
+```
+
+The `RuntimeImage/static` must already be approved and its actual userland must
+meet the declared platform/account contract. Other taints are not tolerated
+implicitly. Provisioner tolerations are explicit; application Pods must not
+tolerate the Brewlet startup fence, including via wildcard `Exists`.
+
+### Karpenter: real-node template labels
+
+Karpenter copies NodePool template labels to NodeClaims/Nodes. Therefore a
+template that advertises Brewlet capabilities before post-registration
+installation must also declare the startup fence. For example, with an
+existing platform-reviewed `EC2NodeClass/runtime-nodes`:
+
+```yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: brewlet-runtime
+spec:
+  template:
+    metadata:
+      labels:
+        brewlet.sh/runtime: ready
+        brewlet.sh/runtime.static: available
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: runtime-nodes
+      startupTaints:
+        - key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet
+          value: provisioning
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/os
+          operator: In
+          values: [linux]
+        - key: kubernetes.io/arch
+          operator: In
+          values: [arm64]
+```
+
+Use the corresponding NodeProfile with
+`nodePool: {key: karpenter.sh/nodepool, names: [brewlet-runtime]}` and the same
+inventory/toleration above. Choose architectures actually supplied by the
+approved runtime source; the example does not assert availability in any
+region or account. Karpenter ignores startup taints for provisioning decisions,
+but the real scheduler still blocks the Pod until the authorized worker
+validates the baseline and required roots and removes the taint.
+
+OnDemand requires changing/removing the real per-ID label during first use,
+failure and idle reclamation. Confirm that the provider/policy permits those
+changes. A provider-pinned `available` label is unsupported: use mutable labels
+or change both the profile and matching template to Eager.
+
+### AKS: initialization and reimage requirements
+
+AKS pool labels are real, provider-managed labels. AKS-managed Cluster
+Autoscaler does not obtain this simulation contract from EKS-style VMSS tags.
+For a provider-pinned Eager recipe, use
+`brewlet.sh/runtime=ready` and `brewlet.sh/runtime.static=ready`, change the
+profile to `install: Eager`, and select the actual pool with
+`nodePool: {key: agentpool, names: [runtimepool]}`. An OnDemand per-ID pin is
+not supported.
+
+Ready labels alone are unsafe. Before allowing such labels onto an
+unprovisioned node, the pool must arrange the removable Brewlet
+**node initialization taint** at boot. Ordinary AKS `--node-taints` are pinned
+and cannot serve as this removable fence.
+
+The retained provider contract and current AKS documentation describe
+`NodeInitializationTaintsPreview` registration under
+`Microsoft.ContainerService`, with supported preview tooling/API. Initialization
+taints are configured through a **managed-cluster-level** create/update request,
+not an agent-pool-level request carrying `NodeInitializationTaints`; the latter
+is rejected. Cluster CLI initialization options can affect every pool; a
+pool-scoped configuration requires a reviewed managed-cluster ARM request
+targeting that pool's profile. Verify provider/API support before changing a
+real cluster; Brewlet does not perform feature registration or cloud updates.
+
+Changing initialization settings alone is insufficient. Regenerate the
+affected pool's node image and roll/reimage the intended nodes under the
+platform's maintenance procedure, for example with a reviewed
+`az aks nodepool upgrade --node-image-only` operation. Verify that newly
+created/reimaged nodes actually arrive startup-tainted before accepting
+templated readiness. Existing nodes and future scale-up replicas must not be
+assumed initialized from a successful API update alone.
+
+If these prerequisites cannot be met, do not template Brewlet ready labels and
+do not advertise verified scale-from-zero; retain nonzero provisioned capacity
+instead. During retirement/uninstall, removing a taint from one current Node
+does not remove it from provider initialization settings. Correct stale pool
+labels and initialization configuration explicitly; Brewlet cleanup never
+authorizes releasing a fence over stale provider capabilities.
+
+Provider references: [EKS Cluster Autoscaler](https://docs.aws.amazon.com/eks/latest/best-practices/cas.html),
+[Karpenter NodePools](https://karpenter.sh/docs/concepts/nodepools/), and
+[AKS node/initialization taints](https://learn.microsoft.com/en-us/azure/aks/use-node-taints).
+The governing Brewlet contract remains
+[Proposal 0009 section 9.2](../specs/proposals/0009-language-agnostic-runtime-images.md#92-startup-fencing-and-provider-managed-labels);
+the retained capability specification is reference context, not permission to
+restore its 1.x keys.
 
 ## Validation boundaries
 
