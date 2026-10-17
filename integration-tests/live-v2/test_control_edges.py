@@ -87,6 +87,56 @@ def fake_harness():
         app_images={"python": "registry/app@sha256:" + "c" * 64})
 
 
+class EagerReadinessTests(unittest.TestCase):
+    def snapshot(self):
+        node = {"metadata": {"uid": "node", "labels": {
+            "brewlet.sh/owner-uid": "profile", "brewlet.sh/owner-node-uid": "node",
+            "brewlet.sh/runtime": "ready"}},
+            "spec": {"taints": [{"key": ce.FENCE, "value": "provisioning", "effect": "NoSchedule"}]}}
+        profile = {"metadata": {"uid": "profile", "generation": 2}, "status": {
+            "provisioningGeneration": 2, "conditions": [
+                {"type": "Ready", "status": "False", "observedGeneration": 2}]}}
+        image = {"metadata": {"name": "bad", "uid": "inventory"},
+                 "status": {"generation": 1, "digest": "sha256:" + "a" * 64}}
+        authorization = {"id": "bad", "inventoryUID": "inventory", "generation": 1,
+                         "digest": image["status"]["digest"], "profileUID": "profile",
+                         "profileGeneration": 2, "install": "Eager", "state": "failed", "revoked": False}
+        return node, profile, image, authorization
+
+    def test_failure_evidence_requires_actual_failed_current_owner_and_fence(self):
+        node, profile, image, auth = self.snapshot()
+        self.assertEqual(ce.eager_failure_evidence(node, profile, image, auth)["state"], "failed")
+        withdrawn = copy.deepcopy(node)
+        withdrawn["spec"]["taints"] = []
+        withdrawn["metadata"]["labels"].pop("brewlet.sh/runtime")
+        self.assertFalse(ce.eager_failure_evidence(withdrawn, profile, image, auth)["startupFenced"])
+        for change in ({"install": "OnDemand"}, {"state": "ready"}, {"revoked": True},
+                       {"inventoryUID": "foreign"}, {"profileUID": "foreign"}, {"digest": "wrong"}):
+            with self.subTest(change=change), self.assertRaises(ce.Failure):
+                ce.eager_failure_evidence(node, profile, image, {**auth, **change})
+        for change in ("claim", "node-claim", "fence", "label", "ready"):
+            n, p = copy.deepcopy(node), copy.deepcopy(profile)
+            if change == "claim":
+                n["metadata"]["labels"]["brewlet.sh/owner-uid"] = "foreign"
+            elif change == "node-claim":
+                n["metadata"]["labels"]["brewlet.sh/owner-node-uid"] = "replacement"
+            elif change == "fence":
+                n["spec"]["taints"] = []
+            elif change == "label":
+                n["metadata"]["labels"]["brewlet.sh/runtime.bad"] = "ready"
+            else:
+                p["status"]["conditions"][0]["status"] = "True"
+            with self.subTest(change=change), self.assertRaises(ce.Failure):
+                ce.eager_failure_evidence(n, p, image, auth)
+
+    def test_pending_install_and_uncommitted_generation_are_not_failure_proof(self):
+        node, profile, image, auth = self.snapshot()
+        self.assertFalse(ce.eager_failure_evidence(node, profile, image, {**auth, "state": "installing"}))
+        self.assertFalse(ce.eager_failure_evidence(node, profile, image, {**auth, "profileGeneration": 1}))
+        profile["status"]["provisioningGeneration"] = 1
+        self.assertFalse(ce.eager_failure_evidence(node, profile, image, auth))
+
+
 class IsolationTests(unittest.TestCase):
     def test_control_entry_requires_every_selected_language_not_an_implicit_four(self):
         h = fake_harness()

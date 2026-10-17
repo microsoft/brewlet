@@ -31,11 +31,12 @@ import threading
 import time
 import urllib.request
 
-from harness import API, FENCE, HERE, IDS, OWNER, ROOT, Failure, inventory_spec_patch, require, require_owned
+from harness import API, FENCE, HERE, IDS, OWNER, ROOT, STORE, Failure, inventory_spec_patch, require, require_owned
 
 
 SELECTED = (
     "chart-rbac-double-opt-in",
+    "approved-eager-failure-readiness-gate",
     "native-controller-strategies",
     "uid-epoch-idempotency",
     "global-pacing-and-deadlines",
@@ -121,6 +122,43 @@ def pod_identity(pod):
             "no actual application container identity")
     return (pod["metadata"]["uid"], statuses[0]["containerID"],
             statuses[0].get("restartCount", 0))
+
+
+def eager_failure_evidence(node, profile, image, authorization):
+    require(authorization.get("install") == "Eager" and not authorization.get("revoked"),
+            "failed Eager probe lacks an active Eager authorization")
+    require(authorization.get("state") in ("installing", "failed"),
+            "invalid Eager root was made usable")
+    if authorization["state"] != "failed":
+        return False
+    generation = profile["metadata"]["generation"]
+    if (profile.get("status", {}).get("provisioningGeneration") != generation
+            or authorization.get("profileGeneration") != generation):
+        return False
+    require(authorization.get("id") == image["metadata"]["name"]
+            and authorization.get("inventoryUID") == image["metadata"]["uid"]
+            and authorization.get("generation") == image["status"]["generation"]
+            and authorization.get("digest") == image["status"]["digest"]
+            and authorization.get("profileUID") == profile["metadata"]["uid"],
+            "failed Eager authorization is not the actual approved target/owner")
+    labels = node["metadata"].get("labels", {})
+    require(labels.get("brewlet.sh/owner-uid") == profile["metadata"]["uid"]
+            and labels.get("brewlet.sh/owner-node-uid") == node["metadata"]["uid"],
+            "failed Eager observation lacks the literal profile/Node claim")
+    fenced = any(t.get("key") == FENCE and t.get("value") == "provisioning"
+                 and t.get("effect") == "NoSchedule" for t in node.get("spec", {}).get("taints", []))
+    require(fenced or labels.get("brewlet.sh/runtime") != "ready",
+            "approved Eager failure left the node effectively runtime-ready")
+    require("brewlet.sh/runtime." + image["metadata"]["name"] not in labels,
+            "failed Eager ID retained a scheduling capability")
+    require(not any(c.get("type") == "Ready" and c.get("status") == "True"
+                    and c.get("observedGeneration") == generation
+                    for c in profile.get("status", {}).get("conditions", [])),
+            "profile reported current-generation readiness despite failed required Eager root")
+    return {"nodeUID": node["metadata"]["uid"], "profileUID": profile["metadata"]["uid"],
+            "profileGeneration": generation, "inventoryUID": image["metadata"]["uid"],
+            "generation": authorization["generation"], "state": authorization["state"],
+            "startupFenced": fenced, "baselineLabel": labels.get("brewlet.sh/runtime")}
 
 
 def native_complete(obj):
@@ -746,6 +784,91 @@ class ControlEdges:
                         lambda rid=rid: self.h.advertised(rid, "ready"))
             self.complete_rotation(rid)
         return old_epoch
+
+    def eager_readiness_failure(self):
+        h = self.h
+        runtime_id = "eager-invalid-" + h.run_id
+        language = h.probe_language
+        require(h.initial[language]["metadata"]["uid"] != 1000,
+                "invalid-account fixture must differ from the actual golden app account")
+        h.apply({"apiVersion": API, "kind": "RuntimeImage", "metadata": {"name": runtime_id},
+                 "spec": {"source": {"image": h.runtime_images[language]["before"]},
+                          "user": {"uid": 1000, "gid": 1000}}})
+        def approved():
+            image = self.image(runtime_id)
+            return image if image.get("status", {}).get("generation", 0) > 0 and any(
+                c.get("type") == "Approved" and c.get("status") == "True"
+                and c.get("observedGeneration") == image["metadata"]["generation"]
+                for c in image.get("status", {}).get("conditions", [])) else False
+
+        h.wait("approved deliberately incompatible Eager account declaration", approved)
+        profile = h.get("nodeprofile", h.profile)
+        spec = copy.deepcopy(profile["spec"])
+        spec["runtimeImages"].append({"id": runtime_id})
+        self.patch_inventory_spec(profile, spec)
+
+        def failed():
+            path = STORE + "/" + runtime_id + "/authorization.json"
+            observed = h.node_exec("cat", path, check=False)
+            if observed.returncode:
+                require("No such file or directory" in observed.stderr and path in observed.stderr,
+                        "failed to read Eager authorization: " + observed.stderr[:2000])
+                return False
+            authorization = json.loads(observed.stdout)
+            evidence = eager_failure_evidence(h.node_snapshot(), h.get("nodeprofile", h.profile),
+                                             self.image(runtime_id), authorization)
+            if not evidence:
+                return False
+            self.capture_provisioner_errors()
+            if not any("app account identity mismatch" in line
+                       for entry in h.result["controlAcceptance"]["provisionerErrors"]
+                       for line in entry["errors"]):
+                return False
+            require(h.node_exec("/bin/sh", "-ec",
+                'test ! -e "$1" && test ! -L "$1"', "eager",
+                STORE + "/" + runtime_id + "/current", check=False).returncode == 0,
+                "invalid Eager root published a current pointer")
+            return evidence
+
+        evidence = h.wait("actual approved Eager root rejection retains effective readiness gate", failed)
+        name = "eager-gated"
+        self.apply_workload(self.workload(name, "Deployment", IDS[language], opted=False))
+
+        def unscheduled():
+            pods = self.pods(name)
+            require(all(not p["spec"].get("nodeName") for p in pods),
+                    "workload scheduled through the failed Eager readiness gate")
+            return pods if pods and all(any(c.get("type") == "PodScheduled" and c.get("status") == "False"
+                for c in p.get("status", {}).get("conditions", [])) for p in pods) else False
+
+        pending = h.wait("real scheduler keeps a good-runtime workload Pending behind Eager failure",
+                         unscheduled)
+        self.assert_base_intact()
+        profile = h.get("nodeprofile", h.profile)
+        spec = copy.deepcopy(profile["spec"])
+        spec["runtimeImages"] = [entry for entry in spec["runtimeImages"] if entry["id"] != runtime_id]
+        self.patch_inventory_spec(profile, spec)
+        recovered = self.wait_ready(name)
+        require({p["metadata"]["uid"] for p in pending} == {p["metadata"]["uid"] for p in recovered},
+                "Eager gate recovery replaced the unscheduled workload instead of releasing readiness")
+        self.verify_running_generation(recovered, self.image(IDS[language]), "after")
+        node = h.node_snapshot()
+        require(node["metadata"].get("labels", {}).get("brewlet.sh/runtime") == "ready"
+                and not any(t.get("key") == FENCE for t in node.get("spec", {}).get("taints", [])),
+                "Eager gate recovery did not establish actual unfenced baseline readiness")
+        self.assert_base_intact()
+        self.delete_object("Deployment", name, self.namespace)
+        h.wait("Eager readiness canary and descendant Pods deleted", lambda:
+               h.get("deployment", name, self.namespace, absent=True) is None
+               and not any(p["metadata"].get("labels", {}).get(CASE) == name
+                           for p in h.get("pods", namespace=self.namespace)["items"]))
+        self.workloads.pop(name)
+        h.delete("runtimeimage", runtime_id)
+        h.wait("invalid Eager inventory finalizes under actual worker cleanup", lambda:
+               h.get("runtimeimage", runtime_id, absent=True) is None)
+        h.record("approved Eager root failure blocks real readiness and scheduling until profile correction",
+                 {"failure": evidence, "recoveredPodUIDs": [p["metadata"]["uid"] for p in recovered],
+                  "invalidRootWasNeverPublished": True}, ["PROF-03"])
 
     def strategy_matrix(self):
         old_epoch = self.create_inventory()
@@ -1616,6 +1739,7 @@ def execute(h):
                       "ports": [{"port": 8000}]}})
     try:
         control.api_cas()
+        control.eager_readiness_failure()
         control.strategy_matrix()
         control.superseded()
         control.pacing()

@@ -36,6 +36,15 @@ container-role and lifecycle callbacks and the separate companion suites.
 Results and public exports retain `selectedScenario` and explicit omissions.
 A focused pass is not a complete-suite or full-proposal pass.
 
+Control execution also deliberately offers an approved default-Eager runtime
+whose declared non-root account disagrees with its actual golden root. The
+real worker must reject that root without publishing `current`, keep effective
+baseline readiness withdrawn/fenced, and leave a good-runtime canary
+unscheduled. Removing the invalid required entry must release that same Pod
+without replacing it or disturbing existing application leases; normal
+inventory finalization must then clean the failed entry. This is an actual
+installation/readiness failure, not a fake-client readiness result.
+
 For hands-on **local** debugging, add `--retain-on-failure`. Failed runs still
 exit nonzero and stop their helper processes, but leave the invocation-owned
 cluster, registry and images available for inspection through the private

@@ -221,6 +221,17 @@ overwritten.
 
 ## Executed successfully
 
+The next local control execution adds a physical approved-Eager failure case
+for the still-partial PROF-03 requirement: the source is valid and pinned, but
+its declared non-root account deliberately differs from the actual golden
+`app` account. Selected checks require an actual failed current-owner
+authorization and account-validation error, no published root/capability,
+effective baseline withdrawal/fencing, and real scheduler non-placement of a
+good-runtime canary. Recovery must release the same canary after the required
+entry is removed and preserve existing leases; only normal inventory cleanup
+may finalize the failed entry. All **299** local safeguards and **9**
+acceptance/export checks pass. This new physical case is not yet verified.
+
 **All four language runtime paths now pass locally.** At `2d59927b`, serial
 native arm64 Java, Node.js and .NET runs each passed **18/18 selected assertions**
 with clean production cleanup and exact-owned fixture teardown. Each exercised
