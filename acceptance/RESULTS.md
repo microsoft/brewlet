@@ -221,6 +221,18 @@ overwritten.
 
 ## Executed successfully
 
+LEASE-01 is verified by direct serialization contracts plus actual task-generation
+evidence. A native filesystem test races **32** Create resolutions with runtime
+publication and collection under the production per-ID flock, verifies all
+**33** durable leases and exact generation/root pairing, and retains the old
+leased root after the new generation becomes current. The complete native arm64
+node suite passed **61** cases/subcases without skips; the contention case also
+passed **10** repeated runs. Collection in this isolated test uses explicit fake
+absence evidence and is not represented as CRI/mount inspection. Actual
+old/new generation selection, recovery and post-drain collection come from the
+selected real-node assertions in run `39019782549`, whose later pacing failure
+is preserved.
+
 Native amd64 CI run
 [`39019782549`](https://github.com/microsoft/brewlet/actions/runs/39019782549)
 at `f09e41fb303042b9d1a46a7ca845f100ac6bccd0` passed **69** selected assertions,

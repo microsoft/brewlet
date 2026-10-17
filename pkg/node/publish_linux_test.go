@@ -10,7 +10,9 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func publicationFixture(t *testing.T) (*Store, string, Metadata) {
@@ -167,5 +169,83 @@ func TestPublishedMetadataReadbackRejectsUntrustedPermissions(t *testing.T) {
 	}
 	if _, _, err := store.Current(ctx, metadata.ID); err == nil {
 		t.Fatal("writable immutable metadata authorized current root readback")
+	}
+}
+
+func TestCreateLeasesRemainAtomicWithConcurrentRotationAndCollection(t *testing.T) {
+	store, stage, metadata := publicationFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	fence := func(context.Context) error { return nil }
+	if err := store.Publish(ctx, stage, metadata, fence); err != nil {
+		t.Fatal(err)
+	}
+	old, _, err := store.Resolve(ctx, metadata.ID, "k8s.io", "old-task", nil, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := testAuthorization()
+	auth.Generation, auth.Digest = 2, "sha256:"+strings.Repeat("c", 64)
+	if err := store.WriteAuthorization(ctx, auth); err != nil {
+		t.Fatal(err)
+	}
+	next, target := publicationStage(t)
+	target.Generation, target.SourceDigest = auth.Generation, auth.Digest
+	results := make(chan error, 34)
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for index := range 32 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			lease, root, err := store.Resolve(ctx, metadata.ID, "k8s.io",
+				"racing-task-"+strconv.Itoa(index), nil, 5*time.Second)
+			if err != nil {
+				results <- err
+				return
+			}
+			expected := filepath.Join(store.Root, metadata.ID, metadata.InventoryUID,
+				strconv.FormatInt(lease.Metadata.Generation, 10), "rootfs")
+			if root != expected || (lease.Metadata.Generation != 1 && lease.Metadata.Generation != 2) {
+				results <- errors.New("lease and resolved runtime root crossed generation boundaries")
+				return
+			}
+			results <- nil
+		}()
+	}
+	for _, action := range []func() error{
+		func() error { return store.Publish(ctx, next, target, fence) },
+		func() error { return store.Collect(ctx, metadata.ID, time.Nanosecond, fixedEvidence{}, fence) },
+	} {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			results <- action()
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	for err := range results {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	leases, err := store.Leases()
+	if err != nil || len(leases) != 33 {
+		t.Fatal("concurrent collection lost durable task leases", len(leases), err)
+	}
+	for _, lease := range leases {
+		root := filepath.Join(store.Root, lease.Metadata.ID, lease.Metadata.InventoryUID,
+			strconv.FormatInt(lease.Metadata.Generation, 10), "rootfs")
+		if _, err := os.Stat(root); err != nil {
+			t.Fatal("collection reclaimed a leased generation", lease.TaskID, err)
+		}
+	}
+	current, _, err := store.Current(ctx, metadata.ID)
+	if err != nil || current.Generation != 2 || old.Metadata.Generation != 1 {
+		t.Fatal("rotation changed a previous lease or lost the new current", current, old, err)
 	}
 }
