@@ -276,6 +276,18 @@ measurements. All **273** offline safeguards passed; those are evidence-parser
 and lifecycle contracts, not proof that actual event delivery has run.
 Actual execution of this new callback remains required.
 
+Runtime-root validation was reconciled separately against §7.2. The complete
+updated native arm64 node suite passed **48** cases/subcases without skips:
+PATH presence/uniqueness and root-relative directory/link validation, `/app`
+absence/emptiness, account/group/home mismatches and actual set-ID/file-capability
+rejection. The isolated node test container alone gains `SETFCAP` to construct a
+genuine Linux `security.capability` negative fixture; this does not grant any
+application or production worker a new privilege. Ordinary unprivileged Linux
+unit execution reports an explicit prerequisite skip for that fixture, while
+native CI's existing no-skip gate requires it to execute. ROOT-02 and ROOT-03
+are verified by these reviewed filesystem contracts; this is not additional
+real scheduling or fencing evidence.
+
 `run-complete-39` reached **30** passing assertions but again refused the CRI
 accounting write: available disk was **263,868,416** bytes against the unchanged
 **1,157,627,904**-byte minimum. Exact-owned fixture destruction passed.

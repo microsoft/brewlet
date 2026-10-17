@@ -108,7 +108,7 @@ func TestHomeAndRestrictions(t *testing.T) {
 	}
 }
 func TestRuntimePATH(t *testing.T) {
-	for _, p := range []string{"", ".", "/bin:", "/app/bin", "/bin:relative", "/bin/../app", "/bin::/usr/bin"} {
+	for _, p := range []string{"", ".", "relative", "/bin:", "/app", "/app/bin", "/bin:relative", "/bin/../app", "/bin::/usr/bin", "/bin/.", "/bin//tools", "/bin\x00bad", "/bin:."} {
 		if _, err := runtimeEnvironment([]string{"PATH=" + p}); err == nil {
 			t.Fatalf("accepted PATH %q", p)
 		}
