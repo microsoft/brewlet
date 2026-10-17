@@ -4,6 +4,46 @@
 contract. The 101-entry ledger deliberately distinguishes verified requirements
 from implemented or partially tested behavior.
 
+## Latest combined actual-node result
+
+**`run-complete-24` passed all 70 selected assertions with no failures.**
+Tested checkout: `ee166aed665c1317c58fb4f44220699ce7dbab9e`.
+Production-source manifest:
+`fc993e92cf78fb4796befe1a02bbf5f62eea72ed183f657880490894206592d5`.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --work integration-tests/live-v2/run-complete-24
+```
+
+Exit status was zero. The same fresh native arm64 node completed authenticated
+TLS delivery, four-language vendor updates without app rebuilds, actual CRI
+accounting/eviction, authorization expiry, worker/daemon recovery, uncertain
+inspection retention, retired-generation/idle collection, native controller
+strategies/pacing/deadlines, provider-pin fencing, and production cleanup.
+Actual operator claim release encountered an injected API resourceVersion
+conflict and completed only after fresh ownership/teardown revalidation.
+Production cleanup and subsequent disposable-fixture destruction each passed.
+No manual intervention was recorded. The staging-monitor correction is now
+confirmed through the previously failing actual OnDemand installation and the
+complete combined callback chain.
+
+[`results/expanded-real-node.json`](results/expanded-real-node.json) is the
+whitelisted public result, not private logs, credentials or kubeconfig.
+Its historical `gaps` array retains initial legacy strings, including some
+superseded by its passing assertions. The driver now reports the remaining
+unverified cases rather than those stale strings; the current ledger below
+remains authoritative.
+
+**This is selected-suite success, not complete Proposal 0009 acceptance.**
+The ledger has **43 verified and 58 not fully verified requirements**.
+Only four additional complete rows were promoted from this run: INV-06,
+OD-06, E2E-02 and E2E-08. Worker recovery is not proof of recovery after killing
+the shim task-server; normal backend exec drain is not forced orphan survival.
+Physical recreated-Node cleanup, genuine late alternate-native capacity/provider
+autoscaling, controlled cold-install deadlines, stale pins through production
+uninstall and the remaining detailed ledger obligations are still unverified.
+
 ## Reference and branch
 
 Reference main: `fa7085335b220e29df6affbece4558c5f1259ecb`.

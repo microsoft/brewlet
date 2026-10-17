@@ -34,16 +34,13 @@ IDS = {language: "fixture-" + language for language in LANGUAGES}
 STORE = "/opt/brewlet/runtimes"
 UNIMPLEMENTED = [
     "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
-    "E2E-05 actual late-arriving alternate-architecture capacity and unsupported-platform pull",
-    "E2E-06 OnDemand provider pin refusal and stale-pin retention through production uninstall",
-    "E2E-08 inventory delete/recreate epoch with real old roots; all-ID quarantine recovery",
-    "E2E-09 injected resourceVersion race and recreated-Node conditional claim release",
-    "LEASE-02 shim restart recovery and LEASE-03 orphaned exec after initial task exit",
-    "OD-06 idle collection/mode-switch pin rejection and INV-06 offline authorization expiry",
-    "ROT-01/06/08/09 automatic workload restart pacing, OnDelete/partitioned/paused controllers",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival "
+    "after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
     "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
-    "Registry kubelet pull, private authentication and production TLS transport",
-    "Real vendor security patch (rotation here changes approved image Env, not interpreter version)",
 ]
 
 
