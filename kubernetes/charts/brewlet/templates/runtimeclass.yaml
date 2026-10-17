@@ -5,6 +5,10 @@ metadata:
   annotations:
     helm.sh/resource-policy: keep
 handler: brewlet
+overhead:
+  podFixed:
+    memory: 64Mi
+    cpu: 50m
 scheduling:
   nodeSelector:
     brewlet.sh/runtime: ready

@@ -221,6 +221,18 @@ overwritten.
 
 ## Executed successfully
 
+Reconciling RC-01 found a genuine implementation omission independent of the
+observation stall: both RuntimeClass manifests omitted the retained pod
+reservation entirely. Raw and Helm installs now retain SPEC section 7's
+`64Mi`/`50m` reservation exclusively for shim/staging, not application or
+language-runtime memory. Contract checks assert the matching shared
+handler/selector/reservation and absence of startup-fence tolerations.
+`go test -count=1 -race -mod=readonly ./architecture` and rendering the Helm
+RuntimeClass passed. The live driver now requires that exact overhead on each
+actual admitted initial application Pod. RC-01 remains partial until a run
+containing this manifest change passes; the currently running diagnostic CI
+source predates it.
+
 Run `39044794472` failed after 34 selected assertions at source `fac84659`.
 The new owner-scoped diagnostics show both selected roots eventually advertised
 at generation 2 without a startup fence, while the retained binding observation

@@ -3,6 +3,10 @@ kind: RuntimeClass
 metadata:
   name: brewlet
 handler: brewlet
+overhead:
+  podFixed:
+    memory: 64Mi
+    cpu: 50m
 scheduling:
   nodeSelector:
     brewlet.sh/runtime: ready

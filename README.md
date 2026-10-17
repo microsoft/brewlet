@@ -16,6 +16,14 @@ digest-pinned `RuntimeImage` inventory and per-pool `NodeProfile` placement.
 Workloads are ordinary Kubernetes resources with `runtimeClassName: brewlet`
 and an explicit `brewlet.sh/runtime-image` ID.
 
+The shared `RuntimeClass/brewlet` reserves `64Mi` memory and `50m` CPU per pod
+for shim and staging overhead, identically in the raw manifest and Helm chart.
+This retains the reference reservation numerically, not its former JVM-baseline
+meaning. It is not a measurement or reservation for any language runtime:
+workload resource requests and limits must account for the application's entire
+process, including its interpreter or VM. The class selects only
+`brewlet.sh/runtime=ready` and does not tolerate the startup fence.
+
 No language detection, default runtime selection, JVM flag injection,
 `JavaApplication`, or 1.x compatibility is part of this implementation.
 Java project intelligence belongs only to the optional

@@ -1089,6 +1089,8 @@ class Harness:
             name = language + "-old"
             self.apply(self.pod(name, language))
             obj = self.wait(language + " initial start and real exec readiness probe", lambda: self.ready(name))
+            require(obj.get("spec", {}).get("overhead") == {"cpu": "50m", "memory": "64Mi"},
+                    "shared RuntimeClass shim/staging reservation missing from admitted application Pod")
             self.assert_report(self.http(name), language, arguments=[], cwd="/app")
             self.assert_report(json.loads(self.exec(name, self.probe(language)).stdout), language,
                                arguments=["--probe", "two words"], cwd="/app")
@@ -1125,8 +1127,9 @@ class Harness:
                               ).stdout == "before", "runtime config Env missing in exec")
             self.initial[language] = {"pod": obj, "lease": lease, "metadata": metadata}
             self.record(language + " real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
-                        {"podUID": obj["metadata"]["uid"], "lease": lease, "current": metadata},
-                        ["LANG-02", "RUN-07", "PROC-01", "PROC-02", "SEC-03", "SEC-04"])
+                        {"podUID": obj["metadata"]["uid"], "lease": lease, "current": metadata,
+                         "overhead": obj["spec"]["overhead"]},
+                        ["LANG-02", "RUN-07", "PROC-01", "PROC-02", "SEC-03", "SEC-04", "RC-01"])
             override = language + "-override"
             self.apply(self.pod(override, language, overrides=True))
             self.wait(language + " explicit command/args/workingDir overrides", lambda: self.ready(override))

@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	ext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
 )
 
@@ -107,5 +110,43 @@ func TestOnlyInventoryPlacementAndRetirementCRDs(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing expected APIs: %v", want)
+	}
+}
+
+func TestSharedRuntimeClassRetainsSelectorAndLanguageNeutralOverhead(t *testing.T) {
+	for _, path := range []string{
+		"../kubernetes/deploy/runtimeclass.yaml",
+		"../kubernetes/charts/brewlet/templates/runtimeclass.yaml",
+	} {
+		t.Run(path, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var class nodev1.RuntimeClass
+			if err := yaml.UnmarshalStrict(data, &class); err != nil {
+				t.Fatal(err)
+			}
+			if class.APIVersion != "node.k8s.io/v1" || class.Kind != "RuntimeClass" ||
+				class.Name != "brewlet" || class.Handler != "brewlet" {
+				t.Fatal("runtime selection no longer uses the shared brewlet class/handler", class)
+			}
+			if class.Scheduling == nil || len(class.Scheduling.NodeSelector) != 1 ||
+				class.Scheduling.NodeSelector["brewlet.sh/runtime"] != "ready" ||
+				len(class.Scheduling.Tolerations) != 0 {
+				t.Fatal("shared RuntimeClass selector or startup-fence behavior changed", class.Scheduling)
+			}
+			if class.Overhead == nil || len(class.Overhead.PodFixed) != 2 {
+				t.Fatal("shared shim/staging overhead missing or runtime-specific", class.Overhead)
+			}
+			for name, value := range map[corev1.ResourceName]string{
+				corev1.ResourceCPU: "50m", corev1.ResourceMemory: "64Mi",
+			} {
+				actual := class.Overhead.PodFixed[name]
+				if actual.Cmp(resource.MustParse(value)) != 0 {
+					t.Fatalf("shared %s overhead: got %s, want %s", name, actual.String(), value)
+				}
+			}
+		})
 	}
 }
