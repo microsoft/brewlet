@@ -84,8 +84,10 @@ def exercise(h):
     pins = ProviderPins(control)
     pins.install()
     stale = "brewlet.sh/runtime.stale-" + h.run_id
+    identity = json.loads(h.kubectl("auth", "whoami", "-o", "json").stdout)
+    pool_owner = identity["status"]["userInfo"]["username"]
+    pins.configure([stale], initial_values={stale: "ready"}, pool_owner=pool_owner)
     control.conditional_node_update({"metadata": {"labels": {stale: "ready"}}})
-    pins.configure([stale])
     refusal = h.kubectl("patch", "node", h.node, "--type=merge", "-p",
                         json.dumps({"metadata": {"labels": {stale: None}}}), check=False)
     require(refusal.returncode != 0 and "provider-pinned label refusal: " + stale in refusal.stderr,

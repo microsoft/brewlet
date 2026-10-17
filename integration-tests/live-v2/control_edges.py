@@ -1127,10 +1127,15 @@ class ProviderPins:
                                           "apiVersions": ["v1"], "resources": ["nodes"]}]}]})
         self.configure([])
 
-    def configure(self, labels, *, wait=True):
+    def configure(self, labels, *, wait=True, initial_values=None, pool_owner=None):
         self.revision += 1
         config = {"revision": self.revision, "node": self.h.node, "nodeUID": self.h.node_uid,
                   "pinnedLabels": labels, "denyFence": False}
+        if initial_values is not None:
+            require(bool(pool_owner) and set(initial_values) <= set(labels)
+                    and all(value in ("ready", "available") for value in initial_values.values()),
+                    "initial provider labels require an exact pool owner and pinned values")
+            config.update(initialPinnedLabels=initial_values, poolOwner=pool_owner)
         self.h.apply({"apiVersion": "v1", "kind": "Secret",
                       "metadata": {"name": self.name + "-config", "namespace": self.c.namespace},
                       "stringData": {"config.json": json.dumps(config)}})

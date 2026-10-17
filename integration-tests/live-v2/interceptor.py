@@ -22,6 +22,12 @@ def decision(request, config):
         return False, "invocation node UID changed"
     for key in config.get("pinnedLabels", []):
         if before.get("labels", {}).get(key) != after.get("labels", {}).get(key):
+            initial = config.get("initialPinnedLabels", {})
+            if (key not in before.get("labels", {}) and key in initial
+                    and after.get("labels", {}).get(key) == initial[key]
+                    and config.get("poolOwner")
+                    and request.get("userInfo", {}).get("username") == config["poolOwner"]):
+                continue
             return False, "provider-pinned label refusal: " + key
     if config.get("denyFence"):
         def fence(obj):

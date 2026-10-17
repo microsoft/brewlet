@@ -715,6 +715,29 @@ class InterceptorTests(unittest.TestCase):
             self.assertFalse(allowed)
             self.assertIn("provider-pinned label refusal", reason)
 
+    def test_pool_owner_can_initialize_once_but_neither_owner_nor_worker_can_mutate_pin(self):
+        key = "brewlet.sh/runtime.stale"
+        config = self.config(pinnedLabels=[key], initialPinnedLabels={key: "ready"},
+                             poolOwner="fixture-pool-owner")
+        request = self.request()
+        request["userInfo"] = {"username": "fixture-pool-owner"}
+        request["object"]["metadata"]["labels"][key] = "ready"
+        self.assertTrue(interceptor.decision(request, config)[0])
+        for mutation in ("worker-initialization", "wrong-value", "remove", "change"):
+            with self.subTest(mutation=mutation):
+                attempt = copy.deepcopy(request)
+                if mutation == "worker-initialization":
+                    attempt["userInfo"]["username"] = "system:serviceaccount:system:worker"
+                elif mutation == "wrong-value":
+                    attempt["object"]["metadata"]["labels"][key] = "available"
+                else:
+                    attempt["oldObject"]["metadata"]["labels"][key] = "ready"
+                    if mutation == "remove":
+                        attempt["object"]["metadata"]["labels"].pop(key)
+                    else:
+                        attempt["object"]["metadata"]["labels"][key] = "available"
+                self.assertFalse(interceptor.decision(attempt, config)[0])
+
     def test_interceptor_cannot_pin_foreign_node_and_refuses_same_name_replacement(self):
         request = self.request()
         request["object"]["metadata"]["name"] = "foreign"

@@ -164,6 +164,14 @@ before any host work, and fenced retries retain stale evidence. New contracts
 cover both mutable withdrawal and pinned fallback with no host mutation. The
 original exact-owned fixture was destroyed; complete corrected uninstall
 execution remains pending.
+`run-uninstall-33` confirmed the worker now withdraws mutable stale labels
+promptly: that correctly raced the fixture's old add-label-then-enable-pin
+sequence. The provider interceptor now supports only an exact authenticated
+pool owner's initial absent-to-configured-value assignment; worker initialization,
+subsequent owner changes and removals still receive real API refusals. The test
+arms that policy before adding the stale label, eliminating the unpinned window
+without pausing the writer or forging authority. The complete uninstall result
+remains pending.
 
 ## Reference and branch
 
@@ -190,7 +198,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 259 passing offline tests; those
+The live-driver safeguards currently include 260 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
