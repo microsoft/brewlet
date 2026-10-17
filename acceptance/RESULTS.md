@@ -329,6 +329,33 @@ preserves sanitized assertion outcomes and the failed overall outcome.
 Excluded-node recovery verification, provider-pin cases and final production
 cleanup remain pending a corrected actual-node run.
 
+`probe-control-22` completed successfully against
+`d7d8f2d1d465e121a0e25e1a461344c6341f0ac2`: **43 assertions passed**,
+including excluded-node recovery, real TLS provider/admission refusal,
+OnDemand/stale-capability all-ID fencing/recovery, and actual production
+cleanup. The claim-release admission interceptor committed a harmless annotation
+during the real operator's release PUT, causing a genuine API CAS conflict;
+the operator recorded `CleanupBlocked`, re-read and revalidated ownership and
+teardown state, then released the claim successfully. Active roots/leases and
+finalizers remained protected until actual drain; fixture destruction also
+passed independently.
+[`results/controller-cleanup-selected.json`](results/controller-cleanup-selected.json)
+contains only whitelisted public evidence.
+
+This was the focused driver
+`PYTHONDONTWRITEBYTECODE=1 python3 "$SESSION_ARTIFACTS/probe-control-acceptance.py"`,
+using the existing harness preflight, cluster/build, delivery bootstrap,
+install/startup, four-language execution/rotation, `control_edges.execute`,
+`pinned_revocation`, and `before_cleanup`/`production_cleanup`/`after_cleanup`
+sequence. Accounting, full delivery and lifecycle callbacks were explicitly
+omitted and recorded as gaps, not claimed as passing in this invocation.
+The complete reproducible repository entrypoint remains
+`python3 integration-tests/live-v2/harness.py --work integration-tests/live-v2/NEW_RUN`.
+Physical recreated-Node cleanup, cold-install deadline/recovery, stale pins
+through production uninstall, and genuine late native capacity remain separate
+unverified obligations. The strict ledger now has 39 verified and 62 not fully
+verified requirements; successful focused cleanup is not full acceptance.
+
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout
 `f70a2c40fa1139fbc38ef0d4da4e964428bf5164`, with production-source manifest
