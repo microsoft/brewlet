@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/microsoft/brewlet/pkg/artifact"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
@@ -130,6 +131,5 @@ func strictJSON(data []byte, v any) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	// The decoder below also rejects unknown fields and trailing documents.
-	return decodeJSON(data, v)
+	return artifact.StrictJSON(data, v)
 }

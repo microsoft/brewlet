@@ -1271,8 +1271,16 @@ class Harness:
                 self.apply(pod)
                 self.no_start(name, reason)
             metadata = self.initial[self.probe_language]["metadata"]
+            duplicate_generation = json.dumps({
+                "id": IDS[self.probe_language], "inventoryUID": metadata["inventoryUID"],
+                "generation": metadata["generation"] + 100})[:-1] + ',"generation":1}'
+            duplicate_id = ('{"id":"foreign","id":' + json.dumps(IDS[self.probe_language])
+                            + ',"inventoryUID":' + json.dumps(metadata["inventoryUID"])
+                            + ',"generation":1}')
             for name, barrier, reason in (
                 ("barrier-malformed", "{", "InvalidRuntimeGeneration"),
+                ("barrier-duplicate-generation", duplicate_generation, "InvalidRuntimeGeneration"),
+                ("barrier-duplicate-id", duplicate_id, "InvalidRuntimeGeneration"),
                 ("barrier-epoch", {"id": IDS[self.probe_language], "inventoryUID": "wrong-epoch",
                                    "generation": metadata["generation"]}, "RuntimeImageEpochMismatch"),
                 ("barrier-future", {"id": IDS[self.probe_language], "inventoryUID": metadata["inventoryUID"],

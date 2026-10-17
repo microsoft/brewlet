@@ -221,6 +221,33 @@ overwritten.
 
 ## Executed successfully
 
+**The worker-health fix is verified by real local accounting.** Run 53 passed
+**19/19** selected assertions with unchanged safeguards: CRI writable snapshot
+usage grew from **8,192** to **16,789,504 bytes** after the bounded 16 MiB write;
+the later 80 MiB allocation triggered actual kubelet `Evicted` status against
+the configured limit. Safe available space was **1,599,021,056 bytes**, above
+the unchanged **1,157,627,904-byte** requirement. Unrelated-workload health
+and identity checks passed, as did production and exact-owned fixture cleanup.
+The same production source then passed controller **27/27**, container roles
+**23/23**, and delivery **27/27** regressions. Receipts:
+[`accounting`](results/clean-local-accounting-worker-health-arm64.json),
+[`control`](results/clean-local-control-worker-health-arm64.json),
+[`roles`](results/clean-local-roles-worker-health-arm64.json), and
+[`delivery`](results/clean-local-delivery-worker-health-arm64.json).
+The pre-fix health failure remains failed; no writes or guards were fabricated.
+
+A separate strict-barrier audit found ambiguous duplicate JSON was accepted by
+the node decoder: duplicate generation/ID members silently used their last
+value. A targeted Go regression reproduced acceptance before the fix.
+Node barriers and protected records now reuse the existing generic artifact
+strict decoder, preserving the object boundary and rejecting duplicate/escaped
+members, unknown fields and trailing documents. Negative numeric cases and
+exact counters above 2^53 through max int64 pass. Host Go race tests, vet, both
+Linux builds and full native node/provisioner/shim suites pass with no skips
+(**63/103/25 cases/subcases**, respectively).
+Bound-Pod duplicate-ID/generation denials are now mandatory selected cases;
+their physical verification is pending. ROT-07 is not promoted before that run.
+
 Local container-role run 52 passed **23/23**, covering actual main/init/native
 sidecar/ephemeral execution, role-specific malformed-artifact refusal and
 production cleanup. Formal delivery run 52 passed **27/27**, including actual

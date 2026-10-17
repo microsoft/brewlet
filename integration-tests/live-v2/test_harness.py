@@ -503,7 +503,7 @@ class SafetyTests(ProjectWork):
         instance.start_held_exec = mock.Mock(side_effect=RuntimeError("rotation reached"))
         with self.assertRaisesRegex(RuntimeError, "rotation reached"):
             instance.barriers_and_rotation()
-        self.assertEqual(instance.apply.call_count, 5)
+        self.assertEqual(instance.apply.call_count, 7)
         for call in instance.apply.call_args_list:
             pod = call.args[0]
             self.assertEqual(pod["metadata"]["annotations"]["brewlet.sh/runtime-image"], h.IDS["node"])

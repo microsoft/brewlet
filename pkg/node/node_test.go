@@ -128,6 +128,54 @@ func TestBarrier(t *testing.T) {
 		t.Fatal(b, err)
 	}
 }
+func TestBarrierRejectsAmbiguousOrNonintegerGeneration(t *testing.T) {
+	for _, raw := range []string{
+		`{"id":"x","inventoryUID":"epoch","generation":99,"generation":1}`,
+		`{"id":"foreign","id":"x","inventoryUID":"epoch","generation":1}`,
+		`{"id":"x","inventoryUID":"old","inventoryUID":"epoch","generation":1}`,
+		`{"id":"x","inventoryUID":"epoch","generation":99,"generat\u0069on":1}`,
+		`{"id":"x","inventoryUID":"epoch","generation":-1}`,
+		`{"id":"x","inventoryUID":"epoch","generation":1.0}`,
+		`{"id":"x","inventoryUID":"epoch","generation":1e0}`,
+		`{"id":"x","inventoryUID":"epoch","generation":"1"}`,
+		`{"id":"x","inventoryUID":"epoch","generation":true}`,
+		`{"id":"x","inventoryUID":"epoch","generation":null}`,
+		`{"id":"x","inventoryUID":"epoch","generation":9223372036854775808}`,
+	} {
+		if _, err := ParseBarrier(raw, "x"); reason(err) != "InvalidRuntimeGeneration" {
+			t.Fatalf("accepted ambiguous or non-integer barrier %s: %v", raw, err)
+		}
+	}
+	for _, item := range []struct {
+		raw        string
+		generation int64
+	}{
+		{`{"id":"x","inventoryUID":"epoch","generation":9007199254740993}`, 9007199254740993},
+		{`{"id":"x","inventoryUID":"epoch","generation":9223372036854775807}`, 9223372036854775807},
+	} {
+		barrier, err := ParseBarrier(item.raw, "x")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if barrier.Generation != item.generation {
+			t.Fatal("strict parser rounded an exact int64 generation", barrier)
+		}
+	}
+}
+
+func TestProtectedNodeRecordsRejectDuplicateMembers(t *testing.T) {
+	for _, raw := range []string{
+		`{"id":"x","profileUID":"old","profileUID":"new"}`,
+		`{"state":"ready","state":"failed"}`,
+		`{"homes":{"1000":"/home/app","1000":"/app"}}`,
+	} {
+		var record map[string]any
+		if err := strictJSON([]byte(raw), &record); err == nil {
+			t.Fatal("accepted ambiguous protected node JSON", raw)
+		}
+	}
+}
+
 func TestRootIdentityAndSymlinks(t *testing.T) {
 	root := testDirectory(t)
 	for _, p := range []string{"usr/bin", "etc", "home/app", "app"} {

@@ -95,6 +95,9 @@ CLI or runtime selection. The runtime-only scenario still requires actual
 TLS delivery, first-use installation, launch/exec/probes, identity and mount
 checks, invalid/epoch/future barriers, real vendor rotation without app
 rebuilding, event/metric joins and production lease/root/claim cleanup.
+Bound-Pod probes also reject duplicate generation and ID members with
+`InvalidRuntimeGeneration`; successful execution under last-value-wins JSON
+is not accepted as barrier conformance.
 It explicitly omits controller/provider cases and the complete-suite callbacks;
 results preserve those omissions. A runtime-only scenario requires an explicit
 fixture and pinned-case omission and cannot silently replace complete coverage.

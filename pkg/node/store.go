@@ -1,7 +1,6 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,18 +23,6 @@ type Store struct {
 }
 
 func NewStore(root string) *Store { return &Store{Root: root} }
-
-func decodeJSON(data []byte, v any) error {
-	d := json.NewDecoder(bytes.NewReader(data))
-	d.DisallowUnknownFields()
-	if err := d.Decode(v); err != nil {
-		return err
-	}
-	if err := d.Decode(new(any)); err != io.EOF {
-		return fmt.Errorf("trailing JSON")
-	}
-	return nil
-}
 
 func (s *Store) trusted(name string, directory bool) error {
 	info, err := os.Lstat(name)

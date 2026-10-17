@@ -79,6 +79,11 @@ The operator mounts the node at `/host`, plus `/var/lib/containerd` and
 renewed only from fresh approval and ownership reads. A single cross-process
 writer lock prevents competing provisioners. Per-ID locks serialize current
 selection, leases, generation publication, and collection.
+Minimum-generation barriers use strict JSON with unique members and an exact
+positive integer generation; duplicate IDs, epochs or generation members are
+invalid rather than last-value-wins. Protected node records use the same shared
+strict decoder, retaining the object-only boundary and rejecting ambiguous
+nested members without converting generation counters through floating point.
 New leases atomically bind the protected task bundle and its managed snapshot
 upper/work paths. Recovery enumerates actual tasks and checks those task-specific
 mounts rather than mistaking a healthy sibling's shared runtime mount for a
