@@ -384,6 +384,16 @@ class SafetyTests(ProjectWork):
         self.assertEqual(instance.build.call_count, 16)
         self.assertEqual(instance.runtime_images, {language: {} for language in h.LANGUAGES})
         self.assertEqual(set(instance.runtime_paths), set(h.LANGUAGES))
+        for language in h.LANGUAGES:
+            for revision in ("before", "after"):
+                dockerfile = (instance.work / (language + "-" + revision) / "Dockerfile").read_text()
+                for field in ('ENTRYPOINT ["/ignored-runtime-entrypoint"]',
+                              'CMD ["ignored-runtime-argument"]',
+                              "WORKDIR /ignored-runtime-workdir", "USER 0:0",
+                              "EXPOSE 65432", 'VOLUME ["/ignored-runtime-volume"]',
+                              'HEALTHCHECK CMD ["/ignored-runtime-healthcheck"]'):
+                    self.assertIn(field + "\n", dockerfile)
+                self.assertIn("ENV BREWLET_RUNTIME_REVISION=" + revision, dockerfile)
         instance.load_image.assert_not_called()
         instance.ctr.assert_not_called()
         instance.kubectl = mock.Mock()

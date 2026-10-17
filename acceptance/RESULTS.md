@@ -221,6 +221,13 @@ overwritten.
 
 ## Executed successfully
 
+The four-language live fixture builder now makes the proposal-listed ignored
+runtime config fields explicitly conflict with application execution: nonexistent entrypoint
+and healthcheck, unrelated arguments/workdir/port/volume, and root `User`.
+All eight before/after Dockerfiles are checked by the **287** passing offline
+safeguards. ROOT-01 remains pending until these inputs execute successfully
+on a real node; earlier runs are not retroactively evidence for these defaults.
+
 Failure diagnostics now include only bounded provisioner error-marker lines
 from the exact profile owner's worker on the recorded Node. Existing registry
 password/basic-auth/bearer-token redaction is applied; ordinary log lines,

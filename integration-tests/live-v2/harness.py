@@ -707,7 +707,14 @@ class Harness:
                 directory.mkdir()
                 dockerfile = directory / "Dockerfile"
                 dockerfile.write_text(f"FROM {base}\nENV BREWLET_RUNTIME_REVISION={revision} "
-                                      "BREWLET_TEST_VALUE=runtime-default\n")
+                                      "BREWLET_TEST_VALUE=runtime-default\n"
+                                      'ENTRYPOINT ["/ignored-runtime-entrypoint"]\n'
+                                      'CMD ["ignored-runtime-argument"]\n'
+                                      "WORKDIR /ignored-runtime-workdir\n"
+                                      "USER 0:0\n"
+                                      "EXPOSE 65432\n"
+                                      'VOLUME ["/ignored-runtime-volume"]\n'
+                                      'HEALTHCHECK CMD ["/ignored-runtime-healthcheck"]\n')
                 tag = f"registry.brewlet.test/{self.run_id}/runtime/{language}:{revision}"
                 self.build(tag, dockerfile, directory)
 

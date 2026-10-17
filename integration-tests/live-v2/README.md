@@ -182,6 +182,13 @@ and long-running exec environments. These are version-update fixtures, not a
 claim that these old releases are currently secure or remediate a specific CVE.
 Historical runs through `run-complete-05` changed only Env and are **not** vendor
 version-update evidence.
+Both revisions deliberately declare unusable runtime `Entrypoint`, `Cmd` and
+`Healthcheck`, a different `WorkingDir`, root `User`, an unrelated exposed port
+and volume. Successful application launch must still use the explicit
+application descriptor, pod overrides and approved non-root account; only the
+runtime config's `Env` contributes to execution. Generating these fixtures is
+not itself real-node proof: use a successful run at the revision containing
+these conflicting defaults.
 The IDs are `fixture-java`, `fixture-python`, `fixture-node`, `fixture-dotnet`;
 their names intentionally do not invent unverified language-version promises.
 
