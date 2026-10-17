@@ -242,14 +242,19 @@ sibling bytes, marker absence and inherited-symlink isolation.
 
 The first expanded GitHub CI runs failed: ordinary unprivileged Linux execution
 could not materialize the new whiteout fixture, and Ubuntu's overlay mounts
-required `DAC_OVERRIDE` for the artifact suite as well as the shim suite.
+returned `EACCES` in the isolated artifact test container.
 The whiteout test now reports the same explicit missing-capability skip as its
 existing companion during ordinary unit execution; native CI still rejects
 every skip. Only the artifact test container receives the additional capability.
 The complete arm64 artifact suite was rerun successfully without skips using the
 corrected container policy, and a separate non-root, capability-free execution
-confirmed the explicit prerequisite skip. Corrected GitHub CI results remain
-pending; no native amd64 success is inferred from the local arm64 result.
+confirmed the explicit prerequisite skip. Adding that capability alone did not
+resolve Ubuntu's mount denial. Native CI now explicitly exempts only these
+isolated kernel-test containers from Docker's AppArmor mount policy and reports
+kernel AppArmor/overlay diagnostics on failure. Default seccomp,
+`no-new-privileges`, network isolation, read-only roots and narrow capability
+sets remain enforced. Corrected GitHub CI results remain pending; no native
+amd64 success is inferred from the local arm64 result.
 
 This verifies ART-05 and complements real run 28 to verify PROC-02, PROC-03 and
 SEC-02/03/04. Admission additionally tests explicit pod/container nonroot=false
