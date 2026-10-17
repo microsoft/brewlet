@@ -313,13 +313,30 @@ class SafetyTests(ProjectWork):
             subprocess.CompletedProcess([], 0, json.dumps([
                 {**docker_info(kind=True), "Name": "/" + name}]), ""),
             subprocess.CompletedProcess([], 0, CONTAINER, ""),
-            subprocess.CompletedProcess([], 1, "", "No such container")])
+            subprocess.CompletedProcess([], 1, "", "error: no such object: " + CONTAINER)])
         frozen, container = instance.decommission_worker(name)
         self.assertEqual(frozen, node)
         self.assertEqual(container, CONTAINER)
         self.assertEqual(instance.run.call_args_list[1].args[0],
                          ["docker", "rm", "-f", "-v", CONTAINER])
         self.assertEqual(instance.node_containers, {instance.node: "primary-id"})
+        self.assertEqual(instance.retired_node_containers[name], CONTAINER)
+        self.assertEqual(instance.node_uids[name], "old-worker")
+
+    def test_acknowledged_removal_keeps_cleanup_inventory_correct_when_inspection_fails(self):
+        instance = self.harness()
+        name = instance.cluster + "-worker"
+        instance.node_containers = {instance.node: "primary-id", name: CONTAINER}
+        instance.node_uids[name] = "old-worker"
+        instance.get = mock.Mock(return_value={"metadata": {"name": name, "uid": "old-worker"}})
+        instance.run = mock.Mock(side_effect=[
+            subprocess.CompletedProcess([], 0, json.dumps([
+                {**docker_info(kind=True), "Name": "/" + name}]), ""),
+            subprocess.CompletedProcess([], 0, CONTAINER, ""),
+            subprocess.CompletedProcess([], 1, "", "Docker daemon connection refused")])
+        with self.assertRaisesRegex(h.Failure, "not confirmed"):
+            instance.decommission_worker(name)
+        self.assertNotIn(name, instance.node_containers)
         self.assertEqual(instance.retired_node_containers[name], CONTAINER)
         self.assertEqual(instance.node_uids[name], "old-worker")
 

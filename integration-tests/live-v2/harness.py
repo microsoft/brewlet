@@ -438,11 +438,20 @@ class Harness:
         docker_owned(info, self.run_id, container, kind_node=True)
         require(info["Name"] == "/" + name, "worker name/container identity changed")
         self.run(["docker", "rm", "-f", "-v", container])
-        absent = self.run(["docker", "inspect", container], check=False)
-        require(absent.returncode != 0 and "No such" in absent.stderr,
-                "external worker destruction is not confirmed")
         self.retired_node_containers[name] = self.node_containers.pop(name)
         self.save()
+
+        def removed():
+            observed = self.run(["docker", "inspect", container], check=False)
+            if observed.returncode == 0:
+                info = json.loads(observed.stdout)[0]
+                docker_owned(info, self.run_id, container, kind_node=True)
+                return False
+            require("no such" in observed.stderr.lower() and container in observed.stderr,
+                    "Docker inspection failure is not confirmed external worker destruction")
+            return True
+
+        self.wait("acknowledged exact worker container destruction", removed, timeout=30)
         return node, container
 
     def ctr(self, *args):

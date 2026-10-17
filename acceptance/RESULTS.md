@@ -198,6 +198,17 @@ fresh replacement serving before evidence, preserved missing-host obligations,
 explicit attestor RBAC and immutable history across profile deletion/uninstall.
 Its safety/identity guards pass offline; actual execution is pending, so it
 does not yet verify detached physical-host retirement or returning-host fencing.
+`run-retirement-36` actually removed its exact worker, but Docker's lowercase
+`error: no such object` response tripped a case-sensitive confirmation guard.
+The acknowledged removal had not yet been checkpointed in fixture ownership,
+so conservative destruction refused the now-one-node inventory. Recovery
+verified the original successful removal acknowledgement, exact missing worker
+ID, sole remaining original container/Node UID and cluster label, then removed
+only that owned fixture. The original run remains failed; this recovery is not
+production cleanup proof. Removal bookkeeping now checkpoints the successful
+external action before bounded case-insensitive, exact-ID absence confirmation,
+so a later inspection error cannot lose fixture identity history. A reduced
+actual two-node removal/survivor-destruction probe passed after the correction.
 
 ## Reference and branch
 
@@ -224,7 +235,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 263 passing offline tests; those
+The live-driver safeguards currently include 264 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
