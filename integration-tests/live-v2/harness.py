@@ -227,13 +227,18 @@ def artifact_target(layout):
 
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
-                 retain_on_failure=False, local_python_only=False):
-        require(scenario in ("complete", "control"), "unsupported live scenario")
-        require(not local_python_only or (scenario == "control" and not pinned),
-                "local Python-only debugging requires --scenario control --without-pinned-scenarios")
+                 retain_on_failure=False, local_language=None):
+        require(scenario in ("complete", "control", "runtime"), "unsupported live scenario")
+        require(local_language is None or (
+            local_language in LANGUAGES and not pinned
+            and (scenario == "runtime" or (scenario == "control" and local_language == "python"))),
+            "local fixture selection requires a supported partial scenario and --without-pinned-scenarios")
+        require(scenario != "runtime" or local_language is not None,
+                "runtime scenario requires --local-language and --without-pinned-scenarios")
         self.scenario = scenario
         self.retain_on_failure = retain_on_failure
-        self.languages = ("python",) if local_python_only else LANGUAGES
+        self.languages = (local_language,) if local_language else LANGUAGES
+        self.probe_language = "python" if "python" in self.languages else self.languages[0]
         self.runtime_ids = {language: IDS[language] for language in self.languages}
         self.run_id = validate_run_id(uuid.uuid4().hex[:12])
         self.work = work.resolve()
@@ -768,7 +773,7 @@ class Harness:
         # Fail-open webhook availability is not proof of admission execution.
         self.kubectl("-n", self.control_namespace, "rollout", "status",
                      "deployment/brewlet-admission", "--timeout=120s", timeout=150)
-        self.wait_inventory_admission(self.runtime_images["python"]["before"])
+        self.wait_inventory_admission(self.runtime_images[self.probe_language]["before"])
         for language in self.languages:
             self.apply({"apiVersion": API, "kind": "RuntimeImage",
                         "metadata": {"name": IDS[language]},
@@ -837,7 +842,7 @@ class Harness:
         zero["spec"]["nodePool"]["names"] = ["absent-" + self.run_id]
         self.apply(zero)
         self.admission_constraints(zero["metadata"]["name"])
-        pending = self.pod("startup-pending", "python")
+        pending = self.pod("startup-pending", self.probe_language)
         self.apply(pending)
         def pending_scheduled():
             obj = self.get("pod", "startup-pending", self.namespace)
@@ -855,7 +860,7 @@ class Harness:
                     {"podUID": obj["metadata"]["uid"], "nodeUID": self.node_uid,
                      "schedulerMessages": messages}, ["E2E-03"])
         for toleration in ({"operator": "Exists"}, {"key": FENCE, "operator": "Exists"}):
-            rejected = self.pod("forbidden-toleration", "python")
+            rejected = self.pod("forbidden-toleration", self.probe_language)
             rejected["spec"]["tolerations"] = [toleration]
             response = self.kubectl("create", "--dry-run=server", "-f", "-",
                                     input=json.dumps(rejected), check=False)
@@ -888,7 +893,7 @@ class Harness:
                     {"nodeUID": self.node_uid, "profileUID": profile_uid}, ["E2E-02", "PROF-03", "FENCE-01"])
 
     def admission_constraints(self, zero_profile):
-        pod = self.pod("affinity-dryrun", "python")
+        pod = self.pod("affinity-dryrun", self.probe_language)
         affinity = {"nodeAffinity": {
             "requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [
                 {"matchExpressions": [{"key": "acceptance.brewlet.test/zone", "operator": "In",
@@ -909,7 +914,7 @@ class Harness:
         expected = affinity["nodeAffinity"]["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"]
         terms = actual["requiredDuringSchedulingIgnoredDuringExecution"]["nodeSelectorTerms"]
         require(len(terms) == len(expected), "admission introduced a bypassing OR alternative")
-        key = "brewlet.sh/runtime." + IDS["python"]
+        key = "brewlet.sh/runtime." + IDS[self.probe_language]
         for before, after in zip(expected, terms):
             require(after.get("matchFields", []) == before.get("matchFields", []),
                     "admission changed matchFields")
@@ -1244,19 +1249,19 @@ class Harness:
                 ("root-bound", {"runAsUser": 0, "runAsNonRoot": False}, "RootNotSupported"),
                 ("privilege-bound", {"allowPrivilegeEscalation": True}, "PrivilegeEscalationNotSupported"),
             ):
-                pod = self.pod(name, "python", bound=True)
+                pod = self.pod(name, self.probe_language, bound=True)
                 pod["spec"]["containers"][0]["securityContext"].update(changes)
                 self.apply(pod)
                 self.no_start(name, reason)
-            metadata = self.initial["python"]["metadata"]
+            metadata = self.initial[self.probe_language]["metadata"]
             for name, barrier, reason in (
                 ("barrier-malformed", "{", "InvalidRuntimeGeneration"),
-                ("barrier-epoch", {"id": IDS["python"], "inventoryUID": "wrong-epoch",
+                ("barrier-epoch", {"id": IDS[self.probe_language], "inventoryUID": "wrong-epoch",
                                    "generation": metadata["generation"]}, "RuntimeImageEpochMismatch"),
-                ("barrier-future", {"id": IDS["python"], "inventoryUID": metadata["inventoryUID"],
+                ("barrier-future", {"id": IDS[self.probe_language], "inventoryUID": metadata["inventoryUID"],
                                     "generation": metadata["generation"] + 100}, "RuntimeImageUpdating"),
             ):
-                self.apply(self.pod(name, "python", barrier=barrier, bound=True))
+                self.apply(self.pod(name, self.probe_language, barrier=barrier, bound=True))
                 self.no_start(name, reason, timeout=180)
         finally:
             self.restore_admission()
@@ -1604,11 +1609,17 @@ class Harness:
         self.result["selectedLanguages"] = list(self.languages)
         if self.languages != LANGUAGES:
             self.result["gaps"].append(
-                "Local Python-only debugging omits Java, Node.js and .NET execution and rotation")
+                "Local fixture selection omits " + ", ".join(
+                    language for language in LANGUAGES if language not in self.languages)
+                + " execution and rotation")
         if self.scenario == "control":
             self.result["gaps"].append(
                 "Focused control execution omits CRI accounting, formal remote-delivery negatives, "
                 "Maven node producer, container-role and lifecycle callbacks and companion suites")
+        elif self.scenario == "runtime":
+            self.result["gaps"].append(
+                "Local runtime-only execution omits CRI accounting, formal remote-delivery negatives, "
+                "Maven node producer, container-role/lifecycle/controller/provider callbacks and companion suites")
         try:
             self.phase = "prerequisites"
             self.preflight()
@@ -1647,17 +1658,21 @@ class Harness:
                 self.phase = "lifecycle"
                 from lifecycle import execute as verify_lifecycle
                 verify_lifecycle(self)
-            self.phase = "control-edges"
-            from control_edges import execute as verify_control_edges
-            verify_control_edges(self)
+            if self.scenario != "runtime":
+                self.phase = "control-edges"
+                from control_edges import execute as verify_control_edges
+                verify_control_edges(self)
             if self.pinned:
                 self.phase = "pinned-refusal"
                 self.pinned_revocation()
             self.phase = "production-cleanup"
-            from control_edges import before_cleanup, after_cleanup
-            before_cleanup(self)
+            if self.scenario != "runtime":
+                from control_edges import before_cleanup
+                before_cleanup(self)
             self.production_cleanup()
-            after_cleanup(self)
+            if self.scenario != "runtime":
+                from control_edges import after_cleanup
+                after_cleanup(self)
             require(not (self.work / "manual-intervention.json").exists(),
                     "manual intervention invalidates a clean selected-suite acceptance pass")
             self.result["outcome"] = "passed"
@@ -1707,16 +1722,19 @@ def main():
                         help="new directory beneath integration-tests/live-v2; retains private kubeconfig/keys")
     parser.add_argument("--timeout", type=int, default=600,
                         help="bounded assertion deadline in seconds (default 600)")
-    parser.add_argument("--scenario", choices=("complete", "control"), default="complete",
-                        help="complete suite (default) or explicitly partial control/cleanup execution")
+    parser.add_argument("--scenario", choices=("complete", "control", "runtime"), default="complete",
+                        help="complete suite (default), partial control, or local single-runtime execution")
     parser.add_argument("--without-pinned-scenarios", action="store_true",
                         help="explicit partial execution suite; records the omitted coverage as a gap")
     parser.add_argument("--retain-on-failure", action="store_true",
                         help="local debugging only: retain failed owned environment for inspection; "
                              "requires explicit owner-checked cleanup and never counts as a clean pass")
-    parser.add_argument("--local-python-only", action="store_true",
-                        help="smaller local control debugging; requires --scenario control "
-                             "--without-pinned-scenarios and records omitted language coverage")
+    local = parser.add_mutually_exclusive_group()
+    local.add_argument("--local-language", choices=LANGUAGES,
+                       help="one explicit local runtime fixture; requires a partial scenario "
+                            "and --without-pinned-scenarios")
+    local.add_argument("--local-python-only", action="store_const", const="python", dest="local_language",
+                       help="select the Python fixture for smaller local debugging")
     args = parser.parse_args()
     require(30 <= args.timeout <= 1800, "timeout must be between 30 and 1800 seconds")
     def interrupted(signum, frame):
@@ -1725,7 +1743,7 @@ def main():
     signal.signal(signal.SIGINT, interrupted)
     harness = Harness(args.work, timeout=args.timeout, pinned=not args.without_pinned_scenarios,
                       scenario=args.scenario, retain_on_failure=args.retain_on_failure,
-                      local_python_only=args.local_python_only)
+                      local_language=args.local_language)
     return harness.execute()
 
 

@@ -64,6 +64,25 @@ and omitted-language/pinned-case gaps. The option is rejected for the complete
 scenario or without the explicit pinned-case omission. Default runs continue
 to require all four languages; a smaller local pass is never full acceptance.
 
+To exercise the other runtime fixtures without keeping all golden roots on
+disk at once, run them **sequentially**, each in a new owned environment:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --scenario runtime --without-pinned-scenarios --local-language java \
+  --retain-on-failure --work integration-tests/live-v2/run-local-java-01
+```
+
+Repeat with `node` and `dotnet`, after the previous environment is cleaned up.
+This fixture selector belongs only to the local driver, not Brewlet's generic
+CLI or runtime selection. The runtime-only scenario still requires actual
+TLS delivery, first-use installation, launch/exec/probes, identity and mount
+checks, invalid/epoch/future barriers, real vendor rotation without app
+rebuilding, event/metric joins and production lease/root/claim cleanup.
+It explicitly omits controller/provider cases and the complete-suite callbacks;
+results preserve those omissions. A runtime-only scenario requires an explicit
+fixture and pinned-case omission and cannot silently replace complete coverage.
+
 Accounting waits for all unrelated running containers to be healthy before
 capturing its baseline. Afterward, disappearance, identity/restart changes or
 readiness loss still fail immediately with before/after identity diagnostics;

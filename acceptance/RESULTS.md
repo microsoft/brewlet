@@ -221,6 +221,17 @@ overwritten.
 
 ## Executed successfully
 
+The local driver now supports serial, single-fixture runtime execution for
+Java, Node.js and .NET as well as Python. This keeps current disk constraints
+from forcing simultaneous golden-root copies. It changes no production
+language-neutral execution behavior. Each explicit runtime-only run retains
+real acquisition, negative starts/barriers, vendor rotation/held exec,
+observability and production cleanup; controller/provider and complete-suite
+omissions remain recorded. Complete/default runs still require all four
+languages, and controller-only fixture selection still requires Python.
+All **296** local driver safeguards and **9** acceptance/export checks pass.
+No new runtime-only actual-node outcomes are claimed before execution.
+
 **Clean local implementation milestone:** native arm64
 `run-local-implementation-43` at `076fd7fe` passed **all 26 selected assertions**
 and exact-owned fixture teardown, with no manual intervention. It exercised
