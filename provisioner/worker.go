@@ -93,6 +93,18 @@ func authorization(r *api.RuntimeImage, a control.Authority, entry api.RuntimeEn
 	return node.Authorization{ID: r.Name, InventoryUID: string(r.UID), Generation: r.Status.Generation, Digest: r.Status.Digest, ProfileUID: string(a.ProfileUID), ProfileGeneration: a.Generation, ExpiresAt: time.Now().Add(5 * time.Minute).UTC(), Install: entry.Install, State: state}
 }
 
+func (w *Worker) withholdBaseline(ctx context.Context) error {
+	s, err := w.check(ctx)
+	if err != nil {
+		return err
+	}
+	if s.Node.Labels[api.RuntimeLabel] != "ready" || control.StartupFenced(s.Node) {
+		return nil
+	}
+	_, err = control.Withdraw(ctx, w.Client, w.Reader, w.Authority, []string{api.RuntimeLabel})
+	return err
+}
+
 // Reconcile runs synchronously; retargeting/deletion cancellation joins this
 // loop before the exclusive writer lock can pass to any successor.
 func (w *Worker) Reconcile(ctx context.Context) error {
@@ -106,7 +118,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	w.platformProofs = map[string]bool{}
 	gcGrace, gcInterval, err := w.collectionPolicy()
 	if err != nil {
-		return err
+		return errors.Join(err, w.withholdBaseline(ctx))
 	}
 	defer func() {
 		if err := w.publishBindings(ctx); err != nil {
@@ -115,27 +127,28 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 	}()
 	var profiles api.NodeProfileList
 	if err := w.Reader.List(ctx, &profiles); err != nil {
-		return err
+		return errors.Join(err, w.withholdBaseline(ctx))
 	}
 	if err := policy.Profile(s.Profile, profiles.Items, w.AllowedMirrorHosts); err != nil {
-		return err
+		return errors.Join(err, w.withholdBaseline(ctx))
 	}
 	if err := w.rejectStaleCapabilities(ctx, s); err != nil {
 		return err
 	}
 	recovery, err := w.recoveryPlan(ctx, s)
 	if err != nil {
-		return err
+		return errors.Join(err, w.withholdBaseline(ctx))
 	}
 	if w.Baseline == nil {
-		return fmt.Errorf("baseline validation unavailable; readiness remains fenced")
+		return errors.Join(fmt.Errorf("baseline validation unavailable; readiness remains fenced"),
+			w.withholdBaseline(ctx))
 	}
 	if w.Activation != nil {
 		if _, err := w.check(ctx); err != nil {
 			return err
 		}
 		if err := w.Store.Initialize(); err != nil {
-			return err
+			return errors.Join(err, w.withholdBaseline(ctx))
 		}
 		if recovery, ok := w.Installer.(interface {
 			RecoverStaging(context.Context, string) error
@@ -146,21 +159,21 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		}
 		fence := func(ctx context.Context) error { _, err := w.check(ctx); return err }
 		if err := w.Activation.Ensure(ctx, s.Spec.Rollout.RestartPolicy(), fence); err != nil {
-			return err
+			return errors.Join(err, w.withholdBaseline(ctx))
 		}
 	}
 	if err := w.Baseline.Validate(ctx); err != nil {
-		return err
+		return errors.Join(err, w.withholdBaseline(ctx))
 	}
 	if _, err = w.check(ctx); err != nil {
 		return err
 	}
 	if err := w.Store.Initialize(); err != nil {
-		return err
+		return errors.Join(err, w.withholdBaseline(ctx))
 	}
 	requests, err := w.Store.Requests()
 	if err != nil {
-		return err
+		return errors.Join(err, w.withholdBaseline(ctx))
 	}
 	inventory := map[string]api.NodeRuntime{}
 	offered := map[string]bool{}
@@ -180,7 +193,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 			if isUpdating(err) {
 				auths, readErr := w.Store.Authorizations()
 				if readErr != nil {
-					return readErr
+					return errors.Join(readErr, w.withholdBaseline(ctx))
 				}
 				live := false
 				for _, a := range auths {
@@ -192,6 +205,13 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 				if !live {
 					if _, withdrawErr := control.Withdraw(ctx, w.Client, w.Reader, w.Authority, []string{"brewlet.sh/runtime." + entry.ID}); withdrawErr != nil {
 						return withdrawErr
+					}
+				}
+				if entry.Install == "Eager" {
+					current, _, currentErr := w.Store.Current(ctx, entry.ID)
+					if !live || currentErr != nil || current.UID != uint32(r.Spec.User.UID) ||
+						current.GID != uint32(r.Spec.User.GID) {
+						err = errors.Join(err, w.withholdBaseline(ctx))
 					}
 				}
 				failures = append(failures, err)
@@ -206,6 +226,9 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 				log.Printf("UnknownRuntimeImage: %s is not approved/offered; known approved entries continue: %v", entry.ID, err)
 				continue
 			}
+			if entry.Install == "Eager" {
+				err = errors.Join(err, w.withholdBaseline(ctx))
+			}
 			failures = append(failures, err)
 			continue
 		}
@@ -214,8 +237,15 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		}
 		platformErr := w.validateRuntimePlatforms(ctx, r)
 		if platformErr != nil {
+			if entry.Install == "Eager" {
+				current, _, currentErr := w.Store.Current(ctx, entry.ID)
+				if currentErr != nil || current.InventoryUID != string(r.UID) ||
+					current.UID != uint32(r.Spec.User.UID) || current.GID != uint32(r.Spec.User.GID) {
+					platformErr = errors.Join(platformErr, w.withholdBaseline(ctx))
+				}
+			}
 			if _, withdrawErr := control.Withdraw(ctx, w.Client, w.Reader, w.Authority, []string{"brewlet.sh/runtime." + entry.ID}); withdrawErr != nil {
-				return withdrawErr
+				return errors.Join(platformErr, withdrawErr)
 			}
 			failures = append(failures, platformErr)
 			continue
@@ -229,7 +259,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		}
 		authorizations, err := w.Store.Authorizations()
 		if err != nil {
-			return err
+			return errors.Join(err, w.withholdBaseline(ctx))
 		}
 		for _, a := range authorizations {
 			if a.ProfileUID != string(w.Authority.ProfileUID) {
@@ -294,7 +324,14 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		}
 		if needed {
 			m, _, currentErr := w.Store.Current(ctx, entry.ID)
-			upToDate := currentErr == nil && m.InventoryUID == string(r.UID) && m.Generation == r.Status.Generation && m.SourceDigest == r.Status.Digest
+			usableCurrent := currentErr == nil && m.InventoryUID == string(r.UID) &&
+				m.UID == uint32(r.Spec.User.UID) && m.GID == uint32(r.Spec.User.GID)
+			upToDate := usableCurrent && m.Generation == r.Status.Generation && m.SourceDigest == r.Status.Digest
+			if entry.Install == "Eager" && !usableCurrent {
+				if err := w.withholdBaseline(ctx); err != nil {
+					return err
+				}
+			}
 			if !upToDate {
 				if entry.Install == "OnDemand" && !installed {
 					if err := w.advertiseAvailable(ctx, entry.ID); err != nil {
@@ -310,7 +347,11 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 					if entry.Install == "OnDemand" {
 						w.Metrics.install(entry.ID, "failed", installStart)
 					}
-					failures = append(failures, w.installFailed(ctx, auth, err))
+					var readinessErr error
+					if entry.Install == "Eager" {
+						readinessErr = w.withholdBaseline(ctx)
+					}
+					failures = append(failures, errors.Join(w.installFailed(ctx, auth, err), readinessErr))
 					continue
 				}
 				// No deletion of staged data after losing authority.

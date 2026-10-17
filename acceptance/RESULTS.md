@@ -221,6 +221,27 @@ overwritten.
 
 ## Executed successfully
 
+The new local approved-Eager case found a **production bug** in
+`run-local-eager-control-46`: after rejecting the actual golden account mismatch
+and marking its authorization failed, the worker left the old aggregate
+`brewlet.sh/runtime=ready` advertisement intact without a startup fence.
+It withdrew only the failed ID's capability. The same defect reproduced in
+native deterministic regressions for mutable and provider-pinned baselines.
+[`results/local-eager-readiness-failure-arm64.json`](results/local-eager-readiness-failure-arm64.json)
+retains the failed physical result.
+
+The worker now withholds stale aggregate readiness under fresh ownership
+checks before an unfulfilled required Eager installation, and on failed
+required baseline/authorization checks. It reuses confirmed capability
+withdrawal/provider-taint fallback, preserves validated previous roots during
+compatible rotation, and leaves optional OnDemand failures isolated.
+The full native Linux/arm64 provisioner suite passes **103 cases/subcases with
+zero skips**, including both reproduced failures, compatible-current rotation
+and metadata refresh, optional OnDemand isolation, unverified required checks,
+and stale-owner non-mutation. All Go race tests, `go vet ./...`, and Linux
+amd64/arm64 builds pass locally. Physical Eager recovery with the fix remains
+pending; PROF-03 is not promoted before that run.
+
 The next local control execution adds a physical approved-Eager failure case
 for the still-partial PROF-03 requirement: the source is valid and pinned, but
 its declared non-root account deliberately differs from the actual golden

@@ -91,6 +91,16 @@ Eager roots, not an impossible install of an unknown ID; the controller still
 reports the profile's `UnknownRuntimeImage` condition. Unverified API lookups,
 approved Eager failures, and stale provider-pinned capabilities remain blocking.
 
+Aggregate readiness is not sticky across required-work changes. Before acquiring
+a required Eager root with no validated compatible `current`, the worker
+withdraws a previously advertised baseline under fresh ownership checks and
+confirms removal, or confirms the standard node-wide startup-fence fallback
+when a provider pins that label. Required baseline/authorization checks and
+failed Eager installation cannot leave the node effectively runtime-ready.
+Compatible rotations retain their validated previous root while acquiring the
+new target; an optional OnDemand install failure does not withdraw unrelated
+baseline readiness. Readiness returns only through normal validated publication.
+
 `/brewlet-node --health-check` reads the pod-local protected completion marker
 `/run/brewlet/ready` without API or host mutation. The worker removes the marker
 on startup/failure/authority loss and writes it only after confirmed baseline
