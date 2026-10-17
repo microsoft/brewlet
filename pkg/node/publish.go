@@ -38,6 +38,23 @@ func (s *Store) Publish(ctx context.Context, staging string, m Metadata, fence f
 	if a.InventoryUID != m.InventoryUID || a.Generation != m.Generation || a.Digest != m.SourceDigest {
 		return fmt.Errorf("runtime target changed before publication")
 	}
+	previous, previousErr := os.Readlink(filepath.Join(s.Root, m.ID, "current"))
+	if previousErr != nil && !os.IsNotExist(previousErr) {
+		return previousErr
+	}
+	var previousUID string
+	var previousGeneration int64
+	if previousErr == nil {
+		parts := strings.Split(previous, "/")
+		if len(parts) != 2 || !uidPattern.MatchString(parts[0]) {
+			return fmt.Errorf("unsafe previous current pointer")
+		}
+		previousGeneration, err = strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || previousGeneration < 1 {
+			return fmt.Errorf("unsafe previous generation")
+		}
+		previousUID = parts[0]
+	}
 	if err := ValidateRoot(filepath.Join(staging, "rootfs"), &m); err != nil {
 		return err
 	}
@@ -126,10 +143,6 @@ func (s *Store) Publish(ctx context.Context, staging string, m Metadata, fence f
 		return err
 	}
 	pointer := filepath.Join(s.Root, m.ID, ".next-current")
-	previous, previousErr := os.Readlink(filepath.Join(s.Root, m.ID, "current"))
-	if previousErr != nil && !os.IsNotExist(previousErr) {
-		return previousErr
-	}
 	if info, err := os.Lstat(pointer); err == nil {
 		if info.Mode()&os.ModeSymlink == 0 {
 			return fmt.Errorf("unrecognized pending current pointer")
@@ -148,18 +161,10 @@ func (s *Store) Publish(ctx context.Context, staging string, m Metadata, fence f
 		return err
 	}
 	if previousErr == nil && previous != filepath.Join(m.InventoryUID, strconv.FormatInt(m.Generation, 10)) {
-		parts := strings.Split(previous, "/")
-		if len(parts) != 2 || !uidPattern.MatchString(parts[0]) {
-			return fmt.Errorf("unsafe previous current pointer")
-		}
-		generation, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil || generation < 1 {
-			return fmt.Errorf("unsafe previous generation")
-		}
 		if err := fence(ctx); err != nil {
 			return err
 		}
-		if err := s.markRetired(m.ID, parts[0], generation); err != nil {
+		if err := s.markRetired(m.ID, previousUID, previousGeneration); err != nil {
 			return err
 		}
 	}

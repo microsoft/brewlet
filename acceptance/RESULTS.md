@@ -298,6 +298,20 @@ native CI's existing no-skip gate requires it to execute. ROOT-02 and ROOT-03
 are verified by these reviewed filesystem contracts; this is not additional
 real scheduling or fencing evidence.
 
+Direct native publication regressions exposed a production ordering defect:
+an unsafe previous `current` symlink was rejected only **after** the new pointer
+had replaced it. All four malformed-pointer cases reproduced that mutation.
+Previous-pointer validation now occurs under the per-ID lock before publication
+mutations; rejection retains the original durable pointer. The complete updated
+native arm64 node suite passed **60** cases/subcases without skips, including
+fresh-fence failures, exact root/metadata/source binding, immutable generation
+collision, untrusted readback permissions and normal previous-root retirement.
+The complete native provisioner suite passed **88** cases/subcases without skips,
+including actual image-copy symlink isolation and FIFO/set-ID rejection.
+Full Go race/vet checks and both Linux builds passed. ROOT-04 remains partial
+until complete acquisition/publication evidence is reconciled; these component
+results are not fabricated source-pull or scheduling evidence.
+
 `run-complete-39` reached **30** passing assertions but again refused the CRI
 accounting write: available disk was **263,868,416** bytes against the unchanged
 **1,157,627,904**-byte minimum. Exact-owned fixture destruction passed.
