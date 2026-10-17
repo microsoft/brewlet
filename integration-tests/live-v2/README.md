@@ -43,6 +43,25 @@ before host access and fixture destruction.
 
 ## Prerequisites and immutable inputs
 
+Native scheduling with initially no eligible ready pool capacity has its own
+actual-node case:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/native_capacity.py \
+  --work integration-tests/live-v2/run-native-20261016-01
+```
+
+The requested architecture is the runner's actual native architecture. Its pool
+initially has no eligible nodes; the existing control plane is outside that
+offering. The unchanged native Pod must be genuinely Pending, then remain
+blocked by the real worker's boot-time startup taint despite template `ready`
+labels, and execute only after authorized provisioning makes capacity available.
+No architecture label is changed. An architecture-unconstrained image for the
+other CPU must fail at the real kubelet pull rather than being represented as
+rescheduling or autoscaling. This covers the §13.1 ready-capacity scenario, not
+an alternate-hardware join or actual provider scale-from-zero. The manual
+workflow executes it separately from the combined and cold-install cases.
+
 Use a Linux Docker engine (native Linux or Docker Desktop) on amd64 or arm64,
 with cgroup v2, at least 4 CPUs, 8 GiB Docker memory, and 25 GiB available disk.
 This runs privileged real provisioning and restarts **its private kind node's**

@@ -108,6 +108,14 @@ ephemeral execution, postStart/exec/probe parity, distinct named leases and
 independent malformed-artifact denial for every non-main role. Those cases are
 implemented with offline guards for ephemeral UID/spec CAS and real execution
 versus preallocated StartError identities; actual-node results remain pending.
+An independent `native_capacity.py` runner now implements the exact §13.1
+no-ready-native-capacity case using truthful native hardware and an initially
+empty eligible pool. It preserves the standard architecture selector, proves
+Pending and actual boot-fence scheduling, then requires unchanged-Pod execution
+after real capacity becomes available. It separately checks unsupported
+architecture-unconstrained pulls and claims no provider autoscaling or alternate
+CPU hardware. It does not change architecture labels. This is implemented and
+offline-guarded, but actual execution is pending; E2E-05 remains unverified.
 
 ## Reference and branch
 
@@ -134,7 +142,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 248 passing offline tests; those
+The live-driver safeguards currently include 250 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
