@@ -221,6 +221,34 @@ overwritten.
 
 ## Executed successfully
 
+The controller build-cache change was exercised by
+`run-local-current-python-58` at `ccff9f2e`: its compiler snapshot was **105.5 MB**
+instead of the preceding **1.325 GB**. Actual Python HTTP/dependency execution,
+exec/probes, identity/read-only/writable mounts, Kubernetes overrides, custom
+UID/HOME, security and strict-barrier denials, source rotation without app
+rebuild, old task/exec leases, and runtime events/metrics all passed.
+
+The run nevertheless **failed production cleanup**, and is preserved as
+[a failed receipt](results/local-python-nsfs-cleanup-failure-arm64.json).
+The new mount parser incorrectly required every kernel mount root to be an
+absolute filesystem path. Real CNI namespace binds instead report roots such
+as `net:[4026535640]` on `nsfs`, causing conservative inspection failure and a
+retained cleanup finalizer. This was a regression introduced by the new parser,
+not a disk failure or a successful whole-suite run.
+
+The correction keeps unrelated opaque kernel roots while still rejecting an
+ambiguous mapping on the protected filesystem. The native cache regression now
+creates an actual namespace bind alongside the actual cache bind; the namespace
+survives both retention and successful post-unmount collection. All **71 node**
+and **112 provisioner** native cases/subcases pass without skips. A temporary
+read-only corrected inspector on the retained real node returned `gone=true`
+for runtime mounts where the installed old inspector returned the parser error.
+It did not replace the installed shim or perform production cleanup. Temporary
+helpers and then only the failed fixture's exact-owned resources were removed.
+Go race tests, host/Linux vet and both Linux builds pass. A fresh normal install
+and complete production cleanup remain required before claiming this fix passes
+the selected node suite; no requirement is promoted from the failed run.
+
 The smallest current-source actual-node repeat,
 `run-local-current-python-57` at `9a693616`, still failed on its mandatory
 writable-volume check. The application served HTTP and completed an exec, but

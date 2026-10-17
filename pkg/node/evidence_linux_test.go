@@ -30,6 +30,7 @@ func TestMountLocationsMapsHostPathsToFilesystemRoots(t *testing.T) {
 		{"separate volume", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:2 /pool /var/lib/cache rw - ext4 volume rw\n", "/var/lib/cache/item", []filesystemMount{{device: "0:2", root: "/pool/item", point: "/var/lib/cache"}}},
 		{"escaped paths", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:2 /pool\\040data /cache\\040data rw - tmpfs tmpfs rw\n", "/cache data/item", []filesystemMount{{device: "0:2", root: "/pool data/item", point: "/cache data"}}},
 		{"prefix boundary", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:2 /pool /cache-other rw - tmpfs tmpfs rw\n", "/cache/item", []filesystemMount{{device: "0:1", root: "/cache/item", point: "/"}}},
+		{"unrelated namespace bind", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:4 net:[4026535640] /run/netns/cni-fixture rw - nsfs nsfs rw\n", "/cache/item", []filesystemMount{{device: "0:1", root: "/cache/item", point: "/"}}},
 		{"stacked mounts", "1 0 0:1 / / rw - ext4 disk rw\n2 1 0:2 /old /cache rw - tmpfs tmpfs rw\n3 1 0:3 /new /cache rw - tmpfs tmpfs rw\n", "/cache/item", []filesystemMount{{device: "0:2", root: "/old/item", point: "/cache"}, {device: "0:3", root: "/new/item", point: "/cache"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,6 +56,8 @@ func TestMountLocationsRejectsIncompleteFilesystemEvidence(t *testing.T) {
 		"1 0 0:1 relative / rw - ext4 disk rw\n",
 		"1 0 0:1 / relative rw - ext4 disk rw\n",
 		"1 0 0:1 / / rw ext4 disk rw\n",
+		"1 0 0:4 net:[4026535640] / rw - nsfs nsfs rw\n",
+		"1 0 0:1 /../cache / rw - ext4 disk rw\n",
 	} {
 		name := filepath.Join(testDirectory(t), "mountinfo")
 		if err := os.WriteFile(name, []byte(table), 0600); err != nil {

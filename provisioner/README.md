@@ -154,6 +154,9 @@ filesystem-relative roots across process namespaces. This retains mounts of
 cache or runtime data on separate filesystems even when their source path is
 not printed as an absolute host path. Missing or malformed source mappings
 block collection; equally specific stacked mounts are retained conservatively.
+Unrelated namespace-filesystem roots such as `net:[inode]` are opaque kernel
+identities, not malformed host paths. They do not block inspection of a different
+filesystem; an ambiguous root on the protected filesystem still fails closed.
 Staged runtime roots carry ownership and
 snapshot-view records; fresh authority loss cancels and joins acquisition,
 leaving private data for authorized recovery.

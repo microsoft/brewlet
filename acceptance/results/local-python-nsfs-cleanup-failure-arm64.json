@@ -1,0 +1,248 @@
+{
+  "outcome": "failed",
+  "scope": "real-node-execution-only",
+  "selectedScenario": "runtime",
+  "selectedLanguages": [
+    "python"
+  ],
+  "cleanSelectedSuitePassed": false,
+  "fullAcceptance": false,
+  "checkout": "ccff9f2e611b1d9030f584edc80c109a773174f0",
+  "productionSourceManifestSHA256": "e6753042a573faddcd3d299688db3b2be0fdb7a2ef527c8e9241a114a93e57d2",
+  "architecture": "arm64",
+  "kubeletPullVerified": false,
+  "tlsTransportVerified": false,
+  "providerScaleFromZeroVerified": false,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "python": "172.18.0.11:5000/delivery/apps-python@sha256:e6ad6fd57847c000529d35adcbe2d00b556b7e603e094b03f0a05e8ddd7d3f51"
+  },
+  "runtimeImages": {
+    "python": {
+      "before": "172.18.0.11:5000/delivery/runtime-python-before@sha256:861c47e6933e8b69e531a6d5f5d05bf78ad5b662c346f5ebffced969315b7646",
+      "after": "172.18.0.11:5000/delivery/runtime-python-after@sha256:268e9494f744c84548dd1eb96d7a748ed2d80198bc4eeb59f6843f4e9f64c7bc"
+    }
+  },
+  "runtimeVendorInputs": {
+    "java": {
+      "probe": [
+        "java",
+        "-version"
+      ],
+      "before": {
+        "image": "docker.io/library/eclipse-temurin@sha256:9eb51387a4badf1a874e655d130538b89dfe16a3dab24fb9a4a6e2b08778411c",
+        "version": "21.0.7"
+      },
+      "after": {
+        "image": "docker.io/library/eclipse-temurin@sha256:20e7f7288e1c18eebe8f06a442c9f7183342d9b022d3b9a9677cae2b558ddddd",
+        "version": "21.0.8"
+      }
+    },
+    "python": {
+      "probe": [
+        "python3",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/python@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419",
+        "version": "Python 3.13.5"
+      },
+      "after": {
+        "image": "docker.io/library/python@sha256:2b09112b54420d2e3e814f2cbe34e8e54d32b8c5abd4e72e89cda4758fc6400a",
+        "version": "Python 3.13.6"
+      }
+    },
+    "node": {
+      "probe": [
+        "node",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/node@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0",
+        "version": "v22.17.0"
+      },
+      "after": {
+        "image": "docker.io/library/node@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+        "version": "v22.18.0"
+      }
+    },
+    "dotnet": {
+      "probe": [
+        "dotnet",
+        "--list-runtimes"
+      ],
+      "before": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:d13bea17080a4fea1a7295a4fe29240123b1bf955a78ae08480d07bdf09496db",
+        "version": "Microsoft.NETCore.App 10.0.0 "
+      },
+      "after": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:3b5f026262a6ba63d1b82f2b98949506f4a89956244568a8bc682b4af9c48548",
+        "version": "Microsoft.NETCore.App 10.0.1 "
+      }
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
+    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
+    "E2E-06/07/08 real admission interceptor disabled explicitly",
+    "Local fixture selection omits java, node, dotnet execution and rotation",
+    "Local runtime-only execution omits CRI accounting, formal remote-delivery negatives, Maven node producer, container-role/lifecycle/controller/provider callbacks and companion suites",
+    "Local debug resources retained after failure; explicit owner-checked cleanup required"
+  ],
+  "assertions": [
+    {
+      "name": "mandatory prerequisites and exact kind pin",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "isolated kind node and owned registry",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "python explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "zero-node warning, architecture selector and multi-term/empty affinity preservation",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-01",
+        "E2E-04",
+        "ADM-02"
+      ]
+    },
+    {
+      "name": "actual startup taint blocks application scheduling before provisioning",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-03"
+      ]
+    },
+    {
+      "name": "OnDemand-only baseline advertises available with no current roots",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-02",
+        "PROF-03",
+        "FENCE-01"
+      ]
+    },
+    {
+      "name": "python real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "RUN-07",
+        "PROC-01",
+        "PROC-02",
+        "SEC-03",
+        "SEC-04",
+        "RC-01"
+      ]
+    },
+    {
+      "name": "python Kubernetes command/args/cwd overrides",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "PROC-01"
+      ]
+    },
+    {
+      "name": "python custom UID/default GID and HOME fallback match initial/exec",
+      "outcome": "passed",
+      "requirements": [
+        "SEC-01",
+        "SEC-04",
+        "PROC-03"
+      ]
+    },
+    {
+      "name": "root-bound rejects start: RootNotSupported",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "privilege-bound rejects start: PrivilegeEscalationNotSupported",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-malformed rejects start: InvalidRuntimeGeneration",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-duplicate-generation rejects start: InvalidRuntimeGeneration",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-duplicate-id rejects start: InvalidRuntimeGeneration",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-epoch rejects start: RuntimeImageEpochMismatch",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "barrier-future rejects start: RuntimeImageUpdating",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "python source rotation, unchanged app, retained task/exec lease, new barrier",
+      "outcome": "passed",
+      "requirements": [
+        "LANG-02",
+        "ROT-07",
+        "LEASE-01",
+        "PROF-05"
+      ]
+    },
+    {
+      "name": "real initial/rotated task events and metrics retain exact runtime and Pod identities",
+      "outcome": "passed",
+      "requirements": [
+        "OBS-01",
+        "OBS-02",
+        "OBS-03"
+      ]
+    },
+    {
+      "name": "production profile deletion preserves active roots, finalizer and UID claim",
+      "outcome": "passed",
+      "requirements": [
+        "LEASE-03",
+        "OWN-02"
+      ]
+    },
+    {
+      "name": "run completion",
+      "outcome": "failed",
+      "requirements": []
+    }
+  ]
+}

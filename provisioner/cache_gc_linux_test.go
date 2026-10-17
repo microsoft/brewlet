@@ -101,6 +101,18 @@ func TestCacheCollectionRetainsActualBindMountOnSeparateFilesystem(t *testing.T)
 			}
 		}
 	}()
+	namespace := filepath.Join(filepath.Dir(w.Store.Root), "network-ns")
+	if err := os.WriteFile(namespace, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mount("/proc/self/ns/net", namespace, "", unix.MS_BIND, ""); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Unmount(namespace, 0); err != nil {
+			t.Error(err)
+		}
+	}()
 	fence := func(context.Context) error { return nil }
 	evidence := node.LinuxEvidence{}
 	if err := CollectLayerCache(ctx, w.Store, cache, cache, time.Hour, evidence, fence); err != nil {

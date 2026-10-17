@@ -161,7 +161,14 @@ func (e LinuxEvidence) MountsGone(ctx context.Context, root string) (bool, error
 				return false, nil
 			}
 			for _, location := range locations {
-				if mount.device == location.device && pathWithin(mount.root, location.root) {
+				if mount.device != location.device {
+					continue
+				}
+				if !filepath.IsAbs(mount.root) || filepath.Clean(mount.root) != mount.root {
+					f.Close()
+					return false, fmt.Errorf("ambiguous protected filesystem mount root %q", mount.root)
+				}
+				if pathWithin(mount.root, location.root) {
 					f.Close()
 					return false, nil
 				}
@@ -207,7 +214,7 @@ func parseMountInfo(line string) (filesystemMount, error) {
 	}
 	decode := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
 	mount := filesystemMount{device: fields[2], root: decode.Replace(fields[3]), point: decode.Replace(fields[4])}
-	if !filepath.IsAbs(mount.root) || filepath.Clean(mount.root) != mount.root || !filepath.IsAbs(mount.point) || filepath.Clean(mount.point) != mount.point {
+	if mount.root == "" || !filepath.IsAbs(mount.point) || filepath.Clean(mount.point) != mount.point {
 		return filesystemMount{}, fmt.Errorf("ambiguous mountinfo paths")
 	}
 	return mount, nil
@@ -235,6 +242,9 @@ func mountLocations(ctx context.Context, name, root string) ([]filesystemMount, 
 		}
 		if !pathWithin(root, mount.point) || len(mount.point) < longest {
 			continue
+		}
+		if !filepath.IsAbs(mount.root) || filepath.Clean(mount.root) != mount.root {
+			return nil, fmt.Errorf("host filesystem root identity unavailable: %q", mount.root)
 		}
 		if len(mount.point) > longest {
 			locations = nil
