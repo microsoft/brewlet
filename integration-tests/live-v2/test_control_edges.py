@@ -213,6 +213,26 @@ class IsolationTests(unittest.TestCase):
 
 
 class ControllerReadinessTests(unittest.TestCase):
+    def test_incomplete_rotation_retains_bounded_controller_status_without_raw_objects(self):
+        control = object.__new__(ce.ControlEdges)
+        original = {"metadata": {"uid": EPOCH, "generation": 3},
+                    "status": {"generation": 2, "digest": "sha256:target",
+                               "rotation": {"generation": 2, "participants": []},
+                               "conditions": [{"type": "RotationComplete", "status": "False",
+                                               "reason": "RotationProgressing"}],
+                               "unrelatedPrivateField": "not-exported"}}
+        control.image = lambda _: original
+        control.h = SimpleNamespace(result={"controlAcceptance": {}},
+                                    wait=lambda _description, predicate: predicate())
+        self.assertFalse(control.complete_rotation(RID))
+        diagnostic = control.h.result["controlAcceptance"]["rotationDiagnostics"][RID]
+        self.assertEqual(diagnostic["inventoryUID"], EPOCH)
+        self.assertEqual(diagnostic["objectGeneration"], 3)
+        self.assertEqual(diagnostic["status"]["conditions"], original["status"]["conditions"])
+        self.assertNotIn("unrelatedPrivateField", diagnostic["status"])
+        original["status"]["conditions"][0]["reason"] = "changed-later"
+        self.assertEqual(diagnostic["status"]["conditions"][0]["reason"], "RotationProgressing")
+
     def test_terminal_history_does_not_count_as_an_active_replica(self):
         h = fake_harness()
         h.wait = lambda description, predicate: predicate()

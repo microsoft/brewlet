@@ -221,6 +221,16 @@ overwritten.
 
 ## Executed successfully
 
+Focused control run `39023983077` failed waiting for a dedicated runtime's
+`RotationComplete` condition before reaching the pacing case. It passed **32**
+earlier selected assertions, not the focused suite. The original receipt did
+not retain the incomplete controller status, so no cause is inferred from the
+timeout alone. Rotation waits now retain bounded copies of the relevant UID,
+object/target generations, digest, rotation details and conditions in the
+classified result. Raw objects and unrelated fields are excluded. All **281**
+offline safeguards passed. The independent complete run `39023985022` remains
+separate evidence and is not assumed to have this same failure.
+
 CI run `39022648917` did not reach the staged-pacing case: it failed earlier in
 CRI accounting when the provisioner Pod's captured state changed. Exact-owned
 fixture destruction passed. No cause is asserted without the missing original

@@ -562,6 +562,12 @@ class ControlEdges:
         def observed():
             image = self.image(runtime_id)
             status = image.get("status", {})
+            self.h.result["controlAcceptance"].setdefault("rotationDiagnostics", {})[runtime_id] = {
+                "inventoryUID": image["metadata"]["uid"],
+                "objectGeneration": image["metadata"].get("generation"),
+                "status": {key: copy.deepcopy(status[key]) for key in (
+                    "generation", "digest", "rotation", "rotationCompletedAt", "conditions")
+                    if key in status}}
             return image if (status.get("rotationCompletedAt")
                              and status.get("rotation", {}).get("generation") == status.get("generation")
                              and any(c["type"] == "RotationComplete" and c["status"] == "True"
