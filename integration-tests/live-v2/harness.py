@@ -1144,6 +1144,21 @@ class Harness:
             text = "\n".join(e.get("message", "") for e in events
                              if e.get("involvedObject", {}).get("uid") == obj["metadata"]["uid"])
             text += json.dumps(obj.get("status", {}))
+            self.result.setdefault("startRejectionDiagnostics", {})[name] = {
+                "podUID": obj["metadata"]["uid"], "node": obj.get("spec", {}).get("nodeName"),
+                "phase": obj.get("status", {}).get("phase"), "expectedReason": reason,
+                "runtimeReasons": sorted(set(re.findall(
+                    r"\b(?:RuntimeImage[A-Za-z]+|InvalidRuntimeGeneration|LaunchConfigMismatch|"
+                    r"UnsupportedArtifact|LayerPathViolation|NoCompatibleRuntime|RootNotSupported|"
+                    r"PrivilegeEscalationNotSupported|ExecStateUnavailable)\b", text))),
+                "eventReasons": sorted({e.get("reason", "") for e in events
+                    if e.get("involvedObject", {}).get("uid") == obj["metadata"]["uid"]}),
+                "containerReasons": sorted({state.get("reason", "")
+                    for status in obj.get("status", {}).get("containerStatuses", [])
+                    for states in (status.get("state", {}), status.get("lastState", {}))
+                    for state in states.values() if isinstance(state, dict)}),
+                "requestDeadlineExceeded": "context deadline exceeded" in text,
+            }
             return text if reason in text else False
         evidence = self.wait(name + " exact failure " + reason, observe, timeout=timeout)
         self.record(name + " rejects start: " + reason, {"reason": reason, "observation": evidence})

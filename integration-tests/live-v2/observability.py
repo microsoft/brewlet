@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+import base64
 import math
 import re
 import subprocess
@@ -74,8 +75,8 @@ class Observer:
     def __init__(self, h):
         self.h = h
         self.path = h.work / "runtime-events.log"
-        self.binary_path = "/tmp/brewlet-event-observer-" + h.run_id
-        self.pid_path = self.binary_path + ".pid"
+        self.binary_path = "/usr/local/bin/brewlet-event-observer-" + h.run_id
+        self.pid_path = "/tmp/brewlet-event-observer-" + h.run_id + ".pid"
         self.process = None
 
     def __enter__(self):
@@ -87,8 +88,9 @@ class Observer:
                "./integration-tests/live-v2/eventobserver"],
               env={"CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": h.arch}, timeout=180)
         h.node_exec("test", "!", "-e", self.binary_path)
-        h.run(["docker", "cp", binary, h.node_container + ":" + self.binary_path])
-        h.node_exec("chmod", "0700", self.binary_path)
+        h.node_exec("/bin/sh", "-ec",
+                   'umask 077; set -C; base64 -d > "$1"; chmod 0700 "$1"', "observer",
+                   self.binary_path, input=base64.b64encode(binary.read_bytes()).decode(), timeout=120)
         require(h.node_exec("sha256sum", self.binary_path).stdout.split()[0]
                 == hashlib.sha256(binary.read_bytes()).hexdigest(), "observer binary transfer changed bytes")
         log = self.path.open("w")

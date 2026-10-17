@@ -562,12 +562,38 @@ class Lifecycle:
         require(fields[19] == worker["start"], "worker PID was reused")
         return fields[0] in ("T", "t")
 
+    def stop_renewal_outside_start_locks(self, worker, rid):
+        locks = ["/var/lib/brewlet/layers/.consumers-lock", f"{STORE}/.locks/{rid}"]
+        for path in locks:
+            self.h.node_exec("test", "-f", path)
+        for attempt in range(10):
+            self.guard()
+            self.h.node_exec(*signal_command(worker["pid"], worker["start"], "/brewlet-node", "STOP"))
+            retained = False
+            try:
+                require(self.worker_stopped(worker), "renewal process did not stop")
+                probe = self.h.node_exec("flock", "--nonblock", "--shared", locks[0],
+                                        "flock", "--nonblock", "--exclusive", locks[1], "true",
+                                        check=False)
+                require(probe.returncode in (0, 1), "start-lock inspection failed: " + probe.stderr)
+                if probe.returncode == 0:
+                    self.h.result["expirySuspension"] = {
+                        "pid": worker["pid"], "start": worker["start"],
+                        "outsideStartLocks": True, "attempts": attempt + 1}
+                    retained = True
+                    return
+            finally:
+                if not retained:
+                    self.h.node_exec(*signal_command(worker["pid"], worker["start"], "/brewlet-node", "CONT"))
+            time.sleep(0.1)
+        raise Failure("could not stop real renewal outside application start locks")
+
     def expiry_and_recovery(self):
         rid = self.inventory("recovery")
         name = self.pod(rid, "expiry-held")
         obj, lease = self.ready(name)
         worker = self.worker()
-        self.h.node_exec(*signal_command(worker["pid"], worker["start"], "/brewlet-node", "STOP"))
+        self.stop_renewal_outside_start_locks(worker, rid)
         started = time.monotonic()
         try:
             require(self.worker_stopped(worker), "SIGSTOP did not stop actual renewal")

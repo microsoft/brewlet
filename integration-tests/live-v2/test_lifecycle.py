@@ -401,12 +401,55 @@ class ExpiryTests(unittest.TestCase):
         self.assertNotIn("write_bytes", source)
         self.assertNotIn("finalizers] =", source)
         expiry = inspect.getsource(l.Lifecycle.expiry_and_recovery)
-        self.assertIn('signal_command(worker["pid"], worker["start"], "/brewlet-node", "STOP")', expiry)
+        suspension = inspect.getsource(l.Lifecycle.stop_renewal_outside_start_locks)
+        self.assertIn('signal_command(worker["pid"], worker["start"], "/brewlet-node", "STOP")', suspension)
+        self.assertIn("self.stop_renewal_outside_start_locks(worker, rid)", expiry)
         self.assertIn('signal_command(worker["pid"], worker["start"], "/brewlet-node", "CONT")', expiry)
         self.assertIn("datetime.now(timezone.utc)", expiry)
         self.assertIn("initial == observed", expiry)
         self.assertIn('self.rotate(rid, "after")', expiry)
         self.assertIn("finally:", expiry)
+
+
+class ExpirySuspensionTests(unittest.TestCase):
+    def fixture(self, outcomes):
+        fixture = object.__new__(l.Lifecycle)
+        calls, results = [], iter(outcomes)
+
+        def execute(*args, **kwargs):
+            calls.append(args)
+            return SimpleNamespace(returncode=next(results) if args[0] == "flock" else 0,
+                                   stderr="probe error")
+
+        fixture.h = SimpleNamespace(node_exec=execute, result={})
+        fixture.guard = Mock()
+        fixture.worker_stopped = Mock(return_value=True)
+        worker = {"pid": 4321, "start": "123456"}
+        return fixture, worker, calls
+
+    def test_busy_start_lock_resumes_before_retry_and_only_free_locks_remain_paused(self):
+        fixture, worker, calls = self.fixture([1, 0])
+        with patch.object(l.time, "sleep"):
+            fixture.stop_renewal_outside_start_locks(worker, RUNTIME)
+        signals = [call[-1] for call in calls if call[0] == "sh"]
+        self.assertEqual(signals, ["STOP", "CONT", "STOP"])
+        probes = [call for call in calls if call[0] == "flock"]
+        self.assertEqual(probes[0], (
+            "flock", "--nonblock", "--shared", "/var/lib/brewlet/layers/.consumers-lock",
+            "flock", "--nonblock", "--exclusive", l.STORE + "/.locks/" + RUNTIME, "true"))
+        self.assertEqual(fixture.h.result["expirySuspension"]["attempts"], 2)
+        self.assertTrue(fixture.h.result["expirySuspension"]["outsideStartLocks"])
+
+    def test_exhausted_or_failed_lock_inspection_never_leaves_renewal_paused(self):
+        for outcomes in ([1] * 10, [2]):
+            with self.subTest(outcomes=outcomes):
+                fixture, worker, calls = self.fixture(outcomes)
+                with patch.object(l.time, "sleep"), self.assertRaises(Failure):
+                    fixture.stop_renewal_outside_start_locks(worker, RUNTIME)
+                signals = [call[-1] for call in calls if call[0] == "sh"]
+                self.assertEqual(signals[-1], "CONT")
+                self.assertEqual(signals.count("STOP"), signals.count("CONT"))
+                self.assertNotIn("expirySuspension", fixture.h.result)
 
 
 class ProcessAndReferenceTests(unittest.TestCase):

@@ -594,7 +594,9 @@ class ContractTests(ProjectWork):
         instance = self.harness()
         instance.owned[("pod", instance.namespace, "negative")] = "pod-uid"
         pod = owned("pod-uid")
-        pod["status"] = {"containerStatuses": [{"state": {"waiting": {"reason": "CreateContainerError"}}}]}
+        pod["status"] = {"containerStatuses": [{"state": {"waiting": {
+            "reason": "CreateContainerError",
+            "message": "context deadline exceeded; private-fixture-detail"}}}]}
         instance.get = mock.Mock(side_effect=lambda kind, *args, **kwargs:
                                 {"items": [{"involvedObject": {"uid": "foreign"},
                                              "message": "RuntimeImageRevoked"}]} if kind == "events" else pod)
@@ -602,6 +604,13 @@ class ContractTests(ProjectWork):
             predicate(), "expected failure was not observed")
         with self.assertRaises(h.Failure):
             instance.no_start("negative", "RuntimeImageRevoked")
+        diagnostic = instance.result["startRejectionDiagnostics"]["negative"]
+        self.assertEqual(diagnostic["podUID"], "pod-uid")
+        self.assertEqual(diagnostic["runtimeReasons"], [])
+        self.assertEqual(diagnostic["eventReasons"], [])
+        self.assertEqual(diagnostic["containerReasons"], ["CreateContainerError"])
+        self.assertTrue(diagnostic["requestDeadlineExceeded"])
+        self.assertNotIn("private-fixture-detail", json.dumps(instance.result))
 
     def test_no_start_cannot_accept_started_container_with_failure_event(self):
         instance = self.harness()

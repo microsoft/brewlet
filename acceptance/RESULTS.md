@@ -312,6 +312,27 @@ Full Go race/vet checks and both Linux builds passed. ROOT-04 remains partial
 until complete acquisition/publication evidence is reconciled; these component
 results are not fabricated source-pull or scheduling evidence.
 
+Fresh amd64 CI run `39014792810` passed **54** assertions, including actual CRI
+accounting/eviction, authenticated delivery, Maven execution and all container
+roles, then timed out waiting for the exact expired-authorization rejection.
+Fixture destruction passed. That timeout is not accepted as expiry proof.
+The original private Pod diagnostics were not exported, so its exact cause is
+not asserted. Negative-start results now retain only UID-scoped classified
+reason/deadline diagnostics, not arbitrary messages. To remove a known fixture
+ambiguity, stopping real renewal now requires confirming that the suspended
+worker holds neither the shared-cache exclusion lock nor the target ID lock;
+a busy/failed probe resumes the exact worker before retry/failure. Real time
+and authorization bytes remain unchanged. All **275** offline safeguards pass.
+
+Observer CI run `39016172961` failed before application execution because Docker
+archive transfer did not appear in the node's live `/tmp` mount. Transfer now
+uses checked stdin into an invocation-owned executable path, not `docker cp`.
+A separate pinned-node probe also confirmed that default tmpfs is non-executable;
+the fixture does not weaken that policy. Checksum-identical stdin transfer and
+native observer execution passed in the pinned node userland at an executable
+test path. Updated actual-node event delivery and expiry execution remain
+unverified pending another clean run.
+
 `run-complete-39` reached **30** passing assertions but again refused the CRI
 accounting write: available disk was **263,868,416** bytes against the unchanged
 **1,157,627,904**-byte minimum. Exact-owned fixture destruction passed.
