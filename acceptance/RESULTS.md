@@ -221,6 +221,27 @@ overwritten.
 
 ## Executed successfully
 
+Focused native amd64 CI run
+[`39026251031`](https://github.com/microsoft/brewlet/actions/runs/39026251031)
+at `cdad031f7221f593099a2cbb8d8136917af2705c` passed all **44** selected
+assertions, including controller strategies, actual global pacing, provider
+refusals, production cleanup and real operator claim-release CAS recovery.
+The 60-second global pacing case recorded **135** samples, two genuinely failed
+unready rollouts and **64 seconds** between their slot starts. Exact-owned
+fixture destruction passed. The receipt preserves `selectedScenario: control`
+and `fullAcceptance: false`:
+[`results/clean-control-amd64.json`](results/clean-control-amd64.json).
+Accounting, formal delivery negatives, Maven-node, container roles, lifecycle
+and the companion suites were intentionally omitted from this focused run.
+
+This verifies the explicit **resource-version race or recreated Node**
+alternative in §13.1 for E2E-09: the real operator's first release hit API CAS,
+persisted `CleanupBlocked`, and retried with a fresh request/version only after
+original Node/claim/Teardown/no-state checks. It does not verify physical
+recreated-host or returning-host cleanup; OWN-02 and OWN-03 remain partial.
+Complete CI run `39028815384` was dispatched at the later workload-CAS fixture
+fix `1293ed60ae61bbdf15a52948e0f3eb81279d6802`; its result is pending.
+
 Complete-scope CI run `39023985022` passed **66** assertions, including the
 strict healthy-baseline accounting check and the selected lifecycle cases.
 It failed on an actual API `409 Conflict` while conditionally patching the
