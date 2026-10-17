@@ -922,10 +922,6 @@ class ControlEdges:
     def delete_object(self, kind, name, namespace=None):
         key = (kind.lower(), namespace or "", name)
         require(key in self.h.owned, "cannot delete an unrecorded control object")
-        obj = self.h.get(kind, name, namespace, absent=True)
-        if obj is None:
-            return
-        require_owned(obj, self.h.run_id, self.h.owned[key])
         require(namespace == self.namespace or (kind == "Node" and name.startswith(
             "control-cas-" + self.h.run_id + "-")), "foreign control deletion")
         resources = {"Deployment": "deployments", "StatefulSet": "statefulsets",
@@ -934,11 +930,24 @@ class ControlEdges:
         prefix = "/apis/apps/v1" if kind in ("Deployment", "StatefulSet", "DaemonSet") else "/api/v1"
         if namespace:
             prefix += "/namespaces/" + namespace
-        self.h.kubectl("delete", "--raw", prefix + "/" + resources[kind] + "/" + name, "-f", "-",
-                       input=json.dumps({"apiVersion": "v1", "kind": "DeleteOptions",
-                                         "preconditions": {"uid": obj["metadata"]["uid"],
-                                                           "resourceVersion": obj["metadata"]["resourceVersion"]},
-                                         "propagationPolicy": "Foreground"}))
+        def attempt():
+            obj = self.h.get(kind, name, namespace, absent=True)
+            if obj is None:
+                return True
+            require_owned(obj, self.h.run_id, self.h.owned[key])
+            result = self.h.kubectl(
+                "delete", "--raw", prefix + "/" + resources[kind] + "/" + name, "-f", "-",
+                input=json.dumps({"apiVersion": "v1", "kind": "DeleteOptions",
+                                  "preconditions": {"uid": obj["metadata"]["uid"],
+                                                    "resourceVersion": obj["metadata"]["resourceVersion"]},
+                                  "propagationPolicy": "Foreground"}), check=False)
+            if result.returncode != 0:
+                require("Conflict" in result.stderr,
+                        "owned control deletion failed: " + result.stderr)
+                return False
+            return True
+
+        self.h.wait("UID/version-guarded control deletion " + name, attempt, timeout=30)
 
     def api_cas(self):
         name = "control-cas-" + self.h.run_id + "-node"
@@ -989,6 +998,7 @@ class ControlEdges:
         self.delete_object("Node", name)
         self.h.wait("replacement fixture Node deleted",
                     lambda: self.h.get("node", name, absent=True) is None)
+        self.h.owned.pop(("node", "", name))
         self.h.record("real API rejects stale resourceVersion and old UID on recreated fixture Node",
                       {"oldUID": uid, "replacementUID": replacement["metadata"]["uid"],
                        "conflict": conflict.stderr, "UIDRefusal": refusal.stderr,

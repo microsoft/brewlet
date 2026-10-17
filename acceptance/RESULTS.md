@@ -29,7 +29,7 @@ git diff --check
 ```
 
 Go race tests and vet passed across all packages. Both Linux targets build.
-The live-driver safeguards currently include 221 passing offline tests; those
+The live-driver safeguards currently include 224 passing offline tests; those
 are not real-node proof. Maven tests cover the optional Java producer and
 BOM/scoped-GAV layer-set contracts.
 
@@ -288,6 +288,17 @@ A fresh isolated actual-API probe passed both stale-resourceVersion and
 recreated-UID rejection after this correction, with fixture destruction
 successful. Controller restart scenarios and final production cleanup have
 not passed as one complete expanded run.
+
+`run-complete-19` again passed 57 assertions through the selected lifecycle
+callback. It then encountered another ordinary Node-controller update during
+the CAS probe's guarded fixture deletion. Deletion now retries only conflicts,
+re-reading and revalidating ownership and UID on each attempt while preserving
+both UID and resourceVersion preconditions. Replacement or foreign objects and
+unrelated API failures abort rather than retry. The ownership tracker is cleared
+only after confirmed deletion. Five successive complete synthetic-Node
+create/CAS/delete/recreate/old-UID/delete cycles passed on a fresh actual API,
+with successful fixture destruction. This remains API-primitives evidence,
+not proof of production claim release.
 
 [`results/clean-real-node.json`](results/clean-real-node.json) records all 36
 selected assertions passing against checkout

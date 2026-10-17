@@ -161,6 +161,8 @@ class IsolationTests(unittest.TestCase):
         h = fake_harness()
         h.owned[("deployment", NS, "work")] = UID
         h.get.return_value = workload()
+        h.kubectl.return_value = SimpleNamespace(returncode=0, stderr="")
+        h.wait = lambda description, predicate, timeout: predicate()
         ce.ControlEdges(h).delete_object("Deployment", "work", NS)
         args, kwargs = h.kubectl.call_args
         self.assertEqual(args[2], "/apis/apps/v1/namespaces/" + NS + "/deployments/work")
@@ -632,6 +634,70 @@ class CASSetupTests(unittest.TestCase):
                     ce.ControlEdges(h).api_cas()
                 if refusal == "replacement":
                     h.kubectl.assert_not_called()
+
+
+class ControlDeletionTests(unittest.TestCase):
+    def harness(self):
+        name = "control-cas-" + RUN + "-node"
+        obj = {"kind": "Node", "metadata": meta(name, UID)}
+        h = SimpleNamespace(cluster="fixture", namespace="base", control_namespace="system",
+                            run_id=RUN, owned={("node", "", name): UID},
+                            get=Mock(return_value=obj), kubectl=Mock())
+        h.wait = lambda description, predicate, timeout: predicate()
+        return h, name, obj
+
+    def test_conflict_refreshes_version_without_weakening_uid_precondition(self):
+        h, name, obj = self.harness()
+        fresh = copy.deepcopy(obj)
+        fresh["metadata"]["resourceVersion"] = "38"
+        h.get.side_effect = [obj, fresh]
+        h.kubectl.side_effect = [
+            SimpleNamespace(returncode=1, stderr="Error (Conflict): modified"),
+            SimpleNamespace(returncode=0, stderr="")]
+
+        def wait(description, predicate, timeout):
+            self.assertEqual(timeout, 30)
+            self.assertFalse(predicate())
+            self.assertTrue(predicate())
+
+        h.wait = wait
+        ce.ControlEdges(h).delete_object("Node", name)
+        preconditions = [json.loads(c.kwargs["input"])["preconditions"]
+                         for c in h.kubectl.call_args_list]
+        self.assertEqual(preconditions, [{"uid": UID, "resourceVersion": "37"},
+                                         {"uid": UID, "resourceVersion": "38"}])
+
+    def test_replacement_or_foreign_owner_is_not_deleted_after_conflict(self):
+        for changed in ("uid", "owner"):
+            with self.subTest(changed=changed):
+                h, name, obj = self.harness()
+                fresh = copy.deepcopy(obj)
+                if changed == "uid":
+                    fresh["metadata"]["uid"] = "replacement"
+                else:
+                    fresh["metadata"]["labels"][ce.OWNER] = "foreign"
+                h.get.side_effect = [obj, fresh]
+                h.kubectl.return_value = SimpleNamespace(returncode=1, stderr="Conflict")
+
+                def wait(description, predicate, timeout):
+                    self.assertFalse(predicate())
+                    return predicate()
+
+                h.wait = wait
+                with self.assertRaises(ce.Failure):
+                    ce.ControlEdges(h).delete_object("Node", name)
+                h.kubectl.assert_called_once()
+
+    def test_absent_is_complete_and_unrelated_failure_is_not_retried(self):
+        h, name, _ = self.harness()
+        h.get.return_value = None
+        ce.ControlEdges(h).delete_object("Node", name)
+        h.kubectl.assert_not_called()
+        h, name, _ = self.harness()
+        h.kubectl.return_value = SimpleNamespace(returncode=1, stderr="Forbidden")
+        with self.assertRaises(ce.Failure):
+            ce.ControlEdges(h).delete_object("Node", name)
+        h.kubectl.assert_called_once()
 
 
 class ReleaseCASTests(unittest.TestCase):
