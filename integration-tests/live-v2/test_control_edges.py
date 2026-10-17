@@ -519,6 +519,34 @@ class PacingTests(unittest.TestCase):
                     ce.verify_pacing([obj], 1, NOW, 30)
 
 
+    def test_both_targets_finish_installing_before_restart_slots_open(self):
+        control = object.__new__(ce.ControlEdges)
+        calls = []
+        source = "registry.test/runtime@sha256:" + "a" * 64
+        control.ids = ["first", "second"]
+        control.image = lambda _: {"spec": {"source": {"image": source}}}
+        control.workload = lambda name, *_args, **_kwargs: name
+        control.apply_workload = lambda name: calls.append("apply " + name)
+        control.wait_ready = lambda name: calls.append("ready " + name)
+        control.restore_release = lambda: calls.append("disable")
+        control.rotate = lambda rid, _: calls.append("rotate " + rid)
+        control.complete_rotation = lambda rid: calls.append("installed " + rid)
+        control.enable = lambda **kwargs: calls.append("enable " + str(kwargs["workload_deadline"]))
+
+        def sample(*_):
+            calls.append("sample")
+            raise ce.Failure("sampling reached")
+
+        control.h = SimpleNamespace(runtime_images={"python": {"before": source}},
+                                    timeout=300, get=sample)
+        with self.assertRaisesRegex(ce.Failure, "sampling reached"):
+            control.pacing()
+        self.assertEqual(calls, [
+            "apply pace-0", "ready pace-0", "apply pace-1", "ready pace-1", "disable",
+            "rotate first", "rotate second", "installed first", "installed second",
+            "enable 60", "sample"])
+
+
 class BlockedPodTests(unittest.TestCase):
     def blocked(self, reason="RuntimeImageInstalling"):
         return {"name": "pod", "namespace": NS, "uid": "new-pod", "node": "real-owned-node",

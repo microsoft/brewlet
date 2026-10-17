@@ -835,6 +835,7 @@ class ControlEdges:
 
     def pacing(self):
         # Both targets start on 'before'; both replacement probes refuse 'after'.
+        deadline = 2 * DEADLINE
         for index, rid in enumerate(self.ids):
             if self.image(rid)["spec"]["source"]["image"] != self.h.runtime_images["python"]["before"]:
                 self.rotate(rid, "before")
@@ -842,10 +843,12 @@ class ControlEdges:
             name = "pace-" + str(index)
             self.apply_workload(self.workload(name, "Deployment", rid, gated=True))
             self.wait_ready(name)
+        self.restore_release()
         for rid in self.ids:
             self.rotate(rid, "after")
         for rid in self.ids:
             self.complete_rotation(rid)
+        self.enable(workload_deadline=deadline)
         saw_blocked_pending = False
         started = time.monotonic()
         final = None
@@ -853,12 +856,19 @@ class ControlEdges:
             all_images = self.h.get("runtimeimages")["items"]
             by_name = {im["metadata"]["name"]: im for im in all_images}
             images = [by_name[rid] for rid in self.ids]
-            active = verify_pacing(all_images, 1, datetime.now(timezone.utc).timestamp(), DEADLINE)
+            active = verify_pacing(all_images, 1, datetime.now(timezone.utc).timestamp(), deadline)
             rows = [restart_record(im, self.get_workload("pace-" + str(i)))
                     for i, im in enumerate(images)]
             sample = {"observedAt": datetime.now(timezone.utc).isoformat(),
                       "activeUIDs": [r["uid"] for r in active], "records": copy.deepcopy(rows)}
             self.pacing_samples.append(sample)
+            self.h.result["controlAcceptance"]["pacingDiagnostics"] = {
+                "sampleCount": len(self.pacing_samples), "sawBlockedPending": saw_blocked_pending,
+                "recent": [{"observedAt": s["observedAt"], "activeUIDs": s["activeUIDs"],
+                    "records": [{key: row[key] for key in (
+                        "uid", "phase", "reason", "inventoryUID", "generation", "startedAt", "completedAt")
+                        if key in row} if row else None for row in s["records"]]}
+                    for s in self.pacing_samples[-10:]]}
             (self.h.work / "control-pacing.json").write_text(json.dumps(self.pacing_samples, indent=2))
             if (len(active) == 1 and active[0].get("namespace") == self.namespace
                     and active[0]["name"] in self.workloads
@@ -879,14 +889,14 @@ class ControlEdges:
                 "did not prove a real globally queued rollout and deadline slot handoff")
         ordered = sorted(final, key=lambda r: timestamp(r["startedAt"]))
         require(timestamp(ordered[1]["startedAt"]) - timestamp(ordered[0]["startedAt"])
-                >= DEADLINE - 1, "second global slot started before first deadline expired")
+                >= deadline - 1, "second global slot started before first deadline expired")
         for i, row in enumerate(final):
             require(row["reason"] == "RestartFailed"
                     and "progress deadline" in row.get("message", "").lower()
                     and not row.get("completedAt"), "timeout was counted as completed restart")
             self.patch_workload("pace-" + str(i), {"metadata": {"annotations": {OPT_IN: "false"}}})
         self.h.record("cluster-wide maxConcurrent=1 across two runtime IDs; real unready rollouts time out",
-                      {"deadlineSeconds": DEADLINE, "sampleCount": len(self.pacing_samples),
+                      {"deadlineSeconds": deadline, "sampleCount": len(self.pacing_samples),
                        "final": final, "notAContinuousAPIAudit": True},
                       ["ROT-06", "ROT-09"])
 

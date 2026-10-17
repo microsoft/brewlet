@@ -221,6 +221,29 @@ overwritten.
 
 ## Executed successfully
 
+Native amd64 CI run
+[`39019782549`](https://github.com/microsoft/brewlet/actions/runs/39019782549)
+at `f09e41fb303042b9d1a46a7ca845f100ac6bccd0` passed **69** selected assertions,
+including the previously blocked cold installation and all selected lifecycle
+cases: genuine first-use latest-target installation, lease-protected idle TTL,
+mode transitions, task/exec/mount retention and post-drain release. It also passed
+native controller strategies, epoch barriers, idempotency and supersession.
+The sanitized receipt is
+[`results/lifecycle-and-controller-amd64.json`](results/lifecycle-and-controller-amd64.json).
+The command **failed** when it could not establish both a globally queued rollout
+and deadline slot handoff. Exact-owned fixture destruction passed.
+
+The pacing fixture previously waited for both runtime roots to finish installing
+before sampling, although an earlier completed target could already have opened
+its restart window. Installation and restart enablement are now separate real
+chart phases: both targets finish under disabled restarts, then the actual
+controller is enabled with a 60-second workload deadline and global limit one.
+This isolates application-rollout pacing from runtime-copy duration; neither
+status nor timestamps are fabricated, and slot handoff must still take at least
+the configured deadline. Bounded classified pacing samples are retained even
+on failure. All **277** offline safeguards passed; corrected actual pacing
+remains unverified until a fresh real-node run.
+
 PROF-01 is reconciled against its entry-validation and unknown-ID isolation
 contracts. The explicit install/TTL matrix, shared API/admission/controller
 checks and race tests passed. The complete native arm64 provisioner suite now
