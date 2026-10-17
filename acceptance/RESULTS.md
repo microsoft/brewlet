@@ -221,6 +221,27 @@ overwritten.
 
 ## Executed successfully
 
+Local work now selects the already implemented Maven-producer and lifecycle
+callbacks independently, with their required Java/Python fixture respectively,
+so these implementation surfaces can be checked within current Docker
+capacity. Each still requires the real base runtime/rotation/observability and
+production cleanup; missing suites remain explicit and complete/default
+execution retains every callback. All **304** local safeguards and **9**
+acceptance/export checks pass. New physical Maven/lifecycle outcomes are
+pending execution, not inferred from driver tests.
+
+**All four runtime paths also pass against the Eager-readiness production
+fix.** Node.js and .NET retries each passed **18/18** local assertions and
+production/fixture cleanup; Java's fixed-source run passed **18/18**, and
+Python's Eager/controller run passed **27/27**. All four share production-source
+manifest `3bbae3930aa226899c3b33542a2863d5f752b0e667c8fd08748e71208afaa7bb`.
+The new receipts are
+[`fixed-source Node.js`](results/clean-local-node-readiness-fix-arm64.json) and
+[`.NET`](results/clean-local-dotnet-readiness-fix-arm64.json).
+The earlier webhook timeout remains a failed startup result; it is not rewritten
+as a pass. These are selected serial local results, not full-proposal
+acceptance. GitHub Actions remains deferred.
+
 **The production Eager fix is physically verified locally.** At `5c96c75c`,
 `run-local-eager-control-47` passed **27/27 selected assertions**, including
 actual incompatible-account installation failure, effective readiness

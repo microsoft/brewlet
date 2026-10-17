@@ -467,7 +467,9 @@ class SafetyTests(ProjectWork):
                     self.harness(scenario=scenario, pinned=pinned, local_language="python")
                 self.assertFalse(self.work.exists())
         for scenario, pinned, language in (("control", False, "java"), ("runtime", True, "node"),
-                                            ("runtime", False, None), ("runtime", False, "unknown")):
+                                            ("runtime", False, None), ("runtime", False, "unknown"),
+                                            ("maven", False, "python"), ("lifecycle", False, "java"),
+                                            ("maven", False, None), ("lifecycle", False, None)):
             with self.subTest(scenario=scenario, pinned=pinned, language=language):
                 with self.assertRaises(h.Failure):
                     self.harness(scenario=scenario, pinned=pinned, local_language=language)
@@ -980,6 +982,39 @@ class CallbackOrderTests(ProjectWork):
             self.assertNotIn(omitted, calls)
         self.assertTrue(any("Local runtime-only execution omits" in gap
                             for gap in instance.result["gaps"]))
+
+    def test_local_maven_scope_runs_producer_and_cleanup_without_unselected_callbacks(self):
+        instance, calls, modules = self.configure(scenario="maven", local_language="java")
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertEqual(instance.result["selectedLanguages"], ["java"])
+        self.assertFalse(instance.result["fullAcceptance"])
+        self.assertIn("maven_node", calls)
+        self.assertIn("production_cleanup", calls)
+        for omitted in ("control_edges", "before_cleanup", "after_cleanup", "lifecycle",
+                        "container_roles", "accounting", "delivery", "pinned_revocation"):
+            self.assertNotIn(omitted, calls)
+
+    def test_local_lifecycle_scope_runs_real_callback_and_cleanup_without_other_suites(self):
+        instance, calls, modules = self.configure(scenario="lifecycle", local_language="python")
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertEqual(instance.result["selectedLanguages"], ["python"])
+        self.assertFalse(instance.result["fullAcceptance"])
+        self.assertIn("lifecycle", calls)
+        self.assertIn("production_cleanup", calls)
+        for omitted in ("control_edges", "before_cleanup", "after_cleanup", "maven_node",
+                        "container_roles", "accounting", "delivery", "pinned_revocation"):
+            self.assertNotIn(omitted, calls)
+
+    def test_selected_local_maven_failure_is_not_skipped_or_reported_as_success(self):
+        instance, calls, modules = self.configure(scenario="maven", local_language="java")
+        modules["maven_node"].execute = mock.Mock(side_effect=h.Failure("producer failed"))
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 1)
+        self.assertEqual(instance.result["failurePhase"], "maven-producer-node")
+        self.assertEqual(instance.result["outcome"], "failed")
+        self.assertIn("destroy", calls)
 
     def test_partial_bootstrap_still_cleans_registry_and_cluster(self):
         instance, calls, modules = self.configure(bootstrap_failure=True)

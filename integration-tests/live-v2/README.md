@@ -99,6 +99,26 @@ It explicitly omits controller/provider cases and the complete-suite callbacks;
 results preserve those omissions. A runtime-only scenario requires an explicit
 fixture and pinned-case omission and cannot silently replace complete coverage.
 
+Additional existing callbacks can run locally without retaining all four
+runtime roots:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --scenario maven --without-pinned-scenarios --local-language java \
+  --retain-on-failure --work integration-tests/live-v2/run-local-maven-01
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --scenario lifecycle --without-pinned-scenarios --local-language python \
+  --retain-on-failure --work integration-tests/live-v2/run-local-lifecycle-01
+```
+
+Run these sequentially. Both require the base real runtime execution,
+rotation/observability and production cleanup. The Maven case additionally
+runs the optional producer's bundled/BOM-managed artifacts on-node and rotates
+their runtime without republishing. The lifecycle case runs the unchanged real
+authorization-expiry, recovery, revocation, retention and collection callbacks.
+Only the selected callback is added; omitted suites and fixture languages
+remain explicit in results. Complete/default execution is unchanged.
+
 Accounting waits for all unrelated running containers to be healthy before
 capturing its baseline. Afterward, disappearance, identity/restart changes or
 readiness loss still fail immediately with before/after identity diagnostics;

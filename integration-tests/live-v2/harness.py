@@ -241,13 +241,16 @@ def artifact_target(layout):
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
                  retain_on_failure=False, local_language=None):
-        require(scenario in ("complete", "control", "runtime"), "unsupported live scenario")
+        require(scenario in ("complete", "control", "runtime", "maven", "lifecycle"),
+                "unsupported live scenario")
         require(local_language is None or (
             local_language in LANGUAGES and not pinned
-            and (scenario == "runtime" or (scenario == "control" and local_language == "python"))),
+            and (scenario == "runtime"
+                 or (scenario in ("control", "lifecycle") and local_language == "python")
+                 or (scenario == "maven" and local_language == "java"))),
             "local fixture selection requires a supported partial scenario and --without-pinned-scenarios")
-        require(scenario != "runtime" or local_language is not None,
-                "runtime scenario requires --local-language and --without-pinned-scenarios")
+        require(scenario not in ("runtime", "maven", "lifecycle") or local_language is not None,
+                "local scenario requires --local-language and --without-pinned-scenarios")
         self.scenario = scenario
         self.retain_on_failure = retain_on_failure
         self.languages = (local_language,) if local_language else LANGUAGES
@@ -1631,6 +1634,14 @@ class Harness:
             self.result["gaps"].append(
                 "Local runtime-only execution omits CRI accounting, formal remote-delivery negatives, "
                 "Maven node producer, container-role/lifecycle/controller/provider callbacks and companion suites")
+        elif self.scenario == "maven":
+            self.result["gaps"].append(
+                "Local Maven execution omits CRI accounting, formal remote-delivery negatives, "
+                "container-role/lifecycle/controller/provider callbacks and companion suites")
+        elif self.scenario == "lifecycle":
+            self.result["gaps"].append(
+                "Local lifecycle execution omits CRI accounting, formal remote-delivery negatives, "
+                "Maven node producer, container-role/controller/provider callbacks and companion suites")
         try:
             self.phase = "prerequisites"
             self.preflight()
@@ -1660,16 +1671,19 @@ class Harness:
                 self.phase = "remote-delivery"
                 from delivery import execute as verify_delivery
                 verify_delivery(self)
+            if self.scenario in ("complete", "maven"):
                 self.phase = "maven-producer-node"
                 from maven_node import execute as verify_maven_node
                 verify_maven_node(self)
+            if self.scenario == "complete":
                 self.phase = "container-role-contract"
                 from container_roles import execute as verify_container_roles
                 verify_container_roles(self)
+            if self.scenario in ("complete", "lifecycle"):
                 self.phase = "lifecycle"
                 from lifecycle import execute as verify_lifecycle
                 verify_lifecycle(self)
-            if self.scenario != "runtime":
+            if self.scenario in ("complete", "control"):
                 self.phase = "control-edges"
                 from control_edges import execute as verify_control_edges
                 verify_control_edges(self)
@@ -1677,11 +1691,11 @@ class Harness:
                 self.phase = "pinned-refusal"
                 self.pinned_revocation()
             self.phase = "production-cleanup"
-            if self.scenario != "runtime":
+            if self.scenario in ("complete", "control"):
                 from control_edges import before_cleanup
                 before_cleanup(self)
             self.production_cleanup()
-            if self.scenario != "runtime":
+            if self.scenario in ("complete", "control"):
                 from control_edges import after_cleanup
                 after_cleanup(self)
             require(not (self.work / "manual-intervention.json").exists(),
@@ -1733,8 +1747,9 @@ def main():
                         help="new directory beneath integration-tests/live-v2; retains private kubeconfig/keys")
     parser.add_argument("--timeout", type=int, default=600,
                         help="bounded assertion deadline in seconds (default 600)")
-    parser.add_argument("--scenario", choices=("complete", "control", "runtime"), default="complete",
-                        help="complete suite (default), partial control, or local single-runtime execution")
+    parser.add_argument("--scenario", choices=("complete", "control", "runtime", "maven", "lifecycle"),
+                        default="complete",
+                        help="complete suite (default), partial control, or explicit local runtime/Maven/lifecycle")
     parser.add_argument("--without-pinned-scenarios", action="store_true",
                         help="explicit partial execution suite; records the omitted coverage as a gap")
     parser.add_argument("--retain-on-failure", action="store_true",
