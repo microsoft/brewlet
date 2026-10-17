@@ -20,6 +20,27 @@ from the repository's default branch, so this orphan branch does not claim
 automatic nightly execution. The job uploads only classified `result.json`
 files, never the private work directories.
 
+For focused controller and production-cleanup debugging, use the explicitly
+partial scenario:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --scenario control --work integration-tests/live-v2/run-control-20261017-01
+```
+
+The workflow's `scenario` input defaults to `complete`; selecting `control`
+retains real TLS bootstrap, startup fencing, four-language execution, runtime
+rotations, observability, controller/provider-refusal cases and production
+cleanup, but omits accounting, formal remote-delivery negatives, Maven-node,
+container-role and lifecycle callbacks and the separate companion suites.
+Results and public exports retain `selectedScenario` and explicit omissions.
+A focused pass is not a complete-suite or full-proposal pass.
+
+Accounting waits for all unrelated running containers to be healthy before
+capturing its baseline. Afterward, disappearance, identity/restart changes or
+readiness loss still fail immediately with before/after identity diagnostics;
+waiting for a healthy baseline does not relax the disk reserve or write limits.
+
 The separate cold-install case uses two actual native nodes:
 
 ```sh

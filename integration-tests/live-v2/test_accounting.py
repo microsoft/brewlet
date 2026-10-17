@@ -210,6 +210,28 @@ class AccountingTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(Failure):
                 a.no_collateral(before, [] if change == "gone" else [obj])
 
+    def test_healthy_baseline_must_precede_protected_accounting_writes(self):
+        original = pod()
+        self.assertEqual(a.ready_baseline([original]), a.workload_snapshot([original]))
+        for change in ("not-ready", "missing-id", "missing-status", "empty"):
+            obj = copy.deepcopy(original)
+            if change == "not-ready":
+                obj["status"]["containerStatuses"][0]["ready"] = False
+            elif change == "missing-id":
+                obj["status"]["containerStatuses"][0].pop("containerID", None)
+            elif change == "missing-status":
+                obj["status"]["containerStatuses"] = []
+            with self.subTest(change=change):
+                self.assertIsNone(a.ready_baseline([] if change == "empty" else [obj]))
+
+    def test_collateral_error_retains_exact_original_and_current_state(self):
+        original = pod()
+        before = a.workload_snapshot([original])
+        obj = copy.deepcopy(original)
+        obj["status"]["containerStatuses"][0]["ready"] = False
+        with self.assertRaisesRegex(Failure, 'before=.*"ready": true.*after=.*"ready": false'):
+            a.no_collateral(before, [obj])
+
     def test_manifest_security_no_volume_and_two_bounded_write_stages(self):
         h = SimpleNamespace(run_id=RUN, node=NODE, namespace="private",
                             app_images={"python": "fixture@sha256:" + CID})

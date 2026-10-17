@@ -25,6 +25,14 @@ class ExportTests(unittest.TestCase):
         self.assertFalse(result["cleanSelectedSuitePassed"])
         self.assertEqual("intervened", result["outcome"])
 
+    def test_partial_control_scope_is_preserved_without_full_acceptance(self):
+        result = export({"outcome": "passed", "selectedScenario": "control",
+                         "cleanSelectedSuitePassed": True, "fullAcceptance": False,
+                         "gaps": ["CRI accounting and other callbacks omitted"], "assertions": []})
+        self.assertEqual(result["selectedScenario"], "control")
+        self.assertEqual(result["gaps"], ["CRI accounting and other callbacks omitted"])
+        self.assertFalse(result["fullAcceptance"])
+
 
 if __name__ == "__main__":
     unittest.main()

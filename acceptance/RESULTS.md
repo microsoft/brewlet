@@ -221,6 +221,21 @@ overwritten.
 
 ## Executed successfully
 
+CI run `39022648917` did not reach the staged-pacing case: it failed earlier in
+CRI accounting when the provisioner Pod's captured state changed. Exact-owned
+fixture destruction passed. No cause is asserted without the missing original
+before/after fields. Accounting now captures only an initially healthy baseline
+and retains exact before/after container identities, restart counts and readiness
+on mismatch; its post-baseline guard and disk/write safety thresholds are
+unchanged. A healthy baseline is not a waiver for later readiness loss.
+
+An explicitly partial `--scenario control` driver/workflow input now isolates
+controller and cleanup debugging while retaining genuine startup, applications,
+rotations, observability, provider refusals and production cleanup. The complete
+scenario remains the default and still executes every original callback and
+companion case. Public receipts retain the selected scope and omission list;
+focused passes cannot be described as complete acceptance.
+
 LEASE-01 is verified by direct serialization contracts plus actual task-generation
 evidence. A native filesystem test races **32** Create resolutions with runtime
 publication and collection under the production per-ID flock, verifies all

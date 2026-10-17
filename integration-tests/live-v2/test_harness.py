@@ -49,8 +49,8 @@ class ProjectWork(unittest.TestCase):
         if self.work.exists():
             shutil.rmtree(self.work)
 
-    def harness(self):
-        instance = h.Harness(self.work)
+    def harness(self, **kwargs):
+        instance = h.Harness(self.work, **kwargs)
         instance.run_id = RUN
         instance.cluster = "brewlet-v2-" + RUN
         instance.context = "kind-" + instance.cluster
@@ -729,8 +729,9 @@ class CallbackOrderTests(ProjectWork):
         instance.save()
         self.assertTrue(instance.result["cleanSelectedSuitePassed"])
 
-    def configure(self, *, bootstrap_failure=False, cleanup_failure=False, observer_failure=False):
-        instance = self.harness()
+    def configure(self, *, bootstrap_failure=False, cleanup_failure=False, observer_failure=False,
+                  scenario="complete"):
+        instance = self.harness(scenario=scenario)
         calls = []
         for name in ("preflight", "provision_cluster", "prepare_images", "install",
                      "startup", "four_language_execution", "barriers_and_rotation",
@@ -798,6 +799,21 @@ class CallbackOrderTests(ProjectWork):
         self.assertNotIn("accounting", calls)
         self.assertEqual(calls[-5:], [
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
+
+    def test_control_only_scope_keeps_real_bootstrap_fencing_and_cleanup_but_records_omissions(self):
+        instance, calls, modules = self.configure(scenario="control")
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertEqual(instance.result["selectedScenario"], "control")
+        self.assertTrue(any("Focused control execution omits" in gap
+                            for gap in instance.result["gaps"]))
+        self.assertFalse(instance.result["fullAcceptance"])
+        for required in ("bootstrap_delivery", "startup", "observability", "control_edges",
+                         "pinned_revocation", "before_cleanup", "production_cleanup",
+                         "after_cleanup", "cleanup_delivery", "destroy"):
+            self.assertIn(required, calls)
+        for omitted in ("accounting", "delivery", "maven_node", "container_roles", "lifecycle"):
+            self.assertNotIn(omitted, calls)
 
     def test_partial_bootstrap_still_cleans_registry_and_cluster(self):
         instance, calls, modules = self.configure(bootstrap_failure=True)

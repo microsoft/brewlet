@@ -262,7 +262,17 @@ def no_collateral(before, pods):
     after = workload_snapshot(pods)
     for uid, original in before.items():
         require(after.get(uid) == original, "unrelated running workload changed: "
-                + original["namespace"] + "/" + original["name"])
+                + original["namespace"] + "/" + original["name"]
+                + "; before=" + json.dumps(original, sort_keys=True)
+                + "; after=" + json.dumps(after.get(uid), sort_keys=True))
+
+
+def ready_baseline(pods):
+    snapshot = workload_snapshot(pods)
+    return snapshot if snapshot and all(
+        item["containers"] and all(container["id"] and container["ready"] is True
+                                  for container in item["containers"].values())
+        for item in snapshot.values()) else None
 
 
 def manifest(h, name):
@@ -397,7 +407,8 @@ def execute(h):
     try:
         safety()
         headroom()
-        before = workload_snapshot(pods())
+        before = h.wait("healthy unrelated workloads before accounting writes",
+                        lambda: ready_baseline(pods()))
         evidence["unrelatedBefore"] = before
         require(h.get("pod", name, h.namespace, absent=True) is None,
                 "accounting Pod name already exists")

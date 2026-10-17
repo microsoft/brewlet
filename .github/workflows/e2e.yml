@@ -2,6 +2,13 @@ name: Brewlet 2 real-node execution
 
 on:
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: Complete acceptance or explicitly partial control/cleanup debugging
+        type: choice
+        required: true
+        default: complete
+        options: [complete, control]
 
 permissions:
   contents: read
@@ -45,20 +52,25 @@ jobs:
       - name: Real TLS pulls, runtime updates, lifecycle, controllers and CRI eviction
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 integration-tests/live-v2/harness.py --work integration-tests/live-v2/run-${{ github.run_id }}-${{ github.run_attempt }}
+          BREWLET_LIVE_SCENARIO: ${{ inputs.scenario }}
+        run: python3 integration-tests/live-v2/harness.py --scenario "$BREWLET_LIVE_SCENARIO" --work integration-tests/live-v2/run-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Real two-node cold-install deadline and recovery
+        if: inputs.scenario == 'complete'
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/cold_install.py --work integration-tests/live-v2/run-cold-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Native pending capacity, boot fencing and unsupported pull
+        if: inputs.scenario == 'complete'
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/native_capacity.py --work integration-tests/live-v2/run-native-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Real Helm uninstall behind stale provider pins
+        if: inputs.scenario == 'complete'
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/pinned_uninstall.py --work integration-tests/live-v2/run-uninstall-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Real worker decommission, replacement and retained external history
+        if: inputs.scenario == 'complete'
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/retirement.py --work integration-tests/live-v2/run-retirement-${{ github.run_id }}-${{ github.run_attempt }}

@@ -226,7 +226,9 @@ def artifact_target(layout):
 
 
 class Harness:
-    def __init__(self, work, *, timeout=600, pinned=True):
+    def __init__(self, work, *, timeout=600, pinned=True, scenario="complete"):
+        require(scenario in ("complete", "control"), "unsupported live scenario")
+        self.scenario = scenario
         self.run_id = validate_run_id(uuid.uuid4().hex[:12])
         self.work = work.resolve()
         require(self.work.is_relative_to(HERE) and self.work != HERE,
@@ -1576,6 +1578,11 @@ class Harness:
 
     def execute(self):
         status = 1
+        self.result["selectedScenario"] = self.scenario
+        if self.scenario == "control":
+            self.result["gaps"].append(
+                "Focused control execution omits CRI accounting, formal remote-delivery negatives, "
+                "Maven node producer, container-role and lifecycle callbacks and companion suites")
         try:
             self.phase = "prerequisites"
             self.preflight()
@@ -1598,21 +1605,22 @@ class Harness:
                 self.barriers_and_rotation()
                 self.phase = "observability"
                 observer.verify()
-            self.phase = "cri-accounting"
-            from accounting import execute as verify_accounting
-            verify_accounting(self)
-            self.phase = "remote-delivery"
-            from delivery import execute as verify_delivery
-            verify_delivery(self)
-            self.phase = "maven-producer-node"
-            from maven_node import execute as verify_maven_node
-            verify_maven_node(self)
-            self.phase = "container-role-contract"
-            from container_roles import execute as verify_container_roles
-            verify_container_roles(self)
-            self.phase = "lifecycle"
-            from lifecycle import execute as verify_lifecycle
-            verify_lifecycle(self)
+            if self.scenario == "complete":
+                self.phase = "cri-accounting"
+                from accounting import execute as verify_accounting
+                verify_accounting(self)
+                self.phase = "remote-delivery"
+                from delivery import execute as verify_delivery
+                verify_delivery(self)
+                self.phase = "maven-producer-node"
+                from maven_node import execute as verify_maven_node
+                verify_maven_node(self)
+                self.phase = "container-role-contract"
+                from container_roles import execute as verify_container_roles
+                verify_container_roles(self)
+                self.phase = "lifecycle"
+                from lifecycle import execute as verify_lifecycle
+                verify_lifecycle(self)
             self.phase = "control-edges"
             from control_edges import execute as verify_control_edges
             verify_control_edges(self)
@@ -1666,6 +1674,8 @@ def main():
                         help="new directory beneath integration-tests/live-v2; retains private kubeconfig/keys")
     parser.add_argument("--timeout", type=int, default=600,
                         help="bounded assertion deadline in seconds (default 600)")
+    parser.add_argument("--scenario", choices=("complete", "control"), default="complete",
+                        help="complete suite (default) or explicitly partial control/cleanup execution")
     parser.add_argument("--without-pinned-scenarios", action="store_true",
                         help="explicit partial execution suite; records the omitted coverage as a gap")
     args = parser.parse_args()
@@ -1674,7 +1684,8 @@ def main():
         raise Failure("interrupted by signal " + str(signum))
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    harness = Harness(args.work, timeout=args.timeout, pinned=not args.without_pinned_scenarios)
+    harness = Harness(args.work, timeout=args.timeout, pinned=not args.without_pinned_scenarios,
+                      scenario=args.scenario)
     return harness.execute()
 
 
