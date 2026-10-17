@@ -7,7 +7,7 @@ import math
 import re
 import subprocess
 
-from harness import IDS, LANGUAGES, ROOT, require
+from harness import IDS, ROOT, require
 
 
 def metric_samples(text):
@@ -124,7 +124,7 @@ class Observer:
         samples = metric_samples(response.stdout)
         events = runtime_events(self.path.read_text())
         bindings = []
-        for language in LANGUAGES:
+        for language in h.languages:
             for revision in ("old", "new"):
                 pod = h.get("pod", language + "-" + revision, h.namespace)
                 lease = h.lease(pod)

@@ -31,7 +31,7 @@ import time
 import urllib.error
 import urllib.request
 
-from harness import API, CLI_USERLAND, FENCE, LANGUAGES, OWNER, REGISTRY_IMAGE, Failure, application_started
+from harness import API, CLI_USERLAND, FENCE, OWNER, REGISTRY_IMAGE, Failure, application_started
 from harness import docker_owned, require, require_owned
 
 
@@ -600,7 +600,7 @@ auth:
     def bootstrap(self):
         self.start_registry()
         self.configure_node()
-        for language in LANGUAGES:
+        for language in self.h.languages:
             layout = self.work / ("app-" + language)
             descriptor = mutate_application(self.h.work / ("oci-" + language), layout,
                                             self.h.run_id + "-" + language)
@@ -697,7 +697,7 @@ auth:
 
     def execute(self):
         h = self.h
-        for language in LANGUAGES:
+        for language in h.languages:
             reference = h.app_images[language]
             require(h.image_digest(reference) == reference.split("@")[1],
                     "kubelet pulled a different application target")
@@ -727,10 +727,10 @@ auth:
         lines = (result.stdout + result.stderr).splitlines()
         reads = [line for line in lines if re.search(r'http.request.method="?GET"?', line)
                  and re.search(r'http.response.status="?200"?', line)]
-        for repository in ("delivery/apps-" + language for language in LANGUAGES):
+        for repository in ("delivery/apps-" + language for language in h.languages):
             require(any("/v2/" + repository + "/blobs/" in line for line in reads),
                     "registry never served selected application blobs over TLS")
-        for language in LANGUAGES:
+        for language in h.languages:
             require(any("/v2/delivery/runtime-" + language + "-before/blobs/" in line for line in reads),
                     "runtime source was not acquired remotely")
         for case, reasons in {

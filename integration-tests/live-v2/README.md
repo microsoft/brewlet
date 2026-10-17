@@ -46,6 +46,24 @@ up afterward; do not prune shared Docker resources. Successful runs still
 perform their normal cleanup even when this option is set. CI does not enable
 this debugging option.
 
+When local Docker capacity cannot hold all runtime roots, an explicitly smaller
+Python/controller debugging run is available:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --scenario control --without-pinned-scenarios --local-python-only \
+  --retain-on-failure --work integration-tests/live-v2/run-local-python-01
+```
+
+This still uses checkout-built components, real TLS delivery, actual runtime
+installation, execution/exec/rotation, controller/provider-refusal cases and
+production cleanup. It builds and offers only Python runtime roots and imports
+only the selected application; the host fixture helper still requires the
+documented producer toolchains. Results explicitly retain `selectedLanguages`
+and omitted-language/pinned-case gaps. The option is rejected for the complete
+scenario or without the explicit pinned-case omission. Default runs continue
+to require all four languages; a smaller local pass is never full acceptance.
+
 Accounting waits for all unrelated running containers to be healthy before
 capturing its baseline. Afterward, disappearance, identity/restart changes or
 readiness loss still fail immediately with before/after identity diagnostics;

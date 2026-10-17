@@ -221,6 +221,18 @@ overwritten.
 
 ## Executed successfully
 
+With no user available to change Docker capacity, local work continues through
+an explicitly smaller Python/controller execution rather than pruning shared
+resources or switching back to Actions. `--local-python-only` requires the
+existing partial control scenario and explicit pinned-case omission. Only the
+selected application and runtime roots are imported/published/offered; the
+normal four-language path is unchanged. Real source acquisition, launch,
+exec/rotation, event/metric joins, control/provider cases and production cleanup
+remain mandatory for that selected scope. Results/export retain
+`selectedLanguages` and the missing-language gaps. All **293** driver safeguards
+and **9** acceptance/export checks pass; no smaller actual-node pass is yet
+claimed.
+
 Local retained run `run-local-implementation-41` reproduced the Python held-exec
 failure and established its filesystem cause directly: UID 65532 saw
 **zero available bytes**, while roughly 6.5 GiB remained reserved for root.

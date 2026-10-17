@@ -61,7 +61,7 @@ class ProjectWork(unittest.TestCase):
         instance.node_uid = NODE_UID
         instance.arch = "arm64"
         instance.app_images = {lang: f"registry.brewlet.test/{RUN}/{lang}@sha256:" + "b" * 64
-                               for lang in h.LANGUAGES}
+                               for lang in instance.languages}
         return instance
 
 
@@ -416,6 +416,29 @@ class SafetyTests(ProjectWork):
             for _, log in instance.helpers:
                 log.close()
 
+    def test_smaller_local_mode_cannot_remove_languages_from_complete_acceptance(self):
+        for scenario, pinned in (("complete", True), ("complete", False), ("control", True)):
+            with self.subTest(scenario=scenario, pinned=pinned):
+                with self.assertRaisesRegex(h.Failure, "requires --scenario control"):
+                    self.harness(scenario=scenario, pinned=pinned, local_python_only=True)
+                self.assertFalse(self.work.exists())
+
+    def test_smaller_local_mode_builds_and_offers_only_its_selected_runtime(self):
+        instance = self.harness(scenario="control", pinned=False, local_python_only=True)
+        instance.runtime_vendor_inputs = h.rotation_inputs(json.loads(
+            (h.FIXTURES / "runtimes/rotation.json").read_text()))
+        instance.build = mock.Mock()
+        instance.run = mock.Mock(return_value=subprocess.CompletedProcess(
+            [], 0, json.dumps([{"Config": {"Env": ["PATH=/usr/bin:/bin"]}}]), ""))
+        instance.build_runtime_images()
+        self.assertEqual(instance.languages, ("python",))
+        self.assertEqual(instance.runtime_images, {"python": {}})
+        self.assertEqual(instance.app_images.keys(), {"python"})
+        self.assertEqual(instance.runtime_paths, {"python": "/usr/bin:/bin"})
+        self.assertEqual(instance.build.call_count, 4)
+        self.assertEqual(instance.profile_object()["spec"]["runtimeImages"],
+                         [{"id": h.IDS["python"], "install": "OnDemand"}])
+
     def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
         instance = self.harness()
         result = instance.run([sys.executable, "-c",
@@ -755,11 +778,12 @@ class CallbackOrderTests(ProjectWork):
         self.assertTrue(instance.result["cleanSelectedSuitePassed"])
 
     def configure(self, *, bootstrap_failure=False, cleanup_failure=False, observer_failure=False,
-                  scenario="complete", retain_on_failure=False):
-        instance = self.harness(scenario=scenario, retain_on_failure=retain_on_failure)
+                  scenario="complete", retain_on_failure=False, local_python_only=False):
+        instance = self.harness(scenario=scenario, retain_on_failure=retain_on_failure,
+                                local_python_only=local_python_only, pinned=not local_python_only)
         calls = []
         for name in ("preflight", "provision_cluster", "prepare_images", "install",
-                     "startup", "four_language_execution", "barriers_and_rotation",
+                     "startup", "application_execution", "barriers_and_rotation",
                      "pinned_revocation", "production_cleanup", "stop_helpers",
                      "diagnostics", "save"):
             setattr(instance, name, mock.Mock(side_effect=lambda name=name: calls.append(name)))
@@ -807,7 +831,7 @@ class CallbackOrderTests(ProjectWork):
             self.assertEqual(instance.execute(), 0)
         self.assertEqual(calls, [
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
-            "install", "startup", "observer_start", "four_language_execution", "barriers_and_rotation",
+            "install", "startup", "observer_start", "application_execution", "barriers_and_rotation",
             "observability", "observer_stop",
             "accounting", "delivery", "maven_node", "container_roles", "lifecycle",
             "control_edges", "pinned_revocation",
@@ -861,6 +885,18 @@ class CallbackOrderTests(ProjectWork):
             self.assertIn(required, calls)
         for omitted in ("accounting", "delivery", "maven_node", "container_roles", "lifecycle"):
             self.assertNotIn(omitted, calls)
+
+    def test_smaller_local_scope_preserves_real_control_and_marks_language_omissions(self):
+        instance, calls, modules = self.configure(scenario="control", local_python_only=True)
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertEqual(instance.result["selectedLanguages"], ["python"])
+        self.assertFalse(instance.result["fullAcceptance"])
+        self.assertIn("control_edges", calls)
+        self.assertIn("production_cleanup", calls)
+        self.assertNotIn("pinned_revocation", calls)
+        self.assertTrue(any("omits Java, Node.js and .NET" in gap
+                            for gap in instance.result["gaps"]))
 
     def test_partial_bootstrap_still_cleans_registry_and_cluster(self):
         instance, calls, modules = self.configure(bootstrap_failure=True)

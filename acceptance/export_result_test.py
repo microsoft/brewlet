@@ -19,6 +19,14 @@ class ExportTests(unittest.TestCase):
         self.assertNotIn("evidence", result["assertions"][0])
         self.assertFalse(result["fullAcceptance"])
 
+    def test_smaller_local_language_scope_is_not_lost_in_public_results(self):
+        result = export({"outcome": "passed", "selectedScenario": "control",
+                         "selectedLanguages": ["python"], "fullAcceptance": False,
+                         "gaps": ["Other languages omitted"], "assertions": []})
+        self.assertEqual(result["selectedLanguages"], ["python"])
+        self.assertFalse(result["fullAcceptance"])
+        self.assertEqual(result["gaps"], ["Other languages omitted"])
+
     def test_intervened_run_cannot_export_clean_success(self):
         result = export({"outcome": "passed", "cleanSelectedSuitePassed": True,
                          "assertions": [], "interventions": [{"reason": "changed test state"}]})

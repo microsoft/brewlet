@@ -1339,7 +1339,7 @@ class ProviderPins:
         h.wait("all-ID authorized worker recovery releases startup fence",
                lambda: not self.fenced()
                and h.node_snapshot()["metadata"]["labels"].get("brewlet.sh/runtime") == "ready")
-        for runtime_id in (*IDS.values(), *c.ids):
+        for runtime_id in (*h.runtime_ids.values(), *c.ids):
             image = h.get("runtimeimage", runtime_id)
             h.wait("latest approved current restored " + runtime_id, lambda runtime_id=runtime_id,
                    image=image: h.advertised(runtime_id, "ready", image["status"]["generation"]))

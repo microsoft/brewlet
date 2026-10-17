@@ -8,7 +8,7 @@ from pathlib import Path
 
 def export(source):
     fields = (
-        "outcome", "scope", "selectedScenario", "cleanSelectedSuitePassed", "fullAcceptance",
+        "outcome", "scope", "selectedScenario", "selectedLanguages", "cleanSelectedSuitePassed", "fullAcceptance",
         "checkout", "productionSourceManifestSHA256", "architecture",
         "kubeletPullVerified", "tlsTransportVerified", "providerScaleFromZeroVerified",
         "pins", "applicationImages", "runtimeImages", "runtimeVendorInputs", "fixtureDestruction", "gaps",

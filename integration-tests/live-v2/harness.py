@@ -227,10 +227,14 @@ def artifact_target(layout):
 
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
-                 retain_on_failure=False):
+                 retain_on_failure=False, local_python_only=False):
         require(scenario in ("complete", "control"), "unsupported live scenario")
+        require(not local_python_only or (scenario == "control" and not pinned),
+                "local Python-only debugging requires --scenario control --without-pinned-scenarios")
         self.scenario = scenario
         self.retain_on_failure = retain_on_failure
+        self.languages = ("python",) if local_python_only else LANGUAGES
+        self.runtime_ids = {language: IDS[language] for language in self.languages}
         self.run_id = validate_run_id(uuid.uuid4().hex[:12])
         self.work = work.resolve()
         require(self.work.is_relative_to(HERE) and self.work != HERE,
@@ -637,7 +641,8 @@ class Harness:
                  timeout=900, env={"MAVEN_OPTS": "-Dmaven.repo.local=" + str(self.work / "m2"),
                                    "JAVA_TOOL_OPTIONS": "-Djava.io.tmpdir=" + str(java_temp)})
         layers = json.loads((self.work / "host-reports.json").read_text())["layers"]
-        for language, inputs in layers.items():
+        for language in self.languages:
+            inputs = layers[language]
             tag = f"registry.brewlet.test/{self.run_id}/apps/{language}:v2"
             layout = self.work / ("oci-" + language)
             command = [*self.cli_command, "push", tag, "--store", layout,
@@ -687,7 +692,7 @@ class Harness:
         self.save()
 
     def build_runtime_images(self):
-        for language in LANGUAGES:
+        for language in self.languages:
             self.runtime_images[language] = {}
             for revision in ("before", "after"):
                 base_suffix = "base" if revision == "before" else "base-after"
@@ -743,7 +748,7 @@ class Harness:
                     process.wait(timeout=10)
 
     def install(self):
-        require(set(self.runtime_images) == set(LANGUAGES)
+        require(set(self.runtime_images) == set(self.languages)
                 and all(set(images) == {"before", "after"} for images in self.runtime_images.values()),
                 "approved runtime sources must be published by authenticated delivery before installation")
         # Current schemas must be applied before every Helm install/upgrade.
@@ -764,12 +769,12 @@ class Harness:
         self.kubectl("-n", self.control_namespace, "rollout", "status",
                      "deployment/brewlet-admission", "--timeout=120s", timeout=150)
         self.wait_inventory_admission(self.runtime_images["python"]["before"])
-        for language in LANGUAGES:
+        for language in self.languages:
             self.apply({"apiVersion": API, "kind": "RuntimeImage",
                         "metadata": {"name": IDS[language]},
                         "spec": {"source": {"image": self.runtime_images[language]["before"]},
                                  "user": {"uid": 65532, "gid": 65532}}})
-        for runtime_id in IDS.values():
+        for runtime_id in self.runtime_ids.values():
             self.wait("approved inventory " + runtime_id, lambda rid=runtime_id:
                       any(c["type"] == "Approved" and c["status"] == "True" for c in
                           self.get("runtimeimage", rid).get("status", {}).get("conditions", [])))
@@ -815,7 +820,7 @@ class Harness:
                 "spec": {"nodePool": {"key": "brewlet.test/pool", "names": [self.run_id],
                                       "includeControlPlane": True},
                          "runtimeImages": [{"id": IDS[language], "install": "OnDemand"}
-                                           for language in LANGUAGES],
+                                           for language in self.languages],
                          "tolerations": [{"key": FENCE, "operator": "Equal",
                                           "value": "provisioning", "effect": "NoSchedule"}],
                          "rollout": {"maxUnavailable": 1, "containerdRestart": "validated"}}}
@@ -824,7 +829,7 @@ class Harness:
         self.kubectl("label", "node", self.node, "brewlet.test/pool=" + self.run_id)
         self.kubectl("taint", "node", self.node, FENCE + "=provisioning:NoSchedule")
         self.kubectl("label", "node", self.node, "brewlet.sh/runtime=ready",
-                     *["brewlet.sh/runtime." + rid + "=available" for rid in IDS.values()])
+                     *["brewlet.sh/runtime." + rid + "=available" for rid in self.runtime_ids.values()])
         # Admission has valid inventory but no provisioner yet. This is a real
         # scheduler observation, not merely an API affinity inspection.
         zero = self.profile_object()
@@ -867,7 +872,7 @@ class Harness:
                   self.node_snapshot()["metadata"].get("labels", {}).get("brewlet.sh/runtime") == "ready"
                   and not any(t["key"] == FENCE for t in
                               self.node_snapshot().get("spec", {}).get("taints", [])))
-        for language in LANGUAGES:
+        for language in self.languages:
             rid = IDS[language]
             self.wait("available cold ID " + rid, lambda rid=rid: self.advertised(rid, "available"))
             require(self.node_exec("test", "!", "-e", STORE + "/" + rid + "/current",
@@ -1091,8 +1096,8 @@ class Harness:
                 "durable lease task identity mismatch")
         return lease
 
-    def four_language_execution(self):
-        for language in LANGUAGES:
+    def application_execution(self):
+        for language in self.languages:
             name = language + "-old"
             self.apply(self.pod(name, language))
             obj = self.wait(language + " initial start and real exec readiness probe", lambda: self.ready(name))
@@ -1255,7 +1260,7 @@ class Harness:
                 self.no_start(name, reason, timeout=180)
         finally:
             self.restore_admission()
-        for language in LANGUAGES:
+        for language in self.languages:
             old = self.initial[language]
             held_exec = self.start_held_exec(language)
             inventory = self.get("runtimeimage", IDS[language])
@@ -1415,7 +1420,7 @@ class Harness:
         self.wait("profile eager generation reconciled", lambda:
                   self.get("nodeprofile", self.profile).get("status", {}).get("provisioningGeneration")
                   == self.get("nodeprofile", self.profile)["metadata"]["generation"])
-        for language in LANGUAGES:
+        for language in self.languages:
             self.wait("eager ready before pin injection " + language,
                       lambda language=language: self.advertised(IDS[language], "ready"))
         self.install_interceptor()
@@ -1453,7 +1458,7 @@ class Harness:
                       for t in self.node_snapshot().get("spec", {}).get("taints", [])), timeout=180)
         require(self.node_snapshot()["metadata"]["labels"].get(key) == "ready",
                 "provider-pinned label was not retained")
-        for language in LANGUAGES:
+        for language in self.languages:
             self.assert_report(self.http(language + "-old"), language, arguments=[], cwd="/app")
             require(self.lease(self.get("pod", language + "-old", self.namespace))
                     == self.initial[language]["lease"], "fencing disrupted a running lease")
@@ -1483,7 +1488,7 @@ class Harness:
         require(self.node_snapshot()["metadata"]["labels"].get("brewlet.sh/owner-uid")
                 == self.owned[("nodeprofile", "", self.profile)],
                 "active task cleanup released the profile's claim")
-        for language in LANGUAGES:
+        for language in self.languages:
             self.node_exec("test", "-d", f"{STORE}/{IDS[language]}/"
                            f"{self.initial[language]['metadata']['inventoryUID']}/"
                            f"{self.initial[language]['metadata']['generation']}/rootfs")
@@ -1501,7 +1506,7 @@ class Harness:
         node = self.node_snapshot()
         require(not node["metadata"].get("labels", {}).get("brewlet.sh/owner-uid"),
                 "production cleanup left profile claim after finalization")
-        for language in LANGUAGES:
+        for language in self.languages:
             rid = IDS[language]
             require(self.node_exec("test", "!", "-e", STORE + "/" + rid + "/current",
                                    check=False).returncode == 0, "cleanup left a current root")
@@ -1596,6 +1601,10 @@ class Harness:
     def execute(self):
         status = 1
         self.result["selectedScenario"] = self.scenario
+        self.result["selectedLanguages"] = list(self.languages)
+        if self.languages != LANGUAGES:
+            self.result["gaps"].append(
+                "Local Python-only debugging omits Java, Node.js and .NET execution and rotation")
         if self.scenario == "control":
             self.result["gaps"].append(
                 "Focused control execution omits CRI accounting, formal remote-delivery negatives, "
@@ -1617,7 +1626,7 @@ class Harness:
             self.phase = "execution"
             from observability import Observer
             with Observer(self) as observer:
-                self.four_language_execution()
+                self.application_execution()
                 self.phase = "rotation"
                 self.barriers_and_rotation()
                 self.phase = "observability"
@@ -1705,6 +1714,9 @@ def main():
     parser.add_argument("--retain-on-failure", action="store_true",
                         help="local debugging only: retain failed owned environment for inspection; "
                              "requires explicit owner-checked cleanup and never counts as a clean pass")
+    parser.add_argument("--local-python-only", action="store_true",
+                        help="smaller local control debugging; requires --scenario control "
+                             "--without-pinned-scenarios and records omitted language coverage")
     args = parser.parse_args()
     require(30 <= args.timeout <= 1800, "timeout must be between 30 and 1800 seconds")
     def interrupted(signum, frame):
@@ -1712,7 +1724,8 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     harness = Harness(args.work, timeout=args.timeout, pinned=not args.without_pinned_scenarios,
-                      scenario=args.scenario, retain_on_failure=args.retain_on_failure)
+                      scenario=args.scenario, retain_on_failure=args.retain_on_failure,
+                      local_python_only=args.local_python_only)
     return harness.execute()
 
 
