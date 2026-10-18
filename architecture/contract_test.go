@@ -99,6 +99,46 @@ func TestProductionBuildersKeepCompilerCacheOutsideSnapshots(t *testing.T) {
 	}
 }
 
+func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testing.T) {
+	contracts, err := os.ReadFile("../.github/workflows/v2-ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contracts), "--tmpfs /var/lib/brewlet/layers:rw,exec,size=64m") ||
+		!strings.Contains(string(contracts), "! grep -q -- '--- SKIP' shim-conformance.log") {
+		t.Fatal("native resolver suite lacks an isolated writable cache or mandatory zero-skip gate")
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Run  string
+				With map[string]string
+			}
+		}
+	}
+	data, err := os.ReadFile("../.github/workflows/e2e.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	activation, exported, uploaded := false, false, false
+	for _, step := range workflow.Jobs["execution"].Steps {
+		activation = activation || strings.Contains(step.Run, "integration-tests/live-v2/activation.py")
+		exported = exported || strings.Contains(step.Run, "python3 acceptance/export_result.py")
+		if path, ok := step.With["path"]; ok {
+			if path != "acceptance-export/*.json" {
+				t.Fatalf("real-node workflow exposes private observations: %s", path)
+			}
+			uploaded = true
+		}
+	}
+	if !activation || !exported || !uploaded {
+		t.Fatal("real-node CI omits verified lifecycle companion or public-only result export")
+	}
+}
+
 func TestOnlyInventoryPlacementAndRetirementCRDs(t *testing.T) {
 	files, err := filepath.Glob("../kubernetes/deploy/crds/*.yaml")
 	if err != nil {

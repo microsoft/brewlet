@@ -5,10 +5,14 @@ Clean-slate implementation of
 referenced at main commit
 `fa7085335b220e29df6affbece4558c5f1259ecb`.
 
-**Development branch, not an accepted release.** The machine-readable
-[acceptance ledger](acceptance/requirements.json) is the source for
-implementation and verification gaps. A successful unit-test run must not be
-interpreted as completed real-node acceptance.
+**Proposal 0009 local acceptance verified.** All 101 requirements in the
+[acceptance ledger](acceptance/requirements.json) have scoped successful
+evidence. The final local four-language run passed 82 assertions, with separate
+cold-install, returning-host, capacity, uninstall and lifecycle companions.
+See [exact sources, commands and results](acceptance/RESULTS.md).
+This is not a claim of cloud-provider autoscaling certification, physical
+alternate-architecture hardware execution, or a published stable release.
+Unit and cross-compilation results remain distinct from real-node evidence.
 
 Developers package explicit, language-neutral `launch.json` descriptors and
 application/dependency layers confined to `/app`. Platform administrators own

@@ -17,7 +17,7 @@ jobs:
   execution:
     if: github.ref_name == 'brewlet-2.0'
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
@@ -74,11 +74,27 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/retirement.py --work integration-tests/live-v2/run-retirement-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: Retain classified results only, never kubeconfigs or keys
+      - name: Real retention, cache, orphan Exec, retry and signal lifecycle
+        if: inputs.scenario == 'complete'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 integration-tests/live-v2/activation.py --work integration-tests/live-v2/run-activation-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Export only public identities and outcomes
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p acceptance-export
+          for result in integration-tests/live-v2/run-*/result.json; do
+            test -f "$result" || continue
+            run_name="$(basename "$(dirname "$result")")"
+            python3 acceptance/export_result.py "$result" "acceptance-export/$run_name.json"
+          done
+      - name: Retain public results only, never kubeconfigs or keys
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: real-node-execution-results
-          path: integration-tests/live-v2/run-*/result.json
+          path: acceptance-export/*.json
           if-no-files-found: error
           retention-days: 14

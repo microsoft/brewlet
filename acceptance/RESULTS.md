@@ -1,10 +1,86 @@
 # Brewlet 2.0 validation status
 
-**Incomplete acceptance; not a release claim.** Proposal 0009 remains the
-contract. The 101-entry ledger deliberately distinguishes verified requirements
-from implemented or partially tested behavior.
+**Local implementation acceptance verified; not cloud-provider certification or
+a stable-release claim.** Proposal 0009 remains the contract. All 101 ledger
+requirements now have successful scoped evidence. Historical failures and
+incomplete milestones below remain unchanged as provenance, not current status.
 
 ## Latest combined actual-node result
+
+**`run-local-cleanup-complete-77` passed all 82 selected assertions**, including
+normal production cleanup, original per-ID receipt completion, worker teardown,
+finalizer/claim release and actual operator claim-release resourceVersion
+conflict/revalidation. Exact-owned fixture destruction passed without intervention.
+Tested checkout: `007fb28cc5356b4437062c1441bd53729557b05d`.
+Production-context manifest:
+`f63b873087160989c9de391b0e76880ee7327a2b0272ea062c3c307104c56d47`.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --retain-on-failure --work integration-tests/live-v2/run-local-cleanup-complete-77
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/cold_install.py \
+  --work integration-tests/live-v2/run-local-final-cold-78
+python3 acceptance/check.py --require-complete
+```
+
+The first command exited zero with **82/82**; the second exited zero with
+**13/13** on two actual nodes using the same source/context manifest. Both
+kubelets' effective runtime request timeouts were **120 seconds**. Held
+authenticated layer transfer crossed the real 30-second Create/60-second
+workload deadlines without premature publication or execution, then recovered
+without changing the workload template. All fixtures were normally destroyed.
+The strict ledger reports **101 requirements; 0 not verified**.
+
+[Final combined receipt](results/final-local-four-language-arm64.json) and
+[final cold-deadline receipt](results/final-local-cold-deadlines-arm64.json).
+Each receipt retains `fullAcceptance:false` because it describes one selected
+suite, not the aggregate ledger. The aggregate also uses the separately passed
+physical returning-host, pinned uninstall, native capacity, optional Maven,
+shared conformance, kernel and focused lifecycle suites documented below.
+No cloud autoscaler operation or alternate-CPU hardware join is claimed.
+Cross-builds cover Linux amd64/arm64; final local physical execution is arm64.
+
+The cleanup fix is now physically repeated, closing OWN-02 again; the verified
+request margin, exact failure-reason matrix and real cold repeat close OD-03
+and OBS-04. Later CI-only wiring adds the mandatory isolated shim content-cache
+mount, handles non-root portable resolver tests separately from the zero-skip
+native suite, and selects the complete activation companion. Actions uploads
+are restricted to the whitelisted public exporter. Local implementation and
+physical acceptance preceded these workflow edits.
+
+### Final delivery checks
+
+After the local physical runs and CI wiring, these commands all passed:
+
+```sh
+make test
+make build
+make acceptance
+go vet ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go vet ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go vet ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=readonly ./...
+git diff --check
+```
+
+`make test` includes the Go race suite, optional Maven `verify`, nine acceptance
+safeguards and **316** offline live-driver cases. The final isolated native shim
+repeat passed **42 cases/subcases, zero skips**. Final native node/provisioner
+runs passed **75/122**, respectively, without skips; artifact materialization
+previously passed **97**. Native command/isolation recipes and logs are described
+below; `shim-delivery-native.log` and `delivery-make-test.log` are retained in
+session artifacts. Workflow YAML and all embedded Bash scripts parsed
+successfully; workflow behavior also has repository architecture contracts.
+Remote GitHub Actions execution is separate from these local results.
+
+Provider scale-from-zero and physical alternate-architecture capacity are not
+asserted: the required native Pending-capacity/pull/fencing scenario is verified,
+and provider template limitations are documented. No skipped or mocked behavior
+is labeled end-to-end. The release ledger is aggregate scoped evidence, not a
+claim that one receipt executes every scenario or every possible fault.
+
+### Earlier failed final repeat and root-cause correction
 
 **The final combined repeat `run-local-final-complete-75` failed during
 production cleanup after 80 passing selected assertions.** Source:

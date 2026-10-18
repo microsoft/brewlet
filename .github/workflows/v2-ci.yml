@@ -120,6 +120,7 @@ jobs:
           docker run --rm --platform "${{ matrix.platform }}" --network none \
             --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD --cap-add DAC_OVERRIDE \
             --security-opt no-new-privileges --security-opt apparmor=unconfined --read-only --tmpfs /tmp \
+            --tmpfs /var/lib/brewlet/layers:rw,exec,size=64m \
             --tmpfs /src/shim/cmd/containerd-shim-brewlet-v2:rw,mode=755 \
             --mount "type=bind,source=$PWD,target=/src,readonly" \
             --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \

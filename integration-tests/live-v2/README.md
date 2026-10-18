@@ -24,8 +24,11 @@ relaxed by this readiness check.
 The branch's `.github/workflows/e2e.yml` runs this suite by manual dispatch.
 Select the `brewlet-2.0` ref on the existing E2E workflow. GitHub schedules run
 from the repository's default branch, so this orphan branch does not claim
-automatic nightly execution. The job uploads only classified `result.json`
-files, never the private work directories.
+automatic nightly execution. After local implementation acceptance, the job
+also selects the activation/cache/orphan/retry/signal companion and allows
+180 minutes for all sequential scenarios. The job exports each private result
+through `acceptance/export_result.py` and uploads only whitelisted public
+identities/outcomes, never raw result observations or private work directories.
 
 For focused controller and production-cleanup debugging, use the explicitly
 partial scenario:

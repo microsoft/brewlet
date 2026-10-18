@@ -24,6 +24,9 @@ import (
 )
 
 func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires isolated root-owned node content cache; mandatory in native suite")
+	}
 	for _, name := range []string{
 		"valid", "conflicting hints", "empty container image", "missing metadata",
 		"malformed metadata", "old metadata version", "requested tag",
