@@ -253,6 +253,19 @@ overwritten.
 
 ## Executed successfully
 
+Actual activation companion `run-local-activation-67` passed **9/9**, source
+`85110e56`. A real fresh-node `none` worker rejected the explicit unsafe
+`discard_unpacked_layers=true` fixture without changing the original config
+SHA-256, installing a shim/journal/current root, advertising readiness or
+releasing the startup fence. Normal profile spec correction to `validated`
+repaired effective packed retention before a genuine cold application started.
+Normal task drain and production finalization restored the **exact original
+configuration SHA-256** and live containerd service, with owned shim and claim
+removed. Fixture destruction passed; no activation or cleanup receipt was
+invented. Both config-version/native rollback cases remain separately covered.
+This closes RUN-10: **82 verified, 19 not fully verified**.
+[Actual retention/activation receipt](results/current-actual-retention-activation-arm64.json).
+
 Current-source native-capacity companion
 `run-local-native-capacity-66` passed **8/8**, source `41d625e4`.
 An architecture-constrained native executable's original Pending Pod started
