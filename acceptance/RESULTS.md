@@ -253,6 +253,18 @@ overwritten.
 
 ## Executed successfully
 
+Current-source native-capacity companion
+`run-local-native-capacity-66` passed **8/8**, source `41d625e4`.
+An architecture-constrained native executable's original Pending Pod started
+unchanged only after actual eligible worker capacity, baseline and installation
+appeared. The worker's architecture was not relabeled. A separate unconstrained
+unsupported-architecture image genuinely failed to pull on that node and was
+not counted as autoscaling success. Production profile/root/inventory cleanup,
+exact claim release and fixture destruction passed.
+[Current native-capacity receipt](results/current-local-native-capacity-arm64.json).
+This is native arm64 scheduling proof, not new amd64 hardware execution or
+cloud-provider scale-from-zero proof.
+
 The expanded current-source retirement companion
 `run-local-returning-retirement-65` passed **9/9**, source `ef74b02a`.
 The original worker container actually stopped, its original Node UID was
