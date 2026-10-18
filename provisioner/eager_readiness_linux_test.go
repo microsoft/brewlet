@@ -122,6 +122,35 @@ func TestOnDemandFailureDoesNotWithdrawUnrelatedBaseline(t *testing.T) {
 	}
 }
 
+func TestInstalledOnDemandReturnsAvailableBeforeEveryRotationRetry(t *testing.T) {
+	w, _ := recoveryFixture(t, map[string]string{"static": "OnDemand"}, false)
+	w.Platforms = fixturePlatforms{}
+	attempts := 0
+	w.Installer = observedInstaller{Installer: failedInstaller{}, before: func(context.Context) {
+		attempts++
+		n := readinessNode(t, w)
+		if n.Labels["brewlet.sh/runtime.static"] != "available" {
+			t.Fatal("installed OnDemand retry did not return to available before installation")
+		}
+	}}
+	for range 2 {
+		if err := w.Reconcile(context.Background()); err == nil {
+			t.Fatal("OnDemand rotation failure was hidden")
+		}
+		n := readinessNode(t, w)
+		if _, exists := n.Labels["brewlet.sh/runtime.static"]; exists {
+			t.Fatal("failed rotation retained its scheduling capability")
+		}
+		authorizations, err := w.Store.Authorizations()
+		if err != nil || len(authorizations) != 1 || authorizations[0].State != "failed" {
+			t.Fatal("failed rotation did not preserve failed authorization", authorizations, err)
+		}
+	}
+	if attempts != 2 {
+		t.Fatal("rotation retry was not exercised", attempts)
+	}
+}
+
 func TestEagerMetadataProbeFailurePreservesValidatedCompatibleCurrent(t *testing.T) {
 	w, _ := recoveryFixture(t, map[string]string{"static": "Eager"}, false)
 	w.Platforms = failedRuntimePlatforms{}

@@ -217,6 +217,12 @@ server dead and daemon paused, terminating only its main process must leave a
 genuine detached Exec alive with the exact leased upperdir. That surviving
 process and mount must retain the lease; only subsequent normal teardown may
 release it. The test does not assume default PID-namespace init-exit behavior.
+It also rotates the installed OnDemand ID to a separately published fixture
+whose explicit `PATH=/app` is invalid, without changing its root layers. Actual
+timestamped worker failures must exhibit exponential retry spacing, withdrawn
+capability and failed authorization while the old task/lease survives. A normal
+source correction must publish a validated target and start the unchanged
+application; this does not edit production authorization, roots or receipts.
 
 The stale-pin uninstall case creates its profile through the actual Helm chart,
 not by fabricating release ownership:

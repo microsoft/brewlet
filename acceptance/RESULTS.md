@@ -6,6 +6,26 @@ from implemented or partially tested behavior.
 
 ## Latest combined actual-node result
 
+Source-to-root reconciliation now closes ROOT-04: **86 verified, 15 not fully
+verified**. Canonical source/mirror validation, verified platform manifest/config,
+containerd target and diff-ID binding, safe snapshot copy/root validation, fresh
+worker fencing and atomic immutable metadata/source-receipt publication were
+traced end to end. The complete native node and provisioner repeats passed
+**71 and 115 cases/subcases, zero skips**, respectively. Logs are
+`node-reconciled-native.log` and `provisioner-reconciled-native.log` in session
+artifacts; the native command/isolation recipe below is unchanged.
+
+The subsequent OnDemand state audit reproduced an installed rotation retry
+starting without first returning its capability to `available`. The worker now
+advertises `available` before both cold and already-installed OnDemand attempts;
+failure still withdraws it and retains failed authorization, while the production
+loop retains its bounded 1s-to-60s exponential backoff. A two-attempt regression
+failed before the correction. The complete corrected native provisioner suite
+and Linux-only worker command suite passed. This is contract evidence, not yet
+a new physical failed-rotation/backoff result, so OD-01 remains unverified.
+One attempted host command explicitly selected the Linux-only worker package
+on macOS and failed its build constraints; the native Linux repeat passed.
+
 The subsequent focused run `run-local-orphan-exec-73` passed **14/14**,
 including an actual detached Exec surviving both main-process exit and task-server
 death. Tested checkout: `46caa37693cfb6ebe428ed82ba6acdf3283f38c2`;

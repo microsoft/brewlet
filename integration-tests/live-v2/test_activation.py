@@ -2,12 +2,45 @@
 
 import unittest
 import tomllib
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from activation import protected_cache_roots, shim_kill_command, unsafe_retention_config
+import delivery
+from activation import (failed_attempt_times, invalid_path_runtime, protected_cache_roots,
+                        shim_kill_command, unsafe_retention_config)
 from harness import Failure
 
 
 class ActivationFixtureTests(unittest.TestCase):
+    def test_invalid_runtime_changes_only_explicit_env_not_root_layers_or_original(self):
+        with TemporaryDirectory() as work:
+            source, destination = Path(work) / "source", Path(work) / "invalid"
+            config = {"config": {"Env": ["PATH=/bin", "OTHER=kept"]},
+                      "rootfs": {"type": "layers", "diff_ids": []}}
+            manifest = {"schemaVersion": 2, "mediaType": delivery.MANIFEST, "layers": [],
+                        "config": delivery.json_blob(source, config, delivery.CONFIG)}
+            target = delivery.finish_layout(source, delivery.json_blob(source, manifest, delivery.MANIFEST))
+            changed = invalid_path_runtime(source, destination)
+            actual = json.loads(delivery.read_blob(destination, changed))
+            new_config = json.loads(delivery.read_blob(destination, actual["config"]))
+            self.assertEqual(new_config["config"]["Env"], ["PATH=/app", "OTHER=kept"])
+            self.assertEqual(new_config["rootfs"], config["rootfs"])
+            self.assertEqual(actual["layers"], manifest["layers"])
+            self.assertEqual(json.loads(delivery.read_blob(source, target)), manifest)
+            self.assertEqual(json.loads(delivery.read_blob(source, manifest["config"])), config)
+
+    def test_retry_timestamps_require_exact_install_failure_and_root_reason(self):
+        lines = [
+            "2026-06-01T12:00:00.123456789Z provision-error: runtime install failed: unsafe runtime PATH component",
+            "2026-06-01T12:00:01Z provision-error: runtime install failed: unsafe runtime PATH component",
+            "2026-06-01T12:00:02Z unrelated unsafe runtime PATH component",
+            "2026-06-01T12:00:03Z provision-error: another failure",
+        ]
+        times = failed_attempt_times("\n".join(lines))
+        self.assertEqual(len(times), 2)
+        self.assertAlmostEqual((times[1] - times[0]).total_seconds(), 0.876544)
+
     def test_task_server_kill_requires_exact_start_and_installed_brewlet_binary(self):
         command = shim_kill_command(42, "123", "/usr/local/bin/containerd-shim-brewlet-v2")
         self.assertIn("readlink /proc/$1/exe", command[2])

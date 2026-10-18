@@ -333,7 +333,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 				}
 			}
 			if !upToDate {
-				if entry.Install == "OnDemand" && !installed {
+				if entry.Install == "OnDemand" {
 					if err := w.advertiseAvailable(ctx, entry.ID); err != nil {
 						return err
 					}

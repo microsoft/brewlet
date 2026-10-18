@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 import signal
+import shutil
 import tomllib
 
 import delivery
@@ -58,6 +59,86 @@ def shim_kill_command(pid, start, executable):
             'test "$(printf "%s\\n" "$s" | awk \'{print $20}\')" = "$2"; '
             'kill -KILL "$1"',
             "owned-shim-crash", str(pid), start, executable]
+
+
+def invalid_path_runtime(source, destination):
+    shutil.copytree(source, destination)
+    outer = json.loads((destination / "index.json").read_text())
+    require(len(outer["manifests"]) == 1, "ambiguous golden runtime fixture")
+    selected = outer["manifests"][0]
+    require(selected["mediaType"] == delivery.MANIFEST, "expected native golden manifest")
+    manifest = json.loads(delivery.read_blob(destination, selected))
+    config = json.loads(delivery.read_blob(destination, manifest["config"]))
+    env = config["config"]["Env"]
+    require(sum(value.startswith("PATH=") for value in env) == 1,
+            "golden runtime fixture lacks a unique PATH")
+    config["config"]["Env"] = ["PATH=/app" if value.startswith("PATH=") else value for value in env]
+    manifest["config"] = delivery.json_blob(destination, config, delivery.CONFIG)
+    return delivery.finish_layout(destination, delivery.json_blob(destination, manifest, delivery.MANIFEST))
+
+
+def failed_attempt_times(logs):
+    return [datetime.fromisoformat(line.split()[0].replace("Z", "+00:00"))
+            for line in logs.splitlines() if "provision-error: runtime install failed:" in line
+            and "unsafe runtime PATH component" in line]
+
+
+def failed_rotation_recovery(h):
+    h.apply(h.pod("retry-survivor", "python"))
+    pod = h.wait("failed-rotation survivor starts", lambda: h.ready("retry-survivor"))
+    lease = h.lease(pod)
+    profile_uid = h.get("nodeprofile", h.profile)["metadata"]["uid"]
+    previous = h.current("python")
+    layout = h.delivery.work / "python-invalid-path"
+    selected = invalid_path_runtime(h.delivery.work / "python-after-golden", layout)
+    source = h.delivery.publish(layout, selected, "delivery/runtime-python-invalid-path")
+    image = h.get("runtimeimage", IDS["python"])
+    spec = copy.deepcopy(image["spec"])
+    spec["source"]["image"] = source
+    h.replace_inventory_spec(image, spec)
+
+    def attempts():
+        logs = h.kubectl("-n", h.control_namespace, "logs", "-l",
+                         "brewlet.sh/owner-uid=" + profile_uid,
+                         "-c", "provisioner", "--timestamps=true", "--tail=200").stdout
+        times = failed_attempt_times(logs)
+        return times if len(times) >= 4 else False
+
+    times = h.wait("real invalid-root rotation fails repeatedly with exponential backoff", attempts)
+    intervals = [(right - left).total_seconds() for left, right in zip(times[:3], times[1:4])]
+    require(all(0.9 * (2 ** index) <= value < 90 for index, value in enumerate(intervals)),
+            "real install retries did not preserve bounded exponential backoff: " + repr(intervals))
+    auth = json.loads(h.node_exec("cat", STORE + "/" + IDS["python"] + "/authorization.json").stdout)
+    require(auth["state"] == "failed" and auth["digest"] == source.split("@")[1],
+            "failed rotation did not persist the rejected target state")
+    require(IDS["python"] not in {
+        key.removeprefix("brewlet.sh/runtime.") for key in
+        h.node_snapshot()["metadata"].get("labels", {}) if key.startswith("brewlet.sh/runtime.")},
+        "failed OnDemand rotation retained its scheduling capability")
+    require(h.current("python") == previous, "failed rotation replaced the validated current root")
+    require(h.lease(h.ready("retry-survivor")) == lease, "failed rotation changed a running lease")
+    h.assert_report(h.http("retry-survivor"), "python", arguments=[], cwd="/app")
+    h.record("actual installed OnDemand failure withdraws capability and retries with exponential backoff",
+             {"inventoryUID": auth["inventoryUID"], "failedGeneration": auth["generation"],
+              "retryIntervalsSeconds": intervals, "survivingTaskID": lease["taskID"]}, ["OD-01"])
+
+    image = h.get("runtimeimage", IDS["python"])
+    spec = copy.deepcopy(image["spec"])
+    spec["source"]["image"] = h.runtime_images["python"]["after"]
+    h.replace_inventory_spec(image, spec)
+    h.wait("normal corrected target recovers installed OnDemand runtime", lambda:
+           h.advertised(IDS["python"], "ready")
+           and h.current("python")["sourceDigest"] == spec["source"]["image"].split("@")[1])
+    h.apply(h.pod("retry-recovered", "python"))
+    h.wait("new task starts after validated retry recovery", lambda: h.ready("retry-recovered"))
+    h.assert_report(h.http("retry-recovered"), "python", arguments=[], cwd="/app")
+    require(h.lease(h.ready("retry-survivor")) == lease, "retry recovery rebound the surviving lease")
+    h.record("corrected OnDemand target recovers without rebuilding application or rebinding running lease",
+             {"applicationImage": h.app_images["python"], "survivingTaskID": lease["taskID"]}, ["OD-01"])
+    for name in ("retry-survivor", "retry-recovered"):
+        h.delete("pod", name, h.namespace)
+        h.wait("retry proof task drains normally: " + name, lambda name=name:
+               h.get("pod", name, h.namespace, absent=True) is None)
 
 
 def killed_shim_recovery(h):
@@ -267,6 +348,7 @@ def exercise(h, original):
              {"originalConfigSHA256": digest}, ["RUN-10"])
     cache_lifetime(h, pod)
     killed_shim_recovery(h)
+    failed_rotation_recovery(h)
     h.delete("nodeprofile", h.profile)
     h.wait("managed activation production cleanup finalizes", lambda:
            h.get("nodeprofile", h.profile, absent=True) is None)
