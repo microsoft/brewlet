@@ -253,6 +253,25 @@ overwritten.
 
 ## Executed successfully
 
+The corrected current-source cold companion
+`run-local-cold-64` passed **13/13 selected assertions**, source `763ff160`.
+Both real nodes finalized and released their original UID-bound claims, and
+exact-owned fixture destruction passed. The actual held authenticated layer
+transfer crossed the real 30-second Create bound and 60-second workload
+deadline; the global slot handed off, release allowed real installation and
+recovery without repatching, and an earlier native Deployment failure freed
+its slot. Rendered five-slot/10-minute defaults are configuration checks, not
+a claim of ten minutes' elapsed live timing.
+[Current cold/deadline receipt](results/current-local-cold-deadlines-arm64.json).
+
+The complete local run's actual deletion/revocation, role-by-role artifact
+denials, capability/startup behavior and real TLS provider fencing now reconcile
+INV-05, RUN-01, LABEL-01 and FENCE-03 alongside their targeted contracts:
+**80 verified, 21 not fully verified**. Running leases survived revocation,
+both refused fencing writes blocked deletion, and no fake API result is being
+substituted for these actual-node assertions. Remaining detailed obligations
+and companion scopes still gate whole-proposal acceptance.
+
 Current-source two-node companion `run-local-cold-63` failed before the held
 transfer/deadline case because the shared controller diagnostic helper assumed
 the full callback had initialized `controlAcceptance`. The focused caller had
