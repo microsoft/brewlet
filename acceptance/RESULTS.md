@@ -6,6 +6,31 @@ from implemented or partially tested behavior.
 
 ## Latest combined actual-node result
 
+The subsequent focused run `run-local-orphan-exec-73` passed **14/14**,
+including an actual detached Exec surviving both main-process exit and task-server
+death. Tested checkout: `46caa37693cfb6ebe428ed82ba6acdf3283f38c2`;
+production-source manifest:
+`7e9fa991cf2a069de1f9b4981b27eb91ab7c9347ac4a60293d79bbd272143fb0`.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/activation.py \
+  --work integration-tests/live-v2/run-local-orphan-exec-73
+```
+
+The exact owned daemon was briefly paused under guarded STOP/CONT. The
+invocation-tagged Exec's actual cgroup, process start identity and mountinfo
+proved survival and the exact leased task upper directory. Unavailable evidence
+retained the unchanged durable lease/root. Normal Pod/backend teardown preceded
+release; a fresh server then executed unchanged inventory. Production cleanup
+restored the exact original containerd bytes and live service; exact-owned
+fixture destruction passed without intervention. This complements the combined
+suite's current/leased-root and positive retirement-grace coverage and closes
+LEASE-03: **85 verified, 16 not fully verified**.
+The [public receipt](results/current-real-orphan-exec-arm64.json) retains its
+original initial `gaps` strings; passing assertions supersede its old combined
+LEASE-02/03 string. The current ledger is authoritative. This focused case does
+not imply the separately selected suites or whole-proposal acceptance.
+
 **`run-local-complete-62` passed all 81 selected assertions with no failures.**
 Tested checkout: `6785f90683acd88dcaa27ed4840297a59904ae16`.
 Production-source manifest:
