@@ -1,0 +1,54 @@
+site_name: Brewlet 2.0
+site_description: Language-neutral application artifacts and platform-managed runtimes on Kubernetes.
+docs_dir: ../docs
+site_dir: _site/docs
+repo_url: https://github.com/microsoft/brewlet/tree/brewlet-2.0
+repo_name: microsoft/brewlet
+edit_uri: https://github.com/microsoft/brewlet/edit/brewlet-2.0/docs/
+exclude_docs: |
+  /README.md
+  /compatibility.md
+  /live-validation.md
+theme:
+  name: material
+  custom_dir: overrides
+  font: false
+  favicon: ../assets/images/favicon.svg
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+plugins:
+  - search:
+      lang: en
+hooks:
+  - scripts/docs_hooks.py
+extra_css:
+  - ../assets/css/theme.css
+  - stylesheets/brewlet-docs.css
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+nav:
+  - Understand:
+      - Overview: index.md
+      - Main vs. Brewlet 2.0: brewlet-2-comparison.md
+  - Start:
+      - Getting started: getting-started.md
+      - Package an application: applications.md
+  - Operate:
+      - Runtime images and pools: runtime-images.md
+      - Rotation, security and cleanup: operations.md
+      - Verification and limitations: verification.md
+  - Reference:
+      - CLI reference: cli-reference.md
+      - Proposal 0009: https://github.com/microsoft/brewlet/blob/brewlet-2.0/specs/proposals/0009-language-agnostic-runtime-images.md
+      - Source code: https://github.com/microsoft/brewlet/tree/brewlet-2.0

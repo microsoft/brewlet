@@ -1,4 +1,6 @@
-.PHONY: test build acceptance ledger
+.PHONY: test build acceptance ledger site-build site-contract-check
+
+SITE_PYTHON ?= python3
 
 test:
 	go test -race ./...
@@ -16,3 +18,10 @@ ledger:
 
 acceptance:
 	python3 acceptance/check.py --require-complete
+
+site-contract-check:
+	PYTHONDONTWRITEBYTECODE=1 $(SITE_PYTHON) -m unittest discover -s site/scripts -p 'test_*.py' -v
+	node --check site/assets/js/site.js
+
+site-build: site-contract-check
+	$(SITE_PYTHON) site/scripts/build.py

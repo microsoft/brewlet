@@ -1,0 +1,67 @@
+# Brewlet 2.0 website
+
+The static landing page preserves main's Brewlet brand/story structure while
+replacing Java-specific claims and unsupported release commands with the 2.0
+contracts. Light/dark modes, keyboard-accessible language examples, copy controls
+and responsive navigation require no npm runtime package, remote font or CDN.
+
+MkDocs Material supplies the searchable documentation at `/docs/`. Its direct
+dependencies match the pinned reference Pages workflow. Preserved 1.x
+documentation is explicitly excluded from the current site. The comparison
+draft is rendered without modifying its source; repository-file links become
+branch-specific GitHub source links through the documented hook.
+
+## Build and preview
+
+```sh
+python3 -m venv site/.venv
+site/.venv/bin/python -m pip install -r site/requirements.txt
+make site-build SITE_PYTHON=site/.venv/bin/python
+python3 -m http.server 8080 --bind 127.0.0.1 --directory site/_site
+```
+
+Open `http://127.0.0.1:8080`. The output follows main's Pages layout:
+`site/_site/index.html`, static assets, license/notices and `site/_site/docs/`.
+All internal navigation works under a subdirectory as well as at a domain root.
+
+```sh
+make site-contract-check
+```
+
+For browser checks, install the pinned development-only dependency and Chromium:
+
+```sh
+npm ci --prefix site --ignore-scripts
+PLAYWRIGHT_SKIP_BROWSER_GC=1 site/node_modules/.bin/playwright install chromium
+npm test --prefix site
+```
+
+Use `PLAYWRIGHT_CHANNEL=chrome npm test --prefix site` to use an already installed
+Chrome instead. The test owns an ephemeral local server and checks desktop/mobile,
+both themes, keyboard tabs, clipboard, FAQ, documentation/search, subdirectory
+hosting and the no-JavaScript fallback. It closes its browser/server afterward.
+Screenshots go to ignored `site/_site-checks/` or `SITE_SCREENSHOTS`.
+
+The initial website verification passed the strict ten-page build and all local
+links/anchors, desktop/mobile light/dark browser interactions and search,
+prefix hosting and the no-JavaScript fallback. The exact getting-started
+descriptor and source were packaged and inspected with the real CLI inside
+an isolated Linux container. On the development Mac, the same host packaging
+attempt correctly rejected filesystem xattrs; validation was not weakened.
+
+The build runs MkDocs in strict mode, generates third-party notices from
+installed dependency license texts, removes unused non-English search
+extensions as main does, and verifies every built local link/fragment.
+Contract checks also protect honest 2.0 content and the draft's source bytes.
+
+## Deployment boundary
+
+`.github/workflows/site-pages.yml` builds and uploads a preview artifact on
+website/docs changes or manual dispatch. It deliberately does **not** deploy,
+configure Pages, set a CNAME or replace the production `brewlet.sh` site.
+`specs/reference/site-pages.yml` remains the source for the original
+build/assembly/deployment arrangement.
+
+A real publication decision needs an explicit destination and a reviewed
+Pages environment. No old-release installer or release smoke test is presented
+as a working 2.0 release workflow.

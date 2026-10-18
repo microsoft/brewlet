@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page not found · Brewlet 2.0</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <link rel="stylesheet" href="../assets/css/theme.css">
+  <style>
+    body { max-width: 42rem; margin: 10vh auto; padding: 2rem; background: var(--cp-bg); color: var(--cp-text); font: 1.125rem/1.7 "Segoe UI", Aptos, Calibri, sans-serif; }
+    a { color: var(--cp-accent); }
+  </style>
+</head>
+<body>
+  <h1>This page is not here.</h1>
+  <p>Brewlet 2.0 uses a new artifact and runtime contract. An old documentation
+    address may not have a direct equivalent.</p>
+  <p><a href="https://github.com/microsoft/brewlet/blob/brewlet-2.0/docs/index.md">Read the current documentation</a>
+    or <a href="https://github.com/microsoft/brewlet/tree/brewlet-2.0">browse the source</a>.</p>
+  <p>This is a source-built evaluation, not a published stable release.</p>
+</body>
+</html>

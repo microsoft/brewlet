@@ -1,0 +1,97 @@
+# Rotation, security and cleanup
+
+## Runtime identity and authorization
+
+An ID is a compatibility promise: preserve the runtime line, ABI, account, PATH
+layout and documented tools across digest rotations. Use a new ID for an
+incompatible change or a separately governed held source.
+
+The Kubernetes resource UID is the inventory epoch. Deleting and recreating
+the same name cannot authorize old roots or old generation barriers.
+Generations are monotonically allocated within an epoch.
+
+Installed roots and metadata are immutable under
+`/opt/brewlet/runtimes/<id>/<inventory-uid>/<generation>/`.
+A relative `current` pointer publishes the validated root/metadata unit.
+Separate local authorizations expire after five minutes by default and are
+renewed only after fresh approval/ownership checks.
+
+## Rotate without rebuilding application bytes
+
+Update the approved source digest while retaining the same compatible ID.
+The node validates and publishes the new generation. New containers resolve
+current; existing tasks keep their durable leases. Runtime convergence is not
+proof that every old application process restarted.
+
+Optional restarts require both chart enablement and a workload-object opt-in:
+
+```yaml
+# On the Deployment/StatefulSet/DaemonSet metadata, not its Pod template:
+metadata:
+  annotations:
+    brewlet.sh/restart-on-rotation: "true"
+```
+
+The coordinator installs an inventory-epoch/minimum-generation barrier in Pod
+templates. It does not delete Pods or change update strategies. Defaults are
+five concurrent workloads and a ten-minute workload progress deadline.
+OnDelete reports not-applicable; paused/partitioned/cold-install/excluded-node
+cases can remain deferred. A template patch or timeout is not remediation.
+
+## Observe actual bindings
+
+Use native resources, runtime status and node metrics rather than the removed
+Java-specific CLI:
+
+```sh
+kubectl get runtimeimages.node.brewlet.sh
+kubectl get nodeprofiles.node.brewlet.sh
+kubectl get nodes -L brewlet.sh/runtime
+kubectl rollout status deployment/api --namespace apps
+```
+
+Node metrics are optional (`metrics.enabled=true`). Important families include
+`brewlet_container_runtime_image_info`, `brewlet_runtime_image_generations`,
+`brewlet_runtime_image_install_requests_total`,
+`brewlet_runtime_image_install_duration_seconds` and
+`brewlet_shared_storage_bytes`. Runtime bindings include actual Pod/container
+identity, inventory epoch, generation and digest.
+
+## Security boundary
+
+Brewlet retains runc isolation and a privileged trusted provisioner. It is not
+gVisor, Kata or an additional hostile-tenant boundary. Every application process
+is non-root, has non-root groups, no capabilities and no privilege escalation.
+Runtime-owned PATH and protected initial state apply to Exec/probes/hooks too.
+
+Application/dependency entries are confined to `/app`. This prevents replacement
+of runtime paths, not application-owned dynamic-library lookup or explicit
+volume contents. Runtime rotation cannot repair vulnerable libraries packaged
+with the application. Never package secrets into world-readable app layers.
+
+## Cleanup and revocation
+
+Revocation stops new starts while existing tasks keep their roots. An expiring
+authorization bounds disconnected-node approval; labels alone are not authority.
+
+Normal cleanup must complete each original inventory obligation, publish and
+read back complete per-ID receipts, reverse owned host configuration, stop
+workers and only then release claims/finalizers. A failed/incomplete receipt
+retains its original revoked authorization for a later valid retry.
+
+Use normal reviewed resource deletion and Helm uninstall. Uninstall waits for
+production cleanup and may fail while obligations remain. Do not force-delete
+finalizers, claims, runtime roots, leases or startup fences to make it succeed.
+Helm/GitOps-managed definitions should be changed at their source of truth.
+
+The persistent cache under `/var/lib/brewlet/layers` is collected by the fenced
+provisioner after positive grace and complete reference checks. Unknown task,
+Exec or cross-namespace mount evidence blocks deletion, even when a Pod list
+looks empty.
+
+Missing/recreated hosts retain original-identity obligations. The explicit
+retirement-evidence process requires narrowly scoped recovery authority; a
+replacement node is not permission to erase another host's history.
+
+See the [implementation and operational details](https://github.com/microsoft/brewlet/blob/brewlet-2.0/provisioner/README.md)
+and [verified failure/recovery scenarios](verification.md).

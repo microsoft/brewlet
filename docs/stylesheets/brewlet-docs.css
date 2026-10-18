@@ -1,0 +1,64 @@
+html, body[data-md-color-scheme], body[data-md-color-primary] {
+  --md-text-font: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+  --md-code-font: Consolas, "Courier New", Courier, monospace;
+  --md-default-bg-color: var(--cp-bg);
+  --md-default-fg-color: var(--cp-text);
+  --md-default-fg-color--light: var(--cp-text-muted);
+  --md-default-fg-color--lighter: var(--cp-text-soft);
+  --md-default-fg-color--lightest: var(--cp-border);
+  --md-primary-fg-color: var(--cp-bg-elevated);
+  --md-primary-bg-color: var(--cp-text);
+  --md-primary-bg-color--light: var(--cp-text-muted);
+  --md-accent-fg-color: var(--cp-accent);
+  --md-accent-fg-color--transparent: var(--cp-accent-soft);
+  --md-typeset-a-color: var(--cp-accent);
+  --md-code-bg-color: var(--cp-surface);
+  --md-code-fg-color: var(--cp-text);
+  --md-code-hl-color: var(--cp-highlight);
+  --md-code-hl-number-color: var(--cp-accent);
+  --md-code-hl-special-color: var(--cp-accent);
+  --md-code-hl-function-color: var(--cp-text);
+  --md-code-hl-constant-color: var(--cp-accent);
+  --md-code-hl-keyword-color: var(--cp-accent);
+  --md-code-hl-string-color: var(--cp-text);
+  --md-code-hl-name-color: var(--cp-text);
+  --md-code-hl-operator-color: var(--cp-text-muted);
+  --md-code-hl-punctuation-color: var(--cp-text-muted);
+  --md-code-hl-comment-color: var(--cp-text-muted);
+  --md-code-hl-generic-color: var(--cp-text-muted);
+  --md-code-hl-variable-color: var(--cp-text);
+  --md-footer-bg-color: var(--cp-surface);
+  --md-footer-bg-color--dark: var(--cp-surface);
+  --md-footer-fg-color: var(--cp-text);
+  --md-footer-fg-color--light: var(--cp-text-muted);
+  --md-footer-fg-color--lighter: var(--cp-text-soft);
+}
+body { background: var(--cp-bg); color: var(--cp-text); }
+html[data-theme="dark"] { --cp-text-muted: var(--cp-text-soft); }
+.md-typeset { color: var(--cp-text); --md-typeset-color: var(--cp-text); --md-typeset-a-color: var(--cp-accent); }
+.md-typeset a { color: var(--cp-accent); }
+.md-nav { color: var(--cp-text); background: var(--cp-bg); }
+.md-nav__title { color: var(--cp-text); background: var(--cp-bg); box-shadow: none; }
+.md-nav--primary .md-nav__title[for="__drawer"], .md-nav--secondary .md-nav__title { color: var(--cp-text); background: var(--cp-bg); box-shadow: none; }
+.md-nav__item--section > .md-nav__link { color: var(--cp-text-muted); }
+.md-nav--primary .md-nav__item--section > .md-nav__link { color: var(--cp-text-muted); }
+.md-nav__link:hover, .md-nav__link--active { color: var(--cp-accent); }
+.md-header { background: var(--cp-bg-elevated); color: var(--cp-text); box-shadow: none; border-bottom: 1px solid var(--cp-border); }
+.md-banner { background: var(--cp-accent); color: var(--cp-accent-fg); }
+.md-banner a, .md-banner a:hover { color: var(--cp-accent-fg); text-decoration: underline; }
+.md-typeset h1, .md-typeset h2 { color: var(--cp-text); letter-spacing: -.025em; font-weight: 700; }
+.md-typeset p, .md-typeset li { line-height: 1.75; }
+.md-typeset pre > code { border: 1px solid var(--cp-border); border-radius: .625rem; }
+.md-typeset table:not([class]) { background: var(--cp-surface); color: var(--cp-text); border-color: var(--cp-border); }
+.md-typeset table:not([class]) th { background: var(--cp-bg-elevated); color: var(--cp-text); }
+.md-typeset table:not([class]) td { border-color: var(--cp-border); }
+.md-typeset :not(pre) > code { color: var(--cp-text); background: var(--cp-surface); }
+.md-footer-meta { background: var(--cp-surface); color: var(--cp-text); }
+.md-search__form { background: var(--cp-surface); color: var(--cp-text); border: 1px solid var(--cp-border); }
+.md-search__input::placeholder { color: var(--cp-text-muted); }
+.md-search__output { background: var(--cp-surface); color: var(--cp-text); }
+.md-search-result__meta { background: var(--cp-bg-elevated); color: var(--cp-text-muted); }
+.md-search-result mark { color: var(--cp-accent); background: var(--cp-highlight); }
+.md-search-result__link:is(:hover, :focus) { background: var(--cp-accent-soft); }
+.md-nav__link[aria-current] { color: var(--cp-accent); }
+.md-typeset :focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 3px; }

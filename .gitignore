@@ -1,7 +1,13 @@
 /bin/
 /target/
 **/target/
-/site/
+/site/_site/
+/site/.venv/
+/site/.cache/
+/site/node_modules/
+/site/**/node_modules/
+/site/_site-checks/
+/site/**/__pycache__/
 *.test
 .DS_Store
 .brewlet/

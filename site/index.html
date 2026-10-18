@@ -1,0 +1,172 @@
+<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
+<!--
+THESIS: Keep main's readable Brewlet story; make application/runtime separation language-neutral.
+OWN-WORLD: The Brewlet bean, warm light/charcoal surfaces, restrained rose accent, Segoe typography.
+STORY: Understand separation, inspect explicit launch examples, build from source, evaluate safely.
+FIRST VIEWPORT: Large left-aligned promise, paired application/runtime stacks, source/docs actions.
+FORM: Adapt the existing main landing structure; no invented performance or production claims.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Ship application code independently from platform-managed runtime images. Brewlet 2.0 composes Java, Python, Node.js and .NET applications on Kubernetes.">
+  <title>Brewlet 2.0 — Ship the app. Share the runtime.</title>
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Brewlet 2.0 — Ship the app. Share the runtime.">
+  <meta property="og:description" content="Explicit application artifacts. Centrally governed runtime images. Ordinary Kubernetes workloads.">
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <script src="assets/js/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="container navigation">
+      <a class="brand" href="./" aria-label="Brewlet home">
+        <svg viewBox="0 0 48 48" width="32" height="32" aria-hidden="true"><ellipse cx="24" cy="24" rx="16" ry="22" transform="rotate(24 24 24)"/><path d="M29 5C12 21 37 26 19 43"/></svg>
+        <span>brewlet</span><span class="version">2.0</span>
+      </a>
+      <button class="menu-toggle" aria-expanded="false" aria-controls="site-nav" hidden>Menu</button>
+      <nav id="site-nav" aria-label="Primary navigation">
+        <a href="#why">Why Brewlet</a><a href="#how">How it works</a><a href="#examples">Examples</a>
+        <a href="docs/">Documentation</a>
+        <button class="theme-toggle" type="button" aria-label="Switch color theme" hidden>Theme</button>
+        <a class="nav-source" href="https://github.com/microsoft/brewlet/tree/brewlet-2.0">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <h1>Ship the app.<br><span>Share the runtime.</span></h1>
+          <p class="hero-lede">Your code belongs in your image.<br>Your runtime belongs to the platform.</p>
+          <p class="hero-description">Publish application and dependency layers to an OCI registry. Brewlet composes them with an approved, node-resident runtime at launch. Java, Python, Node.js and .NET follow the same contract.</p>
+          <div class="actions"><a class="button primary" href="docs/getting-started/">Get started</a><a class="button secondary" href="#how">See the architecture <span aria-hidden="true">↓</span></a></div>
+          <p class="evaluation-note">Source-built evaluation · Linux · containerd 2.x · runc</p>
+        </div>
+        <div class="composition" aria-label="Application bytes and platform runtime are delivered independently, then composed on the node">
+          <div class="composition-title"><span>One workload.</span><span>Two owners.</span></div>
+          <div class="artifact-stack">
+            <div class="stack-label"><span>Developer</span><code>application@sha256:…</code></div>
+            <div class="layer app-layer"><strong>Your application</strong><span>Code + dependencies</span></div>
+            <div class="layer launch-layer"><code>launch.json</code><span>Explicit process + platforms</span></div>
+          </div>
+          <div class="compose-link"><span aria-hidden="true">+</span><span>Composed at container creation</span></div>
+          <div class="artifact-stack runtime-stack">
+            <div class="stack-label"><span>Platform team</span><code>RuntimeImage / python-3.13</code></div>
+            <div class="layer runtime-layer"><strong>Approved runtime root</strong><span>Interpreter or VM + userland + app account</span></div>
+          </div>
+          <div class="composition-footer"><span>containerd</span><span aria-hidden="true">→</span><strong>Brewlet shim</strong><span aria-hidden="true">→</span><span>runc</span></div>
+        </div>
+      </div>
+      <div class="container language-strip" aria-label="Verified application ecosystems"><span>One explicit contract for</span><strong>Java</strong><strong>Python</strong><strong>Node.js</strong><strong>.NET</strong></div>
+    </section>
+
+    <section class="section" id="why" aria-labelledby="why-title">
+      <div class="container">
+        <div class="section-heading"><h2 id="why-title">Different responsibilities.<br>Independent delivery.</h2><p>Keep the useful part of containers. Stop tying every application release to its runtime image.</p></div>
+        <div class="ownership-comparison">
+          <div><h3>A conventional application image</h3><p>The application image references its runtime and userland. Updating that base normally means rebuilding or recomposing the application image, then rolling it out.</p><div class="comparison-layers"><span>Application + dependencies</span><span>Runtime</span><span>OS userland</span></div></div>
+          <div><h3>With Brewlet</h3><p>The application artifact contains code, dependencies and a launch descriptor. The platform rotates an approved runtime ID. New containers use the updated runtime without rebuilding application bytes.</p><div class="comparison-layers separated"><span>Application + dependencies + launch</span><span>Platform-managed runtime + userland</span></div></div>
+        </div>
+        <p class="fine-print">Both approaches cache unchanged layers. Shared runtime files do not mean shared application processes or heaps. Runtime rotation does not patch libraries bundled in your application.</p>
+      </div>
+    </section>
+
+    <section class="section tinted" id="how" aria-labelledby="how-title">
+      <div class="container">
+        <div class="section-heading"><h2 id="how-title">Built around Kubernetes.<br>Not another workload API.</h2><p>Developers own applications. Platform teams approve runtime images. The scheduler and runc keep their jobs.</p></div>
+        <ol class="workflow">
+          <li><h3>Approve the runtime</h3><p>A cluster-scoped <code>RuntimeImage</code> binds a stable ID to a digest-pinned image and non-root account. A <code>NodeProfile</code> offers it on selected pools.</p></li>
+          <li><h3>Publish the application</h3><p>Package explicit app/dependency layers under <code>/app</code>, a versioned <code>launch.json</code> and declared OCI platforms. The CLI never guesses the language.</p></li>
+          <li><h3>Select, schedule, compose</h3><p>Use a normal Deployment with <code>runtimeClassName: brewlet</code> and one runtime ID. The shim validates the artifact, leases a runtime generation and delegates to runc.</p></li>
+        </ol>
+        <div class="architecture-note"><strong>Installed when you need it.</strong><p>Choose Eager for a warm pool, or OnDemand to validate baseline readiness before fetching runtime roots. A bounded first-use wait lets kubelet retry installation without running unvalidated application code.</p><a href="docs/runtime-images/">Explore runtime inventory <span aria-hidden="true">→</span></a></div>
+      </div>
+    </section>
+
+    <section class="section" id="examples" aria-labelledby="examples-title">
+      <div class="container">
+        <div class="section-heading"><h2 id="examples-title">A process, not a language plugin.</h2><p>Describe what to execute. Declare what to package. The runtime ID remains an explicit choice in your workload.</p></div>
+        <div class="language-tabs" role="tablist" aria-label="Application language examples">
+          <button id="tab-python" type="button" role="tab" aria-selected="true" aria-controls="example-panel" data-language="python">Python</button>
+          <button id="tab-java" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="java">Java</button>
+          <button id="tab-node" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="node">Node.js</button>
+          <button id="tab-dotnet" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="dotnet">.NET</button>
+        </div>
+        <div id="example-panel" role="tabpanel" aria-labelledby="tab-python">
+          <div class="code-pair">
+            <div class="code-block"><div class="code-heading"><span>launch.json</span><button type="button" class="copy-button" data-copy="launch-code" hidden>Copy</button></div><pre tabindex="0"><code id="launch-code">{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": ["python3"],
+    "args": ["/app/src/main.py"],
+    "workingDir": "/app"
+  }
+}</code></pre></div>
+            <div class="code-block"><div class="code-heading"><span>Package and publish</span><button type="button" class="copy-button" data-copy="package-code" hidden>Copy</button></div><pre tabindex="0"><code id="package-code">brewlet push registry.example.com/apps/api:v2 \
+  --platform linux/arm64 \
+  --launch launch.json \
+  --layer app=./src:/app/src</code></pre><p class="code-caption" id="example-note">This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them.</p></div>
+          </div>
+        </div>
+        <p class="fine-print">Examples are templates, not a live terminal. Use your registry and actual supported platforms. Java project intelligence is available in the optional <a href="docs/applications/#optional-maven-producer">Maven producer</a>; it does not select a pod runtime or generate workloads.</p>
+        <div class="deployment-example">
+          <div><h3>Your workload still looks like Kubernetes.</h3><p>Keep Services, probes, resources, volumes and normal rollout strategies. Each application container in a Brewlet Pod uses the same runtime ID.</p><a href="docs/applications/">Read the application contract <span aria-hidden="true">→</span></a></div>
+          <div class="code-block"><div class="code-heading"><span>Pod template excerpt · inside a Deployment</span></div><pre tabindex="0"><code>metadata:
+  annotations:
+    brewlet.sh/runtime-image: python-3.13
+spec:
+  runtimeClassName: brewlet
+  containers:
+    - name: api
+      image: registry.example.com/apps/api@sha256:&lt;digest&gt;</code></pre></div>
+        </div>
+        <p class="sr-only" id="copy-status" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section class="section tinted" id="rotation" aria-labelledby="rotation-title">
+      <div class="container rotation-layout">
+        <div><h2 id="rotation-title">Patch the runtime.<br>Keep the application.</h2><p>Rotate the digest behind a stable runtime ID. New containers resolve the approved current generation. Existing containers keep a durable lease on the generation they started with.</p><p>Optional, opt-in workload restarts use an inventory-epoch and minimum-generation barrier. A successful template patch is not a completed remediation.</p><a class="button secondary" href="docs/operations/">Understand rotation and cleanup</a></div>
+        <dl class="guarantees"><div><dt>Explicit authority</dt><dd>Short-lived local authorization is renewed only after fresh inventory and ownership checks.</dd></div><div><dt>Safe lifetime</dt><dd>Task, Exec and mount references protect roots and shared cache entries. Uncertainty blocks collection.</dd></div><div><dt>Honest boundaries</dt><dd>Non-root processes, runtime-owned PATH and read-only packaged content. runc isolation, not a new security boundary.</dd></div></dl>
+      </div>
+    </section>
+
+    <section class="section" id="quickstart" aria-labelledby="quickstart-title">
+      <div class="container quickstart">
+        <div><h2 id="quickstart-title">Start with the source.<br>Evaluate in isolation.</h2><p>The 2.0 branch has verified local implementation acceptance. It is not a published stable release or a claim of cloud-provider autoscaling certification.</p><p>Build the CLI, inspect explicit fixtures, then follow the isolated local Kubernetes runbook. No old-release installer or JavaApplication manifest is needed.</p><div class="actions"><a class="button primary" href="docs/getting-started/">Follow the getting-started guide</a><a href="https://github.com/microsoft/brewlet/blob/brewlet-2.0/acceptance/RESULTS.md">Read the evidence <span aria-hidden="true">↗</span></a></div></div>
+        <div class="code-block"><div class="code-heading"><span>Build Brewlet 2.0</span><button type="button" class="copy-button" data-copy="build-code" hidden>Copy</button></div><pre tabindex="0"><code id="build-code">git clone --branch brewlet-2.0 \
+  https://github.com/microsoft/brewlet.git
+cd brewlet
+make build</code></pre></div>
+      </div>
+    </section>
+
+    <section class="section faq-section" id="faq" aria-labelledby="faq-title">
+      <div class="container faq-layout"><h2 id="faq-title">A few important<br>distinctions.</h2><div class="faq">
+        <details><summary>Is this only for Java?</summary><p>No. The generic CLI and node runtime use explicit process descriptors for every ecosystem. Java, Python, Node.js and .NET fixtures exercise the same runtime contract. There is no language detection in core.</p></details>
+        <details><summary>Do existing applications switch runtime in place?</summary><p>No. Running processes keep their leased generation. New containers use current. An optional restart coordinator can patch opted-in native controllers; it does not hot-swap a VM, kill pods directly or override rollout strategies.</p></details>
+        <details><summary>Do I still need an application image?</summary><p>Yes. The application is a standard, digest-addressed OCI image with application layers, optional dependency layers and a final launch layer. It omits the platform runtime root; it is not an image-free deployment.</p></details>
+        <details><summary>Does sharing the runtime mean sharing processes?</summary><p>No. Runtime files are shared read-only on the node. Every workload has its own process, resources and container isolation. There is no claim of automatic heap sharing or benchmarked memory savings.</p></details>
+        <details><summary>Can I use ordinary images and run as root?</summary><p>Ordinary workloads still use the stock Kubernetes runtime. Within a Brewlet Pod, every application container must use a v2 artifact and run non-root without privilege escalation. Only the infrastructure sandbox bypasses application processing.</p></details>
+        <details><summary>What changes from main?</summary><p>RuntimeImage replaces JDK-specific approval, launch.json replaces JVMConfig, and native Kubernetes workloads replace JavaApplication. The CLI is intentionally generic. See the <a href="docs/brewlet-2-comparison/">side-by-side comparison and equivalent workflows</a>.</p></details>
+      </div></div>
+    </section>
+    <section class="closing"><div class="container"><h2>Your application. Your platform.<br>A cleaner boundary between them.</h2><a class="button primary" href="docs/">Explore the documentation <span aria-hidden="true">→</span></a></div></section>
+  </main>
+  <footer class="container site-footer"><div><a class="brand" href="./">brewlet <span class="version">2.0</span></a><p>Application artifacts. Platform-owned runtimes.</p></div><nav aria-label="Footer"><a href="docs/">Documentation</a><a href="https://github.com/microsoft/brewlet/tree/brewlet-2.0">Source</a><a href="https://github.com/microsoft/brewlet/blob/brewlet-2.0/specs/proposals/0009-language-agnostic-runtime-images.md">Specification</a><a href="LICENSE.txt">MIT License</a><a href="NOTICE.txt">Notices</a></nav><p class="footer-note">Brewlet contributors · Source-built 2.0 evaluation</p></footer>
+</body>
+</html>

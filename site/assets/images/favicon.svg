@@ -1,0 +1,6 @@
+<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Brewlet coffee-bean mark">
+  <style>:root{--cp-accent:#b11f4b;--cp-bg:#f7f4ef}ellipse{fill:var(--cp-accent)}path{fill:none;stroke:var(--cp-bg);stroke-width:3;stroke-linecap:round}@media(prefers-color-scheme:dark){:root{--cp-accent:#fd8ea1;--cp-bg:#292929}}</style>
+  <ellipse cx="24" cy="24" rx="16" ry="22" transform="rotate(24 24 24)"/>
+  <path d="M29 5C12 21 37 26 19 43"/>
+</svg>

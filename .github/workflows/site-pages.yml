@@ -1,0 +1,44 @@
+name: Build Brewlet 2 website preview
+
+on:
+  push:
+    branches: [brewlet-2.0]
+    paths: ["site/**", "docs/**", "LICENSE.txt", "Makefile", ".github/workflows/site-pages.yml"]
+  pull_request:
+    paths: ["site/**", "docs/**", "LICENSE.txt", "Makefile", ".github/workflows/site-pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  site-contracts-and-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "24"
+      - name: Install pinned documentation dependencies
+        run: python -m pip install -r site/requirements.txt
+      - name: Check contracts, strictly build docs and assemble static preview
+        run: make site-build
+      - name: Install isolated browser checks
+        run: |
+          npm ci --ignore-scripts --prefix site
+          PLAYWRIGHT_SKIP_BROWSER_GC=1 site/node_modules/.bin/playwright install --with-deps chromium
+      - name: Verify responsive layout, interactions and documentation search
+        run: npm test --prefix site
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: brewlet-2-website-preview
+          path: site/_site/
+          if-no-files-found: error
+          retention-days: 14
