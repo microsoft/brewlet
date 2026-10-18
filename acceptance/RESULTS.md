@@ -6,6 +6,36 @@ from implemented or partially tested behavior.
 
 ## Latest combined actual-node result
 
+The corrected physical OnDemand repeat `run-local-ondemand-retry-74` passed
+**16/16**, with production cleanup and exact-owned destruction, at checkout
+`a2f39d8f17658f82c39c73133953c2c6bf83946b` (production-source manifest
+`5938eb75a21e6862deb9688baf55573658e0da951cb2f7157c90027b8c00c230`).
+The [public receipt](results/current-real-ondemand-retry-arm64.json) records the
+scope. Its installed invalid-PATH target failed four times, withdrew the
+capability and retained failed authorization; the old validated current and
+running lease survived. Failure intervals were **3.174058, 4.503189, 6.050352
+seconds**, including installation work plus the actual 1/2/4-second retry
+delays. Exact delay calculation and the 60-second cap are separately established
+by the production loop, not inferred from wall-clock spacing alone. Normal
+source correction started the unchanged app without rebinding the survivor.
+The cache, killed-server, genuine orphan-Exec and exact config-restoration
+assertions also passed again.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/activation.py \
+  --work integration-tests/live-v2/run-local-ondemand-retry-74
+```
+
+The complete native corrected provisioner suite passed **116 cases/subcases,
+zero skips**, and all **4** Linux-only worker command cases passed. Offline
+driver safeguards passed **314** cases. OD-01 is reconciled. Direct
+containerd-client resolver contracts additionally cover protected CRI requested
+digest/config/image-name identity and conflicting compatibility hints, including
+a present alternate manifest sharing the config. Together with the existing
+native platform/content checks and real delivery suite, these reconcile RUN-02:
+**88 verified, 13 not fully verified**. The new resolver cases use isolated
+metadata/content stores, not a fake-client scheduling claim.
+
 Source-to-root reconciliation now closes ROOT-04: **86 verified, 15 not fully
 verified**. Canonical source/mirror validation, verified platform manifest/config,
 containerd target and diff-ID binding, safe snapshot copy/root validation, fresh
