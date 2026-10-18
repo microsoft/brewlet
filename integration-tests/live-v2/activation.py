@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Actual unsafe none-policy denial, managed activation and byte-exact restoration."""
+
+import argparse
+import copy
+import hashlib
+import json
+from pathlib import Path
+import re
+import signal
+import tomllib
+
+import delivery
+from harness import FENCE, IDS, STORE, Failure, Harness, require
+
+
+def unsafe_retention_config(dumped):
+    config = tomllib.loads(dumped)
+    version = config.get("version")
+    require(version in (2, 3), "unsupported fixture containerd config version")
+    text, count = re.subn(r"(?m)^([ \t]*discard_unpacked_layers[ \t]*=[ \t]*)(true|false)([ \t]*)$",
+                         r"\g<1>true\g<3>", dumped)
+    require(count == 1, "effective fixture config has ambiguous packed-layer retention")
+    result = "# exact pre-Brewlet fixture bytes and formatting\n" + text
+    parsed = tomllib.loads(result)
+    section = (parsed["plugins"]["io.containerd.cri.v1.images"] if version == 3
+               else parsed["plugins"]["io.containerd.grpc.v1.cri"]["containerd"])
+    require(section.get("discard_unpacked_layers") is True, "fixture did not enable actual discard")
+    return result
+
+
+def file_digest(h):
+    value = h.node_exec("sha256sum", "/etc/containerd/config.toml").stdout.split()
+    require(len(value) == 2 and re.fullmatch(r"[0-9a-f]{64}", value[0]),
+            "actual host configuration digest unavailable")
+    return value[0]
+
+
+def exercise(h, original):
+    digest = hashlib.sha256(original.encode()).hexdigest()
+    h.kubectl("label", "node", h.node, "brewlet.test/pool=" + h.run_id)
+    h.kubectl("taint", "node", h.node, FENCE + "=provisioning:NoSchedule")
+    profile = h.profile_object()
+    profile["spec"]["runtimeImages"] = [{"id": IDS["python"], "install": "OnDemand"}]
+    profile["spec"]["rollout"]["containerdRestart"] = "none"
+    created = h.apply(profile)
+
+    def denied():
+        logs = h.kubectl("-n", h.control_namespace, "logs", "-l",
+                         "brewlet.sh/owner-uid=" + created["metadata"]["uid"],
+                         "--all-containers=true", "--tail=100", check=False)
+        return "packed-layer retention" in logs.stdout + logs.stderr
+
+    h.wait("real none-policy worker rejects unsafe packed-layer retention", denied)
+    node = h.node_snapshot()
+    require(node["metadata"]["uid"] == h.node_uid
+            and node["metadata"].get("labels", {}).get("brewlet.sh/runtime") != "ready"
+            and any(t["key"] == FENCE for t in node["spec"].get("taints", [])),
+            "unsafe none policy advertised or released runtime readiness")
+    require(file_digest(h) == digest, "none policy changed original host configuration")
+    for path in ("/usr/local/bin/containerd-shim-brewlet-v2", STORE + "/.host",
+                 STORE + "/" + IDS["python"] + "/current"):
+        require(h.node_exec("test", "!", "-e", path, check=False).returncode == 0,
+                "unsafe none policy mutated host activation/runtime state: " + path)
+    h.record("actual none policy rejects unsafe retention without config, shim or root publication",
+             {"originalConfigSHA256": digest, "profileUID": created["metadata"]["uid"]},
+             ["RUN-10", "PROF-02"])
+
+    current = h.get("nodeprofile", h.profile)
+    spec = copy.deepcopy(current["spec"])
+    spec["rollout"]["containerdRestart"] = "validated"
+    h.replace_inventory_spec(current, spec)
+    h.wait("normal validated activation repairs cold-start prerequisite", lambda:
+           h.advertised(IDS["python"], "available"))
+    dumped = tomllib.loads(h.node_exec("containerd", "config", "dump").stdout)
+    section = (dumped["plugins"]["io.containerd.cri.v1.images"] if dumped["version"] == 3
+               else dumped["plugins"]["io.containerd.grpc.v1.cri"]["containerd"])
+    require(section["discard_unpacked_layers"] is False,
+            "effective retention was not restored before first Create")
+    h.apply(h.pod("activation-probe", "python"))
+    h.wait("fresh application genuinely starts after managed repair", lambda: h.ready("activation-probe"))
+    h.assert_report(h.http("activation-probe"), "python", arguments=[], cwd="/app")
+    h.record("managed activation enables effective packed retention before a real cold application",
+             {"originalConfigSHA256": digest}, ["RUN-10"])
+    h.delete("pod", "activation-probe", h.namespace)
+    h.wait("activation probe drains normally", lambda:
+           h.get("pod", "activation-probe", h.namespace, absent=True) is None)
+    h.delete("nodeprofile", h.profile)
+    h.wait("managed activation production cleanup finalizes", lambda:
+           h.get("nodeprofile", h.profile, absent=True) is None)
+    require(file_digest(h) == digest, "cleanup did not restore exact original config bytes")
+    require(not h.node_snapshot()["metadata"].get("labels", {}).get("brewlet.sh/owner-uid"),
+            "activation cleanup retained original claim")
+    require(h.node_exec("test", "!", "-e", "/usr/local/bin/containerd-shim-brewlet-v2",
+                        check=False).returncode == 0, "activation cleanup retained owned shim")
+    h.node_exec("crictl", "info")
+    h.record("actual production cleanup restores exact original containerd bytes and live service",
+             {"restoredConfigSHA256": digest, "nodeUID": h.node_uid}, ["RUN-10", "OWN-02"])
+
+
+def run(work):
+    h = Harness(work)
+    h.result["gaps"].append("Focused activation/retention case; complete and companion suites are separate")
+    status = 1
+    try:
+        h.phase = "prerequisites"
+        h.preflight()
+        h.phase = "cluster"
+        h.provision_cluster()
+        require(h.node_snapshot()["metadata"]["uid"] == h.node_uid, "owned Node changed")
+        original = unsafe_retention_config(h.node_exec("containerd", "config", "dump").stdout)
+        h.node_exec("/bin/sh", "-ec", 'cat > /etc/containerd/config.toml', input=original)
+        h.node_exec("systemctl", "restart", "containerd", timeout=90)
+        h.wait("fixture unsafe-config daemon restart completes", lambda:
+               h.node_exec("crictl", "info", check=False).returncode == 0)
+        for phase, action in (("build", h.prepare_images),
+                              ("delivery-bootstrap", lambda: delivery.bootstrap(h)),
+                              ("install", h.install),
+                              ("activation-contract", lambda: exercise(h, original))):
+            h.phase = phase
+            action()
+        h.result["outcome"] = "passed"
+        status = 0
+    except Exception as error:
+        h.result.update(outcome="failed", failurePhase=h.phase, failure=str(error))
+        print("FAIL:", error, flush=True)
+    finally:
+        errors = []
+        try:
+            h.stop_helpers()
+            h.diagnostics()
+            delivery.cleanup(h)
+        except Exception as error:
+            errors.append("fixture teardown: " + str(error))
+        errors.extend(h.destroy())
+        if errors:
+            h.result.update(outcome="failed", cleanupErrors=errors)
+            status = 1
+        h.save()
+    return status
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--work", required=True, type=Path)
+
+    def interrupted(signum, frame):
+        raise Failure("activation acceptance interrupted by signal " + str(signum))
+
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
+    raise SystemExit(run(parser.parse_args().work))

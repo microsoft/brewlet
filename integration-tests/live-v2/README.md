@@ -186,6 +186,22 @@ host and external decommission resolution, not invented host-cleanup proof or
 cloud hardware/provider autoscaling verification. A passed fixture build or
 offline identity test alone does not verify the physical-return sequence.
 
+The packed-content prerequisite and exact configuration reversal have a focused
+actual-node case:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/activation.py \
+  --work integration-tests/live-v2/run-activation-NEW
+```
+
+Before Brewlet owns the node, it records an explicit unsafe
+`discard_unpacked_layers=true` fixture configuration. A real `none` worker must
+fail without changing those bytes, publishing a shim/root or releasing
+readiness. A normal profile spec correction to `validated` must repair effective
+retention before a real cold application starts. Normal production cleanup must
+restore the exact original SHA-256 and live containerd service, not just an
+equivalent rendered config. Offline transform tests are not activation proof.
+
 The stale-pin uninstall case creates its profile through the actual Helm chart,
 not by fabricating release ownership:
 
