@@ -85,12 +85,15 @@ def killed_shim_recovery(h):
     exec_id = "crash-exec-" + h.run_id
     h.node_exec("ctr", "-n", "k8s.io", "tasks", "exec", "--exec-id", exec_id,
                 "--detach", "--user", "65532:65532", task,
-                "python3", "-c", "import time; time.sleep(1800)")
+                "python3", "-c", "import time; time.sleep(1800)", exec_id)
     processes = h.node_exec("ctr", "-n", "k8s.io", "tasks", "ps", task).stdout.splitlines()
     pids = [int(line.split()[0]) for line in processes[1:] if line.split()]
-    execs = [pid for pid in pids if pid != main]
+    execs = [pid for pid in pids if pid != main
+             and ("\0" + exec_id + "\0") in h.node_exec("cat", f"/proc/{pid}/cmdline").stdout]
     require(len(execs) == 1, "dedicated task does not have exactly one real detached Exec")
     exec_pid = execs[0]
+    require(task in h.node_exec("cat", f"/proc/{exec_pid}/cgroup").stdout,
+            "orphan Exec does not belong to the exact task cgroup")
     exec_start = h.node_exec("cat", f"/proc/{exec_pid}/stat").stdout.rsplit(") ", 1)[1].split()[19]
     shim = int(fields[1])
     shim_fields = h.node_exec("cat", f"/proc/{shim}/stat").stdout.rsplit(") ", 1)[1].split()

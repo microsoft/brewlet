@@ -253,6 +253,28 @@ overwritten.
 
 ## Executed successfully
 
+The actual killed-server repeat `run-local-killed-shim-71` passed **13/13**,
+source `66fe4fc3`. Its exact provenance-checked task server was killed while
+the owned daemon was temporarily paused. Unavailable evidence retained the
+unchanged durable lease and root. After guarded daemon CONT, normal Pod teardown
+preceded complete task/mount cleanup and lease release; a fresh real task server
+then executed the unchanged inventory successfully. Exact original config
+restoration and fixture destruction passed. This is actual server death, not
+only daemon reconnect; it does not promise resurrection of the old runc server.
+[Killed-server recovery receipt](results/current-real-killed-shim-recovery-arm64.json).
+Together with native recovery guards and the separately passed surviving
+worker/daemon reconnect case, this closes LEASE-02:
+**84 verified, 17 not fully verified**. The genuine surviving-orphan Exec case
+is still separately gated under LEASE-03.
+
+The next shared-PID variant `run-local-orphan-exec-72` failed before signaling
+because it assumed every non-main PID in a shared namespace was the dedicated
+Exec. Its [failed receipt](results/local-shared-pid-exec-selection-failure-arm64.json)
+and exact-owned destruction are preserved. The driver now identifies the Exec
+by an invocation-specific argv token and verifies its actual task cgroup before
+using its PID/start identity. No physical orphan-survival success is inferred
+from the corrected selector or offline tests.
+
 The new actual killed-server case first verified real server death and
 lease/root retention under unavailable task-service evidence, but
 `run-local-killed-shim-70` then failed waiting for release while its Kubernetes
