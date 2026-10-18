@@ -243,6 +243,22 @@ func TestOnDemandAndAuthorization(t *testing.T) {
 	if err != nil || len(markers) != 1 || markers[0] != a.ID {
 		t.Fatal(markers, err)
 	}
+	marker := filepath.Join(s.Root, ".requests", a.ID)
+	first, err := os.Stat(marker)
+	if err != nil || first.Size() != 0 || first.Mode().Perm() != 0600 {
+		t.Fatalf("request is not an empty private regular marker: info=%v error=%v", first, err)
+	}
+	_, _, err = s.Resolve(ctx, a.ID, "k8s.io", "task-concurrent", nil, time.Millisecond)
+	if reason(err) != "RuntimeImageInstalling" {
+		t.Fatal(err)
+	}
+	again, err := os.Stat(marker)
+	if err != nil || !os.SameFile(first, again) {
+		t.Fatal("repeated first use replaced the idempotent marker", err)
+	}
+	if err := s.RemoveRequest(a.ID); err != nil {
+		t.Fatal(err)
+	}
 	a.State = "failed"
 	if err := s.WriteAuthorization(ctx, a); err != nil {
 		t.Fatal(err)
@@ -250,6 +266,9 @@ func TestOnDemandAndAuthorization(t *testing.T) {
 	_, _, err = s.Resolve(ctx, a.ID, "k8s.io", "task-two", nil, time.Millisecond)
 	if reason(err) != "RuntimeImageInstallFailed" {
 		t.Fatal(err)
+	}
+	if markers, err := s.Requests(); err != nil || len(markers) != 0 {
+		t.Fatal("failed Create issued another install request", markers, err)
 	}
 	a.State = "available"
 	a.Revoked = true

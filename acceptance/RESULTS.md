@@ -221,6 +221,26 @@ overwritten.
 
 ## Executed successfully
 
+Request-marker reconciliation exposed a remaining normative omission: the
+current owner deleted a non-offered marker without logging that decision.
+It now reports the removed ID and literal profile UID/generation after the
+fresh authority check. Native tests prove both current-owner removal/logging
+and stale-owner non-mutation/no processed-request log. Marker checks also
+verify empty/private file mode, stable inode on repeated first use, and no
+new marker after failed Create. Complete native suites pass **71 node and
+115 provisioner cases/subcases with zero skips**.
+
+An explicit controller eligibility matrix now covers ready eager, cold
+positive-generation OnDemand, installed retrying OnDemand, NotReady, startup
+fence, retiring profile, stale Node claim and stale profile generation. Existing
+cordon/confirmed-fence/deadline cases also pass. Fixtures persist Node and profile
+status through separate API subresources; those are reconciliation contracts,
+not real scheduling or provider-scaling claims. Go race tests, host/Linux vet
+and both Linux builds pass. OD-02 and ROT-02 are reconciled using these contracts
+and the separately recorded physical cold-install proof:
+**75 verified, 26 not fully verified**. The new combined current-source node run
+is independent evidence and is not assumed successful before it finishes.
+
 Even the smaller Java root's first node repeat ran out of available Docker
 space before its volume-write assertion. The BusyBox shell returned a failed
 write without the GNU shell's I/O message; separate checks confirmed identity,

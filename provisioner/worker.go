@@ -417,6 +417,8 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 			if err := w.Store.RemoveRequest(id); err != nil {
 				return err
 			}
+			log.Printf("unauthorized-runtime-request: removed id=%s not offered by profile=%s uid=%s generation=%d",
+				id, w.Authority.ProfileName, w.Authority.ProfileUID, w.Authority.Generation)
 		}
 	}
 	if len(failures) > 0 {

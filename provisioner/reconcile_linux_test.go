@@ -3,9 +3,13 @@
 package provisioner
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
@@ -75,6 +79,48 @@ func TestOnDemandOnlyFakeAPINeverFetchesAndReleasesFence(t *testing.T) {
 	}
 	if _, err := os.Stat(w.Store.Root + "/static/current"); !os.IsNotExist(err) {
 		t.Fatal("cold runtime published", err)
+	}
+}
+
+func TestUnauthorizedRequestRemovalAndLoggingRequireFreshOwner(t *testing.T) {
+	for _, valid := range []bool{true, false} {
+		t.Run(fmt.Sprint(valid), func(t *testing.T) {
+			w, _ := authorityFixture(t)
+			requireRootWorkdir(t, w)
+			w.Baseline = baselineSuccess{}
+			w.Installer = new(neverInstall)
+			approveStatic(t, w)
+			marker := filepath.Join(w.Store.Root, ".requests", "not-offered")
+			if err := os.WriteFile(marker, nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if !valid {
+				w.Authority.NodeUID = "foreign-node"
+			}
+			var output bytes.Buffer
+			previous := log.Writer()
+			log.SetOutput(&output)
+			defer log.SetOutput(previous)
+			err := w.Reconcile(context.Background())
+			if !valid {
+				if err == nil || !strings.Contains(err.Error(), "ownership-fence-failed") {
+					t.Fatalf("stale authority did not fail closed: %v", err)
+				}
+				if _, err := os.Stat(marker); err != nil || output.Len() != 0 {
+					t.Fatalf("unauthorized owner removed or logged the request: stat=%v log=%q", err, output.String())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatal("current owner retained unauthorized request", err)
+			}
+			if !strings.Contains(output.String(), "unauthorized-runtime-request: removed id=not-offered not offered by profile=profile uid=profile-one generation=1") {
+				t.Fatalf("request removal lost authority diagnostics: %q", output.String())
+			}
+		})
 	}
 }
 

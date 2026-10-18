@@ -180,4 +180,85 @@ func TestRotationBothFencesFailBlocksCompletion(t *testing.T) {
 		t.Fatal("blocked fence not reported")
 	}
 }
+func TestRotationEligibilityUsesLiveOwnershipAndExplicitInstallation(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		mutate                 func(*api.NodeProfile, *corev1.Node, *api.NodeRuntime)
+		participants, excluded int
+		reason                 string
+		complete               bool
+	}{
+		{"ready eager", func(*api.NodeProfile, *corev1.Node, *api.NodeRuntime) {}, 1, 0, "", true},
+		{"not ready", func(_ *api.NodeProfile, n *corev1.Node, _ *api.NodeRuntime) {
+			n.Status.Conditions[0].Status = corev1.ConditionFalse
+		}, 0, 1, "NodeNotReady", true},
+		{"startup fenced", func(_ *api.NodeProfile, n *corev1.Node, _ *api.NodeRuntime) {
+			n.Spec.Taints = []corev1.Taint{{Key: api.StartupTaint, Value: "provisioning", Effect: corev1.TaintEffectNoSchedule}}
+		}, 0, 1, "NodeWideStartupFence", true},
+		{"stale node claim", func(_ *api.NodeProfile, n *corev1.Node, _ *api.NodeRuntime) {
+			n.Labels[api.OwnerNodeUID] = "different-node"
+		}, 0, 1, "OwnershipUnverified", false},
+		{"stale profile generation", func(p *api.NodeProfile, _ *corev1.Node, _ *api.NodeRuntime) {
+			p.Generation++
+		}, 0, 1, "OwnershipUnverified", false},
+		{"retiring profile", func(p *api.NodeProfile, _ *corev1.Node, _ *api.NodeRuntime) {
+			p.Status.Retirement = &api.Retirement{Targets: p.Status.Targets, Generation: 1, Spec: p.Spec, Phase: "Cleaning"}
+		}, 0, 1, "ProfileRetiring", true},
+		{"cold positive-generation on-demand", func(p *api.NodeProfile, n *corev1.Node, local *api.NodeRuntime) {
+			p.Spec.RuntimeImages[0].Install = "OnDemand"
+			local.Install, local.State, local.Installed = "OnDemand", "available", false
+			n.Labels["brewlet.sh/runtime."+p.Spec.RuntimeImages[0].ID] = "available"
+		}, 0, 0, "", true},
+		{"installed failed on-demand", func(p *api.NodeProfile, n *corev1.Node, local *api.NodeRuntime) {
+			p.Spec.RuntimeImages[0].Install = "OnDemand"
+			local.Install, local.State = "OnDemand", "failed"
+			delete(n.Labels, "brewlet.sh/runtime."+p.Spec.RuntimeImages[0].ID)
+		}, 1, 0, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, im, p, n := revocationSetup(t)
+			ctx := context.Background()
+			n.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+			local := api.NodeRuntime{Install: "Eager", State: "ready", Installed: true, InventoryUID: im.UID, Generation: im.Status.Generation, Digest: im.Status.Digest}
+			tc.mutate(p, n, &local)
+			frozen := p.Spec
+			p.Status.ProvisioningSpec = &frozen
+			profileStatus := p.DeepCopy().Status
+			if err := r.Update(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			p.Status = profileStatus
+			if err := r.Status().Update(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(map[string]api.NodeRuntime{im.Name: local})
+			if err != nil {
+				t.Fatal(err)
+			}
+			n.Annotations[api.InventoryAnnotation] = string(data)
+			nodeStatus := n.DeepCopy().Status
+			if err := r.Update(ctx, n); err != nil {
+				t.Fatal(err)
+			}
+			n.Status = nodeStatus
+			if err := r.Status().Update(ctx, n); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.rotation(ctx, im); err != nil {
+				t.Fatal(err)
+			}
+			if len(im.Status.Rotation.Participants) != tc.participants || len(im.Status.Rotation.ExcludedNodes) != tc.excluded ||
+				meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete") != tc.complete {
+				t.Fatalf("eligibility or confirmed-exclusion result changed: %+v", im.Status)
+			}
+			if tc.excluded != 0 {
+				observed := im.Status.Rotation.ExcludedNodes[0]
+				if observed.UID != n.UID || observed.ObservedGeneration != local.Generation || !strings.HasPrefix(observed.Reason, tc.reason) {
+					t.Fatalf("exclusion lost original identity/generation/reason: %+v", observed)
+				}
+			}
+		})
+	}
+}
+
 func typesUID(s string) types.UID { return types.UID(s) }

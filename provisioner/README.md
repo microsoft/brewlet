@@ -129,6 +129,10 @@ application execution authorization and from nonfatal collection uncertainty.
 Only an uninstalled, currently authorized OnDemand runtime creates an empty
 `.requests/<id>` marker. Create waits at most thirty seconds, including lock
 contention. Failed installs fail Create without issuing a new request.
+An unauthorized ID's marker is removed and logged with the literal profile
+UID/generation only after a fresh ownership check. Stale workers neither remove
+nor log it as processed; successors revalidate requests rather than adopting
+the previous profile's authority.
 Installed runtimes rotate normally, without installing cold OnDemand entries.
 Publication checks fresh cluster authority and the exact target again after
 validation and immediately before changing `current`.
