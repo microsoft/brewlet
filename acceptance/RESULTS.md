@@ -253,6 +253,27 @@ overwritten.
 
 ## Executed successfully
 
+The expanded current-source retirement companion
+`run-local-returning-retirement-65` passed **9/9**, source `ef74b02a`.
+The original worker container actually stopped, its original Node UID was
+deleted, and that same container re-registered with a different kubelet-created
+UID while preserving its runtime filesystem and physical provider/system
+identity. The real controller withdrew newly templated capabilities without
+granting ownership or discarding the old obligation; a real scheduler canary
+remained blocked. Fixture bookkeeping acknowledged the observed new UID, but
+no production ownership, lease, receipt or status was fabricated.
+
+The test then permanently destroyed that exact host and its new registration.
+A different node served before any evidence existed. Real uninstall remained
+blocked until an initially denied actor received the explicit attestor role
+and supplied original-identity permanent-decommission evidence. That immutable
+independent history survived profile deletion and actual uninstall. Exact-owned
+fixture destruction passed. This closes OWN-03 with actual returning-host
+evidence, not only an API fixture:
+**81 verified, 20 not fully verified**.
+[Physical-return/retirement receipt](results/current-physical-returning-retirement-arm64.json).
+This verifies kind-host lifecycle, not cloud hardware autoscaling.
+
 The corrected current-source cold companion
 `run-local-cold-64` passed **13/13 selected assertions**, source `763ff160`.
 Both real nodes finalized and released their original UID-bound claims, and
