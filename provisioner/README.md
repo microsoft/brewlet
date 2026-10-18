@@ -71,6 +71,13 @@ Cleanup drains Brewlet tasks (including infrastructure sandboxes), restores the
 original configuration, removes only the owned shim, restarts/read-checks when
 recorded policy requires it, and archives a Restored receipt. A later `none`
 rollout does not erase the prior transaction's reversal obligation.
+Each original inventory identity must first have a complete, independently
+read-back per-ID revocation receipt. A deferred staging/task/mount check publishes
+incomplete evidence and retains its revoked authorization for retry; a later
+successful removal must never discard that identity behind an incomplete receipt.
+Only then may profile cleanup certify completion and permit controller teardown.
+Deferred causes are reported with the ID, inventory epoch/generation, profile UID
+and Node UID, rather than being hidden behind a generic stalled finalizer.
 Owned shim upgrades retain the original cleanup backup and a prior-committed
 binary rollback target. A failed upgrade restores the preceding committed
 binary instead of uninstalling a previously healthy handler.

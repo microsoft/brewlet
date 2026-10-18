@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -56,14 +57,15 @@ func (w *Worker) revokeRuntime(ctx context.Context, id string) error {
 		} else if err != nil {
 			return err
 		}
-		receipt := node.RevocationReceipt{InventoryUID: string(r.UID), Generation: r.Status.Generation, Digest: r.Status.Digest, ProfileUID: string(w.Authority.ProfileUID), ProfileGeneration: w.Authority.Generation, NodeUID: string(w.Authority.NodeUID), RevokedAt: time.Now().UTC(), AuthorizationExpiresAt: time.Now().UTC(), RootsCleaned: true}
-		receipt.RootsCleaned = false
+		receipt := node.RevocationReceipt{InventoryUID: string(r.UID), Generation: r.Status.Generation, Digest: r.Status.Digest, ProfileUID: string(w.Authority.ProfileUID), ProfileGeneration: w.Authority.Generation, NodeUID: string(w.Authority.NodeUID), RevokedAt: time.Now().UTC(), AuthorizationExpiresAt: time.Now().UTC()}
 		stagingClean := true
+		var cleanupErr error
 		if recovery, ok := w.Installer.(interface {
 			RecoverStaging(context.Context, string) error
 		}); ok {
 			if err := recovery.RecoverStaging(ctx, w.Store.Root); err != nil {
 				stagingClean = false
+				cleanupErr = fmt.Errorf("staging recovery: %w", err)
 			}
 		}
 		if mounts, ok := w.Evidence.(node.MountEvidence); ok {
@@ -72,8 +74,13 @@ func (w *Worker) revokeRuntime(ctx context.Context, id string) error {
 				return err
 			}
 			receipt.RootsCleaned = gone && stagingClean
+			if !gone {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("runtime inventory-prefix mounts remain"))
+			}
+		} else {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("complete inventory-prefix mount evidence required"))
 		}
-		return w.publishRevocation(ctx, id, receipt, false)
+		return w.finishRevocation(ctx, id, receipt, false, cleanupErr)
 	}
 	if auth.ProfileUID != string(w.Authority.ProfileUID) {
 		return fmt.Errorf("ownership-fence-failed: foreign local runtime")
@@ -104,21 +111,38 @@ func (w *Worker) revokeRuntime(ctx context.Context, id string) error {
 	}
 	fence := func(ctx context.Context) error { _, err := w.check(ctx); return err }
 	stagingClean := true
+	cleanupErr := fmt.Errorf("complete task/exec/mount evidence required")
 	if recovery, ok := w.Installer.(interface {
 		RecoverStaging(context.Context, string) error
 	}); ok {
 		if err := recovery.RecoverStaging(ctx, w.Store.Root); err != nil {
 			stagingClean = false
+			cleanupErr = fmt.Errorf("staging recovery: %w", err)
 		}
 	}
 	if w.Evidence != nil && stagingClean {
-		if err := w.Store.Recover(ctx, w.Evidence); err == nil {
-			if err := w.Store.RetireRevoked(ctx, id, string(w.Authority.ProfileUID), w.Evidence, fence); err == nil {
-				receipt.RootsCleaned = true
-			}
+		cleanupErr = w.Store.Recover(ctx, w.Evidence)
+		if cleanupErr == nil {
+			cleanupErr = w.Store.RetireRevoked(ctx, id, string(w.Authority.ProfileUID), w.Evidence, fence)
 		}
+		receipt.RootsCleaned = cleanupErr == nil
 	}
-	return w.publishRevocation(ctx, id, receipt, auth.Revoked)
+	return w.finishRevocation(ctx, id, receipt, auth.Revoked, cleanupErr)
+}
+
+func (w *Worker) finishRevocation(ctx context.Context, id string, receipt node.RevocationReceipt, alreadyRevoked bool, cleanupErr error) error {
+	if err := w.publishRevocation(ctx, id, receipt, alreadyRevoked); err != nil {
+		return err
+	}
+	if cleanupErr != nil {
+		deferred := fmt.Errorf("runtime-revocation-cleanup-deferred: id=%s inventoryUID=%s generation=%d profileUID=%s nodeUID=%s: %w",
+			id, receipt.InventoryUID, receipt.Generation, receipt.ProfileUID, receipt.NodeUID, cleanupErr)
+		if w.Authority.Mode == "cleanup" {
+			return deferred
+		}
+		log.Print(deferred)
+	}
+	return nil
 }
 func (w *Worker) publishRevocation(ctx context.Context, id string, receipt node.RevocationReceipt, alreadyRevoked bool) error {
 	s, err := w.check(ctx)

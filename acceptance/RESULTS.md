@@ -6,6 +6,56 @@ from implemented or partially tested behavior.
 
 ## Latest combined actual-node result
 
+**The final combined repeat `run-local-final-complete-75` failed during
+production cleanup after 80 passing selected assertions.** Source:
+`1feececd175ef6ba4a4f570f68036a0c2563b789`; production-context manifest:
+`4d9af23ec95d4d20b314c45c2d9247755c0fbc1eb49b2009bb76c40173d06039`.
+Actual kubelet request timeout was 120 seconds, and the new real duplicate/
+escaped-barrier admission denials passed. The run remains failed, not a clean
+82-assertion success.
+
+The retained node exposed a genuine cleanup checkpoint bug: optional
+`RetireRevoked` cleanup could publish `rootsCleaned=false`, followed immediately
+by a successful definitive `Retire` that removed the original authorization.
+The worker then certified profile cleanup with incomplete per-ID evidence.
+The controller correctly blocked Teardown, preserving claims/finalizer/workers.
+Two affected roots and authorizations were actually absent, while their
+original-identity receipts remained false.
+
+A native regression reproduced this exact incomplete-then-complete evidence
+sequence before the fix. Cleanup now refuses to discard authorization or certify
+completion until its complete per-ID receipt has been published and read back.
+Deferred staging/task/mount cleanup causes retain exact identity in diagnostics;
+normal provisioning still preserves running leases. The corrected complete
+native provisioner suite passes, but a fresh physical combined repeat is required.
+OWN-02 is downgraded to partial: **98 verified, 3 not fully verified**.
+No finalizer, claim, authorization or receipt was manually fabricated or forced.
+After preserving the diagnostics, exact original owner-checked fixture
+destruction passed, including the separate TLS registry. This is disposable
+fixture teardown, not production cleanup evidence; the run remains failed.
+The corrected native provisioner suite passes **122 cases/subcases, zero skips**.
+
+[Failed combined-run receipt](results/final-local-cleanup-checkpoint-failure-arm64.json).
+
+The final focused run `run-local-final-runc-76` passed **18/18**, including exact
+delegated Exec stdout/exit **37** and an initial process receiving SIGTERM
+through the real task API, retaining its logs and exiting **42**. Source:
+`3b6897e5cd10134299ae67b25eb8d69ac20f1b6a`; production-context manifest:
+`da784ba1d5aed5dc036ad0163f4f81e9411a54798c2ca3f40925d07b1549ef3c`.
+The actual kubelet configuration reported a **120-second** runtime request
+timeout. All prior focused activation/cache/orphan/retry assertions, normal
+production cleanup and exact-owned destruction passed without intervention.
+This reconciles RUN-09 with the existing complete suite's four-language CNI,
+mount/resource and controller proof: **99 verified, 2 not fully verified**.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/activation.py \
+  --work integration-tests/live-v2/run-local-final-runc-76
+```
+
+[Public focused lifecycle receipt](results/final-local-runc-lifecycle-arm64.json).
+The final full-suite repeat is separate and has not yet completed.
+
 Observability reconciliation closes OBS-02: **98 verified, 3 not fully
 verified**. Exact live task/Pod metric-event joins and actual controller status
 outcomes complement event/status agreement, current-target-only counts,
