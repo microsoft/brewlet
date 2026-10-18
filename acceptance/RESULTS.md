@@ -6,6 +6,38 @@ from implemented or partially tested behavior.
 
 ## Latest combined actual-node result
 
+**`run-local-complete-62` passed all 81 selected assertions with no failures.**
+Tested checkout: `6785f90683acd88dcaa27ed4840297a59904ae16`.
+Production-source manifest:
+`a6b8e45cbf7f67f4620284f27df9c20e3bb0533c50a58f094c52d76744fe1d00`.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
+  --retain-on-failure --work integration-tests/live-v2/run-local-complete-62
+```
+
+Exit status was zero. All four languages passed actual dependencies, initial/
+exec/probe identity and environment, Kubernetes overrides, immutable mounts,
+strict barriers and real vendor updates with unchanged application digests.
+Both Maven producer formats, every container role, authenticated TLS delivery
+and its malformed/unsafe/platform failures, real CRI usage and kubelet eviction,
+authorization expiry/recreation, worker/daemon recovery, live lease/mount
+retention and normal grace collection passed. Native workload strategy,
+supersession, global pacing/deadline, real provider-refusal/all-ID fencing and
+claim-release CAS cases passed. Production root/finalizer/claim cleanup and
+subsequent exact-owned fixture destruction both passed without manual
+intervention.
+
+The [public receipt](results/complete-local-four-language-arm64.json) preserves
+the exact source, inputs and scope. `fullAcceptance` remains **false**:
+companion scenarios and remaining detailed ledger obligations are not implied
+by success of this combined suite. Later required marker-removal logging and
+additional decision tests have separate native/contract evidence; this receipt
+is not relabeled as a later checkout. No GitHub Actions or publication was used
+to obtain this local result.
+
+## Earlier combined actual-node result
+
 **`run-complete-28` passed all 77 selected assertions with no failures.**
 Tested checkout: `c9391295536688fb20173fdf51ea8d90e8bcc40d`.
 Production-source manifest:
