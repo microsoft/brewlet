@@ -83,6 +83,46 @@ def failed_attempt_times(logs):
             and "unsafe runtime PATH component" in line]
 
 
+def runc_lifecycle(h, survivor):
+    response = h.exec(survivor, ["/bin/sh", "-ec", "printf 'runc-exec-output\\n'; exit 37"],
+                      check=False)
+    require(response.returncode == 37 and response.stdout == "runc-exec-output\n",
+            "delegated Exec changed its output or nonzero exit code")
+    h.record("actual delegated Exec preserves output and exact nonzero exit code",
+             {"exitCode": response.returncode}, ["RUN-09"])
+    name = "runc-signal"
+    pod = h.pod(name, "python")
+    pod["spec"]["restartPolicy"] = "Never"
+    container = pod["spec"]["containers"][0]
+    container.pop("readinessProbe")
+    container["command"] = ["/bin/sh"]
+    container["args"] = ["-ec", "trap 'exit 42' TERM; printf 'runc-signal-ready\\n'; "
+                         "while :; do sleep 1; done"]
+    h.apply(pod)
+    running = h.wait("dedicated delegated signal task starts", lambda: h.ready(name))
+    lease = h.lease(running)
+    h.wait("owned initial process installs its signal handler", lambda:
+           h.kubectl("-n", h.namespace, "logs", name, "-c", "app").stdout == "runc-signal-ready\n")
+    h.node_exec("ctr", "-n", "k8s.io", "tasks", "kill", "--signal", "SIGTERM", lease["taskID"])
+
+    def exited():
+        current = h.get("pod", name, h.namespace)
+        statuses = current.get("status", {}).get("containerStatuses", [])
+        require(len(statuses) == 1 and statuses[0]["containerID"] == "containerd://" + lease["taskID"],
+                "signal proof changed its protected container identity")
+        terminal = statuses[0].get("state", {}).get("terminated")
+        return terminal if terminal else False
+
+    terminal = h.wait("delegated SIGTERM reaches the initial process with exact exit status", exited)
+    require(terminal["exitCode"] == 42, "delegated signal/initial exit code changed")
+    require(h.kubectl("-n", h.namespace, "logs", name, "-c", "app").stdout == "runc-signal-ready\n",
+            "initial process logs changed after signal/exit")
+    h.record("actual delegated initial process receives SIGTERM and preserves logs and exit code",
+             {"taskID": lease["taskID"], "exitCode": terminal["exitCode"]}, ["RUN-09"])
+    h.delete("pod", name, h.namespace)
+    h.wait("signal proof task drains normally", lambda: h.get("pod", name, h.namespace, absent=True) is None)
+
+
 def failed_rotation_recovery(h):
     h.apply(h.pod("retry-survivor", "python"))
     pod = h.wait("failed-rotation survivor starts", lambda: h.ready("retry-survivor"))
@@ -135,6 +175,7 @@ def failed_rotation_recovery(h):
     require(h.lease(h.ready("retry-survivor")) == lease, "retry recovery rebound the surviving lease")
     h.record("corrected OnDemand target recovers without rebuilding application or rebinding running lease",
              {"applicationImage": h.app_images["python"], "survivingTaskID": lease["taskID"]}, ["OD-01"])
+    runc_lifecycle(h, "retry-survivor")
     for name in ("retry-survivor", "retry-recovered"):
         h.delete("pod", name, h.namespace)
         h.wait("retry proof task drains normally: " + name, lambda name=name:

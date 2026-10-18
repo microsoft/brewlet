@@ -6,6 +6,40 @@ from implemented or partially tested behavior.
 
 ## Latest combined actual-node result
 
+Observability reconciliation closes OBS-02: **98 verified, 3 not fully
+verified**. Exact live task/Pod metric-event joins and actual controller status
+outcomes complement event/status agreement, current-target-only counts,
+retained exclusion/stall diagnostics and fail-closed fresh-API scrape contracts.
+Component event-failure tests are not presented as physical event-service
+failure injection.
+
+### Documented failure-reason reconciliation
+
+Reasons are asserted at their applicable surfaces, not fabricated at unrelated
+layers. The shared producer/shim fixtures remain authoritative for normalized
+artifact outcomes; API/fake-client cases below are contract evidence.
+
+| Reasons | Direct coverage |
+| --- | --- |
+| `RuntimeImageRequired`, `InvalidRuntimeImageID`, `UnsupportedAnnotation` | Admission selection/security matrix; shared ID grammar and shim selection enforcement. |
+| `UnknownRuntimeImage`, `NoCompatibleRuntime` | Unknown-inventory admission/controller cases, eligible-profile denial, verified runtime platform selection and mismatch fixtures. |
+| `RuntimeImageNotInstalled`, `RuntimeImageInstalling`, `RuntimeImageInstallFailed` | Exact missing/Eager/no-marker, first-use, failed/no-new-marker and bounded-lock/request tests; actual held cold installation and failed OnDemand rotation. |
+| `RuntimeImageIncompatible` | Native real resolver/assembly path rejects the explicit launch allowlist before inventory, lease or mount mutation. |
+| `UnsupportedArtifact`, `LaunchConfigMismatch`, `LayerPathViolation` | Shared CLI/Maven/shim conformance, strict platform/content/cache tests and actual authenticated malformed/unsafe/corrupt delivery failures. |
+| `RootNotSupported`, `PrivilegeEscalationNotSupported` | Admission/node identity/capability matrix and actual independently bound root/escalation denials. |
+| `InvalidRuntimeGeneration`, `RuntimeImageEpochMismatch`, `RuntimeImageUpdating` | Shared strict barrier parsing, exact int64/duplicate/escaped-member tests, restart/admission drift regressions and actual malformed/old/future bound-start denials. |
+| `RuntimeImageRevoked`, `RuntimeImageAuthorizationExpired` | Atomic authorization/revocation contracts and genuine five-minute stopped-renewal/old-epoch physical checks. |
+| `ExecStateUnavailable` | Native Exec RPC refuses delegation without protected initial state; failed state/event lookups are explicitly logged. |
+| `StartupTaintTolerationNotSupported` | Admission wildcard/key/equal toleration matrix; real startup-taint scheduling is separately verified. |
+| `node-advertisement-failed`, `ownership-fence-failed` | Withdrawal/readback/stale-authority/CAS contracts, actual provider refusal/both-write failure, and returning-host refusal with original obligations retained. |
+
+Unexpected infrastructure errors are not translated into success or discarded.
+Native event publication and initial-state lookup failures preserve the real
+runc result while logging failure. Deferred staging snapshot cleanup now logs
+the exact failed removal or fence with its original identity; stale authority
+does not mutate the snapshot. Original failed physical runs retain failed
+receipts; only successful repeats can satisfy their selected assertions.
+
 The installed-root/assembly and quarantine/recovery reconciliation closes
 PROF-04, RUN-03, ROT-04 and ROT-05: **97 verified, 4 not fully verified**.
 Native immutable publication, concurrent leases/collection, exact barrier checks,

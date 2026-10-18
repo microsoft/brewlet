@@ -50,6 +50,25 @@ func TestRestartOutcomeEventsMatchStatusAndAreNotRepeatedWithoutChange(t *testin
 	}
 }
 
+func TestRestartCountsExcludePreviousEpochAndSupersededTarget(t *testing.T) {
+	f := restartSetup(t)
+	f.image.Status.Restarts = api.RestartSummary{}
+	for _, phase := range []string{"Pending", "Patching", "Rolling", "Complete",
+		"Deferred", "NotApplicable", "Failed", "EpochMismatch"} {
+		f.image.Status.Restarts.Workloads = append(f.image.Status.Restarts.Workloads,
+			api.WorkloadRestart{InventoryUID: f.image.UID, Generation: f.image.Status.Generation, Phase: phase})
+	}
+	f.image.Status.Restarts.Workloads = append(f.image.Status.Restarts.Workloads,
+		api.WorkloadRestart{InventoryUID: "old-epoch", Generation: f.image.Status.Generation, Phase: "Complete"},
+		api.WorkloadRestart{InventoryUID: f.image.UID, Generation: f.image.Status.Generation - 1, Phase: "Complete"})
+	countRestarts(f.image)
+	s := f.image.Status.Restarts
+	if s.Pending != 1 || s.Rolling != 2 || s.Complete != 1 || s.Deferred != 1 ||
+		s.NotApplicable != 1 || s.Failed != 2 {
+		t.Fatalf("restart counts mixed states or targets: %+v", s)
+	}
+}
+
 func TestRuntimeMetricsReportStatusAndFailScrapeOnFreshAPIError(t *testing.T) {
 	f := restartSetup(t)
 	_ = f.deployment(t, "api")

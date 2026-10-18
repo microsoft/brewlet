@@ -5,14 +5,24 @@ import tomllib
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import delivery
 from activation import (failed_attempt_times, invalid_path_runtime, protected_cache_roots,
-                        shim_kill_command, unsafe_retention_config)
+                        runc_lifecycle, shim_kill_command, unsafe_retention_config)
 from harness import Failure
 
 
 class ActivationFixtureTests(unittest.TestCase):
+    def test_exec_lifecycle_proof_requires_exact_nonzero_code_and_output(self):
+        for code, output in ((0, "runc-exec-output\n"), (37, "wrong"), (42, "runc-exec-output\n")):
+            h = SimpleNamespace(exec=Mock(return_value=SimpleNamespace(returncode=code, stdout=output)),
+                                record=Mock())
+            with self.subTest(code=code, output=output), self.assertRaisesRegex(Failure, "nonzero exit code"):
+                runc_lifecycle(h, "owned-survivor")
+            h.record.assert_not_called()
+
     def test_invalid_runtime_changes_only_explicit_env_not_root_layers_or_original(self):
         with TemporaryDirectory() as work:
             source, destination = Path(work) / "source", Path(work) / "invalid"

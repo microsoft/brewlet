@@ -223,6 +223,11 @@ timestamped worker failures must exhibit exponential retry spacing, withdrawn
 capability and failed authorization while the old task/lease survives. A normal
 source correction must publish a validated target and start the unchanged
 application; this does not edit production authorization, roots or receipts.
+The same focused suite checks delegated Exec output/exit status and an exact
+owned initial task's normal SIGTERM handling, logs and nonzero exit status.
+The task ID comes from its protected durable lease; unrelated processes are
+never signaled. These lifecycle checks complement the complete four-language
+suite's CNI, volumes, resources, probes and controller behavior.
 
 The stale-pin uninstall case creates its profile through the actual Helm chart,
 not by fabricating release ownership:
