@@ -253,6 +253,19 @@ overwritten.
 
 ## Executed successfully
 
+Expanded actual activation/cache companion `run-local-cache-lifetime-68`
+passed **11/11**, source `b97d0c63`, with normal production and fixture cleanup.
+The real task's protected initial state supplied canonical persistent layer
+paths. Original publication receipts aged beyond positive production GC grace
+while the application and mounts remained live, and those layers stayed intact.
+After normal Pod/task/lease drain, the normal fenced worker removed them.
+A fresh task using the **same application digest** recreated the identical
+digest/policy paths with new, verified digest/diff-ID receipts and served again.
+No clocks, leases, receipts or publication times were edited. Together with the
+native actual-bind/flock/ENOSPC negatives this closes RUN-06:
+**83 verified, 18 not fully verified**.
+[Actual cache-lifetime receipt](results/current-real-cache-lifetime-arm64.json).
+
 Actual activation companion `run-local-activation-67` passed **9/9**, source
 `85110e56`. A real fresh-node `none` worker rejected the explicit unsafe
 `discard_unpacked_layers=true` fixture without changing the original config
