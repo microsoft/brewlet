@@ -106,12 +106,12 @@ def killed_shim_recovery(h):
                   "inspectionExit": uncertain.returncode, "noStateMutation": True}, ["LEASE-02"])
     finally:
         h.node_exec(*daemon_signal_command(daemon, daemon_start, daemon_exe, "CONT"))
-    h.wait("normal backend cleanup and fresh fenced recovery release dead task lease", lambda:
-           h.node_exec("test", "!", "-e", f"{STORE}/.tasks/{task}/lease.json",
-                       check=False).returncode == 0)
     h.delete("pod", "crashed-shim", h.namespace)
     h.wait("crashed task Pod is removed normally", lambda:
            h.get("pod", "crashed-shim", h.namespace, absent=True) is None)
+    h.wait("normal backend cleanup and fresh fenced recovery release dead task lease", lambda:
+           h.node_exec("test", "!", "-e", f"{STORE}/.tasks/{task}/lease.json",
+                       check=False).returncode == 0)
     h.apply(h.pod("fresh-shim", "python"))
     fresh = h.wait("fresh actual task server uses durable inventory after crash", lambda: h.ready("fresh-shim"))
     h.assert_report(h.http("fresh-shim"), "python", arguments=[], cwd="/app")

@@ -253,6 +253,17 @@ overwritten.
 
 ## Executed successfully
 
+The new actual killed-server case first verified real server death and
+lease/root retention under unavailable task-service evidence, but
+`run-local-killed-shim-70` then failed waiting for release while its Kubernetes
+Pod had not yet been deleted. Normal recovery correctly retained the remaining
+task/mount obligation. The
+[failed receipt](results/local-killed-shim-live-obligation-failure-arm64.json)
+and exact-owned fixture destruction are preserved. The driver now requests
+normal Pod deletion before waiting for complete lease release; it does not
+force-delete records, tasks or mounts. All 312 offline safeguards pass. A fresh
+physical repeat remains required; LEASE-02 is not promoted from this failure.
+
 Latest stale-pin uninstall companion `run-local-pinned-uninstall-69` passed
 **9/9**, source `c115a133`. A genuine Helm-created profile retained its active
 leased root, operator/RBAC, finalizer, claim and startup fence through failed
