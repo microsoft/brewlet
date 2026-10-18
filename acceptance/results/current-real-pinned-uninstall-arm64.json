@@ -1,0 +1,185 @@
+{
+  "outcome": "passed",
+  "scope": "real-node-execution-only",
+  "cleanSelectedSuitePassed": true,
+  "fullAcceptance": false,
+  "checkout": "c115a133b8f8c473dd4fc2b975853bb4abf45bdc",
+  "productionSourceManifestSHA256": "7e9fa991cf2a069de1f9b4981b27eb91ab7c9347ac4a60293d79bbd272143fb0",
+  "architecture": "arm64",
+  "kubeletPullVerified": false,
+  "tlsTransportVerified": false,
+  "providerScaleFromZeroVerified": false,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "java": "172.18.0.11:5000/delivery/apps-java@sha256:2c55497c13c90c25effef225bddcc67d5dafa856d3978070fd230f468a9768c5",
+    "python": "172.18.0.11:5000/delivery/apps-python@sha256:9e61c07d36c36949d59aa70ed4d5dd18853700c0c2370cec324ed13a2d231321",
+    "node": "172.18.0.11:5000/delivery/apps-node@sha256:5430d2ad75ad2a32c2097b105be67d33294f6414fccb7c0a15cf99d7f3b670c0",
+    "dotnet": "172.18.0.11:5000/delivery/apps-dotnet@sha256:a3f3e22e631fe534b7f8283fb91a17b643da67eaa78af9a75b854517f2c63fc4"
+  },
+  "runtimeImages": {
+    "java": {
+      "before": "172.18.0.11:5000/delivery/runtime-java-before@sha256:d94c21282318b111b05177a053d525265032de6881c2db5b926ef18bda86873c",
+      "after": "172.18.0.11:5000/delivery/runtime-java-after@sha256:5d263274e415116cc5b2cd5a59a9e01427c7da31106333c9c25b87986803e4e2"
+    },
+    "python": {
+      "before": "172.18.0.11:5000/delivery/runtime-python-before@sha256:6aaf662f413eb59e19ac1e1b68cf5982d1f96944ec21e4b850014ec762c99895",
+      "after": "172.18.0.11:5000/delivery/runtime-python-after@sha256:84da62c926ed89ade8f38dfa9928410d220ed36c4b80717cfcce057c43917b81"
+    },
+    "node": {
+      "before": "172.18.0.11:5000/delivery/runtime-node-before@sha256:a8a0ca5ba4db8398d37616a6364ae98c9fb7e0a9552c81933c768a0d8addfd89",
+      "after": "172.18.0.11:5000/delivery/runtime-node-after@sha256:765e1e5dc7cf4131fa4621e50db078b996fea55d4e3edf635df471e1809f41df"
+    },
+    "dotnet": {
+      "before": "172.18.0.11:5000/delivery/runtime-dotnet-before@sha256:42693aca9d859650790ffb86bce22a26eba6f42a0edd48d5c73c685347f43db2",
+      "after": "172.18.0.11:5000/delivery/runtime-dotnet-after@sha256:3a30dfb213c7aefbd857e70b89986f98ec764d13bc0a8939e307fab1efa78e16"
+    }
+  },
+  "runtimeVendorInputs": {
+    "java": {
+      "probe": [
+        "java",
+        "-version"
+      ],
+      "before": {
+        "image": "docker.io/library/eclipse-temurin@sha256:7b5c88eb4182a92aab3a4b10550061a6e18639bf176e7ebca21f866b19f853c1",
+        "version": "21.0.7"
+      },
+      "after": {
+        "image": "docker.io/library/eclipse-temurin@sha256:990397e0495ac088ab6ee3d949a2e97b715a134d8b96c561c5d130b3786a489d",
+        "version": "21.0.8"
+      }
+    },
+    "python": {
+      "probe": [
+        "python3",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/python@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419",
+        "version": "Python 3.13.5"
+      },
+      "after": {
+        "image": "docker.io/library/python@sha256:2b09112b54420d2e3e814f2cbe34e8e54d32b8c5abd4e72e89cda4758fc6400a",
+        "version": "Python 3.13.6"
+      }
+    },
+    "node": {
+      "probe": [
+        "node",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/node@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0",
+        "version": "v22.17.0"
+      },
+      "after": {
+        "image": "docker.io/library/node@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+        "version": "v22.18.0"
+      }
+    },
+    "dotnet": {
+      "probe": [
+        "dotnet",
+        "--list-runtimes"
+      ],
+      "before": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:d13bea17080a4fea1a7295a4fe29240123b1bf955a78ae08480d07bdf09496db",
+        "version": "Microsoft.NETCore.App 10.0.0 "
+      },
+      "after": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:3b5f026262a6ba63d1b82f2b98949506f4a89956244568a8bc682b4af9c48548",
+        "version": "Microsoft.NETCore.App 10.0.1 "
+      }
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
+    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
+    "Focused stale-pin uninstall case; other acceptance suites are separate"
+  ],
+  "assertions": [
+    {
+      "name": "mandatory prerequisites and exact kind pin",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "isolated kind node and owned registry",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "java explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "python explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "node explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "dotnet explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "actual Helm uninstall retains operator, finalizer, claim and active leased root",
+      "outcome": "passed",
+      "requirements": [
+        "OWN-04",
+        "LEASE-03",
+        "FENCE-04"
+      ]
+    },
+    {
+      "name": "stale provider capability retains startup fence through drained production uninstall",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-06",
+        "FENCE-04",
+        "OWN-04"
+      ]
+    },
+    {
+      "name": "pool correction completes real Helm uninstall without force or forged cleanup",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-06",
+        "FENCE-04",
+        "OWN-04"
+      ]
+    }
+  ]
+}

@@ -253,6 +253,15 @@ overwritten.
 
 ## Executed successfully
 
+Latest stale-pin uninstall companion `run-local-pinned-uninstall-69` passed
+**9/9**, source `c115a133`. A genuine Helm-created profile retained its active
+leased root, operator/RBAC, finalizer, claim and startup fence through failed
+uninstall. After the real task drained, a stale provider capability still
+blocked uninstall. Only explicit pool-owner correction allowed normal cleanup
+and successful Helm removal; fixture destruction passed. No finalizer, claim,
+receipt or release ownership was forged.
+[Current pinned-uninstall receipt](results/current-real-pinned-uninstall-arm64.json).
+
 Expanded actual activation/cache companion `run-local-cache-lifetime-68`
 passed **11/11**, source `b97d0c63`, with normal production and fixture cleanup.
 The real task's protected initial state supplied canonical persistent layer
