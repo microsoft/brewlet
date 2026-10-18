@@ -501,6 +501,7 @@ class ControlEdges:
         self.original_values = None
         self.enabled = False
         self.pacing_samples = []
+        h.result.setdefault("controlAcceptance", {})
 
     def get_workload(self, name):
         original = self.workloads[name]

@@ -334,6 +334,22 @@ class IsolationTests(unittest.TestCase):
 
 
 class ControllerReadinessTests(unittest.TestCase):
+    def test_companion_rotation_initializes_diagnostics_without_claiming_control_suite(self):
+        h = fake_harness()
+        h.result = {"gaps": ["focused companion only"]}
+        h.wait = lambda _description, predicate: predicate()
+        control = ce.ControlEdges(h)
+        target = image()
+        target["status"]["rotation"] = {"generation": 2}
+        target["status"]["conditions"] = [{"type": "RotationComplete", "status": "True"}]
+        control.image = Mock(return_value=target)
+        self.assertEqual(control.complete_rotation(RID), target)
+        diagnostic = h.result["controlAcceptance"]
+        self.assertEqual(diagnostic["rotationDiagnostics"][RID]["inventoryUID"], EPOCH)
+        self.assertNotIn("selected", diagnostic)
+        self.assertNotIn("outcome", diagnostic)
+        self.assertEqual(h.result["gaps"], ["focused companion only"])
+
     def test_provisioner_error_capture_is_owner_node_scoped_bounded_and_redacted(self):
         h = fake_harness()
         h.profile = "profile"
@@ -929,7 +945,7 @@ class CASSetupTests(unittest.TestCase):
         fresh = copy.deepcopy(first)
         fresh["metadata"]["resourceVersion"] = "38"
         h = SimpleNamespace(cluster="fixture", namespace="base", control_namespace="system",
-                            run_id=RUN, node="real-owned-node",
+                            run_id=RUN, node="real-owned-node", result={},
                             apply=Mock(return_value=first),
                             get=Mock(side_effect=[first, fresh]),
                             kubectl=Mock(side_effect=[
@@ -964,7 +980,7 @@ class CASSetupTests(unittest.TestCase):
                 if refusal == "replacement":
                     current["metadata"]["uid"] = "new-uid"
                 h = SimpleNamespace(cluster="fixture", namespace="base",
-                                    control_namespace="system", run_id=RUN, node="real-owned-node",
+                                    control_namespace="system", run_id=RUN, node="real-owned-node", result={},
                                     apply=Mock(return_value=obj), get=Mock(return_value=current),
                                     kubectl=Mock(return_value=SimpleNamespace(
                                         returncode=1, stderr="Forbidden")))
@@ -980,7 +996,7 @@ class ControlDeletionTests(unittest.TestCase):
         name = "control-cas-" + RUN + "-node"
         obj = {"kind": "Node", "metadata": meta(name, UID)}
         h = SimpleNamespace(cluster="fixture", namespace="base", control_namespace="system",
-                            run_id=RUN, owned={("node", "", name): UID},
+                            run_id=RUN, owned={("node", "", name): UID}, result={},
                             get=Mock(return_value=obj), kubectl=Mock())
         h.wait = lambda description, predicate, timeout: predicate()
         return h, name, obj

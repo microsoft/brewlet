@@ -253,6 +253,18 @@ overwritten.
 
 ## Executed successfully
 
+Current-source two-node companion `run-local-cold-63` failed before the held
+transfer/deadline case because the shared controller diagnostic helper assumed
+the full callback had initialized `controlAcceptance`. The focused caller had
+not selected that callback. Its
+[failed receipt](results/local-cold-diagnostic-wiring-failure-arm64.json) and
+successful exact-owned destruction are preserved; bootstrap success is not
+cold-install proof. Diagnostic-state initialization now belongs to the shared
+helper constructor, without inventing a selected control suite or pass verdict.
+A faithful companion regression first reproduced the `KeyError`; all **307**
+offline live-driver safeguards now pass. The actual two-node case must be
+repeated before reporting new deadline/recovery evidence.
+
 Rotation completion now has an explicit late-membership regression: after a
 target completes, a newly eligible installed/retrying node clears current
 completion until validation recovers, without rewriting the once-per-target
