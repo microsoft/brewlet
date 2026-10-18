@@ -221,6 +221,25 @@ overwritten.
 
 ## Executed successfully
 
+Even the smaller Java root's first node repeat ran out of available Docker
+space before its volume-write assertion. The BusyBox shell returned a failed
+write without the GNU shell's I/O message; separate checks confirmed identity,
+read-only mounts and empty capabilities were still correct. The
+[failed compact-root receipt](results/local-java-alpine-disk-exhaustion-arm64.json)
+remains failed, with exact-owned fixture destruction and no rotation claim.
+
+Capacity recovery then used retained task build logs where old builder history
+had expired. Fourteen unused compiler snapshots were individually correlated with
+their unique completed command interval, frozen controller Dockerfile, exact
+branch ancestor revision, recorded owned image identity and successfully
+destroyed fixture. Only those fourteen anchored cache IDs were reclaimed, in
+separately verified groups of eight and six.
+A complete before/after cache inventory confirmed **every other cache ID was
+preserved**, including shared compiler-cache mounts and unrelated resources.
+Available space recovered to **19,993,698,304 bytes** without global pruning,
+root-reserve changes or workload privilege changes. Private provenance and
+reclamation audits are retained; recovery alone is not acceptance evidence.
+
 Fresh normal provisioning at `8d16da75` now passed the complete selected Python
 runtime scenario: **20/20**, including actual source rotation, strict/security
 barriers, retained task/exec leases, events/metrics, and normal production
