@@ -221,6 +221,15 @@ overwritten.
 
 ## Executed successfully
 
+Rotation completion now has an explicit late-membership regression: after a
+target completes, a newly eligible installed/retrying node clears current
+completion until validation recovers, without rewriting the once-per-target
+timestamp. Existing exact epoch/generation/digest conditions, newer-target
+invalidation, retained missing-epoch exclusions and schema-pruning contracts
+also pass. ROT-03 is reconciled as controller/schema contract evidence:
+**76 verified, 25 not fully verified**. This does not assert that participant
+completion patches every running container or proves provider autoscaling.
+
 Request-marker reconciliation exposed a remaining normative omission: the
 current owner deleted a non-offered marker without logging that decision.
 It now reports the removed ID and literal profile UID/generation after the

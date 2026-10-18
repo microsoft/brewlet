@@ -152,6 +152,45 @@ func TestRotationInstalledRetryParticipantAndConfirmedExclusion(t *testing.T) {
 	if _, present := n.Labels["brewlet.sh/runtime."+im.Name]; present {
 		t.Fatal("excluded node's capability still advertised")
 	}
+	late := n.DeepCopy()
+	late.Name, late.UID, late.ResourceVersion = "late-member", "late-member", ""
+	late.Spec.Unschedulable = false
+	late.Labels[api.OwnerNodeUID] = string(late.UID)
+	failed, err := json.Marshal(map[string]api.NodeRuntime{im.Name: {
+		Install: "OnDemand", State: "failed", Installed: true, InventoryUID: im.UID,
+		Generation: im.Status.Generation, Digest: im.Status.Digest,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	late.Annotations[api.InventoryAnnotation] = string(failed)
+	if err := r.Create(ctx, late); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+		t.Fatal(err)
+	}
+	p.Status.Targets = append(p.Status.Targets, api.Target{Name: late.Name, UID: late.UID, Claimed: true, ContainerdRestart: "none"})
+	if err := r.Status().Update(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.rotation(ctx, im); err != nil {
+		t.Fatal(err)
+	}
+	if meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete") || len(im.Status.Rotation.Participants) != 3 || !once.Equal(im.Status.RotationCompletedAt) {
+		t.Fatal("late installed participant was ignored or rewrote the once-per-target timestamp")
+	}
+	late.Annotations[api.InventoryAnnotation] = string(b)
+	late.Labels["brewlet.sh/runtime."+im.Name] = "ready"
+	if err := r.Update(ctx, late); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.rotation(ctx, im); err != nil {
+		t.Fatal(err)
+	}
+	if !meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete") || !once.Equal(im.Status.RotationCompletedAt) {
+		t.Fatal("recovery rewrote target completion time or failed to reconcile membership")
+	}
 }
 
 func TestRotationBothFencesFailBlocksCompletion(t *testing.T) {
