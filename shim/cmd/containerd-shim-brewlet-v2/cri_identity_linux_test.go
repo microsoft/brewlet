@@ -7,8 +7,10 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
+	taskapi "github.com/containerd/containerd/api/runtime/task/v3"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/containers"
 	"github.com/containerd/containerd/v2/core/content"
@@ -17,6 +19,7 @@ import (
 	brewletplatform "github.com/microsoft/brewlet/pkg/platform"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	runtimeSpec "github.com/opencontainers/runtime-spec/specs-go"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -25,7 +28,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 		"valid", "conflicting hints", "empty container image", "missing metadata",
 		"malformed metadata", "old metadata version", "requested tag",
 		"tag and digest", "protected stamp mismatch", "CRI config mismatch",
-		"selected config mismatch",
+		"selected config mismatch", "runtime allowlist",
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
@@ -35,6 +38,18 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 			var manifest ocispec.Manifest
 			if err := json.Unmarshal(f.blobs[target.Digest], &manifest); err != nil {
 				t.Fatal(err)
+			}
+			if name == "runtime allowlist" {
+				launch, diff := f.layer(t, "launch.json", []byte(
+					`{"schemaVersion":2,"process":{"entrypoint":["tool"],"workingDir":"/app"},"requires":{"runtimeImages":["other"]}}`), "launch")
+				var config ocispec.Image
+				if err := json.Unmarshal(f.blobs[manifest.Config.Digest], &config); err != nil {
+					t.Fatal(err)
+				}
+				config.RootFS.DiffIDs[len(config.RootFS.DiffIDs)-1] = diff
+				manifest.Config = f.json(t, ocispec.MediaTypeImageConfig, config)
+				manifest.Layers[len(manifest.Layers)-1] = launch
+				target = f.json(t, ocispec.MediaTypeImageManifest, manifest)
 			}
 			var hinted ocispec.Descriptor
 			if name == "conflicting hints" {
@@ -103,7 +118,20 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 				annotations["brewlet.sh/artifact-digest"] = hinted.Digest.String()
 				annotations["brewlet.sh/artifact-container"] = "foreign-container"
 			}
-			resolved, err := (&service{client: client}).resolve(ctx, value.ID, annotations)
+			service := &service{client: client}
+			if name == "runtime allowlist" {
+				annotations["brewlet.sh/runtime-image"] = "selected"
+				spec := &runtimeSpec.Spec{Annotations: annotations, Process: &runtimeSpec.Process{
+					Args: []string{"tool"}, Cwd: "/app", NoNewPrivileges: true,
+					User: runtimeSpec.User{UID: 1000, GID: 1000},
+				}}
+				if err := service.assemble(ctx, &taskapi.CreateTaskRequest{ID: value.ID}, spec); err == nil ||
+					!strings.HasPrefix(err.Error(), "RuntimeImageIncompatible:") {
+					t.Fatal("explicit runtime allowlist did not reject before inventory/lease/mount mutation", err)
+				}
+				return
+			}
+			resolved, err := service.resolve(ctx, value.ID, annotations)
 			if name != "valid" && name != "conflicting hints" {
 				if err == nil {
 					t.Fatal("conflicting protected CRI identity selected executable content")

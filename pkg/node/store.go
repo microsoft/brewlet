@@ -305,6 +305,10 @@ func (s *Store) resolve(ctx context.Context, id, namespace, task string, barrier
 	if wait <= 0 || wait > 30*time.Second {
 		wait = 30 * time.Second
 	}
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		wait = min(wait, remaining-max(time.Nanosecond, remaining/10))
+	}
 	if barrier != nil && (barrier.ID != id || !uidPattern.MatchString(barrier.InventoryUID) || barrier.Generation < 1) {
 		return Lease{}, "", failure("InvalidRuntimeGeneration", id)
 	}

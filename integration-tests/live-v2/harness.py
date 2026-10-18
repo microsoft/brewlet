@@ -590,6 +590,12 @@ class Harness:
         self.node_uids = {n["metadata"]["name"]: n["metadata"]["uid"] for n in nodes}
         self.node = self.cluster + "-control-plane"
         self.node_uid = self.node_uids[self.node]
+        for name in expected_names:
+            config = json.loads(self.kubectl("get", "--raw",
+                "/api/v1/nodes/" + name + "/proxy/configz").stdout)
+            require(config["kubeletconfig"]["runtimeRequestTimeout"] == "2m0s",
+                    "pinned fixture kubelet request timeout must exceed the 30-second Create wait")
+        self.result["kubeletRuntimeRequestTimeoutSeconds"] = 120
         if workers:
             primary = next(n for n in nodes if n["metadata"]["name"] == self.node)
             taints = primary.get("spec", {}).get("taints", [])
@@ -1259,6 +1265,19 @@ class Harness:
         return versions
 
     def barriers_and_rotation(self):
+        metadata = self.initial[self.probe_language]["metadata"]
+        barrier = json.dumps({"id": IDS[self.probe_language],
+                              "inventoryUID": metadata["inventoryUID"],
+                              "generation": metadata["generation"]})[:-1]
+        for member in ('"generation"', '"generat\\u0069on"'):
+            duplicate = barrier + "," + member + ":1}"
+            pod = self.pod("admission-ambiguous-barrier", self.probe_language, barrier=duplicate)
+            response = self.kubectl("create", "--dry-run=server", "-f", "-",
+                                    input=json.dumps(pod), check=False)
+            require(response.returncode != 0 and "InvalidRuntimeGeneration" in response.stderr,
+                    "real admission accepted an ambiguous generation barrier or failed for another reason")
+        self.record("real admission rejects duplicate and escaped generation barrier members",
+                    {"inventoryUID": metadata["inventoryUID"]}, ["RUN-03", "OBS-04"])
         # Bypass mutation to prove the shim rather than an admission-only denial.
         self.bypass_admission()
         try:

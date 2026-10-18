@@ -15,6 +15,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
+func TestRestartBarrierRejectsAmbiguousMembersWithoutLoweringThem(t *testing.T) {
+	for _, raw := range []string{
+		`{"id":"foreign","id":"runtime","inventoryUID":"epoch","generation":7}`,
+		`{"id":"runtime","inventoryUID":"old","inventoryUID":"epoch","generation":7}`,
+		`{"id":"runtime","inventoryUID":"epoch","generation":99,"generation":7}`,
+		`{"id":"runtime","inventoryUID":"epoch","generation":99,"generat\u0069on":7}`,
+	} {
+		if _, err := barrierValue(raw, "runtime", "epoch"); err == nil ||
+			!strings.HasPrefix(err.Error(), "InvalidRuntimeGeneration") {
+			t.Fatalf("ambiguous barrier was interpreted as a normal rotation: %s: %v", raw, err)
+		}
+	}
+	barrier, err := barrierValue(`{"id":"runtime","inventoryUID":"epoch","generation":9007199254740993}`,
+		"runtime", "epoch")
+	if err != nil || barrier.Generation != 9007199254740993 {
+		t.Fatal("restart barrier rounded exact generation", barrier, err)
+	}
+}
+
 func TestRestartBlockersRetainNeverStartedRuntimeFailureDuringBackoff(t *testing.T) {
 	for _, role := range []string{"main", "init", "ephemeral"} {
 		t.Run(role, func(t *testing.T) {

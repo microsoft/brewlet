@@ -530,16 +530,31 @@ class SafetyTests(ProjectWork):
         instance.restore_admission = mock.Mock()
         instance.apply = mock.Mock()
         instance.no_start = mock.Mock()
+        instance.kubectl = mock.Mock(return_value=subprocess.CompletedProcess(
+            [], 1, "", "InvalidRuntimeGeneration"))
         instance.start_held_exec = mock.Mock(side_effect=RuntimeError("rotation reached"))
         with self.assertRaisesRegex(RuntimeError, "rotation reached"):
             instance.barriers_and_rotation()
         self.assertEqual(instance.apply.call_count, 7)
+        self.assertEqual(instance.kubectl.call_count, 2)
         for call in instance.apply.call_args_list:
             pod = call.args[0]
             self.assertEqual(pod["metadata"]["annotations"]["brewlet.sh/runtime-image"], h.IDS["node"])
             self.assertEqual(pod["spec"]["containers"][0]["image"], instance.app_images["node"])
         instance.restore_admission.assert_called_once()
         instance.start_held_exec.assert_called_once_with("node")
+
+    def test_ambiguous_barrier_probe_requires_real_admission_reason_not_generic_failure(self):
+        instance = self.harness(scenario="runtime", pinned=False, local_language="node")
+        instance.initial = {"node": {"metadata": {"generation": 1, "inventoryUID": "epoch"}}}
+        for code, error in ((0, ""), (1, "webhook unavailable"), (1, "unrelated validation failure")):
+            with self.subTest(code=code, error=error):
+                instance.kubectl = mock.Mock(return_value=subprocess.CompletedProcess([], code, "", error))
+                instance.bypass_admission = mock.Mock()
+                with self.assertRaisesRegex(h.Failure, "real admission accepted"):
+                    instance.barriers_and_rotation()
+                instance.bypass_admission.assert_not_called()
+                instance.kubectl.assert_called_once()
 
     def test_child_process_gets_private_kubeconfig_and_checkout_scratch(self):
         instance = self.harness()

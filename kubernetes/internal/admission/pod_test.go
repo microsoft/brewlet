@@ -114,6 +114,34 @@ func TestSecurityAndSelectionDenials(t *testing.T) {
 		})
 	}
 }
+
+func TestAdmissionRejectsAmbiguousGenerationBarriersLikeShim(t *testing.T) {
+	for _, raw := range []string{
+		``,
+		`{"id":"foreign","id":"python-3.12","inventoryUID":"inventory","generation":7}`,
+		`{"id":"python-3.12","inventoryUID":"old","inventoryUID":"inventory","generation":7}`,
+		`{"id":"python-3.12","inventoryUID":"inventory","generation":99,"generation":7}`,
+		`{"id":"python-3.12","inventoryUID":"inventory","generation":99,"generat\u0069on":7}`,
+		`{"id":"python-3.12","inventoryUID":"inventory","generation":7.0}`,
+		`{"id":"python-3.12","inventoryUID":"inventory","generation":7e0}`,
+		`{"id":"python-3.12","inventoryUID":"inventory","generation":null}`,
+		`{"id":"python-3.12","inventoryUID":"inventory","generation":9223372036854775808}`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			m, pod := setup(t)
+			pod.Annotations[api.BarrierAnnotation] = raw
+			before := pod.DeepCopy()
+			if _, err := m.Mutate(context.Background(), pod); err == nil ||
+				!strings.HasPrefix(err.Error(), "InvalidRuntimeGeneration") {
+				t.Fatalf("ambiguous barrier did not fail with shim reason: %v", err)
+			}
+			if !reflect.DeepEqual(pod, before) {
+				t.Fatal("invalid barrier mutated the Pod")
+			}
+		})
+	}
+}
+
 func TestAffinityConjunctionAndEmptySelectors(t *testing.T) {
 	for _, empty := range []bool{false, true} {
 		t.Run(map[bool]string{true: "empty-selector", false: "multiple-terms"}[empty], func(t *testing.T) {

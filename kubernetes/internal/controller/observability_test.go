@@ -3,14 +3,52 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
+
+func TestRestartOutcomeEventsMatchStatusAndAreNotRepeatedWithoutChange(t *testing.T) {
+	f := restartSetup(t)
+	workload := restartWorkload{object: f.deployment(t, "observed")}
+	recorder := record.NewFakeRecorder(8)
+	f.engine.Recorder = recorder
+	status := new(api.WorkloadRestart)
+	for _, tc := range []struct{ phase, reason, eventType string }{
+		{"NotApplicable", "RestartNotApplicable", "Normal"},
+		{"Deferred", "RestartDeferred", "Warning"},
+		{"Failed", "RestartFailed", "Warning"},
+		{"Complete", "RestartComplete", "Normal"},
+	} {
+		f.engine.outcome(workload, status, tc.phase, tc.reason, "actual outcome")
+		f.engine.outcome(workload, status, tc.phase, tc.reason, "actual outcome")
+		if status.Phase != tc.phase || status.Reason != tc.reason {
+			t.Fatal("event/status drift", status)
+		}
+		select {
+		case event := <-recorder.Events:
+			if !strings.HasPrefix(event, tc.eventType+" "+tc.reason+" ") {
+				t.Fatal("incorrect workload event", event)
+			}
+		default:
+			t.Fatal("status change omitted its workload event", tc)
+		}
+		select {
+		case event := <-recorder.Events:
+			t.Fatal("unchanged reconciliation duplicated a workload event", event)
+		default:
+		}
+	}
+	if status.CompletedAt == nil {
+		t.Fatal("completed event did not checkpoint completion")
+	}
+}
 
 func TestRuntimeMetricsReportStatusAndFailScrapeOnFreshAPIError(t *testing.T) {
 	f := restartSetup(t)

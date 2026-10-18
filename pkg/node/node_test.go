@@ -470,6 +470,42 @@ func TestIDLockBoundsWait(t *testing.T) {
 		t.Fatal("lock wait not bounded", err)
 	}
 }
+
+func TestColdResolveReturnsInstallingBeforeUpstreamRequestDeadline(t *testing.T) {
+	s := testStore(t)
+	if err := s.WriteAuthorization(context.Background(), testAuthorization()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _, err := s.Resolve(ctx, testAuthorization().ID, "k8s.io", "cold-request", nil, 0)
+	if reason(err) != "RuntimeImageInstalling" || ctx.Err() != nil {
+		t.Fatal("cold install consumed the upstream runtime request deadline", err, ctx.Err())
+	}
+}
+
+func TestMissingAndUninstalledEagerRuntimeHaveExactReasonWithoutRequest(t *testing.T) {
+	for _, offered := range []bool{false, true} {
+		t.Run(strconv.FormatBool(offered), func(t *testing.T) {
+			s := testStore(t)
+			a := testAuthorization()
+			if offered {
+				a.Install = "Eager"
+				if err := s.WriteAuthorization(context.Background(), a); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, _, err := s.Resolve(context.Background(), a.ID, "k8s.io", "not-installed", nil,
+				time.Millisecond); reason(err) != "RuntimeImageNotInstalled" {
+				t.Fatal("missing/Eager runtime did not retain the specified failure reason", err)
+			}
+			if requests, err := s.Requests(); err != nil || len(requests) != 0 {
+				t.Fatal("missing/Eager runtime issued an OnDemand request", requests, err)
+			}
+		})
+	}
+}
+
 func TestIdleTTLRequiresNoLeasesAndCompleteEvidence(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)

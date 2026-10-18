@@ -6,6 +6,50 @@ from implemented or partially tested behavior.
 
 ## Latest combined actual-node result
 
+The installed-root/assembly and quarantine/recovery reconciliation closes
+PROF-04, RUN-03, ROT-04 and ROT-05: **97 verified, 4 not fully verified**.
+Native immutable publication, concurrent leases/collection, exact barrier checks,
+ten-minute default stall timing and all-target readback/recovery contracts are
+combined with the four-language and actual provider-refusal receipts. Injected
+deadline tests are not represented as a live ten-minute observation.
+
+The final cross-surface audit reproduced duplicate-member acceptance in both
+admission and restart barrier parsing even though the shim already rejected it.
+Both now reuse the shim's strict parser; duplicate/escaped fields cannot be
+interpreted as a lower generation. A separate regression reproduced cold
+resolution consuming a shorter upstream request timeout; it now reserves ten
+percent of remaining request time while retaining the default 30-second bound.
+The physical driver checks each pinned fixture kubelet's effective two-minute
+request timeout and adds actual dry-run admission denials for duplicate and
+escaped barrier members. These newly selected physical checks remain pending
+the next combined run.
+
+Deferred staging snapshot removal no longer silently ignores fence or removal
+errors: it logs the exact snapshot, profile UID, Node UID and generation, and
+never removes after failed authority. Native tests cover success, already-absent,
+actual removal error and stale authority. Additional contracts cover exact
+missing/Eager-not-installed reasons, allowlist rejection before inventory
+mutation, and workload outcome event/status agreement without duplicate events.
+No whole-proposal completion is inferred from this reconciliation.
+
+Ownership reconciliation closes OD-04, OD-05, FENCE-01, OWN-01 and OWN-02:
+**93 verified, 8 not fully verified**. This combines direct fresh-authority,
+target/checkpoint/readback, worker cancellation/join, writer-lock and retirement
+phase contracts with the existing real worker succession, actual claim-release
+CAS conflict, native startup-tainted capacity and physical returning-filesystem
+refusal receipts. Fake API replacement/race cases are not substituted for those
+physical runs. A replacement registration is quarantined, not cleaned or adopted;
+the original obligation persists until explicit original-identity evidence.
+
+The expanded native shim suite passes **41 cases/subcases, zero skips**, including
+the direct protected-CRI resolver matrix. Its isolated content cache requires an
+additional disposable `--tmpfs /var/lib/brewlet/layers:rw,exec,size=64m` in the
+existing native shim Docker recipe. This mount contains only test-generated
+retained content and is destroyed with the container. The production cache is
+unchanged and persistent. Output is retained as `shim-cri-identity-native.log`.
+No GitHub Actions routing or workflow update has been made during local-first
+implementation.
+
 The corrected physical OnDemand repeat `run-local-ondemand-retry-74` passed
 **16/16**, with production cleanup and exact-owned destruction, at checkout
 `a2f39d8f17658f82c39c73133953c2c6bf83946b` (production-source manifest

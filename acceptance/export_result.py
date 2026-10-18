@@ -11,6 +11,7 @@ def export(source):
         "outcome", "scope", "selectedScenario", "selectedLanguages", "cleanSelectedSuitePassed", "fullAcceptance",
         "checkout", "productionSourceManifestSHA256", "architecture",
         "kubeletPullVerified", "tlsTransportVerified", "providerScaleFromZeroVerified",
+        "kubeletRuntimeRequestTimeoutSeconds",
         "pins", "applicationImages", "runtimeImages", "runtimeVendorInputs", "fixtureDestruction", "gaps",
     )
     result = {key: source[key] for key in fields if key in source}

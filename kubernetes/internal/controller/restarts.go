@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"slices"
 	"time"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
 	"github.com/microsoft/brewlet/kubernetes/policy"
+	"github.com/microsoft/brewlet/pkg/node"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -134,15 +134,11 @@ func (e *RestartEngine) outcome(w restartWorkload, s *api.WorkloadRestart, phase
 	}
 }
 func barrierValue(raw, id string, uid types.UID) (api.Barrier, error) {
-	var b api.Barrier
-	d := json.NewDecoder(bytes.NewBufferString(raw))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&b); err != nil {
-		return b, fmt.Errorf("InvalidRuntimeGeneration: %w", err)
+	parsed, err := node.ParseBarrier(raw, id)
+	if err != nil || parsed == nil {
+		return api.Barrier{}, fmt.Errorf("InvalidRuntimeGeneration")
 	}
-	if err := d.Decode(new(any)); err != io.EOF || !policy.ValidID(b.ID) || b.ID != id || b.Generation <= 0 || b.InventoryUID == "" {
-		return b, fmt.Errorf("InvalidRuntimeGeneration")
-	}
+	b := api.Barrier{ID: parsed.ID, InventoryUID: types.UID(parsed.InventoryUID), Generation: parsed.Generation}
 	if b.InventoryUID != uid {
 		return b, fmt.Errorf("RuntimeImageEpochMismatch")
 	}

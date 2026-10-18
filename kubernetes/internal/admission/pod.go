@@ -1,16 +1,14 @@
 package admission
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"slices"
 	"strings"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
 	"github.com/microsoft/brewlet/kubernetes/policy"
+	"github.com/microsoft/brewlet/pkg/node"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,16 +48,11 @@ func (m *PodMutator) Mutate(ctx context.Context, p *corev1.Pod) ([]string, error
 		return nil, fmt.Errorf("UnknownRuntimeImage: inventory is not approved for its current source")
 	}
 	if raw, ok := p.Annotations[api.BarrierAnnotation]; ok {
-		b := api.Barrier{}
-		d := json.NewDecoder(bytes.NewBufferString(raw))
-		d.DisallowUnknownFields()
-		if err := d.Decode(&b); err != nil {
+		b, err := node.ParseBarrier(raw, id)
+		if err != nil || b == nil {
 			return nil, fmt.Errorf("InvalidRuntimeGeneration")
 		}
-		if err := d.Decode(new(any)); err != io.EOF || b.ID != id || b.InventoryUID == "" || b.Generation <= 0 {
-			return nil, fmt.Errorf("InvalidRuntimeGeneration")
-		}
-		if b.InventoryUID != r.UID {
+		if b.InventoryUID != string(r.UID) {
 			return nil, fmt.Errorf("RuntimeImageEpochMismatch")
 		}
 	}

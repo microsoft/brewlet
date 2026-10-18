@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -162,11 +163,7 @@ func (i *ContainerdInstaller) Stage(ctx context.Context, r *api.RuntimeImage, ba
 	if err != nil {
 		return stage, m, err
 	}
-	defer func() {
-		if i.fence(ctx) == nil {
-			_ = snapshots.Remove(ctx, key)
-		}
-	}()
+	defer i.removeStagingSnapshot(ctx, snapshots, key)
 	if err := mount.All(mounts, source); err != nil {
 		return stage, m, err
 	}
@@ -188,6 +185,19 @@ func (i *ContainerdInstaller) Stage(ctx context.Context, r *api.RuntimeImage, ba
 	}
 	return stage, m, nil
 }
+
+func (i *ContainerdInstaller) removeStagingSnapshot(ctx context.Context, snapshots snapshotapi.Snapshotter, key string) {
+	if err := i.fence(ctx); err != nil {
+		log.Printf("runtime-staging-snapshot-cleanup-deferred: snapshot=%s profileUID=%s nodeUID=%s generation=%d: %v",
+			key, i.ProfileUID, i.NodeUID, i.ProfileGeneration, err)
+		return
+	}
+	if err := snapshots.Remove(ctx, key); err != nil && !errdefs.IsNotFound(err) {
+		log.Printf("runtime-staging-snapshot-cleanup-deferred: snapshot=%s profileUID=%s nodeUID=%s generation=%d: %v",
+			key, i.ProfileUID, i.NodeUID, i.ProfileGeneration, err)
+	}
+}
+
 func copyRoot(ctx context.Context, source, destination string) error {
 	type directory struct {
 		path string
