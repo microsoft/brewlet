@@ -212,6 +212,11 @@ unavailable evidence must retain the durable lease/root. Normal backend cleanup,
 fresh fenced recovery and a new real task server must then succeed. This is not
 a promise to resurrect the old runc task server or preserve a container after
 its server is killed; no unrelated server is signaled.
+The dedicated crash Pod explicitly shares its sandbox PID namespace. With the
+server dead and daemon paused, terminating only its main process must leave a
+genuine detached Exec alive with the exact leased upperdir. That surviving
+process and mount must retain the lease; only subsequent normal teardown may
+release it. The test does not assume default PID-namespace init-exit behavior.
 
 The stale-pin uninstall case creates its profile through the actual Helm chart,
 not by fabricating release ownership:

@@ -13,7 +13,7 @@ import tomllib
 
 import delivery
 from harness import FENCE, IDS, ROOT, STORE, Failure, Harness, require
-from lifecycle import daemon_signal_command
+from lifecycle import daemon_signal_command, orphan_signal_command
 
 
 def unsafe_retention_config(dumped):
@@ -61,7 +61,9 @@ def shim_kill_command(pid, start, executable):
 
 
 def killed_shim_recovery(h):
-    h.apply(h.pod("crashed-shim", "python"))
+    target = h.pod("crashed-shim", "python")
+    target["spec"]["shareProcessNamespace"] = True
+    h.apply(target)
     pod = h.wait("dedicated actual shim-crash task starts", lambda: h.ready("crashed-shim"))
     lease = h.lease(pod)
     task = lease["taskID"]
@@ -74,6 +76,22 @@ def killed_shim_recovery(h):
             and task in h.node_exec("cat", f"/proc/{main}/cgroup").stdout,
             "task-server crash lacks actual owned main-process cgroup provenance")
     fields = h.node_exec("cat", f"/proc/{main}/stat").stdout.rsplit(") ", 1)[1].split()
+    main_start = fields[19]
+    main_exe = h.node_exec("readlink", f"/proc/{main}/exe").stdout.strip()
+    status = h.node_exec("cat", f"/proc/{main}/status").stdout
+    namespace_pid = re.search(r"^NSpid:\s+([0-9 \t]+)$", status, re.M)
+    require(namespace_pid and int(namespace_pid.group(1).split()[-1]) != 1,
+            "orphan proof requires actual shared sandbox PID namespace")
+    exec_id = "crash-exec-" + h.run_id
+    h.node_exec("ctr", "-n", "k8s.io", "tasks", "exec", "--exec-id", exec_id,
+                "--detach", "--user", "65532:65532", task,
+                "python3", "-c", "import time; time.sleep(1800)")
+    processes = h.node_exec("ctr", "-n", "k8s.io", "tasks", "ps", task).stdout.splitlines()
+    pids = [int(line.split()[0]) for line in processes[1:] if line.split()]
+    execs = [pid for pid in pids if pid != main]
+    require(len(execs) == 1, "dedicated task does not have exactly one real detached Exec")
+    exec_pid = execs[0]
+    exec_start = h.node_exec("cat", f"/proc/{exec_pid}/stat").stdout.rsplit(") ", 1)[1].split()[19]
     shim = int(fields[1])
     shim_fields = h.node_exec("cat", f"/proc/{shim}/stat").stdout.rsplit(") ", 1)[1].split()
     executable = h.node_exec("readlink", f"/proc/{shim}/exe").stdout.strip()
@@ -93,6 +111,16 @@ def killed_shim_recovery(h):
         h.wait("exact fixture task server really dies", lambda:
                h.node_exec("test", "!", "-e", f"/proc/{shim}/exe", check=False).returncode == 0,
                timeout=20)
+        h.node_exec(*orphan_signal_command(main, main_start, main_exe))
+        h.wait("original shared-namespace main exits after its server dies", lambda:
+               h.node_exec("test", "!", "-e", f"/proc/{main}/exe", check=False).returncode == 0,
+               timeout=20)
+        orphan = h.node_exec("cat", f"/proc/{exec_pid}/stat").stdout.rsplit(") ", 1)[1].split()
+        require(orphan[19] == exec_start and orphan[0] not in ("Z", "X"),
+                "actual detached Exec did not survive server and main exit")
+        mountinfo = h.node_exec("cat", f"/proc/{exec_pid}/mountinfo").stdout
+        require(f"upperdir={lease['taskMounts']['upper']}" in mountinfo,
+                "surviving orphan Exec does not mount its exact leased task root")
         uncertain = h.node_exec("timeout", "--signal=TERM", "--kill-after=2s", "10s",
                                *query, input=request, check=False, timeout=20)
         require(uncertain.returncode == 124, "killed-server evidence unexpectedly certified absence")
@@ -104,6 +132,13 @@ def killed_shim_recovery(h):
         h.record("actual killed task server retains durable lease/root while evidence is unavailable",
                  {"taskID": task, "shimPID": shim, "shimStart": shim_fields[19],
                   "inspectionExit": uncertain.returncode, "noStateMutation": True}, ["LEASE-02"])
+        orphan = h.node_exec("cat", f"/proc/{exec_pid}/stat").stdout.rsplit(") ", 1)[1].split()
+        require(orphan[19] == exec_start and orphan[0] not in ("Z", "X"),
+                "orphan Exec drained before retained-reference observation completed")
+        h.record("real orphan Exec after main/server exit retains durable lease and task root",
+                 {"taskID": task, "execPID": exec_pid, "execStart": exec_start,
+                  "mainExited": True, "shimExited": True, "actualUpper": lease["taskMounts"]["upper"],
+                  "normalBackendCleanupStillRequired": True}, ["LEASE-03"])
     finally:
         h.node_exec(*daemon_signal_command(daemon, daemon_start, daemon_exe, "CONT"))
     h.delete("pod", "crashed-shim", h.namespace)
