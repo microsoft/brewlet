@@ -13,6 +13,7 @@ import tomllib
 
 import delivery
 from harness import FENCE, IDS, ROOT, STORE, Failure, Harness, require
+from lifecycle import daemon_signal_command
 
 
 def unsafe_retention_config(dumped):
@@ -44,6 +45,87 @@ def protected_cache_roots(state):
                 r"/var/lib/brewlet/layers/v[0-9]+-[0-9]+-[0-9a-f]{64}/rootfs", root)
                     for root in roots), "actual initial state has unsafe/missing cache provenance")
     return roots
+
+
+def shim_kill_command(pid, start, executable):
+    require(type(pid) is int and pid > 1 and isinstance(start, str) and start.isdigit(),
+            "unsafe task-server process identity")
+    require(executable == "/usr/local/bin/containerd-shim-brewlet-v2",
+            "refusing to kill a non-Brewlet task server")
+    return ["sh", "-ec",
+            'test "$(readlink /proc/$1/exe)" = "$3"; '
+            's=$(cat /proc/$1/stat); s=${s##*) }; '
+            'test "$(printf "%s\\n" "$s" | awk \'{print $20}\')" = "$2"; '
+            'kill -KILL "$1"',
+            "owned-shim-crash", str(pid), start, executable]
+
+
+def killed_shim_recovery(h):
+    h.apply(h.pod("crashed-shim", "python"))
+    pod = h.wait("dedicated actual shim-crash task starts", lambda: h.ready("crashed-shim"))
+    lease = h.lease(pod)
+    task = lease["taskID"]
+    inspected = json.loads(h.node_exec("crictl", "inspect", task).stdout)
+    require(inspected["status"]["id"] == task
+            and inspected["status"]["labels"]["io.kubernetes.pod.uid"] == pod["metadata"]["uid"],
+            "shim-crash target is not the exact owned Pod/task")
+    main = inspected["info"]["pid"]
+    require(type(main) is int and main > 1
+            and task in h.node_exec("cat", f"/proc/{main}/cgroup").stdout,
+            "task-server crash lacks actual owned main-process cgroup provenance")
+    fields = h.node_exec("cat", f"/proc/{main}/stat").stdout.rsplit(") ", 1)[1].split()
+    shim = int(fields[1])
+    shim_fields = h.node_exec("cat", f"/proc/{shim}/stat").stdout.rsplit(") ", 1)[1].split()
+    executable = h.node_exec("readlink", f"/proc/{shim}/exe").stdout.strip()
+    command = h.node_exec("cat", f"/proc/{shim}/cmdline").stdout
+    require("-namespace\0k8s.io\0" in command and "-id\0" in command,
+            "task parent is not the expected protected containerd shim namespace")
+    kill = shim_kill_command(shim, shim_fields[19], executable)
+    daemon = int(h.node_exec("systemctl", "show", "containerd", "--property=MainPID",
+                             "--value").stdout.strip())
+    daemon_start = h.node_exec("cat", f"/proc/{daemon}/stat").stdout.rsplit(") ", 1)[1].split()[19]
+    daemon_exe = h.node_exec("readlink", f"/proc/{daemon}/exe").stdout.strip()
+    query = ["/usr/local/bin/containerd-shim-brewlet-v2", "--brewlet-evidence"]
+    request = json.dumps({"lease": lease})
+    h.node_exec(*daemon_signal_command(daemon, daemon_start, daemon_exe, "STOP"))
+    try:
+        h.node_exec(*kill)
+        h.wait("exact fixture task server really dies", lambda:
+               h.node_exec("test", "!", "-e", f"/proc/{shim}/exe", check=False).returncode == 0,
+               timeout=20)
+        uncertain = h.node_exec("timeout", "--signal=TERM", "--kill-after=2s", "10s",
+                               *query, input=request, check=False, timeout=20)
+        require(uncertain.returncode == 124, "killed-server evidence unexpectedly certified absence")
+        retained = json.loads(h.node_exec("cat", f"{STORE}/.tasks/{task}/lease.json").stdout)
+        require(retained == lease, "shim death with unavailable evidence discarded durable lease")
+        identity = lease["runtime"]
+        h.node_exec("test", "-d",
+                    f"{STORE}/{identity['id']}/{identity['inventoryUID']}/{identity['generation']}/rootfs")
+        h.record("actual killed task server retains durable lease/root while evidence is unavailable",
+                 {"taskID": task, "shimPID": shim, "shimStart": shim_fields[19],
+                  "inspectionExit": uncertain.returncode, "noStateMutation": True}, ["LEASE-02"])
+    finally:
+        h.node_exec(*daemon_signal_command(daemon, daemon_start, daemon_exe, "CONT"))
+    h.wait("normal backend cleanup and fresh fenced recovery release dead task lease", lambda:
+           h.node_exec("test", "!", "-e", f"{STORE}/.tasks/{task}/lease.json",
+                       check=False).returncode == 0)
+    h.delete("pod", "crashed-shim", h.namespace)
+    h.wait("crashed task Pod is removed normally", lambda:
+           h.get("pod", "crashed-shim", h.namespace, absent=True) is None)
+    h.apply(h.pod("fresh-shim", "python"))
+    fresh = h.wait("fresh actual task server uses durable inventory after crash", lambda: h.ready("fresh-shim"))
+    h.assert_report(h.http("fresh-shim"), "python", arguments=[], cwd="/app")
+    fresh_lease = h.lease(fresh)
+    require(fresh_lease["runtime"]["inventoryUID"] == lease["runtime"]["inventoryUID"],
+            "fresh task server adopted a different inventory epoch")
+    h.delete("pod", "fresh-shim", h.namespace)
+    h.wait("fresh-server proof task drains normally", lambda:
+           h.get("pod", "fresh-shim", h.namespace, absent=True) is None)
+    h.record("fresh shim after actual server death recovers durable inventory and complete cleanup",
+             {"oldTaskID": task, "newTaskID": fresh_lease["taskID"],
+              "oldContainerSurvivalRequired": False,
+              "boundary": "normal delegated dead-server cleanup, not task-server resurrection"},
+             ["LEASE-02"])
 
 
 def cache_lifetime(h, pod):
@@ -146,6 +228,7 @@ def exercise(h, original):
     h.record("managed activation enables effective packed retention before a real cold application",
              {"originalConfigSHA256": digest}, ["RUN-10"])
     cache_lifetime(h, pod)
+    killed_shim_recovery(h)
     h.delete("nodeprofile", h.profile)
     h.wait("managed activation production cleanup finalizes", lambda:
            h.get("nodeprofile", h.profile, absent=True) is None)

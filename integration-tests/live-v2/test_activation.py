@@ -3,11 +3,23 @@
 import unittest
 import tomllib
 
-from activation import protected_cache_roots, unsafe_retention_config
+from activation import protected_cache_roots, shim_kill_command, unsafe_retention_config
 from harness import Failure
 
 
 class ActivationFixtureTests(unittest.TestCase):
+    def test_task_server_kill_requires_exact_start_and_installed_brewlet_binary(self):
+        command = shim_kill_command(42, "123", "/usr/local/bin/containerd-shim-brewlet-v2")
+        self.assertIn("readlink /proc/$1/exe", command[2])
+        self.assertIn("kill -KILL", command[2])
+        self.assertEqual(command[-3:], ["42", "123", "/usr/local/bin/containerd-shim-brewlet-v2"])
+        for args in ((1, "123", "/usr/local/bin/containerd-shim-brewlet-v2"),
+                     (42, "invalid", "/usr/local/bin/containerd-shim-brewlet-v2"),
+                     (42, "123", "/usr/bin/containerd"),
+                     (42, "123", "/usr/bin/kubelet")):
+            with self.subTest(args=args), self.assertRaises(Failure):
+                shim_kill_command(*args)
+
     def test_cache_provenance_requires_actual_canonical_digest_policy_roots(self):
         root = "/var/lib/brewlet/layers/v2-3-" + "a" * 64 + "/rootfs"
         self.assertEqual(protected_cache_roots({"layerRoots": [root]}), [root])

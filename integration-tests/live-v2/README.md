@@ -205,6 +205,13 @@ The same case uses positive `2s`/`1s` production GC settings to retain actual
 leased layer entries beyond grace, then observes normal post-drain collection
 and verified rematerialization of the unchanged application. It reads original
 receipts and real time; it never edits publication times, task leases or clocks.
+It also kills one dedicated task's actual Brewlet server after checking its
+protected Pod/task, main-process cgroup, parent executable and process start.
+The owned containerd daemon is briefly STOP/CONT guarded by its own identity;
+unavailable evidence must retain the durable lease/root. Normal backend cleanup,
+fresh fenced recovery and a new real task server must then succeed. This is not
+a promise to resurrect the old runc task server or preserve a container after
+its server is killed; no unrelated server is signaled.
 
 The stale-pin uninstall case creates its profile through the actual Helm chart,
 not by fabricating release ownership:
