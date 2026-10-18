@@ -168,15 +168,23 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/retirement.py \
   --work integration-tests/live-v2/run-retirement-20261016-01
 ```
 
-It permanently removes only the recorded extra worker's exact Docker container
-and volumes, never the control plane, then removes the exact original Node UID.
+It first stops the recorded extra worker and removes its exact original Node
+UID. The same container, with its original runtime storage, must return under a
+genuinely new kubelet-created UID. The controller must withdraw its templated
+capabilities without granting a fresh claim or erasing the original obligation;
+a real scheduler canary must remain blocked. Only fixture identity bookkeeping
+changes to acknowledge the observed UID; no production claim, lease, receipt
+or status is fabricated. The test then permanently removes that exact worker
+container and volumes, never the control plane, and its returning registration.
 The replacement must serve on a different real Node before any external evidence
 exists. Original missing-host history must block deletion/uninstall even after
 replacement tasks drain. A separate initially unbound actor must be denied
 retirement creation, then explicitly bound to the chart's attestor role before
 attesting the actually destroyed instance. Accepted immutable evidence must
-survive profile deletion and real uninstall. This is external decommission
-resolution, not invented host-cleanup proof or returning-hardware verification.
+survive profile deletion and real uninstall. This covers a real returning kind
+host and external decommission resolution, not invented host-cleanup proof or
+cloud hardware/provider autoscaling verification. A passed fixture build or
+offline identity test alone does not verify the physical-return sequence.
 
 The stale-pin uninstall case creates its profile through the actual Helm chart,
 not by fabricating release ownership:

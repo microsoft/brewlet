@@ -7,7 +7,7 @@ from pathlib import Path
 import signal
 
 import delivery
-from harness import API, FENCE, IDS, OWNER, Failure, Harness, require, require_owned
+from harness import API, FENCE, IDS, OWNER, STORE, Failure, Harness, docker_owned, require, require_owned
 from pinned_uninstall import install_chart_profile, uninstall
 
 
@@ -17,6 +17,96 @@ def missing_obligation(profile, node_name, node_uid):
                and d["targets"][0]["name"] == node_name and d["targets"][0]["uid"] == node_uid]
     require(len(matches) <= 1, "duplicate detached retirement obligation")
     return matches[0] if matches else False
+
+
+def returning_registration(original, current, profile):
+    require(current["metadata"]["name"] == original["metadata"]["name"]
+            and current["metadata"]["uid"] != original["metadata"]["uid"],
+            "returning host did not create a genuinely new Node registration")
+    before = original.get("status", {}).get("nodeInfo", {}).get("systemUUID")
+    after = current.get("status", {}).get("nodeInfo", {}).get("systemUUID")
+    provider = original.get("spec", {}).get("providerID")
+    require((before and before == after)
+            or (provider and provider == current.get("spec", {}).get("providerID")),
+            "returning registration is not the original physical host")
+    require(not current["metadata"].get("labels", {}).get("brewlet.sh/owner-uid")
+            and not any(t["uid"] == current["metadata"]["uid"]
+                        for t in profile.get("status", {}).get("targets", [])),
+            "returning physical host was adopted as a fresh provisioning target")
+    return (missing_obligation(profile, original["metadata"]["name"], original["metadata"]["uid"])
+            and not current["metadata"].get("labels", {}).get("brewlet.sh/runtime")
+            and not any(key.startswith("brewlet.sh/runtime.")
+                        for key in current["metadata"].get("labels", {})))
+
+
+def return_original_worker(h, name, original, lease):
+    container = h.node_containers[name]
+    info = json.loads(h.run(["docker", "inspect", container]).stdout)[0]
+    docker_owned(info, h.run_id, container, kind_node=True)
+    require(info["Name"] == "/" + name and info["State"]["Running"],
+            "original worker changed before its temporary stop")
+    h.run(["docker", "stop", "--time", "15", container], timeout=90)
+    stopped = json.loads(h.run(["docker", "inspect", container]).stdout)[0]
+    docker_owned(stopped, h.run_id, container, kind_node=True)
+    require(not stopped["State"]["Running"], "original worker did not actually stop")
+    h.kubectl("delete", "--raw", "/api/v1/nodes/" + name, "-f", "-", input=json.dumps({
+        "apiVersion": "v1", "kind": "DeleteOptions",
+        "preconditions": {"uid": original["metadata"]["uid"]}}))
+    h.wait("temporarily unavailable original Node really disappears", lambda:
+           h.get("node", name, absent=True) is None)
+    h.wait("original host obligation persists before physical return", lambda:
+           missing_obligation(h.get("nodeprofile", h.profile), name, original["metadata"]["uid"]))
+    h.run(["docker", "start", container], timeout=90)
+    resumed = json.loads(h.run(["docker", "inspect", container]).stdout)[0]
+    docker_owned(resumed, h.run_id, container, kind_node=True)
+    require(resumed["State"]["Running"] and resumed["Name"] == "/" + name,
+            "physical return replaced the original worker container")
+
+    def registered():
+        node = h.get("node", name, absent=True)
+        return node if node and node["metadata"]["uid"] != original["metadata"]["uid"] \
+            and any(c["type"] == "Ready" and c["status"] == "True"
+                    for c in node.get("status", {}).get("conditions", [])) else False
+
+    current = h.wait("same physical worker registers a new real Node UID", registered)
+    h.node_uids[name] = current["metadata"]["uid"]
+    h.save()
+    h.kubectl("patch", "node", name, "--type=merge", "-p", json.dumps({
+        "metadata": {"uid": current["metadata"]["uid"],
+                     "resourceVersion": current["metadata"]["resourceVersion"],
+                     "labels": {"brewlet.test/pool": h.run_id,
+                                "brewlet.sh/runtime": "ready",
+                                "brewlet.sh/runtime." + IDS["python"]: "ready"}}}))
+    proof = h.wait("returning host advertisements withdrawn without claim adoption", lambda:
+        returning_registration(original, h.get("node", name), h.get("nodeprofile", h.profile)))
+    identity = lease["runtime"]
+    h.node_exec_on(name, "test", "-f",
+                  f"{STORE}/{identity['id']}/{identity['inventoryUID']}/{identity['generation']}/rootfs/.brewlet-source")
+    pod = h.pod("retirement-return-canary", "python")
+    pod["spec"]["nodeSelector"]["kubernetes.io/hostname"] = name
+    applied = h.apply(pod)
+
+    def blocked():
+        observed = h.get("pod", "retirement-return-canary", h.namespace)
+        require(observed["metadata"]["uid"] == applied["metadata"]["uid"]
+                and not observed["spec"].get("nodeName"),
+                "application scheduled onto quarantined returning host")
+        return any(event.get("involvedObject", {}).get("uid") == applied["metadata"]["uid"]
+                   and event.get("reason") == "FailedScheduling"
+                   for event in h.get("events", namespace=h.namespace)["items"])
+
+    h.wait("real scheduler blocks returning-host canary", blocked, timeout=90)
+    h.delete("pod", "retirement-return-canary", h.namespace)
+    h.wait("returning-host canary is deleted normally", lambda:
+           h.get("pod", "retirement-return-canary", h.namespace, absent=True) is None)
+    h.record("same physical host returns with new UID, retained old roots and no fresh ownership",
+             {"originalNodeUID": original["metadata"]["uid"],
+              "returningNodeUID": current["metadata"]["uid"], "containerID": container,
+              "systemUUID": original.get("status", {}).get("nodeInfo", {}).get("systemUUID", ""),
+              "providerID": original.get("spec", {}).get("providerID", ""),
+              "originalObligation": proof, "realSchedulerCanaryUID": applied["metadata"]["uid"],
+              "noCleanupReceiptOrClaimMutation": True}, ["OWN-02", "OWN-03", "FENCE-01"])
+    return current
 
 
 def exercise(h):
@@ -38,7 +128,9 @@ def exercise(h):
     original = h.wait("actual original worker task", lambda: h.ready("retirement-original"))
     require(original["spec"]["nodeName"] == old, "original task was not on lost worker")
     old_lease = h.lease(original)
-    frozen, container = h.decommission_worker(old)
+    frozen = h.get("node", old)
+    returned = return_original_worker(h, old, frozen, old_lease)
+    _, container = h.decommission_worker(old)
     h.kubectl("delete", "--raw", "/api/v1/nodes/" + old, "-f", "-", input=json.dumps({
         "apiVersion": "v1", "kind": "DeleteOptions",
         "preconditions": {"uid": h.node_uids[old]}}))
@@ -85,8 +177,10 @@ def exercise(h):
         "spec": {"profileName": h.profile, "profileUID": uid, "nodeName": old,
                  "nodeUID": frozen["metadata"]["uid"], "providerID": target.get("providerID", ""),
                  "systemUUID": target.get("systemUUID", ""), "externalInstanceID": container,
-                 "platformRecord": "Exact invocation-owned Docker worker successfully destroyed "
-                                   "with docker rm -f -v; original Node UID removed afterward.",
+                 "platformRecord": "Original Node UID removed while the exact owned worker was "
+                                   "stopped; that same container returned under a new UID and was "
+                                   "quarantined. The container was then permanently destroyed with "
+                                   "docker rm -f -v and its returning Node registration removed.",
                  "permanentlyDecommissioned": True}}
     denial = h.kubectl("create", "-f", "-", "--as=" + actor,
                        input=json.dumps(evidence), check=False)
@@ -125,14 +219,15 @@ def exercise(h):
     h.record("authorized immutable external retirement survives profile deletion and real uninstall",
              {"evidenceUID": accepted["metadata"]["uid"], "originalNodeUID": frozen["metadata"]["uid"],
               "replacementNodeUID": h.node_uid, "priorRBACDenial": True,
-              "returningPhysicalHostVerified": False, "noFakeHostCleanupReceipt": True},
+              "returningPhysicalHostVerified": True,
+              "returningNodeUID": returned["metadata"]["uid"], "noFakeHostCleanupReceipt": True},
              ["OWN-03", "OWN-04"])
 
 
 def run(work):
     h = Harness(work)
     status = 1
-    h.result["gaps"].append("Focused real missing-host retirement; returning physical host not verified")
+    h.result["gaps"].append("Focused returning/missing physical-host retirement; complete combined suite is separate")
     try:
         for phase, action in (("prerequisites", h.preflight),
                               ("cluster", lambda: h.provision_cluster(workers=1)),
