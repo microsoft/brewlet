@@ -221,6 +221,35 @@ overwritten.
 
 ## Executed successfully
 
+Fresh normal provisioning at `8d16da75` now passed the complete selected Python
+runtime scenario: **20/20**, including actual source rotation, strict/security
+barriers, retained task/exec leases, events/metrics, and normal production
+root/finalizer/claim cleanup. Exact-owned fixture destruction also passed.
+The [clean current Python receipt](results/clean-local-current-python-arm64.json)
+has production-source manifest
+`a6b8e45cbf7f67f4620284f27df9c20e3bb0533c50a58f094c52d76744fe1d00`.
+This verifies the CNI-parser correction through normal installed code rather
+than the temporary diagnostic helper.
+
+The subsequent larger Ubuntu-based Java JRE fixture again exhausted available
+Docker space at its mandatory writable-volume check; the
+[failed Java receipt](results/local-java-noble-disk-exhaustion-arm64.json) stays
+failed. Its exact-owned resources were destroyed; Node.js/.NET queued behind
+it did not execute. Rather than prune unrelated cache or bypass non-root
+storage, the explicit Java fixture inputs now use smaller Temurin Alpine JRE
+roots for the **same 21.0.7+6 to 21.0.8+9 update**. Proposal 0009 explicitly
+permits JRE golden roots. No production runtime inference, launch rewriting,
+validation relaxation or application-rotation assertion changed.
+
+Both immutable parent indexes have Linux amd64 and arm64 descriptors. Actual
+unprivileged, read-only native arm64 probes confirmed both versions, and both
+derived platform-owned golden roots built with the same `65532:65532` account
+and all declared PATH directories. Account preparation now supports the
+explicit shadow-utils or BusyBox toolset; all **306** offline live-driver
+safeguards passed. These are input/pipeline checks, not the pending full
+Java node run or new native amd64 execution proof. Host Java/Maven builds
+continue to use their JDK, and every complete-suite assertion remains required.
+
 The controller build-cache change was exercised by
 `run-local-current-python-58` at `ccff9f2e`: its compiler snapshot was **105.5 MB**
 instead of the preceding **1.325 GB**. Actual Python HTTP/dependency execution,

@@ -14,6 +14,16 @@ PATH directories, file capabilities, platforms and safe extraction. A
 successful Docker build is not that validation, and must not publish Brewlet
 readiness or local authorization.
 
+The Java fixture uses the pinned Temurin Alpine **JRE** images for 21.0.7+6 and
+21.0.8+9, with both Linux amd64 and arm64 platform descriptors. A full SDK or
+Ubuntu userland is not required by the generic runtime contract; using a
+smaller explicit golden root reduces local node storage without changing any
+launch, dependency, identity, exec, rotation or cleanup assertion. Java/Maven
+producer builds still use the host JDK. The account preparation script supports
+both shadow-utils and BusyBox account tools, preserving the same app identity
+and set-ID removal policy. This is fixture image-pipeline logic, not runtime
+detection in Brewlet.
+
 Build explicitly for the architecture under test, using this directory as the
 context and an invocation-owned tag, for example:
 

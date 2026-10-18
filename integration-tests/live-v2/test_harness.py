@@ -66,6 +66,36 @@ class ProjectWork(unittest.TestCase):
 
 
 class SafetyTests(ProjectWork):
+    def test_runtime_fixture_account_pipeline_preserves_identity_with_both_toolsets(self):
+        self.work.mkdir()
+        for toolset in ("shadow", "busybox"):
+            with self.subTest(toolset=toolset):
+                tools = self.work / toolset
+                tools.mkdir()
+                calls = tools / "calls"
+                names = (("useradd", "groupadd", "userdel", "groupdel")
+                         if toolset == "shadow" else ("adduser", "addgroup", "deluser", "delgroup"))
+                for name in (*names, "getent", "find"):
+                    program = tools / name
+                    program.write_text('#!/bin/sh\nprintf "%s %s\\n" "${0##*/}" "$*" >> "$CALLS"\n')
+                    program.chmod(0o755)
+                subprocess.run(
+                    ["/bin/sh", str(h.FIXTURES / "runtimes/prepare-root.sh")],
+                    check=True, env={"PATH": str(tools), "CALLS": str(calls)},
+                )
+                recorded = calls.read_text()
+                if toolset == "shadow":
+                    self.assertIn("groupadd --gid 65532 app", recorded)
+                    self.assertIn("useradd --uid 65532 --gid app --home-dir /home/app --create-home --shell /usr/sbin/nologin app", recorded)
+                    self.assertIn("userdel app", recorded)
+                    self.assertIn("groupdel app", recorded)
+                else:
+                    self.assertIn("addgroup -g 65532 app", recorded)
+                    self.assertIn("adduser -D -u 65532 -G app -h /home/app -s /sbin/nologin app", recorded)
+                    self.assertIn("deluser app", recorded)
+                    self.assertIn("delgroup app", recorded)
+                self.assertIn("find / -xdev -type f -perm /6000 -exec chmod ug-s {} +", recorded)
+
     def inventory(self):
         return {"apiVersion": h.API, "kind": "RuntimeImage",
                 "metadata": {"name": "runtime", "uid": "inventory-uid", "generation": 7,
