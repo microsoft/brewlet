@@ -3,6 +3,7 @@
 
 import argparse
 import copy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
@@ -11,7 +12,7 @@ import signal
 import tomllib
 
 import delivery
-from harness import FENCE, IDS, STORE, Failure, Harness, require
+from harness import FENCE, IDS, ROOT, STORE, Failure, Harness, require
 
 
 def unsafe_retention_config(dumped):
@@ -36,8 +37,70 @@ def file_digest(h):
     return value[0]
 
 
+def protected_cache_roots(state):
+    roots = state.get("layerRoots")
+    require(isinstance(roots, list) and roots
+            and all(isinstance(root, str) and re.fullmatch(
+                r"/var/lib/brewlet/layers/v[0-9]+-[0-9]+-[0-9a-f]{64}/rootfs", root)
+                    for root in roots), "actual initial state has unsafe/missing cache provenance")
+    return roots
+
+
+def cache_lifetime(h, pod):
+    lease = h.lease(pod)
+    task = lease["taskID"]
+    state = json.loads(h.node_exec("cat", f"{STORE}/.tasks/{task}/initial.json").stdout)
+    roots = protected_cache_roots(state)
+    receipts = [json.loads(h.node_exec("cat", root.removesuffix("/rootfs") + "/receipt.json").stdout)
+                for root in roots]
+    eligible = max(datetime.fromisoformat(r["publishedAt"].replace("Z", "+00:00"))
+                   for r in receipts) + timedelta(seconds=6)
+    h.wait("positive real cache grace and multiple normal sweep periods elapse",
+           lambda: datetime.now(timezone.utc) >= eligible)
+    for root in roots:
+        h.node_exec("test", "-d", root)
+    h.assert_report(h.http("activation-probe"), "python", arguments=[], cwd="/app")
+    h.record("actual durable task and live mounts retain persistent layers beyond positive GC grace",
+             {"taskID": task, "layerRoots": roots, "publicationReceipts": receipts,
+              "noReceiptOrClockMutation": True}, ["RUN-06"])
+    h.delete("pod", "activation-probe", h.namespace)
+    h.wait("activation probe drains normally", lambda:
+           h.get("pod", "activation-probe", h.namespace, absent=True) is None)
+    h.wait("actual task lease disappears before unreferenced cache collection", lambda:
+           h.node_exec("test", "!", "-e", f"{STORE}/.tasks/{task}/lease.json",
+                       check=False).returncode == 0)
+    h.wait("normal fenced worker collects actual unreferenced expired layer entries", lambda:
+           all(h.node_exec("test", "!", "-e", root.removesuffix("/rootfs"),
+                           check=False).returncode == 0 for root in roots))
+    canonical = h.app_images["python"]
+    h.apply(h.pod("cache-recreated", "python"))
+    current = h.wait("same immutable artifact rematerializes after actual cache GC",
+                     lambda: h.ready("cache-recreated"))
+    h.assert_report(h.http("cache-recreated"), "python", arguments=[], cwd="/app")
+    recreated = h.lease(current)
+    state = json.loads(h.node_exec("cat", f"{STORE}/.tasks/{recreated['taskID']}/initial.json").stdout)
+    require(protected_cache_roots(state) == roots and h.app_images["python"] == canonical,
+            "cache recreation changed digest/policy roots or republished the application")
+    for root, original in zip(roots, receipts):
+        receipt = json.loads(h.node_exec("cat", root.removesuffix("/rootfs") + "/receipt.json").stdout)
+        require(receipt["digest"] == original["digest"] and receipt["diffId"] == original["diffId"]
+                and receipt["publishedAt"] != original["publishedAt"],
+                "cache recreation did not reverify immutable layer identity")
+    h.record("normal post-drain cache GC and same-artifact verified rematerialization succeed",
+             {"originalTaskID": task, "replacementTaskID": recreated["taskID"],
+              "applicationImage": canonical, "layerRoots": roots}, ["RUN-06"])
+    h.delete("pod", "cache-recreated", h.namespace)
+    h.wait("replacement cache task drains normally", lambda:
+           h.get("pod", "cache-recreated", h.namespace, absent=True) is None)
+
+
 def exercise(h, original):
     digest = hashlib.sha256(original.encode()).hexdigest()
+    h.run(["helm", "--kubeconfig", h.kubeconfig, "--kube-context", h.context,
+           "upgrade", h.cluster, ROOT / "kubernetes/charts/brewlet", "-n", h.control_namespace,
+           "--reuse-values", "--set", "provisioner.gc.grace=2s",
+           "--set", "provisioner.gc.sweepInterval=1s", "--wait", "--timeout", "180s"],
+          timeout=240)
     h.kubectl("label", "node", h.node, "brewlet.test/pool=" + h.run_id)
     h.kubectl("taint", "node", h.node, FENCE + "=provisioning:NoSchedule")
     profile = h.profile_object()
@@ -78,13 +141,11 @@ def exercise(h, original):
     require(section["discard_unpacked_layers"] is False,
             "effective retention was not restored before first Create")
     h.apply(h.pod("activation-probe", "python"))
-    h.wait("fresh application genuinely starts after managed repair", lambda: h.ready("activation-probe"))
+    pod = h.wait("fresh application genuinely starts after managed repair", lambda: h.ready("activation-probe"))
     h.assert_report(h.http("activation-probe"), "python", arguments=[], cwd="/app")
     h.record("managed activation enables effective packed retention before a real cold application",
              {"originalConfigSHA256": digest}, ["RUN-10"])
-    h.delete("pod", "activation-probe", h.namespace)
-    h.wait("activation probe drains normally", lambda:
-           h.get("pod", "activation-probe", h.namespace, absent=True) is None)
+    cache_lifetime(h, pod)
     h.delete("nodeprofile", h.profile)
     h.wait("managed activation production cleanup finalizes", lambda:
            h.get("nodeprofile", h.profile, absent=True) is None)

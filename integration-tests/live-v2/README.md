@@ -201,6 +201,10 @@ readiness. A normal profile spec correction to `validated` must repair effective
 retention before a real cold application starts. Normal production cleanup must
 restore the exact original SHA-256 and live containerd service, not just an
 equivalent rendered config. Offline transform tests are not activation proof.
+The same case uses positive `2s`/`1s` production GC settings to retain actual
+leased layer entries beyond grace, then observes normal post-drain collection
+and verified rematerialization of the unchanged application. It reads original
+receipts and real time; it never edits publication times, task leases or clocks.
 
 The stale-pin uninstall case creates its profile through the actual Helm chart,
 not by fabricating release ownership:

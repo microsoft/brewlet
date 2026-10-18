@@ -3,11 +3,19 @@
 import unittest
 import tomllib
 
-from activation import unsafe_retention_config
+from activation import protected_cache_roots, unsafe_retention_config
 from harness import Failure
 
 
 class ActivationFixtureTests(unittest.TestCase):
+    def test_cache_provenance_requires_actual_canonical_digest_policy_roots(self):
+        root = "/var/lib/brewlet/layers/v2-3-" + "a" * 64 + "/rootfs"
+        self.assertEqual(protected_cache_roots({"layerRoots": [root]}), [root])
+        for roots in (None, [], ["/other/rootfs"], [root + "/../other"], [root, None],
+                      root, [root.replace("a" * 64, "bad")]):
+            with self.subTest(roots=roots), self.assertRaises(Failure):
+                protected_cache_roots({"layerRoots": roots})
+
     def test_only_exact_effective_retention_field_changes(self):
         for version, section in (
                 (2, "plugins.'io.containerd.grpc.v1.cri'.containerd"),
