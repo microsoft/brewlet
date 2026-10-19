@@ -39,6 +39,7 @@ case "$(docker info --format '{{.Architecture}}')" in
   *) echo "Unsupported Docker CPU architecture" >&2; exit 1 ;;
 esac
 export ARCH
+export DOCKER_DEFAULT_PLATFORM="linux/$ARCH"
 if kind get clusters | grep -Fxq "$CLUSTER"; then
   echo "Refusing an existing cluster name" >&2; exit 1
 fi
@@ -99,12 +100,15 @@ kind create cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG" \
   --wait 180s
 export NODE="$CLUSTER-control-plane"
 NODE_ID="$(docker inspect --format '{{.Id}}' "$NODE")"
+NODE_IMAGE_ID="$(docker inspect --format '{{.Image}}' "$NODE_ID")"
+test "$(docker image inspect --format '{{.Architecture}}' "$NODE_IMAGE_ID")" = "$ARCH"
 export NODE_UID="$(k get node "$NODE" -o jsonpath='{.metadata.uid}')"
 nodecmd() {
   test "$(k get node "$NODE" -o jsonpath='{.metadata.uid}')" = "$NODE_UID"
   test "$(docker inspect --format '{{.Id}} {{index .Config.Labels "io.x-k8s.kind.cluster"}}' "$NODE_ID")" = "$NODE_ID $CLUSTER"
   docker exec "$NODE_ID" "$@"
 }
+test "$(nodecmd stat -fc %T /sys/fs/cgroup)" = cgroup2fs
 kind load docker-image --name "$CLUSTER" "$CONTROL" "$WORKER"
 for item in application runtime-before runtime-after; do
   layout="$WORK/$item"

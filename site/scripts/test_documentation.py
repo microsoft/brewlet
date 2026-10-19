@@ -52,6 +52,8 @@ class DocumentationTests(unittest.TestCase):
         self.assertNotIn("javac ", script)
         self.assertIn("git archive HEAD", script)
         self.assertIn("--target artifact", script)
+        self.assertIn('export DOCKER_DEFAULT_PLATFORM="linux/$ARCH"', script)
+        self.assertIn('docker image inspect --format \'{{.Architecture}}\' "$NODE_IMAGE_ID"', script)
         producer = (ROOT / "examples/local/producer.Dockerfile").read_text()
         self.assertIn("chmod 0755 /example /example/app", producer)
         self.assertIn("--mount=type=tmpfs,target=/package", producer)
