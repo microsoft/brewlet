@@ -93,6 +93,14 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           <li><h3>Publish the application</h3><p>Package explicit app/dependency layers under <code>/app</code>, a versioned <code>launch.json</code> and declared OCI platforms. The CLI never guesses the language.</p></li>
           <li><h3>Select, schedule, compose</h3><p>Use a normal Deployment with <code>runtimeClassName: brewlet</code> and one runtime ID. The shim validates the artifact, leases a runtime generation and delegates to runc.</p></li>
         </ol>
+        <figure id="architecture" class="architecture-diagram" aria-labelledby="architecture-diagram-title">
+          <h3 id="architecture-diagram-title">How the pieces fit</h3>
+          <picture>
+            <source media="(max-width: 760px)" srcset="assets/images/architecture-mobile.svg" width="360" height="1080">
+            <img src="assets/images/architecture-desktop.svg" width="1160" height="710" loading="lazy" decoding="async" alt="Brewlet 2.0 architecture: containerd pulls the application artifact, infrastructure provisions the runtime generation, and the shim validates, leases and composes them before delegating to runc. Kubernetes schedules ordinary workloads; the operator reconciles runtime infrastructure.">
+          </picture>
+          <figcaption>The application is the workload; the runtime is infrastructure. Containerd pulls the application image. Only the fenced provisioner installs runtime roots; the shim uses verified local content. <a href="assets/images/architecture-desktop.svg">Open full-size diagram</a> · <a href="assets/images/architecture.excalidraw" download>Download editable source</a></figcaption>
+        </figure>
         <div class="architecture-note"><strong>Installed when you need it.</strong><p>Choose Eager for a warm pool, or OnDemand to validate baseline readiness before fetching runtime roots. A bounded first-use wait lets kubelet retry installation without running unvalidated application code.</p><a href="docs/runtime-images/">Explore runtime inventory <span aria-hidden="true">→</span></a></div>
       </div>
     </section>

@@ -11,6 +11,14 @@ documentation is explicitly excluded from the current site. The comparison
 draft is rendered without modifying its source; repository-file links become
 branch-specific GitHub source links through the documented hook.
 
+The landing page includes responsive desktop/mobile SVG architecture diagrams,
+in main's schematic style but with the 2.0 runtime-infrastructure contract.
+They distinguish CRI application pulls, operator reconciliation of node workers,
+fenced runtime provisioning and the shim's local validation/lease/composition.
+`assets/images/architecture.excalidraw` is the editable desktop topology source;
+the mobile SVG rearranges the same flow for narrow screens. Both SVGs have
+accessible descriptions and follow the embedding page's light/dark color scheme.
+
 ## Build and preview
 
 ```sh

@@ -79,6 +79,9 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .workflow li::marker { color: var(--cp-accent); font-weight: 700; }
 .workflow li h3 { display: inline; }
 .workflow li p { margin-top: 1rem; color: var(--cp-text-muted); font-size: .9375rem; }
+.architecture-diagram { margin: 2.5rem 0 0; padding-top: 2rem; border-top: 1px solid var(--cp-border); }
+.architecture-diagram img { display: block; width: 100%; height: auto; }
+.architecture-diagram figcaption { max-width: 90ch; margin-top: 1rem; color: var(--cp-text-muted); font-size: .875rem; }
 .architecture-note { margin-top: 2.5rem; padding-top: 2rem; border-top: 1px solid var(--cp-border); display: grid; grid-template-columns: 1fr 2fr; gap: .5rem 2.5rem; }
 .architecture-note p { margin-bottom: .5rem; color: var(--cp-text-muted); }
 .architecture-note a { grid-column: 2; }

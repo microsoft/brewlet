@@ -21,6 +21,9 @@ class Page(HTMLParser):
         for key in ("href", "src"):
             if attributes.get(key):
                 self.links.append((tag, attributes[key]))
+        for source in attributes.get("srcset", "").split(","):
+            if source.strip():
+                self.links.append((tag, source.strip().split()[0]))
 
 
 def check(root):

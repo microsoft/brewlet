@@ -83,6 +83,42 @@ class SiteTests(unittest.TestCase):
         self.assertEqual(page.links, [("a", "docs/#runtime")])
         self.assertEqual(page.ids, {"runtime"})
 
+    def test_architecture_diagrams_preserve_generic_execution_boundaries(self):
+        import json
+        from xml.etree import ElementTree
+        images = ROOT / "site/assets/images"
+        for name in ("architecture-desktop.svg", "architecture-mobile.svg"):
+            with self.subTest(diagram=name):
+                svg = ElementTree.fromstring((images / name).read_text())
+                text = " ".join(svg.itertext())
+                ids = [element.attrib["id"] for element in svg.iter() if "id" in element.attrib]
+                self.assertEqual(len(ids), len(set(ids)))
+                for required in ("RuntimeImage", "NodeProfile", "containerd", "Brewlet shim",
+                                 "Fenced provisioner", "runc", "generation"):
+                    self.assertIn(required, text)
+                for forbidden in ("JavaApplication", "java -jar", "/opt/jdk", "Two owners"):
+                    self.assertNotIn(forbidden, text)
+                for node in ("worker", "containerd", "provisioner", "runtime-root", "shim", "sandbox"):
+                    self.assertIn(node, ids)
+        source = json.loads((images / "architecture.excalidraw").read_text())
+        self.assertEqual(source["type"], "excalidraw")
+        source_ids = [element["id"] for element in source["elements"]]
+        self.assertEqual(len(source_ids), len(set(source_ids)))
+        for element in source["elements"]:
+            if element["type"] == "text":
+                self.assertGreater(element["width"], 0)
+                self.assertGreater(element["height"], 0)
+                self.assertEqual(element["strokeColor"], "#000000")
+        worker = next(element for element in source["elements"] if element["id"] == "worker")
+        self.assertEqual(worker["backgroundColor"], "transparent")
+
+    def test_responsive_diagram_source_is_checked_as_a_local_link(self):
+        spec = importlib.util.spec_from_file_location("site_check", Path(__file__).with_name("check.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        page = module.Page('<source srcset="assets/mobile.svg"><img src="assets/desktop.svg">')
+        self.assertEqual(page.links, [("source", "assets/mobile.svg"), ("img", "assets/desktop.svg")])
+
 
 if __name__ == "__main__":
     unittest.main()

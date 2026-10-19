@@ -1,0 +1,84 @@
+<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="1080" viewBox="0 0 360 1080" role="img" aria-labelledby="architecture-title architecture-description">
+  <title id="architecture-title">Brewlet 2.0 architecture on a worker node</title>
+  <desc id="architecture-description">Application publication sends code, dependencies and launch.json to an OCI registry. RuntimeImage and NodeProfile are reconciled by the operator as infrastructure. A native workload explicitly selects the runtime ID and Kubernetes schedules its Pod. On the worker, containerd CRI pulls application content; the fenced provisioner acquires and validates an immutable runtime generation. The shim verifies the application, authorizes and leases that root, composes the filesystem and delegates to runc. Runtime provisioning is an infrastructure operation independent of application publication.</desc>
+  <style>
+    :root{color-scheme:light;--cp-bg:#fffdf9;--cp-surface:#fff;--cp-elevated:#fbf4e6;--cp-border:#e7dcc9;--cp-text:#2a1f18;--cp-muted:#6b5d51;--cp-accent:#6f4e37;--cp-link:#326ce5}
+    @media(prefers-color-scheme:dark){:root{color-scheme:dark;--cp-bg:#2a1f18;--cp-surface:#3b241a;--cp-elevated:#553524;--cp-border:#8a6244;--cp-text:#f5e6c8;--cp-muted:#e7dcc9;--cp-accent:#f5e6c8;--cp-link:#a8c3ff}}
+    text{font-family:"Segoe UI",Aptos,Calibri,sans-serif;fill:var(--cp-text)}
+    .box{fill:var(--cp-surface);stroke:var(--cp-border);stroke-width:1.2}
+    .worker{fill:var(--cp-elevated);stroke:var(--cp-border);stroke-width:1.2}
+    .application{stroke:var(--cp-link)}
+    .runtime{stroke:var(--cp-accent)}
+    .title{font-size:15px;font-weight:700}
+    .body{font-size:12px;fill:var(--cp-muted)}
+    .label{font-size:11px;font-weight:600;fill:var(--cp-muted)}
+    .lane{font-size:13px;font-weight:700}
+    .code{font-family:Consolas,"Courier New",monospace;font-size:11px;fill:var(--cp-muted)}
+    .flow{fill:none;stroke:var(--cp-link);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+    .runtime-flow{fill:none;stroke:var(--cp-accent);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+  </style>
+  <defs>
+    <marker id="application-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 7 3.5 0 7Z" fill="var(--cp-link)"/></marker>
+    <marker id="runtime-arrow" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 7 3.5 0 7Z" fill="var(--cp-accent)"/></marker>
+  </defs>
+  <text class="lane" x="20" y="24">Application delivery</text>
+  <g id="publisher">
+    <rect class="box application" x="20" y="40" width="320" height="82" rx="10"/>
+    <text class="title" x="36" y="67">Application publisher → OCI registry</text>
+    <text class="body" x="36" y="90">Code + dependencies + launch.json</text>
+    <text class="body" x="36" y="109">Explicit platforms · digest-addressed image</text>
+  </g>
+  <path class="flow" d="M340 81H352V545H320" marker-end="url(#application-arrow)"/>
+  <text class="lane" x="20" y="161">Runtime infrastructure</text>
+  <g id="inventory">
+    <rect class="box runtime" x="20" y="177" width="320" height="90" rx="10"/>
+    <text class="title" x="36" y="204">RuntimeImage + NodeProfile</text>
+    <text class="body" x="36" y="227">Approved source + account + pool policy</text>
+    <text class="body" x="36" y="248">Brewlet operator reconciles node workers</text>
+  </g>
+  <path class="runtime-flow" d="M20 222H8V645H40" marker-end="url(#runtime-arrow)"/>
+  <text class="lane" x="20" y="306">Native Kubernetes</text>
+  <g id="workload">
+    <rect class="box" x="20" y="322" width="320" height="90" rx="10"/>
+    <text class="title" x="36" y="349">Native workload / Pod</text>
+    <text class="code" x="36" y="371">runtimeClassName: brewlet</text>
+    <text class="body" x="36" y="393">Explicit runtime ID · admission + scheduler</text>
+  </g>
+  <path class="flow" d="M180 412V460" marker-end="url(#application-arrow)"/>
+  <text class="label" x="194" y="440">schedules Pod</text>
+
+  <rect id="worker" class="worker" x="20" y="460" width="320" height="592" rx="12"/>
+  <text class="lane" x="40" y="488">Linux worker · runtime as infrastructure</text>
+  <g id="containerd">
+    <rect class="box application" x="40" y="510" width="280" height="70" rx="8"/>
+    <text class="title" x="56" y="538">containerd CRI</text>
+    <text class="body" x="56" y="561">Pull app image · verified local content</text>
+  </g>
+  <path class="flow" d="M40 545H28V730H40" marker-end="url(#application-arrow)"/>
+  <g id="provisioner">
+    <rect class="box runtime" x="40" y="610" width="280" height="70" rx="8"/>
+    <text class="title" x="56" y="638">Fenced provisioner</text>
+    <text class="body" x="56" y="661">Acquire + validate approved runtime</text>
+  </g>
+  <path class="runtime-flow" d="M320 645H332V875H320" marker-end="url(#runtime-arrow)"/>
+  <g id="shim">
+    <rect class="box application" x="40" y="710" width="280" height="80" rx="8"/>
+    <text class="title" x="56" y="736">Brewlet shim</text>
+    <text class="body" x="56" y="758">Verify artifact · authorize runtime</text>
+    <text class="body" x="56" y="777">Lease generation · compose root</text>
+  </g>
+  <g id="runtime-root">
+    <rect class="box runtime" x="40" y="840" width="280" height="70" rx="8"/>
+    <text class="title" x="56" y="868">Immutable runtime generation</text>
+    <text class="body" x="56" y="891">ID + inventory UID + generation</text>
+  </g>
+  <path class="runtime-flow" d="M180 840V790" marker-end="url(#runtime-arrow)"/>
+  <text class="label" x="193" y="820">lease root</text>
+  <path class="flow" d="M40 770H28V990H40" marker-end="url(#application-arrow)"/>
+  <g id="sandbox">
+    <rect class="box application" x="40" y="950" width="280" height="80" rx="8"/>
+    <text class="title" x="56" y="979">runc sandbox</text>
+    <text class="body" x="56" y="1002">Application process · Pod network · cgroups</text>
+  </g>
+</svg>

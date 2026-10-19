@@ -43,6 +43,13 @@ async function main() {
   await page.goto(base, {waitUntil: "networkidle"});
   assert.equal(await page.title(), "Brewlet 2.0 — Ship the app. Share the runtime.");
   assert.equal(await page.locator(".menu-toggle").isVisible(), false);
+  const diagram = page.locator(".architecture-diagram");
+  const architecture = diagram.locator("img");
+  await diagram.scrollIntoViewIfNeeded();
+  await architecture.evaluate(image => image.decode());
+  assert.match(await architecture.evaluate(image => image.currentSrc), /architecture-desktop\.svg$/);
+  assert.equal(await architecture.evaluate(image => image.naturalWidth), 1160);
+  await diagram.screenshot({path: path.join(output, "architecture-desktop.png")});
   for (const [language, executable] of [["Python", "python3"], ["Java", "java"], ["Node.js", "node"], [".NET", "dotnet"]]) {
     await page.getByRole("tab", {name: language, exact: true}).click();
     const descriptor = JSON.parse(await page.locator("#launch-code").textContent());
@@ -63,9 +70,19 @@ async function main() {
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
   await page.reload({waitUntil: "networkidle"});
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
+  await diagram.scrollIntoViewIfNeeded();
+  await architecture.evaluate(image => image.decode());
+  await diagram.screenshot({path: path.join(output, "architecture-desktop-dark.png")});
   await page.screenshot({path: path.join(output, "desktop-dark.png"), fullPage: true});
   await page.setViewportSize({width: 390, height: 844});
   await page.goto(base + "?clawpilotTheme=light", {waitUntil: "networkidle"});
+  await diagram.scrollIntoViewIfNeeded();
+  await architecture.evaluate(image => image.decode());
+  assert.match(await architecture.evaluate(image => image.currentSrc), /architecture-mobile\.svg$/);
+  assert.equal(await architecture.evaluate(image => image.naturalWidth), 360);
+  assert.equal(await architecture.evaluate(image => image.getBoundingClientRect().width <= innerWidth), true);
+  await diagram.screenshot({path: path.join(output, "architecture-mobile.png")});
+  await page.evaluate(() => scrollTo(0, 0));
   assert.equal(await page.locator("#site-nav").isVisible(), false);
   await page.getByRole("button", {name: "Menu", exact: true}).click();
   assert.equal(await page.locator("#site-nav").isVisible(), true);
@@ -122,7 +139,7 @@ async function main() {
   assert.equal(await fallback.getByRole("heading", {level: 1}).isVisible(), true);
   await noScript.close();
   assert.deepEqual(errors, []);
-  console.log("Browser checks passed: desktop/mobile, both themes, examples/keyboard, clipboard, FAQ, navigation, docs/search, preview prefix, no-JS fallback.");
+  console.log("Browser checks passed: desktop/mobile architecture assets, both themes, examples/keyboard, clipboard, FAQ, navigation, docs/search, preview prefix, no-JS fallback.");
   console.log("Screenshots: " + output);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
