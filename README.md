@@ -5,15 +5,14 @@ Clean-slate implementation of
 referenced at main commit
 `fa7085335b220e29df6affbece4558c5f1259ecb`.
 
-**Upstream-runtime amendment in progress.** The approved 2026-10-19 revision
-removes unnecessary account/PATH conventions and adds isolated `/app`
-composition. The strict acceptance gate includes its new proof obligations;
-historical acceptance alone does not verify this revision.
-
-**Previous-contract local acceptance verified.** All original 101 requirements in the
+**Amended local implementation acceptance verified.** All 107 requirements in the
 [acceptance ledger](acceptance/requirements.json) have scoped successful
-evidence. The final local four-language run passed 82 assertions, with separate
-cold-install, returning-host, capacity, uninstall and lifecycle companions.
+evidence. The approved upstream-runtime amendment removes mandatory named
+accounts, home directories and PATH for absolute execution, and isolates `/app`
+without changing approved roots. The unchanged distroless companion passed 28
+assertions; the amended full-userland four-language regression passed 82.
+Separate cold-install, returning-host, capacity, uninstall and lifecycle
+companions retain their explicitly scoped baseline evidence.
 See [exact sources, commands and results](acceptance/RESULTS.md).
 This is not a claim of cloud-provider autoscaling certification, physical
 alternate-architecture hardware execution, or a published stable release.

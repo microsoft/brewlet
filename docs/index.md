@@ -42,9 +42,11 @@ Existing non-Brewlet workloads continue to use their ordinary runtime.
 
 ## Know what is verified
 
-The final local complete suite passed 82 selected assertions and the separate
-cold-install suite passed 13. A 101-requirement ledger combines these with
-producer, native-kernel and real-node companion evidence.
+The amended local full-userland suite passed 82 selected assertions and the
+unchanged-upstream distroless companion passed 28. The baseline cold-install
+companion passed 13. A 107-requirement ledger combines explicitly scoped
+producer, native-kernel and real-node evidence; historical acceptance is not
+relabeled as proof of the revised image-shape rules.
 
 That is not a stable release, cloud-provider autoscaling certification or a
 performance benchmark. Read the [verification boundaries](verification.md)

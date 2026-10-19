@@ -8,8 +8,8 @@ and [exact commands, sources and scoped results](https://github.com/microsoft/br
 
 | Evidence | Scope |
 | --- | --- |
-| 101 reconciled requirements | Aggregate Proposal 0009 requirements-to-evidence mapping. |
-| 82-assertion final complete run | Four languages, delivery, rotation, CRI accounting/eviction, controllers and normal cleanup. |
+| 107 reconciled requirements | Original 101 plus six approved amendment obligations, with changed image-shape rules reverified. |
+| 82-assertion amended full-userland run | Four languages, delivery, rotation, CRI accounting/eviction, controllers, invalid-PATH Eager failure and normal cleanup. |
 | 13-assertion final cold companion | Two actual nodes, held authenticated transfer, real Create/workload deadline and recovery. |
 | 18-assertion focused lifecycle companion | Genuine orphan Exec retention, failed-install recovery, exact signal/exit behavior and reversal. |
 | Separate returning-host/capacity/uninstall runs | Physical filesystem return under a new Node UID, Pending capacity, and actual cleanup refusal. |
@@ -20,7 +20,8 @@ The upstream-runtime amendment adds six obligations to the historical
 101-requirement baseline. Its source pins are recorded in the
 [upstream matrix](https://github.com/microsoft/brewlet/blob/brewlet-2.0/integration-tests/fixtures/runtimes/upstream.json).
 The original full-userland results alone do not verify the amended image-shape
-rules; the amended full-userland regression is tracked separately in the ledger.
+rules; the fresh amended full-userland regression has its own successful
+receipt and normal production-cleanup evidence.
 
 Each selected-suite receipt deliberately retains `fullAcceptance:false`; no
 single suite is presented as proof of the entire proposal. Failed attempts

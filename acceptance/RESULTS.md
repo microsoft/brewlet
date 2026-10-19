@@ -1,9 +1,18 @@
 # Brewlet 2.0 validation status
 
-**Approved upstream-runtime amendment (2026-10-19): full-userland regression in
-progress.** Five of six amendment obligations are verified; the active ledger
-has 107 requirements and one remaining obligation. The historic 101-row baseline
+**Approved upstream-runtime amendment (2026-10-19): local implementation
+acceptance verified.** All six amendment obligations and the active
+107-requirement ledger have scoped successful evidence. The historic baseline
 below is not used alone to verify revised image-shape rules.
+
+`run-local-amended-complete-83` additionally passed **82 selected full-userland
+assertions**, normal production cleanup, a real controller claim-release CAS
+conflict with fresh revalidation, and exact-owned destruction. Its
+[public receipt](results/amended-full-userland-arm64.json) covers all four
+languages, actual vendor updates, retained security and lease checks, CRI
+accounting/eviction, controller/provider refusal and the revised invalid-PATH
+Eager-root failure. The removed named-account requirement is not retained as a
+bogus negative or waived assertion.
 
 `run-local-upstream-82` passed **28 selected assertions**, normal production
 profile cleanup and exact-owned destruction. The public
@@ -36,8 +45,8 @@ surviving Exec; 81 raced a short-lived readiness process during PID enumeration.
 Their exported receipts remain separate, failed and unmodified in `results/`.
 No production authorization, lease, finalizer or cleanup receipt was forged.
 
-Current native Linux suites passed without skips: **82 node**, **122
-provisioner**, and **52 shim** cases/subcases. The shim suite includes nine
+Current native Linux suites passed without skips: **97 artifact**, **82 node**,
+**122 provisioner**, and **52 shim** cases/subcases. The shim suite includes nine
 real-kernel combinations of runtime `/app` directory/file/symlink and ordinary,
 opaque or whiteout payloads. Reproduce using the isolated security/mount recipe
 in `.github/workflows/v2-ci.yml` with the current compiled tests and conformance
@@ -45,6 +54,13 @@ mount; the local pinned userland was
 `docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258`.
 Host Go race tests, host/Linux vet, Linux amd64/arm64 builds, Maven verification,
 offline evidence safeguards and strict website build/browser checks also passed.
+There were 319 live-driver offline safeguards and 11 acceptance-ledger tests.
+Both physical suites recorded production-source manifest
+`40c471cb83b9e0864a0359ca6ed8b7cfd4d6eae9d4edaae821cf4312d5fa99a9`.
+Readback against the final working tree confirmed no compiled production-source
+changes: only the later provisioner README and expanded native boundary test
+differed within those snapshots. No source hash is presented as a clean-checkout
+commit hash, and no remote workflow execution is inferred from local results.
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/upstream.py \
