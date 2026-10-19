@@ -52,6 +52,8 @@ class DocumentationTests(unittest.TestCase):
         self.assertNotIn("javac ", script)
         self.assertIn("git archive HEAD", script)
         self.assertIn("--target artifact", script)
+        producer = (ROOT / "examples/local/producer.Dockerfile").read_text()
+        self.assertIn("chmod 0755 /example /example/app", producer)
 
     def test_helm_documentation_tracks_every_current_leaf_value(self):
         import yaml

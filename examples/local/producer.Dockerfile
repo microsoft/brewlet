@@ -9,6 +9,7 @@ COPY kubernetes/api/ kubernetes/api/
 COPY kubernetes/policy/ kubernetes/policy/
 COPY cmd/brewlet/ cmd/brewlet/
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trimpath -o /brewlet ./cmd/brewlet
+RUN mkdir -p /example/app && chmod 0755 /example /example/app
 COPY --chmod=0644 examples/local/app/server.py /example/app/server.py
 COPY --chmod=0644 examples/local/launch.json /example/launch.json
 RUN /brewlet push example.invalid/brewlet/hello:v1 --platform "${TARGETOS}/${TARGETARCH}" \
