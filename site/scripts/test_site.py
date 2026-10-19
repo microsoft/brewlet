@@ -36,6 +36,27 @@ class SiteTests(unittest.TestCase):
         self.assertIn("assets/css/theme.css", (ROOT / "site/index.html").read_text())
         self.assertIn("../assets/css/theme.css", (ROOT / "site/mkdocs.yml").read_text())
 
+    def test_light_palette_matches_main_brand_colors(self):
+        import re
+        css = (ROOT / "site/assets/css/theme.css").read_text().split('html[data-theme="dark"]')[0]
+        tokens = dict(re.findall(r"(--cp-[\w-]+):\s*(#[0-9a-f]+);", css))
+        for token, value in {
+            "--cp-bg": "#fffdf9",
+            "--cp-bg-elevated": "#fbf4e6",
+            "--cp-surface-soft": "#f5e6c8",
+            "--cp-text": "#2a1f18",
+            "--cp-text-muted": "#6b5d51",
+            "--cp-border": "#e7dcc9",
+            "--cp-accent": "#6f4e37",
+            "--cp-accent-hover": "#553524",
+            "--cp-link": "#326ce5",
+            "--cp-link-hover": "#2350b8",
+        }.items():
+            with self.subTest(token=token):
+                self.assertEqual(tokens[token], value)
+        icon = (ROOT / "site/assets/images/favicon.svg").read_text()
+        self.assertIn("--cp-accent:#6f4e37", icon)
+
     def test_site_is_assembly_not_production_deployment(self):
         source = (ROOT / "site/scripts/build.py").read_text()
         self.assertIn('"--strict"', source)

@@ -100,7 +100,7 @@ async function main() {
   }
   const linkColors = await page.locator(".md-content .md-typeset p a").first().evaluate(element => {
     const probe = document.createElement("span");
-    probe.style.color = "var(--cp-accent)";
+    probe.style.color = "var(--cp-link)";
     document.body.append(probe);
     const colors = [getComputedStyle(element).color, getComputedStyle(probe).color];
     probe.remove();

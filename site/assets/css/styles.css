@@ -3,11 +3,11 @@
 html[data-theme="dark"] { --cp-text-muted: var(--cp-text-soft); }
 html { scroll-behavior: smooth; scroll-padding-top: 6rem; }
 body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 1rem/1.65 "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; }
-a { color: var(--cp-accent); text-underline-offset: .25em; }
-a:hover { color: var(--cp-accent-hover); }
+a { color: var(--cp-link); text-underline-offset: .25em; }
+a:hover { color: var(--cp-link-hover); }
 button { font: inherit; cursor: pointer; }
 button, a { -webkit-tap-highlight-color: var(--cp-highlight); }
-button:focus-visible, a:focus-visible, summary:focus-visible, pre:focus-visible { outline: 3px solid var(--cp-accent); outline-offset: 4px; }
+button:focus-visible, a:focus-visible, summary:focus-visible, pre:focus-visible { outline: 3px solid var(--cp-link); outline-offset: 4px; }
 [hidden] { display: none !important; }
 h1, h2, h3, p { margin-top: 0; }
 h1, h2, h3 { line-height: 1.12; text-wrap: balance; }
