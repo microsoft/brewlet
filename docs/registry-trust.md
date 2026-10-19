@@ -1,0 +1,64 @@
+# Registry access and certificate trust
+
+There are four separate trust paths. Configuring one does not configure the
+others.
+
+| Client | Purpose | Configuration responsibility |
+| --- | --- | --- |
+| Brewlet producer | Publish/inspect application and layer-set OCI graphs. | Producer credentials and host/producer CA roots. |
+| Kubelet/containerd CRI | Pull application images. | Pod/service-account imagePullSecrets and node registry trust. |
+| Node provisioner/containerd | Acquire approved runtime sources. | Reviewed node source-registry authentication, CA roots and mirror policy. |
+| Application runtime | Outbound application TLS. | Runtime/application trust store, explicit configuration and mounted trust material. |
+
+## Producer access
+
+The CLI accepts `BREWLET_REGISTRY_USERNAME`, `BREWLET_REGISTRY_PASSWORD` and
+additional trust through `SSL_CERT_FILE`. Obtain credentials through your secret
+delivery system, keep them out of descriptors and source control, and scope
+them to the intended registry. Credential forwarding is origin-bound.
+
+`--registry-scheme https` explicitly selects TLS, including a loopback TLS
+registry. `--insecure` permits HTTP; it is not a certificate-verification
+bypass. Use HTTP only for a deliberately isolated fixture or an explicitly
+reviewed environment, never as the default repair for a bad certificate.
+
+## Application pulls
+
+Use normal Kubernetes imagePullSecrets or your platform's workload registry
+integration. A Secret usable by the application namespace is not automatically
+available to a privileged runtime-source pull. Prefer digest-pinned application
+references and verify actual pull failures/events separately from root installation.
+
+The [local tutorial](local-kubernetes.md) preimports OCI content into its private
+node and uses `Never`; it intentionally does not qualify production registry
+authentication or TLS.
+
+## Runtime sources and mirrors
+
+Configure the node's reviewed containerd registry hosts/authentication before
+offering private runtime sources. The current worker supports the registry
+hosts configuration described in [the node runbook](../provisioner/README.md).
+Do not distribute registry credentials through application environment variables.
+
+`NodeProfile.spec.registry.mirrors` is governed by
+`security.allowedSourceMirrorHosts`. Destination authorities must be explicit,
+different from their source and allowlisted. Mapping a source does not change
+the approved digest or excuse missing content. Even unused malformed policies
+fail validation.
+
+For an air-gapped deployment, mirror the required platform graphs, configs and
+layers, verify digest preservation and platform coverage, and arrange trusted
+node access before readiness. A mirror declaration alone is not proof that
+offline installation works.
+
+## Application-specific or corporate CAs
+
+If all applications using an ID need shared trust, a platform may derive a
+runtime image containing approved CA roots and rotate to its reviewed digest.
+If trust is application-specific, mount CA material and select it through the
+application/runtime's documented mechanism.
+
+Java truststores, OpenSSL roots and runtime-specific trust behavior differ.
+Brewlet does not detect them, rewrite truststores or inject JVM flags.
+Adding a public CA is not the same as distributing an mTLS private key.
+Do not package private keys into world-readable application layers.

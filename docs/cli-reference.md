@@ -31,6 +31,22 @@ brewlet push registry.example.com/apps/api:v2 \
 | `--store DIRECTORY` | Write/read a local OCI layout instead of remote publication. |
 | `--push-result FILE` | Write a machine-readable immutable publication handoff. |
 
+## Command-specific options
+
+| Command/options | Contract |
+| --- | --- |
+| `index --manifest FILE` (repeatable) | Explicit OCI platform manifest descriptors; no native-payload discovery. |
+| `imagepush --store DIR --source REF_OR_DIGEST` | Choose one existing local graph; does not rebuild or apply producer trust options. |
+| `layer-set --config FILE --lock FILE` | Neutral identity/config and optional file lock; producer computes layer bindings. |
+| `layer-set --sbom FILE` | Supply the supported CycloneDX inventory instead of generating it from inputs. |
+| `layer-set --signing-key FILE --builder-identity VALUE` | PKCS#8 ECDSA-P256 signing key and explicit builder identity. Never put private keys in app layers. |
+| `--trust-key FILE` (repeatable), `--signer-identity VALUE`, `--require-provenance` | Layer-set consumption/inspection trust policy. |
+| `--registry-scheme https`, `--insecure` | Explicit transport choices; HTTP is an opt-in, not an insecure-TLS mode. |
+
+Do not pass publication/build flags to `imagepush`, or treat layer-set trust
+flags as a general application signing facility. Invalid/unsupported inputs
+return a nonzero status; there is no success-shaped compatibility fallback.
+
 ## Layer-set governance
 
 `layer-set` takes an explicit `--config`, payload layers and optional `--lock`.

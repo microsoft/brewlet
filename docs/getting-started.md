@@ -4,6 +4,12 @@ Brewlet 2.0 is a **source-built evaluation**. Do not use main's released install
 old artifacts or `JavaApplication` manifests for this branch. Use a disposable
 local environment; provisioning modifies the selected node.
 
+For the shortest path to a running service, use
+[your first local Kubernetes deployment](local-kubernetes.md). It needs no
+Java/Maven/Node/.NET SDK and demonstrates actual HTTP, runtime rotation and
+normal cleanup. The complete qualification harness below is optional
+maintainer verification, not the primary onboarding path.
+
 ## Build the CLI
 
 Use Go 1.26 or newer and Git. Maven verification additionally needs Maven and

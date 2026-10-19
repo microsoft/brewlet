@@ -1,14 +1,20 @@
 # Brewlet 2.0 operations and verification
 
-This branch is under implementation, not a deployable or production-certified
-release. Check `acceptance/requirements.json` before enabling any capability.
-The complete proposal remains normative even where code is incomplete.
+The maintained reader journeys start at [the documentation overview](index.md):
+[local deployment](local-kubernetes.md), [installation](installation.md),
+[provider templates](providers.md), [operations](operations.md) and
+[troubleshooting](troubleshooting.md).
+This source-only background index is excluded from the built site; its useful
+provider material is now published in the dedicated, reviewed provider guide.
+The branch has scoped local implementation acceptance, not a stable release or
+cloud-provider certification. Check the current ledger and
+[verification boundaries](verification.md).
 
 ## Contracts
 
 Only a reviewed `RuntimeImage` ID selects runtime bytes. Its source is a
 canonical digest-pinned image, and its Kubernetes UID establishes the inventory
-epoch. A stable ID promises compatible ABI, account, language line, PATH and
+epoch. A stable ID promises compatible ABI, numeric defaults, documented account/NSS behavior, runtime line, PATH and
 documented tools across rotations. Incompatible updates and frozen holds need
 separate administrator-owned IDs. Runtime rotations never remediate dependency
 copies packaged by the application under `/app`.
@@ -19,7 +25,8 @@ path. Workload manifests must explicitly select native-content architectures
 using standard `kubernetes.io/arch` selection; artifact platform declarations
 are not scheduler instructions. The CLI never infers either.
 
-The runtime supplies PATH. Explicit pod PATH is ignored with an admission
+The runtime supplies PATH when present; absent PATH requires absolute initial/Exec executables.
+Explicit pod PATH is ignored with an admission
 warning. Runtime Env defaults are merged with final CRI environment values.
 Initial and exec processes must share effective environment, non-root identity,
 HOME and the leased generation. Explicit argv and working-directory overrides

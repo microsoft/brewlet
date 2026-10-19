@@ -40,15 +40,40 @@ markdown_extensions:
 nav:
   - Understand:
       - Overview: index.md
-      - Main vs. Brewlet 2.0: brewlet-2-comparison.md
-  - Start:
-      - Getting started: getting-started.md
-      - Package an application: applications.md
-  - Operate:
+      - Concepts and architecture: concepts.md
+      - When to use Brewlet: choosing-brewlet.md
+      - Compatibility policy: compatibility-policy.md
+  - Try:
+      - Build and package: getting-started.md
+      - First local deployment: local-kubernetes.md
+      - Guided demonstration: demo.md
+  - Workshops:
+      - Choose your path: workshops/index.md
+      - Platform workshop: workshops/platform.md
+      - Developer workshop: workshops/developer.md
+  - Ship applications:
+      - Package and deploy: applications.md
+      - Language recipes: language-recipes.md
+      - Dependency layer sets: dependency-layer-sets.md
+      - Resources and lifecycle: resources.md
+      - Instrumentation: instrumentation.md
+  - Enable infrastructure:
+      - Source-built installation: installation.md
+      - Configuration: configuration.md
       - Runtime images and pools: runtime-images.md
-      - Rotation, security and cleanup: operations.md
+      - Providers and fencing: providers.md
+      - Multi-architecture fleets: multi-arch.md
+  - Operate:
+      - Rotation and cleanup: operations.md
+      - Security and hardening: security.md
+      - Registry and certificate trust: registry-trust.md
+      - Observability and metrics: observability.md
+      - Troubleshooting: troubleshooting.md
+      - Safe removal and recovery: uninstallation.md
       - Verification and limitations: verification.md
   - Reference:
+      - Contracts and glossary: reference.md
       - CLI reference: cli-reference.md
+      - Main vs. Brewlet 2.0: brewlet-2-comparison.md
       - Proposal 0009: https://github.com/microsoft/brewlet/blob/brewlet-2.0/specs/proposals/0009-language-agnostic-runtime-images.md
       - Source code: https://github.com/microsoft/brewlet/tree/brewlet-2.0

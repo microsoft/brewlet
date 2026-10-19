@@ -9,8 +9,14 @@ application image. Infrastructure provisions approved, digest-pinned runtime
 roots on the node, and Brewlet composes the application with its selected runtime
 when a container is created.
 
-**Start here:** [build from source](getting-started.md), [package an
-application](applications.md), or [approve a runtime and select its pools](runtime-images.md).
+**Start here:** [run your first local service](local-kubernetes.md),
+[package an application](applications.md), or
+[enable runtime infrastructure](installation.md).
+
+Choose the [developer workshop](workshops/developer.md) when a platform is
+already prepared, or the [platform workshop](workshops/platform.md) to establish
+approval, pools and a concrete handoff. Read
+[when to use Brewlet](choosing-brewlet.md) before selecting it for a workload.
 
 ## One mechanism, multiple ecosystems
 

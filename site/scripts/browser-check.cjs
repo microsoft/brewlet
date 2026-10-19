@@ -132,6 +132,16 @@ async function main() {
   await page.screenshot({path: path.join(output, "desktop-docs.png"), fullPage: true});
   await page.goto(base + "docs/brewlet-2-comparison/", {waitUntil: "networkidle"});
   assert.ok(await page.locator('a[href*="github.com/microsoft/brewlet/blob/brewlet-2.0/pkg/node/process.go"]').count() > 0);
+  for (const route of ["local-kubernetes", "configuration", "providers", "troubleshooting",
+    "workshops/platform", "workshops/developer", "observability", "security"]) {
+    await page.goto(base + "docs/" + route + "/", {waitUntil: "networkidle"});
+    assert.equal(await page.locator(".md-content h1").count(), 1);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+  await page.setViewportSize({width: 390, height: 844});
+  await page.goto(base + "docs/local-kubernetes/", {waitUntil: "networkidle"});
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({path: path.join(output, "mobile-tutorial.png"), fullPage: true});
   const noScript = await browser.newContext({javaScriptEnabled: false, viewport: {width: 390, height: 844}});
   const fallback = await noScript.newPage();
   await fallback.goto(base);

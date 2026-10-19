@@ -35,6 +35,17 @@ make build
 make acceptance
 ```
 
+The reader tutorial has separate documentation checks:
+
+```sh
+python3 site/scripts/tutorial_check.py
+```
+
+This default checks shell/step structure only. Explicit `--run` executes the
+exact guide blocks on one new private kind cluster, including HTTP, binding
+identity, source rotation, unchanged app digest and normal cleanup. It requires
+the tutorial prerequisites and is not the complete qualification suite.
+
 The strict acceptance gate checks verified evidence records. It does not create
 a cluster, rerun every receipt or certify an arbitrary deployment. Native kernel
 tests require the documented isolated Linux privileges; a portable skipped

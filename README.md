@@ -24,6 +24,13 @@ digest-pinned `RuntimeImage` inventory and per-pool `NodeProfile` placement.
 Workloads are ordinary Kubernetes resources with `runtimeClassName: brewlet`
 and an explicit `brewlet.sh/runtime-image` ID.
 
+Reader guides: [first local service](docs/local-kubernetes.md),
+[platform installation](docs/installation.md),
+[developer/platform workshops](docs/workshops/index.md),
+[configuration](docs/configuration.md) and
+[troubleshooting](docs/troubleshooting.md). The small tutorial is distinct
+from complete acceptance qualification and does not require all language SDKs.
+
 The shared `RuntimeClass/brewlet` reserves `64Mi` memory and `50m` CPU per pod
 for shim and staging overhead, identically in the raw manifest and Helm chart.
 This retains the reference reservation numerically, not its former JVM-baseline

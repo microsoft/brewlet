@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": ["/usr/bin/python3.13"],
+    "args": ["/app/server.py"],
+    "workingDir": "/app",
+    "env": [{"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}]
+  }
+}
