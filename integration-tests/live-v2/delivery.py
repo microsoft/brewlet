@@ -41,8 +41,18 @@ CONFIG = "application/vnd.oci.image.config.v1+json"
 LAYER = "application/vnd.oci.image.layer.v1.tar+gzip"
 USERNAME = "delivery-reader"
 NATIVE_SOURCE = '''package main
-import ("fmt"; "os"; "runtime"; "time")
+import ("encoding/json"; "fmt"; "os"; "runtime"; "time")
 func main() {
+ if len(os.Args)>1 && os.Args[1]=="--inspect" {
+  cwd,err:=os.Getwd(); if err!=nil { panic(err) }
+  if err:=json.NewEncoder(os.Stdout).Encode(map[string]any{"uid":os.Getuid(),"gid":os.Getgid(),"env":os.Environ(),"cwd":cwd});err!=nil{panic(err)}; return
+ }
+ if len(os.Args)>2 && os.Args[1]=="--read" {
+  data,err:=os.ReadFile(os.Args[2]); if os.IsNotExist(err) { fmt.Println("ABSENT");return };if err!=nil{panic(err)};fmt.Print(string(data));return
+ }
+ if len(os.Args)>2 && os.Args[1]=="--write" {
+  if err:=os.WriteFile(os.Args[2],[]byte("native-write"),0644);err!=nil{fmt.Fprintln(os.Stderr,err);os.Exit(7)};return
+ }
  fmt.Printf("NATIVE %s/%s\\n", runtime.GOOS, runtime.GOARCH)
  if len(os.Args)>1 && os.Args[1]=="--probe" { return }
  time.Sleep(24*time.Hour)
@@ -560,6 +570,9 @@ auth:
         return layout, finish_layout(layout, json_blob(layout, {"schemaVersion": 2, "mediaType": MANIFEST,
                                                     "config": config_descriptor, "layers": layers}, MANIFEST))
 
+    def static_layout(self, layout):
+        return static_runtime(layout)
+
     def prepare_native(self, arch):
         directory = self.work / ("native-" + arch)
         directory.mkdir(mode=0o700)
@@ -635,7 +648,7 @@ auth:
         for arch in ("amd64", "arm64"):
             self.prepare_native(arch)
         layout = self.work / "static-golden"
-        selected = static_runtime(layout)
+        selected = self.static_layout(layout)
         self.static_source = self.publish(layout, selected, "delivery/static-golden")
         self.fresh(self.static_source)
         self.h.pod = self.pod

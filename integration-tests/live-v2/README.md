@@ -47,7 +47,7 @@ Results and public exports retain `selectedScenario` and explicit omissions.
 A focused pass is not a complete-suite or full-proposal pass.
 
 Control execution also deliberately offers an approved default-Eager runtime
-whose declared non-root account disagrees with its actual golden root. The
+whose runtime config declares the forbidden `PATH=/app`. The
 real worker must reject that root without publishing `current`, keep effective
 baseline readiness withdrawn/fenced, and leave a good-runtime canary
 unscheduled. Removing the invalid required entry must release that same Pod
@@ -162,6 +162,31 @@ combined selected suite. Both exact-owned node/container identities are checked
 before host access and fixture destruction.
 
 ## Prerequisites and immutable inputs
+
+The unchanged-upstream companion uses the same private cluster/registry and
+production builds, but imports native platform manifests directly from
+`integration-tests/fixtures/runtimes/upstream.json` through the production OCI
+registry importer. Manifest, config and layer bytes are preserved; no Dockerfile
+or source container execution derives the runtime images.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/upstream.py \
+  --work integration-tests/live-v2/run-upstream-01
+```
+
+It executes shell-free Java/Python/Node applications and a native application on
+unchanged distroless roots, updates each language's approved source without
+rebuilding its app, and retains old leases. A detached Python Exec retains its
+exact PID/start/executable identity across real worker and containerd restarts,
+then completes its own code and drains. This is process/reconnection evidence,
+not a guarantee that CRI streaming connections survive daemon restart.
+Revocation, lease drain, normal profile cleanup and exact-owned destruction are
+mandatory. A separately identified synthetic root tests numeric identities,
+missing account files/PATH and populated runtime `/app`; it is **not** presented
+as an unchanged third-party source. Offline tar audits inspect verified blobs
+without extracting to the host and record actual old-contract blockers.
+This companion does not replace the full-userland .NET/security/control suite,
+and arm64 execution does not qualify physical amd64 nodes.
 
 Physical missing-host obligations and independent administrative evidence have
 their own actual-node case:

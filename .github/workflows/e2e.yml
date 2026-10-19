@@ -59,6 +59,11 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/cold_install.py --work integration-tests/live-v2/run-cold-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Unchanged distroless sources, numeric identity, isolated app and shell-free recovery
+        if: inputs.scenario == 'complete'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 integration-tests/live-v2/upstream.py --work integration-tests/live-v2/run-upstream-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Native pending capacity, boot fencing and unsupported pull
         if: inputs.scenario == 'complete'
         env:

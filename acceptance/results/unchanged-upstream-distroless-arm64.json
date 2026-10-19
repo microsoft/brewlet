@@ -1,0 +1,629 @@
+{
+  "outcome": "passed",
+  "scope": "real-node-execution-only",
+  "selectedScenario": "unchanged-upstream-distroless",
+  "selectedLanguages": [
+    "java",
+    "python",
+    "node"
+  ],
+  "cleanSelectedSuitePassed": true,
+  "fullAcceptance": false,
+  "checkout": "88781f54a27a24d1b360e140299cd8074bd067ff",
+  "productionSourceManifestSHA256": "40c471cb83b9e0864a0359ca6ed8b7cfd4d6eae9d4edaae821cf4312d5fa99a9",
+  "architecture": "arm64",
+  "kubeletPullVerified": false,
+  "tlsTransportVerified": false,
+  "providerScaleFromZeroVerified": false,
+  "kubeletRuntimeRequestTimeoutSeconds": 120,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "java": "172.18.0.11:5000/delivery/apps-java@sha256:cb474be989a79039001228b67a4549aa036633155336276f92a10ba8421d6a6a",
+    "python": "172.18.0.11:5000/delivery/apps-python@sha256:ba3d82b1a85e3b8605ab0398318075ad84040db04eaba9f875ede61285b4077b",
+    "node": "172.18.0.11:5000/delivery/apps-node@sha256:6689a47635040679820b539f4a1d95cac396b3f806a4a2ff43c785492876bd54"
+  },
+  "runtimeImages": {
+    "java": {
+      "before": "172.18.0.11:5000/delivery/runtime-java-before@sha256:5f4ce7e7d05ddf26f045fd1d8534f3c67d870fe5fe5204d8cf6940d3e440435f",
+      "after": "172.18.0.11:5000/delivery/runtime-java-after@sha256:b8b474d81065f41058d69388c59916b28c22ccbdf912594927d5b15d71807569"
+    },
+    "python": {
+      "before": "172.18.0.11:5000/delivery/runtime-python-before@sha256:495c1e84c4aafa3630585a47b09161750bac8f0dd3b4b002b36cb91dbd61902f",
+      "after": "172.18.0.11:5000/delivery/runtime-python-after@sha256:8b91f0bef7c3525d614e108a468b6aa4af1609ea49237871fa619381f0cab9f2"
+    },
+    "node": {
+      "before": "172.18.0.11:5000/delivery/runtime-node-before@sha256:64e1e300bb10164138e26c760bdb13a10392003cab2b8b18842aaca30a404b00",
+      "after": "172.18.0.11:5000/delivery/runtime-node-after@sha256:a3441d0ffa9b8d44c461cc7d708f83bfc112cda3464caf562638a4ea04e3daae"
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
+    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
+    "E2E-06/07/08 real admission interceptor disabled explicitly",
+    "Focused upstream suite; full-userland controls and complete proposal are separate."
+  ],
+  "upstreamRuntimes": {
+    "java": {
+      "before": {
+        "source": "gcr.io/distroless/java21-debian13@sha256:5f4ce7e7d05ddf26f045fd1d8534f3c67d870fe5fe5204d8cf6940d3e440435f",
+        "manifestDigest": "sha256:5f4ce7e7d05ddf26f045fd1d8534f3c67d870fe5fe5204d8cf6940d3e440435f",
+        "configDigest": "sha256:34c5cd44c79815003d9b0229bb0544ee123c47fa31d2186b03b366ee9d86bec8",
+        "rootDiffIDs": [
+          "sha256:169cc3415d0f5be1ca6f533fd91057bb5c58d213161f4990c87fcb12d0bc251b",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:c8b007d0206e4b10ed4d3b3d99dfeab47c2648e82011989fd78a5731baf33fc3",
+          "sha256:bec7e6bb35e05d1284f28b10d2150c259717d91c658c4c10c08424bb9466caba",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:5c729492ffc6d588d59ee068eaa7910f2c76fd99a7fc21ccb6d408351f48d428",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:6c15e5fccfaccef2f4aa935857010ada1b7e7876d1009017c435eb4ad61a61e0",
+          "sha256:7b6535ee7aaad7b6a0338f2b0b7573965427fe1d9191e985f386d3fc6023d869",
+          "sha256:c63738958759baaf95d07671099c9e41f0cce93260ce4f39df275e6f36f15a52",
+          "sha256:0cd351bd16de499bf614cf9e35cd1b64e61272119b38dbc95e5eae87163c1f7e",
+          "sha256:68586ee9197091eb4c49688016112368e8cefd88a6d9a256af9252226f026d3d",
+          "sha256:9c8d88be58d40e224f2107d5bf171d3fd769695d54c22512716f1deb9176a684",
+          "sha256:28648cfb20d6ae5e7f1d87b1efe172a8624b0080b989e7cf754ef3fbc9738fff",
+          "sha256:93747ef36dd4dfcc9b78c0d297a9410e9db4a9bd32c070961e98dc303dd9d6f6",
+          "sha256:c9878b7995f0c4ddef31ce08dc6bf273bef75abdb461bf3db9425f1525ee870f",
+          "sha256:7398e1f463581f027983ba0246acea6b73f7ffc9b5bc9ce3ca561a21c7fa430d",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:c29e34b3024e6621d0737cd176139e35ccf16c6514888140e2da3dadb84f14f0",
+          "sha256:eaa42a9ed1b92daf1a057275d06fa885686249cf840212778fee1145cf6fe6cd",
+          "sha256:1eac4cef1f20ec2b125ebd9949a33f970403eff82d497af839af2cead822d599",
+          "sha256:cce99c5700b92fb6fd47e9f8f4fea8428afe2a25abc7a3cd3635ee633cdbb90a",
+          "sha256:397b3c95300ce09efbe84f276f5dbeb45e6d58b665d14e944febf85bb18c0973",
+          "sha256:8caf0b7d1a5cc833b90ac1c1bc7bc43770d527a65d4a673fe3e6e9ed1df02da0"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      },
+      "after": {
+        "source": "gcr.io/distroless/java21-debian13@sha256:b8b474d81065f41058d69388c59916b28c22ccbdf912594927d5b15d71807569",
+        "manifestDigest": "sha256:b8b474d81065f41058d69388c59916b28c22ccbdf912594927d5b15d71807569",
+        "configDigest": "sha256:4ff287fe0057a24a99f3540e9fc03e27b0bf437f24a172c76a6ddf477574b502",
+        "rootDiffIDs": [
+          "sha256:e842bc95a0a8664498b7881e537b5929e419d590f5a9954fb7f81c73c20fc6c7",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:763a77745f27b86cf26b97887b6842d83720e63b1c48848c0ba9ee54e351d63a",
+          "sha256:f0d0eff4c2312a7bd6e21797bdfea5eb35f60e76b555ce2b22794424af2cad36",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:50a5575df19e16694e9b7bfca79ef13cfce85faab4b0585ff197a078a952b007",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:6c15e5fccfaccef2f4aa935857010ada1b7e7876d1009017c435eb4ad61a61e0",
+          "sha256:7b6535ee7aaad7b6a0338f2b0b7573965427fe1d9191e985f386d3fc6023d869",
+          "sha256:c63738958759baaf95d07671099c9e41f0cce93260ce4f39df275e6f36f15a52",
+          "sha256:0cd351bd16de499bf614cf9e35cd1b64e61272119b38dbc95e5eae87163c1f7e",
+          "sha256:68586ee9197091eb4c49688016112368e8cefd88a6d9a256af9252226f026d3d",
+          "sha256:749380bc32912a6cb386973ec52028fdebce660103611bdce3fb7ce591988dbc",
+          "sha256:28648cfb20d6ae5e7f1d87b1efe172a8624b0080b989e7cf754ef3fbc9738fff",
+          "sha256:93747ef36dd4dfcc9b78c0d297a9410e9db4a9bd32c070961e98dc303dd9d6f6",
+          "sha256:c9878b7995f0c4ddef31ce08dc6bf273bef75abdb461bf3db9425f1525ee870f",
+          "sha256:7398e1f463581f027983ba0246acea6b73f7ffc9b5bc9ce3ca561a21c7fa430d",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:9b2458ae9461ce684f0588280b1eb86ba883297fb5c0dfc23c5bdfe4dd8b6aa9",
+          "sha256:eaa42a9ed1b92daf1a057275d06fa885686249cf840212778fee1145cf6fe6cd",
+          "sha256:7053cf2487142f3b4551d2b94d53aaf3ced5ac2d530b6ab633a1a44a5248e02a",
+          "sha256:cce99c5700b92fb6fd47e9f8f4fea8428afe2a25abc7a3cd3635ee633cdbb90a",
+          "sha256:397b3c95300ce09efbe84f276f5dbeb45e6d58b665d14e944febf85bb18c0973",
+          "sha256:8caf0b7d1a5cc833b90ac1c1bc7bc43770d527a65d4a673fe3e6e9ed1df02da0"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      }
+    },
+    "python": {
+      "before": {
+        "source": "gcr.io/distroless/python3-debian13@sha256:495c1e84c4aafa3630585a47b09161750bac8f0dd3b4b002b36cb91dbd61902f",
+        "manifestDigest": "sha256:495c1e84c4aafa3630585a47b09161750bac8f0dd3b4b002b36cb91dbd61902f",
+        "configDigest": "sha256:92f92e538766c4550670d0a0909068d8f7968286e183157de67d8068cd147dcc",
+        "rootDiffIDs": [
+          "sha256:169cc3415d0f5be1ca6f533fd91057bb5c58d213161f4990c87fcb12d0bc251b",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:c8b007d0206e4b10ed4d3b3d99dfeab47c2648e82011989fd78a5731baf33fc3",
+          "sha256:bec7e6bb35e05d1284f28b10d2150c259717d91c658c4c10c08424bb9466caba",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:5c729492ffc6d588d59ee068eaa7910f2c76fd99a7fc21ccb6d408351f48d428",
+          "sha256:d5653c936aa120141ef21c40fbded7622368c620112e049806ef2fe7a0ee7cab",
+          "sha256:91213e6dc2fda431a0de4541602a933c7a48206a0bf487217fa681260fccdc23",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:7578331450f7cd6e1f6f28caf2ce9af93ea935a049132bb63ed523dcbda068e4",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:eaa42a9ed1b92daf1a057275d06fa885686249cf840212778fee1145cf6fe6cd",
+          "sha256:c2c892af8db0092f46a414fedbf2cd618937e648a678e587db7e13814b84d66f",
+          "sha256:9c8d88be58d40e224f2107d5bf171d3fd769695d54c22512716f1deb9176a684",
+          "sha256:b41626e9f81ca27beaaca7c582e9ea3ddb72adf71fd9427208d8141404c60343",
+          "sha256:5fba13a32e13ac133f13ed4011e290b4793844ab23985ccefd3cb045ef759e25",
+          "sha256:93747ef36dd4dfcc9b78c0d297a9410e9db4a9bd32c070961e98dc303dd9d6f6",
+          "sha256:d5ec1c73dff9581d413e872c79b4e6869bc85257eac6282e58467640f511718f",
+          "sha256:50fa449c4d122c5961970727aad90ec1854a4f0659dbb35c05dd545b6a3c560f",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:58ba1537b8ac991c9051515cd13046e4d322a4150eb4075478ad4087bf7a4b4d",
+          "sha256:7398e1f463581f027983ba0246acea6b73f7ffc9b5bc9ce3ca561a21c7fa430d",
+          "sha256:352201a91365236bd67dce1f8160feaeda307a448217781496ebc81798aec835",
+          "sha256:266a9e16d3d53011e44019bafa2832445fa6eabc57091c2d942ef62b10f716f1",
+          "sha256:320ccb5355fb1c1530cfa0d35677c8e3930046284f67bd13641c7677d85f31b8",
+          "sha256:be31e77f894c5b77b80117d0c0d6313571dcf6bde5b42d522b4cff498816fb0b",
+          "sha256:4a01b2636fb894c0408249d1eee9119e47bc5fc3acdb6c5f26a6b3895489c778",
+          "sha256:9a73ecd6704c5751ef9b0b7b18c2084b074f0b30a8040850fca21fbd8bf54f63",
+          "sha256:eeb836a0c3cfecac4a47272011d2339a5307ae9f89b788f2a12d0d5f71b196f7",
+          "sha256:81d331c8577e8268d87cde54949256f6b00cddfca5c924136225cf11a276e8b5",
+          "sha256:0c774d4f96be5e465570d8469cc397fab0efafe0757e12e0fcb9fbf0bf0e9080",
+          "sha256:430d8ae1d1c97e0d6d7930b9ea5299a7d6ea5da64c9b666c377982df3858deaf",
+          "sha256:44819ebf58f36b37ec99f5d616915c05825c8842b8a9776afbc61b6e3ccd5d34",
+          "sha256:2edf0df89fe51434eaa476f350ec618cb3398b93041a37d2806730d86f49e338",
+          "sha256:4ec42cb510fedd679380817a85d51913e6839fbd65d20b0b6c4c9bfdbc17d4d2",
+          "sha256:d2c9ce853f85b6f1277aadf6ac67c01d4da44f063c9a0ee41e6fba6d53237f83",
+          "sha256:e065e79de270fdaffae724703dffaa90700e699d7ab992db104bf0e289b9d0ef",
+          "sha256:f4215ba511f87da650ccf1722e1ef05953c2b87d8ed1ccd31ec0f0bea5f03f18"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      },
+      "after": {
+        "source": "gcr.io/distroless/python3-debian13@sha256:8b91f0bef7c3525d614e108a468b6aa4af1609ea49237871fa619381f0cab9f2",
+        "manifestDigest": "sha256:8b91f0bef7c3525d614e108a468b6aa4af1609ea49237871fa619381f0cab9f2",
+        "configDigest": "sha256:411e2f824c9b08b4d2ad217241fa8b2c75fd888fd1cc8054bf328acc9c790092",
+        "rootDiffIDs": [
+          "sha256:e842bc95a0a8664498b7881e537b5929e419d590f5a9954fb7f81c73c20fc6c7",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:763a77745f27b86cf26b97887b6842d83720e63b1c48848c0ba9ee54e351d63a",
+          "sha256:f0d0eff4c2312a7bd6e21797bdfea5eb35f60e76b555ce2b22794424af2cad36",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:50a5575df19e16694e9b7bfca79ef13cfce85faab4b0585ff197a078a952b007",
+          "sha256:948af73b9b4f49fa4e0009269c2f4a5b174fb02c4485b13ab7f6d0c705d49966",
+          "sha256:91213e6dc2fda431a0de4541602a933c7a48206a0bf487217fa681260fccdc23",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:7578331450f7cd6e1f6f28caf2ce9af93ea935a049132bb63ed523dcbda068e4",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:eaa42a9ed1b92daf1a057275d06fa885686249cf840212778fee1145cf6fe6cd",
+          "sha256:c2c892af8db0092f46a414fedbf2cd618937e648a678e587db7e13814b84d66f",
+          "sha256:749380bc32912a6cb386973ec52028fdebce660103611bdce3fb7ce591988dbc",
+          "sha256:c67222113c7a155b8c97c1660e63e993e1eee050bd78f9e33c4a3e7a114d7433",
+          "sha256:a8823d82fc04fec028f62b88a25cd5b468499b52771ce23d514150b1103218b5",
+          "sha256:93747ef36dd4dfcc9b78c0d297a9410e9db4a9bd32c070961e98dc303dd9d6f6",
+          "sha256:d5ec1c73dff9581d413e872c79b4e6869bc85257eac6282e58467640f511718f",
+          "sha256:50fa449c4d122c5961970727aad90ec1854a4f0659dbb35c05dd545b6a3c560f",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:f49551edd77f04cb49eabbe607b1aae3e1d85954c57ca5bd6c0eefc737653140",
+          "sha256:7398e1f463581f027983ba0246acea6b73f7ffc9b5bc9ce3ca561a21c7fa430d",
+          "sha256:869ed62d72e5f05c174b12b0f0d8b4374116682d2d874ac1f14ec9820e96e503",
+          "sha256:266a9e16d3d53011e44019bafa2832445fa6eabc57091c2d942ef62b10f716f1",
+          "sha256:320ccb5355fb1c1530cfa0d35677c8e3930046284f67bd13641c7677d85f31b8",
+          "sha256:be31e77f894c5b77b80117d0c0d6313571dcf6bde5b42d522b4cff498816fb0b",
+          "sha256:4a01b2636fb894c0408249d1eee9119e47bc5fc3acdb6c5f26a6b3895489c778",
+          "sha256:9a73ecd6704c5751ef9b0b7b18c2084b074f0b30a8040850fca21fbd8bf54f63",
+          "sha256:eeb836a0c3cfecac4a47272011d2339a5307ae9f89b788f2a12d0d5f71b196f7",
+          "sha256:81d331c8577e8268d87cde54949256f6b00cddfca5c924136225cf11a276e8b5",
+          "sha256:0c774d4f96be5e465570d8469cc397fab0efafe0757e12e0fcb9fbf0bf0e9080",
+          "sha256:430d8ae1d1c97e0d6d7930b9ea5299a7d6ea5da64c9b666c377982df3858deaf",
+          "sha256:071b8658cbdb37fc126dea1fedb99c4195529cd5c51718e78045eb3617912e6e",
+          "sha256:1025f88b652d828aeca6877ab17e07a109d6460f0ec29ae8a8ce0154ef8c8abc",
+          "sha256:664551eb6b31c33508ccacd44fdbd9d0eaca4ab43947807298ba966dea236925",
+          "sha256:93d75e5cee0835f806250665d8656e4934fce722958bb076c19e77bb5b4a981a",
+          "sha256:e065e79de270fdaffae724703dffaa90700e699d7ab992db104bf0e289b9d0ef",
+          "sha256:d9f1e15b01660f32637acbbd08002f269fa9a665e2dc3bb0bf82b711de4be2d3"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      }
+    },
+    "node": {
+      "before": {
+        "source": "gcr.io/distroless/nodejs22-debian13@sha256:64e1e300bb10164138e26c760bdb13a10392003cab2b8b18842aaca30a404b00",
+        "manifestDigest": "sha256:64e1e300bb10164138e26c760bdb13a10392003cab2b8b18842aaca30a404b00",
+        "configDigest": "sha256:777ba03d200b51fb19a45a656418b21ed25463417348278accc2a1073dffc131",
+        "rootDiffIDs": [
+          "sha256:169cc3415d0f5be1ca6f533fd91057bb5c58d213161f4990c87fcb12d0bc251b",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:c8b007d0206e4b10ed4d3b3d99dfeab47c2648e82011989fd78a5731baf33fc3",
+          "sha256:bec7e6bb35e05d1284f28b10d2150c259717d91c658c4c10c08424bb9466caba",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:5c729492ffc6d588d59ee068eaa7910f2c76fd99a7fc21ccb6d408351f48d428",
+          "sha256:d5653c936aa120141ef21c40fbded7622368c620112e049806ef2fe7a0ee7cab",
+          "sha256:91213e6dc2fda431a0de4541602a933c7a48206a0bf487217fa681260fccdc23",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:7578331450f7cd6e1f6f28caf2ce9af93ea935a049132bb63ed523dcbda068e4",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:93bb43ab2d7a63bb62b2bcb0c8b47d80461c1af17e6af359525d4437e3d6c768"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      },
+      "after": {
+        "source": "gcr.io/distroless/nodejs22-debian13@sha256:a3441d0ffa9b8d44c461cc7d708f83bfc112cda3464caf562638a4ea04e3daae",
+        "manifestDigest": "sha256:a3441d0ffa9b8d44c461cc7d708f83bfc112cda3464caf562638a4ea04e3daae",
+        "configDigest": "sha256:75b95d57eea41d772064d0a806d07193230f23db4ece74449dd74a43e558105f",
+        "rootDiffIDs": [
+          "sha256:e842bc95a0a8664498b7881e537b5929e419d590f5a9954fb7f81c73c20fc6c7",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:763a77745f27b86cf26b97887b6842d83720e63b1c48848c0ba9ee54e351d63a",
+          "sha256:f0d0eff4c2312a7bd6e21797bdfea5eb35f60e76b555ce2b22794424af2cad36",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:50a5575df19e16694e9b7bfca79ef13cfce85faab4b0585ff197a078a952b007",
+          "sha256:948af73b9b4f49fa4e0009269c2f4a5b174fb02c4485b13ab7f6d0c705d49966",
+          "sha256:91213e6dc2fda431a0de4541602a933c7a48206a0bf487217fa681260fccdc23",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:7578331450f7cd6e1f6f28caf2ce9af93ea935a049132bb63ed523dcbda068e4",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:34ce5ca2bcedbaff93613c8f834c6a08afc26bc0fa27822e7dcbc9f90469af99"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      }
+    },
+    "static": {
+      "after": {
+        "source": "gcr.io/distroless/static-debian13@sha256:dd804b6c91a33a478f9a56e5033f463007696c2934a73303eb186767226bc33d",
+        "manifestDigest": "sha256:dd804b6c91a33a478f9a56e5033f463007696c2934a73303eb186767226bc33d",
+        "configDigest": "sha256:bcff74c94c33712c3758af70114dfb388180cf43e789031b9a6d4195195bf97e",
+        "rootDiffIDs": [
+          "sha256:e842bc95a0a8664498b7881e537b5929e419d590f5a9954fb7f81c73c20fc6c7",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:763a77745f27b86cf26b97887b6842d83720e63b1c48848c0ba9ee54e351d63a",
+          "sha256:f0d0eff4c2312a7bd6e21797bdfea5eb35f60e76b555ce2b22794424af2cad36",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      }
+    }
+  },
+  "assertions": [
+    {
+      "name": "mandatory prerequisites and exact kind pin",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "isolated kind node and owned registry",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "java explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "python explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "node explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "java unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "java unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "python unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "python unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "node unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "node unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "static unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "zero-node warning, architecture selector and multi-term/empty affinity preservation",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-01",
+        "E2E-04",
+        "ADM-02"
+      ]
+    },
+    {
+      "name": "actual startup taint blocks application scheduling before provisioning",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-03"
+      ]
+    },
+    {
+      "name": "OnDemand-only baseline advertises available with no current roots",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-02",
+        "PROF-03",
+        "FENCE-01"
+      ]
+    },
+    {
+      "name": "java unchanged upstream dependencies, HTTP, identity and direct Exec/probe parity",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "python unchanged upstream dependencies, HTTP, identity and direct Exec/probe parity",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "node unchanged upstream dependencies, HTTP, identity and direct Exec/probe parity",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "java real upstream root update preserves artifact and old lease with native overrides",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "python real upstream root update preserves artifact and old lease with native overrides",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "node real upstream root update preserves artifact and old lease with native overrides",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "unchanged upstream static image executes the generic native artifact without a shell",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "pathless-relative rejects start: RuntimePATHRequired",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "actual numeric pathless execution, isolated runtime app, readonly and explicit volume parity",
+      "outcome": "passed",
+      "requirements": [
+        "UP-01",
+        "UP-02",
+        "UP-03"
+      ]
+    },
+    {
+      "name": "real worker and daemon restart preserve unchanged-upstream task and Exec state",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "upstream-revoked rejects start: RuntimeImageRevoked",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "unchanged upstream revocation preserves running lease and rejects a bound unauthorized start",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    },
+    {
+      "name": "normal unchanged-upstream lease drain, host restoration, worker teardown and claim cleanup",
+      "outcome": "passed",
+      "requirements": [
+        "UP-05"
+      ]
+    }
+  ]
+}

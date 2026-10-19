@@ -48,17 +48,12 @@ func TestRuntimeDirectorySGIDAllowedButSetIDRegularFileRejected(t *testing.T) {
 
 func TestRuntimeRootValidationMatrix(t *testing.T) {
 	tests := map[string]func(string, *Metadata) error{
-		"missing PATH": func(_ string, m *Metadata) error { m.Env = []string{"OTHER=value"}; return nil },
 		"duplicate environment": func(_ string, m *Metadata) error {
 			m.Env = append(m.Env, "X=duplicate")
 			return nil
 		},
 		"duplicate PATH": func(_ string, m *Metadata) error {
 			m.Env = append(m.Env, "PATH=/usr/bin")
-			return nil
-		},
-		"missing PATH directory": func(_ string, m *Metadata) error {
-			m.Env = []string{"PATH=/missing"}
 			return nil
 		},
 		"PATH regular file": func(root string, m *Metadata) error {
@@ -80,17 +75,6 @@ func TestRuntimeRootValidationMatrix(t *testing.T) {
 			m.Env = []string{"PATH=/alias"}
 			return os.Symlink("../../outside", filepath.Join(root, "alias"))
 		},
-		"app regular file": func(root string, _ *Metadata) error {
-			return os.WriteFile(filepath.Join(root, "app"), nil, 0644)
-		},
-		"app symlink": func(root string, _ *Metadata) error {
-			return os.Symlink("/home/app", filepath.Join(root, "app"))
-		},
-		"app UID mismatch": func(_ string, m *Metadata) error { m.UID++; return nil },
-		"app GID mismatch": func(_ string, m *Metadata) error { m.GID++; return nil },
-		"missing app account": func(root string, _ *Metadata) error {
-			return os.WriteFile(filepath.Join(root, "etc/passwd"), []byte("other:x:1000:1000::/home/app:/bin/sh\n"), 0644)
-		},
 		"duplicate app account": func(root string, _ *Metadata) error {
 			return os.WriteFile(filepath.Join(root, "etc/passwd"),
 				[]byte("app:x:1000:1000::/home/app:/bin/sh\napp:x:1001:1000::/home/app:/bin/sh\n"), 0644)
@@ -99,20 +83,8 @@ func TestRuntimeRootValidationMatrix(t *testing.T) {
 			return os.WriteFile(filepath.Join(root, "etc/passwd"),
 				[]byte("app:x:1000:1000::/home/app:/bin/sh\nother:x:1000:1000::/home/app:/bin/sh\n"), 0644)
 		},
-		"missing primary group": func(root string, _ *Metadata) error {
-			return os.WriteFile(filepath.Join(root, "etc/group"), []byte("other:x:1001:\n"), 0644)
-		},
-		"ambiguous primary group": func(root string, _ *Metadata) error {
-			return os.WriteFile(filepath.Join(root, "etc/group"), []byte("app:x:1000:\nother:x:1000:\n"), 0644)
-		},
-		"missing home": func(root string, _ *Metadata) error {
-			return os.Remove(filepath.Join(root, "home/app"))
-		},
-		"home regular file": func(root string, _ *Metadata) error {
-			if err := os.Remove(filepath.Join(root, "home/app")); err != nil {
-				return err
-			}
-			return os.WriteFile(filepath.Join(root, "home/app"), nil, 0644)
+		"duplicate group name": func(root string, _ *Metadata) error {
+			return os.WriteFile(filepath.Join(root, "etc/group"), []byte("app:x:1000:\napp:x:1001:\n"), 0644)
 		},
 		"setgid binary": func(root string, _ *Metadata) error {
 			p := filepath.Join(root, "usr/bin/tool")
@@ -130,6 +102,58 @@ func TestRuntimeRootValidationMatrix(t *testing.T) {
 			}
 			if err := ValidateRoot(root, &m); err == nil {
 				t.Fatal("invalid runtime root accepted")
+			}
+		})
+	}
+}
+
+func TestUpstreamRootDoesNotRequireNamedAccountPATHOrEmptyApplicationPrefix(t *testing.T) {
+	for name, mutate := range map[string]func(string, *Metadata) error{
+		"no PATH": func(_ string, m *Metadata) error { m.Env = nil; return nil },
+		"missing search directories": func(_ string, m *Metadata) error {
+			m.Env = []string{"PATH=/missing/bin:/usr/bin"}
+			return nil
+		},
+		"numeric identity": func(_ string, m *Metadata) error { m.UID, m.GID = 65532, 65532; return nil },
+		"other username": func(root string, _ *Metadata) error {
+			return os.WriteFile(filepath.Join(root, "etc/passwd"), []byte("nonroot:x:1000:1000::/home/nonroot:/sbin/nologin\n"), 0644)
+		},
+		"no passwd":    func(root string, _ *Metadata) error { return os.Remove(filepath.Join(root, "etc/passwd")) },
+		"no group":     func(root string, _ *Metadata) error { return os.Remove(filepath.Join(root, "etc/group")) },
+		"missing home": func(root string, _ *Metadata) error { return os.Remove(filepath.Join(root, "home/app")) },
+		"runtime app file": func(root string, _ *Metadata) error {
+			return os.WriteFile(filepath.Join(root, "app"), []byte("hidden"), 0644)
+		},
+		"runtime app symlink": func(root string, _ *Metadata) error { return os.Symlink("/usr/bin", filepath.Join(root, "app")) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, m := runtimeRootFixture(t)
+			if err := mutate(root, &m); err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateRoot(root, &m); err != nil {
+				t.Fatal(err)
+			}
+			if m.UID == 65532 && m.Home != "/tmp" {
+				t.Fatal("numeric identity acquired an invented account", m)
+			}
+		})
+	}
+}
+
+func TestRuntimePATHCannotTraverseHiddenApplicationPrefix(t *testing.T) {
+	for _, target := range []string{"/app", "/app/missing", "/app/../usr/bin"} {
+		t.Run(target, func(t *testing.T) {
+			root, m := runtimeRootFixture(t)
+			if err := os.Symlink("/usr/bin", filepath.Join(root, "app")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Join(root, "alias")); err != nil {
+				t.Fatal(err)
+			}
+			m.Env = []string{"PATH=/alias"}
+			if err := ValidateRoot(root, &m); err == nil {
+				t.Fatal("PATH depends on shadowed runtime /app")
 			}
 		})
 	}

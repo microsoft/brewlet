@@ -1,0 +1,37 @@
+{
+  "java": {
+    "previous": {
+      "index": "gcr.io/distroless/java21-debian13@sha256:bb0b3c7edc4417acdf76ea0f52bb5fae28881fe05aae6cc55af4cc4cb0200d2d",
+      "arm64": "gcr.io/distroless/java21-debian13@sha256:5f4ce7e7d05ddf26f045fd1d8534f3c67d870fe5fe5204d8cf6940d3e440435f",
+      "amd64": "gcr.io/distroless/java21-debian13@sha256:4c92be84329f22e31c859b4cd07113790ffd5e0602dbcfb8f7d6adfd559aab6e"
+    },
+    "index": "gcr.io/distroless/java21-debian13@sha256:f3ac871fb5802c2739bb23b67212e67f341cbe754131528d2e9849072f9efb9a",
+    "arm64": "gcr.io/distroless/java21-debian13@sha256:b8b474d81065f41058d69388c59916b28c22ccbdf912594927d5b15d71807569",
+    "amd64": "gcr.io/distroless/java21-debian13@sha256:4732aaff70bce4d91a727a067126afc923a1623866472484424435cfcd54635d"
+  },
+  "python": {
+    "previous": {
+      "index": "gcr.io/distroless/python3-debian13@sha256:f3d5ddc6c64a019fe520e7f005f2880be21e6afc461b10a3c15ef2e4edc71e33",
+      "arm64": "gcr.io/distroless/python3-debian13@sha256:495c1e84c4aafa3630585a47b09161750bac8f0dd3b4b002b36cb91dbd61902f",
+      "amd64": "gcr.io/distroless/python3-debian13@sha256:2da46b943456ad2544a03426474f593aacb6af587c64fa3229c7b16987bb30e2"
+    },
+    "index": "gcr.io/distroless/python3-debian13@sha256:f47f5807043391605425f2bd162b25f50cebdc90640bacc804e0177608fe5c65",
+    "arm64": "gcr.io/distroless/python3-debian13@sha256:8b91f0bef7c3525d614e108a468b6aa4af1609ea49237871fa619381f0cab9f2",
+    "amd64": "gcr.io/distroless/python3-debian13@sha256:590e8c34ae0e7472206db1fa4782965cd057bbb475dd33890dc7487071c734da"
+  },
+  "node": {
+    "previous": {
+      "index": "gcr.io/distroless/nodejs22-debian13@sha256:4e4fb0ce55fd73901600796ef079a9490369d2515d7da31633a91608c82ca13b",
+      "arm64": "gcr.io/distroless/nodejs22-debian13@sha256:64e1e300bb10164138e26c760bdb13a10392003cab2b8b18842aaca30a404b00",
+      "amd64": "gcr.io/distroless/nodejs22-debian13@sha256:9a052c12c6501f1248b682bf6d022276220cb2a65416d215e0973527394d1552"
+    },
+    "index": "gcr.io/distroless/nodejs22-debian13@sha256:ec2313763dd43931543bd03830466e0c409ce73a487e8d46f10db72d3b816c1c",
+    "arm64": "gcr.io/distroless/nodejs22-debian13@sha256:a3441d0ffa9b8d44c461cc7d708f83bfc112cda3464caf562638a4ea04e3daae",
+    "amd64": "gcr.io/distroless/nodejs22-debian13@sha256:7b0a2b9262b3d1d57e139e08fe11bccb0a7d426ca515eab0cd6abcaf2016ae5c"
+  },
+  "static": {
+    "index": "gcr.io/distroless/static-debian13@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3",
+    "arm64": "gcr.io/distroless/static-debian13@sha256:dd804b6c91a33a478f9a56e5033f463007696c2934a73303eb186767226bc33d",
+    "amd64": "gcr.io/distroless/static-debian13@sha256:2293b36c7c9082bf4115aab724b4d2cddec82c8eba39bf27ac0517e159acf150"
+  }
+}

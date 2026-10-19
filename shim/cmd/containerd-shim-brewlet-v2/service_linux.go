@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -496,9 +495,10 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 			}
 		}
 	}
-	lowers := append([]string(nil), layerRoots...)
-	slices.Reverse(lowers)
-	lowers = append(lowers, root)
+	lowers, err := applicationRuntimeLowers(r.Bundle, layerRoots, root)
+	if err != nil {
+		return err
+	}
 	options := []string{"lowerdir=" + strings.Join(lowers, ":")}
 	options = append(options, overlayExtras...)
 	if spec.Root == nil {

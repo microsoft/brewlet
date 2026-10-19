@@ -6,18 +6,40 @@ Pods select an ID, never a runtime digest.
 
 ## Prepare a valid golden image
 
-The platform's image pipeline must produce a root that:
+An approved ("golden") image need not be custom-built. A compatible upstream
+OCI image can be approved unchanged, including a shell-free distroless image.
+The platform must validate that its root:
 
 - Supports every actual architecture of its offering pools.
-- Provides exactly one PATH, with nonempty absolute directories outside `/app`.
-- Has no duplicate environment names and no nonempty `/app`.
-- Defines an `app` account and primary group matching the immutable approved UID/GID.
-- Provides the account's existing home directory.
+- Has unique environment names. PATH is optional; when present, its components
+  are nonempty canonical absolute directories outside `/app`. Missing
+  directories are allowed; symlinks must not escape, loop or traverse `/app`.
+- Supports the approved nonzero numeric UID/GID. No account named `app`,
+  passwd/group database or pre-existing home is required. Present account
+  metadata must be well formed and unambiguous.
 - Contains no set-ID binaries or file capabilities.
 
 The runtime config contributes only Env. Runtime Entrypoint, Cmd, WorkingDir
 and User do not define the application process. Brewlet does not build or
 silently sanitize the approved image.
+
+Use an explicit absolute executable in `launch.json`, such as
+`/usr/bin/python3.13` or `/nodejs/bin/node`, when the runtime does not supply a
+suitable PATH. Without a runtime PATH, relative initial/Exec invocation fails
+with `RuntimePATHRequired`; CRI defaults and the working directory are not
+fallback search paths. No runtime shell, entrypoint script or account-management
+utility is invoked by the provisioner.
+
+Runtime `/app` contents are hidden, not merged with application layers or
+removed from the approved image. A private opaque boundary in the container's
+overlay keeps packaged application/dependency bytes isolated and read-only;
+explicit Kubernetes volumes still follow that boundary. Runtime and payload
+caches remain unchanged.
+
+HOME uses an explicit final environment value when supplied, otherwise optional
+passwd metadata for the actual UID, otherwise `/tmp`. This does not create a
+home directory or make NSS lookups work without the relevant database.
+Applications requiring username lookup must select a suitable runtime.
 
 ```yaml
 apiVersion: node.brewlet.sh/v2alpha1
@@ -33,7 +55,12 @@ spec:
 ```
 
 This is a template. Replace the source with your validated golden image digest.
-The IDs and account numbers are examples, not a built-in catalog.
+The IDs and numeric identities are examples, not a built-in catalog.
+
+The local unchanged-upstream companion qualifies pinned distroless Java,
+Python, Node and static sources on arm64. It is separate from the four-language
+full-userland regression, which also covers .NET; it is not a claim that every
+upstream image or architecture is compatible. See [verification](verification.md).
 
 ## Place IDs on pools
 

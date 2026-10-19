@@ -13,6 +13,7 @@ def export(source):
         "kubeletPullVerified", "tlsTransportVerified", "providerScaleFromZeroVerified",
         "kubeletRuntimeRequestTimeoutSeconds",
         "pins", "applicationImages", "runtimeImages", "runtimeVendorInputs", "fixtureDestruction", "gaps",
+        "upstreamRuntimes",
     )
     result = {key: source[key] for key in fields if key in source}
     result["assertions"] = [

@@ -89,7 +89,8 @@ for exact tool/input pins and smaller, explicitly scoped scenarios.
 
 ## Configure your own disposable pool
 
-Do not approve an unmodified vendor runtime image blindly. A runtime must meet
-the validated PATH, account, platform, `/app` and privilege requirements.
+Validate a vendor runtime before approval; compatible upstream and distroless
+images can be used unchanged. Platforms, numeric identity, optional PATH and
+account metadata, application isolation and privilege restrictions still apply.
 Read [runtime images and pools](runtime-images.md) before installing components
 or authoring a `NodeProfile`.

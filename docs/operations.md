@@ -2,8 +2,9 @@
 
 ## Runtime identity and authorization
 
-An ID is a compatibility promise: preserve the runtime line, ABI, account, PATH
-layout and documented tools across digest rotations. Use a new ID for an
+An ID is a compatibility promise: preserve the runtime line, ABI, approved
+numeric defaults, documented account/NSS behavior, PATH layout and tools across
+digest rotations. Use a new ID for an
 incompatible change or a separately governed held source.
 
 The Kubernetes resource UID is the inventory epoch. Deleting and recreating
@@ -63,11 +64,16 @@ Brewlet retains runc isolation and a privileged trusted provisioner. It is not
 gVisor, Kata or an additional hostile-tenant boundary. Every application process
 is non-root, has non-root groups, no capabilities and no privilege escalation.
 Runtime-owned PATH and protected initial state apply to Exec/probes/hooks too.
+PATH and account files may be absent; this does not relax numeric non-root
+identity or permit CRI's default executable-search environment.
 
 Application/dependency entries are confined to `/app`. This prevents replacement
 of runtime paths, not application-owned dynamic-library lookup or explicit
 volume contents. Runtime rotation cannot repair vulnerable libraries packaged
 with the application. Never package secrets into world-readable app layers.
+Runtime `/app` files, directories and symlinks are hidden behind the private
+application boundary, without mutating approved roots. Lack of support for its
+opaque overlay metadata fails closed rather than merging runtime bytes.
 
 ## Cleanup and revocation
 

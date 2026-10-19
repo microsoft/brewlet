@@ -201,8 +201,8 @@ func TestRootIdentityAndSymlinks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "app/bad"), []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateRoot(root, &m); err == nil {
-		t.Fatal("accepted nonempty app")
+	if err := ValidateRoot(root, &m); err != nil {
+		t.Fatal("runtime app content should be isolated by assembly, not rewritten during validation", err)
 	}
 	if err := os.Remove(filepath.Join(root, "app/bad")); err != nil {
 		t.Fatal(err)

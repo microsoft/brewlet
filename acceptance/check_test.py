@@ -40,11 +40,26 @@ class LedgerTests(unittest.TestCase):
         for identifier in CHECK.REAL_NODE_REQUIRED:
             with self.subTest(requirement=identifier):
                 document = copy.deepcopy(self.document)
-                item = next(item for item in document["requirements"] if item["id"] == identifier)
+                item = next(item for item in document["requirements"] + document.get("amendments", [])
+                            if item["id"] == identifier)
                 item.update(status="verified", evidence=[
                     {"command": "go test ./...", "outcome": "passed", "scope": "unit"}
                 ])
                 self.assertTrue(CHECK.validate(document))
+
+    def test_amendment_obligations_cannot_be_omitted(self):
+        for identifier in [f"UP-{number:02}" for number in range(1, 7)]:
+            document = copy.deepcopy(self.document)
+            document["amendments"] = [
+                item for item in document["amendments"] if item["id"] != identifier
+            ]
+            self.assertTrue(CHECK.validate(document))
+
+    def test_old_revision_cannot_bypass_amendment_gate(self):
+        document = copy.deepcopy(self.document)
+        document.pop("contractRevision")
+        document.pop("amendments")
+        self.assertTrue(CHECK.validate(document))
 
 
 if __name__ == "__main__":

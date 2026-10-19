@@ -14,6 +14,13 @@ and [exact commands, sources and scoped results](https://github.com/microsoft/br
 | 18-assertion focused lifecycle companion | Genuine orphan Exec retention, failed-install recovery, exact signal/exit behavior and reversal. |
 | Separate returning-host/capacity/uninstall runs | Physical filesystem return under a new Node UID, Pending capacity, and actual cleanup refusal. |
 | Producer and native contracts | Maven/CLI/shim conformance and Linux filesystem, mount, lock and cache invariants. |
+| 28-assertion unchanged-upstream companion | Pinned shell-free Java/Python/Node/static roots, real source rotation, numeric pathless execution, isolated `/app`, held Exec across worker/daemon restarts, revocation and normal cleanup on arm64. |
+
+The upstream-runtime amendment adds six obligations to the historical
+101-requirement baseline. Its source pins are recorded in the
+[upstream matrix](https://github.com/microsoft/brewlet/blob/brewlet-2.0/integration-tests/fixtures/runtimes/upstream.json).
+The original full-userland results alone do not verify the amended image-shape
+rules; the amended full-userland regression is tracked separately in the ledger.
 
 Each selected-suite receipt deliberately retains `fullAcceptance:false`; no
 single suite is presented as proof of the entire proposal. Failed attempts
@@ -56,6 +63,11 @@ running workload code before publication.
 boundaries. The operational response is to restore valid authority/provisioning
 or let a workload owner perform an appropriate native rollout, not bypass the
 barrier.
+
+`RuntimePATHRequired` means a relative executable was requested without an
+approved runtime PATH. Use the runtime's documented absolute executable path
+in the application descriptor or the Exec/probe command; do not add a Pod PATH
+override or an inferred shell/entrypoint.
 
 If cleanup is blocked, inspect its original Node/profile/inventory identity,
 durable receipt and actual task/mount references. An attempted removal is not

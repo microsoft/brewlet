@@ -677,7 +677,7 @@ class Harness:
             layout = self.work / ("oci-" + language)
             command = [*self.cli_command, "push", tag, "--store", layout,
                        "--platform", "linux/amd64", "--platform", "linux/arm64",
-                       "--launch", FIXTURES / language / "launch.json"]
+                       "--launch", self.launch_file(language)]
             for role, source, target in inputs:
                 command += ["--layer", f"{role}={source}:{target}"]
             self.run(command, timeout=180)
@@ -962,8 +962,11 @@ class Harness:
                     {"profile": zero_profile, "nodeUID": self.node_uid,
                      "emptySelector": empty_outcome}, ["E2E-01", "E2E-04", "ADM-02"])
 
+    def launch_file(self, language):
+        return getattr(self, "launch_files", {}).get(language, FIXTURES / language / "launch.json")
+
     def launch(self, language):
-        return json.loads((FIXTURES / language / "launch.json").read_text())["process"]
+        return json.loads(self.launch_file(language).read_text())["process"]
 
     def probe(self, language):
         process = self.launch(language)
@@ -1207,7 +1210,7 @@ class Harness:
                 "podUID": obj["metadata"]["uid"], "node": obj.get("spec", {}).get("nodeName"),
                 "phase": obj.get("status", {}).get("phase"), "expectedReason": reason,
                 "runtimeReasons": sorted(set(re.findall(
-                    r"\b(?:RuntimeImage[A-Za-z]+|InvalidRuntimeGeneration|LaunchConfigMismatch|"
+                    r"\b(?:RuntimeImage[A-Za-z]+|RuntimePATHRequired|InvalidRuntimeGeneration|LaunchConfigMismatch|"
                     r"UnsupportedArtifact|LayerPathViolation|NoCompatibleRuntime|RootNotSupported|"
                     r"PrivilegeEscalationNotSupported|ExecStateUnavailable)\b", text))),
                 "eventReasons": sorted({e.get("reason", "") for e in events

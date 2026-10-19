@@ -259,8 +259,13 @@ The shim registers containerd's real runc-backed Runtime v2 task service,
 decorating Create, Exec, and Delete. Application resolution uses protected CRI
 metadata, never compatibility hints. Verified gzip/zstd payload layers use
 digest/policy-keyed persistent cache entries under `/var/lib/brewlet/layers`.
-The root overlay uses reverse manifest order over the leased runtime and reuses
-CRI-managed overlay upper/work directories. Packaged `/app` is self-bound
+The root overlay uses reverse manifest order over a private opaque application
+boundary and the leased runtime, and reuses CRI-managed overlay upper/work
+directories. The lowest app layer's `trusted.overlay.opaque=y` hides runtime
+`/app` directories, files or symlinks before mountpoint preparation; it never
+changes approved roots or shared caches. The private boundary belongs to the
+protected task bundle and its existing lease/mount lifetime, not a separately
+collected mount. Unsupported opaque metadata fails closed. Packaged `/app` is self-bound
 read-only; explicit Kubernetes volume mounts follow it. Namespaces, resources,
 argv, cwd, terminal settings, and ordinary runc lifecycle are retained.
 Missing child mountpoints under `/app` are prepared in the managed per-container
@@ -276,6 +281,17 @@ this protected state; it does not merely edit the original bundle. Missing
 state fails closed. Durable leases survive restart. Recovery and retirement
 require complete containerd task/exec and cross-process mount evidence;
 unreadable or noninitial namespaces block collection rather than discard leases.
+
+Compatible upstream/distroless OCI manifests can be approved unchanged.
+Validation and copying never execute image code or require a runtime shell.
+Approved nonzero numeric UID/GID are independent of usernames, account databases
+or existing home directories. Optional account metadata remains strictly parsed;
+HOME uses the actual UID's metadata or `/tmp` unless explicitly supplied.
+Runtime PATH may be absent for absolute initial/Exec executables; relative
+invocation then returns `RuntimePATHRequired`, never adopting CRI's default.
+Present PATH permits missing directories but rejects unsafe components,
+root-escaping/looping symlinks and any `/app` traversal. Non-root, capability,
+set-ID, platform, digest, generation and ownership checks are unchanged.
 
 ## Current limits and unverified requirements
 

@@ -21,8 +21,11 @@ func runtimeEnvironment(env []string) (map[string]string, error) {
 		values[k] = v
 	}
 	p, exists := values["PATH"]
-	if !exists || p == "" {
-		return nil, fmt.Errorf("runtime must supply PATH")
+	if !exists {
+		return values, nil
+	}
+	if p == "" {
+		return nil, fmt.Errorf("runtime PATH must not be empty")
 	}
 	for _, dir := range strings.Split(p, ":") {
 		if !path.IsAbs(dir) || path.Clean(dir) != dir || dir == "/app" || strings.HasPrefix(dir, "/app/") {
@@ -107,7 +110,7 @@ func MergeProcess(p *specs.Process, m Metadata) error {
 	}
 	p.NoNewPrivileges = true
 	p.Capabilities = &specs.LinuxCapabilities{}
-	return nil
+	return requireExecutablePATH(p)
 }
 
 // RewriteExec deliberately ignores CRI's independently synthesized environment
@@ -131,5 +134,20 @@ func RewriteExec(p *specs.Process, state InitialState) error {
 	p.Env = append([]string(nil), state.Process.Env...)
 	p.NoNewPrivileges = true
 	p.Capabilities = &specs.LinuxCapabilities{}
-	return CheckProcess(p)
+	if err := CheckProcess(p); err != nil {
+		return err
+	}
+	return requireExecutablePATH(p)
+}
+
+func requireExecutablePATH(p *specs.Process) error {
+	if path.IsAbs(p.Args[0]) {
+		return nil
+	}
+	for _, entry := range p.Env {
+		if value, ok := strings.CutPrefix(entry, "PATH="); ok && value != "" {
+			return nil
+		}
+	}
+	return failure("RuntimePATHRequired", "relative executable requires a runtime-supplied PATH: "+p.Args[0])
 }

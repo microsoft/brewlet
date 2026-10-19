@@ -30,6 +30,14 @@ remains unchanged until the design is accepted and implemented.
 
 The key words MUST, MUST NOT, SHOULD, and MAY describe the proposed 2.0 contract.
 
+**Approved upstream-runtime amendment (2026-10-19).** Compatible upstream OCI
+runtime images, including shell-free distroless images, need not be rebuilt
+solely to create an account named `app`, an existing home, or executable-search
+directories. The numeric identity and execution-safety contract below remains
+mandatory. Application content is isolated from any runtime `/app` content;
+it never merges with that content. Historical acceptance predating this
+amendment does not verify these changed requirements.
+
 ---
 
 ## 1. Summary
@@ -254,7 +262,7 @@ Field contract (unknown fields MUST be rejected at publish and launch time):
 | Field | Required | Rules |
 |---|---|---|
 | `schemaVersion` | yes | MUST be `2`. |
-| `process.entrypoint` | yes | Non-empty argv prefix. A non-absolute `entrypoint[0]` is resolved through the runtime image's `PATH` inside the sandbox (runc semantics). |
+| `process.entrypoint` | yes | Non-empty argv prefix. A non-absolute `entrypoint[0]` requires the runtime image's `PATH` for sandbox resolution (runc semantics); absent PATH fails with `RuntimePATHRequired` (§7.2). |
 | `process.args` | no | Default arguments appended after `entrypoint`. |
 | `process.workingDir` | no | Absolute path; defaults to `/app`. |
 | `process.env` | no | Ordered list of unique names. `PATH` is forbidden (§8.3). |
@@ -365,7 +373,7 @@ spec:
   source:
     image: registry.example.com/golden/python@sha256:<64 hex>   # index or manifest
   description: CPython 3.12 on hardened Debian 12, glibc ABI
-  user:                        # the image's non-root `app` account (§8.4); immutable
+  user:                        # approved non-root numeric defaults (§8.4); immutable
     uid: 1000
     gid: 1000
   compatibility:               # informational; drives docs and tooling, not matching
@@ -387,7 +395,7 @@ status:
   reference, subject to the existing source policy and mirror allowlist (SPEC §5.3).
   Tags are rejected.
 - `spec.user.uid` and `spec.user.gid` are required, MUST be non-zero, and are
-  immutable: they identify the image's `app` account (§7.2, §8.4) and are part of
+  immutable: they identify approved numeric defaults (§7.2, §8.4) and are part of
   the ID's compatibility promise.
 - Changing `spec.source.image` is a **rotation**: the controller increments
   `status.generation` monotonically within `metadata.uid`; recovery must never
@@ -435,18 +443,27 @@ architecture of the pools that offer it. Its **config** contributes:
   `Volumes`, and `Healthcheck` are ignored; the application artifact and the pod
   own those.
 
-The selected config MUST provide exactly one `PATH` with non-empty absolute
-directories outside `/app`, no `.` or empty component, and no duplicate
-environment names. Validation verifies those directories against the root.
+Environment names MUST be unique. `PATH` MAY be absent for absolute executable
+invocation. When present it MUST occur exactly once, contain non-empty canonical
+absolute directories outside `/app`, and contain no `.` or empty component.
+Missing directories are allowed and have ordinary executable-search semantics;
+existing entries must be searchable directories. Root-relative symlink
+resolution MUST reject escapes, loops and any traversal through `/app`,
+including an alias whose final destination otherwise lies outside `/app`.
+With no runtime PATH, relative initial and Exec executables fail explicitly
+with `RuntimePATHRequired`, rather than inheriting CRI's default PATH or
+searching the working directory.
 
-Its root filesystem MUST NOT contain a non-empty `/app`; the shim requires `/app`
-to be absent or an empty directory so application content never merges with
-runtime content. `/app` is the only application prefix for every ecosystem.
+`/app` is the reserved application prefix for every ecosystem. A runtime may
+contain files, a directory or a symlink there, but its `/app` content MUST be
+hidden by an independently established application boundary before mountpoint
+preparation or execution. Runtime files never merge into packaged `/app`.
 
-Its root filesystem MUST define a non-root account named **`app`** in
-`/etc/passwd` (and its primary group in `/etc/group`) whose UID and GID equal
-`RuntimeImage.spec.user`, with an existing home directory. The provisioner
-verifies this during validation and refuses a generation that does not match.
+`RuntimeImage.spec.user` supplies the required nonzero default numeric UID/GID.
+A named account, a particular username, passwd/group files and an existing home
+directory are not required. Present account databases MUST be well formed and
+unambiguous; optional passwd homes are metadata, not execution authority.
+Software requiring named-account/NSS lookup must use a suitable runtime.
 Runtime roots MUST NOT contain setuid/setgid binaries or file capabilities;
 the provisioner rejects such roots rather than silently changing approved
 bytes. Runtime images SHOULD be minimal, SHOULD NOT contain package managers,
@@ -457,25 +474,23 @@ removed.
 
 Alongside each root the provisioner persists immutable, root-owned metadata:
 inventory ID and UID, generation, source and platform manifest digests,
-selected OCI platform/config `Env`, and the validated `app` UID/GID/home.
+selected OCI platform/config `Env`, approved numeric UID/GID and optional
+account/home metadata.
 The `current` pointer publishes this metadata and its root as one unit.
 Mutable authorization/expiry and revocation records are separately written
 atomically by the fenced provisioner; the shim consumes trusted local records,
 not pod-supplied environment or user data, as the runtime authority.
 
-**Deriving from third-party images.** Vendor images rarely meet these rules out
-of the box. A platform team customizes them in its own image pipeline and
-approves the result, not the vendor image. For example, a golden image based on
-the Oracle JDK container image adds the `app` account, removes any content under
-`/app`, strips setuid/setgid bits, and optionally removes package managers and
-shells before being pushed and pinned by digest:
+**Approving third-party images.** A compatible upstream digest may be approved
+unchanged. Shells, package managers and account-management utilities are not
+required inside the runtime: the host provisioner inspects files without
+executing image code. If a source violates retained privilege or compatibility
+policy, a platform team may derive and approve a new image in its own pipeline.
+For example, it may remove setuid/setgid bits before publication:
 
 ```dockerfile
 FROM container-registry.oracle.com/java/jdk:21
-RUN groupadd --gid 1000 app \
- && useradd --uid 1000 --gid app --home-dir /home/app --create-home --shell /sbin/nologin app \
- && rm -rf /app \
- && find / -xdev -perm /6000 -type f -exec chmod ug-s {} +
+RUN find / -xdev -perm /6000 -type f -exec chmod ug-s {} +
 ```
 
 Brewlet does not build or modify runtime images; licensing and redistribution
@@ -483,7 +498,7 @@ terms of the base image remain the platform team's responsibility.
 
 **An ID is a compatibility promise.** Rotating the digest behind an ID MUST
 preserve everything applications built against that ID depend on: language
-minor/feature line, C library and ABI, `PATH` layout, the `app` account, and the
+minor/feature line, C library and ABI, executable/PATH layout, numeric identity, and the
 presence of documented tools. A change that breaks any of these — a new major runtime, a
 libc switch from glibc to musl, a changed interpreter path — MUST be published as
 a new ID. This is the contract that makes digest-free workload references safe.
@@ -547,7 +562,7 @@ spec:
   pods.
 - Required security and identity validation cannot be disabled.
   Validation executes no workload code; it checks the
-  extracted root (`/app` empty, `PATH` entries present, required platforms
+  extracted root (safe application-prefix isolation, valid optional PATH, required platforms
   covered). Image-specific smoke tests remain the image pipeline's job.
 
 ### 7.4 Pinning without digests
@@ -852,9 +867,11 @@ spec:
 4. **Materialize and validate layers** from the content store using the 2.0
    per-layer-digest cache contract below. The 1.x Java-oriented extractor is
    not reused as-is.
-5. **Assemble the rootfs** as an overlay: `lowerdir` = launch-layer-excluded
+5. **Assemble the rootfs** with an application-prefix boundary: launch-layer-excluded
    application and dependency layers (top to bottom in reverse manifest order)
-   over the runtime root; `upperdir`/`workdir` = per-container scratch. The CRI
+   over a private opaque `/app` boundary over the runtime root. The boundary
+   MUST hide all inherited runtime `/app` content without modifying the approved
+   root or shared payload cache. `upperdir`/`workdir` = per-container scratch. The CRI
    `readOnlyRootFilesystem` flag is preserved as in 1.x. Packaged `/app` is
    explicitly mounted read-only, independent of that flag. Writable application
    data uses explicit Kubernetes volumes (including mounts beneath `/app`) or
@@ -913,6 +930,8 @@ provisioning/container error, never a partially published cache entry.
   must be stable across rotations. Admission emits a warning when a pod sets
   `PATH`. Applications add directories through ecosystem variables or
   absolute `entrypoint` paths.
+  If runtime PATH is absent, it remains absent; absolute executable invocation
+  is allowed and relative initial/Exec invocation fails with `RuntimePATHRequired`.
 
 **Exec parity.** `Create` persists the effective merged environment (including
 `PATH` and `HOME`), identity, and leased inventory UID/generation in protected
@@ -929,15 +948,15 @@ processes; editing bundle `config.json` alone does not establish exec parity.
 
 ### 8.4 User identity
 
-Brewlet 2.0 workloads never run as root. The default identity is the runtime
-image's `app` account.
+Brewlet 2.0 workloads never run as root. The default identity is the approved
+numeric `RuntimeImage.spec.user`, independent of account names in the image.
 
 - The application image config `User` is empty, so CRI derives the process user
   from the pod `securityContext` alone.
 - Admission defaults each missing effective `runAsUser` and `runAsGroup`
   independently to `RuntimeImage.spec.user`, respecting container-over-pod
   precedence, and sets `runAsNonRoot: true`. A custom UID without a group
-  therefore uses the non-zero `app` GID, not CRI's implicit GID 0.
+  therefore uses the approved non-zero GID, not CRI's implicit GID 0.
 - An explicit non-zero `runAsUser` is permitted (for example, platforms that
   assign UIDs per namespace). Files under `/app` are world-readable (§6.2), so any
   non-root UID can run the application.
@@ -958,9 +977,10 @@ image's `app` account.
 - When the pod does not set `HOME`, the shim sets it from the runtime image's
   `/etc/passwd` entry for the process UID, or `/tmp` when the UID has no entry.
   This synthesized fallback is a deliberate Brewlet behavior, also applied to
-  exec. Custom UIDs do not acquire passwd/group entries; `getpwuid`-based
-  application APIs can fail. Use the default `app` identity for software that
-  requires a named account.
+  exec. A HOME string does not create a directory or promise writable storage.
+  Numeric identities do not acquire fabricated passwd/group entries;
+  `getpwuid`-based application APIs can fail. Software requiring a named account
+  must use an image that provides one for the chosen identity.
 
 ## 9. Admission and scheduling
 
@@ -1234,7 +1254,7 @@ remains an explicit decision in the reviewed manifest.
   verified by digest exactly as in 1.x; ordinary-image sidecars cannot bypass
   this contract.
 - **Runtime file-path confinement.** §6.2 confines application and dependency
-  layers to `/app`, and §7.2 requires the runtime's `/app` to be empty. This
+  layers to `/app`, and §7.2 isolates and hides the runtime's `/app`. This
   prevents layer replacement of runtime paths, not loading application-bundled
   libraries through `LD_*`, language lookup variables, or explicit volume
   mounts. Those dependencies remain application-owned remediation.
@@ -1298,6 +1318,8 @@ remains an explicit decision in the reviewed manifest.
   `PrivilegeEscalationNotSupported`, `ExecStateUnavailable`,
   `StartupTaintTolerationNotSupported`, `node-advertisement-failed`,
   `ownership-fence-failed`.
+  `RuntimePATHRequired` identifies relative executable invocation without a
+  runtime-supplied PATH.
 
 ### 13.1 Control-plane and node acceptance coverage
 

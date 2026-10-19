@@ -787,14 +787,16 @@ class ControlEdges:
         return old_epoch
 
     def eager_readiness_failure(self):
+        from activation import invalid_path_runtime
         h = self.h
         runtime_id = "eager-invalid-" + h.run_id
         language = h.probe_language
-        require(h.initial[language]["metadata"]["uid"] != 1000,
-                "invalid-account fixture must differ from the actual golden app account")
+        layout = h.delivery.work / "eager-invalid-path"
+        selected = invalid_path_runtime(h.delivery.work / (language + "-before-golden"), layout)
+        source = h.delivery.publish(layout, selected, "delivery/eager-invalid-path")
         h.apply({"apiVersion": API, "kind": "RuntimeImage", "metadata": {"name": runtime_id},
-                 "spec": {"source": {"image": h.runtime_images[language]["before"]},
-                          "user": {"uid": 1000, "gid": 1000}}})
+                 "spec": {"source": {"image": source},
+                          "user": {"uid": 65532, "gid": 65532}}})
         def approved():
             image = self.image(runtime_id)
             return image if image.get("status", {}).get("generation", 0) > 0 and any(
@@ -802,7 +804,7 @@ class ControlEdges:
                 and c.get("observedGeneration") == image["metadata"]["generation"]
                 for c in image.get("status", {}).get("conditions", [])) else False
 
-        h.wait("approved deliberately incompatible Eager account declaration", approved)
+        h.wait("approved deliberately invalid Eager runtime PATH", approved)
         profile = h.get("nodeprofile", h.profile)
         spec = copy.deepcopy(profile["spec"])
         spec["runtimeImages"].append({"id": runtime_id})
@@ -821,7 +823,7 @@ class ControlEdges:
             if not evidence:
                 return False
             self.capture_provisioner_errors()
-            if not any("app account identity mismatch" in line
+            if not any("unsafe runtime PATH component" in line
                        for entry in h.result["controlAcceptance"]["provisionerErrors"]
                        for line in entry["errors"]):
                 return False

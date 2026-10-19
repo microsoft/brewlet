@@ -13,6 +13,10 @@ import (
 
 // InRoot resolves container-absolute symlinks against root, never the host /.
 func InRoot(root, name string) (string, error) {
+	return resolveInRoot(root, name, false, false)
+}
+
+func resolveInRoot(root, name string, allowMissing, excludeApp bool) (string, error) {
 	if !path.IsAbs(name) {
 		return "", fmt.Errorf("container path must be absolute")
 	}
@@ -32,8 +36,15 @@ func InRoot(root, name string) (string, error) {
 			parts = parts[:len(parts)-1]
 			continue
 		}
+		if excludeApp && len(parts) == 0 && component == "app" {
+			return "", fmt.Errorf("runtime PATH traverses /app")
+		}
 		candidate := filepath.Join(append([]string{root}, append(parts, component)...)...)
 		st, err := os.Lstat(candidate)
+		if allowMissing && os.IsNotExist(err) {
+			parts = append(parts, component)
+			continue
+		}
 		if err != nil {
 			return "", err
 		}
@@ -68,31 +79,23 @@ func ValidateRoot(root string, m *Metadata) error {
 	if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("runtime root must be a directory")
 	}
-	app := filepath.Join(root, "app")
-	if st, err := os.Lstat(app); err == nil {
-		if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("runtime /app must be an empty directory")
-		}
-		entries, err := os.ReadDir(app)
-		if err != nil {
-			return err
-		}
-		if len(entries) != 0 {
-			return fmt.Errorf("runtime /app must be empty")
-		}
-	} else if !os.IsNotExist(err) {
-		return err
-	}
 	env, err := runtimeEnvironment(m.Env)
 	if err != nil {
 		return err
 	}
-	for _, p := range strings.Split(env["PATH"], ":") {
-		resolved, err := InRoot(root, p)
+	var paths []string
+	if value, present := env["PATH"]; present {
+		paths = strings.Split(value, ":")
+	}
+	for _, p := range paths {
+		resolved, err := resolveInRoot(root, p, true, true)
 		if err != nil {
 			return fmt.Errorf("runtime PATH: %w", err)
 		}
 		st, err := os.Stat(resolved)
+		if os.IsNotExist(err) {
+			continue
+		}
 		if err != nil || !st.IsDir() || st.Mode().Perm()&0005 != 0005 {
 			return fmt.Errorf("runtime PATH must be searchable by arbitrary users: %s", p)
 		}
@@ -104,93 +107,64 @@ func ValidateRoot(root string, m *Metadata) error {
 			return fmt.Errorf("runtime PATH resolves into /app")
 		}
 	}
-	passwd, err := InRoot(root, "/etc/passwd")
+	passwd, err := optionalAccountFile(root, "/etc/passwd")
 	if err != nil {
 		return err
 	}
-	file, err := os.Open(passwd)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
 	m.Homes = map[uint32]string{}
-	found := false
-	scanner := bufio.NewScanner(file)
+	names := map[string]bool{}
+	scanner := bufio.NewScanner(strings.NewReader(string(passwd)))
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		fields := strings.Split(line, ":")
-		if len(fields) != 7 {
+		if len(fields) != 7 || fields[0] == "" || names[fields[0]] {
 			return fmt.Errorf("malformed passwd entry")
 		}
+		names[fields[0]] = true
 		uid, err := strconv.ParseUint(fields[2], 10, 32)
 		if err != nil {
 			return err
 		}
-		gid, err := strconv.ParseUint(fields[3], 10, 32)
+		_, err = strconv.ParseUint(fields[3], 10, 32)
 		if err != nil {
 			return err
 		}
-		if !path.IsAbs(fields[5]) || path.Clean(fields[5]) != fields[5] {
+		if !path.IsAbs(fields[5]) || path.Clean(fields[5]) != fields[5] || strings.ContainsRune(fields[5], 0) {
 			return fmt.Errorf("invalid passwd home")
 		}
 		if _, duplicate := m.Homes[uint32(uid)]; duplicate {
 			return fmt.Errorf("ambiguous passwd UID")
 		}
 		m.Homes[uint32(uid)] = fields[5]
-		if fields[0] == "app" {
-			if found || uint32(uid) != m.UID || uint32(gid) != m.GID {
-				return fmt.Errorf("app account identity mismatch")
-			}
-			m.Home = fields[5]
-			found = true
-		}
 	}
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	if !found {
-		return fmt.Errorf("missing app account")
+	m.Home = m.Homes[m.UID]
+	if m.Home == "" {
+		m.Home = "/tmp"
 	}
-	home, err := InRoot(root, m.Home)
+	group, err := optionalAccountFile(root, "/etc/group")
 	if err != nil {
 		return err
 	}
-	if st, err := os.Stat(home); err != nil || !st.IsDir() {
-		return fmt.Errorf("app home directory missing")
-	}
-	group, err := InRoot(root, "/etc/group")
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(group)
-	if err != nil {
-		return err
-	}
-	groupFound := false
-	for _, line := range strings.Split(string(data), "\n") {
+	names = map[string]bool{}
+	for _, line := range strings.Split(string(group), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		fields := strings.Split(line, ":")
-		if len(fields) != 4 {
+		if len(fields) != 4 || fields[0] == "" || names[fields[0]] {
 			return fmt.Errorf("malformed group entry")
 		}
-		gid, err := strconv.ParseUint(fields[2], 10, 32)
+		names[fields[0]] = true
+		_, err := strconv.ParseUint(fields[2], 10, 32)
 		if err != nil {
 			return err
 		}
-		if uint32(gid) == m.GID {
-			if groupFound {
-				return fmt.Errorf("ambiguous primary group")
-			}
-			groupFound = true
-		}
-	}
-	if !groupFound {
-		return fmt.Errorf("missing app primary group")
 	}
 	if err := filepath.WalkDir(root, func(p string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -212,4 +186,15 @@ func ValidateRoot(root string, m *Metadata) error {
 	}
 	m.ValidatedAt = time.Now().UTC()
 	return nil
+}
+
+func optionalAccountFile(root, name string) ([]byte, error) {
+	resolved, err := InRoot(root, name)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(resolved)
 }

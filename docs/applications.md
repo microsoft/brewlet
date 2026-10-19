@@ -118,6 +118,11 @@ Runtime Env provides defaults and CRI Env overrides them, except that PATH is
 runtime-owned. Explicit Pod PATH is ignored with a warning.
 
 HOME is synthesized from validated account metadata when not explicitly set.
+Account metadata is optional: an unknown numeric UID uses `/tmp`. This does not
+create passwd entries or home directories. Absolute executable paths work
+without runtime PATH; relative initial/Exec invocation then fails with
+`RuntimePATHRequired`. Author paths explicitly in the descriptor instead of
+relying on a runtime image entrypoint script or a shell.
 Exec, probes and exec hooks reuse the initial process's effective environment,
 identity and leased generation.
 

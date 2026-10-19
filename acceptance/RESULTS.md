@@ -1,5 +1,60 @@
 # Brewlet 2.0 validation status
 
+**Approved upstream-runtime amendment (2026-10-19): full-userland regression in
+progress.** Five of six amendment obligations are verified; the active ledger
+has 107 requirements and one remaining obligation. The historic 101-row baseline
+below is not used alone to verify revised image-shape rules.
+
+`run-local-upstream-82` passed **28 selected assertions**, normal production
+profile cleanup and exact-owned destruction. The public
+[unchanged-upstream receipt](results/unchanged-upstream-distroless-arm64.json)
+preserves the original native manifests, config digests, root diff IDs and
+actual pre-amendment named-account blockers. Source pins for both CPU
+architectures are in
+[`upstream.json`](../integration-tests/fixtures/runtimes/upstream.json); actual
+execution here is **arm64**, not physical amd64 qualification.
+
+The suite imported unchanged distroless Java/Python/Node/static graphs through
+the production registry reader, never executing or deriving source containers.
+It verified actual dependencies/HTTP, absolute descriptors, initial/Exec/probe
+identity and environment, compatible root-byte updates without application
+rebuilds, retained old leases, native overrides, revocation and normal cleanup.
+A separately identified **synthetic** root proved numeric 12345:23456 with no
+passwd/group/PATH, `/tmp` HOME, exact initial/Exec `RuntimePATHRequired`,
+hidden runtime `/app`, preserved outside bytes, read-only packaged application
+and an explicit writable volume.
+
+A real detached Python Exec kept its exact host PID/start/executable across
+worker and containerd restarts, completed its own code after release and drained.
+This proves surviving process/shim reconnection and durable lease recovery, not
+reconstruction of a killed shim or continuity of a CRI streaming connection.
+
+Corrected driver attempts remain failed: invocation 79 encountered the
+lifecycle companion's deliberately narrower runtime-ID guard; 80 incorrectly
+required its client streaming connection to survive daemon restart despite a
+surviving Exec; 81 raced a short-lived readiness process during PID enumeration.
+Their exported receipts remain separate, failed and unmodified in `results/`.
+No production authorization, lease, finalizer or cleanup receipt was forged.
+
+Current native Linux suites passed without skips: **82 node**, **122
+provisioner**, and **52 shim** cases/subcases. The shim suite includes nine
+real-kernel combinations of runtime `/app` directory/file/symlink and ordinary,
+opaque or whiteout payloads. Reproduce using the isolated security/mount recipe
+in `.github/workflows/v2-ci.yml` with the current compiled tests and conformance
+mount; the local pinned userland was
+`docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258`.
+Host Go race tests, host/Linux vet, Linux amd64/arm64 builds, Maven verification,
+offline evidence safeguards and strict website build/browser checks also passed.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/upstream.py \
+  --work integration-tests/live-v2/run-local-upstream-82
+```
+
+The command requires a **new** work directory when repeated. The unchanged-source
+companion is now wired into the manually dispatched complete E2E workflow after
+local proof; no remote run or cloud-provider certification is claimed.
+
 **Local implementation acceptance verified; not cloud-provider certification or
 a stable-release claim.** Proposal 0009 remains the contract. All 101 ledger
 requirements now have successful scoped evidence. Historical failures and

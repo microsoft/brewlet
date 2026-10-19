@@ -66,7 +66,7 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           <div class="compose-link"><span aria-hidden="true">+</span><span>Composed at container creation</span></div>
           <div class="artifact-stack runtime-stack">
             <div class="stack-label"><span>Runtime infrastructure</span><code>RuntimeImage / python-3.13</code></div>
-            <div class="layer runtime-layer"><strong>Approved runtime root</strong><span>Interpreter or VM + userland + app account</span></div>
+            <div class="layer runtime-layer"><strong>Approved runtime root</strong><span>Interpreter or VM + userland</span></div>
           </div>
           <div class="composition-footer"><span>containerd</span><span aria-hidden="true">→</span><strong>Brewlet shim</strong><span aria-hidden="true">→</span><span>runc</span></div>
         </div>
@@ -165,7 +165,7 @@ make build</code></pre></div>
 
     <section class="section faq-section" id="faq" aria-labelledby="faq-title">
       <div class="container faq-layout"><h2 id="faq-title">A few important<br>distinctions.</h2><div class="faq">
-        <details><summary>Can I bring my own custom runtimes?</summary><p>Yes. Build a custom OCI runtime image with the interpreters, tools and userland your applications need. Approve it as a <code>RuntimeImage</code>, offer it through a <code>NodeProfile</code>, and select its ID in your workloads. Your image needs to meet the <a href="docs/runtime-images/#prepare-a-valid-golden-image">runtime image contract</a>, including validated platforms, PATH and a non-root app account.</p></details>
+        <details><summary>Can I bring my own custom runtimes?</summary><p>Yes. Use a compatible upstream image unchanged, including distroless images, or build your own OCI runtime image. Approve its digest as a <code>RuntimeImage</code>, offer it through a <code>NodeProfile</code>, and select its ID in your workloads. The <a href="docs/runtime-images/#prepare-a-valid-golden-image">runtime image contract</a> requires validated platforms and non-root numeric identities, not a shell or an account named <code>app</code>. Use explicit executable paths when the runtime has no PATH.</p></details>
         <details><summary>Do existing applications switch runtime in place?</summary><p>No. Running processes keep their leased generation. New containers use current. An optional restart coordinator can patch opted-in native controllers; it does not hot-swap a VM, kill pods directly or override rollout strategies.</p></details>
         <details><summary>Do I still need an application image?</summary><p>Yes. The application is a standard, digest-addressed OCI image with application layers, optional dependency layers and a final launch layer. It omits the platform runtime root; it is not an image-free deployment.</p></details>
         <details><summary>Does sharing the runtime mean sharing processes?</summary><p>No. Runtime files are shared read-only on the node. Every workload has its own process, resources and container isolation. There is no claim of automatic heap sharing or benchmarked memory savings.</p></details>

@@ -10,11 +10,12 @@ REAL_NODE_REQUIRED = {
     "PROF-03", "PROF-05", "LEASE-02", "RUN-07", "RUN-08", "RUN-09", "RUN-10",
     "PROC-03", "E2E-02", "E2E-03", "E2E-05", "E2E-06", "E2E-07",
     "E2E-08", "LANG-02",
+    "UP-05",
 }
 
 
 def validate(document):
-    requirements = document["requirements"]
+    requirements = document["requirements"] + document.get("amendments", [])
     seen = set()
     errors = []
     for item in requirements:
@@ -41,6 +42,10 @@ def validate(document):
     required_scenarios = {f"E2E-{number:02}" for number in range(1, 10)}
     if not required_scenarios <= seen:
         errors.append("missing Proposal 0009 section 13.1 acceptance scenarios")
+    if document.get("contractRevision") != "2026-10-19-upstream-runtimes":
+        errors.append("missing current upstream-runtime contract revision")
+    if not {f"UP-{number:02}" for number in range(1, 7)} <= seen:
+        errors.append("missing approved upstream-runtime amendment obligations")
     return errors
 
 
@@ -50,8 +55,9 @@ def main():
     args = parser.parse_args()
     document = json.loads(Path(__file__).with_name("requirements.json").read_text())
     errors = validate(document)
-    incomplete = [item for item in document["requirements"] if item["status"] != "verified"]
-    print(f'{len(document["requirements"])} requirements; {len(incomplete)} not verified')
+    requirements = document["requirements"] + document.get("amendments", [])
+    incomplete = [item for item in requirements if item["status"] != "verified"]
+    print(f'{len(requirements)} requirements; {len(incomplete)} not verified')
     if args.require_complete:
         errors.extend(f'{item["id"]} [{item["status"]}] {item["requirement"]}' for item in incomplete)
     for error in errors:
