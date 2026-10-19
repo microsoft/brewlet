@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import json
 import os
 import subprocess
+import sys
 import time
 
 
@@ -56,11 +57,43 @@ def observe(mode, source):
     return None
 
 
+def webhook_pending(error):
+    return ("runtimeimages.brewlet.sh" in error and "brewlet-admission.brewlet.svc" in error
+            and any(reason in error for reason in (
+                "connect: connection refused", "no endpoints available", "context deadline exceeded"))
+            and "x509" not in error)
+
+
+def wait_webhook(filename):
+    command = ["kubectl", "--kubeconfig", os.environ["KUBECONFIG"],
+               "--context", os.environ["CONTEXT"], "--request-timeout=15s",
+               "create", "--dry-run=server", "-f", filename]
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=20)
+        if result.returncode == 0:
+            print("Inventory admission is reachable; dry-run only.")
+            return
+        if not webhook_pending(result.stderr):
+            raise RuntimeError("Inventory admission failed: " + result.stderr)
+        print("Waiting for this cluster's inventory webhook: " + result.stderr.strip(), file=sys.stderr)
+        time.sleep(2)
+    raise TimeoutError("inventory webhook transport did not become reachable within 60 seconds")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["binding", "rotation"])
-    parser.add_argument("--source", required=True)
+    parser.add_argument("mode", choices=["binding", "rotation", "webhook"])
+    parser.add_argument("--source")
+    parser.add_argument("--file")
     args = parser.parse_args()
+    if args.mode == "webhook":
+        if not args.file:
+            parser.error("webhook needs --file")
+        wait_webhook(args.file)
+        return
+    if not args.source:
+        parser.error("binding/rotation needs --source")
     deadline = time.monotonic() + 300
     while time.monotonic() < deadline:
         result = observe(args.mode, args.source)

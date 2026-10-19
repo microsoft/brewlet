@@ -1,5 +1,38 @@
 # Brewlet 2.0 validation status
 
+## Reader documentation and tutorial
+
+The published-source documentation now has 30 navigable pages, including
+evaluate/platform/developer journeys, configuration, provider templates,
+resources, trust, observability, troubleshooting and safe removal.
+Strict MkDocs/link checks and desktop/mobile/both-theme browser journeys passed.
+The workflow remains a preview build, not deployment to the main production site.
+
+`python3 site/scripts/tutorial_check.py --run` executed the exact nine shell
+blocks in `docs/local-kubernetes.md` on a fresh private Linux/arm64 node.
+The [public reader receipt](results/reader-tutorial-arm64.json) records real
+HTTP and UID/GID 65532, inventory epoch/generation/digest bindings, retained
+old process identity, a replacement using generation 2 with unchanged app
+digest, normal profile/host cleanup, Helm uninstall and owned node destruction.
+Its source snapshot commit and exact shell/helper hashes are separate fields,
+not an assertion that uncommitted documentation was a clean checkout.
+
+Five development attempts remain failed in the receipt: input directory modes,
+BuildKit overlay metadata on input, inherited amd64 cross-build environment,
+copying into a different live mount namespace, and inventory webhook startup.
+The corrected guide uses fresh authored tmpfs input with unchanged strict
+payload validation, explicit native-platform selection, live OCI streaming and
+a service-scoped bounded dry-run transport wait. Failed pre-install fixtures
+and recorded image identities were separately cleaned, never called successful
+production cleanup. Existing user clusters and unrelated images were untouched.
+
+This is one local reader journey with preimported OCI graphs, not registry
+TLS/authentication, physical amd64, provider autoscaling or full-proposal proof.
+The original 107-requirement acceptance gate and its scoped evidence remain
+separate. The manual complete E2E workflow now includes the same reader command.
+
+## Runtime implementation acceptance
+
 **Approved upstream-runtime amendment (2026-10-19): local implementation
 acceptance verified.** All six amendment obligations and the active
 107-requirement ledger have scoped successful evidence. The historic baseline

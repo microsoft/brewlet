@@ -59,6 +59,11 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/cold_install.py --work integration-tests/live-v2/run-cold-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Execute the published reader tutorial on a private native node
+        if: inputs.scenario == 'complete'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 site/scripts/tutorial_check.py --run
       - name: Unchanged distroless sources, numeric identity, isolated app and shell-free recovery
         if: inputs.scenario == 'complete'
         env:

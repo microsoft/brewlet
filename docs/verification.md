@@ -46,6 +46,16 @@ exact guide blocks on one new private kind cluster, including HTTP, binding
 identity, source rotation, unchanged app digest and normal cleanup. It requires
 the tutorial prerequisites and is not the complete qualification suite.
 
+The current exact-command guide passed locally on a fresh arm64 node:
+real HTTP and numeric identity, old-binding retention during source rotation,
+a new Pod/generation with the same application digest, normal profile/host
+cleanup, Helm uninstall and exact-owned node destruction. Its
+[public receipt](../acceptance/results/reader-tutorial-arm64.json) preserves
+the observed bindings, input hashes and the separate failed development attempts.
+The complete manually dispatched E2E workflow also selects this reader check.
+Source, webhook and client-environment failures were corrected in the guide;
+no image policy or runtime protection was relaxed to obtain a pass.
+
 The strict acceptance gate checks verified evidence records. It does not create
 a cluster, rerun every receipt or certify an arbitrary deployment. Native kernel
 tests require the documented isolated Linux privileges; a portable skipped

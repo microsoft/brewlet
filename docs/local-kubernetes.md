@@ -65,8 +65,10 @@ docker build --platform "linux/$ARCH" -f "$WORK/context/kubernetes/Dockerfile" \
   -t "$CONTROL" "$WORK/context"
 docker build --platform "linux/$ARCH" -f "$WORK/context/provisioner/Dockerfile" \
   -t "$WORKER" "$WORK/context"
-CONTROL_ID="$(docker image inspect --format '{{.Id}}' "$CONTROL")"
-WORKER_ID="$(docker image inspect --format '{{.Id}}' "$WORKER")"
+export CONTROL_ID="$(docker image inspect --format '{{.Id}}' "$CONTROL")"
+export WORKER_ID="$(docker image inspect --format '{{.Id}}' "$WORKER")"
+printf '%s\n' "$CONTROL_ID" > "$WORK/control-image-id"
+printf '%s\n' "$WORKER_ID" > "$WORK/worker-image-id"
 docker build --platform "linux/$ARCH" -f "$WORK/context/examples/local/producer.Dockerfile" \
   --target artifact --output "type=local,dest=$WORK/application" "$WORK/context"
 APP_DIGEST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["digest"])' "$WORK/application/push.json")"
@@ -99,10 +101,16 @@ kind create cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG" \
   --image kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661 \
   --wait 180s
 export NODE="$CLUSTER-control-plane"
-NODE_ID="$(docker inspect --format '{{.Id}}' "$NODE")"
+export NODE_ID="$(docker inspect --format '{{.Id}}' "$NODE")"
 NODE_IMAGE_ID="$(docker inspect --format '{{.Image}}' "$NODE_ID")"
 test "$(docker image inspect --format '{{.Architecture}}' "$NODE_IMAGE_ID")" = "$ARCH"
 export NODE_UID="$(k get node "$NODE" -o jsonpath='{.metadata.uid}')"
+python3 - <<'PY'
+import json, os
+from pathlib import Path
+keys = ("CLUSTER", "CONTEXT", "NODE", "NODE_ID", "NODE_UID", "KUBECONFIG", "APP_NAMESPACE", "RID", "PROFILE")
+(Path(os.environ["WORK"]) / "owned-fixture.json").write_text(json.dumps({k: os.environ[k] for k in keys}, indent=2))
+PY
 nodecmd() {
   test "$(k get node "$NODE" -o jsonpath='{.metadata.uid}')" = "$NODE_UID"
   test "$(docker inspect --format '{{.Id}} {{index .Config.Labels "io.x-k8s.kind.cluster"}}' "$NODE_ID")" = "$NODE_ID $CLUSTER"
@@ -113,10 +121,9 @@ kind load docker-image --name "$CLUSTER" "$CONTROL" "$WORKER"
 for item in application runtime-before runtime-after; do
   layout="$WORK/$item"
   if test "$item" = application; then layout="$layout/oci"; fi
-  tar -C "$layout" -cf "$WORK/$item.tar" oci-layout index.json blobs
   nodecmd true
-  docker cp "$WORK/$item.tar" "$NODE_ID:/tmp/brewlet-reader-$item.tar"
-  nodecmd ctr -n k8s.io images import --all-platforms "/tmp/brewlet-reader-$item.tar"
+  tar -C "$layout" -cf - oci-layout index.json blobs \
+    | docker exec -i "$NODE_ID" ctr -n k8s.io images import --all-platforms -
 done
 nodecmd ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP_REF"
 k label node "$NODE" "brewlet.example.com/pool=$RUN_ID"
@@ -144,6 +151,7 @@ spec:
   source: {image: "$RUNTIME_BEFORE"}
   user: {uid: 65532, gid: 65532}
 EOF
+python3 examples/local/observe.py webhook --file "$WORK/runtime.yaml"
 k apply -f "$WORK/runtime.yaml"
 k wait --for=condition=Approved "runtimeimage/$RID" --timeout=120s
 export RUNTIME_UID="$(k get runtimeimage "$RID" -o jsonpath='{.metadata.uid}')"
@@ -169,6 +177,9 @@ k wait --for=condition=Ready "nodeprofile/$PROFILE" --timeout=5m
 
 Control-plane opt-in is only for this disposable single-node cluster.
 No account named `app`, runtime shell or runtime-image entrypoint is required.
+The helper's 60-second server dry-run retries only this inventory webhook's
+startup transport failures; admission denials and certificate failures fail
+immediately. Ready control-plane Pods alone do not prove webhook reachability.
 
 ## 6. Deploy and call the application
 

@@ -123,6 +123,13 @@ class TutorialObservationTests(unittest.TestCase):
         self.image["status"]["rotation"]["participants"] = []
         self.assertIsNone(self.observed("rotation"))
 
+    def test_webhook_retry_is_only_for_this_service_transport_not_denials_or_tls(self):
+        error = 'failed calling webhook "runtimeimages.brewlet.sh": https://brewlet-admission.brewlet.svc: connect: connection refused'
+        self.assertTrue(self.module.webhook_pending(error))
+        self.assertFalse(self.module.webhook_pending(error.replace("brewlet-admission.brewlet.svc", "foreign.svc")))
+        self.assertFalse(self.module.webhook_pending(error + " x509 certificate error"))
+        self.assertFalse(self.module.webhook_pending('runtimeimages.brewlet.sh denied the request'))
+
 
 if __name__ == "__main__":
     unittest.main()
