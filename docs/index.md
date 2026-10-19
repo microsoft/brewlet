@@ -1,9 +1,13 @@
 # Ship the app. Share the runtime.
 
-Brewlet 2.0 separates application delivery from platform-managed runtime images.
-Developers publish code, dependencies and an explicit launch descriptor as an
-OCI application image. Platform teams approve digest-pinned runtime roots.
-The node composes the two when a container is created.
+Brewlet 2.0 brings language runtimes back to the infrastructure level, like the
+OS or Kubernetes. The application remains the workload; its runtime is supplied
+by infrastructure instead of being bundled into every application image.
+
+Publish code, dependencies and an explicit launch descriptor as an OCI
+application image. Infrastructure provisions approved, digest-pinned runtime
+roots on the node, and Brewlet composes the application with its selected runtime
+when a container is created.
 
 **Start here:** [build from source](getting-started.md), [package an
 application](applications.md), or [approve a runtime and select its pools](runtime-images.md).
@@ -14,7 +18,7 @@ Java, Python, Node.js and .NET use the same generic artifact, inventory,
 provisioning and execution path. Core does not detect languages, infer
 entrypoints, select interpreters or inject VM tuning.
 
-| Developer owns | Platform team owns |
+| Application workload | Runtime infrastructure |
 | --- | --- |
 | Application and dependency bytes under `/app`. | Runtime image root, userland and authoritative PATH. |
 | `launch.json` with explicit argv, environment and working directory. | Approved runtime IDs and digest sources. |

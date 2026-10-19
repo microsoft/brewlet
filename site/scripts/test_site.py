@@ -36,6 +36,18 @@ class SiteTests(unittest.TestCase):
         self.assertIn("assets/css/theme.css", (ROOT / "site/index.html").read_text())
         self.assertIn("../assets/css/theme.css", (ROOT / "site/mkdocs.yml").read_text())
 
+    def test_runtime_is_infrastructure_not_a_second_workload_owner(self):
+        landing = (ROOT / "site/index.html").read_text()
+        overview = (ROOT / "docs/index.md").read_text()
+        for text in (landing, overview):
+            self.assertNotIn("Two owners", text)
+            self.assertNotIn("Developer owns", text)
+            self.assertNotIn("Platform team owns", text)
+        self.assertIn("Your application is the workload.", landing)
+        self.assertIn("The runtime is infrastructure.", landing)
+        self.assertIn("like the OS or Kubernetes", landing)
+        self.assertIn("| Application workload | Runtime infrastructure |", overview)
+
     def test_light_palette_matches_main_brand_colors(self):
         import re
         css = (ROOT / "site/assets/css/theme.css").read_text().split('html[data-theme="dark"]')[0]
