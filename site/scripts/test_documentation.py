@@ -54,6 +54,8 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("--target artifact", script)
         producer = (ROOT / "examples/local/producer.Dockerfile").read_text()
         self.assertIn("chmod 0755 /example /example/app", producer)
+        self.assertIn("--mount=type=tmpfs,target=/package", producer)
+        self.assertIn("--layer app=/package:/app", producer)
 
     def test_helm_documentation_tracks_every_current_leaf_value(self):
         import yaml

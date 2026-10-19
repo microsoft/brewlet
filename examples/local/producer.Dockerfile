@@ -12,8 +12,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trim
 RUN mkdir -p /example/app && chmod 0755 /example /example/app
 COPY --chmod=0644 examples/local/app/server.py /example/app/server.py
 COPY --chmod=0644 examples/local/launch.json /example/launch.json
-RUN /brewlet push example.invalid/brewlet/hello:v1 --platform "${TARGETOS}/${TARGETARCH}" \
-    --launch /example/launch.json --layer app=/example/app:/app \
+# Fresh authored input avoids BuildKit's own overlay metadata; validation stays strict.
+RUN --mount=type=tmpfs,target=/package chmod 0755 /package && \
+    install -m 0644 /example/app/server.py /package/server.py && \
+    /brewlet push example.invalid/brewlet/hello:v1 --platform "${TARGETOS}/${TARGETARCH}" \
+    --launch /example/launch.json --layer app=/package:/app \
     --store /out/oci --push-result /out/push.json
 
 FROM scratch AS artifact
