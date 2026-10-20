@@ -52,7 +52,7 @@ class SiteTests(unittest.TestCase):
         landing = (ROOT / "site/index.html").read_text()
         guide = (ROOT / "docs/webassembly.md").read_text()
         self.assertIn('href="docs/webassembly/"', landing)
-        self.assertIn("They do not install runwasi", guide)
+        self.assertIn("does not install runwasi", guide)
         self.assertIn("runtimeImages", guide)
         self.assertIn("native arm64", guide)
         self.assertIn("XDG_CACHE_HOME=/cache/compiled", guide)

@@ -932,6 +932,7 @@ class CallbackOrderTests(ProjectWork):
                 execute=callback("delivery"),
                 cleanup=callback("cleanup_delivery", cleanup_failure)),
             "accounting": SimpleNamespace(execute=callback("accounting")),
+            "filesystem": SimpleNamespace(execute=callback("filesystem")),
             "maven_node": SimpleNamespace(execute=callback("maven_node")),
             "container_roles": SimpleNamespace(execute=callback("container_roles")),
             "lifecycle": SimpleNamespace(execute=callback("lifecycle")),
@@ -950,7 +951,7 @@ class CallbackOrderTests(ProjectWork):
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
             "install", "startup", "observer_start", "application_execution", "barriers_and_rotation",
             "observability", "observer_stop",
-            "accounting", "delivery", "maven_node", "container_roles", "lifecycle",
+            "filesystem", "accounting", "delivery", "maven_node", "container_roles", "lifecycle",
             "control_edges", "pinned_revocation",
             "before_cleanup", "production_cleanup", "after_cleanup",
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])

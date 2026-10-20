@@ -1,5 +1,70 @@
 # Brewlet 2.0 validation status
 
+## Immutable runtime-view amendment
+
+Proposal 0009 now requires a read-only root at every new application task,
+including when mutation is unavailable. Platform-owned `volumeMountPaths`
+authorizes explicit data/configuration mounts outside `/app/`; the immutable
+policy travels through the allocation journal, node metadata and leases.
+Runtime aliases and overlapping workload mounts are rejected, not treated as
+safe merely because the shared node cache is immutable.
+
+The four new `FS-*` obligations are separate from the historical 111-obligation
+baseline. In particular, old writable-root preservation and root-write
+accounting receipts do not qualify the new contract. Current accounting keeps
+CRI root samples separate from actual kubelet data-volume samples and eviction.
+
+`run-immutable-20261020-d` passed **29 selected assertions** on native arm64,
+with normal production cleanup and exact-owned fixture destruction. The
+[public receipt](results/immutable-filesystem-arm64.json) records the actual
+production-source manifest hash
+`f2ee01aab9de4b0a6a6a391c4bb99d2c0e25580c48eb44e28eb17ba69ec5c5dd`.
+It is a current-worktree source build; `checkout` identifies the base commit,
+not a claim that uncommitted changes were already published.
+
+Initial and Exec writes to runtime mode-1777 `/tmp` and packaged `/app` failed
+with actual EROFS, while explicit application storage and a platform-approved
+bounded `/tmp` volume were writable. Admission defaulted read-only roots and
+rejected both read-only and writable runtime overlays. Stopping the private
+admission Deployment did not bypass the independent shim checks.
+
+Actual kubelet VolumeStats increased by **16,777,216 bytes**; the separately
+measured CRI root stayed at **16,384 bytes**. A bounded 80 MiB data write then
+caused actual kubelet eviction against the 48 MiB Pod ephemeral-storage budget,
+with no global DiskPressure or collateral workload changes. The terminal
+identity guard recognizes kubelet's explicitly identified post-eviction
+`ContainerStatusUnknown` cleanup without treating it as a new container start.
+
+The four new FS obligations are qualified, for **115 total baseline/amendment
+obligations**. This selected Python fixture verifies language-neutral filesystem
+behavior; `fullAcceptance` remains false. Both Linux architectures cross-build,
+but this is not fresh physical amd64 or five-workload execution evidence.
+The separate 29-obligation composition qualification retains its original scope.
+
+The [first attempt](results/immutable-filesystem-build-failure-arm64.json)
+failed Linux compilation. The
+[second](results/immutable-filesystem-cleanup-fixture-failure-arm64.json)
+passed filesystem checks but caught a fixture Pod deletion that had not been
+awaited. The [third](results/immutable-filesystem-eviction-status-failure-arm64.json)
+measured the correct storage delta and reached eviction, but its identity guard
+did not recognize kubelet clearing the terminated container ID. All remain
+failed, with their original evidence and exact-owned fixture destruction.
+
+## Qualification matrix
+
+[`qualification-matrix.json`](qualification-matrix.json) declares the five
+workload categories, four native fixtures and two WebAssembly hosts, and the
+native arm64/amd64 composition scopes. The real-node harnesses use its fixture
+groups; the composition gate uses its scope declarations.
+[`qualification.py`](qualification.py) independently requires all five categories,
+both Wasmtime and Spin, both architectures and the exact scope grouping. A
+partial matrix cannot redefine a missing requirement out of the gate.
+
+Both acceptance entry points validate the matrix, including `make acceptance`.
+The separate Proposal 0009/0010 obligation and receipt checks remain mandatory.
+Offline matrix/selection tests do not create new real-node evidence, and the
+historical receipts below retain their original source and qualification scope.
+
 ## Proposal 0010 WebAssembly companion
 
 `run-managed-wasm-95` passed **18 selected assertions** on native arm64 with

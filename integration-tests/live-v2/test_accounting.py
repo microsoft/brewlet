@@ -40,15 +40,16 @@ def stats():
 
 
 def probe():
-    return {"uid": 65532, "euid": 65532, "tmpMode": 0o1777,
-            "tmpRealPath": "/tmp", "rootDev": 123, "tmpDev": 123,
+    return {"uid": 65532, "euid": 65532,
+            "dataRealPath": a.DATA, "rootDev": 123, "dataDev": 456,
             "status": {"NoNewPrivs": "1", "CapEff": "0", "CapPrm": "0", "CapBnd": "0",
                        "CapInh": "0", "CapAmb": "0"},
             "mountinfo":
-                "1 0 0:1 / / rw - overlay overlay rw,lowerdir=/runtime,"
+                "1 0 0:1 / / ro - overlay overlay ro,lowerdir=/runtime,"
                 "upperdir=/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/"
                 "snapshots/123/fs,workdir=/var/lib/containerd/work\n"
-                "2 1 0:2 / /app ro - overlay overlay ro,lowerdir=/app-layers\n"}
+                "2 1 0:2 / /app ro - overlay overlay ro,lowerdir=/app-layers\n"
+                "3 1 0:3 / /app/accounting-volume rw - ext4 volume rw\n"}
 
 
 class AccountingTests(unittest.TestCase):
@@ -141,6 +142,28 @@ class AccountingTests(unittest.TestCase):
         with self.assertRaises(Failure):
             a.guard_node(obj, NODE, "node-uid", RUN)
 
+    def test_eviction_may_clear_id_but_never_permits_replacement_or_other_termination(self):
+        value = pod()
+        value["spec"]["restartPolicy"] = "Never"
+        value["status"].update(phase="Failed", reason="Evicted",
+                               message="Pod ephemeral local storage usage exceeds the total limit of containers 48Mi.")
+        a.guard_terminal_eviction(value, CID)
+        value["status"]["containerStatuses"][0]["containerID"] = ""
+        value["status"]["containerStatuses"][0]["state"] = {"terminated": {"reason": "ContainerStatusUnknown"}}
+        a.guard_terminal_eviction(value, CID)
+        value["status"]["containerStatuses"][0]["restartCount"] = 1
+        a.guard_terminal_eviction(value, CID)
+        for field, changed in (("containerID", "containerd://" + "b" * 64), ("restartCount", 2)):
+            bad = copy.deepcopy(value)
+            bad["status"]["containerStatuses"][0][field] = changed
+            with self.assertRaises(Failure):
+                a.guard_terminal_eviction(bad, CID)
+        for field, changed in (("reason", "Error"), ("phase", "Running"), ("message", "OOMKilled")):
+            bad = copy.deepcopy(value)
+            bad["status"][field] = changed
+            with self.assertRaises(Failure):
+                a.guard_terminal_eviction(bad, CID)
+
     def test_pod_and_container_replacement_refused(self):
         h = SimpleNamespace(run_id=RUN, node=NODE, namespace="private")
         a.guard_pod(pod(), h, "pod-uid", CID)
@@ -160,38 +183,56 @@ class AccountingTests(unittest.TestCase):
             a.guard_pod(obj, h, "pod-uid", CID)
 
     def test_mount_proof_requires_containerd_upper_readonly_app_and_security(self):
-        proof = a.mount_proof(probe(), "/tmp/brewlet-accounting-" + RUN)
+        proof = a.mount_proof(probe(), a.DATA + "/brewlet-accounting-" + RUN)
         self.assertTrue(proof["upperdir"].endswith("/snapshots/123/fs"))
         for old, new in (("upperdir=/var/lib/containerd/", "upperdir=/var/lib/brewlet/"),
-                         ("/app ro", "/app rw"), ("/ rw", "/ ro")):
+                         ("/app ro", "/app rw"), ("/ ro", "/ rw")):
             value = probe()
             value["mountinfo"] = value["mountinfo"].replace(old, new)
             with self.subTest(old=old), self.assertRaises(Failure):
-                a.mount_proof(value, "/tmp/brewlet-accounting-" + RUN)
-        for key, bad in (("uid", 0), ("euid", 0), ("tmpMode", 0o755),
-                         ("tmpRealPath", "/mounted-volume"), ("tmpDev", 999)):
+                a.mount_proof(value, a.DATA + "/brewlet-accounting-" + RUN)
+        for key, bad in (("uid", 0), ("euid", 0), ("dataRealPath", "/mounted-volume")):
             value = probe()
             value[key] = bad
             with self.assertRaises(Failure):
-                a.mount_proof(value, "/tmp/brewlet-accounting-" + RUN)
+                a.mount_proof(value, a.DATA + "/brewlet-accounting-" + RUN)
         value = probe()
         value["status"]["NoNewPrivs"] = "0"
         with self.assertRaises(Failure):
-            a.mount_proof(value, "/tmp/brewlet-accounting-" + RUN)
+            a.mount_proof(value, a.DATA + "/brewlet-accounting-" + RUN)
         for capability in ("CapEff", "CapPrm", "CapBnd", "CapInh", "CapAmb"):
             value = probe()
             value["status"][capability] = "1"
             with self.subTest(capability=capability), self.assertRaises(Failure):
-                a.mount_proof(value, "/tmp/brewlet-accounting-" + RUN)
+                a.mount_proof(value, a.DATA + "/brewlet-accounting-" + RUN)
 
-    def test_emptydir_tmpfs_bind_or_file_mount_cannot_proxy_usage(self):
-        path = "/tmp/brewlet-accounting-" + RUN
-        for target in ("/tmp", path, "/tmp/subdir"):
+    def test_nested_or_memory_volume_cannot_proxy_disk_volume_usage(self):
+        path = a.DATA + "/brewlet-accounting-" + RUN
+        for target in (a.DATA, path, a.DATA + "/subdir"):
             for filesystem in ("tmpfs", "ext4", "overlay"):
                 value = probe()
                 value["mountinfo"] += f"3 1 0:3 / {target} rw - {filesystem} volume rw\n"
                 with self.subTest(target=target, filesystem=filesystem), self.assertRaises(Failure):
                     a.mount_proof(value, path)
+
+    def test_volume_stats_are_distinct_from_cri_root_stats_and_bound_to_pod_uid(self):
+        value = {"pods": [{"podRef": {"name": "accounting-" + RUN, "namespace": "private", "uid": "pod-uid"},
+                           "volume": [{"name": a.VOLUME, "usedBytes": a.FIRST_BYTES,
+                                       "time": "2026-10-20T16:00:00Z"}]}]}
+        select = lambda document: a.volume_usage(document, uid="pod-uid", namespace="private",
+                                                  pod_name="accounting-" + RUN)
+        self.assertEqual(select(value)["usedBytes"], a.FIRST_BYTES)
+        for field, bad in (("usedBytes", True), ("usedBytes", -1), ("time", None)):
+            changed = copy.deepcopy(value)
+            changed["pods"][0]["volume"][0][field] = bad
+            with self.assertRaises(Failure):
+                select(changed)
+        changed = copy.deepcopy(value)
+        changed["pods"][0]["podRef"]["uid"] = "replacement"
+        with self.assertRaises(a.StatsPending):
+            select(changed)
+        with self.assertRaises(a.StatsPending):
+            select(stats())
 
     def test_unrelated_workloads_cannot_disappear_restart_or_become_unready(self):
         original = pod()
@@ -232,19 +273,19 @@ class AccountingTests(unittest.TestCase):
         with self.assertRaisesRegex(Failure, 'before=.*"ready": true.*after=.*"ready": false'):
             a.no_collateral(before, [obj])
 
-    def test_manifest_security_no_volume_and_two_bounded_write_stages(self):
+    def test_manifest_readonly_root_explicit_volume_and_two_bounded_write_stages(self):
         h = SimpleNamespace(run_id=RUN, node=NODE, namespace="private",
                             app_images={"python": "fixture@sha256:" + CID})
         h.pod = Mock(return_value={"spec": {"containers": [
             {"image": h.app_images["python"], "imagePullPolicy": "Never"}]}})
         obj = a.manifest(h, "accounting-" + RUN)
         spec = obj["spec"]
-        self.assertNotIn("volumes", spec)
+        self.assertEqual(spec["volumes"], [{"name": a.VOLUME, "emptyDir": {"sizeLimit": "96Mi"}}])
         self.assertFalse(spec["automountServiceAccountToken"])
         self.assertEqual(obj["metadata"]["annotations"]["brewlet.sh/runtime-image"], "fixture-python")
         container = spec["containers"][0]
-        self.assertNotIn("volumeMounts", container)
-        self.assertFalse(container["securityContext"]["readOnlyRootFilesystem"])
+        self.assertEqual(container["volumeMounts"], [{"name": a.VOLUME, "mountPath": a.DATA}])
+        self.assertTrue(container["securityContext"]["readOnlyRootFilesystem"])
         self.assertFalse(container["securityContext"]["allowPrivilegeEscalation"])
         self.assertEqual(container["securityContext"]["capabilities"]["drop"], ["ALL"])
         self.assertEqual(container["resources"]["limits"]["ephemeral-storage"], "48Mi")
@@ -261,8 +302,8 @@ class AccountingTests(unittest.TestCase):
         result = a.manifest(h, "accounting-" + RUN)
         self.assertEqual(result["spec"]["containers"][0]["imagePullPolicy"], "Always")
         self.assertEqual(result["spec"]["imagePullSecrets"], [{"name": "owned-pull-secret"}])
-        self.assertNotIn("volumes", result["spec"])
-        self.assertNotIn("volumeMounts", result["spec"]["containers"][0])
+        self.assertEqual(result["spec"]["volumes"], [{"name": a.VOLUME, "emptyDir": {"sizeLimit": "96Mi"}}])
+        self.assertEqual(result["spec"]["containers"][0]["volumeMounts"], [{"name": a.VOLUME, "mountPath": a.DATA}])
         result["spec"]["imagePullSecrets"][0]["name"] = "changed"
         self.assertEqual(base["spec"]["imagePullSecrets"][0]["name"], "owned-pull-secret")
         self.assertEqual(a.TOTAL_BYTES, 80 * a.MIB)

@@ -14,6 +14,15 @@ verify platforms and decide whether Eager or OnDemand fits the pool.
 Compatible upstream/distroless roots need no special mode; custom roots remain
 subject to the same security and executable-layout contract.
 
+Choose `RuntimeImage.spec.volumeMountPaths` before approval for temporary,
+cache and configuration volumes outside `/app/`. This contract is immutable
+within the runtime ID. Runtime roots are always read-only: a writable `/tmp`
+in the source image is not sufficient. Supply reviewed workload templates with
+explicit volumes, size/resource budgets and non-root permissions; do not rely
+on Brewlet to inject temporary storage or language-specific cache settings.
+See [mount policy](../runtime-images.md#declare-data-and-configuration-mount-locations)
+and [writable storage](../resources.md#probes-exec-files-and-shutdown).
+
 ## Verify the infrastructure
 
 Check current inventory approval, profile/Node UIDs, effective readiness without
@@ -30,7 +39,7 @@ Do not certify a cloud provider from local-kind success.
 | Runtime ID | Approved compatibility ID, documented absolute executable and tool paths. |
 | Platforms | Actual supported OS/architectures and required scheduling constraints. |
 | Registry | Application repository, credentials delivery and CA policy. |
-| Identity/data | Numeric defaults, permitted non-root overrides, writable/Secret volume policy. |
+| Identity/data | Numeric defaults, required read-only root, approved mount paths and explicit writable/Secret volume templates. |
 | Resources and telemetry | Requests/limits policy, collector destinations and operational contacts. |
 | Updates | Runtime rollout policy versus application dependency/image updates. |
 

@@ -210,7 +210,7 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 				if entry.Install == "Eager" {
 					current, _, currentErr := w.Store.Current(ctx, entry.ID)
 					if !live || currentErr != nil || current.UID != uint32(r.Spec.User.UID) ||
-						current.GID != uint32(r.Spec.User.GID) {
+						current.GID != uint32(r.Spec.User.GID) || !slices.Equal(current.VolumeMountPaths, r.Spec.VolumeMountPaths) {
 						err = errors.Join(err, w.withholdBaseline(ctx))
 					}
 				}
@@ -240,7 +240,8 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 			if entry.Install == "Eager" {
 				current, _, currentErr := w.Store.Current(ctx, entry.ID)
 				if currentErr != nil || current.InventoryUID != string(r.UID) ||
-					current.UID != uint32(r.Spec.User.UID) || current.GID != uint32(r.Spec.User.GID) {
+					current.UID != uint32(r.Spec.User.UID) || current.GID != uint32(r.Spec.User.GID) ||
+					!slices.Equal(current.VolumeMountPaths, r.Spec.VolumeMountPaths) {
 					platformErr = errors.Join(platformErr, w.withholdBaseline(ctx))
 				}
 			}
@@ -325,7 +326,8 @@ func (w *Worker) Reconcile(ctx context.Context) error {
 		if needed {
 			m, _, currentErr := w.Store.Current(ctx, entry.ID)
 			usableCurrent := currentErr == nil && m.InventoryUID == string(r.UID) &&
-				m.UID == uint32(r.Spec.User.UID) && m.GID == uint32(r.Spec.User.GID)
+				m.UID == uint32(r.Spec.User.UID) && m.GID == uint32(r.Spec.User.GID) &&
+				slices.Equal(m.VolumeMountPaths, r.Spec.VolumeMountPaths)
 			upToDate := usableCurrent && m.Generation == r.Status.Generation && m.SourceDigest == r.Status.Digest
 			if entry.Install == "Eager" && !usableCurrent {
 				if err := w.withholdBaseline(ctx); err != nil {

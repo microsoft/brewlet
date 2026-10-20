@@ -86,6 +86,9 @@ func prepareAppMountpoints(bundle, rootfsPath string, lowers []string, upper, wo
 				if err != nil {
 					return err
 				}
+				if info.Mode()&os.ModeSymlink != 0 {
+					return &node.Error{Reason: "RuntimeMountNotAllowed", Detail: "application mount destination traverses a symlink"}
+				}
 				resolved, err := node.InRoot(stage, "/"+name)
 				if err != nil {
 					return err

@@ -80,13 +80,54 @@ Use `runtimeClassName: brewlet` and the Pod annotation
 `brewlet.sh/runtime-image: <id>`. All application containers use the same ID.
 Native architecture constraints remain explicit.
 
+Every application/init/sidecar/ephemeral container requires
+`securityContext.readOnlyRootFilesystem: true`. Omission is defaulted by
+admission; explicit false is rejected. The shim also rejects a writable OCI
+root if admission was bypassed or unavailable.
+Workload volume/device mounts outside `/app/` require the platform's immutable
+`RuntimeImage.spec.volumeMountPaths` declaration. See
+[runtime mount policy](runtime-images.md#declare-data-and-configuration-mount-locations).
+
 `brewlet.sh/restart-on-rotation: "true"` belongs on the workload controller's
 metadata, not its Pod template, and requires cluster restart enablement.
 `brewlet.sh/rotated-to-generation` is a strict JSON inventory-epoch/minimum
 barrier, not a free-form version string. See [reference](reference.md).
 
-The raw and chart RuntimeClass reserve `50m` CPU and `64Mi` memory per Pod for
-shim/staging overhead. These are not language runtime heap reservations.
+### RuntimeClass overhead
+
+The raw RuntimeClass manifest and the chart defaults reserve `50m` CPU and
+`64Mi` memory per Pod for shim/staging overhead. These are declared scheduling
+reservations, not measured consumption or language runtime heap reservations.
+
+| Helm value | Default | Meaning |
+| --- | --- | --- |
+| `runtimeClass.overhead.cpu` | `"50m"` | Nonnegative Kubernetes CPU quantity string per Pod. |
+| `runtimeClass.overhead.memory` | `"64Mi"` | Nonnegative Kubernetes memory quantity string per Pod. |
+
+Set these at installation according to measurements of your deployment, for
+example by supplying this values file to `helm install ... -f overhead.yaml`:
+
+```yaml
+runtimeClass:
+  overhead:
+    cpu: "100m"
+    memory: "96Mi"
+```
+
+These example overrides are not sizing recommendations. The chart checks
+quantity-string syntax and rejects invalid types, negative or empty values;
+Kubernetes remains authoritative for resource validation. Use `--set-string`
+when passing plain numeric quantities on the command line. Raw-manifest users
+edit `overhead.podFixed` explicitly; the shipped raw defaults remain unchanged.
+
+[Pod overhead](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/)
+affects scheduling and quota accounting and is recorded when Pods are admitted.
+At the defaults, 1,000 Pods declare an additional 50 CPU cores and 62.5 GiB of
+memory reservation; that is not an observation of actual resource use.
+Do not remove the reservation or claim density improvements without evidence.
+Choose these defaults at installation. Later RuntimeClass changes are policy
+for newly admitted Pods, not live resource tuning: existing Pods retain their
+admitted overhead values until replaced.
 
 ## Registry and environment precedence
 

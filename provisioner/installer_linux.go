@@ -108,7 +108,7 @@ func (i *ContainerdInstaller) Stage(ctx context.Context, r *api.RuntimeImage, ba
 	if r.Spec.User.UID <= 0 || r.Spec.User.UID >= 1<<32-1 || r.Spec.User.GID <= 0 || r.Spec.User.GID >= 1<<32-1 {
 		return "", m, fmt.Errorf("invalid runtime app identity")
 	}
-	m = node.Metadata{ID: r.Name, InventoryUID: string(r.UID), Generation: r.Status.Generation, SourceDigest: r.Status.Digest, ManifestDigest: selected.Manifest.Digest.String(), Platform: selected.Platform, Env: config.Config.Env, UID: uint32(r.Spec.User.UID), GID: uint32(r.Spec.User.GID)}
+	m = node.Metadata{ID: r.Name, InventoryUID: string(r.UID), Generation: r.Status.Generation, SourceDigest: r.Status.Digest, ManifestDigest: selected.Manifest.Digest.String(), Platform: selected.Platform, Env: config.Config.Env, UID: uint32(r.Spec.User.UID), GID: uint32(r.Spec.User.GID), VolumeMountPaths: slices.Clone(r.Spec.VolumeMountPaths)}
 	stagingBase := filepath.Join(base, ".staging")
 	if err := os.MkdirAll(stagingBase, 0700); err != nil {
 		return "", m, err

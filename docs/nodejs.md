@@ -1,8 +1,26 @@
 # Node.js workloads
 
-Package resolved JavaScript/dependency files and an explicit invocation. The
-approved runtime provides Node and userland; Brewlet does not run npm, discover
-a package entrypoint or rewrite module resolution.
+## How it works
+
+Brewlet lets you deliver JavaScript separately from platform-managed Node.js
+runtime infrastructure. Your OCI application artifact contains code, resolved
+package files and an explicit launch descriptor, not the Node executable. The
+platform approves and provisions a Node.js [runtime image](runtime-images.md);
+your Kubernetes Deployment selects its runtime ID. Brewlet runs the declared
+command with application files mounted read-only under `/app`.
+
+Dependencies can ship with the application or optionally be published as an
+approved [managed bundle](managed-composition.md). Release-time composition
+combines an app-only artifact with a locked dependency set before deployment.
+Compatible package updates can preserve your JavaScript, but still need tests
+for module layout and any native-addon ABI requirements. Brewlet does not run
+npm, discover a package entrypoint or rewrite module resolution.
+
+Updates create new task instances; they do not replace modules inside a running
+Node.js process. See the [architecture overview](concepts.md) and
+[launch contract](reference.md#launch-descriptor) for the execution model.
+The runtime root is read-only too; temporary files and caches need
+[approved writable volumes](resources.md#probes-exec-files-and-shutdown).
 
 ## Tested runtime inputs
 

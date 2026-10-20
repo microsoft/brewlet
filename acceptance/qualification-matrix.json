@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "architectures": ["arm64", "amd64"],
+  "fixtureGroups": {
+    "native": [
+      {"id": "java", "category": "java"},
+      {"id": "python", "category": "python"},
+      {"id": "node", "category": "node"},
+      {"id": "dotnet", "category": "dotnet"}
+    ],
+    "wasm": [
+      {"id": "wasmtime", "category": "webassembly"},
+      {"id": "spin", "category": "webassembly"}
+    ]
+  },
+  "compositionScopes": {
+    "arm64": {
+      "architecture": "arm64",
+      "group": "native",
+      "scenario": "managed-composition"
+    },
+    "amd64": {
+      "architecture": "amd64",
+      "group": "native",
+      "scenario": "managed-composition"
+    },
+    "wasm-arm64": {
+      "architecture": "arm64",
+      "group": "wasm",
+      "scenario": "managed-wasm-composition"
+    },
+    "wasm-amd64": {
+      "architecture": "amd64",
+      "group": "wasm",
+      "scenario": "managed-wasm-composition"
+    }
+  }
+}

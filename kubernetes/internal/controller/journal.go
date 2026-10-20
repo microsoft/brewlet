@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
 	"github.com/microsoft/brewlet/kubernetes/policy"
@@ -17,15 +18,16 @@ const inventoryJournalKey = "node.brewlet.sh/inventory-journal"
 // subresource schema. A pruned/lost status cannot reset an existing epoch's
 // generation counter or forget its immutable account.
 type inventoryJournal struct {
-	UID           types.UID         `json:"uid"`
-	Generation    int64             `json:"generation"`
-	Source        string            `json:"source"`
-	User          api.User          `json:"user"`
-	Compatibility api.Compatibility `json:"compatibility"`
+	UID              types.UID         `json:"uid"`
+	Generation       int64             `json:"generation"`
+	Source           string            `json:"source"`
+	User             api.User          `json:"user"`
+	Compatibility    api.Compatibility `json:"compatibility"`
+	VolumeMountPaths []string          `json:"volumeMountPaths,omitempty"`
 }
 
 func journalFor(im *api.RuntimeImage, g int64) inventoryJournal {
-	return inventoryJournal{UID: im.UID, Generation: g, Source: im.Spec.Source.Image, User: im.Spec.User, Compatibility: im.Spec.Compatibility}
+	return inventoryJournal{UID: im.UID, Generation: g, Source: im.Spec.Source.Image, User: im.Spec.User, Compatibility: im.Spec.Compatibility, VolumeMountPaths: slices.Clone(im.Spec.VolumeMountPaths)}
 }
 func encodeJournal(im *api.RuntimeImage, j inventoryJournal) error {
 	data, err := json.Marshal(j)
@@ -46,7 +48,7 @@ func readJournal(im *api.RuntimeImage) (inventoryJournal, error) {
 	if j.UID != im.UID || j.Generation <= 0 || policy.Source(j.Source) != nil {
 		return j, fmt.Errorf("inventory allocation journal epoch/source/generation invalid")
 	}
-	if j.User != im.Spec.User || j.Compatibility != im.Spec.Compatibility {
+	if j.User != im.Spec.User || j.Compatibility != im.Spec.Compatibility || !slices.Equal(j.VolumeMountPaths, im.Spec.VolumeMountPaths) {
 		return j, fmt.Errorf("immutable runtime identity differs from allocation journal")
 	}
 	if im.Status.Generation > j.Generation {

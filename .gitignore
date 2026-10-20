@@ -8,6 +8,7 @@
 /site/**/node_modules/
 /site/_site-checks/
 /site/**/__pycache__/
+/acceptance/__pycache__/
 *.test
 .DS_Store
 .brewlet/

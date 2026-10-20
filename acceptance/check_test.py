@@ -48,7 +48,8 @@ class LedgerTests(unittest.TestCase):
                 self.assertTrue(CHECK.validate(document))
 
     def test_amendment_obligations_cannot_be_omitted(self):
-        for identifier in [f"UP-{number:02}" for number in range(1, 7)]:
+        for identifier in ([f"UP-{number:02}" for number in range(1, 7)] +
+                           [f"FS-{number:02}" for number in range(1, 5)]):
             document = copy.deepcopy(self.document)
             document["amendments"] = [
                 item for item in document["amendments"] if item["id"] != identifier
@@ -59,6 +60,15 @@ class LedgerTests(unittest.TestCase):
         document = copy.deepcopy(self.document)
         document.pop("contractRevision")
         document.pop("amendments")
+        self.assertTrue(CHECK.validate(document))
+
+    def test_historical_writable_root_receipt_cannot_qualify_immutable_filesystem(self):
+        document = copy.deepcopy(self.document)
+        for item in document["amendments"]:
+            if item["id"].startswith("FS-"):
+                item.update(status="verified", evidence=[{
+                    "command": "historic accounting", "outcome": "passed", "scope": "real-node",
+                    "result": "acceptance/results/cri-accounting.json"}])
         self.assertTrue(CHECK.validate(document))
 
 

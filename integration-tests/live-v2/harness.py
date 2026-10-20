@@ -20,6 +20,12 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from acceptance.qualification import fixture_names, load_matrix
+
+QUALIFICATION_MATRIX = load_matrix()
+LANGUAGES = fixture_names(QUALIFICATION_MATRIX, "native")
+WASM_HOSTS = fixture_names(QUALIFICATION_MATRIX, "wasm")
 HERE = Path(__file__).resolve().parent
 FIXTURES = ROOT / "integration-tests/fixtures"
 KIND_VERSION = "v0.33.0"
@@ -29,7 +35,6 @@ CLI_USERLAND = "docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6
 OWNER = "acceptance.brewlet.test/run"
 FENCE = "startup-taint.cluster-autoscaler.kubernetes.io/brewlet"
 API = "node.brewlet.sh/v2alpha1"
-LANGUAGES = ("java", "python", "node", "dotnet")
 IDS = {language: "fixture-" + language for language in LANGUAGES}
 STORE = "/opt/brewlet/runtimes"
 UNIMPLEMENTED = [
@@ -812,6 +817,7 @@ class Harness:
             self.apply({"apiVersion": API, "kind": "RuntimeImage",
                         "metadata": {"name": IDS[language]},
                         "spec": {"source": {"image": self.runtime_images[language]["before"]},
+                                 "volumeMountPaths": ["/tmp"],
                                  "user": {"uid": 65532, "gid": 65532}}})
         for runtime_id in self.runtime_ids.values():
             self.wait("approved inventory " + runtime_id, lambda rid=runtime_id:
@@ -1713,6 +1719,9 @@ class Harness:
                 self.phase = "observability"
                 observer.verify()
             if self.scenario in ("complete", "accounting"):
+                self.phase = "immutable-filesystem"
+                from filesystem import execute as verify_filesystem
+                verify_filesystem(self)
                 self.phase = "cri-accounting"
                 from accounting import execute as verify_accounting
                 verify_accounting(self)

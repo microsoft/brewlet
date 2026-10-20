@@ -7,8 +7,8 @@ metadata:
 handler: brewlet
 overhead:
   podFixed:
-    memory: 64Mi
-    cpu: 50m
+    memory: {{ .Values.runtimeClass.overhead.memory | quote }}
+    cpu: {{ .Values.runtimeClass.overhead.cpu | quote }}
 scheduling:
   nodeSelector:
     brewlet.sh/runtime: ready

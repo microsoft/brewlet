@@ -897,10 +897,14 @@ spec:
    over a private opaque `/app` boundary over the runtime root. The boundary
    MUST hide all inherited runtime `/app` content without modifying the approved
    root or shared payload cache. `upperdir`/`workdir` = per-container scratch. The CRI
-   `readOnlyRootFilesystem` flag is preserved as in 1.x. Packaged `/app` is
-   explicitly mounted read-only, independent of that flag. Writable application
-   data uses explicit Kubernetes volumes (including mounts beneath `/app`) or
-   runtime-provided writable directories; image layers are not writable storage.
+   container root MUST be read-only at execution. Admission defaults
+   `readOnlyRootFilesystem: true` and rejects explicit false for application,
+   init/sidecar and ephemeral containers. The shim independently rejects a
+   non-read-only OCI root with `ReadOnlyRootRequired`; missing admission cannot
+   restore writable-root behavior. Packaged `/app` is explicitly mounted
+   read-only as well. Writable application data uses explicit Kubernetes
+   volumes, not writes to a private copy of runtime files. This deliberately
+   replaces the earlier writable-root/CRI-flag-preservation contract.
 6. **Generate `config.json`** from the CRI-provided spec with the process fields
    of §8.3 and the user of §8.4; resources, mounts, namespaces, and the CNI
    network namespace pass through unchanged. No language-specific arguments are
@@ -935,9 +939,54 @@ storage. Cache leases and live mount references prevent collection while in
 use. The provisioner reports shared cache/runtime-root disk consumption
 separately; per-container writable snapshots MUST be integrated with CRI
 filesystem usage so kubelet ephemeral-storage accounting and eviction see
-them. Claiming accounting support requires a conformance test of CRI usage and
-eviction, not merely locating files on disk. Disk exhaustion is an explicit
+them. With a read-only root, CRI reports the managed root's setup/metadata usage;
+explicit disk-backed volumes are separately accounted by kubelet VolumeStats
+and Pod ephemeral-storage limits. A volume usage delta MUST NOT be reported as
+container writable-layer growth. Conformance requires actual CRI samples,
+volume samples and kubelet eviction, not merely locating files on disk or
+allowing an otherwise forbidden writable root. Disk exhaustion is an explicit
 provisioning/container error, never a partially published cache entry.
+
+**Runtime mount policy.** `RuntimeImage.spec.volumeMountPaths` is an optional
+administrator-owned list of data/configuration mount prefixes outside `/app`.
+Omitted or empty means no additional workload mount locations. It is immutable
+within an inventory UID, like the numeric user/compatibility identity; changes
+require a new ID. The allocation journal and validated node metadata MUST bind
+the same policy, and workers MUST NOT reuse roots with a different policy.
+Paths MUST be canonical absolute, sorted, unique, nonoverlapping, at most 32
+entries and 1024 characters each. Root, `/app`, `/dev`, `/proc`, `/sys` and
+the kubelet's `/etc/hosts`, `/etc/hostname`, `/etc/resolv.conf` locations or
+their ancestors/descendants are not declarable zones.
+
+Every workload volume or block-device destination, including read-only mounts,
+MUST be beneath `/app/` or within a declared zone. A custom termination-message
+path follows the same policy. Mounting the entire `/app` is forbidden. Reserved
+Linux/CRI pseudo-filesystems, standard kubelet host/DNS/termination files and
+the standard read-only service-account projection are narrow system exceptions,
+not arbitrary workload mount permissions. Admission validates Pod destinations;
+the shim independently validates the effective OCI mounts and devices against
+the leased policy before delegating to runc. Violations fail with
+`RuntimeMountNotAllowed`. Ordinary image file/directory permissions are not a
+substitute for this boundary.
+
+Declared zones MUST be directories (or absent mountpoints), not symlink aliases
+or ancestors of runtime PATH directories. Runtime publication rejects invalid
+zones with `InvalidRuntimeMountPolicy` or explicit path-validation errors.
+Mount targets MUST NOT traverse symlinks, including confined application
+symlinks; the standard service-account `/var/run` alias may resolve only to its
+same `/run` location. Workload mount/device destinations MUST NOT overlap:
+an earlier volume could otherwise redirect a later mount through source-owned
+symlinks. Kubernetes system mounts retain their narrowly defined nesting.
+Platforms MUST designate data/configuration zones, not runtime program/library
+installations. Integrity applies outside these explicit mutable/system zones;
+it is not a claim that every byte in an administrator-approved data zone is
+immutable or that application-owned code cannot execute.
+
+The shim MUST NOT infer a language, auto-create writable `/tmp`/cache mounts,
+or inject runtime-specific cache flags. Platforms provide reviewed workload
+templates; applications explicitly request volumes and author any cache/temp
+configuration. Existing tasks retain their immutable mount namespace and leased
+generation; Exec inherits it, rather than constructing a new writable view.
 
 ### 8.3 Process fields
 

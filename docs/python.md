@@ -1,8 +1,27 @@
 # Python workloads
 
-Package Python source and resolved dependencies without an interpreter root.
-The selected approved runtime supplies Python and userland; Brewlet does not
-run pip, detect modules or infer an interpreter.
+## How it works
+
+Brewlet separates your Python application from platform-managed runtime
+infrastructure. You publish source and an explicit launch descriptor as an OCI
+artifact, without bundling a Python interpreter. The platform approves and
+provisions a [runtime image](runtime-images.md) containing Python and its Linux
+userland; your Kubernetes Deployment selects its runtime ID. Brewlet runs your
+declared interpreter command with application files read-only under `/app`.
+
+Resolve dependencies in your build pipeline, not on the node. They can ship with
+the application or optionally come from an approved
+[managed bundle](managed-composition.md). Release-time composition joins your
+source and a locked dependency set into a verifiable application artifact.
+Compatible package updates can preserve your source, but must be tested against
+the selected Python ABI, native libraries and import layout. Brewlet does not
+run pip or infer an interpreter.
+
+Updates use new task instances rather than modifying a running Python process.
+See the [architecture overview](concepts.md) and
+[launch contract](reference.md#launch-descriptor) for the complete workflow.
+The runtime root is read-only too; temporary files and caches need
+[approved writable volumes](resources.md#probes-exec-files-and-shutdown).
 
 ## Tested runtime inputs
 

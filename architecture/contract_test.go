@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -176,6 +177,16 @@ func TestSharedRuntimeClassRetainsSelectorAndLanguageNeutralOverhead(t *testing.
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if strings.Contains(path, "/charts/") {
+				if _, err := exec.LookPath("helm"); err != nil {
+					t.Skip("helm unavailable")
+				}
+				data, err = exec.Command("helm", "template", "test", "../kubernetes/charts/brewlet",
+					"--show-only", "templates/runtimeclass.yaml").CombinedOutput()
+				if err != nil {
+					t.Fatalf("render RuntimeClass: %v: %s", err, data)
+				}
 			}
 			var class nodev1.RuntimeClass
 			if err := yaml.UnmarshalStrict(data, &class); err != nil {

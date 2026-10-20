@@ -45,6 +45,18 @@ spec:
                       type: string
                       pattern: '^[^@]+@sha256:[0-9a-f]{64}$'
                 description: {type: string}
+                volumeMountPaths:
+                  type: array
+                  default: []
+                  maxItems: 32
+                  x-kubernetes-list-type: atomic
+                  x-kubernetes-validations:
+                    - rule: self == oldSelf
+                      message: runtime mount policy is immutable; use a new ID
+                  items:
+                    type: string
+                    minLength: 2
+                    maxLength: 1024
                 user: &user
                   type: object
                   required: [uid, gid]

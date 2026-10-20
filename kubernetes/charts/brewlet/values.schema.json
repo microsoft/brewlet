@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["runtimeClass"],
+  "properties": {
+    "runtimeClass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overhead"],
+      "properties": {
+        "overhead": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cpu", "memory"],
+          "properties": {
+            "cpu": {"$ref": "#/definitions/nonnegativeQuantity"},
+            "memory": {"$ref": "#/definitions/nonnegativeQuantity"}
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "nonnegativeQuantity": {
+      "description": "A nonnegative Kubernetes resource Quantity string; the API server remains authoritative for resource validation.",
+      "type": "string",
+      "pattern": "^\\+?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+|[numkMGTPE]|[KMGTPE]i)?$"
+    }
+  }
+}

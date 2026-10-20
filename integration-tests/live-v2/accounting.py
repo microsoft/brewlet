@@ -2,7 +2,8 @@
 
 Requires the approved fixture-python runtime, its selected application delivery, a
 private invocation-owned kind node, and crictl's real ContainerStats endpoint.
-No fallback to file sizes, stdout counters, emptyDir, or skipped assertions.
+Root usage comes from CRI; explicit data-volume usage comes from kubelet
+VolumeStats. Neither is substituted for the other or for eviction evidence.
 """
 
 import copy
@@ -21,6 +22,8 @@ LIMIT_BYTES = 48 * MIB
 MIN_DELTA = FIRST_BYTES
 DISK_RESERVE = 1024 * MIB
 CONTAINER = "accounting"
+VOLUME = "accounting-data"
+DATA = "/app/accounting-volume"
 IDLE = "import time; time.sleep(86400)"
 
 
@@ -37,14 +40,14 @@ for line in open('/proc/self/status'):
         status[key] = value.strip()
 print(json.dumps({'mountinfo': open('/proc/self/mountinfo').read(),
                   'uid': os.getuid(), 'euid': os.geteuid(), 'status': status,
-                  'tmpRealPath': os.path.realpath('/tmp'),
-                  'rootDev': os.stat('/').st_dev, 'tmpDev': os.stat('/tmp').st_dev,
-                  'tmpMode': stat.S_IMODE(os.stat('/tmp').st_mode)}))
+                  'dataRealPath': os.path.realpath('/app/accounting-volume'),
+                  'rootDev': os.stat('/').st_dev, 'dataDev': os.stat('/app/accounting-volume').st_dev}))
 """
 WRITE = r"""
 import json, os, stat, sys, time
 path, expected, target = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-assert path.startswith('/tmp/brewlet-accounting-') and '/' not in path[5:]
+assert path.startswith('/app/accounting-volume/brewlet-accounting-')
+assert '/' not in path.removeprefix('/app/accounting-volume/')
 assert (expected, target) in ((0, 16777216), (16777216, 83886080))
 flags = os.O_WRONLY | os.O_NOFOLLOW
 flags |= (os.O_CREAT | os.O_EXCL) if expected == 0 else os.O_APPEND
@@ -168,6 +171,27 @@ def increased(baseline, final):
     return (final["timestampNS"] > baseline["timestampNS"]
             and final["usedBytes"] - baseline["usedBytes"] >= MIN_DELTA)
 
+def volume_usage(summary, *, uid, namespace, pod_name):
+    rows = summary.get("pods", [])
+    require(isinstance(rows, list), "kubelet PodStats unavailable")
+    matches = [row for row in rows if row.get("podRef") ==
+               {"name": pod_name, "namespace": namespace, "uid": uid}]
+    if not matches:
+        raise StatsPending("owned PodStats not collected yet")
+    require(len(matches) == 1, "duplicate kubelet PodStats")
+    volumes = [row for row in matches[0].get("volume", []) if row.get("name") == VOLUME]
+    if not volumes:
+        raise StatsPending("owned VolumeStats not collected yet")
+    require(len(volumes) == 1, "duplicate kubelet VolumeStats")
+    selected = volumes[0]
+    value = selected.get("usedBytes")
+    require(type(value) is int and value >= 0, "VolumeStats usedBytes unavailable")
+    stamp = selected.get("time")
+    require(isinstance(stamp, str), "VolumeStats timestamp unavailable")
+    timestamp = datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+    require(timestamp > 0, "invalid VolumeStats timestamp")
+    return {"usedBytes": value, "timestampNS": int(timestamp * 1_000_000_000)}
+
 
 def ephemeral_eviction(pod):
     status = pod.get("status", {})
@@ -177,6 +201,23 @@ def ephemeral_eviction(pod):
             and "limit" in message
             and bool(re.search(r"\bexceed(?:s|ed)?\b", message))
             and "low on resource" not in message)
+
+def guard_terminal_eviction(pod, cid):
+    require(ephemeral_eviction(pod), "Pod terminated without local ephemeral-storage limit eviction")
+    statuses = [row for row in pod.get("status", {}).get("containerStatuses", [])
+                if row.get("name") == CONTAINER]
+    require(len(statuses) == 1 and pod.get("spec", {}).get("restartPolicy") == "Never",
+            "evicted accounting container status or restart policy is ambiguous")
+    status = statuses[0]
+    value = status.get("containerID", "")
+    if value == "containerd://" + cid and status.get("restartCount") == 0:
+        return
+    # Kubelet synthesizes ContainerStatusUnknown, clears the ID and can add one
+    # to restartCount after removing an evicted container. This is not a new
+    # container start; UID/Never and all pre-eviction CID checks remain required.
+    require(value == "" and status.get("restartCount") in (0, 1)
+            and status.get("state", {}).get("terminated", {}).get("reason") == "ContainerStatusUnknown",
+            "eviction reports a different or restarted accounting container")
 
 
 def guard_node(node, name, uid, run_id, *, healthy=True):
@@ -203,7 +244,7 @@ def guard_pod(pod, h, uid, cid=None):
 
 
 def mount_proof(probe, path):
-    """Require /tmp to be on the containerd overlay upper, not a bind/tmpfs volume."""
+    """Prove the root is read-only and writes target an explicit disk-backed volume."""
     mounts = []
     for line in probe["mountinfo"].splitlines():
         left, right = line.split(" - ", 1)
@@ -214,31 +255,34 @@ def mount_proof(probe, path):
     roots = [m for m in mounts if m["target"] == "/"]
     require(len(roots) == 1, "unique root mount unavailable")
     root = roots[0]
-    require(root["type"] == "overlay" and "rw" in root["options"],
-            "root is not a writable overlay snapshot")
+    require(root["type"] == "overlay" and "ro" in root["options"],
+            "root is not a read-only overlay snapshot")
     upper = [o[9:] for o in root["superOptions"] if o.startswith("upperdir=")]
     require(len(upper) == 1 and re.fullmatch(
         r"/var/lib/containerd/io\.containerd\.snapshotter\.v1\.overlayfs/snapshots/[0-9]+/fs",
         upper[0]), "root upper is not a containerd-managed writable snapshot")
-    require(not any(m["target"] != "/" and
-                    (path == m["target"] or path.startswith(m["target"].rstrip("/") + "/")
-                     or m["target"].startswith("/tmp/"))
-                    for m in mounts), "/tmp or accounting file is volume-backed")
+    data = [m for m in mounts if m["target"] == DATA]
+    require(len(data) == 1 and "rw" in data[0]["options"] and data[0]["type"] != "tmpfs",
+            "accounting writes require the explicit disk-backed data volume")
+    require(not any(m["target"] != DATA and within_data(m["target"]) for m in mounts),
+            "nested accounting volume masks the selected data source")
     app = [m for m in mounts if m["target"] == "/app"]
     require(len(app) == 1 and "ro" in app[0]["options"], "packaged /app is not read-only")
-    require(probe["tmpRealPath"] == "/tmp" and probe["tmpDev"] == probe["rootDev"],
-            "/tmp is redirected away from the root snapshot")
-    require(probe["uid"] != 0 and probe["euid"] != 0 and probe["tmpMode"] == 0o1777,
-            "nonroot identity or runtime /tmp mode violated")
+    require(probe["dataRealPath"] == DATA and path.startswith(DATA + "/"),
+            "accounting data path is redirected")
+    require(probe["uid"] != 0 and probe["euid"] != 0, "nonroot identity violated")
     status = probe["status"]
     require(status.get("NoNewPrivs") == "1"
             and all(int(status.get(key, "-1"), 16) == 0
                     for key in ("CapEff", "CapPrm", "CapBnd", "CapInh", "CapAmb")),
             "capability or noNewPrivileges contract violated")
-    return {"root": root, "app": app[0], "upperdir": upper[0],
-            "uid": probe["uid"], "euid": probe["euid"], "tmpRealPath": probe["tmpRealPath"],
-            "rootDev": probe["rootDev"], "tmpDev": probe["tmpDev"],
-            "tmpMode": oct(probe["tmpMode"]), "status": status}
+    return {"root": root, "app": app[0], "data": data[0], "upperdir": upper[0],
+            "uid": probe["uid"], "euid": probe["euid"], "dataRealPath": probe["dataRealPath"],
+            "rootDev": probe["rootDev"], "dataDev": probe["dataDev"], "status": status}
+
+
+def within_data(path):
+    return path.startswith(DATA + "/")
 
 
 def workload_snapshot(pods, excluded_uid=None):
@@ -290,12 +334,15 @@ def manifest(h, name):
             "restartPolicy": "Never", "terminationGracePeriodSeconds": 1,
             "automountServiceAccountToken": False,
             "securityContext": {"runAsNonRoot": True, "runAsUser": 65532,
-                                "runAsGroup": 65532, "seccompProfile": {"type": "RuntimeDefault"}},
+                                "runAsGroup": 65532, "fsGroup": 65532,
+                                "seccompProfile": {"type": "RuntimeDefault"}},
+            "volumes": [{"name": VOLUME, "emptyDir": {"sizeLimit": "96Mi"}}],
             "containers": [{
                 "name": CONTAINER, "image": image["image"], "imagePullPolicy": image["imagePullPolicy"],
                 "command": ["python3"], "args": ["-c", IDLE], "workingDir": "/app",
                 "env": [{"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}],
-                "securityContext": {"readOnlyRootFilesystem": False, "privileged": False,
+                "volumeMounts": [{"name": VOLUME, "mountPath": DATA}],
+                "securityContext": {"readOnlyRootFilesystem": True, "privileged": False,
                                     "allowPrivilegeEscalation": False,
                                     "capabilities": {"drop": ["ALL"]}},
                 "resources": {"requests": {"cpu": "10m", "memory": "32Mi",
@@ -331,7 +378,7 @@ def cleanup(h, name, uid):
 def execute(h):
     """Run actual CRI usage then kubelet eviction; raise Failure on any unavailable proof."""
     name = "accounting-" + h.run_id
-    path = "/tmp/brewlet-accounting-" + h.run_id
+    path = DATA + "/brewlet-accounting-" + h.run_id
     evidence = {"startedAt": now(), "node": h.node, "nodeUID": h.node_uid,
                 "nodeContainerID": h.node_container, "namespace": h.namespace,
                 "pod": name, "container": CONTAINER, "file": path,
@@ -373,14 +420,19 @@ def execute(h):
         index = len(evidence["samples"])
         (h.work / f"accounting-cri-{index:03d}.json").write_text(json.dumps(raw, indent=2) + "\n")
         try:
-            selected = usage(raw, uid=uid, namespace=h.namespace, pod_name=name, cid=cid)
+            root_usage = usage(raw, uid=uid, namespace=h.namespace, pod_name=name, cid=cid)
+            summary = json.loads(h.kubectl("get", "--raw",
+                "/api/v1/nodes/" + h.node + "/proxy/stats/summary").stdout)
+            (h.work / f"accounting-summary-{index:03d}.json").write_text(json.dumps(summary, indent=2) + "\n")
+            selected = volume_usage(summary, uid=uid, namespace=h.namespace, pod_name=name)
         except StatsPending:
             evidence["samples"].append({"observedAt": now(), "source": "CRI ContainerStats",
                                         "command": command, "pending": True})
             persist()
             return None
         get_pod(cid)
-        selected.update(observedAt=now(), source="CRI ContainerStats", command=command)
+        selected.update(observedAt=now(), source="kubelet VolumeStats", rootLayer=root_usage,
+                        rootLayerSource="CRI ContainerStats", command=command)
         evidence["samples"].append(selected)
         persist()
         return selected
@@ -433,10 +485,12 @@ def execute(h):
         require(len(admitted) == 1 and
                 admitted[0]["resources"]["limits"]["ephemeral-storage"] == "48Mi",
                 "admitted accounting container ephemeral-storage limit changed")
-        require(not admitted[0].get("volumeMounts") and not pod["spec"].get("volumes"),
-                "accounting Pod must not have any injected or explicit volumes")
+        require(admitted[0]["securityContext"]["readOnlyRootFilesystem"]
+                and admitted[0]["volumeMounts"] == [{"name": VOLUME, "mountPath": DATA}]
+                and pod["spec"]["volumes"] == [{"name": VOLUME, "emptyDir": {"sizeLimit": "96Mi"}}],
+                "accounting Pod must retain exactly the approved explicit data volume")
         evidence["mounts"] = mount_proof(json.loads(exec_python(PROBE).stdout), path)
-        baseline = h.wait("first collected CRI writable-layer sample", sample,
+        baseline = h.wait("first collected CRI root and kubelet data-volume samples", sample,
                           timeout=min(h.timeout, 240))
         evidence["baseline"] = baseline
         require(baseline["usedBytes"] + FIRST_BYTES < LIMIT_BYTES,
@@ -470,19 +524,21 @@ def execute(h):
             final = sample()
             return final if final is not None and increased(baseline, final) else None
 
-        final = h.wait("real CRI writable-layer delta >=16MiB", accounted,
+        final = h.wait("real kubelet data-volume delta >=16MiB", accounted,
                        timeout=min(h.timeout, 240))
         require(final["usedBytes"] < LIMIT_BYTES,
                 "first sample already exceeds ephemeral-storage limit")
         evidence.update(final=final, deltaBytes=final["usedBytes"] - baseline["usedBytes"])
+        require(final["rootLayer"]["usedBytes"] - baseline["rootLayer"]["usedBytes"] < MIN_DELTA,
+                "explicit volume writes were incorrectly charged as root writable-layer growth")
         write(FIRST_BYTES, TOTAL_BYTES)
 
         def evicted():
-            pod = get_pod(cid)
+            pod = get_pod()
             if pod.get("status", {}).get("phase") in ("Failed", "Succeeded"):
-                require(ephemeral_eviction(pod),
-                        "Pod terminated without local ephemeral-storage limit eviction")
+                guard_terminal_eviction(pod, cid)
                 return pod
+            guard_pod(pod, h, uid, cid)
             return None
 
         pod = h.wait("kubelet ephemeral-storage limit eviction", evicted,
@@ -519,6 +575,6 @@ def execute(h):
         finally:
             evidence["finishedAt"] = now()
             persist()
-    h.record("RUN-08 real CRI writable snapshot usage and ephemeral-storage eviction",
+    h.record("RUN-08 read-only CRI root, real kubelet data-volume usage and ephemeral-storage eviction",
              evidence, ["RUN-08"])
     return evidence

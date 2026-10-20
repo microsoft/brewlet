@@ -5,17 +5,18 @@ import argparse
 import json
 from pathlib import Path
 import re
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from acceptance.qualification import fixture_names, load_matrix
 
 
+MATRIX = load_matrix()
 NATIVE_SCOPES = {
-    "arm64": ("arm64", "managed-composition", {"java", "python", "node", "dotnet"},
-              {f"COMP-{number:02}" for number in range(1, 9)}),
-    "amd64": ("amd64", "managed-composition", {"java", "python", "node", "dotnet"},
-              {f"COMP-{number:02}" for number in range(1, 9)}),
-    "wasm-arm64": ("arm64", "managed-wasm-composition", {"wasmtime", "spin"},
-                   {f"COMP-WASM-{number:02}" for number in range(1, 5)}),
-    "wasm-amd64": ("amd64", "managed-wasm-composition", {"wasmtime", "spin"},
-                   {f"COMP-WASM-{number:02}" for number in range(1, 5)}),
+    name: (scope["architecture"], scope["scenario"], set(fixture_names(MATRIX, scope["group"])),
+           {f"COMP-{number:02}" for number in range(1, 9)} if scope["group"] == "native" else
+           {f"COMP-WASM-{number:02}" for number in range(1, 5)})
+    for name, scope in MATRIX["compositionScopes"].items()
 }
 
 

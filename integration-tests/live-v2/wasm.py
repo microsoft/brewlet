@@ -13,11 +13,12 @@ import time
 from pathlib import Path
 
 import delivery
-from harness import API, FENCE, KIND_VERSION, OWNER, ROOT, STORE, Failure, Harness, artifact_target, require
+from harness import API, FENCE, KIND_VERSION, OWNER, ROOT, STORE, WASM_HOSTS, Failure, Harness, artifact_target, require
 from lifecycle import Lifecycle, daemon_restart_command
 from wasm_inputs import EXAMPLE, build
 
-IDS = {"wasmtime": "wasmtime-wasip1", "spin": "spin-http-sdk7"}
+_RUNTIME_IDS = {"wasmtime": "wasmtime-wasip1", "spin": "spin-http-sdk7"}
+IDS = {host: _RUNTIME_IDS[host] for host in WASM_HOSTS}
 
 
 def application_manifest(layout):
@@ -161,6 +162,7 @@ class WasmHarness(Harness):
         for name, rid in IDS.items():
             self.apply({"apiVersion": API, "kind": "RuntimeImage", "metadata": {"name": rid},
                         "spec": {"source": {"image": self.runtime_images[name]["before"]},
+                                 "volumeMountPaths": ["/cache", "/work"],
                                  "user": {"uid": 65532, "gid": 65532}}})
         self.kubectl("label", "node", self.node, "brewlet.test/pool=" + self.run_id)
         self.apply({"apiVersion": API, "kind": "NodeProfile", "metadata": {"name": self.profile},

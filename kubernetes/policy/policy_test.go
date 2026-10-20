@@ -50,6 +50,14 @@ func TestImmutableUserAndCompatibility(t *testing.T) {
 	if Runtime(r, old) == nil {
 		t.Fatal("compatibility update accepted")
 	}
+	r = old.DeepCopy()
+	r.Spec.VolumeMountPaths = []string{"/tmp"}
+	if Runtime(r, old) == nil {
+		t.Fatal("mount policy update accepted within an inventory epoch")
+	}
+	if err := Runtime(r, nil); err != nil {
+		t.Fatalf("new explicit data mount policy rejected: %v", err)
+	}
 }
 func TestProfilePolicy(t *testing.T) {
 	base := &api.NodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "web"}, Spec: api.NodeProfileSpec{NodePool: api.NodePool{Names: []string{"web"}, Key: "agentpool"}, RuntimeImages: []api.RuntimeEntry{{ID: "python-3.12"}}}}

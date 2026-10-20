@@ -79,6 +79,9 @@ func ValidateRoot(root string, m *Metadata) error {
 	if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("runtime root must be a directory")
 	}
+	if err := validateRuntimeMountPaths(root, *m); err != nil {
+		return err
+	}
 	env, err := runtimeEnvironment(m.Env)
 	if err != nil {
 		return err

@@ -431,10 +431,18 @@ The default run fails on any missing protocol, reason, transition or evidence:
   wrong-epoch and future-generation barriers with exact reason codes.
   Separate already-bound root and privilege-escalation requests also bypass
   admission and must fail at the shim, not merely at the webhook.
-* A separate, explicitly writable-root accounting container writes first
-  16 MiB, then a total of 80 MiB into its `/tmp` snapshot upper, not an
-  `emptyDir` or other volume. Actual CRI ContainerStats for its exact Pod UID
-  and container ID must report at least 16 MiB growth. Exceeding its 48 MiB
+* The immutable-filesystem companion proves actual EROFS on runtime-provided,
+  mode-1777 `/tmp` and packaged `/app`, with writable explicit application
+  storage in both the initial process and Exec. Admission must default a
+  read-only root and reject writable roots and runtime overlays. With the
+  invocation's admission Deployment stopped, already-bound Pods must be
+  rejected independently by the shim. Admission is restored before cleanup.
+* The accounting container also has an enforced read-only root. It writes first
+  16 MiB, then a total of 80 MiB into an explicit disk-backed `emptyDir` beneath
+  `/app`. Actual CRI ContainerStats measure its root separately; kubelet
+  VolumeStats bound to the exact Pod UID and volume name must report the
+  16 MiB data-volume growth, never misreported as root-layer growth.
+  Exceeding its 48 MiB
   ephemeral-storage limit must cause real kubelet eviction with the expected
   reason while the node remains free of global DiskPressure. Packaged `/app`
   remains read-only and all non-root/no-capability restrictions remain.

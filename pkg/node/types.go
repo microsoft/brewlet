@@ -32,18 +32,19 @@ func ValidateID(id string) error {
 }
 
 type Metadata struct {
-	ID             string            `json:"id"`
-	InventoryUID   string            `json:"inventoryUID"`
-	Generation     int64             `json:"generation"`
-	SourceDigest   string            `json:"sourceDigest"`
-	ManifestDigest string            `json:"manifestDigest"`
-	Platform       ocispec.Platform  `json:"platform"`
-	Env            []string          `json:"env"`
-	UID            uint32            `json:"uid"`
-	GID            uint32            `json:"gid"`
-	Home           string            `json:"home"`
-	Homes          map[uint32]string `json:"homes"`
-	ValidatedAt    time.Time         `json:"validatedAt"`
+	ID               string            `json:"id"`
+	InventoryUID     string            `json:"inventoryUID"`
+	Generation       int64             `json:"generation"`
+	SourceDigest     string            `json:"sourceDigest"`
+	ManifestDigest   string            `json:"manifestDigest"`
+	Platform         ocispec.Platform  `json:"platform"`
+	Env              []string          `json:"env"`
+	UID              uint32            `json:"uid"`
+	GID              uint32            `json:"gid"`
+	VolumeMountPaths []string          `json:"volumeMountPaths,omitempty"`
+	Home             string            `json:"home"`
+	Homes            map[uint32]string `json:"homes"`
+	ValidatedAt      time.Time         `json:"validatedAt"`
 }
 
 func (m Metadata) Validate() error {
@@ -54,6 +55,9 @@ func (m Metadata) Validate() error {
 		!digestPattern.MatchString(m.SourceDigest) || !digestPattern.MatchString(m.ManifestDigest) ||
 		m.Platform.OS != "linux" || m.Platform.Architecture == "" || m.UID == 0 || m.GID == 0 || m.UID == ^uint32(0) || m.GID == ^uint32(0) {
 		return fmt.Errorf("invalid runtime metadata")
+	}
+	if err := ValidateVolumeMountPaths(m.VolumeMountPaths); err != nil {
+		return err
 	}
 	_, err := runtimeEnvironment(m.Env)
 	return err

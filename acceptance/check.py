@@ -4,6 +4,10 @@
 import argparse
 import json
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from acceptance.qualification import load_matrix
 
 
 REAL_NODE_REQUIRED = {
@@ -12,6 +16,7 @@ REAL_NODE_REQUIRED = {
     "E2E-08", "LANG-02",
     "UP-05",
     "WASM-01", "WASM-02", "WASM-03",
+    "FS-03", "FS-04",
 }
 
 
@@ -43,12 +48,41 @@ def validate(document):
     required_scenarios = {f"E2E-{number:02}" for number in range(1, 10)}
     if not required_scenarios <= seen:
         errors.append("missing Proposal 0009 section 13.1 acceptance scenarios")
-    if document.get("contractRevision") != "2026-10-19-flat-runtime-images":
-        errors.append("missing current flat-runtime-images contract revision")
+    if document.get("contractRevision") != "2026-10-20-immutable-runtime-view":
+        errors.append("missing current immutable-runtime-view contract revision")
     if not {f"UP-{number:02}" for number in range(1, 7)} <= seen:
         errors.append("missing approved upstream-runtime amendment obligations")
     if not {"SCHEMA-01", "WASM-01", "WASM-02", "WASM-03"} <= seen:
         errors.append("missing flat schema or Wasm qualification obligations")
+    if not {f"FS-{number:02}" for number in range(1, 5)} <= seen:
+        errors.append("missing immutable runtime filesystem obligations")
+    for item in requirements:
+        if not item["id"].startswith("FS-") or item["status"] != "verified":
+            continue
+        qualified = False
+        for evidence in item["evidence"]:
+            relative = evidence.get("result", "")
+            if evidence.get("scope") != "real-node" or not relative.startswith("acceptance/results/"):
+                continue
+            path = Path(__file__).resolve().parents[1] / relative
+            try:
+                result = json.loads(path.read_text())
+            except (OSError, ValueError) as error:
+                errors.append(f'{item["id"]}: filesystem receipt unavailable: {error}')
+                continue
+            covered = {identifier for row in result.get("assertions", []) if row.get("outcome") == "passed"
+                       for identifier in row.get("requirements", [])}
+            needed = {"FS-01", "FS-02", "FS-03"}
+            if item["id"] == "FS-04":
+                needed.add("RUN-08")
+            if (result.get("outcome") == "passed" and result.get("cleanSelectedSuitePassed") is True
+                    and result.get("fixtureDestruction", {}).get("outcome") == "passed"
+                    and result.get("architecture") in ("arm64", "amd64")
+                    and result.get("selectedScenario") in ("complete", "accounting")
+                    and "python" in result.get("selectedLanguages", []) and needed <= covered):
+                qualified = True
+        if not qualified:
+            errors.append(f'{item["id"]}: clean real-node immutable-filesystem receipt required')
     return errors
 
 
@@ -56,6 +90,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--require-complete", action="store_true")
     args = parser.parse_args()
+    load_matrix()
     document = json.loads(Path(__file__).with_name("requirements.json").read_text())
     errors = validate(document)
     requirements = document["requirements"] + document.get("amendments", [])

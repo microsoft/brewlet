@@ -142,6 +142,32 @@ func (m *PodMutator) Mutate(ctx context.Context, p *corev1.Pod) ([]string, error
 			c.SecurityContext = &corev1.SecurityContext{}
 		}
 		s := c.SecurityContext
+		if s.ReadOnlyRootFilesystem != nil && !*s.ReadOnlyRootFilesystem {
+			return fmt.Errorf("ReadOnlyRootRequired")
+		}
+		s.ReadOnlyRootFilesystem = ptr(true)
+		var destinations []string
+		for _, mount := range c.VolumeMounts {
+			if err := node.ValidateWorkloadMount(mount.MountPath, mount.ReadOnly, r.Spec.VolumeMountPaths); err != nil {
+				return err
+			}
+			destinations = append(destinations, mount.MountPath)
+		}
+		for _, device := range c.VolumeDevices {
+			if err := node.ValidateWorkloadMount(device.DevicePath, false, r.Spec.VolumeMountPaths); err != nil {
+				return err
+			}
+			destinations = append(destinations, device.DevicePath)
+		}
+		if c.TerminationMessagePath != "" && c.TerminationMessagePath != "/dev/termination-log" {
+			if err := node.ValidateWorkloadMount(c.TerminationMessagePath, false, r.Spec.VolumeMountPaths); err != nil {
+				return err
+			}
+			destinations = append(destinations, c.TerminationMessagePath)
+		}
+		if err := node.ValidateMountDestinations(destinations); err != nil {
+			return err
+		}
 		if s.WindowsOptions != nil {
 			return fmt.Errorf("UnsupportedSecurityContext")
 		}
@@ -195,7 +221,8 @@ func (m *PodMutator) Mutate(ctx context.Context, p *corev1.Pod) ([]string, error
 	}
 	for i := range p.Spec.EphemeralContainers {
 		e := &p.Spec.EphemeralContainers[i]
-		c := corev1.Container{Name: e.Name, Image: e.Image, Env: e.Env, SecurityContext: e.SecurityContext}
+		c := corev1.Container{Name: e.Name, Image: e.Image, Env: e.Env, SecurityContext: e.SecurityContext,
+			VolumeMounts: e.VolumeMounts, VolumeDevices: e.VolumeDevices, TerminationMessagePath: e.TerminationMessagePath}
 		if err := mutate(&c); err != nil {
 			return nil, err
 		}

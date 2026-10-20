@@ -5,11 +5,13 @@ import (
 	_ "crypto/sha256"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/distribution/reference"
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	"github.com/microsoft/brewlet/pkg/node"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -43,7 +45,11 @@ func Runtime(r *api.RuntimeImage, old *api.RuntimeImage) error {
 	if r.Spec.User.UID <= 0 || r.Spec.User.GID <= 0 || r.Spec.User.UID > 4294967294 || r.Spec.User.GID > 4294967294 {
 		return fmt.Errorf("RootNotSupported: user must contain usable non-root Linux uid and gid")
 	}
-	if old != nil && (r.Spec.User != old.Spec.User || r.Spec.Compatibility != old.Spec.Compatibility) {
+	if err := node.ValidateVolumeMountPaths(r.Spec.VolumeMountPaths); err != nil {
+		return err
+	}
+	if old != nil && (r.Spec.User != old.Spec.User || r.Spec.Compatibility != old.Spec.Compatibility ||
+		!slices.Equal(r.Spec.VolumeMountPaths, old.Spec.VolumeMountPaths)) {
 		return fmt.Errorf("runtime identity is immutable; create a new ID")
 	}
 	return nil

@@ -51,6 +51,9 @@ application inputs to patch.
 | `RuntimeImageInstalling`, `RuntimeImageInstallFailed` | Cold publication pending or installation failed. |
 | `RuntimePATHRequired` | Relative executable without a runtime PATH. |
 | `RootNotSupported`, `PrivilegeEscalationNotSupported` | Prohibited process identity/security. |
+| `ReadOnlyRootRequired` | A writable container root was requested or reached the shim. |
+| `RuntimeMountNotAllowed` | Mount/device destination is unapproved, aliases runtime paths or overlaps another workload mount. |
+| `InvalidRuntimeMountPolicy` | Invalid platform data/configuration mount declarations. |
 | `RuntimeImageRevoked`, `RuntimeImageAuthorizationExpired` | New-start authority unavailable. |
 | `RuntimeImageEpochMismatch`, `RuntimeImageUpdating`, `InvalidRuntimeGeneration` | Stale/invalid identity or generation boundary. |
 | `ExecStateUnavailable` | Protected initial state is missing or unusable. |

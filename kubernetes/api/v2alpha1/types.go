@@ -45,10 +45,11 @@ type Compatibility struct {
 	ABI       string `json:"abi,omitempty"`
 }
 type RuntimeImageSpec struct {
-	Source        Source        `json:"source"`
-	Description   string        `json:"description,omitempty"`
-	User          User          `json:"user"`
-	Compatibility Compatibility `json:"compatibility,omitempty"`
+	Source           Source        `json:"source"`
+	Description      string        `json:"description,omitempty"`
+	User             User          `json:"user"`
+	Compatibility    Compatibility `json:"compatibility,omitempty"`
+	VolumeMountPaths []string      `json:"volumeMountPaths,omitempty"`
 }
 type RotationNode struct {
 	Name               string       `json:"name"`

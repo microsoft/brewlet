@@ -1,8 +1,28 @@
 # .NET workloads
 
-Choose a compatible approved .NET runtime for a framework-dependent application,
-or deliberately package a self-contained/native build against a suitable
-runtime root. Brewlet does not infer which publishing model you intended.
+## How it works
+
+Brewlet separates application delivery from platform-managed runtime
+infrastructure. For a framework-dependent .NET application, you publish
+assemblies, required configuration and an explicit launch descriptor as an OCI
+artifact, without the .NET runtime. The platform approves and provisions a
+compatible [runtime image](runtime-images.md); your Kubernetes Deployment
+selects its runtime ID. Brewlet runs the declared `dotnet` command with
+application files read-only under `/app`. Self-contained builds carry their own
+runtime and do not provide that same runtime separation.
+
+Dependencies can ship with the application or optionally come from an approved
+[managed bundle](managed-composition.md). Release-time composition combines
+app-only files and a locked dependency set into a verifiable artifact.
+Compatible assembly updates can preserve your application assembly, but require
+testing against its dependency manifests, loading layout and native libraries.
+Brewlet does not run NuGet or infer your publishing model.
+
+Updates run in new task instances, not by patching a live CLR process. See the
+[architecture overview](concepts.md) and [launch contract](reference.md#launch-descriptor)
+for the complete workflow.
+The runtime root is read-only too; temporary files and caches need
+[approved writable volumes](resources.md#probes-exec-files-and-shutdown).
 
 ## Tested runtime inputs
 

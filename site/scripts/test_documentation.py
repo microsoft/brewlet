@@ -16,6 +16,32 @@ SPEC.loader.exec_module(TUTORIAL)
 
 
 class DocumentationTests(unittest.TestCase):
+    def test_language_guides_explain_the_model_before_the_recipe(self):
+        markers = {"java": "JDK", "python": "Python interpreter", "nodejs": "Node.js",
+                   "dotnet": "framework-dependent", "webassembly": ".wasm"}
+        for name, marker in markers.items():
+            text = (ROOT / "docs" / (name + ".md")).read_text()
+            with self.subTest(guide=name):
+                intro = text.split("## How it works\n", 1)[1].split("\n## ", 1)[0]
+                self.assertLess(text.index("## How it works"), text.index("## Tested runtime inputs"))
+                self.assertLessEqual(len(intro.split()), 200, "keep the landing overview brief")
+                for required in (marker, "Deployment", "/app", "composition", "new task instances"):
+                    self.assertIn(required, intro)
+                for target in ("concepts.md", "runtime-images.md", "managed-composition.md",
+                               "reference.md#launch-descriptor"):
+                    self.assertIn("](" + target + ")", intro)
+
+    def test_runtime_comparison_includes_native_image_volumes_and_qualification_limits(self):
+        text = (ROOT / "docs/choosing-brewlet.md").read_text()
+        for required in ("Conventional application image",
+                         "Runtime container + application image volume",
+                         "## Authorization, restarts and recovery",
+                         "Kubernetes 1.36", "Neither design hot-patches",
+                         "No equal-condition benchmark",
+                         "not a native image-volume"):
+            self.assertIn(required, text)
+        self.assertIn("https://kubernetes.io/docs/concepts/storage/volumes/#image", text)
+
     def test_workload_guides_have_consistent_complete_structure_and_pretty_launch_json(self):
         headings = ("Tested runtime inputs", "Build the payload", "Launch descriptor",
                     "Package", "Native deployment", "Verify", "Pitfalls and qualification limits")

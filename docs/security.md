@@ -23,6 +23,17 @@ code; image minimalism does not replace approval.
 Application/dependency files are confined to read-only, world-readable `/app`.
 Never bake credentials into them. Mount scoped Secrets and separate writable
 volumes. Runtime `/app` content is hidden, not inherited by the application.
+The entire runtime-visible root is also required to be read-only. Admission
+defaults and validates this; the shim refuses a writable root independently.
+There is no writable-root escape hatch based on ordinary file permissions.
+
+Workload volume/device destinations outside `/app/` require the immutable,
+platform-owned `RuntimeImage.spec.volumeMountPaths` policy. Both read-only and
+read-write overlays are constrained; symlink aliases and overlapping workload
+mounts are rejected. Narrow CRI/system mount exceptions remain. Administrators
+must designate data/configuration zones, not executable/library installations.
+The protection excludes those intentionally mounted data/system zones and does
+not prevent the application from executing its own code.
 Dynamic-library environment and explicit volumes remain application behavior;
 confinement does not sanitize malicious application code.
 

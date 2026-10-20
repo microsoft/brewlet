@@ -36,9 +36,23 @@ and pathless runtimes require suitable explicit executable paths; no shell is
 provided implicitly.
 
 Use a writable volume for application data and a scoped Secret volume for
-secrets. `/app` remains read-only except explicit mounted destinations.
-`readOnlyRootFilesystem: true` also restricts runtime-visible root writes;
-HOME being `/tmp` does not imply that `/tmp` is writable.
+secrets. **The entire container root must be read-only.** Admission defaults
+`readOnlyRootFilesystem: true` and rejects false; the shim independently
+enforces it even when admission is unavailable. `/app` remains read-only except
+explicit mounted destinations beneath it.
+
+Volumes outside `/app/` require a platform-approved
+[`RuntimeImage.spec.volumeMountPaths`](runtime-images.md#declare-data-and-configuration-mount-locations)
+entry. This applies to read-only mounts too: a configuration volume must not
+replace arbitrary runtime files. Symlinked mount targets and nested/overlapping
+workload mount or device paths are rejected.
+
+For an approved `/tmp` location, explicitly mount an `emptyDir` there and
+configure `TMPDIR=/tmp` if the application uses that convention. The runtime
+image's `/tmp` permissions, or HOME being `/tmp`, do not make it writable on
+their own. Brewlet does not inject temporary volumes or language-specific flags.
+Disk-backed `emptyDir` uses ephemeral storage; memory-backed volumes consume
+memory budget. A PVC is appropriate when data must survive Pod replacement.
 
 Signals and termination grace remain native runc/Kubernetes behavior. Implement
 application signal handling, choose a sufficient grace period and verify real

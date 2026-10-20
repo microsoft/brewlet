@@ -439,6 +439,9 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	if spec.Root == nil || spec.Root.Path != "rootfs" {
 		return fmt.Errorf("CRI bundle must use its managed rootfs path")
 	}
+	if !spec.Root.Readonly {
+		return &node.Error{Reason: "ReadOnlyRootRequired", Detail: "Brewlet requires readOnlyRootFilesystem=true"}
+	}
 	store := node.NewStore(inventoryRoot)
 	if current, _, currentErr := store.Current(ctx, id); os.IsNotExist(currentErr) {
 		s.runtimeEvent(ctx, "RuntimeImageInstalling", r.ID, node.Metadata{ID: id})
@@ -453,6 +456,9 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 		return err
 	}
 	if err := node.MergeProcess(spec.Process, lease.Metadata); err != nil {
+		return err
+	}
+	if err := node.ValidateFilesystem(spec, lease.Metadata, root); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(cacheRoot, 0700); err != nil {
@@ -512,8 +518,8 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 		return fmt.Errorf("CRI snapshotter must provide managed overlay upper/work directories")
 	}
 	// runc must prepare CRI mountpoints (/etc/hosts, resolv.conf, volumes)
-	// before its final read-only-root remount. The OCI Root.Readonly flag is
-	// preserved; mounting the snapshot ro here would fail before that stage.
+	// before its final required read-only-root remount. Mounting the snapshot
+	// ro here would fail before that stage.
 	options = append(options, "upperdir="+upper, "workdir="+work)
 	r.Rootfs = []*apitypes.Mount{{Type: "overlay", Source: "overlay", Options: options}}
 	if spec.Root.Path != "rootfs" {

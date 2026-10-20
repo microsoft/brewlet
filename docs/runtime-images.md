@@ -41,6 +41,13 @@ passwd metadata for the actual UID, otherwise `/tmp`. This does not create a
 home directory or make NSS lookups work without the relevant database.
 Applications requiring username lookup must select a suitable runtime.
 
+## Declare data and configuration mount locations
+
+Brewlet requires a read-only container root, not just an immutable shared
+node cache. A process cannot modify a private copy of the runtime either.
+The platform explicitly approves additional volume locations with
+`spec.volumeMountPaths`:
+
 ```yaml
 apiVersion: node.brewlet.sh/v2alpha1
 kind: RuntimeImage
@@ -52,7 +59,28 @@ spec:
   user:
     uid: 65532
     gid: 65532
+  volumeMountPaths:
+    - /cache
+    - /tmp
 ```
+
+This allows workload volumes at those paths or their descendants; it does
+not create volumes or make the directories writable automatically. Omit the
+list for workloads that need only explicit mounts beneath `/app/`.
+The policy covers read-only configuration mounts as well as writable storage,
+so a volume cannot silently replace runtime programs or libraries.
+
+Choose canonical data/configuration directories, not symlinks, runtime PATH
+directories or their ancestors. Lists are sorted, unique and nonoverlapping,
+with at most 32 entries. The policy is immutable within a runtime inventory
+identity; use a new ID for a different mount contract. Standard Kubernetes
+system mounts and read-only service-account projection are handled separately.
+
+App teams mount their `emptyDir`, PVC or configuration volumes in those
+approved locations and set any runtime-specific cache variables themselves.
+For example, the Wasm fixtures declare `/cache` and `/work`, keeping engine
+compilation caches separate from guest-writable storage. See
+[writable storage](resources.md#probes-exec-files-and-shutdown) for the workload side.
 
 This is a template. Replace the source with your validated golden image digest.
 The IDs and numeric identities are examples, not a built-in catalog.

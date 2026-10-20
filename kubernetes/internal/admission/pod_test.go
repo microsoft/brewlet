@@ -43,9 +43,10 @@ func TestZeroNodeAndAllContainers(t *testing.T) {
 		t.Fatal("independent UID/GID defaulting broken")
 	}
 	for _, s := range []*corev1.SecurityContext{p.Spec.Containers[0].SecurityContext, p.Spec.InitContainers[0].SecurityContext, p.Spec.EphemeralContainers[0].SecurityContext} {
-		if s == nil || !*s.RunAsNonRoot || *s.AllowPrivilegeEscalation || len(s.Capabilities.Drop) != 1 || s.Capabilities.Drop[0] != "ALL" {
+		if s == nil || !*s.RunAsNonRoot || *s.AllowPrivilegeEscalation || s.ReadOnlyRootFilesystem == nil || !*s.ReadOnlyRootFilesystem || len(s.Capabilities.Drop) != 1 || s.Capabilities.Drop[0] != "ALL" {
 			t.Fatal("security defaults missing")
 		}
+
 	}
 	if p.Annotations["brewlet.sh/artifact-ref"] != p.Spec.Containers[0].Image || p.Annotations["brewlet.sh/artifact-container"] != "app" {
 		t.Fatal("compatibility hints not replaced")

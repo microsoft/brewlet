@@ -1,10 +1,30 @@
 # WebAssembly through runtime infrastructure
 
-The examples run a Linux Wasm host through Brewlet's existing containerd/runc
-path. They do not install runwasi, add a Wasm-specific shim, detect modules or
-introduce a workload CRD.
+## How it works
 
-**Qualification status:** both examples passed their 18-assertion real-node
+Brewlet separates your WebAssembly application from its platform-managed host.
+You publish a `.wasm` guest, any host configuration and an explicit launch
+descriptor as an OCI artifact. The platform approves and provisions a Linux
+[runtime image](runtime-images.md) containing a compatible host such as Wasmtime
+or Spin; your Kubernetes Deployment selects its runtime ID. Brewlet runs that
+host through its existing containerd/runc path, with application files read-only
+under `/app`. It does not install runwasi or infer the guest's interface contract.
+
+Externally loaded files can ship with the guest or optionally come from an
+approved [managed bundle](managed-composition.md). Release-time composition
+combines them into a verifiable application artifact. The qualified examples
+update an external message-file asset, not linked code: libraries compiled into
+the guest require a guest rebuild. Host-engine fixes belong in the runtime image.
+
+Updates run in new task instances, not by patching a running guest. See the
+[architecture overview](concepts.md) and [launch contract](reference.md#launch-descriptor)
+for execution boundaries; the host must still match your guest format.
+The runtime root is read-only too; temporary files and caches need
+[approved writable volumes](resources.md#probes-exec-files-and-shutdown).
+
+## Qualification status
+
+Both examples passed their 18-assertion real-node
 companion on native arm64, including source updates, held Exec recovery and
 normal cleanup. This is explicitly scoped qualification, not all WASI
 interfaces, another CPU architecture or native runwasi execution.
@@ -243,6 +263,9 @@ Spin additionally receives explicit asset-cache, state and temporary paths.
 `/cache` and `/work` are separate per-Pod emptyDirs; `/app` and the selected
 runtime remain read-only. The guest receives `/work` only where required, never
 the engine's `/cache`. Both guests prove the host cache is inaccessible.
+The platform must declare `volumeMountPaths: ["/cache", "/work"]` on each
+RuntimeImage before these workload mounts are admitted; the declaration itself
+does not provision storage. See [runtime mount policy](runtime-images.md#declare-data-and-configuration-mount-locations).
 Do not put an engine's trusted compiled-code cache inside guest-writable
 preopens. No global shared JIT cache or externally supplied precompiled/AOT
 artifact workflow is introduced.

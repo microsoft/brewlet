@@ -5,6 +5,10 @@ operator:
     maxConcurrent: 5
     nodeProgressDeadline: 10m
     workloadProgressDeadline: 10m
+runtimeClass:
+  overhead:
+    cpu: "50m"
+    memory: "64Mi"
 provisioner:
   image: brewlet-node:2.0
   profiles: []
