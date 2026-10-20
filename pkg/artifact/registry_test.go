@@ -41,6 +41,11 @@ func TestRegistryPublishAndInspect(t *testing.T) {
 			return
 		}
 		key := r.URL.Path
+		if r.Method == "GET" && strings.HasPrefix(key, "/v2/team/app/referrers/") {
+			w.Header().Set("Content-Type", v1.MediaTypeImageIndex)
+			json.NewEncoder(w).Encode(map[string]any{"schemaVersion": 2, "mediaType": v1.MediaTypeImageIndex, "manifests": []v1.Descriptor{}})
+			return
+		}
 		if strings.Contains(key, "/blobs/uploads/") {
 			if r.Method == "POST" {
 				w.Header().Set("Location", "/v2/team/app/blobs/uploads/id")
