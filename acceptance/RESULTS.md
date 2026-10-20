@@ -1,5 +1,38 @@
 # Brewlet 2.0 validation status
 
+## Proposal 0010 WebAssembly companion
+
+`run-managed-wasm-95` passed **18 selected assertions** on native arm64 with
+normal task/root/profile cleanup and exact-owned fixture destruction.
+Its [public receipt](results/managed-wasm-composition-arm64.json) is separate
+from both the earlier runtime-only Wasm result and the four-native-language
+composition matrix.
+
+Both the Wasmtime WASIp1 command and Spin SDK HTTP component consumed the same
+independently signed complete external asset bundle through actual `compose`
+and `verify`. Required publisher trust and managed-path collision failures
+produced no accepted output. After old Deployments were running, publishing
+and composing a changed bundle preserved actual deployed guest SHA-256,
+app/launch descriptors and diff IDs. Old guest behavior and leases remained
+unchanged; candidate checks preceded ordinary two-replica Deployment updates.
+New actual Pod/container identities consumed the changed external bytes.
+Pre/post inventory exports verified the shared bundle, package and SBOM
+bindings through actual image/config/manifest identities and controller UIDs.
+
+The fixed Wasmtime 49.0.4 and Spin 4.2.3 hosts kept their source, inventory UID
+and generation. Their roots are platform-built fixtures over pinned
+distroless C/C++ with unchanged checksum-pinned engine binaries, not unchanged
+upstream engine OCI images. Spin's controlled HTTP rollout had zero failed
+requests; no HTTP availability claim is made for the Wasmtime command.
+
+This updates a real guest-consumed **external message-file asset**, not a
+linked library, dynamic component or production CVE. Compiled-in fixes require
+a guest rebuild; engine/OS fixes require runtime-image rotation.
+Proposal 0009 now explicitly lists WebAssembly with Java, Python, Node.js and
+.NET. Proposal 0010 and its **29-obligation** gate require both Wasm hosts on
+both native architectures. Native amd64 is pending its separate
+`managed-wasm` E2E receipt; four-language receipts cannot close that gap.
+
 ## Proposal 0010 governed composition
 
 `run-managed-93` passed **32 selected assertions** on native arm64, with

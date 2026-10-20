@@ -210,3 +210,18 @@ Presence in an observed image does not prove vulnerable-code reachability,
 actual module loading or absence of embedded copies. Managed-set coverage is
 not exhaustive application or infrastructure-runtime coverage. An unavailable
 SBOM or scan result is unknown, never a clean bill of health.
+
+## WebAssembly is a separate required workload scope
+
+The [WebAssembly companion](webassembly.md#governed-external-dependency-replacement)
+exercises the same producer, release policy, signed final image, replacement
+and fleet-export path for both Wasmtime and Spin. Its native arm64/amd64
+receipts are required separately from the four native-language receipts.
+Neither language detection nor a Wasm-specific composer is added.
+
+Its dependency update changes a declared external data file that both real
+guests consume, preserving the compiled `.wasm` hashes and fixed host images.
+It is not evidence that compiled-in libraries can be patched without rebuilding
+the guest, or that dynamic component linking has been qualified. Engine/OS
+remediation remains a RuntimeImage update. Platform-built host roots must not
+be called unchanged upstream engine OCI images.

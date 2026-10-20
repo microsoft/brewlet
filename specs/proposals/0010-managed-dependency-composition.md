@@ -339,6 +339,41 @@ must be discovered and policy-qualified (for example, a reviewed chiseled
 candidate); an adapted root must not be relabeled unchanged.
 An unavailable compliant input remains an explicit matrix blocker.
 
+### 11.1 WebAssembly composition companion
+
+WebAssembly is a required additional workload category, not implicitly covered
+by the four native-language cases. Qualify **both** the Wasmtime WASIp1 command
+and the Spin SDK HTTP component on native arm64 and native amd64 separately:
+
+1. Publish a complete locked external dependency payload, CycloneDX SBOM and
+   publisher provenance independently of the guest/application artifact.
+2. Compose and verify a signed final image. Exercise required-trust and managed
+   path-conflict rejection without publishing accepted output after failure.
+3. Observe the actual initial guest and Wasmtime guest Exec or Spin HTTP/probe
+   behavior, host Exec identity, non-root restrictions, read-only dependencies
+   and exclusion of the runtime filesystem and trusted engine cache.
+4. After original workloads are running, publish a changed external payload and
+   recompose from the verified prior image. Preserve the exact `.wasm` file
+   hashes, application/launch descriptors and diff IDs. Verify the old workloads
+   retain the old dependency and the candidate actually consumes the new bytes.
+5. Roll ordinary native Deployments only after candidate checks. Verify new
+   container/Pod identities, unchanged selected host source/epoch/generation,
+   real guest-visible dependency changes and pre/post observed inventory/SBOM
+   attribution. Controlled zero-failed-request observation applies to Spin HTTP,
+   not to a fabricated HTTP endpoint for the Wasmtime command.
+6. Complete normal profile/task/root cleanup and exact-owned fixture destruction.
+
+Record the host images' actual provenance. The existing examples use
+platform-built roots combining pinned distroless C/C++ userland with unchanged,
+checksum-pinned engine binaries; do not call these unchanged upstream engine
+OCI images or weaken the four native-language unchanged-root requirement.
+
+Replacing external files/components that a guest explicitly consumes is not a
+patch for code statically linked into a `.wasm` file. Compiled-in dependency
+updates require a guest rebuild; host-engine/OS updates require runtime-image
+rotation. Neither a fixture asset update nor an SBOM proves compiled-in library
+remediation or complete application CVE coverage.
+
 Additional mandatory cases:
 
 - wrong BOM/graph/scope/classifier/hash, missing members and thin-JAR failures

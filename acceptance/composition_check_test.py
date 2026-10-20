@@ -39,6 +39,20 @@ class CompositionLedgerTests(unittest.TestCase):
         document = copy.deepcopy(self.document)
         document["requirements"].pop()
         self.assertTrue(CHECK.validate(document, ROOT)[0])
+
+    def test_four_language_pass_cannot_qualify_missing_wasm_hosts_or_architectures(self):
+        document = copy.deepcopy(self.document)
+        document["checks"].pop("wasm-amd64")
+        self.assertTrue(CHECK.validate(document, ROOT)[0])
+        document = copy.deepcopy(self.document)
+        document["requirements"] = [row for row in document["requirements"]
+                                    if not row["id"].startswith("COMP-WASM-")]
+        self.assertTrue(CHECK.validate(document, ROOT)[0])
+        for name in ("wasm-arm64", "wasm-amd64"):
+            document = copy.deepcopy(self.document)
+            document["checks"][name]["outcome"] = "passed"
+            document["checks"][name]["result"] = "results/managed-composition-" + document["checks"][name]["architecture"] + ".json"
+            self.assertTrue(CHECK.validate(document, ROOT)[0], "native-language receipt qualified Wasm")
         document = copy.deepcopy(self.document)
         document["requirements"][0]["checks"] = ["unknown"]
         self.assertTrue(CHECK.validate(document, ROOT)[0])

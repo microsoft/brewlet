@@ -20,7 +20,7 @@ acceptance result.
 
 ## Proposal 0010
 
-`composition-requirements.json` independently maps 25 grouped normative
+`composition-requirements.json` independently maps 29 grouped normative
 obligations across Proposal 0010 to contract, producer, documentation and native
 matrix checks. It does not reuse Proposal 0009's successful receipts.
 
@@ -29,7 +29,9 @@ python3 acceptance/composition_check.py
 make composition-acceptance
 ```
 
-The strict target requires the complete four-language managed lifecycle on
-both native architectures, normal cleanup and successful public receipts.
+The strict target requires the four-language managed lifecycle and an additional
+Wasmtime/Spin composition companion on both native architectures, normal cleanup
+and successful public receipts. Four-language or old runtime-only Wasm receipts
+cannot qualify the missing companion.
 Unknown, partial, failed or cross-built results do not qualify an architecture.
 The top-level `make acceptance` runs both ledgers.

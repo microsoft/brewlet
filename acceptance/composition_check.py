@@ -4,6 +4,19 @@
 import argparse
 import json
 from pathlib import Path
+import re
+
+
+NATIVE_SCOPES = {
+    "arm64": ("arm64", "managed-composition", {"java", "python", "node", "dotnet"},
+              {f"COMP-{number:02}" for number in range(1, 9)}),
+    "amd64": ("amd64", "managed-composition", {"java", "python", "node", "dotnet"},
+              {f"COMP-{number:02}" for number in range(1, 9)}),
+    "wasm-arm64": ("arm64", "managed-wasm-composition", {"wasmtime", "spin"},
+                   {f"COMP-WASM-{number:02}" for number in range(1, 5)}),
+    "wasm-amd64": ("amd64", "managed-wasm-composition", {"wasmtime", "spin"},
+                   {f"COMP-WASM-{number:02}" for number in range(1, 5)}),
+}
 
 
 def validate(document, root, require_complete=False):
@@ -11,10 +24,13 @@ def validate(document, root, require_complete=False):
     if document.get("schemaVersion") != 1 or document.get("contract") != "Proposal 0010":
         errors.append("wrong composition ledger contract/version")
     required = {f"COMP-{number:02}" for number in range(1, 26)}
+    required |= {f"COMP-WASM-{number:02}" for number in range(1, 5)}
     identifiers = [row.get("id") for row in document.get("requirements", [])]
     if set(identifiers) != required or len(identifiers) != len(required):
         errors.append("missing or duplicate composition obligation")
     checks = document.get("checks", {})
+    if not NATIVE_SCOPES.keys() <= checks.keys():
+        errors.append("native language and Wasm architecture checks are all mandatory")
     successful = set()
     for name, check in checks.items():
         if not check.get("command") or check.get("scope") not in ("contract", "integration", "inspection", "real-node"):
@@ -22,6 +38,10 @@ def validate(document, root, require_complete=False):
         if check.get("outcome") != "passed":
             continue
         if check.get("scope") == "real-node":
+            if name not in NATIVE_SCOPES:
+                errors.append(f"{name}: unknown native qualification scope")
+                continue
+            expected_architecture, scenario, workloads, obligations = NATIVE_SCOPES[name]
             path = root / check.get("result", "")
             if not path.is_file():
                 errors.append(f"{name}: passed requires persistent public result")
@@ -32,12 +52,24 @@ def validate(document, root, require_complete=False):
                        for identifier in row.get("requirements", [])}
             if (result.get("outcome") != "passed" or not result.get("cleanSelectedSuitePassed")
                     or result.get("fixtureDestruction", {}).get("outcome") != "passed"
-                    or result.get("selectedScenario") != "managed-composition"
-                    or set(result.get("selectedLanguages", [])) != {"java", "python", "node", "dotnet"}
-                    or architecture != check.get("architecture")
-                    or not {f"COMP-{number:02}" for number in range(1, 9)} <= covered):
+                    or result.get("selectedScenario") != scenario
+                    or set(result.get("selectedLanguages", [])) != workloads
+                    or architecture != expected_architecture or architecture != check.get("architecture")
+                    or not obligations <= covered):
                 errors.append(f"{name}: incomplete or wrong native qualification scope")
                 continue
+            if name.startswith("wasm-"):
+                guests = result.get("wasmGuestInputs", {})
+                runtimes = result.get("wasmRuntimes", {})
+                if (set(guests) != {"command", "http"} or set(runtimes) != workloads
+                        or not all(re.fullmatch(r"[0-9a-f]{64}", value.get("sha256", "")) for value in guests.values())
+                        or not all(record.get("sourceKind") ==
+                            "custom-platform-fixture-pinned-distroless-cc-and-unchanged-release-binary"
+                            and record.get("binarySHA256") and record.get("base")
+                            for revisions in runtimes.values() for record in revisions.values())
+                        or not all(runtimes.values())):
+                    errors.append(f"{name}: missing actual guest/host provenance or false unchanged-root scope")
+                    continue
         successful.add(name)
     for row in document.get("requirements", []):
         if not row.get("sections") or not row.get("requirement") or not row.get("checks"):

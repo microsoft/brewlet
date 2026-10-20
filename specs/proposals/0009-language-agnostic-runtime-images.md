@@ -17,7 +17,8 @@ This proposal removes Java from Brewlet's core contract. Developers publish
 **application artifacts** (code, plus dependencies either as layers or as
 independently published layer sets) to an OCI registry. Platform teams approve
 **runtime images** — digest-pinned "golden" base images such as a JRE, a Python
-interpreter, a Node.js runtime, or a distroless base for static binaries — in the
+interpreter, a Node.js runtime, a .NET runtime, a native WebAssembly host such as
+Wasmtime or Spin, or a distroless base for static binaries — in the
 Brewlet inventory. A pod selects a runtime image **by ID only**, never by digest,
 and the node-resident shim composes the approved runtime with the application at
 launch time.
@@ -82,7 +83,8 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
 
 - **Every language has the same problem.** Base-image sprawl, slow CVE
   remediation in language runtimes and userland, and per-team Dockerfiles are not
-  Java problems. Python, Node.js, .NET, Ruby, and even static Go binaries (which
+  Java problems. Python, Node.js, .NET, WebAssembly guests hosted by native
+  engines, Ruby, and even static Go binaries (which
   still need CA bundles, tzdata, and a hardened userland) benefit from a
   centrally governed runtime that ships separately from application bytes.
 - **The Java-specific surface is the expensive surface.** JDK feature/distribution
@@ -189,6 +191,25 @@ JNI libraries) MUST be published only for the platforms it supports; Kubernetes
 then fails such a pod on an unsupported node at image pull, as for any image.
 Producers require explicit platform declarations (§11.1); content neutrality
 is an author assertion, never inferred by the CLI.
+
+The named workload examples include **Java, Python, Node.js, .NET and
+WebAssembly**, all using this same artifact and explicit launch contract:
+
+| Workload | Application contribution | Approved Linux runtime infrastructure |
+| --- | --- | --- |
+| Java | JARs and explicitly laid-out dependency files | A compatible JRE/JDK |
+| Python | Source/bytecode and explicitly packaged dependencies | A compatible Python interpreter/userland |
+| Node.js | JavaScript and explicitly packaged dependencies | A compatible Node.js runtime/userland |
+| .NET | Assemblies, runtime configuration and explicitly packaged dependencies | A compatible CLR/userland, or an explicitly chosen root for self-contained output |
+| WebAssembly | A core module or component, host configuration and declared external dependency files/components | A compatible native host such as Wasmtime or Spin and its complete userland |
+
+For WebAssembly, the OCI platform still identifies the **Linux host
+architecture**, not `wasi/wasm32`. Guest portability does not authorize inferred
+platforms, inferred WASI interfaces, automatic engine selection or host launch
+rewriting. The author explicitly declares the module/component ABI, engine
+argv, guest preopens/mounts, environment and network capabilities through normal
+producer/host configuration. Guest compilation and ecosystem-specific linking
+remain outside Brewlet core.
 
 The 1.x native-artifact media types (`application/vnd.brewlet.jar.layer.v1+jar`
 and siblings) and the `brewlet.sh/jvm-config` annotation are removed.
@@ -1342,6 +1363,28 @@ interceptor or provider validation, not just by setting labels in a fixture.
 | Both withdrawal and fallback-taint writes fail | Report blocked progress; do not complete rotation exclusion or deletion based on an unconfirmed fence. |
 | Rotation/revocation behind retained pinned labels | Report node-wide exclusions for all affected IDs; preserve running leases and reject unauthorized or below-barrier starts even for already-bound pods or fail-open admission. Revalidate all affected inventory before releasing the fence. |
 | Claim-release resource-version race or recreated Node | Re-read and revalidate Node UID, owner, and absence of runtime state before retrying a conditional release; never release a replacement/foreign claim. |
+
+### 13.2 Language-neutral workload acceptance
+
+The workload examples and qualification matrix MUST include Java, Python,
+Node.js, .NET and WebAssembly. A native-language result does not implicitly
+qualify a Wasm guest. The WebAssembly cases cover both the Wasmtime WASIp1
+command and the Spin SDK HTTP component on the existing runc-backed path,
+including actual guest execution, declared dependency reads, non-root host
+identity, read-only payloads, guest access boundaries and explicit Exec/probe
+semantics. A command example MUST NOT be labeled an HTTP service test.
+
+Record native architecture, guest/toolchain and host/runtime source provenance
+for every scope. Platform-built engine roots that preserve pinned upstream
+engine binaries are not unchanged upstream engine OCI images. No native
+runwasi backend, language detector or Wasm workload CRD is introduced.
+
+Runtime/engine updates retain the same runtime inventory, generation, lease,
+revocation and cleanup rules as the other workloads. Updating a separately
+composed external payload cannot patch dependencies compiled into a `.wasm`
+file; that requires a guest rebuild. Governed bundle composition, replacement
+and observed dependency attribution are additionally qualified under
+[Proposal 0010 section 11.1](0010-managed-dependency-composition.md#111-webassembly-composition-companion).
 
 ## 14. Open questions
 

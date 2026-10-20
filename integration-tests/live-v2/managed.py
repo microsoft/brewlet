@@ -89,6 +89,37 @@ def fixture_patch(h, language, source):
     return target
 
 
+def create_release_policy(h):
+    now = time.time()
+    stamp = lambda value: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(value))
+    authority = {}
+    for role in ("publisher", "composer"):
+        key, public = (h.work / (role + suffix) for suffix in (".key", ".pub"))
+        h.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
+               "ec_paramgen_curve:P-256", "-out", key])
+        os.chmod(key, 0o600)
+        h.run(["openssl", "pkey", "-in", key, "-pubout", "-out", public])
+        authority[role] = {"identity": "https://ci.brewlet.test/" + role,
+            "keys": [{"publicKey": public.read_text(), "notBefore": stamp(now - 60),
+                      "notAfter": stamp(now + 14400)}]}
+    policy = h.work / "release-policy.json"
+    policy.write_text(json.dumps({"schemaVersion": 1, "mode": "production",
+        "notAfter": stamp(now + 14400), **authority}, indent=2))
+    return policy, authority
+
+
+def compose_layout(h, application, dependency, policy, name):
+    layout, receipt = h.work / (name + "-composed"), h.work / (name + "-receipt.json")
+    h.run([*h.cli_command, "compose", name, "--store", layout,
+           "--application", application, "--layer-set", dependency,
+           "--platform", "linux/" + h.arch, "--policy", policy,
+           "--signing-key", h.work / "composer.key",
+           "--builder-identity", "https://ci.brewlet.test/composer",
+           "--push-result", receipt], timeout=300)
+    return {"layout": layout, "target": json.loads((layout / "index.json").read_text())["manifests"][0],
+            "receipt": json.loads(receipt.read_text())}
+
+
 class ManagedDelivery(UpstreamDelivery):
     def __init__(self, h, pins):
         super().__init__(h, pins)
@@ -108,22 +139,7 @@ class ManagedDelivery(UpstreamDelivery):
         h = self.h
         self.start_registry()
         self.configure_node()
-        now = time.time()
-        authority = {}
-        for role in ("publisher", "composer"):
-            key = h.work / (role + ".key")
-            public = h.work / (role + ".pub")
-            h.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
-                   "ec_paramgen_curve:P-256", "-out", key])
-            os.chmod(key, 0o600)
-            h.run(["openssl", "pkey", "-in", key, "-pubout", "-out", public])
-            stamp = lambda value: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(value))
-            authority[role] = {"identity": "https://ci.brewlet.test/" + role,
-                "keys": [{"publicKey": public.read_text(), "notBefore": stamp(now - 60),
-                          "notAfter": stamp(now + 14400)}]}
-        self.policy = h.work / "release-policy.json"
-        self.policy.write_text(json.dumps({"schemaVersion": 1, "mode": "production",
-            "notAfter": stamp(now + 14400), **authority}, indent=2))
+        self.policy, authority = create_release_policy(h)
         inputs = json.loads((h.work / "host-reports.json").read_text())["layers"]
         for language in h.languages:
             root, selected = self.golden_layout(language, "before")
@@ -162,18 +178,10 @@ class ManagedDelivery(UpstreamDelivery):
                 application = (str(app_layout) + "@" + app["digest"] if revision == "before"
                     else str(self.compositions[language]["before"]["layout"]) + "@"
                          + self.compositions[language]["before"]["target"]["digest"])
-                composed = h.work / (language + "-" + revision + "-composed")
-                receipt = h.work / (language + "-" + revision + "-receipt.json")
-                h.run([*h.cli_command, "compose", "composed-" + language, "--store", composed,
-                       "--application", application, "--layer-set", str(layout) + "@" + target["digest"],
-                       "--platform", "linux/" + h.arch, "--policy", self.policy,
-                       "--signing-key", h.work / "composer.key",
-                       "--builder-identity", authority["composer"]["identity"], "--push-result", receipt], timeout=300)
-                result = json.loads(receipt.read_text())
-                output = json.loads((composed / "index.json").read_text())["manifests"][0]
-                reference = self.publish(composed, output, f"managed/{language}-{revision}")
-                self.compositions[language][revision] = {"layout": composed, "target": output,
-                    "reference": reference, "bundle": bundle, "receipt": result}
+                composed = compose_layout(h, application, str(layout) + "@" + target["digest"],
+                                          self.policy, language + "-" + revision)
+                reference = self.publish(composed["layout"], composed["target"], f"managed/{language}-{revision}")
+                self.compositions[language][revision] = {**composed, "reference": reference, "bundle": bundle}
             before, after = (self.compositions[language][r]["receipt"]["verification"]["predicate"]
                              for r in ("before", "after"))
             require(before["applicationLayers"] == after["applicationLayers"]

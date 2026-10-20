@@ -1,0 +1,243 @@
+{
+  "outcome": "passed",
+  "scope": "real-node-execution-only",
+  "selectedScenario": "managed-wasm-composition",
+  "selectedLanguages": [
+    "wasmtime",
+    "spin"
+  ],
+  "cleanSelectedSuitePassed": true,
+  "fullAcceptance": false,
+  "checkout": "2e3cf45fb834f287b8bd755cae2aa162b36ae5f5",
+  "productionSourceManifestSHA256": "8c17f654994bee798b1ddaac257f2e225a3ef9166af8a9006ca36664e85f9d53",
+  "architecture": "arm64",
+  "kubeletPullVerified": false,
+  "tlsTransportVerified": false,
+  "providerScaleFromZeroVerified": false,
+  "kubeletRuntimeRequestTimeoutSeconds": 120,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "wasmtime": "172.18.0.11:5000/managed-wasm/wasmtime-before@sha256:503fac5929e97af98d103bebac756cb84f6fafb257cceecb967043f3e745e6da",
+    "spin": "172.18.0.11:5000/managed-wasm/spin-before@sha256:0c76730e79dc548b1aeb0bbacb97ac7714f9bb43787676d87a653c642778c2ac"
+  },
+  "runtimeImages": {
+    "wasmtime": {
+      "before": "172.18.0.11:5000/managed-wasm/runtime-wasmtime@sha256:815900f2e242a21a40f402d620a2f5ecd1a7484b0715fcc977f0221698bf0926",
+      "after": "172.18.0.11:5000/managed-wasm/runtime-wasmtime@sha256:815900f2e242a21a40f402d620a2f5ecd1a7484b0715fcc977f0221698bf0926"
+    },
+    "spin": {
+      "before": "172.18.0.11:5000/managed-wasm/runtime-spin@sha256:97ea0a9c348153c9bbe414e06dca9ce178271b0cb7393c21829bf6508613fa8b",
+      "after": "172.18.0.11:5000/managed-wasm/runtime-spin@sha256:97ea0a9c348153c9bbe414e06dca9ce178271b0cb7393c21829bf6508613fa8b"
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
+    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
+    "E2E-06/07/08 real admission interceptor disabled explicitly",
+    "Custom platform runtime roots: pinned distroless C/C++ userland plus unchanged pinned release binaries.",
+    "Go WASIp1 commands and Rust wasm32-wasip2/Spin SDK 7 HTTP components only; not arbitrary WASI interfaces or native runwasi qualification.",
+    "Guest filesystem/environment checks; no claim of a complete guest-network capability test.",
+    "External message-file update, not an executable library/component or compiled-in CVE patch.",
+    "Fixed platform-built Wasm hosts; runtime version rotation/restart recovery are separate qualification."
+  ],
+  "wasmGuestInputs": {
+    "command": {
+      "kind": "WASIp1 core module",
+      "sha256": "a50dc36d0bc252de4793dfac8305aafbfef6dfb5ff297b02588460726ff5f107",
+      "toolchain": "go version go1.27.2 darwin/arm64"
+    },
+    "http": {
+      "kind": "Spin SDK 7 HTTP component",
+      "target": "wasm32-wasip2",
+      "sha256": "d98877a82183c9949ab2d412b349bf9239088b8d4983e2be0a17ca07757afd03",
+      "cargoLockSHA256": "a94d8245940c248ebc5d794344862d9341a72f65b861bf0c08febba5ec200667",
+      "toolchain": "rustc 1.97.1 (8bab26f4f 2026-07-14)"
+    }
+  },
+  "wasmRuntimes": {
+    "wasmtime": {
+      "after": {
+        "releaseVersion": "49.0.4",
+        "archive": {
+          "url": "https://github.com/bytecodealliance/wasmtime/releases/download/v49.0.4/wasmtime-v49.0.4-aarch64-linux.tar.xz",
+          "sha256": "9c1a6298dfb0df3b1249b531375dfb9d0d3eb0f1e1959982e3bc767251eb705d"
+        },
+        "binarySHA256": "7ff3862b2dee59318218c2dafd87650faf7840db2c21889b62535e9d0e7273ba",
+        "descriptor": {
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "digest": "sha256:815900f2e242a21a40f402d620a2f5ecd1a7484b0715fcc977f0221698bf0926",
+          "size": 3678
+        },
+        "base": "gcr.io/distroless/cc-debian13@sha256:2f0295ce228a23109ec1c8d38763bfe995b0dba7b3672f58d3a67ebfbc542fdc",
+        "interpreter": "/lib/ld-linux-aarch64.so.1",
+        "sourceKind": "custom-platform-fixture-pinned-distroless-cc-and-unchanged-release-binary"
+      }
+    },
+    "spin": {
+      "after": {
+        "releaseVersion": "4.2.3",
+        "archive": {
+          "url": "https://github.com/spinframework/spin/releases/download/v4.2.3/spin-v4.2.3-static-linux-aarch64.tar.gz",
+          "sha256": "10e30bf1dcbcb14961be86a2413455b85a93397c9dffbbce8b7bf24f93cd18f9"
+        },
+        "binarySHA256": "9d7098e4f84849997ff00a99b0336b980436916cc15bb0c808dd231eb33a3c90",
+        "descriptor": {
+          "mediaType": "application/vnd.oci.image.manifest.v1+json",
+          "digest": "sha256:97ea0a9c348153c9bbe414e06dca9ce178271b0cb7393c21829bf6508613fa8b",
+          "size": 3678
+        },
+        "base": "gcr.io/distroless/cc-debian13@sha256:2f0295ce228a23109ec1c8d38763bfe995b0dba7b3672f58d3a67ebfbc542fdc",
+        "interpreter": null,
+        "sourceKind": "custom-platform-fixture-pinned-distroless-cc-and-unchanged-release-binary"
+      }
+    }
+  },
+  "assertions": [
+    {
+      "name": "explicit Wasm source inputs and native prerequisites",
+      "outcome": "passed",
+      "requirements": [
+        "WASM-01",
+        "WASM-02"
+      ]
+    },
+    {
+      "name": "isolated kind node and owned registry",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "wasmtime signed before external bundle and final composition verified",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-01"
+      ]
+    },
+    {
+      "name": "spin signed before external bundle and final composition verified",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-01"
+      ]
+    },
+    {
+      "name": "wasmtime wrong publisher and managed-path shadow fail without accepted output",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-01"
+      ]
+    },
+    {
+      "name": "spin wrong publisher and managed-path shadow fail without accepted output",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-01"
+      ]
+    },
+    {
+      "name": "approved numeric Wasm runtime inventory on an Eager owned pool",
+      "outcome": "passed",
+      "requirements": [
+        "WASM-01",
+        "WASM-02"
+      ]
+    },
+    {
+      "name": "wasmtime initial guest/host Exec and protected filesystem/security observations",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-02"
+      ]
+    },
+    {
+      "name": "spin initial guest/host Exec and protected filesystem/security observations",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-02"
+      ]
+    },
+    {
+      "name": "observed before Wasm application/package/SBOM identities exported for external tooling",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-03"
+      ]
+    },
+    {
+      "name": "wasmtime signed after external bundle and final composition verified",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-01"
+      ]
+    },
+    {
+      "name": "spin signed after external bundle and final composition verified",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-01"
+      ]
+    },
+    {
+      "name": "wasmtime candidate consumes new external bytes while old guest/lease stays unchanged",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-02",
+        "COMP-WASM-03"
+      ]
+    },
+    {
+      "name": "wasmtime verified normal rollout with unchanged guest hashes and actual host generation",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-02",
+        "COMP-WASM-03",
+        "COMP-WASM-04"
+      ]
+    },
+    {
+      "name": "spin candidate consumes new external bytes while old guest/lease stays unchanged",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-02",
+        "COMP-WASM-03"
+      ]
+    },
+    {
+      "name": "spin verified normal rollout with unchanged guest hashes and actual host generation",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-02",
+        "COMP-WASM-03",
+        "COMP-WASM-04"
+      ]
+    },
+    {
+      "name": "observed after Wasm application/package/SBOM identities exported for external tooling",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-03"
+      ]
+    },
+    {
+      "name": "normal managed Wasm task/root cleanup, host restoration and exact UID claim release",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-WASM-04"
+      ]
+    }
+  ]
+}

@@ -30,6 +30,20 @@
       "architecture": "amd64",
       "outcome": "passed",
       "result": "results/managed-composition-amd64.json"
+    },
+    "wasm-arm64": {
+      "command": "python3 integration-tests/live-v2/managed_wasm.py --work integration-tests/live-v2/run-managed-wasm-95",
+      "scope": "real-node",
+      "architecture": "arm64",
+      "outcome": "passed",
+      "result": "results/managed-wasm-composition-arm64.json"
+    },
+    "wasm-amd64": {
+      "command": "workflow_dispatch e2e.yml scenario=managed-wasm on a native ubuntu-24.04 runner",
+      "scope": "real-node",
+      "architecture": "amd64",
+      "outcome": "pending",
+      "result": "results/managed-wasm-composition-amd64.json"
     }
   },
   "requirements": [
@@ -57,6 +71,10 @@
     {"id": "COMP-22", "sections": ["9", "11"], "requirement": "Scoped affected/control/staging and shared-image cohorts remain distinguishable; labels do not establish workload ownership.", "checks": ["contracts"]},
     {"id": "COMP-23", "sections": ["9"], "requirement": "Exported standard SBOM/PURL facts support external advisory tools without a Brewlet scanner, database, naive version comparator or unsupported clean claim.", "checks": ["contracts", "documentation"]},
     {"id": "COMP-24", "sections": ["11", "12"], "requirement": "Document producer/layout/trust/operator/remediation workflows and explicit input rejection, scope, permission and unchanged-runtime qualification limits.", "checks": ["documentation"]},
-    {"id": "COMP-25", "sections": ["11", "12"], "requirement": "Native architectures are separate; failures remain failures and prior 111 obligations are not relabeled as new feature acceptance.", "checks": ["contracts", "arm64", "amd64"]}
+    {"id": "COMP-25", "sections": ["11", "12"], "requirement": "Native architectures are separate; failures remain failures and prior 111 obligations are not relabeled as new feature acceptance.", "checks": ["contracts", "arm64", "amd64"]},
+    {"id": "COMP-WASM-01", "sections": ["4", "5", "7", "11.1/1-2"], "requirement": "Both Wasmtime and Spin consume independently signed complete external bundles through signed compose/verify, rejecting wrong trust and managed-path conflicts.", "checks": ["wasm-arm64", "wasm-amd64"]},
+    {"id": "COMP-WASM-02", "sections": ["8", "11.1/3-4"], "requirement": "Actual guest behavior changes after external dependency replacement while .wasm hashes, application/launch bytes and read-only/cache/security boundaries remain unchanged; no compiled-in remediation claim.", "checks": ["wasm-arm64", "wasm-amd64"]},
+    {"id": "COMP-WASM-03", "sections": ["9", "11.1/5"], "requirement": "Native Deployment rollout follows candidate checks, replaces old Pod/container cohorts and exports actual dependency/SBOM identities; controlled HTTP availability is qualified for Spin only.", "checks": ["wasm-arm64", "wasm-amd64"]},
+    {"id": "COMP-WASM-04", "sections": ["11.1/5-6", "12"], "requirement": "Selected platform-built host source/epoch/generation remains unchanged across bundle updates, with actual host provenance, separate native architectures and normal cleanup/owned destruction.", "checks": ["wasm-arm64", "wasm-amd64", "documentation"]}
   ]
 }

@@ -202,15 +202,15 @@ class WasmHarness(Harness):
         return launch["entrypoint"] + launch["args"][:-2] + list(args or ("probe", "two words"))
 
 
-def guest(report):
-    require(report["message"] == "Hello from Wasm" and report["dependency"].strip() == "shared-wasm-dependency",
+def guest(report, dependency="shared-wasm-dependency"):
+    require(report["message"] == "Hello from Wasm" and report["dependency"].strip() == dependency,
             "actual guest/dependency not executing")
     require(report["visible"] == "explicit" and report["hostOnly"] == ""
             and report["runtimeFileHidden"] and report["engineCacheHidden"] and report["dependencyWriteDenied"],
             "guest filesystem/environment boundary failed")
 
 
-def inspect(h, name, engine, version):
+def inspect(h, name, engine, version, dependency="shared-wasm-dependency"):
     pod = h.ready(name)
     require(pod, "positive Wasm workload not ready")
     lease = h.lease(pod)
@@ -240,7 +240,7 @@ def inspect(h, name, engine, version):
     else:
         report = json.loads(h.exec(name, h.probe()).stdout)
         require(report["arguments"] == ["probe", "two words"], "guest argv changed")
-    guest(report)
+    guest(report, dependency)
     return pod, lease, {"pid": pid, "version": output.strip(), "guest": report}
 
 

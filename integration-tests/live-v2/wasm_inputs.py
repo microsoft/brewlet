@@ -73,7 +73,9 @@ def runtime_layout(layout, name, arch, revision, binary, base_layout, base):
     return delivery.finish_layout(layout, target)
 
 
-def build(h):
+def build(h, revisions=("before", "after")):
+    require(bool(revisions) and len(set(revisions)) == len(revisions)
+            and set(revisions) <= {"before", "after"}, "explicit unique Wasm host revisions required")
     pins = json.loads((EXAMPLE / "runtimes.json").read_text())
     base_layout = h.work / "runtime-base"
     importer = h.work / "runtimeimage"
@@ -106,7 +108,7 @@ def build(h):
     for name in ("wasmtime", "spin"):
         engine = pins[name]
         records[name] = {}
-        for revision in ("before", "after"):
+        for revision in revisions:
             source = engine[revision][h.arch]
             executable = release_binary(source, name, h.arch)
             path = h.work / (name + "-" + revision)

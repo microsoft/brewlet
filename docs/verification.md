@@ -17,6 +17,7 @@ and [exact commands, sources and scoped results](https://github.com/microsoft/br
 | 28-assertion unchanged-upstream companion | Pinned shell-free Java/Python/Node/static roots, real source rotation, numeric pathless execution, isolated `/app`, held Exec across worker/daemon restarts, revocation and normal cleanup on arm64. |
 | 18-assertion Wasm/runc companion | Wasmtime command and Spin SDK HTTP component, independent layer-set composition, explicit guest access, separate engine cache, exact exit 37, host-version updates, real Exec recovery and normal cleanup on arm64. |
 | Separate 32-assertion managed-composition runs | Java/Python/Node/Canonical .NET unchanged roots on native arm64 and amd64, independently signed complete sets, preserved app/launch bytes, candidate compatibility checks, controlled native rolling updates, observed package/SBOM export and normal cleanup. |
+| Separate 18-assertion managed Wasm companion | Signed external asset composition/replacement for Wasmtime and Spin on native arm64, actual guest hashes/behavior, candidate checks, native Deployment rollout, observed package/SBOM export and normal cleanup; amd64 pending. |
 
 The upstream-runtime amendment adds six obligations to the historical
 101-requirement baseline. Its source pins are recorded in the
@@ -39,7 +40,7 @@ single suite is presented as proof of the entire proposal. Failed attempts
 remain failed and separate from their corrected repeats.
 
 Proposal 0010 has a separate
-[25-obligation checklist](../acceptance/composition-requirements.json) and
+[29-obligation checklist](../acceptance/composition-requirements.json) and
 [native arm64 receipt](../acceptance/results/managed-composition-arm64.json)
 and [native amd64 receipt](../acceptance/results/managed-composition-amd64.json).
 It does not reuse the 111-obligation baseline as composition acceptance.
@@ -48,6 +49,10 @@ Native amd64 qualification passed the separate manually dispatched `managed`
 a cross-build is not that proof. The matrix updates explicit local
 fixture libraries, not an actual vulnerable production package, and contains
 no built-in CVE scanner.
+The additional [managed Wasm companion](webassembly.md#governed-external-dependency-replacement)
+is mandatory and separately scoped; the older runtime-only Wasm receipt and
+four-language passes cannot qualify it. Both named hosts passed locally on
+arm64; its native amd64 proof remains a separate gate.
 
 ## Reproduce component checks
 

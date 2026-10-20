@@ -4,18 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: Complete acceptance, partial control debugging, or managed dependency composition
+        description: Complete acceptance, partial control debugging, or managed native/Wasm composition
         type: choice
         required: true
         default: complete
-        options: [complete, control, managed]
+        options: [complete, control, managed, managed-wasm]
 
 permissions:
   contents: read
 
 jobs:
   execution:
-    if: github.ref_name == 'brewlet-2.0' && inputs.scenario != 'managed'
+    if: github.ref_name == 'brewlet-2.0' && inputs.scenario != 'managed' && inputs.scenario != 'managed-wasm'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -118,7 +118,7 @@ jobs:
           retention-days: 14
 
   managed-composition:
-    if: github.ref_name == 'brewlet-2.0' && inputs.scenario == 'managed'
+    if: github.ref_name == 'brewlet-2.0' && (inputs.scenario == 'managed' || inputs.scenario == 'managed-wasm')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -127,6 +127,7 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        if: inputs.scenario == 'managed'
         with:
           distribution: temurin
           java-version: "21"
@@ -135,9 +136,11 @@ jobs:
         with:
           python-version: "3.12"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: inputs.scenario == 'managed'
         with:
           node-version: "22.22.0"
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        if: inputs.scenario == 'managed'
         with:
           global-json-file: integration-tests/fixtures/dotnet/global.json
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
@@ -150,21 +153,37 @@ jobs:
         run: go install sigs.k8s.io/kind@v0.33.0
       - name: Check required registry authentication utility
         run: command -v htpasswd
+      - name: Install pinned Wasm guest toolchain
+        if: inputs.scenario == 'managed-wasm'
+        run: rustup toolchain install 1.97.1 --profile minimal --target wasm32-wasip2
       - name: Managed composition, candidate compatibility, rollout and external-scanner facts
+        if: inputs.scenario == 'managed'
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 integration-tests/live-v2/managed.py --work integration-tests/live-v2/run-managed-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Managed Wasmtime and Spin external dependency replacement
+        if: inputs.scenario == 'managed-wasm'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 integration-tests/live-v2/managed_wasm.py --work integration-tests/live-v2/run-managed-wasm-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Export public identities and outcomes only
         if: always()
+        env:
+          SCENARIO: ${{ inputs.scenario }}
         run: |
           mkdir -p acceptance-export
+          case "$SCENARIO" in
+            managed) kind=managed; result=managed-composition-amd64 ;;
+            managed-wasm) kind=managed-wasm; result=managed-wasm-composition-amd64 ;;
+            *) exit 1 ;;
+          esac
           python3 acceptance/export_result.py \
-            integration-tests/live-v2/run-managed-${{ github.run_id }}-${{ github.run_attempt }}/result.json \
-            acceptance-export/managed-composition-amd64.json
+            "integration-tests/live-v2/run-$kind-${{ github.run_id }}-${{ github.run_attempt }}/result.json" \
+            "acceptance-export/$result.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: managed-composition-amd64
-          path: acceptance-export/managed-composition-amd64.json
+          name: ${{ inputs.scenario }}-composition-amd64
+          path: acceptance-export/*.json
           if-no-files-found: error
           retention-days: 14

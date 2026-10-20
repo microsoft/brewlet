@@ -8,6 +8,9 @@ introduce a workload CRD.
 companion on native arm64, including source updates, held Exec recovery and
 normal cleanup. This is explicitly scoped qualification, not all WASI
 interfaces, another CPU architecture or native runwasi execution.
+The separate Proposal 0010 managed-composition companion below adds signed
+artifact composition/replacement and observed fleet evidence; its qualification
+is tracked independently rather than inferred from that earlier run.
 
 ## Tested runtime inputs
 
@@ -181,8 +184,9 @@ The command's default `hold main` invocation remains alive until normal Pod
 termination or its explicit fixture release. For Spin HTTP, use
 `spin-http-sdk7`, the Spin application digest and an HTTP probe at `/` on port
 8000, preserving the two volume mounts. The same Pod spec can be placed under
-a normal Deployment template for service operation; the qualification receipt
-uses direct Pods rather than claiming a separate Wasm controller test.
+a normal Deployment template for service operation. The earlier runtime
+qualification uses direct Pods; the managed-composition companion explicitly
+exercises native Deployment rollouts.
 
 ## Verify
 
@@ -283,8 +287,65 @@ worker/containerd restarts, allowlist rejection and normal profile/host cleanup
 before exact-owned fixture destruction. Failed attempts remain failed.
 The [public qualification receipt](../acceptance/results/wasm-runc-arm64.json)
 records pinned engine/userland inputs and both compiled guest identities.
-Managed dependency composition is tested for these two examples; this does not
-close the separate four-native-language/unchanged-runtime layer-set matrix.
+That receipt covers generic `push --layer-set` consumption, not the later
+`compose`/final-signature/replacement/fleet-export workflow.
+
+## Governed external dependency replacement
+
+**Current scope:** the managed companion passed 18 selected assertions on
+native arm64, including normal cleanup. Its
+[public receipt](../acceptance/results/managed-wasm-composition-arm64.json)
+does not qualify native amd64; that architecture has a separate required check.
+
+Proposal 0010 explicitly requires both the Wasmtime command and Spin HTTP
+component, in addition to Java, Python, Node.js and .NET. Its
+[separate acceptance gate](../acceptance/composition-requirements.json) requires
+each native architecture independently. An earlier runtime-image test or a
+four-language pass cannot satisfy these Wasm obligations.
+
+The companion uses the existing compiled guests and fixed pinned
+Wasmtime 49.0.4 / Spin 4.2.3 platform-built hosts. It independently publishes a
+complete locked external asset bundle with CycloneDX inventory and publisher
+provenance, publishes app-only OCI inputs, and invokes the same generic
+`brewlet compose` and `brewlet verify` commands as every other workload.
+
+After both original Deployments are running, the platform publishes changed
+`message.txt` bytes as a new signed bundle. Release composition replaces only
+the dependency layers from the verified prior composition. It preserves the
+guest SHA-256, application-layer descriptors/diff IDs, original/effective launch
+bytes and the selected host source/epoch/generation.
+
+Candidates must actually observe the new external bytes before deployment.
+Old workloads keep their old dependency and lease. A native rolling update
+creates new Pod/container identities; post-rollout `brewlet inventory` traces
+those actual images to the updated package/SBOM evidence. Wrong publisher
+identities and app-layer shadowing fail before an accepted output/receipt.
+Spin additionally has a controlled two-replica HTTP availability observation;
+the Wasmtime command is not reported as an HTTP service.
+
+This is deliberately an **external data-asset update**, not a dynamically linked
+library/component test or a production CVE remediation claim. A Rust/Go library
+compiled into `guest.wasm` cannot be repaired by swapping this asset bundle.
+Rebuild the guest with the reviewed toolchain/dependencies and publish a new
+application layer for compiled-in fixes. Update the RuntimeImage for engine/OS
+fixes. Bundle SBOMs do not provide exhaustive inventory or CVE coverage of
+compiled-in app code or the separate runtime.
+
+Reproduce with the same prerequisites plus OpenSSL and `htpasswd` for the
+isolated authenticated TLS registry:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/managed_wasm.py \
+  --work integration-tests/live-v2/run-my-managed-wasm
+```
+
+This companion uses a new owned cluster/registry and source-built production
+components. It requires actual guest behavior, security/cache exclusion,
+observed image/package identities and normal host/profile cleanup before
+exact-owned fixture destruction. Public pass/failure receipts and architecture
+status are recorded in [validation results](../acceptance/RESULTS.md).
+The manually dispatched E2E workflow's `managed-wasm` scenario supplies the
+separate native amd64 execution; a cross-build is not that evidence.
 
 For your own deployment, build and publish reviewed runtime/application images,
 use the [installation](installation.md) and [trust](registry-trust.md) guides,
