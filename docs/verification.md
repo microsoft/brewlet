@@ -16,7 +16,7 @@ and [exact commands, sources and scoped results](https://github.com/microsoft/br
 | Producer and native contracts | Maven/CLI/shim conformance and Linux filesystem, mount, lock and cache invariants. |
 | 28-assertion unchanged-upstream companion | Pinned shell-free Java/Python/Node/static roots, real source rotation, numeric pathless execution, isolated `/app`, held Exec across worker/daemon restarts, revocation and normal cleanup on arm64. |
 | 18-assertion Wasm/runc companion | Wasmtime command and Spin SDK HTTP component, independent layer-set composition, explicit guest access, separate engine cache, exact exit 37, host-version updates, real Exec recovery and normal cleanup on arm64. |
-| 32-assertion managed-composition companion | Java/Python/Node/Canonical .NET unchanged roots on arm64, independently signed complete sets, preserved app/launch bytes, candidate compatibility checks, controlled native rolling updates, observed package/SBOM export and normal cleanup. |
+| Separate 32-assertion managed-composition runs | Java/Python/Node/Canonical .NET unchanged roots on native arm64 and amd64, independently signed complete sets, preserved app/launch bytes, candidate compatibility checks, controlled native rolling updates, observed package/SBOM export and normal cleanup. |
 
 The upstream-runtime amendment adds six obligations to the historical
 101-requirement baseline. Its source pins are recorded in the
@@ -40,10 +40,12 @@ remain failed and separate from their corrected repeats.
 
 Proposal 0010 has a separate
 [25-obligation checklist](../acceptance/composition-requirements.json) and
-[native arm64 receipt](../acceptance/results/managed-composition-arm64.json).
+[native arm64 receipt](../acceptance/results/managed-composition-arm64.json)
+and [native amd64 receipt](../acceptance/results/managed-composition-amd64.json).
 It does not reuse the 111-obligation baseline as composition acceptance.
-Native amd64 qualification is a separate manually dispatched `managed` E2E
-scenario; a cross-build is not that proof. The matrix updates explicit local
+Native amd64 qualification passed the separate manually dispatched `managed`
+[E2E run](https://github.com/microsoft/brewlet/actions/runs/39445945006);
+a cross-build is not that proof. The matrix updates explicit local
 fixture libraries, not an actual vulnerable production package, and contains
 no built-in CVE scanner.
 

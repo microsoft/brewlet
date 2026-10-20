@@ -438,6 +438,15 @@ func Compose(ctx context.Context, store Store, options ComposeOptions) (v1.Descr
 	if err != nil {
 		return zero, inspection, err
 	}
+	if options.Signer == nil {
+		candidates, err := compositionReferrers(store, target)
+		if err != nil {
+			return zero, inspection, err
+		}
+		if len(candidates) != 1 {
+			return zero, inspection, fmt.Errorf("ambiguous unsigned output cannot hide present provenance")
+		}
+	}
 	resolved, err := Resolve(ctx, store.Open, target, options.Platform)
 	if err != nil {
 		return zero, inspection, err

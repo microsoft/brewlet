@@ -264,6 +264,10 @@ func TestManagedCompositionDevelopmentDoesNotDowngradeSignatures(t *testing.T) {
 	if _, err = VerifyComposition(context.Background(), f.store, target, f.platform, options.Policy); err == nil {
 		t.Fatal("present invalid signature downgraded to unsigned")
 	}
+	options.Application = f.app
+	if _, _, err = Compose(context.Background(), f.store, options); err == nil {
+		t.Fatal("fresh unsigned composition hid invalid present output provenance")
+	}
 }
 
 func TestManagedCompositionPredicateBindings(t *testing.T) {

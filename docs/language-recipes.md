@@ -23,7 +23,7 @@ runtime modes. The current [qualification fixtures](https://github.com/microsoft
 Java, Python, Node and .NET. The unchanged distroless matrix additionally covers
 Java/Python/Node/static on arm64. The separate
 [managed-composition matrix](managed-composition.md) covers Java/Python/Node
-and an unchanged Canonical .NET runtime on native arm64, including signed
+and an unchanged Canonical .NET runtime on native arm64 and amd64, including signed
 bundles, compatible dependency replacement and actual Deployment rollout.
 
 ## Python

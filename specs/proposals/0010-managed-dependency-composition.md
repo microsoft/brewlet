@@ -1,6 +1,6 @@
 # Proposal 0010: governed dependency composition and remediation
 
-- **Status:** accepted for implementation on 2026-10-20; qualification in progress.
+- **Status:** implemented; accepted on 2026-10-20. See the [separate qualification ledger](../../acceptance/composition-requirements.json).
 - **Scope:** Brewlet 2.0 producer, release and policy workflows.
 - **Extends:** [Proposal 0009 section 6.5](0009-language-agnostic-runtime-images.md#65-dependencies-as-layers-or-independently).
 - **Does not change:** runtime-image selection, node provisioning, runc execution,
@@ -38,6 +38,10 @@ artifact MUST contain the actual files; no package-manager resolution from
 SBOM entries occurs in the shim, operator or generic composer.
 
 ## 2. Existing foundations and actual gaps
+
+This table records the pinned reference-2.0 baseline above. Implemented release
+interfaces and their qualified scopes are documented in the
+[composition guide](../../docs/managed-composition.md) and the separate ledger.
 
 | Concern | Already in 2.0 | Proposed work |
 | --- | --- | --- |

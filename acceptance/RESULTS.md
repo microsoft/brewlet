@@ -32,10 +32,16 @@ conformance matrix and real deterministic Maven app-only publication followed
 by generic release composition; original BOM/scoped build metadata is retained.
 These component/producer results are not substitute native amd64 evidence.
 
+The native amd64
+[managed E2E run](https://github.com/microsoft/brewlet/actions/runs/39445945006)
+also passed **32 selected assertions**, normal production cleanup and exact-owned
+fixture destruction. Its [separate public receipt](results/managed-composition-amd64.json)
+records the physical architecture and source snapshot rather than treating a
+cross-build as execution proof.
+
 The separate [25-obligation checklist](composition-requirements.json) covers
 all proposal sections and uses `composition_check.py --require-complete` as
-its strict gate. Native amd64 has a dedicated manually dispatched `managed`
-E2E scenario and remains unqualified until its successful public result exists.
+its strict gate. Both native scopes are now qualified.
 The historic 111-obligation baseline remains separate.
 
 ## Flat launch schema and explicit Wasm qualification

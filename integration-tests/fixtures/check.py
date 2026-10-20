@@ -5,6 +5,7 @@ This is host/producer integration, never a claim of node/runtime acceptance.
 """
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import hashlib
 import importlib.util
 import json
@@ -235,7 +236,8 @@ def main():
         assert app_only_digests[0] == app_only_digests[1], "app-only build graph staging is nondeterministic"
         release_policy = work / "development-release-policy.json"
         release_policy.write_text(json.dumps({"schemaVersion": 1, "mode": "development",
-            "notAfter": "2027-01-01T00:00:00Z", "publisher": {"identity": "", "keys": []},
+            "notAfter": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            "publisher": {"identity": "", "keys": []},
             "composer": {"identity": "", "keys": []}}))
         composed = work / "oci-java-release-composed"
         run([brewlet, "compose", "fixtures/java-release:v2", "--store", composed,
