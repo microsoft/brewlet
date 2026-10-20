@@ -1,25 +1,29 @@
-# Brewlet enhancement proposals
+# Brewlet 2.0 design contracts
 
-KEP-style design proposals for changes that are large enough to warrant a written,
-reviewable design. The [roadmap](../../ROADMAP.md) is the source of truth for
-functionality that Brewlet does not yet ship; proposals preserve the detailed
-engineering rationale behind those roadmap items. These proposals are not current
-contracts; see the [specification](../SPECIFICATION.md) for shipped behavior.
-Implemented proposals 0001-0004 are preserved as non-normative historical records
-in the [archive index](../../archive/README.md).
+This directory contains the implemented design contracts for the Brewlet 2.0
+branch. Implementation and qualification are distinct: consult the scoped
+[validation results](../../acceptance/RESULTS.md) and acceptance ledgers rather
+than interpreting a design document as proof of every deployment.
 
-## Roadmap designs
+## Implemented contracts
 
-- [0005 — Replica coalescing: fewer, larger JVMs](0005-replica-coalescing.md)
-  — proposed
-- [0006 — Sandbox isolation tiers](0006-sandbox-isolation-tiers.md)
-  — research complete; implementation gated on prototype
-- [0007 — Baked golden-image delivery](0007-baked-golden-image-delivery.md)
-  — proposed as an optional delivery mode, not a replacement
-- [0008 — Per-application Java truststores](0008-application-truststores.md)
-  — proposed Secret/ConfigMap-backed truststore references for `JavaApplication`
 - [0009 — Brewlet 2.0: language-agnostic runtime images](0009-language-agnostic-runtime-images.md)
-  — draft; breaking redesign replacing the JDK inventory with approved runtime images
+  — application artifacts, approved runtime inventory, provisioning, admission,
+  runc execution and lifecycle/security boundaries across all five workload
+  categories. Qualification is tracked in the
+  [baseline ledger](../../acceptance/requirements.json).
 - [0010 — Governed dependency composition and remediation](0010-managed-dependency-composition.md)
-  — implemented; producer/release composition, final-image evidence and
-  fleet remediation, not runtime dependency fetching
+  — producer/release composition, final-image evidence and observed dependency
+  attribution for external tooling, not runtime dependency fetching or a
+  built-in vulnerability scanner. Qualification is tracked in the
+  [composition ledger](../../acceptance/composition-requirements.json).
+
+## Deferred research
+
+Stronger sandbox isolation and stock-runtime baked export remain possible
+future directions, not supported alternatives or committed roadmap features.
+Their boundaries are recorded briefly in
+[0009's open questions](0009-language-agnostic-runtime-images.md#14-open-questions).
+
+The earlier Java-oriented proposals are not carried as active 2.0 designs.
+Proposal numbers are preserved; committed history retains the removed documents.

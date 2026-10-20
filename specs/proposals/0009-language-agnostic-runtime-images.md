@@ -1,7 +1,8 @@
 # Proposal 0009 — Brewlet 2.0: language-agnostic runtime images
 
-- **Status:** draft; not implemented. Proposed as the defining change of a
-  **breaking** Brewlet 2.0 release, not as an additive 1.x mode
+- **Status:** implemented as the defining contract of the **breaking** Brewlet
+  2.0 branch, not an additive 1.x mode. See the
+  [scoped qualification records](../../acceptance/RESULTS.md).
 - **Related roadmap item:** language-agnostic runtime images (Brewlet 2.0)
 - **Current contracts replaced:** application artifact (SPEC §4.1–§4.4), JDK
   inventory (SPEC §5.3, SPEC §5.6), shim JDK selection (SPEC §6.1), JVM
@@ -11,7 +12,7 @@
   (SPEC §4.4), managed dependency bundles (SPEC §4.5), copy-from-image node roots (SPEC §5.3),
   `NodeProfile` pool selection and rollout (SPEC §5.6), the runc-backed shim (SPEC §6),
   `RuntimeClass/brewlet` (SPEC §7), and the admission webhook (SPEC §8.3)
-- **Related designs:** [0007 — baked golden-image delivery](0007-baked-golden-image-delivery.md)
+- **Related design:** [0010 — governed dependency composition and remediation](0010-managed-dependency-composition.md)
 
 This proposal removes Java from Brewlet's core contract. Developers publish
 **application artifacts** (code, plus dependencies either as layers or as
@@ -26,10 +27,11 @@ launch time.
 References written as `SPEC §N` cite [`SPECIFICATION.md`](../SPECIFICATION.md);
 bare `§N` references cite sections of this proposal.
 
-It does not change shipped behavior, so [`SPECIFICATION.md`](../SPECIFICATION.md)
-remains unchanged until the design is accepted and implemented.
+The earlier specification references provide 1.x design context; this document
+defines the implemented 2.0 contract, with governed release composition extended
+by Proposal 0010. This is not a claim of a stable production release.
 
-The key words MUST, MUST NOT, SHOULD, and MAY describe the proposed 2.0 contract.
+The key words MUST, MUST NOT, SHOULD, and MAY describe the 2.0 contract.
 
 **Approved upstream-runtime amendment (2026-10-19).** Compatible upstream OCI
 runtime images, including shell-free distroless images, need not be rebuilt
@@ -146,8 +148,8 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
   always states it explicitly (§9).
 - Language detection in generic tooling. The CLI does not guess entrypoints,
   dependency layouts, or runtime IDs for any ecosystem.
-- Sandboxes other than runc. [Proposal 0006](0006-sandbox-isolation-tiers.md)
-  remains the venue for stronger isolation.
+- Sandboxes other than runc. Stronger isolation remains deferred research
+  requiring a separate design and compatibility/performance proof (§14).
 
 ## 5. Terminology
 
@@ -346,8 +348,9 @@ three implementations to produce the same normalized process fields and
 reason codes; separate language implementations do not justify contract drift.
 
 `launch.json` remains the authoritative, versioned document: it carries
-`requires`, it is what tooling inspects, and it is the input to the bake exporter
-of [proposal 0007](0007-baked-golden-image-delivery.md).
+the optional top-level `runtimeImages` allowlist and is what tooling inspects.
+A future baked exporter would need to honor the same launch contract; no such
+delivery mode is implemented by this proposal.
 
 ### 6.5 Dependencies: as layers or independently
 
@@ -1388,28 +1391,19 @@ and observed dependency attribution are additionally qualified under
 
 ## 14. Open questions
 
-1. **Baked export ([proposal 0007](0007-baked-golden-image-delivery.md)).**
-   Should Brewlet offer a standard way to bake an application and its runtime
-   image into one ordinary image, using the same `RuntimeImage` inventory and
-   `launch.json`, for clusters without the shim?
+These are deferred research directions, not supported alternatives or committed
+implementation work:
 
-   - *For:* runs on clusters that cannot install a privileged provisioner or a
-     custom shim (some managed or regulated platforms); works with VM-isolated
-     sandboxes such as Kata; ordinary scanners, signing, and `docker run` for
-     local development all work unchanged; and it gives adopters a way out,
-     which lowers the risk of adopting Brewlet. Composition is well defined
-     because §6–§8 already specify layer order, environment, user, and `PATH`.
-   - *Against:* baked images lose the central property of this design: a
-     rotation does not patch them, so each rotation requires a rebuild and
-     redeploy of every baked application. The shared read-only runtime per node
-     and its pull savings are lost. Every runtime generation produces a new
-     application digest, so digests return to workload manifests. Brewlet would
-     support and test two execution paths whose behavior can drift (read-only
-     `/app`, root rejection, and `PATH` ownership become build-time checks rather
-     than shim enforcement), and it must define who signs the baked result.
-   - *Option:* keep 0007 separate and later, but hold this proposal to
-     deterministic composition rules so a bake exporter can be added without
-     changing the 2.0 contract.
+- **Stronger sandbox isolation.** A backend such as gVisor or a VM-based sandbox
+  needs a separate language-neutral design and measured compatibility, security,
+  lifecycle, resource and runtime-sharing proof. It is not a validated binary
+  substitution behind the current shim and must never silently fall back to runc.
+- **Baked export.** Clusters that cannot install the shim might benefit from a
+  conventional image combining an approved runtime with application layers.
+  This needs explicit signing, launch/confinement and runtime-CVE rebuild/
+  redeployment rules. It loses late-bound runtime selection and is distinct
+  from Proposal 0010, which composes application/dependency layers while leaving
+  the runtime node-provided.
 
 ## 15. Alternatives considered
 
