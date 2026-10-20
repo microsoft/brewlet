@@ -13,6 +13,10 @@ when a container is created.
 [package an application](applications.md), or
 [enable runtime infrastructure](installation.md).
 
+Choose a [workload guide](language-recipes.md) for complete Java, Python,
+Node.js, .NET and WebAssembly workflows. These are tested examples under one
+generic execution contract, not an exhaustive built-in runtime catalog.
+
 Choose the [developer workshop](workshops/developer.md) when a platform is
 already prepared, or the [platform workshop](workshops/platform.md) to establish
 approval, pools and a concrete handoff. Read

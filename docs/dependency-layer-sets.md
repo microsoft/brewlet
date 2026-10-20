@@ -14,7 +14,13 @@ Create `dependencies/message.py` containing `MESSAGE = "shared dependency"`.
 Create `layerset.json`:
 
 ```json
-{"schemaVersion":1,"name":"example-dependencies","version":"1","ecosystem":"python","layers":[]}
+{
+  "schemaVersion": 1,
+  "name": "example-dependencies",
+  "version": "1",
+  "ecosystem": "python",
+  "layers": []
+}
 ```
 
 The producer populates layer digest/diff-ID bindings from the supplied files:

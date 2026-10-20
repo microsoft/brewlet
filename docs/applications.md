@@ -21,15 +21,27 @@ explicit producer assertion, not evidence that a native dependency is portable.
 {
   "schemaVersion": 2,
   "process": {
-    "entrypoint": ["python3"],
-    "args": ["/app/src/main.py"],
+    "entrypoint": [
+      "python3"
+    ],
+    "args": [
+      "/app/src/main.py"
+    ],
     "workingDir": "/app",
     "env": [
-      {"name": "PYTHONPATH", "value": "/app/dependencies"},
-      {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}
+      {
+        "name": "PYTHONPATH",
+        "value": "/app/dependencies"
+      },
+      {
+        "name": "PYTHONDONTWRITEBYTECODE",
+        "value": "1"
+      }
     ]
   },
-  "runtimeImages": ["python-3.13"]
+  "runtimeImages": [
+    "python-3.13"
+  ]
 }
 ```
 

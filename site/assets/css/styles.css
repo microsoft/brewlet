@@ -62,7 +62,7 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .composition-footer { display: flex; justify-content: space-between; gap: .375rem; margin-top: 1.5rem; padding: 1rem 1.5rem; border-top: 1px solid var(--cp-border); background: var(--cp-bg-elevated); font-size: .8125rem; }
 .language-strip { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1.5rem; padding-block: 2rem; margin-top: 4rem; border-top: 1px solid var(--cp-border); border-bottom: 1px solid var(--cp-border); }
 .language-strip > span { font-size: .875rem; color: var(--cp-text-muted); }
-.language-strip strong { font-size: 1.125rem; }
+.language-strip a { font-size: 1.125rem; font-weight: 700; }
 .section { padding-block: 6rem; }
 .section-heading { display: flex; align-items: start; gap: 4rem; justify-content: space-between; margin-bottom: 3rem; }
 .section-heading h2 { max-width: 20ch; margin-bottom: 0; }

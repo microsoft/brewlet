@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -15,6 +16,70 @@ SPEC.loader.exec_module(TUTORIAL)
 
 
 class DocumentationTests(unittest.TestCase):
+    def test_workload_guides_have_consistent_complete_structure_and_pretty_launch_json(self):
+        headings = ("Tested runtime inputs", "Build the payload", "Launch descriptor",
+                    "Package", "Native deployment", "Verify", "Pitfalls and qualification limits")
+        for name in ("java", "python", "nodejs", "dotnet", "webassembly"):
+            text = (ROOT / "docs" / (name + ".md")).read_text()
+            with self.subTest(guide=name):
+                positions = [text.index("## " + heading + "\n") for heading in headings]
+                self.assertEqual(positions, sorted(positions))
+                launches = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", text, re.S)]
+                self.assertTrue(any(value.get("schemaVersion") == 2 and "process" in value for value in launches))
+                self.assertIn("image:", text)
+                self.assertIn("brewlet.sh/runtime-image:", text)
+        for name in ("java", "python", "nodejs", "dotnet", "webassembly", "language-recipes"):
+            text = (ROOT / "docs" / (name + ".md")).read_text()
+            for block in re.findall(r"```json\n(.*?)\n```", text, re.S):
+                with self.subTest(guide=name, snippet=block[:50]):
+                    parsed = json.loads(block)
+                    self.assertEqual(block, json.dumps(parsed, indent=2, ensure_ascii=False))
+                    self.assertNotIn("requires", parsed)
+
+    def test_landing_workload_entries_are_all_links_with_the_same_markup(self):
+        landing = (ROOT / "site/index.html").read_text()
+        strip = re.search(r'<nav class="container language-strip".*?</nav>', landing, re.S).group()
+        links = re.findall(r'<a href="([^"]+)">([^<]+)</a>', strip)
+        self.assertEqual(links, [
+            ("docs/java/", "Java"), ("docs/python/", "Python"), ("docs/nodejs/", "Node.js"),
+            ("docs/dotnet/", ".NET"), ("docs/webassembly/", "WebAssembly")])
+        self.assertNotIn("<strong>", strip)
+        self.assertIn('aria-label="Tested workload guides"', strip)
+        for anchor in ("Python", "Java", "Node.js", ".NET", "Static/native binaries"):
+            self.assertIn("## " + anchor, (ROOT / "docs/language-recipes.md").read_text())
+
+    def test_published_json_examples_are_valid_and_not_collapsed_to_one_line(self):
+        import yaml
+        config = yaml.safe_load((ROOT / "site/mkdocs.yml").read_text())
+        def pages(entries):
+            for entry in entries:
+                for value in entry.values():
+                    if isinstance(value, list):
+                        yield from pages(value)
+                    elif isinstance(value, str) and value.endswith(".md") and "://" not in value:
+                        yield ROOT / "docs" / value
+        for page in pages(config["nav"]):
+            for block in re.findall(r"```json\n(.*?)\n```", page.read_text(), re.S):
+                with self.subTest(page=page.name, snippet=block[:40]):
+                    json.loads(block)
+                    self.assertGreater(len(block.splitlines()), 1)
+
+    def test_fixture_workload_deployments_preserve_explicit_native_contract(self):
+        import yaml
+        for name in ("java", "python", "nodejs", "dotnet"):
+            text = (ROOT / "docs" / (name + ".md")).read_text()
+            manifests = [yaml.safe_load(block) for block in re.findall(r"```yaml\n(.*?)\n```", text, re.S)]
+            self.assertEqual(len(manifests), 1)
+            deployment = manifests[0]
+            template = deployment["spec"]["template"]
+            self.assertEqual(deployment["kind"], "Deployment")
+            self.assertIn("brewlet.sh/runtime-image", template["metadata"]["annotations"])
+            self.assertEqual(template["spec"]["runtimeClassName"], "brewlet")
+            self.assertEqual(template["spec"]["nodeSelector"]["kubernetes.io/arch"], "arm64")
+            app = template["spec"]["containers"][0]
+            self.assertTrue(app["securityContext"]["readOnlyRootFilesystem"])
+            self.assertEqual(app["readinessProbe"]["httpGet"]["port"], 8000)
+
     def test_reader_categories_are_published_not_just_present_in_repository(self):
         config = (ROOT / "site/mkdocs.yml").read_text().split("nav:", 1)[1]
         for page in ("concepts", "choosing-brewlet", "local-kubernetes", "installation",

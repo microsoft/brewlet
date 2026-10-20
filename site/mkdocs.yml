@@ -53,8 +53,13 @@ nav:
       - Developer workshop: workshops/developer.md
   - Ship applications:
       - Package and deploy: applications.md
-      - Language recipes: language-recipes.md
-      - WebAssembly examples: webassembly.md
+      - Workload guides:
+          - Overview and launch previews: language-recipes.md
+          - Java: java.md
+          - Python: python.md
+          - Node.js: nodejs.md
+          - .NET: dotnet.md
+          - WebAssembly: webassembly.md
       - Dependency layer sets: dependency-layer-sets.md
       - Resources and lifecycle: resources.md
       - Instrumentation: instrumentation.md

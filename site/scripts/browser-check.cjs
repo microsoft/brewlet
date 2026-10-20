@@ -142,6 +142,44 @@ async function main() {
   await page.goto(base + "docs/local-kubernetes/", {waitUntil: "networkidle"});
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({path: path.join(output, "mobile-tutorial.png"), fullPage: true});
+  const guides = [["Java", "java"], ["Python", "python"], ["Node.js", "nodejs"],
+    [".NET", "dotnet"], ["WebAssembly", "webassembly"]];
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({width, height: 1000});
+    await page.goto(base, {waitUntil: "networkidle"});
+    const links = page.getByRole("navigation", {name: "Tested workload guides"}).getByRole("link");
+    assert.equal(await links.count(), 5);
+    await page.mouse.move(0, 0);
+    const treatments = await links.evaluateAll(nodes => nodes.map(node => {
+      const style = getComputedStyle(node);
+      return [style.fontSize, style.fontWeight, style.color, style.textDecorationLine].join("|");
+    }));
+    assert.equal(new Set(treatments).size, 1);
+    await page.getByRole("navigation", {name: "Tested workload guides"}).screenshot({
+      path: path.join(output, `workload-links-${width}.png`)
+    });
+    for (const [name, route] of guides) {
+      await page.goto(base, {waitUntil: "networkidle"});
+      await page.getByRole("navigation", {name: "Tested workload guides"})
+        .getByRole("link", {name, exact: true}).click();
+      await page.waitForURL(url => url.pathname.endsWith(`/docs/${route}/`));
+      assert.equal(await page.locator(".md-content h1").count(), 1);
+      const headings = await page.locator(".md-content h2").evaluateAll(nodes => nodes.map(node => {
+        const copy = node.cloneNode(true);
+        copy.querySelectorAll(".headerlink").forEach(link => link.remove());
+        return copy.textContent.trim();
+      }));
+      for (const heading of ["Tested runtime inputs", "Build the payload", "Launch descriptor",
+        "Package", "Native deployment", "Verify", "Pitfalls and qualification limits"]) {
+        assert.ok(headings.includes(heading), route + ": missing " + heading);
+      }
+      const code = await page.locator(".md-content .highlight code").allTextContents();
+      const json = code.find(text => text.trim().startsWith("{") && text.includes('"schemaVersion"'));
+      assert.ok(json && json.split("\n").length > 5);
+      assert.equal(JSON.parse(json).schemaVersion, 2);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    }
+  }
   const noScript = await browser.newContext({javaScriptEnabled: false, viewport: {width: 390, height: 844}});
   const fallback = await noScript.newPage();
   await fallback.goto(base);

@@ -42,8 +42,12 @@ Create `launch.json`:
 {
   "schemaVersion": 2,
   "process": {
-    "entrypoint": ["python3"],
-    "args": ["/app/src/main.py"],
+    "entrypoint": [
+      "python3"
+    ],
+    "args": [
+      "/app/src/main.py"
+    ],
     "workingDir": "/app"
   }
 }

@@ -1,20 +1,55 @@
-# Explicit language recipes
+# Workload guides
 
 These are producer recipes, not language modes in generic core. Compile/resolve
 dependencies outside Brewlet, approve a compatible runtime ID and declare only
 platforms on which your payload actually works. Test the selected source's
 executable layout; no path below is inferred.
 
-The current [qualification fixtures](https://github.com/microsoft/brewlet/tree/brewlet-2.0/integration-tests/fixtures) exercise
+Each guide follows the same path: tested runtime inputs, payload build, launch
+descriptor, packaging, native deployment, verification and qualification limits.
+The launch previews below retain their existing section links; use the
+dedicated guides for a complete workflow.
+
+| Workload | Guide focus |
+| --- | --- |
+| [Java](java.md) | Thin JARs, Maven, classpath/module choices and managed dependencies. |
+| [Python](python.md) | Import layout, resolved dependencies, interpreter ABI and read-only execution. |
+| [Node.js](nodejs.md) | ES modules/CommonJS, dependency paths and native addons. |
+| [.NET](dotnet.md) | Framework-dependent publishing, managed/native assets and runtime compatibility. |
+| [WebAssembly](webassembly.md) | Explicit Wasmtime/Spin hosts, guest interfaces, capabilities and cache isolation. |
+
+These are tested workload examples, not an exhaustive list of five built-in
+runtime modes. The current [qualification fixtures](https://github.com/microsoft/brewlet/tree/brewlet-2.0/integration-tests/fixtures) exercise
 Java, Python, Node and .NET. The unchanged distroless matrix additionally covers
 Java/Python/Node/static on arm64; it does not claim unchanged .NET qualification.
 
 ## Python
 
-For the qualified distroless Python layout:
+Read the [complete Python guide](python.md). For the qualified distroless layout:
 
 ```json
-{"schemaVersion":2,"process":{"entrypoint":["/usr/bin/python3.13"],"args":["/app/src/main.py"],"env":[{"name":"PYTHONPATH","value":"/app/dependencies"},{"name":"PYTHONDONTWRITEBYTECODE","value":"1"}]}}
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": [
+      "/usr/bin/python3.13"
+    ],
+    "args": [
+      "/app/src/main.py"
+    ],
+    "workingDir": "/app",
+    "env": [
+      {
+        "name": "PYTHONPATH",
+        "value": "/app/dependencies"
+      },
+      {
+        "name": "PYTHONDONTWRITEBYTECODE",
+        "value": "1"
+      }
+    ]
+  }
+}
 ```
 
 ```sh
@@ -29,10 +64,24 @@ uses stdlib Python and needs no host Python package installation.
 
 ## Java
 
-For a runtime providing `/usr/bin/java`, a thin-JAR/classpath descriptor can use:
+Read the [complete Java guide](java.md). For a runtime providing `/usr/bin/java`,
+the fixture's thin-JAR/classpath descriptor uses:
 
 ```json
-{"schemaVersion":2,"process":{"entrypoint":["/usr/bin/java"],"args":["-cp","/app/app.jar:/app/lib/*","example.Main"]}}
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": [
+      "/usr/bin/java"
+    ],
+    "args": [
+      "--class-path",
+      "/app/app.jar:/app/lib/*",
+      "sh.brewlet.fixture.Main"
+    ],
+    "workingDir": "/app"
+  }
+}
 ```
 
 Package a directory containing `app.jar` at `/app` and dependency files at
@@ -46,27 +95,52 @@ compatible, but core does not restore structured Java launch rewriting.
 
 ## Node.js
 
-For the qualified distroless layout, `/nodejs/bin/node` is outside its ordinary
+Read the [complete Node.js guide](nodejs.md). For the qualified distroless layout,
+`/nodejs/bin/node` is outside its ordinary
 upstream PATH. Author it explicitly:
 
 ```json
-{"schemaVersion":2,"process":{"entrypoint":["/nodejs/bin/node"],"args":["/app/src/main.js"],"env":[{"name":"NODE_PATH","value":"/app/dependencies/node_modules"}]}}
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": [
+      "/nodejs/bin/node"
+    ],
+    "args": [
+      "/app/src/main.mjs"
+    ],
+    "workingDir": "/app"
+  }
+}
 ```
 
-Resolve dependencies for the runtime/architecture outside Brewlet. For
-applications whose module resolution depends on physical directory layout
-instead of `NODE_PATH`, package that layout explicitly; no resolver is added.
+The fixture preserves its relative ES-module import into `/app/dependencies`;
+`NODE_PATH` is not a general ESM resolver. Resolve dependencies for the
+runtime/architecture outside Brewlet and package the actual layout explicitly.
 
 ## .NET
 
-For a runtime explicitly providing `/usr/bin/dotnet`:
+Read the [complete .NET guide](dotnet.md). For a runtime explicitly providing
+`/usr/bin/dotnet`, the fixture launch is:
 
 ```json
-{"schemaVersion":2,"process":{"entrypoint":["/usr/bin/dotnet"],"args":["/app/publish/Application.dll"]}}
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": [
+      "/usr/bin/dotnet"
+    ],
+    "args": [
+      "/app/App.dll"
+    ],
+    "workingDir": "/app"
+  }
+}
 ```
 
-Publish compatible framework-dependent application bytes into `publish/` and
-package them at `/app/publish`. Select the matching approved runtime line.
+Publish compatible framework-dependent application bytes and preserve the
+required managed/native assets. The complete fixture maps app and dependency
+layers into `/app`; select the matching approved runtime line.
 Do not infer that a self-contained build needs the same runtime as a
 framework-dependent deployment. Check actual source paths and ABI.
 
@@ -81,8 +155,9 @@ numeric process restrictions.
 ## Deploy and verify
 
 For explicit Wasm hosts on the same runc-backed path, see the
-[Wasmtime and Spin examples](webassembly.md). Their WASIp1/Wagi qualification
-is separate from native language fixtures and from SpinKube/runwasi.
+[Wasmtime and Spin guide](webassembly.md). The qualified pair is a Go WASIp1
+command and a Rust/Spin SDK 7 HTTP component, not the failed Go/Wagi attempt
+or a native SpinKube/runwasi backend.
 
 All recipes use ordinary Kubernetes resources, the Brewlet RuntimeClass and an
 explicit approved ID. Check HTTP/dependencies, Exec/probes, identity, writable
