@@ -629,7 +629,7 @@ class Harness:
                     {"node": self.node, "nodeUID": self.node_uid,
                      "note": "registry readiness is not application pull/TLS coverage"})
 
-    def prepare_images(self):
+    def prepare_cli(self):
         cli = self.work / "brewlet"
         build_environment = ({"CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": self.arch}
                              if sys.platform == "darwin" else None)
@@ -653,6 +653,9 @@ class Harness:
         else:
             self.result["cliExecution"] = {"scope": "native-linux"}
         self.result["cliSHA256"] = hashlib.sha256(cli.read_bytes()).hexdigest()
+
+    def prepare_images(self):
+        self.prepare_cli()
         # Reuse the parent's actual source builders, not replacement applications.
         build_work = self.work / "fixtures"
         build_work.mkdir()
@@ -691,6 +694,16 @@ class Harness:
             self.app_images[language] = canonical
             self.record(language + " explicit application/dependency artifact imported",
                         {"image": canonical, "roles": roles}, ["ART-01", "LANG-01"])
+        self.prepare_components()
+        self.runtime_vendor_inputs = rotation_inputs(json.loads(
+            (FIXTURES / "runtimes/rotation.json").read_text()))
+        self.result["runtimeVendorInputs"] = self.runtime_vendor_inputs
+        self.build_runtime_images()
+        self.result["applicationImages"] = self.app_images
+        self.result["runtimeImages"] = self.runtime_images
+        self.save()
+
+    def prepare_components(self):
         # Never send this run's kubeconfig, keys or unrelated checkout files in
         # Docker's build context. These are exactly the production COPY inputs.
         snapshot = self.work / "production-context"
@@ -713,12 +726,6 @@ class Harness:
             self.build(tag, dockerfile, snapshot)
             self.load_image(tag)
             self.result[component + "Image"] = tag
-        self.runtime_vendor_inputs = rotation_inputs(json.loads(
-            (FIXTURES / "runtimes/rotation.json").read_text()))
-        self.result["runtimeVendorInputs"] = self.runtime_vendor_inputs
-        self.build_runtime_images()
-        self.result["applicationImages"] = self.app_images
-        self.result["runtimeImages"] = self.runtime_images
         self.save()
 
     def build_runtime_images(self):
@@ -1210,7 +1217,7 @@ class Harness:
                 "podUID": obj["metadata"]["uid"], "node": obj.get("spec", {}).get("nodeName"),
                 "phase": obj.get("status", {}).get("phase"), "expectedReason": reason,
                 "runtimeReasons": sorted(set(re.findall(
-                    r"\b(?:RuntimeImage[A-Za-z]+|RuntimePATHRequired|InvalidRuntimeGeneration|LaunchConfigMismatch|"
+                    r"\b(?:RuntimeImage[A-Za-z]+|RuntimePATHRequired|InvalidRuntimeGeneration|InvalidLaunchConfig|LaunchConfigMismatch|"
                     r"UnsupportedArtifact|LayerPathViolation|NoCompatibleRuntime|RootNotSupported|"
                     r"PrivilegeEscalationNotSupported|ExecStateUnavailable)\b", text))),
                 "eventReasons": sorted({e.get("reason", "") for e in events

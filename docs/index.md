@@ -50,7 +50,8 @@ Existing non-Brewlet workloads continue to use their ordinary runtime.
 
 The amended local full-userland suite passed 82 selected assertions and the
 unchanged-upstream distroless companion passed 28. The baseline cold-install
-companion passed 13. A 107-requirement ledger combines explicitly scoped
+companion passed 13. A separate 18-assertion companion qualifies explicit
+[Wasmtime and Spin HTTP examples](webassembly.md). A 111-requirement ledger combines explicitly scoped
 producer, native-kernel and real-node evidence; historical acceptance is not
 relabeled as proof of the revised image-shape rules.
 

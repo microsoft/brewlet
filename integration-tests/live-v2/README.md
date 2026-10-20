@@ -1,5 +1,19 @@
 # Private Brewlet 2.0 real-node execution acceptance
 
+The explicit Wasm companion is separate from the four-language suite:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/wasm.py \
+  --work integration-tests/live-v2/run-wasm-01
+```
+
+It uses the existing native runc path, pinned platform-built Wasmtime/Spin roots
+and explicit Go WASIp1/Rust Spin SDK HTTP guests with managed dependency layers.
+It requires the pinned Rust toolchain/target in addition to Go.
+See [Wasm scope and instructions](../../docs/webassembly.md);
+the native arm64 companion has its own successful scoped receipt, not proof
+inferred from historical receipts or native runwasi/component interfaces generally.
+
 Run from the checkout root, with a **new evidence directory under this folder**:
 
 ```sh

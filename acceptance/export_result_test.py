@@ -4,6 +4,17 @@ from export_result import export
 
 
 class ExportTests(unittest.TestCase):
+    def test_wasm_release_provenance_is_exported_without_private_input_paths(self):
+        result = export({"assertions": [], "wasmRuntimes": {"spin": {"after": {
+            "releaseVersion": "4.2.3", "base": "example.invalid/base@sha256:" + "a" * 64,
+            "binarySHA256": "b" * 64, "layout": "/private/input", "binary": "/private/executable",
+            "futurePrivateField": "SECRET"}}}})
+        record = result["wasmRuntimes"]["spin"]["after"]
+        self.assertEqual(record["releaseVersion"], "4.2.3")
+        self.assertNotIn("layout", record)
+        self.assertNotIn("binary", record)
+        self.assertNotIn("futurePrivateField", record)
+
     def test_credentials_and_raw_observations_are_not_exported(self):
         source = {
             "outcome": "passed", "cleanSelectedSuitePassed": True,

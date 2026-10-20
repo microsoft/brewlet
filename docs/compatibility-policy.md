@@ -13,6 +13,11 @@ Re-author application descriptors and native workload manifests under the
 current contract. The [comparison](brewlet-2-comparison.md) explains equivalents;
 it is revision-pinned history, not an in-place migration guarantee.
 
+The current launch schema also rejects earlier 2.0 snapshots' `requires`
+wrapper. Optional `runtimeImages` is now a top-level field, with omission
+unrestricted at this gate and an explicit `[]` denying all. The unchanged
+`schemaVersion: 2` is not a compatibility alias for the removed wrapper.
+
 ## Runtime compatibility is a separate promise
 
 A stable RuntimeImage ID promises compatible runtime line, ABI, executable

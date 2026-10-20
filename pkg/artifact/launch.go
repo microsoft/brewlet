@@ -45,25 +45,23 @@ type Process struct {
 	WorkingDir string   `json:"workingDir,omitempty"`
 	Env        []Env    `json:"env,omitempty"`
 }
-type Requirements struct {
+type Launch struct {
+	SchemaVersion int      `json:"schemaVersion"`
+	Process       Process  `json:"process"`
 	RuntimeImages []string `json:"runtimeImages,omitempty"`
 }
 
-// MarshalJSON preserves an explicit deny-all [] rather than omitting it as
-// though the allow-list were absent.
-func (r Requirements) MarshalJSON() ([]byte, error) {
-	if r.RuntimeImages == nil {
-		return []byte("{}"), nil
+// Preserve an explicit deny-all [] rather than dropping it through omitempty.
+func (l Launch) MarshalJSON() ([]byte, error) {
+	var images *[]string
+	if l.RuntimeImages != nil {
+		images = &l.RuntimeImages
 	}
 	return json.Marshal(struct {
-		RuntimeImages []string `json:"runtimeImages"`
-	}{r.RuntimeImages})
-}
-
-type Launch struct {
-	SchemaVersion int           `json:"schemaVersion"`
-	Process       Process       `json:"process"`
-	Requires      *Requirements `json:"requires,omitempty"`
+		SchemaVersion int       `json:"schemaVersion"`
+		Process       Process   `json:"process"`
+		RuntimeImages *[]string `json:"runtimeImages,omitempty"`
+	}{l.SchemaVersion, l.Process, images})
 }
 
 // StrictJSON rejects unknown fields, duplicate object members, and trailing data.
@@ -198,22 +196,20 @@ func ParseLaunch(data []byte) (*Launch, error) {
 		}
 		seen[e.Name] = true
 	}
-	if l.Requires != nil {
-		seen = map[string]bool{}
-		for _, id := range l.Requires.RuntimeImages {
-			if err := ValidateRuntimeImageID(id); err != nil {
-				return nil, err
-			}
-			if seen[id] {
-				return nil, fail("InvalidLaunchConfig", "duplicate runtime ID")
-			}
-			seen[id] = true
+	seen = map[string]bool{}
+	for _, id := range l.RuntimeImages {
+		if err := ValidateRuntimeImageID(id); err != nil {
+			return nil, err
 		}
+		if seen[id] {
+			return nil, fail("InvalidLaunchConfig", "duplicate runtime ID")
+		}
+		seen[id] = true
 	}
 	return &l, nil
 }
 func (l *Launch) Allows(id string) bool {
-	return l.Requires == nil || l.Requires.RuntimeImages == nil || slices.Contains(l.Requires.RuntimeImages, id)
+	return l.RuntimeImages == nil || slices.Contains(l.RuntimeImages, id)
 }
 func (l *Launch) ImageConfig() v1.ImageConfig {
 	env := make([]string, 0, len(l.Process.Env))

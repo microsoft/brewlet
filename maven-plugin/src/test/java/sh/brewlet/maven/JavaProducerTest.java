@@ -40,7 +40,8 @@ class JavaProducerTest {
         assertEquals("java", json.at("/process/entrypoint/0").textValue());
         assertEquals("-Dmessage=two words", json.at("/process/args/0").textValue());
         assertEquals("example.Main", json.at("/process/args/3").textValue());
-        assertEquals("java-21", json.at("/requires/runtimeImages/0").textValue());
+        assertEquals("java-21", json.at("/runtimeImages/0").textValue());
+        assertFalse(json.has("requires"));
         assertEquals(Files.getLastModifiedTime(jar),
                 Files.getLastModifiedTime(result.application().resolve("app.jar")));
         assertEquals(FileTime.fromMillis(0), Files.getLastModifiedTime(result.application()));
@@ -109,7 +110,7 @@ class JavaProducerTest {
     @Test void handWrittenDescriptorOverridesAllGeneratedLaunchOptions() throws Exception {
         Path descriptor = temp.resolve("authoritative.json");
         String json = "{\"schemaVersion\":2,\"process\":{\"entrypoint\":[\"custom java\"],"
-                + "\"args\":[\"hand-written\"]},\"requires\":{\"runtimeImages\":[\"chosen\"]}}";
+                + "\"args\":[\"hand-written\"]},\"runtimeImages\":[\"chosen\"]}";
         Files.writeString(descriptor, json);
         var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("app.jar", "manifest.Main"),
                 List.of(), descriptor, "ignored.Main", "ignored.module",

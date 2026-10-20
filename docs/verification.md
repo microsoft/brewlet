@@ -8,13 +8,14 @@ and [exact commands, sources and scoped results](https://github.com/microsoft/br
 
 | Evidence | Scope |
 | --- | --- |
-| 107 reconciled requirements | Original 101 plus six approved amendment obligations, with changed image-shape rules reverified. |
+| 111 reconciled requirements | Original 101, six upstream amendment obligations, flat launch schema and three explicit Wasm qualification obligations. |
 | 82-assertion amended full-userland run | Four languages, delivery, rotation, CRI accounting/eviction, controllers, invalid-PATH Eager failure and normal cleanup. |
 | 13-assertion final cold companion | Two actual nodes, held authenticated transfer, real Create/workload deadline and recovery. |
 | 18-assertion focused lifecycle companion | Genuine orphan Exec retention, failed-install recovery, exact signal/exit behavior and reversal. |
 | Separate returning-host/capacity/uninstall runs | Physical filesystem return under a new Node UID, Pending capacity, and actual cleanup refusal. |
 | Producer and native contracts | Maven/CLI/shim conformance and Linux filesystem, mount, lock and cache invariants. |
 | 28-assertion unchanged-upstream companion | Pinned shell-free Java/Python/Node/static roots, real source rotation, numeric pathless execution, isolated `/app`, held Exec across worker/daemon restarts, revocation and normal cleanup on arm64. |
+| 18-assertion Wasm/runc companion | Wasmtime command and Spin SDK HTTP component, independent layer-set composition, explicit guest access, separate engine cache, exact exit 37, host-version updates, real Exec recovery and normal cleanup on arm64. |
 
 The upstream-runtime amendment adds six obligations to the historical
 101-requirement baseline. Its source pins are recorded in the
@@ -22,6 +23,15 @@ The upstream-runtime amendment adds six obligations to the historical
 The original full-userland results alone do not verify the amended image-shape
 rules; the fresh amended full-userland regression has its own successful
 receipt and normal production-cleanup evidence.
+
+The [Wasm receipt](../acceptance/results/wasm-runc-arm64.json) is separate from
+the four-language/unchanged-runtime layer-set matrix. Its platform-built
+runtime images preserve pinned engine binary bytes on a pinned distroless C/C++
+base; they are not unchanged upstream engine OCI images. The current schema
+also passed 69 shared validator cases through CLI/Maven and the native shim,
+plus 34 applicable cases through real Maven publication. Old `requires` forms
+are deliberately invalid; archived receipts and the pinned comparison remain
+historical rather than being rewritten as new-format proof.
 
 Each selected-suite receipt deliberately retains `fullAcceptance:false`; no
 single suite is presented as proof of the entire proposal. Failed attempts

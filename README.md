@@ -5,7 +5,7 @@ Clean-slate implementation of
 referenced at main commit
 `fa7085335b220e29df6affbece4558c5f1259ecb`.
 
-**Amended local implementation acceptance verified.** All 107 requirements in the
+**Current local implementation acceptance verified.** All 111 requirements in the
 [acceptance ledger](acceptance/requirements.json) have scoped successful
 evidence. The approved upstream-runtime amendment removes mandatory named
 accounts, home directories and PATH for absolute execution, and isolates `/app`
@@ -13,6 +13,11 @@ without changing approved roots. The unchanged distroless companion passed 28
 assertions; the amended full-userland four-language regression passed 82.
 Separate cold-install, returning-host, capacity, uninstall and lifecycle
 companions retain their explicitly scoped baseline evidence.
+The launch schema uses optional top-level `runtimeImages`; the former
+`requires` wrapper is rejected. A separate 18-assertion native arm64 companion
+qualifies Wasmtime WASIp1 and Spin SDK HTTP examples, managed dependency
+composition, guest-inaccessible engine caches, real host-version updates,
+Exec recovery and normal cleanup through the existing runc path.
 See [exact sources, commands and results](acceptance/RESULTS.md).
 This is not a claim of cloud-provider autoscaling certification, physical
 alternate-architecture hardware execution, or a published stable release.

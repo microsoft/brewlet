@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": ["/usr/local/bin/wasmtime"],
+    "args": ["run", "--dir", "/app/dependencies", "--dir", "/work", "--env", "VISIBLE=explicit", "/app/guest.wasm", "hold", "main"],
+    "workingDir": "/app",
+    "env": [{"name": "XDG_CACHE_HOME", "value": "/cache/compiled"}]
+  },
+  "runtimeImages": ["wasmtime-wasip1"]
+}

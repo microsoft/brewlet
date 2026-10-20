@@ -64,6 +64,14 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 site/scripts/tutorial_check.py --run
+      - name: Install the pinned Spin HTTP guest toolchain
+        if: inputs.scenario == 'complete'
+        run: rustup toolchain install 1.97.1 --profile minimal --target wasm32-wasip2
+      - name: Explicit Wasmtime and Spin SDK HTTP examples on the existing runc path
+        if: inputs.scenario == 'complete'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 integration-tests/live-v2/wasm.py --work integration-tests/live-v2/run-wasm-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Unchanged distroless sources, numeric identity, isolated app and shell-free recovery
         if: inputs.scenario == 'complete'
         env:

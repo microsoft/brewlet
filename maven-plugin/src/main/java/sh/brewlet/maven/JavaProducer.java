@@ -67,7 +67,7 @@ final class JavaProducer {
             descriptor.put("process", Map.of("entrypoint", List.of("java"),
                     "args", args, "workingDir", "/app"));
             if (!inputs.runtimeImages().isEmpty()) {
-                descriptor.put("requires", Map.of("runtimeImages", inputs.runtimeImages()));
+                descriptor.put("runtimeImages", inputs.runtimeImages());
             }
             launch = output.resolve("launch.json");
             new ObjectMapper().enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)

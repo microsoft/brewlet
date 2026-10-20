@@ -11,6 +11,7 @@ REAL_NODE_REQUIRED = {
     "PROC-03", "E2E-02", "E2E-03", "E2E-05", "E2E-06", "E2E-07",
     "E2E-08", "LANG-02",
     "UP-05",
+    "WASM-01", "WASM-02", "WASM-03",
 }
 
 
@@ -42,10 +43,12 @@ def validate(document):
     required_scenarios = {f"E2E-{number:02}" for number in range(1, 10)}
     if not required_scenarios <= seen:
         errors.append("missing Proposal 0009 section 13.1 acceptance scenarios")
-    if document.get("contractRevision") != "2026-10-19-upstream-runtimes":
-        errors.append("missing current upstream-runtime contract revision")
+    if document.get("contractRevision") != "2026-10-19-flat-runtime-images":
+        errors.append("missing current flat-runtime-images contract revision")
     if not {f"UP-{number:02}" for number in range(1, 7)} <= seen:
         errors.append("missing approved upstream-runtime amendment obligations")
+    if not {"SCHEMA-01", "WASM-01", "WASM-02", "WASM-03"} <= seen:
+        errors.append("missing flat schema or Wasm qualification obligations")
     return errors
 
 

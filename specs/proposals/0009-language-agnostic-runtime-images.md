@@ -251,9 +251,7 @@ store and **never mounts it** into the sandbox.
       { "name": "PYTHONDONTWRITEBYTECODE", "value": "1" }
     ]
   },
-  "requires": {
-    "runtimeImages": ["python-3.12", "python-3.12-fips"]
-  }
+  "runtimeImages": ["python-3.12", "python-3.12-fips"]
 }
 ```
 
@@ -266,7 +264,7 @@ Field contract (unknown fields MUST be rejected at publish and launch time):
 | `process.args` | no | Default arguments appended after `entrypoint`. |
 | `process.workingDir` | no | Absolute path; defaults to `/app`. |
 | `process.env` | no | Ordered list of unique names. `PATH` is forbidden (§8.3). |
-| `requires.runtimeImages` | no | Allow-list of runtime image IDs the artifact was built and tested against. When present, the shim MUST refuse any other ID with `RuntimeImageIncompatible`. When absent, any approved ID is accepted. |
+| `runtimeImages` | no | Optional top-level allow-list of runtime image IDs the artifact was built and tested against. When present, the shim MUST refuse any other ID with `RuntimeImageIncompatible`; an empty array denies all. When absent, any approved ID is accepted at this gate. Null is invalid. |
 
 The allow-list is deliberately strict and name-based, not a language capability
 matcher. Composed, hold, and variant IDs must be explicitly listed even if they
@@ -274,6 +272,9 @@ provide the same language version. Adding such an ID requires republishing the
 launch layer/config, not rebuilding unchanged application/dependency layers.
 Authors wanting inventory-independent artifacts omit the optional allow-list
 and accept responsibility for testing their explicitly selected workload ID.
+The approved schema flattening removes `requires` entirely. The old wrapper,
+including an empty object or a mix of old/new forms, MUST be rejected as an
+unknown field; no compatibility alias or implicit selection is introduced.
 Admission cannot precheck this constraint without registry access; mismatches
 are reported at container creation.
 
@@ -855,7 +856,7 @@ spec:
 2. **Load and validate** `launch.json` (§6.3) and the image-config mirror (§6.4).
 3. **Resolve the runtime image** from the pod annotation, carried into the OCI
    runtime spec annotations by CRI. Fail with `RuntimeImageIncompatible` if
-   `requires.runtimeImages` excludes it. Check live node-local authorization,
+   `runtimeImages` excludes it. Check live node-local authorization,
    revocation, and inventory epoch (§7.1); a cached root without current
    authorization cannot be used. If the ID is `available` on this node,
    request installation and wait as described in §7.5 (`RuntimeImageInstalling`
@@ -1014,7 +1015,7 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   `brewlet.sh/artifact-*` compatibility hints (SPEC §8.3, unchanged).
 - **Does not** read the application artifact from the registry, and therefore
   never defaults `brewlet.sh/runtime-image` from it. Artifact-side
-  constraints (`requires.runtimeImages`, layer rules, platforms) are enforced by
+  constraints (`runtimeImages`, layer rules, platforms) are enforced by
   the shim and by kubelet's pull, so fail-open admission never weakens them.
 
 The 1.x `brewlet.sh/jdk`, `brewlet.sh/jvm-args`,
@@ -1219,7 +1220,7 @@ executable semantics or invalidating AppCDS metadata to make packaging pass.
 
 The CLI MUST NOT inspect application content to derive any field: it never
 detects a language, guesses an entrypoint, splits dependencies, chooses
-`requires.runtimeImages`, or writes Kubernetes manifests. What the author wrote is
+`runtimeImages`, or writes Kubernetes manifests. What the author wrote is
 what ships. `brewlet inspect <image>` prints the effective `launch.json` and
 layer table so authors and reviewers can check the result.
 
@@ -1234,7 +1235,7 @@ The Maven plugin is the one place where Java knowledge remains. It MAY:
   consume a published `java` layer set;
 - attach a prebuilt AppCDS archive as an ordinary application file and add the matching
   flags to argv;
-- propose `requires.runtimeImages` from `maven.compiler.release` and a configured
+- propose `runtimeImages` from `maven.compiler.release` and a configured
   mapping to inventory IDs (for example `21 → java-21`), so the
   allow-list reflects the bytecode level the project actually targets;
 - warn when the generated argv requires a newer runtime than the configured IDs

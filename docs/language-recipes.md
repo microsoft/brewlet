@@ -80,6 +80,10 @@ numeric process restrictions.
 
 ## Deploy and verify
 
+For explicit Wasm hosts on the same runc-backed path, see the
+[Wasmtime and Spin examples](webassembly.md). Their WASIp1/Wagi qualification
+is separate from native language fixtures and from SpinKube/runwasi.
+
 All recipes use ordinary Kubernetes resources, the Brewlet RuntimeClass and an
 explicit approved ID. Check HTTP/dependencies, Exec/probes, identity, writable
 volumes and [resource limits](resources.md). A successful producer command is

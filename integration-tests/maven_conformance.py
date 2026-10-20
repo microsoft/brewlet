@@ -57,7 +57,7 @@ def run(executable, project, work, fixture_file):
             descriptor = json.dumps({
                 "schemaVersion": 2,
                 "process": {"entrypoint": ["runner"]},
-                "requires": {"runtimeImages": [case["value"]]},
+                "runtimeImages": [case["value"]],
             })
         else:
             platform = case["value"]

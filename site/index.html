@@ -72,7 +72,7 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           <div class="composition-footer"><span>containerd</span><span aria-hidden="true">→</span><strong>Brewlet shim</strong><span aria-hidden="true">→</span><span>runc</span></div>
         </div>
       </div>
-      <div class="container language-strip" aria-label="Verified application ecosystems"><span>One explicit contract for</span><strong>Java</strong><strong>Python</strong><strong>Node.js</strong><strong>.NET</strong></div>
+      <div class="container language-strip" aria-label="Verified application ecosystems"><span>One explicit contract for</span><strong>Java</strong><strong>Python</strong><strong>Node.js</strong><strong>.NET</strong><a href="docs/webassembly/">WebAssembly</a></div>
     </section>
 
     <section class="section" id="why" aria-labelledby="why-title">
@@ -167,6 +167,7 @@ make build</code></pre></div>
     <section class="section faq-section" id="faq" aria-labelledby="faq-title">
       <div class="container faq-layout"><h2 id="faq-title">A few important<br>distinctions.</h2><div class="faq">
         <details><summary>Can I bring my own custom runtimes?</summary><p>Yes. Use a compatible upstream image unchanged, including distroless images, or build your own OCI runtime image. Approve its digest as a <code>RuntimeImage</code>, offer it through a <code>NodeProfile</code>, and select its ID in your workloads. The <a href="docs/runtime-images/#prepare-a-valid-golden-image">runtime image contract</a> requires validated platforms and non-root numeric identities, not a shell or an account named <code>app</code>. Use explicit executable paths when the runtime has no PATH.</p></details>
+        <details><summary>Can I run WebAssembly?</summary><p>Yes, through an approved Linux Wasmtime or Spin host on the existing runc path. The qualified examples cover a WASIp1 command and a pinned Spin SDK HTTP component on arm64, with explicit guest access and workload-local caches. This does not accept native SpinKube artifacts or install a runwasi backend. <a href="docs/webassembly/">Explore the Wasm examples and their scope</a>.</p></details>
         <details><summary>Do existing applications switch runtime in place?</summary><p>No. Running processes keep their leased generation. New containers use current. An optional restart coordinator can patch opted-in native controllers; it does not hot-swap a VM, kill pods directly or override rollout strategies.</p></details>
         <details><summary>Do I still need an application image?</summary><p>Yes. The application is a standard, digest-addressed OCI image with application layers, optional dependency layers and a final launch layer. It omits the platform runtime root; it is not an image-free deployment.</p></details>
         <details><summary>Does sharing the runtime mean sharing processes?</summary><p>No. Runtime files are shared read-only on the node. Every workload has its own process, resources and container isolation. There is no claim of automatic heap sharing or benchmarked memory savings.</p></details>

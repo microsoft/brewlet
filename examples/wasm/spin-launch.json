@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "process": {
+    "entrypoint": ["/usr/local/bin/spin"],
+    "args": ["up", "--from", "/app/spin.toml", "--listen", "0.0.0.0:8000", "--cache-dir", "/cache/assets", "--state-dir", "/work/state", "--temp", "/work", "--direct-mounts"],
+    "workingDir": "/app",
+    "env": [{"name": "XDG_CACHE_HOME", "value": "/cache/compiled"}]
+  },
+  "runtimeImages": ["spin-http-sdk7"]
+}

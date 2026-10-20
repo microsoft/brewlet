@@ -17,6 +17,10 @@ implementation governed by [Proposal 0009](../specs/proposals/0009-language-agno
 The preserved 1.x specification and documentation are reference snapshots;
 they do not imply compatibility in 2.0.
 
+The pinned examples below retain the historical nested `requires` shape.
+Current descriptors use optional top-level `runtimeImages` and reject that
+old wrapper; use the [current application guide](applications.md) when packaging.
+
 ## Executive comparison
 
 Both versions implement the same underlying separation: developers publish

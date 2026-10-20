@@ -29,14 +29,14 @@ explicit producer assertion, not evidence that a native dependency is portable.
       {"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}
     ]
   },
-  "requires": {
-    "runtimeImages": ["python-3.13"]
-  }
+  "runtimeImages": ["python-3.13"]
 }
 ```
 
-The optional `requires.runtimeImages` is an allowlist, not a selector. The
+The optional top-level `runtimeImages` is an allowlist, not a selector. The
 workload must still name an approved runtime explicitly.
+Omission imposes no artifact-level ID restriction; an explicit empty array
+denies all IDs. Null and the former `requires` wrapper are rejected.
 
 ```sh
 brewlet push registry.example.com/apps/api:v2 \

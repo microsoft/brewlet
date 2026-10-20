@@ -1,0 +1,15 @@
+spin_manifest_version = 2
+
+[application]
+name = "brewlet-wasm-example"
+version = "1.0.0"
+
+[[trigger.http]]
+route = "/..."
+component = "guest"
+
+[component.guest]
+source = "guest.wasm"
+files = [{ source = "dependencies", destination = "/app/dependencies" }]
+allowed_outbound_hosts = []
+environment = { VISIBLE = "explicit" }

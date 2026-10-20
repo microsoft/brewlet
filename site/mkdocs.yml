@@ -54,6 +54,7 @@ nav:
   - Ship applications:
       - Package and deploy: applications.md
       - Language recipes: language-recipes.md
+      - WebAssembly examples: webassembly.md
       - Dependency layer sets: dependency-layer-sets.md
       - Resources and lifecycle: resources.md
       - Instrumentation: instrumentation.md

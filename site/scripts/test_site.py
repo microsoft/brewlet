@@ -48,6 +48,15 @@ class SiteTests(unittest.TestCase):
         self.assertIn("like the OS or Kubernetes", landing)
         self.assertIn("| Application workload | Runtime infrastructure |", overview)
 
+    def test_wasm_entry_point_preserves_runc_and_explicit_qualification_scope(self):
+        landing = (ROOT / "site/index.html").read_text()
+        guide = (ROOT / "docs/webassembly.md").read_text()
+        self.assertIn('href="docs/webassembly/"', landing)
+        self.assertIn("They do not install runwasi", guide)
+        self.assertIn("runtimeImages", guide)
+        self.assertIn("native arm64", guide)
+        self.assertIn("XDG_CACHE_HOME=/cache/compiled", guide)
+
     def test_light_palette_matches_main_brand_colors(self):
         import re
         css = (ROOT / "site/assets/css/theme.css").read_text().split('html[data-theme="dark"]')[0]

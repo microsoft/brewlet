@@ -14,8 +14,18 @@ def export(source):
         "kubeletRuntimeRequestTimeoutSeconds",
         "pins", "applicationImages", "runtimeImages", "runtimeVendorInputs", "fixtureDestruction", "gaps",
         "upstreamRuntimes",
+        "wasmGuestInputs",
     )
     result = {key: source[key] for key in fields if key in source}
+    if "wasmRuntimes" in source:
+        public = {"releaseVersion", "archive", "binarySHA256", "descriptor",
+                  "base", "interpreter", "sourceKind", "image"}
+        result["wasmRuntimes"] = {
+            name: {revision: {key: value for key, value in record.items()
+                              if key in public}
+                   for revision, record in revisions.items()}
+            for name, revisions in source["wasmRuntimes"].items()
+        }
     result["assertions"] = [
         {key: item[key] for key in ("name", "outcome", "requirements") if key in item}
         for item in source["assertions"]

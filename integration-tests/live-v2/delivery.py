@@ -162,6 +162,9 @@ def mutate_application(source, destination, nonce, *, fault=None, platform=None)
         config["config"].setdefault("Env", []).append("BREWLET_DELIVERY_RUN=" + nonce)
         if fault == "malformed":
             launch["unexpectedField"] = True
+        if fault == "legacy-requires":
+            require(isinstance(launch.get("runtimeImages"), list), "legacy fixture needs explicit current allowlist")
+            launch["requires"] = {"runtimeImages": launch.pop("runtimeImages")}
         launch_data, diff_id = tar_layer([("launch.json", json.dumps(launch).encode(), 0o644)])
         new_launch = blob(destination, launch_data, LAYER)
         new_launch["annotations"] = {"brewlet.sh/layer": "launch"}

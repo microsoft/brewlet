@@ -13,7 +13,7 @@ CRDs and [CLI reference](cli-reference.md) remain authoritative.
 | `process.args` | Optional ordered arguments, not shell text. |
 | `process.workingDir` | Optional canonical absolute path; default `/app`. |
 | `process.env` | Optional ordered `{name,value}` entries with unique names; PATH forbidden. |
-| `requires.runtimeImages` | Optional exact-ID allowlist; does not select the Pod runtime. |
+| `runtimeImages` | Optional top-level exact-ID allowlist; omitted means unrestricted at this gate, `[]` denies all; does not select the Pod runtime. |
 
 Unknown/duplicate fields, invalid paths and config-mirror drift fail validation.
 The final launch layer contains exactly one regular `launch.json`. The OCI

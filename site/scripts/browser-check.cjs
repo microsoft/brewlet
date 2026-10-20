@@ -133,7 +133,7 @@ async function main() {
   await page.goto(base + "docs/brewlet-2-comparison/", {waitUntil: "networkidle"});
   assert.ok(await page.locator('a[href*="github.com/microsoft/brewlet/blob/brewlet-2.0/pkg/node/process.go"]').count() > 0);
   for (const route of ["local-kubernetes", "configuration", "providers", "troubleshooting",
-    "workshops/platform", "workshops/developer", "observability", "security"]) {
+    "workshops/platform", "workshops/developer", "observability", "security", "webassembly"]) {
     await page.goto(base + "docs/" + route + "/", {waitUntil: "networkidle"});
     assert.equal(await page.locator(".md-content h1").count(), 1);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

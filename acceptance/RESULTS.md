@@ -1,5 +1,77 @@
 # Brewlet 2.0 validation status
 
+## Flat launch schema and explicit Wasm qualification
+
+The user-approved schema now has optional top-level `runtimeImages`, not
+`requires.runtimeImages`. Omission is unrestricted at the artifact allowlist
+gate; `[]` denies all; null/duplicate/malformed IDs and the old/mixed wrapper
+forms fail closed. No compatibility alias or automatic runtime selection was
+introduced. Go/Java producers, published schema and consumers use the same shape.
+
+`run-local-wasm-89` passed **18 selected assertions**, normal production profile/
+host cleanup and exact-owned destruction on **native arm64**. The
+[public receipt](results/wasm-runc-arm64.json) preserves engine release/archive/
+binary and base-image identities, plus command/component hashes and toolchains.
+Wasmtime 49.0.3 -> 49.0.4 and Spin 4.2.2 -> 4.2.3 ran as ordinary Linux hosts
+through the existing Brewlet/runc path. The command is Go WASIp1; the HTTP
+component is built with Rust 1.97.1, `wasm32-wasip2`, Spin SDK 7.0.0 and the
+committed Cargo lock. This is not a promise about every interface sharing a
+WASI version/target name.
+
+Both applications consumed a real independent layer set with exact compressed
+digest reuse. Actual guest reads, readonly dependency writes, explicit
+environment, host-only file exclusion and engine-cache exclusion passed.
+Engine caches and guest-writable data have separate per-Pod volumes; guest
+preopens never include the trusted engine cache. Host UID/GID 65532, empty
+capability sets and noNewPrivileges were inspected from actual processes.
+WASI command exits 0 and 37 were observed, not inferred.
+
+The actual shim rejected an excluded selected ID, explicit empty allowlist
+and manually crafted legacy wrapper. The actual producer rejected the wrapper
+before graph publication. Source updates preserved old task leases and app
+digests; new tasks used the new host versions/generations. A genuinely running
+held guest's host PID/start/executable survived fresh-worker recovery and
+guarded containerd restart, then drained. This is not killed-shim reconstruction
+or CRI streaming-continuity proof.
+
+Runtime roots are explicitly **platform-built** images: pinned distroless C/C++
+userland plus unchanged checksum-verified upstream engine executable bytes.
+Initial executable-only/musl probes exposed missing loader/unwinder requirements;
+the complete userland was selected rather than hiding dependencies in core.
+The registry source graphs are preimported; no remote registry/TLS or cloud
+autoscaling proof is claimed. Native amd64 inputs are pinned, not physically
+executed locally.
+
+Failed node attempts remain separately failed: 84 assumed an index for a valid
+single-platform manifest; 85 lacked a writable Wasmtime cache; 86 omitted
+Spin's embedded compiler cache; 87 trapped in Spin's Go/Wagi preview adapter.
+The supported SDK component replaces that failed example, not the runc backend
+or guest/host protection rules. Run 88 is an earlier selected component pass;
+only final run 89 additionally qualifies guest-inaccessible engine caches.
+No failed receipt or original identity was rewritten.
+
+The flat schema also passed the complete Go race suite, host/Linux vet and both
+Linux architecture builds. The native shim suite passed 52 cases/subcases
+without skips, including all **69** current producer/shim fixtures.
+All four generic host producers and the optional Maven producer passed
+integration: 69 normalized validator cases and 34 applicable cases through
+actual Maven publication. Reproduce that producer check with the existing
+Linux wrapper and a new owned work parent:
+
+```sh
+export BREWLET_TEST_BINARY=/absolute/path/to/the/current/linux-arm64/brewlet
+export BREWLET_TEST_WORK_PARENT=/absolute/path/to/owned/producer-work
+export BREWLET_TEST_IMAGE=docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/fixtures/check.py \
+  --brewlet ./integration-tests/linux-cli.sh \
+  --work-parent "$BREWLET_TEST_WORK_PARENT"
+```
+
+This is producer/conformance proof, not a rerun of the four-native-language
+managed-set/unchanged-runtime matrix. The current ledger has **111 scoped
+verified requirements**; preserved historical receipts retain their original
+formats and limits.
+
 ## Reader documentation and tutorial
 
 The published-source documentation now has 30 navigable pages, including

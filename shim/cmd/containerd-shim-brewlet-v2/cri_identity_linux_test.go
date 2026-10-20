@@ -44,7 +44,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 			}
 			if name == "runtime allowlist" {
 				launch, diff := f.layer(t, "launch.json", []byte(
-					`{"schemaVersion":2,"process":{"entrypoint":["tool"],"workingDir":"/app"},"requires":{"runtimeImages":["other"]}}`), "launch")
+					`{"schemaVersion":2,"process":{"entrypoint":["tool"],"workingDir":"/app"},"runtimeImages":["other"]}`), "launch")
 				var config ocispec.Image
 				if err := json.Unmarshal(f.blobs[manifest.Config.Digest], &config); err != nil {
 					t.Fatal(err)

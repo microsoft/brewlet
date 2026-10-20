@@ -1,0 +1,35 @@
+{
+  "base": {
+    "index": "gcr.io/distroless/cc-debian13@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2",
+    "arm64": "gcr.io/distroless/cc-debian13@sha256:2f0295ce228a23109ec1c8d38763bfe995b0dba7b3672f58d3a67ebfbc542fdc",
+    "amd64": "gcr.io/distroless/cc-debian13@sha256:20afe6a70f2565277b704cc17289cb557f353a3619f6350f52a2317106598df4"
+  },
+  "wasmtime": {
+    "id": "wasmtime-wasip1",
+    "archive": "xz",
+    "before": {
+      "version": "49.0.3",
+      "arm64": {"url":"https://github.com/bytecodealliance/wasmtime/releases/download/v49.0.3/wasmtime-v49.0.3-aarch64-linux.tar.xz","sha256":"880fcb026da88ad7fc1713d572b0d03d139758b7da96cd3cb8c9cbf847a521df"},
+      "amd64": {"url":"https://github.com/bytecodealliance/wasmtime/releases/download/v49.0.3/wasmtime-v49.0.3-x86_64-linux.tar.xz","sha256":"4001225413f208345b980525f31c4080e1873808b38d0ddc7918497340667fbb"}
+    },
+    "after": {
+      "version": "49.0.4",
+      "arm64": {"url":"https://github.com/bytecodealliance/wasmtime/releases/download/v49.0.4/wasmtime-v49.0.4-aarch64-linux.tar.xz","sha256":"9c1a6298dfb0df3b1249b531375dfb9d0d3eb0f1e1959982e3bc767251eb705d"},
+      "amd64": {"url":"https://github.com/bytecodealliance/wasmtime/releases/download/v49.0.4/wasmtime-v49.0.4-x86_64-linux.tar.xz","sha256":"6561abd54bdf941b6519cce883e0857cc9bce94d92c65287ed838d895a27f5a9"}
+    }
+  },
+  "spin": {
+    "id": "spin-http-sdk7",
+    "archive": "gz",
+    "before": {
+      "version": "4.2.2",
+      "arm64": {"url":"https://github.com/spinframework/spin/releases/download/v4.2.2/spin-v4.2.2-static-linux-aarch64.tar.gz","sha256":"603449330d3df0021a794259f35fb33ab89b4611c04f719e81991ba426b15596"},
+      "amd64": {"url":"https://github.com/spinframework/spin/releases/download/v4.2.2/spin-v4.2.2-static-linux-amd64.tar.gz","sha256":"ff870e915b41216318e525198028fc1017e96f599f54bbfd4e983730d0a1fecd"}
+    },
+    "after": {
+      "version": "4.2.3",
+      "arm64": {"url":"https://github.com/spinframework/spin/releases/download/v4.2.3/spin-v4.2.3-static-linux-aarch64.tar.gz","sha256":"10e30bf1dcbcb14961be86a2413455b85a93397c9dffbbce8b7bf24f93cd18f9"},
+      "amd64": {"url":"https://github.com/spinframework/spin/releases/download/v4.2.3/spin-v4.2.3-static-linux-amd64.tar.gz","sha256":"d818c9ea39255f3359314bda7124253c74876f20905a4fee8ec98d916db5a3f9"}
+    }
+  }
+}
