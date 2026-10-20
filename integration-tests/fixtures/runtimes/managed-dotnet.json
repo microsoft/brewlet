@@ -1,0 +1,5 @@
+{
+  "source": "ubuntu/dotnet-runtime:10.0-26.04",
+  "arm64": "registry-1.docker.io/ubuntu/dotnet-runtime@sha256:8b8dc5739e5cb9fe5cc890bedfda8f77f9dac404a6389ed1fd650fe104ab52c8",
+  "amd64": "registry-1.docker.io/ubuntu/dotnet-runtime@sha256:ead184a93f04c33215fc54c94b511b6fb8801ce30dcf5862430b5d79538648c8"
+}

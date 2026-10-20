@@ -1,4 +1,4 @@
-.PHONY: test build acceptance ledger site-build site-contract-check
+.PHONY: test build acceptance composition-acceptance ledger site-build site-contract-check
 
 SITE_PYTHON ?= python3
 
@@ -8,6 +8,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s acceptance -p '*_test.py' -v
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/live-v2 -p 'test_*.py' -v
 	python3 acceptance/check.py
+	python3 acceptance/composition_check.py
 
 build:
 	mkdir -p bin
@@ -18,6 +19,10 @@ ledger:
 
 acceptance:
 	python3 acceptance/check.py --require-complete
+	python3 acceptance/composition_check.py --require-complete
+
+composition-acceptance:
+	python3 acceptance/composition_check.py --require-complete
 
 site-contract-check:
 	PYTHONDONTWRITEBYTECODE=1 $(SITE_PYTHON) -m unittest discover -s site/scripts -p 'test_*.py' -v

@@ -5,10 +5,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -276,49 +273,15 @@ func signLayerSet(predicate LayerSetPredicate, signer *LayerSetSigner) ([]byte, 
 	if e != nil {
 		return nil, e
 	}
-	hash := sha256.Sum256(dssePAE(InTotoPayloadType, payload))
-	signature, e := ecdsa.SignASN1(rand.Reader, signer.Key, hash[:])
-	if e != nil {
-		return nil, e
-	}
-	keyID, e := signerKeyID(&signer.Key.PublicKey)
-	if e != nil {
-		return nil, e
-	}
-	return json.Marshal(dsseEnvelope{InTotoPayloadType, base64.StdEncoding.EncodeToString(payload), []dsseSignature{{keyID, base64.StdEncoding.EncodeToString(signature)}}})
+	return signDSSE(payload, signer)
 }
 func verifyLayerSetSignature(data []byte, want LayerSetPredicate, trust LayerSetTrust) error {
 	if len(trust.PublicKeys) == 0 || trust.ExpectedIdentity == "" {
 		return fmt.Errorf("signed layer set requires public key and expected signer identity")
 	}
-	var envelope dsseEnvelope
-	if e := StrictJSON(data, &envelope); e != nil {
-		return e
-	}
-	if envelope.PayloadType != InTotoPayloadType || len(envelope.Signatures) != 1 {
-		return fmt.Errorf("invalid DSSE payload type/signature count")
-	}
-	payload, e := base64.StdEncoding.Strict().DecodeString(envelope.Payload)
+	payload, e := verifyDSSE(data, trust)
 	if e != nil {
 		return e
-	}
-	signature, e := base64.StdEncoding.Strict().DecodeString(envelope.Signatures[0].Signature)
-	if e != nil {
-		return e
-	}
-	hash := sha256.Sum256(dssePAE(envelope.PayloadType, payload))
-	valid := false
-	for _, key := range trust.PublicKeys {
-		keyID, e := signerKeyID(key)
-		if e != nil {
-			return e
-		}
-		if keyID == envelope.Signatures[0].KeyID && ecdsa.VerifyASN1(key, hash[:], signature) {
-			valid = true
-		}
-	}
-	if !valid {
-		return fmt.Errorf("untrusted DSSE signature or key ID")
 	}
 	var statement layerSetStatement
 	if e = StrictJSON(payload, &statement); e != nil {

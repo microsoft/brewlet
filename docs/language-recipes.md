@@ -21,7 +21,10 @@ dedicated guides for a complete workflow.
 These are tested workload examples, not an exhaustive list of five built-in
 runtime modes. The current [qualification fixtures](https://github.com/microsoft/brewlet/tree/brewlet-2.0/integration-tests/fixtures) exercise
 Java, Python, Node and .NET. The unchanged distroless matrix additionally covers
-Java/Python/Node/static on arm64; it does not claim unchanged .NET qualification.
+Java/Python/Node/static on arm64. The separate
+[managed-composition matrix](managed-composition.md) covers Java/Python/Node
+and an unchanged Canonical .NET runtime on native arm64, including signed
+bundles, compatible dependency replacement and actual Deployment rollout.
 
 ## Python
 

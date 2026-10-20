@@ -216,6 +216,41 @@ def main():
                          if layer["annotations"]["brewlet.sh/layer"] == "dependency"]
         assert actual_layers == expected_layers and len(actual_layers) == 1, (
             "Java managed dependencies must be reused byte-for-byte, without a duplicate bundled layer")
+        app_only_digests = []
+        for attempt in range(2):
+            app_only = work / f"oci-java-application-only-{attempt}"
+            run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
+                 "package", "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push",
+                 f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={app_only}",
+                 "-Dbrewlet.image=fixtures/java-application-only:v2",
+                 "-Dbrewlet.platforms=linux/amd64,linux/arm64",
+                 "-Dbrewlet.applicationOnly=true", f"-Dbrewlet.sourceBom={source_bom}"])
+            target = json.loads((app_only / "index.json").read_text())["manifests"][0]
+            app_only_digests.append(target["digest"])
+            index = blob(app_only, target)
+            for descriptor in index["manifests"]:
+                manifest = blob(app_only, descriptor)
+                assert [layer["annotations"]["brewlet.sh/layer"] for layer in manifest["layers"]] == [
+                    "app", "launch"], "app-only Maven mode bundled dependencies"
+        assert app_only_digests[0] == app_only_digests[1], "app-only build graph staging is nondeterministic"
+        release_policy = work / "development-release-policy.json"
+        release_policy.write_text(json.dumps({"schemaVersion": 1, "mode": "development",
+            "notAfter": "2027-01-01T00:00:00Z", "publisher": {"identity": "", "keys": []},
+            "composer": {"identity": "", "keys": []}}))
+        composed = work / "oci-java-release-composed"
+        run([brewlet, "compose", "fixtures/java-release:v2", "--store", composed,
+             "--application", str(app_only) + "@" + target["digest"],
+             "--layer-set", str(managed_set) + "@" + json.loads(
+                 (managed_set / "index.json").read_text())["manifests"][0]["digest"],
+             "--platform", "linux/arm64", "--policy", release_policy])
+        composed_target = json.loads((composed / "index.json").read_text())["manifests"][0]
+        composed_manifest = blob(composed, composed_target)
+        original = blob(app_only, next(member for member in index["manifests"]
+                                      if member["platform"]["architecture"] == "arm64"))
+        assert composed_manifest["layers"][-2:] == original["layers"], (
+            "release composition changed app-only Maven build metadata or launch")
+        evidence["mavenApplicationOnly"] = {"digest": target["digest"], "deterministic": True,
+            "composedDigest": composed_target["digest"], "scope": "producer-integration-development-policy"}
         scope_drift = work / "java-scope-drift"
         shutil.copytree(java / "app", scope_drift, ignore=shutil.ignore_patterns("target"))
         tree = ET.parse(scope_drift / "pom.xml")

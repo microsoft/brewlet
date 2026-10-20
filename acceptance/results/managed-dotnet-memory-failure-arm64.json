@@ -1,0 +1,473 @@
+{
+  "outcome": "failed",
+  "scope": "real-node-execution-only",
+  "selectedScenario": "managed-composition",
+  "selectedLanguages": [
+    "java",
+    "python",
+    "node",
+    "dotnet"
+  ],
+  "cleanSelectedSuitePassed": false,
+  "fullAcceptance": false,
+  "checkout": "368facdf512279659afd7186019b0315f0987e06",
+  "productionSourceManifestSHA256": "23d8d2e58d02194f2760aaf7ab424c62d308e55cb376abd608d4ec09a8d824d0",
+  "architecture": "arm64",
+  "kubeletPullVerified": false,
+  "tlsTransportVerified": false,
+  "providerScaleFromZeroVerified": false,
+  "kubeletRuntimeRequestTimeoutSeconds": 120,
+  "pins": {
+    "kind": "v0.33.0",
+    "node": "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661",
+    "registry": "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
+  },
+  "applicationImages": {
+    "java": "172.18.0.11:5000/managed/java-before@sha256:c353c25a8ff63ff7bc50529ed909707429b1f0018d7e0085264a049803f183a0",
+    "python": "172.18.0.11:5000/managed/python-before@sha256:80ea8a03684d9f1d510b012a5a81461c5a3ac8d15817b7bb6ba63e630cae68b6",
+    "node": "172.18.0.11:5000/managed/node-before@sha256:783d86c8e53fb0c483a61a9685e06816cc977cff44526196444bfd9461323747",
+    "dotnet": "172.18.0.11:5000/managed/dotnet-before@sha256:125195ed02bd83f6e0dbf052ed3991cce554efae802d73ac3f154eea3fcf8800"
+  },
+  "runtimeImages": {
+    "java": {
+      "before": "172.18.0.11:5000/managed/runtime-java@sha256:5f4ce7e7d05ddf26f045fd1d8534f3c67d870fe5fe5204d8cf6940d3e440435f",
+      "after": "172.18.0.11:5000/managed/runtime-java@sha256:5f4ce7e7d05ddf26f045fd1d8534f3c67d870fe5fe5204d8cf6940d3e440435f"
+    },
+    "python": {
+      "before": "172.18.0.11:5000/managed/runtime-python@sha256:495c1e84c4aafa3630585a47b09161750bac8f0dd3b4b002b36cb91dbd61902f",
+      "after": "172.18.0.11:5000/managed/runtime-python@sha256:495c1e84c4aafa3630585a47b09161750bac8f0dd3b4b002b36cb91dbd61902f"
+    },
+    "node": {
+      "before": "172.18.0.11:5000/managed/runtime-node@sha256:64e1e300bb10164138e26c760bdb13a10392003cab2b8b18842aaca30a404b00",
+      "after": "172.18.0.11:5000/managed/runtime-node@sha256:64e1e300bb10164138e26c760bdb13a10392003cab2b8b18842aaca30a404b00"
+    },
+    "dotnet": {
+      "before": "172.18.0.11:5000/managed/runtime-dotnet@sha256:8b8dc5739e5cb9fe5cc890bedfda8f77f9dac404a6389ed1fd650fe104ab52c8",
+      "after": "172.18.0.11:5000/managed/runtime-dotnet@sha256:8b8dc5739e5cb9fe5cc890bedfda8f77f9dac404a6389ed1fd650fe104ab52c8"
+    }
+  },
+  "runtimeVendorInputs": {
+    "java": {
+      "probe": [
+        "java",
+        "-version"
+      ],
+      "before": {
+        "image": "docker.io/library/eclipse-temurin@sha256:7b5c88eb4182a92aab3a4b10550061a6e18639bf176e7ebca21f866b19f853c1",
+        "version": "21.0.7"
+      },
+      "after": {
+        "image": "docker.io/library/eclipse-temurin@sha256:990397e0495ac088ab6ee3d949a2e97b715a134d8b96c561c5d130b3786a489d",
+        "version": "21.0.8"
+      }
+    },
+    "python": {
+      "probe": [
+        "python3",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/python@sha256:4c2cf9917bd1cbacc5e9b07320025bdb7cdf2df7b0ceaccb55e9dd7e30987419",
+        "version": "Python 3.13.5"
+      },
+      "after": {
+        "image": "docker.io/library/python@sha256:2b09112b54420d2e3e814f2cbe34e8e54d32b8c5abd4e72e89cda4758fc6400a",
+        "version": "Python 3.13.6"
+      }
+    },
+    "node": {
+      "probe": [
+        "node",
+        "--version"
+      ],
+      "before": {
+        "image": "docker.io/library/node@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0",
+        "version": "v22.17.0"
+      },
+      "after": {
+        "image": "docker.io/library/node@sha256:752ea8a2f758c34002a0461bd9f1cee4f9a3c36d48494586f60ffce1fc708e0e",
+        "version": "v22.18.0"
+      }
+    },
+    "dotnet": {
+      "probe": [
+        "dotnet",
+        "--list-runtimes"
+      ],
+      "before": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:d13bea17080a4fea1a7295a4fe29240123b1bf955a78ae08480d07bdf09496db",
+        "version": "Microsoft.NETCore.App 10.0.0 "
+      },
+      "after": {
+        "image": "mcr.microsoft.com/dotnet/runtime@sha256:3b5f026262a6ba63d1b82f2b98949506f4a89956244568a8bc682b4af9c48548",
+        "version": "Microsoft.NETCore.App 10.0.1 "
+      }
+    }
+  },
+  "fixtureDestruction": {
+    "outcome": "passed",
+    "errors": [],
+    "notProductionCleanupEvidence": true
+  },
+  "gaps": [
+    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
+    "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
+    "E2E-06 stale provider pins retained through actual production uninstall",
+    "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
+    "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival after main exit (normal delegated runc/CRI drain is verified separately)",
+    "ROT-09 controlled cold-runtime-install deadline and recovery",
+    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
+    "E2E-06/07/08 real admission interceptor disabled explicitly",
+    "Selected Proposal 0010 native matrix; other architectures and scenarios are separate."
+  ],
+  "upstreamRuntimes": {
+    "java": {
+      "before": {
+        "source": "gcr.io/distroless/java21-debian13@sha256:5f4ce7e7d05ddf26f045fd1d8534f3c67d870fe5fe5204d8cf6940d3e440435f",
+        "manifestDigest": "sha256:5f4ce7e7d05ddf26f045fd1d8534f3c67d870fe5fe5204d8cf6940d3e440435f",
+        "configDigest": "sha256:34c5cd44c79815003d9b0229bb0544ee123c47fa31d2186b03b366ee9d86bec8",
+        "rootDiffIDs": [
+          "sha256:169cc3415d0f5be1ca6f533fd91057bb5c58d213161f4990c87fcb12d0bc251b",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:c8b007d0206e4b10ed4d3b3d99dfeab47c2648e82011989fd78a5731baf33fc3",
+          "sha256:bec7e6bb35e05d1284f28b10d2150c259717d91c658c4c10c08424bb9466caba",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:5c729492ffc6d588d59ee068eaa7910f2c76fd99a7fc21ccb6d408351f48d428",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:6c15e5fccfaccef2f4aa935857010ada1b7e7876d1009017c435eb4ad61a61e0",
+          "sha256:7b6535ee7aaad7b6a0338f2b0b7573965427fe1d9191e985f386d3fc6023d869",
+          "sha256:c63738958759baaf95d07671099c9e41f0cce93260ce4f39df275e6f36f15a52",
+          "sha256:0cd351bd16de499bf614cf9e35cd1b64e61272119b38dbc95e5eae87163c1f7e",
+          "sha256:68586ee9197091eb4c49688016112368e8cefd88a6d9a256af9252226f026d3d",
+          "sha256:9c8d88be58d40e224f2107d5bf171d3fd769695d54c22512716f1deb9176a684",
+          "sha256:28648cfb20d6ae5e7f1d87b1efe172a8624b0080b989e7cf754ef3fbc9738fff",
+          "sha256:93747ef36dd4dfcc9b78c0d297a9410e9db4a9bd32c070961e98dc303dd9d6f6",
+          "sha256:c9878b7995f0c4ddef31ce08dc6bf273bef75abdb461bf3db9425f1525ee870f",
+          "sha256:7398e1f463581f027983ba0246acea6b73f7ffc9b5bc9ce3ca561a21c7fa430d",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:c29e34b3024e6621d0737cd176139e35ccf16c6514888140e2da3dadb84f14f0",
+          "sha256:eaa42a9ed1b92daf1a057275d06fa885686249cf840212778fee1145cf6fe6cd",
+          "sha256:1eac4cef1f20ec2b125ebd9949a33f970403eff82d497af839af2cead822d599",
+          "sha256:cce99c5700b92fb6fd47e9f8f4fea8428afe2a25abc7a3cd3635ee633cdbb90a",
+          "sha256:397b3c95300ce09efbe84f276f5dbeb45e6d58b665d14e944febf85bb18c0973",
+          "sha256:8caf0b7d1a5cc833b90ac1c1bc7bc43770d527a65d4a673fe3e6e9ed1df02da0"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      }
+    },
+    "python": {
+      "before": {
+        "source": "gcr.io/distroless/python3-debian13@sha256:495c1e84c4aafa3630585a47b09161750bac8f0dd3b4b002b36cb91dbd61902f",
+        "manifestDigest": "sha256:495c1e84c4aafa3630585a47b09161750bac8f0dd3b4b002b36cb91dbd61902f",
+        "configDigest": "sha256:92f92e538766c4550670d0a0909068d8f7968286e183157de67d8068cd147dcc",
+        "rootDiffIDs": [
+          "sha256:169cc3415d0f5be1ca6f533fd91057bb5c58d213161f4990c87fcb12d0bc251b",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:c8b007d0206e4b10ed4d3b3d99dfeab47c2648e82011989fd78a5731baf33fc3",
+          "sha256:bec7e6bb35e05d1284f28b10d2150c259717d91c658c4c10c08424bb9466caba",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:5c729492ffc6d588d59ee068eaa7910f2c76fd99a7fc21ccb6d408351f48d428",
+          "sha256:d5653c936aa120141ef21c40fbded7622368c620112e049806ef2fe7a0ee7cab",
+          "sha256:91213e6dc2fda431a0de4541602a933c7a48206a0bf487217fa681260fccdc23",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:7578331450f7cd6e1f6f28caf2ce9af93ea935a049132bb63ed523dcbda068e4",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:eaa42a9ed1b92daf1a057275d06fa885686249cf840212778fee1145cf6fe6cd",
+          "sha256:c2c892af8db0092f46a414fedbf2cd618937e648a678e587db7e13814b84d66f",
+          "sha256:9c8d88be58d40e224f2107d5bf171d3fd769695d54c22512716f1deb9176a684",
+          "sha256:b41626e9f81ca27beaaca7c582e9ea3ddb72adf71fd9427208d8141404c60343",
+          "sha256:5fba13a32e13ac133f13ed4011e290b4793844ab23985ccefd3cb045ef759e25",
+          "sha256:93747ef36dd4dfcc9b78c0d297a9410e9db4a9bd32c070961e98dc303dd9d6f6",
+          "sha256:d5ec1c73dff9581d413e872c79b4e6869bc85257eac6282e58467640f511718f",
+          "sha256:50fa449c4d122c5961970727aad90ec1854a4f0659dbb35c05dd545b6a3c560f",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:58ba1537b8ac991c9051515cd13046e4d322a4150eb4075478ad4087bf7a4b4d",
+          "sha256:7398e1f463581f027983ba0246acea6b73f7ffc9b5bc9ce3ca561a21c7fa430d",
+          "sha256:352201a91365236bd67dce1f8160feaeda307a448217781496ebc81798aec835",
+          "sha256:266a9e16d3d53011e44019bafa2832445fa6eabc57091c2d942ef62b10f716f1",
+          "sha256:320ccb5355fb1c1530cfa0d35677c8e3930046284f67bd13641c7677d85f31b8",
+          "sha256:be31e77f894c5b77b80117d0c0d6313571dcf6bde5b42d522b4cff498816fb0b",
+          "sha256:4a01b2636fb894c0408249d1eee9119e47bc5fc3acdb6c5f26a6b3895489c778",
+          "sha256:9a73ecd6704c5751ef9b0b7b18c2084b074f0b30a8040850fca21fbd8bf54f63",
+          "sha256:eeb836a0c3cfecac4a47272011d2339a5307ae9f89b788f2a12d0d5f71b196f7",
+          "sha256:81d331c8577e8268d87cde54949256f6b00cddfca5c924136225cf11a276e8b5",
+          "sha256:0c774d4f96be5e465570d8469cc397fab0efafe0757e12e0fcb9fbf0bf0e9080",
+          "sha256:430d8ae1d1c97e0d6d7930b9ea5299a7d6ea5da64c9b666c377982df3858deaf",
+          "sha256:44819ebf58f36b37ec99f5d616915c05825c8842b8a9776afbc61b6e3ccd5d34",
+          "sha256:2edf0df89fe51434eaa476f350ec618cb3398b93041a37d2806730d86f49e338",
+          "sha256:4ec42cb510fedd679380817a85d51913e6839fbd65d20b0b6c4c9bfdbc17d4d2",
+          "sha256:d2c9ce853f85b6f1277aadf6ac67c01d4da44f063c9a0ee41e6fba6d53237f83",
+          "sha256:e065e79de270fdaffae724703dffaa90700e699d7ab992db104bf0e289b9d0ef",
+          "sha256:f4215ba511f87da650ccf1722e1ef05953c2b87d8ed1ccd31ec0f0bea5f03f18"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      }
+    },
+    "node": {
+      "before": {
+        "source": "gcr.io/distroless/nodejs22-debian13@sha256:64e1e300bb10164138e26c760bdb13a10392003cab2b8b18842aaca30a404b00",
+        "manifestDigest": "sha256:64e1e300bb10164138e26c760bdb13a10392003cab2b8b18842aaca30a404b00",
+        "configDigest": "sha256:777ba03d200b51fb19a45a656418b21ed25463417348278accc2a1073dffc131",
+        "rootDiffIDs": [
+          "sha256:169cc3415d0f5be1ca6f533fd91057bb5c58d213161f4990c87fcb12d0bc251b",
+          "sha256:621c35e751a51a9a9dc3e80aa0b7fe8be2a93402ea6ccd307d30852cd7776cda",
+          "sha256:c8b007d0206e4b10ed4d3b3d99dfeab47c2648e82011989fd78a5731baf33fc3",
+          "sha256:bec7e6bb35e05d1284f28b10d2150c259717d91c658c4c10c08424bb9466caba",
+          "sha256:275a30dd8ce958b21daa9ad962c6fbc09f98306ee2f486b65c9075dc257b1412",
+          "sha256:4d049f83d9cf21d1f5cc0e11deaf36df02790d0e60c1a3829538fb4b61685368",
+          "sha256:af5aa97ebe6ce1604747ec1e21af7136ded391bcabe4acef882e718a87c86bcc",
+          "sha256:6f1cdceb6a3146f0ccb986521156bef8a422cdbb0863396f7f751f575ba308f4",
+          "sha256:bd3cdfae1d3fdd83a2231d608969b38b82349777c2fff9a7c12d54f8ac5c9b38",
+          "sha256:4cde6b0bb6f50a5f255eef7b2a42162c661cf776b803225dcac9a659e396bb6b",
+          "sha256:ad51d0769d16ba578106a177987dfe3d2e02c1668c852b795b2f6b024068242a",
+          "sha256:187cfc6d1e3e8a40a5e64653bcd3239c140807dcf1c09e48021178705a5a6139",
+          "sha256:f2392a9484bf6b18f06beaf705b994e31dbb2716c99cf7d03c9c495cd107f364",
+          "sha256:5c729492ffc6d588d59ee068eaa7910f2c76fd99a7fc21ccb6d408351f48d428",
+          "sha256:d5653c936aa120141ef21c40fbded7622368c620112e049806ef2fe7a0ee7cab",
+          "sha256:91213e6dc2fda431a0de4541602a933c7a48206a0bf487217fa681260fccdc23",
+          "sha256:7b57942929394e731b49e8f1863a4da2cbd1b9fda48d9f1e75a0a28b2d89d01a",
+          "sha256:7578331450f7cd6e1f6f28caf2ce9af93ea935a049132bb63ed523dcbda068e4",
+          "sha256:323c2be748e4417f7ab7b05b33d6c1a52df0788e779143555109ddcd5325c76c",
+          "sha256:fcb0c313318aac64dde0e0574b4df3394902929eb62d43e8b6c47ec4562f170d",
+          "sha256:30884b21b6a1362fbcdb60743280a138148b6d0ac50a3f8ee3e9f213b371c9e7",
+          "sha256:93bb43ab2d7a63bb62b2bcb0c8b47d80461c1af17e6af359525d4437e3d6c768"
+        ],
+        "accountNames": [
+          "root",
+          "nobody",
+          "nonroot"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      }
+    },
+    "dotnet": {
+      "before": {
+        "source": "registry-1.docker.io/ubuntu/dotnet-runtime@sha256:8b8dc5739e5cb9fe5cc890bedfda8f77f9dac404a6389ed1fd650fe104ab52c8",
+        "manifestDigest": "sha256:8b8dc5739e5cb9fe5cc890bedfda8f77f9dac404a6389ed1fd650fe104ab52c8",
+        "configDigest": "sha256:2af4066a2f3a91b9b3f9c2120a40ef619eed135c50325dc9f163914ac47319d8",
+        "rootDiffIDs": [
+          "sha256:db2b46f80b0f71d6e0ace5db9b4f698c728845db289425402f2f59900f86b638",
+          "sha256:3423de8383070bd3b611b70fc6da190729cc79a2d1432567ddfbf1833db13497",
+          "sha256:b9efef32be3bc1a492bc3dfa8b0e92d9110aa24bb9a0ff94215dd76f9d9efc64",
+          "sha256:a2e4a5bf24fa97dc17134e9748a40984038264c5c8f44a0ea838149a0669697b"
+        ],
+        "accountNames": [
+          "_daemon_"
+        ],
+        "PATH": [
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        ],
+        "oldContractBlockers": [
+          "pre-amendment named app account requirement"
+        ],
+        "shellAbsent": true,
+        "noImageMutation": true
+      }
+    }
+  },
+  "assertions": [
+    {
+      "name": "mandatory prerequisites and exact kind pin",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "isolated kind node and owned registry",
+      "outcome": "passed",
+      "requirements": []
+    },
+    {
+      "name": "java explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "python explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "node explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "dotnet explicit application/dependency artifact imported",
+      "outcome": "passed",
+      "requirements": [
+        "ART-01",
+        "LANG-01"
+      ]
+    },
+    {
+      "name": "java unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "java independent signed bundle, immutable application and verified replacement",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-01",
+        "COMP-02",
+        "COMP-03"
+      ]
+    },
+    {
+      "name": "python unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "python independent signed bundle, immutable application and verified replacement",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-01",
+        "COMP-02",
+        "COMP-03"
+      ]
+    },
+    {
+      "name": "node unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "node independent signed bundle, immutable application and verified replacement",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-01",
+        "COMP-02",
+        "COMP-03"
+      ]
+    },
+    {
+      "name": "dotnet unchanged upstream manifest and shell-free metadata verified",
+      "outcome": "passed",
+      "requirements": [
+        "UP-04"
+      ]
+    },
+    {
+      "name": "dotnet independent signed bundle, immutable application and verified replacement",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-01",
+        "COMP-02",
+        "COMP-03"
+      ]
+    },
+    {
+      "name": "zero-node warning, architecture selector and multi-term/empty affinity preservation",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-01",
+        "E2E-04",
+        "ADM-02"
+      ]
+    },
+    {
+      "name": "actual startup taint blocks application scheduling before provisioning",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-03"
+      ]
+    },
+    {
+      "name": "OnDemand-only baseline advertises available with no current roots",
+      "outcome": "passed",
+      "requirements": [
+        "E2E-02",
+        "PROF-03",
+        "FENCE-01"
+      ]
+    },
+    {
+      "name": "java composed managed dependencies on unchanged upstream root with real HTTP/Exec",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-04"
+      ]
+    },
+    {
+      "name": "python composed managed dependencies on unchanged upstream root with real HTTP/Exec",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-04"
+      ]
+    },
+    {
+      "name": "node composed managed dependencies on unchanged upstream root with real HTTP/Exec",
+      "outcome": "passed",
+      "requirements": [
+        "COMP-04"
+      ]
+    }
+  ]
+}

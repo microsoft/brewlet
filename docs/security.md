@@ -36,6 +36,11 @@ Digests provide integrity, not a statement about who built an image or whether
 it is safe. Layer-set lock/SBOM/provenance binds dependency content and signer
 policy. It does not automatically attest every final application.
 
+The [governed composer](managed-composition.md) separately signs its exact
+final image and preserves original application build inputs. Its verifier
+distinguishes publisher evidence from release-composition signatures and
+does not claim application tests passed or hidden code was discovered.
+
 2.0 does not currently restore main's complete application Ratify integration.
 Enforce any additional application admission/signature policy through separately
 reviewed platform tooling; do not describe it as built into the shim.

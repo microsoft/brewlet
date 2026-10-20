@@ -153,6 +153,7 @@ func (s Store) Target(ref string) (v1.Descriptor, error) {
 }
 
 type Resolved struct {
+	Reference                  string
 	Target, ManifestDescriptor v1.Descriptor
 	Manifest                   v1.Manifest
 	Image                      v1.Image

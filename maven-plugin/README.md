@@ -79,8 +79,22 @@ CycloneDX SBOM, and optionally signs provenance. Set
 `brewlet.builderIdentity=https://example.com/builders/approved` for signing.
 These are separate argv elements, not shell fragments. The Java plugin never
 implements OCI assembly or signature verification. Signing parameters apply
-only to `layer-set`, not application `push`; application attestation publication
-is not implemented or claimed.
+only to `layer-set`, not application `push`. The separate generic `compose`
+command owns final-composition signing under a distinct release policy.
+
+### App-only release inputs
+
+Set `-Dbrewlet.applicationOnly=true` with an explicit `brewlet.sourceBom` to
+publish just the thin application contribution and matching launch metadata.
+The producer validates BOM membership and retains the scoped original build
+graph as `/app/.brewlet/application-build.json`; it packages no dependency
+payload and does not pass `--layer-set` to `push`. Configuring `layerSets` in
+this mode is rejected rather than silently composing an image.
+
+Pass that immutable payload and a complete approved set to the generic
+`brewlet compose` command in the release pipeline. Replacing the set does not
+rewrite the app's build graph or prove compatibility; test the candidate
+digest before updating a native workload.
 
 ### Managed consumption
 

@@ -12,8 +12,14 @@ separate `Greeting.dll`. Source pins are in the
 [full-userland matrix](../integration-tests/fixtures/runtimes/rotation.json).
 These historical inputs are not security recommendations.
 
-**Unchanged upstream .NET runtime qualification is not yet established.**
-The unchanged distroless matrix's fourth root is static/native, not .NET.
+The separate [managed-composition matrix](managed-composition.md) now covers
+an **unchanged Canonical OCI .NET 10 runtime** on native arm64, including an
+independently signed dependency bundle, actual `Greeting.dll` replacement,
+HTTP/Exec parity, two-replica rollout and normal cleanup. Exact source pins are
+in the [managed .NET inputs](../integration-tests/fixtures/runtimes/managed-dotnet.json);
+the [public receipt](../acceptance/results/managed-composition-arm64.json)
+does not substitute for native amd64 qualification.
+The earlier unchanged distroless matrix's fourth root remains static/native.
 Confirm the actual `dotnet` path with the platform. This recipe explicitly
 targets a root providing `/usr/bin/dotnet` and an example ID `dotnet-10`.
 
@@ -148,5 +154,5 @@ the port-forward after verification.
 - SDK choice, framework references and deployment runtime compatibility are separate decisions. Pin the producer SDK and select a compatible approved runtime line explicitly.
 - Framework-dependent, self-contained, single-file and Native AOT outputs have different loader/native-asset needs. Only the documented fixture is covered by this recipe's evidence.
 - Shared files do not imply shared CLR heaps or automatic GC settings. Size resources and mount writable data/temp locations deliberately.
-- Separate dependency-layer execution is qualified on adapted roots; the managed-set/unchanged-upstream .NET matrix remains unqualified.
+- The separate managed-set/unchanged-runtime arm64 matrix uses a reviewed 768Mi workload limit for the main CLR plus real Exec readiness processes. Its earlier 256Mi attempt OOMed and remains recorded as failed; core injects no CLR/GC tuning.
 - Physical local evidence is arm64, not a generic mixed-fleet compatibility guarantee.

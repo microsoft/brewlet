@@ -80,6 +80,17 @@ func observeBindings(ctx context.Context, c *containerd.Client, store *node.Stor
 			if err != nil {
 				return nil, fmt.Errorf("validate binding identity %q/%q: %w", namespace, container.ID(), err)
 			}
+			initial, err := store.LoadInitial(lease.TaskID)
+			if err != nil {
+				return nil, fmt.Errorf("read protected application identity: %w", err)
+			}
+			if !reflect.DeepEqual(initial.Lease, lease) {
+				return nil, fmt.Errorf("protected application/runtime lease identity changed")
+			}
+			if err = initial.Application.Validate(); err != nil {
+				return nil, err
+			}
+			binding.Application = &initial.Application
 			bindings = append(bindings, binding)
 			delete(byID, key)
 		}

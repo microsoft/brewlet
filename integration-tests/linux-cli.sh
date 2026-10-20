@@ -8,6 +8,7 @@ set -eu
 exec docker run --platform linux/arm64 --pull never --rm --network "${BREWLET_TEST_NETWORK:-none}" \
     --user "$(id -u):$(id -g)" \
     --cap-drop ALL --security-opt no-new-privileges --read-only \
+    --tmpfs /tmp:rw,nosuid,nodev \
     --entrypoint /brewlet \
     --mount "type=bind,source=$BREWLET_TEST_BINARY,target=/brewlet,readonly" \
     --mount "type=bind,source=$PWD,target=$PWD,readonly" \

@@ -198,6 +198,34 @@ class MojoContractTest {
         assertFalse(Files.exists(dependencies.resolve("app.jar")));
     }
 
+    @Test void applicationOnlyRetainsBuildGraphWithoutDependencyPayloadOrResolutionAtRelease() throws Exception {
+        PushMojo mojo = new PushMojo();
+        initialize(mojo, project());
+        set(mojo, "image", "registry.test/application:payload");
+        set(mojo, "platforms", List.of("linux/arm64"));
+        set(mojo, "mainClass", "example.Main");
+        set(mojo, "applicationOnly", true);
+        mojo.execute();
+        List<String> argv = Files.readAllLines(temp.resolve("argv"));
+        assertEquals("push", argv.get(0));
+        assertFalse(argv.contains("inspect"));
+        assertFalse(argv.contains("--layer-set"));
+        assertEquals(1, argv.stream().filter("--layer"::equals).count());
+        String layer = argv.get(argv.indexOf("--layer") + 1);
+        assertTrue(layer.startsWith("app="));
+        Path application = Path.of(layer.substring(4, layer.length() - ":/app".length()));
+        assertTrue(Files.isRegularFile(application.resolve("app.jar")));
+        String originalBuild = Files.readString(application.resolve(".brewlet/application-build.json"));
+        assertEquals(0, Files.getLastModifiedTime(application.resolve(".brewlet/application-build.json")).toMillis());
+        assertEquals(0, Files.getLastModifiedTime(application.resolve(".brewlet")).toMillis());
+        assertEquals(0, Files.getLastModifiedTime(application).toMillis());
+        assertTrue(originalBuild.contains("example:bom:1"));
+        assertTrue(originalBuild.contains("library"));
+        assertFalse(Files.exists(application.resolve("lib/library.jar")));
+        set(mojo, "layerSets", List.of("registry.test/dependencies:approved"));
+        assertThrows(MojoExecutionException.class, mojo::execute);
+    }
+
     @Test void graphMismatchAndMultipleSetsFailBeforePush() throws Exception {
         PushMojo mojo = new PushMojo();
         initialize(mojo, project());

@@ -24,7 +24,13 @@ func main() {
 }
 func run(ctx context.Context, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: brewlet push|imagepush|inspect|layer-set|index REF [options]")
+		return fmt.Errorf("usage: brewlet push|compose|verify|inventory|imagepush|inspect|layer-set|index REF [options]")
+	}
+	if args[0] == "compose" || args[0] == "verify" {
+		return runRelease(ctx, args)
+	}
+	if args[0] == "inventory" {
+		return runInventory(ctx, args[1:])
 	}
 	if args[0] == "conformance" {
 		if len(args) != 2 {

@@ -61,6 +61,7 @@ nav:
           - .NET: dotnet.md
           - WebAssembly: webassembly.md
       - Dependency layer sets: dependency-layer-sets.md
+      - Governed composition and external scanning: managed-composition.md
       - Resources and lifecycle: resources.md
       - Instrumentation: instrumentation.md
   - Enable infrastructure:

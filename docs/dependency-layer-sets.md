@@ -4,6 +4,10 @@ A layer set is an independently published dependency graph, not a second
 container that the shim pulls. The producer verifies and composes its layers
 into one application image. Kubelet still pulls that final image.
 
+For artifact-to-artifact release composition, signed final-image evidence,
+dependency replacement and read-only fleet export for external scanners, use
+the [governed composition workflow](managed-composition.md).
+
 ## Publish and consume a small local example
 
 Use a new work directory and ordinary world-readable files. These commands

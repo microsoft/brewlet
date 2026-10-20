@@ -88,6 +88,15 @@ func VerifyGraph(ctx context.Context, store Store, target v1.Descriptor) error {
 					return e
 				}
 			}
+			materials, e := CompositionMaterials(store, d)
+			if e != nil {
+				return e
+			}
+			for _, material := range materials {
+				if e = walk(material); e != nil {
+					return e
+				}
+			}
 			return nil
 		}
 		reader, e := store.Open(d)

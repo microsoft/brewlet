@@ -16,6 +16,7 @@ and [exact commands, sources and scoped results](https://github.com/microsoft/br
 | Producer and native contracts | Maven/CLI/shim conformance and Linux filesystem, mount, lock and cache invariants. |
 | 28-assertion unchanged-upstream companion | Pinned shell-free Java/Python/Node/static roots, real source rotation, numeric pathless execution, isolated `/app`, held Exec across worker/daemon restarts, revocation and normal cleanup on arm64. |
 | 18-assertion Wasm/runc companion | Wasmtime command and Spin SDK HTTP component, independent layer-set composition, explicit guest access, separate engine cache, exact exit 37, host-version updates, real Exec recovery and normal cleanup on arm64. |
+| 32-assertion managed-composition companion | Java/Python/Node/Canonical .NET unchanged roots on arm64, independently signed complete sets, preserved app/launch bytes, candidate compatibility checks, controlled native rolling updates, observed package/SBOM export and normal cleanup. |
 
 The upstream-runtime amendment adds six obligations to the historical
 101-requirement baseline. Its source pins are recorded in the
@@ -36,6 +37,15 @@ historical rather than being rewritten as new-format proof.
 Each selected-suite receipt deliberately retains `fullAcceptance:false`; no
 single suite is presented as proof of the entire proposal. Failed attempts
 remain failed and separate from their corrected repeats.
+
+Proposal 0010 has a separate
+[25-obligation checklist](../acceptance/composition-requirements.json) and
+[native arm64 receipt](../acceptance/results/managed-composition-arm64.json).
+It does not reuse the 111-obligation baseline as composition acceptance.
+Native amd64 qualification is a separate manually dispatched `managed` E2E
+scenario; a cross-build is not that proof. The matrix updates explicit local
+fixture libraries, not an actual vulnerable production package, and contains
+no built-in CVE scanner.
 
 ## Reproduce component checks
 

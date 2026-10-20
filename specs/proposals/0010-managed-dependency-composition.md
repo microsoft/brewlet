@@ -1,6 +1,6 @@
 # Proposal 0010: governed dependency composition and remediation
 
-- **Status:** draft for review; not accepted or implemented.
+- **Status:** accepted for implementation on 2026-10-20; qualification in progress.
 - **Scope:** Brewlet 2.0 producer, release and policy workflows.
 - **Extends:** [Proposal 0009 section 6.5](0009-language-agnostic-runtime-images.md#65-dependencies-as-layers-or-independently).
 - **Does not change:** runtime-image selection, node provisioning, runc execution,
@@ -8,10 +8,10 @@
 - **Reference main:** `fa7085335b220e29df6affbece4558c5f1259ecb`.
 - **Reference 2.0:** `7077c1d3b7c2019ad10b8d3160f60a15dac9c930`.
 
-The requirements below describe the proposed feature, not current guarantees.
-CLI examples in this document are proposed interfaces unless marked existing.
-Implementation requires a separate approval; this proposal does not authorize
-a runtime dependency resolver or a new workload CRD.
+The requirements below are the approved implementation contract. Qualification
+must be recorded separately; code presence is not acceptance evidence.
+This approval does not authorize a built-in vulnerability scanner, a runtime
+dependency resolver or a new workload CRD.
 
 ## 1. Recommendation
 
@@ -188,9 +188,9 @@ blobs may precede a failed operation; such unreferenced blobs are not a
 successfully published release.
 Credentials MUST remain origin-scoped during cross-registry copies/mounts.
 
-## 6. Proposed producer interface
+## 6. Producer interface
 
-The following command **does not exist today**:
+The release interface is:
 
 ```sh
 brewlet compose registry.example.com/apps/orders:candidate \
@@ -351,7 +351,7 @@ Additional mandatory cases:
 
 Keep a requirements-to-tests checklist for these obligations. Publish exact
 inputs, commands, results and limitations; preserve failed runs as failed.
-The existing 111-requirement baseline does not qualify this proposed feature.
+The existing 111-requirement baseline does not qualify this feature.
 
 ## 12. Documentation and release boundaries
 
@@ -364,7 +364,7 @@ Document which source/app formats the new composer accepts and which it
 rejects. Archive existing receipts rather than rewriting them as evidence for
 new semantics. Keep installation/source-revision compatibility explicit.
 
-Approval of this proposal would authorize its bounded producer/release work,
+This approval authorizes the bounded producer/release work,
 not changes to Proposal 0009's rejected shim-pulled dependency design.
 
 ## References

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
+	"github.com/distribution/reference"
 	"github.com/microsoft/brewlet/pkg/artifact"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -96,10 +98,45 @@ type Lease struct {
 }
 
 type InitialState struct {
-	Lease        Lease         `json:"lease"`
-	Process      specs.Process `json:"process"`
-	LayerRoots   []string      `json:"layerRoots,omitempty"`
-	ContentRoots []string      `json:"contentRoots,omitempty"`
+	Application  ApplicationIdentity `json:"application"`
+	Lease        Lease               `json:"lease"`
+	Process      specs.Process       `json:"process"`
+	LayerRoots   []string            `json:"layerRoots,omitempty"`
+	ContentRoots []string            `json:"contentRoots,omitempty"`
+}
+
+type ApplicationIdentity struct {
+	Reference      string           `json:"reference"`
+	RootDigest     string           `json:"rootDigest"`
+	ManifestDigest string           `json:"manifestDigest"`
+	ConfigDigest   string           `json:"configDigest"`
+	Platform       ocispec.Platform `json:"platform"`
+}
+
+func (a ApplicationIdentity) Validate() error {
+	named, err := reference.ParseNormalizedNamed(a.Reference)
+	if err != nil {
+		return fmt.Errorf("invalid protected application reference")
+	}
+	if _, tagged := named.(reference.Tagged); tagged {
+		return fmt.Errorf("tagged protected application reference")
+	}
+	if _, canonical := named.(reference.Canonical); !canonical || named.String() != a.Reference {
+		return fmt.Errorf("canonical protected application reference required")
+	}
+	if !digestPattern.MatchString(a.RootDigest) || !digestPattern.MatchString(a.ManifestDigest) ||
+		!digestPattern.MatchString(a.ConfigDigest) || !strings.HasSuffix(a.Reference, "@"+a.RootDigest) {
+		return fmt.Errorf("incomplete protected application identity")
+	}
+	_, err = artifact.ParsePlatform(a.Platform.OS + "/" + a.Platform.Architecture + applicationVariant(a.Platform.Variant))
+	return err
+}
+
+func applicationVariant(value string) string {
+	if value == "" {
+		return ""
+	}
+	return "/" + value
 }
 
 type EvidenceRequest struct {

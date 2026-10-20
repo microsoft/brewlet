@@ -17,3 +17,19 @@ successful evidence. Unit tests do not establish real-node scheduling,
 containerd annotation forwarding, provider autoscaling, runtime installation,
 CRI disk accounting/eviction or runc execution. A passing build is not a release
 acceptance result.
+
+## Proposal 0010
+
+`composition-requirements.json` independently maps 25 grouped normative
+obligations across Proposal 0010 to contract, producer, documentation and native
+matrix checks. It does not reuse Proposal 0009's successful receipts.
+
+```sh
+python3 acceptance/composition_check.py
+make composition-acceptance
+```
+
+The strict target requires the complete four-language managed lifecycle on
+both native architectures, normal cleanup and successful public receipts.
+Unknown, partial, failed or cross-built results do not qualify an architecture.
+The top-level `make acceptance` runs both ledgers.

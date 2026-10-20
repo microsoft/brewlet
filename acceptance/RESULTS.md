@@ -1,5 +1,43 @@
 # Brewlet 2.0 validation status
 
+## Proposal 0010 governed composition
+
+`run-managed-93` passed **32 selected assertions** on native arm64, with
+normal production cleanup and exact-owned fixture destruction. Its
+[public receipt](results/managed-composition-arm64.json) covers all four
+languages with independently signed complete dependency sets and unchanged
+upstream runtime roots: the pinned distroless Java/Python/Node inputs and
+the pinned Canonical OCI .NET 10 input. Original app/launch descriptors and
+diff IDs remained unchanged across actual compatible library updates.
+
+Two-replica native Deployments ran both original and patched dependencies.
+Separate candidate HTTP/Exec checks preceded updates. Controlled
+`maxUnavailable: 0` rollouts with explicit native preStop draining observed
+zero failed HTTP requests. Actual protected application root/manifest/config
+identities and UID-based controller ownership produced complete pre/post
+package/SBOM exports. No built-in CVE scanner or language resolver was added.
+These are explicit fixture libraries, not proof of remediating a production CVE.
+
+The earlier POM-namespace, .NET probe-memory and owner-observation failures
+remain [failed](results/managed-pom-fixture-failure-arm64.json),
+[failed](results/managed-dotnet-memory-failure-arm64.json) and
+[failed](results/managed-owner-observation-failure-arm64.json), respectively.
+The reviewed .NET workload limit is 768Mi for its main process and real Exec
+readiness processes; Brewlet does not inject CLR/GC flags.
+
+The full Go race suite, vet and Linux amd64/arm64 cross-builds pass.
+All **52** native Linux shim cases/subcases pass without skips.
+The four-language producer integration also passes the shared CLI/Maven
+conformance matrix and real deterministic Maven app-only publication followed
+by generic release composition; original BOM/scoped build metadata is retained.
+These component/producer results are not substitute native amd64 evidence.
+
+The separate [25-obligation checklist](composition-requirements.json) covers
+all proposal sections and uses `composition_check.py --require-complete` as
+its strict gate. Native amd64 has a dedicated manually dispatched `managed`
+E2E scenario and remains unqualified until its successful public result exists.
+The historic 111-obligation baseline remains separate.
+
 ## Flat launch schema and explicit Wasm qualification
 
 The user-approved schema now has optional top-level `runtimeImages`, not

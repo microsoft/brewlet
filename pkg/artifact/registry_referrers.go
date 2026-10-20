@@ -103,7 +103,7 @@ func (r *Registry) fallbackReferrers(ctx context.Context, subject v1.Descriptor)
 	q.Set("n", "100")
 	page.RawQuery = q.Encode()
 	prefix := "sha256-" + subject.Digest.Encoded() + "."
-	known := map[string]string{digest.FromString(MediaTypeCycloneDX).Encoded()[:12]: MediaTypeCycloneDX, digest.FromString(MediaTypeAttestation).Encoded()[:12]: MediaTypeAttestation}
+	known := map[string]string{digest.FromString(MediaTypeCycloneDX).Encoded()[:12]: MediaTypeCycloneDX, digest.FromString(MediaTypeAttestation).Encoded()[:12]: MediaTypeAttestation, digest.FromString(MediaTypeComposition).Encoded()[:12]: MediaTypeComposition}
 	var candidates []v1.Descriptor
 	invalidAttestation := false
 	visited := map[string]bool{}

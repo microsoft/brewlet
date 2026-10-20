@@ -4,18 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: Complete acceptance or explicitly partial control/cleanup debugging
+        description: Complete acceptance, partial control debugging, or managed dependency composition
         type: choice
         required: true
         default: complete
-        options: [complete, control]
+        options: [complete, control, managed]
 
 permissions:
   contents: read
 
 jobs:
   execution:
-    if: github.ref_name == 'brewlet-2.0'
+    if: github.ref_name == 'brewlet-2.0' && inputs.scenario != 'managed'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -114,5 +114,57 @@ jobs:
         with:
           name: real-node-execution-results
           path: acceptance-export/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  managed-composition:
+    if: github.ref_name == 'brewlet-2.0' && inputs.scenario == 'managed'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22.22.0"
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          global-json-file: integration-tests/fixtures/dotnet/global.json
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
+        with:
+          version: v3.19.0
+      - uses: Azure/setup-kubectl@c0c8b32d33a5244f1e5947304550403b63930415
+        with:
+          version: v1.35.0
+      - name: Install pinned kind
+        run: go install sigs.k8s.io/kind@v0.33.0
+      - name: Check required registry authentication utility
+        run: command -v htpasswd
+      - name: Managed composition, candidate compatibility, rollout and external-scanner facts
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 integration-tests/live-v2/managed.py --work integration-tests/live-v2/run-managed-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Export public identities and outcomes only
+        if: always()
+        run: |
+          mkdir -p acceptance-export
+          python3 acceptance/export_result.py \
+            integration-tests/live-v2/run-managed-${{ github.run_id }}-${{ github.run_attempt }}/result.json \
+            acceptance-export/managed-composition-amd64.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: managed-composition-amd64
+          path: acceptance-export/managed-composition-amd64.json
           if-no-files-found: error
           retention-days: 14

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "contract": "Proposal 0010",
+  "checks": {
+    "contracts": {
+      "command": "go test -race ./pkg/artifact ./pkg/inventory ./pkg/node ./provisioner ./cmd/brewlet",
+      "scope": "contract",
+      "outcome": "passed"
+    },
+    "maven": {
+      "command": "mvn -B -q -f maven-plugin/pom.xml verify",
+      "scope": "contract",
+      "outcome": "passed"
+    },
+    "documentation": {
+      "command": "make site-build",
+      "scope": "inspection",
+      "outcome": "passed"
+    },
+    "arm64": {
+      "command": "python3 integration-tests/live-v2/managed.py --work integration-tests/live-v2/run-managed-93",
+      "scope": "real-node",
+      "architecture": "arm64",
+      "outcome": "passed",
+      "result": "results/managed-composition-arm64.json"
+    },
+    "amd64": {
+      "command": "workflow_dispatch e2e.yml scenario=managed on a native ubuntu-24.04 runner",
+      "scope": "real-node",
+      "architecture": "amd64",
+      "outcome": "pending",
+      "result": "results/managed-composition-amd64.json"
+    }
+  },
+  "requirements": [
+    {"id": "COMP-01", "sections": ["1", "2", "5.1", "10/P1"], "requirement": "Independent real dependency payloads, complete locks, CycloneDX SBOMs and publisher provenance; normal application producers.", "checks": ["contracts", "maven", "arm64", "amd64"]},
+    {"id": "COMP-02", "sections": ["3", "5.1", "6"], "requirement": "One complete set and one explicit Linux platform; canonical pinned remote/local inputs; no inferred languages or resolution.", "checks": ["contracts", "arm64", "amd64"]},
+    {"id": "COMP-03", "sections": ["5.2", "5.3", "7"], "requirement": "Exact compressed app/dependency descriptors and diff IDs, layer ordering, launch preservation and deterministic output content.", "checks": ["contracts", "arm64", "amd64"]},
+    {"id": "COMP-04", "sections": ["3", "11/1-4"], "requirement": "All four languages run real dependencies on pinned unchanged upstream roots; HTTP, Exec/probe parity, non-root, read-only files and resources are observed.", "checks": ["arm64", "amd64"]},
+    {"id": "COMP-05", "sections": ["8", "11/5"], "requirement": "Configured candidate compatibility tests execute separately before native workload update; signatures never imply test approval.", "checks": ["contracts", "arm64", "amd64"]},
+    {"id": "COMP-06", "sections": ["8", "9", "11/5-6"], "requirement": "Dependency-only replacement preserves app/build/launch evidence, replaces normal processes and observes actual old/new image cohorts with controlled availability.", "checks": ["contracts", "arm64", "amd64"]},
+    {"id": "COMP-07", "sections": ["11/7"], "requirement": "Normal production task/root cleanup, host restoration, finalizer/claim release and exact-owned fixture destruction.", "checks": ["arm64", "amd64"]},
+    {"id": "COMP-08", "sections": ["9"], "requirement": "Read-only explicit-scope fleet export correlates protected running app/config/manifest identities, owner UIDs and package/file/PURL/SBOM evidence for external tooling.", "checks": ["contracts", "arm64", "amd64"]},
+    {"id": "COMP-09", "sections": ["4", "5.1"], "requirement": "Explicit production/development policy separates publisher and composer authorization; invalid present signatures never become unsigned fallback.", "checks": ["contracts"]},
+    {"id": "COMP-10", "sections": ["4", "11"], "requirement": "Key rotation, validity/expiry, revocation, signer identity and exact allowed/denied subjects are enforced.", "checks": ["contracts"]},
+    {"id": "COMP-11", "sections": ["5.1", "11"], "requirement": "Input/source/output platforms and index membership are verified; ambiguous members and wrong sizes/config mirrors fail.", "checks": ["contracts"]},
+    {"id": "COMP-12", "sections": ["5.2", "11"], "requirement": "Managed-file/ancestor shadowing, symlink redirects, ordinary/opaque whiteouts and file injection fail without semantic language inference.", "checks": ["contracts"]},
+    {"id": "COMP-13", "sections": ["5.1", "5.2", "8"], "requirement": "Only verified signed prior composition identifies replaceable dependency layers; arbitrary stripping and unsigned annotation authority fail.", "checks": ["contracts"]},
+    {"id": "COMP-14", "sections": ["5.2", "7"], "requirement": "Explicit launch replacement is validated and original/input/effective launch evidence and optional runtime allowlist semantics stay distinct.", "checks": ["contracts"]},
+    {"id": "COMP-15", "sections": ["5.3", "6"], "requirement": "Required validation/signing failures publish no accepted output or successful receipt; remote tags follow referrer/supporting-graph publication.", "checks": ["contracts"]},
+    {"id": "COMP-16", "sections": ["5.3", "7"], "requirement": "Immutable supporting OCI graphs, all required referrers and parent evidence survive registry transport/native or fallback discovery without credential crossing.", "checks": ["contracts", "arm64", "amd64"]},
+    {"id": "COMP-17", "sections": ["7"], "requirement": "Versioned signed final-manifest subject binds source roots/members, platform, app descriptors/diff IDs, set/config/lock/SBOM, launch order, output config and parent.", "checks": ["contracts"]},
+    {"id": "COMP-18", "sections": ["7"], "requirement": "Inspection separates structure, publisher provenance, composition signature and unevaluated external test approval; no invented Ratify/admission integration.", "checks": ["contracts", "documentation"]},
+    {"id": "COMP-19", "sections": ["8", "11"], "requirement": "Optional Maven producer retains BOM/graph/scope/classifier/hash checks and thin-JAR validation; app-only output retains honest original build metadata.", "checks": ["maven", "documentation"]},
+    {"id": "COMP-20", "sections": ["8", "9", "12"], "requirement": "Native release/GitOps updates and rollback remain external/current-policy controlled; no restart loop, hot swap, CRD or second shim pull.", "checks": ["contracts", "documentation"]},
+    {"id": "COMP-21", "sections": ["9", "11"], "requirement": "Unknown/missing evidence, registry failures, invalid signatures, stale observations and ambiguous runtime/config identities report unverified, not clean.", "checks": ["contracts"]},
+    {"id": "COMP-22", "sections": ["9", "11"], "requirement": "Scoped affected/control/staging and shared-image cohorts remain distinguishable; labels do not establish workload ownership.", "checks": ["contracts"]},
+    {"id": "COMP-23", "sections": ["9"], "requirement": "Exported standard SBOM/PURL facts support external advisory tools without a Brewlet scanner, database, naive version comparator or unsupported clean claim.", "checks": ["contracts", "documentation"]},
+    {"id": "COMP-24", "sections": ["11", "12"], "requirement": "Document producer/layout/trust/operator/remediation workflows and explicit input rejection, scope, permission and unchanged-runtime qualification limits.", "checks": ["documentation"]},
+    {"id": "COMP-25", "sections": ["11", "12"], "requirement": "Native architectures are separate; failures remain failures and prior 111 obligations are not relabeled as new feature acceptance.", "checks": ["contracts", "arm64", "amd64"]}
+  ]
+}

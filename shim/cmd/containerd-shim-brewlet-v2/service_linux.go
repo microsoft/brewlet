@@ -394,6 +394,7 @@ func (s *service) resolve(ctx context.Context, id string, annotations map[string
 		return nil, fmt.Errorf("LaunchConfigMismatch: selected manifest config differs from protected CRI config identity")
 	}
 	resolved.ContentRoots = contentCache.References()
+	resolved.Reference = canonical.String()
 	return resolved, nil
 }
 
@@ -521,7 +522,12 @@ func (s *service) assemble(ctx context.Context, r *taskapi.CreateTaskRequest, sp
 	appMount := specs.Mount{Destination: "/app", Type: "bind", Source: filepath.Join(r.Bundle, "rootfs", "app"), Options: []string{"rbind", "ro", "nosuid", "nodev"}}
 	// Explicit volume mounts under /app must follow the packaged RO mount.
 	spec.Mounts = append([]specs.Mount{appMount}, spec.Mounts...)
-	if err := store.SaveInitial(node.InitialState{Lease: lease, Process: *spec.Process, LayerRoots: layerRoots, ContentRoots: resolved.ContentRoots}); err != nil {
+	application := node.ApplicationIdentity{Reference: resolved.Reference, RootDigest: resolved.Target.Digest.String(),
+		ManifestDigest: resolved.ManifestDescriptor.Digest.String(), ConfigDigest: resolved.Manifest.Config.Digest.String(), Platform: resolved.Image.Platform}
+	if err := application.Validate(); err != nil {
+		return err
+	}
+	if err := store.SaveInitial(node.InitialState{Application: application, Lease: lease, Process: *spec.Process, LayerRoots: layerRoots, ContentRoots: resolved.ContentRoots}); err != nil {
 		return err
 	}
 	b, err := json.Marshal(spec)

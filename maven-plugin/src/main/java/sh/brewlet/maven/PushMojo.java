@@ -3,6 +3,8 @@ package sh.brewlet.maven;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.maven.artifact.Artifact;
@@ -46,6 +48,9 @@ public final class PushMojo extends AbstractJavaMojo {
     @Parameter(property = "brewlet.requireProvenance", defaultValue = "false")
     private boolean requireProvenance;
 
+    @Parameter(property = "brewlet.applicationOnly", defaultValue = "false")
+    private boolean applicationOnly;
+
     @Override
     public void execute() throws MojoExecutionException {
         if (platforms == null || platforms.isEmpty() || image == null || image.isBlank()) {
@@ -60,7 +65,14 @@ public final class PushMojo extends AbstractJavaMojo {
             List<Path> dependencies = new ArrayList<>();
             LayerSets.Trust trust = new LayerSets.Trust(trustKeys, signerIdentity, requireProvenance);
             List<String> pinned = new ArrayList<>();
-            if (!layerSets.isEmpty()) {
+            MavenGraph applicationGraph = null;
+            if (applicationOnly) {
+                if (!layerSets.isEmpty()) {
+                    throw new IOException("applicationOnly publishes a payload, not a composed managed image");
+                }
+                JavaProducer.requireThinJar(application.getFile().toPath());
+                applicationGraph = graph();
+            } else if (!layerSets.isEmpty()) {
                 if (layerSets.size() != 1) {
                     throw new IOException("Exactly one managed Java layer set is supported per application");
                 }
@@ -80,6 +92,14 @@ public final class PushMojo extends AbstractJavaMojo {
                     javaArgs, runtimeImages), output);
             if (!pinned.isEmpty()) {
                 JavaProducer.requireThinJar(prepared.application().resolve("app.jar"));
+            }
+            if (applicationGraph != null) {
+                Path evidence = prepared.application().resolve(".brewlet/application-build.json");
+                Files.createDirectories(evidence.getParent());
+                Files.write(evidence, applicationGraph.canonicalBytes());
+                Files.setLastModifiedTime(evidence, FileTime.fromMillis(0));
+                Files.setLastModifiedTime(evidence.getParent(), FileTime.fromMillis(0));
+                Files.setLastModifiedTime(prepared.application(), FileTime.fromMillis(0));
             }
             List<String> command = JavaProducer.command(executable, image,
                     store == null ? null : store.toPath(), platforms, pinned, prepared);

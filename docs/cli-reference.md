@@ -7,6 +7,9 @@ install runtime images or deploy Kubernetes workloads.
 | --- | --- |
 | `brewlet push REF` | Validate/package app/dependency layers and launch metadata, locally or remotely. |
 | `brewlet inspect REF` | Inspect the artifact's effective descriptor and layer/evidence structure. |
+| `brewlet compose REF` | Compose one pinned application and one locked dependency set under an explicit release policy. |
+| `brewlet verify REF` | Verify a pinned composition, keeping structural, publisher and release-signature evidence distinct. |
+| `brewlet inventory` | Export observed workload/dependency facts for external scanning; never mutate workloads or scan CVEs. |
 | `brewlet layer-set REF` | Publish an independently governed dependency layer set. |
 | `brewlet index REF` | Combine explicit platform manifest descriptors. |
 | `brewlet imagepush REF` | Copy an existing verified OCI graph from a local layout without rewriting bytes. |
@@ -58,6 +61,22 @@ Consumption/inspection can use repeated `--trust-key`, `--signer-identity` and
 These are layer-set trust options, not a general application signing command.
 Maven/BOM metadata is producer-owned and not interpreted by generic core.
 
+## Governed composition and observation
+
+`compose` requires one `--application`, one `--layer-set`, one `--platform` and
+an explicit `--policy`. Production also requires authorized `--signing-key`
+and `--builder-identity`. Optional `--launch` is an explicit, recorded
+replacement; `--store` chooses local publication and `--push-result` writes an
+atomic successful handoff.
+
+`verify REF --platform PLATFORM --policy FILE` checks a digest-pinned
+composition without publication. `inventory` requires explicit `--kubeconfig`,
+`--context`, repeated `--namespace`, and `--policy`; use `--output` for the JSON
+report and optional repeated `--workload Kind/namespace/name` selectors.
+Incomplete evidence produces a partial report and nonzero exit.
+See [governed composition](managed-composition.md) for policy, provenance and
+external scanning examples.
+
 ## Existing OCI graph publication
 
 ```sh
@@ -72,6 +91,8 @@ Brewlet launch/layer policy validation.
 
 The producer honors `BREWLET_REGISTRY_USERNAME`, `BREWLET_REGISTRY_PASSWORD` and
 an additional CA through `SSL_CERT_FILE`. Credentials are origin-bound.
+The release/observation commands require `BREWLET_REGISTRY_ORIGIN` with these
+environment credentials, or `--registry-auth FILE` for exact-origin mappings.
 Use `--registry-scheme https` for explicit TLS, including loopback registries.
 `--insecure` explicitly opts into HTTP; it is not a TLS verification bypass.
 

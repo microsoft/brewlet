@@ -5,17 +5,18 @@ import "time"
 const BindingsAnnotation = "brewlet.sh/runtime-bindings"
 
 type RuntimeBinding struct {
-	ContainerID         string `json:"containerID"`
-	ContainerdNamespace string `json:"containerdNamespace"`
-	PodUID              string `json:"podUID"`
-	PodName             string `json:"podName"`
-	PodNamespace        string `json:"podNamespace"`
-	ContainerName       string `json:"containerName"`
-	ID                  string `json:"id"`
-	InventoryUID        string `json:"inventoryUID"`
-	Generation          int64  `json:"generation"`
-	Digest              string `json:"digest"`
-	State               string `json:"state"`
+	Application         *ApplicationIdentity `json:"application,omitempty"`
+	ContainerID         string               `json:"containerID"`
+	ContainerdNamespace string               `json:"containerdNamespace"`
+	PodUID              string               `json:"podUID"`
+	PodName             string               `json:"podName"`
+	PodNamespace        string               `json:"podNamespace"`
+	ContainerName       string               `json:"containerName"`
+	ID                  string               `json:"id"`
+	InventoryUID        string               `json:"inventoryUID"`
+	Generation          int64                `json:"generation"`
+	Digest              string               `json:"digest"`
+	State               string               `json:"state"`
 }
 
 type BindingObservation struct {

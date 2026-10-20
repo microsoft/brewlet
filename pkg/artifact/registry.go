@@ -269,6 +269,7 @@ func (r *Registry) Pull(ctx context.Context, store Store) (v1.Descriptor, error)
 		return d, e
 	}
 	var importManifest func(v1.Descriptor, []byte) error
+	imported := map[digest.Digest]bool{}
 	importBlob := func(desc v1.Descriptor) error {
 		resp, e := r.do(ctx, "GET", r.endpoint("blobs", desc.Digest.String()), nil, "")
 		if e != nil {
@@ -288,6 +289,12 @@ func (r *Registry) Pull(ctx context.Context, store Store) (v1.Descriptor, error)
 		return nil
 	}
 	importManifest = func(desc v1.Descriptor, b []byte) error {
+		if imported[desc.Digest] {
+			return nil
+		}
+		if len(imported) >= 10000 {
+			return fmt.Errorf("OCI graph manifest limit exceeded")
+		}
 		got, e := store.Put(desc.MediaType, bytes.NewReader(b))
 		if e != nil {
 			return e
@@ -295,6 +302,7 @@ func (r *Registry) Pull(ctx context.Context, store Store) (v1.Descriptor, error)
 		if got.Digest != desc.Digest || got.Size != desc.Size {
 			return fail("DigestMismatch", "manifest mismatch")
 		}
+		imported[desc.Digest] = true
 		switch desc.MediaType {
 		case v1.MediaTypeImageIndex:
 			var idx v1.Index
@@ -325,6 +333,46 @@ func (r *Registry) Pull(ctx context.Context, store Store) (v1.Descriptor, error)
 				if e = importBlob(blob); e != nil {
 					return e
 				}
+				if m.ArtifactType == MediaTypeLayerSet || m.Annotations["brewlet.sh/artifact-version"] == "2" {
+					refs, err := r.Referrers(ctx, desc)
+					if err != nil {
+						return err
+					}
+					for _, ref := range refs {
+						got, data, err := r.fetchManifest(ctx, ref.Digest.String())
+						if err == nil && !sameSubject(got, ref) {
+							err = fail("DigestMismatch", "referrer manifest identity mismatch")
+						}
+						if err == nil {
+							err = importManifest(ref, data)
+						}
+						if err != nil && ref.ArtifactType != MediaTypeAttestation {
+							return err
+						}
+						if err = store.RecordReferrer(desc, ref); err != nil {
+							return err
+						}
+					}
+					materials, err := CompositionMaterials(store, desc)
+					if err != nil {
+						return err
+					}
+					for _, material := range materials {
+						if imported[material.Digest] {
+							continue
+						}
+						got, data, err := r.fetchManifest(ctx, material.Digest.String())
+						if err != nil {
+							return err
+						}
+						if !sameSubject(got, material) {
+							return fail("DigestMismatch", "composition material identity mismatch")
+						}
+						if err = importManifest(material, data); err != nil {
+							return err
+						}
+					}
+				}
 			}
 		default:
 			return fail("UnsupportedArtifact", "registry media type %s", desc.MediaType)
@@ -335,33 +383,12 @@ func (r *Registry) Pull(ctx context.Context, store Store) (v1.Descriptor, error)
 	if e != nil {
 		return d, e
 	}
-	var root v1.Manifest
-	if d.MediaType == v1.MediaTypeImageManifest && json.Unmarshal(b, &root) == nil && root.ArtifactType == MediaTypeLayerSet {
-		refs, e := r.Referrers(ctx, d)
-		if e != nil {
-			return d, e
-		}
-		for _, ref := range refs {
-			got, data, err := r.fetchManifest(ctx, ref.Digest.String())
-			if err == nil && (!sameSubject(got, ref)) {
-				err = fail("DigestMismatch", "referrer manifest identity mismatch")
-			}
-			if err == nil {
-				err = importManifest(ref, data)
-			}
-			if err != nil && ref.ArtifactType != MediaTypeAttestation {
-				return d, err
-			}
-			if e = store.RecordReferrer(d, ref); e != nil {
-				return d, e
-			}
-		}
-	}
 	return d, e
 }
 func (r *Registry) Push(ctx context.Context, store Store, target v1.Descriptor) error {
 	var pushManifest func(v1.Descriptor, string) error
 	nativeSubjects := map[digest.Digest]bool{}
+	pushed := map[digest.Digest]bool{}
 	pushBlob := func(d v1.Descriptor) error {
 		resp, e := r.do(ctx, "HEAD", r.endpoint("blobs", d.Digest.String()), nil, "")
 		if e != nil {
@@ -404,6 +431,13 @@ func (r *Registry) Push(ctx context.Context, store Store, target v1.Descriptor) 
 		return status(resp, 201)
 	}
 	pushManifest = func(d v1.Descriptor, key string) error {
+		if pushed[d.Digest] {
+			return nil
+		}
+		if len(pushed) >= 10000 {
+			return fmt.Errorf("OCI graph manifest limit exceeded")
+		}
+		pushed[d.Digest] = true
 		b, e := store.Read(d)
 		if e != nil {
 			return e
@@ -445,24 +479,57 @@ func (r *Registry) Push(ctx context.Context, store Store, target v1.Descriptor) 
 		if subject != nil {
 			nativeSubjects[d.Digest] = resp.Header.Get("OCI-Subject") == subject.Digest.String()
 		}
-		return nil
-	}
-	if e := pushManifest(target, r.Reference); e != nil {
-		return e
-	}
-	refs, e := store.Referrers(target)
-	if e != nil {
-		return e
-	}
-	for _, ref := range refs {
-		if e = pushManifest(ref, ref.Digest.String()); e != nil {
+		refs, e := store.Referrers(d)
+		if e != nil {
 			return e
 		}
-		if !nativeSubjects[ref.Digest] {
-			if e = pushManifest(ref, ReferrerTag(target, ref)); e != nil {
+		for _, ref := range refs {
+			if e = pushManifest(ref, ref.Digest.String()); e != nil {
+				return e
+			}
+			if !nativeSubjects[ref.Digest] {
+				data, err := store.Read(ref)
+				if err != nil {
+					return err
+				}
+				response, err := r.do(ctx, "PUT", r.endpoint("manifests", ReferrerTag(d, ref)),
+					func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(data)), nil }, ref.MediaType)
+				if err != nil {
+					return err
+				}
+				err = status(response, 201, 202)
+				response.Body.Close()
+				if err != nil {
+					return err
+				}
+			}
+		}
+		materials, e := CompositionMaterials(store, d)
+		if e != nil {
+			return e
+		}
+		for _, material := range materials {
+			if e = pushManifest(material, material.Digest.String()); e != nil {
 				return e
 			}
 		}
+		return nil
 	}
-	return nil
+	if e := pushManifest(target, target.Digest.String()); e != nil {
+		return e
+	}
+	if r.Reference == target.Digest.String() {
+		return nil
+	}
+	b, e := store.Read(target)
+	if e != nil {
+		return e
+	}
+	resp, e := r.do(ctx, "PUT", r.endpoint("manifests", r.Reference),
+		func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(b)), nil }, target.MediaType)
+	if e != nil {
+		return e
+	}
+	defer resp.Body.Close()
+	return status(resp, 201, 202)
 }

@@ -421,8 +421,10 @@ class Harness:
         require_owned(obj, self.run_id, self.owned[key])
         # An atomic UID precondition prevents an object replacement between GET and DELETE.
         resource = {"pod": "pods", "nodeprofile": "nodeprofiles", "runtimeimage": "runtimeimages",
-                    "namespace": "namespaces"}[kind.lower()]
-        prefix = "/api/v1" if kind.lower() in ("pod", "namespace") else "/apis/" + API
+                    "namespace": "namespaces", "deployment": "deployments",
+                    "service": "services"}[kind.lower()]
+        prefix = ("/apis/apps/v1" if kind.lower() == "deployment" else
+                  "/api/v1" if kind.lower() in ("pod", "namespace", "service") else "/apis/" + API)
         if namespace:
             prefix += "/namespaces/" + namespace
         self.kubectl("delete", "--raw", prefix + "/" + resource + "/" + name, "-f", "-",
