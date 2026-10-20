@@ -20,3 +20,6 @@ in the [archive index](../../archive/README.md).
   — proposed Secret/ConfigMap-backed truststore references for `JavaApplication`
 - [0009 — Brewlet 2.0: language-agnostic runtime images](0009-language-agnostic-runtime-images.md)
   — draft; breaking redesign replacing the JDK inventory with approved runtime images
+- [0010 — Governed dependency composition and remediation](0010-managed-dependency-composition.md)
+  — draft for review; producer/release composition, final-image evidence and
+  fleet remediation, not runtime dependency fetching
