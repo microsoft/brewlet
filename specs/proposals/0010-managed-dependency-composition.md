@@ -25,9 +25,7 @@ layer-set model:
 3. Release tooling composes pinned application and dependency artifacts into
    one final application image, preserving application-layer bytes.
 4. A separate release-builder identity attests the exact final composition.
-5. Operators can scan published bundles and answer both "what dependencies does
-   this application contain?" and "which applications contain this dependency
-   or CVE?" from actual running image digests.
+5. Fleet inventory traces actual running image digests to dependency evidence.
 6. Remediation replaces the dependency input, tests the new composition, and
    rolls native workloads to a new application digest.
 
@@ -64,9 +62,6 @@ two-published-artifact composition command.
   across composition and dependency-only updates.
 - Make the selected dependencies, producer identities and actual deployed
   image traceable and independently verifiable.
-- Make CVE scanning and bidirectional dependency-to-application attribution
-  first-class platform/operator workflows, not an exercise in manually joining
-  registry manifests and Kubernetes output.
 - Separate content integrity, publisher authorization, composition and
   application compatibility; none implies the others.
 - Qualify Java, Python, Node.js and .NET with real independently published sets
@@ -82,9 +77,6 @@ two-published-artifact composition command.
 - Claiming binary/API compatibility from an SBOM, a version number or a signature.
 - Restoring 1.x artifact formats or JVM-specific launch rewriting.
 - A new generic producer plugin framework.
-- Proving arbitrary application code contains no embedded third-party code.
-  Strict build-content controls remain an optional external policy, not this
-  feature's default guarantee.
 
 ## 4. Roles and trust
 
@@ -275,163 +267,48 @@ recompilation. That must be tested; the old Maven build graph cannot be relabele
 as the newly tested graph. Equivalent ecosystem-specific responsibilities stay
 in application CI/producer tooling for Python, Node and .NET.
 
-## 9. Operator dependency inventory, CVE scanning and remediation
+## 9. Fleet inventory and remediation workflow
 
-### 9.1 Required operator questions
+First provide a read-only inventory/export path that:
 
-The initial feature MUST make these questions directly answerable:
-
-- What packages and versions are in this published managed bundle, and which
-  known CVEs apply to its verified SBOM?
-- Which applications, namespaces and actual running containers contain package
-  X, package/version X, bundle digest B or a finding for CVE Y?
-- Which dependency sets, packages and CVE findings belong to application A?
-- During a rollout, which old/new image digests still contain the affected
-  dependency, and how many containers of each remain?
-- What could not be verified or scanned, and why?
-
-Here, "contains"/"uses" means the dependency is included in the verified
-composition of the observed running image. It MUST NOT imply that the process
-has loaded that file, that the vulnerable code is reachable/exploitable, or
-that the app contains no other copies.
-
-### 9.2 Scan once, attribute across applications
-
-Platform users MUST be able to scan an approved published dependency set before
-any application uses it. Operators MUST be able to scan a selected fleet without
-separately learning registry traversal or stitching reports together manually.
-
-Inventory and vulnerability analysis are distinct operations:
-
-1. Capture the explicitly selected cluster/namespace/workload scope.
-2. Record actual Pod UID, container ID and observed running application identity.
-3. Verify the OCI graph, composition evidence and exact set/SBOM bindings.
-4. Extract normalized package/file identities, versions, PURLs and provenance.
-5. Scan each distinct verified SBOM document once per applicable scanner/DB
-   snapshot, then join findings back to every observed application/container.
+1. selects explicit namespaces/workloads;
+2. records actual Pod UID/container ID and observed running image identity;
+3. resolves/verifies the application OCI digest and composition evidence;
+4. follows the exact dependency-set/SBOM bindings;
+5. exports package/file identities, versions and PURLs with their provenance.
 
 Do not assume every CRI `imageID` is the image manifest digest. Correlate
 protected/observed identities and verified OCI membership rather than guessing
 from a tag, desired Deployment spec or an unrelated config digest.
 
-Workload attribution MUST follow controller owner references and UIDs, such as
-Pod -> ReplicaSet -> Deployment or Pod -> Job -> CronJob; matching labels alone
-are not ownership. Standalone Pods and unavailable owner chains remain explicit.
-The application identity includes cluster, namespace, workload kind/name/UID,
-not just a display name shared across namespaces.
+Missing evidence, inaccessible registries, invalid signatures and ambiguous
+identity MUST be reported as **unverified**, not clean.
+Namespace exclusions and stale snapshots must remain visible in the report.
 
-Rolling workloads MUST retain separate old/new digest and dependency cohorts.
-A single desired template or a newly published bundle cannot make old running
-containers appear remediated.
+Vulnerability evaluation consumes these facts through an explicitly configured
+scanner/advisory source. Generic core MUST NOT apply one naive version comparator
+to Maven, PEP 440, npm and NuGet ranges.
+Fixture advisories can drive deterministic tests; they are not a production
+vulnerability database.
 
-### 9.3 Scanner boundary and freshness
-
-Provide at least one documented, pinned scanner profile accepting the verified
-CycloneDX SBOM and returning normalized findings. Reuse established scanner
-tooling rather than implementing a vulnerability database or package resolver
-inside Brewlet.
-Generic core MUST NOT apply one naive version comparator to Maven, PEP 440,
-npm and NuGet ranges. Findings must preserve ecosystem/PURL qualifiers.
-
-A scan result MUST identify the SBOM document digest, scanner/version or binary
-digest, scanner configuration/policy digest, advisory database identity and
-timestamp, scan time and any matching limitations. Cache keys include these
-identities; a newer database or changed policy invalidates a prior scan verdict.
-Publisher/composer trust must be reevaluated under current policy separately
-from reuse of cached vulnerability facts.
-
-Missing evidence, inaccessible registries, invalid signatures, scanner failure,
-ambiguous identity and disallowed staleness MUST be **unverified**, not a
-successful empty scan. Preserve error reasons per artifact/workload.
-Reports MUST distinguish known findings, no known findings under the stated
-coverage/DB, unverified inputs and explicitly excluded/out-of-scope objects.
-One status must not erase another: a workload can have known findings and
-additional unverified coverage at the same time.
-
-Fixture advisories drive deterministic tests; they are not a production
-vulnerability database. No known findings is not proof that a package is safe.
-
-### 9.4 Coverage must be visible
-
-| Content | Required reporting boundary |
-| --- | --- |
-| Managed dependency set | Mandatory verified inventory and scan coverage for this feature. |
-| Application-embedded/unmanaged content | Not exhaustively discovered by composition. Mark coverage unavailable unless a separately validated app SBOM/scanner supplies it. |
-| Infrastructure runtime packages | Separate coverage. If included, correlate its SBOM with the actual leased inventory UID/generation/source digest, not the ID's current target. Missing runtime SBOM is unknown coverage. |
-
-A patched managed bundle MUST NOT cause an entire application to be labeled
-"CVE-free" or "clean." Keep managed, application and runtime coverage separate.
-Including additional app/runtime SBOMs must not turn their absence into a zero
-dependency count. The initial managed feature need not implement every
-additional scanner path to report these boundaries accurately.
-
-### 9.5 Proposed operator experience
-
-These interfaces **do not exist today**; names/flags are proposed alongside the
-composition interface. One operation should capture inventory, scan and join
-the result, with report reuse for offline queries:
-
-```sh
-brewlet dependencies scan \
-  --kubeconfig "$KUBECONFIG" --context production \
-  --namespace payments --scanner scanner-profile.yaml \
-  --output dependency-report.json
-
-brewlet dependencies where-used --report dependency-report.json \
-  --purl pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1
-
-brewlet dependencies where-used --report dependency-report.json \
-  --cve CVE-2021-44228
-
-brewlet dependencies list --report dependency-report.json \
-  --workload Deployment/payments/orders
-```
-
-An equivalent scan input for a pinned published `--layer-set` reference MUST
-work without a Kubernetes cluster. `where-used` MUST also support exact bundle
-digest queries and unversioned package identity queries without conflating
-distinct versions. CVE identifiers above are illustrative queries, not current
-scan results.
-
-Default human output MUST show package/version, CVE/severity when present,
-namespace/workload, observed image digest/cohort, affected container count and
-coverage warnings. Structured output MUST be schema-versioned and contain the
-full evidence relationships for CI, fleet reporting and external dashboards.
-Exit behavior MUST support explicit severity thresholds and fail-on-unverified
-policy without discarding either findings or uncertainty from the report.
-
-Snapshots MUST state collection start/end times, cluster/scope, omissions and
-freshness. Multiple API reads are not an atomic cluster snapshot; changes
-during capture must not silently attribute a replacement object to an old UID.
-
-The tool is read-only: minimum Kubernetes inventory permissions plus explicitly
-configured registry/scanner access. Never export registry credentials, pull
-Secrets, kubeconfigs or signing keys in reports. Scanning MUST NOT modify
-workloads, approve dependencies or request privileged node changes.
-
-### 9.6 Remediation and verification
-
-The release workflow publishes a replacement set, composes candidates, tests
-them, updates native workload manifests and observes actual rollout.
+The release workflow then publishes a replacement set, composes candidates,
+tests them, updates native workload manifests and observes actual rollout.
 Post-remediation inventory MUST show the new running application digests and
-dependency identities, including any old/terminating containers still present.
-It MUST NOT report success from a template patch alone.
+dependency identities. It MUST NOT report success from a template patch alone.
 No dependency-update loop is added to the node provisioner.
 
 ## 10. Implementation milestones
 
 | Milestone | Deliverable | Exit criteria |
 | --- | --- | --- |
-| P1: contract, producer and operator experience | Review this contract; add concrete platform/application Maven projects and neutral publication examples; define inventory/scan/where-used report contracts with existing evidence fixtures. | Current mechanisms are documented/tested; operator questions, output coverage and failure states are specified before implementation. |
+| P1: contract and producer experience | Review this contract; add concrete platform/application Maven projects and neutral publication examples. | Current mechanisms are documented/tested; new commands remain explicitly proposed until implemented. |
 | P2: initial generic composition | App-payload plus one managed set, strict paths/platforms, byte-preserving output and deterministic result handoff. | No language inference; all malformed/collision/unknown-input cases fail; initial composition works locally. |
 | P3: composition trust | Versioned predicate, signing, verification, key/identity policy and inspect output. | Subject/digest/order tampering and unsigned downgrade fail; signing failures publish no accepted output. |
 | P4: dependency replacement | Accept verified prior compositions; replace the set while preserving app layers/launch unless explicitly changed. | Original build evidence stays intact; compatibility tests run against the new digest; no unverified layer stripping. |
-| P5: fleet/remediation qualification | Read-only inventory, published-bundle/fleet scanning, bidirectional where-used queries, release/GitOps example and real-node matrix. | One scan joins shared dependencies to every actual application cohort; known findings/no-known-findings/unverified coverage, rollout and rollback/revocation behavior are proven. |
+| P5: fleet/remediation qualification | Read-only inventory, scanner integration boundary, release/GitOps example and real-node matrix. | Affected/unaffected/unverified cases, complete rollout observation and rollback/revocation behavior are proven. |
 
 P3 depends on P2; P4 depends on P2/P3; P5's release scenario depends on P4.
-Read-only inventory/scanning/where-used implementation can start from existing
-layer-set evidence in parallel with composition work. Legacy evidence confidence
-must remain distinct from the proposed verified final-composition provenance.
+Read-only inventory prototyping and P1 documentation can be developed separately.
 No parallel orchestration or credit budget is authorized by this plan.
 
 ## 11. Required acceptance matrix
@@ -469,16 +346,6 @@ Additional mandatory cases:
 - missing/invalid final composition evidence and no accepted output after failure;
 - old/new source references and app-layer digests preserved across replacement;
 - affected control/staging workloads and unknown images handled correctly;
-- one shared dependency/SBOM mapped to multiple applications and namespaces,
-  with both package-to-workload and workload-to-package queries;
-- bundle-only scans without a cluster, deduplicated SBOM scans across a fleet,
-  and cache invalidation on advisory database/scanner/policy changes;
-- mixed old/new rollout cohorts with accurate per-digest/container attribution,
-  UID-safe owner-chain traversal, standalone Pods and partial RBAC access;
-- scanner outages, stale DB/reports, missing SBOM/signatures, registry failures
-  and unknown application/runtime coverage never producing a false clean result;
-- package/version/PURL qualifiers, CVE queries, severity thresholds and
-  fail-on-unverified behavior retained in both human and structured reports;
 - zero dropped requests for the deliberately configured availability scenario,
   not a universal zero-downtime product guarantee.
 
@@ -489,9 +356,7 @@ The existing 111-requirement baseline does not qualify this proposed feature.
 ## 12. Documentation and release boundaries
 
 Publish an end-to-end platform-to-application guide, generic composition
-reference, trust/attestation reference, operator quickstart and remediation
-runbook. The operator quickstart MUST demonstrate scan, where-used and
-application-dependency listing without manual manifest/SBOM joins.
+reference, trust/attestation reference and remediation runbook.
 Examples must use explicit platforms, immutable references and readable
 configuration, not an invented runtime dependency annotation.
 
