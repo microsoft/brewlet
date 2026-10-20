@@ -293,9 +293,10 @@ That receipt covers generic `push --layer-set` consumption, not the later
 ## Governed external dependency replacement
 
 **Current scope:** the managed companion passed 18 selected assertions on
-native arm64, including normal cleanup. Its
-[public receipt](../acceptance/results/managed-wasm-composition-arm64.json)
-does not qualify native amd64; that architecture has a separate required check.
+each native architecture, including normal cleanup. Separate
+[arm64](../acceptance/results/managed-wasm-composition-arm64.json) and
+[amd64](../acceptance/results/managed-wasm-composition-amd64.json) receipts
+record actual execution; one does not substitute for the other.
 
 Proposal 0010 explicitly requires both the Wasmtime command and Spin HTTP
 component, in addition to Java, Python, Node.js and .NET. Its
@@ -344,8 +345,9 @@ components. It requires actual guest behavior, security/cache exclusion,
 observed image/package identities and normal host/profile cleanup before
 exact-owned fixture destruction. Public pass/failure receipts and architecture
 status are recorded in [validation results](../acceptance/RESULTS.md).
-The manually dispatched E2E workflow's `managed-wasm` scenario supplies the
-separate native amd64 execution; a cross-build is not that evidence.
+The manually dispatched E2E workflow's `managed-wasm` scenario passed its
+separate [native amd64 run](https://github.com/microsoft/brewlet/actions/runs/39454221579);
+a cross-build is not that evidence.
 
 For your own deployment, build and publish reviewed runtime/application images,
 use the [installation](installation.md) and [trust](registry-trust.md) guides,

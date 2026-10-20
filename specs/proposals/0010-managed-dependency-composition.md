@@ -70,6 +70,9 @@ two-published-artifact composition command.
   application compatibility; none implies the others.
 - Qualify Java, Python, Node.js and .NET with real independently published sets
   and compatible unchanged upstream runtime images.
+- Qualify WebAssembly through both Wasmtime and Spin, preserving explicit guest
+  capabilities and actual platform-built host provenance in a separate companion
+  scope (§11.1); do not treat native-language receipts as implicit Wasm proof.
 
 ### Non-goals
 

@@ -12,6 +12,33 @@ SPEC.loader.exec_module(CHECK)
 
 
 class CompositionLedgerTests(unittest.TestCase):
+    def test_wasm_provenance_and_actual_companion_scope_cannot_be_replaced_by_labels(self):
+        original = json.loads((ROOT / "results/managed-wasm-composition-arm64.json").read_text())
+        for case in ("valid", "missing-spin", "old-runtime-suite", "false-upstream-root", "missing-guest-hash"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                result = copy.deepcopy(original)
+                if case == "missing-spin":
+                    result["selectedLanguages"] = ["wasmtime"]
+                elif case == "old-runtime-suite":
+                    result["selectedScenario"] = "wasm-runc-examples"
+                elif case == "false-upstream-root":
+                    for revisions in result["wasmRuntimes"].values():
+                        for record in revisions.values():
+                            record["sourceKind"] = "unchanged-upstream-engine-image"
+                elif case == "missing-guest-hash":
+                    result["wasmGuestInputs"]["command"].pop("sha256")
+                path = Path(directory) / "result.json"
+                path.write_text(json.dumps(result))
+                document = copy.deepcopy(self.document)
+                for name in CHECK.NATIVE_SCOPES:
+                    document["checks"][name]["outcome"] = "pending"
+                document["checks"]["wasm-arm64"].update(outcome="passed", result="result.json")
+                errors, _ = CHECK.validate(document, Path(directory))
+                if case == "valid":
+                    self.assertFalse(errors)
+                else:
+                    self.assertTrue(errors)
+
     def setUp(self):
         self.document = json.loads((ROOT / "composition-requirements.json").read_text())
 

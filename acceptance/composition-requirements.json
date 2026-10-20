@@ -42,7 +42,7 @@
       "command": "workflow_dispatch e2e.yml scenario=managed-wasm on a native ubuntu-24.04 runner",
       "scope": "real-node",
       "architecture": "amd64",
-      "outcome": "pending",
+      "outcome": "passed",
       "result": "results/managed-wasm-composition-amd64.json"
     }
   },

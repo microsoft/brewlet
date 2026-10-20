@@ -30,8 +30,12 @@ linked library, dynamic component or production CVE. Compiled-in fixes require
 a guest rebuild; engine/OS fixes require runtime-image rotation.
 Proposal 0009 now explicitly lists WebAssembly with Java, Python, Node.js and
 .NET. Proposal 0010 and its **29-obligation** gate require both Wasm hosts on
-both native architectures. Native amd64 is pending its separate
-`managed-wasm` E2E receipt; four-language receipts cannot close that gap.
+both native architectures. The separate
+[native amd64 E2E run](https://github.com/microsoft/brewlet/actions/runs/39454221579)
+also passed **18 selected assertions**, normal cleanup and exact-owned fixture
+destruction, with its own [public receipt](results/managed-wasm-composition-amd64.json).
+All 29 composition obligations are now qualified; four-language receipts alone
+cannot close the Wasm obligations.
 
 ## Proposal 0010 governed composition
 

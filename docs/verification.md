@@ -17,7 +17,7 @@ and [exact commands, sources and scoped results](https://github.com/microsoft/br
 | 28-assertion unchanged-upstream companion | Pinned shell-free Java/Python/Node/static roots, real source rotation, numeric pathless execution, isolated `/app`, held Exec across worker/daemon restarts, revocation and normal cleanup on arm64. |
 | 18-assertion Wasm/runc companion | Wasmtime command and Spin SDK HTTP component, independent layer-set composition, explicit guest access, separate engine cache, exact exit 37, host-version updates, real Exec recovery and normal cleanup on arm64. |
 | Separate 32-assertion managed-composition runs | Java/Python/Node/Canonical .NET unchanged roots on native arm64 and amd64, independently signed complete sets, preserved app/launch bytes, candidate compatibility checks, controlled native rolling updates, observed package/SBOM export and normal cleanup. |
-| Separate 18-assertion managed Wasm companion | Signed external asset composition/replacement for Wasmtime and Spin on native arm64, actual guest hashes/behavior, candidate checks, native Deployment rollout, observed package/SBOM export and normal cleanup; amd64 pending. |
+| Separate 18-assertion managed Wasm runs | Signed external asset composition/replacement for Wasmtime and Spin on native arm64 and amd64, actual guest hashes/behavior, candidate checks, native Deployment rollout, observed package/SBOM export and normal cleanup. |
 
 The upstream-runtime amendment adds six obligations to the historical
 101-requirement baseline. Its source pins are recorded in the
@@ -52,7 +52,7 @@ no built-in CVE scanner.
 The additional [managed Wasm companion](webassembly.md#governed-external-dependency-replacement)
 is mandatory and separately scoped; the older runtime-only Wasm receipt and
 four-language passes cannot qualify it. Both named hosts passed locally on
-arm64; its native amd64 proof remains a separate gate.
+arm64 and in the separate [native amd64 run](https://github.com/microsoft/brewlet/actions/runs/39454221579).
 
 ## Reproduce component checks
 
