@@ -4,17 +4,56 @@
 
 The sections below preserve historical executions and their original scope.
 Their "verified" and "qualified" counts are historical declarations, **not**
-qualification of the corrected P1 candidate. No old receipt has been relabeled.
+qualification of the current candidate. No old receipt has been relabeled.
 The hardened gate requires matching immutable source/input identities, passing
 assertion coverage, successful production cleanup and fixture destruction.
 
 Fresh complete, managed-native, and managed-Wasm executions are still required
-on both native amd64 and arm64. No live runs were dispatched for this remediation.
+on both native amd64 and arm64. The authorized attempts below failed and do not
+qualify the candidate. Qualification is stopped at the failure-review boundary.
 Native capacity tests do not establish cloud-provider scale-from-zero.
 See [the qualification procedure](README.md#fresh-native-qualification).
 Main protection remains deferred at the user's direction; no settings changed.
 Additional Microsoft container distribution-policy text requires release-owner
 confirmation rather than fabricated legal material.
+
+## Frozen 56dccc25 execution attempt: stopped, not qualified
+
+Source checkout: `56dccc256d0431ed96abe8a4b94691001a8a4b0e`;
+identity version `1`; production hash
+`bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462`;
+qualification-input hash
+`7ba14cbdef252f30e7f854e8f71d63d3e4576ed577ffc422b010a700b27c0cfc`.
+
+The non-live [amd64 execution](https://github.com/microsoft/brewlet/actions/runs/39673571516)
+and [arm64 execution](https://github.com/microsoft/brewlet/actions/runs/39673721658)
+passed. All sixteen per-run public receipts (twelve distinct check filenames)
+were reviewed against their original identities, commands, scopes, assertion
+coverage and architecture. They remain evidence for this source only.
+
+The native complete [amd64 attempt](https://github.com/microsoft/brewlet/actions/runs/39675536254)
+and [arm64 attempt](https://github.com/microsoft/brewlet/actions/runs/39675599495)
+both failed in `prepare_components`, before building component images or
+installing runtimes: `actual production build context differs from immutable
+candidate`. Both core receipts are failed/unclean. Exact-owned fixture
+destruction passed, explicitly **not** production cleanup evidence. The other
+twenty native receipt filenames were not produced; no native suite qualified.
+The managed and managed-Wasm dispatches were not started; no attempt was retried.
+
+The original public receipt bytes are archived under
+`results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-RUN_ID/`.
+Their identities/outcomes are not rewritten or mapped as current successful
+qualification. A change to any qualification input invalidates reuse of these
+non-live successes, even if the production source hash is unchanged.
+
+Read-only reproduction identified different serialization orderings:
+the live snapshot traversed sorted `Path` components, while the immutable
+identity sorted full string keys. The same tracked file/digest map hashes to
+`a8dd8c459e695dc89647b13035bfab8e69addf757f27dfb569eda13c683453ca`
+in Path order, versus the canonical production hash above. The private runner
+manifests were not uploaded, so no private file-by-file comparison is claimed.
+The repair must share canonical serialization, retain strict equality, and
+receive a new reviewed input identity and explicit execution authorization.
 
 ## Historical results
 
