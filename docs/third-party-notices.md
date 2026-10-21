@@ -32,6 +32,7 @@ go run ./scripts/notice --goos linux --goarch arm64 \
 Both Dockerfiles generate notices in the builder and copy `/NOTICE.txt` and
 `/LICENSE.txt` into the final image. The control image ships both operator and
 admission by default; the explicit admission release target ships admission.
+That target generates a separate notice set for its admission-only dependencies.
 The worker ships brewlet-node and the containerd shim. The obsolete
 standalone kubectl/ctr/crictl downloads and their former manifest do not apply.
 Base-image license material remains in its original filesystem locations.

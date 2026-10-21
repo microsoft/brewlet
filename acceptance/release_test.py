@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 from scripts import release as r
 from scripts import release_assurance as a
+from scripts import publish_release as p
+from scripts import release_tools as tools
 
 
 class IdentityTests(unittest.TestCase):
@@ -135,6 +137,46 @@ class AssuranceTests(unittest.TestCase):
             (path / "sboms/index.json").write_text("{}")
             with self.assertRaisesRegex(ValueError, "legal/container policy"):
                 a.publication_ready(path)
+
+
+class PublicationTests(unittest.TestCase):
+    def test_exact_existing_tag_manual_context_and_confirmation_are_required(self):
+        import os
+        config = r.policy()
+        environment = {"GITHUB_REPOSITORY": "microsoft/brewlet",
+                       "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_SHA": "a" * 40}
+        with patch.dict(os.environ, environment), \
+                patch.object(p, "publication_ready", return_value={"candidate": {"checkout": "a" * 40}}), \
+                patch.object(p, "run", return_value="a" * 40):
+            p.preflight(Path("synthetic"), "publish-v" + config["version"])
+            with self.assertRaisesRegex(ValueError, "confirmation"):
+                p.preflight(Path("synthetic"), "yes")
+            with patch.dict(os.environ, {"GITHUB_REPOSITORY": "fork/brewlet"}), self.assertRaises(ValueError):
+                p.preflight(Path("synthetic"), "publish-v" + config["version"])
+            with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push"}), self.assertRaises(ValueError):
+                p.preflight(Path("synthetic"), "publish-v" + config["version"])
+            with patch.object(p, "run", return_value="b" * 40), self.assertRaisesRegex(ValueError, "exact candidate"):
+                p.preflight(Path("synthetic"), "publish-v" + config["version"])
+
+    def test_a_conflicting_image_version_is_never_overwritten(self):
+        import os
+        document = {"images": {name: {"digest": "sha256:" + "a" * 64} for name in r.policy()["images"]}}
+        with patch.dict(os.environ, {"GITHUB_ACTOR": "fixture", "GH_TOKEN": "synthetic-not-a-credential"}), \
+                patch.object(p.subprocess, "run"), \
+                patch.object(p, "registry_digest", return_value="sha256:" + "b" * 64), \
+                patch.object(p, "run") as transfer, \
+                self.assertRaisesRegex(ValueError, "overwrite different"):
+            p.publish_images(Path("synthetic"), document)
+        transfer.assert_not_called()
+
+    def test_tool_integrity_failure_does_not_install_or_execute(self):
+        with tempfile.TemporaryDirectory() as temp, patch.object(tools.platform, "system", return_value="Linux"), \
+                patch.object(tools.platform, "machine", return_value="x86_64"), \
+                patch.object(tools.urllib.request, "urlopen", return_value=io.BytesIO(b"tampered-tool")), \
+                self.assertRaisesRegex(ValueError, "checksum mismatch"):
+            destination = Path(temp) / "tools"
+            tools.install("syft", destination)
+        self.assertFalse(destination.exists())
 
 
 if __name__ == "__main__":

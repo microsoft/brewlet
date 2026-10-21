@@ -427,6 +427,7 @@ def build(output, selection, target):
     if selection in ("all", "chart"):
         build_chart(output, config)
     if selection in ("all", "seal"):
+        require(working_identity() == identity, "candidate source changed during packaging")
         validate_payloads(output, config)
         write_json(output / "candidate.json", inventory(output, config, identity))
         (output / "checksums.txt").write_text("".join(
