@@ -101,14 +101,51 @@ does not prove actual cloud-provider scale-from-zero. A provider-qualified
 claim needs separate provider evidence; do not invent that claim or make it a
 prerequisite for obligations explicitly scoped to native pending-capacity tests.
 
-## Required-check surfaces
+## Routine validation versus promotion qualification
 
-`v2-ci.yml` reports stable `Brewlet validation` and
-`Brewlet candidate acceptance` jobs on main/brewlet-2.0 pushes and PRs.
-Validation fails if any ordinary dependency fails, cancels, or skips.
-Candidate acceptance always executes the strict gate; it is not opt-in.
-No path filter suppresses these checks. This prepares main-compatible routing
-without promoting histories or changing Pages.
+`v2-ci.yml` reports `Brewlet validation` on main/brewlet-2.0 pushes and PRs.
+It covers ordinary correctness, producer integration, both native overlay
+architectures and legal packaging. Its aggregate fails if any dependency fails,
+cancels or skips; no path filter suppresses it. Missing promotion evidence does
+not make ordinary development validation fail. Green routine CI is **not**
+promotion qualification.
+
+The separate `.github/workflows/promotion-qualification.yml` has only manual
+`workflow_dispatch` and reusable `workflow_call` entrypoints. Select the
+corrected candidate branch in the Actions UI when an authorized qualification
+check is needed. The `Brewlet promotion qualification` job checks out the
+invoking event's immutable SHA with full history and read-only repository
+permission, then always runs `make acceptance`. Missing, stale, failed,
+wrong-scope or incomplete evidence makes that workflow fail. It never creates
+clusters, executes live scenarios, publishes a release or merges code.
+
+A future authorized promotion/publishing workflow must call the reusable gate:
+
+```yaml
+jobs:
+  qualification:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/promotion-qualification.yml
+```
+
+Its actual promotion job must declare `needs: [qualification]` and require
+`${{ needs.qualification.result == 'success' }}`. Failed, cancelled, skipped
+or missing qualification must not permit promotion. Do not use
+`continue-on-error`, an opt-out input or a fallback success to bypass the gate.
+Reusable calls retain the caller's original event and candidate SHA; they do
+not require an event named `workflow_call`.
+
+There is currently **no publishing workflow** in this branch to attach that
+promotion job to. This reusable interface and caller contract do not enforce
+external/manual promotion actions or introduce release/tag triggers. Those
+actions still require their own authorization and integration.
+
+Workflow changes are qualification inputs, so this separation does not
+legitimize historical receipts: fresh evidence must match the corrected
+candidate. The old acceptance check's lingering `IN_PROGRESS` record despite
+its completed failed execution is a separate GitHub status inconsistency,
+not something this routing change claims to repair.
 
 Main branch protection is unchanged and remains an explicit user-deferred
 promotion risk. This work does not apply a ruleset or require review approvals.

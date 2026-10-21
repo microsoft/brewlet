@@ -31,18 +31,16 @@ class WorkflowTests(unittest.TestCase):
                         cwd=directory, capture_output=True)
                     self.assertEqual(not skipped, result.returncode == 0, (name, skipped))
 
-    def test_validation_is_main_compatible_unfiltered_and_has_separate_strict_gate(self):
+    def test_routine_validation_is_main_compatible_without_promotion_qualification(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
         self.assertIn("branches: [main, brewlet-2.0]", text)
         self.assertIn("  pull_request:", text)
         self.assertNotIn("paths:", text)
         self.assertNotIn("pull_request_target", text)
         self.assertNotIn("release_gate", text)
-        gate = text.split("  candidate-acceptance:", 1)[1].split("\n  validation:", 1)[0]
-        self.assertIn("name: Brewlet candidate acceptance", gate)
-        self.assertIn("run: make acceptance", gate)
-        self.assertNotIn("if:", gate)
-        self.assertIn("fetch-depth: 0", gate)
+        self.assertNotIn("candidate-acceptance", text)
+        self.assertNotIn("make acceptance", text)
+        self.assertNotIn("promotion-qualification", text)
         aggregate = text.split("  validation:", 1)[1].split("\n  producer-integration:", 1)[0]
         self.assertIn("if: always()", aggregate)
         self.assertIn("needs: [contracts, producer-integration, linux-overlay-contract]", aggregate)
@@ -53,6 +51,22 @@ class WorkflowTests(unittest.TestCase):
                 environment[dependency] = value
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertEqual(value == "success", result.returncode == 0, (dependency, value))
+
+    def test_promotion_qualification_is_manual_reusable_and_always_strict(self):
+        text = (ROOT / ".github/workflows/promotion-qualification.yml").read_text()
+        triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertEqual(["  workflow_dispatch:", "  workflow_call:"],
+                         [line for line in triggers.splitlines() if line.strip()])
+        self.assertIn("name: Brewlet promotion qualification", text)
+        self.assertIn("contents: read", text)
+        self.assertIn("ref: ${{ github.sha }}", text)
+        self.assertIn("fetch-depth: 0", text)
+        self.assertIn("persist-credentials: false", text)
+        self.assertIn("run: make acceptance", text)
+        for bypass in ("if:", "continue-on-error", "||", "inputs.", "secrets.",
+                       "--structure-only", "qualify.py --run", "e2e.yml", "workflow run"):
+            self.assertNotIn(bypass, text)
+        self.assertNotIn("event_name", text, "reusable calls retain the caller's original event")
 
     def test_live_work_is_manual_native_and_same_repository_branch_only(self):
         text = (ROOT / ".github/workflows/e2e.yml").read_text()
