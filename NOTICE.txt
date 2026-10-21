@@ -8,10 +8,10 @@ This index is not an aggregated third-party license or a compliance opinion.
 CLI build
     make build places brewlet, LICENSE.txt and generated NOTICE.txt in bin/.
     go run ./scripts/notice --output bin/NOTICE.txt ./cmd/brewlet
-    Keep both text files beside the binary when distributing it. This branch
-    does not implement release archive publishing.
+    Keep both text files beside the binary when distributing it. Candidate
+    archives include both resources; packaging does not authorize publication.
 
-Control container (operator and admission in one image)
+Control container (default operator/admission image and explicit admission target)
     kubernetes/Dockerfile generates /NOTICE.txt for both linked executables
     and copies Brewlet's license to /LICENSE.txt.
     go run ./scripts/notice --goos linux --goarch amd64 \
@@ -36,7 +36,8 @@ Static website/documentation preview
     .github/workflows/site-pages.yml; it does not publish production Pages.
 
 Helm chart
-    The chart embeds configuration, not third-party executable code.
+    The chart embeds configuration, not third-party executable code. Candidate
+    packages include this index and LICENSE.txt.
 
 Container base-image license and attribution files remain in their original
 filesystem locations; generated Go notices do not replace them. No additional

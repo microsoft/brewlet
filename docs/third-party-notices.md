@@ -9,7 +9,9 @@ dependencies actually selected for redistribution.
 
 `make build` writes the CLI with `CGO_ENABLED=0`, `LICENSE.txt`, and `NOTICE.txt` to `bin/`.
 Keep the two text files with the executable when distributing that directory.
-There is no release archive publishing pipeline in this branch.
+Candidate packaging also writes these resources into the exact-target release
+archives. The [prerelease infrastructure](supported-release.md) does not itself
+qualify or publish a release.
 
 The Go notice generator uses `go list -mod=readonly -deps -json` for the selected
 packages with the requested OS/architecture and `CGO_ENABLED=0`. It includes
@@ -29,7 +31,8 @@ go run ./scripts/notice --goos linux --goarch arm64 \
 
 Both Dockerfiles generate notices in the builder and copy `/NOTICE.txt` and
 `/LICENSE.txt` into the final image. The control image ships both operator and
-admission; the worker ships brewlet-node and the containerd shim. The obsolete
+admission by default; the explicit admission release target ships admission.
+The worker ships brewlet-node and the containerd shim. The obsolete
 standalone kubectl/ctr/crictl downloads and their former manifest do not apply.
 Base-image license material remains in its original filesystem locations.
 

@@ -91,6 +91,8 @@ def sboms(output):
                     children = document["images"][component]["platforms"]
                     packages = [{"SPDXID": "SPDXRef-" + target.replace("/", "-"), "name": target,
                                  "downloadLocation": "NOASSERTION", "filesAnalyzed": False,
+                                 "licenseConcluded": "NOASSERTION", "licenseDeclared": "NOASSERTION",
+                                 "copyrightText": "NOASSERTION",
                                  "checksums": [{"algorithm": "SHA256", "checksumValue": child["digest"][7:]}]}
                                 for target, child in children.items()]
                     scanned = {"spdxVersion": "SPDX-2.3", "dataLicense": "CC0-1.0",
@@ -179,7 +181,12 @@ def evidence_errors(value, output, document, scenario, target):
         if value.get("productionCleanupVerified") is not True or value.get("fixtureDestruction") != {"outcome": "passed"}:
             errors.append("production cleanup and fixture destruction")
         pair = value.get("transition")
-        if not isinstance(pair, dict) or pair.get("targetCandidateSHA256") != sha((output / "candidate.json").read_bytes()):
+        manifest = sha((output / "candidate.json").read_bytes())
+        if (not isinstance(pair, dict) or pair.get("targetCandidateSHA256") != manifest
+                or pair.get("sourceCandidateSHA256") != manifest
+                or pair.get("sourceVersion") != document.get("version")
+                or pair.get("targetVersion") != document.get("version")
+                or pair.get("method") != "drain-teardown-reinstall"):
             errors.append("explicit source/target transition")
     return errors
 

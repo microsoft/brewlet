@@ -35,8 +35,12 @@ def require(value, message):
 
 
 def run(args, *, cwd=ROOT, env=None):
-    return subprocess.check_output([str(arg) for arg in args], cwd=cwd,
-                                   env={**os.environ, **(env or {})}, text=True)
+    try:
+        return subprocess.check_output([str(arg) for arg in args], cwd=cwd,
+                                       env={**os.environ, **(env or {})}, text=True)
+    except subprocess.CalledProcessError as error:
+        print(error.output, file=sys.stderr)
+        raise
 
 
 def sha(data):
@@ -158,19 +162,36 @@ def build_maven(output, config):
         require(jar.read("META-INF/NOTICE.txt").decode() ==
                 notices((ROOT / "maven-plugin/target/runtime-classpath.txt").read_text()),
                 "Maven runtime notices mismatch")
-    # Separate local repository: consume the built coordinates, not target/classes.
+    smoke_maven(output, config)
+
+
+def smoke_maven(output, config):
+    import platform
+    system = {"Linux": "linux", "Darwin": "darwin"}.get(platform.system())
+    arch = {"x86_64": "amd64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine())
+    require(system and arch, "unsupported Maven consumer platform")
+    base = "brewlet-maven-plugin-" + config["version"]
+    # Separate local repository and consumer POM: never target/classes or a source rebuild.
     with tempfile.TemporaryDirectory() as temp:
         executable = Path(temp) / "brewlet"
-        run(["go", "build", "-trimpath", "-o", executable, "./cmd/brewlet"], env={"GOTOOLCHAIN": GO})
+        data = members(output / f"brewlet_{config['version']}_{system}_{arch}.tar.gz")
+        executable.write_bytes(data["brewlet"][0])
+        executable.chmod(0o755)
+        pom = Path(temp) / "pom.xml"
+        pom.write_text('<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>'
+                       '<groupId>release.smoke</groupId><artifactId>consumer</artifactId>'
+                       '<version>1</version></project>')
         run(["mvn", "-B", "-q", f"-Dmaven.repo.local={temp}",
              "org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file",
              "-Dfile=" + str(output / (base + ".jar")),
              "-DpomFile=" + str(output / (base + ".pom"))])
-        run(["mvn", "-B", "-q", f"-Dmaven.repo.local={temp}",
+        run(["mvn", "-B", "-q", "-f", pom, f"-Dmaven.repo.local={temp}",
              f"sh.brewlet:brewlet-maven-plugin:{config['version']}:conformance",
              "-Dbrewlet.fixtures=" + str(ROOT / "conformance/artifact-v2.json"),
              "-Dbrewlet.conformanceResult=" + str(Path(temp) / "result.json"),
              "-Dbrewlet.executable=" + str(executable)])
+        result = read_json(Path(temp) / "result.json")
+        require(result and all(row["passed"] is True for row in result), "Maven consumer conformance failed")
 
 
 def read_blob(layout, descriptor):
@@ -205,20 +226,43 @@ def image_identity(layout, component, config):
         require(re.fullmatch(r"[0-9a-f]{40}", labels["org.opencontainers.image.revision"]),
                 "missing image source revision")
         # Read the final merged legal files, accounting for normal OCI whiteouts.
-        legal = {}
+        final = {}
+        binaries = {"operator": ("operator", "admission"), "admission": ("admission",),
+                    "node": ("brewlet-node", "containerd-shim-brewlet-v2")}[component]
+        selected = {"LICENSE.txt", "NOTICE.txt", *binaries}
         for layer in manifest["layers"]:
             with tarfile.open(fileobj=io.BytesIO(read_blob(layout, layer))) as tar:
-                for entry in tar:
+                entries = tar.getmembers()
+                if any(str(PurePosixPath(e.name.removeprefix("./"))) == ".wh..wh..opq" for e in entries):
+                    final.clear()
+                for entry in entries:
                     name = str(PurePosixPath(entry.name.removeprefix("./")))
-                    if name in (".wh.LICENSE.txt", ".wh.NOTICE.txt"):
-                        legal.pop(name.removeprefix(".wh."), None)
-                    if name in ("LICENSE.txt", "NOTICE.txt"):
-                        require(entry.isfile(), "image legal resource is not a regular file")
-                        legal[name] = tar.extractfile(entry).read()
-        require(legal.get("LICENSE.txt") == (ROOT / "LICENSE.txt").read_bytes(), "image license mismatch")
-        require(legal.get("NOTICE.txt", b"").startswith(
+                    if name.startswith(".wh.") and name.removeprefix(".wh.") in selected:
+                        final.pop(name.removeprefix(".wh."), None)
+                for entry in entries:
+                    name = str(PurePosixPath(entry.name.removeprefix("./")))
+                    if name in selected:
+                        require(entry.isfile(), "image binary/legal resource is not a regular file")
+                        final[name] = tar.extractfile(entry).read()
+        require(final.get("LICENSE.txt") == (ROOT / "LICENSE.txt").read_bytes(), "image license mismatch")
+        require(final.get("NOTICE.txt", b"").startswith(
             ("Brewlet third-party notices\nTarget: " + platform + "\n").encode()),
             "missing or wrong-platform image notices")
+        with tempfile.TemporaryDirectory() as temp:
+            for binary in binaries:
+                require(final.get(binary), "missing image executable")
+                path = Path(temp) / binary
+                path.write_bytes(final[binary])
+                metadata = run(["go", "version", "-m", path])
+                require("GOOS=linux" in metadata and "GOARCH=" + image["architecture"] in metadata,
+                        "image executable target differs from manifest")
+                toolchain = metadata.splitlines()[0].rsplit(" ", 1)[-1]
+                text = final["NOTICE.txt"].decode()
+                require("Go runtime " + toolchain + "\n" in text, "image runtime notice mismatch")
+                for line in metadata.splitlines():
+                    fields = line.split()
+                    if fields and fields[0] == "dep":
+                        require(" ".join(fields[1:3]) + "\n" in text, "missing redistributed module notice")
         platforms[platform] = {"digest": child["digest"], "revision": labels["org.opencontainers.image.revision"]}
     return {"digest": top["digest"], "platforms": platforms}
 
@@ -389,9 +433,20 @@ def build(output, selection, target):
             sha((output / name).read_bytes()) + "  " + name + "\n" for name in sorted(expected_files(config))))
 
 
+def reproduce(output):
+    config = policy()
+    original = validate_inventory(output, config)
+    with tempfile.TemporaryDirectory() as temp:
+        second = Path(temp) / "candidate"
+        build(second, "all", None)
+        rebuilt = validate_inventory(second, config)
+        require(original["files"] == rebuilt["files"] and original["images"] == rebuilt["images"],
+                "repeated candidate builds produced different payload bytes/digests")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("identity", "build", "verify", "smoke-cli"))
+    parser.add_argument("command", choices=("identity", "build", "verify", "smoke-cli", "smoke-maven", "reproduce"))
     parser.add_argument("--output", type=Path, default=ROOT / "dist/candidate")
     parser.add_argument("--only", choices=("all", "cli", "maven", "images", "chart", "seal"), default="all")
     parser.add_argument("--target")
@@ -404,6 +459,11 @@ def main():
     elif args.command == "verify":
         validate_inventory(output, policy())
         validate_payloads(output, policy())
+    elif args.command == "smoke-maven":
+        validate_inventory(output, policy())
+        smoke_maven(output, policy())
+    elif args.command == "reproduce":
+        reproduce(output)
     else:
         smoke_cli(output, args.target, policy())
 

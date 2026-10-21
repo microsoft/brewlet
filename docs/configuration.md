@@ -12,6 +12,8 @@ Fenced worker -> trusted local roots, authorization, leases and observations
 
 Use Helm/GitOps source changes for managed objects. Do not mix manual edits to
 worker DaemonSets with operator reconciliation.
+The standalone operator requires an explicit `--worker-image`; the chart supplies
+the matching configured image rather than relying on an unqualified default.
 
 ## Current Helm values
 

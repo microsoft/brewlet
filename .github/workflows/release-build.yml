@@ -59,6 +59,7 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           python3 scripts/release.py build
+          python3 scripts/release.py reproduce
           python3 scripts/release_assurance.py sboms
           python3 scripts/release.py verify
           python3 scripts/release_assurance.py verify
@@ -136,15 +137,43 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  maven-consumer:
+    needs: build
+    strategy:
+      matrix:
+        java: ["17", "21"]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-candidate-${{ github.sha }}
+          path: dist/candidate
+      - name: Resolve and execute exact plugin and archived CLI as a consumer
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 scripts/release.py smoke-maven
+
   validation:
     if: always()
-    needs: [build, native-cli]
+    needs: [build, native-cli, maven-consumer]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every artifact job to succeed
         env:
           BUILD: ${{ needs.build.result }}
           NATIVE: ${{ needs.native-cli.result }}
+          MAVEN: ${{ needs.maven-consumer.result }}
         run: |
           test "$BUILD" = success
           test "$NATIVE" = success
+          test "$MAVEN" = success

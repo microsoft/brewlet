@@ -65,12 +65,12 @@ def sign_maven(output):
         path = output / (base + suffix)
         signature = destination / (path.name + ".asc")
         if signature.exists():
-            run(["gpg", "--batch", "--verify", signature, path])
-            continue
-        subprocess.run(["gpg", "--batch", "--no-tty", "--pinentry-mode", "loopback",
-                        "--passphrase-fd", "0", "--local-user", fingerprint,
-                        "--armor", "--detach-sign", "--output", str(signature), str(path)],
-                       input=os.environ["MAVEN_GPG_PASSPHRASE"].encode(), check=True)
+            require(signature.is_file() and not signature.is_symlink(), "unsafe existing Maven signature")
+        else:
+            subprocess.run(["gpg", "--batch", "--no-tty", "--pinentry-mode", "loopback",
+                            "--passphrase-fd", "0", "--local-user", fingerprint,
+                            "--armor", "--detach-sign", "--output", str(signature), str(path)],
+                           input=os.environ["MAVEN_GPG_PASSPHRASE"].encode(), check=True)
         status = run(["gpg", "--batch", "--status-fd", "1", "--verify", signature, path])
         require(any(line.startswith("[GNUPG:] VALIDSIG ") and fingerprint in line.split()
                     for line in status.splitlines()), "Maven signature not made by trusted key")

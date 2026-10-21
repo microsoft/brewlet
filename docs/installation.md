@@ -3,6 +3,9 @@
 There is no published stable 2.0 installer in this workflow. Use one reviewed
 source revision for the CLI, chart, CRDs, control plane and provisioner.
 Do not substitute main's released CLI, chart or application format.
+The [prerelease distribution runbook](supported-release.md) describes candidate
+coordinates, exact-artifact verification and publication blockers; infrastructure
+availability does not mean a qualified prerelease has been published.
 
 For a first deployment, use the [disposable local tutorial](local-kubernetes.md).
 This guide describes a platform-managed installation on explicitly controlled

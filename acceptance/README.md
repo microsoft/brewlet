@@ -136,10 +136,14 @@ or missing qualification must not permit promotion. Do not use
 Reusable calls retain the caller's original event and candidate SHA; they do
 not require an event named `workflow_call`.
 
-There is currently **no publishing workflow** in this branch to attach that
-promotion job to. This reusable interface and caller contract do not enforce
-external/manual promotion actions or introduce release/tag triggers. Those
-actions still require their own authorization and integration.
+The manual `release.yml` prerelease publisher implements this dependency:
+ordinary CI and strict qualification must both succeed before read-only
+artifact/evidence preparation, and every publishing surface is behind those
+same successful prerequisites plus preparation. There are no tag-push triggers.
+The [prerelease runbook](../docs/supported-release.md) describes additional
+exact-distribution evidence, legal/credential blockers and authorization limits.
+This does not authorize external/manual publication or replace fresh candidate
+qualification.
 
 Workflow changes are qualification inputs, so this separation does not
 legitimize historical receipts: fresh evidence must match the corrected

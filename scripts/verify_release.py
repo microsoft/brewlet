@@ -10,7 +10,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.release import policy, read_json, require, run, validate_inventory, validate_payloads
-from scripts.release_assurance import attest_verify, verify_sboms
+from scripts.release_assurance import attest_verify, publication_ready, verify_sboms
 from scripts.publish_release import central_payloads, registry_digest
 
 
@@ -62,13 +62,18 @@ def verify(source):
         validate_inventory(output, config, candidate=False)
         validate_payloads(output, config)
         verify_sboms(output, document)
+        publication_ready(output)
         for name in document["files"]:
             attest_verify(output / name, "release-build.yml", source)
         require(central_payloads(output), "Maven coordinates not published")
         fingerprint = config["publicationPolicy"]["mavenSigningFingerprint"]
         require(fingerprint and re.fullmatch(r"[0-9A-F]{40}|[0-9A-F]{64}", fingerprint),
                 "trusted Maven public key fingerprint required")
-        for path in (output / "signatures").glob("*.asc"):
+        signatures = list((output / "signatures").glob("*.asc"))
+        require({p.name for p in signatures} == {name + ".asc" for name in document["files"]
+                                                if name.startswith("brewlet-maven-plugin-")},
+                "incomplete Maven signing coverage")
+        for path in signatures:
             payload = output / path.name.removesuffix(".asc")
             status = run(["gpg", "--batch", "--status-fd", "1", "--verify", path, payload])
             require(any(line.startswith("[GNUPG:] VALIDSIG ") and fingerprint in line.split()
