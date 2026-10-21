@@ -44,7 +44,7 @@ if kind get clusters | grep -Fxq "$CLUSTER"; then
   echo "Refusing an existing cluster name" >&2; exit 1
 fi
 mkdir "$WORK/context"
-git archive HEAD go.mod go.sum pkg kubernetes cmd provisioner shim examples/local \
+git archive HEAD go.mod go.sum pkg kubernetes cmd provisioner shim scripts LICENSE.txt examples/local \
   | tar -x -C "$WORK/context"
 k() { kubectl --kubeconfig "$KUBECONFIG" --context "$CONTEXT" --request-timeout=30s "$@"; }
 ```

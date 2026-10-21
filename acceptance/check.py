@@ -8,6 +8,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from acceptance.qualification import load_matrix
+from acceptance.evidence import ROOT, load_receipt, receipt_errors, working_identity
 
 
 REAL_NODE_REQUIRED = {
@@ -18,9 +19,32 @@ REAL_NODE_REQUIRED = {
     "WASM-01", "WASM-02", "WASM-03",
     "FS-03", "FS-04",
 }
+REQUIRED_IDS = {
+    f"{prefix}-{number:02}"
+    for prefix, count in {
+        "ARCH": 2, "ART": 10, "DEP": 3, "INV": 6, "ROOT": 5, "PROF": 5,
+        "LEASE": 3, "OD": 6, "ROT": 10, "RUN": 10, "PROC": 3, "SEC": 4,
+        "ADM": 4, "LABEL": 2, "FENCE": 4, "SCHED": 1, "RC": 1, "CLI": 2,
+        "MAV": 1, "OWN": 4, "OBS": 4, "E2E": 9, "LANG": 2, "FS": 4,
+        "SCHEMA": 1, "WASM": 3, "UP": 6,
+    }.items() for number in range(1, count + 1)
+}
+# These obligations previously depended on actual node execution. Ledger edits
+# cannot silently downgrade them to contracts or inspection.
+REAL_NODE_REQUIRED |= set("""
+ARCH-01 INV-03 INV-04 INV-05 INV-06 ROOT-01 ROOT-02 ROOT-03 ROOT-04
+PROF-03 PROF-04 PROF-05 LEASE-01 LEASE-02 LEASE-03
+OD-01 OD-03 OD-04 OD-05 OD-06 ROT-01 ROT-02 ROT-04 ROT-05 ROT-06 ROT-07 ROT-08 ROT-09 ROT-10
+RUN-01 RUN-02 RUN-03 RUN-06 RUN-07 RUN-08 RUN-09 RUN-10 PROC-01 PROC-02 PROC-03
+SEC-02 SEC-03 SEC-04 LABEL-01 FENCE-01 FENCE-03 FENCE-04 SCHED-01 RC-01
+OWN-01 OWN-02 OWN-03 OWN-04 OBS-01 OBS-02 OBS-03 OBS-04
+E2E-02 E2E-03 E2E-05 E2E-06 E2E-07 E2E-08 E2E-09 LANG-02
+FS-01 FS-02 FS-03 FS-04 SCHEMA-01 WASM-01 WASM-02 WASM-03
+UP-01 UP-02 UP-03 UP-04 UP-05 UP-06
+""".split())
 
 
-def validate(document):
+def validate(document, root=ROOT, *, structure_only=False, expected=None):
     requirements = document["requirements"] + document.get("amendments", [])
     seen = set()
     errors = []
@@ -46,6 +70,8 @@ def validate(document):
             if not any(evidence.get("scope") in ("real-node", "provider") for evidence in item["evidence"]):
                 errors.append(f"{identifier}: real-node/provider evidence is mandatory")
     required_scenarios = {f"E2E-{number:02}" for number in range(1, 10)}
+    if seen != REQUIRED_IDS:
+        errors.append("missing or unknown mandatory baseline/amendment obligations")
     if not required_scenarios <= seen:
         errors.append("missing Proposal 0009 section 13.1 acceptance scenarios")
     if document.get("contractRevision") != "2026-10-20-immutable-runtime-view":
@@ -56,46 +82,63 @@ def validate(document):
         errors.append("missing flat schema or Wasm qualification obligations")
     if not {f"FS-{number:02}" for number in range(1, 5)} <= seen:
         errors.append("missing immutable runtime filesystem obligations")
+    if structure_only:
+        return errors
+    try:
+        expected = expected or working_identity(root)
+    except (OSError, ValueError) as error:
+        errors.append("candidate unavailable: " + str(error))
+        return errors
     for item in requirements:
-        if not item["id"].startswith("FS-") or item["status"] != "verified":
+        identifier = item["id"]
+        if item["status"] != "verified":
             continue
-        qualified = False
         for evidence in item["evidence"]:
-            relative = evidence.get("result", "")
-            if evidence.get("scope") != "real-node" or not relative.startswith("acceptance/results/"):
-                continue
-            path = Path(__file__).resolve().parents[1] / relative
             try:
-                result = json.loads(path.read_text())
+                result = load_receipt(root, evidence.get("result"))
             except (OSError, ValueError) as error:
-                errors.append(f'{item["id"]}: filesystem receipt unavailable: {error}')
+                errors.append(f"{identifier}: {error}")
                 continue
-            covered = {identifier for row in result.get("assertions", []) if row.get("outcome") == "passed"
-                       for identifier in row.get("requirements", [])}
-            needed = {"FS-01", "FS-02", "FS-03"}
-            if item["id"] == "FS-04":
-                needed.add("RUN-08")
-            if (result.get("outcome") == "passed" and result.get("cleanSelectedSuitePassed") is True
-                    and result.get("fixtureDestruction", {}).get("outcome") == "passed"
-                    and result.get("architecture") in ("arm64", "amd64")
-                    and result.get("selectedScenario") in ("complete", "accounting")
-                    and "python" in result.get("selectedLanguages", []) and needed <= covered):
-                qualified = True
-        if not qualified:
-            errors.append(f'{item["id"]}: clean real-node immutable-filesystem receipt required')
+            live = evidence.get("scope") in ("real-node", "provider")
+            problems = receipt_errors(result, [identifier], live=live, root=root, expected=expected)
+            if not live and result.get("scope") != evidence.get("scope"):
+                problems.append("receipt scope differs from declared scope")
+            if not live and result.get("command") != evidence.get("command"):
+                problems.append("receipt command differs from declared execution")
+            if evidence.get("scope") == "provider" and result.get("providerScaleFromZeroVerified") is not True:
+                problems.append("actual provider scale-from-zero evidence required")
+            if identifier == "LANG-02" and live and not problems and (result.get("selectedScenario") != "complete"
+                    or set(result.get("selectedLanguages", [])) != {"java", "python", "node", "dotnet"}):
+                problems.append("complete four-language execution required")
+            if identifier.startswith("FS-") and live and not problems:
+                covered = {value for row in result.get("assertions", []) if isinstance(row, dict)
+                           and row.get("outcome") == "passed" for value in row.get("requirements", [])}
+                needed = {"FS-01", "FS-02", "FS-03"}
+                if identifier == "FS-04":
+                    needed.add("RUN-08")
+                if (result.get("selectedScenario") not in ("complete", "accounting")
+                        or "python" not in result.get("selectedLanguages", [])
+                        or not needed <= covered):
+                    problems.append("immutable-filesystem execution scope required")
+            errors.extend(f"{identifier}: {problem}" for problem in problems)
     return errors
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--require-complete", action="store_true")
+    parser.add_argument("--structure-only", action="store_true",
+                        help="inspect historical declarations, never qualify a candidate")
     args = parser.parse_args()
+    if args.require_complete and args.structure_only:
+        parser.error("--structure-only cannot satisfy --require-complete")
     load_matrix()
     document = json.loads(Path(__file__).with_name("requirements.json").read_text())
-    errors = validate(document)
+    errors = validate(document, structure_only=args.structure_only)
     requirements = document["requirements"] + document.get("amendments", [])
     incomplete = [item for item in requirements if item["status"] != "verified"]
-    print(f'{len(requirements)} requirements; {len(incomplete)} not verified')
+    print(f'{len(requirements)} historical declarations; {len(incomplete)} not declared verified; '
+          + ("structure only, NOT candidate qualification" if args.structure_only else "candidate evidence checked"))
     if args.require_complete:
         errors.extend(f'{item["id"]} [{item["status"]}] {item["requirement"]}' for item in incomplete)
     for error in errors:

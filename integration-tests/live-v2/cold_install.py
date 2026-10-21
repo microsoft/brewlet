@@ -195,6 +195,7 @@ def earlier_native_failure(h, control):
 
 def run(work):
     h = Harness(work)
+    h.result.update(selectedScenario="cold-install", selectedLanguages=list(h.languages))
     gate, control = None, None
     status = 1
     h.result["gaps"].append("Focused cold-install run; complete combined suite is separate")
@@ -222,6 +223,7 @@ def run(work):
             require(node["metadata"]["uid"] == uid
                     and not node["metadata"].get("labels", {}).get("brewlet.sh/owner-uid"),
                     "two-node cleanup retained or released a foreign claim")
+        h.result["productionCleanupVerified"] = True
         h.result["outcome"] = "passed"
         status = 0
     except Exception as error:
@@ -251,7 +253,7 @@ def run(work):
             status = 1
         h.save()
         print("Private actual-node evidence:", h.work, flush=True)
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

@@ -1,5 +1,23 @@
 # Brewlet 2.0 validation status
 
+## Current candidate qualification: blocked
+
+The sections below preserve historical executions and their original scope.
+Their "verified" and "qualified" counts are historical declarations, **not**
+qualification of the corrected P1 candidate. No old receipt has been relabeled.
+The hardened gate requires matching immutable source/input identities, passing
+assertion coverage, successful production cleanup and fixture destruction.
+
+Fresh complete, managed-native, and managed-Wasm executions are still required
+on both native amd64 and arm64. No live runs were dispatched for this remediation.
+Native capacity tests do not establish cloud-provider scale-from-zero.
+See [the qualification procedure](README.md#fresh-native-qualification).
+Main protection remains deferred at the user's direction; no settings changed.
+Additional Microsoft container distribution-policy text requires release-owner
+confirmation rather than fabricated legal material.
+
+## Historical results
+
 ## Immutable runtime-view amendment
 
 Proposal 0009 now requires a read-only root at every new application task,

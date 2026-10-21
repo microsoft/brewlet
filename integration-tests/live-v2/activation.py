@@ -399,12 +399,14 @@ def exercise(h, original):
     require(h.node_exec("test", "!", "-e", "/usr/local/bin/containerd-shim-brewlet-v2",
                         check=False).returncode == 0, "activation cleanup retained owned shim")
     h.node_exec("crictl", "info")
+    h.result["productionCleanupVerified"] = True
     h.record("actual production cleanup restores exact original containerd bytes and live service",
              {"restoredConfigSHA256": digest, "nodeUID": h.node_uid}, ["RUN-10", "OWN-02"])
 
 
 def run(work):
     h = Harness(work)
+    h.result.update(selectedScenario="activation", selectedLanguages=list(h.languages))
     h.result["gaps"].append("Focused activation/retention case; complete and companion suites are separate")
     status = 1
     try:
@@ -442,7 +444,7 @@ def run(work):
             h.result.update(outcome="failed", cleanupErrors=errors)
             status = 1
         h.save()
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

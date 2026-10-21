@@ -22,6 +22,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from acceptance.qualification import fixture_names, load_matrix
+from acceptance.evidence import PRODUCTION_INPUTS, IGNORE, working_identity
 
 QUALIFICATION_MATRIX = load_matrix()
 LANGUAGES = fixture_names(QUALIFICATION_MATRIX, "native")
@@ -306,6 +307,16 @@ class Harness:
         self.save()
 
     def save(self):
+        if self.result.get("outcome") == "passed" and "qualificationInputsSHA256" in self.result:
+            try:
+                if working_identity(ROOT) != {key: self.result[key] for key in
+                        ("checkout", "identityVersion", "qualificationInputsSHA256",
+                         "productionSourceManifestSHA256")}:
+                    raise ValueError("qualification inputs changed during execution")
+            except (OSError, ValueError, subprocess.CalledProcessError) as error:
+                self.result["outcome"] = "failed"
+                self.records.append({"name": "immutable candidate inputs", "outcome": "failed",
+                                     "requirements": [], "evidence": str(error)})
         self.result.update(classify_evidence(self.records, self.result["gaps"], self.result.get("delivery")))
         intervention = self.work / "manual-intervention.json"
         if intervention.exists():
@@ -519,6 +530,7 @@ class Harness:
         self.save()
 
     def preflight(self):
+        self.result.update(working_identity(ROOT))
         for tool in ("docker", "kind", "kubectl", "helm", "go", "mvn", "java", "python3",
                      "node", "dotnet", "openssl"):
             require(shutil.which(tool), "mandatory prerequisite missing: " + tool)
@@ -540,7 +552,6 @@ class Harness:
             self.result.setdefault("toolVersions", {})[tool] = result.stdout + result.stderr
         require("10.0.401" in self.run(["dotnet", "--list-sdks"]).stdout,
                 "fixture requires .NET SDK exactly 10.0.401 (global.json disallows roll-forward)")
-        self.result["checkout"] = self.run(["git", "rev-parse", "HEAD"]).stdout.strip()
         pinned_files = [ROOT / "provisioner/Dockerfile", ROOT / "kubernetes/Dockerfile",
                         FIXTURES / "runtimes/rotation.json",
                         *sorted((FIXTURES / "runtimes").glob("*.Dockerfile"))]
@@ -715,18 +726,18 @@ class Harness:
         # Docker's build context. These are exactly the production COPY inputs.
         snapshot = self.work / "production-context"
         snapshot.mkdir()
-        for name in ("go.mod", "go.sum"):
-            shutil.copy2(ROOT / name, snapshot / name)
-        for name in ("pkg", "kubernetes", "cmd", "provisioner", "shim"):
-            shutil.copytree(ROOT / name, snapshot / name,
-                            ignore=shutil.ignore_patterns(".git", "__pycache__", ".DS_Store",
-                                                          ".test-*", "*.test", ".validation.*",
-                                                          ".admission-*", ".operator-*", ".node-*"))
+        for name in PRODUCTION_INPUTS:
+            source = ROOT / name
+            if source.is_dir():
+                shutil.copytree(source, snapshot / name, ignore=shutil.ignore_patterns(*IGNORE))
+            else:
+                shutil.copy2(source, snapshot / name)
         hashes = {str(path.relative_to(snapshot)): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted(snapshot.rglob("*")) if path.is_file()}
         (self.work / "production-source-sha256.json").write_text(json.dumps(hashes, indent=2))
-        self.result["productionSourceManifestSHA256"] = hashlib.sha256(
-            (self.work / "production-source-sha256.json").read_bytes()).hexdigest()
+        manifest = hashlib.sha256((self.work / "production-source-sha256.json").read_bytes()).hexdigest()
+        require(manifest == self.result["productionSourceManifestSHA256"],
+                "actual production build context differs from immutable candidate")
         for component, dockerfile in (("control", snapshot / "kubernetes/Dockerfile"),
                                       ("worker", snapshot / "provisioner/Dockerfile")):
             tag = f"registry.brewlet.test/{self.run_id}/{component}:checkout"
@@ -1580,6 +1591,7 @@ class Harness:
             self.delete("runtimeimage", rid)
             self.wait("inventory cleanup " + rid, lambda rid=rid:
                       self.get("runtimeimage", rid, absent=True) is None)
+        self.result["productionCleanupVerified"] = True
         self.record("production cleanup drains workloads before root/finalizer/claim release",
                     {"nodeUID": self.node_uid}, ["OWN-02", "LEASE-03"])
 
@@ -1796,6 +1808,8 @@ class Harness:
                 status = 1
             self.save()
             print("Retained private evidence:", self.work, flush=True)
+        if self.result.get("outcome") != "passed":
+            status = 1
         return status
 
 

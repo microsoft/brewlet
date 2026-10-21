@@ -9,6 +9,9 @@
 /site/_site-checks/
 /site/**/__pycache__/
 /acceptance/__pycache__/
+/acceptance-export/
+/scripts/__pycache__/
+/integration-tests/**/__pycache__/
 *.test
 .DS_Store
 .brewlet/

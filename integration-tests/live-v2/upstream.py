@@ -343,6 +343,7 @@ def exercise(h):
             "upstream cleanup retained node claim")
     h.node_exec("test", "!", "-e", "/usr/local/bin/containerd-shim-brewlet-v2")
     h.node_exec("crictl", "info")
+    h.result["productionCleanupVerified"] = True
     h.record("normal unchanged-upstream lease drain, host restoration, worker teardown and claim cleanup",
              {"nodeUID": h.node_uid, "profileUID": profile["metadata"]["uid"]}, ["UP-05"])
 
@@ -393,7 +394,7 @@ def run(work):
             h.result.update(outcome="failed", cleanupErrors=errors)
             status = 1
         h.save()
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

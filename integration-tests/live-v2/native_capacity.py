@@ -163,10 +163,12 @@ def exercise(h):
     h.delete("runtimeimage", d.static_id)
     h.wait("native inventory really finalized", lambda:
            h.get("runtimeimage", d.static_id, absent=True) is None)
+    h.result["productionCleanupVerified"] = True
 
 
 def run(work):
     h = Harness(work)
+    h.result.update(selectedScenario="native-capacity", selectedLanguages=list(h.languages))
     status = 1
     h.result["gaps"].append("Focused native scheduling case; combined and cold deadline cases are separate")
     try:
@@ -199,7 +201,7 @@ def run(work):
             status = 1
         h.save()
         print("Private native scheduling evidence:", h.work, flush=True)
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

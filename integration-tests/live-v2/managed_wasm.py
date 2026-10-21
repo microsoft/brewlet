@@ -311,6 +311,7 @@ def exercise(h):
                h.get("runtimeimage", rid, absent=True) is None)
     h.node_exec("test", "!", "-e", "/usr/local/bin/containerd-shim-brewlet-v2")
     h.node_exec("crictl", "info")
+    h.result["productionCleanupVerified"] = True
     h.record("normal managed Wasm task/root cleanup, host restoration and exact UID claim release",
              {}, ["COMP-WASM-04"])
 
@@ -344,7 +345,7 @@ def run(work):
             h.result.update(outcome="failed", cleanupErrors=errors)
             status = 1
         h.save()
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

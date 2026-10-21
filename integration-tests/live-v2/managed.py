@@ -319,7 +319,7 @@ def exercise(h):
             "shared packages/Deployment owners were not attributed through actual images")
     h.record("read-only fleet export follows actual image identities and native owner UIDs for external scanning",
         {"containers": len(before_inventory["containers"]), "artifacts": len(before_inventory["artifacts"]),
-         "namespaces": before_inventory["namespaces"]}, ["COMP-08"])
+         "namespaces": before_inventory["namespaces"]}, ["COMP-08", "COMP-16"])
     for language in h.languages:
         candidate = h.pod("candidate-" + language, language)
         candidate["spec"]["containers"][0]["image"] = h.delivery.compositions[language]["after"]["reference"]
@@ -391,6 +391,7 @@ def exercise(h):
             "normal cleanup retained node claim")
     h.node_exec("test", "!", "-e", "/usr/local/bin/containerd-shim-brewlet-v2")
     h.node_exec("crictl", "info")
+    h.result["productionCleanupVerified"] = True
     h.record("managed Deployment drain preserves normal host cleanup and UID claim release",
              {"nodeUID": h.node_uid, "profileUID": profile["metadata"]["uid"]}, ["COMP-07"])
 
@@ -423,6 +424,10 @@ def run(work):
         h.startup()
         h.phase = "managed-real-node-lifecycle"
         exercise(h)
+        require(h.arch in ("amd64", "arm64") and h.result["fullAcceptance"] is False,
+                "selected composition run must not relabel historical baseline acceptance")
+        h.record("selected native architecture composition, not historical baseline acceptance",
+                 {"architecture": h.arch, "fullAcceptance": False}, ["COMP-25"])
         h.result["outcome"] = "passed"
         status = 0
     except Exception as error:
@@ -441,7 +446,7 @@ def run(work):
             h.result.update(outcome="failed", cleanupErrors=errors)
             status = 1
         h.save()
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

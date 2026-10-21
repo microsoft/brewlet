@@ -81,6 +81,7 @@ nav:
   - Reference:
       - Contracts and glossary: reference.md
       - CLI reference: cli-reference.md
+      - Third-party notices: third-party-notices.md
       - Main vs. Brewlet 2.0: brewlet-2-comparison.md
       - Proposal 0009: https://github.com/microsoft/brewlet/blob/brewlet-2.0/specs/proposals/0009-language-agnostic-runtime-images.md
       - Source code: https://github.com/microsoft/brewlet/tree/brewlet-2.0

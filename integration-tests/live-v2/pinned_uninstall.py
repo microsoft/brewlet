@@ -131,6 +131,7 @@ def exercise(h):
     require(not node["metadata"].get("labels", {}).get("brewlet.sh/owner-uid"),
             "successful uninstall retained the profile claim")
     h.node_exec("test", "!", "-e", STORE + "/" + IDS["python"] + "/current")
+    h.result["productionCleanupVerified"] = True
     h.record("pool correction completes real Helm uninstall without force or forged cleanup",
              {"profileUID": uid, "nodeUID": h.node_uid, "releaseRemoved": True},
              ["E2E-06", "FENCE-04", "OWN-04"])
@@ -138,6 +139,7 @@ def exercise(h):
 
 def run(work):
     h = Harness(work)
+    h.result.update(selectedScenario="pinned-uninstall", selectedLanguages=list(h.languages))
     status = 1
     h.result["gaps"].append("Focused stale-pin uninstall case; other acceptance suites are separate")
     try:
@@ -169,7 +171,7 @@ def run(work):
             status = 1
         h.save()
         print("Private uninstall evidence:", h.work, flush=True)
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

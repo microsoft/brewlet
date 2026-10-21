@@ -4,7 +4,42 @@ The authoritative records are the
 [requirements ledger](https://github.com/microsoft/brewlet/blob/brewlet-2.0/acceptance/requirements.json)
 and [exact commands, sources and scoped results](https://github.com/microsoft/brewlet/blob/brewlet-2.0/acceptance/RESULTS.md).
 
-## Local implementation evidence
+## Current candidate: acceptance blocked
+
+The ledger's verified statuses and the results below are historical declarations,
+not qualification of the corrected candidate. Fresh complete, managed-native,
+and managed-Wasm evidence is still required on **both native amd64 and arm64**.
+No live qualification was dispatched for the P1 remediation.
+
+Strict acceptance now opens every mandatory execution receipt, checks assertion
+coverage and scope, requires successful cleanup, and compares immutable checkout,
+production-source and qualification-input identities. Evidence-only descendant
+commits can attach results without changing the qualified inputs. See the
+[candidate qualification procedure](https://github.com/microsoft/brewlet/blob/brewlet-2.0/acceptance/README.md).
+Native capacity does not prove cloud-provider scale-from-zero. Main protection
+remains deferred at the user's direction.
+
+## Routine CI is not promotion qualification
+
+The ordinary `Brewlet validation` check runs on PRs and main/brewlet-2.0 pushes.
+It must pass its correctness, producer, native-overlay and packaging checks, but
+does not require promotion receipts for every development change.
+
+Strict `make acceptance` runs separately in
+[`promotion-qualification.yml`](https://github.com/microsoft/brewlet/blob/brewlet-2.0/.github/workflows/promotion-qualification.yml),
+which is manual or explicitly reusable. Whenever invoked, its
+`Brewlet promotion qualification` job must fail for missing or stale evidence
+bound to that immutable candidate. It does not execute live scenarios.
+
+Any future authorized promotion/publishing job must depend on that reusable
+qualification job and require its successful result. There is no publishing
+workflow in this branch, so this interface does not enforce external/manual
+promotion, add release triggers or grant publishing authority. See the
+[caller contract](https://github.com/microsoft/brewlet/blob/brewlet-2.0/acceptance/README.md#routine-validation-versus-promotion-qualification).
+Live execution still needs separate approval. The old lingering acceptance
+check record is a separate GitHub status inconsistency, not a claimed fix here.
+
+## Historical local implementation evidence
 
 | Evidence | Scope |
 | --- | --- |
@@ -73,7 +108,7 @@ exact guide blocks on one new private kind cluster, including HTTP, binding
 identity, source rotation, unchanged app digest and normal cleanup. It requires
 the tutorial prerequisites and is not the complete qualification suite.
 
-The current exact-command guide passed locally on a fresh arm64 node:
+The recorded exact-command guide passed locally on a fresh arm64 node:
 real HTTP and numeric identity, old-binding retention during source rotation,
 a new Pod/generation with the same application digest, normal profile/host
 cleanup, Helm uninstall and exact-owned node destruction. Its
@@ -83,7 +118,7 @@ The complete manually dispatched E2E workflow also selects this reader check.
 Source, webhook and client-environment failures were corrected in the guide;
 no image policy or runtime protection was relaxed to obtain a pass.
 
-The strict acceptance gate checks verified evidence records. It does not create
+The strict acceptance gate checks current candidate evidence records. It does not create
 a cluster, rerun every receipt or certify an arbitrary deployment. Native kernel
 tests require the documented isolated Linux privileges; a portable skipped
 kernel case must not be called real-node proof.

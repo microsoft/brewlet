@@ -101,7 +101,8 @@ class QualificationMatrixTests(unittest.TestCase):
             root = Path(directory)
             scripts = ("acceptance/check.py", "acceptance/composition_check.py",
                        "integration-tests/live-v2/harness.py")
-            for relative in (*scripts, "acceptance/__init__.py", "acceptance/qualification.py"):
+            for relative in (*scripts, "acceptance/__init__.py", "acceptance/qualification.py",
+                             "acceptance/evidence.py"):
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / relative, destination)

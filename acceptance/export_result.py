@@ -10,6 +10,9 @@ def export(source):
     fields = (
         "outcome", "scope", "selectedScenario", "selectedLanguages", "cleanSelectedSuitePassed", "fullAcceptance",
         "checkout", "productionSourceManifestSHA256", "architecture",
+        "identityVersion", "qualificationInputsSHA256",
+        "productionCleanupVerified",
+        "command",
         "kubeletPullVerified", "tlsTransportVerified", "providerScaleFromZeroVerified",
         "kubeletRuntimeRequestTimeoutSeconds",
         "pins", "applicationImages", "runtimeImages", "runtimeVendorInputs", "fixtureDestruction", "gaps",
