@@ -1,24 +1,40 @@
-name: Publish qualified Brewlet prerelease
+name: Brewlet prerelease infrastructure
 
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: Build only by default; transition and publication require separate explicit authorization
+        type: choice
+        options: [build, transition, publish]
+        default: build
+        required: true
       candidate_run:
         description: Successful release-build run at this exact SHA
         type: string
-        required: true
+        required: false
+      architecture:
+        description: Native architecture for an explicitly authorized disposable transition
+        type: choice
+        options: [amd64, arm64]
+        default: amd64
+        required: false
+      authorization:
+        description: Transition only - type authorize-disposable-drain-reinstall
+        type: string
+        required: false
       transition_amd64_run:
         description: Successful authorized native amd64 release-transition run
         type: string
-        required: true
+        required: false
       transition_arm64_run:
         description: Successful authorized native arm64 release-transition run
         type: string
-        required: true
+        required: false
       confirmation:
         description: Type publish-v followed by the exact prerelease version
         type: string
-        required: true
+        required: false
 
 permissions:
   contents: read
@@ -28,12 +44,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  request:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require explicit same-repository manual operation
+        env:
+          EVENT: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          test "$EVENT" = workflow_dispatch
+          test "$REPOSITORY" = microsoft/brewlet
+          case "$OPERATION" in build|transition|publish) ;; *) exit 1 ;; esac
+
+  candidate:
+    needs: request
+    if: ${{ inputs.operation == 'build' }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release-build.yml
+
+  transition:
+    needs: request
+    if: ${{ inputs.operation == 'transition' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release-transition.yml
+    with:
+      candidate_run: ${{ inputs.candidate_run }}
+      architecture: ${{ inputs.architecture }}
+      authorization: ${{ inputs.authorization }}
+
   qualification:
+    needs: request
+    if: ${{ inputs.operation == 'publish' }}
     permissions:
       contents: read
     uses: ./.github/workflows/promotion-qualification.yml
 
   ordinary:
+    needs: request
+    if: ${{ inputs.operation == 'publish' }}
     permissions:
       contents: read
     uses: ./.github/workflows/v2-ci.yml

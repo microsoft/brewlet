@@ -15,7 +15,7 @@ def validate(value, workflow, source):
     require(value["repository"]["full_name"] == "microsoft/brewlet"
             and value["head_repository"]["full_name"] == "microsoft/brewlet"
             and value["event"] == "workflow_dispatch"
-            and value["path"] == ".github/workflows/" + workflow
+            and value["path"] in (".github/workflows/" + workflow, ".github/workflows/release.yml")
             and value["head_sha"] == source
             and value["status"] == "completed" and value["conclusion"] == "success",
             "workflow artifacts must come from an exact successful same-repository/source manual run")

@@ -1,6 +1,17 @@
 name: Brewlet disposable prerelease reinstall qualification
 
 on:
+  workflow_call:
+    inputs:
+      candidate_run:
+        type: string
+        required: true
+      architecture:
+        type: string
+        required: true
+      authorization:
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       candidate_run:
@@ -36,10 +47,12 @@ jobs:
           AUTHORIZATION: ${{ inputs.authorization }}
           EVENT: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
+          ARCHITECTURE: ${{ inputs.architecture }}
         run: |
           test "$AUTHORIZATION" = authorize-disposable-drain-reinstall
           test "$EVENT" = workflow_dispatch
           test "$REPOSITORY" = microsoft/brewlet
+          case "$ARCHITECTURE" in amd64|arm64) ;; *) exit 1 ;; esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}

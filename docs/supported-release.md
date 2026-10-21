@@ -59,6 +59,23 @@ four targets and sign their outcome records. Downloaded artifacts must come
 from an exact successful same-repository/source workflow run. No current build
 job publishes a package or executes a node installation.
 
+GitHub requires a manual workflow to be present on the repository's default
+branch before it can be dispatched. Main already registers the legacy
+`.github/workflows/release.yml` path, but not the new standalone build/transition
+paths. Use that registered filename with the **reviewed Brewlet 2 ref**, selecting
+`operation: build` (the safe default), then `operation: transition` separately
+for each explicitly authorized architecture, and only later `operation: publish`.
+The selected ref must contain this infrastructure; do not use main's legacy
+publishing implementation or its old input schema.
+
+The entrypoint calls its local reusable build/transition/qualification files
+from the same immutable commit; it does not fetch workflows from main or fall
+back to legacy publication. The registered `release.yml` dispatcher must remain
+available on the default branch and the caller must have Actions permission.
+Direct dispatch of the new standalone filenames would still require their
+separate default-branch registration. No such registration, default-branch
+change, main edit or settings change is performed here.
+
 ## Legal and project supply-chain evidence
 
 CLI archives include target-specific generated NOTICE and Brewlet LICENSE.
@@ -102,7 +119,7 @@ promotion gate. All publication depends on their exact success plus validated
 artifact/transition evidence. A failed, skipped, cancelled or missing
 dependency is not success. There is no acceptance opt-out.
 
-Publication requires an existing tag resolving to the exact candidate source,
+Publication explicitly selects `operation: publish` and requires an existing tag resolving to the exact candidate source,
 explicit `publish-vVERSION` confirmation, the successful candidate run and both
 authorized native transition runs. The workflow does not create tags. It
 rechecks source, signed receipts, artifact digests and owner policy before using

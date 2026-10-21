@@ -2,6 +2,7 @@ name: Brewlet prerelease candidate artifacts
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
