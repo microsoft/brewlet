@@ -155,6 +155,38 @@ class RuntimeContractTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(Failure):
                 authority_checks.require_worker_owner(h, candidate, "profile-uid")
 
+    def test_cold_rpc_restores_owned_kubelet_after_probe_or_stop_failure(self):
+        for fail_stop in (False, True):
+            calls = []
+            state = "active"
+            def execute(worker, *args, **kwargs):
+                nonlocal state
+                calls.append(args)
+                if args[:2] == ("systemctl", "stop"):
+                    state = "inactive"
+                    if fail_stop:
+                        raise Failure("stop command interrupted")
+                elif args[:2] == ("systemctl", "start"):
+                    state = "active"
+                return SimpleNamespace(stdout=state + "\n")
+            def wait(description, predicate):
+                self.assertTrue(predicate(), description)
+            h = SimpleNamespace(node_exec_on=execute, wait=wait,
+                get=lambda *args: {"status": {"conditions": [{"type": "Ready", "status": "True"}]}})
+            with self.subTest(fail_stop=fail_stop), self.assertRaises(Failure):
+                with cold_rpc.paused_kubelet(h, "owned"):
+                    self.assertEqual("inactive", state)
+                    raise Failure("probe failed")
+            self.assertEqual("active", state)
+            self.assertIn(("systemctl", "start", "kubelet"), calls)
+
+    def test_cold_rpc_does_not_start_an_initially_inactive_kubelet(self):
+        h = SimpleNamespace(node_exec_on=Mock(return_value=SimpleNamespace(stdout="inactive\n")))
+        with self.assertRaises(Failure):
+            with cold_rpc.paused_kubelet(h, "owned"):
+                self.fail("inactive kubelet must not enter the probe")
+        self.assertEqual(1, h.node_exec_on.call_count)
+
 
 if __name__ == "__main__":
     unittest.main()

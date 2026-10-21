@@ -91,6 +91,11 @@ historical declarations:
 
 The cold companion separately clones an actual owned kubelet container/sandbox
 configuration for one invocation-owned CRI probe while TLS transfer is held.
+It temporarily stops only that owned worker's initially active kubelet while the
+probe runs, so Pod reconciliation cannot race or garbage-collect the additional
+CRI container. It revalidates the actual sandbox after stopping the service and
+restores the kubelet and real Node Ready condition even after a probe/stop
+failure. No shared kubelet, clock, or Node status is edited.
 Its real start request must return `RuntimeImageInstalling` in the default
 thirty-second window (29 to less than 40 seconds including command overhead),
 below the observed 120-second kubelet request timeout, without any workload
