@@ -1,7 +1,10 @@
 # Proposal 0009 acceptance ledger
 
-`requirements.json` tracks historical declarations about normative requirements throughout the proposal, not
-only the nine scenarios in section 13.1. `referenceMain` pins the contract.
+`requirements.json` tracks current evidence bindings for normative requirements throughout the proposal, not
+only the nine scenarios in section 13.1. Original declarations remain unchanged
+under each row's `historicalEvidence`; they do not qualify the current candidate.
+All current statuses remain pending until genuine execution is reviewed.
+`referenceMain` pins the contract.
 Related requirements are grouped without deleting their security or execution
 conditions. `evidence` records exact commands, outcomes, and the proof scope.
 
@@ -11,7 +14,7 @@ python3 -m unittest discover -s acceptance -p '*_test.py' -v
 python3 acceptance/check.py --require-complete
 ```
 
-The first command validates historical ledger structure, **not** implementation
+The first command validates ledger structure and current mappings, **not** implementation
 completeness or current verification. Without `--structure-only`, every passed
 execution declaration must resolve to public, passing, assertion-covered
 evidence bound to the candidate. The final command additionally requires every
@@ -59,23 +62,60 @@ the matrix, and validation policy are not excluded. An evidence-only descendant
 may attach results for the source ancestor if both hashes still match. Missing
 history or changed inputs fail closed. CI fetches full history for this check.
 Historical receipts are not rewritten or assigned identities they never ran.
+Historical metadata is not evidence-only mutable: changing `historicalEvidence`
+invalidates the candidate input hash. Only the active evidence outcome/result
+and row status fields are normalized.
 
 Non-live execution evidence also needs persistent assertion records, matching
 scope and candidate identity. Inspection cannot substitute for mandatory live
-execution. `python3 acceptance/run_check.py go-contracts|maven|documentation`
-executes a fixed checked-in command and records its actual outcome under
-`acceptance-export/`; it never executes ledger-supplied command strings.
-`python3 acceptance/run_check.py all` runs all three checks, retains failed
+execution. `python3 acceptance/run_check.py CHECK` executes one of these fixed
+checked-in commands, never a ledger-supplied command string:
+
+| Check | Scope | Public receipt |
+| --- | --- | --- |
+| `go-contracts` | Go race/unit/contract suite, not privileged kernel proof | `go-contracts.json` |
+| `maven` | Actual optional producer verification | `maven.json` |
+| `documentation` | Strict documentation build and site contracts | `documentation.json` |
+| `fixtures` | Native four-language host probes, real CLI/Maven packaging and shared conformance | `fixtures-ARCH.json` |
+| `registry` | Actual owned local registry, signed provenance, exact compressed descriptors and diff IDs | `registry-ARCH.json` |
+| `native-contracts` | Native Linux artifact/shim/node/provisioner/worker tests, with no skipped tests | `native-contracts-ARCH.json` |
+| `go-vet` | Native Linux static checks including architecture-specific source | `go-vet-ARCH.json` |
+| `site-integration` | Real browser interactions and documentation navigation | `site-integration.json` |
+
+`python3 acceptance/run_check.py all` runs all eight checks, retains failed
 outcomes (including missing tools and input changes), and exits nonzero if any
-check fails. These commands require a clean committed source candidate.
-Its mapping covers only the listed non-live obligations, not native overlay,
-producer-registry, admission-cluster or real-node claims. Any other required
-execution still needs its own appropriately scoped record. Update a ledger's
-command/scope mapping in the source candidate before freezing it, then attach
-the outcome/result metadata after execution. A receipt is reviewable evidence, not a cryptographic third-party
+command fails. These commands require a clean committed source candidate;
+build `bin/brewlet` with `make build` and install the pinned documentation/browser
+dependencies first, as the non-live workflow does. The registry fixture explicitly
+uses the actual native runner architecture, not its old amd64 default.
+The shared native contract runner checks the Go target and Docker architecture,
+uses the existing pinned userland and capability/mount restrictions, and removes
+only exact invocation-owned containers and its unchanged owned image tag.
+Routine CI uses the same kernel-test implementation without importing receipts.
+
+Run non-live qualification on both native Linux architectures: four receipts
+per architecture plus four architecture-independent receipts make twelve distinct
+required non-live filenames. Review duplicated common receipts and retain
+failed attempts, rather than claiming every workflow attempt succeeded.
+The real API admission contract is executed inside the complete native harness,
+not inferred from unit tests or from these non-live receipts.
+
+`python3 acceptance/reconcile.py` checks the reviewed command/scope/architecture/
+suite bindings for all 115 obligations without executing anything.
+`python3 acceptance/reconcile.py --write` is a **source-preparation operation**:
+it preserves original history, installs those mappings, and resets active
+statuses/outcomes to pending. Use it only before freezing inputs, never to import
+receipts or claim qualification. Native live bindings enforce the named suite's
+exact scenario/workloads as well as architecture and ordinary receipt checks.
+Update any command/scope mapping in the source candidate before freezing it,
+then attach only reviewed outcome/result metadata after execution.
+A receipt is reviewable evidence, not a cryptographic third-party
 attestation: provenance fields alone do not authenticate an untrusted author.
 Review the actual workflow execution and public artifacts before importing
 receipts. No import or live dispatch is automatic.
+Runners refuse to overwrite existing receipt filenames before executing new
+commands. Preserve prior attempts under distinct reviewed filenames/locations
+first; failed or interrupted runs are never silently replaced.
 
 ## Fresh native qualification
 
@@ -124,7 +164,7 @@ a new workflow on the default branch or invoking a publication operation:
 | Mode | Execution | Evidence and limits |
 | --- | --- | --- |
 | `native` | Existing selected native scenario/architecture | Privileged disposable owned fixtures; six dispatches for all 22 suite receipts |
-| `non-live` | `python3 acceptance/run_check.py all` | Three fixed command receipts; not producer-registry, native overlay, admission-cluster, or live coverage |
+| `non-live` | `make build`, then `python3 acceptance/run_check.py all` | Fixed contract/producer/registry/browser checks on each native architecture; includes elevated Docker kernel tests but no node provisioning |
 | `verify-only` | `make acceptance` | Strict read-only evidence validation from the immutable full-history checkout; no live fixtures or publication |
 
 All modes reject unsupported execution contexts and retain read-only repository

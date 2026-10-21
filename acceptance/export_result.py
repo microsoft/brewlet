@@ -11,6 +11,7 @@ def export(source):
         "outcome", "scope", "selectedScenario", "selectedLanguages", "cleanSelectedSuitePassed", "fullAcceptance",
         "checkout", "productionSourceManifestSHA256", "architecture",
         "identityVersion", "qualificationInputsSHA256",
+        "nativeExecution",
         "productionCleanupVerified",
         "command",
         "kubeletPullVerified", "tlsTransportVerified", "providerScaleFromZeroVerified",

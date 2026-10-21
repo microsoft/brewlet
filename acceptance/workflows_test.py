@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 
+from acceptance.native_contracts import SUITES, validate_output
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,19 +18,14 @@ def block(text, marker):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_overlay_skip_guards_stop_even_before_a_later_successful_command(self):
+    def test_routine_and_qualification_share_fail_closed_native_contract_runner(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
-        guards = re.findall(r"if grep -q -- '--- SKIP' ([\w.-]+); then exit 1; fi", text)
-        self.assertEqual(4, len(guards))
-        with tempfile.TemporaryDirectory() as directory:
-            for name in guards:
-                path = Path(directory) / name
-                for skipped in (False, True):
-                    path.write_text("--- SKIP: required test\n" if skipped else "--- PASS: test\n")
-                    result = subprocess.run(
-                        ["bash", "-eu", "-c", f"if grep -q -- '--- SKIP' {name}; then exit 1; fi\ntrue"],
-                        cwd=directory, capture_output=True)
-                    self.assertEqual(not skipped, result.returncode == 0, (name, skipped))
+        self.assertIn("run: python3 acceptance/native_contracts.py", text)
+        self.assertEqual({"artifact", "shim", "node", "provisioner", "worker"}, set(SUITES))
+        validate_output("--- PASS: required test\nPASS\n")
+        for output in ("--- SKIP: required test\n--- PASS: unrelated\nPASS\n", "", "PASS\n"):
+            with self.subTest(output=output), self.assertRaises(ValueError):
+                validate_output(output)
 
     def test_routine_validation_is_main_compatible_without_promotion_qualification(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()

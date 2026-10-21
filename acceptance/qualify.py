@@ -66,10 +66,11 @@ def suite_statuses(directory, root=ROOT, expected=None):
                 result = read_json(Path(directory) / name)
                 if not isinstance(result, dict):
                     raise ValueError("receipt must be an object")
+                row.update(executionOutcome=result.get("outcome"),
+                           identity={key: result.get(key) for key in expected})
                 problems = suite_errors(result, suite, architecture, root, expected)
                 row.update(status="failed" if problems else "qualified",
-                           executionOutcome=result.get("outcome"),
-                           identity={key: result.get(key) for key in expected}, errors=problems)
+                           errors=problems)
             except FileNotFoundError:
                 row.update(status="missing", errors=["unavailable receipt"])
             except (OSError, ValueError) as error:
@@ -93,6 +94,8 @@ def run(scenario, architecture, output):
         raise ValueError("qualification output must be the isolated ignored acceptance-export directory")
     output.mkdir(exist_ok=True)
     suites = COMPLETE if scenario == "complete" else (scenario,)
+    if any((output / f"candidate-{architecture}-{suite}.json").exists() for suite in suites):
+        raise ValueError("refusing to overwrite existing suite receipts; preserve the prior attempt first")
     invocation = uuid.uuid4().hex[:12]
     for suite in suites:
         script, selected, languages = (SUITES | DEBUG_SUITES)[suite]
@@ -119,19 +122,25 @@ def run(scenario, architecture, output):
                     subprocess.run(command, cwd=ROOT, check=True)
                 finally:
                     if (work / "result.json").is_file():
-                        result = read_json(work / "result.json")
+                        observed = read_json(work / "result.json")
+                        if (not isinstance(observed, dict) or not isinstance(observed.get("assertions"), list)
+                                or not all(isinstance(row, dict) for row in observed["assertions"])):
+                            raise ValueError("suite result must be an object with assertion records")
+                        result = observed
             problems = suite_errors(result, suite, architecture, expected=identity)
             if problems or working_identity() != identity:
                 raise ValueError(suite + ": " + "; ".join(problems or ["candidate changed during suite"]))
         except (OSError, ValueError, subprocess.CalledProcessError):
             result["outcome"] = "failed"
+            result["cleanSelectedSuitePassed"] = False
             result.setdefault("assertions", []).append({
                 "name": "selected suite execution and candidate validation",
                 "outcome": "failed", "requirements": []})
             raise
         finally:
-            (output / f"candidate-{architecture}-{suite}.json").write_text(
-                json.dumps(export(result), indent=2) + "\n")
+            payload = json.dumps(export(result), indent=2) + "\n"
+            with (output / f"candidate-{architecture}-{suite}.json").open("x") as receipt:
+                receipt.write(payload)
 
 
 def main():

@@ -129,6 +129,10 @@ def exercise(h, control, gate):
                   "deadlineSeconds": DEADLINE, "sampleCount": len(samples),
                   "workerUID": h.node_uids[worker], "freshLayer": gate.layer["digest"],
                   "noProtectedStateOrClockEdits": True}, ["ROT-09", "ROT-10"])
+        from cold_rpc import execute as verify_cold_rpc
+        verify_cold_rpc(h, worker, rid, blocked)
+        from authority_checks import replace_installing_worker
+        replace_installing_worker(h, worker, rid)
         gate.release()
         for name in ("cold-a", "cold-b"):
             pods = control.wait_ready(name)

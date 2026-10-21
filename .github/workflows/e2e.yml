@@ -89,9 +89,16 @@ jobs:
       - name: Install pinned documentation dependencies
         if: env.QUALIFICATION_MODE == 'non-live'
         run: python3 -m pip install -r site/requirements.txt
+      - name: Install isolated documentation browser checks
+        if: env.QUALIFICATION_MODE == 'non-live'
+        run: |
+          npm ci --ignore-scripts --prefix site
+          PLAYWRIGHT_SKIP_BROWSER_GC=1 site/node_modules/.bin/playwright install --with-deps chromium
       - name: Execute fixed non-live checks and retain actual outcomes
         if: env.QUALIFICATION_MODE == 'non-live'
-        run: python3 acceptance/run_check.py all
+        run: |
+          make build
+          python3 acceptance/run_check.py all
       - name: Execute immutable native candidate qualification
         if: env.QUALIFICATION_MODE == 'native'
         env:

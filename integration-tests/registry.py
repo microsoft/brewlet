@@ -28,6 +28,21 @@ def fetch(url, media_type=None):
         return response.read()
 
 
+def dependency_reuse(manifest, config, source):
+    dependencies = [(index, layer) for index, layer in enumerate(manifest["layers"])
+                    if layer.get("annotations", {}).get("brewlet.sh/layer") == "dependency"]
+    assert len(dependencies) == len(source["layers"]) and dependencies, "dependency count changed"
+    for (index, layer), original in zip(dependencies, source["layers"]):
+        assert all(layer[key] == original["descriptor"][key] for key in ("digest", "size", "mediaType")), (
+            "compressed dependency descriptor changed")
+        assert config["rootfs"]["diff_ids"][index] == original["diffId"], "dependency diff ID changed"
+    evidence = json.loads(manifest["annotations"]["brewlet.sh/layerset-evidence"])
+    assert len(evidence) == 1
+    for key in ("manifestDigest", "configDigest", "lockDigest", "sbomDigest", "attestationDigest", "layers"):
+        assert key in source["evidence"] and evidence[0].get(key) == source["evidence"][key], (
+            "layer-set provenance binding changed")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--brewlet", required=True, type=Path)
@@ -151,14 +166,21 @@ def main():
         ], env=environment)
         managed_index = json.loads(fetch(base + "/fixtures/managed-python/manifests/v2",
                                          "application/vnd.oci.image.index.v1+json"))
-        managed_descriptor = managed_index["manifests"][0]
-        managed_manifest = json.loads(fetch(
-            base + "/fixtures/managed-python/manifests/" + managed_descriptor["digest"],
-            managed_descriptor["mediaType"]))
-        dependency_digests = [item["digest"] for item in managed_manifest["layers"]
-                              if item["annotations"]["brewlet.sh/layer"] == "dependency"]
-        assert dependency_digests == [item["descriptor"]["digest"] for item in inspected["layers"]]
-        assert "brewlet.sh/layerset-evidence" in managed_manifest["annotations"]
+        assert len(managed_index["manifests"]) == 2
+        assert {member["platform"]["architecture"] for member in managed_index["manifests"]} == {"amd64", "arm64"}
+        for managed_descriptor in managed_index["manifests"]:
+            content = fetch(base + "/fixtures/managed-python/manifests/" + managed_descriptor["digest"],
+                            managed_descriptor["mediaType"])
+            assert len(content) == managed_descriptor["size"]
+            assert "sha256:" + hashlib.sha256(content).hexdigest() == managed_descriptor["digest"]
+            managed_manifest = json.loads(content)
+            config_descriptor = managed_manifest["config"]
+            content = fetch(base + "/fixtures/managed-python/blobs/" + config_descriptor["digest"])
+            assert len(content) == config_descriptor["size"]
+            assert "sha256:" + hashlib.sha256(content).hexdigest() == config_descriptor["digest"]
+            config = json.loads(content)
+            assert config["os"] == "linux" and config["architecture"] == managed_descriptor["platform"]["architecture"]
+            dependency_reuse(managed_manifest, config, inspected)
         result = {
             "scope": "registry-producer-integration",
             "registryImage": REGISTRY,

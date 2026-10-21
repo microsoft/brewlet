@@ -199,6 +199,7 @@ def receipt_errors(result, requirements=(), *, live=False, architecture=None,
         if scenario and result.get("selectedScenario") != scenario:
             errors.append("wrong selected scenario")
         if languages is not None and (not isinstance(result.get("selectedLanguages"), list)
+                                      or not all(isinstance(value, str) for value in result["selectedLanguages"])
                                       or len(result["selectedLanguages"]) != len(languages)
                                       or set(result["selectedLanguages"]) != set(languages)):
             errors.append("wrong selected workloads")

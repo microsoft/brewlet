@@ -65,6 +65,7 @@ class SuiteTests(unittest.TestCase):
                 qualify.run("complete", "amd64", output)
         result = json.loads((output / "candidate-amd64-tutorial.json").read_text())
         self.assertEqual("failed", result["outcome"])
+        self.assertFalse(result["cleanSelectedSuitePassed"])
         self.assertEqual(self.identity["checkout"], result["checkout"])
         self.assertNotIn("productionCleanupVerified", result)
         self.assertTrue(all(row["outcome"] == "failed" for row in result["assertions"]))
@@ -91,6 +92,7 @@ class SuiteTests(unittest.TestCase):
         for change in ({"outcome": "failed"}, {"outcome": "skipped"}, {"selectedScenario": "control"},
                        {"architecture": "amd64"}, {"qualificationInputsSHA256": "0" * 64},
                        {"productionCleanupVerified": False}, {"tlsTransportVerified": False},
+                       {"selectedLanguages": [["java"], "python", "node", "dotnet"]},
                        {"scope": "real-node-execution-only"}):
             with self.subTest(change=change):
                 path.write_text(json.dumps({**json.loads(original), **change}))
@@ -142,9 +144,64 @@ class SuiteTests(unittest.TestCase):
 
     def test_all_fixed_checks_run_even_after_a_failed_command(self):
         with patch("sys.argv", ["run_check.py", "all"]), \
-                patch.object(run_check, "execute", side_effect=[1, 0, 0]) as execute:
+                patch.object(run_check, "native_architecture", return_value="amd64"), \
+                patch.object(run_check, "execute", side_effect=[1] + [0] * (len(run_check.CHECKS) - 1)) as execute:
             self.assertEqual(1, run_check.main())
         self.assertEqual(list(run_check.CHECKS), [call.args[0] for call in execute.call_args_list])
+
+    def test_existing_execution_receipt_is_preserved_without_rerunning_command(self):
+        path = self.root / "previous.json"
+        path.write_text('{"outcome":"failed","original":true}')
+        with patch.object(run_check.subprocess, "run") as command, \
+                self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+            run_check.execute("maven", path)
+        command.assert_not_called()
+        self.assertEqual('{"outcome":"failed","original":true}', path.read_text())
+
+    def test_existing_suite_receipt_is_preserved_before_any_new_live_command(self):
+        output = self.root / "acceptance-export"
+        output.mkdir()
+        path = output / "candidate-amd64-core.json"
+        path.write_text('{"outcome":"failed","original":true}')
+        with patch.object(qualify, "ROOT", self.root), \
+                patch.object(qualify, "working_identity", return_value=self.identity), \
+                patch.object(qualify.platform, "system", return_value="Linux"), \
+                patch.object(qualify.platform, "machine", return_value="x86_64"), \
+                patch.object(qualify.subprocess, "run") as command, \
+                self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+            qualify.run("complete", "amd64", output)
+        command.assert_not_called()
+        self.assertEqual('{"outcome":"failed","original":true}', path.read_text())
+
+    def test_receipt_created_concurrently_is_not_overwritten(self):
+        output = self.root / "concurrent.json"
+        def command(*args, **kwargs):
+            output.write_text('{"outcome":"failed","original":true}')
+            return type("Result", (), {"returncode": 0})()
+        with patch.object(run_check, "working_identity", return_value=self.identity), \
+                patch.object(run_check.subprocess, "run", side_effect=command), \
+                self.assertRaises(FileExistsError):
+            run_check.execute("maven", output)
+        self.assertEqual('{"outcome":"failed","original":true}', output.read_text())
+
+    def test_malformed_native_result_retains_failed_public_receipt(self):
+        output = self.root / "acceptance-export"
+        def command(arguments, **kwargs):
+            work = Path(arguments[arguments.index("--work") + 1])
+            work.mkdir(parents=True)
+            (work / "result.json").write_text("[]")
+        with patch.object(qualify, "ROOT", self.root), \
+                patch.object(qualify, "COMPLETE", ("core",)), \
+                patch.object(qualify, "working_identity", return_value=self.identity), \
+                patch.object(qualify.platform, "system", return_value="Linux"), \
+                patch.object(qualify.platform, "machine", return_value="x86_64"), \
+                patch.object(qualify.subprocess, "run", side_effect=command), \
+                self.assertRaisesRegex(ValueError, "suite result"):
+            qualify.run("complete", "amd64", output)
+        result = json.loads((output / "candidate-amd64-core.json").read_text())
+        self.assertEqual("failed", result["outcome"])
+        self.assertEqual(self.identity["checkout"], result["checkout"])
+        self.assertEqual("failed", result["assertions"][-1]["outcome"])
 
 
 if __name__ == "__main__":

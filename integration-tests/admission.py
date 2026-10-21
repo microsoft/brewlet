@@ -78,7 +78,10 @@ def main():
         "apiVersion": "v1", "kind": "Pod",
         "metadata": {
             "name": "v2-admission-contract",
-            "annotations": {"brewlet.sh/runtime-image": args.runtime_id},
+            "annotations": {"brewlet.sh/runtime-image": args.runtime_id,
+                            "brewlet.sh/artifact-container": "untrusted",
+                            "brewlet.sh/artifact-ref": "untrusted",
+                            "brewlet.sh/artifact-digest": "sha256:untrusted"},
         },
         "spec": {
             "runtimeClassName": "brewlet",
@@ -107,6 +110,9 @@ def main():
     }
     admitted = kubectl(["create", "--dry-run=server", "-f", "-", "-o", "json"], pod)
     result = json.loads(admitted.stdout)
+    assert result["metadata"]["annotations"]["brewlet.sh/artifact-container"] == "app"
+    assert result["metadata"]["annotations"]["brewlet.sh/artifact-ref"] == args.app_image
+    assert result["metadata"]["annotations"]["brewlet.sh/artifact-digest"] == args.app_image.split("@")[1]
     assert args.profile_name in admitted.stderr, "zero-capacity warning must name eligible profile"
     assert "PATH" in admitted.stderr, "explicit PATH must warn"
     for key, value in pod["spec"]["nodeSelector"].items():
@@ -156,8 +162,9 @@ def main():
            lambda item: item["metadata"]["annotations"].update({"brewlet.sh/runtime-image": "python:3.12"}))
     denied("unknown ID", "UnknownRuntimeImage",
            lambda item: item["metadata"]["annotations"].update({"brewlet.sh/runtime-image": "unknown-runtime"}))
-    denied("old annotation", "UnsupportedAnnotation",
-           lambda item: item["metadata"]["annotations"].update({"brewlet.sh/jdk": "21"}))
+    for annotation in ("brewlet.sh/jdk", "brewlet.sh/jvm-args", "brewlet.sh/arch"):
+        denied("old annotation", "UnsupportedAnnotation",
+               lambda item, annotation=annotation: item["metadata"]["annotations"].update({annotation: "forbidden"}))
     for field, value in (("runAsUser", 0), ("runAsGroup", 0), ("runAsNonRoot", False)):
         denied(field, "RootNotSupported",
                lambda item, field=field, value=value: item["spec"]["containers"][0].update(

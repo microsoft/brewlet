@@ -39,14 +39,12 @@ API = "node.brewlet.sh/v2alpha1"
 IDS = {language: "fixture-" + language for language in LANGUAGES}
 STORE = "/opt/brewlet/runtimes"
 UNIMPLEMENTED = [
-    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
     "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
     "E2E-06 stale provider pins retained through actual production uninstall",
     "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
     "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival "
     "after main exit (normal delegated runc/CRI drain is verified separately)",
     "ROT-09 controlled cold-runtime-install deadline and recovery",
-    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
 ]
 
 
@@ -1221,8 +1219,13 @@ class Harness:
                                arguments=["--probe", "two words"], cwd="/app", uid=12345, home="/tmp")
             self.record(language + " custom UID/default GID and HOME fallback match initial/exec",
                         {"podUID": custom_obj["metadata"]["uid"]}, ["SEC-01", "SEC-04", "PROC-03"])
+            from runtime_contract import publication
+            publication(self, language)
+        if self.scenario == "complete":
+            from runtime_contract import generic_launches
+            generic_launches(self)
 
-    def no_start(self, name, reason, timeout=120):
+    def no_start(self, name, reason, timeout=120, requirements=()):
         def observe():
             obj = self.get("pod", name, self.namespace)
             require_owned(obj, self.run_id, self.owned[("pod", self.namespace, name)])
@@ -1250,7 +1253,7 @@ class Harness:
             }
             return text if reason in text else False
         evidence = self.wait(name + " exact failure " + reason, observe, timeout=timeout)
-        self.record(name + " rejects start: " + reason, {"reason": reason, "observation": evidence})
+        self.record(name + " rejects start: " + reason, {"reason": reason, "observation": evidence}, requirements)
         self.delete("pod", name, self.namespace)
         self.wait(name + " removed", lambda: self.get("pod", name, self.namespace, absent=True) is None)
 
@@ -1313,12 +1316,17 @@ class Harness:
         try:
             for name, changes, reason in (
                 ("root-bound", {"runAsUser": 0, "runAsNonRoot": False}, "RootNotSupported"),
+                ("root-group-bound", {"runAsGroup": 0}, "RootNotSupported"),
                 ("privilege-bound", {"allowPrivilegeEscalation": True}, "PrivilegeEscalationNotSupported"),
             ):
                 pod = self.pod(name, self.probe_language, bound=True)
                 pod["spec"]["containers"][0]["securityContext"].update(changes)
                 self.apply(pod)
-                self.no_start(name, reason)
+                self.no_start(name, reason, requirements=["SEC-02"] if reason == "RootNotSupported" else [])
+            pod = self.pod("root-supplementary-bound", self.probe_language, bound=True)
+            pod["spec"]["securityContext"]["supplementalGroups"] = [0]
+            self.apply(pod)
+            self.no_start("root-supplementary-bound", "RootNotSupported", requirements=["SEC-02"])
             metadata = self.initial[self.probe_language]["metadata"]
             duplicate_generation = json.dumps({
                 "id": IDS[self.probe_language], "inventoryUID": metadata["inventoryUID"],
@@ -1721,6 +1729,12 @@ class Harness:
             bootstrap_delivery(self)
             self.phase = "install"
             self.install()
+            if self.scenario == "complete":
+                self.phase = "api-admission-contract"
+                from admission_contract import exercise as verify_admission
+                verify_admission(self)
+                from authority_checks import initial_fence
+                initial_fence(self)
             self.phase = "startup"
             self.startup()
             self.phase = "execution"
@@ -1731,6 +1745,15 @@ class Harness:
                 self.barriers_and_rotation()
                 self.phase = "observability"
                 observer.verify()
+            if self.scenario == "complete":
+                self.phase = "durable-generation-recovery"
+                from runtime_contract import durable_generations, rotation_participants
+                durable_generations(self)
+                from runtime_contract import protected_identity
+                self.phase = "protected-cri-identity"
+                protected_identity(self)
+                self.phase = "real-rotation-participation-deadline"
+                rotation_participants(self)
             if self.scenario in ("complete", "accounting"):
                 self.phase = "immutable-filesystem"
                 from filesystem import execute as verify_filesystem

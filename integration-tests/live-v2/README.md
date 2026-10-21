@@ -60,6 +60,46 @@ container-role and lifecycle callbacks and the separate companion suites.
 Results and public exports retain `selectedScenario` and explicit omissions.
 A focused pass is not a complete-suite or full-proposal pass.
 
+Complete qualification additionally selects current assertion coverage, not
+historical declarations:
+
+* Real API admission runs the existing security/defaulting/affinity/hint checks
+  against an owned zero-node profile. A temporary object-selector exclusion
+  applies only to invocation-labeled profiles while constructing invalid mirror
+  and conflicting-profile fixtures; Pod admission remains enabled and must reject
+  them. A fixture-only finalizer holds genuine deletion long enough to observe
+  exclusion. Cleanup removes only that finalizer with UID/resourceVersion/value
+  tests, waits for normal production finalization, and restores the exact owned
+  webhook even when profile cleanup fails.
+* A production worker with deliberately missing authority has real writable host
+  access but must exit on its initial fence without changing runtime/cache/shim/
+  containerd state. It never edits a claim or a cleanup receipt.
+* Actual published root paths, root-owned immutable metadata, native platform,
+  source marker and v2 readiness/diagnostics are observed. An actual operator
+  restart followed by new source rotations must preserve monotonic journaled
+  generations and existing task leases.
+* A native probe reads protected containerd CRI metadata and verifies the native
+  OCI descriptor graph/config using the production resolver and verified content
+  cache. Real admission-bypassing forged artifact hints must not change the
+  executing artifact. Root primary and supplementary group starts must be
+  independently refused by the shim.
+* A genuinely installed OnDemand runtime remains a participant during real
+  invalid-root retries. The actual configured ten-minute node progress deadline
+  must elapse before confirmed withdrawal/quarantine, with Node UID, observed
+  generation and reason intact. No status timestamps or clocks are changed.
+  Corrected source and actual Eager mode must recover normally.
+
+The cold companion separately clones an actual owned kubelet container/sandbox
+configuration for one invocation-owned CRI probe while TLS transfer is held.
+Its real start request must return `RuntimeImageInstalling` in the default
+thirty-second window (29 to less than 40 seconds including command overhead),
+below the observed 120-second kubelet request timeout, without any workload
+process or premature current root. Profile-generation replacement must stop the
+old installing worker and make its successor revalidate authority before transfer
+release. The probe container/config files are removed only after exact identity
+checks. These assertions need fresh native execution; offline guard tests are
+not proof that the scenarios passed.
+
 Control execution also deliberately offers an approved default-Eager runtime
 whose runtime config declares the forbidden `PATH=/app`. The
 real worker must reject that root without publishing `current`, keep effective
@@ -538,8 +578,9 @@ UID/ownership inventory for manual review rather than broad reset/prune commands
 `UNIMPLEMENTED` in `harness.py` is serialized into every result. In particular,
 this suite does **not** complete all proposal §13.1 acceptance:
 
-* Invalid/deleting/conflicting zero-node profile permutations belong to the
-  separate admission suite.
+* Invalid/deleting/conflicting zero-node profiles are selected by the complete
+  API admission callback, not by partial/debug scopes. Fresh execution is still
+  required; the existence of the callback does not qualify a candidate.
 * Alternate-architecture capacity actually joining later and provider
   scale-from-zero require genuine additional native infrastructure. Optional
   `begin_native_capacity` / `finish_native_capacity` callbacks do not replace
@@ -551,9 +592,9 @@ this suite does **not** complete all proposal §13.1 acceptance:
   assertions, **not verified evidence until a fresh run passes them**. Their
   module-level limitations and result receipts distinguish surviving-shim
   reconnect from killed-shim recovery and API CAS from physical-host proof.
-* Maven producer/shared-conformance acceptance is the existing fixture suite;
-  this harness executes the four generic-CLI artifacts, not a second Maven
-  application on-node.
+* Maven producer/shared-conformance acceptance also requires the fixed fixture
+  producer receipts. Complete selects the additional real Maven-node callback;
+  partial/debug scopes still omit it.
 * The pinned vendor-version rotation is newly selected, not verified until the
   fresh run executes both versions. No specific CVE remediation is claimed.
 

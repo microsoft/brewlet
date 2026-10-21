@@ -53,6 +53,7 @@ class EvidenceTests(unittest.TestCase):
             {"scope": "contract"}, {"cleanSelectedSuitePassed": False},
             {"productionCleanupVerified": False}, {"selectedScenario": "control"},
             {"architecture": "arm64"}, {"selectedLanguages": ["python"]},
+            {"selectedLanguages": [["java"], "python", "node", "dotnet"]},
             {"productionSourceManifestSHA256": "0" * 64}, {"checkout": "0" * 40},
         ]
         for change in changes:

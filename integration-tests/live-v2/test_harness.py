@@ -535,7 +535,7 @@ class SafetyTests(ProjectWork):
         instance.start_held_exec = mock.Mock(side_effect=RuntimeError("rotation reached"))
         with self.assertRaisesRegex(RuntimeError, "rotation reached"):
             instance.barriers_and_rotation()
-        self.assertEqual(instance.apply.call_count, 7)
+        self.assertEqual(instance.apply.call_count, 9)
         self.assertEqual(instance.kubectl.call_count, 2)
         for call in instance.apply.call_args_list:
             pod = call.args[0]
@@ -543,6 +543,10 @@ class SafetyTests(ProjectWork):
             self.assertEqual(pod["spec"]["containers"][0]["image"], instance.app_images["node"])
         instance.restore_admission.assert_called_once()
         instance.start_held_exec.assert_called_once_with("node")
+        roots = {call.args[0]: call.kwargs.get("requirements")
+                 for call in instance.no_start.call_args_list if call.args[1] == "RootNotSupported"}
+        self.assertEqual({"root-bound": ["SEC-02"], "root-group-bound": ["SEC-02"],
+                          "root-supplementary-bound": ["SEC-02"]}, roots)
 
     def test_ambiguous_barrier_probe_requires_real_admission_reason_not_generic_failure(self):
         instance = self.harness(scenario="runtime", pinned=False, local_language="node")
@@ -926,6 +930,11 @@ class CallbackOrderTests(ProjectWork):
                 calls.append("observer_stop")
 
         modules = {
+            "admission_contract": SimpleNamespace(exercise=callback("admission_contract")),
+            "authority_checks": SimpleNamespace(initial_fence=callback("initial_fence")),
+            "runtime_contract": SimpleNamespace(durable_generations=callback("durable_generations"),
+                                               protected_identity=callback("protected_identity"),
+                                               rotation_participants=callback("rotation_participants")),
             "observability": SimpleNamespace(Observer=Observer),
             "delivery": SimpleNamespace(
                 bootstrap=callback("bootstrap_delivery", bootstrap_failure),
@@ -949,8 +958,8 @@ class CallbackOrderTests(ProjectWork):
             self.assertEqual(instance.execute(), 0)
         self.assertEqual(calls, [
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
-            "install", "startup", "observer_start", "application_execution", "barriers_and_rotation",
-            "observability", "observer_stop",
+            "install", "admission_contract", "initial_fence", "startup", "observer_start", "application_execution", "barriers_and_rotation",
+            "observability", "observer_stop", "durable_generations", "protected_identity", "rotation_participants",
             "filesystem", "accounting", "delivery", "maven_node", "container_roles", "lifecycle",
             "control_edges", "pinned_revocation",
             "before_cleanup", "production_cleanup", "after_cleanup",
