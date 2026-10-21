@@ -22,7 +22,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from acceptance.qualification import fixture_names, load_matrix
-from acceptance.evidence import PRODUCTION_INPUTS, IGNORE, working_identity
+from acceptance.evidence import PRODUCTION_INPUTS, IGNORE, production_manifest_bytes, working_identity
 
 QUALIFICATION_MATRIX = load_matrix()
 LANGUAGES = fixture_names(QUALIFICATION_MATRIX, "native")
@@ -730,9 +730,9 @@ class Harness:
                 shutil.copytree(source, snapshot / name, ignore=shutil.ignore_patterns(*IGNORE))
             else:
                 shutil.copy2(source, snapshot / name)
-        hashes = {str(path.relative_to(snapshot)): hashlib.sha256(path.read_bytes()).hexdigest()
+        hashes = {path.relative_to(snapshot).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted(snapshot.rglob("*")) if path.is_file()}
-        (self.work / "production-source-sha256.json").write_text(json.dumps(hashes, indent=2))
+        (self.work / "production-source-sha256.json").write_bytes(production_manifest_bytes(hashes))
         manifest = hashlib.sha256((self.work / "production-source-sha256.json").read_bytes()).hexdigest()
         require(manifest == self.result["productionSourceManifestSHA256"],
                 "actual production build context differs from immutable candidate")

@@ -35,6 +35,11 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def production_manifest_bytes(hashes):
+    """Encode string paths canonically, not in pathlib's component order."""
+    return json.dumps(dict(sorted(hashes.items())), indent=2).encode()
+
+
 def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args], stderr=subprocess.PIPE)
 
@@ -102,8 +107,7 @@ def _input_hashes(root, revision, *, working=False):
         if (path.split("/")[0] in PRODUCTION_INPUTS
                 and not any(fnmatch.fnmatch(part, pattern) for part in Path(path).parts for pattern in IGNORE)):
             production[path] = hashlib.sha256(content).hexdigest()
-    # Preserve the production snapshot's historical JSON encoding.
-    production_hash = hashlib.sha256(json.dumps(dict(sorted(production.items())), indent=2).encode()).hexdigest()
+    production_hash = hashlib.sha256(production_manifest_bytes(production)).hexdigest()
     return {"identityVersion": IDENTITY_VERSION, "qualificationInputsSHA256": _digest(qualification),
             "productionSourceManifestSHA256": production_hash}
 

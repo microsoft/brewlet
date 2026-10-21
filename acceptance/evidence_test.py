@@ -5,7 +5,8 @@ import subprocess
 import tempfile
 import unittest
 
-from acceptance.evidence import candidate_errors, input_hashes, load_receipt, receipt_errors, working_identity
+from acceptance.evidence import (candidate_errors, input_hashes, load_receipt, production_manifest_bytes,
+                                 receipt_errors, working_identity)
 
 
 class EvidenceTests(unittest.TestCase):
@@ -43,6 +44,16 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual([], receipt_errors(self.result, ["RUN-08"], live=True, architecture="amd64",
                                            scenario="complete", languages=["java", "python", "node", "dotnet"],
                                            root=self.root))
+
+    def test_production_manifest_string_keys_are_canonical_despite_path_component_order(self):
+        paths = [Path("cmd/brewlet/main.go"), Path("cmd/brewlet-node/main_linux.go")]
+        manifest = {path.as_posix(): "a" * 64 for path in sorted(paths)}
+        self.assertNotEqual(list(manifest), sorted(manifest))
+        expected = json.dumps(dict(sorted(manifest.items())), indent=2).encode()
+        self.assertEqual(expected, production_manifest_bytes(manifest))
+        self.assertNotEqual(json.dumps(manifest, indent=2).encode(), production_manifest_bytes(manifest))
+        self.assertEqual(production_manifest_bytes(manifest),
+                         production_manifest_bytes(dict(reversed(list(manifest.items())))))
 
     def test_missing_failed_uncovered_and_wrong_scope_receipts(self):
         changes = [

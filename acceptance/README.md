@@ -54,6 +54,12 @@ Qualification requires a clean committed checkout. Receipts record its SHA,
 path/mode/content identities; the harness also checks the actual isolated
 production build context. Tests, fixtures, workflows, pins, contracts, legal
 inputs, and the validators themselves are qualification inputs.
+Committed production inputs and the copied live Docker context use the same
+canonical manifest byte encoder: full POSIX string keys sorted lexically,
+with the existing indented JSON format. Path-component traversal order is not
+canonical (`cmd/brewlet` and `cmd/brewlet-node` sort differently). The actual
+context must still equal the immutable production hash exactly before any
+component image is built; alternate encodings/hashes never qualify.
 
 Only `acceptance/results/*.json`, `acceptance/RESULTS.md`, baseline ledger
 status and evidence outcome/result metadata, and composition check outcome/result metadata are

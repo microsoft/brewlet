@@ -65,6 +65,74 @@ class ProjectWork(unittest.TestCase):
         return instance
 
 
+class ProductionContextTests(ProjectWork):
+    def source_fixture(self):
+        from acceptance import evidence_test
+        fixture = evidence_test.EvidenceTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        for name in ("cmd/brewlet/main.go", "cmd/brewlet-node/main_linux.go"):
+            path = fixture.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("package main\n")
+        fixture.commit()
+        return fixture, h.working_identity(fixture.root)
+
+    def prepare(self, root, expected):
+        instance = self.harness()
+        instance.result["productionSourceManifestSHA256"] = expected
+        instance.build, instance.load_image, instance.save = mock.Mock(), mock.Mock(), mock.Mock()
+        self.last_component_build = instance.build
+        with mock.patch.object(h, "ROOT", root), \
+                mock.patch.object(h, "PRODUCTION_INPUTS", ("go.mod", "cmd")):
+            instance.prepare_components()
+        return instance
+
+    def test_copied_context_matches_committed_identity_for_prefix_sibling_paths(self):
+        fixture, identity = self.source_fixture()
+        instance = self.prepare(fixture.root, identity["productionSourceManifestSHA256"])
+        encoded = (instance.work / "production-source-sha256.json").read_bytes()
+        manifest = json.loads(encoded)
+        self.assertEqual(list(manifest), sorted(manifest))
+        self.assertLess(list(manifest).index("cmd/brewlet-node/main_linux.go"),
+                        list(manifest).index("cmd/brewlet/main.go"))
+        self.assertEqual(identity["productionSourceManifestSHA256"], hashlib.sha256(encoded).hexdigest())
+        self.assertEqual(2, instance.build.call_count)
+
+    def test_noncanonical_alternate_hash_is_not_accepted(self):
+        fixture, identity = self.source_fixture()
+        paths = [fixture.root / name for name in
+                 ("go.mod", "cmd/brewlet/main.go", "cmd/brewlet-node/main_linux.go")]
+        manifest = {path.relative_to(fixture.root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in sorted(paths)}
+        alternate = hashlib.sha256(json.dumps(manifest, indent=2).encode()).hexdigest()
+        self.assertNotEqual(identity["productionSourceManifestSHA256"], alternate)
+        with self.assertRaisesRegex(h.Failure, "differs from immutable candidate"):
+            self.prepare(fixture.root, alternate)
+        self.last_component_build.assert_not_called()
+
+    def test_context_guard_still_rejects_changed_missing_and_extra_files(self):
+        fixture, identity = self.source_fixture()
+        original_work = self.work
+        target = fixture.root / "cmd/brewlet/main.go"
+        extra = fixture.root / "cmd/uncommitted.go"
+        try:
+            for change in ("changed", "missing", "extra"):
+                self.work = original_work / change
+                target.write_text("package main\n")
+                if change == "changed":
+                    target.write_text("package changed\n")
+                elif change == "missing":
+                    target.unlink()
+                else:
+                    extra.write_text("package uncommitted\n")
+                with self.subTest(change=change), self.assertRaisesRegex(h.Failure, "differs from immutable candidate"):
+                    self.prepare(fixture.root, identity["productionSourceManifestSHA256"])
+                self.last_component_build.assert_not_called()
+        finally:
+            self.work = original_work
+
+
 class SafetyTests(ProjectWork):
     def test_runtime_fixture_account_pipeline_preserves_identity_with_both_toolsets(self):
         self.work.mkdir()
