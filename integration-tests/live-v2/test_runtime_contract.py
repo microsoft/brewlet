@@ -4,6 +4,7 @@ import copy
 from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock
 
 import authority_checks
 import cold_rpc
@@ -131,6 +132,28 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual("/", pod["spec"]["volumes"][0]["hostPath"]["path"])
         self.assertEqual("[]", next(env["value"] for env in container["env"] if env["name"] == "BREWLET_TARGET_UIDS"))
         self.assertNotIn("runtimeClassName", pod["spec"])
+
+    def test_worker_selection_requires_controller_uids_not_profile_labels(self):
+        pod = {"metadata": {"namespace": "owned-system", "ownerReferences": [
+            {"controller": True, "kind": "DaemonSet", "name": "worker", "uid": "daemonset-uid"}]}}
+        daemonset = {"metadata": {"uid": "daemonset-uid", "ownerReferences": [
+            {"controller": True, "kind": "NodeProfile", "name": "owned-profile", "uid": "profile-uid"}]}}
+        h = SimpleNamespace(control_namespace="owned-system", profile="owned-profile",
+                            get=Mock(return_value=daemonset))
+        authority_checks.require_worker_owner(h, pod, "profile-uid")
+        for change in ("namespace", "missing-controller", "daemonset-uid", "profile-uid"):
+            candidate, owner = copy.deepcopy(pod), copy.deepcopy(daemonset)
+            if change == "namespace":
+                candidate["metadata"]["namespace"] = "foreign"
+            elif change == "missing-controller":
+                candidate["metadata"]["ownerReferences"][0]["controller"] = False
+            elif change == "daemonset-uid":
+                owner["metadata"]["uid"] = "replaced"
+            else:
+                owner["metadata"]["ownerReferences"][0]["uid"] = "foreign"
+            h.get.return_value = owner
+            with self.subTest(change=change), self.assertRaises(Failure):
+                authority_checks.require_worker_owner(h, candidate, "profile-uid")
 
 
 if __name__ == "__main__":

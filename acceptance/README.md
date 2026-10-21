@@ -130,6 +130,10 @@ immutable corrected candidate branch with `mode=native` (the default). Six scope
 manual only, uses native hosted runners, has read-only repository permission,
 and rejects fork repositories/non-branch refs. It does not execute untrusted
 PR code using elevated repository credentials.
+Every mode also requires `expected_sha` containing the exact authorized
+40-character commit. The first job step rejects a moved dispatch branch or
+incorrect SHA before checkout, tool installation or fixture execution. Checking
+the branch before dispatch alone is not sufficient to close that race.
 
 The complete scope runs the core harness plus cold install, reader tutorial,
 runtime Wasm, unchanged upstream sources, native capacity, pinned uninstall,
@@ -175,6 +179,11 @@ evidence-only descendant before dispatching it. Approve the exact branch/SHA,
 mode and inputs separately before remote execution. Source or qualification-input
 changes require refreezing and fresh evidence; do not dispatch a moving branch
 and assume an earlier SHA ran. Inspect each workflow run's actual `head_sha`.
+For final verify-only execution, pass the exact evidence-only descendant SHA as
+`expected_sha`, not the ancestor source SHA. Its normalized input hashes must
+still match the frozen source, and the source receipt checkout must be its
+ancestor. If that descendant SHA was not included in the authorization, request
+approval for the exact verification dispatch separately.
 
 `v2-ci.yml` reports `Brewlet validation` on main/brewlet-2.0 pushes and PRs.
 It covers ordinary correctness, producer integration, both native overlay

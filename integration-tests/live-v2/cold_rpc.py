@@ -79,8 +79,9 @@ def execute(h, worker, runtime_id, blocked):
                            "cold-rpc", path, input=base64.b64encode(content).decode())
             paths.append((path, hashlib.sha256(content).hexdigest()))
         response = h.node_exec_on(worker, "crictl", "create", sandbox_id, *documents)
-        identifier = response.stdout.strip()
-        require(re.fullmatch(r"[0-9a-f]{64}", identifier), "CRI create returned an invalid container ID")
+        created = response.stdout.strip()
+        require(re.fullmatch(r"[0-9a-f]{64}", created), "CRI create returned an invalid container ID")
+        identifier = created
         started = time.monotonic()
         response = h.node_exec_on(worker, "crictl", "--timeout=120s", "start", identifier,
                                  check=False, timeout=150)

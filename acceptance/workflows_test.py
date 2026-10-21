@@ -85,7 +85,8 @@ class WorkflowTests(unittest.TestCase):
                 ("workflow_dispatch", "microsoft/brewlet", "refs/tags/unreviewed", False)):
             result = subprocess.run(["bash", "-eu", "-c", program],
                                     env={"EVENT": event, "REPOSITORY": repository, "REF": ref,
-                                         "QUALIFICATION_MODE": "native"},
+                                         "QUALIFICATION_MODE": "native",
+                                         "SOURCE": "a" * 40, "EXPECTED_SOURCE": "a" * 40},
                                     capture_output=True)
             self.assertEqual(success, result.returncode == 0, (event, repository, ref))
 
@@ -105,8 +106,22 @@ class WorkflowTests(unittest.TestCase):
         for mode in ("native", "non-live", "verify-only", "publish", ""):
             result = subprocess.run(["bash", "-eu", "-c", program], capture_output=True,
                 env={"EVENT": "workflow_dispatch", "REPOSITORY": "microsoft/brewlet",
-                     "REF": "refs/heads/candidate", "QUALIFICATION_MODE": mode})
+                     "REF": "refs/heads/candidate", "QUALIFICATION_MODE": mode,
+                     "SOURCE": "a" * 40, "EXPECTED_SOURCE": "a" * 40})
             self.assertEqual(mode in ("native", "non-live", "verify-only"), result.returncode == 0)
+
+    def test_dispatch_ref_movement_is_rejected_before_checkout_or_execution(self):
+        text = (ROOT / ".github/workflows/e2e.yml").read_text()
+        self.assertIn("expected_sha:", text)
+        program = block(text, "Refuse unsupported execution contexts")
+        for expected in ("a" * 40, "b" * 40, "", "main", "A" * 40, "a" * 39):
+            result = subprocess.run(["bash", "-eu", "-c", program], capture_output=True,
+                env={"EVENT": "workflow_dispatch", "REPOSITORY": "microsoft/brewlet",
+                     "REF": "refs/heads/candidate", "QUALIFICATION_MODE": "native",
+                     "SOURCE": "a" * 40, "EXPECTED_SOURCE": expected})
+            self.assertEqual(expected == "a" * 40, result.returncode == 0, expected)
+        self.assertLess(text.index('test "$SOURCE" = "$EXPECTED_SOURCE"'),
+                        text.index("- uses: actions/checkout"))
 
 
 if __name__ == "__main__":

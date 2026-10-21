@@ -3,6 +3,10 @@ name: Brewlet 2 real-node execution
 on:
   workflow_dispatch:
     inputs:
+      expected_sha:
+        description: Exact immutable commit authorized for this invocation
+        type: string
+        required: true
       mode:
         description: Native execution, fixed non-live checks, or strict evidence verification
         type: choice
@@ -38,11 +42,15 @@ jobs:
           EVENT: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
           REF: ${{ github.ref }}
+          SOURCE: ${{ github.sha }}
+          EXPECTED_SOURCE: ${{ inputs.expected_sha }}
         run: |
           test "$EVENT" = workflow_dispatch
           test "$REPOSITORY" = microsoft/brewlet
           case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac
           case "$QUALIFICATION_MODE" in native|non-live|verify-only) ;; *) exit 1 ;; esac
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$SOURCE" = "$EXPECTED_SOURCE"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}

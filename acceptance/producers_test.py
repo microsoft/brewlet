@@ -59,6 +59,28 @@ class ProducerTests(unittest.TestCase):
             self.assertEqual(name in ("artifact", "shim"), "DAC_OVERRIDE" in command)
             self.assertEqual(name == "node", "SETFCAP" in command)
 
+    def test_native_binary_mount_is_traversable_without_dac_override(self):
+        executions = []
+        def run(command, **kwargs):
+            if command[:3] == ["go", "env", "GOOS"]:
+                return "linux\namd64\n"
+            if command[:2] == ["docker", "info"]:
+                return "x86_64\n"
+            if command[:3] == ["docker", "image", "inspect"]:
+                return json.dumps([{"Id": "owned-image", "Config": {
+                    "Labels": {native_contracts.OWNER: "invocation"}}}])
+            if command[:2] == ["docker", "run"]:
+                work = Path(command[command.index("--cidfile") + 1]).parent
+                self.assertEqual(0o755, work.stat().st_mode & 0o777)
+                executions.append(command)
+                return "--- PASS: synthetic unit fixture\n"
+            return ""
+        with patch.object(native_contracts, "native_architecture", return_value="amd64"), \
+                patch.object(native_contracts.uuid, "uuid4", return_value=SimpleNamespace(hex="invocation")), \
+                patch.object(native_contracts, "run", side_effect=run):
+            self.assertEqual(0, native_contracts.main())
+        self.assertEqual(len(native_contracts.SUITES), len(executions))
+
     def test_native_checks_reject_non_linux_and_unknown_architecture(self):
         for system, machine in (("Darwin", "arm64"), ("Linux", "unknown")):
             with patch.object(native_contracts.platform, "system", return_value=system), \

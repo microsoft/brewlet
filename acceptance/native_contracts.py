@@ -91,6 +91,7 @@ def main():
     image = None
     with tempfile.TemporaryDirectory(prefix="brewlet-native-contracts-") as directory:
         work = Path(directory)
+        work.chmod(0o755)
         try:
             for name, (package, _, _, _) in SUITES.items():
                 run(["go", "test", "-c", "-mod=readonly", "-o", work / (name + ".test"), package])

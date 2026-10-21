@@ -6,6 +6,19 @@ import re
 from harness import FENCE, OWNER, require
 
 
+def require_worker_owner(h, pod, profile_uid):
+    owners = [owner for owner in pod["metadata"].get("ownerReferences", []) if owner.get("controller") is True]
+    require(pod["metadata"].get("namespace") == h.control_namespace
+            and len(owners) == 1 and owners[0]["kind"] == "DaemonSet",
+            "provisioning worker lacks its exact namespace and DaemonSet controller")
+    daemonset = h.get("daemonset", owners[0]["name"], h.control_namespace)
+    require(daemonset["metadata"]["uid"] == owners[0]["uid"]
+            and any(owner.get("controller") is True and owner["kind"] == "NodeProfile"
+                    and owner["uid"] == profile_uid and owner["name"] == h.profile
+                    for owner in daemonset["metadata"].get("ownerReferences", [])),
+            "provisioning worker controller chain does not match the exact profile UID")
+
+
 def initial_probe(h):
     return {"apiVersion": "v1", "kind": "Pod",
             "metadata": {"name": "initial-fence-" + h.run_id, "namespace": h.control_namespace},
@@ -66,12 +79,15 @@ def replace_installing_worker(h, node, runtime_id):
     require(profile["metadata"]["uid"] == uid, "profile identity changed before worker authority test")
 
     def workers():
-        return [pod for pod in h.get("pods", namespace=h.control_namespace)["items"]
+        candidates = [pod for pod in h.get("pods", namespace=h.control_namespace)["items"]
                 if pod.get("spec", {}).get("nodeName") == node
                 and pod["metadata"].get("labels", {}).get("brewlet.sh/owner-uid") == uid
                 and any(any(env.get("name") == "BREWLET_MODE" and env.get("value") == "provisioning"
                             for env in container.get("env", []))
                         for container in pod["spec"].get("containers", []))]
+        for pod in candidates:
+            require_worker_owner(h, pod, uid)
+        return candidates
 
     old = workers()
     require(len(old) == 1, "exact installing worker not found")
