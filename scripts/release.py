@@ -344,7 +344,7 @@ def validate_payloads(output, config):
     for source in (ROOT / "kubernetes/charts/brewlet/crds").glob("*.yaml"):
         require(contents["brewlet/crds/" + source.name][0] == source.read_bytes(), "packaged CRD mismatch")
     for args in ([], ["--set", "admission.enabled=false"],
-                 ["--set-json", 'provisioner.profiles=[{"name":"render-check","spec":{"nodeSelector":{"matchLabels":{"release.test/pool":"isolated"}},"runtimeImages":[]}}]']):
+                 ["--set-json", 'provisioner.profiles=[{"name":"render-check","spec":{"nodePool":{"key":"release.test/pool","names":["isolated"]},"runtimeImages":[]}}]']):
         rendered = run(["helm", "template", "brewlet", chart, *args])
         for component in config["images"]:
             if component == "admission" and args == ["--set", "admission.enabled=false"]:
