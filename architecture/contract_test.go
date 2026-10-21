@@ -106,7 +106,7 @@ func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testin
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(contracts), "--tmpfs /var/lib/brewlet/layers:rw,exec,size=64m") ||
-		!strings.Contains(string(contracts), "! grep -q -- '--- SKIP' shim-conformance.log") {
+		!strings.Contains(string(contracts), "if grep -q -- '--- SKIP' shim-conformance.log; then exit 1; fi") {
 		t.Fatal("native resolver suite lacks an isolated writable cache or mandatory zero-skip gate")
 	}
 	var workflow struct {
@@ -124,10 +124,9 @@ func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testin
 	if err := yaml.Unmarshal(data, &workflow); err != nil {
 		t.Fatal(err)
 	}
-	activation, exported, uploaded := false, false, false
-	for _, step := range workflow.Jobs["execution"].Steps {
-		activation = activation || strings.Contains(step.Run, "integration-tests/live-v2/activation.py")
-		exported = exported || strings.Contains(step.Run, "python3 acceptance/export_result.py")
+	runner, uploaded := false, false
+	for _, step := range workflow.Jobs["qualification"].Steps {
+		runner = runner || strings.Contains(step.Run, "python3 acceptance/qualify.py --run")
 		if path, ok := step.With["path"]; ok {
 			if path != "acceptance-export/*.json" {
 				t.Fatalf("real-node workflow exposes private observations: %s", path)
@@ -135,7 +134,12 @@ func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testin
 			uploaded = true
 		}
 	}
-	if !activation || !exported || !uploaded {
+	qualification, err := os.ReadFile("../acceptance/qualify.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runner || !uploaded || !strings.Contains(string(qualification), `"activation.py"`) ||
+		!strings.Contains(string(qualification), "export(read_json(") {
 		t.Fatal("real-node CI omits verified lifecycle companion or public-only result export")
 	}
 }

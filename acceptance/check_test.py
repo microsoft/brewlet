@@ -3,6 +3,8 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+import evidence_test
+from acceptance.evidence import working_identity
 
 SPEC = importlib.util.spec_from_file_location("check", Path(__file__).with_name("check.py"))
 CHECK = importlib.util.module_from_spec(SPEC)
@@ -14,7 +16,58 @@ class LedgerTests(unittest.TestCase):
         self.document = json.loads(Path(__file__).with_name("requirements.json").read_text())
 
     def test_ledger_shape(self):
-        self.assertEqual([], CHECK.validate(self.document))
+        self.assertEqual([], CHECK.validate(self.document, structure_only=True))
+
+    def test_historical_declarations_do_not_qualify_current_candidate(self):
+        self.assertTrue(CHECK.validate(self.document))
+
+    def test_synthetic_complete_candidate_and_assertion_coverage(self):
+        fixture = evidence_test.EvidenceTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        document = copy.deepcopy(self.document)
+        for row in document["requirements"] + document.get("amendments", []):
+            live = row["id"] in CHECK.REAL_NODE_REQUIRED
+            row["evidence"] = [{"scope": "real-node" if live else "contract",
+                                "command": "synthetic assertion fixture", "outcome": "passed",
+                                "result": "acceptance/results/live.json" if live
+                                else "acceptance/results/contracts.json"}]
+        ledger = fixture.root / "acceptance/requirements.json"
+        ledger.write_text(json.dumps(document))
+        fixture.commit()
+        identity = working_identity(fixture.root)
+        result = {**fixture.result, **identity,
+                  "command": "synthetic assertion fixture",
+                  "assertions": [{"name": "synthetic fixture, not public evidence", "outcome": "passed",
+                                  "requirements": sorted(CHECK.REQUIRED_IDS)}]}
+        for name, scope in (("live", "real-node-execution-only"), ("contracts", "contract")):
+            (fixture.root / f"acceptance/results/{name}.json").write_text(json.dumps({**result, "scope": scope}))
+        fixture.commit()
+        self.assertEqual([], CHECK.validate(document, fixture.root))
+        result["assertions"][0]["requirements"].remove("LEASE-02")
+        (fixture.root / "acceptance/results/live.json").write_text(json.dumps(result))
+        fixture.commit()
+        self.assertTrue(any("LEASE-02" in error for error in CHECK.validate(document, fixture.root)))
+
+    def test_no_baseline_obligation_or_real_node_scope_can_be_removed(self):
+        document = copy.deepcopy(self.document)
+        document["requirements"] = [row for row in document["requirements"] if row["id"] != "ARCH-01"]
+        self.assertTrue(CHECK.validate(document, structure_only=True))
+        document = copy.deepcopy(self.document)
+        for row in document["requirements"]:
+            if row["id"] == "ARCH-01":
+                row["evidence"] = [{"command": "contract only", "scope": "contract", "outcome": "passed"}]
+        self.assertTrue(CHECK.validate(document, structure_only=True))
+
+    def test_non_filesystem_missing_receipts_fail_closed(self):
+        document = copy.deepcopy(self.document)
+        for item in document["requirements"] + document.get("amendments", []):
+            if not item["id"].startswith("FS-"):
+                for evidence in item["evidence"]:
+                    if evidence.get("result"):
+                        evidence["result"] = "acceptance/results/nonexistent-audit-receipt.json"
+        errors = CHECK.validate(document, expected={"checkout": "0" * 40})
+        self.assertTrue(any("existing file beneath acceptance/results" in error for error in errors))
 
     def test_verified_without_evidence_rejected(self):
         document = copy.deepcopy(self.document)

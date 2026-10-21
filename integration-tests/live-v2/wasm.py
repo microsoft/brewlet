@@ -47,6 +47,8 @@ class WasmHarness(Harness):
         ]
 
     def preflight(self):
+        from acceptance.evidence import working_identity
+        self.result.update(working_identity(ROOT))
         for tool in ("docker", "kind", "kubectl", "helm", "go", "python3", "cargo", "rustup"):
             require(shutil.which(tool), "mandatory Wasm example prerequisite missing: " + tool)
         require(sys.version_info >= (3, 12), "Python 3.12+ required")
@@ -56,7 +58,7 @@ class WasmHarness(Harness):
         arch = self.run(["docker", "info", "--format", "{{.Architecture}}"]).stdout.strip()
         self.arch = {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64", "amd64": "amd64"}.get(arch)
         require(self.arch is not None, "native amd64/arm64 Docker required")
-        self.result.update(architecture=self.arch, checkout=self.run(["git", "rev-parse", "HEAD"]).stdout.strip())
+        self.result.update(architecture=self.arch)
         self.result["inputFileSHA256"] = {
             str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in sorted(EXAMPLE.rglob("*")) if p.is_file()
@@ -391,6 +393,7 @@ def exercise(h):
                h.get("runtimeimage", rid, absent=True) is None)
     h.node_exec("test", "!", "-e", "/usr/local/bin/containerd-shim-brewlet-v2")
     h.node_exec("crictl", "info")
+    h.result["productionCleanupVerified"] = True
     h.record("normal Wasm lease drain, host reversal, worker teardown and claim cleanup", {}, ["WASM-03"])
 
 
@@ -428,7 +431,7 @@ def run(work):
             h.result.update(outcome="failed", cleanupErrors=errors)
             status = 1
         h.save()
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

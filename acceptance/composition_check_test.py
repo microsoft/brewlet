@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+import evidence_test
+from acceptance.evidence import working_identity
 
 ROOT = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("composition_check", ROOT / "composition_check.py")
@@ -30,10 +33,15 @@ class CompositionLedgerTests(unittest.TestCase):
                 path = Path(directory) / "result.json"
                 path.write_text(json.dumps(result))
                 document = copy.deepcopy(self.document)
-                for name in CHECK.NATIVE_SCOPES:
+                for name in document["checks"]:
                     document["checks"][name]["outcome"] = "pending"
                 document["checks"]["wasm-arm64"].update(outcome="passed", result="result.json")
-                errors, _ = CHECK.validate(document, Path(directory))
+                (Path(directory) / "acceptance/results").mkdir(parents=True)
+                path.rename(Path(directory) / "acceptance/results/result.json")
+                document["checks"]["wasm-arm64"]["result"] = "results/result.json"
+                with patch.object(CHECK, "receipt_errors", return_value=[]):
+                    errors, _ = CHECK.validate(document, Path(directory) / "acceptance",
+                                               expected={"checkout": "0" * 40})
                 if case == "valid":
                     self.assertFalse(errors)
                 else:
@@ -43,11 +51,40 @@ class CompositionLedgerTests(unittest.TestCase):
         self.document = json.loads((ROOT / "composition-requirements.json").read_text())
 
     def test_shape_and_incomplete_gate(self):
-        errors, incomplete = CHECK.validate(self.document, ROOT)
+        errors, incomplete = CHECK.validate(self.document, ROOT, structure_only=True)
         self.assertFalse(errors)
         if incomplete:
             errors, _ = CHECK.validate(self.document, ROOT, True)
             self.assertTrue(errors)
+
+    def test_synthetic_complete_candidate_and_native_scope_cannot_be_downgraded(self):
+        fixture = evidence_test.EvidenceTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        document = copy.deepcopy(self.document)
+        for name, check in document["checks"].items():
+            check["result"] = f"results/{name}.json"
+        (fixture.root / "acceptance/composition-requirements.json").write_text(json.dumps(document))
+        fixture.commit()
+        identity = working_identity(fixture.root)
+        for name, check in document["checks"].items():
+            obligations = [row["id"] for row in document["requirements"] if name in row["checks"]]
+            result = {**fixture.result, **identity, "command": check["command"],
+                      "scope": check["scope"], "assertions": [{
+                          "name": "synthetic fixture, not public evidence", "outcome": "passed",
+                          "requirements": obligations}]}
+            if name in CHECK.NATIVE_SCOPES:
+                architecture, scenario, languages, _ = CHECK.NATIVE_SCOPES[name]
+                result.update(scope="real-node-execution-only", architecture=architecture,
+                              selectedScenario=scenario, selectedLanguages=sorted(languages))
+                if name.startswith("wasm"):
+                    provenance = json.loads((ROOT / "results/managed-wasm-composition-arm64.json").read_text())
+                    result.update({key: provenance[key] for key in ("wasmGuestInputs", "wasmRuntimes")})
+            (fixture.root / "acceptance" / check["result"]).write_text(json.dumps(result))
+        fixture.commit()
+        self.assertEqual(([], []), CHECK.validate(document, fixture.root / "acceptance", True))
+        document["checks"]["arm64"]["scope"] = "contract"
+        self.assertTrue(CHECK.validate(document, fixture.root / "acceptance", True)[0])
 
     def test_failed_skipped_or_missing_proofs_cannot_qualify(self):
         for outcome in ("failed", "skipped", "pending"):

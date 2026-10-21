@@ -216,6 +216,7 @@ def exercise(h):
     require(preserved["metadata"]["uid"] == accepted["metadata"]["uid"]
             and preserved["status"]["originalTarget"] == status["originalTarget"],
             "actual uninstall discarded accepted independent history")
+    h.result["productionCleanupVerified"] = True
     h.record("authorized immutable external retirement survives profile deletion and real uninstall",
              {"evidenceUID": accepted["metadata"]["uid"], "originalNodeUID": frozen["metadata"]["uid"],
               "replacementNodeUID": h.node_uid, "priorRBACDenial": True,
@@ -226,6 +227,7 @@ def exercise(h):
 
 def run(work):
     h = Harness(work)
+    h.result.update(selectedScenario="retirement", selectedLanguages=list(h.languages))
     status = 1
     h.result["gaps"].append("Focused returning/missing physical-host retirement; complete combined suite is separate")
     try:
@@ -258,7 +260,7 @@ def run(work):
             status = 1
         h.save()
         print("Private physical-retirement evidence:", h.work, flush=True)
-    return status
+    return status if h.result.get("outcome") == "passed" else 1
 
 
 if __name__ == "__main__":

@@ -2,14 +2,9 @@ name: Brewlet 2 contracts
 
 on:
   push:
-    branches: [brewlet-2.0]
+    branches: [main, brewlet-2.0]
   pull_request:
   workflow_dispatch:
-    inputs:
-      release_gate:
-        description: Require every Proposal 0009 requirement to have successful evidence
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -34,9 +29,35 @@ jobs:
         run: |
           GOOS=linux GOARCH=amd64 go build ./...
           GOOS=linux GOARCH=arm64 go build ./...
-      - name: Strict release gate
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.release_gate }}
+      - name: Current redistribution notices and packaging
+        run: make legal-check
+
+  candidate-acceptance:
+    name: Brewlet candidate acceptance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Strict candidate evidence gate (missing or stale evidence fails)
         run: make acceptance
+
+  validation:
+    name: Brewlet validation
+    if: always()
+    needs: [contracts, producer-integration, linux-overlay-contract]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every prerequisite to succeed, never skipped or cancelled
+        env:
+          CONTRACTS: ${{ needs.contracts.result }}
+          PRODUCER: ${{ needs.producer-integration.result }}
+          OVERLAY: ${{ needs.linux-overlay-contract.result }}
+        run: |
+          test "$CONTRACTS" = success
+          test "$PRODUCER" = success
+          test "$OVERLAY" = success
 
   producer-integration:
     runs-on: ubuntu-24.04
@@ -116,7 +137,7 @@ jobs:
             --workdir /src/pkg/artifact --entrypoint /tests/artifact.test \
             brewlet-overlay-contract:${{ github.run_id }} \
             -test.v | tee overlay.log
-          ! grep -q -- '--- SKIP' overlay.log
+          if grep -q -- '--- SKIP' overlay.log; then exit 1; fi
           docker run --rm --platform "${{ matrix.platform }}" --network none \
             --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD --cap-add DAC_OVERRIDE \
             --security-opt no-new-privileges --security-opt apparmor=unconfined --read-only --tmpfs /tmp \
@@ -127,7 +148,7 @@ jobs:
             --workdir /src/shim/cmd/containerd-shim-brewlet-v2 --entrypoint /tests/shim.test \
             brewlet-overlay-contract:${{ github.run_id }} \
             -test.v | tee shim-conformance.log
-          ! grep -q -- '--- SKIP' shim-conformance.log
+          if grep -q -- '--- SKIP' shim-conformance.log; then exit 1; fi
           docker run --rm --platform "${{ matrix.platform }}" --network none \
             --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD --cap-add SETFCAP \
             --security-opt no-new-privileges --security-opt apparmor=unconfined --read-only --tmpfs /tmp --tmpfs /work \
@@ -135,7 +156,7 @@ jobs:
             --workdir /work --entrypoint /tests/node.test \
             brewlet-overlay-contract:${{ github.run_id }} \
             -test.v | tee lease-evidence.log
-          ! grep -q -- '--- SKIP' lease-evidence.log
+          if grep -q -- '--- SKIP' lease-evidence.log; then exit 1; fi
           docker run --rm --platform "${{ matrix.platform }}" --network none \
             --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
             --security-opt no-new-privileges --security-opt apparmor=unconfined --read-only --tmpfs /tmp --tmpfs /work \
@@ -143,4 +164,4 @@ jobs:
             --workdir /work --entrypoint /tests/provisioner.test \
             brewlet-overlay-contract:${{ github.run_id }} \
             -test.v | tee cache-gc.log
-          ! grep -q -- '--- SKIP' cache-gc.log
+          if grep -q -- '--- SKIP' cache-gc.log; then exit 1; fi
