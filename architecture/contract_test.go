@@ -93,8 +93,13 @@ func TestProductionBuildersKeepCompilerCacheOutsideSnapshots(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(data), "RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -trimpath") {
-				t.Fatal("compiler cache would be copied into each source-specific build snapshot")
+			text := string(data)
+			if !strings.Contains(text, "RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath") {
+				t.Fatal("target-aware compilation must keep its cache outside source snapshots")
+			}
+			if !strings.Contains(text, "FROM --platform=$BUILDPLATFORM golang:") ||
+				!strings.Contains(text, "go run ./scripts/notice --goos $TARGETOS --goarch $TARGETARCH") {
+				t.Fatal("native builders must generate notices for the selected target, not execute a cross-built generator")
 			}
 		})
 	}
