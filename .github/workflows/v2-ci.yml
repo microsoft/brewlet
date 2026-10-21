@@ -5,6 +5,7 @@ on:
     branches: [main, brewlet-2.0]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

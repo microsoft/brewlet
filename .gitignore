@@ -11,6 +11,7 @@
 /acceptance/__pycache__/
 /acceptance-export/
 /scripts/__pycache__/
+/dist/
 /integration-tests/**/__pycache__/
 *.test
 .DS_Store

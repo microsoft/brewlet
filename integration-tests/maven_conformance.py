@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import subprocess
 
+PLUGIN = "sh.brewlet:brewlet-maven-plugin:" + json.loads(
+    (Path(__file__).resolve().parents[1] / "release.json").read_text())["version"] + ":"
 
 class Pairs(list):
     pass
@@ -33,7 +35,7 @@ def run(executable, project, work, fixture_file):
     report = work / "maven-shared-conformance.json"
     subprocess.run([
         "mvn", "-B", "-q", "-f", str(project),
-        "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:conformance",
+        PLUGIN + "conformance",
         f"-Dbrewlet.executable={executable}",
         f"-Dbrewlet.fixtures={shared.resolve()}",
         f"-Dbrewlet.conformanceResult={report.resolve()}",
@@ -67,7 +69,7 @@ def run(executable, project, work, fixture_file):
         layout = work / f'conformance-{case["name"]}-oci'
         command = [
             "mvn", "-B", "-q", "-f", str(project), "package",
-            "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push",
+            PLUGIN + "push",
             f"-Dbrewlet.executable={executable}",
             f"-Dbrewlet.launch={source}",
             f"-Dbrewlet.store={layout}",

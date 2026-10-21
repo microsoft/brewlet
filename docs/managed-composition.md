@@ -52,7 +52,7 @@ strip out.
 For an app-only Maven publication:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push \
+mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:push \
   -Dbrewlet.applicationOnly=true \
   -Dbrewlet.sourceBom=sh.brewlet.fixture:fixture-bom:2.0.0 \
   -Dbrewlet.image=registry.example.com/builds/orders:payload \

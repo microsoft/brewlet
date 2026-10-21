@@ -15,7 +15,7 @@ def prepare(h):
     h.run(["mvn", "-B", "-q", "-f", ROOT / "maven-plugin/pom.xml", "install"],
           env=environment, timeout=600)
     pom = h.work / "fixtures/java/app/pom.xml"
-    goal = "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:"
+    goal = "sh.brewlet:brewlet-maven-plugin:" + json.loads((ROOT / "release.json").read_text())["version"] + ":"
     common = [f"-Dbrewlet.executable={wrapper}", "-Dbrewlet.platforms=linux/amd64,linux/arm64"]
     layouts = {}
     for variant in ("bundled", "managed"):

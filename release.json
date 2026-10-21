@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "version": "2.0.0-alpha.1",
+  "repository": "microsoft/brewlet",
+  "workflow": ".github/workflows/release.yml",
+  "cliTargets": ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"],
+  "imagePlatforms": ["linux/amd64", "linux/arm64"],
+  "images": {
+    "operator": "ghcr.io/microsoft/brewlet-operator",
+    "admission": "ghcr.io/microsoft/brewlet-admission",
+    "node": "ghcr.io/microsoft/brewlet-node-provisioner"
+  },
+  "chart": "ghcr.io/microsoft/charts/brewlet",
+  "maven": {
+    "groupId": "sh.brewlet",
+    "artifactId": "brewlet-maven-plugin",
+    "minimumJava": 17
+  },
+  "publicationPolicy": {
+    "legalApproval": null,
+    "mavenSigningFingerprint": null,
+    "supportedTransitions": [
+      {"sourceVersion": "2.0.0-alpha.1", "targetVersion": "2.0.0-alpha.1", "method": "drain-teardown-reinstall"}
+    ]
+  }
+}

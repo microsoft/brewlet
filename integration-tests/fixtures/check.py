@@ -21,6 +21,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent
+PLUGIN = "sh.brewlet:brewlet-maven-plugin:" + json.loads((ROOT / "release.json").read_text())["version"] + ":"
 
 
 def run(command, *, cwd=None, env=None, capture=False):
@@ -183,7 +184,7 @@ def main():
         run(["mvn", "-B", "-q", "-f", ROOT / "maven-plugin/pom.xml", "install"])
         run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
              "package",
-             "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push",
+             PLUGIN + "push",
              f"-Dbrewlet.executable={brewlet}",
              f"-Dbrewlet.store={work / 'oci-java-maven'}",
              "-Dbrewlet.image=fixtures/java-maven:v2",
@@ -192,13 +193,13 @@ def main():
         managed_set = work / "oci-java-layer-set"
         source_bom = "sh.brewlet.fixture:fixture-bom:2.0.0"
         run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
-             "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:layer-set",
+             PLUGIN + "layer-set",
              f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={managed_set}",
              "-Dbrewlet.layerSet=fixtures/java-dependencies:v2",
              f"-Dbrewlet.sourceBom={source_bom}"])
         managed_output = work / "oci-java-managed"
         managed_arguments = [
-            "package", "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push",
+            "package", PLUGIN + "push",
             f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={managed_output}",
             "-Dbrewlet.image=fixtures/java-managed:v2",
             "-Dbrewlet.platforms=linux/amd64,linux/arm64",
@@ -221,7 +222,7 @@ def main():
         for attempt in range(2):
             app_only = work / f"oci-java-application-only-{attempt}"
             run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
-                 "package", "sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push",
+                 "package", PLUGIN + "push",
                  f"-Dbrewlet.executable={brewlet}", f"-Dbrewlet.store={app_only}",
                  "-Dbrewlet.image=fixtures/java-application-only:v2",
                  "-Dbrewlet.platforms=linux/amd64,linux/arm64",

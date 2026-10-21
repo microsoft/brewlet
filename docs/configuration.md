@@ -15,14 +15,15 @@ worker DaemonSets with operator reconciliation.
 
 ## Current Helm values
 
-These are the current chart keys, not main's values schema. Image defaults are
-development names, not a promise of published images.
+These are the current chart keys, not main's values schema. Source-chart defaults
+name candidate coordinates, not a promise of published images. Release packages
+replace these tags with verified immutable image digests.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `operator.image` | `brewlet-operator:2.0` | Operator and uninstall-coordinator image. |
-| `admission.image` | `brewlet-admission:2.0` | Admission server image; source-built control image also contains this binary. |
-| `provisioner.image` | `brewlet-node:2.0` | Matching privileged node worker and bundled shim. |
+| `operator.image` | `ghcr.io/microsoft/brewlet-operator:2.0.0-alpha.1` | Operator and uninstall-coordinator image. |
+| `admission.image` | `ghcr.io/microsoft/brewlet-admission:2.0.0-alpha.1` | Admission server image; source-built control image also contains this binary. |
+| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:2.0.0-alpha.1` | Matching privileged node worker and bundled shim. |
 | `provisioner.profiles` | `[]` | Named `{name, spec}` profiles; chart entries require nonempty pool names. |
 | `provisioner.gc.grace` | `1h` | Positive reference-drain grace for collection. |
 | `provisioner.gc.sweepInterval` | `1m` | Positive collection interval. |
