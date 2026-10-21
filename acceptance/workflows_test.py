@@ -88,9 +88,29 @@ class WorkflowTests(unittest.TestCase):
                 ("workflow_dispatch", "fork/brewlet", "refs/heads/candidate", False),
                 ("workflow_dispatch", "microsoft/brewlet", "refs/tags/unreviewed", False)):
             result = subprocess.run(["bash", "-eu", "-c", program],
-                                    env={"EVENT": event, "REPOSITORY": repository, "REF": ref},
+                                    env={"EVENT": event, "REPOSITORY": repository, "REF": ref,
+                                         "QUALIFICATION_MODE": "native"},
                                     capture_output=True)
             self.assertEqual(success, result.returncode == 0, (event, repository, ref))
+
+    def test_registered_e2e_modes_do_not_route_qualification_through_publication(self):
+        text = (ROOT / ".github/workflows/e2e.yml").read_text()
+        self.assertIn("options: [native, non-live, verify-only]", text)
+        self.assertIn("QUALIFICATION_MODE: ${{ inputs.mode || 'native' }}", text)
+        self.assertIn("python3 acceptance/run_check.py all", text)
+        self.assertIn("if: env.QUALIFICATION_MODE == 'native'\n", text)
+        strict = text.split("      - name: Require strict evidence acceptance", 1)[1].split(
+            "      - name:", 1)[0]
+        self.assertIn("if: env.QUALIFICATION_MODE == 'verify-only'", strict)
+        self.assertIn("run: make acceptance", strict)
+        self.assertNotIn("continue-on-error", text)
+        self.assertNotIn("publish", text.lower())
+        program = block(text, "Refuse unsupported execution contexts")
+        for mode in ("native", "non-live", "verify-only", "publish", ""):
+            result = subprocess.run(["bash", "-eu", "-c", program], capture_output=True,
+                env={"EVENT": "workflow_dispatch", "REPOSITORY": "microsoft/brewlet",
+                     "REF": "refs/heads/candidate", "QUALIFICATION_MODE": mode})
+            self.assertEqual(mode in ("native", "non-live", "verify-only"), result.returncode == 0)
 
 
 if __name__ == "__main__":

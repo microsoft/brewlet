@@ -37,6 +37,11 @@ and successful public receipts. Four-language or old runtime-only Wasm receipts
 cannot qualify the missing companion.
 Unknown, partial, failed or cross-built results do not qualify an architecture.
 The top-level `make acceptance` runs both ledgers.
+The active composition checks now reference the fixed non-live command receipts
+and `candidate-ARCH-managed.json` / `candidate-ARCH-managed-wasm.json` suite receipts, with outcomes pending
+until actual qualification. `historicalChecks` preserves the original execution
+declarations unchanged and is not consulted by the gate. Updating only a pending
+outcome cannot qualify a missing, stale, failed or assertion-incomplete receipt.
 
 ## Candidate identity and evidence-only commits
 
@@ -60,6 +65,9 @@ scope and candidate identity. Inspection cannot substitute for mandatory live
 execution. `python3 acceptance/run_check.py go-contracts|maven|documentation`
 executes a fixed checked-in command and records its actual outcome under
 `acceptance-export/`; it never executes ledger-supplied command strings.
+`python3 acceptance/run_check.py all` runs all three checks, retains failed
+outcomes (including missing tools and input changes), and exits nonzero if any
+check fails. These commands require a clean committed source candidate.
 Its mapping covers only the listed non-live obligations, not native overlay,
 producer-registry, admission-cluster or real-node claims. Any other required
 execution still needs its own appropriately scoped record. Update a ledger's
@@ -77,7 +85,7 @@ verified ledger statuses are historical declarations, not a green release gate.
 expected to fail until current evidence is obtained and mapped.
 
 After explicit approval of privileged live execution, dispatch `e2e.yml` on the
-immutable corrected candidate branch. Six scopes are required: `complete`,
+immutable corrected candidate branch with `mode=native` (the default). Six scopes are required: `complete`,
 `managed`, and `managed-wasm` on each of `amd64` and `arm64`. This workflow is
 manual only, uses native hosted runners, has read-only repository permission,
 and rejects fork repositories/non-branch refs. It does not execute untrusted
@@ -95,6 +103,12 @@ in an evidence-only commit. `python3 acceptance/qualify.py` independently
 requires every suite on both architectures for the same candidate. Both
 ledger validators still require their own assertion/obligation coverage,
 including successful production cleanup and fixture destruction.
+`python3 acceptance/qualify.py --status-json` reports all 22 expected filenames
+as `missing`, `failed` (execution or validation), or `qualified`, together with
+the current candidate identity and each available receipt's identity. It exits
+nonzero unless every receipt qualifies. A failed tutorial or interrupted suite
+launch also leaves a failed public receipt; unexecuted later suites remain
+missing rather than acquiring invented results.
 An unavailable runner, skipped suite, failed cleanup or missing proof is a
 blocker, never a cross-build or success-shaped fallback. Native kind capacity
 does not prove actual cloud-provider scale-from-zero. A provider-qualified
@@ -102,6 +116,25 @@ claim needs separate provider evidence; do not invent that claim or make it a
 prerequisite for obligations explicitly scoped to native pending-capacity tests.
 
 ## Routine validation versus promotion qualification
+
+The registered E2E workflow provides two additional explicit, manual modes on
+the selected branch, so evidence qualification does not depend on registering
+a new workflow on the default branch or invoking a publication operation:
+
+| Mode | Execution | Evidence and limits |
+| --- | --- | --- |
+| `native` | Existing selected native scenario/architecture | Privileged disposable owned fixtures; six dispatches for all 22 suite receipts |
+| `non-live` | `python3 acceptance/run_check.py all` | Three fixed command receipts; not producer-registry, native overlay, admission-cluster, or live coverage |
+| `verify-only` | `make acceptance` | Strict read-only evidence validation from the immutable full-history checkout; no live fixtures or publication |
+
+All modes reject unsupported execution contexts and retain read-only repository
+permissions. Non-live/native artifacts contain only public JSON from
+`acceptance-export/`. Verify-only does not import artifacts or fabricate missing
+evidence; attach reviewed genuine receipts and reconciled metadata in a clean
+evidence-only descendant before dispatching it. Approve the exact branch/SHA,
+mode and inputs separately before remote execution. Source or qualification-input
+changes require refreezing and fresh evidence; do not dispatch a moving branch
+and assume an earlier SHA ran. Inspect each workflow run's actual `head_sha`.
 
 `v2-ci.yml` reports `Brewlet validation` on main/brewlet-2.0 pushes and PRs.
 It covers ordinary correctness, producer integration, both native overlay

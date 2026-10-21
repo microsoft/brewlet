@@ -36,15 +36,25 @@ CHECKS = {
 def execute(name, output):
     identity = working_identity()
     check = CHECKS[name]
-    outcome = subprocess.run(check["command"], cwd=ROOT, check=False).returncode
     result = {**identity, "scope": check["scope"], "command": shlex.join(check["command"]),
-              "outcome": "passed" if outcome == 0 else "failed",
-              "assertions": [{"name": name + " command exit status", "requirements": check["requirements"],
-                              "outcome": "passed" if outcome == 0 else "failed"}]}
-    if working_identity() != identity:
-        result["outcome"] = "failed"
+              "outcome": "failed", "assertions": []}
+    try:
+        outcome = subprocess.run(check["command"], cwd=ROOT, check=False).returncode
+    except OSError as error:
+        outcome = 1
+        result["failure"] = str(error)
+        print(name + " failed: " + str(error), file=sys.stderr)
+    result["outcome"] = "passed" if outcome == 0 else "failed"
+    result["assertions"].append({"name": name + " command exit status",
+                                 "requirements": check["requirements"], "outcome": result["outcome"]})
+    try:
+        if working_identity() != identity:
+            raise ValueError("candidate changed during non-live check")
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        result.update(outcome="failed", failure=str(error))
         result["assertions"].append({"name": "unchanged qualification inputs", "outcome": "failed",
                                      "requirements": []})
+        print(name + " failed: " + str(error), file=sys.stderr)
         outcome = 1
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + "\n")
@@ -53,10 +63,15 @@ def execute(name, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("check", choices=CHECKS)
+    parser.add_argument("check", choices=(*CHECKS, "all"))
     args = parser.parse_args()
     try:
-        return execute(args.check, ROOT / "acceptance-export" / (args.check + ".json"))
+        checks = CHECKS if args.check == "all" else (args.check,)
+        outcome = 0
+        for name in checks:
+            if execute(name, ROOT / "acceptance-export" / (name + ".json")):
+                outcome = 1
+        return outcome
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print("non-live qualification failed:", error, file=sys.stderr)
         return 1

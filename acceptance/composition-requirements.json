@@ -3,6 +3,54 @@
   "contract": "Proposal 0010",
   "checks": {
     "contracts": {
+      "command": "go test -count=1 -race -mod=readonly ./...",
+      "scope": "contract",
+      "outcome": "pending",
+      "result": "results/go-contracts.json"
+    },
+    "maven": {
+      "command": "mvn -B -q -f maven-plugin/pom.xml verify",
+      "scope": "contract",
+      "outcome": "pending",
+      "result": "results/maven.json"
+    },
+    "documentation": {
+      "command": "make site-build",
+      "scope": "inspection",
+      "outcome": "pending",
+      "result": "results/documentation.json"
+    },
+    "arm64": {
+      "command": "python3 acceptance/qualify.py --run --scenario managed --architecture arm64",
+      "scope": "real-node",
+      "architecture": "arm64",
+      "outcome": "pending",
+      "result": "results/candidate-arm64-managed.json"
+    },
+    "amd64": {
+      "command": "python3 acceptance/qualify.py --run --scenario managed --architecture amd64",
+      "scope": "real-node",
+      "architecture": "amd64",
+      "outcome": "pending",
+      "result": "results/candidate-amd64-managed.json"
+    },
+    "wasm-arm64": {
+      "command": "python3 acceptance/qualify.py --run --scenario managed-wasm --architecture arm64",
+      "scope": "real-node",
+      "architecture": "arm64",
+      "outcome": "pending",
+      "result": "results/candidate-arm64-managed-wasm.json"
+    },
+    "wasm-amd64": {
+      "command": "python3 acceptance/qualify.py --run --scenario managed-wasm --architecture amd64",
+      "scope": "real-node",
+      "architecture": "amd64",
+      "outcome": "pending",
+      "result": "results/candidate-amd64-managed-wasm.json"
+    }
+  },
+  "historicalChecks": {
+    "contracts": {
       "command": "go test -race ./pkg/artifact ./pkg/inventory ./pkg/node ./provisioner ./cmd/brewlet",
       "scope": "contract",
       "outcome": "passed"

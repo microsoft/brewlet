@@ -3,6 +3,12 @@ name: Brewlet 2 real-node execution
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Native execution, fixed non-live checks, or strict evidence verification
+        type: choice
+        required: true
+        default: native
+        options: [native, non-live, verify-only]
       scenario:
         description: Complete acceptance or managed native/Wasm composition
         type: choice
@@ -23,6 +29,9 @@ jobs:
   qualification:
     runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 180
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      QUALIFICATION_MODE: ${{ inputs.mode || 'native' }}
     steps:
       - name: Refuse unsupported execution contexts instead of skipping
         env:
@@ -33,15 +42,18 @@ jobs:
           test "$EVENT" = workflow_dispatch
           test "$REPOSITORY" = microsoft/brewlet
           case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac
+          case "$QUALIFICATION_MODE" in native|non-live|verify-only) ;; *) exit 1 ;; esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        if: env.QUALIFICATION_MODE != 'verify-only'
         with:
           go-version-file: go.mod
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        if: env.QUALIFICATION_MODE != 'verify-only'
         with:
           distribution: temurin
           java-version: "21"
@@ -50,37 +62,51 @@ jobs:
         with:
           python-version: "3.12"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: env.QUALIFICATION_MODE != 'verify-only'
         with:
-          node-version: "22.22.0"
+          node-version: ${{ env.QUALIFICATION_MODE == 'non-live' && '24' || '22.22.0' }}
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        if: env.QUALIFICATION_MODE != 'verify-only'
         with:
           global-json-file: integration-tests/fixtures/dotnet/global.json
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
+        if: env.QUALIFICATION_MODE == 'native'
         with:
           version: v3.19.0
       - uses: Azure/setup-kubectl@c0c8b32d33a5244f1e5947304550403b63930415
+        if: env.QUALIFICATION_MODE == 'native'
         with:
           version: v1.35.0
       - name: Install pinned native suite tools
+        if: env.QUALIFICATION_MODE == 'native'
         run: |
           go install sigs.k8s.io/kind@v0.33.0
           rustup toolchain install 1.97.1 --profile minimal --target wasm32-wasip2
           command -v htpasswd
       - name: Offline ownership and evidence safeguards
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
+        if: env.QUALIFICATION_MODE != 'verify-only'
         run: python3 -m unittest discover -s integration-tests/live-v2 -p 'test_*.py' -v
+      - name: Install pinned documentation dependencies
+        if: env.QUALIFICATION_MODE == 'non-live'
+        run: python3 -m pip install -r site/requirements.txt
+      - name: Execute fixed non-live checks and retain actual outcomes
+        if: env.QUALIFICATION_MODE == 'non-live'
+        run: python3 acceptance/run_check.py all
       - name: Execute immutable native candidate qualification
+        if: env.QUALIFICATION_MODE == 'native'
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           SCENARIO: ${{ inputs.scenario }}
           ARCHITECTURE: ${{ inputs.architecture }}
         run: python3 acceptance/qualify.py --run --scenario "$SCENARIO" --architecture "$ARCHITECTURE"
+      - name: Require strict evidence acceptance without executing live fixtures
+        if: env.QUALIFICATION_MODE == 'verify-only'
+        run: make acceptance
       - name: Retain public identities/outcomes only, never private work files
-        if: always()
+        if: always() && env.QUALIFICATION_MODE != 'verify-only'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: candidate-${{ inputs.architecture }}-${{ inputs.scenario }}-${{ github.sha }}
+          name: candidate-${{ inputs.architecture }}-${{ inputs.mode || 'native' }}-${{ inputs.scenario }}-${{ github.sha }}
           path: acceptance-export/*.json
           if-no-files-found: error
           retention-days: 14

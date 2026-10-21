@@ -1,12 +1,14 @@
 import copy
 import importlib.util
 import json
+import shlex
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 import evidence_test
 from acceptance.evidence import working_identity
+from acceptance.run_check import CHECKS
 
 ROOT = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("composition_check", ROOT / "composition_check.py")
@@ -57,12 +59,29 @@ class CompositionLedgerTests(unittest.TestCase):
             errors, _ = CHECK.validate(self.document, ROOT, True)
             self.assertTrue(errors)
 
+    def test_current_commands_match_fixed_receipt_producers_without_relabeling_history(self):
+        for name, producer in (("contracts", "go-contracts"), ("maven", "maven"),
+                               ("documentation", "documentation")):
+            check = self.document["checks"][name]
+            self.assertEqual(shlex.join(CHECKS[producer]["command"]), check["command"])
+            self.assertEqual(CHECKS[producer]["scope"], check["scope"])
+            self.assertEqual("results/" + producer + ".json", check["result"])
+            obligations = {row["id"] for row in self.document["requirements"] if name in row["checks"]}
+            self.assertLessEqual(obligations, set(CHECKS[producer]["requirements"]))
+        self.assertTrue(all(check["outcome"] == "pending" for check in self.document["checks"].values()))
+        self.assertTrue(all(check["outcome"] == "passed" for check in self.document["historicalChecks"].values()))
+        for name, (architecture, _, _, _) in CHECK.NATIVE_SCOPES.items():
+            suffix = "managed-wasm" if name.startswith("wasm-") else "managed"
+            self.assertEqual(f"results/candidate-{architecture}-{suffix}.json",
+                             self.document["checks"][name]["result"])
+
     def test_synthetic_complete_candidate_and_native_scope_cannot_be_downgraded(self):
         fixture = evidence_test.EvidenceTests()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         document = copy.deepcopy(self.document)
         for name, check in document["checks"].items():
+            check["outcome"] = "passed"
             check["result"] = f"results/{name}.json"
         (fixture.root / "acceptance/composition-requirements.json").write_text(json.dumps(document))
         fixture.commit()
