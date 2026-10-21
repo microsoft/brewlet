@@ -35,6 +35,8 @@ old persisted-state reuse or a stable release distribution. A supported path
 must explicitly name the source/target revisions, state and recovery limits.
 Otherwise plan reviewed workload drain and [safe teardown](uninstallation.md)
 before installing matching new components.
+The [prerelease support table](supported-release.md#bounded-transitions-and-recovery)
+names the initial eligible clean-reinstall test pair and its unverified status.
 
 An ordinary same-contract runtime-source rotation or a reviewed Helm values
 change is not a platform-release compatibility promise. Nor does unsupported

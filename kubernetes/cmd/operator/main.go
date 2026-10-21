@@ -35,7 +35,7 @@ func main() {
 	var workloadDeadline time.Duration
 	var gcGrace, gcSweep time.Duration
 	flag.StringVar(&namespace, "namespace", "brewlet-system", "namespace for managed workers")
-	flag.StringVar(&image, "worker-image", "brewlet-node:2.0", "node worker image")
+	flag.StringVar(&image, "worker-image", "", "required explicit node worker image")
 	flag.StringVar(&hosts, "allowed-source-mirror-hosts", "", "comma-separated exact mirror hosts")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "metrics address (0 disables)")
 	flag.StringVar(&nodeMetrics, "node-metrics-address", "", "optional worker metrics bind address")
@@ -86,6 +86,10 @@ func main() {
 		defer cancel()
 		must((&controller.UninstallCoordinator{Client: c, ReleaseName: release, ReleaseNamespace: namespace}).Run(ctx))
 		return
+	}
+	if image == "" {
+		fmt.Fprintln(os.Stderr, "worker-image must explicitly identify the matching node worker")
+		os.Exit(1)
 	}
 	m, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{Scheme: s, LeaderElection: leader, LeaderElectionID: "brewlet-operator.node.brewlet.sh", LeaderElectionNamespace: namespace, Metrics: metrics.Options{BindAddress: metricsAddr}, HealthProbeBindAddress: health})
 	must(err)

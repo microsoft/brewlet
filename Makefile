@@ -1,4 +1,4 @@
-.PHONY: test build acceptance composition-acceptance ledger site-build site-contract-check legal-check
+.PHONY: test build acceptance composition-acceptance ledger site-build site-contract-check legal-check release-check release-candidate
 
 SITE_PYTHON ?= python3
 
@@ -24,6 +24,16 @@ legal-check:
 	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/worker-$$arch.txt ./cmd/brewlet-node ./shim/cmd/containerd-shim-brewlet-v2; \
 	done
 	python3 scripts/check_notices.py
+
+release-check:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release.py identity
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s acceptance -p 'release*_test.py' -v
+
+release-candidate:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release.py build
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_assurance.py sboms
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release.py verify
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_assurance.py verify
 
 ledger:
 	python3 acceptance/check.py

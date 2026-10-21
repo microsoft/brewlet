@@ -1,6 +1,7 @@
 """Verify generated notices and the actual Maven JAR's packaged legal resources."""
 
 from pathlib import Path
+import json
 import zipfile
 
 from maven_notice import notices
@@ -11,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     directory = ROOT / "maven-plugin/target"
-    jars = list(directory.glob("brewlet-maven-plugin-*.jar"))
+    version = json.loads((ROOT / "release.json").read_text())["version"]
+    jars = [path for path in directory.glob("brewlet-maven-plugin-*.jar")
+            if path.name == f"brewlet-maven-plugin-{version}.jar"]
     if len(jars) != 1:
         raise ValueError("exactly one packaged Maven plugin JAR is required")
     expected = notices((directory / "runtime-classpath.txt").read_text())

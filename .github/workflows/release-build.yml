@@ -1,0 +1,180 @@
+name: Brewlet prerelease candidate artifacts
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require same-repository manual build
+        env:
+          EVENT: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          test "$EVENT" = workflow_dispatch
+          test "$REPOSITORY" = microsoft/brewlet
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: "1.26.0"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
+        with:
+          version: v3.19.0
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+        with:
+          version: v0.32.1
+      - name: Ordinary correctness and current legal checks, not promotion
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: make test legal-check
+      - name: Install integrity-pinned SBOM tool
+        run: |
+          python3 scripts/release_tools.py --destination "$RUNNER_TEMP/release-tools" syft
+          echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"
+      - name: Assemble and inspect exact candidate payloads
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          python3 scripts/release.py build
+          python3 scripts/release.py reproduce
+          python3 scripts/release_assurance.py sboms
+          python3 scripts/release.py verify
+          python3 scripts/release_assurance.py verify
+      - name: Attest candidate inventory and payload provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: |
+            dist/candidate/*.tar.gz
+            dist/candidate/*.tgz
+            dist/candidate/*.jar
+            dist/candidate/*.pom
+            dist/candidate/candidate.json
+            dist/candidate/checksums.txt
+            dist/candidate/sboms/*.json
+      - name: Preserve verification bundle
+        env:
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          mkdir -p dist/candidate/attestations
+          cp "$BUNDLE" dist/candidate/attestations/build.jsonl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-candidate-${{ github.sha }}
+          path: dist/candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+  native-cli:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux/amd64
+            runner: ubuntu-24.04
+            name: linux-amd64
+          - target: linux/arm64
+            runner: ubuntu-24.04-arm
+            name: linux-arm64
+          - target: darwin/amd64
+            runner: macos-15-intel
+            name: darwin-amd64
+          - target: darwin/arm64
+            runner: macos-15
+            name: darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-candidate-${{ github.sha }}
+          path: dist/candidate
+      - name: Execute the archived native CLI, not a rebuild
+        env:
+          TARGET: ${{ matrix.target }}
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 scripts/release_assurance.py smoke-cli --target "$TARGET"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: dist/candidate/evidence/cli-*.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-cli-${{ matrix.name }}
+          path: dist/candidate/evidence/cli-*.json
+          if-no-files-found: error
+          retention-days: 30
+
+  maven-consumer:
+    needs: build
+    strategy:
+      matrix:
+        java: ["17", "21"]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-candidate-${{ github.sha }}
+          path: dist/candidate
+      - name: Resolve and execute exact plugin and archived CLI as a consumer
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 scripts/release.py smoke-maven
+
+  validation:
+    if: always()
+    needs: [build, native-cli, maven-consumer]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every artifact job to succeed
+        env:
+          BUILD: ${{ needs.build.result }}
+          NATIVE: ${{ needs.native-cli.result }}
+          MAVEN: ${{ needs.maven-consumer.result }}
+        run: |
+          test "$BUILD" = success
+          test "$NATIVE" = success
+          test "$MAVEN" = success

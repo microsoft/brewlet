@@ -5,13 +5,16 @@ knowledge. It invokes the language-neutral `brewlet` executable through an argv
 array, not a shell. Descriptor, mirror, layer and platform validation are the
 same Go implementation used by the CLI and shim, not a second Java parser.
 The matching Brewlet 2 CLI must be installed explicitly.
+The candidate version is governed by `release.json`; it is not a claim that
+these coordinates have been published. Build/install from matching source
+until a qualified prerelease is available. Java 17 or later is required.
 
 The `conformance` goal exercises the producer's shared validator against the
 entire published fixture matrix, including mirrors, links, permissions and
 whiteouts, without implementing a second Java parser:
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:conformance \
+mvn sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:conformance \
   -Dbrewlet.fixtures=/path/to/conformance/artifact-v2.json \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
@@ -24,7 +27,7 @@ the actual `push` goal.
 Package and publish in the same Maven invocation:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push \
+mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
@@ -59,7 +62,7 @@ layer set. Project version overrides outside that catalog fail closed.
 There is no guessed BOM, runtime selection, or Kubernetes integration.
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:layer-set \
+mvn sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:layer-set \
   -Dbrewlet.layerSet=registry.example.com/dependencies/approved:2026.10 \
   -Dbrewlet.sourceBom=com.example:approved-bom:2026.10 \
   -Dbrewlet.layerSetName=approved \

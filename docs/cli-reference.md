@@ -5,6 +5,7 @@ install runtime images or deploy Kubernetes workloads.
 
 | Command | Purpose |
 | --- | --- |
+| `brewlet version` | Print JSON with build version, immutable source commit and native platform; unstamped source builds report `dev`/`unknown`. |
 | `brewlet push REF` | Validate/package app/dependency layers and launch metadata, locally or remotely. |
 | `brewlet inspect REF` | Inspect the artifact's effective descriptor and layer/evidence structure. |
 | `brewlet compose REF` | Compose one pinned application and one locked dependency set under an explicit release policy. |

@@ -3,6 +3,8 @@
 Removal is a production lifecycle operation, not deleting files until Helm
 looks successful. Preserve original Node/profile/inventory UIDs and recovery
 information before starting.
+The [prerelease transition policy](supported-release.md#bounded-transitions-and-recovery)
+does not promise in-place upgrade, downgrade or persisted-state reuse.
 
 ## 1. Review ownership and stop new writers
 

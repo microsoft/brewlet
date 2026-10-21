@@ -149,13 +149,13 @@ It can prepare classpath/module argv and dependency layers, or consume one
 verified complete Java layer-set graph.
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-SNAPSHOT:push \
+mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
 ```
 
-Build/install the matching source plugin before using its snapshot coordinates.
+Until this candidate is actually published, build/install the matching source plugin.
 The matching Brewlet CLI must be available explicitly. The plugin does not
 generate Kubernetes manifests, choose Pod runtime annotations or apply workloads.
 Managed dependency consumption requires a genuinely thin JAR, not a nested-JAR

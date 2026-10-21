@@ -807,14 +807,15 @@ class Harness:
                 and all(set(images) == {"before", "after"} for images in self.runtime_images.values()),
                 "approved runtime sources must be published by authenticated delivery before installation")
         # Current schemas must be applied before every Helm install/upgrade.
-        crds = ROOT / "kubernetes/deploy/crds"
+        crds = getattr(self, "distribution_crds", ROOT / "kubernetes/deploy/crds")
         require(crds.is_dir(), "current deploy CRDs directory is missing")
         self.kubectl("apply", "-f", crds, timeout=90)
         self.run(["helm", "--kubeconfig", self.kubeconfig, "--kube-context", self.context,
-                  "upgrade", "--install", self.cluster, ROOT / "kubernetes/charts/brewlet",
+                  "upgrade", "--install", self.cluster,
+                  getattr(self, "distribution_chart", ROOT / "kubernetes/charts/brewlet"),
                   "--namespace", self.control_namespace, "--wait", "--timeout", "180s",
                   "--set-string", "operator.image=" + self.result["controlImage"],
-                  "--set-string", "admission.image=" + self.result["controlImage"],
+                  "--set-string", "admission.image=" + self.result.get("admissionImage", self.result["controlImage"]),
                   "--set-string", "provisioner.image=" + self.result["workerImage"],
                   "--set", "metrics.enabled=true",
                   "--set-string", "provisioner.gc.grace=20s",
