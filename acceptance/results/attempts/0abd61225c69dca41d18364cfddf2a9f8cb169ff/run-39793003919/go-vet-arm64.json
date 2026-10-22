@@ -1,0 +1,20 @@
+{
+  "checkout": "0abd61225c69dca41d18364cfddf2a9f8cb169ff",
+  "identityVersion": 1,
+  "qualificationInputsSHA256": "b1894cdf089ceb84958248fec5ba04edee2e71ef41f069ebf212c16c36892ed4",
+  "productionSourceManifestSHA256": "bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462",
+  "scope": "contract",
+  "command": "go vet -mod=readonly ./...",
+  "outcome": "passed",
+  "assertions": [
+    {
+      "name": "go-vet command exit status",
+      "requirements": [
+        "UP-06"
+      ],
+      "outcome": "passed"
+    }
+  ],
+  "architecture": "arm64",
+  "nativeExecution": true
+}

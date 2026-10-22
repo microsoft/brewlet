@@ -17,6 +17,45 @@ Main protection remains deferred at the user's direction; no settings changed.
 Additional Microsoft container distribution-policy text requires release-owner
 confirmation rather than fabricated legal material.
 
+## Frozen 0abd6122 execution attempt: stopped, not qualified
+
+Source checkout: `0abd61225c69dca41d18364cfddf2a9f8cb169ff`;
+identity version `1`; production hash
+`bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462`;
+qualification-input hash
+`b1894cdf089ceb84958248fec5ba04edee2e71ef41f069ebf212c16c36892ed4`.
+
+Fresh non-live [amd64](https://github.com/microsoft/brewlet/actions/runs/39792970699)
+and [arm64](https://github.com/microsoft/brewlet/actions/runs/39793003919)
+passed; all sixteen original files were reviewed against their identities,
+commands, scopes, coverage and native runner inputs. Native complete
+[amd64](https://github.com/microsoft/brewlet/actions/runs/39795134330) and
+[arm64](https://github.com/microsoft/brewlet/actions/runs/39795166884) failed.
+Each retains 45 actual passing assertions, including real conflicting/deleting
+profile exclusion, initial worker non-mutation, startup fencing, all four
+language execution/root contracts, rotations and operator-restart generation
+durability. These are partial successes, not a clean selected-suite result.
+
+Both failed executing the protected CRI identity probe inside the owned kind
+node: exit 126, `/tmp/brewlet-identity-probe-RUN_ID: permission denied`.
+The source already transfers the native binary with mode 0700 and checks its
+digest. Pinned kind configures `/tmp` as a Docker tmpfs without an exec override;
+Docker's default tmpfs mount options include noexec. The exact historical
+effective UID/mode/mount/LSM observations were not exported and are not invented.
+The existing event observer had already executed from `/usr/local/bin` inside
+the same owned node. Moving the helper file there must not move the assertion
+to another container/namespace, change privileges, or weaken its protected
+containerd/cache checks.
+
+All eighteen original public records are preserved byte-for-byte under
+`results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-RUN_ID/`.
+Both core receipts remain failed/unclean; twenty native filenames were not
+produced and zero suites qualified. Exact-owned fixture destruction passed,
+explicitly not production cleanup evidence; production cleanup remains
+unproven. Managed/managed-Wasm rows never ran, no attempt was retried, and
+qualification stopped for review. All original identities/outcomes remain
+unchanged and cannot qualify changed inputs.
+
 ## Frozen c6059fd2 execution attempt: stopped, not qualified
 
 Source checkout: `c6059fd27b9a66b620fd218fe2c32c180518d715`;
