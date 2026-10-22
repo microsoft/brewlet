@@ -51,7 +51,13 @@ spec:
                         maxLength: 55
                         pattern: '^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$'
                       install: {type: string, enum: [Eager, OnDemand]}
-                      idleTTL: {type: string}
+                      idleTTL:
+                        type: string
+                        minLength: 1
+                        maxLength: 64
+                        x-kubernetes-validations:
+                          - rule: "duration(self) > duration('0s')"
+                            message: idleTTL must be a positive Go duration such as 72h
                     x-kubernetes-validations:
                       - rule: "!has(self.idleTTL) || (has(self.install) && self.install == 'OnDemand')"
                         message: idleTTL requires OnDemand

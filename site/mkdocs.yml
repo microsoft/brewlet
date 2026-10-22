@@ -70,6 +70,7 @@ nav:
       - Multi-architecture fleets: multi-arch.md
   - Operate:
       - Rotation and cleanup: operations.md
+      - Dependency remediation runbook: dependency-remediation.md
       - Security and hardening: security.md
       - Registry and certificate trust: registry-trust.md
       - Observability and metrics: observability.md

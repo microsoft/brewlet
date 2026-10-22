@@ -110,7 +110,7 @@ class DocumentationTests(unittest.TestCase):
         config = (ROOT / "site/mkdocs.yml").read_text().split("nav:", 1)[1]
         for page in ("concepts", "choosing-brewlet", "local-kubernetes", "installation",
                      "configuration", "providers", "multi-arch", "language-recipes",
-                     "dependency-layer-sets", "resources", "observability", "instrumentation",
+                     "dependency-layer-sets", "dependency-remediation", "resources", "observability", "instrumentation",
                      "security", "registry-trust", "troubleshooting", "uninstallation",
                      "reference", "compatibility-policy", "demo", "workshops/platform",
                      "workshops/developer"):
