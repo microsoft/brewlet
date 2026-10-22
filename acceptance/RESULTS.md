@@ -17,6 +17,36 @@ Main protection remains deferred at the user's direction; no settings changed.
 Additional Microsoft container distribution-policy text requires release-owner
 confirmation rather than fabricated legal material.
 
+## Frozen 59a5f411 execution attempt: stopped, not qualified
+
+Source checkout: `59a5f411cef7e2dc2639537304e9cde6ba9de462`;
+identity version `1`; production hash
+`bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462`;
+qualification-input hash
+`24f594a797ab4162ab25046387ee8fca091ed31c6c8bf0e6995ab816fca0b505`.
+
+Fresh non-live [amd64](https://github.com/microsoft/brewlet/actions/runs/39707690863)
+and [arm64](https://github.com/microsoft/brewlet/actions/runs/39707701073)
+passed; all sixteen files were reviewed against exact commands, scopes,
+assertions, native runners and original immutable identity. Native complete
+[amd64](https://github.com/microsoft/brewlet/actions/runs/39708311390) and
+[arm64](https://github.com/microsoft/brewlet/actions/runs/39708330433) failed.
+Both final errors were `deleting admission fixture has no current initialized
+ownership ledger`. Command sequences show the disjoint conflicting fixture
+reaching guarded deletion and absence, followed by deletion of the original held
+fixture and failure in repeated cleanup. The public records contain no private
+profile snapshots, and a finally exception can mask an earlier failure; the
+specific unobserved status field or primary error is not inferred.
+
+All eighteen original public files are archived byte-for-byte under
+`results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-RUN_ID/`.
+Both core receipts remain failed/unclean; twenty native filenames were not
+produced and zero suites qualified. Exact-owned fixture destruction passed,
+explicitly not production cleanup evidence. Production cleanup remains unproven.
+Managed/managed-Wasm rows were not dispatched and no attempt was retried.
+Qualification stopped for review. Original identities and outcomes are retained;
+none can qualify changed inputs.
+
 ## Frozen f6e70022 execution attempt: stopped, not qualified
 
 Source checkout: `f6e700223845eb0bf7f1bef24bab4938f2276b3d`;

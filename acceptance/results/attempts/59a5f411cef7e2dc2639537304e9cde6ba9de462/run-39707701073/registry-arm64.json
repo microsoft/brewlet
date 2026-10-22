@@ -1,0 +1,21 @@
+{
+  "checkout": "59a5f411cef7e2dc2639537304e9cde6ba9de462",
+  "identityVersion": 1,
+  "qualificationInputsSHA256": "24f594a797ab4162ab25046387ee8fca091ed31c6c8bf0e6995ab816fca0b505",
+  "productionSourceManifestSHA256": "bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462",
+  "scope": "integration",
+  "command": "python3 acceptance/producer_check.py registry",
+  "outcome": "passed",
+  "assertions": [
+    {
+      "name": "registry command exit status",
+      "requirements": [
+        "DEP-02",
+        "DEP-03"
+      ],
+      "outcome": "passed"
+    }
+  ],
+  "architecture": "arm64",
+  "nativeExecution": true
+}
