@@ -1,7 +1,7 @@
 # Contracts and glossary
 
 This is a reader's map of the implemented contract. The
-[proposal](../specs/proposals/0009-language-agnostic-runtime-images.md), current
+[specification](../specs/SPECIFICATION.md), current
 CRDs and [CLI reference](cli-reference.md) remain authoritative.
 
 ## Launch descriptor

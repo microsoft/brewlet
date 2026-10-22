@@ -6,7 +6,8 @@ digests** into an ordinary Brewlet application image before Kubernetes sees it.
 There is no deployment-time dependency resolver, second shim pull, workload
 CRD or hot replacement of libraries.
 
-This implements the producer/release boundary of Proposal 0010. See the
+This implements the producer/release boundary of
+[specification §16](../specs/SPECIFICATION.md#16-managed-dependency-composition). See the
 [verification page](verification.md) for qualified execution scopes; the
 presence of a command is not evidence that every runtime/platform is qualified.
 

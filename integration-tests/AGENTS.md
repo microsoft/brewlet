@@ -1,9 +1,8 @@
 # Brewlet 2.0 integration tests
 
 Brewlet 2.0 is a rewrite; 0.x E2E tiers, `core/` paths and JDK-specific
-runbooks do not apply to this branch. The contracts are
-[Proposal 0009](../specs/proposals/0009-language-agnostic-runtime-images.md) and
-[Proposal 0010](../specs/proposals/0010-managed-dependency-composition.md);
+runbooks do not apply to this branch. The contract is the
+[Brewlet 2.0 specification](../specs/SPECIFICATION.md);
 obligations and evidence rules live in [`acceptance/`](../acceptance/README.md).
 
 ## Layout

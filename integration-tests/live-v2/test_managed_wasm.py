@@ -8,8 +8,8 @@ from wasm import guest
 
 
 class ManagedWasmTests(unittest.TestCase):
-    def test_both_proposals_list_wasm_without_language_detection_or_runtime_host_mislabeling(self):
-        proposal = (managed_wasm.EXAMPLE.parents[1] / "specs/proposals/0009-language-agnostic-runtime-images.md").read_text()
+    def test_specification_lists_wasm_without_language_detection_or_runtime_host_mislabeling(self):
+        proposal = (managed_wasm.EXAMPLE.parents[1] / "specs/SPECIFICATION.md").read_text()
         for name in ("Java", "Python", "Node.js", ".NET", "WebAssembly"):
             self.assertIn("| " + name + " |", proposal)
         self.assertIn("Linux host", proposal)

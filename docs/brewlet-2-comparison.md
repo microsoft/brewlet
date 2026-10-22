@@ -13,7 +13,7 @@ capabilities that exist today. It does not request or implement those extensions
 
 Here, **main** means the Java-oriented implementation at the first revision,
 not a promise about future default-branch behavior. **2.0** means the clean-slate
-implementation governed by [Proposal 0009](../specs/proposals/0009-language-agnostic-runtime-images.md).
+implementation governed by the [Brewlet 2.0 specification](../specs/SPECIFICATION.md).
 Brewlet 2.0 is a rewrite inspired by main; main's specification and
 documentation are not carried in this branch and imply no compatibility in 2.0.
 
@@ -175,7 +175,7 @@ descriptors. Its generated classpath uses `/app/app.jar:/app/lib/*`; module
 generation uses `/app/mods`.
 
 **Permitted extension:** producer-side warnings or explicit compiler-release
-to runtime-ID mappings, as allowed by Proposal 0009 section 11.2. Such a mapping
+to runtime-ID mappings, as allowed by specification §11.2. Such a mapping
 may propose an artifact allowlist, not select the workload's actual runtime.
 Do not add Java discovery to the generic CLI or shim.
 
@@ -197,7 +197,7 @@ with explicit launch arguments:
 java -Xshare:auto -XX:SharedArchiveFile=/app/orders.jsa -jar /app/orders.jar
 ```
 
-This is expressly permitted by Proposal 0009 section 11. The archive is an
+This is expressly permitted by specification §11. The archive is an
 ordinary app-layer file, not a new core media type or interpreted hint.
 
 The producer/image pipeline must own archive training, compatible JDK selection,
@@ -372,7 +372,7 @@ This comparison does not enable a site or release deployment.
 | --- | --- | --- |
 | Guess a language, entrypoint, dependency layout or platform. | Generic producers must package explicit inputs. | Author/build pipeline supplies descriptors, layer groups and platforms. |
 | Infer or default the pod runtime from artifact contents. | Workload runtime selection must be explicit and inventory-controlled. | Reviewed runtime ID in the workload manifest. |
-| Add a language-neutral replacement workload CRD. | Proposal 0009 explicitly retains native workload APIs instead. | External templates rendering ordinary resources. |
+| Add a language-neutral replacement workload CRD. | The specification explicitly retains native workload APIs instead. | External templates rendering ordinary resources. |
 | Inject JVM/interpreter tuning in the shim. | Execution must be independent of language semantics. | Explicit argv or the platform's runtime image behavior. |
 | Give separate containers different runtime IDs in one Brewlet Pod. | Runtime selection is pod-wide. | A platform-composed multi-runtime image, or separate Pods. |
 | Pass an ordinary application sidecar through the Brewlet shim. | All application containers must satisfy the v2 artifact contract. | Package that container as v2, or place an ordinary image in a separate stock-runtime Pod. |
@@ -393,7 +393,7 @@ artifact, identity, authorization and execution boundaries.
 | Next | AppCDS producer convenience and permitted Java requirement warnings. | Restores Java ergonomics while keeping runtime execution generic. |
 | Next | External v2 final-application attestation/policy integration. | Restores governance workflows, with explicit additional validation. |
 | Separate design | Generic standalone execution/bundle export. | Must resolve authorization and cache/root lifetime rather than copy the old launcher. |
-| Do not pursue in core | Inferred runtimes, language tuning, workload CRD replacement, root or old-format fallback. | These reverse the defining choices of Proposal 0009. |
+| Do not pursue in core | Inferred runtimes, language tuning, workload CRD replacement, root or old-format fallback. | These reverse the defining choices of the 2.0 specification. |
 
 These are recommendations, not an implementation commitment or a statement
 that optional producer capabilities are mandatory acceptance gaps.
@@ -407,4 +407,4 @@ that optional producer capabilities are mandatory acceptance gaps.
 | CLI surface | [CLI](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/core/cmd/brewlet/main.go), [Kubernetes operations](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/core/internal/kube/cli.go) | [Generic CLI](../cmd/brewlet/main.go) |
 | Producer | [Maven plugin](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/maven-plugin/README.md) | [Maven producer and limitations](../maven-plugin/README.md) |
 | Node execution/lifetime | [Shim](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/core/shim/cmd/containerd-shim-brewlet-v2/service_linux.go), [provisioner](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/provisioner/entrypoint.sh) | [Shim](../shim/cmd/containerd-shim-brewlet-v2/service_linux.go), [node contracts](../pkg/node/types.go), [provisioner](../provisioner/README.md) |
-| Scope and evidence | [Main overview](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/README.md) | [Proposal 0009](../specs/proposals/0009-language-agnostic-runtime-images.md), [scoped validation record](../acceptance/RESULTS.md) |
+| Scope and evidence | [Main overview](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/README.md) | [Specification](../specs/SPECIFICATION.md), [scoped validation record](../acceptance/RESULTS.md) |

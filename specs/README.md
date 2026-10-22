@@ -1,25 +1,27 @@
 # Brewlet 2.0 specifications
 
 Brewlet 2.0 is a rewrite. Brewlet 0.x on `main` was its inspiration, not a
-compatibility target. The authoritative contracts for this branch are:
+compatibility target. The authoritative contract for this branch is
+[`SPECIFICATION.md`](SPECIFICATION.md):
 
-- [Proposal 0009 — language-agnostic runtime images](proposals/0009-language-agnostic-runtime-images.md),
-  including the v2 capability-label and startup-fence contract (§9.1–§9.3).
-- [Proposal 0010 — governed dependency composition](proposals/0010-managed-dependency-composition.md).
+- **Part I (§1–§15)** — language-agnostic runtime images, inventory,
+  provisioning, workload execution, admission, the v2 capability-label and
+  startup-fence contract (§9.1–§9.3), security and observability.
+- **Part II (§16)** — governed dependency composition and remediation.
 
-Implementations and user documentation must follow these contracts. Substantial
-changes should begin as a reviewable design under [`proposals/`](proposals/README.md).
-Qualification status is recorded separately in the
+Implementations and user documentation must follow it. Substantial changes
+should begin as a reviewable design under [`proposals/`](proposals/README.md).
+Qualification is recorded separately in the
 [acceptance ledger](../acceptance/README.md).
 
 ## Citations
 
-Bare `§N` references cite sections of the proposal that contains them.
+Bare `§N` references cite sections of `SPECIFICATION.md`.
 References written as `SPEC §N` cite the 0.x design reference,
 [`SPECIFICATION.md` at main commit `fa70853`](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/SPECIFICATION.md),
 and its [capability labels](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/CAPABILITY_LABELS.md).
 They identify behavior that 2.0 replaces, retains or generalizes. Requirements
-apply only as restated by the 2.0 proposals and acceptance ledger.
+apply only as restated by the 2.0 specification and acceptance ledgers.
 
 ## Versioning and compatibility
 

@@ -78,7 +78,7 @@ def validate(document, root=ROOT, *, structure_only=False, expected=None):
     if seen != REQUIRED_IDS:
         errors.append("missing or unknown mandatory baseline/amendment obligations")
     if not required_scenarios <= seen:
-        errors.append("missing Proposal 0009 section 13.1 acceptance scenarios")
+        errors.append("missing specification §13.1 acceptance scenarios")
     if document.get("contractRevision") != "2026-10-20-immutable-runtime-view":
         errors.append("missing current immutable-runtime-view contract revision")
     if not {f"UP-{number:02}" for number in range(1, 7)} <= seen:
