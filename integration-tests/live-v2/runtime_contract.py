@@ -84,7 +84,7 @@ def protected_identity(h):
     h.run(["go", "build", "-mod=readonly", "-o", binary, "./integration-tests/live-v2/identityprobe"],
           env={"CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": h.arch}, timeout=180)
     digest = hashlib.sha256(binary.read_bytes()).hexdigest()
-    target = "/tmp/brewlet-identity-probe-" + h.run_id
+    target = "/usr/local/bin/brewlet-identity-probe-" + h.run_id
     h.node_exec("test", "!", "-e", target)
     h.node_exec("/bin/sh", "-ec", 'umask 077; set -C; base64 -d > "$1"; chmod 0700 "$1"',
                  "identity-probe", target, input=base64.b64encode(binary.read_bytes()).decode())

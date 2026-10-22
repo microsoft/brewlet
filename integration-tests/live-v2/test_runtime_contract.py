@@ -1,7 +1,12 @@
 """Offline guards only; these fixtures do not qualify a runtime or native node."""
 
 import copy
+import base64
+import hashlib
+import json
 from datetime import datetime, timezone
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock
@@ -186,6 +191,105 @@ class RuntimeContractTests(unittest.TestCase):
             with cold_rpc.paused_kubelet(h, "owned"):
                 self.fail("inactive kubelet must not enter the probe")
         self.assertEqual(1, h.node_exec_on.call_count)
+
+
+class ProtectedIdentityProbeTests(unittest.TestCase):
+    def fixture(self, work, architecture, *, collision=False, bad_identity=False, exec_failure=False):
+        binary = b"fixture native probe"
+        target = "/usr/local/bin/brewlet-identity-probe-0123456789ab"
+        image = "registry.test/app@sha256:" + "a" * 64
+        files = {target: b"foreign"} if collision else {}
+        events = []
+
+        def build(command, **kwargs):
+            self.assertEqual(["go", "build", "-mod=readonly"], command[:3])
+            self.assertEqual("./integration-tests/live-v2/identityprobe", command[-1])
+            self.assertEqual({"CGO_ENABLED": "0", "GOOS": "linux", "GOARCH": architecture}, kwargs["env"])
+            Path(command[4]).write_bytes(binary)
+
+        def node_exec(*args, **kwargs):
+            events.append(args)
+            if args[:3] == ("test", "!", "-e"):
+                if args[3] in files:
+                    raise Failure("probe path collision")
+            elif args[0] == "/bin/sh":
+                self.assertIn("umask 077; set -C;", args[2])
+                self.assertIn('chmod 0700 "$1"', args[2])
+                self.assertNotIn(args[-1], files)
+                files[args[-1]] = base64.b64decode(kwargs["input"])
+            elif args[0] == "sha256sum":
+                return SimpleNamespace(stdout=hashlib.sha256(files[args[1]]).hexdigest() + "  " + args[1])
+            elif args[0] == "rm":
+                self.assertEqual(("--", target), args[1:])
+                del files[target]
+            else:
+                if args[0].startswith("/tmp/"):
+                    raise Failure("pinned kind Docker tmpfs is noexec")
+                self.assertEqual(target, args[0])
+                self.assertEqual(binary, files[target])
+                if exec_failure:
+                    raise Failure("original probe execution failure")
+                return SimpleNamespace(stdout=json.dumps({
+                    "containerID": args[1], "reference": "untrusted" if bad_identity else image,
+                    "targetDigest": image.split("@")[1], "architecture": architecture,
+                    "configDigest": "sha256:" + "b" * 64}))
+            return SimpleNamespace(stdout="")
+
+        def get(kind, name, namespace, absent=False):
+            return None if absent else {"metadata": {"uid": "old"}}
+
+        h = SimpleNamespace(work=work, run_id="0123456789ab", arch=architecture,
+            languages=("python",), probe_language="python", namespace="owned",
+            app_images={"python": image}, run=Mock(side_effect=build), node_exec=Mock(side_effect=node_exec),
+            get=get, lease=lambda pod: {"taskID": ("1" if pod["metadata"]["uid"] == "old" else "2") * 64},
+            record=Mock(), bypass_admission=Mock(), restore_admission=Mock(),
+            pod=Mock(return_value={"metadata": {"annotations": {}}}), apply=Mock(),
+            ready=lambda _: {"metadata": {"uid": "forged"}},
+            wait=lambda _, predicate: predicate(), http=Mock(return_value={}), assert_report=Mock(),
+            delete=Mock())
+        return h, target, files, events
+
+    def test_probe_executes_in_same_owned_node_without_using_noexec_tmpfs(self):
+        for architecture in ("amd64", "arm64"):
+            with self.subTest(architecture=architecture), tempfile.TemporaryDirectory() as work:
+                h, target, files, events = self.fixture(Path(work), architecture)
+                r.protected_identity(h)
+                self.assertEqual({}, files)
+                self.assertEqual([(target, "1" * 64), (target, "2" * 64)],
+                                 [call for call in events if call[0] == target])
+                self.assertEqual(("rm", "--", target), events[-1])
+                self.assertEqual(2, sum(call[0] == "sha256sum" for call in events))
+                self.assertEqual(2, h.record.call_count)
+                h.restore_admission.assert_called_once_with()
+                h.assert_report.assert_called_once()
+
+    def test_protected_identity_mismatch_still_fails_and_cleans_only_own_helper(self):
+        with tempfile.TemporaryDirectory() as work:
+            h, _, files, _ = self.fixture(Path(work), "amd64", bad_identity=True)
+            with self.assertRaisesRegex(Failure, "actual protected CRI"):
+                r.protected_identity(h)
+            self.assertEqual({}, files)
+            h.record.assert_not_called()
+            h.bypass_admission.assert_not_called()
+
+    def test_existing_probe_path_is_never_overwritten_executed_or_removed(self):
+        with tempfile.TemporaryDirectory() as work:
+            h, target, files, events = self.fixture(Path(work), "amd64", collision=True)
+            with self.assertRaisesRegex(Failure, "collision"):
+                r.protected_identity(h)
+            self.assertEqual({target: b"foreign"}, files)
+            self.assertEqual([("test", "!", "-e", target)], events)
+            h.record.assert_not_called()
+
+    def test_exec_failure_is_not_reinterpreted_as_success_and_keeps_digest_guarded_cleanup(self):
+        with tempfile.TemporaryDirectory() as work:
+            h, target, files, events = self.fixture(Path(work), "arm64", exec_failure=True)
+            with self.assertRaisesRegex(Failure, "original probe execution failure"):
+                r.protected_identity(h)
+            self.assertEqual({}, files)
+            self.assertEqual(("rm", "--", target), events[-1])
+            h.record.assert_not_called()
+            h.bypass_admission.assert_not_called()
 
 
 if __name__ == "__main__":

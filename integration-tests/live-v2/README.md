@@ -124,7 +124,21 @@ historical declarations:
   generations and existing task leases.
 * A native probe reads protected containerd CRI metadata and verifies the native
   OCI descriptor graph/config using the production resolver and verified content
-  cache. Real admission-bypassing forged artifact hints must not change the
+  cache. Like the event observer, its invocation-unique mode-0700 binary lives
+  in the owned node's `/usr/local/bin`, not `/tmp`: pinned
+  [kind Docker provisioning](https://github.com/kubernetes-sigs/kind/blob/v0.33.0/pkg/cluster/internal/providers/docker/provision.go)
+  creates `/tmp` as a tmpfs without an exec override, and
+  [Docker tmpfs defaults](https://github.com/moby/moby/blob/v28.5.1/daemon/oci_linux.go)
+  include noexec. Transfer and cleanup retain collision/digest guards. It still
+  uses the same identity-checked kind-node `docker exec`, default configured
+  node identity, containerd socket/namespace and protected cache; no host/workload
+  container substitution, new capability, chmod of production paths, remount or
+  mount/LSM policy change. The pinned node image has no non-root USER override
+  on either architecture. This configuration/source diagnosis does not invent
+  unexported historical effective UID, mode, mount flags or LSM observations.
+  The observer already uses the executable node-local path; cold-RPC JSON and
+  observer PID data remain non-executable `/tmp` files.
+  Real admission-bypassing forged artifact hints must not change the
   executing artifact. Root primary and supplementary group starts must be
   independently refused by the shim.
 * A genuinely installed OnDemand runtime remains a participant during real
