@@ -5,10 +5,11 @@ is indexed. Green unit/contract checks, partial live assertions and historical
 declarations do not satisfy the 115 baseline obligations, 29 composition
 obligations or 22-suite native matrix.
 
-The intended PR gate now includes real four-language application execution,
+The PR gate includes real four-language application execution,
 rotations, protected CRI identity and normal production cleanup. It is distinct
-from full promotion qualification. The changed workflow still needs an approved
-real execution; offline regression results are not that proof.
+from full promotion qualification. Actual execution and current run URLs are reported by the required GitHub
+`Brewlet validation` check, not by updates to this versioned report. Offline
+regression results are not that proof.
 
 ## Historical evidence
 
@@ -24,7 +25,8 @@ and a verified local migration backup. The
 [original detailed historical report](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/RESULTS.md)
 retains its scope limitations and declarations without relabeling.
 
-**Actions archival is pending** the first approved CI run. The archive job
+Archival state and run/artifact IDs are recorded in the index's `history`
+section: a null archive run means pending. The archive job
 reconstructs only the indexed public JSON and verifies every byte before upload.
 The archival index is recorded only after the uploaded archive is downloaded
 and verified. History is never substituted for current evidence.
