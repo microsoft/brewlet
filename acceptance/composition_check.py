@@ -131,6 +131,18 @@ def main():
     if args.require_complete and args.structure_only:
         parser.error("--structure-only cannot satisfy --require-complete")
     root = Path(__file__).resolve().parent
+    if args.require_complete:
+        from acceptance.evidence import read_json
+        from acceptance.verify_evidence import validate as verify
+        try:
+            errors = verify(root.parent, read_json(root / "evidence-index.json"), composition_only=True)
+        except (OSError, ValueError) as error:
+            errors = [str(error)]
+        for error in errors:
+            print(error)
+        if not errors:
+            print("29 composition obligations verified from actual indexed receipts")
+        return int(bool(errors))
     document = json.loads((root / "composition-requirements.json").read_text())
     errors, incomplete = validate(document, root, args.require_complete, structure_only=args.structure_only)
     print(f'{len(document["requirements"])} composition obligations; {len(incomplete)} not qualified')

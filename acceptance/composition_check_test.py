@@ -18,7 +18,7 @@ SPEC.loader.exec_module(CHECK)
 
 class CompositionLedgerTests(unittest.TestCase):
     def test_wasm_provenance_and_actual_companion_scope_cannot_be_replaced_by_labels(self):
-        original = json.loads((ROOT / "results/managed-wasm-composition-arm64.json").read_text())
+        original = json.loads((ROOT / "testdata/wasm-receipt.json").read_text())
         for case in ("valid", "missing-spin", "old-runtime-suite", "false-upstream-root", "missing-guest-hash"):
             with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
                 result = copy.deepcopy(original)
@@ -97,7 +97,7 @@ class CompositionLedgerTests(unittest.TestCase):
                 result.update(scope="real-node-execution-only", architecture=architecture,
                               selectedScenario=scenario, selectedLanguages=sorted(languages))
                 if name.startswith("wasm"):
-                    provenance = json.loads((ROOT / "results/managed-wasm-composition-arm64.json").read_text())
+                    provenance = json.loads((ROOT / "testdata/wasm-receipt.json").read_text())
                     result.update({key: provenance[key] for key in ("wasmGuestInputs", "wasmRuntimes")})
             (fixture.root / "acceptance" / check["result"]).write_text(json.dumps(result))
         fixture.commit()

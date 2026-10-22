@@ -1034,6 +1034,38 @@ class CallbackOrderTests(ProjectWork):
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
         self.assertEqual(instance.result["outcome"], "passed")
 
+    def test_pr_scope_requires_four_languages_identity_rotations_and_normal_cleanup(self):
+        instance, calls, modules = self.configure(scenario="pr")
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertEqual(instance.languages, h.LANGUAGES)
+        self.assertEqual(instance.result["selectedScenario"], "pr")
+        self.assertFalse(instance.result["fullAcceptance"])
+        for name in ("admission_contract", "initial_fence", "startup", "application_execution",
+                     "barriers_and_rotation", "observability", "durable_generations",
+                     "protected_identity", "pinned_revocation", "production_cleanup", "destroy"):
+            self.assertIn(name, calls)
+        self.assertLess(calls.index("durable_generations"), calls.index("protected_identity"))
+        self.assertLess(calls.index("protected_identity"), calls.index("production_cleanup"))
+        for name in ("rotation_participants", "accounting", "filesystem", "delivery", "control_edges",
+                     "maven_node", "container_roles", "lifecycle"):
+            self.assertNotIn(name, calls)
+
+    def test_pr_identity_failure_blocks_success_and_still_destroys_fixture(self):
+        instance, calls, modules = self.configure(scenario="pr")
+        modules["runtime_contract"].protected_identity = mock.Mock(side_effect=h.Failure("probe failed"))
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 1)
+        self.assertEqual(instance.result["failurePhase"], "protected-cri-identity")
+        self.assertEqual(instance.result["outcome"], "failed")
+        self.assertIn("destroy", calls)
+        self.assertNotIn("production_cleanup", calls)
+
+    def test_pr_scope_cannot_select_one_language_or_disable_pinned_checks(self):
+        for kwargs in ({"pinned": False}, {"local_language": "python"}):
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(h.Failure, "all four languages"):
+                self.harness(scenario="pr", **kwargs)
+
     def test_observability_failure_cannot_be_reported_as_a_pass_or_skip_cleanup(self):
         instance, calls, modules = self.configure(observer_failure=True)
         with mock.patch.dict(sys.modules, modules):

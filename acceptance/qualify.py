@@ -35,6 +35,27 @@ COMPLETE = tuple(name for name in SUITES if name not in ("managed", "managed-was
 DEBUG_SUITES = {"control": ("harness.py", "control", NATIVE)}
 
 
+def pr_errors(result, architecture, root=ROOT, expected=None):
+    if not isinstance(result, dict):
+        return ["PR receipt must be an object"]
+    errors = receipt_errors(result, live=True, architecture=architecture, scenario="pr",
+                            languages=NATIVE, root=root, expected=expected)
+    assertions = result.get("assertions")
+    passed = {row["name"] for row in assertions
+              if isinstance(row, dict) and isinstance(row.get("name"), str) and row.get("outcome") == "passed"
+              } if isinstance(assertions, list) else set()
+    for language in NATIVE:
+        for name in (
+                language + " real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
+                language + " source rotation, unchanged app, retained task/exec lease, new barrier",
+                language + " actual protected CRI identity resolves verified native descriptors and config"):
+            if name not in passed:
+                errors.append("missing four-language PR assertion: " + name)
+    if result.get("fullAcceptance") is not False:
+        errors.append("PR execution must not claim full promotion acceptance")
+    return errors
+
+
 def suite_errors(result, suite, architecture, root=ROOT, expected=None):
     _, scenario, languages = (SUITES | DEBUG_SUITES)[suite]
     if suite == "tutorial":
@@ -148,11 +169,17 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--run", action="store_true", help="explicitly execute privileged disposable native suites")
     mode.add_argument("--status-json", action="store_true", help="report all 22 receipt statuses and candidate identities")
+    mode.add_argument("--verify-pr", type=Path, help="verify actual four-language PR execution, never promotion evidence")
     parser.add_argument("--scenario", choices=("complete", "control", "managed", "managed-wasm"), default="complete")
     parser.add_argument("--architecture", choices=("amd64", "arm64"), default="amd64")
     parser.add_argument("--results", type=Path, default=ROOT / "acceptance/results")
     args = parser.parse_args()
     try:
+        if args.verify_pr:
+            errors = pr_errors(read_json(args.verify_pr), args.architecture)
+            for error in errors:
+                print(error, file=sys.stderr)
+            return int(bool(errors))
         if args.run:
             run(args.scenario, args.architecture, ROOT / "acceptance-export")
             return 0

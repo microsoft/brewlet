@@ -37,9 +37,9 @@ an **unchanged Canonical OCI .NET 10 runtime** on native arm64 and amd64, includ
 independently signed dependency bundle, actual `Greeting.dll` replacement,
 HTTP/Exec parity, two-replica rollout and normal cleanup. Exact source pins are
 in the [managed .NET inputs](../integration-tests/fixtures/runtimes/managed-dotnet.json);
-separate [arm64](../acceptance/results/managed-composition-arm64.json) and
-[amd64](../acceptance/results/managed-composition-amd64.json) receipts preserve
-the actual native execution scopes.
+separate historical [arm64](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-composition-arm64.json) and
+[amd64](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-composition-amd64.json) receipts preserve
+their original native execution scopes, not current-candidate qualification.
 The earlier unchanged distroless matrix's fourth root remains static/native.
 Confirm the actual `dotnet` path with the platform. This recipe explicitly
 targets a root providing `/usr/bin/dotnet` and an example ID `dotnet-10`.

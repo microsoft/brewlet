@@ -308,18 +308,19 @@ Qualification requires source-version rotation without application rebuilding,
 old lease retention, same-generation Exec/probes, a real held guest across
 worker/containerd restarts, allowlist rejection and normal profile/host cleanup
 before exact-owned fixture destruction. Failed attempts remain failed.
-The [public qualification receipt](../acceptance/results/wasm-runc-arm64.json)
+The [historical public receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/wasm-runc-arm64.json)
 records pinned engine/userland inputs and both compiled guest identities.
 That receipt covers generic `push --layer-set` consumption, not the later
 `compose`/final-signature/replacement/fleet-export workflow.
 
 ## Governed external dependency replacement
 
-**Current scope:** the managed companion passed 18 selected assertions on
+**Historical scope:** the managed companion passed 18 selected assertions on
 each native architecture, including normal cleanup. Separate
-[arm64](../acceptance/results/managed-wasm-composition-arm64.json) and
-[amd64](../acceptance/results/managed-wasm-composition-amd64.json) receipts
-record actual execution; one does not substitute for the other.
+[arm64](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-wasm-composition-arm64.json) and
+[amd64](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-wasm-composition-amd64.json) receipts
+record their original executions; one does not substitute for the other or
+qualify the current candidate.
 
 Proposal 0010 explicitly requires both the Wasmtime command and Spin HTTP
 component, in addition to Java, Python, Node.js and .NET. Its

@@ -35,14 +35,22 @@ Admission denials, foreign destinations and TLS certificate-identity failures
 fail immediately; application assertions and installation deadlines are not
 relaxed by this readiness check.
 
-The branch's `.github/workflows/e2e.yml` runs this suite by manual dispatch.
-Select the `brewlet-2.0` ref on the existing E2E workflow. GitHub schedules run
-from the repository's default branch, so this orphan branch does not claim
-automatic nightly execution. After local implementation acceptance, the job
-also selects the activation/cache/orphan/retry/signal companion and allows
-180 minutes for all sequential scenarios. The job exports each private result
-through `acceptance/export_result.py` and uploads only whitelisted public
-identities/outcomes, never raw result observations or private work directories.
+The branch's `.github/workflows/e2e.yml` is reused by automatic PR CI and can
+also be dispatched manually at an exact `expected_sha`. Its default `pr` scenario
+is the real four-language baseline: admission/startup, execution, rotations,
+observability, operator restart, protected CRI identity and normal cleanup.
+It deliberately omits the long fault/accounting/companion matrix, which remains
+mandatory before promotion. The required `Brewlet validation` aggregate cannot
+pass if this E2E job fails, cancels or skips. The same `pr` scenario is a bounded
+manual debugging route that actually reaches the protected-identity phase.
+
+The `complete` scope additionally selects the core fault/accounting coverage and
+all eight companion suites, with a 180-minute job deadline. Managed native/Wasm
+composition remains separate on each architecture. The job exports each private
+result through `acceptance/export_result.py` and uploads only whitelisted public
+identities/outcomes, never raw observations or private work directories. Generated
+receipts are Actions artifacts, not source files; see the
+[artifact-index procedure](../../acceptance/README.md).
 
 For focused controller and production-cleanup debugging, use the explicitly
 partial scenario:
@@ -52,7 +60,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
   --scenario control --work integration-tests/live-v2/run-control-20261017-01
 ```
 
-The workflow's `scenario` input defaults to `complete`; selecting `control`
+The workflow's `scenario` input defaults to `pr`; selecting `control`
 retains real TLS bootstrap, startup fencing, four-language execution, runtime
 rotations, observability, controller/provider-refusal cases and production
 cleanup, but omits accounting, formal remote-delivery negatives, Maven-node,

@@ -245,9 +245,11 @@ def artifact_target(layout):
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
                  retain_on_failure=False, local_language=None):
-        require(scenario in ("complete", "control", "runtime", "maven", "lifecycle",
+        require(scenario in ("complete", "pr", "control", "runtime", "maven", "lifecycle",
                              "roles", "accounting", "delivery"),
                 "unsupported live scenario")
+        require(scenario != "pr" or (pinned and local_language is None),
+                "PR E2E requires all four languages and pinned scenarios")
         require(local_language is None or (
             local_language in LANGUAGES and not pinned
             and (scenario == "runtime"
@@ -1696,7 +1698,12 @@ class Harness:
                 "Local fixture selection omits " + ", ".join(
                     language for language in LANGUAGES if language not in self.languages)
                 + " execution and rotation")
-        if self.scenario == "control":
+        if self.scenario == "pr":
+            self.result["gaps"].append(
+                "PR four-language E2E omits the long quarantine, accounting, managed composition, "
+                "Maven/container-role/lifecycle/controller fault callbacks and companion suites; "
+                "full promotion qualification is separate")
+        elif self.scenario == "control":
             self.result["gaps"].append(
                 "Focused control execution omits CRI accounting, formal remote-delivery negatives, "
                 "Maven node producer, container-role and lifecycle callbacks and companion suites")
@@ -1730,7 +1737,7 @@ class Harness:
             bootstrap_delivery(self)
             self.phase = "install"
             self.install()
-            if self.scenario == "complete":
+            if self.scenario in ("complete", "pr"):
                 self.phase = "api-admission-contract"
                 from admission_contract import exercise as verify_admission
                 verify_admission(self)
@@ -1746,13 +1753,14 @@ class Harness:
                 self.barriers_and_rotation()
                 self.phase = "observability"
                 observer.verify()
-            if self.scenario == "complete":
+            if self.scenario in ("complete", "pr"):
                 self.phase = "durable-generation-recovery"
                 from runtime_contract import durable_generations, rotation_participants
                 durable_generations(self)
                 from runtime_contract import protected_identity
                 self.phase = "protected-cri-identity"
                 protected_identity(self)
+            if self.scenario == "complete":
                 self.phase = "real-rotation-participation-deadline"
                 rotation_participants(self)
             if self.scenario in ("complete", "accounting"):
@@ -1844,7 +1852,7 @@ def main():
                         help="new directory beneath integration-tests/live-v2; retains private kubeconfig/keys")
     parser.add_argument("--timeout", type=int, default=600,
                         help="bounded assertion deadline in seconds (default 600)")
-    parser.add_argument("--scenario", choices=("complete", "control", "runtime", "maven", "lifecycle",
+    parser.add_argument("--scenario", choices=("complete", "pr", "control", "runtime", "maven", "lifecycle",
                                                "roles", "accounting", "delivery"),
                         default="complete",
                         help="complete suite (default) or explicitly scoped local component execution")

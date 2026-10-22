@@ -1,0 +1,913 @@
+{
+  "schemaVersion": 1,
+  "history": {
+    "commit": "4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5",
+    "files": [
+      {
+        "path": "acceptance/results/amended-full-userland-arm64.json",
+        "sha256": "e9ac56bffe90a66b0de1c45900329b8d9cda136d48ca64534f6c5f2e3301dfe4",
+        "size": 21674
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39792970699/documentation.json",
+        "sha256": "d6180c1f685c299ca63c26e4d99b26d7d1e39f7ec0219df805216aa7429610ab",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39792970699/fixtures-amd64.json",
+        "sha256": "8ca5a1c813c37dcdf7e1814c7794abc612e63aaa0ee58ccc3184014c98608808",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39792970699/go-contracts.json",
+        "sha256": "2b66d899c3c81df8177c7c5d1d62a92369aa1d77ab8e9386d88eee470421961c",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39792970699/go-vet-amd64.json",
+        "sha256": "8f6bf9e28aeb316487e2976140df2df68bbbbc508cf65f521565d5451ebdd715",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39792970699/maven.json",
+        "sha256": "364037d44d5f9e812edac6a5e3584be220c221ca6fae369f600bc535ca586db8",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39792970699/native-contracts-amd64.json",
+        "sha256": "befe8aff57ea756ee0c8d4a27f958f4bcf0f69e2f3814a1f3dad5c8292727650",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39792970699/registry-amd64.json",
+        "sha256": "bee64bb2376c693355a668910370930fcda5ceaa47459b7a2a9272f35c9fc62b",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39792970699/site-integration.json",
+        "sha256": "fa9fe93113cb687e91ac70db202bafa6eec6919bbb67a56e12578bc1e88f0a88",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39793003919/documentation.json",
+        "sha256": "d6180c1f685c299ca63c26e4d99b26d7d1e39f7ec0219df805216aa7429610ab",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39793003919/fixtures-arm64.json",
+        "sha256": "301caa62aac0cb4349fe63baa6f881b2954a72760e01e11dfcedc9119f09f1b5",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39793003919/go-contracts.json",
+        "sha256": "2b66d899c3c81df8177c7c5d1d62a92369aa1d77ab8e9386d88eee470421961c",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39793003919/go-vet-arm64.json",
+        "sha256": "ac2bae1b1bbdb6137399ac20fe969b4da96a9fd959f0a62d23cf3ecceb0b53e9",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39793003919/maven.json",
+        "sha256": "364037d44d5f9e812edac6a5e3584be220c221ca6fae369f600bc535ca586db8",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39793003919/native-contracts-arm64.json",
+        "sha256": "966e20bbc5445a608c116b4f2e76aadf8f4e4ff237375ca398657c4f401ec8d5",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39793003919/registry-arm64.json",
+        "sha256": "b507ff13620d37e895891a6f2bdff249cefeff7ac6cddae3359fc66ec93f45e3",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39793003919/site-integration.json",
+        "sha256": "fa9fe93113cb687e91ac70db202bafa6eec6919bbb67a56e12578bc1e88f0a88",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39795134330/candidate-amd64-core.json",
+        "sha256": "29437645bd7f2c1437fde890a5b1c33759d0bba506f4900ab77dd4a6fb499b5e",
+        "size": 24844
+      },
+      {
+        "path": "acceptance/results/attempts/0abd61225c69dca41d18364cfddf2a9f8cb169ff/run-39795166884/candidate-arm64-core.json",
+        "sha256": "519fbfcc478da36ca7ce9b2866c408b99ef5b25d27933d54c2b59a1076941c2c",
+        "size": 24844
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673571516/documentation.json",
+        "sha256": "ef28eb2d4205340b70e3eb5bc636dddc5b71ee55030035cf67c1e7a88ad68aa9",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673571516/fixtures-amd64.json",
+        "sha256": "b84410e6fc203bc9933d3c3095e69bd108f8406aeb16218c73899df0456c9994",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673571516/go-contracts.json",
+        "sha256": "51b9c0904ea9a05d91a089fbcd181faadd43b53f18c91ec7ea984260410474e2",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673571516/go-vet-amd64.json",
+        "sha256": "e42ad90f1ca070e595ce5a3eadb1a78d65c9063fe8892bb877adf1664ae80a65",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673571516/maven.json",
+        "sha256": "c5dcbde54b97f5aef78ad519f5d2541f3775cb715db4fb7aa21614eb87c10c92",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673571516/native-contracts-amd64.json",
+        "sha256": "4c6f2ddd7ee88e7be67fad20551968ed73ae795b553e3dbb725253374544e540",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673571516/registry-amd64.json",
+        "sha256": "3adb7c9d3af7540e7aeeb794396ba3fdbf9067ed6d32d7ead9647d973e6c367c",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673571516/site-integration.json",
+        "sha256": "3ca67720b4e0169f31e7a25873436cb175f876e519445d2e0da6730836cfc31d",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673721658/documentation.json",
+        "sha256": "ef28eb2d4205340b70e3eb5bc636dddc5b71ee55030035cf67c1e7a88ad68aa9",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673721658/fixtures-arm64.json",
+        "sha256": "68985e814c125f735eabefc6495e9fcabb69c2366294eaf80449b7b1003f1816",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673721658/go-contracts.json",
+        "sha256": "51b9c0904ea9a05d91a089fbcd181faadd43b53f18c91ec7ea984260410474e2",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673721658/go-vet-arm64.json",
+        "sha256": "aff2f2f201eba2d2d143090d9f0ea3da5ad6cfb2269d96a5b3973aec9cc70276",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673721658/maven.json",
+        "sha256": "c5dcbde54b97f5aef78ad519f5d2541f3775cb715db4fb7aa21614eb87c10c92",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673721658/native-contracts-arm64.json",
+        "sha256": "5ba93ad485cf14b756158ad4a2c2a5944d7da7bb8a91a4d92e345615999ab791",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673721658/registry-arm64.json",
+        "sha256": "bd61010333fa80a25f1a9b4c796ad2abcd813385bff2381f9a7ab0b89a555fcd",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39673721658/site-integration.json",
+        "sha256": "3ca67720b4e0169f31e7a25873436cb175f876e519445d2e0da6730836cfc31d",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39675536254/candidate-amd64-core.json",
+        "sha256": "d1e61bc8745d9100427f5fe8ea527b50f1b7620c2d6a4fa918255aaf222fea0b",
+        "size": 2820
+      },
+      {
+        "path": "acceptance/results/attempts/56dccc256d0431ed96abe8a4b94691001a8a4b0e/run-39675599495/candidate-arm64-core.json",
+        "sha256": "7c237d4461de8fc6220fcb9c4ef7d71bc0226040f99bfcf40073cb20165cc3d8",
+        "size": 2820
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707690863/documentation.json",
+        "sha256": "24c3d65496e91437e09861c8be224439a3d68f7e1103a067ff3cb5ed3065b285",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707690863/fixtures-amd64.json",
+        "sha256": "62e8a8e98847b6e9ca765ec500c23d6ad7e8829ae81377e17f1908907f43425c",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707690863/go-contracts.json",
+        "sha256": "0195f1d3b293e63d673cd0bd101c2dcfd0ae2284348885117f643d8c7cb4758b",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707690863/go-vet-amd64.json",
+        "sha256": "057d895d928191aa3d19a5baff91c456a375a2c8e6229482026ded6a5e5917c5",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707690863/maven.json",
+        "sha256": "8902cac8304ed1fe5505837e258e479934503ad698d7ae6f331fe950b2c89201",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707690863/native-contracts-amd64.json",
+        "sha256": "07374375b52aad3ad1bf1fbd34cbba86ea91c49ff4c2d950be95d3ae8b0924c0",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707690863/registry-amd64.json",
+        "sha256": "c311d04ea9855293d51d25c167e48a8fda9920e52ae8548176b878b858e41bec",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707690863/site-integration.json",
+        "sha256": "b2597c2182f856a0084920d75e50958b5a54b69d3d694f758ccaa95c60717771",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707701073/documentation.json",
+        "sha256": "24c3d65496e91437e09861c8be224439a3d68f7e1103a067ff3cb5ed3065b285",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707701073/fixtures-arm64.json",
+        "sha256": "0d9c99d344d7cb9d4e6d400a394121207cd53fde7bcc51da720b3bf4ff2f1e5d",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707701073/go-contracts.json",
+        "sha256": "0195f1d3b293e63d673cd0bd101c2dcfd0ae2284348885117f643d8c7cb4758b",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707701073/go-vet-arm64.json",
+        "sha256": "fb50d3edf87d5633f8981aec045600b0211e3bf46f1f77b267f26616d18da347",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707701073/maven.json",
+        "sha256": "8902cac8304ed1fe5505837e258e479934503ad698d7ae6f331fe950b2c89201",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707701073/native-contracts-arm64.json",
+        "sha256": "b6990ea0e249d1cba094240c9242efa10536bc7c5bdd903872d9b2463c09bdee",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707701073/registry-arm64.json",
+        "sha256": "0e8cc2da8e1f77da313cede0b6598a4ddc2ddaad5f79c1e71f0c605ad9f04f5a",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39707701073/site-integration.json",
+        "sha256": "b2597c2182f856a0084920d75e50958b5a54b69d3d694f758ccaa95c60717771",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39708311390/candidate-amd64-core.json",
+        "sha256": "c5fd8688a71d8b702d97a94bf257dc22d6b8cc162275291a2e80d98e8ec966ac",
+        "size": 6684
+      },
+      {
+        "path": "acceptance/results/attempts/59a5f411cef7e2dc2639537304e9cde6ba9de462/run-39708330433/candidate-arm64-core.json",
+        "sha256": "f7c569c7baf38d511e094b482fb9ebedb1697c3e7353219ff1623a32304d131b",
+        "size": 6684
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782287929/documentation.json",
+        "sha256": "430e1389f794f095021172b8b03e2b64d6b55714a2ada20df54a19bf24a8c8e4",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782287929/fixtures-amd64.json",
+        "sha256": "8712f9dbf723ed200a332722be7f1f176b533c1e5ea48e9a1c33dd80ea4d4974",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782287929/go-contracts.json",
+        "sha256": "b5167d3d432764c6012375ff8daa8d78262ba341fbf0c3917a2bea4630edc92f",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782287929/go-vet-amd64.json",
+        "sha256": "7387f68d69ac357740c84e9bdffda494c6c78bb89b1bbd071b57dcb4d2fd0c7d",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782287929/maven.json",
+        "sha256": "51d95589dd804f59816baec26ff9774fec913ba9234848d3a403e230ebba9e8b",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782287929/native-contracts-amd64.json",
+        "sha256": "dc92d518981d73d2e1371049dc85cbd7422d219a84572dad3b4b537d5cf1ac31",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782287929/registry-amd64.json",
+        "sha256": "1070b172220a4d3ba944b7b0d7257a2ca03124a23bb5adf295c48a981ae2e7d9",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782287929/site-integration.json",
+        "sha256": "c35488476b5b241f256459b003e505cb326ecda0b9bad6e5ccec8b77c77b1f9d",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782309953/documentation.json",
+        "sha256": "430e1389f794f095021172b8b03e2b64d6b55714a2ada20df54a19bf24a8c8e4",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782309953/fixtures-arm64.json",
+        "sha256": "6347111c99f9fbd3ecf81ebb2e33dc7c1e660d8d140da733a596a670f5f2e29a",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782309953/go-contracts.json",
+        "sha256": "b5167d3d432764c6012375ff8daa8d78262ba341fbf0c3917a2bea4630edc92f",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782309953/go-vet-arm64.json",
+        "sha256": "8e8d02a2efbdbb02803aa0165d23a94c4a70b36f7d6ff1dcb13f7ddd50138a29",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782309953/maven.json",
+        "sha256": "51d95589dd804f59816baec26ff9774fec913ba9234848d3a403e230ebba9e8b",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782309953/native-contracts-arm64.json",
+        "sha256": "59abf4972756feb8a3058986797395ccbfd09794d63d795db7452f26ec821935",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782309953/registry-arm64.json",
+        "sha256": "f28ee69c03ee2593b38b5bfd0d312b065213da50835bd646184cc7c80d9c3758",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39782309953/site-integration.json",
+        "sha256": "c35488476b5b241f256459b003e505cb326ecda0b9bad6e5ccec8b77c77b1f9d",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39783732807/candidate-amd64-core.json",
+        "sha256": "8866a2dc96cfa7b09277dd6a63bfe3e4323ac3eb93e30f3342cdeff1fc2233be",
+        "size": 20845
+      },
+      {
+        "path": "acceptance/results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-39783747912/candidate-arm64-core.json",
+        "sha256": "9d64e17324e71fe3ec44b1d61ca300af0bc2953da0185c1fa80c52a0290140df",
+        "size": 20845
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697436850/documentation.json",
+        "sha256": "e31777c622bc3ba7416821adc7a1a5bcd8c8b6b95859dae66a8236cadf00d072",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697436850/fixtures-amd64.json",
+        "sha256": "bae4daca26967564ad9a322b69e394e2abd9fe01df3b3a807dc94c9526fd8dd3",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697436850/go-contracts.json",
+        "sha256": "8c7e6df141d095926c9301ae8daf386a17cd2fb7c2a6930285beb9586d4f5c88",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697436850/go-vet-amd64.json",
+        "sha256": "701efdf17cf467978018ad386cde4afec94429d2738290e6f075e4b0f5d09f9f",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697436850/maven.json",
+        "sha256": "84f1a6dfc0b8a2ab6e8cea89988900160059d86209c3523dbf918d0953467104",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697436850/native-contracts-amd64.json",
+        "sha256": "74be78f8e3acca24c75d1fb786e50284b47cdc0c9a28668a72061b1910a86232",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697436850/registry-amd64.json",
+        "sha256": "1a791db6a314b854dbcd64c59ce052dde840367f67a54bb0598a41cb7e475ad4",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697436850/site-integration.json",
+        "sha256": "bd5afc98f74451121462e00fa8fe5726687b802f1e4114ac06f85d316cdba824",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697469935/documentation.json",
+        "sha256": "e31777c622bc3ba7416821adc7a1a5bcd8c8b6b95859dae66a8236cadf00d072",
+        "size": 667
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697469935/fixtures-arm64.json",
+        "sha256": "186c86784fd62aef011fcda2b36a9a903bc2df312e940421d29c3bb66ad558c5",
+        "size": 740
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697469935/go-contracts.json",
+        "sha256": "8c7e6df141d095926c9301ae8daf386a17cd2fb7c2a6930285beb9586d4f5c88",
+        "size": 2467
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697469935/go-vet-arm64.json",
+        "sha256": "73b787446d34de99019c42a3af8fdb81fd5a6f7ea31650c4e9ca567e6b526469",
+        "size": 585
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697469935/maven.json",
+        "sha256": "84f1a6dfc0b8a2ab6e8cea89988900160059d86209c3523dbf918d0953467104",
+        "size": 600
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697469935/native-contracts-arm64.json",
+        "sha256": "361f83a4f66531b873e2a2233b1d25bd2eb0f7af25760dd8ca427d7ac858464d",
+        "size": 1394
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697469935/registry-arm64.json",
+        "sha256": "28a63c5b37d59138939844f6b52cf250d9a695e17979bba02a4e87ed835c6d46",
+        "size": 628
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39697469935/site-integration.json",
+        "sha256": "bd5afc98f74451121462e00fa8fe5726687b802f1e4114ac06f85d316cdba824",
+        "size": 540
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39698207309/candidate-amd64-core.json",
+        "sha256": "8bf868e5d0939bd9beb72450973c055c2592cca7954e3666afcd9ff8a2538d79",
+        "size": 6684
+      },
+      {
+        "path": "acceptance/results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-39698248714/candidate-arm64-core.json",
+        "sha256": "ec3df5f709b0c91b6d063b61cdddb3fc2c46e367f143677b967bc76f489c072a",
+        "size": 6684
+      },
+      {
+        "path": "acceptance/results/authenticated-pulls-and-accounting.json",
+        "sha256": "c8b8b3da71126010a5074503450e5f8c4a475adec85a54ed8ff2a7b61305159f",
+        "size": 8445
+      },
+      {
+        "path": "acceptance/results/clean-control-amd64.json",
+        "sha256": "3f11965b5a1773550829691a1e786b9fc3e78520ac78e9c8bad50f4bac502be1",
+        "size": 14652
+      },
+      {
+        "path": "acceptance/results/clean-local-accounting-worker-health-arm64.json",
+        "sha256": "89bd71da9fddc9a44df9f20ecc386a91ad5c801dc9925b9cd72374b6dd6702c2",
+        "size": 7680
+      },
+      {
+        "path": "acceptance/results/clean-local-control-worker-health-arm64.json",
+        "sha256": "e68fe1f4c346f4925de53ea4964025ec58db2f29166a07dfc6e8748049e9a3e3",
+        "size": 10012
+      },
+      {
+        "path": "acceptance/results/clean-local-current-python-arm64.json",
+        "sha256": "185d65c5413f226bdc294e3663cd84465c074776768099426c97154a598dd2d7",
+        "size": 7828
+      },
+      {
+        "path": "acceptance/results/clean-local-delivery-arm64.json",
+        "sha256": "9501b303cf45825e1356dd8c9910ec8761b5438933ae39a14a268dbf914f9f11",
+        "size": 9063
+      },
+      {
+        "path": "acceptance/results/clean-local-delivery-worker-health-arm64.json",
+        "sha256": "988075b6a5b39df3880e1a9617eccd4b9fb9321d0a90bdb7defe7195f115e03b",
+        "size": 9063
+      },
+      {
+        "path": "acceptance/results/clean-local-dotnet-readiness-fix-arm64.json",
+        "sha256": "a255ba397931adf3b98d6c9e468ba44fe6268ad468e67bd0c0209749b239ea36",
+        "size": 7534
+      },
+      {
+        "path": "acceptance/results/clean-local-dotnet-runtime-arm64.json",
+        "sha256": "2745c44c3fab23b76ddd796e29bcda99e5f1382ca3b9edcac570cbcb87ddf0e1",
+        "size": 7534
+      },
+      {
+        "path": "acceptance/results/clean-local-eager-recovery-arm64.json",
+        "sha256": "31245f803b632f6616c245a36c2727b17615e5c20b6a2a9fb151036389fec413",
+        "size": 10012
+      },
+      {
+        "path": "acceptance/results/clean-local-java-readiness-fix-arm64.json",
+        "sha256": "42febc9b015fa830ea6c11d6ca5f6bf4bd2492c1be1bb02bdd2dedae00182a69",
+        "size": 7514
+      },
+      {
+        "path": "acceptance/results/clean-local-java-runtime-arm64.json",
+        "sha256": "47eb9bfb07362afe7b58e5e72b96efc341214d0b8e8e75860b8904b705afe6bd",
+        "size": 7514
+      },
+      {
+        "path": "acceptance/results/clean-local-lifecycle-arm64.json",
+        "sha256": "3170a21c610c0bed1906a941d9e70a9d3f55cfe0dd9856f8541fcd4278b8e8f9",
+        "size": 10134
+      },
+      {
+        "path": "acceptance/results/clean-local-maven-arm64.json",
+        "sha256": "74da5d543fe83c1e15ca2b8e280ec38f7b7e2cb088bc84ec2479fd73d3205afe",
+        "size": 7855
+      },
+      {
+        "path": "acceptance/results/clean-local-node-readiness-fix-arm64.json",
+        "sha256": "1fb5a3b9f4fd71b5175ef6951907b9b3459269074fd2a2861562e50f37d31cef",
+        "size": 7514
+      },
+      {
+        "path": "acceptance/results/clean-local-node-runtime-arm64.json",
+        "sha256": "9c0e812a4ec7fbbfed5dac86050ad12d92099dc391b105c7ec7083a06f0c1fc9",
+        "size": 7514
+      },
+      {
+        "path": "acceptance/results/clean-local-python-control-arm64.json",
+        "sha256": "eaaeaf4f1e71d242a2e3e1337f98d0629f38bf356ca5458e96e17169651421dc",
+        "size": 9823
+      },
+      {
+        "path": "acceptance/results/clean-local-roles-arm64.json",
+        "sha256": "c4cb5e2c1debce7187c7f5b8a30a3b20ffc1cdffbb47185bf47f3948ec6188ee",
+        "size": 8421
+      },
+      {
+        "path": "acceptance/results/clean-local-roles-worker-health-arm64.json",
+        "sha256": "4bd08dfd9d7939bf0eebe83db7e6fe74208ad718b90dee04a69f63f9f08535aa",
+        "size": 8421
+      },
+      {
+        "path": "acceptance/results/clean-local-strict-barriers-arm64.json",
+        "sha256": "e02616da216142cd3bbbe2ad2facb6ccffcefbfa82ae0e2a747c20f5eaad27c1",
+        "size": 10306
+      },
+      {
+        "path": "acceptance/results/clean-real-node.json",
+        "sha256": "86cb711af89649e6f03a6caa1ed34fc13e92ddd23866afad50d75b71ccfae5f8",
+        "size": 10650
+      },
+      {
+        "path": "acceptance/results/cold-and-native-deadlines.json",
+        "sha256": "2dd4ed1f8fb9c50fd9d2192db65c3d6e3af8a07e30c6464ad53702a5ced5d1af",
+        "size": 7554
+      },
+      {
+        "path": "acceptance/results/cold-install-deadline.json",
+        "sha256": "2179a63bf208e84835034cdb8bd935e406b1ce69638774e73b992ea869bc6e2a",
+        "size": 7169
+      },
+      {
+        "path": "acceptance/results/complete-local-four-language-arm64.json",
+        "sha256": "dbac86b94cff6af80a91c696269f2d92a4abea4a0eeec2f568a5d223294d2def",
+        "size": 21432
+      },
+      {
+        "path": "acceptance/results/controller-cleanup-selected.json",
+        "sha256": "121e87c55f7ae43861c2673b9cce1abe821299f175552bfee1382df65f0b03ce",
+        "size": 14649
+      },
+      {
+        "path": "acceptance/results/controller-strategies-selected.json",
+        "sha256": "cf4559287e45ec8d7ef2c718c47c8dc7df8eeb78991566e141802e3daa10ea2d",
+        "size": 13217
+      },
+      {
+        "path": "acceptance/results/cri-accounting.json",
+        "sha256": "8aacd6bae3f4a3f464845a254b090f7ef91a63b5abbb50efaa627b9817032530",
+        "size": 1666
+      },
+      {
+        "path": "acceptance/results/current-actual-retention-activation-arm64.json",
+        "sha256": "aa97da6d72795f97e6fa62151a4861c0e34a99b1af924690a172b1f561b46bd8",
+        "size": 6775
+      },
+      {
+        "path": "acceptance/results/current-local-cold-deadlines-arm64.json",
+        "sha256": "52f8ae99764a9983faee23db09028bcdbe0dd320a50909562b31c214e94fd61d",
+        "size": 7554
+      },
+      {
+        "path": "acceptance/results/current-local-native-capacity-arm64.json",
+        "sha256": "00a3baba515261f9e71d3d047d82a46c2919111198d49086bdaee0888d6875e8",
+        "size": 6609
+      },
+      {
+        "path": "acceptance/results/current-physical-returning-retirement-arm64.json",
+        "sha256": "1e2f7e8bca99b38c22376f004a7c139ab85e03be1ee9fb92b86fa271cebb245b",
+        "size": 6843
+      },
+      {
+        "path": "acceptance/results/current-real-cache-lifetime-arm64.json",
+        "sha256": "e37f69982d4939dde22167201b304db00e0d78ac15eef41a7e7752dc39f7c0aa",
+        "size": 7153
+      },
+      {
+        "path": "acceptance/results/current-real-killed-shim-recovery-arm64.json",
+        "sha256": "5d8427201c1d722d1f0b4cfbe7a9b5887decf952bbf634cfac4681b35d0d38b6",
+        "size": 7537
+      },
+      {
+        "path": "acceptance/results/current-real-ondemand-retry-arm64.json",
+        "sha256": "ee37a37c17478429b973c71bfbfbbb249266ce7f20e39eded602e99cdc916714",
+        "size": 8116
+      },
+      {
+        "path": "acceptance/results/current-real-orphan-exec-arm64.json",
+        "sha256": "7f729f790ac203aca111038520ef783e5a5ffcd58ad152286816139fe4d20b16",
+        "size": 7721
+      },
+      {
+        "path": "acceptance/results/current-real-pinned-uninstall-arm64.json",
+        "sha256": "bb40bc5af6a7c52daa1b33602fb5bf39e22997293c2b69755e34a1758cd2cdb0",
+        "size": 6836
+      },
+      {
+        "path": "acceptance/results/delivery-and-authorization.json",
+        "sha256": "daf92e1f1dcef27fde101b019ba69acc3e5908e52828dda1c3eefde726a73627",
+        "size": 9452
+      },
+      {
+        "path": "acceptance/results/expanded-producer-roles-real-node.json",
+        "sha256": "0c25568649d09d46f0b889eea3d173ce1fe2901096a8576388ebabcf69a93218",
+        "size": 20531
+      },
+      {
+        "path": "acceptance/results/expanded-real-node.json",
+        "sha256": "9c2a6e15321eaa24cded0ca4a182b3dfe3d11084e02c784b385f09f31e8e6e72",
+        "size": 19559
+      },
+      {
+        "path": "acceptance/results/final-local-cleanup-checkpoint-failure-arm64.json",
+        "sha256": "0dba91f0eeb1860330bb898056c60bb342c12a859891b3840fcb95a04dc80f95",
+        "size": 21453
+      },
+      {
+        "path": "acceptance/results/final-local-cold-deadlines-arm64.json",
+        "sha256": "e9e5ba8044395a15fc0d793a75459826f956f02dd88752fe16a6d0f73e741538",
+        "size": 7600
+      },
+      {
+        "path": "acceptance/results/final-local-four-language-arm64.json",
+        "sha256": "6c3dc0abaccb6e28157dfef000b3465f5893ca410607e75fc6a3d86b39424979",
+        "size": 21674
+      },
+      {
+        "path": "acceptance/results/final-local-runc-lifecycle-arm64.json",
+        "sha256": "2aa1121d3ebd53ff466d24e5eddcd15a1546e20b4c2e07f6f78f07635e02d18d",
+        "size": 8524
+      },
+      {
+        "path": "acceptance/results/four-language-execution.json",
+        "sha256": "5f5a514ed4636f6833854d0f5158bad7dac99b680316f23f67f385c2d9f2d197",
+        "size": 2297
+      },
+      {
+        "path": "acceptance/results/four-language-rotation.json",
+        "sha256": "2a310b468e6fe54554aaa9313429e8ba04fe6136c751852007ae5e6bb0ad5988",
+        "size": 3274
+      },
+      {
+        "path": "acceptance/results/immutable-filesystem-arm64.json",
+        "sha256": "0bc8c8a968aed5379e8db962095f39e31cdde0630eac498fefa9951a3a87a903",
+        "size": 9516
+      },
+      {
+        "path": "acceptance/results/immutable-filesystem-build-failure-arm64.json",
+        "sha256": "cd0142926374dee474733f9bde61d34e7d7f3a49ddd544e39e7ebc041564d055",
+        "size": 2490
+      },
+      {
+        "path": "acceptance/results/immutable-filesystem-cleanup-fixture-failure-arm64.json",
+        "sha256": "0a545e7a17bf9458304710f6cdad7deb88b356f83708a54153189b83420d030c",
+        "size": 8828
+      },
+      {
+        "path": "acceptance/results/immutable-filesystem-eviction-status-failure-arm64.json",
+        "sha256": "a08b86386572bfc165a10bb66ecaa1261312581219bd80acb030cb875288249d",
+        "size": 9019
+      },
+      {
+        "path": "acceptance/results/leased-root-cleanup.json",
+        "sha256": "0bbe666850befdd51a070519959f48ab6d9dfa842fd1473eac771ffbf68f7b85",
+        "size": 1474
+      },
+      {
+        "path": "acceptance/results/lifecycle-and-controller-amd64.json",
+        "sha256": "6db91af754aef06250492f3ff5cd992a44fad3dd154414ab463173b5fc2cb517",
+        "size": 19006
+      },
+      {
+        "path": "acceptance/results/local-accounting-worker-health-failure-arm64.json",
+        "sha256": "00079165d3bdc75f89091c52a936525748e8697941908808dc03290d49f84130",
+        "size": 7335
+      },
+      {
+        "path": "acceptance/results/local-cold-diagnostic-wiring-failure-arm64.json",
+        "sha256": "93c727eb6e7cff8eddce9bbb4f45f834d8522e32b54cf96dc63fb361e7c4dadb",
+        "size": 6957
+      },
+      {
+        "path": "acceptance/results/local-eager-readiness-failure-arm64.json",
+        "sha256": "60317190d25754bef952bf289c1ee6bc0898b884d9dda726c3c274a6e52e91f7",
+        "size": 8152
+      },
+      {
+        "path": "acceptance/results/local-java-alpine-disk-exhaustion-arm64.json",
+        "sha256": "da937d3946e327ae937f24f86de47b778c8fcafdffc1d9f67b7e5655c75d8230",
+        "size": 5488
+      },
+      {
+        "path": "acceptance/results/local-java-disk-exhaustion-arm64.json",
+        "sha256": "8a1f67706b98a3885467489d3234a1c6fa9bb4f5d0309251e670559914705cdc",
+        "size": 5529
+      },
+      {
+        "path": "acceptance/results/local-java-noble-disk-exhaustion-arm64.json",
+        "sha256": "ef554bfd597c50b494e8ec7ee3a46dc4b0ed3824a25e92c42274d897c2d0f293",
+        "size": 5488
+      },
+      {
+        "path": "acceptance/results/local-killed-shim-live-obligation-failure-arm64.json",
+        "sha256": "3fbf88c0246909eb96be12384c96c2e436b0d7a5fc217edd4a8285b371507db3",
+        "size": 7137
+      },
+      {
+        "path": "acceptance/results/local-node-webhook-startup-failure-arm64.json",
+        "sha256": "d41d5fb892447e78642b6efffef650272927a65f72310cf3aa992725661523e4",
+        "size": 4915
+      },
+      {
+        "path": "acceptance/results/local-python-disk-exhaustion-arm64.json",
+        "sha256": "198b02e344cebd197c43862fd8b36e2d5951ac06b8c1fbb4ca14572ed4fd73de",
+        "size": 5500
+      },
+      {
+        "path": "acceptance/results/local-python-nsfs-cleanup-failure-arm64.json",
+        "sha256": "1ca6f1fae323bc22fa31a0861c10d56071439aefc1cdbad156415645dce56104",
+        "size": 7821
+      },
+      {
+        "path": "acceptance/results/local-shared-pid-exec-selection-failure-arm64.json",
+        "sha256": "25f7f664e940926e4f2b842eae91e0b15e921e4f6d84bb4106753ee4fb8b55c9",
+        "size": 6946
+      },
+      {
+        "path": "acceptance/results/local-startup-and-java-rotation-arm64.json",
+        "sha256": "49172964f288446997e4d0eabb036601b4434398f67c93dec0acd2823272baef",
+        "size": 10611
+      },
+      {
+        "path": "acceptance/results/managed-composition-amd64.json",
+        "sha256": "a6f3df0d9ad8991bf807735812b801d18a16397e0bb4929bb90c1a43c8563b8c",
+        "size": 23621
+      },
+      {
+        "path": "acceptance/results/managed-composition-arm64.json",
+        "sha256": "f00bbe505a012f8cf00b219c0edf6e9973029825111829344cf9bf92c5a7d74a",
+        "size": 23633
+      },
+      {
+        "path": "acceptance/results/managed-dotnet-memory-failure-arm64.json",
+        "sha256": "a6e8f6d476f50e5f2b21b6951c2e2750f4b47ec94bfcd4c45bcc87b11f37f054",
+        "size": 21384
+      },
+      {
+        "path": "acceptance/results/managed-owner-observation-failure-arm64.json",
+        "sha256": "e22e0d63bc1946e468dbdc7412403d15d51c9ef1fb2c941316fed6f307e68d18",
+        "size": 21575
+      },
+      {
+        "path": "acceptance/results/managed-pom-fixture-failure-arm64.json",
+        "sha256": "359a6d7176fe52f41b19d9c5fa7ecc1e2df358cde9eda3ada24cabbf87edb8e4",
+        "size": 9124
+      },
+      {
+        "path": "acceptance/results/managed-wasm-composition-amd64.json",
+        "sha256": "b735abf41048ca723be076d68caf8a9c44382946cfa032b5af9358250c4ddbe1",
+        "size": 9089
+      },
+      {
+        "path": "acceptance/results/managed-wasm-composition-arm64.json",
+        "sha256": "655abd5ab927e0259ed5fb89cef00d93e95fda20c23fefece5371f4171134cc4",
+        "size": 9098
+      },
+      {
+        "path": "acceptance/results/native-capacity.json",
+        "sha256": "94e653e99c9af2cf814f7a166f4f0ccece7a4f91dde98641cf75094a074b624e",
+        "size": 6609
+      },
+      {
+        "path": "acceptance/results/native-linux-arm64-contracts.json",
+        "sha256": "44b41afc8c56d4c85f07ebc6245c9e3eb65480d668d6e1c2d890377870acf9b5",
+        "size": 1870
+      },
+      {
+        "path": "acceptance/results/observability-and-recovery-amd64.json",
+        "sha256": "a2d25fdd0979393d1c308789331eb8912af994267610e6dbbc3ce49848cf2667",
+        "size": 16791
+      },
+      {
+        "path": "acceptance/results/physical-retirement.json",
+        "sha256": "c10598587783dc37ba9c7b12a934ed7ebb7ffcf7c447a2f2938d613388bac956",
+        "size": 6603
+      },
+      {
+        "path": "acceptance/results/pinned-uninstall.json",
+        "sha256": "69bd56b175d4391873576f1499a3f2d5dd7416a56bbfabdc84a5df7bab35dc35",
+        "size": 6836
+      },
+      {
+        "path": "acceptance/results/reader-tutorial-arm64.json",
+        "sha256": "6136c74b83fd53877fd3b16ffe4b5fabe0a5dbd08efb327b0c9d3303343dd707",
+        "size": 3581
+      },
+      {
+        "path": "acceptance/results/scoped-provisioner-failure-amd64.json",
+        "sha256": "813ca2377ffccb39ae10d13f63aa34d931e690c6d4cf1cb6c71d6a06a6ea5a9d",
+        "size": 12487
+      },
+      {
+        "path": "acceptance/results/unchanged-upstream-distroless-arm64.json",
+        "sha256": "a2df70a4cf20b2fa177bfb7fbc66a4103abe84a63a572589f25ec402a47a4883",
+        "size": 32312
+      },
+      {
+        "path": "acceptance/results/upstream-lifecycle-guard-failure-arm64.json",
+        "sha256": "89d9986bf300047959a9d26debe3811bfb6a486d92f765f9088fb4034f3200a2",
+        "size": 31601
+      },
+      {
+        "path": "acceptance/results/upstream-process-observation-failure-arm64.json",
+        "sha256": "00cf836f71b8fe7a96d0de2668aa92cb391cb4f4198ac8d9a6e95f4fc7a7e483",
+        "size": 31601
+      },
+      {
+        "path": "acceptance/results/upstream-stream-assumption-failure-arm64.json",
+        "sha256": "8dd7ba0e555d9fd2c62719da3e4c7630981665c9c13924ef8c50a73231db6753",
+        "size": 31601
+      },
+      {
+        "path": "acceptance/results/vendor-runtime-updates.json",
+        "sha256": "8d9aca0fd51a6968bfbc60c49ba6640151d6124a608d3adba9216187447e6a82",
+        "size": 10416
+      },
+      {
+        "path": "acceptance/results/wasm-command-cache-failure-arm64.json",
+        "sha256": "3f10ab6835623453bb4f69b1ee5ee45c066b31218e855d6de9ea902273bbad55",
+        "size": 8066
+      },
+      {
+        "path": "acceptance/results/wasm-initial-component-arm64.json",
+        "sha256": "c41de7733603ba8139b921cd07c00b1db3071ccc466068628a538ca521d5d6d3",
+        "size": 10815
+      },
+      {
+        "path": "acceptance/results/wasm-runc-arm64.json",
+        "sha256": "f8d0d97fca51efe14f1a7aaa158ad60fc0e1a0da92541feecdb10e6fe516e434",
+        "size": 10815
+      },
+      {
+        "path": "acceptance/results/wasm-single-platform-driver-failure-arm64.json",
+        "sha256": "01798b6acb396baf7cc115be92f0478d758ac86951b7f312a9a01aa17e4d76d0",
+        "size": 6599
+      },
+      {
+        "path": "acceptance/results/wasm-spin-cache-failure-arm64.json",
+        "sha256": "aa1088ad7e18706926f767e0375e471b3ebbec3531bf8a35715229e91071605b",
+        "size": 8253
+      },
+      {
+        "path": "acceptance/results/wasm-wagi-adapter-failure-arm64.json",
+        "sha256": "18abb78bc42c5e9afef5687ea53c643f523ac0e3b11b06337035ff2804ae7fbf",
+        "size": 8253
+      },
+      {
+        "path": "acceptance/results/worker-recovery-selected.json",
+        "sha256": "9f53ebbafec6ed19354d62bb6844b2f88afc7f5695a3ae682ed9967f1ae2f93a",
+        "size": 6211
+      }
+    ],
+    "archiveWorkflow": ".github/workflows/v2-ci.yml",
+    "archivePurpose": "archive-history",
+    "artifactRetentionDays": 90,
+    "artifactRunId": null
+  },
+  "candidate": null
+}

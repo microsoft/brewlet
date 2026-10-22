@@ -1,0 +1,38 @@
+{
+  "syntheticTestFixture": true,
+  "outcome": "passed",
+  "scope": "real-node-execution-only",
+  "architecture": "arm64",
+  "selectedScenario": "managed-wasm-composition",
+  "selectedLanguages": ["wasmtime", "spin"],
+  "cleanSelectedSuitePassed": true,
+  "productionCleanupVerified": true,
+  "fixtureDestruction": {"outcome": "passed"},
+  "assertions": [
+    {
+      "name": "synthetic test coverage, not execution evidence",
+      "outcome": "passed",
+      "requirements": ["COMP-WASM-01", "COMP-WASM-02", "COMP-WASM-03", "COMP-WASM-04"]
+    }
+  ],
+  "wasmGuestInputs": {
+    "command": {"sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    "http": {"sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+  },
+  "wasmRuntimes": {
+    "wasmtime": {
+      "after": {
+        "sourceKind": "custom-platform-fixture-pinned-distroless-cc-and-unchanged-release-binary",
+        "binarySHA256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "base": "fixture.invalid/base@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    },
+    "spin": {
+      "after": {
+        "sourceKind": "custom-platform-fixture-pinned-distroless-cc-and-unchanged-release-binary",
+        "binarySHA256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "base": "fixture.invalid/base@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      }
+    }
+  }
+}

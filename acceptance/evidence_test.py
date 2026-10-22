@@ -110,6 +110,17 @@ class EvidenceTests(unittest.TestCase):
         self.commit()
         self.assertTrue(candidate_errors(self.result, self.root))
 
+    def test_artifact_index_is_evidence_only_but_its_verifier_is_not(self):
+        path = self.root / "acceptance/evidence-index.json"
+        path.write_text('{"schemaVersion":1,"candidate":null}')
+        self.commit()
+        self.assertEqual([], candidate_errors(self.result, self.root))
+        path.write_text('{"schemaVersion":1,"candidate":{"different":"artifact pointers"}}')
+        self.commit()
+        self.assertEqual([], candidate_errors(self.result, self.root))
+        (self.root / "acceptance/evidence_index.py").write_text("changed verification policy")
+        self.commit()
+        self.assertTrue(candidate_errors(self.result, self.root))
     def test_source_tests_workflows_fixtures_and_modes_invalidate_identity(self):
         for name in ("pkg/source.go", "integration-tests/test.py", ".github/workflows/test.yml",
                      "integration-tests/fixtures/pin.json", "acceptance/check.py", "LICENSE.txt"):

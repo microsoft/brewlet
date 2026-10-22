@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from acceptance.qualification import load_matrix
-from acceptance.evidence import ROOT, load_receipt, receipt_errors, working_identity
+from acceptance.evidence import ROOT, load_receipt, read_json, receipt_errors, working_identity
 from acceptance.qualify import SUITES, suite_errors
 
 
@@ -145,6 +145,17 @@ def main():
     args = parser.parse_args()
     if args.require_complete and args.structure_only:
         parser.error("--structure-only cannot satisfy --require-complete")
+    if args.require_complete:
+        from acceptance.verify_evidence import validate as verify
+        try:
+            errors = verify(ROOT, read_json(ROOT / "acceptance/evidence-index.json"), baseline_only=True)
+        except (OSError, ValueError) as error:
+            errors = [str(error)]
+        for error in errors:
+            print(error)
+        if not errors:
+            print("115 baseline obligations verified from actual indexed receipts")
+        return int(bool(errors))
     load_matrix()
     document = json.loads(Path(__file__).with_name("requirements.json").read_text())
     errors = validate(document, structure_only=args.structure_only)

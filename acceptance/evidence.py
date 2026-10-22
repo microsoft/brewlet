@@ -45,6 +45,8 @@ def git(root, *args):
 
 
 def _normalized(path, content):
+    if path == "acceptance/evidence-index.json":
+        return None
     if path.startswith("acceptance/results/") and path.endswith(".json"):
         return None
     if path == "acceptance/RESULTS.md":
@@ -78,7 +80,8 @@ def _input_hashes(root, revision, *, working=False):
         path = raw_path.decode()
         if kind != "blob" or mode not in ("100644", "100755"):
             raise ValueError("unsupported qualification input: " + path)
-        if path == "acceptance/RESULTS.md" or (path.startswith("acceptance/results/") and path.endswith(".json")):
+        if path in ("acceptance/RESULTS.md", "acceptance/evidence-index.json") or (
+                path.startswith("acceptance/results/") and path.endswith(".json")):
             continue
         entries.append((path, mode, blob))
     stream = None
