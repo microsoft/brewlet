@@ -153,6 +153,11 @@ func TestManagedCompositionPreservesBytesAndReplacesDependencies(t *testing.T) {
 	if !verified.CompositionSignature {
 		t.Fatal("copy lost verified history")
 	}
+	windows := f.platform
+	windows.OS = "windows"
+	if _, err = VerifyComposition(ctx, copy, second, windows, f.policy); Reason(err) != "InvalidPlatform" {
+		t.Fatalf("non-linux verification platform accepted: %v", err)
+	}
 	options.Launch = []byte(`{"schemaVersion":2,"process":{"entrypoint":["/runtime"],"args":["--explicit"]}}`)
 	_, changed, err := Compose(ctx, f.store, options)
 	must(t, err)
@@ -190,8 +195,9 @@ func TestManagedCompositionRejectsUnsafeInputsAndPolicies(t *testing.T) {
 		"unlocked-set": func(f *releaseFixture, o *ComposeOptions) {
 			o.DependencySet = releaseSet(t, f.store, "1", "before", f.publisher, false)
 		},
-		"wrong-platform": func(f *releaseFixture, o *ComposeOptions) { o.Platform.Architecture = "amd64" },
-		"bad-launch":     func(f *releaseFixture, o *ComposeOptions) { o.Launch = []byte(`{"schemaVersion":2}`) },
+		"wrong-platform":     func(f *releaseFixture, o *ComposeOptions) { o.Platform.Architecture = "amd64" },
+		"non-linux-platform": func(f *releaseFixture, o *ComposeOptions) { o.Platform.OS = "windows" },
+		"bad-launch":         func(f *releaseFixture, o *ComposeOptions) { o.Launch = []byte(`{"schemaVersion":2}`) },
 		"unverified-dependency-stripping": func(f *releaseFixture, o *ComposeOptions) {
 			dep := source(t, f.store, "gzip", []*tar.Header{fileHeader("app/other", "bundled", 0644)}, []string{"bundled"})
 			dep.Descriptor.Annotations["brewlet.sh/layer"] = "dependency"

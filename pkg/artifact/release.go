@@ -299,7 +299,7 @@ func Compose(ctx context.Context, store Store, options ComposeOptions) (v1.Descr
 	if err := policy.Validate(now); err != nil {
 		return zero, inspection, err
 	}
-	if _, err := ParsePlatform(options.Platform.OS + "/" + options.Platform.Architecture + variantSuffix(options.Platform.Variant)); err != nil {
+	if err := compositionPlatform(options.Platform); err != nil {
 		return zero, inspection, err
 	}
 	if err := policy.Publisher.authorize(options.DependencySet.Digest); err != nil {
@@ -458,6 +458,17 @@ func Compose(ctx context.Context, store Store, options ComposeOptions) (v1.Descr
 	return target, inspection, nil
 }
 
+// compositionPlatform enforces §16.5: one explicit Linux platform per composition.
+func compositionPlatform(platform v1.Platform) error {
+	if _, err := ParsePlatform(platform.OS + "/" + platform.Architecture + variantSuffix(platform.Variant)); err != nil {
+		return err
+	}
+	if platform.OS != "linux" {
+		return fail("InvalidPlatform", "composition requires an explicit linux platform; got %q", platform.OS)
+	}
+	return nil
+}
+
 func variantSuffix(variant string) string {
 	if variant == "" {
 		return ""
@@ -468,6 +479,9 @@ func variantSuffix(variant string) string {
 func VerifyComposition(ctx context.Context, store Store, target v1.Descriptor, platform v1.Platform, policy ReleasePolicy) (CompositionInspection, error) {
 	var result CompositionInspection
 	if err := policy.Validate(time.Now()); err != nil {
+		return result, err
+	}
+	if err := compositionPlatform(platform); err != nil {
 		return result, err
 	}
 	resolved, err := Resolve(ctx, store.Open, target, platform)

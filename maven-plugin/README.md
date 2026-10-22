@@ -2,16 +2,19 @@
 
 This independently packaged Maven plugin contains Brewlet's Java project
 knowledge. It invokes the language-neutral `brewlet` executable through an argv
-array, not a shell. Descriptor, mirror, layer and platform validation are the
-same Go implementation used by the CLI and shim, not a second Java parser.
+array, not a shell. Launch descriptors, runtime image IDs and platforms are
+validated by an independent Java implementation of the shared artifact contract
+before the CLI runs; failures report the same reason codes (for example
+`InvalidLaunchConfig: ...`). The CLI still enforces the contract when publishing.
 The matching Brewlet 2 CLI must be installed explicitly.
 The candidate version is governed by `release.json`; it is not a claim that
 these coordinates have been published. Build/install from matching source
 until a qualified prerelease is available. Java 17 or later is required.
 
-The `conformance` goal exercises the producer's shared validator against the
-entire published fixture matrix, including mirrors, links, permissions and
-whiteouts, without implementing a second Java parser:
+The `conformance` goal evaluates the entire published fixture matrix (launch,
+ID, platform, compatibility, mirror, layer and composition cases, including
+links, permissions and whiteouts) independently in Java. It does not need the
+`brewlet` executable:
 
 ```sh
 mvn sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:conformance \
@@ -19,10 +22,11 @@ mvn sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:conformance \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
 
-It preserves the CLI's normalized process fields and reason codes; validation
-failure fails Maven without replacing an existing result. Integration coverage
-also publishes the applicable launch, runtime-ID and platform cases through
-the actual `push` goal.
+The result file has the same shape as `brewlet conformance` output: normalized
+process fields and reason codes per case. Any failing case fails Maven without
+replacing an existing result. The integration harness compares this result with
+the CLI's output, and also publishes the applicable launch, runtime-ID and
+platform cases through the actual `push` goal.
 
 Package and publish in the same Maven invocation:
 
@@ -44,6 +48,26 @@ ordinary Java classpath argv. `brewlet.module` selects a JPMS module and uses
 `/app/mods`. `javaArgs`, `runtimeImages` and `layerSets` are optional plugin
 configuration lists. `javaArgs` are explicit application argv, not runtime
 tuning injected by core. No runtime ID is inferred from the Maven JVM.
+
+Optional Java conveniences (spec §11.2):
+
+- `brewlet.appCdsArchive=/path/to/app.jsa` copies a prebuilt AppCDS archive
+  (regular, non-symlink file; its mtime is preserved) into the application
+  layer as `/app/app.jsa` and adds `-XX:SharedArchiveFile=/app/app.jsa
+  -Xshare:auto` to the generated argv, after `javaArgs`. Runtime rotations
+  change the JDK build, so the archive is best-effort. A hand-written
+  `brewlet.launch` still receives the file but is never rewritten; it must
+  reference `/app/app.jsa` itself.
+- `runtimeImageMappings` maps Java feature releases to inventory IDs with
+  entries such as `<runtimeImageMapping>21=java-21</runtimeImageMapping>`. The
+  release is `maven.compiler.release` (or a numeric `maven.compiler.target` /
+  `maven.compiler.source`). When `runtimeImages` is not configured, the plugin
+  proposes every mapped ID whose release is at least the project's, in release
+  order; with `--enable-preview` in `javaArgs` only the exact release
+  qualifies. If none qualifies the build fails instead of publishing an empty
+  allow-list. When `runtimeImages` is configured, the plugin warns about mapped
+  IDs that provide an older (or, with preview, different) release than the
+  generated argv needs.
 
 The plugin does not build Java, install a runtime, generate workload manifests,
 choose pod annotations, access Kubernetes, or apply deployments.
@@ -189,10 +213,12 @@ manifest descriptors, the SBOM and optional signed provenance.
 ## Validation
 
 Build and test with `mvn -B -q -f maven-plugin/pom.xml verify`.
-`MavenGraphTest`, `JavaProducerTest` and `MojoContractTest` cover canonical
-BOM/scoped graph locks, membership/hash/scope drift, duplicate filenames,
-thin-JAR rejection, descriptor authority, local/remote pinning, trust argv
-boundaries, and full goal execution with a recording CLI.
+`MavenGraphTest`, `JavaProducerTest`, `RuntimeImageMappingTest` and
+`MojoContractTest` cover canonical BOM/scoped graph locks, membership/hash/scope
+drift, duplicate filenames, thin-JAR rejection, descriptor authority, AppCDS
+attachment, runtime ID proposals, local/remote pinning, trust argv boundaries,
+and full goal execution with a recording CLI. `ConformanceTest` requires every
+case in `../conformance/artifact-v2.json` to pass the Java evaluator.
 
 For real CLI integration, install the matching plugin, publish an Ops project
 with the `layer-set` command, and consume its OCI layout via the application

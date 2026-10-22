@@ -107,6 +107,20 @@ digest before updating the ordinary Deployment image. A failed candidate test
 must stop that delivery pipeline; do not resolve another dependency graph or
 bypass trust as a fallback.
 
+## Accepted and rejected inputs
+
+| Input | Accepted | Rejected |
+| --- | --- | --- |
+| Application | A version-2 application graph with only app and launch layers; or a prior composition whose signature verifies under the current policy | Images with bundled dependency-role layers (they are never guessed or stripped); unsigned or `development` compositions as replacement sources; ordinary OCI/Docker images without a Brewlet launch layer |
+| Dependency set | Exactly one digest-pinned managed set with a complete lock, exactly one CycloneDX SBOM and trusted publisher provenance | Unlocked or generic sets; partial or merged catalogs; revoked or unapproved subjects; missing or multiple SBOMs |
+| Platform | Exactly one explicit `linux/<arch>[/variant]`, verified against its index member | Missing, multiple or non-Linux platforms; implicit index selection |
+| References | Canonical `REF@sha256:...` or local `LAYOUT@sha256:...` | Mutable tags |
+| Launch | The application's existing launch layer, or an explicit `--launch FILE` replacement | Inferred argv or files moved to fit a launch descriptor |
+
+The composer does not detect languages and does not inspect JARs, wheels or
+packages. Producer-specific checks, such as Maven's thin-JAR validation, run before
+publication.
+
 ## Trust policy
 
 Policy files accept strict JSON or YAML. Public SPKI PEMs are embedded; private
@@ -174,6 +188,9 @@ replacement. A rollback selects a previous approved final image digest under
 current trust policy; it is not a trust or revocation bypass.
 
 ## Operators: export facts for external scanners
+
+For the end-to-end response to an advisory, follow the
+[dependency remediation runbook](dependency-remediation.md).
 
 ```sh
 brewlet inventory --kubeconfig "$KUBECONFIG" --context production \

@@ -117,26 +117,21 @@ class MojoContractTest {
         return "'" + path.toString().replace("'", "'\\''") + "'";
     }
 
-    @Test void conformanceDelegatesAllFixturesAndPreservesNormalizedResults() throws Exception {
+    @Test void conformanceEvaluatesFixturesInJavaWithoutCliAndPreservesNormalizedResults() throws Exception {
         ConformanceMojo mojo = new ConformanceMojo();
-        initialize(mojo, project());
         Path fixtures = temp.resolve("shared fixtures.json");
-        Files.writeString(fixtures, "{\"schemaVersion\":1,\"cases\":[]}");
+        Files.writeString(fixtures, "{\"schemaVersion\":1,\"cases\":[{\"name\":\"unsafe-layer\",\"kind\":\"layer\","
+                + "\"entries\":[{\"path\":\"etc/passwd\",\"type\":\"file\",\"mode\":420}],"
+                + "\"reason\":\"LayerPathViolation\"}]}");
         Path result = temp.resolve("results/conformance.json");
-        Path cli = temp.resolve("conformance cli");
-        String normalized = "[{\"name\":\"unsafe-layer\",\"reason\":\"LayerPathViolation\",\"passed\":true}]";
-        Files.writeString(cli, "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + quote(temp.resolve("argv"))
-                + "\nprintf '%s' '" + normalized + "'\n");
-        assertTrue(cli.toFile().setExecutable(true));
-        mojo.executable = cli.toString();
         set(mojo, "fixtures", fixtures.toFile());
         set(mojo, "result", result.toFile());
         mojo.execute();
-        assertEquals(List.of("conformance", fixtures.toString()), Files.readAllLines(temp.resolve("argv")));
-        assertEquals(normalized, Files.readString(result));
-        Files.writeString(cli, "#!/bin/sh\nexit 9\n");
+        String normalized = "[{\"name\":\"unsafe-layer\",\"reason\":\"LayerPathViolation\",\"passed\":true}]";
+        assertEquals(normalized, Files.readString(result).strip());
+        Files.writeString(fixtures, Files.readString(fixtures).replace("etc/passwd", "app/passwd"));
         assertThrows(MojoExecutionException.class, mojo::execute);
-        assertEquals(normalized, Files.readString(result), "failed validation must not replace prior evidence");
+        assertEquals(normalized, Files.readString(result).strip(), "failed validation must not replace prior evidence");
     }
 
     @Test void conformanceRequiresExplicitExistingFixturesAndResult() {
@@ -224,6 +219,30 @@ class MojoContractTest {
         assertFalse(Files.exists(application.resolve("lib/library.jar")));
         set(mojo, "layerSets", List.of("registry.test/dependencies:approved"));
         assertThrows(MojoExecutionException.class, mojo::execute);
+    }
+
+    @Test void pushValidatesPlatformsAndProposesRuntimeImagesBeforeTheCli() throws Exception {
+        PushMojo mojo = new PushMojo();
+        MavenProject project = project();
+        project.getProperties().setProperty("maven.compiler.release", "21");
+        initialize(mojo, project);
+        set(mojo, "image", "app");
+        set(mojo, "platforms", List.of("Linux/amd64"));
+        set(mojo, "mainClass", "example.Main");
+        set(mojo, "runtimeImageMappings", List.of("25=java-25", "17=java-17", "21=java-21"));
+        MojoExecutionException platform = assertThrows(MojoExecutionException.class, mojo::execute);
+        assertTrue(platform.getMessage().contains("InvalidPlatform"), platform.getMessage());
+        assertFalse(Files.exists(temp.resolve("argv")));
+        set(mojo, "platforms", List.of("linux/amd64"));
+        mojo.execute();
+        List<String> argv = Files.readAllLines(temp.resolve("argv"));
+        var launch = MavenGraph.JSON.readTree(Path.of(argv.get(argv.indexOf("--launch") + 1)).toFile());
+        assertEquals("[\"java-21\",\"java-25\"]", launch.path("runtimeImages").toString());
+        Files.delete(temp.resolve("argv"));
+        set(mojo, "runtimeImages", List.of("Java_21"));
+        MojoExecutionException id = assertThrows(MojoExecutionException.class, mojo::execute);
+        assertTrue(id.getMessage().contains("InvalidRuntimeImageID"), id.getMessage());
+        assertFalse(Files.exists(temp.resolve("argv")));
     }
 
     @Test void graphMismatchAndMultipleSetsFailBeforePush() throws Exception {
