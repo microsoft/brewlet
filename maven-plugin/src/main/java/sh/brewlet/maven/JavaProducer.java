@@ -3,6 +3,7 @@ package sh.brewlet.maven;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -15,16 +16,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.jar.JarFile;
 
-/** Java project knowledge stops at this producer; the CLI owns the artifact contract. */
+/** Java project knowledge stops at this producer; descriptors are checked with the Java contract before the CLI runs. */
 final class JavaProducer {
     record Inputs(Path jar, List<Path> dependencies, Path launch, String mainClass,
-                  String module, List<String> javaArgs, List<String> runtimeImages) {}
+                  String module, List<String> javaArgs, List<String> runtimeImages, Path appCdsArchive) {
+        Inputs(Path jar, List<Path> dependencies, Path launch, String mainClass,
+               String module, List<String> javaArgs, List<String> runtimeImages) {
+            this(jar, dependencies, launch, mainClass, module, javaArgs, runtimeImages, null);
+        }
+    }
+    static final String APP_CDS_PATH = "/app/app.jsa";
     record Prepared(Path launch, Path application, Path dependencies, String dependencyTarget) {}
 
     static Prepared prepare(Inputs inputs, Path output) throws IOException {
         requireFile(inputs.jar());
         Path app = Files.createDirectory(output.resolve("application"));
         Files.copy(inputs.jar(), app.resolve("app.jar"), StandardCopyOption.COPY_ATTRIBUTES);
+        if (inputs.appCdsArchive() != null) {
+            requireFile(inputs.appCdsArchive());
+            // COPY_ATTRIBUTES keeps the archive mtime, which AppCDS validates at startup.
+            Files.copy(inputs.appCdsArchive(), app.resolve("app.jsa"), StandardCopyOption.COPY_ATTRIBUTES);
+        }
         Path dependencies = null;
         if (!inputs.dependencies().isEmpty()) {
             dependencies = Files.createDirectory(output.resolve("dependencies"));
@@ -43,6 +55,7 @@ final class JavaProducer {
         Path launch = inputs.launch();
         if (launch != null) {
             requireFile(launch);
+            ArtifactContract.parseLaunch(new String(Files.readAllBytes(launch), StandardCharsets.UTF_8));
         } else {
             String mainClass = inputs.mainClass();
             if (mainClass == null || mainClass.isBlank()) {
@@ -53,6 +66,9 @@ final class JavaProducer {
                 }
             }
             List<String> args = new ArrayList<>(inputs.javaArgs());
+            if (inputs.appCdsArchive() != null) {
+                args.addAll(List.of("-XX:SharedArchiveFile=" + APP_CDS_PATH, "-Xshare:auto"));
+            }
             if (inputs.module() != null && !inputs.module().isBlank()) {
                 args.addAll(List.of("--module-path", "/app/app.jar:/app/mods", "--module",
                         inputs.module() + (mainClass == null ? "" : "/" + mainClass)));
@@ -72,6 +88,7 @@ final class JavaProducer {
             launch = output.resolve("launch.json");
             new ObjectMapper().enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
                     .writerWithDefaultPrettyPrinter().writeValue(launch.toFile(), descriptor);
+            ArtifactContract.parseLaunch(Files.readString(launch));
         }
         return new Prepared(launch, app, dependencies,
                 inputs.module() == null || inputs.module().isBlank() ? "/app/lib" : "/app/mods");

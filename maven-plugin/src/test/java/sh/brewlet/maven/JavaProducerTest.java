@@ -119,4 +119,49 @@ class JavaProducerTest {
         assertEquals(descriptor, prepared.launch());
         assertEquals(json, Files.readString(prepared.launch()));
     }
+
+    @Test void invalidLaunchDescriptorsFailWithReasonCodeBeforeTheCli() throws Exception {
+        Path descriptor = temp.resolve("invalid.json");
+        Files.writeString(descriptor, "{\"schemaVersion\":2,\"process\":{\"entrypoint\":[\"java\"]},\"requires\":{}}");
+        IOException failure = assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(
+                jar("a.jar", null), List.of(), descriptor, null, null, List.of(), List.of()),
+                Files.createDirectory(temp.resolve("out"))));
+        assertTrue(failure.getMessage().startsWith("InvalidLaunchConfig: "), failure.getMessage());
+        IOException id = assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(
+                jar("b.jar", "example.Main"), List.of(), null, null, null, List.of(), List.of("Java_21")),
+                Files.createDirectory(temp.resolve("generated"))));
+        assertTrue(id.getMessage().startsWith("InvalidRuntimeImageID: "), id.getMessage());
+    }
+
+    @Test void appCdsArchiveIsAnOrdinaryApplicationFileWithMatchingFlags() throws Exception {
+        Path archive = temp.resolve("classes.jsa");
+        Files.write(archive, new byte[] {1, 2, 3});
+        Files.setLastModifiedTime(archive, FileTime.fromMillis(5678000));
+        var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("a.jar", "example.Main"), List.of(),
+                null, null, null, List.of("-Xmx64m"), List.of(), archive),
+                Files.createDirectory(temp.resolve("out")));
+        Path copied = prepared.application().resolve("app.jsa");
+        assertArrayEquals(new byte[] {1, 2, 3}, Files.readAllBytes(copied));
+        assertEquals(FileTime.fromMillis(5678000), Files.getLastModifiedTime(copied));
+        assertEquals(FileTime.fromMillis(0), Files.getLastModifiedTime(prepared.application()));
+        var args = new ObjectMapper().readTree(prepared.launch().toFile()).at("/process/args");
+        assertEquals(List.of("-Xmx64m", "-XX:SharedArchiveFile=/app/app.jsa", "-Xshare:auto",
+                "--class-path", "/app/app.jar:/app/lib/*", "example.Main"),
+                new ObjectMapper().convertValue(args, List.class));
+        Path link = temp.resolve("link.jsa");
+        Files.createSymbolicLink(link, archive);
+        assertThrows(IOException.class, () -> JavaProducer.prepare(new JavaProducer.Inputs(jar("b.jar", "example.Main"),
+                List.of(), null, null, null, List.of(), List.of(), link), Files.createDirectory(temp.resolve("bad"))));
+    }
+
+    @Test void appCdsArchiveDoesNotRewriteHandWrittenLaunch() throws Exception {
+        Path archive = Files.write(temp.resolve("app.jsa"), new byte[] {9});
+        Path descriptor = temp.resolve("launch.json");
+        String json = "{\"schemaVersion\":2,\"process\":{\"entrypoint\":[\"java\"]}}";
+        Files.writeString(descriptor, json);
+        var prepared = JavaProducer.prepare(new JavaProducer.Inputs(jar("a.jar", null), List.of(), descriptor,
+                null, null, List.of(), List.of(), archive), Files.createDirectory(temp.resolve("out")));
+        assertTrue(Files.isRegularFile(prepared.application().resolve("app.jsa")));
+        assertEquals(json, Files.readString(prepared.launch()));
+    }
 }
