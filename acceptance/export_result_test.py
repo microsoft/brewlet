@@ -1,9 +1,52 @@
 import unittest
+import json
 
 from export_result import export
 
 
 class ExportTests(unittest.TestCase):
+    def test_lifecycle_export_is_typed_allowlist_not_private_state_or_exception_text(self):
+        source = {"assertions": [], "fixtureLifecycle": {
+            "observations": {"admission-held": {"deletion": {
+                "uidMatches": False, "generation": 3, "expectedGeneration": 2,
+                "provisioningGeneration": 1, "ownershipInitialized": False,
+                "targetsEmpty": False, "retirementPresent": True,
+                "uid": "SECRET", "spec": {"credential": "SECRET"}, "status": "SECRET",
+                "ownerMatches": "SECRET", "generationMatches": "SECRET"},
+                "SECRET": {"private": "SECRET"}}, "SECRET": {"private": "SECRET"}},
+            "errors": [{"role": "primary", "stage": "assertions", "code": "contract",
+                        "privateMessage": "SECRET"},
+                       {"role": "secondary", "stage": "held-cleanup", "code": "ownership",
+                        "privateMessage": "SECRET"},
+                       {"role": "primary", "stage": "SECRET", "code": "contract"},
+                       {"role": "primary", "stage": "assertions", "code": "SECRET"}],
+            "privateObject": "SECRET"}}
+        result = export(source)["fixtureLifecycle"]
+        self.assertEqual([{"role": "primary", "stage": "assertions", "code": "contract"},
+                          {"role": "secondary", "stage": "held-cleanup", "code": "ownership"}], result["errors"])
+        self.assertFalse(result["observations"]["admission-held"]["deletion"]["uidMatches"])
+        self.assertNotIn("ownerMatches", result["observations"]["admission-held"]["deletion"])
+        self.assertNotIn("SECRET", json.dumps(result))
+
+    def test_malformed_lifecycle_fields_do_not_dump_raw_values(self):
+        for value in ({"observations": "SECRET", "errors": "SECRET"},
+                      {"observations": {"admission-held": {"deletion": "SECRET"}},
+                       "errors": ["SECRET", None]}):
+            result = export({"assertions": [], "fixtureLifecycle": value})
+            self.assertNotIn("SECRET", json.dumps(result))
+
+    def test_failure_time_predicates_are_retained_under_the_same_allowlist(self):
+        result = export({"assertions": [], "fixtureLifecycle": {"errors": [
+            {"role": "primary", "stage": "assertions", "code": "ownership",
+             "privateMessage": "SECRET", "observations": {
+                 "admission-held": {"deletion": {"uidMatches": False, "status": "SECRET"}}}},
+            {"role": "secondary", "stage": "held-cleanup", "code": "ownership",
+             "observations": {"admission-held": {"deletion": {"uidMatches": True}}}}]}})
+        errors = result["fixtureLifecycle"]["errors"]
+        self.assertFalse(errors[0]["observations"]["admission-held"]["deletion"]["uidMatches"])
+        self.assertTrue(errors[1]["observations"]["admission-held"]["deletion"]["uidMatches"])
+        self.assertNotIn("SECRET", json.dumps(result))
+
     def test_wasm_release_provenance_is_exported_without_private_input_paths(self):
         result = export({"assertions": [], "wasmRuntimes": {"spin": {"after": {
             "releaseVersion": "4.2.3", "base": "example.invalid/base@sha256:" + "a" * 64,

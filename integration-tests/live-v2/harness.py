@@ -917,11 +917,10 @@ class Harness:
         self.delete("pod", "startup-pending", self.namespace)
         self.wait("startup fixture pod deletion", lambda:
                   self.get("pod", "startup-pending", self.namespace, absent=True) is None)
-        from admission_contract import request_empty_profile_deletion
-        request_empty_profile_deletion(self, zero["metadata"]["name"],
-                                       self.owned[("nodeprofile", "", zero["metadata"]["name"])], zero["spec"])
-        self.wait("zero-node profile cleanup", lambda:
-                  self.get("nodeprofile", zero["metadata"]["name"], absent=True) is None)
+        from admission_contract import finish_empty_profile_deletion
+        finish_empty_profile_deletion(self, zero["metadata"]["name"],
+                                      self.owned[("nodeprofile", "", zero["metadata"]["name"])],
+                                      zero["spec"], fixture="startup-zero")
         self.apply(self.profile_object())
         self.wait("OnDemand-only baseline without startup fence", lambda:
                   self.node_snapshot()["metadata"].get("labels", {}).get("brewlet.sh/runtime") == "ready"

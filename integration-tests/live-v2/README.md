@@ -78,6 +78,23 @@ historical declarations:
   freshly revalidated conflicts, and restores the exact owned webhook even when
   cleanup fails. Already-deleting uninitialized profiles retain production
   finalizers and fail explicitly; no status or authority is invented.
+  Repeated cleanup first checks authoritative absence and never patches an
+  already-equal spec. An existing deleting fixture still needs genuine current
+  initialized ownership; neither a prior delete response nor missing targets
+  supplies that proof. Hold release revalidates ownership and removes only the
+  test hold. Disappearance proves object deletion, not production host cleanup.
+  Assertion failures remain the primary exception even when fixture cleanup or
+  webhook restoration also fails. Each independent cleanup is attempted; every
+  secondary error is recorded explicitly without replacing the original error.
+  Private results retain exception text. Public `fixtureLifecycle` diagnostics
+  use a second typed allowlist: fixed fixture/phase identifiers, boolean UID/
+  owner/spec matches, numeric generation freshness and empty-target/retirement
+  predicates, plus primary/secondary stage and bounded error category. No raw
+  object, UID, claim, spec/status, credential or exception text is exported.
+  Each error retains its own predicate snapshot so later cleanup observations
+  cannot overwrite the original failure's state.
+  These diagnostics explain the observed predicate, not an inferred cause for
+  old attempts whose private snapshots were not uploaded.
 * A production worker with deliberately missing authority has real writable host
   access but must exit on its initial fence without changing runtime/cache/shim/
   containerd state. It never edits a claim or a cleanup receipt.
