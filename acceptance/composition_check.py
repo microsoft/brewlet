@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Proposal 0010 qualification is separate from the Proposal 0009 baseline."""
+"""Specification §16 (composition) qualification is separate from the Part I baseline."""
 
 import argparse
 import json
@@ -41,7 +41,7 @@ def wasm_provenance(result, workloads):
 
 def validate(document, root, require_complete=False, *, structure_only=False, expected=None):
     errors, incomplete = [], []
-    if document.get("schemaVersion") != 1 or document.get("contract") != "Proposal 0010":
+    if document.get("schemaVersion") != 1 or document.get("contract") != "specs/SPECIFICATION.md §16":
         errors.append("wrong composition ledger contract/version")
     required = {f"COMP-{number:02}" for number in range(1, 26)}
     required |= {f"COMP-WASM-{number:02}" for number in range(1, 5)}

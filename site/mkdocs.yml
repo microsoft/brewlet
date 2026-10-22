@@ -7,8 +7,6 @@ repo_name: microsoft/brewlet
 edit_uri: https://github.com/microsoft/brewlet/edit/brewlet-2.0/docs/
 exclude_docs: |
   /README.md
-  /compatibility.md
-  /live-validation.md
 theme:
   name: material
   custom_dir: overrides
@@ -84,5 +82,5 @@ nav:
       - CLI reference: cli-reference.md
       - Third-party notices: third-party-notices.md
       - Main vs. Brewlet 2.0: brewlet-2-comparison.md
-      - Proposal 0009: https://github.com/microsoft/brewlet/blob/brewlet-2.0/specs/proposals/0009-language-agnostic-runtime-images.md
+      - Specification: https://github.com/microsoft/brewlet/blob/brewlet-2.0/specs/SPECIFICATION.md
       - Source code: https://github.com/microsoft/brewlet/tree/brewlet-2.0

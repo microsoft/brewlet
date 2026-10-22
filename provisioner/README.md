@@ -58,7 +58,7 @@ sets `discard_unpacked_layers=false` at
 `plugins."io.containerd.cri.v1.images"` for version 3. This mandatory packed-layer
 retention prevents GC between CRI unpack and the first verified shim stage;
 an unpacked snapshot or a warm cache is not a substitute for cold source bytes
-(Proposal 0009 §8.2 / retained SPEC §6.4).
+(specification §8.2 / retained 0.x SPEC §6.4).
 The transaction restarts containerd only after syntax validation and commits
 only after effective-config retention and live CRI handler/annotation checks.
 An exposed live CRI `discardUnpackedLayers` must also be false; its absence

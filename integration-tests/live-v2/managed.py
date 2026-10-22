@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Proposal 0010 on unchanged roots: real dependencies, composition and rollout.
+"""Specification §16 on unchanged roots: real dependencies, composition and rollout.
 
 Fixture libraries demonstrate an observable compatible update, not an actual
 production CVE. Vulnerability matching remains external to Brewlet.
@@ -399,7 +399,7 @@ def exercise(h):
 def run(work):
     h = Harness(work, pinned=False)
     h.result.update(selectedScenario="managed-composition", selectedLanguages=list(h.languages))
-    h.result["gaps"].append("Selected Proposal 0010 native matrix; other architectures and scenarios are separate.")
+    h.result["gaps"].append("Selected specification §16 native matrix; other architectures and scenarios are separate.")
     h.launch_files = {}
     for language in h.languages:
         launch = json.loads((FIXTURES / language / "launch.json").read_text())

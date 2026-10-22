@@ -74,7 +74,7 @@ Each selected-suite receipt deliberately retains `fullAcceptance:false`; no
 single suite is presented as proof of the entire proposal. Failed attempts
 remain failed and separate from their corrected repeats.
 
-Proposal 0010 has a separate
+Composition (specification §16) has a separate
 [29-obligation checklist](../acceptance/composition-requirements.json) and
 [historical native arm64 receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-composition-arm64.json)
 and [historical native amd64 receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-composition-amd64.json).

@@ -1,4 +1,4 @@
-"""Proposal0009 remote delivery callbacks; importing this module has no side effects.
+"""Specification Part I remote delivery callbacks; importing this module has no side effects.
 
 Parent wiring: bootstrap(h) AFTER prepare_images and BEFORE install; execute(h)
 after startup/execution, before revocation; cleanup(h) in the parent's finally,

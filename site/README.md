@@ -6,8 +6,7 @@ contracts. Light/dark modes, keyboard-accessible language examples, copy control
 and responsive navigation require no npm runtime package, remote font or CDN.
 
 MkDocs Material supplies the searchable documentation at `/docs/`. Its direct
-dependencies match the pinned reference Pages workflow. Preserved 1.x
-documentation is explicitly excluded from the current site. The comparison
+dependencies are pinned in `site/requirements.txt`. The comparison
 draft is rendered without modifying its source; repository-file links become
 branch-specific GitHub source links through the documented hook.
 
@@ -67,8 +66,6 @@ Contract checks also protect honest 2.0 content and the draft's source bytes.
 `.github/workflows/site-pages.yml` builds and uploads a preview artifact on
 website/docs changes or manual dispatch. It deliberately does **not** deploy,
 configure Pages, set a CNAME or replace the production `brewlet.sh` site.
-`specs/reference/site-pages.yml` remains the source for the original
-build/assembly/deployment arrangement.
 
 A real publication decision needs an explicit destination and a reviewed
 Pages environment. No old-release installer or release smoke test is presented

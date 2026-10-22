@@ -1,6 +1,6 @@
 {
   "referenceMain": "fa7085335b220e29df6affbece4558c5f1259ecb",
-  "contract": "specs/proposals/0009-language-agnostic-runtime-images.md",
+  "contract": "specs/SPECIFICATION.md",
   "contractRevision": "2026-10-20-immutable-runtime-view",
   "historicalBaseline": "Original status and execution declarations are retained unchanged under historicalEvidence. Active evidence bindings are pending fresh execution against frozen current inputs. Historical writable-root receipts do not establish the immutable-runtime-view contract.",
   "amendments": [

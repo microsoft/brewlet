@@ -223,9 +223,8 @@ Provider references: [EKS Cluster Autoscaler](https://docs.aws.amazon.com/eks/la
 [Karpenter NodePools](https://karpenter.sh/docs/concepts/nodepools/), and
 [AKS node/initialization taints](https://learn.microsoft.com/en-us/azure/aks/use-node-taints).
 The governing Brewlet contract remains
-[Proposal 0009 section 9.2](../specs/proposals/0009-language-agnostic-runtime-images.md#92-startup-fencing-and-provider-managed-labels);
-the retained capability specification is reference context, not permission to
-restore its 1.x keys.
+[specification §9.2](../specs/SPECIFICATION.md#92-startup-fencing-and-provider-managed-labels);
+the 0.x capability labels are not restored.
 
 ## Validation boundaries
 

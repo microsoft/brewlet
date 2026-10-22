@@ -1,8 +1,8 @@
 # Brewlet 2.0
 
-Clean-slate implementation of
-[Proposal 0009](specs/proposals/0009-language-agnostic-runtime-images.md),
-referenced at main commit
+Clean-slate implementation of the
+[Brewlet 2.0 specification](specs/SPECIFICATION.md), inspired by Brewlet 0.x at
+main commit
 `fa7085335b220e29df6affbece4558c5f1259ecb`.
 
 **Current local implementation acceptance verified.** All 111 requirements in the
@@ -78,10 +78,9 @@ See [operations and verification](docs/README.md), the
 [acceptance ledger](acceptance/README.md), and the
 [reference provenance](REFERENCE.md).
 
-`specs/SPECIFICATION.md`, `specs/CAPABILITY_LABELS.md`, and the pre-existing
-compatibility/live-validation documents are verbatim **1.x reference
-snapshots**, not statements that their behavior is implemented here.
-Proposal 0009 supersedes their Java-specific contracts. The reference Pages workflow is preserved at `specs/reference/site-pages.yml`.
+Brewlet 2.0 is a rewrite inspired by Brewlet 0.x on `main`; no 0.x
+specification, label contract or runbook is carried here. The
+[specification](specs/SPECIFICATION.md) is the authoritative contract.
 The [2.0 website](site/README.md) now builds a static landing page and searchable
 documentation with `make site-build`. Its workflow uploads a preview artifact;
 it does not deploy over the production site or advertise the old release installer.

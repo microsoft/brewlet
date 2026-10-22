@@ -28,7 +28,7 @@ Both examples passed their 18-assertion real-node
 companion on native arm64, including source updates, held Exec recovery and
 normal cleanup. This is explicitly scoped qualification, not all WASI
 interfaces, another CPU architecture or native runwasi execution.
-The separate Proposal 0010 managed-composition companion below adds signed
+The separate specification §16 managed-composition companion below adds signed
 artifact composition/replacement and observed fleet evidence; its qualification
 is tracked independently rather than inferred from that earlier run.
 
@@ -322,7 +322,7 @@ each native architecture, including normal cleanup. Separate
 record their original executions; one does not substitute for the other or
 qualify the current candidate.
 
-Proposal 0010 explicitly requires both the Wasmtime command and Spin HTTP
+Specification §16 explicitly requires both the Wasmtime command and Spin HTTP
 component, in addition to Java, Python, Node.js and .NET. Its
 [separate acceptance gate](../acceptance/composition-requirements.json) requires
 each native architecture independently. An earlier runtime-image test or a
