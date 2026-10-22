@@ -114,7 +114,12 @@ func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(contracts), "python3 acceptance/native_contracts.py") ||
+	producers, err := os.ReadFile("../acceptance/run_check.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contracts), "python3 acceptance/run_check.py native-contracts") ||
+		!strings.Contains(string(producers), `"command": ["python3", "acceptance/native_contracts.py"]`) ||
 		!strings.Contains(string(native), `"/var/lib/brewlet/layers:rw,exec,size=64m"`) ||
 		!strings.Contains(string(native), `re.search(r"--- SKIP:", output)`) ||
 		!strings.Contains(string(native), "validate_output(run(suite_command(") {
@@ -136,13 +141,20 @@ func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testin
 		t.Fatal(err)
 	}
 	runner, uploaded := false, false
-	for _, step := range workflow.Jobs["qualification"].Steps {
-		runner = runner || strings.Contains(step.Run, "python3 acceptance/qualify.py --run")
-		if path, ok := step.With["path"]; ok {
-			if path != "acceptance-export/*.json" {
-				t.Fatalf("real-node workflow exposes private observations: %s", path)
+	for _, job := range workflow.Jobs {
+		jobRunner, jobUpload := false, false
+		for _, step := range job.Steps {
+			jobRunner = jobRunner || strings.Contains(step.Run, "python3 acceptance/qualify.py --run")
+			if path, ok := step.With["path"]; ok {
+				if path != "acceptance-export/*.json" {
+					t.Fatalf("real-node workflow exposes private observations: %s", path)
+				}
+				jobUpload = true
 			}
-			uploaded = true
+		}
+		if jobRunner {
+			runner = true
+			uploaded = uploaded || jobUpload
 		}
 	}
 	qualification, err := os.ReadFile("../acceptance/qualify.py")
