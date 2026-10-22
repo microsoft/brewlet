@@ -17,6 +17,41 @@ Main protection remains deferred at the user's direction; no settings changed.
 Additional Microsoft container distribution-policy text requires release-owner
 confirmation rather than fabricated legal material.
 
+## Frozen c6059fd2 execution attempt: stopped, not qualified
+
+Source checkout: `c6059fd27b9a66b620fd218fe2c32c180518d715`;
+identity version `1`; production hash
+`bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462`;
+qualification-input hash
+`6d79e668762cd204ac6ccbeeba9b8aeaf7a021d9bf1768de75435773891c5961`.
+
+Fresh non-live [amd64](https://github.com/microsoft/brewlet/actions/runs/39782287929)
+and [arm64](https://github.com/microsoft/brewlet/actions/runs/39782309953)
+passed, with all sixteen files reviewed against their original identities,
+commands, scopes, assertion coverage and native runner inputs. Native complete
+[amd64](https://github.com/microsoft/brewlet/actions/runs/39783732807) and
+[arm64](https://github.com/microsoft/brewlet/actions/runs/39783747912) failed.
+The primary error on both was `fixture hold release requires current
+initialized ownership`, with secondary conflict and held cleanup errors retained
+independently instead of replacing the original failure.
+
+Public predicate snapshots now show the specific mismatch: the conflicting
+profile was initialized at metadata/provisioning generation 2/2 before deletion,
+then was deleting at 3/2 with matching UID/owner/spec/provisioning snapshot and no
+targets or retirement obligations. The held fixture's independent cleanup
+observed the same transition from 4/4 to 5/4 with its test hold present.
+These observations do not establish a production defect or authorize skipping
+identity/spec/ownership checks.
+
+All eighteen original public files are preserved byte-for-byte under
+`results/attempts/c6059fd27b9a66b620fd218fe2c32c180518d715/run-RUN_ID/`.
+Both core receipts are failed/unclean; twenty native filenames were not produced
+and zero suites qualified. Exact-owned fixture destruction passed, explicitly
+not production cleanup evidence. Production cleanup remains unproven.
+Managed/managed-Wasm rows were not dispatched, no attempt was retried, and
+qualification stopped for review. None of these original outcomes can qualify
+changed inputs.
+
 ## Frozen 59a5f411 execution attempt: stopped, not qualified
 
 Source checkout: `59a5f411cef7e2dc2639537304e9cde6ba9de462`;

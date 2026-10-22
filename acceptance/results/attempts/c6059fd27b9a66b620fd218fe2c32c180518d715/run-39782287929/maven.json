@@ -1,0 +1,21 @@
+{
+  "checkout": "c6059fd27b9a66b620fd218fe2c32c180518d715",
+  "identityVersion": 1,
+  "qualificationInputsSHA256": "6d79e668762cd204ac6ccbeeba9b8aeaf7a021d9bf1768de75435773891c5961",
+  "productionSourceManifestSHA256": "bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462",
+  "scope": "contract",
+  "command": "mvn -B -q -f maven-plugin/pom.xml verify",
+  "outcome": "passed",
+  "assertions": [
+    {
+      "name": "maven command exit status",
+      "requirements": [
+        "MAV-01",
+        "UP-06",
+        "COMP-01",
+        "COMP-19"
+      ],
+      "outcome": "passed"
+    }
+  ]
+}
