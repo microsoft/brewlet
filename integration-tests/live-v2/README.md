@@ -68,9 +68,16 @@ historical declarations:
   applies only to invocation-labeled profiles while constructing invalid mirror
   and conflicting-profile fixtures; Pod admission remains enabled and must reject
   them. A fixture-only finalizer holds genuine deletion long enough to observe
-  exclusion. Cleanup removes only that finalizer with UID/resourceVersion/value
-  tests, waits for normal production finalization, and restores the exact owned
-  webhook even when profile cleanup fails.
+  exclusion. Cleanup first corrects an exact-owned conflicting profile to a
+  valid disjoint empty pool and waits for actual current-generation ownership
+  initialization, the matching provisioning snapshot and no targets. A spec
+  patch alone is not reconciliation proof. Only then may UID/resourceVersion
+  preconditions request normal deletion. The same guard covers the original
+  invalid-mirror fixture and startup's zero-node fixture. Cleanup removes only
+  the test hold finalizer with UID/resourceVersion/value tests, retries only
+  freshly revalidated conflicts, and restores the exact owned webhook even when
+  cleanup fails. Already-deleting uninitialized profiles retain production
+  finalizers and fail explicitly; no status or authority is invented.
 * A production worker with deliberately missing authority has real writable host
   access but must exit on its initial fence without changing runtime/cache/shim/
   containerd state. It never edits a claim or a cleanup receipt.

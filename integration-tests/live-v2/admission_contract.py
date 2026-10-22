@@ -4,7 +4,7 @@ import copy
 import json
 import sys
 
-from harness import IDS, OWNER, ROOT, require, require_owned
+from harness import API, IDS, OWNER, ROOT, Failure, require, require_owned
 
 
 HOLD = "acceptance.brewlet.test/admission-observation"
@@ -23,18 +23,101 @@ def profile_webhook(h):
 
 
 def release_observation_hold(h, name, uid):
-    obj = h.get("nodeprofile", name, absent=True)
-    if obj is None:
-        return
-    require_owned(obj, h.run_id, uid)
-    finalizers = obj["metadata"].get("finalizers", [])
-    if HOLD in finalizers:
+    def release():
+        obj = h.get("nodeprofile", name, absent=True)
+        if obj is None:
+            return True
+        require_owned(obj, h.run_id, uid)
+        finalizers = obj["metadata"].get("finalizers", [])
+        if HOLD not in finalizers:
+            return True
         index = finalizers.index(HOLD)
         patch = [{"op": "test", "path": "/metadata/uid", "value": uid},
                  {"op": "test", "path": "/metadata/resourceVersion", "value": obj["metadata"]["resourceVersion"]},
                  {"op": "test", "path": f"/metadata/finalizers/{index}", "value": HOLD},
                  {"op": "remove", "path": f"/metadata/finalizers/{index}"}]
-        h.kubectl("patch", "nodeprofile", name, "--type=json", "-p", json.dumps(patch))
+        response = h.kubectl("patch", "nodeprofile", name, "--type=json", "-p", json.dumps(patch), check=False)
+        if response.returncode == 0:
+            return True
+        require("(Conflict)" in response.stderr, "fixture hold release failed: " + response.stderr)
+        return False
+    h.wait("UID-bound fixture observation hold release", release)
+
+
+def initialized_empty_ownership(obj, run_id, uid, generation, spec):
+    require_owned(obj, run_id, uid)
+    require(obj["metadata"]["generation"] == generation and obj["spec"] == spec,
+            "empty-pool fixture changed while awaiting ownership initialization")
+    status = obj.get("status", {})
+    if (status.get("ownershipInitialized") is not True or status.get("provisioningGeneration") != generation
+            or status.get("provisioningSpec") != spec):
+        return False
+    targets = status.get("targets", [])
+    require(isinstance(targets, list) and not targets and not status.get("retirement")
+            and not status.get("detachedRetirements"), "empty-pool fixture retains node/retirement obligations")
+    return obj
+
+
+def request_empty_profile_deletion(h, name, uid, valid_spec):
+    require(h.owned.get(("nodeprofile", "", name)) == uid, "cannot clean an unrecorded admission fixture")
+    valid_spec = copy.deepcopy(valid_spec)
+    # Go status snapshots include these value-struct fields even when empty.
+    valid_spec.setdefault("registry", {})
+    valid_spec.setdefault("rollout", {})
+    pool = valid_spec["nodePool"]
+    require(pool.get("key") and pool.get("names"), "fixture cleanup must not select a catch-all pool")
+
+    def no_nodes():
+        nodes = h.get("nodes")["items"]
+        require(not any(node["metadata"].get("labels", {}).get(pool["key"]) in pool["names"] for node in nodes),
+                "admission fixture cleanup pool is not empty")
+        require(not any(node["metadata"].get("labels", {}).get("brewlet.sh/owner-uid") == uid
+                        or node["metadata"].get("annotations", {}).get("brewlet.sh/owner-name") == name for node in nodes),
+                "admission fixture unexpectedly owns a Node")
+
+    def restore():
+        current = h.get("nodeprofile", name, absent=True)
+        if current is None:
+            return (None,)
+        require_owned(current, h.run_id, uid)
+        no_nodes()
+        if current["metadata"].get("deletionTimestamp"):
+            require(current["spec"] == valid_spec, "deleting invalid admission fixture must retain finalizers for review")
+            return (current,)
+        try:
+            return (h.replace_inventory_spec(current, copy.deepcopy(valid_spec)),)
+        except Failure as error:
+            if "(Conflict)" not in str(error):
+                raise
+            return False
+    (obj,) = h.wait("UID/version-bound admission empty-pool spec restoration", restore)
+    if obj is None:
+        return
+    generation, spec = obj["metadata"]["generation"], copy.deepcopy(obj["spec"])
+    if obj["metadata"].get("deletionTimestamp"):
+        require(initialized_empty_ownership(obj, h.run_id, uid, generation, spec),
+                "deleting admission fixture has no current initialized ownership ledger")
+        return
+
+    def request():
+        current = h.get("nodeprofile", name, absent=True)
+        if current is None:
+            return True
+        ready = initialized_empty_ownership(current, h.run_id, uid, generation, spec)
+        if not ready:
+            return False
+        no_nodes()
+        if current["metadata"].get("deletionTimestamp"):
+            return True
+        response = h.kubectl("delete", "--raw", "/apis/" + API + "/nodeprofiles/" + name, "-f", "-",
+            input=json.dumps({"apiVersion": "v1", "kind": "DeleteOptions",
+                              "preconditions": {"uid": uid, "resourceVersion": current["metadata"]["resourceVersion"]},
+                              "propagationPolicy": "Foreground"}), check=False)
+        if response.returncode == 0:
+            return True
+        require("(Conflict)" in response.stderr, "initialized admission fixture deletion failed: " + response.stderr)
+        return False
+    h.wait("current-generation empty ownership before UID/version-bound admission deletion", request)
 
 
 def exercise(h):
@@ -45,6 +128,8 @@ def exercise(h):
     profile["spec"]["runtimeImages"] = [{"id": IDS[h.probe_language], "install": "OnDemand"}]
     profile["spec"]["nodePool"]["names"] = ["absent-" + h.run_id]
     original_spec = copy.deepcopy(profile["spec"])
+    conflict_spec = copy.deepcopy(original_spec)
+    conflict_spec["nodePool"]["names"] = ["disjoint-" + h.run_id]
     obj = h.apply(profile)
     uid = obj["metadata"]["uid"]
     webhook = None
@@ -91,25 +176,23 @@ def exercise(h):
         conflict["metadata"] = {"name": name + "-conflict"}
         competing = h.apply(conflict)
         selection(False)
-        h.delete("nodeprofile", competing["metadata"]["name"])
+        request_empty_profile_deletion(h, competing["metadata"]["name"], competing["metadata"]["uid"], conflict_spec)
         h.wait("conflicting zero-node fixture finalized", lambda:
                h.get("nodeprofile", competing["metadata"]["name"], absent=True) is None)
         selection(True)
-        h.delete("nodeprofile", name)
+        request_empty_profile_deletion(h, name, uid, original_spec)
         h.wait("real profile deletion begins", lambda: h.get("nodeprofile", name)["metadata"].get("deletionTimestamp"))
         selection(False)
     finally:
         try:
             if competing is not None and h.get("nodeprofile", competing["metadata"]["name"], absent=True) is not None:
-                h.delete("nodeprofile", competing["metadata"]["name"])
+                request_empty_profile_deletion(h, competing["metadata"]["name"], competing["metadata"]["uid"], conflict_spec)
                 h.wait("conflicting admission fixture removed", lambda:
                        h.get("nodeprofile", competing["metadata"]["name"], absent=True) is None)
             current = h.get("nodeprofile", name, absent=True)
             if current is not None:
                 require_owned(current, h.run_id, uid)
-                if not current["metadata"].get("deletionTimestamp"):
-                    h.replace_inventory_spec(current, original_spec)
-                    h.delete("nodeprofile", name)
+                request_empty_profile_deletion(h, name, uid, original_spec)
                 release_observation_hold(h, name, uid)
                 h.wait("zero-node admission fixture finalized", lambda: h.get("nodeprofile", name, absent=True) is None)
         finally:
