@@ -1,0 +1,27 @@
+{
+  "checkout": "f6e700223845eb0bf7f1bef24bab4938f2276b3d",
+  "identityVersion": 1,
+  "qualificationInputsSHA256": "5a9a17958b71b0e6603e1d2b6fc2eb9785c149c12e6d723f8427867bbddf2374",
+  "productionSourceManifestSHA256": "bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462",
+  "scope": "integration",
+  "command": "python3 acceptance/producer_check.py fixtures",
+  "outcome": "passed",
+  "assertions": [
+    {
+      "name": "fixtures command exit status",
+      "requirements": [
+        "ART-01",
+        "ART-06",
+        "ART-10",
+        "DEP-03",
+        "CLI-02",
+        "LANG-01",
+        "MAV-01",
+        "SCHEMA-01"
+      ],
+      "outcome": "passed"
+    }
+  ],
+  "architecture": "arm64",
+  "nativeExecution": true
+}

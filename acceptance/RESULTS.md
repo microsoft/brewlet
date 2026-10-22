@@ -17,6 +17,42 @@ Main protection remains deferred at the user's direction; no settings changed.
 Additional Microsoft container distribution-policy text requires release-owner
 confirmation rather than fabricated legal material.
 
+## Frozen f6e70022 execution attempt: stopped, not qualified
+
+Source checkout: `f6e700223845eb0bf7f1bef24bab4938f2276b3d`;
+identity version `1`; production hash
+`bec20344b17810e38cd681e65e58d8a462f7c3859abfc6b5be6de0160e3e2462`;
+qualification-input hash
+`5a9a17958b71b0e6603e1d2b6fc2eb9785c149c12e6d723f8427867bbddf2374`.
+
+Fresh non-live [amd64](https://github.com/microsoft/brewlet/actions/runs/39697436850)
+and [arm64](https://github.com/microsoft/brewlet/actions/runs/39697469935)
+runs passed, with all sixteen per-run public files reviewed against their
+original identities and scopes. The complete native
+[amd64](https://github.com/microsoft/brewlet/actions/runs/39698207309) and
+[arm64](https://github.com/microsoft/brewlet/actions/runs/39698248714) attempts
+passed the repaired context guard, built components and reached real API
+admission. Both then failed waiting for normal removal of the conflicting
+admission fixture. The passed API assertions are partial progress, not a clean
+selected-suite result or current qualification.
+
+Both core receipts remain failed/unclean, with successful exact-owned fixture
+destruction explicitly not production cleanup evidence. Production cleanup was
+not established. Twenty native receipt filenames were not produced and no
+native suite qualified. Managed/managed-Wasm rows were not dispatched and no
+attempt was retried. Qualification stopped for review.
+
+The eighteen original public receipt files are preserved byte-for-byte under
+`results/attempts/f6e700223845eb0bf7f1bef24bab4938f2276b3d/run-RUN_ID/`.
+The source-supported diagnosis is fixture lifecycle: deleting a still-invalid
+overlapping profile cannot bypass production policy validation, and an
+uninitialized ownership ledger cannot establish zero host obligations.
+Private final profile status was not uploaded; no private-status inspection is
+claimed. The repair must restore valid disjoint policy, await actual fresh
+empty ownership and request normal deletion without forcing finalizers/status.
+All successes and failures retain their original identities and cannot qualify
+changed inputs.
+
 ## Frozen 56dccc25 execution attempt: stopped, not qualified
 
 Source checkout: `56dccc256d0431ed96abe8a4b94691001a8a4b0e`;
