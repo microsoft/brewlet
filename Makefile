@@ -1,10 +1,13 @@
-.PHONY: test build acceptance composition-acceptance ledger site-build site-contract-check legal-check release-check release-candidate
+.PHONY: test test-python build acceptance composition-acceptance ledger site-build site-contract-check legal-check release-check release-candidate
 
 SITE_PYTHON ?= python3
 
 test:
 	go test -race ./...
 	mvn -B -q -f maven-plugin/pom.xml verify
+	$(MAKE) test-python
+
+test-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s acceptance -p '*_test.py' -v
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s integration-tests/live-v2 -p 'test_*.py' -v
 	python3 acceptance/check.py --structure-only
@@ -36,15 +39,13 @@ release-candidate:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/release_assurance.py verify
 
 ledger:
-	python3 acceptance/check.py
+	python3 acceptance/check.py --structure-only
 
 acceptance:
-	python3 acceptance/check.py --require-complete
-	python3 acceptance/composition_check.py --require-complete
-	python3 acceptance/qualify.py
+	python3 acceptance/verify_evidence.py
 
 composition-acceptance:
-	python3 acceptance/composition_check.py --require-complete
+	python3 acceptance/verify_evidence.py --composition-only
 
 site-contract-check:
 	PYTHONDONTWRITEBYTECODE=1 $(SITE_PYTHON) -m unittest discover -s site/scripts -p 'test_*.py' -v

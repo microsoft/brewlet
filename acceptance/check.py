@@ -8,7 +8,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from acceptance.qualification import load_matrix
-from acceptance.evidence import ROOT, load_receipt, receipt_errors, working_identity
+from acceptance.evidence import ROOT, load_receipt, read_json, receipt_errors, working_identity
+from acceptance.qualify import SUITES, suite_errors
 
 
 REAL_NODE_REQUIRED = {
@@ -64,6 +65,10 @@ def validate(document, root=ROOT, *, structure_only=False, expected=None):
                 errors.append(f"{identifier}: incomplete evidence")
             if evidence.get("scope") not in ("unit", "contract", "integration", "real-node", "provider", "inspection"):
                 errors.append(f"{identifier}: invalid evidence scope")
+            if "suite" in evidence and (not isinstance(evidence["suite"], str) or evidence["suite"] not in SUITES
+                    or evidence.get("scope") != "real-node"
+                    or evidence.get("architecture") not in ("amd64", "arm64")):
+                errors.append(f"{identifier}: invalid native suite binding")
             if item["status"] == "verified" and evidence.get("outcome") != "passed":
                 errors.append(f"{identifier}: failed/unexecuted evidence cannot verify a requirement")
         if item["status"] == "verified" and identifier in REAL_NODE_REQUIRED:
@@ -105,6 +110,14 @@ def validate(document, root=ROOT, *, structure_only=False, expected=None):
                 problems.append("receipt scope differs from declared scope")
             if not live and result.get("command") != evidence.get("command"):
                 problems.append("receipt command differs from declared execution")
+            if "architecture" in evidence:
+                if (evidence["architecture"] not in ("amd64", "arm64")
+                        or result.get("architecture") != evidence["architecture"]
+                        or (not live and result.get("nativeExecution") is not True)):
+                    problems.append("wrong or unproven native architecture")
+            if isinstance(evidence.get("suite"), str) and evidence["suite"] in SUITES:
+                problems.extend(suite_errors(result, evidence["suite"], evidence.get("architecture"),
+                                              root=root, expected=expected))
             if evidence.get("scope") == "provider" and result.get("providerScaleFromZeroVerified") is not True:
                 problems.append("actual provider scale-from-zero evidence required")
             if identifier == "LANG-02" and live and not problems and (result.get("selectedScenario") != "complete"
@@ -128,16 +141,27 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--require-complete", action="store_true")
     parser.add_argument("--structure-only", action="store_true",
-                        help="inspect historical declarations, never qualify a candidate")
+                        help="inspect ledger structure, never qualify a candidate")
     args = parser.parse_args()
     if args.require_complete and args.structure_only:
         parser.error("--structure-only cannot satisfy --require-complete")
+    if args.require_complete:
+        from acceptance.verify_evidence import validate as verify
+        try:
+            errors = verify(ROOT, read_json(ROOT / "acceptance/evidence-index.json"), baseline_only=True)
+        except (OSError, ValueError) as error:
+            errors = [str(error)]
+        for error in errors:
+            print(error)
+        if not errors:
+            print("115 baseline obligations verified from actual indexed receipts")
+        return int(bool(errors))
     load_matrix()
     document = json.loads(Path(__file__).with_name("requirements.json").read_text())
     errors = validate(document, structure_only=args.structure_only)
     requirements = document["requirements"] + document.get("amendments", [])
     incomplete = [item for item in requirements if item["status"] != "verified"]
-    print(f'{len(requirements)} historical declarations; {len(incomplete)} not declared verified; '
+    print(f'{len(requirements)} current obligations; {len(incomplete)} not declared verified; '
           + ("structure only, NOT candidate qualification" if args.structure_only else "candidate evidence checked"))
     if args.require_complete:
         errors.extend(f'{item["id"]} [{item["status"]}] {item["requirement"]}' for item in incomplete)

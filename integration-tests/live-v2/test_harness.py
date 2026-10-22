@@ -65,6 +65,74 @@ class ProjectWork(unittest.TestCase):
         return instance
 
 
+class ProductionContextTests(ProjectWork):
+    def source_fixture(self):
+        from acceptance import evidence_test
+        fixture = evidence_test.EvidenceTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        for name in ("cmd/brewlet/main.go", "cmd/brewlet-node/main_linux.go"):
+            path = fixture.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("package main\n")
+        fixture.commit()
+        return fixture, h.working_identity(fixture.root)
+
+    def prepare(self, root, expected):
+        instance = self.harness()
+        instance.result["productionSourceManifestSHA256"] = expected
+        instance.build, instance.load_image, instance.save = mock.Mock(), mock.Mock(), mock.Mock()
+        self.last_component_build = instance.build
+        with mock.patch.object(h, "ROOT", root), \
+                mock.patch.object(h, "PRODUCTION_INPUTS", ("go.mod", "cmd")):
+            instance.prepare_components()
+        return instance
+
+    def test_copied_context_matches_committed_identity_for_prefix_sibling_paths(self):
+        fixture, identity = self.source_fixture()
+        instance = self.prepare(fixture.root, identity["productionSourceManifestSHA256"])
+        encoded = (instance.work / "production-source-sha256.json").read_bytes()
+        manifest = json.loads(encoded)
+        self.assertEqual(list(manifest), sorted(manifest))
+        self.assertLess(list(manifest).index("cmd/brewlet-node/main_linux.go"),
+                        list(manifest).index("cmd/brewlet/main.go"))
+        self.assertEqual(identity["productionSourceManifestSHA256"], hashlib.sha256(encoded).hexdigest())
+        self.assertEqual(2, instance.build.call_count)
+
+    def test_noncanonical_alternate_hash_is_not_accepted(self):
+        fixture, identity = self.source_fixture()
+        paths = [fixture.root / name for name in
+                 ("go.mod", "cmd/brewlet/main.go", "cmd/brewlet-node/main_linux.go")]
+        manifest = {path.relative_to(fixture.root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in sorted(paths)}
+        alternate = hashlib.sha256(json.dumps(manifest, indent=2).encode()).hexdigest()
+        self.assertNotEqual(identity["productionSourceManifestSHA256"], alternate)
+        with self.assertRaisesRegex(h.Failure, "differs from immutable candidate"):
+            self.prepare(fixture.root, alternate)
+        self.last_component_build.assert_not_called()
+
+    def test_context_guard_still_rejects_changed_missing_and_extra_files(self):
+        fixture, identity = self.source_fixture()
+        original_work = self.work
+        target = fixture.root / "cmd/brewlet/main.go"
+        extra = fixture.root / "cmd/uncommitted.go"
+        try:
+            for change in ("changed", "missing", "extra"):
+                self.work = original_work / change
+                target.write_text("package main\n")
+                if change == "changed":
+                    target.write_text("package changed\n")
+                elif change == "missing":
+                    target.unlink()
+                else:
+                    extra.write_text("package uncommitted\n")
+                with self.subTest(change=change), self.assertRaisesRegex(h.Failure, "differs from immutable candidate"):
+                    self.prepare(fixture.root, identity["productionSourceManifestSHA256"])
+                self.last_component_build.assert_not_called()
+        finally:
+            self.work = original_work
+
+
 class SafetyTests(ProjectWork):
     def test_runtime_fixture_account_pipeline_preserves_identity_with_both_toolsets(self):
         self.work.mkdir()
@@ -535,7 +603,7 @@ class SafetyTests(ProjectWork):
         instance.start_held_exec = mock.Mock(side_effect=RuntimeError("rotation reached"))
         with self.assertRaisesRegex(RuntimeError, "rotation reached"):
             instance.barriers_and_rotation()
-        self.assertEqual(instance.apply.call_count, 7)
+        self.assertEqual(instance.apply.call_count, 9)
         self.assertEqual(instance.kubectl.call_count, 2)
         for call in instance.apply.call_args_list:
             pod = call.args[0]
@@ -543,6 +611,10 @@ class SafetyTests(ProjectWork):
             self.assertEqual(pod["spec"]["containers"][0]["image"], instance.app_images["node"])
         instance.restore_admission.assert_called_once()
         instance.start_held_exec.assert_called_once_with("node")
+        roots = {call.args[0]: call.kwargs.get("requirements")
+                 for call in instance.no_start.call_args_list if call.args[1] == "RootNotSupported"}
+        self.assertEqual({"root-bound": ["SEC-02"], "root-group-bound": ["SEC-02"],
+                          "root-supplementary-bound": ["SEC-02"]}, roots)
 
     def test_ambiguous_barrier_probe_requires_real_admission_reason_not_generic_failure(self):
         instance = self.harness(scenario="runtime", pinned=False, local_language="node")
@@ -926,6 +998,11 @@ class CallbackOrderTests(ProjectWork):
                 calls.append("observer_stop")
 
         modules = {
+            "admission_contract": SimpleNamespace(exercise=callback("admission_contract")),
+            "authority_checks": SimpleNamespace(initial_fence=callback("initial_fence")),
+            "runtime_contract": SimpleNamespace(durable_generations=callback("durable_generations"),
+                                               protected_identity=callback("protected_identity"),
+                                               rotation_participants=callback("rotation_participants")),
             "observability": SimpleNamespace(Observer=Observer),
             "delivery": SimpleNamespace(
                 bootstrap=callback("bootstrap_delivery", bootstrap_failure),
@@ -949,13 +1026,45 @@ class CallbackOrderTests(ProjectWork):
             self.assertEqual(instance.execute(), 0)
         self.assertEqual(calls, [
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
-            "install", "startup", "observer_start", "application_execution", "barriers_and_rotation",
-            "observability", "observer_stop",
+            "install", "admission_contract", "initial_fence", "startup", "observer_start", "application_execution", "barriers_and_rotation",
+            "observability", "observer_stop", "durable_generations", "protected_identity", "rotation_participants",
             "filesystem", "accounting", "delivery", "maven_node", "container_roles", "lifecycle",
             "control_edges", "pinned_revocation",
             "before_cleanup", "production_cleanup", "after_cleanup",
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
         self.assertEqual(instance.result["outcome"], "passed")
+
+    def test_pr_scope_requires_four_languages_identity_rotations_and_normal_cleanup(self):
+        instance, calls, modules = self.configure(scenario="pr")
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertEqual(instance.languages, h.LANGUAGES)
+        self.assertEqual(instance.result["selectedScenario"], "pr")
+        self.assertFalse(instance.result["fullAcceptance"])
+        for name in ("admission_contract", "initial_fence", "startup", "application_execution",
+                     "barriers_and_rotation", "observability", "durable_generations",
+                     "protected_identity", "pinned_revocation", "production_cleanup", "destroy"):
+            self.assertIn(name, calls)
+        self.assertLess(calls.index("durable_generations"), calls.index("protected_identity"))
+        self.assertLess(calls.index("protected_identity"), calls.index("production_cleanup"))
+        for name in ("rotation_participants", "accounting", "filesystem", "delivery", "control_edges",
+                     "maven_node", "container_roles", "lifecycle"):
+            self.assertNotIn(name, calls)
+
+    def test_pr_identity_failure_blocks_success_and_still_destroys_fixture(self):
+        instance, calls, modules = self.configure(scenario="pr")
+        modules["runtime_contract"].protected_identity = mock.Mock(side_effect=h.Failure("probe failed"))
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 1)
+        self.assertEqual(instance.result["failurePhase"], "protected-cri-identity")
+        self.assertEqual(instance.result["outcome"], "failed")
+        self.assertIn("destroy", calls)
+        self.assertNotIn("production_cleanup", calls)
+
+    def test_pr_scope_cannot_select_one_language_or_disable_pinned_checks(self):
+        for kwargs in ({"pinned": False}, {"local_language": "python"}):
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(h.Failure, "all four languages"):
+                self.harness(scenario="pr", **kwargs)
 
     def test_observability_failure_cannot_be_reported_as_a_pass_or_skip_cleanup(self):
         instance, calls, modules = self.configure(observer_failure=True)

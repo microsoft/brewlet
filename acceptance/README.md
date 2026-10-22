@@ -1,155 +1,182 @@
-# Proposal 0009 acceptance ledger
+# Validation and promotion evidence
 
-`requirements.json` tracks historical declarations about normative requirements throughout the proposal, not
-only the nine scenarios in section 13.1. `referenceMain` pins the contract.
-Related requirements are grouped without deleting their security or execution
-conditions. `evidence` records exact commands, outcomes, and the proof scope.
+## Two different gates
+
+| Gate | Execution | Meaning |
+| --- | --- | --- |
+| `Brewlet validation` in `v2-ci.yml` | Contracts, native producer/kernel checks, website checks, and a real four-language Kubernetes E2E | Required PR validation, not full promotion qualification |
+| `Brewlet promotion qualification` | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
+
+Green unit/contract checks alone cannot make `Brewlet validation` green. Its
+aggregate requires the real E2E job to succeed; failed, skipped or cancelled
+prerequisites fail the aggregate. There are no path-based E2E opt-outs.
+Fork PRs cannot enter the trusted privileged runner: a maintainer must explicitly
+test the commit through a trusted repository branch. This is a failure, not a
+skipped green check. No `pull_request_target` or write credentials are used.
+
+`e2e.yml` is reusable by CI and manually dispatchable. It runs real E2E only:
+there are no non-live or verify-only modes in that workflow.
+
+## Establish a working E2E baseline before full qualification
+
+The `pr` scenario runs all four native languages, real API admission and startup
+fencing, application HTTP/exec/identity checks, rotations, observability, operator
+restart/durable generations, actual protected CRI identity and normal cleanup.
+It includes the protected-identity phase; `control` does not. Use `pr` on one
+native architecture when debugging that path instead of restarting the entire
+qualification matrix.
+
+The PR verifier requires actual successful startup/rotation/protected-identity
+assertions for **each** language, successful production cleanup and exact-owned
+fixture destruction. It rejects reduced language selection and a claim of full
+promotion acceptance. A PR receipt cannot substitute for a complete receipt.
+Long quarantine/accounting/controller fault scenarios and companion suites stay
+in full qualification. Source repairs need ordinary validation and a new source
+identity, but do not justify repeating the full qualification matrix while the
+live harness is still being debugged.
+
+Before any remote privileged execution, agree the exact source SHA, scenario,
+architecture, resource scope, cleanup and runner budget. Dispatch `e2e.yml` with
+`expected_sha`, `scenario=pr` and one architecture for an approved debugging run.
+Every manual scenario rejects a moved ref before checkout or setup.
+PR CI checks out the immutable PR **head**, not an unrecorded moving branch.
+No work is authorized merely by these instructions.
+
+## CI receipts are artifacts, not repository contents
+
+CI executes each fixed non-live check once and uploads its sanitized JSON:
+
+| CI job | Fixed checks |
+| --- | --- |
+| contracts | `go-contracts`, `maven` |
+| producer integration, both native architectures | `fixtures`, `registry` |
+| Linux kernel contracts, both native architectures | `native-contracts`, `go-vet` |
+| reusable website workflow | `documentation`, `site-integration` |
+
+The producer commands, scopes and assertion mappings remain fixed in
+`run_check.py`; ledger-supplied strings are never executed. The shared native
+runner still rejects emulation and skipped kernel tests. Website dependencies,
+build and browser checks stay in `site-pages.yml`, reused by CI rather than
+duplicated by a second PR workflow.
+
+Generated receipts belong in Actions artifacts or the ignored local
+`acceptance/results/` cache. Git retains only `evidence-index.json`, the normative
+binding ledgers and explicit synthetic fixtures under `testdata/`.
+The index records immutable source identities, run/artifact IDs and file
+checksums. It contains no executable commands or replacement test policy.
+PR artifacts and failed/debug artifacts are not promotion evidence.
+
+## Full native qualification
+
+After the baseline is stable and inputs are frozen, the full requirement remains
+11 suites per architecture on native Linux amd64 and arm64:
+
+`core`, `cold`, `tutorial`, `wasm`, `upstream`, `native`, `uninstall`,
+`retirement`, `activation`, `managed`, `managed-wasm`.
+
+Six manual native scopes supply the 22 receipts: `complete`, `managed` and
+`managed-wasm` on each architecture. `complete` expands into the first nine.
+Use the already completed CI run for the twelve distinct non-live filenames;
+there is no separate non-live dispatch before every live debugging attempt.
+Review each scope's actual inputs, source, native runner, assertions and cleanup.
+Stop on failure for review; do not retry or change inputs under old authorization.
+No source inspection, cross-build, partial pass or runner disposal substitutes
+for actual execution and production cleanup.
+
+## Index, retrieve and verify genuine evidence
+
+Only after reviewing successful immutable workflow executions, use a clean
+checkout with an empty receipt cache and a read-only `GITHUB_TOKEN`:
 
 ```sh
-python3 acceptance/check.py --structure-only
-python3 -m unittest discover -s acceptance -p '*_test.py' -v
+python3 acceptance/evidence_index.py record-candidate \
+  --run CI_RUN_ID --run AMD64_COMPLETE --run ARM64_COMPLETE \
+  --run AMD64_MANAGED --run ARM64_MANAGED \
+  --run AMD64_MANAGED_WASM --run ARM64_MANAGED_WASM
+```
+
+Supply the CI run and all six native scope runs. The command fetches only the
+expected public artifact groups from this repository, checks successful run
+event/workflow/source and artifact ownership/expiry, rejects unsafe ZIP paths,
+verifies all current bindings, and records per-file checksums. It never runs
+commands from the index and never overwrites an existing cache.
+
+Commit the **index only** as an evidence-only descendant. Both input hashes must
+remain equal to the frozen source. From that clean committed descendant:
+
+```sh
+make acceptance
 python3 acceptance/check.py --require-complete
+python3 acceptance/composition_check.py --require-complete
+python3 acceptance/qualify.py
 ```
 
-The first command validates historical ledger structure, **not** implementation
-completeness or current verification. Without `--structure-only`, every passed
-execution declaration must resolve to public, passing, assertion-covered
-evidence bound to the candidate. The final command additionally requires every
-obligation to be declared verified. Unit tests do not establish real-node scheduling,
-containerd annotation forwarding, provider autoscaling, runtime installation,
-CRI disk accounting/eviction or runc execution. A passing build is not a release
-acceptance result.
+`make acceptance` requests verification of every immutable binding in memory;
+source `pending` labels are not manually rewritten into evidence. The existing
+validators still require actual successful assertion coverage, exact fixed
+commands/scopes/workloads/native architectures, authenticated TLS core delivery,
+production cleanup, fixture destruction and matching source/input identities.
+Any missing, stale, failed, intervened or incomplete payload fails.
 
-## Proposal 0010
-
-`composition-requirements.json` independently maps 29 grouped normative
-obligations across Proposal 0010 to contract, producer, documentation and native
-matrix checks. It does not reuse Proposal 0009's successful receipts.
+A fresh checkout retrieves the reviewed index's artifacts explicitly:
 
 ```sh
-python3 acceptance/composition_check.py --structure-only
-make composition-acceptance
+python3 acceptance/evidence_index.py fetch
+make acceptance
 ```
 
-The strict target requires the four-language managed lifecycle and an additional
-Wasmtime/Spin composition companion on both native architectures, normal cleanup
-and successful public receipts. Four-language or old runtime-only Wasm receipts
-cannot qualify the missing companion.
-Unknown, partial, failed or cross-built results do not qualify an architecture.
-The top-level `make acceptance` runs both ledgers.
+Retrieval requires repository access and permission to read its Actions
+artifacts; CI grants `contents: read` and `actions: read`, not write access.
+GitHub only permits downloads before an artifact expires
+([artifact access and expiration](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)).
+Missing access, expired/deleted artifacts and transport failures are errors.
+An index, checksum, run URL or green status without the actual assertion bytes
+never qualifies anything. A verified local byte cache can be checked offline;
+a fresh CI checkout cannot fall back to metadata when retrieval fails.
 
-## Candidate identity and evidence-only commits
+The manual/reusable promotion gate does exactly this with read-only repository
+and artifact permissions. It requires the exact approved index-descendant
+`expected_sha` and full Git history. Its caller must depend on successful
+qualification; it never provisions nodes, publishes, merges or regenerates
+missing evidence. Final verification requires separate execution approval.
 
-Qualification requires a clean committed checkout. Receipts record its SHA,
-`identityVersion`, `productionSourceManifestSHA256`, and
-`qualificationInputsSHA256`. The shared `evidence.py` algorithm hashes committed
-path/mode/content identities; the harness also checks the actual isolated
-production build context. Tests, fixtures, workflows, pins, contracts, legal
-inputs, and the validators themselves are qualification inputs.
+## Identities, history and retention
 
-Only `acceptance/results/*.json`, `acceptance/RESULTS.md`, baseline ledger
-status and evidence outcome/result metadata, and composition check outcome/result metadata are
-excluded or normalized. Obligation text, composition check mappings/commands,
-the matrix, and validation policy are not excluded. An evidence-only descendant
-may attach results for the source ancestor if both hashes still match. Missing
-history or changed inputs fail closed. CI fetches full history for this check.
-Historical receipts are not rewritten or assigned identities they never ran.
+`identityVersion`, `productionSourceManifestSHA256` and
+`qualificationInputsSHA256` still bind committed bytes and modes, including
+tests, workflows, pins, obligation mappings and validation policy. The copied
+production context must equal the same canonical string-key-sorted manifest.
+Alternate hashes do not qualify. Changed inputs invalidate old receipts.
 
-Non-live execution evidence also needs persistent assertion records, matching
-scope and candidate identity. Inspection cannot substitute for mandatory live
-execution. `python3 acceptance/run_check.py go-contracts|maven|documentation`
-executes a fixed checked-in command and records its actual outcome under
-`acceptance-export/`; it never executes ledger-supplied command strings.
-Its mapping covers only the listed non-live obligations, not native overlay,
-producer-registry, admission-cluster or real-node claims. Any other required
-execution still needs its own appropriately scoped record. Update a ledger's
-command/scope mapping in the source candidate before freezing it, then attach
-the outcome/result metadata after execution. A receipt is reviewable evidence, not a cryptographic third-party
-attestation: provenance fields alone do not authenticate an untrusted author.
-Review the actual workflow execution and public artifacts before importing
-receipts. No import or live dispatch is automatic.
+Only result JSON, `RESULTS.md`, the data-only evidence index and active
+status/outcome/result metadata are evidence-only. Historical ledger declarations
+remain unchanged inputs. An evidence-only descendant must retain matching
+hashes and contain the receipt source in its Git ancestry.
 
-## Fresh native qualification
+The index's `history` section pins the original 180 public files by Git commit,
+path, byte count and SHA-256. Their original bytes remain in Git history and a
+verified local migration backup. The first approved CI run uploads a separate
+byte-verified historical archive; until that run is verified, remote archival is
+**pending**, not claimed complete. To verify and record its artifact:
 
-The current source has **no qualifying fresh complete evidence**. The old
-verified ledger statuses are historical declarations, not a green release gate.
-`make test` checks structure and offline correctness; `make acceptance` is
-expected to fail until current evidence is obtained and mapped.
-
-After explicit approval of privileged live execution, dispatch `e2e.yml` on the
-immutable corrected candidate branch. Six scopes are required: `complete`,
-`managed`, and `managed-wasm` on each of `amd64` and `arm64`. This workflow is
-manual only, uses native hosted runners, has read-only repository permission,
-and rejects fork repositories/non-branch refs. It does not execute untrusted
-PR code using elevated repository credentials.
-
-The complete scope runs the core harness plus cold install, reader tutorial,
-runtime Wasm, unchanged upstream sources, native capacity, pinned uninstall,
-retirement, and activation. `control` remains a debugging scope and cannot
-satisfy complete acceptance. The runner writes only sanitized public receipts
-to ignored `acceptance-export/`; private work files are never uploaded.
-
-Review and attach the resulting `candidate-ARCH-SUITE.json` files under
-`acceptance/results/`, and update the corresponding ledger evidence references
-in an evidence-only commit. `python3 acceptance/qualify.py` independently
-requires every suite on both architectures for the same candidate. Both
-ledger validators still require their own assertion/obligation coverage,
-including successful production cleanup and fixture destruction.
-An unavailable runner, skipped suite, failed cleanup or missing proof is a
-blocker, never a cross-build or success-shaped fallback. Native kind capacity
-does not prove actual cloud-provider scale-from-zero. A provider-qualified
-claim needs separate provider evidence; do not invent that claim or make it a
-prerequisite for obligations explicitly scoped to native pending-capacity tests.
-
-## Routine validation versus promotion qualification
-
-`v2-ci.yml` reports `Brewlet validation` on main/brewlet-2.0 pushes and PRs.
-It covers ordinary correctness, producer integration, both native overlay
-architectures and legal packaging. Its aggregate fails if any dependency fails,
-cancels or skips; no path filter suppresses it. Missing promotion evidence does
-not make ordinary development validation fail. Green routine CI is **not**
-promotion qualification.
-
-The separate `.github/workflows/promotion-qualification.yml` has only manual
-`workflow_dispatch` and reusable `workflow_call` entrypoints. Select the
-corrected candidate branch in the Actions UI when an authorized qualification
-check is needed. The `Brewlet promotion qualification` job checks out the
-invoking event's immutable SHA with full history and read-only repository
-permission, then always runs `make acceptance`. Missing, stale, failed,
-wrong-scope or incomplete evidence makes that workflow fail. It never creates
-clusters, executes live scenarios, publishes a release or merges code.
-
-A future authorized promotion/publishing workflow must call the reusable gate:
-
-```yaml
-jobs:
-  qualification:
-    permissions:
-      contents: read
-    uses: ./.github/workflows/promotion-qualification.yml
+```sh
+python3 acceptance/evidence_index.py record-history --run CI_RUN_ID
 ```
 
-Its actual promotion job must declare `needs: [qualification]` and require
-`${{ needs.qualification.result == 'success' }}`. Failed, cancelled, skipped
-or missing qualification must not permit promotion. Do not use
-`continue-on-error`, an opt-out input or a fallback success to bypass the gate.
-Reusable calls retain the caller's original event and candidate SHA; they do
-not require an event named `workflow_call`.
+This checks every original byte and changes only archival metadata; history is
+never loaded as current qualification. CI avoids repeating the archive once its
+verified run/artifact IDs are indexed. `archive-history` is also an explicit CI
+dispatch purpose and cannot emit a green `Brewlet validation` check.
 
-The manual `release.yml` prerelease publisher implements this dependency:
-ordinary CI and strict qualification must both succeed before read-only
-artifact/evidence preparation, and every publishing surface is behind those
-same successful prerequisites plus preparation. There are no tag-push triggers.
-The [prerelease runbook](../docs/supported-release.md) describes additional
-exact-distribution evidence, legal/credential blockers and authorization limits.
-This does not authorize external/manual publication or replace fresh candidate
-qualification.
+Current/debug artifacts retain the existing 14-day retention; the one-time
+historical archive uses 90 days. Actions artifacts are **not permanent storage**:
+expired or unavailable current evidence fails retrieval, never turns into a
+success-shaped fallback. Retain a verified local copy when longer audit
+retention is needed; no new cloud storage or publication is configured here.
+Checksums and provenance metadata are review aids, not third-party attestations:
+review the workflow and actual execution before accepting an index.
 
-Workflow changes are qualification inputs, so this separation does not
-legitimize historical receipts: fresh evidence must match the corrected
-candidate. The old acceptance check's lingering `IN_PROGRESS` record despite
-its completed failed execution is a separate GitHub status inconsistency,
-not something this routing change claims to repair.
-
-Main branch protection is unchanged and remains an explicit user-deferred
-promotion risk. This work does not apply a ruleset or require review approvals.
+`check.py --structure-only`, `composition_check.py --structure-only` and
+`reconcile.py` remain source-preparation checks, not execution proof.
+Do not run `reconcile.py --write` after freezing inputs or use it to claim success.
+See [current status and historical provenance](RESULTS.md).

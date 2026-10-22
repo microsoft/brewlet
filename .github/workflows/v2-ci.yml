@@ -1,20 +1,75 @@
-name: Brewlet 2 contracts
+name: Brewlet CI
 
 on:
   push:
     branches: [main, brewlet-2.0]
   pull_request:
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact immutable commit to validate
+        type: string
+        required: true
+      purpose:
+        description: Routine validation or historical evidence archival
+        type: choice
+        default: validation
+        options: [validation, archive-history]
   workflow_call:
+    inputs:
+      expected_sha:
+        type: string
+        required: true
 
 permissions:
   contents: read
 
 jobs:
+  context:
+    runs-on: ubuntu-24.04
+    outputs:
+      source: ${{ steps.guard.outputs.source }}
+      purpose: ${{ steps.guard.outputs.purpose }}
+    steps:
+      - name: Validate immutable source and CI purpose
+        id: guard
+        env:
+          EVENT: ${{ github.event_name }}
+          SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED: ${{ inputs.expected_sha }}
+          PURPOSE: ${{ inputs.purpose || 'validation' }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          test "$REPOSITORY" = microsoft/brewlet
+          [[ "$SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          case "$PURPOSE" in validation|archive-history) ;; *) exit 1 ;; esac
+          if test -n "$EXPECTED"; then
+            [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]]
+            test "$SOURCE" = "$EXPECTED"
+          fi
+          case "$EVENT" in
+            pull_request|push) test "$PURPOSE" = validation ;;
+            workflow_dispatch)
+              [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]]
+              test "$SOURCE" = "$EXPECTED"
+              case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac
+              ;;
+            *) exit 1 ;;
+          esac
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "purpose=$PURPOSE" >> "$GITHUB_OUTPUT"
+
   contracts:
+    needs: context
+    if: needs.context.outputs.purpose == 'validation'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.context.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version-file: go.mod
@@ -24,35 +79,74 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - name: Unit and contract coverage (not real-node acceptance)
-        run: make test
+      - name: Execute Go and Maven contracts once and retain public receipts
+        run: |
+          python3 acceptance/run_check.py go-contracts
+          python3 acceptance/run_check.py maven
+      - name: Offline safeguard and ledger structure checks
+        run: make test-python
       - name: Linux binaries on both declared architectures
         run: |
           GOOS=linux GOARCH=amd64 go build ./...
           GOOS=linux GOARCH=arm64 go build ./...
       - name: Current redistribution notices and packaging
         run: make legal-check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: checks-contracts-${{ needs.context.outputs.source }}
+          path: acceptance-export/*.json
+          if-no-files-found: error
+          retention-days: 14
 
   validation:
-    name: Brewlet validation
-    if: always()
-    needs: [contracts, producer-integration, linux-overlay-contract]
+    name: ${{ inputs.purpose == 'archive-history' && 'Archive-only status' || 'Brewlet validation' }}
+    if: always() && (needs.context.outputs.purpose == 'validation' || needs.context.result != 'success')
+    needs: [context, contracts, producer-integration, linux-overlay-contract, documentation, archive-history, e2e]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every prerequisite to succeed, never skipped or cancelled
         env:
+          CONTEXT: ${{ needs.context.result }}
           CONTRACTS: ${{ needs.contracts.result }}
           PRODUCER: ${{ needs.producer-integration.result }}
           OVERLAY: ${{ needs.linux-overlay-contract.result }}
+          DOCUMENTATION: ${{ needs.documentation.result }}
+          HISTORY: ${{ needs.archive-history.result }}
+          E2E: ${{ needs.e2e.result }}
         run: |
+          test "$CONTEXT" = success
           test "$CONTRACTS" = success
           test "$PRODUCER" = success
           test "$OVERLAY" = success
+          test "$DOCUMENTATION" = success
+          test "$HISTORY" = success
+          test "$E2E" = success
+
+  e2e:
+    name: Real four-language E2E
+    needs: [context, contracts, producer-integration, linux-overlay-contract, documentation, archive-history]
+    if: needs.context.outputs.purpose == 'validation'
+    uses: ./.github/workflows/e2e.yml
+    with:
+      expected_sha: ${{ needs.context.outputs.source }}
+      scenario: pr
+      architecture: amd64
 
   producer-integration:
-    runs-on: ubuntu-24.04
+    needs: context
+    if: needs.context.outputs.purpose == 'validation'
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.context.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version-file: go.mod
@@ -75,83 +169,76 @@ jobs:
       - name: Four language fixtures and optional Maven producer
         env:
           PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 integration-tests/fixtures/check.py --brewlet ./bin/brewlet --work-parent "${{ runner.temp }}"
+        run: python3 acceptance/run_check.py fixtures
       - name: Real registry publication (not node acceptance)
-        run: python3 integration-tests/registry.py --brewlet ./bin/brewlet --work-parent "${{ runner.temp }}"
+        run: python3 acceptance/run_check.py registry
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: producer-integration-results
-          path: |
-            ${{ runner.temp }}/brewlet-v2-fixtures-*/result.json
-            ${{ runner.temp }}/brewlet-v2-registry-*/result.json
-          if-no-files-found: warn
-          retention-days: 7
+          name: checks-producer-${{ matrix.architecture }}-${{ needs.context.outputs.source }}
+          path: acceptance-export/*.json
+          if-no-files-found: error
+          retention-days: 14
 
   linux-overlay-contract:
+    needs: context
+    if: needs.context.outputs.purpose == 'validation'
     strategy:
       matrix:
         include:
           - runner: ubuntu-24.04
             platform: linux/amd64
+            architecture: amd64
           - runner: ubuntu-24.04-arm
             platform: linux/arm64
+            architecture: arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.context.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version-file: go.mod
-      - name: Compile Linux materialization contract
-        run: |
-          go test -c -o bin/artifact.test ./pkg/artifact
-          go test -c -o bin/shim.test ./shim/cmd/containerd-shim-brewlet-v2
-          go test -c -o bin/provisioner.test ./provisioner
-          go test -c -o bin/node.test ./pkg/node
-      - name: Build isolated pinned test userland
-        run: >-
-          docker build --load --platform "${{ matrix.platform }}"
-          --file integration-tests/fixtures/runtimes/python.Dockerfile
-          --tag brewlet-overlay-contract:${{ github.run_id }}
-          integration-tests/fixtures/runtimes
       - name: Exercise real overlay metadata, not a scheduling test
         run: |
-          set -euo pipefail
-          trap 'sudo journalctl -k --no-pager -n 100 | grep -E "apparmor|overlay" || true' ERR
-          docker run --rm --platform "${{ matrix.platform }}" --network none \
-            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD --cap-add DAC_OVERRIDE \
-            --security-opt no-new-privileges --security-opt apparmor=unconfined --read-only --tmpfs /tmp \
-            --tmpfs /src/pkg/artifact:rw,mode=755 \
-            --mount "type=bind,source=$PWD,target=/src,readonly" \
-            --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
-            --workdir /src/pkg/artifact --entrypoint /tests/artifact.test \
-            brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v | tee overlay.log
-          if grep -q -- '--- SKIP' overlay.log; then exit 1; fi
-          docker run --rm --platform "${{ matrix.platform }}" --network none \
-            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD --cap-add DAC_OVERRIDE \
-            --security-opt no-new-privileges --security-opt apparmor=unconfined --read-only --tmpfs /tmp \
-            --tmpfs /var/lib/brewlet/layers:rw,exec,size=64m \
-            --tmpfs /src/shim/cmd/containerd-shim-brewlet-v2:rw,mode=755 \
-            --mount "type=bind,source=$PWD,target=/src,readonly" \
-            --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
-            --workdir /src/shim/cmd/containerd-shim-brewlet-v2 --entrypoint /tests/shim.test \
-            brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v | tee shim-conformance.log
-          if grep -q -- '--- SKIP' shim-conformance.log; then exit 1; fi
-          docker run --rm --platform "${{ matrix.platform }}" --network none \
-            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD --cap-add SETFCAP \
-            --security-opt no-new-privileges --security-opt apparmor=unconfined --read-only --tmpfs /tmp --tmpfs /work \
-            --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
-            --workdir /work --entrypoint /tests/node.test \
-            brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v | tee lease-evidence.log
-          if grep -q -- '--- SKIP' lease-evidence.log; then exit 1; fi
-          docker run --rm --platform "${{ matrix.platform }}" --network none \
-            --user 0:0 --cap-drop ALL --cap-add SYS_ADMIN --cap-add MKNOD \
-            --security-opt no-new-privileges --security-opt apparmor=unconfined --read-only --tmpfs /tmp --tmpfs /work \
-            --mount "type=bind,source=$PWD/bin,target=/tests,readonly" \
-            --workdir /work --entrypoint /tests/provisioner.test \
-            brewlet-overlay-contract:${{ github.run_id }} \
-            -test.v | tee cache-gc.log
-          if grep -q -- '--- SKIP' cache-gc.log; then exit 1; fi
+          python3 acceptance/run_check.py native-contracts
+          python3 acceptance/run_check.py go-vet
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: checks-kernel-${{ matrix.architecture }}-${{ needs.context.outputs.source }}
+          path: acceptance-export/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  documentation:
+    needs: context
+    if: needs.context.outputs.purpose == 'validation'
+    uses: ./.github/workflows/site-pages.yml
+    with:
+      expected_sha: ${{ needs.context.outputs.source }}
+
+  archive-history:
+    name: Historical evidence archive
+    needs: context
+    if: needs.context.outputs.purpose == 'validation' || needs.context.outputs.purpose == 'archive-history'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.context.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Materialize byte-verified historical public JSON only
+        id: history
+        run: python3 acceptance/evidence_index.py export-history --if-needed --output "${{ runner.temp }}/acceptance-history"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: steps.history.outputs.written == 'true'
+        with:
+          name: historical-acceptance-receipts-${{ needs.context.outputs.source }}
+          path: ${{ runner.temp }}/acceptance-history/
+          if-no-files-found: error
+          retention-days: 90

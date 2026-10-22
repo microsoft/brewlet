@@ -1,16 +1,31 @@
-name: Brewlet 2 real-node execution
+name: Brewlet real-node E2E
 
 on:
+  workflow_call:
+    inputs:
+      expected_sha:
+        type: string
+        required: true
+      scenario:
+        type: string
+        default: pr
+      architecture:
+        type: string
+        default: amd64
   workflow_dispatch:
     inputs:
+      expected_sha:
+        description: Exact immutable commit authorized for this invocation
+        type: string
+        required: true
       scenario:
-        description: Complete acceptance or managed native/Wasm composition
+        description: Four-language PR/debug execution or full promotion scopes
         type: choice
         required: true
-        default: complete
-        options: [complete, control, managed, managed-wasm]
+        default: pr
+        options: [pr, complete, control, managed, managed-wasm]
       architecture:
-        description: Execute on the actual native architecture (not emulation)
+        description: Execute on the actual native architecture, not emulation
         type: choice
         required: true
         default: amd64
@@ -20,22 +35,49 @@ permissions:
   contents: read
 
 jobs:
-  qualification:
+  execution:
     runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 180
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      ARCHITECTURE: ${{ inputs.architecture }}
     steps:
       - name: Refuse unsupported execution contexts instead of skipping
+        id: guard
         env:
           EVENT: ${{ github.event_name }}
           REPOSITORY: ${{ github.repository }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           REF: ${{ github.ref }}
+          SOURCE: ${{ env.SOURCE_SHA }}
+          EXPECTED_SOURCE: ${{ inputs.expected_sha }}
+          SCENARIO: ${{ inputs.scenario }}
+          ARCHITECTURE: ${{ inputs.architecture }}
         run: |
-          test "$EVENT" = workflow_dispatch
           test "$REPOSITORY" = microsoft/brewlet
-          case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac
+          case "$SCENARIO" in pr|complete|control|managed|managed-wasm) ;; *) exit 1 ;; esac
+          case "$ARCHITECTURE" in amd64|arm64) ;; *) exit 1 ;; esac
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$SOURCE" = "$EXPECTED_SOURCE"
+          case "$EVENT" in
+            pull_request)
+              test "$SCENARIO" = pr
+              test "$HEAD_REPOSITORY" = "$REPOSITORY"
+              case "$REF" in refs/pull/*/merge) ;; *) exit 1 ;; esac
+              ;;
+            push)
+              test "$SCENARIO" = pr
+              case "$REF" in refs/heads/main|refs/heads/brewlet-2.0) ;; *) exit 1 ;; esac
+              ;;
+            workflow_dispatch)
+              case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac
+              ;;
+            *) exit 1 ;;
+          esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
@@ -64,15 +106,28 @@ jobs:
       - name: Install pinned native suite tools
         run: |
           go install sigs.k8s.io/kind@v0.33.0
-          rustup toolchain install 1.97.1 --profile minimal --target wasm32-wasip2
           command -v htpasswd
-      - name: Offline ownership and evidence safeguards
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 -m unittest discover -s integration-tests/live-v2 -p 'test_*.py' -v
+      - name: Install pinned WebAssembly toolchain for promotion companions
+        if: inputs.scenario == 'complete' || inputs.scenario == 'managed-wasm'
+        run: rustup toolchain install 1.97.1 --profile minimal --target wasm32-wasip2
+      - name: Execute real four-language PR E2E including protected identity and cleanup
+        if: inputs.scenario == 'pr'
+        run: |
+          python3 integration-tests/live-v2/harness.py --scenario pr \
+            --work "integration-tests/live-v2/run-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCHITECTURE}"
+      - name: Export only public PR outcomes
+        if: always() && steps.guard.outcome == 'success' && inputs.scenario == 'pr'
+        run: |
+          mkdir -p acceptance-export
+          python3 acceptance/export_result.py \
+            "integration-tests/live-v2/run-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCHITECTURE}/result.json" \
+            "acceptance-export/pr-e2e-${ARCHITECTURE}.json"
+          python3 acceptance/qualify.py \
+            --verify-pr "acceptance-export/pr-e2e-${ARCHITECTURE}.json" \
+            --architecture "$ARCHITECTURE"
       - name: Execute immutable native candidate qualification
+        if: inputs.scenario != 'pr'
         env:
-          PYTHONDONTWRITEBYTECODE: "1"
           SCENARIO: ${{ inputs.scenario }}
           ARCHITECTURE: ${{ inputs.architecture }}
         run: python3 acceptance/qualify.py --run --scenario "$SCENARIO" --architecture "$ARCHITECTURE"
@@ -80,7 +135,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: candidate-${{ inputs.architecture }}-${{ inputs.scenario }}-${{ github.sha }}
+          name: e2e-${{ inputs.architecture }}-${{ inputs.scenario }}-${{ env.SOURCE_SHA }}
           path: acceptance-export/*.json
           if-no-files-found: error
           retention-days: 14

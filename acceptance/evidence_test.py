@@ -5,7 +5,8 @@ import subprocess
 import tempfile
 import unittest
 
-from acceptance.evidence import candidate_errors, input_hashes, load_receipt, receipt_errors, working_identity
+from acceptance.evidence import (candidate_errors, input_hashes, load_receipt, production_manifest_bytes,
+                                 receipt_errors, working_identity)
 
 
 class EvidenceTests(unittest.TestCase):
@@ -44,6 +45,16 @@ class EvidenceTests(unittest.TestCase):
                                            scenario="complete", languages=["java", "python", "node", "dotnet"],
                                            root=self.root))
 
+    def test_production_manifest_string_keys_are_canonical_despite_path_component_order(self):
+        paths = [Path("cmd/brewlet/main.go"), Path("cmd/brewlet-node/main_linux.go")]
+        manifest = {path.as_posix(): "a" * 64 for path in sorted(paths)}
+        self.assertNotEqual(list(manifest), sorted(manifest))
+        expected = json.dumps(dict(sorted(manifest.items())), indent=2).encode()
+        self.assertEqual(expected, production_manifest_bytes(manifest))
+        self.assertNotEqual(json.dumps(manifest, indent=2).encode(), production_manifest_bytes(manifest))
+        self.assertEqual(production_manifest_bytes(manifest),
+                         production_manifest_bytes(dict(reversed(list(manifest.items())))))
+
     def test_missing_failed_uncovered_and_wrong_scope_receipts(self):
         changes = [
             {"outcome": "skipped"}, {"outcome": "failed"}, {"outcome": "intervened"},
@@ -53,6 +64,7 @@ class EvidenceTests(unittest.TestCase):
             {"scope": "contract"}, {"cleanSelectedSuitePassed": False},
             {"productionCleanupVerified": False}, {"selectedScenario": "control"},
             {"architecture": "arm64"}, {"selectedLanguages": ["python"]},
+            {"selectedLanguages": [["java"], "python", "node", "dotnet"]},
             {"productionSourceManifestSHA256": "0" * 64}, {"checkout": "0" * 40},
         ]
         for change in changes:
@@ -98,6 +110,17 @@ class EvidenceTests(unittest.TestCase):
         self.commit()
         self.assertTrue(candidate_errors(self.result, self.root))
 
+    def test_artifact_index_is_evidence_only_but_its_verifier_is_not(self):
+        path = self.root / "acceptance/evidence-index.json"
+        path.write_text('{"schemaVersion":1,"candidate":null}')
+        self.commit()
+        self.assertEqual([], candidate_errors(self.result, self.root))
+        path.write_text('{"schemaVersion":1,"candidate":{"different":"artifact pointers"}}')
+        self.commit()
+        self.assertEqual([], candidate_errors(self.result, self.root))
+        (self.root / "acceptance/evidence_index.py").write_text("changed verification policy")
+        self.commit()
+        self.assertTrue(candidate_errors(self.result, self.root))
     def test_source_tests_workflows_fixtures_and_modes_invalidate_identity(self):
         for name in ("pkg/source.go", "integration-tests/test.py", ".github/workflows/test.yml",
                      "integration-tests/fixtures/pin.json", "acceptance/check.py", "LICENSE.txt"):

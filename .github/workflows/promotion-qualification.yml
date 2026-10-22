@@ -2,20 +2,45 @@ name: Brewlet promotion qualification
 
 on:
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact immutable evidence-index descendant to verify
+        type: string
+        required: true
   workflow_call:
+    inputs:
+      expected_sha:
+        type: string
+        required: true
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   qualification:
     name: Brewlet promotion qualification
     runs-on: ubuntu-24.04
     steps:
+      - name: Require the exact approved verification source
+        env:
+          SOURCE: ${{ github.sha }}
+          EXPECTED_SOURCE: ${{ inputs.expected_sha }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          test "$REPOSITORY" = microsoft/brewlet
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$SOURCE" = "$EXPECTED_SOURCE"
+          case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Require complete evidence for the immutable candidate
-        run: make acceptance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 acceptance/evidence_index.py fetch
+          make acceptance

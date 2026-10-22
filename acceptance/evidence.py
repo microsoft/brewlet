@@ -35,11 +35,18 @@ def _digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def production_manifest_bytes(hashes):
+    """Encode string paths canonically, not in pathlib's component order."""
+    return json.dumps(dict(sorted(hashes.items())), indent=2).encode()
+
+
 def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args], stderr=subprocess.PIPE)
 
 
 def _normalized(path, content):
+    if path == "acceptance/evidence-index.json":
+        return None
     if path.startswith("acceptance/results/") and path.endswith(".json"):
         return None
     if path == "acceptance/RESULTS.md":
@@ -73,7 +80,8 @@ def _input_hashes(root, revision, *, working=False):
         path = raw_path.decode()
         if kind != "blob" or mode not in ("100644", "100755"):
             raise ValueError("unsupported qualification input: " + path)
-        if path == "acceptance/RESULTS.md" or (path.startswith("acceptance/results/") and path.endswith(".json")):
+        if path in ("acceptance/RESULTS.md", "acceptance/evidence-index.json") or (
+                path.startswith("acceptance/results/") and path.endswith(".json")):
             continue
         entries.append((path, mode, blob))
     stream = None
@@ -102,8 +110,7 @@ def _input_hashes(root, revision, *, working=False):
         if (path.split("/")[0] in PRODUCTION_INPUTS
                 and not any(fnmatch.fnmatch(part, pattern) for part in Path(path).parts for pattern in IGNORE)):
             production[path] = hashlib.sha256(content).hexdigest()
-    # Preserve the production snapshot's historical JSON encoding.
-    production_hash = hashlib.sha256(json.dumps(dict(sorted(production.items())), indent=2).encode()).hexdigest()
+    production_hash = hashlib.sha256(production_manifest_bytes(production)).hexdigest()
     return {"identityVersion": IDENTITY_VERSION, "qualificationInputsSHA256": _digest(qualification),
             "productionSourceManifestSHA256": production_hash}
 
@@ -199,6 +206,7 @@ def receipt_errors(result, requirements=(), *, live=False, architecture=None,
         if scenario and result.get("selectedScenario") != scenario:
             errors.append("wrong selected scenario")
         if languages is not None and (not isinstance(result.get("selectedLanguages"), list)
+                                      or not all(isinstance(value, str) for value in result["selectedLanguages"])
                                       or len(result["selectedLanguages"]) != len(languages)
                                       or set(result["selectedLanguages"]) != set(languages)):
             errors.append("wrong selected workloads")

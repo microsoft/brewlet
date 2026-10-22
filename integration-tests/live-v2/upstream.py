@@ -164,7 +164,8 @@ def pathless_and_shadowed_runtime(h):
     h.no_start("pathless-relative", "RuntimePATHRequired")
     h.record("actual numeric pathless execution, isolated runtime app, readonly and explicit volume parity",
              {"taskID": lease["taskID"], "runtime": lease["runtime"], "report": report,
-              "syntheticContractFixture": True, "notAnUnchangedUpstreamClaim": True}, ["UP-01", "UP-02", "UP-03"])
+              "syntheticContractFixture": True, "notAnUnchangedUpstreamClaim": True},
+             ["UP-01", "UP-02", "UP-03", "ROOT-02", "ROOT-03"])
 
 
 def recovery(h, original):

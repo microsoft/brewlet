@@ -35,14 +35,22 @@ Admission denials, foreign destinations and TLS certificate-identity failures
 fail immediately; application assertions and installation deadlines are not
 relaxed by this readiness check.
 
-The branch's `.github/workflows/e2e.yml` runs this suite by manual dispatch.
-Select the `brewlet-2.0` ref on the existing E2E workflow. GitHub schedules run
-from the repository's default branch, so this orphan branch does not claim
-automatic nightly execution. After local implementation acceptance, the job
-also selects the activation/cache/orphan/retry/signal companion and allows
-180 minutes for all sequential scenarios. The job exports each private result
-through `acceptance/export_result.py` and uploads only whitelisted public
-identities/outcomes, never raw result observations or private work directories.
+The branch's `.github/workflows/e2e.yml` is reused by automatic PR CI and can
+also be dispatched manually at an exact `expected_sha`. Its default `pr` scenario
+is the real four-language baseline: admission/startup, execution, rotations,
+observability, operator restart, protected CRI identity and normal cleanup.
+It deliberately omits the long fault/accounting/companion matrix, which remains
+mandatory before promotion. The required `Brewlet validation` aggregate cannot
+pass if this E2E job fails, cancels or skips. The same `pr` scenario is a bounded
+manual debugging route that actually reaches the protected-identity phase.
+
+The `complete` scope additionally selects the core fault/accounting coverage and
+all eight companion suites, with a 180-minute job deadline. Managed native/Wasm
+composition remains separate on each architecture. The job exports each private
+result through `acceptance/export_result.py` and uploads only whitelisted public
+identities/outcomes, never raw observations or private work directories. Generated
+receipts are Actions artifacts, not source files; see the
+[artifact-index procedure](../../acceptance/README.md).
 
 For focused controller and production-cleanup debugging, use the explicitly
 partial scenario:
@@ -52,13 +60,116 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
   --scenario control --work integration-tests/live-v2/run-control-20261017-01
 ```
 
-The workflow's `scenario` input defaults to `complete`; selecting `control`
+The workflow's `scenario` input defaults to `pr`; selecting `control`
 retains real TLS bootstrap, startup fencing, four-language execution, runtime
 rotations, observability, controller/provider-refusal cases and production
 cleanup, but omits accounting, formal remote-delivery negatives, Maven-node,
 container-role and lifecycle callbacks and the separate companion suites.
 Results and public exports retain `selectedScenario` and explicit omissions.
 A focused pass is not a complete-suite or full-proposal pass.
+
+Complete qualification additionally selects current assertion coverage, not
+historical declarations:
+
+* Real API admission runs the existing security/defaulting/affinity/hint checks
+  against an owned zero-node profile. A temporary object-selector exclusion
+  applies only to invocation-labeled profiles while constructing invalid mirror
+  and conflicting-profile fixtures; Pod admission remains enabled and must reject
+  them. A fixture-only finalizer holds genuine deletion long enough to observe
+  exclusion. Cleanup first corrects an exact-owned conflicting profile to a
+  valid disjoint empty pool and waits for actual current-generation ownership
+  initialization, the matching provisioning snapshot and no targets. A spec
+  patch alone is not reconciliation proof. Only then may UID/resourceVersion
+  preconditions request normal deletion. The same guard covers the original
+  invalid-mirror fixture and startup's zero-node fixture. Cleanup removes only
+  the test hold finalizer with UID/resourceVersion/value tests, retries only
+  freshly revalidated conflicts, and restores the exact owned webhook even when
+  cleanup fails. Already-deleting uninitialized profiles retain production
+  finalizers and fail explicitly; no status or authority is invented.
+  Repeated cleanup first checks authoritative absence and never patches an
+  already-equal spec. Immediately before conditional deletion, the harness
+  captures an immutable exact-owned witness: UID/name/owner, canonical spec and
+  provisioning snapshot, resourceVersion and genuinely initialized current
+  provisioning generation with no targets or retirement obligations. Only an
+  acknowledged UID/resourceVersion-conditional deletion retains this witness
+  for later observations and repeated cleanup; it is never reconstructed from
+  an already-deleting object's status.
+  Kubernetes [registry `markAsDeleting`](https://github.com/kubernetes/apiserver/blob/v0.37.0/pkg/registry/generic/registry/store.go)
+  advances a positive generation once when first marking a non-graceful object
+  with pending finalizers for deletion. Metadata-only finalizer updates do not
+  advance the [custom-resource spec generation](https://github.com/kubernetes/apiextensions-apiserver/blob/v0.37.0/pkg/registry/customresource/strategy.go).
+  Brewlet's no-target production deletion path checks initialized ownership and
+  its own current-generation CleanupComplete condition, but does not reprovision
+  an object being deleted.
+  Accordingly, a deleting fixture must have a deletion timestamp, zero deletion
+  grace, an advanced resourceVersion and exactly the witnessed generation plus
+  one, while UID/owner/name, canonical spec/snapshot and initialized provisioning
+  generation remain witnessed and obligations remain empty. This is not a
+  general allowance for generation drift. Missing witnesses, stale pre-delete
+  authority, changed identity/spec/snapshot, additional generation changes or new
+  obligations fail closed. Hold release revalidates these invariants and the
+  empty Node pool before removing only an actually present test hold using fresh
+  UID/version/value tests. An absent hold causes no patch. Disappearance proves
+  object deletion, not production host cleanup.
+  Assertion failures remain the primary exception even when fixture cleanup or
+  webhook restoration also fails. Each independent cleanup is attempted; every
+  secondary error is recorded explicitly without replacing the original error.
+  Private results retain exception text. Public `fixtureLifecycle` diagnostics
+  use a second typed allowlist: fixed fixture/phase identifiers, boolean UID/
+  owner/spec matches, numeric generation freshness and empty-target/retirement
+  predicates, plus primary/secondary stage and bounded error category. No raw
+  object, UID, claim, spec/status, credential or exception text is exported.
+  Each error retains its own predicate snapshot so later cleanup observations
+  cannot overwrite the original failure's state.
+  These diagnostics explain the observed predicate, not an inferred cause for
+  old attempts whose private snapshots were not uploaded.
+* A production worker with deliberately missing authority has real writable host
+  access but must exit on its initial fence without changing runtime/cache/shim/
+  containerd state. It never edits a claim or a cleanup receipt.
+* Actual published root paths, root-owned immutable metadata, native platform,
+  source marker and v2 readiness/diagnostics are observed. An actual operator
+  restart followed by new source rotations must preserve monotonic journaled
+  generations and existing task leases.
+* A native probe reads protected containerd CRI metadata and verifies the native
+  OCI descriptor graph/config using the production resolver and verified content
+  cache. Like the event observer, its invocation-unique mode-0700 binary lives
+  in the owned node's `/usr/local/bin`, not `/tmp`: pinned
+  [kind Docker provisioning](https://github.com/kubernetes-sigs/kind/blob/v0.33.0/pkg/cluster/internal/providers/docker/provision.go)
+  creates `/tmp` as a tmpfs without an exec override, and
+  [Docker tmpfs defaults](https://github.com/moby/moby/blob/v28.5.1/daemon/oci_linux.go)
+  include noexec. Transfer and cleanup retain collision/digest guards. It still
+  uses the same identity-checked kind-node `docker exec`, default configured
+  node identity, containerd socket/namespace and protected cache; no host/workload
+  container substitution, new capability, chmod of production paths, remount or
+  mount/LSM policy change. The pinned node image has no non-root USER override
+  on either architecture. This configuration/source diagnosis does not invent
+  unexported historical effective UID, mode, mount flags or LSM observations.
+  The observer already uses the executable node-local path; cold-RPC JSON and
+  observer PID data remain non-executable `/tmp` files.
+  Real admission-bypassing forged artifact hints must not change the
+  executing artifact. Root primary and supplementary group starts must be
+  independently refused by the shim.
+* A genuinely installed OnDemand runtime remains a participant during real
+  invalid-root retries. The actual configured ten-minute node progress deadline
+  must elapse before confirmed withdrawal/quarantine, with Node UID, observed
+  generation and reason intact. No status timestamps or clocks are changed.
+  Corrected source and actual Eager mode must recover normally.
+
+The cold companion separately clones an actual owned kubelet container/sandbox
+configuration for one invocation-owned CRI probe while TLS transfer is held.
+It temporarily stops only that owned worker's initially active kubelet while the
+probe runs, so Pod reconciliation cannot race or garbage-collect the additional
+CRI container. It revalidates the actual sandbox after stopping the service and
+restores the kubelet and real Node Ready condition even after a probe/stop
+failure. No shared kubelet, clock, or Node status is edited.
+Its real start request must return `RuntimeImageInstalling` in the default
+thirty-second window (29 to less than 40 seconds including command overhead),
+below the observed 120-second kubelet request timeout, without any workload
+process or premature current root. Profile-generation replacement must stop the
+old installing worker and make its successor revalidate authority before transfer
+release. The probe container/config files are removed only after exact identity
+checks. These assertions need fresh native execution; offline guard tests are
+not proof that the scenarios passed.
 
 Control execution also deliberately offers an approved default-Eager runtime
 whose runtime config declares the forbidden `PATH=/app`. The
@@ -538,8 +649,9 @@ UID/ownership inventory for manual review rather than broad reset/prune commands
 `UNIMPLEMENTED` in `harness.py` is serialized into every result. In particular,
 this suite does **not** complete all proposal §13.1 acceptance:
 
-* Invalid/deleting/conflicting zero-node profile permutations belong to the
-  separate admission suite.
+* Invalid/deleting/conflicting zero-node profiles are selected by the complete
+  API admission callback, not by partial/debug scopes. Fresh execution is still
+  required; the existence of the callback does not qualify a candidate.
 * Alternate-architecture capacity actually joining later and provider
   scale-from-zero require genuine additional native infrastructure. Optional
   `begin_native_capacity` / `finish_native_capacity` callbacks do not replace
@@ -551,9 +663,9 @@ this suite does **not** complete all proposal §13.1 acceptance:
   assertions, **not verified evidence until a fresh run passes them**. Their
   module-level limitations and result receipts distinguish surviving-shim
   reconnect from killed-shim recovery and API CAS from physical-host proof.
-* Maven producer/shared-conformance acceptance is the existing fixture suite;
-  this harness executes the four generic-CLI artifacts, not a second Maven
-  application on-node.
+* Maven producer/shared-conformance acceptance also requires the fixed fixture
+  producer receipts. Complete selects the additional real Maven-node callback;
+  partial/debug scopes still omit it.
 * The pinned vendor-version rotation is newly selected, not verified until the
   fresh run executes both versions. No specific CVE remediation is claimed.
 

@@ -22,7 +22,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from acceptance.qualification import fixture_names, load_matrix
-from acceptance.evidence import PRODUCTION_INPUTS, IGNORE, working_identity
+from acceptance.evidence import PRODUCTION_INPUTS, IGNORE, production_manifest_bytes, working_identity
 
 QUALIFICATION_MATRIX = load_matrix()
 LANGUAGES = fixture_names(QUALIFICATION_MATRIX, "native")
@@ -39,14 +39,12 @@ API = "node.brewlet.sh/v2alpha1"
 IDS = {language: "fixture-" + language for language in LANGUAGES}
 STORE = "/opt/brewlet/runtimes"
 UNIMPLEMENTED = [
-    "E2E-01 invalid/deleting/conflicting zero-node profile permutations (separate admission suite)",
     "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
     "E2E-06 stale provider pins retained through actual production uninstall",
     "E2E-09 physical recreated-Node/foreign-host cleanup refusal (API UID rejection is separate)",
     "LEASE-02 arbitrarily killed shim task-server recovery; LEASE-03 forced orphan exec survival "
     "after main exit (normal delegated runc/CRI drain is verified separately)",
     "ROT-09 controlled cold-runtime-install deadline and recovery",
-    "Maven-produced artifact on-node (generic CLI artifacts only here; producer suite is separate)",
 ]
 
 
@@ -247,9 +245,11 @@ def artifact_target(layout):
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
                  retain_on_failure=False, local_language=None):
-        require(scenario in ("complete", "control", "runtime", "maven", "lifecycle",
+        require(scenario in ("complete", "pr", "control", "runtime", "maven", "lifecycle",
                              "roles", "accounting", "delivery"),
                 "unsupported live scenario")
+        require(scenario != "pr" or (pinned and local_language is None),
+                "PR E2E requires all four languages and pinned scenarios")
         require(local_language is None or (
             local_language in LANGUAGES and not pinned
             and (scenario == "runtime"
@@ -732,9 +732,9 @@ class Harness:
                 shutil.copytree(source, snapshot / name, ignore=shutil.ignore_patterns(*IGNORE))
             else:
                 shutil.copy2(source, snapshot / name)
-        hashes = {str(path.relative_to(snapshot)): hashlib.sha256(path.read_bytes()).hexdigest()
+        hashes = {path.relative_to(snapshot).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in sorted(snapshot.rglob("*")) if path.is_file()}
-        (self.work / "production-source-sha256.json").write_text(json.dumps(hashes, indent=2))
+        (self.work / "production-source-sha256.json").write_bytes(production_manifest_bytes(hashes))
         manifest = hashlib.sha256((self.work / "production-source-sha256.json").read_bytes()).hexdigest()
         require(manifest == self.result["productionSourceManifestSHA256"],
                 "actual production build context differs from immutable candidate")
@@ -919,9 +919,10 @@ class Harness:
         self.delete("pod", "startup-pending", self.namespace)
         self.wait("startup fixture pod deletion", lambda:
                   self.get("pod", "startup-pending", self.namespace, absent=True) is None)
-        self.delete("nodeprofile", zero["metadata"]["name"])
-        self.wait("zero-node profile cleanup", lambda:
-                  self.get("nodeprofile", zero["metadata"]["name"], absent=True) is None)
+        from admission_contract import finish_empty_profile_deletion
+        finish_empty_profile_deletion(self, zero["metadata"]["name"],
+                                      self.owned[("nodeprofile", "", zero["metadata"]["name"])],
+                                      zero["spec"], fixture="startup-zero")
         self.apply(self.profile_object())
         self.wait("OnDemand-only baseline without startup fence", lambda:
                   self.node_snapshot()["metadata"].get("labels", {}).get("brewlet.sh/runtime") == "ready"
@@ -1221,8 +1222,13 @@ class Harness:
                                arguments=["--probe", "two words"], cwd="/app", uid=12345, home="/tmp")
             self.record(language + " custom UID/default GID and HOME fallback match initial/exec",
                         {"podUID": custom_obj["metadata"]["uid"]}, ["SEC-01", "SEC-04", "PROC-03"])
+            from runtime_contract import publication
+            publication(self, language)
+        if self.scenario == "complete":
+            from runtime_contract import generic_launches
+            generic_launches(self)
 
-    def no_start(self, name, reason, timeout=120):
+    def no_start(self, name, reason, timeout=120, requirements=()):
         def observe():
             obj = self.get("pod", name, self.namespace)
             require_owned(obj, self.run_id, self.owned[("pod", self.namespace, name)])
@@ -1250,7 +1256,7 @@ class Harness:
             }
             return text if reason in text else False
         evidence = self.wait(name + " exact failure " + reason, observe, timeout=timeout)
-        self.record(name + " rejects start: " + reason, {"reason": reason, "observation": evidence})
+        self.record(name + " rejects start: " + reason, {"reason": reason, "observation": evidence}, requirements)
         self.delete("pod", name, self.namespace)
         self.wait(name + " removed", lambda: self.get("pod", name, self.namespace, absent=True) is None)
 
@@ -1313,12 +1319,17 @@ class Harness:
         try:
             for name, changes, reason in (
                 ("root-bound", {"runAsUser": 0, "runAsNonRoot": False}, "RootNotSupported"),
+                ("root-group-bound", {"runAsGroup": 0}, "RootNotSupported"),
                 ("privilege-bound", {"allowPrivilegeEscalation": True}, "PrivilegeEscalationNotSupported"),
             ):
                 pod = self.pod(name, self.probe_language, bound=True)
                 pod["spec"]["containers"][0]["securityContext"].update(changes)
                 self.apply(pod)
-                self.no_start(name, reason)
+                self.no_start(name, reason, requirements=["SEC-02"] if reason == "RootNotSupported" else [])
+            pod = self.pod("root-supplementary-bound", self.probe_language, bound=True)
+            pod["spec"]["securityContext"]["supplementalGroups"] = [0]
+            self.apply(pod)
+            self.no_start("root-supplementary-bound", "RootNotSupported", requirements=["SEC-02"])
             metadata = self.initial[self.probe_language]["metadata"]
             duplicate_generation = json.dumps({
                 "id": IDS[self.probe_language], "inventoryUID": metadata["inventoryUID"],
@@ -1687,7 +1698,12 @@ class Harness:
                 "Local fixture selection omits " + ", ".join(
                     language for language in LANGUAGES if language not in self.languages)
                 + " execution and rotation")
-        if self.scenario == "control":
+        if self.scenario == "pr":
+            self.result["gaps"].append(
+                "PR four-language E2E omits the long quarantine, accounting, managed composition, "
+                "Maven/container-role/lifecycle/controller fault callbacks and companion suites; "
+                "full promotion qualification is separate")
+        elif self.scenario == "control":
             self.result["gaps"].append(
                 "Focused control execution omits CRI accounting, formal remote-delivery negatives, "
                 "Maven node producer, container-role and lifecycle callbacks and companion suites")
@@ -1721,6 +1737,12 @@ class Harness:
             bootstrap_delivery(self)
             self.phase = "install"
             self.install()
+            if self.scenario in ("complete", "pr"):
+                self.phase = "api-admission-contract"
+                from admission_contract import exercise as verify_admission
+                verify_admission(self)
+                from authority_checks import initial_fence
+                initial_fence(self)
             self.phase = "startup"
             self.startup()
             self.phase = "execution"
@@ -1731,6 +1753,16 @@ class Harness:
                 self.barriers_and_rotation()
                 self.phase = "observability"
                 observer.verify()
+            if self.scenario in ("complete", "pr"):
+                self.phase = "durable-generation-recovery"
+                from runtime_contract import durable_generations, rotation_participants
+                durable_generations(self)
+                from runtime_contract import protected_identity
+                self.phase = "protected-cri-identity"
+                protected_identity(self)
+            if self.scenario == "complete":
+                self.phase = "real-rotation-participation-deadline"
+                rotation_participants(self)
             if self.scenario in ("complete", "accounting"):
                 self.phase = "immutable-filesystem"
                 from filesystem import execute as verify_filesystem
@@ -1820,7 +1852,7 @@ def main():
                         help="new directory beneath integration-tests/live-v2; retains private kubeconfig/keys")
     parser.add_argument("--timeout", type=int, default=600,
                         help="bounded assertion deadline in seconds (default 600)")
-    parser.add_argument("--scenario", choices=("complete", "control", "runtime", "maven", "lifecycle",
+    parser.add_argument("--scenario", choices=("complete", "pr", "control", "runtime", "maven", "lifecycle",
                                                "roles", "accounting", "delivery"),
                         default="complete",
                         help="complete suite (default) or explicitly scoped local component execution")

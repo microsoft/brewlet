@@ -576,5 +576,5 @@ def execute(h):
             evidence["finishedAt"] = now()
             persist()
     h.record("RUN-08 read-only CRI root, real kubelet data-volume usage and ephemeral-storage eviction",
-             evidence, ["RUN-08"])
+             evidence, ["RUN-08", "FS-04"])
     return evidence

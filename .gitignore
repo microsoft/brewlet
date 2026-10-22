@@ -10,6 +10,7 @@
 /site/**/__pycache__/
 /acceptance/__pycache__/
 /acceptance-export/
+/acceptance/results/
 /scripts/__pycache__/
 /dist/
 /integration-tests/**/__pycache__/

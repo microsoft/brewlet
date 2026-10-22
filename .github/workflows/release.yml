@@ -85,7 +85,10 @@ jobs:
     if: ${{ inputs.operation == 'publish' }}
     permissions:
       contents: read
+      actions: read
     uses: ./.github/workflows/promotion-qualification.yml
+    with:
+      expected_sha: ${{ github.sha }}
 
   ordinary:
     needs: request
@@ -93,6 +96,8 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/v2-ci.yml
+    with:
+      expected_sha: ${{ github.sha }}
 
   prepare:
     needs: [qualification, ordinary]

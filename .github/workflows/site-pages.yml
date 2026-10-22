@@ -1,12 +1,17 @@
 name: Build Brewlet 2 website preview
 
 on:
-  push:
-    branches: [brewlet-2.0]
-    paths: ["site/**", "docs/**", "LICENSE.txt", "Makefile", ".github/workflows/site-pages.yml"]
-  pull_request:
-    paths: ["site/**", "docs/**", "LICENSE.txt", "Makefile", ".github/workflows/site-pages.yml"]
+  workflow_call:
+    inputs:
+      expected_sha:
+        type: string
+        required: true
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact immutable source to build
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -18,8 +23,21 @@ concurrency:
 jobs:
   site-contracts-and-build:
     runs-on: ubuntu-24.04
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
+      - name: Require the exact website source
+        env:
+          EXPECTED_SOURCE: ${{ inputs.expected_sha }}
+        run: |
+          [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          test "$SOURCE_SHA" = "$EXPECTED_SOURCE"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
@@ -29,13 +47,20 @@ jobs:
       - name: Install pinned documentation dependencies
         run: python -m pip install -r site/requirements.txt
       - name: Check contracts, strictly build docs and assemble static preview
-        run: make site-build
+        run: python3 acceptance/run_check.py documentation
       - name: Install isolated browser checks
         run: |
           npm ci --ignore-scripts --prefix site
           PLAYWRIGHT_SKIP_BROWSER_GC=1 site/node_modules/.bin/playwright install --with-deps chromium
       - name: Verify responsive layout, interactions and documentation search
-        run: npm test --prefix site
+        run: python3 acceptance/run_check.py site-integration
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: checks-documentation-${{ env.SOURCE_SHA }}
+          path: acceptance-export/*.json
+          if-no-files-found: error
+          retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: brewlet-2-website-preview

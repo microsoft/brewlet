@@ -61,7 +61,7 @@ The original full-userland results alone do not verify the amended image-shape
 rules; the fresh amended full-userland regression has its own successful
 receipt and normal production-cleanup evidence.
 
-The [Wasm receipt](../acceptance/results/wasm-runc-arm64.json) is separate from
+The [historical Wasm receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/wasm-runc-arm64.json) is separate from
 the four-language/unchanged-runtime layer-set matrix. Its platform-built
 runtime images preserve pinned engine binary bytes on a pinned distroless C/C++
 base; they are not unchanged upstream engine OCI images. The current schema
@@ -76,8 +76,10 @@ remain failed and separate from their corrected repeats.
 
 Proposal 0010 has a separate
 [29-obligation checklist](../acceptance/composition-requirements.json) and
-[native arm64 receipt](../acceptance/results/managed-composition-arm64.json)
-and [native amd64 receipt](../acceptance/results/managed-composition-amd64.json).
+[historical native arm64 receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-composition-arm64.json)
+and [historical native amd64 receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-composition-amd64.json).
+Current candidate evidence is separately bound and verified through the
+[artifact index](../acceptance/README.md#index-retrieve-and-verify-genuine-evidence).
 It does not reuse the 111-obligation baseline as composition acceptance.
 Native amd64 qualification passed the separate manually dispatched `managed`
 [E2E run](https://github.com/microsoft/brewlet/actions/runs/39445945006);
@@ -112,7 +114,7 @@ The recorded exact-command guide passed locally on a fresh arm64 node:
 real HTTP and numeric identity, old-binding retention during source rotation,
 a new Pod/generation with the same application digest, normal profile/host
 cleanup, Helm uninstall and exact-owned node destruction. Its
-[public receipt](../acceptance/results/reader-tutorial-arm64.json) preserves
+[historical public receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/reader-tutorial-arm64.json) preserves
 the observed bindings, input hashes and the separate failed development attempts.
 The complete manually dispatched E2E workflow also selects this reader check.
 Source, webhook and client-environment failures were corrected in the guide;

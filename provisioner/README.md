@@ -343,7 +343,7 @@ This is not yet a complete node-runtime acceptance implementation:
   telemetry scraping remain acceptance work. A focused native-arm64 run
   verified actual CRI writable-layer growth and kubelet ephemeral-storage
   eviction, without an `emptyDir` proxy or kubelet configuration changes; see
-  [the exact component-image evidence](../acceptance/results/cri-accounting.json).
+  [the historical exact component-image evidence](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/cri-accounting.json).
   This is not a passing complete four-language rotation/cleanup suite.
 
 Portable validation is `go test -race ./pkg/node ./provisioner`.

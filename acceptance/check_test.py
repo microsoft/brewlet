@@ -19,7 +19,10 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual([], CHECK.validate(self.document, structure_only=True))
 
     def test_historical_declarations_do_not_qualify_current_candidate(self):
-        self.assertTrue(CHECK.validate(self.document))
+        document = copy.deepcopy(self.document)
+        for row in document["requirements"] + document.get("amendments", []):
+            row.update(row["historicalEvidence"])
+        self.assertTrue(CHECK.validate(document, expected={"checkout": "0" * 40}))
 
     def test_synthetic_complete_candidate_and_assertion_coverage(self):
         fixture = evidence_test.EvidenceTests()
@@ -27,6 +30,7 @@ class LedgerTests(unittest.TestCase):
         self.addCleanup(fixture.doCleanups)
         document = copy.deepcopy(self.document)
         for row in document["requirements"] + document.get("amendments", []):
+            row["status"] = "verified"
             live = row["id"] in CHECK.REAL_NODE_REQUIRED
             row["evidence"] = [{"scope": "real-node" if live else "contract",
                                 "command": "synthetic assertion fixture", "outcome": "passed",
@@ -56,6 +60,7 @@ class LedgerTests(unittest.TestCase):
         document = copy.deepcopy(self.document)
         for row in document["requirements"]:
             if row["id"] == "ARCH-01":
+                row["status"] = "verified"
                 row["evidence"] = [{"command": "contract only", "scope": "contract", "outcome": "passed"}]
         self.assertTrue(CHECK.validate(document, structure_only=True))
 
@@ -63,7 +68,9 @@ class LedgerTests(unittest.TestCase):
         document = copy.deepcopy(self.document)
         for item in document["requirements"] + document.get("amendments", []):
             if not item["id"].startswith("FS-"):
+                item["status"] = "verified"
                 for evidence in item["evidence"]:
+                    evidence["outcome"] = "passed"
                     if evidence.get("result"):
                         evidence["result"] = "acceptance/results/nonexistent-audit-receipt.json"
         errors = CHECK.validate(document, expected={"checkout": "0" * 40})
