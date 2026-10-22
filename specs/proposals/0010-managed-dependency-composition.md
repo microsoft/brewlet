@@ -393,7 +393,8 @@ Additional mandatory cases:
 
 Keep a requirements-to-tests checklist for these obligations. Publish exact
 inputs, commands, results and limitations; preserve failed runs as failed.
-The existing 111-requirement baseline does not qualify this feature.
+The [Proposal 0009 baseline ledger](../../acceptance/requirements.json) does not
+qualify this feature.
 
 ## 12. Documentation and release boundaries
 

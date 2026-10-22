@@ -7,7 +7,7 @@
 - **Current contracts replaced:** application artifact (SPEC §4.1–§4.4), JDK
   inventory (SPEC §5.3, SPEC §5.6), shim JDK selection (SPEC §6.1), JVM
   resource mapping (SPEC §10), `JavaApplication` (SPEC §8.2, SPEC §9), and the JDK
-  capability labels ([CAPABILITY_LABELS](../CAPABILITY_LABELS.md))
+  capability labels ([0.x CAPABILITY_LABELS](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/CAPABILITY_LABELS.md))
 - **Current contracts retained and generalized:** runnable-image delivery
   (SPEC §4.4), managed dependency bundles (SPEC §4.5), copy-from-image node roots (SPEC §5.3),
   `NodeProfile` pool selection and rollout (SPEC §5.6), the runc-backed shim (SPEC §6),
@@ -24,10 +24,13 @@ Brewlet inventory. A pod selects a runtime image **by ID only**, never by digest
 and the node-resident shim composes the approved runtime with the application at
 launch time.
 
-References written as `SPEC §N` cite [`SPECIFICATION.md`](../SPECIFICATION.md);
+References written as `SPEC §N` cite the 0.x design reference,
+[`SPECIFICATION.md` at main commit `fa70853`](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/SPECIFICATION.md);
 bare `§N` references cite sections of this proposal.
 
-The earlier specification references provide 1.x design context; this document
+Brewlet 2.0 is a rewrite inspired by Brewlet 0.x on `main`, which this proposal
+also calls 1.x. The `SPEC §N` references provide design context only and are
+not carried in this branch; this document
 defines the implemented 2.0 contract, with governed release composition extended
 by Proposal 0010. This is not a claim of a stable production release.
 
@@ -1121,14 +1124,15 @@ Node annotations and retained pinned labels are diagnostic or scheduling
 hints, not authority for the shim.
 
 `jdk.*` and `jdk-feature.*` labels are
-removed. The [capability label contract](../CAPABILITY_LABELS.md) gains a v2 key
-family and its dual-publication exception does not extend to 1.x keys.
+removed. This section and §9.2–§9.3 define the 2.0 capability-label contract;
+the [0.x contract](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/CAPABILITY_LABELS.md)'s dual-publication exception does not
+extend to 0.x keys.
 
 ### 9.2 Startup fencing and provider-managed labels
 
 The startup fence is the `NoSchedule` taint
 `startup-taint.cluster-autoscaler.kubernetes.io/brewlet=provisioning`.
-The [existing startup-taint contract](../CAPABILITY_LABELS.md#startup-taint)
+The [0.x startup-taint contract](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/CAPABILITY_LABELS.md#startup-taint)
 is retained with the v2 capability keys and the following requirements:
 
 - Autoscaler simulation-only labels, such as EKS node-template tags with
@@ -1497,9 +1501,10 @@ image. It was rejected because the shim would need registry credentials outside
 kubelet's image-pull path, cold starts would gain a second pull, and digest
 reuse of layer sets (§6.5) already delivers the storage and governance benefits.
 
-## Appendix — specification integration points
+## Appendix — mapping from the 0.x specification
 
-On acceptance, `SPECIFICATION.md` would be revised as follows:
+The 2.0 branch does not carry `SPECIFICATION.md`; this proposal and Proposal
+0010 are the authoritative contracts. Each 0.x section maps to 2.0 as follows:
 
 | SPECIFICATION section | Change | Source in this proposal |
 |---|---|---|
@@ -1516,4 +1521,4 @@ On acceptance, `SPECIFICATION.md` would be revised as follows:
 | SPEC §11 | Add non-root enforcement | §8.4, §12 |
 | SPEC §13 | Move AppCDS guidance to Maven plugin docs | §11 |
 | SPEC §14 | Update reason codes, annotations, host layout, and acceptance coverage | §7.3, §13 |
-| [CAPABILITY_LABELS](../CAPABILITY_LABELS.md) | New v2 key family and provider/startup-fence semantics | §9.1–§9.3 |
+| [CAPABILITY_LABELS](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/CAPABILITY_LABELS.md) | New v2 key family and provider/startup-fence semantics | §9.1–§9.3 |

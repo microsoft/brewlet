@@ -117,8 +117,6 @@ class DocumentationTests(unittest.TestCase):
             with self.subTest(page=page):
                 self.assertIn(page + ".md", config)
                 self.assertTrue((ROOT / "docs" / (page + ".md")).is_file())
-        self.assertNotIn("live-validation.md", config)
-        self.assertNotIn(": compatibility.md", config)
 
     def test_exact_reader_tutorial_has_bounded_isolated_execution_and_normal_cleanup(self):
         script = "\n".join(TUTORIAL.steps())

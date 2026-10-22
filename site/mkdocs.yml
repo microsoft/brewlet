@@ -7,8 +7,6 @@ repo_name: microsoft/brewlet
 edit_uri: https://github.com/microsoft/brewlet/edit/brewlet-2.0/docs/
 exclude_docs: |
   /README.md
-  /compatibility.md
-  /live-validation.md
 theme:
   name: material
   custom_dir: overrides

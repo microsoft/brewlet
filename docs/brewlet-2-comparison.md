@@ -14,8 +14,8 @@ capabilities that exist today. It does not request or implement those extensions
 Here, **main** means the Java-oriented implementation at the first revision,
 not a promise about future default-branch behavior. **2.0** means the clean-slate
 implementation governed by [Proposal 0009](../specs/proposals/0009-language-agnostic-runtime-images.md).
-The preserved 1.x specification and documentation are reference snapshots;
-they do not imply compatibility in 2.0.
+Brewlet 2.0 is a rewrite inspired by main; main's specification and
+documentation are not carried in this branch and imply no compatibility in 2.0.
 
 The pinned examples below retain the historical nested `requires` shape.
 Current descriptors use optional top-level `runtimeImages` and reject that
@@ -360,7 +360,7 @@ controller, worker, CRDs, chart and Maven producer; verify checksums/provenance;
 and test fresh installation, upgrade policy and guarded uninstall.
 Successful source builds do not establish those public-release workflows.
 
-The preserved [main Pages workflow](../specs/reference/site-pages.yml) is the
+The [main Pages workflow](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/.github/workflows/site-pages.yml) was the
 publishing reference: it validates site examples, optionally checks public
 release artifacts, builds MkDocs strictly and assembles the static site.
 Its requirements must be reconciled with the new tree before enabling Pages.

@@ -6,9 +6,10 @@ from `microsoft/brewlet` main commit
 `fa7085335b220e29df6affbece4558c5f1259ecb`.
 
 This branch was created with an empty Git index using `git switch --orphan
-brewlet-2.0`. It has no implementation ancestry. Reference specifications are
-preserved verbatim; Proposal 0009 takes precedence wherever it replaces a
-1.x contract. Other proposals are context, not implementation requirements.
+brewlet-2.0`. It has no implementation ancestry. Brewlet 0.x is design
+inspiration only: its specification, capability labels and runbooks are not
+carried in this branch, and `SPEC §N` citations refer to them at the commit
+above. Proposals 0009 and 0010 are the authoritative contracts.
 
 No compatibility with previous artifacts, workload APIs, or launch descriptors
 is intended.
