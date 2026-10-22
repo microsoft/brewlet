@@ -2,6 +2,7 @@
 
 import copy
 import json
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -14,18 +15,29 @@ RUN = "0123456789ab"
 
 class AdmissionContractTests(unittest.TestCase):
     def hold_harness(self, obj):
-        return SimpleNamespace(run_id=RUN, result={}, get=Mock(return_value=obj),
+        pre = self.profile()
+        del pre["metadata"]["deletionTimestamp"], pre["metadata"]["deletionGracePeriodSeconds"]
+        pre["metadata"].update(generation=2, resourceVersion="8")
+        h = SimpleNamespace(run_id=RUN, result={}, get=Mock(side_effect=lambda kind, *args, **kwargs:
+            {"items": []} if kind == "nodes" else obj),
             kubectl=Mock(return_value=SimpleNamespace(returncode=0, stderr="")),
             wait=lambda _, predicate: predicate())
+        h._empty_profile_deletions = {("owned-profile", "profile-uid"): a.EmptyDeletionWitness.capture(pre, RUN)}
+        return h
 
     def profile(self):
+        spec = {"nodePool": {"key": "fixture.test/pool", "names": ["absent"]}, "registry": {}, "rollout": {}}
         return {"metadata": {"name": "owned-profile", "uid": "profile-uid", "resourceVersion": "9",
+                             "generation": 3, "deletionTimestamp": "2026-10-22T00:00:00Z",
+                             "deletionGracePeriodSeconds": 0,
                              "labels": {OWNER: RUN},
-                             "finalizers": ["node.brewlet.sh/cleanup", a.HOLD]}}
+                             "finalizers": ["node.brewlet.sh/cleanup", a.HOLD]},
+                "spec": spec, "status": {"ownershipInitialized": True, "provisioningGeneration": 2,
+                                        "provisioningSpec": copy.deepcopy(spec)}}
 
     def test_release_only_fixture_hold_with_uid_version_and_value_tests(self):
         h = self.hold_harness(self.profile())
-        a.release_observation_hold(h, "owned-profile", "profile-uid")
+        a.release_observation_hold(h, "owned-profile", "profile-uid", valid_spec=self.profile()["spec"])
         patch = json.loads(h.kubectl.call_args.args[-1])
         self.assertEqual(patch[:2], [
             {"op": "test", "path": "/metadata/uid", "value": "profile-uid"},
@@ -43,14 +55,14 @@ class AdmissionContractTests(unittest.TestCase):
                 obj["metadata"]["labels"][OWNER] = "foreign"
             h = self.hold_harness(obj)
             with self.subTest(change=change), self.assertRaises(Failure):
-                a.release_observation_hold(h, "owned-profile", "profile-uid")
+                a.release_observation_hold(h, "owned-profile", "profile-uid", valid_spec=self.profile()["spec"])
             h.kubectl.assert_not_called()
 
     def test_production_finalizer_is_never_removed_when_fixture_hold_is_absent(self):
         obj = self.profile()
         obj["metadata"]["finalizers"] = ["node.brewlet.sh/cleanup"]
         h = self.hold_harness(obj)
-        a.release_observation_hold(h, "owned-profile", "profile-uid")
+        a.release_observation_hold(h, "owned-profile", "profile-uid", valid_spec=self.profile()["spec"])
         h.kubectl.assert_not_called()
 
     def test_webhook_selection_requires_exact_private_helm_release_and_service(self):
@@ -86,14 +98,15 @@ class AdmissionContractTests(unittest.TestCase):
         refreshed = copy.deepcopy(original)
         refreshed["metadata"]["resourceVersion"] = "10"
         h = self.hold_harness(original)
-        h.get.side_effect = [original, refreshed]
+        snapshots = iter([original, refreshed])
+        h.get.side_effect = lambda kind, *args, **kwargs: ({"items": []} if kind == "nodes" else next(snapshots))
         h.kubectl.side_effect = [SimpleNamespace(returncode=1, stderr="Error (Conflict)"),
                                 SimpleNamespace(returncode=0, stderr="")]
         def wait(_, predicate):
             self.assertFalse(predicate())
             self.assertTrue(predicate())
         h.wait = wait
-        a.release_observation_hold(h, "owned-profile", "profile-uid")
+        a.release_observation_hold(h, "owned-profile", "profile-uid", valid_spec=self.profile()["spec"])
         versions = [json.loads(call.args[-1])[1]["value"] for call in h.kubectl.call_args_list]
         self.assertEqual(["9", "10"], versions)
 
@@ -178,6 +191,7 @@ class EmptyFixtureDeletionTests(unittest.TestCase):
         self.assertEqual(["5", "6"], [
             json.loads(call.kwargs["input"])["preconditions"]["resourceVersion"]
             for call in h.kubectl.call_args_list])
+        self.assertEqual("6", h._empty_profile_deletions[("fixture", "fixture-uid")].resource_version)
 
     def test_conflicting_invalid_spec_is_corrected_to_disjoint_valid_inputs(self):
         initial = copy.deepcopy(self.obj)
@@ -230,7 +244,7 @@ class EmptyFixtureDeletionTests(unittest.TestCase):
         obj["spec"] = copy.deepcopy(self.spec)
         obj["metadata"]["deletionTimestamp"] = "2026-10-22T00:00:00Z"
         h, _ = self.harness([obj])
-        with self.assertRaisesRegex(Failure, "no current initialized ownership"):
+        with self.assertRaisesRegex(Failure, "no pre-delete witness"):
             a.request_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
         h.replace_inventory_spec.assert_not_called()
         h.kubectl.assert_not_called()
@@ -250,9 +264,11 @@ class EmptyFixtureDeletionTests(unittest.TestCase):
         self.assertFalse(h.result["fixtureLifecycle"]["observations"]["empty-profile"]["absence"]["present"])
 
     def test_repeat_cleanup_of_initialized_deleting_fixture_then_absence(self):
-        deleting = self.ready()
-        deleting["metadata"]["deletionTimestamp"] = "2026-10-22T00:00:00Z"
+        deleting = self.ready("3")
+        deleting["metadata"].update(deletionTimestamp="2026-10-22T00:00:00Z",
+                                    generation=3, deletionGracePeriodSeconds=0)
         h, _ = self.harness([deleting, deleting, None, None, None, None])
+        h._empty_profile_deletions = {("fixture", "fixture-uid"): a.EmptyDeletionWitness.capture(self.ready(), RUN)}
         for _ in range(2):
             a.finish_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
         h.replace_inventory_spec.assert_not_called()
@@ -262,6 +278,7 @@ class EmptyFixtureDeletionTests(unittest.TestCase):
         ready = self.ready("5")
         deleting = self.ready("6")
         deleting["metadata"].update(deletionTimestamp="2026-10-22T00:00:00Z",
+                                    generation=3, deletionGracePeriodSeconds=0,
                                     finalizers=["node.brewlet.sh/cleanup", a.HOLD])
         finalizing = copy.deepcopy(deleting)
         finalizing["metadata"]["finalizers"] = ["node.brewlet.sh/cleanup"]
@@ -288,10 +305,13 @@ class EmptyFixtureDeletionTests(unittest.TestCase):
         for field, value in (("ownershipInitialized", False), ("provisioningGeneration", 1),
                              ("provisioningSpec", {})):
             obj = self.ready()
-            obj["metadata"]["deletionTimestamp"] = "2026-10-22T00:00:00Z"
+            obj["metadata"].update(deletionTimestamp="2026-10-22T00:00:00Z",
+                                   generation=3, deletionGracePeriodSeconds=0)
             obj["status"][field] = value
             h, _ = self.harness([obj])
-            with self.subTest(field=field), self.assertRaisesRegex(Failure, "no current initialized ownership"):
+            h._empty_profile_deletions = {
+                ("fixture", "fixture-uid"): a.EmptyDeletionWitness.capture(self.ready("1"), RUN)}
+            with self.subTest(field=field), self.assertRaisesRegex(Failure, "lost witnessed"):
                 a.finish_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
             h.replace_inventory_spec.assert_not_called()
             h.kubectl.assert_not_called()
@@ -304,13 +324,161 @@ class EmptyFixtureDeletionTests(unittest.TestCase):
 
     def test_new_stale_state_cannot_release_hold_after_guarded_deletion_request(self):
         stale = self.ready("6")
-        stale["metadata"].update(deletionTimestamp="2026-10-22T00:00:00Z", finalizers=[a.HOLD])
+        stale["metadata"].update(deletionTimestamp="2026-10-22T00:00:00Z",
+                                 generation=3, deletionGracePeriodSeconds=0, finalizers=[a.HOLD])
         stale["status"]["provisioningGeneration"] = 1
         h, _ = self.harness([self.obj, self.ready("5"), stale])
-        with self.assertRaisesRegex(Failure, "hold release requires current initialized ownership"):
+        with self.assertRaisesRegex(Failure, "lost witnessed"):
             a.finish_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
         self.assertEqual(1, h.kubectl.call_count)
         self.assertEqual("delete", h.kubectl.call_args.args[0])
+
+    def test_both_observed_deletion_generations_with_hold_present_or_absent(self):
+        for generation in (2, 4):
+            for hold in (True, False):
+                with self.subTest(generation=generation, hold=hold):
+                    pre = self.ready("5")
+                    pre["metadata"]["generation"] = generation
+                    pre["status"]["provisioningGeneration"] = generation
+                    post = copy.deepcopy(pre)
+                    post["metadata"].update(generation=generation + 1, resourceVersion="6",
+                        deletionTimestamp="2026-10-22T00:00:00Z", deletionGracePeriodSeconds=0)
+                    if hold:
+                        post["metadata"]["finalizers"].append(a.HOLD)
+                    h, _ = self.harness([pre, pre, post, post, None, None, None, None])
+                    h.kubectl.side_effect = None
+                    h.kubectl.return_value = SimpleNamespace(returncode=0, stderr="")
+                    a.finish_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
+                    a.finish_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
+                    self.assertEqual(["delete", "patch"] if hold else ["delete"],
+                                     [call.args[0] for call in h.kubectl.call_args_list])
+                    witness = h._empty_profile_deletions[("fixture", "fixture-uid")]
+                    self.assertEqual(generation, witness.generation)
+                    row = h.result["fixtureLifecycle"]["observations"]["empty-profile"]["hold-release"]
+                    self.assertEqual(generation, row["expectedProvisioningGeneration"])
+                    self.assertTrue(row["preDeleteWitnessPresent"])
+
+    def test_deleting_profile_requires_witness_even_if_its_current_ledger_looks_fresh(self):
+        obj = self.ready("6")
+        obj["metadata"].update(deletionTimestamp="2026-10-22T00:00:00Z", deletionGracePeriodSeconds=0)
+        h, _ = self.harness([obj])
+        with self.assertRaisesRegex(Failure, "no pre-delete witness"):
+            a.finish_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
+        h.kubectl.assert_not_called()
+
+    def test_witness_is_immutable_canonical_and_independent_of_original_objects(self):
+        pre = self.ready("5")
+        witness = a.EmptyDeletionWitness.capture(pre, RUN)
+        pre["spec"]["registry"]["private"] = "not-witnessed"
+        pre["status"]["provisioningSpec"]["registry"]["private"] = "not-witnessed"
+        self.assertEqual(a.canonical_spec(self.spec), witness.spec)
+        self.assertEqual(a.canonical_spec(self.spec), witness.provisioning_spec)
+        with self.assertRaises(FrozenInstanceError):
+            witness.generation = 99
+        post = self.ready("6")
+        post["metadata"].update(generation=3, deletionTimestamp="2026-10-22T00:00:00Z",
+                                 deletionGracePeriodSeconds=0)
+        post["spec"] = dict(reversed(list(post["spec"].items())))
+        self.assertIs(post, a.witnessed_deletion(post, RUN, "fixture-uid", self.spec, witness))
+
+    def test_unexpected_post_delete_transitions_or_drift_cannot_release_even_absent_hold(self):
+        pre = self.ready("5")
+        witness = a.EmptyDeletionWitness.capture(pre, RUN)
+        for change in ("missing-witness", "uid", "owner", "name", "spec", "snapshot", "uninitialized",
+                       "stale-ledger", "reprovisioned", "generation-unchanged", "generation-extra",
+                       "not-deleting", "missing-grace", "nonzero-grace", "same-version",
+                       "targets", "retirement", "detachedRetirements"):
+            post = self.ready("6")
+            post["metadata"].update(generation=3, deletionTimestamp="2026-10-22T00:00:00Z",
+                                     deletionGracePeriodSeconds=0)
+            if change == "uid":
+                post["metadata"]["uid"] = "replacement"
+            elif change == "owner":
+                post["metadata"]["labels"][OWNER] = "foreign"
+            elif change == "name":
+                post["metadata"]["name"] = "foreign"
+            elif change == "spec":
+                post["spec"]["runtimeImages"] = []
+            elif change == "snapshot":
+                post["status"]["provisioningSpec"] = {}
+            elif change == "uninitialized":
+                post["status"]["ownershipInitialized"] = False
+            elif change in ("stale-ledger", "reprovisioned"):
+                post["status"]["provisioningGeneration"] = 1 if change == "stale-ledger" else 3
+            elif change in ("generation-unchanged", "generation-extra"):
+                post["metadata"]["generation"] = 2 if change == "generation-unchanged" else 4
+            elif change == "not-deleting":
+                del post["metadata"]["deletionTimestamp"]
+            elif change == "missing-grace":
+                del post["metadata"]["deletionGracePeriodSeconds"]
+            elif change == "nonzero-grace":
+                post["metadata"]["deletionGracePeriodSeconds"] = 30
+            elif change == "same-version":
+                post["metadata"]["resourceVersion"] = "5"
+            elif change in ("targets", "retirement", "detachedRetirements"):
+                post["status"][change] = [{"private": "not-empty"}]
+            h, _ = self.harness([post])
+            if change != "missing-witness":
+                h._empty_profile_deletions = {("fixture", "fixture-uid"): witness}
+            with self.subTest(change=change), self.assertRaises(Failure):
+                a.release_observation_hold(h, "fixture", "fixture-uid", valid_spec=self.spec)
+            h.kubectl.assert_not_called()
+
+    def test_stale_or_uninitialized_pre_delete_cannot_create_witness_or_delete(self):
+        for field, value in (("ownershipInitialized", False), ("provisioningGeneration", 1),
+                             ("provisioningSpec", {})):
+            pre = self.ready("5")
+            pre["status"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(Failure, "current initialized ownership"):
+                a.EmptyDeletionWitness.capture(pre, RUN)
+            h, _ = self.harness([pre, pre])
+            def wait(_description, predicate):
+                result = predicate()
+                if not result:
+                    raise Failure("offline initialization timeout")
+                return result
+            h.wait = wait
+            with self.assertRaisesRegex(Failure, "initialization timeout"):
+                a.request_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
+            self.assertFalse(h._empty_profile_deletions)
+            h.kubectl.assert_not_called()
+
+    def test_empty_or_malformed_retirement_records_are_not_absent_authority(self):
+        for field, value in (("retirement", {}), ("detachedRetirements", {}), ("targets", None)):
+            pre = self.ready("5")
+            pre["status"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(Failure, "obligations"):
+                a.EmptyDeletionWitness.capture(pre, RUN)
+
+    def test_delete_conflict_does_not_record_witness_or_adopt_unobserved_deletion(self):
+        pre = self.ready("5")
+        post = self.ready("6")
+        post["metadata"].update(generation=3, deletionTimestamp="2026-10-22T00:00:00Z",
+                                 deletionGracePeriodSeconds=0)
+        h, _ = self.harness([pre, pre, post])
+        h.kubectl.side_effect = None
+        h.kubectl.return_value = SimpleNamespace(returncode=1, stderr="Error (Conflict)")
+        with self.assertRaisesRegex(Failure, "without an acknowledged pre-delete witness"):
+            a.request_empty_profile_deletion(h, "fixture", "fixture-uid", self.spec)
+        self.assertFalse(h._empty_profile_deletions)
+        self.assertEqual(1, h.kubectl.call_count)
+
+    def test_hold_conflict_revalidates_witness_and_rejects_new_generation(self):
+        h = AdmissionContractTests().hold_harness(AdmissionContractTests().profile())
+        original = AdmissionContractTests().profile()
+        changed = copy.deepcopy(original)
+        changed["metadata"].update(generation=4, resourceVersion="10")
+        snapshots = iter([original, changed])
+        h.get.side_effect = lambda kind, *args, **kwargs: ({"items": []} if kind == "nodes" else next(snapshots))
+        h.kubectl.return_value = SimpleNamespace(returncode=1, stderr="Error (Conflict)")
+        def wait(_description, predicate):
+            self.assertFalse(predicate())
+            return predicate()
+        h.wait = wait
+        with self.assertRaisesRegex(Failure, "unexpected witnessed"):
+            a.release_observation_hold(h, "owned-profile", "profile-uid",
+                                       valid_spec=original["spec"])
+        self.assertEqual(1, h.kubectl.call_count)
 
     def test_uid_generation_and_obligation_diagnostics_contain_only_predicates(self):
         obj = self.ready()

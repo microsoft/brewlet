@@ -47,6 +47,19 @@ class ExportTests(unittest.TestCase):
         self.assertTrue(errors[1]["observations"]["admission-held"]["deletion"]["uidMatches"])
         self.assertNotIn("SECRET", json.dumps(result))
 
+    def test_post_delete_generations_are_distinguished_without_exporting_witness_bytes(self):
+        result = export({"assertions": [], "fixtureLifecycle": {"observations": {
+            "admission-held": {"hold-release": {
+                "preDeleteWitnessPresent": True, "expectedGeneration": 5,
+                "expectedProvisioningGeneration": 4, "generation": 5, "provisioningGeneration": 4,
+                "provisioningGenerationMatches": True, "witness": "SECRET",
+                "resourceVersion": "SECRET", "spec": "SECRET"}}}}})
+        row = result["fixtureLifecycle"]["observations"]["admission-held"]["hold-release"]
+        self.assertEqual(5, row["expectedGeneration"])
+        self.assertEqual(4, row["expectedProvisioningGeneration"])
+        self.assertTrue(row["preDeleteWitnessPresent"])
+        self.assertNotIn("SECRET", json.dumps(result))
+
     def test_wasm_release_provenance_is_exported_without_private_input_paths(self):
         result = export({"assertions": [], "wasmRuntimes": {"spin": {"after": {
             "releaseVersion": "4.2.3", "base": "example.invalid/base@sha256:" + "a" * 64,

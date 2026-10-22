@@ -14,8 +14,9 @@ def lifecycle_observations(source):
         "ownershipInitialized", "ownershipInitializedPresent", "provisioningGenerationMatches",
         "provisioningSpecMatches", "targetsValid", "targetsEmpty", "retirementPresent",
         "detachedRetirementsPresent", "deleting", "observationHoldPresent",
+        "preDeleteWitnessPresent",
     )
-    integers = ("generation", "expectedGeneration", "provisioningGeneration")
+    integers = ("generation", "expectedGeneration", "provisioningGeneration", "expectedProvisioningGeneration")
     observations = {}
     if isinstance(source, dict):
         for fixture in fixtures:

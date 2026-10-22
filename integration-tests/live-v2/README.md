@@ -79,10 +79,30 @@ historical declarations:
   cleanup fails. Already-deleting uninitialized profiles retain production
   finalizers and fail explicitly; no status or authority is invented.
   Repeated cleanup first checks authoritative absence and never patches an
-  already-equal spec. An existing deleting fixture still needs genuine current
-  initialized ownership; neither a prior delete response nor missing targets
-  supplies that proof. Hold release revalidates ownership and removes only the
-  test hold. Disappearance proves object deletion, not production host cleanup.
+  already-equal spec. Immediately before conditional deletion, the harness
+  captures an immutable exact-owned witness: UID/name/owner, canonical spec and
+  provisioning snapshot, resourceVersion and genuinely initialized current
+  provisioning generation with no targets or retirement obligations. Only an
+  acknowledged UID/resourceVersion-conditional deletion retains this witness
+  for later observations and repeated cleanup; it is never reconstructed from
+  an already-deleting object's status.
+  Kubernetes [registry `markAsDeleting`](https://github.com/kubernetes/apiserver/blob/v0.37.0/pkg/registry/generic/registry/store.go)
+  advances a positive generation once when first marking a non-graceful object
+  with pending finalizers for deletion. Metadata-only finalizer updates do not
+  advance the [custom-resource spec generation](https://github.com/kubernetes/apiextensions-apiserver/blob/v0.37.0/pkg/registry/customresource/strategy.go).
+  Brewlet's no-target production deletion path checks initialized ownership and
+  its own current-generation CleanupComplete condition, but does not reprovision
+  an object being deleted.
+  Accordingly, a deleting fixture must have a deletion timestamp, zero deletion
+  grace, an advanced resourceVersion and exactly the witnessed generation plus
+  one, while UID/owner/name, canonical spec/snapshot and initialized provisioning
+  generation remain witnessed and obligations remain empty. This is not a
+  general allowance for generation drift. Missing witnesses, stale pre-delete
+  authority, changed identity/spec/snapshot, additional generation changes or new
+  obligations fail closed. Hold release revalidates these invariants and the
+  empty Node pool before removing only an actually present test hold using fresh
+  UID/version/value tests. An absent hold causes no patch. Disappearance proves
+  object deletion, not production host cleanup.
   Assertion failures remain the primary exception even when fixture cleanup or
   webhook restoration also fails. Each independent cleanup is attempted; every
   secondary error is recorded explicitly without replacing the original error.
