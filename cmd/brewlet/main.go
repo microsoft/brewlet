@@ -137,12 +137,6 @@ func dispatch(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 			known = append(known, c.name)
 		}
 	}
-	switch name {
-	case "imagepush":
-		return fmt.Errorf("imagepush was folded into push: use `brewlet push REF --store DIR [--source REF_OR_DIGEST]`")
-	case "compose":
-		return fmt.Errorf("compose was renamed: use `brewlet bundle`")
-	}
 	sort.Strings(known)
 	return fmt.Errorf("unknown command %q; available: %s (see brewlet --help)", name, strings.Join(known, ", "))
 }

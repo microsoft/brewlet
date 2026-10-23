@@ -19,9 +19,7 @@ the built-in reference.
 | `brewlet version` | Print JSON with build version, immutable source commit and native platform; unstamped source builds report `dev`/`unknown`. |
 
 Usage errors exit with status 2, `--help` with 0, and `brewlet run` passes the
-container's exit status through. Earlier 2.0 previews named `push` (build) and
-`imagepush` (upload) differently and called `bundle` `compose`; those names now
-fail with a pointer to the replacement.
+container's exit status through.
 
 ## Build and publish
 

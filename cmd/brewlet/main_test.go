@@ -64,7 +64,7 @@ func TestHelpAndDispatch(t *testing.T) {
 	if e := dispatch(context.Background(), nil, &out, &errOut); e != errUsage {
 		t.Errorf("no command: %v", e)
 	}
-	for args, want := range map[string]string{"imagepush": "folded into push", "compose": "brewlet bundle", "nope": "unknown command"} {
+	for args, want := range map[string]string{"imagepush": "unknown command", "compose": "unknown command", "nope": "unknown command"} {
 		if e := dispatch(context.Background(), []string{args, "x"}, &out, &errOut); e == nil || !strings.Contains(e.Error(), want) {
 			t.Errorf("%s: %v", args, e)
 		}
