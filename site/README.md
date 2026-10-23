@@ -64,12 +64,20 @@ installed dependency license texts, removes unused non-English search
 extensions as main does, and verifies every built local link/fragment.
 Contract checks also protect honest 2.0 content and the draft's source bytes.
 
-## Deployment boundary
+## Deployment
 
-`.github/workflows/site-pages.yml` builds and uploads a preview artifact on
-website/docs changes or manual dispatch. It deliberately does **not** deploy,
-configure Pages, set a CNAME or replace the production `brewlet.sh` site.
+`.github/workflows/site-pages.yml` is the read-only build used by CI and manual
+preview runs. It checks the exact source SHA, builds the site, runs the browser
+checks and uploads `brewlet-2-website-preview`. Pull requests never deploy.
 
-A real publication decision needs an explicit destination and a reviewed
-Pages environment. No old-release installer or release smoke test is presented
-as a working 2.0 release workflow.
+`.github/workflows/site-deploy.yml` publishes to the existing `brewlet.sh`
+GitHub Pages site after relevant changes reach `main`, or through manual
+dispatch on `main`. It reuses the same checked build and deploys its artifact
+without rebuilding. Only the deployment job has Pages and OIDC write
+permissions, and it uses the `github-pages` environment. Runs on other branches
+or forks cannot deploy.
+
+The repository must keep Pages configured to use GitHub Actions and retain its
+existing custom-domain configuration; this workflow does not change the domain
+or create a CNAME file. No old-release installer or release smoke test is
+presented as a working 2.0 release workflow.

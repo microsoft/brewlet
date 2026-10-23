@@ -207,9 +207,16 @@ do not prove Linux mounts, real scheduling or provider behavior. See the
 [operations and verification](docs/README.md) for scope and prerequisites.
 
 Build the static website and searchable documentation with `make site-build`.
-The [website workflow](.github/workflows/site-pages.yml) uploads a preview
-artifact; it does not deploy over the production site or advertise the old
-release installer.
+The [website workflow](.github/workflows/site-pages.yml) uploads a checked preview
+artifact; the separate [Pages deployment workflow](.github/workflows/site-deploy.yml)
+publishes that artifact to `brewlet.sh` after website/docs changes reach `main`,
+or on manual dispatch from `main`. Pull requests cannot deploy, and the site
+does not advertise the old release installer. See the [website guide](site/README.md).
+
+CodeQL scans Actions, Go, Java, C#, JavaScript/TypeScript and Python on pull
+requests, pushes to `main` or `brewlet-2.0`, and a weekly schedule. Dependabot
+checks Actions, Go, Maven, npm, pip and NuGet dependencies weekly using the
+current repository and fixture manifests.
 
 ## Contributing and support
 
