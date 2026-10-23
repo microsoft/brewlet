@@ -1,176 +1,105 @@
-name: Brewlet prerelease infrastructure
+name: Brewlet release
 
+# Pushing tag vX.Y.Z (matching release.json) builds, verifies and publishes the release.
+# Versions below 1.0.0 and -alpha/-beta/-rc versions are published as GitHub prereleases
+# and are never marked latest. A manual dispatch is a build-only dry run.
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      operation:
-        description: Build only by default; transition and publication require separate explicit authorization
-        type: choice
-        options: [build, transition, publish]
-        default: build
-        required: true
-      candidate_run:
-        description: Successful release-build run at this exact SHA
-        type: string
-        required: false
-      architecture:
-        description: Native architecture for an explicitly authorized disposable transition
-        type: choice
-        options: [amd64, arm64]
-        default: amd64
-        required: false
-      authorization:
-        description: Transition only - type authorize-disposable-drain-reinstall
-        type: string
-        required: false
-      transition_amd64_run:
-        description: Successful authorized native amd64 release-transition run
-        type: string
-        required: false
-      transition_arm64_run:
-        description: Successful authorized native arm64 release-transition run
-        type: string
-        required: false
-      confirmation:
-        description: Type publish-v followed by the exact prerelease version
-        type: string
-        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: brewlet-prerelease-publication
+  group: brewlet-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  request:
+  metadata:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      channel: ${{ steps.identity.outputs.channel }}
     steps:
-      - name: Require explicit same-repository manual operation
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require same-repository tag matching the release identity
+        id: identity
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           REPOSITORY: ${{ github.repository }}
-          OPERATION: ${{ inputs.operation }}
+          PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          test "$EVENT" = workflow_dispatch
           test "$REPOSITORY" = microsoft/brewlet
-          case "$OPERATION" in build|transition|publish) ;; *) exit 1 ;; esac
+          python3 scripts/release.py identity > /dev/null
+          version="$(python3 -c 'import json; print(json.load(open("release.json"))["version"])')"
+          channel="$(python3 scripts/release.py channel)"
+          case "$EVENT" in
+            push) test "$REF" = "refs/tags/v$version" || { echo "tag $REF does not match release.json version $version" >&2; exit 1; } ;;
+            workflow_dispatch) echo "Dry run: build and verify only; nothing is published." ;;
+            *) exit 1 ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "Brewlet $version ($channel)" >> "$GITHUB_STEP_SUMMARY"
+
+  ci-gate:
+    needs: metadata
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install integrity-pinned GitHub CLI proxy
+        run: |
+          python3 scripts/release_tools.py --destination "$RUNNER_TEMP/release-tools" ghx
+          echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"
+      - name: Require the tagged commit to have passed Brewlet CI on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE: ${{ github.sha }}
+        run: |
+          for attempt in $(seq 1 100); do
+            runs="$(ghx api "repos/$REPOSITORY/actions/workflows/v2-ci.yml/runs?head_sha=$SOURCE&event=push&branch=main&per_page=20")"
+            if [ "$(jq '[.workflow_runs[] | select(.conclusion == "success")] | length' <<<"$runs")" -gt 0 ]; then
+              echo "Brewlet CI passed on main for $SOURCE"
+              exit 0
+            fi
+            if [ "$(jq '[.workflow_runs[] | select(.status != "completed")] | length' <<<"$runs")" -eq 0 ]; then
+              echo "no successful or pending Brewlet CI push run on main for $SOURCE; tag a green main commit" >&2
+              exit 1
+            fi
+            echo "Brewlet CI still running for $SOURCE (attempt $attempt)"
+            sleep 60
+          done
+          echo "timed out waiting for Brewlet CI on main for $SOURCE" >&2
+          exit 1
 
   candidate:
-    needs: request
-    if: ${{ inputs.operation == 'build' }}
+    needs: metadata
     permissions:
       contents: read
       id-token: write
       attestations: write
     uses: ./.github/workflows/release-build.yml
 
-  transition:
-    needs: request
-    if: ${{ inputs.operation == 'transition' }}
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
-      attestations: write
-    uses: ./.github/workflows/release-transition.yml
-    with:
-      candidate_run: ${{ inputs.candidate_run }}
-      architecture: ${{ inputs.architecture }}
-      authorization: ${{ inputs.authorization }}
-
-  qualification:
-    needs: request
-    if: ${{ inputs.operation == 'publish' }}
-    permissions:
-      contents: read
-      actions: read
-    uses: ./.github/workflows/promotion-qualification.yml
-    with:
-      expected_sha: ${{ github.sha }}
-
-  ordinary:
-    needs: request
-    if: ${{ inputs.operation == 'publish' }}
-    permissions:
-      contents: read
-    uses: ./.github/workflows/v2-ci.yml
-    with:
-      expected_sha: ${{ github.sha }}
-
-  prepare:
-    needs: [qualification, ordinary]
-    if: ${{ needs.qualification.result == 'success' && needs.ordinary.result == 'success' }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      actions: read
-      attestations: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Install integrity-pinned verification proxy
-        run: |
-          python3 scripts/release_tools.py --destination "$RUNNER_TEMP/release-tools" ghx
-          echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"
-      - name: Require exact successful immutable workflow runs
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE: ${{ github.sha }}
-          CANDIDATE: ${{ inputs.candidate_run }}
-          AMD64: ${{ inputs.transition_amd64_run }}
-          ARM64: ${{ inputs.transition_arm64_run }}
-        run: |
-          python3 scripts/release_run.py "$CANDIDATE" --workflow release-build.yml --source "$SOURCE"
-          python3 scripts/release_run.py "$AMD64" --workflow release-transition.yml --source "$SOURCE"
-          python3 scripts/release_run.py "$ARM64" --workflow release-transition.yml --source "$SOURCE"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: release-candidate-${{ github.sha }}
-          run-id: ${{ inputs.candidate_run }}
-          github-token: ${{ github.token }}
-          path: dist/candidate
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          pattern: release-cli-*
-          merge-multiple: true
-          run-id: ${{ inputs.candidate_run }}
-          github-token: ${{ github.token }}
-          path: dist/candidate/evidence
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: release-transition-amd64
-          run-id: ${{ inputs.transition_amd64_run }}
-          github-token: ${{ github.token }}
-          path: dist/candidate/evidence
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: release-transition-arm64
-          run-id: ${{ inputs.transition_arm64_run }}
-          github-token: ${{ github.token }}
-          path: dist/candidate/evidence
-      - name: Verify artifacts, signatures, source, scope and owner policy
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CONFIRMATION: ${{ inputs.confirmation }}
-          PYTHONDONTWRITEBYTECODE: "1"
-        run: python3 scripts/publish_release.py preflight --confirm "$CONFIRMATION"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: authorized-release-candidate
-          path: dist/candidate/
-          if-no-files-found: error
-          retention-days: 30
-
   publish:
-    needs: [qualification, ordinary, prepare]
-    if: ${{ needs.qualification.result == 'success' && needs.ordinary.result == 'success' && needs.prepare.result == 'success' }}
+    needs: [metadata, ci-gate, candidate]
+    if: ${{ github.event_name == 'push' && needs.metadata.result == 'success' && needs.ci-gate.result == 'success' && needs.candidate.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    environment: maven-central
     permissions:
       contents: write
       packages: write
@@ -179,7 +108,6 @@ jobs:
       attestations: write
     env:
       GH_TOKEN: ${{ github.token }}
-      CONFIRMATION: ${{ inputs.confirmation }}
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -199,10 +127,15 @@ jobs:
           echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: authorized-release-candidate
+          name: release-candidate-${{ github.sha }}
           path: dist/candidate
-      - name: Revalidate before granting credentials to any operation
-        run: python3 scripts/publish_release.py preflight --confirm "$CONFIRMATION"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: release-cli-*
+          merge-multiple: true
+          path: dist/candidate/evidence
+      - name: Verify artifacts, attestations, tag and owner policy before using credentials
+        run: python3 scripts/publish_release.py preflight
       - name: Sign exact existing Maven payloads in an ephemeral keyring
         env:
           GNUPGHOME: ${{ runner.temp }}/brewlet-release-gnupg
@@ -210,7 +143,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
         run: |
           mkdir -m 700 "$GNUPGHOME"
-          python3 scripts/publish_release.py sign-maven --confirm "$CONFIRMATION"
+          python3 scripts/publish_release.py sign-maven
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
           registry: ghcr.io
@@ -218,7 +151,7 @@ jobs:
           password: ${{ github.token }}
       - name: Transfer already qualified images and chart without rebuilding
         id: images
-        run: python3 scripts/publish_release.py images --confirm "$CONFIRMATION"
+        run: python3 scripts/publish_release.py images
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-name: ghcr.io/microsoft/brewlet-operator
@@ -251,13 +184,13 @@ jobs:
         env:
           BUNDLE: ${{ steps.publication.outputs.bundle-path }}
         run: cp "$BUNDLE" dist/candidate/attestations/publication.jsonl
-      - name: Submit exact signed bundle to Central without rebuilding
+      - name: Submit exact signed bundle to Maven Central without rebuilding
         env:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-        run: python3 scripts/publish_release.py central --confirm "$CONFIRMATION"
-      - name: Publish GitHub prerelease assets, never GA/latest
-        run: python3 scripts/publish_release.py release --confirm "$CONFIRMATION"
+        run: python3 scripts/publish_release.py central
+      - name: Publish GitHub release (prerelease below 1.0.0 or with a suffix)
+        run: python3 scripts/publish_release.py release
       - name: Independently fetch and verify published distributions
         env:
           GNUPGHOME: ${{ runner.temp }}/brewlet-release-gnupg
@@ -268,7 +201,7 @@ jobs:
         env:
           GNUPGHOME: ${{ runner.temp }}/brewlet-release-gnupg
         run: |
-          gpgconf --kill gpg-agent
+          gpgconf --kill gpg-agent || true
           python3 -c 'import os,shutil; from pathlib import Path; p=Path(os.environ["GNUPGHOME"]); shutil.rmtree(p) if p.is_dir() else None'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -278,5 +211,5 @@ jobs:
             dist/candidate/published.json
             dist/candidate/central-deployment.json
             dist/candidate/attestations/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30

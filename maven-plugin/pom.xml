@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>sh.brewlet</groupId>
   <artifactId>brewlet-maven-plugin</artifactId>
-  <version>1.0.0</version>
+  <version>0.8.0</version>
   <packaging>maven-plugin</packaging>
   <name>Brewlet Java producer</name>
   <description>Optional Java producer for language-neutral Brewlet application images.</description>

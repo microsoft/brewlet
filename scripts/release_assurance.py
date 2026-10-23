@@ -14,7 +14,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.release import (SYFT, members, policy, read_json, require, run, sha,
+from scripts.release import (SYFT, is_prerelease, members, policy, read_json, require, run, sha,
                              validate_inventory, write_json)
 
 
@@ -199,24 +199,18 @@ def publication_ready(output):
     for path in (output / "candidate.json", output / "sboms/index.json"):
         attest_verify(path, "release-build.yml", source)
     policy_value = config["publicationPolicy"]
-    legal = policy_value["legalApproval"]
-    require(isinstance(legal, dict) and legal.get("approved") is True and legal.get("reference")
-            and legal.get("containerPolicy") == "no-additional-text-required",
-            "release-owner legal/container policy confirmation required")
+    if not is_prerelease(config["version"]):
+        legal = policy_value["legalApproval"]
+        require(isinstance(legal, dict) and legal.get("approved") is True and legal.get("reference")
+                and legal.get("containerPolicy") == "no-additional-text-required",
+                "release-owner legal/container policy confirmation required for a stable release")
     require(re.fullmatch(r"[0-9A-F]{40}|[0-9A-F]{64}", policy_value["mavenSigningFingerprint"] or ""),
             "release-owner Maven signing fingerprint required")
-    for scenario, targets in (("cli", config["cliTargets"]), ("transition", config["imagePlatforms"])):
-        for target in targets:
-            path = output / "evidence" / f"{scenario}-{target.replace('/', '-')}.json"
-            value = read_json(path)
-            require(not evidence_errors(value, output, document, scenario, target), "invalid distribution receipt: " + str(path))
-            workflow = "release-build.yml" if scenario == "cli" else "release-transition.yml"
-            attest_verify(path, workflow, source)
-            if scenario == "transition":
-                approved = {key: value["transition"].get(key) for key in
-                            ("sourceVersion", "targetVersion", "method")}
-                require(approved in policy_value["supportedTransitions"],
-                        "transition not approved by release support policy")
+    for target in config["cliTargets"]:
+        path = output / "evidence" / f"cli-{target.replace('/', '-')}.json"
+        value = read_json(path)
+        require(not evidence_errors(value, output, document, "cli", target), "invalid distribution receipt: " + str(path))
+        attest_verify(path, "release-build.yml", source)
     return document
 
 

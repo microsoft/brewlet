@@ -18,7 +18,8 @@ from scripts import release_tools as tools
 class IdentityTests(unittest.TestCase):
     def test_current_coordinates_and_metadata_agree(self):
         config = r.policy()
-        self.assertEqual("1.0.0", config["version"])
+        self.assertEqual("0.8.0", config["version"])
+        self.assertTrue(r.is_prerelease(config["version"]))
         fixture = r.ET.parse(r.ROOT / "integration-tests/fixtures/java/app/pom.xml").getroot()
         plugin = next(item for item in fixture.findall("m:build/m:plugins/m:plugin", r.NS)
                       if item.findtext("m:artifactId", namespaces=r.NS) == "brewlet-maven-plugin")
@@ -27,15 +28,24 @@ class IdentityTests(unittest.TestCase):
                            "method": "drain-teardown-reinstall"}],
                          config["publicationPolicy"]["supportedTransitions"])
         self.assertIsNone(config["publicationPolicy"]["legalApproval"])
-        self.assertIsNone(config["publicationPolicy"]["mavenSigningFingerprint"])
+        self.assertEqual("2FF61160B931430B78AEB59551E003AB27AE3E0F",
+                         config["publicationPolicy"]["mavenSigningFingerprint"])
 
-    def test_only_explicit_1_0_0_version_policy_is_accepted(self):
-        for value in ("1.1.0", "1.1.0-alpha.1", "v1.0.0", "v1.0.0-alpha.1", "1.0",
-                      "1.0.1", "1.0.0-SNAPSHOT", "1.0.0-alpha.01", "1.0.0-alpha.1+mutable",
+    def test_only_explicit_semantic_versions_are_accepted(self):
+        for value in ("v1.0.0", "v1.0.0-alpha.1", "1.0", "01.0.0", "0.08.0", "1.0.0-SNAPSHOT",
+                      "1.0.0-alpha.01", "1.0.0-alpha.1+mutable", "1.0.0-preview.1",
                       "../../file", "1.0.0\n", "1.0.0-rc.1\n"):
             self.assertIsNone(r.VERSION.fullmatch(value), value)
-        for value in ("1.0.0", "1.0.0-alpha.1", "1.0.0-beta.12", "1.0.0-rc.0"):
+        for value in ("0.8.0", "0.10.1", "1.0.0", "1.1.0", "1.0.0-alpha.1", "1.0.0-beta.12", "1.0.0-rc.0"):
             self.assertIsNotNone(r.VERSION.fullmatch(value))
+
+    def test_versions_below_1_0_0_and_suffixed_versions_are_prereleases(self):
+        for value in ("0.8.0", "0.9.3", "0.8.0-rc.1", "1.0.0-alpha.1", "1.0.0-rc.2", "2.0.0-beta.0"):
+            self.assertTrue(r.is_prerelease(value), value)
+        for value in ("1.0.0", "1.2.3", "10.0.0"):
+            self.assertFalse(r.is_prerelease(value), value)
+        with self.assertRaises(ValueError):
+            r.is_prerelease("v0.8.0")
 
     def test_mismatched_pom_or_chart_fails(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -48,7 +58,7 @@ class IdentityTests(unittest.TestCase):
             for name in ("maven-plugin/pom.xml", "kubernetes/charts/brewlet/Chart.yaml"):
                 path = root / name
                 original = path.read_text()
-                path.write_text(original.replace("1.0.0", "1.0.0-SNAPSHOT"))
+                path.write_text(original.replace("0.8.0", "0.8.0-SNAPSHOT"))
                 with self.assertRaisesRegex(ValueError, "identity drift"):
                     r.policy(root)
                 path.write_text(original)
@@ -88,8 +98,8 @@ class PackagingTests(unittest.TestCase):
     def test_exact_payload_set_includes_every_distribution(self):
         names = r.expected_files(r.policy())
         self.assertEqual(9, len(names))
-        self.assertIn("brewlet-1.0.0.tgz", names)
-        self.assertIn("brewlet-maven-plugin-1.0.0-javadoc.jar", names)
+        self.assertIn("brewlet-0.8.0.tgz", names)
+        self.assertIn("brewlet-maven-plugin-0.8.0-javadoc.jar", names)
 
 
 class AssuranceTests(unittest.TestCase):
@@ -132,6 +142,10 @@ class AssuranceTests(unittest.TestCase):
 
     def test_missing_policy_blocks_before_any_publishing_surface(self):
         config = r.policy()
+        stable = copy.deepcopy(config)
+        stable["version"] = "1.0.0"
+        unsigned = copy.deepcopy(config)
+        unsigned["publicationPolicy"]["mavenSigningFingerprint"] = None
         with patch.object(a, "validate_inventory", return_value={"candidate": {"checkout": "a" * 40}}), \
                 patch.object(a, "verify_sboms"), patch.object(a, "attest_verify"), \
                 tempfile.TemporaryDirectory() as temp:
@@ -139,28 +153,66 @@ class AssuranceTests(unittest.TestCase):
             (path / "candidate.json").write_text("{}")
             (path / "sboms").mkdir()
             (path / "sboms/index.json").write_text("{}")
-            with self.assertRaisesRegex(ValueError, "legal/container policy"):
+            with patch.object(a, "policy", return_value=stable), \
+                    self.assertRaisesRegex(ValueError, "legal/container policy"):
                 a.publication_ready(path)
+            with patch.object(a, "policy", return_value=unsigned), \
+                    self.assertRaisesRegex(ValueError, "signing fingerprint"):
+                a.publication_ready(path)
+            with self.assertRaises(OSError):
+                a.publication_ready(path)
+
+    def test_beta_publication_requires_attested_native_cli_receipts_only(self):
+        document = {"candidate": {"checkout": "a" * 40}}
+        with patch.object(a, "validate_inventory", return_value=document), \
+                patch.object(a, "verify_sboms"), patch.object(a, "attest_verify") as verified, \
+                patch.object(a, "read_json", return_value={}), \
+                patch.object(a, "evidence_errors", return_value=[]), \
+                tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            self.assertIs(document, a.publication_ready(path))
+        workflows = [call.args[1] for call in verified.call_args_list]
+        self.assertEqual(["release-build.yml"] * (2 + len(r.policy()["cliTargets"])), workflows)
 
 
 class PublicationTests(unittest.TestCase):
-    def test_exact_existing_tag_manual_context_and_confirmation_are_required(self):
+    def test_exact_version_tag_push_context_is_required(self):
         import os
         config = r.policy()
-        environment = {"GITHUB_REPOSITORY": "microsoft/brewlet",
-                       "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_SHA": "a" * 40}
+        environment = {"GITHUB_REPOSITORY": "microsoft/brewlet", "GITHUB_EVENT_NAME": "push",
+                       "GITHUB_REF": "refs/tags/v" + config["version"], "GITHUB_SHA": "a" * 40}
         with patch.dict(os.environ, environment), \
                 patch.object(p, "publication_ready", return_value={"candidate": {"checkout": "a" * 40}}), \
                 patch.object(p, "run", return_value="a" * 40):
-            p.preflight(Path("synthetic"), "publish-v" + config["version"])
-            with self.assertRaisesRegex(ValueError, "confirmation"):
-                p.preflight(Path("synthetic"), "yes")
-            with patch.dict(os.environ, {"GITHUB_REPOSITORY": "fork/brewlet"}), self.assertRaises(ValueError):
-                p.preflight(Path("synthetic"), "publish-v" + config["version"])
-            with patch.dict(os.environ, {"GITHUB_EVENT_NAME": "push"}), self.assertRaises(ValueError):
-                p.preflight(Path("synthetic"), "publish-v" + config["version"])
+            p.preflight(Path("synthetic"))
+            for key, value in (("GITHUB_REPOSITORY", "fork/brewlet"), ("GITHUB_EVENT_NAME", "workflow_dispatch"),
+                               ("GITHUB_REF", "refs/heads/main"), ("GITHUB_REF", "refs/tags/v9.9.9")):
+                with self.subTest(key=key, value=value), patch.dict(os.environ, {key: value}), \
+                        self.assertRaisesRegex(ValueError, "release tag push"):
+                    p.preflight(Path("synthetic"))
             with patch.object(p, "run", return_value="b" * 40), self.assertRaisesRegex(ValueError, "exact candidate"):
-                p.preflight(Path("synthetic"), "publish-v" + config["version"])
+                p.preflight(Path("synthetic"))
+
+    def test_beta_releases_are_prereleases_and_never_latest(self):
+        import os
+        with patch.dict(os.environ, {"GH_TOKEN": "synthetic-not-a-credential"}), \
+                patch.object(p, "request", return_value=(None, {})), \
+                patch.object(p, "validate_inventory", return_value={"files": []}), \
+                patch.object(p, "run", return_value='{"assets": []}') as command, \
+                tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            for directory in ("sboms", "evidence", "signatures", "attestations"):
+                (output / directory).mkdir()
+            for name in ("candidate.json", "checksums.txt", "published.json"):
+                (output / name).write_text("synthetic")
+            p.publish_release(output)
+        calls = [list(map(str, call.args[0])) for call in command.call_args_list]
+        create = next(call for call in calls if call[:3] == ["ghx", "release", "create"])
+        edit = next(call for call in calls if call[:3] == ["ghx", "release", "edit"])
+        for args in (create, edit):
+            self.assertIn("--prerelease", args)
+            self.assertIn("--latest=false", args)
+        self.assertIn("--generate-notes", create)
 
     def test_a_conflicting_image_version_is_never_overwritten(self):
         import os

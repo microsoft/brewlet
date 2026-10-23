@@ -1,4 +1,4 @@
-name: Brewlet prerelease candidate artifacts
+name: Brewlet release candidate artifacts
 
 on:
   workflow_dispatch:
@@ -25,12 +25,16 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Require same-repository manual build
+      - name: Require same-repository manual build or release tag
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          test "$EVENT" = workflow_dispatch
+          case "$EVENT:$REF" in
+            workflow_dispatch:*|push:refs/tags/v*) ;;
+            *) echo "release candidates build only from a manual dispatch or a v* tag push" >&2; exit 1 ;;
+          esac
           test "$REPOSITORY" = microsoft/brewlet
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:

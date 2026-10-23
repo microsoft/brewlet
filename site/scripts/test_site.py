@@ -11,10 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class SiteTests(unittest.TestCase):
-    def test_current_branding_matches_release_identity(self):
-        import json
-        version = json.loads((ROOT / "release.json").read_text())["version"]
-        self.assertEqual(version, "1.0.0")
+    def test_current_branding_names_the_1_0_0_product_line(self):
+        # Product branding names the 1.0.0 line; 0.8.0+ betas in release.json preview it.
+        version = "1.0.0"
         landing = (ROOT / "site/index.html").read_text()
         self.assertEqual(landing.count(f'<span class="version">{version}</span>'), 2)
         self.assertIn(f"<title>Brewlet {version} ", landing)

@@ -1,5 +1,5 @@
 operator:
-  image: ghcr.io/microsoft/brewlet-operator:1.0.0
+  image: ghcr.io/microsoft/brewlet-operator:0.8.0
   rotationRestarts:
     enabled: false
     maxConcurrent: 5
@@ -19,7 +19,7 @@ runtimeClass:
     cpu: "50m"
     memory: "64Mi"
 provisioner:
-  image: ghcr.io/microsoft/brewlet-node-provisioner:1.0.0
+  image: ghcr.io/microsoft/brewlet-node-provisioner:0.8.0
   profiles: []
   gc:
     grace: 1h
@@ -28,7 +28,7 @@ security:
   allowedSourceMirrorHosts: []
 admission:
   enabled: true
-  image: ghcr.io/microsoft/brewlet-admission:1.0.0
+  image: ghcr.io/microsoft/brewlet-admission:0.8.0
   nodeProfileFailurePolicy: Fail
 uninstall:
   timeoutSeconds: 240

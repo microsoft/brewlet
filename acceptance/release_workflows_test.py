@@ -1,4 +1,4 @@
-"""Fail-closed prerelease routing and immutable-run contracts, without GitHub calls."""
+"""Fail-closed release routing and immutable-run contracts, without GitHub calls."""
 
 import copy
 import itertools
@@ -13,38 +13,43 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RoutingTests(unittest.TestCase):
-    def test_publisher_is_manual_with_both_strict_and_ordinary_prerequisites(self):
+    def test_publisher_runs_only_from_a_version_tag_after_ci_and_candidate(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
         triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertIn('  push:\n    tags: ["v*"]', triggers)
         self.assertIn("workflow_dispatch:", triggers)
-        self.assertNotIn("push:", triggers)
+        self.assertNotIn("branches", triggers)
         self.assertNotIn("pull_request", triggers)
-        self.assertIn("uses: ./.github/workflows/promotion-qualification.yml", text)
-        self.assertIn("uses: ./.github/workflows/v2-ci.yml", text)
+        self.assertIn('test "$REF" = "refs/tags/v$version"', text)
+        gate = text.split("\n  ci-gate:\n", 1)[1].split("\n\n  candidate:", 1)[0]
+        self.assertIn("if: ${{ github.event_name == 'push' }}", gate)
+        self.assertIn("actions/workflows/v2-ci.yml/runs?head_sha=$SOURCE&event=push&branch=main", gate)
         publish = text.split("\n  publish:\n", 1)[1]
-        self.assertIn("needs: [qualification, ordinary, prepare]", publish)
-        self.assertIn("if: ${{ needs.qualification.result == 'success' && needs.ordinary.result == 'success' && needs.prepare.result == 'success' }}", publish)
-        for prerequisite in ("qualification", "ordinary", "prepare"):
+        self.assertIn("needs: [metadata, ci-gate, candidate]", publish)
+        self.assertIn("github.event_name == 'push'", publish)
+        for prerequisite in ("metadata", "ci-gate", "candidate"):
             self.assertIn("needs." + prerequisite + ".result == 'success'", publish)
-        for unsafe in ("continue-on-error", "always() &&", "secrets: inherit", "git tag", "push --tags"):
+        self.assertIn("environment: maven-central", publish)
+        for unsafe in ("continue-on-error", "always() &&", "secrets: inherit", "git tag", "push --tags", "--confirm"):
             self.assertNotIn(unsafe, text)
-        for operation in ("sign-maven", "images", "central", "release"):
-            self.assertIn("publish_release.py " + operation + ' --confirm "$CONFIRMATION"', publish)
+        operations = ("preflight", "sign-maven", "images", "central", "release")
+        positions = [publish.index("publish_release.py " + operation) for operation in operations]
+        self.assertEqual(sorted(positions), positions)
+        self.assertLess(publish.index("publish_release.py preflight"), publish.index("secrets."))
         self.assertNotIn("packages: write", text.split("\n  publish:\n", 1)[0])
         self.assertNotIn("contents: write", text.split("\n  publish:\n", 1)[0])
+        self.assertNotIn("secrets.", text.split("\n  publish:\n", 1)[0])
 
-    def test_registered_entrypoint_defaults_to_build_and_separates_opt_ins(self):
+    def test_dispatch_is_a_build_only_dry_run_of_the_same_candidate_builder(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
-        self.assertIn("default: build", text)
-        for operation, callee in (("build", "release-build.yml"), ("transition", "release-transition.yml")):
-            self.assertIn("if: ${{ inputs.operation == '" + operation + "' }}", text)
-            self.assertIn("uses: ./.github/workflows/" + callee, text)
-        for job in ("qualification", "ordinary"):
-            section = text.split("\n  " + job + ":\n", 1)[1].split("\n\n", 1)[0]
-            self.assertIn("needs: request", section)
-            self.assertIn("if: ${{ inputs.operation == 'publish' }}", section)
+        candidate = text.split("\n  candidate:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("needs: metadata", candidate)
+        self.assertNotIn("if:", candidate)
+        self.assertIn("uses: ./.github/workflows/release-build.yml", candidate)
         self.assertNotIn("@main", text)
         self.assertNotIn("ref: main", text)
+        builder = (ROOT / ".github/workflows/release-build.yml").read_text()
+        self.assertIn("workflow_dispatch:*|push:refs/tags/v*) ;;", builder)
         for name in ("release-build.yml", "release-transition.yml"):
             self.assertIn("  workflow_call:", (ROOT / ".github/workflows" / name).read_text())
 

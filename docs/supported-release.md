@@ -1,11 +1,16 @@
-# Prerelease distribution and recovery
+# Release distribution and recovery
 
-Release infrastructure is not a published or qualified release. The initial
-candidate identity is **1.0.0**. The version number
-does not establish GA qualification: publication still creates a GitHub prerelease
-and never a latest alias. No live distribution/transition
-receipt is supplied by this change. Missing current real-node evidence and
-release-owner policy still block publication.
+Releases are automated: pushing a `vVERSION` tag that matches
+[`release.json`](https://github.com/microsoft/brewlet/blob/main/release.json)
+builds, verifies and publishes every distribution surface. The current
+release identity is **0.8.0**.
+
+**Any version below 1.0.0 is a beta.** Betas (`0.y.z`), and any version with an
+`-alpha.N`, `-beta.N` or `-rc.N` suffix, are published as GitHub *prereleases*
+and are never marked latest. The 0.8.0+ betas preview the Brewlet 1.0.0
+product line described in this documentation; "legacy 0.x" refers to the
+0.7.x and earlier releases from the `brewlet-0.x-java` branch. A plain `X.Y.Z`
+version at or above 1.0.0 is a stable release and is marked latest.
 
 ## One identity, explicit distribution surfaces
 
@@ -19,7 +24,7 @@ report `dev`/`unknown`, not a release.
 
 | Surface | Intended coordinate | Targets |
 | --- | --- | --- |
-| CLI | GitHub prerelease asset `brewlet_VERSION_OS_ARCH.tar.gz` | Linux/macOS amd64/arm64 |
+| CLI | GitHub release asset `brewlet_VERSION_OS_ARCH.tar.gz` | Linux/macOS amd64/arm64 |
 | Operator | `ghcr.io/microsoft/brewlet-operator:VERSION` | Linux amd64/arm64 |
 | Admission | `ghcr.io/microsoft/brewlet-admission:VERSION` | Linux amd64/arm64 |
 | Node worker and shim | `ghcr.io/microsoft/brewlet-node-provisioner:VERSION` | Linux amd64/arm64 |
@@ -55,28 +60,16 @@ The chart is repackaged deterministically with exact image index digests. Maven
 binary, POM, sources and Javadoc are retained as exact bytes; the release profile
 uses a source timestamp and excludes Javadoc wall-clock timestamps.
 
-The manual `release-build.yml` workflow builds these outputs, checks packaging
-and generates SPDX project SBOMs. Native jobs execute the archived CLI on all
-four targets and sign their outcome records. Downloaded artifacts must come
-from an exact successful same-repository/source workflow run. No current build
-job publishes a package or executes a node installation.
+The reusable `release-build.yml` workflow builds these outputs, checks
+packaging and generates SPDX project SBOMs. Native jobs execute the archived
+CLI on all four targets and sign their outcome records; a Maven consumer job
+resolves the exact plugin on Java 17 and 21. The build workflow never publishes
+a package or executes a node installation.
 
-GitHub requires a manual workflow to be present on the repository's default
-branch before it can be dispatched. Main already registers the legacy
-`.github/workflows/release.yml` path, but not the new standalone build/transition
-paths. Use that registered filename with the **reviewed Brewlet 1.0.0 ref**, selecting
-`operation: build` (the safe default), then `operation: transition` separately
-for each explicitly authorized architecture, and only later `operation: publish`.
-The selected ref must contain this infrastructure; do not use Brewlet 0.x's legacy
-publishing implementation or its old input schema.
-
-The entrypoint calls its local reusable build/transition/qualification files
-from the same immutable commit; it does not fetch workflows from main or fall
-back to legacy publication. The registered `release.yml` dispatcher must remain
-available on the default branch and the caller must have Actions permission.
-Direct dispatch of the new standalone filenames would still require their
-separate default-branch registration. No such registration, default-branch
-change, main edit or settings change is performed here.
+To dry-run a release without publishing anything, dispatch
+`.github/workflows/release.yml` manually (Actions → *Brewlet release* → *Run
+workflow*) on the branch to check. A dispatch only runs the identity check and
+the candidate build; the publish job runs exclusively for a tag push.
 
 ## Legal and project supply-chain evidence
 
@@ -99,37 +92,58 @@ membership binds each native image manifest. Verification pins repository,
 workflow, workflow/source SHA and subject digest, and rejects self-hosted
 signers. Hashes alone do not authenticate a publisher.
 
-The owner must provide a reviewed `publicationPolicy.legalApproval` record
-with `approved: true`, an authoritative `reference`, and
-`containerPolicy: no-additional-text-required`, **only if that is the owner's
-actual determination**. If additional policy text is required, publication
-remains blocked until authoritative text is supplied and its packaging is
-implemented and verified. Do not manufacture an approval record.
+Stable releases (1.0.0 and later without a suffix) additionally require a
+reviewed `publicationPolicy.legalApproval` record with `approved: true`, an
+authoritative `reference`, and `containerPolicy: no-additional-text-required`,
+**only if that is the owner's actual determination**. If additional policy
+text is required, stable publication remains blocked until authoritative text
+is supplied and its packaging is implemented and verified. Do not manufacture
+an approval record. Betas do not require this record.
 
-The trusted existing Maven GPG fingerprint also remains unset. Maven Central
-requires that owner-selected fingerprint, an existing signing key/passphrase and
-existing Central credentials. No secret values belong in source. Namespace
-ownership, credential/environment availability, registry permissions/visibility,
-attestation entitlement and native hosted-runner availability require owner
-confirmation before use.
+`publicationPolicy.mavenSigningFingerprint` pins the existing Maven Central
+signing key (the same key that signed the legacy 0.x plugin releases). The
+publish job runs in the `maven-central` GitHub environment, which supplies
+`MAVEN_GPG_KEY`, `MAVEN_GPG_PASSPHRASE`, `MAVEN_CENTRAL_USERNAME` and
+`MAVEN_CENTRAL_PASSWORD`. No secret values belong in source; the job imports
+the key into an ephemeral keyring and refuses a key that does not match the
+pinned fingerprint.
 
-## Qualification and explicit publication
+## Cutting a release
 
-Ordinary PR checks remain separate from strict promotion. `release.yml` is
-manual only: it calls both ordinary CI and the existing reusable strict
-promotion gate. All publication depends on their exact success plus validated
-artifact/transition evidence. A failed, skipped, cancelled or missing
-dependency is not success. There is no acceptance opt-out.
+1. Update the version in `release.json`, `maven-plugin/pom.xml`, the chart
+   `version`/`appVersion` and image tags in `values.yaml` (plus documented
+   coordinates). `make release-check` fails on any identity drift.
+2. Merge to `main` and wait for **Brewlet CI** to pass on the merge commit.
+3. Tag that exact commit and push the tag:
 
-Publication explicitly selects `operation: publish` and requires an existing tag resolving to the exact candidate source,
-explicit `publish-vVERSION` confirmation, the successful candidate run and both
-authorized native transition runs. The workflow does not create tags. It
-rechecks source, signed receipts, artifact digests and owner policy before using
-publishing credentials. An old source receipt cannot qualify changed inputs.
+   ```sh
+   git tag v0.8.0 <green-main-commit>
+   git push origin v0.8.0
+   ```
+
+The `release.yml` workflow then:
+
+- checks that the tag equals `v` + `release.json` version;
+- requires a successful **Brewlet CI** push run on `main` for the tagged commit
+  (waiting for an in-progress run), so only reviewed, green main commits ship;
+- builds and verifies the candidate with `release-build.yml` (tests, legal
+  checks, reproducibility, SBOMs, provenance, native CLI and Maven consumer
+  smoke tests);
+- in the `publish` job, re-verifies the candidate, attestations, tag commit and
+  owner policy **before** any credential is used, then signs the Maven bytes,
+  transfers images and chart to GHCR, submits the signed bundle to Maven
+  Central, publishes the GitHub release with generated notes and independently
+  verifies every published surface.
+
+A failed, skipped or cancelled prerequisite is not success; there is no
+acceptance opt-out. The workflow never creates or moves tags. Strict promotion
+qualification (`promotion-qualification.yml`) and the disposable-node
+transition test (`release-transition.yml`) remain separate manual workflows for
+owners who want additional evidence before tagging.
 
 Image transfer preserves verified OCI digests; the chart must resolve to the
 same package bytes. Central submission signs a bundle of the prebuilt JAR/POM
-bytes rather than rebuilding. GitHub receives a prerelease, never GA/latest.
+bytes rather than rebuilding. Betas become GitHub prereleases, never latest.
 An existing differing version/tag/asset is refused, not overwritten.
 
 Publication across GHCR, Central and GitHub is **not transactional**. A failed
@@ -156,9 +170,9 @@ attestations or credentials are failures, not optional checks.
 
 | Transition | Policy and current evidence |
 | --- | --- |
-| Same `1.0.0` candidate, clean reinstall | Only initial eligible test pair; requires exact native amd64/arm64 distribution receipts before publication. Not yet verified. |
-| Legacy 0.x to 1.0.0 | No supported in-place transition or old-state reuse. Re-author workloads and review a separate migration. |
-| Different 1.0.0 snapshots/prereleases | Unsupported until immutable source/target artifacts, cleanup/recovery limits and genuine evidence are explicitly reviewed. |
+| Same candidate, clean reinstall | The only eligible test pair, exercised by the manual `release-transition.yml`. Not required for beta publication. |
+| Legacy 0.7.x and earlier to 0.8.0+ | No supported in-place transition or old-state reuse. Re-author workloads and review a separate migration. |
+| Between different betas/prereleases | Unsupported until immutable source/target artifacts, cleanup/recovery limits and genuine evidence are explicitly reviewed. |
 | Helm/binary downgrade or mixed releases | No compatibility or rollback promise. |
 
 Follow [safe removal](uninstallation.md): stop writers, inventory original UIDs
