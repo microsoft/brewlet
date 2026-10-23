@@ -4,7 +4,7 @@
 
 | Gate | Execution | Meaning |
 | --- | --- | --- |
-| `Brewlet validation` in `v2-ci.yml` | Contracts, native producer/kernel checks, website checks, and a real four-language Kubernetes E2E | Required PR validation, not full promotion qualification |
+| `Brewlet validation` in `v2-ci.yml` | Contracts, native producer/kernel checks, and a real four-language Kubernetes E2E | Required PR validation, not full promotion qualification |
 | `Brewlet promotion qualification` | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
 
 Green unit/contract checks alone cannot make `Brewlet validation` green. Its
@@ -42,22 +42,24 @@ Every manual scenario rejects a moved ref before checkout or setup.
 PR CI checks out the immutable PR **head**, not an unrecorded moving branch.
 No work is authorized merely by these instructions.
 
-## CI receipts are artifacts, not repository contents
+## Validation receipts are artifacts, not repository contents
 
-CI executes each fixed non-live check once and uploads its sanitized JSON:
+Routine CI executes each fixed non-live check below once and uploads its
+sanitized JSON:
 
 | CI job | Fixed checks |
 | --- | --- |
 | contracts | `go-contracts`, `maven` |
 | producer integration, both native architectures | `fixtures`, `registry` |
 | Linux kernel contracts, both native architectures | `native-contracts`, `go-vet` |
-| reusable website workflow | `documentation`, `site-integration` |
 
 The producer commands, scopes and assertion mappings remain fixed in
 `run_check.py`; ledger-supplied strings are never executed. The shared native
 runner still rejects emulation and skipped kernel tests. Website dependencies,
-build and browser checks stay in `site-pages.yml`, reused by CI rather than
-duplicated by a second PR workflow.
+build and browser checks stay in the separate `site-pages.yml` workflow, not
+routine CI or its required validation aggregate. Manual website preview runs
+produce `documentation` and `site-integration` receipts for full qualification;
+Pages deployment continues to reuse the checked website build.
 
 Generated receipts belong in Actions artifacts or the ignored local
 `acceptance/results/` cache. Git retains only `evidence-index.json`, the normative
@@ -76,8 +78,9 @@ After the baseline is stable and inputs are frozen, the full requirement remains
 
 Six manual native scopes supply the 22 receipts: `complete`, `managed` and
 `managed-wasm` on each architecture. `complete` expands into the first nine.
-Use the already completed CI run for the twelve distinct non-live filenames;
-there is no separate non-live dispatch before every live debugging attempt.
+Use the already completed CI run for ten distinct non-live filenames, plus a
+manual `site-pages.yml` run at the same immutable source for the two website
+receipts. These runs do not need repeating before every live debugging attempt.
 Review each scope's actual inputs, source, native runner, assertions and cleanup.
 Stop on failure for review; do not retry or change inputs under old authorization.
 No source inspection, cross-build, partial pass or runner disposal substitutes
@@ -90,12 +93,13 @@ checkout with an empty receipt cache and a read-only `GITHUB_TOKEN`:
 
 ```sh
 python3 acceptance/evidence_index.py record-candidate \
-  --run CI_RUN_ID --run AMD64_COMPLETE --run ARM64_COMPLETE \
+  --run CI_RUN_ID --run WEBSITE_RUN_ID --run AMD64_COMPLETE --run ARM64_COMPLETE \
   --run AMD64_MANAGED --run ARM64_MANAGED \
   --run AMD64_MANAGED_WASM --run ARM64_MANAGED_WASM
 ```
 
-Supply the CI run and all six native scope runs. The command fetches only the
+Supply the CI run, standalone website run and all six native scope runs. The
+command fetches only the
 expected public artifact groups from this repository, checks successful run
 event/workflow/source and artifact ownership/expiry, rejects unsafe ZIP paths,
 verifies all current bindings, and records per-file checksums. It never runs

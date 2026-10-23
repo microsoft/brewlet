@@ -66,9 +66,10 @@ Contract checks also protect honest 1.0.0 content and the draft's source bytes.
 
 ## Deployment
 
-`.github/workflows/site-pages.yml` is the read-only build used by CI and manual
-preview runs. It checks the exact source SHA, builds the site, runs the browser
-checks and uploads `brewlet-website-preview`. Pull requests never deploy.
+`.github/workflows/site-pages.yml` is the read-only build used by Pages deployment
+and manual preview runs, not routine CI. It checks the exact source SHA, builds
+the site, runs the browser checks and uploads `brewlet-website-preview`. Pull
+requests do not run this workflow automatically and never deploy.
 
 `.github/workflows/site-deploy.yml` publishes to the existing `brewlet.sh`
 GitHub Pages site after relevant changes reach `main`, or through manual
