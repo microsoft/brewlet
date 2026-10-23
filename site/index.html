@@ -141,10 +141,11 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
     "workingDir": "/app"
   }
 }</code></pre></div>
-            <div class="code-block"><div class="code-heading"><span>Package and publish</span><button type="button" class="copy-button" data-copy="package-code" hidden>Copy</button></div><pre tabindex="0"><code id="package-code">brewlet push registry.example.com/apps/api:v2 \
+            <div class="code-block"><div class="code-heading"><span>Package and publish</span><button type="button" class="copy-button" data-copy="package-code" hidden>Copy</button></div><pre tabindex="0"><code id="package-code">brewlet build registry.example.com/apps/api:v2 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer app=./src:/app/src</code></pre><p class="code-caption" id="example-note">This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them.</p></div>
+  --layer app=./src:/app/src
+brewlet push registry.example.com/apps/api:v2</code></pre><p class="code-caption" id="example-note">This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them.</p></div>
           </div>
         </div>
         <p class="fine-print">Examples are templates, not a live terminal. Use your registry and actual supported platforms. Java project intelligence is available in the optional <a href="docs/applications/#optional-maven-producer">Maven producer</a>; it does not select a pod runtime or generate workloads.</p>
