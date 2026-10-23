@@ -1,4 +1,4 @@
-package v2alpha1
+package v1alpha1
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func TestRuntimeMetadataUpdateCanonicalizesOmittedCompatibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	validate := celvalidation.NewValidator(schema, true, celconfig.PerCallLimit)
-	oldRaw := []byte(`{"apiVersion":"node.brewlet.sh/v2alpha1","kind":"RuntimeImage","metadata":{"name":"python-3.12","uid":"epoch","resourceVersion":"1"},"spec":{"source":{"image":"registry.example.com/python@sha256:` + strings.Repeat("a", 64) + `"},"user":{"uid":65532,"gid":65532}}}`)
+	oldRaw := []byte(`{"apiVersion":"node.brewlet.sh/v1alpha1","kind":"RuntimeImage","metadata":{"name":"python-3.12","uid":"epoch","resourceVersion":"1"},"spec":{"source":{"image":"registry.example.com/python@sha256:` + strings.Repeat("a", 64) + `"},"user":{"uid":65532,"gid":65532}}}`)
 	var old map[string]any
 	_ = kjson.Unmarshal(oldRaw, &old)
 	var typed RuntimeImage

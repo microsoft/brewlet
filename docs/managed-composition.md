@@ -29,7 +29,7 @@ payload file with its actual hash and explicit package identity; supply
 ecosystem-specific PURLs so external scanners can match advisories accurately.
 The generic producer never guesses package versions or resolves dependencies.
 
-Use the [optional Maven producer](https://github.com/microsoft/brewlet/blob/brewlet-2.0/maven-plugin/README.md) for a source-BOM
+Use the [optional Maven producer](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md) for a source-BOM
 and scoped Maven graph rather than putting Java knowledge in the composer.
 The checked-in `integration-tests/fixtures/java/bom`, `dependency` and `app`
 projects provide a concrete platform BOM, library and consuming thin-JAR app.
@@ -54,7 +54,7 @@ strip out.
 For an app-only Maven publication:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:push \
+mvn package sh.brewlet:brewlet-maven-plugin:1.0.0:push \
   -Dbrewlet.applicationOnly=true \
   -Dbrewlet.sourceBom=sh.brewlet.fixture:fixture-bom:2.0.0 \
   -Dbrewlet.image=registry.example.com/builds/orders:payload \
@@ -112,7 +112,7 @@ bypass trust as a fallback.
 
 | Input | Accepted | Rejected |
 | --- | --- | --- |
-| Application | A version-2 application graph with only app and launch layers; or a prior composition whose signature verifies under the current policy | Images with bundled dependency-role layers (they are never guessed or stripped); unsigned or `development` compositions as replacement sources; ordinary OCI/Docker images without a Brewlet launch layer |
+| Application | A version-1 application graph with only app and launch layers; or a prior composition whose signature verifies under the current policy | Images with bundled dependency-role layers (they are never guessed or stripped); unsigned or `development` compositions as replacement sources; ordinary OCI/Docker images without a Brewlet launch layer |
 | Dependency set | Exactly one digest-pinned managed set with a complete lock, exactly one CycloneDX SBOM and trusted publisher provenance | Unlocked or generic sets; partial or merged catalogs; revoked or unapproved subjects; missing or multiple SBOMs |
 | Platform | Exactly one explicit `linux/<arch>[/variant]`, verified against its index member | Missing, multiple or non-Linux platforms; implicit index selection |
 | References | Canonical `REF@sha256:...` or local `LAYOUT@sha256:...` | Mutable tags |

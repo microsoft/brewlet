@@ -1,5 +1,5 @@
-// Package v2alpha1 defines Brewlet's language-neutral cluster inventory.
-package v2alpha1
+// Package v1alpha1 defines Brewlet's language-neutral cluster inventory.
+package v1alpha1
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-var GroupVersion = schema.GroupVersion{Group: "node.brewlet.sh", Version: "v2alpha1"}
+var GroupVersion = schema.GroupVersion{Group: "node.brewlet.sh", Version: "v1alpha1"}
 var SchemeBuilder = runtime.NewSchemeBuilder(func(s *runtime.Scheme) error {
 	s.AddKnownTypes(GroupVersion, &RuntimeImage{}, &RuntimeImageList{}, &NodeProfile{}, &NodeProfileList{}, &NodeRetirementEvidence{}, &NodeRetirementEvidenceList{})
 	metav1.AddToGroupVersion(s, GroupVersion)

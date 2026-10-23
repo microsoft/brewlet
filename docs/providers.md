@@ -39,7 +39,7 @@ publishes observed runtime capabilities.
 Select the actual group through a profile such as:
 
 ```yaml
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
   name: runtime-pool

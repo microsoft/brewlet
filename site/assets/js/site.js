@@ -73,7 +73,7 @@
     });
     panel.setAttribute("aria-labelledby", tab.id);
     document.getElementById("launch-code").textContent = JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 1,
       process: {entrypoint: example.entrypoint, args: example.args, workingDir: "/app"}
     }, null, 2);
     document.getElementById("package-code").textContent =

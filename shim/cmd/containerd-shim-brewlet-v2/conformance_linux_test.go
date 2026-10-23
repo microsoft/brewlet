@@ -11,7 +11,7 @@ import (
 )
 
 func TestPublishedProducerShimConformance(t *testing.T) {
-	data, err := os.ReadFile("../../../conformance/artifact-v2.json")
+	data, err := os.ReadFile("../../../conformance/artifact-v1.json")
 	if err != nil {
 		t.Fatal(err)
 	}

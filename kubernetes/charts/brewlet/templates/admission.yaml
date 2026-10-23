@@ -127,7 +127,7 @@ webhooks:
     rules:
       - operations: [CREATE, UPDATE]
         apiGroups: [node.brewlet.sh]
-        apiVersions: [v2alpha1]
+        apiVersions: [v1alpha1]
         resources: [nodeprofiles]
   - name: runtimeimages.brewlet.sh
     admissionReviewVersions: [v1]
@@ -140,7 +140,7 @@ webhooks:
     rules:
       - operations: [CREATE, UPDATE]
         apiGroups: [node.brewlet.sh]
-        apiVersions: [v2alpha1]
+        apiVersions: [v1alpha1]
         resources: [runtimeimages]
   - name: retirement-evidence.brewlet.sh
     admissionReviewVersions: [v1]
@@ -153,6 +153,6 @@ webhooks:
     rules:
       - operations: [CREATE, UPDATE, DELETE]
         apiGroups: [node.brewlet.sh]
-        apiVersions: [v2alpha1]
+        apiVersions: [v1alpha1]
         resources: [noderetirementevidences]
 {{- end }}

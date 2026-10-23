@@ -1,6 +1,6 @@
 # Brewlet design proposals
 
-Substantial changes to the [Brewlet 2.0 specification](../SPECIFICATION.md)
+Substantial changes to the [Brewlet 1.0.0 specification](../SPECIFICATION.md)
 begin here as numbered, reviewable proposals. A proposal is not a current
 contract; once approved and implemented, its requirements are merged into the
 specification and the proposal file is removed. Committed history retains it.

@@ -33,7 +33,7 @@ def main():
         return result
 
     runtime = {
-        "apiVersion": "node.brewlet.sh/v2alpha1", "kind": "RuntimeImage",
+        "apiVersion": "node.brewlet.sh/v1alpha1", "kind": "RuntimeImage",
         "metadata": {"name": args.runtime_id},
         "spec": {
             "source": {"image": args.runtime_source},
@@ -42,7 +42,7 @@ def main():
         },
     }
     profile = {
-        "apiVersion": "node.brewlet.sh/v2alpha1", "kind": "NodeProfile",
+        "apiVersion": "node.brewlet.sh/v1alpha1", "kind": "NodeProfile",
         "metadata": {"name": args.profile_name},
         "spec": {
             "nodePool": {"key": "brewlet.test/pool", "names": [args.pool_name]},

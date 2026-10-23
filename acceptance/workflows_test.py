@@ -38,7 +38,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_automatic_validation_requires_actual_e2e_not_promotion_evidence(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
-        self.assertIn("branches: [main, brewlet-2.0]", text)
+        self.assertIn("branches: [main]", text)
         self.assertIn("  pull_request:", text)
         self.assertNotIn("paths:", text)
         self.assertNotIn("pull_request_target", text)
@@ -123,7 +123,8 @@ class WorkflowTests(unittest.TestCase):
                 ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", True),
                 ("pull_request", "refs/pull/1/merge", "fork/brewlet", "pr", False),
                 ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "complete", False),
-                ("push", "refs/heads/brewlet-2.0", "microsoft/brewlet", "pr", True),
+                ("push", "refs/heads/main", "microsoft/brewlet", "pr", True),
+                ("push", "refs/heads/candidate", "microsoft/brewlet", "pr", False),
                 ("push", "refs/heads/main", "microsoft/brewlet", "complete", False),
                 ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", True),
                 ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", True),

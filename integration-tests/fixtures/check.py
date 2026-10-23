@@ -52,7 +52,7 @@ def image_target(layout):
     payload_digests = None
     for manifest_descriptor in platforms:
         manifest = blob(layout, manifest_descriptor)
-        assert manifest["annotations"]["brewlet.sh/artifact-version"] == "2"
+        assert manifest["annotations"]["brewlet.sh/artifact-version"] == "1"
         roles = [layer["annotations"]["brewlet.sh/layer"] for layer in manifest["layers"]]
         assert roles[-1] == "launch" and roles.count("launch") == 1
         assert "app" in roles and "dependency" in roles
@@ -278,7 +278,7 @@ def main():
         conformance = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(conformance)
         evidence["mavenConformanceCases"] = conformance.run(
-            brewlet, java / "app/pom.xml", work, ROOT / "conformance/artifact-v2.json")
+            brewlet, java / "app/pom.xml", work, ROOT / "conformance/artifact-v1.json")
         evidence["scope"] = "host-fixtures-and-producer-integration"
     (work / "result.json").write_text(json.dumps(evidence, indent=2) + "\n")
     print(f"Passed ({evidence['scope']}); NOT real-node acceptance")

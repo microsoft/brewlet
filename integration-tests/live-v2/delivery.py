@@ -590,7 +590,7 @@ auth:
         (dependency / "contract").write_text("native-fixture\n")
         os.chmod(dependency / "contract", 0o644)
         launch = private_file(directory / "launch.json", json.dumps({
-            "schemaVersion": 2, "process": {"entrypoint": ["/app/bin/native"]}}))
+            "schemaVersion": 1, "process": {"entrypoint": ["/app/bin/native"]}}))
         layout = directory / "layout"
         command = list(map(str, self.h.cli_command))
         if command[:2] == ["docker", "run"]:

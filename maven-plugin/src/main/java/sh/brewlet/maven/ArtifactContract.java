@@ -127,8 +127,8 @@ final class ArtifactContract {
                 }
             }
         }
-        if (version != 2 || entrypoint.isEmpty() || entrypoint.get(0).isEmpty()) {
-            throw new IllegalArgumentException("schemaVersion 2 and nonempty entrypoint required");
+        if (version != 1 || entrypoint.isEmpty() || entrypoint.get(0).isEmpty()) {
+            throw new IllegalArgumentException("schemaVersion 1 and nonempty entrypoint required");
         }
         for (String arg : concat(entrypoint, args)) {
             if (arg.indexOf(0) >= 0) {

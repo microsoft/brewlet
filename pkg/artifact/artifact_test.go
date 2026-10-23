@@ -111,7 +111,7 @@ func fileHeader(name, data string, mode int64) *tar.Header {
 	return &tar.Header{Name: name, Mode: mode, Size: int64(len(data)), Typeflag: tar.TypeReg, ModTime: time.Unix(1700000000, 123000000), Format: tar.FormatPAX}
 }
 func TestConformance(t *testing.T) {
-	b, e := os.ReadFile("../../conformance/artifact-v2.json")
+	b, e := os.ReadFile("../../conformance/artifact-v1.json")
 	must(t, e)
 	r, e := RunFixtures(context.Background(), b)
 	must(t, e)
@@ -346,7 +346,7 @@ func TestBuildDeterministicAndResolve(t *testing.T) {
 	s := Store{Dir: filepath.Join(dir, "store")}
 	p1, _ := ParsePlatform("linux/amd64")
 	p2, _ := ParsePlatform("linux/arm64")
-	o := BuildOptions{Launch: []byte(`{"schemaVersion":2,"process":{"entrypoint":["/app/server"]}}`), Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}}
+	o := BuildOptions{Launch: []byte(`{"schemaVersion":1,"process":{"entrypoint":["/app/server"]}}`), Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}}
 	first, e := Build(context.Background(), s, o)
 	must(t, e)
 	second, e := Build(context.Background(), s, o)
@@ -358,6 +358,21 @@ func TestBuildDeterministicAndResolve(t *testing.T) {
 	must(t, e)
 	b, e := Resolve(context.Background(), s.Open, first, p2)
 	must(t, e)
+	if a.Manifest.SchemaVersion != 2 || a.Manifest.Annotations["brewlet.sh/artifact-version"] != "1" ||
+		a.Launch.SchemaVersion != 1 || a.Image.Config.Labels["sh.brewlet.app"] != "1" {
+		t.Fatal("Brewlet artifact/launch version 1 must retain OCI schema version 2")
+	}
+	for _, version := range []string{"", "0", "2"} {
+		t.Run("unsupported-artifact-version-"+version, func(t *testing.T) {
+			manifest := a.Manifest
+			manifest.Annotations = map[string]string{"brewlet.sh/artifact-version": version}
+			target, err := s.PutJSON(v1.MediaTypeImageManifest, manifest)
+			must(t, err)
+			if _, err = Resolve(context.Background(), s.Open, target, p1); Reason(err) != "UnsupportedArtifact" {
+				t.Fatalf("unsupported artifact version %q accepted: %v", version, err)
+			}
+		})
+	}
 	if a.Manifest.Layers[0].Digest != b.Manifest.Layers[0].Digest {
 		t.Fatal("neutral layers not reused")
 	}
@@ -419,7 +434,7 @@ func TestLayerSetByteReuseAndLock(t *testing.T) {
 	layers, ev, e := ConsumeLayerSet(context.Background(), s, set)
 	must(t, e)
 	p, _ := ParsePlatform("linux/amd64")
-	target, e := Build(context.Background(), s, BuildOptions{Launch: []byte(`{"schemaVersion":2,"process":{"entrypoint":["runner"]}}`), Platforms: []v1.Platform{p}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}, LayerSets: []v1.Descriptor{set}})
+	target, e := Build(context.Background(), s, BuildOptions{Launch: []byte(`{"schemaVersion":1,"process":{"entrypoint":["runner"]}}`), Platforms: []v1.Platform{p}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}, LayerSets: []v1.Descriptor{set}})
 	must(t, e)
 	resolved, e := Resolve(context.Background(), s.Open, target, p)
 	must(t, e)
@@ -463,7 +478,7 @@ func TestBuildPlatformScopedLayers(t *testing.T) {
 	s := Store{Dir: filepath.Join(dir, "store")}
 	p1, _ := ParsePlatform("linux/amd64")
 	p2, _ := ParsePlatform("linux/arm64")
-	launch := []byte(`{"schemaVersion":2,"process":{"entrypoint":["/app/file"]}}`)
+	launch := []byte(`{"schemaVersion":1,"process":{"entrypoint":["/app/file"]}}`)
 	o := BuildOptions{Launch: launch, Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{
 		spec("linux/amd64:dependency=" + amd + ":/app/deps"),
 		spec("linux/arm64:dependency=" + arm + ":/app/deps"),

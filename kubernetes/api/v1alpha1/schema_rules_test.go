@@ -1,4 +1,4 @@
-package v2alpha1_test
+package v1alpha1_test
 
 import (
 	"context"

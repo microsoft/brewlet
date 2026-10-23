@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/pkg/artifact"
 	digest "github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go"
@@ -23,7 +23,7 @@ import (
 
 const runTestRef = "example.com/hello:1"
 
-// buildRunTestImage writes a version 2 artifact layout directly, so tests do
+// buildRunTestImage writes a version 1 artifact layout directly, so tests do
 // not depend on host source xattrs (macOS adds com.apple.provenance).
 func buildRunTestImage(t *testing.T, launch string) string {
 	t.Helper()
@@ -82,7 +82,7 @@ func buildRunTestImage(t *testing.T, launch string) string {
 	}
 	target, err := store.PutJSON(v1.MediaTypeImageManifest, v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2},
 		MediaType: v1.MediaTypeImageManifest, Config: config, Layers: []v1.Descriptor{app, ln},
-		Annotations: map[string]string{"brewlet.sh/artifact-version": "2"}})
+		Annotations: map[string]string{"brewlet.sh/artifact-version": "1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func runDry(t *testing.T, args ...string) (string, string, error) {
 }
 
 func TestRunDryRunAssemblesContainer(t *testing.T) {
-	store := buildRunTestImage(t, `{"schemaVersion":2,"process":{"entrypoint":["/bin/sh","-c"],"args":["cat /app/hello.txt"],"workingDir":"/app/bin","env":[{"name":"A","value":"1"},{"name":"B","value":"two words"}]},"runtimeImages":["shell-1"]}`)
+	store := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/sh","-c"],"args":["cat /app/hello.txt"],"workingDir":"/app/bin","env":[{"name":"A","value":"1"},{"name":"B","value":"two words"}]},"runtimeImages":["shell-1"]}`)
 	out, _, err := runDry(t, runTestRef, "--store", store, "--platform", "linux/amd64", "--engine", "podman",
 		"--runtime", "shell-1=busybox:1.36", "--user", "1000:2000", "-e", "B=override", "--env", "C=3",
 		"-p", "8080:80", "--tmpfs", "/app/cache", "--name", "hello", "--dry-run")
@@ -118,7 +118,7 @@ func TestRunDryRunAssemblesContainer(t *testing.T) {
 }
 
 func TestRunDryRunDefaultsAndExtraArgs(t *testing.T) {
-	store := buildRunTestImage(t, `{"schemaVersion":2,"process":{"entrypoint":["/bin/echo"],"args":["default"]}}`)
+	store := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/echo"],"args":["default"]}}`)
 	t.Setenv("BREWLET_CONTAINER_ENGINE", "")
 	out, stderr, err := runDry(t, "--store", store, "--platform", "linux/amd64", "--runtime", "any-id=alpine:3", "--dry-run", runTestRef, "--", "x", "--y")
 	if err != nil {
@@ -134,8 +134,8 @@ func TestRunDryRunDefaultsAndExtraArgs(t *testing.T) {
 }
 
 func TestRunRuntimeSelection(t *testing.T) {
-	allowList := buildRunTestImage(t, `{"schemaVersion":2,"process":{"entrypoint":["/bin/true"]},"runtimeImages":["shell-1"]}`)
-	open := buildRunTestImage(t, `{"schemaVersion":2,"process":{"entrypoint":["/bin/true"]}}`)
+	allowList := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/true"]},"runtimeImages":["shell-1"]}`)
+	open := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/true"]}}`)
 	base := []string{runTestRef, "--platform", "linux/amd64", "--dry-run", "--user", "1:1"}
 	for _, tc := range []struct {
 		store string
@@ -168,7 +168,7 @@ func TestRunRuntimeSelection(t *testing.T) {
 }
 
 func TestRunFromCluster(t *testing.T) {
-	store := buildRunTestImage(t, `{"schemaVersion":2,"process":{"entrypoint":["/bin/true"]},"runtimeImages":["shell-1","shell-root"]}`)
+	store := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/true"]},"runtimeImages":["shell-1","shell-root"]}`)
 	images := map[string]api.RuntimeImage{
 		"shell-1": {Spec: api.RuntimeImageSpec{Source: api.Source{Image: "registry.example/busybox@sha256:" + strings.Repeat("a", 64)},
 			User: api.User{UID: 65532, GID: 65533}, VolumeMountPaths: []string{"/var/data"}}},
@@ -217,7 +217,7 @@ func TestRunLocalLayoutResolution(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no local build for example.invalid/never-built:0") || !strings.Contains(err.Error(), "brewlet build") {
 		t.Fatalf("got %v", err)
 	}
-	store := buildRunTestImage(t, `{"schemaVersion":2,"process":{"entrypoint":["/bin/true"]}}`)
+	store := buildRunTestImage(t, `{"schemaVersion":1,"process":{"entrypoint":["/bin/true"]}}`)
 	if _, _, err = runDry(t, "other.example/name:2", "--store", store, "--platform", "linux/amd64", "--runtime", "busybox", "--user", "1:1", "--dry-run"); err != nil {
 		t.Fatalf("unique root fallback: %v", err)
 	}

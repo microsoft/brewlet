@@ -1,6 +1,6 @@
 # Administrative attestation, not a request to delete a Node or clean a host.
 # Verify permanent destruction and the retained platform record before creation.
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeRetirementEvidence
 metadata:
   name: web-original-instance-retired

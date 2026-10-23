@@ -49,7 +49,7 @@ kubectl -n apps exec <pod> -- /usr/bin/python3.13 -c \
 ```
 
 That path is an example for a runtime that provides it, not a detected default.
-Ephemeral containers in a Brewlet Pod also need compatible v2 artifacts and
+Ephemeral containers in a Brewlet Pod also need compatible v1 artifacts and
 the same ID; an arbitrary diagnostic container is not automatically supported.
 
 ## After a restart

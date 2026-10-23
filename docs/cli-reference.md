@@ -39,7 +39,7 @@ brewlet push registry.example.com/apps/api:v2 --push-result push.json
 
 | `build` option | Contract |
 | --- | --- |
-| `--launch FILE` | Authoritative version-2 launch descriptor; required. |
+| `--launch FILE` | Authoritative version-1 launch descriptor; required. |
 | `--platform OS/ARCH[/VARIANT]` | Required explicit declaration; repeat to build a multi-platform index. |
 | `--layer [OS/ARCH[/VARIANT]:]ROLE=DIRECTORY:/app/PATH` | Explicit `app` or `dependency` payload. Unprefixed layers are shared by every platform; prefixed layers belong to that declared platform only. Each platform needs an `app` layer. |
 | `--layer-set REF` | Reuse verified, platform-neutral dependency layers byte-for-byte. |
@@ -174,8 +174,8 @@ credential forwarding or recommends embedding secrets in artifacts.
 
 ## Deliberately absent commands
 
-The current 2.0 CLI does not provide main's runc-bundle export, `stage-gc` or
+The current 1.0.0 CLI does not provide Brewlet 0.x's runc-bundle export, `stage-gc` or
 `keygen` commands, or its `JavaApplication`-specific `k8s` helpers. Use the
 [native operations workflow](operations.md) and the
-[comparison's equivalent-workflow analysis](brewlet-2-comparison.md) instead
+[comparison's equivalent-workflow analysis](legacy-comparison.md) instead
 of applying old command examples to this branch.

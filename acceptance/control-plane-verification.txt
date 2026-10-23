@@ -1,9 +1,9 @@
-Brewlet 2.0 control-plane verification boundaries
+Brewlet 1.0.0 control-plane verification boundaries
 Reference: fa7085335b220e29df6affbece4558c5f1259ecb
 
 Implemented production paths
 ----------------------------
-API: github.com/microsoft/brewlet/kubernetes/api/v2alpha1
+API: github.com/microsoft/brewlet/kubernetes/api/v1alpha1
 RuntimeImage, NodeProfile and immutable NodeRetirementEvidence are registered,
 all cluster-scoped. There is no workload CRD or Java-specific controller.
 RuntimeImage UID is the epoch. Status includes monotonic generation, approved

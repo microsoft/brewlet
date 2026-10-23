@@ -7,7 +7,7 @@ environment value. They do not dump arbitrary environment variables.
 
 Every `launch.json` is hand-written. No CLI inference is involved. Application
 and dependency source groups are supplied explicitly. The Java Maven producer is
-an additional route to an ordinary v2 artifact, not an alternate runtime path.
+an additional route to an ordinary v1 artifact, not an alternate runtime path.
 
 Prerequisites: Go as pinned in `go.mod`, Maven 3.9+, Java 21+, Python 3.12+,
 Node.js 22+ and .NET SDK **10.0.401**. The .NET SDK does not roll forward.

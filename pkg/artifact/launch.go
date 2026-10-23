@@ -1,4 +1,4 @@
-// Package artifact implements the language-neutral Brewlet 2.0 wire contract.
+// Package artifact implements the language-neutral Brewlet wire contract.
 package artifact
 
 import (
@@ -175,8 +175,8 @@ func ParseLaunch(data []byte) (*Launch, error) {
 			return nil, fail("InvalidLaunchConfig", "environment value is required")
 		}
 	}
-	if l.SchemaVersion != 2 || len(l.Process.Entrypoint) == 0 || l.Process.Entrypoint[0] == "" {
-		return nil, fail("InvalidLaunchConfig", "schemaVersion 2 and nonempty entrypoint required")
+	if l.SchemaVersion != 1 || len(l.Process.Entrypoint) == 0 || l.Process.Entrypoint[0] == "" {
+		return nil, fail("InvalidLaunchConfig", "schemaVersion 1 and nonempty entrypoint required")
 	}
 	for _, s := range append(slices.Clone(l.Process.Entrypoint), l.Process.Args...) {
 		if strings.ContainsRune(s, 0) {
@@ -220,7 +220,7 @@ func (l *Launch) ImageConfig() v1.ImageConfig {
 	if wd == "" {
 		wd = "/app"
 	}
-	return v1.ImageConfig{Entrypoint: l.Process.Entrypoint, Cmd: l.Process.Args, WorkingDir: wd, Env: env, Labels: map[string]string{"sh.brewlet.app": "2"}}
+	return v1.ImageConfig{Entrypoint: l.Process.Entrypoint, Cmd: l.Process.Args, WorkingDir: wd, Env: env, Labels: map[string]string{"sh.brewlet.app": "1"}}
 }
 func ValidateMirror(l *Launch, image v1.Image) error {
 	want, got := l.ImageConfig(), image.Config

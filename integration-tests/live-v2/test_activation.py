@@ -64,7 +64,7 @@ class ActivationFixtureTests(unittest.TestCase):
                 shim_kill_command(*args)
 
     def test_cache_provenance_requires_actual_canonical_digest_policy_roots(self):
-        root = "/var/lib/brewlet/layers/v2-3-" + "a" * 64 + "/rootfs"
+        root = "/var/lib/brewlet/layers/v1-3-" + "a" * 64 + "/rootfs"
         self.assertEqual(protected_cache_roots({"layerRoots": [root]}), [root])
         for roots in (None, [], ["/other/rootfs"], [root + "/../other"], [root, None],
                       root, [root.replace("a" * 64, "bad")]):

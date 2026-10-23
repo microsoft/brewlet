@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": ["/usr/bin/python3.13"],
     "args": ["/app/server.py"],

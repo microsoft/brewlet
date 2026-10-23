@@ -1,6 +1,6 @@
-# Brewlet 2.0 specification
+# Brewlet 1.0.0 specification
 
-- **Status:** authoritative contract for the **breaking** Brewlet 2.0 branch,
+- **Status:** authoritative contract for the **breaking** Brewlet 1.0.0 implementation,
   not an additive mode of Brewlet 0.x. Implementation and qualification are
   distinct: see the [baseline ledger](../acceptance/requirements.json) (Part I),
   the [composition ledger](../acceptance/composition-requirements.json)
@@ -19,7 +19,7 @@
   `NodeProfile` pool selection and rollout (SPEC §5.6), the runc-backed shim (SPEC §6),
   `RuntimeClass/brewlet` (SPEC §7), and the admission webhook (SPEC §8.3)
 
-Brewlet 2.0 removes Java from Brewlet's core contract. Developers publish
+Brewlet 1.0.0 removes Java from Brewlet's core contract. Developers publish
 **application artifacts** (code, plus dependencies either as layers or as
 independently published layer sets) to an OCI registry. Platform teams approve
 **runtime images** — digest-pinned "golden" base images such as a JRE, a Python
@@ -34,13 +34,16 @@ as `SPEC §N` instead cite the **0.x** design reference,
 [`SPECIFICATION.md` at main commit `fa70853`](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/SPECIFICATION.md),
 which this document replaces.
 
-Brewlet 2.0 is a rewrite inspired by Brewlet 0.x on `main`, which this
-specification also calls 1.x. `SPEC §N` references provide design context only;
-this document defines the implemented 2.0 contract. Part I covers runtime images
+Brewlet 1.0.0 is a rewrite inspired by Brewlet 0.x on `main`.
+`SPEC §N` references provide design context only;
+this document defines the implemented 1.0.0 contract. Part I covers runtime images
 and workload execution; Part II (§16) covers governed release composition. This
 is not a claim of a stable production release.
 
-The key words MUST, MUST NOT, SHOULD, and MAY describe the 2.0 contract.
+Release numbering is independent of artifact schema versions, Kubernetes API
+versions and containerd shim interface versions.
+
+The key words MUST, MUST NOT, SHOULD, and MAY describe the 1.0.0 contract.
 
 **Approved upstream-runtime amendment (2026-10-19).** Compatible upstream OCI
 runtime images, including shell-free distroless images, need not be rebuilt
@@ -62,7 +65,7 @@ amendment does not verify these changed requirements.
 
 ## 1. Summary
 
-Brewlet 1.x separates a Java application from its JDK at launch time. On
+Brewlet 0.x separates a Java application from its JDK at launch time. On
 inspection, almost nothing in that separation is Java-specific:
 
 - A JDK "root" (SPEC §5.3) is already the **complete root filesystem** of an
@@ -76,7 +79,7 @@ The Java-specific parts are the inventory vocabulary (distribution, feature,
 `addOpens`, …), and the JVM conveniences built on top (`jvm.args`, AppCDS,
 `JavaApplication`, JVM resource mapping).
 
-Brewlet 2.0 keeps the mechanism and drops the vocabulary:
+Brewlet 1.0.0 keeps the mechanism and drops the vocabulary:
 
 ```text
  Platform operator                          Developer / CI
@@ -140,12 +143,12 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
 - Keep the `brewlet` CLI language-agnostic: it packages and validates
   hand-written descriptors and never derives launch or platform fields from
   application content (§11.1).
-- Keep the Maven plugin as an optional **Java producer** of 2.0 artifacts, the
+- Keep the Maven plugin as an optional **Java producer** of 1.0.0 artifacts, the
   only place where Java-specific intelligence lives (§11.2).
 
 ## 4. Non-goals
 
-- Compatibility or migration tooling for previous Brewlet releases. 2.0 is a
+- Compatibility or migration tooling for previous Brewlet releases. 1.0.0 is a
   total pivot; previous artifacts, descriptors, and deployments are outside
   this specification's contract.
 - Per-workload digest pinning of the runtime. A workload that must pin an exact
@@ -156,7 +159,7 @@ Brewlet 2.0 keeps the mechanism and drops the vocabulary:
 - Building runtime images. Golden images are produced by the platform team's
   existing image pipeline; Brewlet only approves, distributes, and composes them.
 - A generic workload CRD. `JavaApplication` is removed and is not replaced by a
-  language-neutral equivalent in 2.0; Deployments, StatefulSets, and DaemonSets
+  language-neutral equivalent in 1.0.0; Deployments, StatefulSets, and DaemonSets
   are the workload API.
 - Per-container runtime images. A pod uses exactly one runtime image (§8.1).
 - Running workloads as root (§8.4).
@@ -202,7 +205,7 @@ Each platform manifest MUST contain:
    `brewlet.sh/layer=launch`, which MUST be the **last** layer.
 
 The manifest MUST carry `artifactType`-independent identification through the
-annotation `brewlet.sh/artifact-version=2`. Platform-neutral content (bytecode,
+annotation `brewlet.sh/artifact-version=1`. Platform-neutral content (bytecode,
 pure Python, JavaScript) SHOULD be published for every platform the fleet runs,
 with identical layer digests in each platform manifest so nodes deduplicate them.
 Content with native code (static binaries, wheels or addons with shared objects,
@@ -230,7 +233,7 @@ argv, guest preopens/mounts, environment and network capabilities through normal
 producer/host configuration. Guest compilation and ecosystem-specific linking
 remain outside Brewlet core.
 
-The 1.x native-artifact media types (`application/vnd.brewlet.jar.layer.v1+jar`
+The 0.x native-artifact media types (`application/vnd.brewlet.jar.layer.v1+jar`
 and siblings) and the `brewlet.sh/jvm-config` annotation are removed.
 
 ### 6.2 Layer content rules
@@ -281,7 +284,7 @@ store and **never mounts it** into the sandbox.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": ["python"],
     "args": ["-m", "gunicorn", "app.wsgi:application", "--bind", "0.0.0.0:8000"],
@@ -319,7 +322,7 @@ Admission cannot precheck this constraint without registry access; mismatches
 are reported at container creation.
 
 The launch configuration intentionally contains **no** language-specific fields.
-Everything a 1.x `jvm.config` expressed (`mainJar`, `entry.mode`, `addOpens`,
+Everything a 0.x `jvm.config` expressed (`mainJar`, `entry.mode`, `addOpens`,
 system properties, preview flags, AppCDS hints) becomes plain argv. Outside the
 Java ecosystem, the application author writes `launch.json` by hand and the CLI
 packages it unchanged (§11.1); for Java projects the Maven plugin MAY generate it
@@ -337,7 +340,7 @@ parsing, producers MUST mirror the launch configuration into the image config:
 | `WorkingDir` | `process.workingDir` (or `/app`) |
 | `Env` | `process.env` rendered as `NAME=value` |
 | `User` | MUST be empty (§8.4) |
-| `Labels["sh.brewlet.app"]` | `"2"` (informational only) |
+| `Labels["sh.brewlet.app"]` | `"1"` (informational only) |
 
 The shim MUST verify that the config mirrors `launch.json` exactly and fail with
 `LaunchConfigMismatch` otherwise. Because the config is authoritative only by
@@ -396,7 +399,7 @@ own. They may be governed in two ways:
    applications consume it, and let admission policy (for example the existing
    Ratify/Gatekeeper example) require approved layer sets by digest.
 
-The 1.x Maven-specific bundle contract (BOM, GAV lock, `compatibleJdks`) becomes
+The 0.x Maven-specific bundle contract (BOM, GAV lock, `compatibleJdks`) becomes
 the Maven plugin's producer of a `java`-ecosystem layer set.
 
 ## 7. Runtime image inventory
@@ -404,10 +407,10 @@ the Maven plugin's producer of a `java`-ecosystem layer set.
 ### 7.1 `RuntimeImage` resource
 
 Approval and placement are separated. Approval is a cluster-scoped
-`RuntimeImage` (`node.brewlet.sh/v2alpha1`); placement remains `NodeProfile`.
+`RuntimeImage` (`node.brewlet.sh/v1alpha1`); placement remains `NodeProfile`.
 
 ```yaml
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: RuntimeImage
 metadata:
   name: python-3.12            # the runtime image ID
@@ -511,7 +514,7 @@ the provisioner rejects such roots rather than silently changing approved
 bytes. Runtime images SHOULD be minimal, SHOULD NOT contain package managers,
 and SHOULD carry an SBOM referrer. The provisioner
 applies the existing safe-extraction rules (SPEC §5.3) and records
-`.brewlet-source` with the resolved digest; the 1.x `.brewlet-java-home` marker is
+`.brewlet-source` with the resolved digest; the 0.x `.brewlet-java-home` marker is
 removed.
 
 Alongside each root the provisioner persists immutable, root-owned metadata:
@@ -552,7 +555,7 @@ replaces `jdks` with one list of runtime image
 entries:
 
 ```yaml
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata: { name: web }
 spec:
@@ -576,7 +579,7 @@ spec:
 - Unknown IDs make the profile not ready (`UnknownRuntimeImage`) without blocking
   other IDs.
 - `Eager` IDs are installed when the node joins the pool and gate node readiness
-  as in 1.x. A profile containing only `OnDemand` entries MUST be able to
+  as in 0.x. A profile containing only `OnDemand` entries MUST be able to
   publish `brewlet.sh/runtime=ready` after validating the shim, handler,
   annotation forwarding, ownership, and local authorizations, without fetching
   a runtime root. Its approved IDs advertise `available`, so the first pod can
@@ -593,7 +596,7 @@ spec:
   recovers leases from durable records and live task/mount evidence; uncertainty
   blocks collection. A lease is released only after the task, exec processes,
   and rootfs mounts are gone. A non-current generation is reclaimed once it
-  has no leases and has aged past the grace period. This closes the 1.x roadmap
+  has no leases and has aged past the grace period. This closes the 0.x roadmap
   item on reference-counted root collection for the general case.
 - Provisioning configures containerd's runtime-handler pod-annotation
   allow-list to forward `brewlet.sh/runtime-image` and
@@ -932,9 +935,9 @@ spec:
   needs several languages in one sandbox uses a runtime image the platform team
   composes for that purpose (for example, `java-21-python-3.12`), approved like
   any other ID.
-- The application `image:` MUST be digest-pinned, exactly as in 1.x (SPEC §4.4); the
+- The application `image:` MUST be digest-pinned, exactly as in 0.x (SPEC §4.4); the
   shim's CRI identity checks are unchanged.
-- All application, init, sidecar, and ephemeral containers MUST use 2.0
+- All application, init, sidecar, and ephemeral containers MUST use 1.0.0
   application artifacts and the pod-wide runtime image. Ordinary-image
   pass-through is not supported. Only the CRI infrastructure sandbox takes the
   standard runc path; it does not run application code.
@@ -942,8 +945,8 @@ spec:
 ### 8.2 Sandbox assembly (shim `Create`)
 
 1. **Resolve the artifact** exactly as SPEC §6.4 does today (protected CRI metadata,
-   content-store digest verification, strict platform match). Recognize a 2.0
-   artifact by `brewlet.sh/artifact-version=2` and a final `brewlet.sh/layer=launch`
+   content-store digest verification, strict platform match). Recognize a 1.0.0
+   artifact by `brewlet.sh/artifact-version=1` and a final `brewlet.sh/layer=launch`
    layer; any other application container image fails with `UnsupportedArtifact`.
 2. **Load and validate** `launch.json` (§6.3) and the image-config mirror (§6.4).
 3. **Resolve the runtime image** from the pod annotation, carried into the OCI
@@ -957,8 +960,8 @@ spec:
    Enforce any `brewlet.sh/rotated-to-generation` minimum-generation barrier
    (§7.6), then atomically resolve and take a lease on `current` so a concurrent
    rotation cannot substitute an older generation or reclaim the leased root.
-4. **Materialize and validate layers** from the content store using the 2.0
-   per-layer-digest cache contract below. The 1.x Java-oriented extractor is
+4. **Materialize and validate layers** from the content store using the 1.0.0
+   per-layer-digest cache contract below. The 0.x Java-oriented extractor is
    not reused as-is.
 5. **Assemble the rootfs** with an application-prefix boundary: launch-layer-excluded
    application and dependency layers (top to bottom in reverse manifest order)
@@ -1090,7 +1093,7 @@ processes; editing bundle `config.json` alone does not establish exec parity.
 
 ### 8.4 User identity
 
-Brewlet 2.0 workloads never run as root. The default identity is the approved
+Brewlet 1.0.0 workloads never run as root. The default identity is the approved
 numeric `RuntimeImage.spec.user`, independent of account names in the image.
 
 - The application image config `User` is empty, so CRI derives the process user
@@ -1159,9 +1162,9 @@ For every `runtimeClassName: brewlet` pod on CREATE, `brewlet-admission`:
   constraints (`runtimeImages`, layer rules, platforms) are enforced by
   the shim and by kubelet's pull, so fail-open admission never weakens them.
 
-The 1.x `brewlet.sh/jdk`, `brewlet.sh/jvm-args`,
+The 0.x `brewlet.sh/jdk`, `brewlet.sh/jvm-args`,
 and `brewlet.sh/arch` annotations are removed and
-MUST be rejected on a 2.0 pod (`UnsupportedAnnotation`) so a stale manifest
+MUST be rejected on a 1.0.0 pod (`UnsupportedAnnotation`) so a stale manifest
 fails loudly instead of silently losing its intent.
 
 ### 9.1 Capability labels
@@ -1189,7 +1192,7 @@ Node annotations and retained pinned labels are diagnostic or scheduling
 hints, not authority for the shim.
 
 `jdk.*` and `jdk-feature.*` labels are
-removed. This section and §9.2–§9.3 define the 2.0 capability-label contract;
+removed. This section and §9.2–§9.3 define the 1.0.0 capability-label contract;
 the [0.x contract](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/CAPABILITY_LABELS.md)'s dual-publication exception does not
 extend to 0.x keys.
 
@@ -1298,7 +1301,7 @@ overhead (SPEC §7). Its selector remains `brewlet.sh/runtime=ready`, with the
 generalized readiness and startup-fence semantics of §7.3 and §9.1–§9.2.
 Runtime image selection is per pod rather than per RuntimeClass
 (see §15 for the rejected per-ID RuntimeClass alternative). `overhead.podFixed`
-SHOULD be revisited, since 1.x sized it as "JVM/runtime baseline"; in 2.0 it
+SHOULD be revisited, since 0.x sized it as "JVM/runtime baseline"; in 1.0.0 it
 covers only shim and staging overhead.
 
 ## 11. What happens to Java
@@ -1306,14 +1309,14 @@ covers only shim and staging overhead.
 Removed from Brewlet core:
 
 - JDK inventory, `javaHome`, and the `/opt/jdk` alias;
-- the 1.x launch descriptor (`mainJar`, `entry`, `addOpens`, …) and its argv
+- the 0.x launch descriptor (`mainJar`, `entry`, `addOpens`, …) and its argv
   expansion rules, including the `jvm.args` entrypoint-selector guard;
 - the JVM resource mapping of SPEC §10 (modern JVMs are container-aware);
 - the `JavaApplication` CRD and controller, and `status.selectedJdk`.
 
 Re-expressed generically:
 
-| 1.x concept | 2.0 equivalent |
+| 0.x concept | 1.0.0 equivalent |
 |---|---|
 | JDK `temurin-21` in `NodeProfile.jdks` | `RuntimeImage java-21` built from the same digest-pinned JDK image |
 | `jvm.config` | `launch.json` argv generated by the Maven plugin |
@@ -1411,7 +1414,7 @@ The Maven plugin is the one place where Java knowledge remains. It MAY:
 - warn when the generated argv requires a newer runtime than the configured IDs
   provide.
 
-Its output is an ordinary 2.0 artifact that the shim treats exactly like one
+Its output is an ordinary 1.0.0 artifact that the shim treats exactly like one
 produced by the CLI. A developer can always replace the generated `launch.json`
 with a hand-written one. The plugin does not generate Kubernetes manifests and
 does not write `brewlet.sh/runtime-image`; choosing the runtime for a workload
@@ -1422,7 +1425,7 @@ remains an explicit decision in the reviewed manifest.
 - **Trust roots.** The only executable bytes outside `/app` are runtime roots
   extracted from administrator-approved, digest-pinned `RuntimeImage` sources,
   apart from explicitly mounted Kubernetes volumes. The application image is
-  verified by digest exactly as in 1.x; ordinary-image sidecars cannot bypass
+  verified by digest exactly as in 0.x; ordinary-image sidecars cannot bypass
   this contract.
 - **Runtime file-path confinement.** §6.2 confines application and dependency
   layers to `/app`, and §7.2 isolates and hides the runtime's `/app`. This
@@ -1457,7 +1460,7 @@ remains an explicit decision in the reviewed manifest.
   StatefulSets, and DaemonSets exists only when rotation restarts are enabled
   in the chart (§7.6).
 - **Unchanged boundaries.** The privileged provisioner, host-path layout under
-  `/opt/brewlet`, fail-open admission, and runc isolation retain their 1.x
+  `/opt/brewlet`, fail-open admission, and runc isolation retain their 0.x
   properties and caveats (SPEC §11).
 
 ## 13. Observability
@@ -1577,7 +1580,7 @@ convenience layered on top of the annotation.
 
 ### Launch configuration in a manifest annotation or config blob
 
-1.x runnable images use the `brewlet.sh/jvm-config` annotation. A dedicated
+0.x runnable images use the `brewlet.sh/jvm-config` annotation. A dedicated
 layer was preferred so the configuration is a first-class, content-addressed
 blob with its own digest for referrers and tooling, and so the same artifact
 shape serves registry-native and kubelet-pulled use. An annotation is equally
@@ -1610,11 +1613,11 @@ reuse of layer sets (§6.5) already delivers the storage and governance benefits
 
 ## 16. Managed dependency composition
 
-- **Scope:** Brewlet 2.0 producer, release and policy workflows.
+- **Scope:** Brewlet 1.0.0 producer, release and policy workflows.
 - **Extends:** [§6.5](#65-dependencies-as-layers-or-independently).
 - **Does not change:** runtime-image selection, node provisioning, runc execution,
   startup fencing, leases or host cleanup.
-- **Reference 2.0:** `7077c1d3b7c2019ad10b8d3160f60a15dac9c930`.
+- **Reference implementation:** `7077c1d3b7c2019ad10b8d3160f60a15dac9c930`.
 
 The requirements below are the approved implementation contract. Qualification
 must be recorded separately; code presence is not acceptance evidence.
@@ -1647,11 +1650,11 @@ SBOM entries occurs in the shim, operator or generic composer.
 
 ### 16.2 Existing foundations and actual gaps
 
-This table records the pinned reference-2.0 baseline above. Implemented release
+This table records the pinned historical rewrite baseline above. Implemented release
 interfaces and their qualified scopes are documented in the
 [composition guide](../docs/managed-composition.md) and the separate ledger.
 
-| Concern | Already in 2.0 | Proposed work |
+| Concern | Already in 1.0.0 | Proposed work |
 | --- | --- | --- |
 | Dependency publication | Generic OCI layer sets, complete lock validation when a lock is supplied, mandatory SBOM, optional signed provenance. | A clear managed-publication workflow and release policy. |
 | Java project intelligence | Optional Maven producer checks the explicit source BOM and resolved scoped graph, rejects nested JARs and generates argv. | Improve platform/application examples; retain these checks outside core. |
@@ -1690,7 +1693,7 @@ two-published-artifact composition command.
 - Maven/npm/pip/NuGet resolution or version-range interpretation in generic core.
 - Hot replacement of libraries in running processes.
 - Claiming binary/API compatibility from an SBOM, a version number or a signature.
-- Restoring 1.x artifact formats or JVM-specific launch rewriting.
+- Restoring 0.x artifact formats or JVM-specific launch rewriting.
 - A new generic producer plugin framework.
 
 ### 16.4 Roles and trust
@@ -1734,7 +1737,7 @@ are not silently inferred. They require a subsequent explicit contract.
 All remote inputs MUST be canonical digest-pinned references. Mutable tags
 must be resolved and approved by the delivery workflow before invocation.
 
-- An application input is a valid version-2 application OCI graph with
+- An application input is a valid version-1 application OCI graph with
   explicit app layers, launch metadata and platform/config consistency.
 - Initial composition accepts application inputs with no dependency-role
   layers. Structural validity does not mean that this payload image is a
@@ -1789,7 +1792,7 @@ API-compatible. Relevant producer validation and testing remain necessary.
 
 #### 16.5.3 Output and publication
 
-The output is an ordinary version-2 application OCI image: dependency payload,
+The output is an ordinary version-1 application OCI image: dependency payload,
 preserved app payload and exactly one launch layer. Kubelet still pulls one
 application image per container.
 
@@ -1857,7 +1860,7 @@ any separately verified test/release approval. It MUST NOT collapse these into
 one ambiguous `verified` flag.
 
 The verifier SHOULD be callable by external admission policy. Initial delivery
-MUST NOT claim main's Ratify parity until a concrete integration is implemented,
+MUST NOT claim Brewlet 0.x's Ratify parity until a concrete integration is implemented,
 its policy is documented and real accept/reject cases are exercised.
 The inventory-only Brewlet admission path does not become a registry resolver.
 
@@ -2026,13 +2029,13 @@ not changes to the rejected shim-pulled dependency design (§15).
 - [Main managed bundle workflow at the inspected revision](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/docs/managed-dependency-bundles.md)
 - [Main bundle validation](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/core/internal/artifact/dependency_bundle.go)
 - [Main CVE remediation scenario](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/integration-tests/e2e/tier19-cve-remediation.sh)
-- [2.0 Maven managed consumption](https://github.com/microsoft/brewlet/blob/7077c1d3b7c2019ad10b8d3160f60a15dac9c930/maven-plugin/README.md#managed-consumption)
-- [2.0 layer-set implementation](https://github.com/microsoft/brewlet/blob/7077c1d3b7c2019ad10b8d3160f60a15dac9c930/pkg/artifact/layerset.go)
+- [Historical rewrite Maven managed consumption](https://github.com/microsoft/brewlet/blob/7077c1d3b7c2019ad10b8d3160f60a15dac9c930/maven-plugin/README.md#managed-consumption)
+- [Historical rewrite layer-set implementation](https://github.com/microsoft/brewlet/blob/7077c1d3b7c2019ad10b8d3160f60a15dac9c930/pkg/artifact/layerset.go)
 
 ## Appendix — mapping from the 0.x specification
 
 This specification replaces the [0.x `SPECIFICATION.md`](https://github.com/microsoft/brewlet/blob/fa7085335b220e29df6affbece4558c5f1259ecb/specs/SPECIFICATION.md).
-Each 0.x section maps to 2.0 as follows:
+Each 0.x section maps to 1.0.0 as follows:
 
 | 0.x section | Change | Source in this specification |
 |---|---|---|

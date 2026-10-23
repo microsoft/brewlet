@@ -59,7 +59,7 @@ package versions. SBOM/provenance and trust options are described in the
 [CLI reference](cli-reference.md#layer-set-governance).
 
 Use a separately managed signing key and explicit builder identity. The current
-CLI does not supply main's `keygen`; do not add a fabricated command to a recipe.
+CLI does not supply Brewlet 0.x's `keygen`; do not add a fabricated command to a recipe.
 Trusted signer policy is independent of whether an unsigned graph is valid OCI.
 
 For Java, the optional Maven producer can resolve project dependencies or consume

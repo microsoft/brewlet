@@ -17,15 +17,15 @@ the matching configured image rather than relying on an unqualified default.
 
 ## Current Helm values
 
-These are the current chart keys, not main's values schema. Source-chart defaults
+These are the current chart keys, not Brewlet 0.x's values schema. Source-chart defaults
 name candidate coordinates, not a promise of published images. Release packages
 replace these tags with verified immutable image digests.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `operator.image` | `ghcr.io/microsoft/brewlet-operator:2.0.0-alpha.1` | Operator and uninstall-coordinator image. |
-| `admission.image` | `ghcr.io/microsoft/brewlet-admission:2.0.0-alpha.1` | Admission server image; source-built control image also contains this binary. |
-| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:2.0.0-alpha.1` | Matching privileged node worker and bundled shim. |
+| `operator.image` | `ghcr.io/microsoft/brewlet-operator:1.0.0` | Operator and uninstall-coordinator image. |
+| `admission.image` | `ghcr.io/microsoft/brewlet-admission:1.0.0` | Admission server image; source-built control image also contains this binary. |
+| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:1.0.0` | Matching privileged node worker and bundled shim. |
 | `provisioner.profiles` | `[]` | Named `{name, spec}` profiles; chart entries require nonempty pool names. |
 | `provisioner.gc.grace` | `1h` | Positive reference-drain grace for collection. |
 | `provisioner.gc.sweepInterval` | `1m` | Positive collection interval. |
@@ -49,7 +49,7 @@ and retirement validation have different policies; there is no generic
 
 ## RuntimeImage
 
-`node.brewlet.sh/v2alpha1`, cluster-scoped:
+`node.brewlet.sh/v1alpha1`, cluster-scoped:
 
 | Field | Meaning |
 | --- | --- |

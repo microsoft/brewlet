@@ -11,7 +11,7 @@ WORKFLOWS = ROOT / ".github/workflows"
 class InfrastructureWorkflowTests(unittest.TestCase):
     def test_codeql_covers_repository_languages_without_path_filters(self):
         text = (WORKFLOWS / "codeql.yml").read_text()
-        self.assertIn("branches: [main, brewlet-2.0]", text)
+        self.assertIn("branches: [main]", text)
         for trigger in ("push", "pull_request", "schedule", "workflow_dispatch"):
             self.assertIn("  " + trigger + ":", text)
         self.assertNotIn("paths:", text)
@@ -74,7 +74,7 @@ class InfrastructureWorkflowTests(unittest.TestCase):
         self.assertIn("      name: github-pages", deploy)
         self.assertIn("      pages: write", deploy)
         self.assertIn("      id-token: write", deploy)
-        artifact = re.search(r"name: (brewlet-2-website-preview)", preview).group(1)
+        artifact = re.search(r"name: (brewlet-website-preview)", preview).group(1)
         self.assertIn("name: " + artifact, deploy)
         self.assertIn("path: site/_site", deploy)
         self.assertNotIn("actions/checkout", deploy)

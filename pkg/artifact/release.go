@@ -400,7 +400,7 @@ func Compose(ctx context.Context, store Store, options ComposeOptions) (v1.Descr
 		return zero, inspection, err
 	}
 	manifest := v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageManifest,
-		Config: config, Layers: descriptors, Annotations: map[string]string{"brewlet.sh/artifact-version": "2", "brewlet.sh/layerset-evidence": string(encodedEvidence)}}
+		Config: config, Layers: descriptors, Annotations: map[string]string{"brewlet.sh/artifact-version": "1", "brewlet.sh/layerset-evidence": string(encodedEvidence)}}
 	target, err := store.PutJSON(v1.MediaTypeImageManifest, manifest)
 	if err != nil {
 		return zero, inspection, err

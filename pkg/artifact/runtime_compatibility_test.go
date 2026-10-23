@@ -10,10 +10,10 @@ func TestRuntimeAllowListRoundTrip(t *testing.T) {
 		json   string
 		allows bool
 	}{
-		{`{"schemaVersion":2,"process":{"entrypoint":["runner"]}}`, true},
-		{`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"runtimeImages":[]}`, false},
-		{`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"runtimeImages":["approved"]}`, true},
-		{`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"runtimeImages":["other"]}`, false},
+		{`{"schemaVersion":1,"process":{"entrypoint":["runner"]}}`, true},
+		{`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"runtimeImages":[]}`, false},
+		{`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"runtimeImages":["approved"]}`, true},
+		{`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"runtimeImages":["other"]}`, false},
 	} {
 		before, e := ParseLaunch([]byte(test.json))
 		must(t, e)
@@ -34,14 +34,14 @@ func TestRuntimeAllowListRoundTrip(t *testing.T) {
 		}
 	}
 	for _, data := range []string{
-		`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":null}`,
-		`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":null}}`,
-		`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{}}`,
-		`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":["approved"]}}`,
-		`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"runtimeImages":null}`,
-		`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"runtimeImages":["approved"],"requires":{}}`,
-		`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"RuntimeImages":["approved"]}`,
-		`{"schemaVersion":2,"process":{"entrypoint":["runner"]},"runtimeImages":["approved"],"runtime\u0049mages":[]}`,
+		`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"requires":null}`,
+		`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":null}}`,
+		`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"requires":{}}`,
+		`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"requires":{"runtimeImages":["approved"]}}`,
+		`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"runtimeImages":null}`,
+		`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"runtimeImages":["approved"],"requires":{}}`,
+		`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"RuntimeImages":["approved"]}`,
+		`{"schemaVersion":1,"process":{"entrypoint":["runner"]},"runtimeImages":["approved"],"runtime\u0049mages":[]}`,
 	} {
 		if _, e := ParseLaunch([]byte(data)); Reason(e) != "InvalidLaunchConfig" {
 			t.Fatalf("explicit null accepted: %v", e)

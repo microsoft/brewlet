@@ -1,4 +1,4 @@
-// Package artifact defines Brewlet 2 application and layer-set artifacts.
+// Package artifact defines Brewlet application and layer-set artifacts.
 //
 // Producers supply explicit launch bytes, platforms and source/destination
 // mappings. Build preserves launch bytes and source modes/mtimes, rejects all

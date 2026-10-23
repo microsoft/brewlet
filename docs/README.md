@@ -1,4 +1,4 @@
-# Brewlet 2.0 operations and verification
+# Brewlet 1.0.0 operations and verification
 
 The maintained reader journeys start at [the documentation overview](index.md):
 [local deployment](local-kubernetes.md), [installation](installation.md),
@@ -19,7 +19,7 @@ documented tools across rotations. Incompatible updates and frozen holds need
 separate administrator-owned IDs. Runtime rotations never remediate dependency
 copies packaged by the application under `/app`.
 
-All application, init, sidecar and ephemeral containers use v2 artifacts and the
+All application, init, sidecar and ephemeral containers use v1 artifacts and the
 same pod-wide ID. The infrastructure sandbox alone follows the ordinary runc
 path. Workload manifests must explicitly select native-content architectures
 using standard `kubernetes.io/arch` selection; artifact platform declarations
@@ -105,7 +105,7 @@ provider's pool label; only validated Brewlet provisioning publishes their
 actual readiness/capabilities. A matching profile is:
 
 ```yaml
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
   name: runtime-pool

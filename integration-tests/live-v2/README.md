@@ -1,4 +1,4 @@
-# Private Brewlet 2.0 real-node execution acceptance
+# Private Brewlet 1.0.0 real-node execution acceptance
 
 The explicit Wasm companion is separate from the four-language suite:
 

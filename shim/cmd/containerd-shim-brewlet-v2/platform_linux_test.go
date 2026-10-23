@@ -59,12 +59,12 @@ func (f *platformFixture) layer(t *testing.T, name string, data []byte, role str
 }
 func (f *platformFixture) manifest(t *testing.T, declared, configPlatform ocispec.Platform) ocispec.Descriptor {
 	t.Helper()
-	launch := []byte(`{"schemaVersion":2,"process":{"entrypoint":["tool"],"workingDir":"/app"}}`)
+	launch := []byte(`{"schemaVersion":1,"process":{"entrypoint":["tool"],"workingDir":"/app"}}`)
 	app, appDiff := f.layer(t, "app/code", []byte("neutral bytes"), "app")
 	final, launchDiff := f.layer(t, "launch.json", launch, "launch")
-	config := ocispec.Image{Platform: configPlatform, Config: ocispec.ImageConfig{Entrypoint: []string{"tool"}, WorkingDir: "/app", Labels: map[string]string{"sh.brewlet.app": "2"}}, RootFS: ocispec.RootFS{Type: "layers", DiffIDs: []digest.Digest{appDiff, launchDiff}}}
+	config := ocispec.Image{Platform: configPlatform, Config: ocispec.ImageConfig{Entrypoint: []string{"tool"}, WorkingDir: "/app", Labels: map[string]string{"sh.brewlet.app": "1"}}, RootFS: ocispec.RootFS{Type: "layers", DiffIDs: []digest.Digest{appDiff, launchDiff}}}
 	c := f.json(t, ocispec.MediaTypeImageConfig, config)
-	m := f.json(t, ocispec.MediaTypeImageManifest, ocispec.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: ocispec.MediaTypeImageManifest, Config: c, Layers: []ocispec.Descriptor{app, final}, Annotations: map[string]string{"brewlet.sh/artifact-version": "2"}})
+	m := f.json(t, ocispec.MediaTypeImageManifest, ocispec.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: ocispec.MediaTypeImageManifest, Config: c, Layers: []ocispec.Descriptor{app, final}, Annotations: map[string]string{"brewlet.sh/artifact-version": "1"}})
 	m.Platform = &declared
 	return m
 }

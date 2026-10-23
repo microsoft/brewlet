@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/kubernetes/policy"
 	"github.com/microsoft/brewlet/pkg/node"
 	"k8s.io/apimachinery/pkg/api/meta"

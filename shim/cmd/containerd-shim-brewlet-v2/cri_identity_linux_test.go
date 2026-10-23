@@ -44,7 +44,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 			}
 			if name == "runtime allowlist" {
 				launch, diff := f.layer(t, "launch.json", []byte(
-					`{"schemaVersion":2,"process":{"entrypoint":["tool"],"workingDir":"/app"},"runtimeImages":["other"]}`), "launch")
+					`{"schemaVersion":1,"process":{"entrypoint":["tool"],"workingDir":"/app"},"runtimeImages":["other"]}`), "launch")
 				var config ocispec.Image
 				if err := json.Unmarshal(f.blobs[manifest.Config.Digest], &config); err != nil {
 					t.Fatal(err)
@@ -57,7 +57,7 @@ func TestResolveUsesProtectedRequestedTargetNotHintsOrConfigIdentity(t *testing.
 			var hinted ocispec.Descriptor
 			if name == "conflicting hints" {
 				alternate := manifest
-				alternate.Annotations = map[string]string{"brewlet.sh/artifact-version": "1"}
+				alternate.Annotations = map[string]string{"brewlet.sh/artifact-version": "0"}
 				hinted = f.json(t, ocispec.MediaTypeImageManifest, alternate)
 			}
 			store, err := local.NewStore(t.TempDir())

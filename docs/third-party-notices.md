@@ -1,6 +1,6 @@
 # Third-party notices
 
-The [root notices index](https://github.com/microsoft/brewlet/blob/brewlet-2.0/NOTICE.txt)
+The [root notices index](https://github.com/microsoft/brewlet/blob/main/NOTICE.txt)
 describes current build outputs, not legacy releases. Brewlet source is MIT
 licensed. Dependency notices are artifact-specific and generated from the
 dependencies actually selected for redistribution.

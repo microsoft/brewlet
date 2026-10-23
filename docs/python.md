@@ -60,7 +60,7 @@ Save as `$WORK/launch.json`:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "/usr/bin/python3.13"

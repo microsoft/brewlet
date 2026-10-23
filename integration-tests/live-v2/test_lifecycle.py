@@ -36,7 +36,7 @@ def authorization():
 
 
 def profile():
-    return {"apiVersion": "node.brewlet.sh/v2alpha1", "kind": "NodeProfile",
+    return {"apiVersion": "node.brewlet.sh/v1alpha1", "kind": "NodeProfile",
             "metadata": {"name": "private", "uid": "profile-uid",
                          "resourceVersion": "92", "labels": {OWNER: RUN}},
             "spec": {"runtimeImages": [{"id": "fixture-python", "install": "OnDemand"}]},

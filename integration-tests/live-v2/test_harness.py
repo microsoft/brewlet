@@ -888,7 +888,7 @@ class ContractTests(ProjectWork):
             (blobs / digest).write_bytes(data)
             return {"digest": "sha256:" + digest, "size": len(data)}
         config = put({"config": {}})
-        manifest = put({"annotations": {"brewlet.sh/artifact-version": "2"}, "config": config,
+        manifest = put({"annotations": {"brewlet.sh/artifact-version": "1"}, "config": config,
                         "layers": [{"annotations": {"brewlet.sh/layer": role}}
                                    for role in ("dependency", "app", "launch")]})
         inner = put({"manifests": [manifest]})

@@ -1,13 +1,15 @@
 # Prerelease distribution and recovery
 
 Release infrastructure is not a published or qualified release. The initial
-candidate identity is **2.0.0-alpha.1**, not GA. No live distribution/transition
+candidate identity is **1.0.0**. The version number
+does not establish GA qualification: publication still creates a GitHub prerelease
+and never a latest alias. No live distribution/transition
 receipt is supplied by this change. Missing current real-node evidence and
 release-owner policy still block publication.
 
 ## One identity, explicit distribution surfaces
 
-[`release.json`](https://github.com/microsoft/brewlet/blob/brewlet-2.0/release.json)
+[`release.json`](https://github.com/microsoft/brewlet/blob/main/release.json)
 is authoritative. Its version maps unchanged to chart version/appVersion,
 Maven version and component image tags; Git tags add `v`. A candidate manifest
 records the immutable source commit, production/qualification-input hashes,
@@ -26,7 +28,7 @@ report `dev`/`unknown`, not a release.
 
 These are intended coordinates, not evidence that a version exists there.
 There are no Windows archives, floating GA/latest aliases, or supported Go
-library/module API. The `v2alpha1` Kubernetes API does not promise arbitrary
+library/module API. The `v1alpha1` Kubernetes API does not promise arbitrary
 cross-release state compatibility.
 
 ## Build and inspect without publishing
@@ -62,10 +64,10 @@ job publishes a package or executes a node installation.
 GitHub requires a manual workflow to be present on the repository's default
 branch before it can be dispatched. Main already registers the legacy
 `.github/workflows/release.yml` path, but not the new standalone build/transition
-paths. Use that registered filename with the **reviewed Brewlet 2 ref**, selecting
+paths. Use that registered filename with the **reviewed Brewlet 1.0.0 ref**, selecting
 `operation: build` (the safe default), then `operation: transition` separately
 for each explicitly authorized architecture, and only later `operation: publish`.
-The selected ref must contain this infrastructure; do not use main's legacy
+The selected ref must contain this infrastructure; do not use Brewlet 0.x's legacy
 publishing implementation or its old input schema.
 
 The entrypoint calls its local reusable build/transition/qualification files
@@ -154,9 +156,9 @@ attestations or credentials are failures, not optional checks.
 
 | Transition | Policy and current evidence |
 | --- | --- |
-| Same `2.0.0-alpha.1` candidate, clean reinstall | Only initial eligible test pair; requires exact native amd64/arm64 distribution receipts before publication. Not yet verified. |
-| 0.x/1.x to 2.0 | No supported in-place transition or old-state reuse. Re-author workloads and review a separate migration. |
-| Different 2.0 snapshots/prereleases | Unsupported until immutable source/target artifacts, cleanup/recovery limits and genuine evidence are explicitly reviewed. |
+| Same `1.0.0` candidate, clean reinstall | Only initial eligible test pair; requires exact native amd64/arm64 distribution receipts before publication. Not yet verified. |
+| Legacy 0.x to 1.0.0 | No supported in-place transition or old-state reuse. Re-author workloads and review a separate migration. |
+| Different 1.0.0 snapshots/prereleases | Unsupported until immutable source/target artifacts, cleanup/recovery limits and genuine evidence are explicitly reviewed. |
 | Helm/binary downgrade or mixed releases | No compatibility or rollback promise. |
 
 Follow [safe removal](uninstallation.md): stop writers, inventory original UIDs

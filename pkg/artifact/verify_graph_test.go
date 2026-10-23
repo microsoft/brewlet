@@ -17,14 +17,14 @@ import (
 func TestVerifyGraphDoesNotApplyBrewletPolicy(t *testing.T) {
 	store := Store{Dir: filepath.Join(testDir(t), "store")}
 	app := source(t, store, "gzip", []*tar.Header{fileHeader("app/file", "payload", 0644)}, []string{"payload"})
-	data := `{"schemaVersion":1,"process":{"entrypoint":["runner"]}}`
+	data := `{"schemaVersion":0,"process":{"entrypoint":["runner"]}}`
 	launch := source(t, store, "gzip", []*tar.Header{fileHeader("launch.json", data, 0644)}, []string{data})
 	launch.Descriptor.Annotations["brewlet.sh/layer"] = "launch"
 	platform := v1.Platform{OS: "linux", Architecture: "amd64"}
 	image := v1.Image{Platform: platform, Config: v1.ImageConfig{Entrypoint: []string{"runner"}, WorkingDir: "/app"}, RootFS: v1.RootFS{Type: "layers", DiffIDs: []digest.Digest{app.DiffID, launch.DiffID}}}
 	config, e := store.PutJSON(v1.MediaTypeImageConfig, image)
 	must(t, e)
-	manifest := v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageManifest, Config: config, Layers: []v1.Descriptor{app.Descriptor, launch.Descriptor}, Annotations: map[string]string{"brewlet.sh/artifact-version": "2"}}
+	manifest := v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageManifest, Config: config, Layers: []v1.Descriptor{app.Descriptor, launch.Descriptor}, Annotations: map[string]string{"brewlet.sh/artifact-version": "1"}}
 	target, e := store.PutJSON(v1.MediaTypeImageManifest, manifest)
 	must(t, e)
 	must(t, VerifyGraph(context.Background(), store, target))

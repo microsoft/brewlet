@@ -1,22 +1,22 @@
-# 2.0 compatibility policy
+# 1.0.0 compatibility policy
 
-Brewlet 2.0 is a source-built pre-GA evaluation. Use matching CLI, chart, CRDs,
+Brewlet 1.0.0 is a source-built pre-GA evaluation. Use matching CLI, chart, CRDs,
 operator/admission, provisioner and shim from one reviewed source revision.
 The unchanged presence of an API version or filename does not promise arbitrary
 mixed-revision operation.
 
-## No 1.x compatibility layer
+## No 0.x compatibility layer
 
 Main's old artifact/launch formats, `JavaApplication`, JDK selection labels,
-JVM-specific APIs and removed CLI commands are not supported 2.0 interfaces.
+JVM-specific APIs and removed CLI commands are not supported 1.0.0 interfaces.
 Re-author application descriptors and native workload manifests under the
-current contract. The [comparison](brewlet-2-comparison.md) explains equivalents;
+current contract. The [comparison](legacy-comparison.md) explains equivalents;
 it is revision-pinned history, not an in-place migration guarantee.
 
-The current launch schema also rejects earlier 2.0 snapshots' `requires`
+The current launch schema also rejects earlier rewrite snapshots' `requires`
 wrapper. Optional `runtimeImages` is now a top-level field, with omission
 unrestricted at this gate and an explicit `[]` denying all. The unchanged
-`schemaVersion: 2` is not a compatibility alias for the removed wrapper.
+`schemaVersion: 1` is not a compatibility alias for the removed wrapper.
 
 ## Runtime compatibility is a separate promise
 

@@ -6,7 +6,7 @@ array, not a shell. Launch descriptors, runtime image IDs and platforms are
 validated by an independent Java implementation of the shared artifact contract
 before the CLI runs; failures report the same reason codes (for example
 `InvalidLaunchConfig: ...`). The CLI still enforces the contract when publishing.
-The matching Brewlet 2 CLI must be installed explicitly.
+The matching Brewlet 1.0.0 CLI must be installed explicitly.
 The candidate version is governed by `release.json`; it is not a claim that
 these coordinates have been published. Build/install from matching source
 until a qualified prerelease is available. Java 17 or later is required.
@@ -17,8 +17,8 @@ links, permissions and whiteouts) independently in Java. It does not need the
 `brewlet` executable:
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:conformance \
-  -Dbrewlet.fixtures=/path/to/conformance/artifact-v2.json \
+mvn sh.brewlet:brewlet-maven-plugin:1.0.0:conformance \
+  -Dbrewlet.fixtures=/path/to/conformance/artifact-v1.json \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
 
@@ -31,7 +31,7 @@ platform cases through the actual `push` goal.
 Package and publish in the same Maven invocation:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:push \
+mvn package sh.brewlet:brewlet-maven-plugin:1.0.0:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
@@ -86,7 +86,7 @@ layer set. Project version overrides outside that catalog fail closed.
 There is no guessed BOM, runtime selection, or Kubernetes integration.
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:layer-set \
+mvn sh.brewlet:brewlet-maven-plugin:1.0.0:layer-set \
   -Dbrewlet.layerSet=registry.example.com/dependencies/approved:2026.10 \
   -Dbrewlet.sourceBom=com.example:approved-bom:2026.10 \
   -Dbrewlet.layerSetName=approved \
@@ -218,7 +218,7 @@ Build and test with `mvn -B -q -f maven-plugin/pom.xml verify`.
 drift, duplicate filenames, thin-JAR rejection, descriptor authority, AppCDS
 attachment, runtime ID proposals, local/remote pinning, trust argv boundaries,
 and full goal execution with a recording CLI. `ConformanceTest` requires every
-case in `../conformance/artifact-v2.json` to pass the Java evaluator.
+case in `../conformance/artifact-v1.json` to pass the Java evaluator.
 
 For real CLI integration, install the matching plugin, publish an Ops project
 with the `layer-set` command, and consume its OCI layout via the application

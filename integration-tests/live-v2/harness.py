@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private real-node Brewlet v2 acceptance; never uses the current kube context."""
+"""Private real-node Brewlet acceptance; never uses the current kube context."""
 
 import argparse
 import base64
@@ -35,7 +35,7 @@ REGISTRY_IMAGE = "registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d
 CLI_USERLAND = "docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258"
 OWNER = "acceptance.brewlet.test/run"
 FENCE = "startup-taint.cluster-autoscaler.kubernetes.io/brewlet"
-API = "node.brewlet.sh/v2alpha1"
+API = "node.brewlet.sh/v1alpha1"
 IDS = {language: "fixture-" + language for language in LANGUAGES}
 STORE = "/opt/brewlet/runtimes"
 UNIMPLEMENTED = [
@@ -230,7 +230,7 @@ def artifact_target(layout):
     roles = []
     for item in manifests:
         manifest = checked_blob(layout, item)
-        require(manifest.get("annotations", {}).get("brewlet.sh/artifact-version") == "2",
+        require(manifest.get("annotations", {}).get("brewlet.sh/artifact-version") == "1",
                 "not a v2 application")
         current_roles = [layer.get("annotations", {}).get("brewlet.sh/layer")
                          for layer in manifest["layers"]]

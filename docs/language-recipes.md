@@ -19,7 +19,7 @@ dedicated guides for a complete workflow.
 | [WebAssembly](webassembly.md) | Explicit Wasmtime/Spin hosts, guest interfaces, capabilities and cache isolation. |
 
 These are tested workload examples, not an exhaustive list of five built-in
-runtime modes. The current [qualification fixtures](https://github.com/microsoft/brewlet/tree/brewlet-2.0/integration-tests/fixtures) exercise
+runtime modes. The current [qualification fixtures](https://github.com/microsoft/brewlet/tree/main/integration-tests/fixtures) exercise
 Java, Python, Node and .NET. The unchanged distroless matrix additionally covers
 Java/Python/Node/static on arm64. The separate
 [managed-composition matrix](managed-composition.md) covers Java/Python/Node
@@ -32,7 +32,7 @@ Read the [complete Python guide](python.md). For the qualified distroless layout
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "/usr/bin/python3.13"
@@ -73,7 +73,7 @@ the fixture's thin-JAR/classpath descriptor uses:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "/usr/bin/java"
@@ -105,7 +105,7 @@ upstream PATH. Author it explicitly:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "/nodejs/bin/node"
@@ -129,7 +129,7 @@ Read the [complete .NET guide](dotnet.md). For a runtime explicitly providing
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "/usr/bin/dotnet"

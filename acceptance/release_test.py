@@ -18,19 +18,23 @@ from scripts import release_tools as tools
 class IdentityTests(unittest.TestCase):
     def test_current_coordinates_and_metadata_agree(self):
         config = r.policy()
-        self.assertEqual("2.0.0-alpha.1", config["version"])
+        self.assertEqual("1.0.0", config["version"])
         fixture = r.ET.parse(r.ROOT / "integration-tests/fixtures/java/app/pom.xml").getroot()
         plugin = next(item for item in fixture.findall("m:build/m:plugins/m:plugin", r.NS)
                       if item.findtext("m:artifactId", namespaces=r.NS) == "brewlet-maven-plugin")
         self.assertEqual(config["version"], plugin.findtext("m:version", namespaces=r.NS))
+        self.assertEqual([{"sourceVersion": config["version"], "targetVersion": config["version"],
+                           "method": "drain-teardown-reinstall"}],
+                         config["publicationPolicy"]["supportedTransitions"])
         self.assertIsNone(config["publicationPolicy"]["legalApproval"])
         self.assertIsNone(config["publicationPolicy"]["mavenSigningFingerprint"])
 
-    def test_only_explicit_prerelease_version_policy_is_accepted(self):
-        for value in ("2.0.0", "v2.0.0-alpha.1", "2.0", "2.0.0-SNAPSHOT",
-                      "2.0.0-alpha.01", "2.0.0-alpha.1+mutable", "../../file", "2.0.0-rc.1\n"):
+    def test_only_explicit_1_0_0_version_policy_is_accepted(self):
+        for value in ("1.1.0", "1.1.0-alpha.1", "v1.0.0", "v1.0.0-alpha.1", "1.0",
+                      "1.0.1", "1.0.0-SNAPSHOT", "1.0.0-alpha.01", "1.0.0-alpha.1+mutable",
+                      "../../file", "1.0.0\n", "1.0.0-rc.1\n"):
             self.assertIsNone(r.VERSION.fullmatch(value), value)
-        for value in ("2.0.0-alpha.1", "2.0.0-beta.12", "2.0.0-rc.0"):
+        for value in ("1.0.0", "1.0.0-alpha.1", "1.0.0-beta.12", "1.0.0-rc.0"):
             self.assertIsNotNone(r.VERSION.fullmatch(value))
 
     def test_mismatched_pom_or_chart_fails(self):
@@ -44,7 +48,7 @@ class IdentityTests(unittest.TestCase):
             for name in ("maven-plugin/pom.xml", "kubernetes/charts/brewlet/Chart.yaml"):
                 path = root / name
                 original = path.read_text()
-                path.write_text(original.replace("2.0.0-alpha.1", "2.0.0-SNAPSHOT"))
+                path.write_text(original.replace("1.0.0", "1.0.0-SNAPSHOT"))
                 with self.assertRaisesRegex(ValueError, "identity drift"):
                     r.policy(root)
                 path.write_text(original)
@@ -84,8 +88,8 @@ class PackagingTests(unittest.TestCase):
     def test_exact_payload_set_includes_every_distribution(self):
         names = r.expected_files(r.policy())
         self.assertEqual(9, len(names))
-        self.assertIn("brewlet-2.0.0-alpha.1.tgz", names)
-        self.assertIn("brewlet-maven-plugin-2.0.0-alpha.1-javadoc.jar", names)
+        self.assertIn("brewlet-1.0.0.tgz", names)
+        self.assertIn("brewlet-maven-plugin-1.0.0-javadoc.jar", names)
 
 
 class AssuranceTests(unittest.TestCase):

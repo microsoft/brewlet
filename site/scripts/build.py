@@ -28,7 +28,7 @@ def notices():
             parsed = Requirement(requirement)
             if parsed.marker is None or parsed.marker.evaluate({"extra": ""}):
                 pending.append(parsed.name)
-    parts = ["Brewlet 2.0 website\n===================\n",
+    parts = ["Brewlet 1.0.0 website\n=====================\n",
              "Brewlet source is MIT licensed; see LICENSE.txt.\n"
              "The generated documentation bundles the following dependencies.\n"
              "Versions and license text come from the installed build environment.\n",

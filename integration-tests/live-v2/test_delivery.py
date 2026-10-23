@@ -30,7 +30,7 @@ class Work(unittest.TestCase):
         layer, app_diff = delivery.tar_layer([("app/main.py", b"print('hello')\n", 0o644)])
         app = delivery.blob(layout, layer, delivery.LAYER)
         app["annotations"] = {"brewlet.sh/layer": "app"}
-        launch = {"schemaVersion": 2, "process": {"entrypoint": ["python3"], "args": ["/app/main.py"]}}
+        launch = {"schemaVersion": 1, "process": {"entrypoint": ["python3"], "args": ["/app/main.py"]}}
         layer, launch_diff = delivery.tar_layer([("launch.json", json.dumps(launch).encode(), 0o644)])
         launch_layer = delivery.blob(layout, layer, delivery.LAYER)
         launch_layer["annotations"] = {"brewlet.sh/layer": "launch"}
@@ -38,7 +38,7 @@ class Work(unittest.TestCase):
             "config": {"Entrypoint": ["python3"], "Cmd": ["/app/main.py"], "WorkingDir": "/app"},
             "rootfs": {"type": "layers", "diff_ids": [app_diff, launch_diff]}}, delivery.CONFIG)
         target = delivery.json_blob(layout, {"schemaVersion": 2, "mediaType": delivery.MANIFEST,
-            "annotations": {"brewlet.sh/artifact-version": "2"}, "config": config,
+            "annotations": {"brewlet.sh/artifact-version": "1"}, "config": config,
             "layers": [app, launch_layer]}, delivery.MANIFEST)
         delivery.finish_layout(layout, target)
         return layout, target

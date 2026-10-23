@@ -14,7 +14,7 @@ Dependencies can ship with your application or optionally come from an approved
 thin JAR with the locked dependency set into a new, verifiable application
 artifact. Compatible library updates can preserve your application JAR, but
 still require testing. The
-[optional Maven producer](https://github.com/microsoft/brewlet/blob/brewlet-2.0/maven-plugin/README.md)
+[optional Maven producer](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md)
 prepares Java-specific inputs; Brewlet core does not resolve Maven dependencies
 or construct your classpath.
 
@@ -66,7 +66,7 @@ explicit executable path supplied by the selected runtime:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "/usr/bin/java"

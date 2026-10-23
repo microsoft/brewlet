@@ -1,4 +1,4 @@
-# A guided 2.0 demonstration
+# A guided 1.0.0 demonstration
 
 The [local Kubernetes tutorial](local-kubernetes.md) is the runnable demonstration.
 It uses a tiny Python HTTP service, pinned unchanged distroless roots and
@@ -18,7 +18,7 @@ source-built components. It does not require Java, Maven, Node or .NET SDKs.
 
 This is a demonstration script, not a prerecorded video or a performance
 benchmark. Capture a recording only from an actual run. The older Java/main
-conference material is historical context, not 2.0 execution evidence.
+conference material is historical context, not 1.0.0 execution evidence.
 
 ## Boundaries to say out loud
 

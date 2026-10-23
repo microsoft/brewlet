@@ -1,6 +1,6 @@
 <!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1160" height="710" viewBox="0 0 1160 710" role="img" aria-labelledby="architecture-title architecture-description">
-  <title id="architecture-title">Brewlet 2.0: application workloads, infrastructure runtimes</title>
+  <title id="architecture-title">Brewlet 1.0.0: application workloads, infrastructure runtimes</title>
   <desc id="architecture-description">An application publisher sends code, dependency layers and launch.json to an OCI registry. Native Kubernetes workloads explicitly select a runtime ID; admission and the scheduler place the Pod. RuntimeImage and NodeProfile are reconciled by the Brewlet operator. On a Linux worker, containerd CRI pulls the application image, while the fenced provisioner installs a validated runtime generation. The Brewlet shim verifies the local application artifact, authorizes and leases that runtime generation, composes the root filesystem and delegates the process to runc. The operator does not generate application workloads, and the shim does not pull images.</desc>
   <style>
     :root{color-scheme:light;--cp-bg:#fffdf9;--cp-surface:#fff;--cp-elevated:#fbf4e6;--cp-border:#e7dcc9;--cp-text:#2a1f18;--cp-muted:#6b5d51;--cp-accent:#6f4e37;--cp-link:#326ce5}

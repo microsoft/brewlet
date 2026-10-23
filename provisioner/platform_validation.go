@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 )
 
 func (w *Worker) validateRuntimePlatforms(ctx context.Context, r *api.RuntimeImage) error {

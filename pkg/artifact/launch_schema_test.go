@@ -23,7 +23,7 @@ func TestLaunchSchemaMatchesConformance(t *testing.T) {
 	var fixtures struct {
 		Cases []Fixture `json:"cases"`
 	}
-	readJSON(t, "../../conformance/artifact-v2.json", &fixtures)
+	readJSON(t, "../../conformance/artifact-v1.json", &fixtures)
 	checked, exceptions := 0, 0
 	for _, f := range fixtures.Cases {
 		if f.Kind != "launch" && f.Kind != "compatibility" {

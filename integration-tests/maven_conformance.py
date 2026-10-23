@@ -30,7 +30,7 @@ def normalized(process):
 
 def run(executable, project, work, fixture_file):
     fixture = dict(json.loads(Path(fixture_file).read_text(), object_pairs_hook=Pairs))
-    shared = work / "published-artifact-v2.json"
+    shared = work / "published-artifact-v1.json"
     shared.write_bytes(Path(fixture_file).read_bytes())
     report = work / "maven-shared-conformance.json"
     subprocess.run([
@@ -57,13 +57,13 @@ def run(executable, project, work, fixture_file):
             descriptor = encode(case["launch"])
         elif kind == "id":
             descriptor = json.dumps({
-                "schemaVersion": 2,
+                "schemaVersion": 1,
                 "process": {"entrypoint": ["runner"]},
                 "runtimeImages": [case["value"]],
             })
         else:
             platform = case["value"]
-            descriptor = '{"schemaVersion":2,"process":{"entrypoint":["runner"]}}'
+            descriptor = '{"schemaVersion":1,"process":{"entrypoint":["runner"]}}'
         source = work / f'conformance-{case["name"]}.json'
         source.write_text(descriptor)
         layout = work / f'conformance-{case["name"]}-oci'

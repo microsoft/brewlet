@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": ["java"],
     "args": ["--class-path", "/app/app.jar:/app/lib/*", "sh.brewlet.fixture.Main"],

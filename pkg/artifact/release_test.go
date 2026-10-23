@@ -36,7 +36,7 @@ func releaseAuthority(t *testing.T, signer *LayerSetSigner) ReleaseAuthority {
 
 func releaseApplication(t *testing.T, store Store, platform v1.Platform, sources ...LayerSource) v1.Descriptor {
 	t.Helper()
-	launchJSON := []byte(`{"schemaVersion":2,"process":{"entrypoint":["/runtime"],"args":["/app/code"],"workingDir":"/app"},"runtimeImages":[]}`)
+	launchJSON := []byte(`{"schemaVersion":1,"process":{"entrypoint":["/runtime"],"args":["/app/code"],"workingDir":"/app"},"runtimeImages":[]}`)
 	launch, err := writeLayer(store, "launch", func(tw *tar.Writer) error {
 		if err := tw.WriteHeader(fileHeader("launch.json", string(launchJSON), 0644)); err != nil {
 			return err
@@ -58,7 +58,7 @@ func releaseApplication(t *testing.T, store Store, platform v1.Platform, sources
 	config, err := store.PutJSON(v1.MediaTypeImageConfig, v1.Image{Platform: platform, Config: parsed.ImageConfig(), RootFS: v1.RootFS{Type: "layers", DiffIDs: diffs}})
 	must(t, err)
 	target, err := store.PutJSON(v1.MediaTypeImageManifest, v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2},
-		MediaType: v1.MediaTypeImageManifest, Config: config, Layers: descriptors, Annotations: map[string]string{"brewlet.sh/artifact-version": "2"}})
+		MediaType: v1.MediaTypeImageManifest, Config: config, Layers: descriptors, Annotations: map[string]string{"brewlet.sh/artifact-version": "1"}})
 	must(t, err)
 	target.Platform = &platform
 	return target
@@ -158,7 +158,7 @@ func TestManagedCompositionPreservesBytesAndReplacesDependencies(t *testing.T) {
 	if _, err = VerifyComposition(ctx, copy, second, windows, f.policy); Reason(err) != "InvalidPlatform" {
 		t.Fatalf("non-linux verification platform accepted: %v", err)
 	}
-	options.Launch = []byte(`{"schemaVersion":2,"process":{"entrypoint":["/runtime"],"args":["--explicit"]}}`)
+	options.Launch = []byte(`{"schemaVersion":1,"process":{"entrypoint":["/runtime"],"args":["--explicit"]}}`)
 	_, changed, err := Compose(ctx, f.store, options)
 	must(t, err)
 	if changed.Predicate.EffectiveLaunch.Descriptor.Digest == changed.Predicate.InputLaunch.Descriptor.Digest ||

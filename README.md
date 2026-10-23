@@ -21,14 +21,14 @@ developers retain explicit control over their application's command and
 dependencies. Java, Python, Node.js and .NET use the same language-neutral
 contract; Java project intelligence belongs only to the optional Maven producer.
 
-This repository contains the complete Brewlet 2.0 implementation: the CLI and
+This repository contains the complete Brewlet 1.0.0 implementation: the CLI and
 runtime, Kubernetes platform, node provisioner, Maven plugin, specifications,
 integration tests, website, and user-facing documentation.
 
 ## Project status
 
-Brewlet 2.0 is a clean-slate, pre-GA implementation under active development.
-There is no published stable 2.0 installer in this workflow. Evaluate matching
+Brewlet 1.0.0 is a clean-slate, pre-GA implementation under active development.
+There is no published stable 1.0.0 installer in this workflow. Evaluate matching
 source-built components in a disposable environment, not a production or shared
 cluster. Do not substitute the 0.x CLI, chart, artifact format or runbooks.
 
@@ -99,7 +99,7 @@ distinct from real-node evidence. See the
    rotations.
 
 There is no language detection, default runtime selection, JVM flag injection,
-`JavaApplication` resource, or 1.x compatibility. The shared RuntimeClass reserves
+`JavaApplication` resource, or 0.x compatibility. The shared RuntimeClass reserves
 `64Mi` memory and `50m` CPU per pod for shim and staging overhead, not for the
 language runtime. Workload requests and limits must cover the entire application
 process, including its interpreter or VM.
@@ -122,7 +122,7 @@ process, including its interpreter or VM.
 
 ### Build the CLI from source
 
-Use Go 1.26 or newer and a reviewed source revision containing this 2.0
+Use Go 1.26 or newer and a reviewed source revision containing this 1.0.0
 implementation:
 
 ```bash
@@ -214,7 +214,7 @@ or on manual dispatch from `main`. Pull requests cannot deploy, and the site
 does not advertise the old release installer. See the [website guide](site/README.md).
 
 CodeQL scans Actions, Go, Java, C#, JavaScript/TypeScript and Python on pull
-requests, pushes to `main` or `brewlet-2.0`, and a weekly schedule. Dependabot
+requests, pushes to `main`, and a weekly schedule. Dependabot
 checks Actions, Go, Maven, npm, pip and NuGet dependencies weekly using the
 current repository and fixture manifests.
 
@@ -232,7 +232,7 @@ See the [security guidance](docs/security.md) for trust boundaries and
 
 ## Releases
 
-Brewlet 2.0 is pre-GA. [`release.json`](release.json) defines the candidate
+Brewlet 1.0.0 is pre-GA. [`release.json`](release.json) defines the candidate
 identity; release infrastructure and intended package coordinates do not prove
 that a qualified prerelease has been published.
 
@@ -252,7 +252,7 @@ creating a tag alone does not publish them. See the
 [prerelease distribution runbook](docs/supported-release.md) and
 [compatibility policy](docs/compatibility-policy.md).
 
-The 2.0 rewrite is inspired by Brewlet 0.x at
+The 1.0.0 rewrite is inspired by Brewlet 0.x at
 `fa7085335b220e29df6affbece4558c5f1259ecb`; its specification, label contract
 and runbooks are not carried forward. See [reference provenance](REFERENCE.md).
 

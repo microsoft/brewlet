@@ -7,11 +7,11 @@ complete acceptance suite.
 **Scope:** one new disposable kind cluster, source-built components, one native
 CPU architecture and preimported verified OCI graphs. It does not test remote
 registry credentials/TLS, cloud autoscaling or another architecture.
-No released 2.0 installer or host Java/Node/.NET toolchain is needed.
+No released 1.0.0 installer or host Java/Node/.NET toolchain is needed.
 
 ## Prerequisites
 
-Use a clean checkout of `brewlet-2.0`, Bash, Go 1.26+, Python 3.12+, Docker with
+Use a clean checkout of `main`, Bash, Go 1.26+, Python 3.12+, Docker with
 BuildKit and Linux containers, kind **v0.33.0**, kubectl, Helm and tar.
 Allow several GB of Docker storage and time for the first source build.
 Provisioning modifies only the tutorial's new node.
@@ -143,7 +143,7 @@ helm --kubeconfig "$KUBECONFIG" --kube-context "$CONTEXT" upgrade --install brew
   --set-string "provisioner.image=$WORKER" --wait --timeout 5m
 k -n brewlet rollout status deployment/brewlet-admission --timeout=120s
 cat > "$WORK/runtime.yaml" <<EOF
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: RuntimeImage
 metadata:
   name: $RID
@@ -156,7 +156,7 @@ k apply -f "$WORK/runtime.yaml"
 k wait --for=condition=Approved "runtimeimage/$RID" --timeout=120s
 export RUNTIME_UID="$(k get runtimeimage "$RID" -o jsonpath='{.metadata.uid}')"
 cat > "$WORK/profile.yaml" <<EOF
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
   name: $PROFILE
