@@ -1,24 +1,4 @@
 {% extends "base.html" %}
-{% block extrahead %}
-  <script>
-    (() => {
-      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
-      const theme =
-        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-      document.documentElement.setAttribute("data-theme", theme);
-      document.addEventListener("click", event => {
-        const link = event.target.closest("a[href]");
-        if (!link || link.getAttribute("href").startsWith("#")) return;
-        const url = new URL(link.href);
-        if (url.origin === location.origin && !link.hasAttribute("download")) {
-          url.searchParams.set("clawpilotTheme", document.documentElement.dataset.theme);
-          link.href = url;
-        }
-      });
-    })();
-  </script>
-  {{ super() }}
-{% endblock %}
 {% block announce %}
   Brewlet 1.0.0 is a source-built evaluation, not a published stable release.
   <a href="{{ base_url }}/../">Back to the website</a>

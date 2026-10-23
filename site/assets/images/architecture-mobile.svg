@@ -4,7 +4,6 @@
   <desc id="architecture-description">Application publication sends code, dependencies and launch.json to an OCI registry. RuntimeImage and NodeProfile are reconciled by the operator as infrastructure. A native workload explicitly selects the runtime ID and Kubernetes schedules its Pod. On the worker, containerd CRI pulls application content; the fenced provisioner acquires and validates an immutable runtime generation. The shim verifies the application, authorizes and leases that root, composes the filesystem and delegates to runc. Runtime provisioning is an infrastructure operation independent of application publication.</desc>
   <style>
     :root{color-scheme:light;--cp-bg:#fffdf9;--cp-surface:#fff;--cp-elevated:#fbf4e6;--cp-border:#e7dcc9;--cp-text:#2a1f18;--cp-muted:#6b5d51;--cp-accent:#6f4e37;--cp-link:#326ce5}
-    @media(prefers-color-scheme:dark){:root{color-scheme:dark;--cp-bg:#2a1f18;--cp-surface:#3b241a;--cp-elevated:#553524;--cp-border:#8a6244;--cp-text:#f5e6c8;--cp-muted:#e7dcc9;--cp-accent:#f5e6c8;--cp-link:#a8c3ff}}
     text{font-family:"Segoe UI",Aptos,Calibri,sans-serif;fill:var(--cp-text)}
     .box{fill:var(--cp-surface);stroke:var(--cp-border);stroke-width:1.2}
     .worker{fill:var(--cp-elevated);stroke:var(--cp-border);stroke-width:1.2}

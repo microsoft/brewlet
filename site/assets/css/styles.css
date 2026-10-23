@@ -1,6 +1,5 @@
 /* Copyright (c) Microsoft Corporation. Licensed under the MIT License. */
 * { box-sizing: border-box; }
-html[data-theme="dark"] { --cp-text-muted: var(--cp-text-soft); }
 html { scroll-behavior: smooth; scroll-padding-top: 6rem; }
 body { margin: 0; background: var(--cp-bg); color: var(--cp-text); font: 1rem/1.65 "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif; }
 a { color: var(--cp-link); text-underline-offset: .25em; }
@@ -30,7 +29,7 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .navigation nav { display: flex; align-items: center; gap: 1.5rem; }
 .navigation nav a { font-size: .875rem; font-weight: 600; color: var(--cp-text); text-decoration: none; }
 .navigation nav a:hover, .navigation nav a[aria-current] { color: var(--cp-accent); }
-.theme-toggle, .menu-toggle { background: var(--cp-surface); color: var(--cp-text); border: 1px solid var(--cp-border); border-radius: .625rem; min-height: 44px; padding: .5rem .75rem; font-size: .875rem; }
+.menu-toggle { background: var(--cp-surface); color: var(--cp-text); border: 1px solid var(--cp-border); border-radius: .625rem; min-height: 44px; padding: .5rem .75rem; font-size: .875rem; }
 .menu-toggle { display: none; }
 .hero { padding-top: 6rem; }
 .hero-grid { display: grid; grid-template-columns: 1.05fr 1fr; align-items: center; gap: 4rem; }
@@ -163,7 +162,7 @@ pre { margin: 0; padding: 1.5rem; overflow-x: auto; font-size: .8125rem; line-he
 }
 @media print {
   .site-header { position: static; }
-  .menu-toggle, .theme-toggle, .copy-button { display: none; }
+  .menu-toggle, .copy-button { display: none; }
   details > * { display: block; }
   .section { break-inside: avoid; padding-block: 1rem; }
 }

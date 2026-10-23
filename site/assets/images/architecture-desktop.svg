@@ -4,7 +4,6 @@
   <desc id="architecture-description">An application publisher sends code, dependency layers and launch.json to an OCI registry. Native Kubernetes workloads explicitly select a runtime ID; admission and the scheduler place the Pod. RuntimeImage and NodeProfile are reconciled by the Brewlet operator. On a Linux worker, containerd CRI pulls the application image, while the fenced provisioner installs a validated runtime generation. The Brewlet shim verifies the local application artifact, authorizes and leases that runtime generation, composes the root filesystem and delegates the process to runc. The operator does not generate application workloads, and the shim does not pull images.</desc>
   <style>
     :root{color-scheme:light;--cp-bg:#fffdf9;--cp-surface:#fff;--cp-elevated:#fbf4e6;--cp-border:#e7dcc9;--cp-text:#2a1f18;--cp-muted:#6b5d51;--cp-accent:#6f4e37;--cp-link:#326ce5}
-    @media(prefers-color-scheme:dark){:root{color-scheme:dark;--cp-bg:#2a1f18;--cp-surface:#3b241a;--cp-elevated:#553524;--cp-border:#8a6244;--cp-text:#f5e6c8;--cp-muted:#e7dcc9;--cp-accent:#f5e6c8;--cp-link:#a8c3ff}}
     text{font-family:"Segoe UI",Aptos,Calibri,sans-serif;fill:var(--cp-text)}
     .box{fill:var(--cp-surface);stroke:var(--cp-border);stroke-width:1.5}
     .worker{fill:var(--cp-elevated);stroke:var(--cp-border);stroke-width:1.5}
