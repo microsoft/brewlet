@@ -106,7 +106,7 @@ class WasmHarness(Harness):
             launch = EXAMPLE / (name + "-launch.json")
             layout = self.work / (name + "-application")
             tag = f"registry.brewlet.test/{self.run_id}/wasm-app/{name}:v1"
-            self.run([*self.cli_command, "push", tag, "--store", layout,
+            self.run([*self.cli_command, "build", tag, "--store", layout,
                       "--platform", "linux/" + self.arch, "--launch", launch,
                       "--layer-set", sets, "--layer", f"app={app}:/app"], timeout=180)
             digest, _ = artifact_target(layout)
@@ -126,7 +126,7 @@ class WasmHarness(Harness):
         empty_file.write_text(json.dumps(launch))
         layout = self.work / "empty-application"
         tag = f"registry.brewlet.test/{self.run_id}/wasm-app/empty:v1"
-        self.run([*self.cli_command, "push", tag, "--store", layout,
+        self.run([*self.cli_command, "build", tag, "--store", layout,
                   "--platform", "linux/" + self.arch, "--launch", empty_file,
                   "--layer-set", sets, "--layer", f"app={self.work / 'wasmtime-app'}:/app"], timeout=180)
         root = json.loads((layout / "index.json").read_text())["manifests"][0]
@@ -135,7 +135,7 @@ class WasmHarness(Harness):
         legacy["requires"] = {"runtimeImages": legacy.pop("runtimeImages")}
         legacy_file = self.work / "legacy-launch.json"
         legacy_file.write_text(json.dumps(legacy))
-        rejected = self.run([*self.cli_command, "push", "example.invalid/legacy:v1",
+        rejected = self.run([*self.cli_command, "build", "example.invalid/legacy:v1",
             "--store", self.work / "rejected-legacy", "--platform", "linux/" + self.arch,
             "--launch", legacy_file, "--layer", f"app={self.work / 'wasmtime-app'}:/app"],
             check=False, timeout=180)

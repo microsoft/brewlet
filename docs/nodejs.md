@@ -84,12 +84,12 @@ Use a matching CLI on a Linux producer filesystem, following
 [producer setup](getting-started.md) if working on macOS. Replace the registry:
 
 ```sh
-brewlet push registry.example.com/apps/node-demo:v1 \
+brewlet build registry.example.com/apps/node-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
   --layer "dependency=$WORK/dependencies:/app/dependencies" \
-  --layer "app=$WORK/src:/app/src" \
-  --push-result "$WORK/push.json"
+  --layer "app=$WORK/src:/app/src"
+brewlet push registry.example.com/apps/node-demo:v1 --push-result "$WORK/push.json"
 ```
 
 These are separate dependency/app layers. For an independently published

@@ -15,9 +15,9 @@ COPY --chmod=0644 examples/local/launch.json /example/launch.json
 # Fresh authored input avoids BuildKit's own overlay metadata; validation stays strict.
 RUN --mount=type=tmpfs,target=/package chmod 0755 /package && \
     install -m 0644 /example/app/server.py /package/server.py && \
-    /brewlet push example.invalid/brewlet/hello:v1 --platform "${TARGETOS}/${TARGETARCH}" \
+    /brewlet build example.invalid/brewlet/hello:v1 --platform "${TARGETOS}/${TARGETARCH}" \
     --launch /example/launch.json --layer app=/package:/app \
-    --store /out/oci --push-result /out/push.json
+    --store /out/oci --result /out/push.json
 
 FROM scratch AS artifact
 COPY --from=producer /out/ /

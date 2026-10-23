@@ -22,12 +22,26 @@ import (
 
 func jsonBytes(v any) ([]byte, error) { return json.Marshal(v) }
 
-type LayerSpec struct{ Role, Source, Destination string }
+// LayerSpec describes one producer layer. A nil Platform applies the layer to
+// every declared platform; otherwise it belongs only to that platform manifest.
+type LayerSpec struct {
+	Role, Source, Destination string
+	Platform                  *v1.Platform
+}
 
+// ParseLayerSpec parses [OS/ARCH[/VARIANT]:]ROLE=SOURCE:/app/PATH.
 func ParseLayerSpec(s string) (LayerSpec, error) {
 	role, rest, ok := strings.Cut(s, "=")
+	var platform *v1.Platform
+	if i := strings.LastIndex(role, ":"); ok && i >= 0 {
+		p, e := ParsePlatform(role[:i])
+		if e != nil {
+			return LayerSpec{}, e
+		}
+		platform, role = &p, role[i+1:]
+	}
 	if !ok || (role != "app" && role != "dependency") {
-		return LayerSpec{}, fmt.Errorf("layer must be app=SOURCE:/app/PATH or dependency=SOURCE:/app/PATH")
+		return LayerSpec{}, fmt.Errorf("layer must be [OS/ARCH[/VARIANT]:]app=SOURCE:/app/PATH or [OS/ARCH[/VARIANT]:]dependency=SOURCE:/app/PATH")
 	}
 	i := strings.LastIndex(rest, ":")
 	if i < 1 {
@@ -40,7 +54,7 @@ func ParseLayerSpec(s string) (LayerSpec, error) {
 	if _, e := archivePath(strings.TrimPrefix(dest, "/")); e != nil {
 		return LayerSpec{}, e
 	}
-	return LayerSpec{role, rest[:i], strings.TrimPrefix(dest, "/")}, nil
+	return LayerSpec{Role: role, Source: rest[:i], Destination: strings.TrimPrefix(dest, "/"), Platform: platform}, nil
 }
 
 type BuiltLayer struct {
@@ -253,22 +267,36 @@ func Build(ctx context.Context, store Store, o BuildOptions) (v1.Descriptor, err
 		layers = append(layers, ls...)
 		evidence = append(evidence, ev)
 	}
-	apps := 0
-	for _, s := range o.Layers {
+	seenPlatforms := map[string]bool{}
+	for _, p := range o.Platforms {
+		key := p.OS + "/" + p.Architecture + "/" + p.Variant
+		if seenPlatforms[key] {
+			return v1.Descriptor{}, fail("InvalidPlatform", "duplicate platform")
+		}
+		seenPlatforms[key] = true
+		if _, e = ParsePlatform(strings.TrimSuffix(key, "/")); e != nil {
+			return v1.Descriptor{}, e
+		}
+	}
+	built := make([]BuiltLayer, len(o.Layers))
+	for i, s := range o.Layers {
 		if s.Role != "app" && s.Role != "dependency" {
 			return v1.Descriptor{}, fail("UnsupportedArtifact", "invalid source role")
 		}
-		if s.Role == "app" {
-			apps++
+		if s.Platform != nil {
+			declared := false
+			for _, p := range o.Platforms {
+				declared = declared || sameDeclaredPlatform(p, *s.Platform)
+			}
+			if !declared {
+				return v1.Descriptor{}, fail("InvalidPlatform", "layer platform %s/%s is not a declared --platform", s.Platform.OS, s.Platform.Architecture)
+			}
 		}
 		layer, e := BuildLayer(ctx, store, s)
 		if e != nil {
 			return v1.Descriptor{}, e
 		}
-		layers = append(layers, layer)
-	}
-	if apps == 0 {
-		return v1.Descriptor{}, fail("UnsupportedArtifact", "at least one app layer required")
+		built[i] = layer
 	}
 	launch, e := writeLayer(store, "launch", func(t *tar.Writer) error {
 		h := &tar.Header{Name: "launch.json", Mode: 0644, Size: int64(len(o.Launch)), Typeflag: tar.TypeReg}
@@ -281,32 +309,49 @@ func Build(ctx context.Context, store Store, o BuildOptions) (v1.Descriptor, err
 	if e != nil {
 		return v1.Descriptor{}, e
 	}
-	layers = append(layers, launch)
-	var descs []v1.Descriptor
-	var diffs []digest.Digest
-	var sources []LayerSource
-	for _, b := range layers {
+	walked := map[digest.Digest]LayerSource{}
+	source := func(b BuiltLayer) (LayerSource, error) {
+		if src, ok := walked[b.Descriptor.Digest]; ok {
+			return src, nil
+		}
 		d := b.Descriptor
 		src := LayerSource{Descriptor: d, DiffID: b.DiffID, Open: func() (io.ReadCloser, error) { return store.Open(d) }}
-		if _, e = WalkLayer(ctx, src, nil); e != nil {
-			return v1.Descriptor{}, e
+		if _, e := WalkLayer(ctx, src, nil); e != nil {
+			return LayerSource{}, e
 		}
-		sources = append(sources, src)
-		descs = append(descs, d)
-		diffs = append(diffs, b.DiffID)
-	}
-	if e = ValidateComposition(ctx, sources); e != nil {
-		return v1.Descriptor{}, e
+		walked[d.Digest] = src
+		return src, nil
 	}
 	idx := v1.Index{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageIndex}
-	seen := map[string]bool{}
 	for _, p := range o.Platforms {
-		key := p.OS + "/" + p.Architecture + "/" + p.Variant
-		if seen[key] {
-			return v1.Descriptor{}, fail("InvalidPlatform", "duplicate platform")
+		platformLayers := append([]BuiltLayer(nil), layers...)
+		apps := 0
+		for i, s := range o.Layers {
+			if s.Platform != nil && !sameDeclaredPlatform(*s.Platform, p) {
+				continue
+			}
+			if s.Role == "app" {
+				apps++
+			}
+			platformLayers = append(platformLayers, built[i])
 		}
-		seen[key] = true
-		if _, e = ParsePlatform(strings.TrimSuffix(key, "/")); e != nil {
+		if apps == 0 {
+			return v1.Descriptor{}, fail("UnsupportedArtifact", "at least one app layer required")
+		}
+		platformLayers = append(platformLayers, launch)
+		var descs []v1.Descriptor
+		var diffs []digest.Digest
+		var sources []LayerSource
+		for _, b := range platformLayers {
+			src, e := source(b)
+			if e != nil {
+				return v1.Descriptor{}, e
+			}
+			sources = append(sources, src)
+			descs = append(descs, b.Descriptor)
+			diffs = append(diffs, b.DiffID)
+		}
+		if e = ValidateComposition(ctx, sources); e != nil {
 			return v1.Descriptor{}, e
 		}
 		image := v1.Image{Platform: p, Config: l.ImageConfig(), RootFS: v1.RootFS{Type: "layers", DiffIDs: diffs}}

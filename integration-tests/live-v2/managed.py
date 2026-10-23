@@ -110,7 +110,7 @@ def create_release_policy(h):
 
 def compose_layout(h, application, dependency, policy, name):
     layout, receipt = h.work / (name + "-composed"), h.work / (name + "-receipt.json")
-    h.run([*h.cli_command, "compose", name, "--store", layout,
+    h.run([*h.cli_command, "bundle", name, "--store", layout,
            "--application", application, "--layer-set", dependency,
            "--platform", "linux/" + h.arch, "--policy", policy,
            "--signing-key", h.work / "composer.key",
@@ -146,7 +146,7 @@ class ManagedDelivery(UpstreamDelivery):
             remote = self.publish(root, selected, "managed/runtime-" + language)
             h.runtime_images[language] = {"before": remote, "after": remote}
             app_layout = h.work / ("managed-payload-" + language)
-            command = [*h.cli_command, "push", "payload-" + language, "--store", app_layout,
+            command = [*h.cli_command, "build", "payload-" + language, "--store", app_layout,
                        "--platform", "linux/" + h.arch, "--launch", h.launch_file(language)]
             dependency = None
             for role, source, destination in inputs[language]:

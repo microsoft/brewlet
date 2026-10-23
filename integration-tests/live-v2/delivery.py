@@ -436,7 +436,7 @@ auth:
 
     def publish(self, layout, descriptor, repository):
         producer_ref = self.producer_authority + "/" + repository + ":delivery"
-        command = [*self.producer(), "imagepush", producer_ref, "--store", str(layout),
+        command = [*self.producer(), "push", producer_ref, "--store", str(layout),
                    "--source", descriptor["digest"]]
         self.run_producer(command, env={"SSL_CERT_FILE": str(self.work / "ca.crt"),
                           "BREWLET_REGISTRY_USERNAME": USERNAME,
@@ -599,7 +599,7 @@ auth:
                     "native fixture producer must itself run without emulation")
             command[2:2] = ["--label", OWNER + "=" + self.h.run_id,
                             "--name", self.producer_name]
-        self.run_producer([*command, "push", "registry.brewlet.test/native:" + arch,
+        self.run_producer([*command, "build", "registry.brewlet.test/native:" + arch,
                            "--store", str(layout), "--platform", native_platform(arch),
                            "--launch", str(launch), "--layer", f"dependency={dependency}:/app/dependency",
                            "--layer", f"app={source}:/app/bin"])

@@ -202,7 +202,11 @@ class MojoContractTest {
         set(mojo, "applicationOnly", true);
         mojo.execute();
         List<String> argv = Files.readAllLines(temp.resolve("argv"));
-        assertEquals("push", argv.get(0));
+        assertEquals("build", argv.get(0));
+        int push = argv.lastIndexOf("push");
+        assertTrue(push > 0, "build without a store must be followed by push");
+        assertEquals(List.of("push", "registry.test/application:payload", "--store",
+                argv.get(argv.indexOf("--store") + 1)), argv.subList(push, argv.size()));
         assertFalse(argv.contains("inspect"));
         assertFalse(argv.contains("--layer-set"));
         assertEquals(1, argv.stream().filter("--layer"::equals).count());
@@ -254,7 +258,7 @@ class MojoContractTest {
         set(mojo, "layerSets", List.of("repo:approved"));
         Files.writeString(temp.resolve("library.jar"), "substituted dependency");
         assertThrows(MojoExecutionException.class, mojo::execute);
-        assertFalse(Files.readAllLines(temp.resolve("argv")).contains("push"));
+        assertFalse(Files.readAllLines(temp.resolve("argv")).contains("build"));
         Files.delete(temp.resolve("argv"));
         set(mojo, "layerSets", List.of("repo:first", "repo:second"));
         assertThrows(MojoExecutionException.class, mojo::execute);

@@ -22,8 +22,8 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func TestImagePushPreservesExistingOCIOverAuthenticatedTLS(t *testing.T) {
-	dir, e := os.MkdirTemp(".", ".test-imagepush-")
+func TestPushPreservesExistingOCIOverAuthenticatedTLS(t *testing.T) {
+	dir, e := os.MkdirTemp(".", ".test-push-")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -121,7 +121,7 @@ func TestImagePushPreservesExistingOCIOverAuthenticatedTLS(t *testing.T) {
 	t.Setenv("BREWLET_REGISTRY_PASSWORD", "test-only-password")
 	reference := strings.TrimPrefix(server.URL, "https://") + "/team/golden:v1"
 	resultFile := filepath.Join(dir, "result.json")
-	args := []string{"imagepush", reference, "--store", store.Dir, "--source", target.Digest.String(), "--registry-scheme", "https", "--push-result", resultFile}
+	args := []string{"push", reference, "--store", store.Dir, "--source", target.Digest.String(), "--registry-scheme", "https", "--push-result", resultFile}
 	check(run(context.Background(), args))
 	var result struct {
 		Digest string `json:"digest"`
@@ -130,12 +130,12 @@ func TestImagePushPreservesExistingOCIOverAuthenticatedTLS(t *testing.T) {
 	check(e)
 	check(json.Unmarshal(b, &result))
 	if result.Digest != target.Digest.String() {
-		t.Fatal("imagepush changed the selected target")
+		t.Fatal("push changed the selected target")
 	}
 	layoutAfter, e := os.ReadFile(filepath.Join(store.Dir, "index.json"))
 	check(e)
 	if !bytes.Equal(layoutBefore, layoutAfter) {
-		t.Fatal("remote imagepush rewrote source layout")
+		t.Fatal("remote push rewrote source layout")
 	}
 	rootBytes, e := store.Read(target)
 	check(e)
@@ -199,7 +199,7 @@ func TestImagePushPreservesExistingOCIOverAuthenticatedTLS(t *testing.T) {
 		t.Fatalf("fixture does not target launch validation: %v", e)
 	}
 	fixtureRef := strings.TrimSuffix(reference, ":v1") + ":invalid-launch"
-	check(run(context.Background(), []string{"imagepush", fixtureRef, "--store", store.Dir, "--source", fixture.Digest.String(), "--registry-scheme", "https"}))
+	check(run(context.Background(), []string{"push", fixtureRef, "--store", store.Dir, "--source", fixture.Digest.String(), "--registry-scheme", "https"}))
 	expected, e := store.Read(fixture)
 	check(e)
 	mu.Lock()
@@ -223,15 +223,16 @@ func TestImagePushPreservesExistingOCIOverAuthenticatedTLS(t *testing.T) {
 	}
 }
 
-func TestImagePushRejectsAmbiguousValidationOptions(t *testing.T) {
+func TestPushRejectsAmbiguousValidationOptions(t *testing.T) {
 	for _, test := range []struct {
 		args []string
 		want string
 	}{
-		{[]string{"imagepush", "registry.example.test/golden:v1"}, "requires --store"},
-		{[]string{"imagepush", "registry.example.test/golden:v1", "--store", "unused", "--platform", "linux/arm64"}, "OCI bytes only"},
-		{[]string{"imagepush", "registry.example.test/golden:v1", "--store", "unused", "--require-provenance"}, "OCI bytes only"},
-		{[]string{"imagepush", "registry.example.test/golden:v1", "--store", "unused", "--registry-scheme", "https", "--insecure"}, "conflicts"},
+		{[]string{"push", "registry.example.test/golden:v1", "--store", "missing-layout"}, "does not exist"},
+		{[]string{"push", "registry.example.test/golden:v1", "--store", "unused", "--platform", "linux/arm64"}, "run `brewlet build` first"},
+		{[]string{"push", "registry.example.test/golden:v1", "--store", "unused", "--launch=launch.json"}, "run `brewlet build` first"},
+		{[]string{"push", "registry.example.test/golden:v1", "--store", "unused", "--require-provenance"}, "not defined"},
+		{[]string{"push", "registry.example.test/golden:v1", "--store", "unused", "--registry-scheme", "https", "--insecure"}, "conflicts"},
 	} {
 		if e := run(context.Background(), test.args); e == nil || !strings.Contains(e.Error(), test.want) {
 			t.Fatalf("%v: got %v; want %s", test.args, e, test.want)

@@ -79,7 +79,7 @@ Pass the **previously composed, signed** image as the application input, togethe
 with the patched set:
 
 ```sh
-brewlet compose registry.example.com/releases/orders:candidate \
+brewlet bundle registry.example.com/releases/orders:candidate \
   --application "$CURRENT_RELEASE_REF_AT_DIGEST" \
   --layer-set "$PATCHED_SET_REF_AT_DIGEST" \
   --platform linux/arm64 --policy release-policy.yaml \
@@ -169,8 +169,8 @@ instead. After a rollback, repeat step 8.
 | Symptom | Meaning | Action |
 | --- | --- | --- |
 | Container `unverified` in inventory | Missing, stale, ambiguous or untrusted evidence | Fix access/policy/freshness; never count it as clean. |
-| `compose` rejects the application | Unverified prior composition or an app layer overlapping managed paths | Recompose from a signed release, or fix the application layers. |
-| `compose` rejects the set | Lock/SBOM/provenance missing, untrusted, revoked or not exactly one SBOM | Republish the set with complete evidence and approve its digest. |
+| `bundle` rejects the application | Unverified prior composition or an app layer overlapping managed paths | Recompose from a signed release, or fix the application layers. |
+| `bundle` rejects the set | Lock/SBOM/provenance missing, untrusted, revoked or not exactly one SBOM | Republish the set with complete evidence and approve its digest. |
 | `InvalidPlatform` | Missing, malformed or non-Linux platform | Pass one explicit `linux/<arch>[/variant]`. |
 | `verify` fails for a rollback digest | Key or subject revoked under the current policy | Select or compose another approved digest. |
 | Tests fail against the candidate | Library change is incompatible | Stop the release; fix the set or application. |

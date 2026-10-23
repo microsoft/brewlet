@@ -85,10 +85,13 @@ def main():
                 time.sleep(0.25)
         reference = f"{args.producer_registry_host}:{port}/fixtures/python:v2"
         fixture = ROOT / "integration-tests/fixtures/python"
-        push = [executable, "push", reference, "--insecure", "--platform", "linux/amd64",
-                "--platform", "linux/arm64", "--launch", fixture / "launch.json",
-                "--layer", f"dependency={fixture / 'dependencies'}:/app/dependencies",
-                "--layer", f"app={fixture / 'src'}:/app/src"]
+        layout = work / "python-layout"
+        command([executable, "build", reference, "--store", layout,
+                 "--platform", "linux/amd64", "--platform", "linux/arm64",
+                 "--launch", fixture / "launch.json",
+                 "--layer", f"dependency={fixture / 'dependencies'}:/app/dependencies",
+                 "--layer", f"app={fixture / 'src'}:/app/src"], env=environment)
+        push = [executable, "push", reference, "--store", layout, "--insecure"]
         first = command(push, env=environment)
         second = command(push, env=environment)
         assert first == second, "repeated remote publication changed its handoff"
@@ -157,13 +160,16 @@ def main():
         assert untrusted.returncode != 0
         assert any(word in untrusted.stderr.lower() for word in ("provenance", "signature", "trusted"))
         managed_reference = f"{args.producer_registry_host}:{port}/fixtures/managed-python:v2"
+        managed_layout = work / "managed-python-layout"
         command([
-            executable, "push", managed_reference, "--insecure",
+            executable, "build", managed_reference, "--insecure", "--store", managed_layout,
             "--platform", "linux/amd64", "--platform", "linux/arm64",
             "--launch", fixture / "launch.json",
             "--layer-set", pinned_set, *trust,
             "--layer", f"app={fixture / 'src'}:/app/src",
         ], env=environment)
+        command([executable, "push", managed_reference, "--store", managed_layout, "--insecure"],
+                env=environment)
         managed_index = json.loads(fetch(base + "/fixtures/managed-python/manifests/v2",
                                          "application/vnd.oci.image.index.v1+json"))
         assert len(managed_index["manifests"]) == 2

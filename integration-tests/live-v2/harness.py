@@ -696,7 +696,7 @@ class Harness:
             inputs = layers[language]
             tag = f"registry.brewlet.test/{self.run_id}/apps/{language}:v2"
             layout = self.work / ("oci-" + language)
-            command = [*self.cli_command, "push", tag, "--store", layout,
+            command = [*self.cli_command, "build", tag, "--store", layout,
                        "--platform", "linux/amd64", "--platform", "linux/arm64",
                        "--launch", self.launch_file(language)]
             for role, source, target in inputs:

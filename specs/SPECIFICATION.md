@@ -1329,29 +1329,42 @@ writes `launch.json` (§6.3) by hand and declares which directories become which
 layers; the CLI validates and packages them:
 
 ```bash
-brewlet push registry.example.com/apps/api \
+brewlet build registry.example.com/apps/api \
   --platform linux/amd64 \
   --launch ./launch.json \
   --layer dependency=./venv/lib/python3.12/site-packages:/app/site-packages \
   --layer app=./src:/app/src
+brewlet push registry.example.com/apps/api
 ```
 
 The CLI MUST:
 
 - validate `launch.json` against the schema and reject unknown fields;
 - require explicit `--platform <os/arch[/variant]>` declarations, with no
-  host-platform or language-based inference. Repeating this flag asserts that
-  the supplied layers work unchanged on every listed platform. Different
-  native layer groups are published as separate platform manifests and combined
-  through an explicitly supplied index descriptor; no automatic native-file
-  discovery or grouping occurs;
+  host-platform or language-based inference. Repeating this flag produces an
+  image index with one manifest per platform. An unprefixed `--layer` asserts
+  that its bytes work unchanged on every listed platform; a layer written
+  `--layer <os/arch[/variant]>:<role>=<src>:<dest>` belongs only to that
+  declared platform, and naming an undeclared platform fails with
+  `InvalidPlatform`. Each platform receives its layer-set layers, then the
+  applicable `--layer`s in command-line order, and MUST end up with an `app`
+  layer. Layer sets are platform-neutral. Manifests produced elsewhere MAY be
+  combined through an explicitly supplied index descriptor (`brewlet index`);
+  no automatic native-file discovery or grouping occurs;
 - enforce the layer content rules of §6.2 at build time (paths under `/app`,
   world-readable, no devices, setuid, or escaping links), producing the same
   reason codes the shim would;
 - build deterministic layers in the given order, append the launch layer last,
-  mirror `launch.json` into the image config (§6.4), and push;
+  and mirror `launch.json` into the image config (§6.4);
 - consume layer sets (§6.5) named with `--layer-set <ref>` by reusing their
   layers byte-for-byte.
+
+`brewlet build` writes the result to a local OCI layout (by default
+`.brewlet/images/<sanitized-ref>`, or `--store`); it never contacts a registry
+except to read `--layer-set` inputs. `brewlet push <ref>` publishes that layout,
+or any other local OCI layout given with `--store`, after verifying every blob
+digest, and MUST NOT rewrite manifest, config or layer bytes. Build options are
+rejected by `push`, so publication can never silently rebuild.
 
 Determinism is for identical source bytes, modes, mtimes, descriptors, and
 platform declarations: entries are sorted, ownership rendered as `0:0`, and
@@ -1362,9 +1375,24 @@ executable semantics or invalidating AppCDS metadata to make packaging pass.
 
 The CLI MUST NOT inspect application content to derive any field: it never
 detects a language, guesses an entrypoint, splits dependencies, chooses
-`runtimeImages`, or writes Kubernetes manifests. What the author wrote is
+`runtimeImages`, or writes workload manifests. What the author wrote is
 what ships. `brewlet inspect <image>` prints the effective `launch.json` and
 layer table so authors and reviewers can check the result.
+
+`brewlet run <ref> --runtime <id>=<image>` is a local test aid. It applies the
+§8.2 assembly to a built application and the runtime image the author names,
+with Docker or Podman, honoring `launch.json` process fields. The mapping is
+explicit (`runtimeImages` is optional, so `run` does not require the ID to be
+listed). It MUST NOT publish or tag the merged result; the production
+artifact remains the runtime-free application image.
+
+`brewlet k8s` is an administrative convenience for cluster operators, not part
+of packaging. Its `runtime add`, `runtime rotate` and `runtime remove`
+subcommands create, re-pin and delete `RuntimeImage` resources (§7.1) through
+the Kubernetes API, after the same preflight checks the controller would
+perform, and can print the resource instead of applying it for GitOps.
+`runtime remove` MUST refuse while workloads or node profiles still bind the
+runtime unless explicitly forced. `list`, `status` and `doctor` are read-only.
 
 ### 11.2 The Maven plugin: Java-specific producer
 
@@ -1780,7 +1808,7 @@ Credentials MUST remain origin-scoped during cross-registry copies/mounts.
 The release interface is:
 
 ```sh
-brewlet compose registry.example.com/apps/orders:candidate \
+brewlet bundle registry.example.com/apps/orders:candidate \
   --application registry.example.com/builds/orders@sha256:<application-digest> \
   --layer-set registry.example.com/platform/java-web@sha256:<set-digest> \
   --platform linux/arm64 \
@@ -1795,7 +1823,7 @@ composed image satisfying §16.5.1. The supplied set is the complete desired
 dependency closure, not an implicit subset update.
 The signing environment variable contains a file path, not private key bytes.
 
-The existing `push` and Maven workflows remain valid. Maven can continue to
+The existing `build`/`push` and Maven workflows remain valid. Maven can continue to
 derive the graph and launch from project inputs; the new operation is for
 artifact-to-artifact release composition, not a replacement Maven resolver.
 

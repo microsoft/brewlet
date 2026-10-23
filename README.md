@@ -51,12 +51,13 @@ Java project intelligence belongs only to the optional
 
 ## Publishing existing OCI images
 
-`brewlet imagepush REGISTRY/REPOSITORY:TAG --store OCI_LAYOUT` publishes an
-existing OCI graph without changing its bytes or digests. Use `--source` to
-select a local reference or SHA-256 digest when the layout has multiple roots.
-This transport command verifies blob identities, not Brewlet launch or layer
-policy; consumers still validate the artifact. Use `brewlet push` to build and
-validate Brewlet application artifacts.
+`brewlet build REF` validates and packages a Brewlet application into a local
+OCI layout (`.brewlet/images/<REF>` unless `--store` is given). `brewlet push REF`
+then publishes that build. `push` also publishes any existing OCI layout given
+with `--store DIR` without changing its bytes or digests: use `--source` to
+select a local reference or SHA-256 digest when the layout has several roots.
+`push` verifies blob identities, not Brewlet launch or layer policy; consumers
+still validate the artifact.
 
 Registry clients honor `SSL_CERT_FILE` for an additional trusted CA and
 origin-bound `BREWLET_REGISTRY_USERNAME` / `BREWLET_REGISTRY_PASSWORD` credentials.

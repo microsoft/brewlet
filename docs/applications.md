@@ -51,13 +51,13 @@ Omission imposes no artifact-level ID restriction; an explicit empty array
 denies all IDs. Null and the former `requires` wrapper are rejected.
 
 ```sh
-brewlet push registry.example.com/apps/api:v2 \
+brewlet build registry.example.com/apps/api:v2 \
   --platform linux/amd64 \
   --platform linux/arm64 \
   --launch launch.json \
   --layer dependency=./dependencies:/app/dependencies \
-  --layer app=./src:/app/src \
-  --push-result push.json
+  --layer app=./src:/app/src
+brewlet push registry.example.com/apps/api:v2 --push-result push.json
 ```
 
 Repeated platforms mean the supplied bytes work unchanged on each platform.

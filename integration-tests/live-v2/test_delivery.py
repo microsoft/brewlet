@@ -418,7 +418,7 @@ class CommandTests(unittest.TestCase):
                     "State": {"ExitCode": 0}}])
             return subprocess.CompletedProcess(command, 0, output, "")
         with patch.object(state, "private_run", side_effect=run):
-            state.run_producer([*state.producer(), "imagepush", "registry.test:5443/app"])
+            state.run_producer([*state.producer(), "push", "registry.test:5443/app"])
         create = next(call for call in calls if call[:2] == ["docker", "create"])
         self.assertNotIn("--rm", create)
         self.assertIn(["docker", "start", "--attach", identity], calls)
@@ -441,7 +441,7 @@ class CommandTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, output, "")
         with patch.object(state, "private_run", side_effect=run):
             with self.assertRaisesRegex(Failure, "controlled failed"):
-                state.run_producer([*state.producer(), "imagepush", "registry.test:5443/app"])
+                state.run_producer([*state.producer(), "push", "registry.test:5443/app"])
         self.assertIn(["docker", "rm", "--force", "--volumes", identity], calls)
 
     def test_interrupted_create_recovers_only_owned_exact_identity(self):
@@ -459,7 +459,7 @@ class CommandTests(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0, info, "")
         with patch.object(state, "private_run", side_effect=run):
             with self.assertRaisesRegex(Failure, "create interrupted"):
-                state.run_producer([*state.producer(), "imagepush", "registry.test:5443/app"])
+                state.run_producer([*state.producer(), "push", "registry.test:5443/app"])
         self.assertIn(["docker", "rm", "--force", "--volumes", identity], calls)
 
     def test_cleanup_attempts_registry_even_if_producer_cleanup_fails(self):
