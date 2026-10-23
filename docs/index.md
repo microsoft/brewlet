@@ -1,4 +1,4 @@
-# Ship the app. Share the runtime.
+# Ship the app. Not the runtime.
 
 Brewlet 1.0.0 brings language runtimes back to the infrastructure level, like the
 OS or Kubernetes. The application remains the workload; its runtime is supplied
