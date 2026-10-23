@@ -41,8 +41,13 @@ is the real four-language baseline: admission/startup, execution, rotations,
 observability, operator restart, protected CRI identity and normal cleanup.
 It deliberately omits the long fault/accounting/companion matrix, which remains
 mandatory before promotion. The required `Brewlet validation` aggregate cannot
-pass if this E2E job fails, cancels or skips. The same `pr` scenario is a bounded
-manual debugging route that actually reaches the protected-identity phase.
+pass if this E2E job fails, cancels or skips, except that pull requests changing
+only documentation or workflow files skip it (see `acceptance/README.md`). The
+same `pr` scenario is a bounded manual debugging route that actually reaches the
+protected-identity phase. Only the `pr` scenario restores Actions caches: the
+host Go build/module caches and the image builds' BuildKit Go build cache mount,
+seeded before the harness and extracted after a successful run. Promotion
+scenarios never use those caches.
 
 The `complete` scope additionally selects the core fault/accounting coverage and
 all eight companion suites, with a 180-minute job deadline. Managed native/Wasm

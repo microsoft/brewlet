@@ -23,7 +23,9 @@ remains deferred at the user's direction.
 
 The ordinary `Brewlet validation` check runs on PRs and pushes to `main`.
 It must pass its correctness, producer, native-overlay and packaging checks, but
-does not require promotion receipts for every development change.
+does not require promotion receipts for every development change. Its real
+four-language E2E starts immediately in parallel with those checks; pull requests
+that change only documentation or workflow files skip it.
 
 Strict `make acceptance` runs separately in
 [`promotion-qualification.yml`](https://github.com/microsoft/brewlet/blob/main/.github/workflows/promotion-qualification.yml),

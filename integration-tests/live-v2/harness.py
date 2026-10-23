@@ -451,11 +451,13 @@ class Harness:
     def wait(self, description, predicate, timeout=None):
         deadline = time.monotonic() + (timeout or self.timeout)
         last = None
+        delay = 0.25
         while time.monotonic() < deadline:
             last = predicate()
             if last:
                 return last
-            time.sleep(2)
+            time.sleep(max(0, min(delay, deadline - time.monotonic())))
+            delay = min(delay * 2, 2)
         raise Failure(f"deadline waiting for {description}; last observation: {last!r}")
 
     def node_exec(self, *args, **kwargs):

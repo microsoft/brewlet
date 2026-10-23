@@ -27,9 +27,13 @@ permissions:
 jobs:
   context:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       source: ${{ steps.guard.outputs.source }}
       purpose: ${{ steps.guard.outputs.purpose }}
+      e2e: ${{ steps.scope.outputs.e2e }}
     steps:
       - name: Validate immutable source and CI purpose
         id: guard
@@ -59,6 +63,44 @@ jobs:
           esac
           echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
           echo "purpose=$PURPOSE" >> "$GITHUB_OUTPUT"
+      - name: List exact pull request changes for E2E scope
+        id: changes
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PULL: ${{ github.event.pull_request.number }}
+          SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files="$RUNNER_TEMP/pull-request-files"
+          listed=false
+          if meta="$(gh api "repos/$REPOSITORY/pulls/$PULL" --jq '"\(.head.sha) \(.changed_files)"')" &&
+              read -r head count <<< "$meta" && test "$head" = "$SOURCE" && test "$count" -lt 3000 &&
+              gh api --paginate "repos/$REPOSITORY/pulls/$PULL/files?per_page=100" \
+                --jq '.[] | .filename, (.previous_filename // empty)' > "$files"; then
+            listed=true
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "listed=$listed" >> "$GITHUB_OUTPUT"
+      - name: Classify E2E scope, failing closed to required
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          LISTED: ${{ steps.changes.outputs.listed }}
+          FILES: ${{ steps.changes.outputs.files }}
+        run: |
+          required=true
+          if test "$EVENT" = pull_request && test "$LISTED" = true && test -s "$FILES"; then
+            required=false
+            while IFS= read -r file; do
+              case "$file" in
+                .github/workflows/e2e.yml|.github/workflows/v2-ci.yml) required=true ;;
+                docs/*|site/*|release-notes/*|*.md|.github/*) ;;
+                *) required=true ;;
+              esac
+            done < "$FILES"
+          fi
+          echo "e2e=$required" >> "$GITHUB_OUTPUT"
 
   contracts:
     needs: context
@@ -107,6 +149,7 @@ jobs:
     steps:
       - name: Require every prerequisite to succeed, never skipped or cancelled
         env:
+          E2E_REQUIRED: ${{ needs.context.outputs.e2e }}
           CONTEXT: ${{ needs.context.result }}
           CONTRACTS: ${{ needs.contracts.result }}
           PRODUCER: ${{ needs.producer-integration.result }}
@@ -119,12 +162,17 @@ jobs:
           test "$PRODUCER" = success
           test "$OVERLAY" = success
           test "$HISTORY" = success
-          test "$E2E" = success
+          if test "$E2E_REQUIRED" = true; then
+            test "$E2E" = success
+          else
+            test "$E2E_REQUIRED" = false
+            test "$E2E" = skipped
+          fi
 
   e2e:
     name: Real four-language E2E
-    needs: [context, contracts, producer-integration, linux-overlay-contract, archive-history]
-    if: needs.context.outputs.purpose == 'validation'
+    needs: context
+    if: needs.context.outputs.purpose == 'validation' && needs.context.outputs.e2e == 'true'
     uses: ./.github/workflows/e2e.yml
     with:
       expected_sha: ${{ needs.context.outputs.source }}
