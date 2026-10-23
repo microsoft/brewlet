@@ -207,6 +207,9 @@ func TestSharedRuntimeClassRetainsSelectorAndLanguageNeutralOverhead(t *testing.
 			}
 			if strings.Contains(path, "/charts/") {
 				if _, err := exec.LookPath("helm"); err != nil {
+					if os.Getenv("CI") != "" {
+						t.Fatal("helm is required in CI for chart contract tests")
+					}
 					t.Skip("helm unavailable")
 				}
 				data, err = exec.Command("helm", "template", "test", "../kubernetes/charts/brewlet",

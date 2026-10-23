@@ -14,9 +14,7 @@ import (
 )
 
 func TestRuntimeClassOverhead(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm unavailable")
-	}
+	requireHelm(t)
 	render := func(args ...string) ([]byte, error) {
 		base := []string{"template", "test", "../../charts/brewlet", "--namespace", "brewlet-system"}
 		return exec.Command("helm", append(base, args...)...).CombinedOutput()
@@ -106,9 +104,7 @@ func TestRuntimeClassOverhead(t *testing.T) {
 }
 
 func TestChartDefaultRBACAndUnsupportedFeatureGuards(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm unavailable")
-	}
+	requireHelm(t)
 	command := func(args ...string) ([]byte, error) {
 		base := []string{"template", "test", "../../charts/brewlet", "--namespace", "brewlet-system"}
 		return exec.Command("helm", append(base, args...)...).CombinedOutput()

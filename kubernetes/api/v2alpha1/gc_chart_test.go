@@ -7,9 +7,7 @@ import (
 )
 
 func TestChartWiresOperatorGCPolicyWithoutRecordPatches(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm unavailable")
-	}
+	requireHelm(t)
 	for _, override := range []bool{false, true} {
 		args := []string{"template", "test", "../../charts/brewlet", "--namespace", "brewlet-system"}
 		grace, sweep := "1h", "1m"
