@@ -115,6 +115,7 @@ class AssuranceTests(unittest.TestCase):
         with patch.object(a, "run") as command:
             a.attest_verify(Path("fixture.json"), "release-build.yml", "a" * 40)
         args = list(map(str, command.call_args.args[0]))
+        self.assertNotIn("--signer-repo", args)
         for flag, expected in (("--repo", "microsoft/brewlet"),
                                ("--signer-workflow", "microsoft/brewlet/.github/workflows/release-build.yml"),
                                ("--source-digest", "a" * 40), ("--signer-digest", "a" * 40)):
@@ -195,10 +196,12 @@ class PublicationTests(unittest.TestCase):
 
     def test_beta_releases_are_prereleases_and_never_latest(self):
         import os
-        with patch.dict(os.environ, {"GH_TOKEN": "synthetic-not-a-credential"}), \
-                patch.object(p, "request", return_value=(None, {})), \
-                patch.object(p, "validate_inventory", return_value={"files": []}), \
-                patch.object(p, "run", return_value='{"assets": []}') as command, \
+        def command_result(args, *rest, **kwargs):
+            if list(map(str, args[:3])) == ["ghx", "release", "view"] and "isPrerelease" in args:
+                raise p.subprocess.CalledProcessError(1, args)
+            return '{"assets": []}'
+        with patch.object(p, "validate_inventory", return_value={"files": []}), \
+                patch.object(p, "run", side_effect=command_result) as command, \
                 tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
             for directory in ("sboms", "evidence", "signatures", "attestations"):
@@ -213,6 +216,11 @@ class PublicationTests(unittest.TestCase):
             self.assertIn("--prerelease", args)
             self.assertIn("--latest=false", args)
         self.assertIn("--generate-notes", create)
+        with patch.object(p, "validate_inventory", return_value={"files": []}), \
+                patch.object(p, "run", return_value='{"isPrerelease": false, "assets": []}'), \
+                tempfile.TemporaryDirectory() as temp, \
+                self.assertRaisesRegex(ValueError, "different channel"):
+            p.publish_release(Path(temp))
 
     def test_release_notes_flag_betas_as_unstable_and_explain_the_0_8_0_pivot(self):
         notes = p.release_notes("0.8.0", True)

@@ -212,14 +212,16 @@ def publish_release(output):
     tag = "v" + config["version"]
     prerelease = is_prerelease(config["version"])
     channel = ["--prerelease", "--latest=false"] if prerelease else ["--prerelease=false", "--latest"]
-    release_url = "https://api.github.com/repos/" + config["repository"] + "/releases/tags/" + tag
-    body, _ = request(release_url, headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"]}, absent=True)
+    try:
+        body = run(["ghx", "release", "view", tag, "--repo", config["repository"], "--json", "isPrerelease"])
+    except subprocess.CalledProcessError:
+        body = None
     if body is None:
         run(["ghx", "release", "create", tag, "--repo", config["repository"], "--verify-tag",
              "--draft", *channel, "--title", "Brewlet " + config["version"], "--generate-notes",
              "--notes", release_notes(config["version"], prerelease)])
     else:
-        require(json.loads(body)["prerelease"] is prerelease, "refusing to modify a release on a different channel")
+        require(json.loads(body)["isPrerelease"] is prerelease, "refusing to modify a release on a different channel")
     with tempfile.TemporaryDirectory() as temp:
         destination = Path(temp)
         document = validate_inventory(output, config)
