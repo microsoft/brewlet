@@ -6,8 +6,7 @@ contracts. Light/dark modes, keyboard-accessible language examples, copy control
 and responsive navigation require no npm runtime package, remote font or CDN.
 
 The Devoxx Belgium 2026 section carries over the recording, slides and local
-thumbnail from `brewlet-0.x-java`. It labels the talk as Java-focused 0.x content
-and links to the 2.0 comparison to distinguish it from the current image contract.
+thumbnail from `brewlet-0.x-java`.
 
 MkDocs Material supplies the searchable documentation at `/docs/`. Its direct
 dependencies are pinned in `site/requirements.txt`. The comparison

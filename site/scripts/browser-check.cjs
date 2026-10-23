@@ -50,7 +50,8 @@ async function main() {
   const slidesURL = new URL(await devoxx.getByRole("link", {name: "View the slides"}).getAttribute("href"));
   assert.equal(slidesURL.hostname, "firebasestorage.googleapis.com");
   assert.match(decodeURIComponent(slidesURL.pathname), /slides_brewlet_deck_devoxx_2026\.pdf/);
-  assert.match(await devoxx.textContent(), /Java-focused Brewlet 0\.x/);
+  assert.doesNotMatch(await devoxx.textContent(), /Brewlet 0\.x/);
+  assert.equal(await devoxx.locator('a[href*="brewlet-2-comparison"]').count(), 0);
   const thumbnail = devoxx.locator("img");
   await devoxx.scrollIntoViewIfNeeded();
   await thumbnail.evaluate(image => image.decode());
