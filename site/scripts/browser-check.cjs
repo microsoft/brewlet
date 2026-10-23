@@ -43,6 +43,19 @@ async function main() {
   await page.goto(base, {waitUntil: "networkidle"});
   assert.equal(await page.title(), "Brewlet 2.0 — Ship the app. Share the runtime.");
   assert.equal(await page.locator(".menu-toggle").isVisible(), false);
+  const devoxx = page.getByRole("region", {name: "Brewlet at Devoxx Belgium 2026"});
+  const talkURL = "https://youtu.be/fszyRIZXjQM?is=w3zYjtOoIFceAAOT";
+  assert.equal(await devoxx.getByRole("link", {name: "Watch the talk"}).getAttribute("href"), talkURL);
+  assert.equal(await devoxx.getByRole("link", {name: "Watch the Devoxx Belgium talk on YouTube"}).getAttribute("href"), talkURL);
+  const slidesURL = new URL(await devoxx.getByRole("link", {name: "View the slides"}).getAttribute("href"));
+  assert.equal(slidesURL.hostname, "firebasestorage.googleapis.com");
+  assert.match(decodeURIComponent(slidesURL.pathname), /slides_brewlet_deck_devoxx_2026\.pdf/);
+  assert.match(await devoxx.textContent(), /Java-focused Brewlet 0\.x/);
+  const thumbnail = devoxx.locator("img");
+  await devoxx.scrollIntoViewIfNeeded();
+  await thumbnail.evaluate(image => image.decode());
+  assert.equal(await thumbnail.evaluate(image => image.naturalWidth), 1280);
+  await devoxx.screenshot({path: path.join(output, "devoxx-desktop.png")});
   const diagram = page.locator(".architecture-diagram");
   const architecture = diagram.locator("img");
   await diagram.scrollIntoViewIfNeeded();
@@ -76,6 +89,15 @@ async function main() {
   await page.screenshot({path: path.join(output, "desktop-dark.png"), fullPage: true});
   await page.setViewportSize({width: 390, height: 844});
   await page.goto(base + "?clawpilotTheme=light", {waitUntil: "networkidle"});
+  await devoxx.scrollIntoViewIfNeeded();
+  await thumbnail.evaluate(image => image.decode());
+  assert.equal(await devoxx.evaluate(section => section.scrollWidth <= section.clientWidth), true);
+  assert.equal(await thumbnail.evaluate(image => image.getBoundingClientRect().width <= innerWidth), true);
+  assert.equal(await devoxx.evaluate(section => {
+    const copy = section.querySelector(".devoxx-copy").getBoundingClientRect();
+    return section.querySelector(".devoxx-play").getBoundingClientRect().top >= copy.bottom;
+  }), true);
+  await devoxx.screenshot({path: path.join(output, "devoxx-mobile.png")});
   await diagram.scrollIntoViewIfNeeded();
   await architecture.evaluate(image => image.decode());
   assert.match(await architecture.evaluate(image => image.currentSrc), /architecture-mobile\.svg$/);
