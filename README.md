@@ -27,6 +27,18 @@ integration tests, website, and user-facing documentation.
 
 ## Project status
 
+> [!IMPORTANT]
+> **Brewlet 0.8.0 is a pivot.** Brewlet is now a language-agnostic runtime
+> governance solution. It still does most of what the Java-specific 0.7.x line
+> did, now tracked in the
+> [`brewlet-0.x-java`](https://github.com/microsoft/brewlet/tree/brewlet-0.x-java)
+> branch, but it is no longer specific to Java. See
+> [Brewlet 0.x vs. 1.0.0](https://brewlet.sh/docs/legacy-comparison/).
+>
+> **All 0.x releases are betas and are not stable.** They can break, change
+> incompatibly or pivot again between versions. General availability (GA)
+> will be 1.0.0.
+
 Brewlet 1.0.0 is a clean-slate, pre-GA implementation under active development.
 There is no published stable 1.0.0 installer in this workflow. Evaluate matching
 source-built components in a disposable environment, not a production or shared
@@ -232,9 +244,10 @@ See the [security guidance](docs/security.md) for trust boundaries and
 
 ## Releases
 
-Brewlet 1.0.0 is pre-GA. [`release.json`](release.json) defines the candidate
-identity; release infrastructure and intended package coordinates do not prove
-that a qualified prerelease has been published.
+Brewlet is pre-GA. [`release.json`](release.json) defines the release
+identity. Every 0.x release (0.8.0 onward previews the 1.0.0 line) is a beta
+GitHub prerelease: not stable, never marked latest, and free to break or pivot.
+GA will be 1.0.0.
 
 | Artifact | Intended location |
 | --- | --- |
@@ -245,11 +258,10 @@ that a qualified prerelease has been published.
 | Helm chart | `oci://ghcr.io/microsoft/charts/brewlet` |
 | Optional Maven producer | `sh.brewlet:brewlet-maven-plugin:VERSION` |
 
-Candidate targets are Linux and macOS `amd64`/`arm64` for the CLI and Linux
-`amd64`/`arm64` for component images. Publication requires matching immutable
-artifacts, current qualification, transition evidence and release-owner policy;
-creating a tag alone does not publish them. See the
-[prerelease distribution runbook](docs/supported-release.md) and
+Targets are Linux and macOS `amd64`/`arm64` for the CLI and Linux
+`amd64`/`arm64` for component images. Pushing a `vVERSION` tag on a commit that
+passed CI on `main` builds, verifies and publishes every artifact automatically.
+See the [release distribution runbook](docs/supported-release.md) and
 [compatibility policy](docs/compatibility-policy.md).
 
 The 1.0.0 rewrite is inspired by Brewlet 0.x at

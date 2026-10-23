@@ -113,6 +113,9 @@ pinned fingerprint.
 1. Update the version in `release.json`, `maven-plugin/pom.xml`, the chart
    `version`/`appVersion` and image tags in `values.yaml` (plus documented
    coordinates). `make release-check` fails on any identity drift.
+   Optionally add curated notes in `release-notes/VERSION.md`; they are placed
+   above the generated changelog. Betas without curated notes get a standard
+   "not stable" warning.
 2. Merge to `main` and wait for **Brewlet CI** to pass on the merge commit.
 3. Tag that exact commit and push the tag:
 

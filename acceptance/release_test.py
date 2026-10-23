@@ -214,6 +214,15 @@ class PublicationTests(unittest.TestCase):
             self.assertIn("--latest=false", args)
         self.assertIn("--generate-notes", create)
 
+    def test_release_notes_flag_betas_as_unstable_and_explain_the_0_8_0_pivot(self):
+        notes = p.release_notes("0.8.0", True)
+        for expected in ("language-agnostic", "brewlet-0.x-java", "https://brewlet.sh/docs/legacy-comparison/",
+                         "not stable", "Brewlet 1.0.0"):
+            self.assertIn(expected, notes)
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertIn("not stable", p.release_notes("0.9.0", True, Path(temp)))
+            self.assertNotIn("not stable", p.release_notes("1.0.0", False, Path(temp)))
+
     def test_a_conflicting_image_version_is_never_overwritten(self):
         import os
         document = {"images": {name: {"digest": "sha256:" + "a" * 64} for name in r.policy()["images"]}}

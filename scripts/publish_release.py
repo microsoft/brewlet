@@ -192,6 +192,21 @@ def publish_central(output):
     require(central_payloads(output), "Central reported publication without exact distributable bytes")
 
 
+def release_notes(version, prerelease, root=ROOT):
+    parts = []
+    curated = root / "release-notes" / (version + ".md")
+    if curated.is_file():
+        parts.append(curated.read_text().strip())
+    elif prerelease:
+        parts.append("> [!WARNING]\n> **Beta prerelease, not stable.** Releases below 1.0.0 can break, "
+                     "change incompatibly or pivot between versions. General availability will be Brewlet 1.0.0.")
+    parts.append(("Beta prerelease" if prerelease else "Release") +
+                 ". Verify candidate.json, checksums and attestations before installation. See the "
+                 "[release runbook](https://brewlet.sh/docs/supported-release/); "
+                 "no general in-place upgrade is supported.")
+    return "\n\n".join(parts)
+
+
 def publish_release(output):
     config = policy()
     tag = "v" + config["version"]
@@ -200,11 +215,9 @@ def publish_release(output):
     release_url = "https://api.github.com/repos/" + config["repository"] + "/releases/tags/" + tag
     body, _ = request(release_url, headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"]}, absent=True)
     if body is None:
-        kind = "Beta prerelease" if prerelease else "Release"
         run(["ghx", "release", "create", tag, "--repo", config["repository"], "--verify-tag",
              "--draft", *channel, "--title", "Brewlet " + config["version"], "--generate-notes",
-             "--notes", kind + ". Verify candidate.json, checksums and attestations before installation. "
-             "See the source-pinned supported-release runbook; no general in-place upgrade is supported."])
+             "--notes", release_notes(config["version"], prerelease)])
     else:
         require(json.loads(body)["prerelease"] is prerelease, "refusing to modify a release on a different channel")
     with tempfile.TemporaryDirectory() as temp:
