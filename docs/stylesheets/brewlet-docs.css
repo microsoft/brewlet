@@ -34,7 +34,6 @@ html, body[data-md-color-scheme], body[data-md-color-primary] {
   --md-footer-fg-color--lighter: var(--cp-text-soft);
 }
 body { background: var(--cp-bg); color: var(--cp-text); }
-html[data-theme="dark"] { --cp-text-muted: var(--cp-text-soft); }
 .md-typeset { color: var(--cp-text); --md-typeset-color: var(--cp-text); --md-typeset-a-color: var(--cp-link); }
 .md-typeset a { color: var(--cp-link); }
 .md-nav { color: var(--cp-text); background: var(--cp-bg); }

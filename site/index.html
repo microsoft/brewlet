@@ -16,14 +16,6 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
   <meta property="og:type" content="website">
   <meta property="og:title" content="Brewlet — Ship the app. Share the runtime.">
   <meta property="og:description" content="Your application is the workload. The runtime is infrastructure. Ship application artifacts and let Brewlet compose them with an approved node-resident runtime.">
-  <script>
-    (() => {
-      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
-      const theme =
-        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-      document.documentElement.setAttribute("data-theme", theme);
-    })();
-  </script>
   <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/css/theme.css">
   <link rel="stylesheet" href="assets/css/styles.css">
@@ -41,7 +33,6 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
       <nav id="site-nav" aria-label="Primary navigation">
         <a href="#why">Why Brewlet</a><a href="#how">How it works</a><a href="#examples">Examples</a>
         <a href="docs/">Documentation</a>
-        <button class="theme-toggle" type="button" aria-label="Switch color theme" hidden>Theme</button>
         <a class="nav-source" href="https://github.com/microsoft/brewlet/tree/main">GitHub <span aria-hidden="true">↗</span></a>
       </nav>
     </div>

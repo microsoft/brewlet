@@ -26,32 +26,6 @@
       menu.focus();
     }
   });
-  const themeButton = document.querySelector(".theme-toggle");
-  themeButton.hidden = false;
-  const updateThemeLabel = () => {
-    const dark = document.documentElement.dataset.theme === "dark";
-    themeButton.textContent = dark ? "Light" : "Dark";
-    themeButton.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
-  };
-  themeButton.addEventListener("click", () => {
-    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    const url = new URL(window.location.href);
-    url.searchParams.set("clawpilotTheme", next);
-    history.replaceState(null, "", url);
-    updateThemeLabel();
-  });
-  updateThemeLabel();
-  document.addEventListener("click", event => {
-    const link = event.target.closest("a[href]");
-    if (!link || link.getAttribute("href").startsWith("#")) return;
-    const url = new URL(link.href);
-    if (url.origin === location.origin && !link.hasAttribute("download")) {
-      url.searchParams.set("clawpilotTheme", document.documentElement.dataset.theme);
-      link.href = url;
-    }
-  });
-
   const examples = {
     python: {entrypoint: ["python3"], args: ["/app/src/main.py"], layer: "app=./src:/app/src",
       note: "This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them."},

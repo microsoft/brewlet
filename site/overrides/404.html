@@ -4,14 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Page not found · Brewlet 1.0.0</title>
-  <script>
-    (() => {
-      const param = new URLSearchParams(window.location.search).get("clawpilotTheme");
-      const theme =
-        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-      document.documentElement.setAttribute("data-theme", theme);
-    })();
-  </script>
   <link rel="stylesheet" href="../assets/css/theme.css">
   <style>
     body { max-width: 42rem; margin: 10vh auto; padding: 2rem; background: var(--cp-bg); color: var(--cp-text); font: 1.125rem/1.7 "Segoe UI", Aptos, Calibri, sans-serif; }

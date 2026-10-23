@@ -2,7 +2,7 @@
 
 The static landing page preserves main's Brewlet brand/story structure while
 replacing Java-specific claims and unsupported release commands with the 1.0.0
-contracts. Light/dark modes, keyboard-accessible language examples, copy controls
+contracts. A single light theme, keyboard-accessible language examples, copy controls
 and responsive navigation require no npm runtime package, remote font or CDN.
 
 The Devoxx Belgium 2026 section carries over the recording, slides and local
@@ -19,7 +19,7 @@ They distinguish CRI application pulls, operator reconciliation of node workers,
 fenced runtime provisioning and the shim's local validation/lease/composition.
 `assets/images/architecture.excalidraw` is the editable desktop topology source;
 the mobile SVG rearranges the same flow for narrow screens. Both SVGs have
-accessible descriptions and follow the embedding page's light/dark color scheme.
+accessible descriptions and use the site's light color scheme.
 
 ## Build and preview
 
