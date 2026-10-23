@@ -118,7 +118,7 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           </picture>
           <figcaption>The application is the workload; the runtime is infrastructure. Containerd pulls the application image. Only the fenced provisioner installs runtime roots; the shim uses verified local content. <a href="assets/images/architecture-desktop.svg">Open full-size diagram</a> · <a href="assets/images/architecture.excalidraw" download>Download editable source</a></figcaption>
         </figure>
-        <div class="architecture-note"><strong>Installed when you need it.</strong><p>Choose Eager for a warm pool, or OnDemand to validate baseline readiness before fetching runtime roots. A bounded first-use wait lets kubelet retry installation without running unvalidated application code.</p><a href="docs/runtime-images/">Explore runtime inventory <span aria-hidden="true">→</span></a></div>
+        <div class="architecture-note"><strong>Runtimes loaded when needed.</strong><p>Choose Eager for a warm pool, or OnDemand to validate baseline readiness before fetching runtime roots. A bounded first-use wait lets kubelet retry installation without running unvalidated application code.</p><a href="docs/runtime-images/">Explore runtime inventory <span aria-hidden="true">→</span></a></div>
       </div>
     </section>
 
