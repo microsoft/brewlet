@@ -1,4 +1,4 @@
-.PHONY: test test-python build acceptance composition-acceptance ledger site-build site-contract-check legal-check release-check release-candidate
+.PHONY: test test-python build acceptance composition-acceptance ledger site-build site-contract-check notices go-notices maven-notices site-notices site-notices-check legal-check release-check release-candidate
 
 SITE_PYTHON ?= python3
 
@@ -19,13 +19,27 @@ build:
 	go run ./scripts/notice --output bin/NOTICE.txt ./cmd/brewlet
 	cp LICENSE.txt bin/LICENSE.txt
 
-legal-check:
+notices: go-notices maven-notices site-notices
+
+go-notices:
 	mkdir -p bin/notices
 	@set -e; for arch in amd64 arm64; do \
 	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/cli-$$arch.txt ./cmd/brewlet; \
 	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/control-$$arch.txt ./kubernetes/cmd/operator ./kubernetes/cmd/admission; \
+	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/admission-$$arch.txt ./kubernetes/cmd/admission; \
 	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/worker-$$arch.txt ./cmd/brewlet-node ./shim/cmd/containerd-shim-brewlet-v2; \
 	done
+
+maven-notices:
+	mvn -B -q -f maven-plugin/pom.xml -DskipTests package
+
+site-notices:
+	PYTHONDONTWRITEBYTECODE=1 $(SITE_PYTHON) site/scripts/generate-notice.py
+
+site-notices-check:
+	PYTHONDONTWRITEBYTECODE=1 $(SITE_PYTHON) site/scripts/generate-notice.py --check
+
+legal-check: go-notices
 	python3 scripts/check_notices.py
 
 release-check:
