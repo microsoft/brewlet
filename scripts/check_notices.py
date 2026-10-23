@@ -24,7 +24,7 @@ def main():
         if jar.read("META-INF/NOTICE.txt").decode() != expected:
             raise ValueError("packaged Maven NOTICE differs from resolved runtime dependencies")
     for architecture in ("amd64", "arm64"):
-        for component in ("cli", "control", "worker"):
+        for component in ("cli", "control", "admission", "worker"):
             path = ROOT / "bin/notices" / f"{component}-{architecture}.txt"
             if not path.is_file() or path.stat().st_size == 0:
                 raise ValueError("missing generated Go notice: " + str(path))

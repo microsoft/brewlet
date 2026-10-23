@@ -46,6 +46,10 @@ jobs:
           node-version: "24"
       - name: Install pinned documentation dependencies
         run: python -m pip install -r site/requirements.txt
+      - name: Verify browser dependency notices
+        run: |
+          npm ci --ignore-scripts --prefix site/notices
+          make site-notices-check
       - name: Check contracts, strictly build docs and assemble static preview
         run: python3 acceptance/run_check.py documentation
       - name: Install isolated browser checks

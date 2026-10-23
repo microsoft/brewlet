@@ -1,6 +1,6 @@
 # Third-party notices
 
-The [root notices index](https://github.com/microsoft/brewlet/blob/brewlet-2.0/NOTICE.txt)
+The [root notices index](https://github.com/microsoft/brewlet/blob/main/NOTICE.txt)
 describes current build outputs, not legacy releases. Brewlet source is MIT
 licensed. Dependency notices are artifact-specific and generated from the
 dependencies actually selected for redistribution.
@@ -46,9 +46,44 @@ resolved versions; no common-version assumption is made. Provided Maven APIs,
 annotations, and test-only dependencies are not represented as redistributed
 runtime software. Missing JAR license text fails the package phase.
 
+## Regenerating all notices
+
+Install the website notice inputs in an isolated environment, using the same
+Python requirements as the Pages workflow:
+
+```sh
+python3 -m venv site/.venv
+site/.venv/bin/python -m pip install -r site/requirements.txt
+npm ci --ignore-scripts --prefix site/notices
+make notices SITE_PYTHON=site/.venv/bin/python
+```
+
+This requires Go, Maven, a JDK, Python, and Node.js/npm. The command writes
+target-specific Go notices to `bin/notices/` for the CLI, combined control
+image, admission-only image, and worker image on Linux amd64 and arm64. It
+packages the Maven plugin with generated legal resources and regenerates
+`site/NOTICE.txt`. Existing binary, container, and release builds continue to
+generate and package their own artifact-specific notices.
+
+Use `make go-notices`, `make maven-notices`, or `make site-notices` to update
+one surface. Only the website notice is checked in; the Go and Maven notices
+live in ignored build directories. Regenerate after changing dependencies,
+and commit website notice changes with their inputs.
+
+The website generator restores the pinned browser dependency inventory from
+the Java-era branch. Its separate npm project is for attribution inputs, not
+the Playwright test tooling in `site/package.json`. It collects actual license
+and notice files for every locked package, including transitive dependencies,
+and validates installed versions against the lockfile. The small checked-in
+license supplements preserve upstream attribution absent from npm tarballs.
+Version-specific source links and modification statements must also be updated
+when their corresponding dependency pins change. Material upgrades require
+reviewing its bundled browser dependencies and updating the generator's
+`MATERIAL_VERSION` guard alongside the requirements and npm inventory.
+
 ## Verification and documentation preview
 
-After Maven verification, run `make legal-check` to generate all three Go notice
+After Maven verification, run `make legal-check` to generate all four Go notice
 sets for both Linux architectures and inspect the packaged plugin JAR.
 The contracts job runs this check. Generator regression tests cover missing
 licenses and independently versioned runtime JARs.
@@ -56,7 +91,11 @@ licenses and independently versioned runtime JARs.
 The documentation preview retains the existing
 `.github/workflows/site-pages.yml` build. `site/scripts/build.py` combines the
 checked-in browser attribution snapshot with installed documentation dependency
-licenses. This change does not publish or switch production Pages.
+licenses. Before building, the workflow installs the locked browser notice inputs
+and runs `make site-notices-check`, which fails on stale or missing notices without
+rewriting the snapshot. Reproduce this check with
+`make site-notices-check SITE_PYTHON=site/.venv/bin/python`.
+This change does not publish or switch production Pages.
 
 ## Distribution limits
 
