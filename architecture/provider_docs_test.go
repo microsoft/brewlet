@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/kubernetes/policy"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -27,7 +27,7 @@ func TestProviderTemplatesMatchInventoryAndStartupFence(t *testing.T) {
 	if err := yaml.UnmarshalStrict(blocks[0][1], &profile); err != nil {
 		t.Fatal(err)
 	}
-	if profile.APIVersion != "node.brewlet.sh/v2alpha1" || profile.Kind != "NodeProfile" {
+	if profile.APIVersion != "node.brewlet.sh/v1alpha1" || profile.Kind != "NodeProfile" {
 		t.Fatal("provider example restored an obsolete or unrelated profile API")
 	}
 	if err := policy.Profile(&profile, nil, nil); err != nil {

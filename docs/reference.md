@@ -8,7 +8,7 @@ CRDs and [CLI reference](cli-reference.md) remain authoritative.
 
 | Field | Contract |
 | --- | --- |
-| `schemaVersion` | Exactly 2. |
+| `schemaVersion` | Exactly 1. |
 | `process.entrypoint` | Required nonempty argv prefix; no language detection. |
 | `process.args` | Optional ordered arguments, not shell text. |
 | `process.workingDir` | Optional canonical absolute path; default `/app`. |
@@ -18,7 +18,10 @@ CRDs and [CLI reference](cli-reference.md) remain authoritative.
 Unknown/duplicate fields, invalid paths and config-mirror drift fail validation.
 The final launch layer contains exactly one regular `launch.json`. The OCI
 config must canonically mirror argv, Env and working directory, with empty User.
-The manifest carries `brewlet.sh/artifact-version=2`.
+The manifest carries `brewlet.sh/artifact-version=1`.
+
+Brewlet's artifact and launch versions are independent of OCI image manifests
+and indexes, whose external `schemaVersion` remains `2`.
 
 Application/dependency layers remain under `/app`; unsafe links, private
 permissions, set-ID entries, devices and extended attributes are rejected.
@@ -68,7 +71,7 @@ webhook, controller and host failures may carry additional diagnostics.
 | --- | --- |
 | `RuntimeClass/brewlet` | Selects containerd handler `brewlet`. |
 | `io.containerd.brewlet.v2` | Containerd runtime identifier; not a product release selector. |
-| `containerd-shim-brewlet-v2` | Conventional executable discovery name, not a 1.x compatibility layer. |
+| `containerd-shim-brewlet-v2` | Conventional executable discovery name, not a 0.x compatibility layer. |
 | `/opt/brewlet/runtimes` | Root-owned runtime generations, authority and task lease state. |
 | `/var/lib/brewlet/layers` | Immutable verified application-layer cache. |
 

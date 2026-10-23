@@ -1,7 +1,7 @@
-# Brewlet 2.0 website
+# Brewlet 1.0.0 website
 
 The static landing page preserves main's Brewlet brand/story structure while
-replacing Java-specific claims and unsupported release commands with the 2.0
+replacing Java-specific claims and unsupported release commands with the 1.0.0
 contracts. Light/dark modes, keyboard-accessible language examples, copy controls
 and responsive navigation require no npm runtime package, remote font or CDN.
 
@@ -14,7 +14,7 @@ draft is rendered without modifying its source; repository-file links become
 branch-specific GitHub source links through the documented hook.
 
 The landing page includes responsive desktop/mobile SVG architecture diagrams,
-in main's schematic style but with the 2.0 runtime-infrastructure contract.
+in main's schematic style but with the 1.0.0 runtime-infrastructure contract.
 They distinguish CRI application pulls, operator reconciliation of node workers,
 fenced runtime provisioning and the shim's local validation/lease/composition.
 `assets/images/architecture.excalidraw` is the editable desktop topology source;
@@ -62,13 +62,14 @@ attempt correctly rejected filesystem xattrs; validation was not weakened.
 The build runs MkDocs in strict mode, generates third-party notices from
 installed dependency license texts, removes unused non-English search
 extensions as main does, and verifies every built local link/fragment.
-Contract checks also protect honest 2.0 content and the draft's source bytes.
+Contract checks also protect honest 1.0.0 content and the draft's source bytes.
 
 ## Deployment
 
-`.github/workflows/site-pages.yml` is the read-only build used by CI and manual
-preview runs. It checks the exact source SHA, builds the site, runs the browser
-checks and uploads `brewlet-2-website-preview`. Pull requests never deploy.
+`.github/workflows/site-pages.yml` is the read-only build used by Pages deployment
+and manual preview runs, not routine CI. It checks the exact source SHA, builds
+the site, runs the browser checks and uploads `brewlet-website-preview`. Pull
+requests do not run this workflow automatically and never deploy.
 
 `.github/workflows/site-deploy.yml` publishes to the existing `brewlet.sh`
 GitHub Pages site after relevant changes reach `main`, or through manual
@@ -80,4 +81,4 @@ or forks cannot deploy.
 The repository must keep Pages configured to use GitHub Actions and retain its
 existing custom-domain configuration; this workflow does not change the domain
 or create a CNAME file. No old-release installer or release smoke test is
-presented as a working 2.0 release workflow.
+presented as a working 1.0.0 release workflow.

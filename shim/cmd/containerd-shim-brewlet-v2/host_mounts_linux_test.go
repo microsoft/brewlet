@@ -7,7 +7,7 @@ import "testing"
 func TestHostMountAliasesCannotExposePrivateRuntimeOrCacheState(t *testing.T) {
 	table := []hostMount{
 		{"0:1", "/", "/"},
-		{"0:1", "/var/lib/brewlet/layers/v2-3-digest/rootfs/app/data", "/var/lib/kubelet/pods/p/volume-subpaths/host/c/0"},
+		{"0:1", "/var/lib/brewlet/layers/v1-3-digest/rootfs/app/data", "/var/lib/kubelet/pods/p/volume-subpaths/host/c/0"},
 	}
 	device, root := mountReferent("/var/lib/kubelet/pods/p/volume-subpaths/host/c/0", table)
 	otherDevice, otherRoot := mountReferent("/var/lib/brewlet/layers", table)

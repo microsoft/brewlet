@@ -3,7 +3,7 @@
 from pathlib import Path
 import re
 
-SOURCE = "https://github.com/microsoft/brewlet/blob/brewlet-2.0/"
+SOURCE = "https://github.com/microsoft/brewlet/blob/main/"
 ROOT = Path(__file__).resolve().parents[2]
 
 

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/pkg/artifact"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"

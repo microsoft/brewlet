@@ -79,7 +79,7 @@ final class JavaProducer {
                         + "the project JAR has no Main-Class");
             }
             Map<String, Object> descriptor = new LinkedHashMap<>();
-            descriptor.put("schemaVersion", 2);
+            descriptor.put("schemaVersion", 1);
             descriptor.put("process", Map.of("entrypoint", List.of("java"),
                     "args", args, "workingDir", "/app"));
             if (!inputs.runtimeImages().isEmpty()) {

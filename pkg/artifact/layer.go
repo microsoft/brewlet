@@ -18,7 +18,7 @@ import (
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-const PolicyVersion = "v2-3"
+const PolicyVersion = "v1-3"
 
 type LayerSource struct {
 	Descriptor v1.Descriptor

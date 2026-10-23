@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": ["/usr/local/bin/wasmtime"],
     "args": ["run", "--dir", "/app/dependencies", "--dir", "/work", "--env", "VISIBLE=explicit", "/app/guest.wasm", "hold", "main"],

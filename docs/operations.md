@@ -145,5 +145,5 @@ Missing/recreated hosts retain original-identity obligations. The explicit
 retirement-evidence process requires narrowly scoped recovery authority; a
 replacement node is not permission to erase another host's history.
 
-See the [implementation and operational details](https://github.com/microsoft/brewlet/blob/brewlet-2.0/provisioner/README.md)
+See the [implementation and operational details](https://github.com/microsoft/brewlet/blob/main/provisioner/README.md)
 and [verified failure/recovery scenarios](verification.md).

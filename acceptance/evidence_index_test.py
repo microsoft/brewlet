@@ -78,6 +78,27 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(34, len(index.required_files()))
         self.assertNotIn("pr-e2e-amd64.json", index.required_files())
 
+    def test_documentation_receipts_come_from_the_standalone_website_workflow(self):
+        source = "a" * 40
+        name = "checks-documentation-" + source
+        files = {"documentation.json": b"{}", "site-integration.json": b"{}"}
+        self.assertEqual((".github/workflows/site-pages.yml", set(files)),
+                         index.artifact_files(name, source))
+        record = {"runId": 11, "artifactId": 22, "name": name}
+        responses = {
+            "/actions/runs/11": {"event": "workflow_dispatch", "head_sha": source,
+                "path": ".github/workflows/site-pages.yml", "status": "completed", "conclusion": "success"},
+            "/actions/artifacts/22": {"name": name, "expired": False,
+                "workflow_run": {"id": 11, "head_sha": source}},
+            "/actions/artifacts/22/zip": zipped(files)}
+        self.assertEqual(files, index.download(SimpleActions(responses), record, {"checkout": source}))
+        for key, value in (("path", ".github/workflows/v2-ci.yml"),
+                           ("event", "pull_request"), ("event", "push")):
+            bad = copy.deepcopy(responses)
+            bad["/actions/runs/11"][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                index.download(SimpleActions(bad), record, {"checkout": source})
+
     def test_zip_missing_extra_traversal_symlink_and_expansion_fail_closed(self):
         for files in ({}, {"../good.json": b"{}"}, {"good.json": b"{}", "private.key": b"secret"}):
             with self.subTest(files=files), self.assertRaises(ValueError):

@@ -41,7 +41,8 @@ async function main() {
     if (response.status() >= 400) errors.push(response.url() + " " + response.status());
   });
   await page.goto(base, {waitUntil: "networkidle"});
-  assert.equal(await page.title(), "Brewlet 2.0 — Ship the app. Share the runtime.");
+  assert.equal(await page.title(), "Brewlet 1.0.0 — Ship the app. Share the runtime.");
+  assert.deepEqual(await page.locator(".brand .version").allTextContents(), ["1.0.0", "1.0.0"]);
   assert.equal(await page.locator(".menu-toggle").isVisible(), false);
   const devoxx = page.getByRole("region", {name: "Brewlet at Devoxx Belgium 2026"});
   const talkURL = "https://youtu.be/fszyRIZXjQM?is=w3zYjtOoIFceAAOT";
@@ -51,7 +52,7 @@ async function main() {
   assert.equal(slidesURL.hostname, "firebasestorage.googleapis.com");
   assert.match(decodeURIComponent(slidesURL.pathname), /slides_brewlet_deck_devoxx_2026\.pdf/);
   assert.doesNotMatch(await devoxx.textContent(), /Brewlet 0\.x/);
-  assert.equal(await devoxx.locator('a[href*="brewlet-2-comparison"]').count(), 0);
+  assert.equal(await devoxx.locator('a[href*="legacy-comparison"]').count(), 0);
   const thumbnail = devoxx.locator("img");
   await devoxx.scrollIntoViewIfNeeded();
   await thumbnail.evaluate(image => image.decode());
@@ -67,7 +68,7 @@ async function main() {
   for (const [language, executable] of [["Python", "python3"], ["Java", "java"], ["Node.js", "node"], [".NET", "dotnet"]]) {
     await page.getByRole("tab", {name: language, exact: true}).click();
     const descriptor = JSON.parse(await page.locator("#launch-code").textContent());
-    assert.equal(descriptor.schemaVersion, 2);
+    assert.equal(descriptor.schemaVersion, 1);
     assert.equal(descriptor.process.entrypoint[0], executable);
     assert.match(await page.locator("#package-code").textContent(), /--platform linux\/arm64/);
   }
@@ -116,7 +117,7 @@ async function main() {
   await page.getByRole("button", {name: "Menu", exact: true}).click();
   await page.getByRole("navigation", {name: "Primary navigation"}).getByRole("link", {name: "Documentation", exact: true}).click();
   await page.waitForURL(base + "docs/?clawpilotTheme=light");
-  assert.match(await page.title(), /Brewlet 2.0/);
+  assert.match(await page.title(), /Brewlet 1\.0\.0/);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({path: path.join(output, "mobile-docs.png"), fullPage: true});
   await page.setViewportSize({width: 1440, height: 1000});
@@ -153,8 +154,8 @@ async function main() {
   assert.ok(await page.locator(".md-search-result__link").count() > 0);
   await page.keyboard.press("Escape");
   await page.screenshot({path: path.join(output, "desktop-docs.png"), fullPage: true});
-  await page.goto(base + "docs/brewlet-2-comparison/", {waitUntil: "networkidle"});
-  assert.ok(await page.locator('a[href*="github.com/microsoft/brewlet/blob/brewlet-2.0/pkg/node/process.go"]').count() > 0);
+  await page.goto(base + "docs/legacy-comparison/", {waitUntil: "networkidle"});
+  assert.ok(await page.locator('a[href*="github.com/microsoft/brewlet/blob/main/pkg/node/process.go"]').count() > 0);
   for (const route of ["local-kubernetes", "configuration", "choosing-brewlet", "providers", "troubleshooting",
     "workshops/platform", "workshops/developer", "observability", "security", "webassembly"]) {
     await page.goto(base + "docs/" + route + "/", {waitUntil: "networkidle"});
@@ -204,7 +205,7 @@ async function main() {
       const code = await page.locator(".md-content .highlight code").allTextContents();
       const json = code.find(text => text.trim().startsWith("{") && text.includes('"schemaVersion"'));
       assert.ok(json && json.split("\n").length > 5);
-      assert.equal(JSON.parse(json).schemaVersion, 2);
+      assert.equal(JSON.parse(json).schemaVersion, 1);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     }
   }

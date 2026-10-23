@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,7 +26,7 @@ func profileFixture(t *testing.T) (*ProfileReconciler, *api.NodeProfile, *corev1
 	p := &api.NodeProfile{ObjectMeta: metav1.ObjectMeta{Name: "web", UID: "profile", Generation: 1}, Spec: api.NodeProfileSpec{NodePool: api.NodePool{Names: []string{"web"}, Key: "agentpool"}, RuntimeImages: []api.RuntimeEntry{{ID: "python-3.12", Install: "OnDemand"}}, Rollout: api.Rollout{ContainerdRestart: "none"}}}
 	n := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node", UID: "node-original", Labels: map[string]string{"agentpool": "web", api.RuntimeLabel: "ready", "brewlet.sh/runtime.python-3.12": "available"}}, Spec: corev1.NodeSpec{Taints: []corev1.Taint{{Key: api.StartupTaint, Value: "provisioning", Effect: corev1.TaintEffectNoSchedule}}}}
 	c := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(&api.NodeProfile{}, &api.RuntimeImage{}).WithObjects(p, n).Build()
-	return &ProfileReconciler{Client: c, Reader: c, Namespace: "brewlet-system", WorkerImage: "registry.example.com/brewlet-node:2.0"}, p, n
+	return &ProfileReconciler{Client: c, Reader: c, Namespace: "brewlet-system", WorkerImage: "registry.example.com/brewlet-node:1.0.0"}, p, n
 }
 func advance(t *testing.T, r *ProfileReconciler, p *api.NodeProfile, n int) {
 	t.Helper()

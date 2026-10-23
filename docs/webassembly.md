@@ -83,7 +83,7 @@ For example, the Wasmtime descriptor explicitly states:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "/usr/local/bin/wasmtime"
@@ -278,7 +278,7 @@ checksum-verified, unchanged upstream release executable bytes. The Wasmtime
 binary needs the GNU/Linux loader and unwinder; a bare executable-only root
 or an incomplete musl image is not sufficient.
 
-The [input matrix](https://github.com/microsoft/brewlet/blob/brewlet-2.0/examples/wasm/runtimes.json)
+The [input matrix](https://github.com/microsoft/brewlet/blob/main/examples/wasm/runtimes.json)
 pins native amd64/arm64 sources. The fixture imports verified base blobs,
 appends the exact release binary and records archive/binary/source identities.
 It never executes runtime code during root inspection or weakens set-ID,

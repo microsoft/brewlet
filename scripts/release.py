@@ -25,7 +25,7 @@ from scripts.maven_notice import notices
 GO = "go1.26.0"
 SYFT = "1.55.0"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
-VERSION = re.compile(r"2\.0\.0-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*)")
+VERSION = re.compile(r"1\.0\.0(?:-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*))?")
 NS = {"m": "http://maven.apache.org/POM/4.0.0"}
 
 
@@ -54,7 +54,7 @@ def write_json(path, value):
 def policy(root=ROOT):
     config = read_json(root / "release.json")
     require(config["schemaVersion"] == 1 and VERSION.fullmatch(config["version"]),
-            "only explicitly versioned 2.0.0 alpha/beta/rc candidates are supported")
+            "only 1.0.0 or explicitly versioned 1.0.0 alpha/beta/rc candidates are supported")
     require(config["repository"] == "microsoft/brewlet"
             and config["workflow"] == ".github/workflows/release.yml", "untrusted release authority")
     require(config["cliTargets"] == ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"]
@@ -187,7 +187,7 @@ def smoke_maven(output, config):
              "-DpomFile=" + str(output / (base + ".pom"))])
         run(["mvn", "-B", "-q", "-f", pom, f"-Dmaven.repo.local={temp}",
              f"sh.brewlet:brewlet-maven-plugin:{config['version']}:conformance",
-             "-Dbrewlet.fixtures=" + str(ROOT / "conformance/artifact-v2.json"),
+             "-Dbrewlet.fixtures=" + str(ROOT / "conformance/artifact-v1.json"),
              "-Dbrewlet.conformanceResult=" + str(Path(temp) / "result.json"),
              "-Dbrewlet.executable=" + str(executable)])
         result = read_json(Path(temp) / "result.json")
@@ -408,7 +408,7 @@ def smoke_cli(output, target, config):
         require(json.loads(run([binary, "version"])) ==
                 {"version": config["version"], "commit": document["candidate"]["checkout"], "platform": target},
                 "native CLI build identity mismatch")
-        run([binary, "conformance", ROOT / "conformance/artifact-v2.json"])
+        run([binary, "conformance", ROOT / "conformance/artifact-v1.json"])
     return document, name
 
 

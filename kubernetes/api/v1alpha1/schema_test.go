@@ -1,4 +1,4 @@
-package v2alpha1
+package v1alpha1
 
 import (
 	"bytes"
@@ -29,6 +29,14 @@ func TestDeployAndChartCRDsAreIdenticalAndValid(t *testing.T) {
 			v1 := new(extv1.CustomResourceDefinition)
 			if err := yaml.UnmarshalStrict(deploy, v1); err != nil {
 				t.Fatal(err)
+			}
+			if v1.Spec.Group != "node.brewlet.sh" || len(v1.Spec.Versions) != 1 ||
+				v1.Spec.Versions[0].Name != "v1alpha1" || !v1.Spec.Versions[0].Served ||
+				!v1.Spec.Versions[0].Storage {
+				t.Fatal("CRDs must serve and store only node.brewlet.sh/v1alpha1")
+			}
+			if GroupVersion.String() != "node.brewlet.sh/v1alpha1" {
+				t.Fatal("API scheme and CRD version disagree")
 			}
 			extv1.SetDefaults_CustomResourceDefinition(v1)
 			crd := new(ext.CustomResourceDefinition)

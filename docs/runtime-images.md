@@ -49,7 +49,7 @@ The platform explicitly approves additional volume locations with
 `spec.volumeMountPaths`:
 
 ```yaml
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: RuntimeImage
 metadata:
   name: python-3.13
@@ -93,7 +93,7 @@ upstream image or architecture is compatible. See [verification](verification.md
 ## Place IDs on pools
 
 ```yaml
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
   name: application-pool
@@ -145,11 +145,11 @@ supported overlayfs layout. The default containerd socket is currently required.
 
 ```sh
 docker build -f kubernetes/Dockerfile \
-  -t registry.example.com/brewlet/control:2.0 .
+  -t registry.example.com/brewlet/control:1.0.0 .
 docker build -f provisioner/Dockerfile \
-  -t registry.example.com/brewlet/node:2.0 .
-docker push registry.example.com/brewlet/control:2.0
-docker push registry.example.com/brewlet/node:2.0
+  -t registry.example.com/brewlet/node:1.0.0 .
+docker push registry.example.com/brewlet/control:1.0.0
+docker push registry.example.com/brewlet/node:1.0.0
 ```
 
 Supply reviewed values, image digests and registry access for your environment.

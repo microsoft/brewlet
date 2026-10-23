@@ -10,7 +10,7 @@ An application is a runnable OCI image with:
 
 - One or more app layers and optional dependency layers under `/app`.
 - Exactly one final launch layer containing `launch.json`.
-- `brewlet.sh/artifact-version=2` on its manifest.
+- `brewlet.sh/artifact-version=1` on its manifest.
 - An OCI config that exactly mirrors the launch process.
 
 The CLI and shim reject unknown/duplicate descriptor fields, mirror drift,
@@ -19,7 +19,7 @@ explicit producer assertion, not evidence that a native dependency is portable.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "python3"
@@ -140,7 +140,7 @@ identity and leased generation.
 
 Packaged `/app` is read-only and world-readable. Do not bake credentials into it.
 Use scoped Secret volumes for secrets and explicit writable volumes for data.
-All app/init/sidecar/ephemeral containers in the Pod require v2 artifacts.
+All app/init/sidecar/ephemeral containers in the Pod require v1 artifacts.
 
 ## Optional Maven producer
 
@@ -149,7 +149,7 @@ It can prepare classpath/module argv and dependency layers, or consume one
 verified complete Java layer-set graph.
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:2.0.0-alpha.1:push \
+mvn package sh.brewlet:brewlet-maven-plugin:1.0.0:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
@@ -159,4 +159,4 @@ Until this candidate is actually published, build/install the matching source pl
 The matching Brewlet CLI must be available explicitly. The plugin does not
 generate Kubernetes manifests, choose Pod runtime annotations or apply workloads.
 Managed dependency consumption requires a genuinely thin JAR, not a nested-JAR
-application. See the [producer's complete contracts and source instructions](https://github.com/microsoft/brewlet/blob/brewlet-2.0/maven-plugin/README.md).
+application. See the [producer's complete contracts and source instructions](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md).

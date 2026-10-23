@@ -1,7 +1,7 @@
 package controller
 
 import (
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"slices"
 )
 

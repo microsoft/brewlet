@@ -1,4 +1,4 @@
-apiVersion: node.brewlet.sh/v2alpha1
+apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
   name: v2-private-node

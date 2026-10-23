@@ -11,7 +11,7 @@ import (
 
 	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/containerd/errdefs"
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/kubernetes/policy"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"

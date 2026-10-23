@@ -2,7 +2,7 @@ name: Brewlet CI
 
 on:
   push:
-    branches: [main, brewlet-2.0]
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -102,7 +102,7 @@ jobs:
   validation:
     name: ${{ inputs.purpose == 'archive-history' && 'Archive-only status' || 'Brewlet validation' }}
     if: always() && (needs.context.outputs.purpose == 'validation' || needs.context.result != 'success')
-    needs: [context, contracts, producer-integration, linux-overlay-contract, documentation, archive-history, e2e]
+    needs: [context, contracts, producer-integration, linux-overlay-contract, archive-history, e2e]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every prerequisite to succeed, never skipped or cancelled
@@ -111,7 +111,6 @@ jobs:
           CONTRACTS: ${{ needs.contracts.result }}
           PRODUCER: ${{ needs.producer-integration.result }}
           OVERLAY: ${{ needs.linux-overlay-contract.result }}
-          DOCUMENTATION: ${{ needs.documentation.result }}
           HISTORY: ${{ needs.archive-history.result }}
           E2E: ${{ needs.e2e.result }}
         run: |
@@ -119,13 +118,12 @@ jobs:
           test "$CONTRACTS" = success
           test "$PRODUCER" = success
           test "$OVERLAY" = success
-          test "$DOCUMENTATION" = success
           test "$HISTORY" = success
           test "$E2E" = success
 
   e2e:
     name: Real four-language E2E
-    needs: [context, contracts, producer-integration, linux-overlay-contract, documentation, archive-history]
+    needs: [context, contracts, producer-integration, linux-overlay-contract, archive-history]
     if: needs.context.outputs.purpose == 'validation'
     uses: ./.github/workflows/e2e.yml
     with:
@@ -213,13 +211,6 @@ jobs:
           path: acceptance-export/*.json
           if-no-files-found: error
           retention-days: 14
-
-  documentation:
-    needs: context
-    if: needs.context.outputs.purpose == 'validation'
-    uses: ./.github/workflows/site-pages.yml
-    with:
-      expected_sha: ${{ needs.context.outputs.source }}
 
   archive-history:
     name: Historical evidence archive

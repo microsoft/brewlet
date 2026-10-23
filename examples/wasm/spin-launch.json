@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": ["/usr/local/bin/spin"],
     "args": ["up", "--from", "/app/spin.toml", "--listen", "0.0.0.0:8000", "--cache-dir", "/cache/assets", "--state-dir", "/work/state", "--temp", "/work", "--direct-mounts"],

@@ -51,7 +51,7 @@ class DocumentationTests(unittest.TestCase):
                 positions = [text.index("## " + heading + "\n") for heading in headings]
                 self.assertEqual(positions, sorted(positions))
                 launches = [json.loads(block) for block in re.findall(r"```json\n(.*?)\n```", text, re.S)]
-                self.assertTrue(any(value.get("schemaVersion") == 2 and "process" in value for value in launches))
+                self.assertTrue(any(value.get("schemaVersion") == 1 and "process" in value for value in launches))
                 self.assertIn("image:", text)
                 self.assertIn("brewlet.sh/runtime-image:", text)
         for name in ("java", "python", "nodejs", "dotnet", "webassembly", "language-recipes"):

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"slices"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

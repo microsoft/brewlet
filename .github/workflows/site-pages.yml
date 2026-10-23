@@ -1,4 +1,4 @@
-name: Build Brewlet 2 website preview
+name: Build Brewlet website preview
 
 on:
   workflow_call:
@@ -67,7 +67,7 @@ jobs:
           retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: brewlet-2-website-preview
+          name: brewlet-website-preview
           path: site/_site/
           if-no-files-found: error
           retention-days: 14

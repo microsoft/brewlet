@@ -68,7 +68,7 @@ jobs:
               ;;
             push)
               test "$SCENARIO" = pr
-              case "$REF" in refs/heads/main|refs/heads/brewlet-2.0) ;; *) exit 1 ;; esac
+              case "$REF" in refs/heads/main) ;; *) exit 1 ;; esac
               ;;
             workflow_dispatch)
               case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac

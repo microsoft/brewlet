@@ -1,8 +1,8 @@
 # Source-built installation
 
-There is no published stable 2.0 installer in this workflow. Use one reviewed
+There is no published stable 1.0.0 installer in this workflow. Use one reviewed
 source revision for the CLI, chart, CRDs, control plane and provisioner.
-Do not substitute main's released CLI, chart or application format.
+Do not substitute Brewlet 0.x's released CLI, chart or application format.
 The [prerelease distribution runbook](supported-release.md) describes candidate
 coordinates, exact-artifact verification and publication blockers; infrastructure
 availability does not mean a qualified prerelease has been published.
@@ -60,7 +60,7 @@ provisioner:
 Replace the placeholders. The empty profile list intentionally provisions no
 pool; it is not an accidental catch-all. Configure component image access
 through your platform's namespace/service-account policy. The current chart
-does not expose every field from main's chart.
+does not expose every field from Brewlet 0.x's chart.
 
 ## Apply schemas, then install
 
@@ -104,5 +104,5 @@ authorized and retains reversal obligations across upgrades. Do not replace
 its journal or delete roots to force progress.
 
 Follow [safe removal](uninstallation.md) before uninstalling or reinstalling.
-Pre-GA schema compatibility is governed by the [2.0 policy](compatibility-policy.md),
-not an assumption that main's release upgrade commands apply.
+Pre-GA schema compatibility is governed by the [1.0.0 policy](compatibility-policy.md),
+not an assumption that Brewlet 0.x's release upgrade commands apply.

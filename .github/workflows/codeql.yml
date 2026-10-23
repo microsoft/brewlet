@@ -2,7 +2,7 @@ name: CodeQL
 
 on:
   push:
-    branches: [main, brewlet-2.0]
+    branches: [main]
   pull_request:
   schedule:
     - cron: "15 7 * * 3"

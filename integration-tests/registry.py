@@ -105,7 +105,7 @@ def main():
             assert len(content) == descriptor["size"]
             assert "sha256:" + hashlib.sha256(content).hexdigest() == descriptor["digest"]
             manifest = json.loads(content)
-            assert manifest["annotations"]["brewlet.sh/artifact-version"] == "2"
+            assert manifest["annotations"]["brewlet.sh/artifact-version"] == "1"
             for blob_descriptor in [manifest["config"], *manifest["layers"]]:
                 data = fetch(base + "/fixtures/python/blobs/" + blob_descriptor["digest"])
                 assert len(data) == blob_descriptor["size"]

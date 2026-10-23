@@ -333,7 +333,7 @@ func (r *Registry) Pull(ctx context.Context, store Store) (v1.Descriptor, error)
 				if e = importBlob(blob); e != nil {
 					return e
 				}
-				if m.ArtifactType == MediaTypeLayerSet || m.Annotations["brewlet.sh/artifact-version"] == "2" {
+				if m.ArtifactType == MediaTypeLayerSet || m.Annotations["brewlet.sh/artifact-version"] == "1" {
 					refs, err := r.Referrers(ctx, desc)
 					if err != nil {
 						return err

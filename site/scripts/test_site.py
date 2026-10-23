@@ -11,13 +11,29 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class SiteTests(unittest.TestCase):
+    def test_current_branding_matches_release_identity(self):
+        import json
+        version = json.loads((ROOT / "release.json").read_text())["version"]
+        self.assertEqual(version, "1.0.0")
+        landing = (ROOT / "site/index.html").read_text()
+        self.assertEqual(landing.count(f'<span class="version">{version}</span>'), 2)
+        self.assertIn(f"<title>Brewlet {version} ", landing)
+        self.assertIn(f"site_name: Brewlet {version}\n", (ROOT / "site/mkdocs.yml").read_text())
+        comparison = (ROOT / "docs/legacy-comparison.md").read_text()
+        self.assertIn(f"# Brewlet 0.x vs. Brewlet {version}:", comparison)
+        self.assertIn('href="docs/legacy-comparison/"', landing)
+        for name in ("404.html", "main.html"):
+            self.assertIn(f"Brewlet {version}", (ROOT / "site/overrides" / name).read_text())
+        for name in ("architecture-desktop.svg", "architecture-mobile.svg"):
+            self.assertIn(f"Brewlet {version}", (ROOT / "site/assets/images" / name).read_text())
+
     def test_source_links_become_branch_links_without_modifying_draft(self):
         from types import SimpleNamespace
-        source = ROOT / "docs/brewlet-2-comparison.md"
+        source = ROOT / "docs/legacy-comparison.md"
         original = source.read_text()
         rendered = HOOKS.on_page_markdown(original, SimpleNamespace(
             file=SimpleNamespace(abs_src_path=str(source))), {"docs_dir": str(ROOT / "docs")}, None)
-        self.assertIn("blob/brewlet-2.0/pkg/node/process.go", rendered)
+        self.assertIn("blob/main/pkg/node/process.go", rendered)
         self.assertNotIn("](../pkg/node/process.go)", rendered)
         self.assertEqual(source.read_text(), original)
 

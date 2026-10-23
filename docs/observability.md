@@ -94,6 +94,6 @@ application error rate and native rollout availability. Review aggregation:
 the same Pod/container binding is a high-cardinality operational identity, not
 a label to copy into every application metric.
 
-Do not copy main's JDK metric names or assume its dashboard is compatible.
+Do not copy Brewlet 0.x's JDK metric names or assume its dashboard is compatible.
 See [instrumentation recipes](instrumentation.md) and
 [failure diagnosis](troubleshooting.md).

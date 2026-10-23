@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	webhook "sigs.k8s.io/controller-runtime/pkg/webhook/admission"

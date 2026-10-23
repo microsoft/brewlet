@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
+	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/pkg/artifact"
 	"github.com/microsoft/brewlet/pkg/node"
 	brewletplatform "github.com/microsoft/brewlet/pkg/platform"

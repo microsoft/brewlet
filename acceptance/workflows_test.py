@@ -26,7 +26,10 @@ class WorkflowTests(unittest.TestCase):
         for name in CHECKS:
             self.assertEqual(1, (text + website).count("python3 acceptance/run_check.py " + name), name)
         self.assertNotIn("run_check.py all", text)
-        self.assertIn("uses: ./.github/workflows/site-pages.yml", text)
+        self.assertNotIn("uses: ./.github/workflows/site-pages.yml", text)
+        self.assertNotIn("  documentation:", text)
+        self.assertNotIn("documentation_required", text)
+        self.assertNotIn("PR_NUMBER", text)
         self.assertIn("  workflow_call:", website)
         self.assertNotIn("  pull_request:", website)
         self.assertNotIn("  push:", website)
@@ -38,14 +41,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_automatic_validation_requires_actual_e2e_not_promotion_evidence(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
-        self.assertIn("branches: [main, brewlet-2.0]", text)
+        self.assertIn("branches: [main]", text)
         self.assertIn("  pull_request:", text)
         self.assertNotIn("paths:", text)
         self.assertNotIn("pull_request_target", text)
         aggregate = text.split("  validation:", 1)[1].split("\n  e2e:", 1)[0]
-        self.assertIn("needs: [context, contracts, producer-integration, linux-overlay-contract, documentation, archive-history, e2e]", aggregate)
+        self.assertIn("needs: [context, contracts, producer-integration, linux-overlay-contract, archive-history, e2e]", aggregate)
         program = block(aggregate, "Require every prerequisite")
-        dependencies = ("CONTEXT", "CONTRACTS", "PRODUCER", "OVERLAY", "DOCUMENTATION", "HISTORY", "E2E")
+        dependencies = ("CONTEXT", "CONTRACTS", "PRODUCER", "OVERLAY", "HISTORY", "E2E")
         for dependency in dependencies:
             for value in ("success", "failure", "skipped", "cancelled", ""):
                 environment = dict.fromkeys(dependencies, "success")
@@ -53,6 +56,7 @@ class WorkflowTests(unittest.TestCase):
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertEqual(value == "success", result.returncode == 0, (dependency, value))
         e2e = text.split("\n  e2e:", 1)[1].split("\n  producer-integration:", 1)[0]
+        self.assertIn("needs: [context, contracts, producer-integration, linux-overlay-contract, archive-history]", e2e)
         self.assertIn("uses: ./.github/workflows/e2e.yml", e2e)
         self.assertIn("scenario: pr", e2e)
         self.assertIn("architecture: amd64", e2e)
@@ -123,7 +127,8 @@ class WorkflowTests(unittest.TestCase):
                 ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", True),
                 ("pull_request", "refs/pull/1/merge", "fork/brewlet", "pr", False),
                 ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "complete", False),
-                ("push", "refs/heads/brewlet-2.0", "microsoft/brewlet", "pr", True),
+                ("push", "refs/heads/main", "microsoft/brewlet", "pr", True),
+                ("push", "refs/heads/candidate", "microsoft/brewlet", "pr", False),
                 ("push", "refs/heads/main", "microsoft/brewlet", "complete", False),
                 ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", True),
                 ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", True),

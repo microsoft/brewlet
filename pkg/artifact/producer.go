@@ -359,7 +359,7 @@ func Build(ctx context.Context, store Store, o BuildOptions) (v1.Descriptor, err
 		if e != nil {
 			return v1.Descriptor{}, e
 		}
-		m := v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageManifest, Config: config, Layers: descs, Annotations: map[string]string{"brewlet.sh/artifact-version": "2"}}
+		m := v1.Manifest{Versioned: specs.Versioned{SchemaVersion: 2}, MediaType: v1.MediaTypeImageManifest, Config: config, Layers: descs, Annotations: map[string]string{"brewlet.sh/artifact-version": "1"}}
 		if len(evidence) > 0 {
 			b, _ := jsonBytes(evidence)
 			m.Annotations["brewlet.sh/layerset-evidence"] = string(b)

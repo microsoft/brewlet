@@ -25,7 +25,7 @@ func TestRegistryPublishAndInspect(t *testing.T) {
 	store := Store{Dir: filepath.Join(dir, "store")}
 	p1, _ := ParsePlatform("linux/amd64")
 	p2, _ := ParsePlatform("linux/arm64")
-	target, e := Build(context.Background(), store, BuildOptions{Launch: []byte(`{"schemaVersion":2,"process":{"entrypoint":["runner"]}}`), Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}})
+	target, e := Build(context.Background(), store, BuildOptions{Launch: []byte(`{"schemaVersion":1,"process":{"entrypoint":["runner"]}}`), Platforms: []v1.Platform{p1, p2}, Layers: []LayerSpec{{Role: "app", Source: app, Destination: "app"}}})
 	must(t, e)
 	type object struct {
 		media string

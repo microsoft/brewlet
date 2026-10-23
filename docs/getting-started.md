@@ -1,6 +1,6 @@
 # Getting started
 
-Brewlet 2.0 is a **source-built evaluation**. Do not use main's released installer,
+Brewlet 1.0.0 is a **source-built evaluation**. Do not use Brewlet 0.x's released installer,
 old artifacts or `JavaApplication` manifests for this branch. Use a disposable
 local environment; provisioning modifies the selected node.
 
@@ -16,7 +16,7 @@ Use Go 1.26 or newer and Git. Maven verification additionally needs Maven and
 a JDK; the complete fixture suite also requires Node.js and the .NET SDK.
 
 ```sh
-git clone --branch brewlet-2.0 https://github.com/microsoft/brewlet.git
+git clone --branch main https://github.com/microsoft/brewlet.git
 cd brewlet
 make build
 ```
@@ -40,7 +40,7 @@ Create `launch.json`:
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 1,
   "process": {
     "entrypoint": [
       "python3"
@@ -94,7 +94,7 @@ Use a new work directory for each invocation. The harness does not accept your
 shared cluster or current kube context. Its result explicitly distinguishes
 selected-suite success from aggregate acceptance.
 
-Consult the [full live runbook](https://github.com/microsoft/brewlet/blob/brewlet-2.0/integration-tests/live-v2/README.md)
+Consult the [full live runbook](https://github.com/microsoft/brewlet/blob/main/integration-tests/live-v2/README.md)
 for exact tool/input pins and smaller, explicitly scoped scenarios.
 
 ## Configure your own disposable pool
