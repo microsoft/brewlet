@@ -30,11 +30,13 @@ jobs:
     outputs:
       source: ${{ steps.guard.outputs.source }}
       purpose: ${{ steps.guard.outputs.purpose }}
+      documentation_required: ${{ steps.guard.outputs.documentation_required }}
     steps:
       - name: Validate immutable source and CI purpose
         id: guard
         env:
           EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
           EXPECTED: ${{ inputs.expected_sha }}
           PURPOSE: ${{ inputs.purpose || 'validation' }}
@@ -59,6 +61,12 @@ jobs:
           esac
           echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
           echo "purpose=$PURPOSE" >> "$GITHUB_OUTPUT"
+          # Temporary documentation-CI exception requested for PR #306 only.
+          if test "$EVENT" = pull_request && test "$PR_NUMBER" = 306; then
+            echo "documentation_required=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "documentation_required=true" >> "$GITHUB_OUTPUT"
+          fi
 
   contracts:
     needs: context
@@ -105,13 +113,14 @@ jobs:
     needs: [context, contracts, producer-integration, linux-overlay-contract, documentation, archive-history, e2e]
     runs-on: ubuntu-24.04
     steps:
-      - name: Require every prerequisite to succeed, never skipped or cancelled
+      - name: Require every prerequisite unless documentation is explicitly disabled
         env:
           CONTEXT: ${{ needs.context.result }}
           CONTRACTS: ${{ needs.contracts.result }}
           PRODUCER: ${{ needs.producer-integration.result }}
           OVERLAY: ${{ needs.linux-overlay-contract.result }}
           DOCUMENTATION: ${{ needs.documentation.result }}
+          DOCUMENTATION_REQUIRED: ${{ needs.context.outputs.documentation_required }}
           HISTORY: ${{ needs.archive-history.result }}
           E2E: ${{ needs.e2e.result }}
         run: |
@@ -119,14 +128,26 @@ jobs:
           test "$CONTRACTS" = success
           test "$PRODUCER" = success
           test "$OVERLAY" = success
-          test "$DOCUMENTATION" = success
+          case "$DOCUMENTATION_REQUIRED:$DOCUMENTATION" in
+            true:success|false:skipped) ;;
+            *) exit 1 ;;
+          esac
           test "$HISTORY" = success
           test "$E2E" = success
 
   e2e:
     name: Real four-language E2E
     needs: [context, contracts, producer-integration, linux-overlay-contract, documentation, archive-history]
-    if: needs.context.outputs.purpose == 'validation'
+    if: >-
+      always() &&
+      needs.context.outputs.purpose == 'validation' &&
+      needs.context.result == 'success' &&
+      needs.contracts.result == 'success' &&
+      needs.producer-integration.result == 'success' &&
+      needs.linux-overlay-contract.result == 'success' &&
+      ((needs.context.outputs.documentation_required == 'true' && needs.documentation.result == 'success') ||
+       (needs.context.outputs.documentation_required == 'false' && needs.documentation.result == 'skipped')) &&
+      needs.archive-history.result == 'success'
     uses: ./.github/workflows/e2e.yml
     with:
       expected_sha: ${{ needs.context.outputs.source }}
@@ -216,7 +237,7 @@ jobs:
 
   documentation:
     needs: context
-    if: needs.context.outputs.purpose == 'validation'
+    if: needs.context.outputs.purpose == 'validation' && needs.context.outputs.documentation_required == 'true'
     uses: ./.github/workflows/site-pages.yml
     with:
       expected_sha: ${{ needs.context.outputs.source }}

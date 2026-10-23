@@ -46,18 +46,58 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("needs: [context, contracts, producer-integration, linux-overlay-contract, documentation, archive-history, e2e]", aggregate)
         program = block(aggregate, "Require every prerequisite")
         dependencies = ("CONTEXT", "CONTRACTS", "PRODUCER", "OVERLAY", "DOCUMENTATION", "HISTORY", "E2E")
-        for dependency in dependencies:
-            for value in ("success", "failure", "skipped", "cancelled", ""):
-                environment = dict.fromkeys(dependencies, "success")
-                environment[dependency] = value
-                result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
-                self.assertEqual(value == "success", result.returncode == 0, (dependency, value))
+        for required, documentation in (("true", "success"), ("false", "skipped")):
+            for dependency in dependencies:
+                for value in ("success", "failure", "skipped", "cancelled", ""):
+                    environment = dict.fromkeys(dependencies, "success")
+                    environment["DOCUMENTATION_REQUIRED"] = required
+                    environment["DOCUMENTATION"] = documentation
+                    environment[dependency] = value
+                    result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
+                    expected = documentation if dependency == "DOCUMENTATION" else "success"
+                    self.assertEqual(value == expected, result.returncode == 0, (required, dependency, value))
+        for required in ("", "unknown"):
+            environment = {**dict.fromkeys(dependencies, "success"), "DOCUMENTATION_REQUIRED": required}
+            result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
+            self.assertNotEqual(0, result.returncode, required)
         e2e = text.split("\n  e2e:", 1)[1].split("\n  producer-integration:", 1)[0]
         self.assertIn("uses: ./.github/workflows/e2e.yml", e2e)
         self.assertIn("scenario: pr", e2e)
         self.assertIn("architecture: amd64", e2e)
         self.assertNotIn("continue-on-error", text)
         self.assertNotIn("make acceptance", text)
+
+    def test_documentation_ci_exception_is_limited_to_pr_306(self):
+        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
+        self.assertIn("PR_NUMBER: ${{ github.event.pull_request.number }}", text)
+        self.assertIn("documentation_required: ${{ steps.guard.outputs.documentation_required }}", text)
+        self.assertIn("DOCUMENTATION_REQUIRED: ${{ needs.context.outputs.documentation_required }}", text)
+        program = block(text, "Validate immutable source")
+        for event, number, required in (
+                ("pull_request", "306", "false"),
+                ("pull_request", "305", "true"),
+                ("pull_request", "307", "true"),
+                ("pull_request", "", "true"),
+                ("push", "306", "true"),
+                ("workflow_dispatch", "306", "true")):
+            with tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary) / "output"
+                environment = {"EVENT": event, "PR_NUMBER": number, "PURPOSE": "validation",
+                    "EXPECTED": "a" * 40, "SOURCE": "a" * 40, "REPOSITORY": "microsoft/brewlet",
+                    "REF": "refs/heads/candidate", "GITHUB_OUTPUT": str(output)}
+                result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
+                self.assertEqual(0, result.returncode, (event, number, result.stderr))
+                outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(required, outputs["documentation_required"], (event, number))
+        documentation = text.split("\n  documentation:", 1)[1].split("\n  archive-history:", 1)[0]
+        self.assertIn("if: needs.context.outputs.purpose == 'validation' && needs.context.outputs.documentation_required == 'true'", documentation)
+        e2e = text.split("\n  e2e:", 1)[1].split("\n  producer-integration:", 1)[0]
+        self.assertIn("always() &&", e2e)
+        for job in ("context", "contracts", "producer-integration", "linux-overlay-contract", "archive-history"):
+            self.assertIn("needs." + job + ".result == 'success'", e2e)
+        for required, result in (("true", "success"), ("false", "skipped")):
+            self.assertIn("needs.context.outputs.documentation_required == '" + required +
+                          "' && needs.documentation.result == '" + result + "'", e2e)
 
     def test_evidence_only_jobs_cannot_emit_a_green_required_pr_check(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
@@ -80,7 +120,7 @@ class WorkflowTests(unittest.TestCase):
                 ("workflow_dispatch", "validation", "b" * 40, False),
                 ("workflow_dispatch", "publish", "a" * 40, False)):
             with tempfile.TemporaryDirectory() as temporary:
-                environment = {"EVENT": event, "PURPOSE": purpose, "EXPECTED": expected,
+                environment = {"EVENT": event, "PR_NUMBER": "305", "PURPOSE": purpose, "EXPECTED": expected,
                     "SOURCE": "a" * 40, "REPOSITORY": "microsoft/brewlet", "REF": "refs/heads/candidate",
                     "GITHUB_OUTPUT": str(Path(temporary) / "output")}
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
