@@ -45,8 +45,6 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .secondary:hover { border-color: var(--cp-accent); }
 .evaluation-note, .fine-print { font-size: .875rem; color: var(--cp-text-muted); }
 .composition { border: 1px solid var(--cp-border); border-radius: 16px; background: var(--cp-surface); overflow: hidden; }
-.composition-title { padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; border-bottom: 1px solid var(--cp-border); font-size: .875rem; font-weight: 650; }
-.composition-title span + span { color: var(--cp-text-muted); }
 .artifact-stack { padding: 1.5rem 1.5rem 0; }
 .stack-label { display: flex; flex-direction: column; gap: .375rem; font-size: .875rem; margin-bottom: .75rem; }
 .stack-label > span { font-weight: 650; }
