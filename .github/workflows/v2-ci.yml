@@ -91,7 +91,7 @@ jobs:
           GOOS=linux GOARCH=arm64 go build ./...
       - name: Current redistribution notices and packaging
         run: make legal-check
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: checks-contracts-${{ needs.context.outputs.source }}
@@ -170,7 +170,7 @@ jobs:
         run: python3 acceptance/run_check.py fixtures
       - name: Real registry publication (not node acceptance)
         run: python3 acceptance/run_check.py registry
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: checks-producer-${{ matrix.architecture }}-${{ needs.context.outputs.source }}
@@ -204,7 +204,7 @@ jobs:
         run: |
           python3 acceptance/run_check.py native-contracts
           python3 acceptance/run_check.py go-vet
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: checks-kernel-${{ matrix.architecture }}-${{ needs.context.outputs.source }}
@@ -226,7 +226,7 @@ jobs:
       - name: Materialize byte-verified historical public JSON only
         id: history
         run: python3 acceptance/evidence_index.py export-history --if-needed --output "${{ runner.temp }}/acceptance-history"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: steps.history.outputs.written == 'true'
         with:
           name: historical-acceptance-receipts-${{ needs.context.outputs.source }}
