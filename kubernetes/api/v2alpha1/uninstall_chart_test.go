@@ -12,9 +12,7 @@ import (
 )
 
 func TestUninstallCoordinatorSchedulesOnFencedNodesWithoutRuntimePrivilege(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm unavailable")
-	}
+	requireHelm(t)
 	raw, err := exec.Command("helm", "template", "test", "../../charts/brewlet",
 		"--namespace", "brewlet-system", "--show-only", "templates/uninstall.yaml").CombinedOutput()
 	if err != nil {

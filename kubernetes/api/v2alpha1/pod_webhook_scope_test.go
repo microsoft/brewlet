@@ -11,9 +11,7 @@ import (
 )
 
 func TestPodWebhookSeparatesCreationFromEphemeralSubresource(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("helm unavailable")
-	}
+	requireHelm(t)
 	raw, err := exec.Command("helm", "template", "test", "../../charts/brewlet", "--namespace", "brewlet-system").CombinedOutput()
 	if err != nil {
 		t.Fatal(err)

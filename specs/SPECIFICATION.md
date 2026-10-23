@@ -422,7 +422,7 @@ spec:
     ecosystem: python
     abi: glibc-2.36
 status:
-  generation: 7                # increments on every digest change
+  generation: 7                # increments on every spec.source.image change (rotation)
   digest: sha256:<64 hex>
   conditions: [ { type: Approved, status: "True" } ]
 ```
@@ -1777,8 +1777,11 @@ application code is recompiled. Therefore:
 
 - initial Maven publication retains current exact graph/BOM/scoped-hash checks;
 - generic replacement records old and new materials honestly;
-- a dependency-only release MUST run its configured compatibility/integration
-  checks against the final candidate image before deployment;
+- the application deployment workflow (§16.4) MUST run its configured
+  compatibility/integration checks against the final candidate image digest
+  before deploying a dependency-only release. Brewlet's composer and verifier do
+  not execute these checks; they report `testReleaseApproval: not-evaluated`
+  (§16.7) and MUST NOT infer a pass from a signature;
 - changing package versions/hashes does not authorize changing runtime IDs,
   executable paths or process security implicitly;
 - compatibility failures stop the release; they never fall back to locally
