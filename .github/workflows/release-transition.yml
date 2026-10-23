@@ -74,7 +74,7 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
         with:
           version: v3.19.0
-      - uses: Azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede
+      - uses: Azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e
         with:
           version: v1.35.0
       - name: Install pinned tools without persistent credentials
