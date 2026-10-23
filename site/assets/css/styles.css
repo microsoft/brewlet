@@ -27,7 +27,6 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .brand .brand-let, .brand:hover .brand-let { color: var(--cp-link); }
 .brand svg { fill: var(--cp-accent); }
 .brand svg path { stroke: var(--cp-bg); fill: none; stroke-width: 3; stroke-linecap: round; }
-.version { font-size: .75rem; line-height: 1; padding: .375rem .5rem; margin-left: .25rem; border: 1px solid var(--cp-border); border-radius: .625rem; letter-spacing: 0; color: var(--cp-text-muted); }
 .navigation nav { display: flex; align-items: center; gap: 1.5rem; }
 .navigation nav a { font-size: .875rem; font-weight: 600; color: var(--cp-text); text-decoration: none; }
 .navigation nav a:hover, .navigation nav a[aria-current] { color: var(--cp-accent); }
