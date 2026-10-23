@@ -141,7 +141,7 @@ def verify_sboms(output, document):
 
 def attest_verify(path, workflow, source, repository="microsoft/brewlet"):
     run(["ghx", "attestation", "verify", path, "--repo", repository,
-         "--signer-repo", repository, "--signer-workflow", repository + "/.github/workflows/" + workflow,
+         "--signer-workflow", repository + "/.github/workflows/" + workflow,
          "--signer-digest", source, "--source-digest", source, "--deny-self-hosted-runners"])
 
 
