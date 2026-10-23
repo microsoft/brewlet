@@ -80,10 +80,10 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
-      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:
           distribution: temurin
           java-version: "21"
@@ -94,13 +94,13 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "22.22.0"
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
           global-json-file: integration-tests/fixtures/dotnet/global.json
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
         with:
           version: v3.19.0
-      - uses: Azure/setup-kubectl@c0c8b32d33a5244f1e5947304550403b63930415
+      - uses: Azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede
         with:
           version: v1.35.0
       - name: Install pinned native suite tools
@@ -133,7 +133,7 @@ jobs:
         run: python3 acceptance/qualify.py --run --scenario "$SCENARIO" --architecture "$ARCHITECTURE"
       - name: Retain public identities/outcomes only, never private work files
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: e2e-${{ inputs.architecture }}-${{ inputs.scenario }}-${{ env.SOURCE_SHA }}
           path: acceptance-export/*.json
