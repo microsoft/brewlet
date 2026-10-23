@@ -12,11 +12,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class SiteTests(unittest.TestCase):
     def test_current_branding_names_the_1_0_0_product_line(self):
-        # Product branding names the 1.0.0 line; 0.8.0+ betas in release.json preview it.
+        # Documentation names the 1.0.0 line; 0.8.0+ betas in release.json preview it.
+        # The landing page and its images deliberately do not surface a version.
         version = "1.0.0"
         landing = (ROOT / "site/index.html").read_text()
-        self.assertEqual(landing.count(f'<span class="version">{version}</span>'), 2)
-        self.assertIn(f"<title>Brewlet {version} ", landing)
+        self.assertNotIn(version, landing)
+        self.assertNotIn('class="version"', landing)
+        self.assertIn("<title>Brewlet — ", landing)
         self.assertIn(f"site_name: Brewlet {version}\n", (ROOT / "site/mkdocs.yml").read_text())
         comparison = (ROOT / "docs/legacy-comparison.md").read_text()
         self.assertIn(f"# Brewlet 0.x vs. Brewlet {version}:", comparison)
@@ -24,7 +26,7 @@ class SiteTests(unittest.TestCase):
         for name in ("404.html", "main.html"):
             self.assertIn(f"Brewlet {version}", (ROOT / "site/overrides" / name).read_text())
         for name in ("architecture-desktop.svg", "architecture-mobile.svg"):
-            self.assertIn(f"Brewlet {version}", (ROOT / "site/assets/images" / name).read_text())
+            self.assertNotIn(version, (ROOT / "site/assets/images" / name).read_text())
 
     def test_source_links_become_branch_links_without_modifying_draft(self):
         from types import SimpleNamespace
