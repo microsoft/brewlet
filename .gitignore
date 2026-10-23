@@ -6,7 +6,6 @@
 /site/.cache/
 /site/node_modules/
 /site/**/node_modules/
-/site/_site-checks/
 /site/**/__pycache__/
 /acceptance/__pycache__/
 /acceptance-export/

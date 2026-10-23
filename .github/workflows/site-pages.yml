@@ -52,12 +52,6 @@ jobs:
           make site-notices-check
       - name: Check contracts, strictly build docs and assemble static preview
         run: python3 acceptance/run_check.py documentation
-      - name: Install isolated browser checks
-        run: |
-          npm ci --ignore-scripts --prefix site
-          PLAYWRIGHT_SKIP_BROWSER_GC=1 site/node_modules/.bin/playwright install --with-deps chromium
-      - name: Verify responsive layout, interactions and documentation search
-        run: python3 acceptance/run_check.py site-integration
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

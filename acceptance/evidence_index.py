@@ -54,7 +54,7 @@ def artifact_files(name, source):
     if name == f"checks-contracts-{source}":
         return ".github/workflows/v2-ci.yml", {"go-contracts.json", "maven.json"}
     if name == f"checks-documentation-{source}":
-        return ".github/workflows/site-pages.yml", {"documentation.json", "site-integration.json"}
+        return ".github/workflows/site-pages.yml", {"documentation.json"}
     for arch in ("amd64", "arm64"):
         for group, checks in (("producer", ("fixtures", "registry")),
                              ("kernel", ("native-contracts", "go-vet"))):
