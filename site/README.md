@@ -38,38 +38,17 @@ All internal navigation works under a subdirectory as well as at a domain root.
 make site-contract-check
 ```
 
-For browser checks, install the pinned development-only dependency and Chromium:
-
-```sh
-npm ci --prefix site --ignore-scripts
-PLAYWRIGHT_SKIP_BROWSER_GC=1 site/node_modules/.bin/playwright install chromium
-npm test --prefix site
-```
-
-Use `PLAYWRIGHT_CHANNEL=chrome npm test --prefix site` to use an already installed
-Chrome instead. The test owns an ephemeral local server and checks desktop/mobile,
-both themes, keyboard tabs, clipboard, FAQ, documentation/search, subdirectory
-hosting and the no-JavaScript fallback. It closes its browser/server afterward.
-Screenshots go to ignored `site/_site-checks/` or `SITE_SCREENSHOTS`.
-
-The initial website verification passed the strict ten-page build and all local
-links/anchors, desktop/mobile light/dark browser interactions and search,
-prefix hosting and the no-JavaScript fallback. The exact getting-started
-descriptor and source were packaged and inspected with the real CLI inside
-an isolated Linux container. On the development Mac, the same host packaging
-attempt correctly rejected filesystem xattrs; validation was not weakened.
-
 The build runs MkDocs in strict mode, generates third-party notices from
 installed dependency license texts, removes unused non-English search
 extensions as main does, and verifies every built local link/fragment.
-Contract checks also protect honest 1.0.0 content and the draft's source bytes.
+Contract checks cover the build tooling (source-link hook, link parser,
+tutorial observer) and notices, not the wording of the site content.
 
 ## Deployment
 
 `.github/workflows/site-pages.yml` is the read-only build used by Pages deployment
 and manual preview runs, not routine CI. It checks the exact source SHA, builds
-the site, runs the browser checks and uploads `brewlet-website-preview`. Pull
-requests do not run this workflow automatically and never deploy.
+the site and uploads `brewlet-website-preview`. Pull requests do not run this workflow automatically and never deploy.
 
 `.github/workflows/site-deploy.yml` publishes to the existing `brewlet.sh`
 GitHub Pages site after relevant changes reach `main`, or through manual

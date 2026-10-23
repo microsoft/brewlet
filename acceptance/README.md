@@ -56,9 +56,9 @@ sanitized JSON:
 The producer commands, scopes and assertion mappings remain fixed in
 `run_check.py`; ledger-supplied strings are never executed. The shared native
 runner still rejects emulation and skipped kernel tests. Website dependencies,
-build and browser checks stay in the separate `site-pages.yml` workflow, not
-routine CI or its required validation aggregate. Manual website preview runs
-produce `documentation` and `site-integration` receipts for full qualification;
+and build stay in the separate `site-pages.yml` workflow, not routine CI or its
+required validation aggregate. Manual website preview runs produce the
+`documentation` receipt for full qualification;
 Pages deployment continues to reuse the checked website build.
 
 Generated receipts belong in Actions artifacts or the ignored local

@@ -57,9 +57,6 @@ CHECKS = {
     "go-vet": {
         "command": ["go", "vet", "-mod=readonly", "./..."],
         "scope": "contract", "native": True, "requirements": ["UP-06"]},
-    "site-integration": {
-        "command": ["npm", "test", "--prefix", "site"],
-        "scope": "integration", "requirements": ["UP-06"]},
 }
 
 

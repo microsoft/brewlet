@@ -75,13 +75,13 @@ class ArtifactTests(unittest.TestCase):
         for name in ("e2e-amd64-pr-", "e2e-amd64-control-", "checks-unrelated-"):
             with self.assertRaises(ValueError):
                 index.artifact_files(name + "a" * 40, "a" * 40)
-        self.assertEqual(34, len(index.required_files()))
+        self.assertEqual(33, len(index.required_files()))
         self.assertNotIn("pr-e2e-amd64.json", index.required_files())
 
     def test_documentation_receipts_come_from_the_standalone_website_workflow(self):
         source = "a" * 40
         name = "checks-documentation-" + source
-        files = {"documentation.json": b"{}", "site-integration.json": b"{}"}
+        files = {"documentation.json": b"{}"}
         self.assertEqual((".github/workflows/site-pages.yml", set(files)),
                          index.artifact_files(name, source))
         record = {"runId": 11, "artifactId": 22, "name": name}

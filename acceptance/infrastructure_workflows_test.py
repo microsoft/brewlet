@@ -39,7 +39,6 @@ class InfrastructureWorkflowTests(unittest.TestCase):
                       **{"/integration-tests/fixtures/java/" + name:
                          "integration-tests/fixtures/java/" + name + "/pom.xml"
                          for name in ("app", "bom", "dependency")}},
-            "npm": {"/site": "site/package-lock.json"},
             "pip": {"/site": "site/requirements.txt"},
             "nuget": {"/integration-tests/fixtures/dotnet": "integration-tests/fixtures/dotnet/global.json",
                       **{"/integration-tests/fixtures/dotnet/" + name:

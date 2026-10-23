@@ -71,8 +71,8 @@ live in ignored build directories. Regenerate after changing dependencies,
 and commit website notice changes with their inputs.
 
 The website generator restores the pinned browser dependency inventory from
-the Java-era branch. Its separate npm project is for attribution inputs, not
-the Playwright test tooling in `site/package.json`. It collects actual license
+the Java-era branch. Its separate npm project is for attribution inputs only.
+It collects actual license
 and notice files for every locked package, including transitive dependencies,
 and validates installed versions against the lockfile. The small checked-in
 license supplements preserve upstream attribution absent from npm tarballs.
