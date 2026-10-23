@@ -32,3 +32,12 @@ For classroom use, split the tasks between the
 [platform](workshops/platform.md) and [developer](workshops/developer.md)
 workshops. For formal qualification, use the separately scoped
 [acceptance procedures](verification.md).
+
+## Java canvas demo
+
+Contributors using the GitHub Copilot app can run a Java version of the same
+flow from the
+[`brewlet-demo` canvas extension](https://github.com/microsoft/brewlet/tree/main/.github/extensions/brewlet-demo).
+It builds ShowMyJVM, packages it with `brewlet build` (no JDK in the image),
+deploys it as a plain Deployment on a private kind cluster, and switches the
+node-supplied runtime from Temurin 25 to 27 and back by changing one annotation.
