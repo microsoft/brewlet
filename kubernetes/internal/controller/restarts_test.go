@@ -254,3 +254,101 @@ func TestRestartNativeDeadlineFailsAndReleasesSlot(t *testing.T) {
 		t.Fatal("native deadline did not free slot")
 	}
 }
+
+func TestRestartSelectionUsesLeaseEvidenceBeforeStartTime(t *testing.T) {
+	setPod := func(t *testing.T, f *restartFixture, start time.Time) {
+		t.Helper()
+		p := new(corev1.Pod)
+		_ = f.engine.Client.Get(context.Background(), client.ObjectKey{Name: "pod-api", Namespace: "apps"}, p)
+		p.Status.StartTime = timePtr(start)
+		if err := f.engine.Client.Status().Update(context.Background(), p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	observation := func(f *restartFixture, at time.Time, current bool, reason string, bindings ...api.RuntimeTaskBinding) []api.RuntimeTaskObservation {
+		return []api.RuntimeTaskObservation{{NodeName: "node", NodeUID: "node", ProfileUID: "profile", ProfileGeneration: 1, ObservedAt: at, Current: current, Reason: reason, Bindings: bindings}}
+	}
+	oldBinding := api.RuntimeTaskBinding{ContainerID: "old-task", ContainerdNamespace: "k8s.io", PodUID: "pod-api", PodName: "pod-api", PodNamespace: "apps", InventoryUID: "epoch", Generation: 6, Digest: "old-digest", State: "running"}
+
+	t.Run("fresh complete observation without binding spares pre-completion pod", func(t *testing.T) {
+		f := restartSetup(t)
+		d := f.deployment(t, "api")
+		f.image.Status.TaskObservations = observation(f, f.now.Add(-10*time.Second), true, "CompleteTaskAndLeaseObservation")
+		f.run(t)
+		_ = f.engine.Client.Get(context.Background(), client.ObjectKeyFromObject(f.image), f.image)
+		if f.patches != 0 || len(f.image.Status.Restarts.Workloads) != 0 {
+			t.Fatalf("observed-current pod %s was restarted: patches=%d restarts=%+v", d.Name, f.patches, f.image.Status.Restarts)
+		}
+	})
+	t.Run("older binding restarts pod that started after completion", func(t *testing.T) {
+		f := restartSetup(t)
+		d := f.deployment(t, "api")
+		setPod(t, f, f.now)
+		f.image.Status.TaskObservations = observation(f, f.now, false, "ObservationUnavailable", oldBinding)
+		f.run(t)
+		if f.patches != 1 || f.record(t, d.UID).Phase != "Rolling" {
+			t.Fatalf("pod with genuine older binding not restarted: patches=%d record=%+v", f.patches, f.record(t, d.UID))
+		}
+	})
+	for name, obs := range map[string]func(f *restartFixture) []api.RuntimeTaskObservation{
+		"no observation": func(*restartFixture) []api.RuntimeTaskObservation { return nil },
+		"stale observation": func(f *restartFixture) []api.RuntimeTaskObservation {
+			return observation(f, f.now.Add(-3*time.Minute), true, "CompleteTaskAndLeaseObservation")
+		},
+		"non-current observation": func(f *restartFixture) []api.RuntimeTaskObservation {
+			return observation(f, f.now.Add(-10*time.Second), false, "CompleteTaskAndLeaseObservation")
+		},
+		"retirement resolution": func(f *restartFixture) []api.RuntimeTaskObservation {
+			return observation(f, f.now.Add(-10*time.Second), true, "IndependentRetirementResolution")
+		},
+		"observation predates container start": func(f *restartFixture) []api.RuntimeTaskObservation {
+			return observation(f, f.now.Add(-90*time.Minute), true, "CompleteTaskAndLeaseObservation")
+		},
+		"other node": func(f *restartFixture) []api.RuntimeTaskObservation {
+			o := observation(f, f.now.Add(-10*time.Second), true, "CompleteTaskAndLeaseObservation")
+			o[0].NodeName = "other"
+			return o
+		},
+	} {
+		t.Run(name+" falls back to start-time rule", func(t *testing.T) {
+			f := restartSetup(t)
+			d := f.deployment(t, "api")
+			f.image.Status.TaskObservations = obs(f)
+			f.run(t)
+			if f.patches != 1 || f.record(t, d.UID).Phase != "Rolling" {
+				t.Fatalf("uncertain pre-completion pod not restarted: patches=%d record=%+v", f.patches, f.record(t, d.UID))
+			}
+		})
+	}
+}
+
+func TestRestartNamespacesScopeCandidates(t *testing.T) {
+	f := restartSetup(t)
+	d := f.deployment(t, "api")
+	f.engine.Namespaces = []string{"payments"}
+	f.run(t)
+	_ = f.engine.Client.Get(context.Background(), client.ObjectKeyFromObject(f.image), f.image)
+	if f.patches != 0 || len(f.image.Status.Restarts.Workloads) != 0 {
+		t.Fatalf("workload %s outside restart namespaces was selected: %+v", d.Name, f.image.Status.Restarts)
+	}
+	f.engine.Namespaces = []string{"payments", "apps"}
+	f.run(t)
+	if f.patches != 1 || f.record(t, d.UID).Phase != "Rolling" {
+		t.Fatalf("allowlisted workload not restarted: patches=%d", f.patches)
+	}
+}
+
+func TestParseRestartNamespaces(t *testing.T) {
+	got, err := ParseRestartNamespaces(" apps, payments,,apps ")
+	if err != nil || len(got) != 2 || got[0] != "apps" || got[1] != "payments" {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	if got, err := ParseRestartNamespaces(""); err != nil || len(got) != 0 {
+		t.Fatalf("empty allowlist must mean cluster-wide: %v, %v", got, err)
+	}
+	for _, bad := range []string{"Apps", "a_b", "-x", strings.Repeat("a", 64)} {
+		if _, err := ParseRestartNamespaces(bad); err == nil {
+			t.Fatalf("accepted invalid namespace %q", bad)
+		}
+	}
+}

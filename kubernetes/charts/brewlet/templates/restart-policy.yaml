@@ -1,0 +1,121 @@
+{{- $r := .Values.operator.rotationRestarts }}
+{{- if $r.enabled }}
+{{- $operator := printf "system:serviceaccount:%s:brewlet-operator" .Release.Namespace }}
+{{- range $ns := $r.namespaces }}
+{{- if or (eq $ns $.Release.Namespace) (has $ns $r.protectedNamespaces) }}
+{{- fail (printf "operator.rotationRestarts.namespaces must not include the release namespace or a protected namespace (%s)" $ns) }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $.Release.Name }}-brewlet-rotation-restarts
+  namespace: {{ $ns }}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Release.Name }}-brewlet-rotation-restarts
+  namespace: {{ $ns }}
+subjects:
+  - {kind: ServiceAccount, name: brewlet-operator, namespace: {{ $.Release.Namespace }}}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $.Release.Name }}-brewlet-rotation-restarts}
+{{- end }}
+{{- /* admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy is GA and always served from 1.30. */}}
+{{- $vap := semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version }}
+{{- if not $vap }}
+{{- if $r.requireAdmissionPolicy }}
+{{- fail "operator.rotationRestarts.enabled requires admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy (Kubernetes 1.30+); set operator.rotationRestarts.requireAdmissionPolicy=false to accept RBAC as the only bound on operator workload patches" }}
+{{- end }}
+{{- else }}
+---
+# Confines the operator's apps/v1 workload writes outside the release namespace
+# to the rotation restart barrier on opted-in Brewlet workloads (§7.6).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ .Release.Name }}-brewlet-rotation-restarts
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [apps]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [deployments, statefulsets, daemonsets]
+    namespaceSelector:
+      matchExpressions:
+        - {key: kubernetes.io/metadata.name, operator: NotIn, values: [{{ .Release.Namespace | quote }}]}
+  matchConditions:
+    - name: brewlet-operator
+      expression: request.userInfo.username == {{ $operator | quote }}
+  variables:
+    - name: barrier
+      expression: "'brewlet.sh/rotated-to-generation'"
+    - name: oldMeta
+      expression: "has(oldObject.metadata.annotations) ? oldObject.metadata.annotations : {}"
+    - name: oldTemplateAnnotations
+      expression: "has(oldObject.spec.template.metadata.annotations) ? oldObject.spec.template.metadata.annotations : {}"
+    - name: newTemplateAnnotations
+      expression: "has(object.spec.template.metadata.annotations) ? object.spec.template.metadata.annotations : {}"
+  validations:
+    - expression: request.operation == 'UPDATE'
+      reason: Forbidden
+      message: brewlet-operator may only update the restart barrier on existing workloads
+    - expression: >-
+        !(request.namespace in {{ $r.protectedNamespaces | default list | toJson }})
+      reason: Forbidden
+      message: rotation restarts are not permitted in protected namespaces
+{{- with $r.namespaces }}
+    - expression: >-
+        request.namespace in {{ toJson . }}
+      reason: Forbidden
+      message: namespace is not in operator.rotationRestarts.namespaces
+{{- end }}
+    - expression: >-
+        'brewlet.sh/restart-on-rotation' in variables.oldMeta &&
+        variables.oldMeta['brewlet.sh/restart-on-rotation'] == 'true' &&
+        has(oldObject.spec.template.spec.runtimeClassName) &&
+        oldObject.spec.template.spec.runtimeClassName == 'brewlet' &&
+        'brewlet.sh/runtime-image' in variables.oldTemplateAnnotations
+      reason: Forbidden
+      message: workload has not opted in to Brewlet rotation restarts
+    - expression: >-
+        variables.barrier in variables.newTemplateAnnotations &&
+        variables.newTemplateAnnotations.all(k, k == variables.barrier ||
+          (k in variables.oldTemplateAnnotations && variables.oldTemplateAnnotations[k] == variables.newTemplateAnnotations[k])) &&
+        variables.oldTemplateAnnotations.all(k, k == variables.barrier || k in variables.newTemplateAnnotations)
+      reason: Forbidden
+      message: brewlet-operator may only set the brewlet.sh/rotated-to-generation pod template annotation
+    - expression: >-
+        object.spec.template.spec == oldObject.spec.template.spec &&
+        object.spec.template.metadata.all(k, k == 'annotations' || (k in oldObject.spec.template.metadata && object.spec.template.metadata[k] == oldObject.spec.template.metadata[k])) &&
+        oldObject.spec.template.metadata.all(k, k == 'annotations' || k in object.spec.template.metadata)
+      reason: Forbidden
+      message: brewlet-operator must not change the pod template spec, labels, finalizers or other template metadata
+    - expression: >-
+        object.spec.all(k, k == 'template' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k == 'template' || k in object.spec)
+      reason: Forbidden
+      message: brewlet-operator must not change workload spec outside the pod template
+    - expression: >-
+        has(object.metadata.labels) == has(oldObject.metadata.labels) && (!has(object.metadata.labels) || object.metadata.labels == oldObject.metadata.labels) &&
+        has(object.metadata.annotations) == has(oldObject.metadata.annotations) && (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations) &&
+        has(object.metadata.ownerReferences) == has(oldObject.metadata.ownerReferences) && (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences == oldObject.metadata.ownerReferences) &&
+        has(object.metadata.finalizers) == has(oldObject.metadata.finalizers) && (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers)
+      reason: Forbidden
+      message: brewlet-operator must not change workload labels, annotations, owners or finalizers
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ .Release.Name }}-brewlet-rotation-restarts
+spec:
+  policyName: {{ .Release.Name }}-brewlet-rotation-restarts
+  validationActions: [Deny]
+{{- end }}
+{{- end }}

@@ -39,6 +39,29 @@ five concurrent workloads and a ten-minute workload progress deadline.
 OnDelete reports not-applicable; paused/partitioned/cold-install/excluded-node
 cases can remain deferred. A template patch or timeout is not remediation.
 
+A workload is restarted when one of its running Pods appears in a retained
+older-generation lease binding, or started before rotation completion and has
+not been proven current by a fresh, complete observation of its node. Missing
+or stale node reports fall back to restarting.
+
+The annotation is the workload owner's consent; platform operators need no
+patch rights in application namespaces. The chart pairs the operator's patch
+RBAC with a fail-closed `ValidatingAdmissionPolicy` that only lets the operator
+set the barrier annotation on opted-in Brewlet workloads. Image, command,
+replica, label and opt-in changes, creates and deletes, workloads without the
+annotation, and `kube-system`, `kube-public` and `kube-node-lease` are all
+denied. Kubernetes 1.30 or later is required unless
+`operator.rotationRestarts.requireAdmissionPolicy=false` explicitly accepts
+RBAC as the only bound. To limit restarts further, list the namespaces; patch
+rights then come from a Role in each listed namespace instead of a ClusterRole:
+
+```yaml
+operator:
+  rotationRestarts:
+    enabled: true
+    namespaces: [payments, storefront]
+```
+
 ## Observe actual bindings
 
 Use native resources, runtime status and node metrics rather than the removed
@@ -50,6 +73,29 @@ kubectl get nodeprofiles.node.brewlet.sh
 kubectl get nodes -L brewlet.sh/runtime
 kubectl rollout status deployment/api --namespace apps
 ```
+
+### Find workloads still on an older generation
+
+`status.taskObservations` on each `RuntimeImage` lists the actual container
+leases that are older than the approved generation or belong to a previous
+inventory epoch, with Pod namespace, name and UID. It needs no metrics stack,
+and read access to one cluster-scoped resource replaces checking every node:
+
+```sh
+kubectl get runtimeimage python-3.12 \
+  -o jsonpath='{.status.conditions[?(@.type=="OldGenerationTasks")].message}{"\n"}'
+kubectl get runtimeimage python-3.12 -o json | jq -r '
+  .status.taskObservations[]
+  | "\(.nodeName)\tcurrent=\(.current)\t\(.observedAt)" as $node
+  | .bindings[]?
+  | [$node, .podNamespace, .podName, .containerName, (.generation|tostring)]
+  | @tsv' | sort -u
+```
+
+An observation with `current=false` means that node has stopped reporting a
+fresh, complete snapshot. Its last bindings are retained rather than assumed
+gone, so investigate the node before treating its Pods as patched. These
+observations are diagnostics, not cleanup or revocation authority.
 
 Node metrics are optional (`metrics.enabled=true`). Important families include
 `brewlet_container_runtime_image_info`, `brewlet_runtime_image_generations`,

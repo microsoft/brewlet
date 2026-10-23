@@ -36,7 +36,11 @@ rules:
 {{- if .Values.operator.rotationRestarts.enabled }}
   - apiGroups: [apps]
     resources: [deployments, statefulsets, daemonsets]
+{{- if .Values.operator.rotationRestarts.namespaces }}
+    verbs: [get, list, watch]
+{{- else }}
     verbs: [get, list, watch, patch]
+{{- end }}
   - apiGroups: [apps]
     resources: [replicasets]
     verbs: [get, list, watch]
@@ -154,6 +158,9 @@ spec:
             - --rotation-restarts=true
             - --restart-max-concurrent={{ .Values.operator.rotationRestarts.maxConcurrent }}
             - --restart-workload-progress-deadline={{ .Values.operator.rotationRestarts.workloadProgressDeadline }}
+{{- with .Values.operator.rotationRestarts.namespaces }}
+            - --restart-namespaces={{ join "," . }}
+{{- end }}
 {{- end }}
           securityContext:
             allowPrivilegeEscalation: false

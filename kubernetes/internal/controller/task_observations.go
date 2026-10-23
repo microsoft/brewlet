@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
@@ -14,6 +15,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+)
+
+// Node binding snapshots are accepted only within these bounds.
+const (
+	observationFutureSkew = 30 * time.Second
+	observationMaxAge     = 2 * time.Minute
 )
 
 // Task observations are diagnostics from genuine leases/tasks, never writer
@@ -41,7 +48,7 @@ func (r *RuntimeReconciler) observeTasks(ctx context.Context, im *api.RuntimeIma
 		if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
 			continue
 		}
-		if !snapshot.Complete || snapshot.NodeUID != string(n.UID) || snapshot.ProfileUID != n.Labels[api.OwnerUID] || n.Labels[api.OwnerNodeUID] != string(n.UID) || snapshot.ProfileGeneration <= 0 || snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(now.Add(30*time.Second)) || now.Sub(snapshot.ObservedAt) > 2*time.Minute {
+		if !snapshot.Complete || snapshot.NodeUID != string(n.UID) || snapshot.ProfileUID != n.Labels[api.OwnerUID] || n.Labels[api.OwnerNodeUID] != string(n.UID) || snapshot.ProfileGeneration <= 0 || snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(now.Add(observationFutureSkew)) || now.Sub(snapshot.ObservedAt) > observationMaxAge {
 			continue
 		}
 		if !slices.ContainsFunc(im.Status.RevocationTargets, func(t api.InventoryTarget) bool {
@@ -68,15 +75,7 @@ func (r *RuntimeReconciler) observeTasks(ctx context.Context, im *api.RuntimeIma
 			continue
 		}
 		slices.SortFunc(bindings, func(a, b api.RuntimeTaskBinding) int {
-			aKey := a.ContainerdNamespace + "/" + a.ContainerID
-			bKey := b.ContainerdNamespace + "/" + b.ContainerID
-			if aKey < aKey {
-				return -1
-			}
-			if aKey > bKey {
-				return 1
-			}
-			return 0
+			return strings.Compare(a.ContainerdNamespace+"/"+a.ContainerID, b.ContainerdNamespace+"/"+b.ContainerID)
 		})
 		observation := api.RuntimeTaskObservation{NodeName: n.Name, NodeUID: n.UID, ProfileUID: types.UID(snapshot.ProfileUID), ProfileGeneration: snapshot.ProfileGeneration, ObservedAt: snapshot.ObservedAt, Current: true, Reason: "CompleteTaskAndLeaseObservation", Bindings: bindings}
 		idx := slices.IndexFunc(im.Status.TaskObservations, func(o api.RuntimeTaskObservation) bool {

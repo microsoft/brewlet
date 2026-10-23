@@ -5,6 +5,15 @@ operator:
     maxConcurrent: 5
     nodeProgressDeadline: 10m
     workloadProgressDeadline: 10m
+    # Optional allowlist. When set, restart patch rights are granted through a
+    # Role per listed namespace instead of the cluster-wide ClusterRole.
+    namespaces: []
+    # Never eligible for restarts, even when allowlisted.
+    protectedNamespaces: [kube-system, kube-public, kube-node-lease]
+    # Restarts render a ValidatingAdmissionPolicy that confines the operator's
+    # workload patches to the restart barrier. Disabling this requirement on
+    # clusters without ValidatingAdmissionPolicy leaves RBAC as the only bound.
+    requireAdmissionPolicy: true
 runtimeClass:
   overhead:
     cpu: "50m"
