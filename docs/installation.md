@@ -1,11 +1,11 @@
 # Source-built installation
 
-There is no published stable 1.0.0 installer in this workflow. Use one reviewed
-source revision for the CLI, chart, CRDs, control plane and provisioner.
-Do not substitute Brewlet 0.x's released CLI, chart or application format.
-The [prerelease distribution runbook](supported-release.md) describes candidate
-coordinates, exact-artifact verification and publication blockers; infrastructure
-availability does not mean a qualified prerelease has been published.
+There is no published stable 1.0.0 installer yet; 0.8.0+ beta prereleases
+preview the 1.0.0 line. Use one reviewed source revision (or one beta release)
+for the CLI, chart, CRDs, control plane and provisioner.
+Do not substitute legacy Brewlet 0.7.x's released CLI, chart or application format.
+The [release distribution runbook](supported-release.md) describes release
+coordinates, exact-artifact verification and the automated publication flow.
 
 For a first deployment, use the [disposable local tutorial](local-kubernetes.md).
 This guide describes a platform-managed installation on explicitly controlled

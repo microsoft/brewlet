@@ -76,7 +76,7 @@ nav:
       - Observability and metrics: observability.md
       - Troubleshooting: troubleshooting.md
       - Safe removal and recovery: uninstallation.md
-      - Prerelease distribution and recovery: supported-release.md
+      - Release distribution and recovery: supported-release.md
       - Verification and limitations: verification.md
   - Reference:
       - Contracts and glossary: reference.md

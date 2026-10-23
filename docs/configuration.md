@@ -23,9 +23,9 @@ replace these tags with verified immutable image digests.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `operator.image` | `ghcr.io/microsoft/brewlet-operator:1.0.0` | Operator and uninstall-coordinator image. |
-| `admission.image` | `ghcr.io/microsoft/brewlet-admission:1.0.0` | Admission server image; source-built control image also contains this binary. |
-| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:1.0.0` | Matching privileged node worker and bundled shim. |
+| `operator.image` | `ghcr.io/microsoft/brewlet-operator:0.8.0` | Operator and uninstall-coordinator image. |
+| `admission.image` | `ghcr.io/microsoft/brewlet-admission:0.8.0` | Admission server image; source-built control image also contains this binary. |
+| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:0.8.0` | Matching privileged node worker and bundled shim. |
 | `provisioner.profiles` | `[]` | Named `{name, spec}` profiles; chart entries require nonempty pool names. |
 | `provisioner.gc.grace` | `1h` | Positive reference-drain grace for collection. |
 | `provisioner.gc.sweepInterval` | `1m` | Positive collection interval. |

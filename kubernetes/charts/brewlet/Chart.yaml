@@ -2,5 +2,5 @@ apiVersion: v2
 name: brewlet
 description: Brewlet 1.0.0 language-neutral runtime inventory and admission
 type: application
-version: 1.0.0
-appVersion: 1.0.0
+version: 0.8.0
+appVersion: 0.8.0

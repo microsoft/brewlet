@@ -25,7 +25,8 @@ from scripts.maven_notice import notices
 GO = "go1.26.0"
 SYFT = "1.55.0"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
-VERSION = re.compile(r"1\.0\.0(?:-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*))?")
+VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+                     r"(?:-(?:alpha|beta|rc)\.(?:0|[1-9][0-9]*))?")
 NS = {"m": "http://maven.apache.org/POM/4.0.0"}
 
 
@@ -51,10 +52,16 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
 
 
+def is_prerelease(version):
+    """Versions below 1.0.0 are betas; alpha/beta/rc suffixes are always prereleases."""
+    require(VERSION.fullmatch(version), "invalid release version: " + repr(version))
+    return version.startswith("0.") or "-" in version
+
+
 def policy(root=ROOT):
     config = read_json(root / "release.json")
     require(config["schemaVersion"] == 1 and VERSION.fullmatch(config["version"]),
-            "only 1.0.0 or explicitly versioned 1.0.0 alpha/beta/rc candidates are supported")
+            "release version must be MAJOR.MINOR.PATCH with an optional -alpha.N, -beta.N or -rc.N suffix")
     require(config["repository"] == "microsoft/brewlet"
             and config["workflow"] == ".github/workflows/release.yml", "untrusted release authority")
     require(config["cliTargets"] == ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"]
@@ -447,7 +454,8 @@ def reproduce(output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("identity", "build", "verify", "smoke-cli", "smoke-maven", "reproduce"))
+    parser.add_argument("command", choices=("identity", "channel", "build", "verify", "smoke-cli",
+                                            "smoke-maven", "reproduce"))
     parser.add_argument("--output", type=Path, default=ROOT / "dist/candidate")
     parser.add_argument("--only", choices=("all", "cli", "maven", "images", "chart", "seal"), default="all")
     parser.add_argument("--target")
@@ -455,6 +463,8 @@ def main():
     output = args.output.resolve()
     if args.command == "identity":
         print(json.dumps(policy(), sort_keys=True))
+    elif args.command == "channel":
+        print("prerelease" if is_prerelease(policy()["version"]) else "stable")
     elif args.command == "build":
         build(output, args.only, args.target)
     elif args.command == "verify":

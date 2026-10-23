@@ -1,4 +1,4 @@
-"""Explicit, qualified publication. No build/rebuild or credential provisioning occurs here."""
+"""Tag-driven, qualified publication. No build/rebuild or credential provisioning occurs here."""
 
 import argparse
 import base64
@@ -19,7 +19,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.release import DIGEST, policy, require, run, sha, validate_inventory, write_json
+from scripts.release import DIGEST, is_prerelease, policy, require, run, sha, validate_inventory, write_json
 from scripts.release_assurance import publication_ready, attest_verify
 
 
@@ -34,14 +34,14 @@ def request(url, *, headers=None, data=None, method=None, absent=False):
         raise
 
 
-def preflight(output, confirmation):
+def preflight(output):
     config = policy()
-    require(confirmation == "publish-v" + config["version"], "explicit exact-version publication confirmation required")
-    require(os.environ.get("GITHUB_REPOSITORY") == config["repository"]
-            and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch",
-            "publication must run in the repository's explicit manual workflow")
-    document = publication_ready(output)
     tag = "v" + config["version"]
+    require(os.environ.get("GITHUB_REPOSITORY") == config["repository"]
+            and os.environ.get("GITHUB_EVENT_NAME") == "push"
+            and os.environ.get("GITHUB_REF") == "refs/tags/" + tag,
+            "publication must run from the repository's exact-version release tag push")
+    document = publication_ready(output)
     tagged = run(["git", "rev-parse", "refs/tags/" + tag + "^{commit}"]).strip()
     require(tagged == document["candidate"]["checkout"]
             and tagged == os.environ.get("GITHUB_SHA"), "existing tag must identify the exact candidate checkout")
@@ -81,6 +81,8 @@ def sign_maven(output):
         for filename, data in ((path.name, path.read_bytes()),
                                (path.name + ".asc", (destination / (path.name + ".asc")).read_bytes())):
             payload[prefix + filename] = data
+            if filename.endswith(".asc"):
+                continue
             for algorithm in ("md5", "sha1", "sha256", "sha512"):
                 payload[prefix + filename + "." + algorithm] = hashlib.new(algorithm, data).hexdigest().encode()
     with zipfile.ZipFile(output / "central-bundle.zip", "w", compression=zipfile.ZIP_DEFLATED) as bundle:
@@ -190,18 +192,34 @@ def publish_central(output):
     require(central_payloads(output), "Central reported publication without exact distributable bytes")
 
 
+def release_notes(version, prerelease, root=ROOT):
+    parts = []
+    curated = root / "release-notes" / (version + ".md")
+    if curated.is_file():
+        parts.append(curated.read_text().strip())
+    elif prerelease:
+        parts.append("> [!WARNING]\n> **Beta prerelease, not stable.** Releases below 1.0.0 can break, "
+                     "change incompatibly or pivot between versions. General availability will be Brewlet 1.0.0.")
+    parts.append(("Beta prerelease" if prerelease else "Release") +
+                 ". Verify candidate.json, checksums and attestations before installation. See the "
+                 "[release runbook](https://brewlet.sh/docs/supported-release/); "
+                 "no general in-place upgrade is supported.")
+    return "\n\n".join(parts)
+
+
 def publish_release(output):
     config = policy()
     tag = "v" + config["version"]
+    prerelease = is_prerelease(config["version"])
+    channel = ["--prerelease", "--latest=false"] if prerelease else ["--prerelease=false", "--latest"]
     release_url = "https://api.github.com/repos/" + config["repository"] + "/releases/tags/" + tag
     body, _ = request(release_url, headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"]}, absent=True)
     if body is None:
         run(["ghx", "release", "create", tag, "--repo", config["repository"], "--verify-tag",
-             "--draft", "--prerelease", "--latest=false", "--title", "Brewlet " + config["version"],
-             "--notes", "Qualified prerelease. Verify candidate.json, checksums and attestations before installation. "
-             "See the source-pinned supported-release runbook; no general in-place upgrade is supported."])
+             "--draft", *channel, "--title", "Brewlet " + config["version"], "--generate-notes",
+             "--notes", release_notes(config["version"], prerelease)])
     else:
-        require(json.loads(body)["prerelease"] is True, "refusing to modify a non-prerelease")
+        require(json.loads(body)["prerelease"] is prerelease, "refusing to modify a release on a different channel")
     with tempfile.TemporaryDirectory() as temp:
         destination = Path(temp)
         document = validate_inventory(output, config)
@@ -226,18 +244,16 @@ def publish_release(output):
                             "refusing to overwrite different release asset: " + path.name)
             else:
                 run(["ghx", "release", "upload", tag, path, "--repo", config["repository"]])
-        run(["ghx", "release", "edit", tag, "--repo", config["repository"],
-             "--draft=false", "--prerelease", "--latest=false"])
+        run(["ghx", "release", "edit", tag, "--repo", config["repository"], "--draft=false", *channel])
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("preflight", "sign-maven", "images", "central", "release"))
     parser.add_argument("--output", type=Path, default=ROOT / "dist/candidate")
-    parser.add_argument("--confirm", required=True)
     args = parser.parse_args()
     output = args.output.resolve()
-    document = preflight(output, args.confirm)
+    document = preflight(output)
     if args.command == "sign-maven":
         sign_maven(output)
     elif args.command == "images":
