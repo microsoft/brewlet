@@ -1,6 +1,6 @@
 <!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="360" height="1080" viewBox="0 0 360 1080" role="img" aria-labelledby="architecture-title architecture-description">
-  <title id="architecture-title">Brewlet 1.0.0 architecture on a worker node</title>
+  <title id="architecture-title">Brewlet architecture on a worker node</title>
   <desc id="architecture-description">Application publication sends code, dependencies and launch.json to an OCI registry. RuntimeImage and NodeProfile are reconciled by the operator as infrastructure. A native workload explicitly selects the runtime ID and Kubernetes schedules its Pod. On the worker, containerd CRI pulls application content; the fenced provisioner acquires and validates an immutable runtime generation. The shim verifies the application, authorizes and leases that root, composes the filesystem and delegates to runc. Runtime provisioning is an infrastructure operation independent of application publication.</desc>
   <style>
     :root{color-scheme:light;--cp-bg:#fffdf9;--cp-surface:#fff;--cp-elevated:#fbf4e6;--cp-border:#e7dcc9;--cp-text:#2a1f18;--cp-muted:#6b5d51;--cp-accent:#6f4e37;--cp-link:#326ce5}

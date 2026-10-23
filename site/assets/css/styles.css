@@ -24,9 +24,9 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .site-header { position: sticky; top: 0; z-index: 10; background: var(--cp-bg-elevated); border-bottom: 1px solid var(--cp-border); }
 .navigation { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; }
 .brand { display: inline-flex; align-items: center; gap: .5rem; text-decoration: none; font-size: 1.75rem; font-weight: 750; letter-spacing: -.04em; color: var(--cp-text); flex-shrink: 0; }
+.brand .brand-let, .brand:hover .brand-let { color: var(--cp-link); }
 .brand svg { fill: var(--cp-accent); }
 .brand svg path { stroke: var(--cp-bg); fill: none; stroke-width: 3; stroke-linecap: round; }
-.version { font-size: .75rem; line-height: 1; padding: .375rem .5rem; margin-left: .25rem; border: 1px solid var(--cp-border); border-radius: .625rem; letter-spacing: 0; color: var(--cp-text-muted); }
 .navigation nav { display: flex; align-items: center; gap: 1.5rem; }
 .navigation nav a { font-size: .875rem; font-weight: 600; color: var(--cp-text); text-decoration: none; }
 .navigation nav a:hover, .navigation nav a[aria-current] { color: var(--cp-accent); }
@@ -44,8 +44,6 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .secondary:hover { border-color: var(--cp-accent); }
 .evaluation-note, .fine-print { font-size: .875rem; color: var(--cp-text-muted); }
 .composition { border: 1px solid var(--cp-border); border-radius: 16px; background: var(--cp-surface); overflow: hidden; }
-.composition-title { padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; border-bottom: 1px solid var(--cp-border); font-size: .875rem; font-weight: 650; }
-.composition-title span + span { color: var(--cp-text-muted); }
 .artifact-stack { padding: 1.5rem 1.5rem 0; }
 .stack-label { display: flex; flex-direction: column; gap: .375rem; font-size: .875rem; margin-bottom: .75rem; }
 .stack-label > span { font-weight: 650; }
@@ -69,10 +67,14 @@ p code, li code, dd code { font-size: .9em; background: var(--cp-accent-soft); b
 .section-heading > p { color: var(--cp-text-muted); max-width: 40ch; margin-top: .25rem; }
 .ownership-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; }
 .ownership-comparison p { color: var(--cp-text-muted); }
-.comparison-layers { display: flex; flex-direction: column; gap: .5rem; margin-top: 1.5rem; }
-.comparison-layers span { padding: .75rem 1rem; background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: .625rem; font-size: .875rem; }
-.comparison-layers.separated span:first-child { background: var(--cp-accent); color: var(--cp-accent-fg); border-color: var(--cp-accent); }
-.comparison-layers.separated span + span { margin-top: 1rem; border-style: dashed; }
+.image-stack { margin-top: 1.5rem; border: 1px solid var(--cp-border-strong); border-radius: .75rem; background: var(--cp-surface); overflow: hidden; }
+.image-stack.infra { margin-top: 0; border-style: dashed; background: var(--cp-bg-elevated); }
+.image-stack-label { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: .5rem 1rem; font-size: .75rem; color: var(--cp-text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.image-stack-label code { text-transform: none; letter-spacing: 0; color: var(--cp-text); font-size: .8125rem; }
+.image-layer { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .75rem 1rem; border-top: 1px solid var(--cp-border); background: var(--cp-accent-soft); font-size: .875rem; }
+.image-layer.app { background: var(--cp-accent); color: var(--cp-accent-fg); border-top-color: var(--cp-accent); }
+.image-layer code { font-size: .75rem; opacity: .7; }
+.image-join { padding: .625rem 1rem; font-size: .8125rem; font-weight: 600; color: var(--cp-text-muted); }
 .fine-print { margin-top: 1.5rem; max-width: 90ch; }
 .tinted { background: var(--cp-bg-elevated); border-block: 1px solid var(--cp-border); }
 .devoxx-layout { display: grid; grid-template-columns: 1.15fr .85fr; align-items: center; gap: 4rem; }

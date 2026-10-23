@@ -11,10 +11,10 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Bring language runtimes back to infrastructure, like the OS and Kubernetes. Brewlet 1.0.0 runs Java, Python, Node.js and .NET application artifacts with node-resident runtimes.">
-  <title>Brewlet 1.0.0 — Ship the app. Share the runtime.</title>
+  <meta name="description" content="Bring language runtimes back to infrastructure, like the OS and Kubernetes. Brewlet runs Java, Python, Node.js and .NET application artifacts with node-resident runtimes.">
+  <title>Brewlet — Ship the app. Share the runtime.</title>
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Brewlet 1.0.0 — Ship the app. Share the runtime.">
+  <meta property="og:title" content="Brewlet — Ship the app. Share the runtime.">
   <meta property="og:description" content="Your application is the workload. The runtime is infrastructure. Ship application artifacts and let Brewlet compose them with an approved node-resident runtime.">
   <script>
     (() => {
@@ -35,7 +35,7 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
     <div class="container navigation">
       <a class="brand" href="./" aria-label="Brewlet home">
         <svg viewBox="0 0 48 48" width="32" height="32" aria-hidden="true"><ellipse cx="24" cy="24" rx="16" ry="22" transform="rotate(24 24 24)"/><path d="M29 5C12 21 37 26 19 43"/></svg>
-        <span>brewlet</span><span class="version">1.0.0</span>
+        <span>brew<span class="brand-let">let</span></span>
       </a>
       <button class="menu-toggle" aria-expanded="false" aria-controls="site-nav" hidden>Menu</button>
       <nav id="site-nav" aria-label="Primary navigation">
@@ -58,7 +58,6 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           <p class="evaluation-note">Source-built evaluation · Linux · containerd 2.x · runc</p>
         </div>
         <div class="composition" aria-label="The application is the workload; infrastructure supplies the runtime on the node">
-          <div class="composition-title"><span>The workload.</span><span>The infrastructure.</span></div>
           <div class="artifact-stack">
             <div class="stack-label"><span>Application workload</span><code>application@sha256:…</code></div>
             <div class="layer app-layer"><strong>Your application</strong><span>Code + dependencies</span></div>
@@ -73,17 +72,6 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
         </div>
       </div>
       <nav class="container language-strip" aria-label="Tested workload guides"><span>Tested workload examples</span><a href="docs/java/">Java</a><a href="docs/python/">Python</a><a href="docs/nodejs/">Node.js</a><a href="docs/dotnet/">.NET</a><a href="docs/webassembly/">WebAssembly</a></nav>
-    </section>
-
-    <section class="section" id="why" aria-labelledby="why-title">
-      <div class="container">
-        <div class="section-heading"><h2 id="why-title">Put the runtime back<br>in infrastructure.</h2><p>Like the OS or Kubernetes, the runtime is provisioned and updated as infrastructure—not rebuilt into each application image.</p></div>
-        <div class="ownership-comparison">
-          <div><h3>A conventional application image</h3><p>The application image references its runtime and userland. Updating that base normally means rebuilding or recomposing the application image, then rolling it out.</p><div class="comparison-layers"><span>Application + dependencies</span><span>Runtime</span><span>OS userland</span></div></div>
-          <div><h3>With Brewlet</h3><p>The workload ships code, dependencies and a launch descriptor. Infrastructure supplies and updates the approved runtime. New containers use the updated runtime without rebuilding application bytes.</p><div class="comparison-layers separated"><span>Application + dependencies + launch</span><span>Infrastructure: runtime + userland</span></div></div>
-        </div>
-        <p class="fine-print">Both approaches cache unchanged layers. Shared runtime files do not mean shared application processes or heaps. Runtime rotation does not patch libraries bundled in your application. <a href="docs/choosing-brewlet/">When to use Brewlet—and when not to</a>.</p>
-      </div>
     </section>
 
     <section class="section tinted" id="devoxx" aria-labelledby="devoxx-heading">
@@ -103,9 +91,20 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
       </div>
     </section>
 
+    <section class="section" id="why" aria-labelledby="why-title">
+      <div class="container">
+        <div class="section-heading"><h2 id="why-title">Put the runtime back<br>in infrastructure.</h2><p>Like the OS or Kubernetes, the runtime is provisioned and updated as infrastructure—not rebuilt into each application image.</p></div>
+        <div class="ownership-comparison">
+          <div><h3>A conventional application image</h3><p>The application image references its runtime and userland. Updating that base normally means rebuilding or recomposing the application image, then rolling it out.</p><div class="image-stack" role="img" aria-label="One container image with three layers: application and dependencies, runtime, OS userland"><div class="image-stack-label"><code>my-app:1.4</code><span>one image</span></div><div class="image-layer app"><span>Application + dependencies</span><code>layer 3</code></div><div class="image-layer"><span>Runtime</span><code>layer 2</code></div><div class="image-layer"><span>OS userland</span><code>layer 1</code></div></div></div>
+          <div><h3>With Brewlet</h3><p>The workload ships code, dependencies and a launch descriptor. Infrastructure supplies and updates the approved runtime. New containers use the updated runtime without rebuilding application bytes.</p><div class="image-stack" role="img" aria-label="Application image with one layer: application, dependencies and launch descriptor"><div class="image-stack-label"><code>my-app:1.4</code><span>application image</span></div><div class="image-layer app"><span>Application + dependencies + launch</span><code>layer 1</code></div></div><div class="image-join" aria-hidden="true">+ composed at container creation on the Kubernetes node</div><div class="image-stack infra" role="img" aria-label="Runtime supplied by node infrastructure: runtime and OS userland"><div class="image-stack-label"><code>RuntimeImage</code><span>node infrastructure</span></div><div class="image-layer"><span>Runtime</span></div><div class="image-layer"><span>OS userland</span></div></div></div>
+        </div>
+        <p class="fine-print">Both approaches cache unchanged layers. Shared runtime files do not mean shared application processes or heaps. Runtime rotation does not patch libraries bundled in your application. <a href="docs/choosing-brewlet/">When to use Brewlet—and when not to</a>.</p>
+      </div>
+    </section>
+
     <section class="section tinted" id="how" aria-labelledby="how-title">
       <div class="container">
-        <div class="section-heading"><h2 id="how-title">Built around Kubernetes.<br>Not another workload API.</h2><p>Applications declare an approved runtime ID. Kubernetes schedules the workload; Brewlet supplies the runtime from the node.</p></div>
+        <div class="section-heading"><h2 id="how-title">Built around Kubernetes.<br>Not another workload API.</h2></div>
         <ol class="workflow">
           <li><h3>Approve the runtime</h3><p>A cluster-scoped <code>RuntimeImage</code> binds a stable ID to a digest-pinned image and non-root numeric defaults. A <code>NodeProfile</code> offers it on selected pools.</p></li>
           <li><h3>Publish the application</h3><p>Package explicit app/dependency layers under <code>/app</code>, a versioned <code>launch.json</code> and declared OCI platforms. The CLI never guesses the language.</p></li>
@@ -115,17 +114,17 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           <h3 id="architecture-diagram-title">How the pieces fit</h3>
           <picture>
             <source media="(max-width: 760px)" srcset="assets/images/architecture-mobile.svg" width="360" height="1080">
-            <img src="assets/images/architecture-desktop.svg" width="1160" height="710" loading="lazy" decoding="async" alt="Brewlet 1.0.0 architecture: containerd pulls the application artifact, infrastructure provisions the runtime generation, and the shim validates, leases and composes them before delegating to runc. Kubernetes schedules ordinary workloads; the operator reconciles runtime infrastructure.">
+            <img src="assets/images/architecture-desktop.svg" width="1160" height="710" loading="lazy" decoding="async" alt="Brewlet architecture: containerd pulls the application artifact, infrastructure provisions the runtime generation, and the shim validates, leases and composes them before delegating to runc. Kubernetes schedules ordinary workloads; the operator reconciles runtime infrastructure.">
           </picture>
           <figcaption>The application is the workload; the runtime is infrastructure. Containerd pulls the application image. Only the fenced provisioner installs runtime roots; the shim uses verified local content. <a href="assets/images/architecture-desktop.svg">Open full-size diagram</a> · <a href="assets/images/architecture.excalidraw" download>Download editable source</a></figcaption>
         </figure>
-        <div class="architecture-note"><strong>Installed when you need it.</strong><p>Choose Eager for a warm pool, or OnDemand to validate baseline readiness before fetching runtime roots. A bounded first-use wait lets kubelet retry installation without running unvalidated application code.</p><a href="docs/runtime-images/">Explore runtime inventory <span aria-hidden="true">→</span></a></div>
+        <div class="architecture-note"><strong>Runtimes loaded when needed.</strong><p>Choose Eager for a warm pool, or OnDemand to validate baseline readiness before fetching runtime roots. A bounded first-use wait lets kubelet retry installation without running unvalidated application code.</p><a href="docs/runtime-images/">Explore runtime inventory <span aria-hidden="true">→</span></a></div>
       </div>
     </section>
 
     <section class="section" id="examples" aria-labelledby="examples-title">
       <div class="container">
-        <div class="section-heading"><h2 id="examples-title">A process, not a language plugin.</h2><p>Describe what to execute. Declare what to package. The runtime ID remains an explicit choice in your workload.</p></div>
+        <div class="section-heading"><h2 id="examples-title">Describe the process.<br>Ship only your app.</h2></div>
         <div class="language-tabs" role="tablist" aria-label="Application language examples">
           <button id="tab-python" type="button" role="tab" aria-selected="true" aria-controls="example-panel" data-language="python">Python</button>
           <button id="tab-java" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="java">Java</button>
@@ -142,10 +141,11 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
     "workingDir": "/app"
   }
 }</code></pre></div>
-            <div class="code-block"><div class="code-heading"><span>Package and publish</span><button type="button" class="copy-button" data-copy="package-code" hidden>Copy</button></div><pre tabindex="0"><code id="package-code">brewlet push registry.example.com/apps/api:v2 \
+            <div class="code-block"><div class="code-heading"><span>Package and publish</span><button type="button" class="copy-button" data-copy="package-code" hidden>Copy</button></div><pre tabindex="0"><code id="package-code">brewlet build registry.example.com/apps/api:v2 \
   --platform linux/arm64 \
   --launch launch.json \
-  --layer app=./src:/app/src</code></pre><p class="code-caption" id="example-note">This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them.</p></div>
+  --layer app=./src:/app/src
+brewlet push registry.example.com/apps/api:v2</code></pre><p class="code-caption" id="example-note">This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them.</p></div>
           </div>
         </div>
         <p class="fine-print">Examples are templates, not a live terminal. Use your registry and actual supported platforms. Java project intelligence is available in the optional <a href="docs/applications/#optional-maven-producer">Maven producer</a>; it does not select a pod runtime or generate workloads.</p>
@@ -173,8 +173,8 @@ spec:
 
     <section class="section" id="quickstart" aria-labelledby="quickstart-title">
       <div class="container quickstart">
-        <div><h2 id="quickstart-title">Start with the source.<br>Evaluate in isolation.</h2><p>The 1.0.0 implementation has verified local implementation acceptance. It is not a published stable release or a claim of cloud-provider autoscaling certification.</p><p>Run a small HTTP service on a disposable node, inspect its actual runtime binding, rotate the source without rebuilding the application, and clean up normally. <a href="docs/demo/">See the demonstration sequence</a>.</p><div class="actions"><a class="button primary" href="docs/local-kubernetes/">Follow the local tutorial</a><a href="https://github.com/microsoft/brewlet/blob/main/acceptance/RESULTS.md">Read the evidence <span aria-hidden="true">↗</span></a></div></div>
-        <div class="code-block"><div class="code-heading"><span>Build Brewlet 1.0.0</span><button type="button" class="copy-button" data-copy="build-code" hidden>Copy</button></div><pre tabindex="0"><code id="build-code">git clone --branch main \
+        <div><h2 id="quickstart-title">Start with the source.<br>Evaluate in isolation.</h2><p>The implementation has verified local implementation acceptance. It is not a published stable release or a claim of cloud-provider autoscaling certification.</p><p>Run a small HTTP service on a disposable node, inspect its actual runtime binding, rotate the source without rebuilding the application, and clean up normally. <a href="docs/demo/">See the demonstration sequence</a>.</p><div class="actions"><a class="button primary" href="docs/local-kubernetes/">Follow the local tutorial</a><a href="https://github.com/microsoft/brewlet/blob/main/acceptance/RESULTS.md">Read the evidence <span aria-hidden="true">↗</span></a></div></div>
+        <div class="code-block"><div class="code-heading"><span>Build Brewlet</span><button type="button" class="copy-button" data-copy="build-code" hidden>Copy</button></div><pre tabindex="0"><code id="build-code">git clone --branch main \
   https://github.com/microsoft/brewlet.git
 cd brewlet
 make build</code></pre></div>
@@ -198,6 +198,6 @@ make build</code></pre></div>
     </section>
     <section class="closing"><div class="container"><h2>Ship your application.<br>Let infrastructure supply the runtime.</h2><a class="button primary" href="docs/">Explore the documentation <span aria-hidden="true">→</span></a></div></section>
   </main>
-  <footer class="container site-footer"><div><a class="brand" href="./">brewlet <span class="version">1.0.0</span></a><p>Application workloads. Infrastructure runtimes.</p></div><nav aria-label="Footer"><a href="docs/">Documentation</a><a href="https://github.com/microsoft/brewlet/tree/main">Source</a><a href="https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md">Specification</a><a href="LICENSE.txt">MIT License</a><a href="NOTICE.txt">Notices</a></nav><p class="footer-note">Brewlet contributors · Source-built 1.0.0 evaluation</p></footer>
+  <footer class="container site-footer"><div><a class="brand" href="./"><span>brew<span class="brand-let">let</span></span></a><p>Application workloads. Infrastructure runtimes.</p></div><nav aria-label="Footer"><a href="docs/">Documentation</a><a href="https://github.com/microsoft/brewlet/tree/main">Source</a><a href="https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md">Specification</a><a href="LICENSE.txt">MIT License</a><a href="NOTICE.txt">Notices</a></nav><p class="footer-note">© Microsoft Corporation. Licensed under the MIT License.</p></footer>
 </body>
 </html>

@@ -77,7 +77,7 @@
       process: {entrypoint: example.entrypoint, args: example.args, workingDir: "/app"}
     }, null, 2);
     document.getElementById("package-code").textContent =
-      `brewlet push registry.example.com/apps/api:v2 \\\n  --platform linux/arm64 \\\n  --launch launch.json \\\n  --layer ${example.layer}`;
+      `brewlet build registry.example.com/apps/api:v2 \\\n  --platform linux/arm64 \\\n  --launch launch.json \\\n  --layer ${example.layer}\nbrewlet push registry.example.com/apps/api:v2`;
     document.getElementById("example-note").textContent = example.note;
   };
   tabs.forEach((tab, index) => {
