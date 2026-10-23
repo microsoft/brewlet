@@ -83,5 +83,12 @@ Brewlet 2.0 is a rewrite inspired by Brewlet 0.x on `main`; no 0.x
 specification, label contract or runbook is carried here. The
 [specification](specs/SPECIFICATION.md) is the authoritative contract.
 The [2.0 website](site/README.md) now builds a static landing page and searchable
-documentation with `make site-build`. Its workflow uploads a preview artifact;
-it does not deploy over the production site or advertise the old release installer.
+documentation with `make site-build`. CI uploads a checked preview artifact;
+the separate Pages deployment workflow publishes that artifact to `brewlet.sh`
+after website/docs changes reach `main`, or on manual dispatch from `main`.
+Pull requests cannot deploy, and the site does not advertise the old release installer.
+
+CodeQL scans Actions, Go, Java, C#, JavaScript/TypeScript and Python on pull
+requests, pushes to `main` or `brewlet-2.0`, and a weekly schedule. Dependabot
+checks Actions, Go, Maven, npm, pip and NuGet dependencies weekly using the
+current repository and fixture manifests.

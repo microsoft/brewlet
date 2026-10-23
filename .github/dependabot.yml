@@ -1,0 +1,48 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    labels: [dependencies]
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+
+  - package-ecosystem: maven
+    directories:
+      - /maven-plugin
+      - /integration-tests/fixtures/java/app
+      - /integration-tests/fixtures/java/bom
+      - /integration-tests/fixtures/java/dependency
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+
+  - package-ecosystem: pip
+    directory: /site
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+
+  - package-ecosystem: nuget
+    directories:
+      - /integration-tests/fixtures/dotnet
+      - /integration-tests/fixtures/dotnet/App
+      - /integration-tests/fixtures/dotnet/Greeting
+    schedule:
+      interval: weekly
+    labels: [dependencies]
