@@ -3,13 +3,16 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v2alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -75,31 +78,62 @@ func describeWorkload(obj client.Object) (restartWorkload, error) {
 	}
 	return w, nil
 }
-func listRestartWorkloads(ctx context.Context, r client.Reader) ([]restartWorkload, error) {
+
+// listRestartWorkloads lists candidate workloads cluster-wide, or only in the
+// configured namespaces when restarts are namespace-scoped (§7.6 Enablement).
+func listRestartWorkloads(ctx context.Context, r client.Reader, namespaces []string) ([]restartWorkload, error) {
+	scopes := [][]client.ListOption{nil}
+	if len(namespaces) > 0 {
+		scopes = nil
+		for _, ns := range namespaces {
+			scopes = append(scopes, []client.ListOption{client.InNamespace(ns)})
+		}
+	}
 	out := []restartWorkload{}
-	var deployments appsv1.DeploymentList
-	if err := r.List(ctx, &deployments); err != nil {
-		return nil, err
+	for _, opts := range scopes {
+		var deployments appsv1.DeploymentList
+		if err := r.List(ctx, &deployments, opts...); err != nil {
+			return nil, err
+		}
+		for i := range deployments.Items {
+			w, _ := describeWorkload(deployments.Items[i].DeepCopy())
+			out = append(out, w)
+		}
+		var statefulsets appsv1.StatefulSetList
+		if err := r.List(ctx, &statefulsets, opts...); err != nil {
+			return nil, err
+		}
+		for i := range statefulsets.Items {
+			w, _ := describeWorkload(statefulsets.Items[i].DeepCopy())
+			out = append(out, w)
+		}
+		var daemonsets appsv1.DaemonSetList
+		if err := r.List(ctx, &daemonsets, opts...); err != nil {
+			return nil, err
+		}
+		for i := range daemonsets.Items {
+			w, _ := describeWorkload(daemonsets.Items[i].DeepCopy())
+			out = append(out, w)
+		}
 	}
-	for i := range deployments.Items {
-		w, _ := describeWorkload(deployments.Items[i].DeepCopy())
-		out = append(out, w)
-	}
-	var statefulsets appsv1.StatefulSetList
-	if err := r.List(ctx, &statefulsets); err != nil {
-		return nil, err
-	}
-	for i := range statefulsets.Items {
-		w, _ := describeWorkload(statefulsets.Items[i].DeepCopy())
-		out = append(out, w)
-	}
-	var daemonsets appsv1.DaemonSetList
-	if err := r.List(ctx, &daemonsets); err != nil {
-		return nil, err
-	}
-	for i := range daemonsets.Items {
-		w, _ := describeWorkload(daemonsets.Items[i].DeepCopy())
-		out = append(out, w)
+	return out, nil
+}
+
+// ParseRestartNamespaces validates a comma-separated restart namespace
+// allowlist. An empty value means cluster-wide.
+func ParseRestartNamespaces(raw string) ([]string, error) {
+	out := []string{}
+	for _, ns := range strings.Split(raw, ",") {
+		ns = strings.TrimSpace(ns)
+		if ns == "" {
+			continue
+		}
+		if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
+			return nil, fmt.Errorf("invalid restart namespace %q: %s", ns, strings.Join(errs, "; "))
+		}
+		if !slices.Contains(out, ns) {
+			out = append(out, ns)
+		}
 	}
 	return out, nil
 }
@@ -162,14 +196,56 @@ func workloadPods(ctx context.Context, r client.Reader, w restartWorkload) ([]co
 	}
 	return out, nil
 }
-func preCompletionPods(pods []corev1.Pod, completed *metav1.Time) bool {
-	if completed == nil {
-		return false
-	}
+
+// stalePods reports whether any running pod still runs, or may still run, an
+// older runtime generation (§7.6 Selection). Genuine lease bindings decide
+// first; a pod is treated as current only when a fresh, complete observation
+// of its node postdates its latest container start and lists no older binding
+// for it. Without such evidence the start-time rule applies, so uncertainty
+// fails toward restarting.
+func stalePods(pods []corev1.Pod, im *api.RuntimeImage, now time.Time) bool {
 	for _, p := range pods {
-		if p.Status.Phase == corev1.PodRunning && p.Status.StartTime != nil && p.Status.StartTime.Before(completed) {
+		if podOnOlderGeneration(p, im, now) {
 			return true
 		}
+	}
+	return false
+}
+
+func podOnOlderGeneration(p corev1.Pod, im *api.RuntimeImage, now time.Time) bool {
+	if p.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for _, o := range im.Status.TaskObservations {
+		if slices.ContainsFunc(o.Bindings, func(b api.RuntimeTaskBinding) bool { return b.PodUID == p.UID }) {
+			return true
+		}
+	}
+	if leaseObservedCurrent(p, im, now) {
+		return false
+	}
+	completed := im.Status.RotationCompletedAt
+	return completed != nil && p.Status.StartTime != nil && p.Status.StartTime.Before(completed)
+}
+
+func leaseObservedCurrent(p corev1.Pod, im *api.RuntimeImage, now time.Time) bool {
+	if p.Spec.NodeName == "" || p.Status.StartTime == nil {
+		return false
+	}
+	started := p.Status.StartTime.Time
+	for _, s := range p.Status.ContainerStatuses {
+		if s.State.Running != nil && s.State.Running.StartedAt.After(started) {
+			started = s.State.Running.StartedAt.Time
+		}
+	}
+	for _, o := range im.Status.TaskObservations {
+		if o.NodeName != p.Spec.NodeName || !o.Current || o.Reason != "CompleteTaskAndLeaseObservation" {
+			continue
+		}
+		if o.ObservedAt.After(now.Add(observationFutureSkew)) || now.Sub(o.ObservedAt) > observationMaxAge || !o.ObservedAt.After(started) {
+			continue
+		}
+		return true
 	}
 	return false
 }

@@ -32,10 +32,13 @@ replace these tags with verified immutable image digests.
 | `security.allowedSourceMirrorHosts` | `[]` | Exact permitted runtime-source mirror authorities. |
 | `admission.enabled` | `true` | Deploy admission; disabling it does not disable shim enforcement. |
 | `admission.nodeProfileFailurePolicy` | `Fail` | Failure policy for inventory/profile validation webhooks. |
-| `operator.rotationRestarts.enabled` | `false` | Enable optional native-controller restarts and corresponding RBAC. |
+| `operator.rotationRestarts.enabled` | `false` | Enable optional native-controller restarts, the corresponding RBAC and the restart `ValidatingAdmissionPolicy`. |
 | `operator.rotationRestarts.maxConcurrent` | `5` | Concurrent restart coordination bound. |
 | `operator.rotationRestarts.nodeProgressDeadline` | `10m` | Node-rotation progress deadline. |
 | `operator.rotationRestarts.workloadProgressDeadline` | `10m` | Workload restart progress deadline. |
+| `operator.rotationRestarts.namespaces` | `[]` | Optional restart namespace allowlist; when set, patch rights use a Role per namespace instead of the ClusterRole. Namespaces must exist and cannot be the release or a protected namespace. |
+| `operator.rotationRestarts.protectedNamespaces` | `[kube-system, kube-public, kube-node-lease]` | Namespaces the restart admission policy always refuses. |
+| `operator.rotationRestarts.requireAdmissionPolicy` | `true` | Fail installation with restarts enabled when `ValidatingAdmissionPolicy` v1 (Kubernetes 1.30+) is unavailable; `false` accepts RBAC as the only bound. |
 | `uninstall.timeoutSeconds` | `240` | Cleanup coordinator timeout, integer 1 through 86400. |
 | `metrics.enabled` | `false` | Enable operator and node Prometheus endpoints. |
 | `metrics.nodePort` | `9090` | Node metrics listener/service port; this is not a NodePort service type. |

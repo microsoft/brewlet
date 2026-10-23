@@ -90,3 +90,51 @@ func TestNativeRolloutAvailabilityDoesNotCompleteWithKnownOlderTask(t *testing.T
 		t.Fatal("genuine task disappearance did not permit completion without another patch")
 	}
 }
+
+func TestTaskObservationBindingsAreSortedIndependentlyOfNodeReportOrder(t *testing.T) {
+	r, im, p, n := revocationSetup(t)
+	ctx := context.Background()
+	revokeStep(t, r, im)
+	_ = r.Get(ctx, client.ObjectKeyFromObject(im), im)
+	im.Status.Generation = 2
+	now := time.Now().UTC()
+	r.Now = func() time.Time { return now }
+	binding := func(id string) noderuntime.RuntimeBinding {
+		return noderuntime.RuntimeBinding{ContainerID: id, ContainerdNamespace: "k8s.io", PodUID: "pod-" + id, PodName: "api-" + id, PodNamespace: "apps", ContainerName: "app", ID: im.Name, InventoryUID: string(im.UID), Generation: 1, Digest: im.Status.Digest, State: "running"}
+	}
+	publish := func(order ...string) {
+		t.Helper()
+		snapshot := noderuntime.BindingObservation{NodeUID: string(n.UID), ProfileUID: string(p.UID), ProfileGeneration: 1, ObservedAt: now, Complete: true}
+		for _, id := range order {
+			snapshot.Bindings = append(snapshot.Bindings, binding(id))
+		}
+		_ = r.Get(ctx, client.ObjectKeyFromObject(n), n)
+		raw, _ := json.Marshal(snapshot)
+		n.Annotations[noderuntime.BindingsAnnotation] = string(raw)
+		if err := r.Update(ctx, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func() []string {
+		out := []string{}
+		for _, b := range im.Status.TaskObservations[0].Bindings {
+			out = append(out, b.ContainerID)
+		}
+		return out
+	}
+	publish("c", "a", "b")
+	if _, err := r.observeTasks(ctx, im); err != nil {
+		t.Fatal(err)
+	}
+	if got := ids(); len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Fatalf("bindings not sorted by containerd namespace/ID: %v", got)
+	}
+	publish("b", "c", "a")
+	changed, err := r.observeTasks(ctx, im)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatalf("reordered but identical node report produced a status change: %v", ids())
+	}
+}

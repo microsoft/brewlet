@@ -30,6 +30,8 @@ type RestartEngine struct {
 	Now                      func() time.Time
 	Recorder                 record.EventRecorder
 	Leadership               *RestartLeadership
+	// Namespaces limits restart candidates; empty means cluster-wide.
+	Namespaces []string
 }
 
 func (e *RestartEngine) now() time.Time {
@@ -160,7 +162,7 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 		return nil
 	}
 	allowPatches := meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete")
-	workloads, err := listRestartWorkloads(ctx, e.Reader)
+	workloads, err := listRestartWorkloads(ctx, e.Reader, e.Namespaces)
 	if err != nil {
 		return err
 	}
@@ -210,7 +212,7 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 		if err != nil {
 			return err
 		}
-		oldPods := preCompletionPods(pods, im.Status.RotationCompletedAt)
+		oldPods := stalePods(pods, im, e.now())
 		if idx < 0 && !oldPods {
 			continue
 		}
@@ -274,12 +276,12 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 				e.outcome(w, s, "Deferred", "RestartDeferred", w.deferred)
 				continue
 			}
+			if w.complete && len(taskBlockers) > 0 {
+				e.outcome(w, s, "Deferred", "RestartDeferred", "workload controller is available, but genuine older-task observations remain outstanding or stale")
+				continue
+			}
 			if w.complete && !oldPods {
-				if len(taskBlockers) > 0 {
-					e.outcome(w, s, "Deferred", "RestartDeferred", "workload controller is available, but genuine older-task observations remain outstanding or stale")
-					continue
-				}
-				e.outcome(w, s, "Complete", "RestartComplete", "workload controller reports availability and no pre-completion running pods remain")
+				e.outcome(w, s, "Complete", "RestartComplete", "workload controller reports availability and no running pod is observed or presumed on an older runtime generation")
 				continue
 			}
 			if w.nativeFailure != "" {
@@ -308,7 +310,7 @@ func (e *RestartEngine) Reconcile(ctx context.Context, im *api.RuntimeImage) err
 			continue
 		}
 		if !oldPods {
-			e.outcome(w, s, "Complete", "RestartComplete", "workload rolled after rotation completion; no restart patch needed")
+			e.outcome(w, s, "Complete", "RestartComplete", "no running pod is observed or presumed on an older runtime generation; no restart patch needed")
 			continue
 		}
 		if !allowPatches {

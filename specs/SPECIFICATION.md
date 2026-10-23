@@ -721,6 +721,41 @@ restart.
 2. **Workload:** the annotation `brewlet.sh/restart-on-rotation: "true"` on the
    Deployment, StatefulSet, or DaemonSet object (not its pod template).
 
+The workload owner grants consent with the annotation; the platform team keeps
+no patch rights in application namespaces. Because RBAC cannot express
+"patch only this annotation", the chart MUST bound the operator's workload
+patch rights with a `ValidatingAdmissionPolicy` (`failurePolicy: Fail`,
+`validationActions: [Deny]`) whenever restarts are enabled. For requests from
+the operator service account to apps/v1 Deployments, StatefulSets, and
+DaemonSets outside the release namespace, the policy denies everything except
+an `UPDATE` that:
+
+- targets an object whose stored version carries the workload opt-in
+  annotation, `runtimeClassName: brewlet`, and a `brewlet.sh/runtime-image`
+  template annotation;
+- is outside `operator.rotationRestarts.protectedNamespaces` (default
+  `kube-system`, `kube-public`, `kube-node-lease`) and, when set, inside
+  `operator.rotationRestarts.namespaces`;
+- sets `brewlet.sh/rotated-to-generation` and leaves every other pod template
+  annotation, the template labels and spec, the remaining workload spec, and
+  the object's labels, annotations, owner references, and finalizers
+  unchanged.
+
+The operator thus cannot use restart RBAC to change images, commands,
+replicas, or opt-in state, or to touch workloads that did not consent.
+Installation MUST fail on clusters without
+`admissionregistration.k8s.io/v1` (Kubernetes before 1.30) unless
+`operator.rotationRestarts.requireAdmissionPolicy=false` explicitly accepts
+RBAC as the only bound.
+
+`operator.rotationRestarts.namespaces` (default empty, meaning cluster-wide)
+optionally narrows the feature further. When set, the operator considers only
+workloads in those namespaces (`--restart-namespaces`), and workload `patch` is
+granted through a Role and RoleBinding in each listed namespace instead of the
+ClusterRole; cluster-wide workload access stays read-only. The release
+namespace and protected namespaces cannot be listed. Listed namespaces must
+exist before installation.
+
 **Trigger and participating nodes.** A rotation tracks the approved target
 generation and digest. Participants are live, `Ready=True`, schedulable,
 non-deleting nodes without the startup taint, with a valid profile ownership
@@ -770,8 +805,24 @@ it through the existing fenced cleanup protocol, not bypass validation.
 
 **Selection.** The operator then considers each opted-in workload whose pod
 template carries `brewlet.sh/runtime-image: <id>`, and restarts it if at least
-one of its running pods started before `status.rotationCompletedAt`. Workloads
-created or rolled after completion are therefore left alone.
+one of its running pods is observed or presumed on an older generation. Lease
+evidence (§13, `status.taskObservations`) decides first:
+
+1. A running pod whose UID appears in any retained older-generation or
+   foreign-epoch binding is stale, whatever its start time. This catches pods
+   that started after completion on an excluded or lagging node.
+2. Otherwise, a running pod is current when a `Current`,
+   `CompleteTaskAndLeaseObservation` observation of its node is fresh (at most
+   two minutes old) and was taken after the pod's latest container start, and
+   it lists no older binding for that pod.
+3. Otherwise the start-time rule applies: the pod is stale if it started
+   before `status.rotationCompletedAt`.
+
+Missing, stale, incomplete, or foreign observations therefore fall back to
+restarting, never to skipping. Workloads created or rolled after completion,
+and pods proven current by a fresh complete observation, are left alone.
+A workload whose controller reports availability is not complete while a
+retained observation still lists an older binding for one of its pods.
 
 **Mechanism.** The operator patches the pod template annotation
 `brewlet.sh/rotated-to-generation` with a JSON object
@@ -1385,7 +1436,8 @@ remains an explicit decision in the reviewed manifest.
 
 - Shim event `RuntimeImageResolved` on each container start with ID, generation,
   inventory UID, and digest; the same values are exported as
-  `brewlet_container_runtime_image_info{id,inventory_uid,generation,digest}`.
+  `brewlet_container_runtime_image_info{namespace,pod,pod_uid,container,container_id,id,inventory_uid,generation,digest}`
+  from each node's live shim leases.
 - `brewlet_runtime_image_generations{id,state}` on each node, and a controller
   condition `RotationProgressing` / `RotationComplete` per `RuntimeImage`.
 - Rotation restarts (§7.6) report `status.restarts` counts per `RuntimeImage`
@@ -1396,6 +1448,15 @@ remains an explicit decision in the reviewed manifest.
   exceeded the progress deadline. Completion does not clear these diagnostics.
 - Operators answer "which pods still run the vulnerable generation?" from the
   info metric, since the pod spec intentionally does not record a digest.
+  Without metrics, `RuntimeImage.status.taskObservations` answers the same
+  question with RBAC on one cluster-scoped resource: the operator copies each
+  node's complete, fresh lease snapshot, keeping only bindings older than the
+  approved generation or from a foreign epoch, with the pod namespace, name,
+  UID, container, generation, and digest. The `OldGenerationTasks` condition
+  is `True` while any such binding remains. Observations are retained, and
+  marked not `Current`, when a node stops reporting, so silence never reads as
+  "patched". They are diagnostics and restart-selection input (§7.6), never
+  cleanup or revocation authority.
 - Provisioner metrics `brewlet_runtime_image_install_requests_total{id,outcome}`
   and `brewlet_runtime_image_install_duration_seconds{id}` for on-demand
   installs, and a container event `RuntimeImageInstalling` when `Create` waits
@@ -1433,6 +1494,8 @@ interceptor or provider validation, not just by setting labels in a fixture.
 | Both withdrawal and fallback-taint writes fail | Report blocked progress; do not complete rotation exclusion or deletion based on an unconfirmed fence. |
 | Rotation/revocation behind retained pinned labels | Report node-wide exclusions for all affected IDs; preserve running leases and reject unauthorized or below-barrier starts even for already-bound pods or fail-open admission. Revalidate all affected inventory before releasing the fence. |
 | Claim-release resource-version race or recreated Node | Re-read and revalidate Node UID, owner, and absence of runtime state before retrying a conditional release; never release a replacement/foreign claim. |
+| Rotation restart selection with lease evidence | Restart a pod named in a retained older-generation binding even if it started after completion; skip a pre-completion pod only when a fresh, complete, post-start observation of its node lists no older binding; otherwise fall back to the start-time rule. |
+| Operator restart writes under the chart admission policy | Allow only a `brewlet.sh/rotated-to-generation` change on opted-in Brewlet workloads; deny image, command, replica, label, opt-in, and other annotation changes, create/delete, non-opted-in workloads, protected namespaces, and namespaces outside a configured allowlist. Fail installation without policy support unless explicitly waived. |
 
 ### 13.2 Language-neutral workload acceptance
 

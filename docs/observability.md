@@ -73,6 +73,18 @@ histogram_quantile(0.95,
 count by (id, inventory_uid, generation, digest) (brewlet_container_runtime_image_info)
 ```
 
+List Pods still on an older generation than the approved target. The
+`RuntimeImage.status.taskObservations` field answers the same question without
+Prometheus; see [Find workloads still on an older generation](operations.md#find-workloads-still-on-an-older-generation).
+
+```promql
+max by (namespace, pod, id, inventory_uid, generation) (
+  brewlet_container_runtime_image_info{id="python-3.12"}
+) unless on (id, inventory_uid, generation) (
+  brewlet_runtime_image_rotation_complete{id="python-3.12"}
+)
+```
+
 ```promql
 sum by (id, state) (brewlet_runtime_image_restarts)
 ```

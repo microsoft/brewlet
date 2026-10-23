@@ -26,7 +26,7 @@ import (
 
 func main() {
 	ctrl.SetLogger(logr.FromSlogHandler(slog.NewJSONHandler(os.Stderr, nil)))
-	var namespace, image, hosts, metricsAddr, health, nodeMetrics string
+	var namespace, image, hosts, metricsAddr, health, nodeMetrics, restartNamespaces string
 	var leader, restarts, cleanup bool
 	var release string
 	var timeout int
@@ -42,6 +42,7 @@ func main() {
 	flag.StringVar(&health, "health-probe-bind-address", ":8081", "health address")
 	flag.BoolVar(&leader, "leader-elect", true, "use leader election")
 	flag.BoolVar(&restarts, "rotation-restarts", false, "opt in to controller-driven runtime rotation restarts")
+	flag.StringVar(&restartNamespaces, "restart-namespaces", "", "comma-separated namespaces eligible for rotation restarts (empty means cluster-wide)")
 	flag.IntVar(&maxConcurrent, "restart-max-concurrent", 5, "cluster-wide concurrent workload rotation rollouts")
 	flag.DurationVar(&workloadDeadline, "restart-workload-progress-deadline", 10*time.Minute, "maximum time to observe a workload rotation rollout")
 	flag.BoolVar(&cleanup, "cleanup-coordinator", false, "run unprivileged Helm uninstall coordinator instead of manager")
@@ -65,6 +66,11 @@ func main() {
 	}
 	if nodeDeadline <= 0 {
 		fmt.Fprintln(os.Stderr, "node-progress-deadline must be positive")
+		os.Exit(1)
+	}
+	restartScope, err := controller.ParseRestartNamespaces(restartNamespaces)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	if restarts && (!leader || maxConcurrent < 1 || workloadDeadline <= 0) {
@@ -105,7 +111,7 @@ func main() {
 	if restarts {
 		global := &controller.RestartLeadership{Config: m.GetConfig()}
 		must(m.Add(global))
-		runtimeReconciler.Restarts = &controller.RestartEngine{Client: m.GetClient(), Reader: m.GetAPIReader(), MaxConcurrent: maxConcurrent, WorkloadProgressDeadline: workloadDeadline, Recorder: m.GetEventRecorderFor("brewlet-rotation"), Leadership: global}
+		runtimeReconciler.Restarts = &controller.RestartEngine{Client: m.GetClient(), Reader: m.GetAPIReader(), MaxConcurrent: maxConcurrent, WorkloadProgressDeadline: workloadDeadline, Recorder: m.GetEventRecorderFor("brewlet-rotation"), Leadership: global, Namespaces: restartScope}
 	}
 	must(runtimeReconciler.SetupWithManager(m))
 	must((&controller.EvidenceReconciler{Client: m.GetClient(), Reader: m.GetAPIReader()}).SetupWithManager(m))
