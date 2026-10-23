@@ -1,6 +1,7 @@
 """Read-only verification of published prerelease bytes, attestations and Central signatures."""
 
 import argparse
+import json
 from pathlib import Path, PurePosixPath
 import re
 import sys
@@ -51,8 +52,12 @@ def verify(source):
             digest = document["images"][component]["digest"]
             require(registry_digest(repository, config["version"]) == digest, "published image tag drift")
             attest_verify("oci://" + repository + "@" + digest, "release.yml", source)
-            run(["oras", "cp", "--recursive", "--to-oci-layout", repository + "@" + digest,
-                 str(output / ("image-" + component)) + ":verified"])
+            layout = output / ("image-" + component)
+            run(["oras", "cp", "--to-oci-layout", repository + "@" + digest, str(layout) + ":verified"])
+            # oras also lists child platform manifests; keep only the pinned top-level index.
+            index = read_json(layout / "index.json")
+            index["manifests"] = [m for m in index["manifests"] if m["digest"] == digest]
+            (layout / "index.json").write_text(json.dumps(index))
         attest_verify("oci://" + config["chart"] + "@" + published["chartDigest"], "release.yml", source)
         with tempfile.TemporaryDirectory() as chart_temp:
             run(["helm", "pull", "oci://" + config["chart"], "--version", config["version"],
