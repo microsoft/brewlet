@@ -93,12 +93,12 @@ files and searchable directories. For macOS input/producer setup, see
 Replace the registry with your reviewed destination:
 
 ```sh
-brewlet push registry.example.com/apps/java-demo:v1 \
+brewlet build registry.example.com/apps/java-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
   --layer "dependency=$WORK/dependencies:/app/lib" \
-  --layer "app=$WORK/application:/app" \
-  --push-result "$WORK/push.json"
+  --layer "app=$WORK/application:/app"
+brewlet push registry.example.com/apps/java-demo:v1 --push-result "$WORK/push.json"
 ```
 
 This separates dependencies but does not itself publish an independent managed

@@ -94,12 +94,12 @@ Use the matching CLI on a suitable Linux producer filesystem. Follow the
 validation. Replace the registry and declare your actual platform:
 
 ```sh
-brewlet push registry.example.com/apps/python-demo:v1 \
+brewlet build registry.example.com/apps/python-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
   --layer "dependency=$WORK/dependencies:/app/dependencies" \
-  --layer "app=$WORK/src:/app/src" \
-  --push-result "$WORK/push.json"
+  --layer "app=$WORK/src:/app/src"
+brewlet push registry.example.com/apps/python-demo:v1 --push-result "$WORK/push.json"
 ```
 
 For reusable independent dependency publication, see [layer sets](dependency-layer-sets.md).

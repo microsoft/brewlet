@@ -190,6 +190,9 @@ func BuildLayerSet(ctx context.Context, store Store, config LayerSetConfig, laye
 	config.Layers = nil
 	var descs []v1.Descriptor
 	for _, spec := range layers {
+		if spec.Platform != nil {
+			return v1.Descriptor{}, fail("InvalidPlatform", "layer sets do not support platform-scoped layers")
+		}
 		spec.Role = "dependency"
 		b, e := BuildLayer(ctx, store, spec)
 		if e != nil {

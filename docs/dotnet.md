@@ -101,12 +101,12 @@ Use the matching CLI on a suitable Linux producer filesystem; consult
 [producer setup](getting-started.md) for macOS. Replace the registry:
 
 ```sh
-brewlet push registry.example.com/apps/dotnet-demo:v1 \
+brewlet build registry.example.com/apps/dotnet-demo:v1 \
   --platform linux/arm64 \
   --launch "$WORK/launch.json" \
   --layer "dependency=$WORK/dependencies:/app" \
-  --layer "app=$WORK/application:/app" \
-  --push-result "$WORK/push.json"
+  --layer "app=$WORK/application:/app"
+brewlet push registry.example.com/apps/dotnet-demo:v1 --push-result "$WORK/push.json"
 ```
 
 A .NET assembly is not automatically platform-independent: RID-specific

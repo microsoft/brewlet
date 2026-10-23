@@ -99,7 +99,7 @@ final class JavaProducer {
         if (platforms.isEmpty()) {
             throw new IllegalArgumentException("Explicit brewlet.platforms are required");
         }
-        List<String> command = new ArrayList<>(List.of(executable, "push", image));
+        List<String> command = new ArrayList<>(List.of(executable, "build", image));
         if (store != null) {
             command.addAll(List.of("--store", store.toString()));
         }
@@ -116,6 +116,11 @@ final class JavaProducer {
         }
         command.addAll(List.of("--layer", "app=" + prepared.application() + ":/app"));
         return command;
+    }
+
+    /** Publishes the layout written by {@link #command} unchanged. */
+    static List<String> pushCommand(String executable, String image, Path store) {
+        return new ArrayList<>(List.of(executable, "push", image, "--store", store.toString()));
     }
 
     static void requireThinJar(Path path) throws IOException {

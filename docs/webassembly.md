@@ -137,14 +137,14 @@ dependency set is composed into both application images:
 brewlet layer-set example.invalid/wasm-dependencies:v1 \
   --store "$WORK/dependency-set" --config examples/wasm/layerset.json \
   --layer "dependency=$WORK/dependencies:/app/dependencies"
-brewlet push registry.example.com/apps/wasmtime-demo:v1 \
+brewlet build registry.example.com/apps/wasmtime-demo:v1 \
   --platform linux/arm64 --launch examples/wasm/wasmtime-launch.json \
-  --layer-set "$WORK/dependency-set" --layer "app=$WORK/wasmtime-app:/app" \
-  --push-result "$WORK/wasmtime-push.json"
-brewlet push registry.example.com/apps/spin-demo:v1 \
+  --layer-set "$WORK/dependency-set" --layer "app=$WORK/wasmtime-app:/app"
+brewlet push registry.example.com/apps/wasmtime-demo:v1 --push-result "$WORK/wasmtime-push.json"
+brewlet build registry.example.com/apps/spin-demo:v1 \
   --platform linux/arm64 --launch examples/wasm/spin-launch.json \
-  --layer-set "$WORK/dependency-set" --layer "app=$WORK/spin-app:/app" \
-  --push-result "$WORK/spin-push.json"
+  --layer-set "$WORK/dependency-set" --layer "app=$WORK/spin-app:/app"
+brewlet push registry.example.com/apps/spin-demo:v1 --push-result "$WORK/spin-push.json"
 ```
 
 Replace the registry and declare actual supported Linux host platforms.
@@ -310,8 +310,9 @@ worker/containerd restarts, allowlist rejection and normal profile/host cleanup
 before exact-owned fixture destruction. Failed attempts remain failed.
 The [historical public receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/wasm-runc-arm64.json)
 records pinned engine/userland inputs and both compiled guest identities.
-That receipt covers generic `push --layer-set` consumption, not the later
-`compose`/final-signature/replacement/fleet-export workflow.
+That receipt covers generic `--layer-set` consumption (then `brewlet push`),
+not the later `bundle` (formerly `compose`)/final-signature/replacement/fleet-export
+workflow.
 
 ## Governed external dependency replacement
 

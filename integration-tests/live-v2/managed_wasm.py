@@ -49,7 +49,7 @@ class ManagedWasmDelivery(delivery.Delivery):
             if engine == "spin":
                 (app / "spin.toml").write_bytes((EXAMPLE / "spin.toml").read_bytes())
             layout = h.work / (engine + "-payload-oci")
-            h.run([*h.cli_command, "push", engine + "-payload", "--store", layout,
+            h.run([*h.cli_command, "build", engine + "-payload", "--store", layout,
                    "--platform", "linux/" + h.arch, "--launch", EXAMPLE / (engine + "-launch.json"),
                    "--layer", f"app={app}:/app"], timeout=180)
             target = json.loads((layout / "index.json").read_text())["manifests"][0]
@@ -118,7 +118,7 @@ class ManagedWasmDelivery(delivery.Delivery):
         (shadow / "message.txt").write_text("must-not-shadow-approved-bytes")
         for engine in IDS:
             layout = h.work / (engine + "-shadow-payload")
-            h.run([*h.cli_command, "push", "shadow-" + engine, "--store", layout,
+            h.run([*h.cli_command, "build", "shadow-" + engine, "--store", layout,
                    "--platform", "linux/" + h.arch, "--launch", EXAMPLE / (engine + "-launch.json"),
                    "--layer", f"app={h.work / (engine + '-payload')}:/app",
                    "--layer", f"app={shadow}:/app/dependencies"], timeout=180)
@@ -128,7 +128,7 @@ class ManagedWasmDelivery(delivery.Delivery):
                 ("shadow", {"layout": layout, "target": target}, self.policy, "ManagedPathConflict")):
                 destination = h.work / (engine + "-rejected-" + case)
                 receipt = h.work / (engine + "-rejected-" + case + ".json")
-                response = h.run([*h.cli_command, "compose", "rejected", "--store", destination,
+                response = h.run([*h.cli_command, "bundle", "rejected", "--store", destination,
                     "--application", str(application["layout"]) + "@" + application["target"]["digest"],
                     "--layer-set", str(bundle["layout"]) + "@" + bundle["target"]["digest"],
                     "--platform", "linux/" + h.arch, "--policy", release_policy,

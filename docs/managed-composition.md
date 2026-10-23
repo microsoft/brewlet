@@ -40,9 +40,10 @@ Build with the normal external toolchain, then package only the application
 contribution and its matching explicit launch descriptor:
 
 ```sh
-brewlet push registry.example.com/builds/orders:payload \
+brewlet build registry.example.com/builds/orders:payload \
   --platform linux/arm64 --launch launch.json \
   --layer app=./application:/app
+brewlet push registry.example.com/builds/orders:payload
 ```
 
 This payload can be structurally valid without being runnable alone. Its
@@ -70,11 +71,11 @@ to that publication workflow.
 ## Release: compose, verify, test, deploy
 
 Choose one explicit Linux platform and one complete managed set. Resolve tags
-in the delivery workflow first; `compose` accepts only canonical digest-pinned
+in the delivery workflow first; `bundle` accepts only canonical digest-pinned
 remote inputs or explicit local `LAYOUT@sha256:...` inputs:
 
 ```sh
-brewlet compose registry.example.com/releases/orders:candidate \
+brewlet bundle registry.example.com/releases/orders:candidate \
   --application "$APPLICATION_REF_AT_DIGEST" \
   --layer-set "$DEPENDENCY_SET_REF_AT_DIGEST" \
   --platform linux/arm64 --policy release-policy.yaml \
@@ -169,7 +170,7 @@ input/effective launch layers, output config, parent composition and release
 identity. Supporting immutable graphs and their referrers travel with the
 output, so verification does not depend on a mutable source tag.
 
-For cross-registry operations, `compose`, `verify` and `inventory` accept
+For cross-registry operations, `bundle`, `verify` and `inventory` accept
 `--registry-auth FILE`, a JSON map from exact `https://host[:port]` origins to
 `username`/`password` objects. Alternatively set `BREWLET_REGISTRY_USERNAME`,
 `BREWLET_REGISTRY_PASSWORD` **and** `BREWLET_REGISTRY_ORIGIN`. A source registry

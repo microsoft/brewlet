@@ -119,10 +119,13 @@ public final class PushMojo extends AbstractJavaMojo {
                 Files.setLastModifiedTime(evidence.getParent(), FileTime.fromMillis(0));
                 Files.setLastModifiedTime(prepared.application(), FileTime.fromMillis(0));
             }
-            List<String> command = JavaProducer.command(executable, image,
-                    store == null ? null : store.toPath(), platforms, pinned, prepared);
+            Path layout = store == null ? output.resolve("oci") : store.toPath();
+            List<String> command = JavaProducer.command(executable, image, layout, platforms, pinned, prepared);
             trust.append(command);
             run(command);
+            if (store == null) {
+                run(JavaProducer.pushCommand(executable, image, layout));
+            }
         } catch (IOException | IllegalArgumentException | ProjectBuildingException failure) {
             throw new MojoExecutionException("Brewlet Java producer failed: " + failure.getMessage(), failure);
         }

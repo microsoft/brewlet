@@ -40,7 +40,7 @@ Create an app importing `message`, and set explicit descriptor environment
 `PYTHONPATH=/app/dependencies`. Then compose:
 
 ```sh
-brewlet push example.invalid/app:v1 --store ./application-oci \
+brewlet build example.invalid/app:v1 --store ./application-oci \
   --platform linux/arm64 --launch launch.json \
   --layer-set ./dependency-oci --layer app=./src:/app/src
 brewlet inspect ./application-oci

@@ -56,9 +56,10 @@ Read the [complete Python guide](python.md). For the qualified distroless layout
 ```
 
 ```sh
-brewlet push registry.example.com/apps/python:v1 --platform linux/arm64 \
+brewlet build registry.example.com/apps/python:v1 --platform linux/arm64 \
   --launch launch.json --layer dependency=./dependencies:/app/dependencies \
   --layer app=./src:/app/src
+brewlet push registry.example.com/apps/python:v1
 ```
 
 Resolve compatible dependencies before packaging. A native wheel is not made

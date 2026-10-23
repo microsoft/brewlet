@@ -89,9 +89,9 @@ means additional work is needed and is not shipped by the compared revision.
 | First-class AppCDS archive support. | Generic execution available now; dedicated producer convenience absent. | Publish the archive as an ordinary app file and explicit flags; preserve training paths and mtimes. A Maven-specific attachment convenience is permitted. |
 | CLI infers architecture by scanning native libraries in a JAR. | Excluded from generic packaging. | Build/publish explicit platform groups and review matching Kubernetes architecture constraints. |
 | Broader automatic Java entry-mode discovery. | Partially retained in Maven, not generic CLI. | Current plugin uses explicit configuration or JAR `Main-Class`; other permitted Java-project analysis could be added only in that producer. |
-| `brewlet run` executes locally outside Kubernetes. | Command absent. | Use the isolated local kind path for actual Brewlet execution; direct runtime-image execution is only a separate development check. |
-| `brewlet bundle` exports a standalone runc bundle. | Command absent. | Current execution goes through the shim. A new generic execution/export design would need its own authority and lifetime contract. |
-| `brewlet k8s` inventory/status/doctor/app-wait helpers. | Commands absent; many observations available now. | Use Kubernetes/Helm/metrics directly, or build a separate generic operations client. |
+| `brewlet run` executes locally outside Kubernetes. | Generic `brewlet run REF --runtime [ID=]IMAGE` with Docker/Podman. | A shim-like development check on an explicitly named runtime image; use the isolated local kind path for actual Brewlet execution. |
+| `brewlet bundle` exports a standalone runc bundle. | Command absent; 2.0's `bundle` is the unrelated release-composition command. | Current execution goes through the shim. A new generic execution/export design would need its own authority and lifetime contract. |
+| `brewlet k8s` inventory/status/doctor/app-wait helpers. | Generic `brewlet k8s runtime list\|status\|add\|rotate\|remove` and `doctor`; no app-wait. | Use native rollout status for applications. |
 | `brewlet stage-gc` manual command. | Command absent; reclamation outcome available now. | Use the fenced provisioner's normal GC with configured grace/sweep/idle policy, not ad hoc filesystem deletion. |
 | Native 1.x artifact format and old launch schema. | Unsupported; no compatibility path. | Repackage original application inputs as a version-2 runnable image. |
 | Old final-application attestation/Ratify policy integration. | Not equivalent to current layer-set signing. | Add an external final-artifact attestation/policy workflow bound to the published v2 digest; integration needs new validation. |
@@ -126,7 +126,7 @@ tooling, not the generic packaging CLI or Maven plugin.
 The deployment stage must consume the actual published application digest,
 not reconstruct a tag from the project version. Runtime selection remains a
 reviewed deployment decision, not an inference from the JAR or launch allowlist.
-The existing 2.0 CLI exposes `--push-result` for a machine-readable publication
+The 2.0 `brewlet push` exposes `--push-result` for a machine-readable publication
 handoff; its shape is not the old main `push.json` contract.
 
 **Acceptance for additional templates:** render native resources, preserve
@@ -262,9 +262,9 @@ thin application using the existing Maven/layer-set workflow.
 
 ### 3.6 Replace operations conveniences with observations first
 
-The absence of `brewlet k8s doctor` does not remove the underlying state, but
-`kubectl` commands are not automatically a semantic replacement for that
-diagnostic tool.
+`brewlet k8s doctor` and `brewlet k8s runtime list|status|add|rotate|remove`
+cover runtime inventory, diagnosis and edits (with `--dry-run` manifests for
+GitOps). The table records the underlying building blocks for anything else.
 
 | Main operation | Existing 2.0 building blocks | Additional UX work if desired |
 | --- | --- | --- |
@@ -298,12 +298,14 @@ For **actual local Brewlet execution today**, use an isolated kind environment,
 the current chart/inventory and explicit v2 application descriptors. This
 exercises the real shim, authorization, filesystem and Kubernetes overrides.
 
-For **quick application debugging**, invoking the intended program in the
-approved runtime image can help. It is not equivalent to Brewlet execution:
-it does not prove artifact validation, leases, runtime authorization,
-first-use installation or scheduling.
+For **quick application debugging**, `brewlet run REF --runtime ID=IMAGE`
+assembles the local build on the named runtime image the way the shim does
+(read-only `/app`, read-only root, launch.json process fields). It is not
+equivalent to Brewlet execution: it does not prove leases, runtime
+authorization, first-use installation or scheduling.
 
-There is no current generic `brewlet bundle` exporter. A future standalone
+There is no current generic runc-bundle exporter (2.0's `brewlet bundle` is
+release composition). A future standalone
 execution/export design would need an explicit approval source and validated
 artifact/runtime/platform selection, plus independent payload ownership or a
 lease lifetime protocol. Exporting paths into an evictable live cache would
@@ -388,7 +390,7 @@ artifact, identity, authorization and execution boundaries.
 | Priority | Candidate | Reason |
 | --- | --- | --- |
 | First | Native deployment templates and a digest-based publication handoff. | Restores common developer convenience without new execution semantics. |
-| First | Generic read-only inventory/status/doctor presentation. | Makes the existing lifecycle model operable without adding another host writer. |
+| Done | Generic runtime inventory/status/doctor and add/rotate/remove (`brewlet k8s`). | Makes the existing lifecycle model operable without adding another host writer. |
 | First | Versioned release/install/docs pipeline. | Makes the implemented system consumable; independent of language support. |
 | Next | AppCDS producer convenience and permitted Java requirement warnings. | Restores Java ergonomics while keeping runtime execution generic. |
 | Next | External v2 final-application attestation/policy integration. | Restores governance workflows, with explicit additional validation. |

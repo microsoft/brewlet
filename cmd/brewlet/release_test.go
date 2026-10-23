@@ -14,10 +14,10 @@ import (
 
 func TestReleaseCommandsRequireExplicitInputsAndPolicy(t *testing.T) {
 	for _, args := range [][]string{
-		{"compose", "example.com/app:candidate"},
+		{"bundle", "example.com/app:candidate"},
 		{"verify", "example.com/app:mutable", "--platform", "linux/arm64"},
-		{"compose", "app", "--policy", "missing", "--platform", "linux/arm64", "--platform", "linux/amd64"},
-		{"compose", "app", "--policy", "missing", "--platform", "linux/arm64", "--application", "a", "--layer-set", "one", "--layer-set", "two"},
+		{"bundle", "app", "--policy", "missing", "--platform", "linux/arm64", "--platform", "linux/amd64"},
+		{"bundle", "app", "--policy", "missing", "--platform", "linux/arm64", "--application", "a", "--layer-set", "one", "--layer-set", "two"},
 		{"verify", "a", "--policy", "missing", "--platform", "linux/arm64", "--signing-key", "not-a-verification-option"},
 		{"inventory", "--namespace", "apps"},
 	} {
@@ -35,7 +35,7 @@ func TestReleaseCommandsRequireExplicitInputsAndPolicy(t *testing.T) {
 	if err = os.WriteFile(file, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err = run(context.Background(), []string{"compose", "local", "--policy", file, "--platform", "linux/arm64",
+	if err = run(context.Background(), []string{"bundle", "local", "--policy", file, "--platform", "linux/arm64",
 		"--application", "example.com/app:mutable", "--layer-set", "example.com/deps:mutable", "--store", filepath.Join(dir, "result")}); err == nil || !strings.Contains(err.Error(), "digest-pinned") {
 		t.Fatalf("mutable release inputs accepted: %v", err)
 	}

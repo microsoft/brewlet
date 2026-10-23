@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,20 +108,47 @@ func atomicReleaseResult(file string, data []byte) error {
 	return os.Rename(temp.Name(), file)
 }
 
-func runRelease(ctx context.Context, args []string) error {
-	command := args[0]
-	args = args[1:]
-	ref := ""
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		ref, args = args[0], args[1:]
+const bundleSynopsis = `Usage: brewlet bundle REF --application APP@sha256:... --layer-set SET@sha256:... --platform OS/ARCH --policy POLICY [flags]
+
+Release step for platform-managed dependencies. Combines one digest-pinned
+application image with one complete, approved dependency layer set into a final
+application image, preserving the application layers byte for byte, and signs a
+composition attestation under the release-builder identity. When a dependency
+needs a fix, publish a new layer set and bundle again: the application is not
+rebuilt. Without --store the result is published to the registry named by REF.
+
+Example:
+  brewlet bundle registry.example.com/releases/orders:candidate \
+    --application registry.example.com/builds/orders@sha256:<digest> \
+    --layer-set registry.example.com/platform/java-web@sha256:<digest> \
+    --platform linux/arm64 --policy release-policy.yaml \
+    --signing-key "$COMPOSER_KEY_FILE" --builder-identity https://ci.example.com/release`
+
+const verifySynopsis = `Usage: brewlet verify REF@sha256:... --platform OS/ARCH --policy POLICY [flags]
+
+Verifies a pinned bundle (from "brewlet bundle") against a release policy and
+prints the evidence, keeping structural checks, publisher provenance and
+release-signature verification distinct. REF may be a registry reference or a
+local OCI layout DIR@sha256:DIGEST.`
+
+func releaseCommand(command string) func(context.Context, []string, io.Writer, io.Writer) error {
+	return func(ctx context.Context, args []string, stdout, _ io.Writer) error {
+		return runRelease(ctx, command, args, stdout)
 	}
-	fs := flag.NewFlagSet(command, flag.ContinueOnError)
+}
+
+func runRelease(ctx context.Context, command string, args []string, stdout io.Writer) error {
+	synopsis := bundleSynopsis
+	if command == "verify" {
+		synopsis = verifySynopsis
+	}
+	fs := newFlagSet(command, synopsis, stdout)
 	var applications, sets, platforms repeated
 	fs.Var(&applications, "application", "digest-pinned application artifact")
 	fs.Var(&sets, "layer-set", "one digest-pinned complete managed dependency set")
 	fs.Var(&platforms, "platform", "one explicit linux/arch[/variant]")
 	policyFile := fs.String("policy", "", "explicit release policy JSON or YAML")
-	storeDir := fs.String("store", "", "local output layout (compose only)")
+	storeDir := fs.String("store", "", "write to this local OCI layout instead of publishing (bundle only)")
 	keyFile := fs.String("signing-key", "", "PKCS#8 P-256 composer key file")
 	identity := fs.String("builder-identity", "", "authorized release composer identity")
 	launchFile := fs.String("launch", "", "explicit launch replacement")
@@ -129,25 +156,21 @@ func runRelease(ctx context.Context, args []string) error {
 	authFile := fs.String("registry-auth", "", "JSON credentials keyed by exact scheme://host[:port]")
 	insecure := fs.Bool("insecure", false, "explicitly allow HTTP registries")
 	scheme := fs.String("registry-scheme", "", "explicit https for loopback TLS")
-	if err := fs.Parse(args); err != nil {
+	ref, err := parseRefCommand(fs, args)
+	if err != nil {
 		return err
 	}
-	if ref == "" && fs.NArg() == 1 {
-		ref = fs.Arg(0)
-	} else if fs.NArg() != 0 {
-		return fmt.Errorf("unexpected arguments")
-	}
-	if ref == "" || *policyFile == "" || len(platforms) != 1 {
+	if *policyFile == "" || len(platforms) != 1 {
 		return fmt.Errorf("%s requires REF, --policy and exactly one --platform", command)
 	}
 	if *scheme != "" && *scheme != "https" || *scheme == "https" && *insecure {
 		return fmt.Errorf("invalid/conflicting registry scheme")
 	}
 	if command == "verify" && (len(applications) > 0 || len(sets) > 0 || *keyFile != "" || *identity != "" || *launchFile != "" || *storeDir != "" || *resultFile != "") {
-		return fmt.Errorf("verify accepts a pinned input, policy and platform, not composition options")
+		return fmt.Errorf("verify accepts a pinned input, policy and platform, not bundle options")
 	}
-	if command == "compose" && (len(applications) != 1 || len(sets) != 1) {
-		return fmt.Errorf("compose requires exactly one --application and --layer-set")
+	if command == "bundle" && (len(applications) != 1 || len(sets) != 1) {
+		return fmt.Errorf("bundle requires exactly one --application and --layer-set")
 	}
 	policy, err := readReleasePolicy(*policyFile)
 	if err != nil {
@@ -176,7 +199,7 @@ func runRelease(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		return json.NewEncoder(os.Stdout).Encode(result)
+		return json.NewEncoder(stdout).Encode(result)
 	}
 	application, err := pinnedReleaseInput(ctx, store, applications[0], registries)
 	if err != nil {
@@ -244,7 +267,7 @@ func runRelease(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	_, err = os.Stdout.Write(data)
+	_, err = stdout.Write(data)
 	return err
 }
 

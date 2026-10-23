@@ -171,7 +171,7 @@ def main():
             digests = []
             for attempt in range(2):
                 layout = work / f"oci-{language}-{attempt}"
-                command = [brewlet, "push", f"fixtures/{language}:v2", "--store", layout,
+                command = [brewlet, "build", f"fixtures/{language}:v2", "--store", layout,
                            "--platform", "linux/amd64", "--platform", "linux/arm64",
                            "--launch", FIXTURES / language / "launch.json"]
                 for role, source, target in layer_inputs:
@@ -241,7 +241,7 @@ def main():
             "publisher": {"identity": "", "keys": []},
             "composer": {"identity": "", "keys": []}}))
         composed = work / "oci-java-release-composed"
-        run([brewlet, "compose", "fixtures/java-release:v2", "--store", composed,
+        run([brewlet, "bundle", "fixtures/java-release:v2", "--store", composed,
              "--application", str(app_only) + "@" + target["digest"],
              "--layer-set", str(managed_set) + "@" + json.loads(
                  (managed_set / "index.json").read_text())["manifests"][0]["digest"],
