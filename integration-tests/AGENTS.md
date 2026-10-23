@@ -43,7 +43,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
   --scenario pr --work integration-tests/live-v2/run-pr-01
 ```
 
-`.github/workflows/e2e.yml` runs the `pr` scenario for PR CI; full promotion
+`.github/workflows/e2e.yml` runs the `pr` scenario for PR CI, except on PRs
+that change only documentation or workflow files; full promotion
 qualification runs through `acceptance/qualify.py` and the promotion
 qualification workflow.
 

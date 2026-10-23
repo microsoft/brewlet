@@ -1212,6 +1212,32 @@ class CallbackOrderTests(ProjectWork):
         self.assertEqual(instance.result["outcome"], "failed")
 
 
+class WaitTests(unittest.TestCase):
+    def clock(self):
+        now = [0.0]
+        sleeps = []
+
+        def sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds
+        return now, sleeps, mock.patch.multiple(
+            h.time, monotonic=lambda: now[0], sleep=sleep)
+
+    def test_wait_backs_off_from_quick_polls_to_bounded_interval(self):
+        now, sleeps, patch = self.clock()
+        observations = iter([None] * 6 + ["ready"])
+        with patch:
+            self.assertEqual("ready", h.Harness.wait(SimpleNamespace(timeout=60), "x", lambda: next(observations)))
+        self.assertEqual([0.25, 0.5, 1, 2, 2, 2], sleeps)
+
+    def test_wait_never_sleeps_past_deadline_and_reports_last_observation(self):
+        now, sleeps, patch = self.clock()
+        with patch, self.assertRaisesRegex(h.Failure, "deadline waiting for x; last observation: 0"):
+            h.Harness.wait(SimpleNamespace(timeout=5), "x", lambda: 0)
+        self.assertEqual(5, now[0])
+        self.assertEqual([0.25, 0.5, 1, 2, 1.25], sleeps)
+
+
 class InterceptorTests(unittest.TestCase):
     def request(self):
         node = {"metadata": {"name": "test-node", "uid": NODE_UID,

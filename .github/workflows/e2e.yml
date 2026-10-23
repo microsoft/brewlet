@@ -83,6 +83,24 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
+          cache: ${{ inputs.scenario != 'pr' }}
+      - name: Restore PR E2E host Go caches
+        if: inputs.scenario == 'pr'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: e2e-host-go-${{ inputs.architecture }}-${{ hashFiles('go.sum') }}
+          restore-keys: e2e-host-go-${{ inputs.architecture }}-
+      - name: Restore PR E2E image Go build cache
+        id: image-go-cache
+        if: inputs.scenario == 'pr'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/image-go-build
+          key: e2e-image-go-build-${{ inputs.architecture }}-${{ hashFiles('go.sum', 'kubernetes/Dockerfile', 'provisioner/Dockerfile') }}
+          restore-keys: e2e-image-go-build-${{ inputs.architecture }}-
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:
           distribution: temurin
@@ -110,11 +128,36 @@ jobs:
       - name: Install pinned WebAssembly toolchain for promotion companions
         if: inputs.scenario == 'complete' || inputs.scenario == 'managed-wasm'
         run: rustup toolchain install 1.97.1 --profile minimal --target wasm32-wasip2
+      - name: Seed BuildKit Go build cache mount for PR E2E
+        if: inputs.scenario == 'pr'
+        run: |
+          cache="$RUNNER_TEMP/image-go-build"
+          mkdir -p "$cache"
+          image="$(sed -n 's/^FROM --platform=\$BUILDPLATFORM \(golang:[^ ]*\) AS build$/\1/p' kubernetes/Dockerfile)"
+          if test -n "$image" && test "$image" = "$(sed -n 's/^FROM --platform=\$BUILDPLATFORM \(golang:[^ ]*\) AS build$/\1/p' provisioner/Dockerfile)" &&
+              printf 'FROM %s\nRUN --mount=type=cache,target=/root/.cache/go-build --mount=type=bind,target=/seed cp -a /seed/. /root/.cache/go-build/\n' "$image" |
+              docker build --quiet --iidfile "$RUNNER_TEMP/seed.iid" -f - "$cache"; then
+            docker image rm "$(cat "$RUNNER_TEMP/seed.iid")" > /dev/null || true
+          else
+            echo "::warning::Image Go build cache was not seeded; image builds compile cold"
+          fi
       - name: Execute real four-language PR E2E including protected identity and cleanup
         if: inputs.scenario == 'pr'
         run: |
           python3 integration-tests/live-v2/harness.py --scenario pr \
             --work "integration-tests/live-v2/run-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCHITECTURE}"
+      - name: Extract BuildKit Go build cache mount after successful PR E2E
+        if: success() && inputs.scenario == 'pr' && steps.image-go-cache.outputs.cache-hit != 'true'
+        run: |
+          cache="$RUNNER_TEMP/image-go-build"
+          image="$(sed -n 's/^FROM --platform=\$BUILDPLATFORM \(golang:[^ ]*\) AS build$/\1/p' kubernetes/Dockerfile)"
+          rm -rf "$cache"
+          if ! test -n "$image" ||
+              ! printf 'FROM %s AS cache\nRUN --mount=type=cache,target=/root/.cache/go-build mkdir /out && cp -a /root/.cache/go-build/. /out/\nFROM scratch\nCOPY --from=cache /out /\n' "$image" |
+              docker build --quiet --output "type=local,dest=$cache" -; then
+            rm -rf "$cache"
+            echo "::warning::Image Go build cache was not extracted; it will not be saved"
+          fi
       - name: Export only public PR outcomes
         if: always() && steps.guard.outcome == 'success' && inputs.scenario == 'pr'
         run: |

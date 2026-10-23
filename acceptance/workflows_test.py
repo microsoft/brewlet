@@ -49,19 +49,57 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("needs: [context, contracts, producer-integration, linux-overlay-contract, archive-history, e2e]", aggregate)
         program = block(aggregate, "Require every prerequisite")
         dependencies = ("CONTEXT", "CONTRACTS", "PRODUCER", "OVERLAY", "HISTORY", "E2E")
-        for dependency in dependencies:
-            for value in ("success", "failure", "skipped", "cancelled", ""):
-                environment = dict.fromkeys(dependencies, "success")
-                environment[dependency] = value
-                result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
-                self.assertEqual(value == "success", result.returncode == 0, (dependency, value))
+        for required in ("true", "false", ""):
+            for dependency in dependencies:
+                for value in ("success", "failure", "skipped", "cancelled", ""):
+                    environment = dict.fromkeys(dependencies, "success")
+                    environment["E2E_REQUIRED"] = required
+                    if required != "true":
+                        environment["E2E"] = "skipped"
+                    environment[dependency] = value
+                    passing = value == "success" if dependency != "E2E" or required == "true" else value == "skipped"
+                    passing = passing and required in ("true", "false")
+                    result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
+                    self.assertEqual(passing, result.returncode == 0, (required, dependency, value))
         e2e = text.split("\n  e2e:", 1)[1].split("\n  producer-integration:", 1)[0]
-        self.assertIn("needs: [context, contracts, producer-integration, linux-overlay-contract, archive-history]", e2e)
+        self.assertIn("    needs: context\n", e2e)
+        self.assertIn("needs.context.outputs.e2e == 'true'", e2e)
         self.assertIn("uses: ./.github/workflows/e2e.yml", e2e)
         self.assertIn("scenario: pr", e2e)
         self.assertIn("architecture: amd64", e2e)
         self.assertNotIn("continue-on-error", text)
         self.assertNotIn("make acceptance", text)
+
+    def test_e2e_scope_skips_only_exact_documentation_and_workflow_pull_requests(self):
+        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
+        listing = text.split("List exact pull request changes for E2E scope", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("if: github.event_name == 'pull_request'", listing)
+        self.assertIn('test "$head" = "$SOURCE"', listing)
+        self.assertIn("previous_filename", listing)
+        program = block(text, "Classify E2E scope")
+        for event, listed, files, required in (
+                ("pull_request", "true", ["docs/index.md", "README.md", "site/index.html"], "false"),
+                ("pull_request", "true", [".github/dependabot.yml", ".github/workflows/site-pages.yml"], "false"),
+                ("pull_request", "true", ["release-notes/v2.md", "kubernetes/README.md"], "false"),
+                ("pull_request", "true", ["docs/index.md", "pkg/runtime/x.go"], "true"),
+                ("pull_request", "true", [".github/workflows/e2e.yml"], "true"),
+                ("pull_request", "true", [".github/workflows/v2-ci.yml"], "true"),
+                ("pull_request", "true", ["integration-tests/live-v2/harness.py"], "true"),
+                ("pull_request", "true", ["docs/../go.mod.md", "go.sum"], "true"),
+                ("pull_request", "true", [], "true"),
+                ("pull_request", "false", ["docs/index.md"], "true"),
+                ("pull_request", "", ["docs/index.md"], "true"),
+                ("push", "true", ["docs/index.md"], "true"),
+                ("workflow_dispatch", "true", ["docs/index.md"], "true"),
+                ("workflow_call", "", [], "true")):
+            with tempfile.TemporaryDirectory() as temporary:
+                listing = Path(temporary) / "files"
+                listing.write_text("".join(name + "\n" for name in files))
+                output = Path(temporary) / "output"
+                environment = {"EVENT": event, "LISTED": listed, "FILES": str(listing),
+                    "GITHUB_OUTPUT": str(output)}
+                subprocess.run(["bash", "-eu", "-c", program], env=environment, check=True, capture_output=True)
+                self.assertEqual("e2e=" + required + "\n", output.read_text(), (event, listed, files))
 
     def test_evidence_only_jobs_cannot_emit_a_green_required_pr_check(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
@@ -122,6 +160,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("steps.guard.outcome == 'success'", export)
         self.assertNotIn("${{ inputs.", export.split("        run: |", 1)[1])
         self.assertIn("persist-credentials: false", text)
+        for name in ("Restore PR E2E host Go caches", "Restore PR E2E image Go build cache",
+                     "Seed BuildKit Go build cache mount", "Extract BuildKit Go build cache mount"):
+            step = text.split("      - name: " + name, 1)[1].split("      - ", 1)[0]
+            self.assertIn("inputs.scenario == 'pr'", step, name)
+        self.assertIn("cache: ${{ inputs.scenario != 'pr' }}", text)
+        self.assertLess(text.index("Seed BuildKit"), text.index("harness.py --scenario pr"))
+        self.assertLess(text.index("harness.py --scenario pr"), text.index("Extract BuildKit"))
         program = block(text, "Refuse unsupported execution contexts")
         for event, ref, head, scenario, success in (
                 ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", True),

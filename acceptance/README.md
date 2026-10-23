@@ -7,9 +7,18 @@
 | `Brewlet validation` in `v2-ci.yml` | Contracts, native producer/kernel checks, and a real four-language Kubernetes E2E | Required PR validation, not full promotion qualification |
 | `Brewlet promotion qualification` | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
 
-Green unit/contract checks alone cannot make `Brewlet validation` green. Its
-aggregate requires the real E2E job to succeed; failed, skipped or cancelled
-prerequisites fail the aggregate. There are no path-based E2E opt-outs.
+Green unit/contract checks alone cannot make `Brewlet validation` green. When
+E2E is in scope its aggregate requires the real E2E job to succeed; failed,
+skipped or cancelled prerequisites fail the aggregate. E2E starts as soon as the
+CI context is validated, in parallel with the other prerequisites.
+
+The only E2E opt-out is a pull request whose exact head commit changes nothing
+but documentation or workflow files: `docs/`, `site/`, `release-notes/`, any
+`*.md`, or `.github/` other than `e2e.yml` and `v2-ci.yml`. The `context` job
+lists the PR's files (including rename sources) from the API and fails closed:
+listing errors, a moved head, 3000 or more files, pushes to `main` and manual
+runs all require E2E. When E2E is out of scope, the aggregate requires it to be
+skipped, never failed or cancelled.
 Fork PRs cannot enter the trusted privileged runner: a maintainer must explicitly
 test the commit through a trusted repository branch. This is a failure, not a
 skipped green check. No `pull_request_target` or write credentials are used.

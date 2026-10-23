@@ -128,6 +128,7 @@ func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testin
 	var workflow struct {
 		Jobs map[string]struct {
 			Steps []struct {
+				Uses string
 				Run  string
 				With map[string]string
 			}
@@ -145,12 +146,22 @@ func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testin
 		jobRunner, jobUpload := false, false
 		for _, step := range job.Steps {
 			jobRunner = jobRunner || strings.Contains(step.Run, "python3 acceptance/qualify.py --run")
-			if path, ok := step.With["path"]; ok {
-				if path != "acceptance-export/*.json" {
-					t.Fatalf("real-node workflow exposes private observations: %s", path)
-				}
-				jobUpload = true
+			path, ok := step.With["path"]
+			if !ok {
+				continue
 			}
+			if strings.HasPrefix(step.Uses, "actions/cache@") {
+				for _, private := range []string{"integration-tests", "acceptance-export", "run-pr-", "work"} {
+					if strings.Contains(path, private) {
+						t.Fatalf("real-node workflow caches private observations: %s", path)
+					}
+				}
+				continue
+			}
+			if path != "acceptance-export/*.json" {
+				t.Fatalf("real-node workflow exposes private observations: %s", path)
+			}
+			jobUpload = true
 		}
 		if jobRunner {
 			runner = true
