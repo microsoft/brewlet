@@ -74,17 +74,6 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
       <nav class="container language-strip" aria-label="Tested workload guides"><span>Tested workload examples</span><a href="docs/java/">Java</a><a href="docs/python/">Python</a><a href="docs/nodejs/">Node.js</a><a href="docs/dotnet/">.NET</a><a href="docs/webassembly/">WebAssembly</a></nav>
     </section>
 
-    <section class="section" id="why" aria-labelledby="why-title">
-      <div class="container">
-        <div class="section-heading"><h2 id="why-title">Put the runtime back<br>in infrastructure.</h2><p>Like the OS or Kubernetes, the runtime is provisioned and updated as infrastructure—not rebuilt into each application image.</p></div>
-        <div class="ownership-comparison">
-          <div><h3>A conventional application image</h3><p>The application image references its runtime and userland. Updating that base normally means rebuilding or recomposing the application image, then rolling it out.</p><div class="comparison-layers"><span>Application + dependencies</span><span>Runtime</span><span>OS userland</span></div></div>
-          <div><h3>With Brewlet</h3><p>The workload ships code, dependencies and a launch descriptor. Infrastructure supplies and updates the approved runtime. New containers use the updated runtime without rebuilding application bytes.</p><div class="comparison-layers separated"><span>Application + dependencies + launch</span><span>Infrastructure: runtime + userland</span></div></div>
-        </div>
-        <p class="fine-print">Both approaches cache unchanged layers. Shared runtime files do not mean shared application processes or heaps. Runtime rotation does not patch libraries bundled in your application. <a href="docs/choosing-brewlet/">When to use Brewlet—and when not to</a>.</p>
-      </div>
-    </section>
-
     <section class="section tinted" id="devoxx" aria-labelledby="devoxx-heading">
       <div class="container devoxx-layout">
         <div class="devoxx-copy">
@@ -99,6 +88,17 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           <img src="assets/images/devoxx-2026-thumbnail.jpg" alt="Bruno Borges presenting Brewlet at Devoxx Belgium 2026" width="1280" height="720" loading="lazy" decoding="async">
           <span class="devoxx-play-mark" aria-hidden="true">▶</span>
         </a>
+      </div>
+    </section>
+
+    <section class="section" id="why" aria-labelledby="why-title">
+      <div class="container">
+        <div class="section-heading"><h2 id="why-title">Put the runtime back<br>in infrastructure.</h2><p>Like the OS or Kubernetes, the runtime is provisioned and updated as infrastructure—not rebuilt into each application image.</p></div>
+        <div class="ownership-comparison">
+          <div><h3>A conventional application image</h3><p>The application image references its runtime and userland. Updating that base normally means rebuilding or recomposing the application image, then rolling it out.</p><div class="comparison-layers"><span>Application + dependencies</span><span>Runtime</span><span>OS userland</span></div></div>
+          <div><h3>With Brewlet</h3><p>The workload ships code, dependencies and a launch descriptor. Infrastructure supplies and updates the approved runtime. New containers use the updated runtime without rebuilding application bytes.</p><div class="comparison-layers separated"><span>Application + dependencies + launch</span><span>Infrastructure: runtime + userland</span></div></div>
+        </div>
+        <p class="fine-print">Both approaches cache unchanged layers. Shared runtime files do not mean shared application processes or heaps. Runtime rotation does not patch libraries bundled in your application. <a href="docs/choosing-brewlet/">When to use Brewlet—and when not to</a>.</p>
       </div>
     </section>
 
