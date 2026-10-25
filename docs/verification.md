@@ -108,8 +108,9 @@ python3 site/scripts/tutorial_check.py
 ```
 
 This default checks shell/step structure only. Explicit `--run` executes the
-exact guide blocks on one new private kind cluster, including HTTP, binding
-identity, source rotation, unchanged app digest and normal cleanup. It requires
+exact guide blocks on one new private kind cluster named `brewlet`, including
+HTTP, source rotation, old-generation Pod retention and replacement, and normal
+cleanup. It requires
 the tutorial prerequisites and is not the complete qualification suite.
 
 The recorded exact-command guide passed locally on a fresh arm64 node:

@@ -29,9 +29,10 @@ integration. A Secret usable by the application namespace is not automatically
 available to a privileged runtime-source pull. Prefer digest-pinned application
 references and verify actual pull failures/events separately from root installation.
 
-The [local tutorial](local-kubernetes.md) preimports OCI content into its private
-node and uses `Never`; it intentionally does not qualify production registry
-authentication or TLS.
+The [local tutorial](local-kubernetes.md) preimports the application image into
+its private node and uses `Never`; the node pulls the public runtime images
+itself. It intentionally does not qualify production registry authentication or
+TLS.
 
 ## Runtime sources and mirrors
 

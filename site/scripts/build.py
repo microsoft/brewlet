@@ -55,6 +55,7 @@ def main():
                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
     shutil.copytree(SITE / "assets", OUTPUT / "assets", dirs_exist_ok=True)
     shutil.copy2(SITE / "index.html", OUTPUT / "index.html")
+    shutil.copy2(SITE / "install.sh", OUTPUT / "install.sh")
     shutil.copy2(ROOT / "LICENSE.txt", OUTPUT / "LICENSE.txt")
     (OUTPUT / "NOTICE.txt").write_text(notices())
     tokens = (SITE / "assets/css/theme.css").read_text()
