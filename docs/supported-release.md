@@ -118,23 +118,25 @@ pinned fingerprint.
    Optionally add curated notes in `release-notes/VERSION.md`; they are placed
    above the generated changelog. Betas without curated notes get a standard
    "not stable" warning.
-2. Merge to `main` and wait for **Brewlet CI** to pass on the merge commit.
+2. Merge to `main`. Optionally dispatch **Brewlet full validation** for the merge
+   commit first; the release runs it again regardless.
 3. Tag that exact commit and push the tag:
 
    ```sh
-   git tag v0.8.1 <green-main-commit>
+   git tag v0.8.1 <main-commit>
    git push origin v0.8.1
    ```
 
 The `release.yml` workflow then:
 
 - checks that the tag equals `v` + `release.json` version;
-- requires a successful **Brewlet CI** push run on `main` for the tagged commit
-  (waiting for an in-progress run), so only reviewed, green main commits ship;
+- runs the complete **Brewlet full validation** workflow (`full-validation.yml`,
+  the same one that runs weekly) for the tagged commit: every check, every
+  CodeQL language and the four-language real E2E on amd64 and arm64;
 - builds and verifies the candidate with `release-build.yml` (tests, legal
   checks, reproducibility, SBOMs, provenance, native CLI and Maven consumer
   smoke tests);
-- in the `publish` job, re-verifies the candidate, attestations, tag commit and
+- only after full validation and the candidate build both succeed, the `publish` job re-verifies the candidate, attestations, tag commit and
   owner policy **before** any credential is used, then signs the Maven bytes,
   transfers images and chart to GHCR, submits the signed bundle to Maven
   Central, publishes the GitHub release with generated notes and independently

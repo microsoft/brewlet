@@ -52,14 +52,14 @@ def index_document(path):
 
 def artifact_files(name, source):
     if name == f"checks-contracts-{source}":
-        return ".github/workflows/v2-ci.yml", {"go-contracts.json", "maven.json"}
+        return ".github/workflows/full-validation.yml", {"go-contracts.json", "maven.json"}
     if name == f"checks-documentation-{source}":
         return ".github/workflows/site-pages.yml", {"documentation.json"}
     for arch in ("amd64", "arm64"):
         for group, checks in (("producer", ("fixtures", "registry")),
                              ("kernel", ("native-contracts", "go-vet"))):
             if name == f"checks-{group}-{arch}-{source}":
-                return ".github/workflows/v2-ci.yml", {f"{check}-{arch}.json" for check in checks}
+                return ".github/workflows/full-validation.yml", {f"{check}-{arch}.json" for check in checks}
         for scenario, suites in (("complete", COMPLETE), ("managed", ("managed",)),
                                  ("managed-wasm", ("managed-wasm",))):
             if name == f"e2e-{arch}-{scenario}-{source}":
@@ -126,7 +126,7 @@ def download(actions, record, identity):
     run_id, artifact_id = positive_id(record["runId"]), positive_id(record["artifactId"])
     workflow, filenames = artifact_files(record["name"], identity["checkout"])
     run = actions.get(f"/actions/runs/{run_id}")
-    events = ("pull_request", "push", "workflow_dispatch") if workflow.endswith("v2-ci.yml") else ("workflow_dispatch",)
+    events = ("schedule", "workflow_dispatch") if workflow.endswith("full-validation.yml") else ("workflow_dispatch",)
     require(run.get("event") in events and run.get("head_sha") == identity["checkout"]
             and run.get("path") == workflow and run.get("status") == "completed"
             and run.get("conclusion") == "success", "run is not a successful immutable qualification invocation")
@@ -212,9 +212,9 @@ def record_history(actions, document, run_id):
     run_id = positive_id(run_id)
     run = actions.get(f"/actions/runs/{run_id}")
     source = run.get("head_sha", "")
-    require(run.get("path") == ".github/workflows/v2-ci.yml"
+    require(run.get("path") == ".github/workflows/full-validation.yml"
             and isinstance(source, str) and re.fullmatch(r"[0-9a-f]{40}", source),
-            "historical archive must belong to the CI workflow")
+            "historical archive must belong to the full validation workflow")
     listing = actions.get(f"/actions/runs/{run_id}/artifacts?per_page=100")
     matches = [item for item in listing["artifacts"]
                if item["name"] == "historical-acceptance-receipts-" + source and item["expired"] is False]

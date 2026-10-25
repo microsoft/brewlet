@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RoutingTests(unittest.TestCase):
-    def test_publisher_runs_only_from_a_version_tag_after_ci_and_candidate(self):
+    def test_publisher_runs_only_from_a_version_tag_after_full_validation_and_candidate(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
         triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertIn('  push:\n    tags: ["v*"]', triggers)
@@ -21,13 +21,18 @@ class RoutingTests(unittest.TestCase):
         self.assertNotIn("branches", triggers)
         self.assertNotIn("pull_request", triggers)
         self.assertIn('test "$REF" = "refs/tags/v$version"', text)
-        gate = text.split("\n  ci-gate:\n", 1)[1].split("\n\n  candidate:", 1)[0]
+        gate = text.split("\n  validation:\n", 1)[1].split("\n\n  candidate:", 1)[0]
+        self.assertIn("needs: metadata", gate)
         self.assertIn("if: ${{ github.event_name == 'push' }}", gate)
-        self.assertIn("actions/workflows/v2-ci.yml/runs?head_sha=$SOURCE&event=push&branch=main", gate)
+        self.assertIn("uses: ./.github/workflows/full-validation.yml", gate)
+        self.assertIn("expected_sha: ${{ github.sha }}", gate)
+        self.assertIn("security-events: write", gate)
+        self.assertNotIn("ci-gate", text)
+        self.assertNotIn("v2-ci", text)
         publish = text.split("\n  publish:\n", 1)[1]
-        self.assertIn("needs: [metadata, ci-gate, candidate]", publish)
+        self.assertIn("needs: [metadata, validation, candidate]", publish)
         self.assertIn("github.event_name == 'push'", publish)
-        for prerequisite in ("metadata", "ci-gate", "candidate"):
+        for prerequisite in ("metadata", "validation", "candidate"):
             self.assertIn("needs." + prerequisite + ".result == 'success'", publish)
         self.assertIn("environment: maven-central", publish)
         for unsafe in ("continue-on-error", "always() &&", "secrets: inherit", "git tag", "push --tags", "--confirm"):

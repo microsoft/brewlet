@@ -1,0 +1,206 @@
+name: Brewlet checks
+
+# Reusable non-live checks shared by the PR and full validation workflows.
+# Callers choose the scope; every selected check fails closed.
+on:
+  workflow_call:
+    inputs:
+      source:
+        description: Exact immutable commit to check
+        type: string
+        required: true
+      go:
+        description: Go contracts and Linux builds for both architectures
+        type: boolean
+        default: true
+      maven:
+        description: Maven plugin contracts
+        type: boolean
+        default: true
+      python:
+        description: Offline safeguard and ledger structure checks
+        type: boolean
+        default: true
+      legal:
+        description: Redistribution notices and packaging (also runs Maven, which packages the checked JAR)
+        type: boolean
+        default: true
+      producer:
+        description: Native producer fixtures and registry publication
+        type: boolean
+        default: true
+      overlay:
+        description: Native Linux overlay and kernel contracts
+        type: boolean
+        default: true
+      architectures:
+        description: JSON list of native architectures for producer and overlay checks
+        type: string
+        default: '["amd64","arm64"]'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    if: inputs.go || inputs.maven || inputs.python || inputs.legal
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require an immutable source
+        env:
+          SOURCE: ${{ inputs.source }}
+        run: '[[ "$SOURCE" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore contracts Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-contracts-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-contracts-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
+            go-contracts-${{ runner.os }}-${{ runner.arch }}-
+      - if: inputs.maven || inputs.legal
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Execute Go contracts once and retain a public receipt
+        if: inputs.go
+        run: python3 acceptance/run_check.py go-contracts
+      - name: Execute Maven contracts once and retain a public receipt
+        if: inputs.maven || inputs.legal
+        run: python3 acceptance/run_check.py maven
+      - name: Offline safeguard and ledger structure checks
+        if: inputs.python
+        run: make test-python
+      - name: Linux binaries on both declared architectures
+        if: inputs.go
+        run: |
+          GOOS=linux GOARCH=amd64 go build ./...
+          GOOS=linux GOARCH=arm64 go build ./...
+      - name: Current redistribution notices and packaging
+        if: inputs.legal
+        run: make legal-check
+      # Full validation refreshes the per-job cache that pull requests restore; PRs save only on a cold miss.
+      - name: Save contracts Go caches
+        if: success() && (github.event_name != 'pull_request' || steps.go-cache.outputs.cache-matched-key == '')
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always() && (inputs.go || inputs.maven || inputs.legal)
+        with:
+          name: checks-contracts-${{ inputs.source }}
+          path: acceptance-export/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  producer-integration:
+    if: inputs.producer
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: ${{ fromJSON(inputs.architectures) }}
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore producer Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-producer-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-producer-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
+            go-producer-${{ runner.os }}-${{ runner.arch }}-
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22.22.0"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          global-json-file: integration-tests/fixtures/dotnet/global.json
+      - name: Build producer
+        run: make build
+      - name: Four language fixtures and optional Maven producer
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 acceptance/run_check.py fixtures
+      - name: Real registry publication (not node acceptance)
+        run: python3 acceptance/run_check.py registry
+      # Full validation refreshes the per-job cache that pull requests restore; PRs save only on a cold miss.
+      - name: Save producer Go caches
+        if: success() && (github.event_name != 'pull_request' || steps.go-cache.outputs.cache-matched-key == '')
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: checks-producer-${{ matrix.architecture }}-${{ inputs.source }}
+          path: acceptance-export/*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  linux-overlay-contract:
+    if: inputs.overlay
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: ${{ fromJSON(inputs.architectures) }}
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - name: Exercise real overlay metadata, not a scheduling test
+        run: |
+          python3 acceptance/run_check.py native-contracts
+          python3 acceptance/run_check.py go-vet
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: checks-kernel-${{ matrix.architecture }}-${{ inputs.source }}
+          path: acceptance-export/*.json
+          if-no-files-found: error
+          retention-days: 14

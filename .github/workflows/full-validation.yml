@@ -1,0 +1,145 @@
+name: Brewlet full validation
+
+# Every check, CodeQL language and native E2E on both architectures.
+# Runs weekly on main, on manual dispatch, and is called by the release workflow
+# for the exact tagged commit before anything is published.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact immutable commit to validate
+        type: string
+        required: true
+      purpose:
+        description: Full validation or historical evidence archival
+        type: choice
+        default: validation
+        options: [validation, archive-history]
+  workflow_call:
+    inputs:
+      expected_sha:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  context:
+    runs-on: ubuntu-24.04
+    outputs:
+      source: ${{ steps.guard.outputs.source }}
+      purpose: ${{ steps.guard.outputs.purpose }}
+    steps:
+      - name: Validate immutable source and purpose
+        id: guard
+        env:
+          EVENT: ${{ github.event_name }}
+          SOURCE: ${{ github.sha }}
+          EXPECTED: ${{ inputs.expected_sha }}
+          PURPOSE: ${{ inputs.purpose || 'validation' }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          test "$REPOSITORY" = microsoft/brewlet
+          [[ "$SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          case "$PURPOSE" in validation|archive-history) ;; *) exit 1 ;; esac
+          case "$EVENT" in
+            schedule)
+              test -z "$EXPECTED"
+              test "$PURPOSE" = validation
+              test "$REF" = refs/heads/main
+              ;;
+            workflow_dispatch)
+              [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]]
+              test "$SOURCE" = "$EXPECTED"
+              case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac
+              ;;
+            push)
+              # Only the release workflow calls full validation from a push: a version tag.
+              [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]]
+              test "$SOURCE" = "$EXPECTED"
+              test "$PURPOSE" = validation
+              case "$REF" in refs/tags/v*) ;; *) exit 1 ;; esac
+              ;;
+            *) exit 1 ;;
+          esac
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "purpose=$PURPOSE" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Checks
+    needs: context
+    if: needs.context.outputs.purpose == 'validation'
+    uses: ./.github/workflows/checks.yml
+    with:
+      source: ${{ needs.context.outputs.source }}
+      architectures: '["amd64","arm64"]'
+
+  e2e:
+    name: Real E2E
+    needs: context
+    if: needs.context.outputs.purpose == 'validation'
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [amd64, arm64]
+    uses: ./.github/workflows/e2e.yml
+    with:
+      expected_sha: ${{ needs.context.outputs.source }}
+      scenario: pr
+      architecture: ${{ matrix.architecture }}
+      languages: all
+
+  codeql:
+    name: CodeQL
+    needs: context
+    if: needs.context.outputs.purpose == 'validation'
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/codeql.yml
+
+  archive-history:
+    name: Historical evidence archive
+    needs: context
+    if: needs.context.outputs.purpose == 'validation' || needs.context.outputs.purpose == 'archive-history'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.context.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Materialize byte-verified historical public JSON only
+        id: history
+        run: python3 acceptance/evidence_index.py export-history --if-needed --output "${{ runner.temp }}/acceptance-history"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: steps.history.outputs.written == 'true'
+        with:
+          name: historical-acceptance-receipts-${{ needs.context.outputs.source }}
+          path: ${{ runner.temp }}/acceptance-history/
+          if-no-files-found: error
+          retention-days: 90
+
+  validation:
+    name: ${{ inputs.purpose == 'archive-history' && 'Archive-only status' || 'Brewlet full validation' }}
+    if: always() && (needs.context.outputs.purpose == 'validation' || needs.context.result != 'success')
+    needs: [context, checks, e2e, codeql, archive-history]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every prerequisite to succeed, never skipped or cancelled
+        env:
+          CONTEXT: ${{ needs.context.result }}
+          CHECKS: ${{ needs.checks.result }}
+          E2E: ${{ needs.e2e.result }}
+          CODEQL: ${{ needs.codeql.result }}
+          HISTORY: ${{ needs.archive-history.result }}
+        run: |
+          test "$CONTEXT" = success
+          test "$CHECKS" = success
+          test "$E2E" = success
+          test "$CODEQL" = success
+          test "$HISTORY" = success

@@ -21,15 +21,17 @@ remains deferred at the user's direction.
 
 ## Routine CI is not promotion qualification
 
-The ordinary `Brewlet validation` check runs on PRs and pushes to `main`.
-It must pass its correctness, producer, native-overlay and packaging checks, but
-does not require promotion receipts for every development change. Its real
-E2E starts immediately in parallel with those checks. Pull requests run it
-against the Python fixture only, for speed; pushes to `main`, which gate
-releases, run all four languages. Pull requests that change only documentation
-or workflow files skip it. Pull requests also run the native producer and
-Linux overlay checks on amd64 only; pushes to `main` run them on both native
-amd64 and arm64.
+`Brewlet PR validation` runs only for pull requests and selects just the checks
+impacted by the changed files: correctness, producer, native-overlay, packaging,
+CodeQL, website and real E2E. It does not require promotion receipts for every
+development change. Its real E2E starts immediately in parallel with the other
+checks, on amd64 against the Python fixture unless another language's fixture
+changed. Unknown paths and workflow infrastructure changes select every check.
+
+`Brewlet full validation` runs every check, every CodeQL language and the
+four-language real E2E on both native amd64 and arm64. It runs weekly on
+`main`, on manual dispatch, and is called by the release workflow for the exact
+tagged commit before anything is published.
 
 Strict `make acceptance` runs separately in
 [`promotion-qualification.yml`](https://github.com/microsoft/brewlet/blob/main/.github/workflows/promotion-qualification.yml),

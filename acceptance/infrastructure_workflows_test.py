@@ -1,5 +1,6 @@
 """Offline contracts for scanning, dependency updates and Pages publication."""
 
+import json
 from pathlib import Path
 import re
 import unittest
@@ -9,25 +10,33 @@ WORKFLOWS = ROOT / ".github/workflows"
 
 
 class InfrastructureWorkflowTests(unittest.TestCase):
-    def test_codeql_covers_repository_languages_without_path_filters(self):
+    def test_codeql_is_reusable_and_defaults_to_every_repository_language(self):
         text = (WORKFLOWS / "codeql.yml").read_text()
-        self.assertIn("branches: [main]", text)
-        for trigger in ("push", "pull_request", "schedule", "workflow_dispatch"):
-            self.assertIn("  " + trigger + ":", text)
+        triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+        self.assertEqual(["  workflow_call:"],
+                         [line for line in triggers.splitlines() if line.startswith("  ") and not line.startswith("   ")])
         self.assertNotIn("paths:", text)
         self.assertNotIn("pull_request_target", text)
-        self.assertEqual(
-            {"actions", "csharp", "go", "java-kotlin", "javascript-typescript", "python"},
-            set(re.findall(r"- language: ([\w-]+)", text)))
-        self.assertIn("language: go\n            build-mode: autobuild", text)
+        every = ["actions", "csharp", "go", "java-kotlin", "javascript-typescript", "python"]
+        default = re.search(r"default: '(\[.*\])'", text).group(1)
+        self.assertEqual(every, json.loads(default))
+        guard = text.split("Require a supported language", 1)[1].split("\n      - ", 1)[0]
+        self.assertIn("case \"$LANGUAGE\" in " + "|".join(every) + ") ;;", guard)
+        self.assertIn("language: ${{ fromJSON(inputs.languages) }}", text)
+        self.assertIn("BUILD_MODE: ${{ matrix.language == 'go' && 'autobuild' || 'none' }}", text)
         self.assertIn("go-version-file: go.mod", text)
         self.assertIn("global-json-file: integration-tests/fixtures/dotnet/global.json", text)
-        self.assertIn("if: matrix.build-mode == 'autobuild'", text)
+        self.assertIn("if: env.BUILD_MODE == 'autobuild'", text)
         self.assertIn("languages: ${{ matrix.language }}", text)
-        self.assertIn("build-mode: ${{ matrix.build-mode }}", text)
+        self.assertIn("build-mode: ${{ env.BUILD_MODE }}", text)
         self.assertIn("category: /language:${{ matrix.language }}", text)
         self.assertIn("      security-events: write", text)
         self.assertIn("persist-credentials: false", text)
+        pr = (WORKFLOWS / "pr.yml").read_text().split("\n  codeql:", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("languages: ${{ needs.context.outputs.codeql }}", pr)
+        for caller in (pr, (WORKFLOWS / "full-validation.yml").read_text().split("\n  codeql:", 1)[1]):
+            self.assertIn("uses: ./.github/workflows/codeql.yml", caller)
+            self.assertIn("security-events: write", caller)
 
     def test_dependabot_uses_current_manifest_locations(self):
         text = (ROOT / ".github/dependabot.yml").read_text()
@@ -85,7 +94,7 @@ class InfrastructureWorkflowTests(unittest.TestCase):
         self.assertIn("group: pages\n  cancel-in-progress: false", text)
 
     def test_new_workflows_pin_actions_and_do_not_expose_secrets(self):
-        for name in ("codeql.yml", "site-deploy.yml"):
+        for name in ("codeql.yml", "site-deploy.yml", "pr.yml", "checks.yml", "full-validation.yml"):
             text = (WORKFLOWS / name).read_text()
             self.assertIn("permissions:\n  contents: read", text)
             self.assertNotIn("secrets.", text)

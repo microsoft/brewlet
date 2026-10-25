@@ -35,23 +35,23 @@ Admission denials, foreign destinations and TLS certificate-identity failures
 fail immediately; application assertions and installation deadlines are not
 relaxed by this readiness check.
 
-The branch's `.github/workflows/e2e.yml` is reused by automatic PR CI and can
+The branch's `.github/workflows/e2e.yml` is reused by PR and full validation and can
 also be dispatched manually at an exact `expected_sha`. Its default `pr` scenario
 is the real four-language baseline: admission/startup, execution, rotations,
 observability, operator restart, protected CRI identity and normal cleanup.
 Its `languages` input narrows that same pinned scenario to the Python fixture
 (`harness.py --scenario pr --pr-language python`, verified with
-`qualify.py --verify-pr ... --languages python`); automatic CI uses it only for
-pull requests, while pushes to `main` keep all four languages. A Python-only
+`qualify.py --verify-pr ... --languages python`); automatic validation uses it only for
+pull requests that change no non-Python fixture, while full validation keeps all four languages. A Python-only
 run builds and probes only the Python host fixture, and neither requires nor
 installs the Java, Node.js or .NET toolchains. The receipt
 records `selectedLanguages` and gaps for the omitted languages and for the
 node-wide fallback fence against another runtime ID (INV-05), which needs a
 second runtime.
 It deliberately omits the long fault/accounting/companion matrix, which remains
-mandatory before promotion. The required `Brewlet validation` aggregate cannot
-pass if this E2E job fails, cancels or skips, except that pull requests changing
-only documentation or workflow files skip it (see `acceptance/README.md`). The
+mandatory before promotion. Neither `Brewlet PR validation` nor `Brewlet full validation`
+can pass if a required E2E job fails, cancels or skips; pull requests that do not
+impact runtime, fixture or harness code skip it (see `acceptance/README.md`). The
 same `pr` scenario is a bounded manual debugging route that actually reaches the
 protected-identity phase. Only the `pr` scenario restores Actions caches: the
 host Go build/module caches and the image builds' BuildKit Go build cache mount,

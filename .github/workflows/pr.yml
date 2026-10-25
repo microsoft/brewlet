@@ -1,0 +1,222 @@
+name: Brewlet PR
+
+# Pull requests only: run just the checks impacted by the PR's changed files.
+# Classification fails closed: unknown paths or listing errors select every PR check.
+on:
+  pull_request:
+
+concurrency:
+  group: brewlet-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  context:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      source: ${{ steps.guard.outputs.source }}
+      checks: ${{ steps.scope.outputs.checks }}
+      go: ${{ steps.scope.outputs.go }}
+      maven: ${{ steps.scope.outputs.maven }}
+      python: ${{ steps.scope.outputs.python }}
+      legal: ${{ steps.scope.outputs.legal }}
+      producer: ${{ steps.scope.outputs.producer }}
+      overlay: ${{ steps.scope.outputs.overlay }}
+      e2e: ${{ steps.scope.outputs.e2e }}
+      e2e_languages: ${{ steps.scope.outputs.e2e_languages }}
+      website: ${{ steps.scope.outputs.website }}
+      codeql: ${{ steps.scope.outputs.codeql }}
+    steps:
+      - name: Validate immutable pull request source
+        id: guard
+        env:
+          EVENT: ${{ github.event_name }}
+          SOURCE: ${{ github.event.pull_request.head.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          test "$REPOSITORY" = microsoft/brewlet
+          test "$EVENT" = pull_request
+          [[ "$SOURCE" =~ ^[0-9a-f]{40}$ ]]
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+      - name: List exact pull request changes
+        id: changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PULL: ${{ github.event.pull_request.number }}
+          SOURCE: ${{ github.event.pull_request.head.sha }}
+        run: |
+          files="$RUNNER_TEMP/pull-request-files"
+          listed=false
+          if meta="$(gh api "repos/$REPOSITORY/pulls/$PULL" --jq '"\(.head.sha) \(.changed_files)"')" &&
+              read -r head count <<< "$meta" && test "$head" = "$SOURCE" && test "$count" -lt 3000 &&
+              gh api --paginate "repos/$REPOSITORY/pulls/$PULL/files?per_page=100" \
+                --jq '.[] | .filename, (.previous_filename // empty)' > "$files"; then
+            listed=true
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          echo "listed=$listed" >> "$GITHUB_OUTPUT"
+      - name: Classify impacted checks, failing closed to every check
+        id: scope
+        env:
+          LISTED: ${{ steps.changes.outputs.listed }}
+          FILES: ${{ steps.changes.outputs.files }}
+        run: |
+          go=false maven=false python=false legal=false producer=false overlay=false
+          e2e=false e2e_all=false website=false everything=false
+          languages=" "
+          runtime() { go=true legal=true producer=true overlay=true e2e=true; }
+          language() { case "$languages" in *" $1 "*) ;; *) languages="$languages$1 " ;; esac; }
+          if test "$LISTED" != true || ! test -s "$FILES"; then
+            everything=true
+          else
+            while IFS= read -r file; do
+              case "$file" in
+                *..*|/*) everything=true ;;
+                .github/workflows/pr.yml|.github/workflows/checks.yml|.github/workflows/e2e.yml|.github/workflows/codeql.yml) everything=true ;;
+                Makefile|acceptance/*) everything=true ;;
+                .github/workflows/site-*) go=true python=true website=true ;;
+                .github/workflows/*) go=true python=true ;;
+                .github/*) python=true ;;
+                docs/README.md) go=true python=true website=true ;;
+                specs/*) python=true website=true ;;
+                docs/*|site/*) website=true ;;
+                release-notes/*) python=true ;;
+                release.json) python=true legal=true ;;
+                LICENSE.txt|NOTICE.txt) legal=true python=true website=true ;;
+                *.md) ;;
+                go.mod|go.sum|*.go|cmd/*|pkg/*|shim/*|kubernetes/*|provisioner/*|conformance/*|architecture/*) runtime ;;
+                examples/*) runtime; python=true ;;
+                maven-plugin/*) maven=true legal=true producer=true ;;
+                integration-tests/fixtures/python/*) producer=true e2e=true ;;
+                integration-tests/fixtures/*) producer=true e2e=true e2e_all=true ;;
+                integration-tests/live-v2/*|integration-tests/e2e/*) python=true e2e=true ;;
+                scripts/*) go=true python=true legal=true ;;
+                *) everything=true ;;
+              esac
+              case "$file" in
+                .github/workflows/*|.github/actions/*) language actions ;;
+                *.cs|*.csproj|*.sln|*/global.json) language csharp ;;
+                go.mod|go.sum|*.go) language go ;;
+                *.java|*.kt|*.kts|pom.xml|*/pom.xml) language java-kotlin ;;
+                *.js|*.cjs|*.mjs|*.jsx|*.ts|*.tsx|*/package.json|*/package-lock.json) language javascript-typescript ;;
+                *.py) language python ;;
+              esac
+            done < "$FILES"
+          fi
+          # make legal-check inspects the packaged Maven plugin JAR.
+          if test "$legal" = true; then maven=true; fi
+          if test "$everything" = true; then
+            go=true maven=true python=true legal=true producer=true overlay=true e2e=true website=true
+            languages=" actions csharp go java-kotlin javascript-typescript python "
+          fi
+          checks=false
+          for selected in "$go" "$maven" "$python" "$legal" "$producer" "$overlay"; do
+            if test "$selected" = true; then checks=true; fi
+          done
+          codeql="$(printf '%s\n' $languages | sort | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()], separators=(",", ":")))')"
+          {
+            echo "checks=$checks"
+            echo "go=$go"
+            echo "maven=$maven"
+            echo "python=$python"
+            echo "legal=$legal"
+            echo "producer=$producer"
+            echo "overlay=$overlay"
+            echo "e2e=$e2e"
+            echo "e2e_languages=$(test "$e2e_all" = true && echo all || echo python)"
+            echo "website=$website"
+            echo "codeql=$codeql"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Impacted PR checks"
+            echo "checks=$checks go=$go maven=$maven python=$python legal=$legal producer=$producer overlay=$overlay"
+            echo "e2e=$e2e ($(test "$e2e_all" = true && echo all || echo python)) website=$website codeql=$codeql"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  checks:
+    name: Checks
+    needs: context
+    if: needs.context.outputs.checks == 'true'
+    uses: ./.github/workflows/checks.yml
+    with:
+      source: ${{ needs.context.outputs.source }}
+      go: ${{ needs.context.outputs.go == 'true' }}
+      maven: ${{ needs.context.outputs.maven == 'true' }}
+      python: ${{ needs.context.outputs.python == 'true' }}
+      legal: ${{ needs.context.outputs.legal == 'true' }}
+      producer: ${{ needs.context.outputs.producer == 'true' }}
+      overlay: ${{ needs.context.outputs.overlay == 'true' }}
+      # Pull requests validate amd64 only; full validation keeps both native architectures.
+      architectures: '["amd64"]'
+
+  e2e:
+    name: Real E2E
+    needs: context
+    if: needs.context.outputs.e2e == 'true'
+    uses: ./.github/workflows/e2e.yml
+    with:
+      expected_sha: ${{ needs.context.outputs.source }}
+      scenario: pr
+      architecture: amd64
+      # The fastest fixture unless the PR changes another language's fixture.
+      languages: ${{ needs.context.outputs.e2e_languages }}
+
+  codeql:
+    name: CodeQL
+    needs: context
+    if: needs.context.outputs.codeql != '[]'
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/codeql.yml
+    with:
+      languages: ${{ needs.context.outputs.codeql }}
+
+  website:
+    name: Website
+    needs: context
+    if: needs.context.outputs.website == 'true'
+    uses: ./.github/workflows/site-pages.yml
+    with:
+      expected_sha: ${{ needs.context.outputs.source }}
+
+  validation:
+    name: Brewlet PR validation
+    if: always()
+    needs: [context, checks, e2e, codeql, website]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every impacted check to succeed and every other check to be skipped
+        env:
+          CONTEXT: ${{ needs.context.result }}
+          CHECKS_REQUIRED: ${{ needs.context.outputs.checks }}
+          CHECKS: ${{ needs.checks.result }}
+          E2E_REQUIRED: ${{ needs.context.outputs.e2e }}
+          E2E: ${{ needs.e2e.result }}
+          CODEQL_LANGUAGES: ${{ needs.context.outputs.codeql }}
+          CODEQL: ${{ needs.codeql.result }}
+          WEBSITE_REQUIRED: ${{ needs.context.outputs.website }}
+          WEBSITE: ${{ needs.website.result }}
+        run: |
+          test "$CONTEXT" = success
+          require() {
+            case "$1" in
+              true) test "$2" = success ;;
+              false) test "$2" = skipped ;;
+              *) return 1 ;;
+            esac
+          }
+          require "$CHECKS_REQUIRED" "$CHECKS"
+          require "$E2E_REQUIRED" "$E2E"
+          require "$WEBSITE_REQUIRED" "$WEBSITE"
+          case "$CODEQL_LANGUAGES" in
+            "[]") require false "$CODEQL" ;;
+            \[*\]) require true "$CODEQL" ;;
+            *) exit 1 ;;
+          esac

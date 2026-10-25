@@ -106,7 +106,7 @@ func TestProductionBuildersKeepCompilerCacheOutsideSnapshots(t *testing.T) {
 }
 
 func TestCIKeepsNativeResolverCacheIsolatedAndExportsOnlyPublicResults(t *testing.T) {
-	contracts, err := os.ReadFile("../.github/workflows/v2-ci.yml")
+	contracts, err := os.ReadFile("../.github/workflows/checks.yml")
 	if err != nil {
 		t.Fatal(err)
 	}

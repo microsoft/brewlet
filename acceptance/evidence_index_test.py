@@ -44,8 +44,8 @@ class ArtifactTests(unittest.TestCase):
         files = {"go-contracts.json": b"{}", "maven.json": b"{}"}
         record = {"runId": 11, "artifactId": 22, "name": name}
         responses = {
-            "/actions/runs/11": {"event": "pull_request", "head_sha": source,
-                "path": ".github/workflows/v2-ci.yml", "status": "completed", "conclusion": "success"},
+            "/actions/runs/11": {"event": "schedule", "head_sha": source,
+                "path": ".github/workflows/full-validation.yml", "status": "completed", "conclusion": "success"},
             "/actions/artifacts/22": {"name": name, "expired": False,
                 "workflow_run": {"id": 11, "head_sha": source}},
             "/actions/artifacts/22/zip": zipped(files)}
@@ -60,6 +60,9 @@ class ArtifactTests(unittest.TestCase):
                 ("/actions/runs/11", "status", "in_progress"),
                 ("/actions/runs/11", "head_sha", "b" * 40),
                 ("/actions/runs/11", "path", ".github/workflows/unrelated.yml"),
+                ("/actions/runs/11", "path", ".github/workflows/release.yml"),
+                ("/actions/runs/11", "event", "pull_request"),
+                ("/actions/runs/11", "event", "push"),
                 ("/actions/artifacts/22", "expired", True),
                 ("/actions/artifacts/22", "name", "unrelated")):
             bad = copy.deepcopy(responses)
@@ -92,7 +95,7 @@ class ArtifactTests(unittest.TestCase):
                 "workflow_run": {"id": 11, "head_sha": source}},
             "/actions/artifacts/22/zip": zipped(files)}
         self.assertEqual(files, index.download(SimpleActions(responses), record, {"checkout": source}))
-        for key, value in (("path", ".github/workflows/v2-ci.yml"),
+        for key, value in (("path", ".github/workflows/full-validation.yml"),
                            ("event", "pull_request"), ("event", "push")):
             bad = copy.deepcopy(responses)
             bad["/actions/runs/11"][key] = value
@@ -162,7 +165,7 @@ class ArtifactTests(unittest.TestCase):
             index.export_history(fixture.root, bad, fixture.root / "bad")
         document = {"schemaVersion": 1, "history": history, "candidate": None}
         actions = SimpleActions({
-            "/actions/runs/11": {"path": ".github/workflows/v2-ci.yml", "head_sha": "a" * 40},
+            "/actions/runs/11": {"path": ".github/workflows/full-validation.yml", "head_sha": "a" * 40},
             "/actions/runs/11/artifacts?per_page=100": {"artifacts": [{
                 "id": 22, "name": "historical-acceptance-receipts-" + "a" * 40, "expired": False}]},
             "/actions/artifacts/22/zip": zipped({relative: original,
@@ -270,7 +273,7 @@ class IndexedAcceptanceTests(unittest.TestCase):
             run_id, artifact_id, name = (artifact[key] for key in ("runId", "artifactId", "name"))
             workflow, files = index.artifact_files(name, self.identity["checkout"])
             responses[f"/actions/runs/{run_id}"] = {
-                "event": "pull_request" if workflow.endswith("v2-ci.yml") else "workflow_dispatch",
+                "event": "schedule" if workflow.endswith("full-validation.yml") else "workflow_dispatch",
                 "head_sha": self.identity["checkout"], "path": workflow,
                 "status": "completed", "conclusion": "success"}
             responses[f"/actions/runs/{run_id}/artifacts?per_page=100"] = {

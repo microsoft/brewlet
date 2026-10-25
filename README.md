@@ -1,7 +1,6 @@
 # Brewlet
 
-[![CI](https://github.com/microsoft/brewlet/actions/workflows/v2-ci.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/v2-ci.yml)
-[![E2E](https://github.com/microsoft/brewlet/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/e2e.yml)
+[![Full validation](https://github.com/microsoft/brewlet/actions/workflows/full-validation.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/full-validation.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/microsoft/brewlet)](go.mod)
 [![License](https://img.shields.io/github/license/microsoft/brewlet)](LICENSE.txt)
 
