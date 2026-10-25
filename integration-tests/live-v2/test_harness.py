@@ -1076,6 +1076,51 @@ class CallbackOrderTests(ProjectWork):
                      "durable_generations", "protected_identity", "pinned_revocation", "production_cleanup"):
             self.assertIn(name, calls)
 
+    def test_pinned_fence_uses_another_runtime_or_records_single_language_gap(self):
+        for kwargs, pending in (({}, "node"), ({"pr_language": "python"}, None)):
+            with self.subTest(kwargs=kwargs):
+                if self.work.exists():
+                    shutil.rmtree(self.work)
+                instance = self.harness(scenario="pr", **kwargs)
+                key = "brewlet.sh/runtime." + h.IDS["python"]
+                ri = {"metadata": {"deletionTimestamp": "now", "finalizers": ["x"]},
+                      "status": {"conditions": [], "reason": "blocked"}}
+                snapshots = iter([{"metadata": {"labels": {key: "ready"}}, "spec": {}}])
+                fenced = {"metadata": {"labels": {key: "ready"}},
+                          "spec": {"taints": [{"key": h.FENCE, "value": "provisioning",
+                                               "effect": "NoSchedule"}]}}
+                instance.node_snapshot = lambda: next(snapshots, fenced)
+                def get(kind, name=None, namespace=None):
+                    if kind == "nodeprofile":
+                        return {"spec": {"runtimeImages": []}, "metadata": {"generation": 1},
+                                "status": {"provisioningGeneration": 1}}
+                    return ri if kind == "runtimeimage" else {"spec": {}}
+                instance.get = get
+                instance.wait = lambda _label, check, timeout=None: h.require(check(), _label)
+                instance.initial = {language: {"lease": "lease"} for language in instance.languages}
+                instance.lease = lambda _pod: "lease"
+                instance.kubectl = lambda *_args: mock.Mock(
+                    stdout="provider-pinned label refusal provider startup-taint write refusal")
+                for name in ("replace_inventory_spec", "install_interceptor", "configure_interceptor",
+                             "delete", "assert_report", "http", "bypass_admission", "restore_admission",
+                             "apply", "no_start", "advertised"):
+                    setattr(instance, name, mock.Mock(return_value=True))
+                instance.pod = mock.Mock(side_effect=lambda name, language, **_: (name, language))
+                instance.record = mock.Mock()
+                with mock.patch.object(h.time, "sleep"):
+                    instance.pinned_revocation()
+                pods = [call.args for call in instance.pod.call_args_list]
+                names = [call.args[0] for call in instance.record.call_args_list]
+                if pending:
+                    self.assertIn(("nodewide-fence-pending", pending), pods)
+                    self.assertIn("real pinned-label fallback is node-wide; old leases survive and "
+                                  "bound revoked start fails", names)
+                else:
+                    self.assertNotIn("nodewide-fence-pending", [pod[0] for pod in pods])
+                    self.assertFalse(any("node-wide" in name for name in names))
+                    self.assertTrue(any(gap.startswith("INV-05 node-wide fallback fence")
+                                        for gap in instance.result["gaps"]))
+
     def test_pr_scope_cannot_use_local_selection_or_disable_pinned_checks(self):
         for kwargs in ({"pinned": False}, {"local_language": "python"}):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(h.Failure, "PR E2E requires pinned"):

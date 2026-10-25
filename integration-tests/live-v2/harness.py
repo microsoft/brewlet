@@ -1564,13 +1564,21 @@ class Harness:
             self.no_start("revoked-bound", "RuntimeImageRevoked", timeout=180)
         finally:
             self.restore_admission()
-        pending = self.pod("nodewide-fence-pending", "node")
-        self.apply(pending)
-        time.sleep(8)
-        require(not self.get("pod", "nodewide-fence-pending", self.namespace)["spec"].get("nodeName"),
-                "fallback fence did not block another runtime ID's new scheduling")
-        self.record("real pinned-label fallback is node-wide; old leases survive and bound revoked start fails",
-                    {"nodeUID": self.node_uid, "retainedLabel": key}, ["E2E-06", "E2E-08", "INV-05"])
+        others = sorted((language for language in self.languages if language != "python"),
+                        key=lambda language: language != "node")
+        if others:
+            self.apply(self.pod("nodewide-fence-pending", others[0]))
+            time.sleep(8)
+            require(not self.get("pod", "nodewide-fence-pending", self.namespace)["spec"].get("nodeName"),
+                    "fallback fence did not block another runtime ID's new scheduling")
+            self.record("real pinned-label fallback is node-wide; old leases survive and bound revoked start fails",
+                        {"nodeUID": self.node_uid, "retainedLabel": key}, ["E2E-06", "E2E-08", "INV-05"])
+        else:
+            self.result["gaps"].append(
+                "INV-05 node-wide fallback fence against another runtime ID not exercised "
+                "by the single-language selection")
+            self.record("real pinned-label fallback retains old leases and bound revoked start fails",
+                        {"nodeUID": self.node_uid, "retainedLabel": key}, ["E2E-06", "E2E-08"])
         self.configure_interceptor([], False)
 
     def production_cleanup(self):
