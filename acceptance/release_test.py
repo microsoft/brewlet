@@ -18,8 +18,9 @@ from scripts import release_tools as tools
 class IdentityTests(unittest.TestCase):
     def test_current_coordinates_and_metadata_agree(self):
         config = r.policy()
-        self.assertEqual("0.8.0", config["version"])
-        self.assertTrue(r.is_prerelease(config["version"]))
+        self.assertEqual("0.8.1", config["version"])
+        self.assertFalse(r.is_prerelease(config["version"]))
+        self.assertFalse(r.is_stable(config["version"]))
         fixture = r.ET.parse(r.ROOT / "integration-tests/fixtures/java/app/pom.xml").getroot()
         plugin = next(item for item in fixture.findall("m:build/m:plugins/m:plugin", r.NS)
                       if item.findtext("m:artifactId", namespaces=r.NS) == "brewlet-maven-plugin")
@@ -39,11 +40,16 @@ class IdentityTests(unittest.TestCase):
         for value in ("0.8.0", "0.10.1", "1.0.0", "1.1.0", "1.0.0-alpha.1", "1.0.0-beta.12", "1.0.0-rc.0"):
             self.assertIsNotNone(r.VERSION.fullmatch(value))
 
-    def test_versions_below_1_0_0_and_suffixed_versions_are_prereleases(self):
-        for value in ("0.8.0", "0.9.3", "0.8.0-rc.1", "1.0.0-alpha.1", "1.0.0-rc.2", "2.0.0-beta.0"):
+    def test_only_suffixed_versions_are_prereleases_and_betas_are_not_stable(self):
+        for value in ("0.8.0-rc.1", "1.0.0-alpha.1", "1.0.0-rc.2", "2.0.0-beta.0"):
             self.assertTrue(r.is_prerelease(value), value)
+            self.assertFalse(r.is_stable(value), value)
+        for value in ("0.8.0", "0.9.3"):
+            self.assertFalse(r.is_prerelease(value), value)
+            self.assertFalse(r.is_stable(value), value)
         for value in ("1.0.0", "1.2.3", "10.0.0"):
             self.assertFalse(r.is_prerelease(value), value)
+            self.assertTrue(r.is_stable(value), value)
         with self.assertRaises(ValueError):
             r.is_prerelease("v0.8.0")
 
@@ -58,7 +64,7 @@ class IdentityTests(unittest.TestCase):
             for name in ("maven-plugin/pom.xml", "kubernetes/charts/brewlet/Chart.yaml"):
                 path = root / name
                 original = path.read_text()
-                path.write_text(original.replace("0.8.0", "0.8.0-SNAPSHOT"))
+                path.write_text(original.replace(r.policy()["version"], r.policy()["version"] + "-SNAPSHOT"))
                 with self.assertRaisesRegex(ValueError, "identity drift"):
                     r.policy(root)
                 path.write_text(original)
@@ -98,8 +104,8 @@ class PackagingTests(unittest.TestCase):
     def test_exact_payload_set_includes_every_distribution(self):
         names = r.expected_files(r.policy())
         self.assertEqual(9, len(names))
-        self.assertIn("brewlet-0.8.0.tgz", names)
-        self.assertIn("brewlet-maven-plugin-0.8.0-javadoc.jar", names)
+        self.assertIn("brewlet-0.8.1.tgz", names)
+        self.assertIn("brewlet-maven-plugin-0.8.1-javadoc.jar", names)
 
 
 class AssuranceTests(unittest.TestCase):
@@ -194,7 +200,7 @@ class PublicationTests(unittest.TestCase):
             with patch.object(p, "run", return_value="b" * 40), self.assertRaisesRegex(ValueError, "exact candidate"):
                 p.preflight(Path("synthetic"))
 
-    def test_beta_releases_are_prereleases_and_never_latest(self):
+    def test_beta_releases_are_published_as_latest(self):
         import os
         def command_result(args, *rest, **kwargs):
             if list(map(str, args[:3])) == ["ghx", "release", "view"] and "isPrerelease" in args:
@@ -213,11 +219,12 @@ class PublicationTests(unittest.TestCase):
         create = next(call for call in calls if call[:3] == ["ghx", "release", "create"])
         edit = next(call for call in calls if call[:3] == ["ghx", "release", "edit"])
         for args in (create, edit):
-            self.assertIn("--prerelease", args)
-            self.assertIn("--latest=false", args)
+            self.assertIn("--prerelease=false", args)
+            self.assertIn("--latest", args)
         self.assertIn("--generate-notes", create)
+        self.assertIn("not stable", create[create.index("--notes") + 1])
         with patch.object(p, "validate_inventory", return_value={"files": []}), \
-                patch.object(p, "run", return_value='{"isPrerelease": false, "assets": []}'), \
+                patch.object(p, "run", return_value='{"isPrerelease": true, "assets": []}'), \
                 tempfile.TemporaryDirectory() as temp, \
                 self.assertRaisesRegex(ValueError, "different channel"):
             p.publish_release(Path(temp))

@@ -24,8 +24,10 @@ remains deferred at the user's direction.
 The ordinary `Brewlet validation` check runs on PRs and pushes to `main`.
 It must pass its correctness, producer, native-overlay and packaging checks, but
 does not require promotion receipts for every development change. Its real
-four-language E2E starts immediately in parallel with those checks; pull requests
-that change only documentation or workflow files skip it.
+E2E starts immediately in parallel with those checks. Pull requests run it
+against the Python fixture only, for speed; pushes to `main`, which gate
+releases, run all four languages. Pull requests that change only documentation
+or workflow files skip it.
 
 Strict `make acceptance` runs separately in
 [`promotion-qualification.yml`](https://github.com/microsoft/brewlet/blob/main/.github/workflows/promotion-qualification.yml),

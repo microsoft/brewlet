@@ -53,9 +53,14 @@ def write_json(path, value):
 
 
 def is_prerelease(version):
-    """Versions below 1.0.0 are betas; alpha/beta/rc suffixes are always prereleases."""
+    """Only alpha/beta/rc suffixed versions are GitHub prereleases; plain X.Y.Z releases are marked latest."""
     require(VERSION.fullmatch(version), "invalid release version: " + repr(version))
-    return version.startswith("0.") or "-" in version
+    return "-" in version
+
+
+def is_stable(version):
+    """Versions below 1.0.0 are betas; suffixed versions are prereleases; neither is stable."""
+    return not is_prerelease(version) and not version.startswith("0.")
 
 
 def policy(root=ROOT):
@@ -464,7 +469,8 @@ def main():
     if args.command == "identity":
         print(json.dumps(policy(), sort_keys=True))
     elif args.command == "channel":
-        print("prerelease" if is_prerelease(policy()["version"]) else "stable")
+        version = policy()["version"]
+        print("prerelease" if is_prerelease(version) else "stable" if is_stable(version) else "beta")
     elif args.command == "build":
         build(output, args.only, args.target)
     elif args.command == "verify":

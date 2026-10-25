@@ -3,11 +3,13 @@
 Releases are automated: pushing a `vVERSION` tag that matches
 [`release.json`](https://github.com/microsoft/brewlet/blob/main/release.json)
 builds, verifies and publishes every distribution surface. The current
-release identity is **0.8.0**.
+release identity is **0.8.1**.
 
-**Any version below 1.0.0 is a beta.** Betas (`0.y.z`), and any version with an
-`-alpha.N`, `-beta.N` or `-rc.N` suffix, are published as GitHub *prereleases*
-and are never marked latest. The 0.8.0+ betas preview the Brewlet 1.0.0
+**Any version below 1.0.0 is a beta.** Betas (`0.y.z`) are not stable, but are
+published as normal GitHub releases and marked latest, so
+`https://github.com/microsoft/brewlet/releases/latest` resolves to the newest
+release. Only versions with an `-alpha.N`, `-beta.N` or `-rc.N` suffix are
+published as GitHub *prereleases* and are never marked latest. The 0.8.0+ betas preview the Brewlet 1.0.0
 product line described in this documentation; "legacy 0.x" refers to the
 0.7.x and earlier releases from the `brewlet-0.x-java` branch. A plain `X.Y.Z`
 version at or above 1.0.0 is a stable release and is marked latest.
@@ -120,8 +122,8 @@ pinned fingerprint.
 3. Tag that exact commit and push the tag:
 
    ```sh
-   git tag v0.8.0 <green-main-commit>
-   git push origin v0.8.0
+   git tag v0.8.1 <green-main-commit>
+   git push origin v0.8.1
    ```
 
 The `release.yml` workflow then:
@@ -146,7 +148,7 @@ owners who want additional evidence before tagging.
 
 Image transfer preserves verified OCI digests; the chart must resolve to the
 same package bytes. Central submission signs a bundle of the prebuilt JAR/POM
-bytes rather than rebuilding. Betas become GitHub prereleases, never latest.
+bytes rather than rebuilding. Betas are marked latest; suffixed versions become GitHub prereleases, never latest.
 An existing differing version/tag/asset is refused, not overwritten.
 
 Publication across GHCR, Central and GitHub is **not transactional**. A failed
