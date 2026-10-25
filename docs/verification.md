@@ -27,7 +27,9 @@ does not require promotion receipts for every development change. Its real
 E2E starts immediately in parallel with those checks. Pull requests run it
 against the Python fixture only, for speed; pushes to `main`, which gate
 releases, run all four languages. Pull requests that change only documentation
-or workflow files skip it.
+or workflow files skip it. Pull requests also run the native producer and
+Linux overlay checks on amd64 only; pushes to `main` run them on both native
+amd64 and arm64.
 
 Strict `make acceptance` runs separately in
 [`promotion-qualification.yml`](https://github.com/microsoft/brewlet/blob/main/.github/workflows/promotion-qualification.yml),

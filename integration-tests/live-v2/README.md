@@ -42,7 +42,9 @@ observability, operator restart, protected CRI identity and normal cleanup.
 Its `languages` input narrows that same pinned scenario to the Python fixture
 (`harness.py --scenario pr --pr-language python`, verified with
 `qualify.py --verify-pr ... --languages python`); automatic CI uses it only for
-pull requests, while pushes to `main` keep all four languages. The receipt
+pull requests, while pushes to `main` keep all four languages. A Python-only
+run builds and probes only the Python host fixture, and neither requires nor
+installs the Java, Node.js or .NET toolchains. The receipt
 records `selectedLanguages` and gaps for the omitted languages and for the
 node-wide fallback fence against another runtime ID (INV-05), which needs a
 second runtime.

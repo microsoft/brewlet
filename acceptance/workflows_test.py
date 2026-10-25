@@ -1,5 +1,6 @@
 """Execute the actual workflow guards offline; never execute live jobs."""
 
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -102,6 +103,33 @@ class WorkflowTests(unittest.TestCase):
                     "GITHUB_OUTPUT": str(output)}
                 subprocess.run(["bash", "-eu", "-c", program], env=environment, check=True, capture_output=True)
                 self.assertEqual("e2e=" + required + "\n", output.read_text(), (event, listed, files))
+
+    def test_pull_requests_run_native_checks_on_amd64_only_and_main_keeps_both(self):
+        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
+        producer = text.split("\n  producer-integration:", 1)[1].split("\n  linux-overlay-contract:", 1)[0]
+        overlay = text.split("\n  linux-overlay-contract:", 1)[1].split("\n  archive-history:", 1)[0]
+        for job in (producer, overlay):
+            expression = job.split("${{ fromJSON(", 1)[1].split(") }}", 1)[0]
+            self.assertTrue(expression.startswith("github.event_name == 'pull_request'"), expression)
+            pr, other = (json.loads(part.strip().strip("&|").strip().strip("'"))
+                         for part in expression.split("github.event_name == 'pull_request'", 1)[1].split("||"))
+            arch = lambda entries: [e if isinstance(e, str) else e["architecture"] for e in entries]
+            self.assertEqual(arch(pr), ["amd64"])
+            self.assertEqual(arch(other), ["amd64", "arm64"])
+
+    def test_go_jobs_restore_per_job_caches_that_main_pushes_refresh(self):
+        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
+        contracts = text.split("\n  contracts:", 1)[1].split("\n  validation:", 1)[0]
+        producer = text.split("\n  producer-integration:", 1)[1].split("\n  linux-overlay-contract:", 1)[0]
+        for name, job in (("contracts", contracts), ("producer", producer)):
+            self.assertIn("cache: false", job)
+            self.assertIn(f"key: go-{name}-${{{{ runner.os }}}}-${{{{ runner.arch }}}}-"
+                          "${{ hashFiles('go.sum') }}-${{ github.sha }}", job)
+            self.assertIn("actions/cache/restore@", job)
+            save = job.split(f"      - name: Save {name} Go caches", 1)[1]
+            self.assertIn("github.event_name == 'push' || steps.go-cache.outputs.cache-matched-key == ''", save)
+            self.assertIn("key: ${{ steps.go-cache.outputs.cache-primary-key }}", save)
+            self.assertLess(job.index("Restore " + name), job.index("Save " + name))
 
     def test_evidence_only_jobs_cannot_emit_a_green_required_pr_check(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()

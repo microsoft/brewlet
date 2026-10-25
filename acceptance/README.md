@@ -59,8 +59,8 @@ sanitized JSON:
 | CI job | Fixed checks |
 | --- | --- |
 | contracts | `go-contracts`, `maven` |
-| producer integration, both native architectures | `fixtures`, `registry` |
-| Linux kernel contracts, both native architectures | `native-contracts`, `go-vet` |
+| producer integration, native amd64 (pull requests) or both native architectures (pushes to `main`) | `fixtures`, `registry` |
+| Linux kernel contracts, native amd64 (pull requests) or both native architectures (pushes to `main`) | `native-contracts`, `go-vet` |
 
 The producer commands, scopes and assertion mappings remain fixed in
 `run_check.py`; ledger-supplied strings are never executed. The shared native
