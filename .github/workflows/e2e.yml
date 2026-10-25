@@ -83,10 +83,16 @@ jobs:
               test "$HEAD_REPOSITORY" = "$REPOSITORY"
               case "$REF" in refs/pull/*/merge) ;; *) exit 1 ;; esac
               ;;
-            push)
+            schedule)
               test "$SCENARIO" = pr
               test "$LANGUAGES" = all
-              case "$REF" in refs/heads/main) ;; *) exit 1 ;; esac
+              test "$REF" = refs/heads/main
+              ;;
+            push)
+              # Full validation called by the release workflow for a version tag.
+              test "$SCENARIO" = pr
+              test "$LANGUAGES" = all
+              case "$REF" in refs/tags/v*) ;; *) exit 1 ;; esac
               ;;
             workflow_dispatch)
               case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac

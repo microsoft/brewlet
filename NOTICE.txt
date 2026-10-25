@@ -53,4 +53,4 @@ See docs/third-party-notices.md for generation, verification and limitations.
 Run make notices to regenerate the Go, Maven plugin and website notices after
 installing the documented notice inputs. Build-only and test-only dependencies
 are not represented as redistributed software.
-The ordinary contracts job in .github/workflows/v2-ci.yml runs make legal-check.
+The contracts job in .github/workflows/checks.yml runs make legal-check.

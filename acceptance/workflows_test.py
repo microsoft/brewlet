@@ -1,6 +1,7 @@
 """Execute the actual workflow guards offline; never execute live jobs."""
 
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -18,19 +19,33 @@ def block(text, marker):
     return "\n".join(line[10:] for line in re.match(r"(?:          [^\n]*\n)+", tail).group().splitlines()) + "\n"
 
 
+def triggers(text):
+    section = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0].split("\nconcurrency:", 1)[0]
+    return [line for line in section.splitlines() if line.startswith("  ") and not line.startswith("   ")]
+
+
 class WorkflowTests(unittest.TestCase):
     def test_routine_and_qualification_share_fail_closed_native_contract_runner(self):
-        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
+        checks = (ROOT / ".github/workflows/checks.yml").read_text()
         website = (ROOT / ".github/workflows/site-pages.yml").read_text()
-        self.assertIn("python3 acceptance/run_check.py native-contracts", text)
+        callers = [(ROOT / ".github/workflows" / name).read_text() for name in ("pr.yml", "full-validation.yml")]
+        self.assertIn("python3 acceptance/run_check.py native-contracts", checks)
         self.assertEqual(["python3", "acceptance/native_contracts.py"], CHECKS["native-contracts"]["command"])
         for name in CHECKS:
-            self.assertEqual(1, (text + website).count("python3 acceptance/run_check.py " + name), name)
-        self.assertNotIn("run_check.py all", text)
-        self.assertNotIn("uses: ./.github/workflows/site-pages.yml", text)
-        self.assertNotIn("  documentation:", text)
-        self.assertNotIn("documentation_required", text)
-        self.assertNotIn("PR_NUMBER", text)
+            self.assertEqual(1, (checks + website).count("python3 acceptance/run_check.py " + name), name)
+        for text in [checks] + callers:
+            self.assertNotIn("run_check.py all", text)
+            self.assertNotIn("make acceptance", text)
+            self.assertNotIn("continue-on-error", text)
+            self.assertNotIn("pull_request_target", text)
+            self.assertNotIn("paths:", text)
+        for text in callers:
+            self.assertNotIn("run_check.py", text)
+            self.assertIn("uses: ./.github/workflows/checks.yml", text)
+            self.assertIn("uses: ./.github/workflows/e2e.yml", text)
+            self.assertIn("uses: ./.github/workflows/codeql.yml", text)
+        self.assertNotIn("uses: ./.github/workflows/site-pages.yml", callers[1])
+        self.assertEqual(["  workflow_call:"], triggers(checks))
         self.assertIn("  workflow_call:", website)
         self.assertNotIn("  pull_request:", website)
         self.assertNotIn("  push:", website)
@@ -40,86 +55,132 @@ class WorkflowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_output(output)
 
-    def test_automatic_validation_requires_actual_e2e_not_promotion_evidence(self):
-        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
-        self.assertIn("branches: [main]", text)
-        self.assertIn("  pull_request:", text)
-        self.assertNotIn("paths:", text)
-        self.assertNotIn("pull_request_target", text)
-        aggregate = text.split("  validation:", 1)[1].split("\n  e2e:", 1)[0]
-        self.assertIn("needs: [context, contracts, producer-integration, linux-overlay-contract, archive-history, e2e]", aggregate)
-        program = block(aggregate, "Require every prerequisite")
-        dependencies = ("CONTEXT", "CONTRACTS", "PRODUCER", "OVERLAY", "HISTORY", "E2E")
-        for required in ("true", "false", ""):
-            for dependency in dependencies:
-                for value in ("success", "failure", "skipped", "cancelled", ""):
-                    environment = dict.fromkeys(dependencies, "success")
-                    environment["E2E_REQUIRED"] = required
-                    if required != "true":
-                        environment["E2E"] = "skipped"
-                    environment[dependency] = value
-                    passing = value == "success" if dependency != "E2E" or required == "true" else value == "skipped"
-                    passing = passing and required in ("true", "false")
-                    result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
-                    self.assertEqual(passing, result.returncode == 0, (required, dependency, value))
-        e2e = text.split("\n  e2e:", 1)[1].split("\n  producer-integration:", 1)[0]
-        self.assertIn("    needs: context\n", e2e)
-        self.assertIn("needs.context.outputs.e2e == 'true'", e2e)
-        self.assertIn("uses: ./.github/workflows/e2e.yml", e2e)
-        self.assertIn("scenario: pr", e2e)
-        self.assertIn("architecture: amd64", e2e)
-        # Only pull requests narrow to Python; main pushes gating releases keep all four fixtures.
-        self.assertIn("languages: ${{ github.event_name == 'pull_request' && 'python' || 'all' }}", e2e)
-        self.assertNotIn("continue-on-error", text)
-        self.assertNotIn("make acceptance", text)
-
-    def test_e2e_scope_skips_only_exact_documentation_and_workflow_pull_requests(self):
-        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
-        listing = text.split("List exact pull request changes for E2E scope", 1)[1].split("      - name:", 1)[0]
-        self.assertIn("if: github.event_name == 'pull_request'", listing)
+    def test_pr_workflow_runs_only_for_pull_requests_and_requires_exactly_the_impacted_checks(self):
+        text = (ROOT / ".github/workflows/pr.yml").read_text()
+        self.assertEqual(["  pull_request:"], triggers(text))
+        self.assertIn("cancel-in-progress: true", text)
+        guard = block(text, "Validate immutable pull request source")
+        for event, source, success in (("pull_request", "a" * 40, True), ("push", "a" * 40, False),
+                                       ("workflow_dispatch", "a" * 40, False), ("pull_request", "main", False),
+                                       ("pull_request", "", False)):
+            with tempfile.TemporaryDirectory() as temporary:
+                environment = {"EVENT": event, "SOURCE": source, "REPOSITORY": "microsoft/brewlet",
+                    "GITHUB_OUTPUT": str(Path(temporary) / "output")}
+                result = subprocess.run(["bash", "-eu", "-c", guard], env=environment, capture_output=True)
+                self.assertEqual(success, result.returncode == 0, (event, source))
+        listing = text.split("List exact pull request changes", 1)[1].split("      - name:", 1)[0]
         self.assertIn('test "$head" = "$SOURCE"', listing)
         self.assertIn("previous_filename", listing)
-        program = block(text, "Classify E2E scope")
-        for event, listed, files, required in (
-                ("pull_request", "true", ["docs/index.md", "README.md", "site/index.html"], "false"),
-                ("pull_request", "true", [".github/dependabot.yml", ".github/workflows/site-pages.yml"], "false"),
-                ("pull_request", "true", ["release-notes/v2.md", "kubernetes/README.md"], "false"),
-                ("pull_request", "true", ["docs/index.md", "pkg/runtime/x.go"], "true"),
-                ("pull_request", "true", [".github/workflows/e2e.yml"], "true"),
-                ("pull_request", "true", [".github/workflows/v2-ci.yml"], "true"),
-                ("pull_request", "true", ["integration-tests/live-v2/harness.py"], "true"),
-                ("pull_request", "true", ["docs/../go.mod.md", "go.sum"], "true"),
-                ("pull_request", "true", [], "true"),
-                ("pull_request", "false", ["docs/index.md"], "true"),
-                ("pull_request", "", ["docs/index.md"], "true"),
-                ("push", "true", ["docs/index.md"], "true"),
-                ("workflow_dispatch", "true", ["docs/index.md"], "true"),
-                ("workflow_call", "", [], "true")):
-            with tempfile.TemporaryDirectory() as temporary:
-                listing = Path(temporary) / "files"
-                listing.write_text("".join(name + "\n" for name in files))
-                output = Path(temporary) / "output"
-                environment = {"EVENT": event, "LISTED": listed, "FILES": str(listing),
-                    "GITHUB_OUTPUT": str(output)}
-                subprocess.run(["bash", "-eu", "-c", program], env=environment, check=True, capture_output=True)
-                self.assertEqual("e2e=" + required + "\n", output.read_text(), (event, listed, files))
+        aggregate = text.split("\n  validation:", 1)[1]
+        self.assertIn("name: Brewlet PR validation", aggregate)
+        self.assertIn("if: always()", aggregate)
+        self.assertIn("needs: [context, checks, e2e, codeql, website]", aggregate)
+        program = block(aggregate, "Require every impacted check")
+        base = {"CONTEXT": "success", "CHECKS_REQUIRED": "true", "CHECKS": "success",
+                "E2E_REQUIRED": "true", "E2E": "success", "CODEQL_LANGUAGES": '["go"]', "CODEQL": "success",
+                "WEBSITE_REQUIRED": "false", "WEBSITE": "skipped"}
+        run = lambda environment: subprocess.run(["bash", "-eu", "-c", program], env=environment,
+                                                 capture_output=True).returncode == 0
+        self.assertTrue(run(base))
+        self.assertTrue(run(dict(base, CODEQL_LANGUAGES="[]", CODEQL="skipped")))
+        for required, result_key, flag in (("CHECKS_REQUIRED", "CHECKS", None), ("E2E_REQUIRED", "E2E", None),
+                                           ("WEBSITE_REQUIRED", "WEBSITE", None), (None, "CODEQL", '["go"]')):
+            for value in ("success", "failure", "skipped", "cancelled", ""):
+                for selected in ("true", "false", ""):
+                    environment = dict(base)
+                    if required:
+                        environment[required] = selected
+                        expected = {"true": "success", "false": "skipped"}.get(selected)
+                    else:
+                        environment["CODEQL_LANGUAGES"] = {"true": flag, "false": "[]", "": ""}[selected]
+                        expected = {"true": "success", "false": "skipped"}.get(selected)
+                    environment[result_key] = value
+                    self.assertEqual(expected == value, run(environment), (result_key, selected, value))
+        for value in ("failure", "skipped", "cancelled", ""):
+            self.assertFalse(run(dict(base, CONTEXT=value)), value)
 
-    def test_pull_requests_run_native_checks_on_amd64_only_and_main_keeps_both(self):
-        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
-        producer = text.split("\n  producer-integration:", 1)[1].split("\n  linux-overlay-contract:", 1)[0]
-        overlay = text.split("\n  linux-overlay-contract:", 1)[1].split("\n  archive-history:", 1)[0]
-        for job in (producer, overlay):
-            expression = job.split("${{ fromJSON(", 1)[1].split(") }}", 1)[0]
-            self.assertTrue(expression.startswith("github.event_name == 'pull_request'"), expression)
-            pr, other = (json.loads(part.strip().strip("&|").strip().strip("'"))
-                         for part in expression.split("github.event_name == 'pull_request'", 1)[1].split("||"))
-            arch = lambda entries: [e if isinstance(e, str) else e["architecture"] for e in entries]
-            self.assertEqual(arch(pr), ["amd64"])
-            self.assertEqual(arch(other), ["amd64", "arm64"])
+    def classify(self, files, listed="true"):
+        text = (ROOT / ".github/workflows/pr.yml").read_text()
+        program = block(text, "Classify impacted checks")
+        with tempfile.TemporaryDirectory() as temporary:
+            listing = Path(temporary) / "files"
+            listing.write_text("".join(name + "\n" for name in files))
+            output = Path(temporary) / "output"
+            environment = {"LISTED": listed, "FILES": str(listing), "GITHUB_OUTPUT": str(output),
+                "GITHUB_STEP_SUMMARY": str(Path(temporary) / "summary"), "PATH": os.environ["PATH"]}
+            subprocess.run(["bash", "-eu", "-c", program], env=environment, check=True, capture_output=True)
+            outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        outputs["codeql"] = json.loads(outputs["codeql"])
+        return outputs
 
-    def test_go_jobs_restore_per_job_caches_that_main_pushes_refresh(self):
-        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
-        contracts = text.split("\n  contracts:", 1)[1].split("\n  validation:", 1)[0]
+    def test_pr_classifier_selects_impacted_checks_and_fails_closed_to_everything(self):
+        flags = ("go", "maven", "python", "legal", "producer", "overlay", "e2e", "website")
+        every = ["actions", "csharp", "go", "java-kotlin", "javascript-typescript", "python"]
+        def expect(files, selected, languages=(), e2e_languages="python", listed="true"):
+            outputs = self.classify(files, listed)
+            for flag in flags:
+                self.assertEqual("true" if flag in selected else "false", outputs[flag], (files, flag))
+            checks = any(flag in selected for flag in ("go", "maven", "python", "legal", "producer", "overlay"))
+            self.assertEqual("true" if checks else "false", outputs["checks"], files)
+            self.assertEqual(sorted(languages), outputs["codeql"], files)
+            self.assertEqual(e2e_languages, outputs["e2e_languages"], files)
+        runtime = {"go", "maven", "legal", "producer", "overlay", "e2e"}
+        expect(["README.md", "kubernetes/README.md"], set())
+        expect(["docs/index.md", "site/index.html"], {"website"})
+        expect(["docs/README.md"], {"go", "python", "website"})
+        expect(["specs/SPECIFICATION.md"], {"python", "website"})
+        expect(["release-notes/v2.md"], {"python"})
+        expect(["release.json"], {"python", "legal", "maven"})
+        expect(["NOTICE.txt"], {"legal", "maven", "python", "website"})
+        expect([".github/dependabot.yml"], {"python"})
+        expect([".github/workflows/site-pages.yml"], {"go", "python", "website"}, ["actions"])
+        expect([".github/workflows/release.yml"], {"go", "python"}, ["actions"])
+        expect(["pkg/runtime/x.go"], runtime, ["go"])
+        expect(["go.sum", "docs/index.md"], runtime | {"website"}, ["go"])
+        expect(["maven-plugin/src/main/java/A.java"], {"maven", "legal", "producer"}, ["java-kotlin"])
+        expect(["integration-tests/fixtures/python/app/main.py"], {"producer", "e2e"}, ["python"])
+        expect(["integration-tests/fixtures/dotnet/App/Program.cs"], {"producer", "e2e"}, ["csharp"], "all")
+        expect(["integration-tests/fixtures/node/app/index.js"], {"producer", "e2e"},
+               ["javascript-typescript"], "all")
+        expect(["integration-tests/live-v2/harness.py"], {"python", "e2e"}, ["python"])
+        expect(["scripts/release.py"], {"go", "python", "legal", "maven"}, ["python"])
+        everything = set(flags)
+        for files in ([".github/workflows/pr.yml"], [".github/workflows/checks.yml"],
+                      [".github/workflows/e2e.yml"], [".github/workflows/codeql.yml"], ["Makefile"],
+                      ["acceptance/check.py"], ["docs/../go.mod.md"], ["/etc/passwd"], ["unknown/file"], []):
+            expect(files, everything, every)
+        for listed in ("false", ""):
+            expect(["docs/index.md"], everything, every, listed=listed)
+        expect(["unknown/file", "integration-tests/fixtures/java/app/pom.xml"], everything, every, "all")
+
+    def test_pull_requests_run_native_checks_on_amd64_only_and_full_validation_keeps_both(self):
+        pr = (ROOT / ".github/workflows/pr.yml").read_text()
+        full = (ROOT / ".github/workflows/full-validation.yml").read_text()
+        checks = (ROOT / ".github/workflows/checks.yml").read_text()
+        self.assertIn("architectures: '[\"amd64\"]'", pr.split("\n  checks:", 1)[1].split("\n  e2e:", 1)[0])
+        self.assertIn("architectures: '[\"amd64\",\"arm64\"]'", full.split("\n  checks:", 1)[1])
+        self.assertIn("default: '[\"amd64\",\"arm64\"]'", checks)
+        for job in ("producer-integration", "linux-overlay-contract"):
+            section = checks.split("\n  " + job + ":", 1)[1]
+            self.assertIn("architecture: ${{ fromJSON(inputs.architectures) }}", section)
+            self.assertIn("matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'", section)
+        e2e = full.split("\n  e2e:", 1)[1].split("\n  codeql:", 1)[0]
+        self.assertIn("architecture: [amd64, arm64]", e2e)
+        self.assertIn("architecture: ${{ matrix.architecture }}", e2e)
+        self.assertIn("languages: all", e2e)
+        self.assertIn("scenario: pr", e2e)
+        self.assertIn("architecture: amd64", pr.split("\n  e2e:", 1)[1].split("\n  codeql:", 1)[0])
+
+    def test_legal_checks_always_package_the_maven_plugin_they_inspect(self):
+        checks = (ROOT / ".github/workflows/checks.yml").read_text()
+        contracts = checks.split("\n  contracts:", 1)[1].split("\n  producer-integration:", 1)[0]
+        maven = contracts.split("Execute Maven contracts", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("if: inputs.maven || inputs.legal", maven)
+        self.assertLess(contracts.index("run_check.py maven"), contracts.index("make legal-check"))
+
+    def test_go_jobs_restore_per_job_caches_that_full_validation_refreshes(self):
+        text = (ROOT / ".github/workflows/checks.yml").read_text()
+        contracts = text.split("\n  contracts:", 1)[1].split("\n  producer-integration:", 1)[0]
         producer = text.split("\n  producer-integration:", 1)[1].split("\n  linux-overlay-contract:", 1)[0]
         for name, job in (("contracts", contracts), ("producer", producer)):
             self.assertIn("cache: false", job)
@@ -127,36 +188,65 @@ class WorkflowTests(unittest.TestCase):
                           "${{ hashFiles('go.sum') }}-${{ github.sha }}", job)
             self.assertIn("actions/cache/restore@", job)
             save = job.split(f"      - name: Save {name} Go caches", 1)[1]
-            self.assertIn("github.event_name == 'push' || steps.go-cache.outputs.cache-matched-key == ''", save)
+            self.assertIn("github.event_name != 'pull_request' || steps.go-cache.outputs.cache-matched-key == ''", save)
             self.assertIn("key: ${{ steps.go-cache.outputs.cache-primary-key }}", save)
             self.assertLess(job.index("Restore " + name), job.index("Save " + name))
 
-    def test_evidence_only_jobs_cannot_emit_a_green_required_pr_check(self):
-        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
-        aggregate = text.split("  validation:", 1)[1].split("\n  e2e:", 1)[0]
+    def test_full_validation_is_weekly_manual_or_release_called_and_requires_everything(self):
+        text = (ROOT / ".github/workflows/full-validation.yml").read_text()
+        self.assertEqual(["  schedule:", "  workflow_dispatch:", "  workflow_call:"], triggers(text))
+        self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"')
+        for job in ("checks", "e2e", "codeql"):
+            section = text.split("\n  " + job + ":", 1)[1].split("\n\n", 1)[0]
+            self.assertIn("if: needs.context.outputs.purpose == 'validation'", section)
+        checks = text.split("\n  checks:", 1)[1].split("\n\n", 1)[0]
+        for scope in ("go", "maven", "python", "legal", "producer", "overlay"):
+            self.assertNotIn("      " + scope + ":", checks)
+        codeql = text.split("\n  codeql:", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("security-events: write", codeql)
+        self.assertNotIn("languages:", codeql)
+        aggregate = text.split("\n  validation:", 1)[1]
+        self.assertIn("needs: [context, checks, e2e, codeql, archive-history]", aggregate)
         self.assertIn("needs.context.outputs.purpose == 'validation' || needs.context.result != 'success'", aggregate)
-        self.assertIn("== 'archive-history' && 'Archive-only status' || 'Brewlet validation'", aggregate)
+        self.assertIn("== 'archive-history' && 'Archive-only status' || 'Brewlet full validation'", aggregate)
         self.assertIn("export-history --if-needed", text)
+        program = block(aggregate, "Require every prerequisite")
+        dependencies = ("CONTEXT", "CHECKS", "E2E", "CODEQL", "HISTORY")
+        for dependency in dependencies:
+            for value in ("success", "failure", "skipped", "cancelled", ""):
+                environment = dict.fromkeys(dependencies, "success")
+                environment[dependency] = value
+                result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
+                self.assertEqual(value == "success", result.returncode == 0, (dependency, value))
 
-    def test_ci_source_and_purpose_guards_are_executed_before_tests(self):
-        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
+    def test_full_validation_source_and_purpose_guards_are_executed_before_tests(self):
+        text = (ROOT / ".github/workflows/full-validation.yml").read_text()
         program = block(text, "Validate immutable source")
-        for event, purpose, expected, success in (
-                ("pull_request", "validation", "", True),
-                ("pull_request", "validation", "b" * 40, False),
-                ("push", "validation", "", True),
-                ("pull_request", "qualification-non-live", "a" * 40, False),
-                ("workflow_dispatch", "validation", "a" * 40, True),
-                ("workflow_dispatch", "qualification-non-live", "a" * 40, False),
-                ("workflow_dispatch", "archive-history", "a" * 40, True),
-                ("workflow_dispatch", "validation", "b" * 40, False),
-                ("workflow_dispatch", "publish", "a" * 40, False)):
+        for event, ref, purpose, expected, success in (
+                ("schedule", "refs/heads/main", "validation", "", True),
+                ("schedule", "refs/heads/candidate", "validation", "", False),
+                ("schedule", "refs/heads/main", "archive-history", "", False),
+                ("schedule", "refs/heads/main", "validation", "a" * 40, False),
+                ("workflow_dispatch", "refs/heads/candidate", "validation", "a" * 40, True),
+                ("workflow_dispatch", "refs/heads/candidate", "archive-history", "a" * 40, True),
+                ("workflow_dispatch", "refs/heads/candidate", "qualification-non-live", "a" * 40, False),
+                ("workflow_dispatch", "refs/heads/candidate", "publish", "a" * 40, False),
+                ("workflow_dispatch", "refs/heads/candidate", "validation", "b" * 40, False),
+                ("workflow_dispatch", "refs/heads/candidate", "validation", "", False),
+                ("workflow_dispatch", "refs/tags/v1.0.0", "validation", "a" * 40, False),
+                ("push", "refs/tags/v1.0.0", "validation", "a" * 40, True),
+                ("push", "refs/tags/v1.0.0", "validation", "b" * 40, False),
+                ("push", "refs/tags/v1.0.0", "validation", "", False),
+                ("push", "refs/tags/v1.0.0", "archive-history", "a" * 40, False),
+                ("push", "refs/heads/main", "validation", "a" * 40, False),
+                ("pull_request", "refs/pull/1/merge", "validation", "", False),
+                ("pull_request", "refs/pull/1/merge", "validation", "a" * 40, False)):
             with tempfile.TemporaryDirectory() as temporary:
                 environment = {"EVENT": event, "PURPOSE": purpose, "EXPECTED": expected,
-                    "SOURCE": "a" * 40, "REPOSITORY": "microsoft/brewlet", "REF": "refs/heads/candidate",
+                    "SOURCE": "a" * 40, "REPOSITORY": "microsoft/brewlet", "REF": ref,
                     "GITHUB_OUTPUT": str(Path(temporary) / "output")}
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
-                self.assertEqual(success, result.returncode == 0, (event, purpose, expected))
+                self.assertEqual(success, result.returncode == 0, (event, ref, purpose, expected))
 
     def test_promotion_is_manual_reusable_and_fetches_verified_artifacts_before_strict_gate(self):
         text = (ROOT / ".github/workflows/promotion-qualification.yml").read_text()
@@ -206,10 +296,15 @@ class WorkflowTests(unittest.TestCase):
                 ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", "java", False),
                 ("pull_request", "refs/pull/1/merge", "fork/brewlet", "pr", "python", False),
                 ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "complete", "all", False),
-                ("push", "refs/heads/main", "microsoft/brewlet", "pr", "all", True),
-                ("push", "refs/heads/main", "microsoft/brewlet", "pr", "python", False),
-                ("push", "refs/heads/candidate", "microsoft/brewlet", "pr", "all", False),
-                ("push", "refs/heads/main", "microsoft/brewlet", "complete", "all", False),
+                ("schedule", "refs/heads/main", "microsoft/brewlet", "pr", "all", True),
+                ("schedule", "refs/heads/main", "microsoft/brewlet", "pr", "python", False),
+                ("schedule", "refs/heads/candidate", "microsoft/brewlet", "pr", "all", False),
+                ("schedule", "refs/heads/main", "microsoft/brewlet", "complete", "all", False),
+                ("push", "refs/tags/v1.0.0", "microsoft/brewlet", "pr", "all", True),
+                ("push", "refs/tags/v1.0.0", "microsoft/brewlet", "pr", "python", False),
+                ("push", "refs/tags/v1.0.0", "microsoft/brewlet", "complete", "all", False),
+                ("push", "refs/heads/main", "microsoft/brewlet", "pr", "all", False),
+                ("push", "refs/tags/untrusted", "microsoft/brewlet", "pr", "all", False),
                 ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", "all", True),
                 ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", "python", False),
                 ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", "all", True),

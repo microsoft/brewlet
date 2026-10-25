@@ -1,6 +1,7 @@
 name: Brewlet release
 
-# Pushing tag vX.Y.Z (matching release.json) builds, verifies and publishes the release.
+# Pushing tag vX.Y.Z (matching release.json) runs the full validation workflow for the tagged
+# commit, then builds, verifies and publishes the release.
 # Plain X.Y.Z versions (including 0.x betas) are published as normal releases marked latest;
 # -alpha/-beta/-rc versions are GitHub prereleases, never latest. A manual dispatch is a build-only dry run.
 on:
@@ -47,44 +48,16 @@ jobs:
           echo "channel=$channel" >> "$GITHUB_OUTPUT"
           echo "Brewlet $version ($channel)" >> "$GITHUB_STEP_SUMMARY"
 
-  ci-gate:
+  validation:
+    name: Full validation
     needs: metadata
     if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
     permissions:
       contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Install integrity-pinned GitHub CLI proxy
-        run: |
-          python3 scripts/release_tools.py --destination "$RUNNER_TEMP/release-tools" ghx
-          echo "$RUNNER_TEMP/release-tools" >> "$GITHUB_PATH"
-      - name: Require the tagged commit to have passed Brewlet CI on main
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          SOURCE: ${{ github.sha }}
-        run: |
-          for attempt in $(seq 1 100); do
-            runs="$(ghx api "repos/$REPOSITORY/actions/workflows/v2-ci.yml/runs?head_sha=$SOURCE&event=push&branch=main&per_page=20")"
-            if [ "$(jq '[.workflow_runs[] | select(.conclusion == "success")] | length' <<<"$runs")" -gt 0 ]; then
-              echo "Brewlet CI passed on main for $SOURCE"
-              exit 0
-            fi
-            if [ "$(jq '[.workflow_runs[] | select(.status != "completed")] | length' <<<"$runs")" -eq 0 ]; then
-              echo "no successful or pending Brewlet CI push run on main for $SOURCE; tag a green main commit" >&2
-              exit 1
-            fi
-            echo "Brewlet CI still running for $SOURCE (attempt $attempt)"
-            sleep 60
-          done
-          echo "timed out waiting for Brewlet CI on main for $SOURCE" >&2
-          exit 1
+      security-events: write
+    uses: ./.github/workflows/full-validation.yml
+    with:
+      expected_sha: ${{ github.sha }}
 
   candidate:
     needs: metadata
@@ -95,8 +68,8 @@ jobs:
     uses: ./.github/workflows/release-build.yml
 
   publish:
-    needs: [metadata, ci-gate, candidate]
-    if: ${{ github.event_name == 'push' && needs.metadata.result == 'success' && needs.ci-gate.result == 'success' && needs.candidate.result == 'success' }}
+    needs: [metadata, validation, candidate]
+    if: ${{ github.event_name == 'push' && needs.metadata.result == 'success' && needs.validation.result == 'success' && needs.candidate.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment: maven-central

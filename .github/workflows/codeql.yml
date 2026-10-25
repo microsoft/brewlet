@@ -1,16 +1,13 @@
 name: CodeQL
 
+# Reusable: the PR workflow analyzes only impacted languages; full validation analyzes all of them.
 on:
-  push:
-    branches: [main]
-  pull_request:
-  schedule:
-    - cron: "15 7 * * 3"
-  workflow_dispatch:
-
-concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      languages:
+        description: JSON list of CodeQL languages to analyze
+        type: string
+        default: '["actions","csharp","go","java-kotlin","javascript-typescript","python"]'
 
 permissions:
   contents: read
@@ -26,20 +23,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - language: actions
-            build-mode: none
-          - language: csharp
-            build-mode: none
-          - language: go
-            build-mode: autobuild
-          - language: java-kotlin
-            build-mode: none
-          - language: javascript-typescript
-            build-mode: none
-          - language: python
-            build-mode: none
+        language: ${{ fromJSON(inputs.languages) }}
+    env:
+      # Go is compiled for analysis; every other language is extracted without a build.
+      BUILD_MODE: ${{ matrix.language == 'go' && 'autobuild' || 'none' }}
     steps:
+      - name: Require a supported language
+        env:
+          LANGUAGE: ${{ matrix.language }}
+        run: case "$LANGUAGE" in actions|csharp|go|java-kotlin|javascript-typescript|python) ;; *) exit 1 ;; esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -55,9 +47,9 @@ jobs:
         uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee
         with:
           languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+          build-mode: ${{ env.BUILD_MODE }}
       - name: Autobuild Go
-        if: matrix.build-mode == 'autobuild'
+        if: env.BUILD_MODE == 'autobuild'
         uses: github/codeql-action/autobuild@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee
       - name: Analyze
         uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee

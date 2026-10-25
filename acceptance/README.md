@@ -1,29 +1,35 @@
 # Validation and promotion evidence
 
-## Two different gates
+## Validation gates
 
-| Gate | Execution | Meaning |
-| --- | --- | --- |
-| `Brewlet validation` in `v2-ci.yml` | Contracts, native producer/kernel checks, and a real Kubernetes E2E (Python fixture on pull requests, all four languages on pushes to `main`) | Required PR validation, not full promotion qualification |
-| `Brewlet promotion qualification` | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
+| Gate | Workflow and trigger | Execution | Meaning |
+| --- | --- | --- | --- |
+| `Brewlet PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
+| `Brewlet full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and four-language real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; not promotion qualification |
+| `Brewlet promotion qualification` | `promotion-qualification.yml`, manual or reusable | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
 
-Green unit/contract checks alone cannot make `Brewlet validation` green. When
-E2E is in scope its aggregate requires the real E2E job to succeed; failed,
-skipped or cancelled prerequisites fail the aggregate. E2E starts as soon as the
-CI context is validated, in parallel with the other prerequisites.
+Both validation workflows reuse the same building blocks: `checks.yml`
+(contracts, Maven, offline Python, legal, producer and kernel checks),
+`codeql.yml`, `e2e.yml` and, for pull requests, `site-pages.yml`.
 
-The only E2E opt-out is a pull request whose exact head commit changes nothing
-but documentation or workflow files: `docs/`, `site/`, `release-notes/`, any
-`*.md`, or `.github/` other than `e2e.yml` and `v2-ci.yml`. The `context` job
-lists the PR's files (including rename sources) from the API and fails closed:
-listing errors, a moved head, 3000 or more files, pushes to `main` and manual
-runs all require E2E. When E2E is out of scope, the aggregate requires it to be
-skipped, never failed or cancelled.
+Green unit/contract checks alone cannot make either aggregate green. The full
+validation aggregate requires every prerequisite to succeed; failed, skipped or
+cancelled prerequisites fail it. The PR aggregate requires every impacted check
+to succeed and every other check to be skipped, never failed or cancelled.
+
+The PR `context` job lists the PR's files (including rename sources) from the
+API and classifies them. It fails closed to every check: listing errors, a moved
+head, 3000 or more files, an empty list, unknown paths, and changes to `pr.yml`,
+`checks.yml`, `e2e.yml`, `codeql.yml`, `Makefile` or `acceptance/` all select
+everything. Documentation-only changes run at most the website build; runtime
+source selects Go, legal, producer, kernel and E2E checks; CodeQL analyzes only
+the languages of the changed files. PR E2E uses the Python fixture unless a
+non-Python fixture changed.
 Fork PRs cannot enter the trusted privileged runner: a maintainer must explicitly
 test the commit through a trusted repository branch. This is a failure, not a
 skipped green check. No `pull_request_target` or write credentials are used.
 
-`e2e.yml` is reusable by CI and manually dispatchable. It runs real E2E only:
+`e2e.yml` is reusable by both validation workflows and manually dispatchable. It runs real E2E only:
 there are no non-live or verify-only modes in that workflow.
 
 ## Establish a working E2E baseline before full qualification
@@ -48,25 +54,26 @@ Before any remote privileged execution, agree the exact source SHA, scenario,
 architecture, resource scope, cleanup and runner budget. Dispatch `e2e.yml` with
 `expected_sha`, `scenario=pr` and one architecture for an approved debugging run.
 Every manual scenario rejects a moved ref before checkout or setup.
-PR CI checks out the immutable PR **head**, not an unrecorded moving branch.
+PR validation checks out the immutable PR **head**, not an unrecorded moving branch.
 No work is authorized merely by these instructions.
 
 ## Validation receipts are artifacts, not repository contents
 
-Routine CI executes each fixed non-live check below once and uploads its
-sanitized JSON:
+`checks.yml` executes each fixed non-live check below once and uploads its
+sanitized JSON. Only artifacts from `full-validation.yml` runs (scheduled or
+manually dispatched) can be indexed as qualification receipts:
 
-| CI job | Fixed checks |
+| `checks.yml` job | Fixed checks |
 | --- | --- |
 | contracts | `go-contracts`, `maven` |
-| producer integration, native amd64 (pull requests) or both native architectures (pushes to `main`) | `fixtures`, `registry` |
-| Linux kernel contracts, native amd64 (pull requests) or both native architectures (pushes to `main`) | `native-contracts`, `go-vet` |
+| producer integration, native amd64 (pull requests) or both native architectures (full validation) | `fixtures`, `registry` |
+| Linux kernel contracts, native amd64 (pull requests) or both native architectures (full validation) | `native-contracts`, `go-vet` |
 
 The producer commands, scopes and assertion mappings remain fixed in
 `run_check.py`; ledger-supplied strings are never executed. The shared native
 runner still rejects emulation and skipped kernel tests. Website dependencies,
-and build stay in the separate `site-pages.yml` workflow, not routine CI or its
-required validation aggregate. Manual website preview runs produce the
+and build stay in the separate `site-pages.yml` workflow, which pull requests call
+only when the website is impacted; it is not part of full validation. Manual website preview runs produce the
 `documentation` receipt for full qualification;
 Pages deployment continues to reuse the checked website build.
 
@@ -168,18 +175,20 @@ hashes and contain the receipt source in its Git ancestry.
 
 The index's `history` section pins the original 180 public files by Git commit,
 path, byte count and SHA-256. Their original bytes remain in Git history and a
-verified local migration backup. The first approved CI run uploads a separate
+verified local migration backup. The first approved validation run uploads a separate
 byte-verified historical archive; until that run is verified, remote archival is
 **pending**, not claimed complete. To verify and record its artifact:
 
 ```sh
-python3 acceptance/evidence_index.py record-history --run CI_RUN_ID
+python3 acceptance/evidence_index.py record-history --run FULL_VALIDATION_RUN_ID
 ```
 
 This checks every original byte and changes only archival metadata; history is
-never loaded as current qualification. CI avoids repeating the archive once its
-verified run/artifact IDs are indexed. `archive-history` is also an explicit CI
-dispatch purpose and cannot emit a green `Brewlet validation` check.
+never loaded as current qualification. Full validation avoids repeating the archive
+once its verified run/artifact IDs are indexed. `archive-history` is also an
+explicit `full-validation.yml` dispatch purpose and cannot emit a green
+`Brewlet full validation` check. The already recorded archive came from the
+predecessor `v2-ci.yml` workflow.
 
 Current/debug artifacts retain the existing 14-day retention; the one-time
 historical archive uses 90 days. Actions artifacts are **not permanent storage**:
