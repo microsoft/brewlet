@@ -245,13 +245,13 @@ See the [security guidance](docs/security.md) for trust boundaries and
 ## Releases
 
 Brewlet is pre-GA. [`release.json`](release.json) defines the release
-identity. Every 0.x release (0.8.0 onward previews the 1.0.0 line) is a beta
-GitHub prerelease: not stable, never marked latest, and free to break or pivot.
+identity. Every 0.x release (0.8.0 onward previews the 1.0.0 line) is a beta:
+published as the latest GitHub release, but not stable and free to break or pivot.
 GA will be 1.0.0.
 
 | Artifact | Intended location |
 | --- | --- |
-| CLI archives and checksums | [GitHub prereleases](https://github.com/microsoft/brewlet/releases) |
+| CLI archives and checksums | [GitHub releases](https://github.com/microsoft/brewlet/releases) |
 | Operator image | `ghcr.io/microsoft/brewlet-operator:VERSION` |
 | Admission webhook image | `ghcr.io/microsoft/brewlet-admission:VERSION` |
 | Node provisioner and shim image | `ghcr.io/microsoft/brewlet-node-provisioner:VERSION` |

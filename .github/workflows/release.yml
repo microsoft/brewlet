@@ -1,8 +1,8 @@
 name: Brewlet release
 
 # Pushing tag vX.Y.Z (matching release.json) builds, verifies and publishes the release.
-# Versions below 1.0.0 and -alpha/-beta/-rc versions are published as GitHub prereleases
-# and are never marked latest. A manual dispatch is a build-only dry run.
+# Plain X.Y.Z versions (including 0.x betas) are published as normal releases marked latest;
+# -alpha/-beta/-rc versions are GitHub prereleases, never latest. A manual dispatch is a build-only dry run.
 on:
   push:
     tags: ["v*"]
@@ -189,7 +189,7 @@ jobs:
           MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
         run: python3 scripts/publish_release.py central
-      - name: Publish GitHub release (prerelease below 1.0.0 or with a suffix)
+      - name: Publish GitHub release (latest, or prerelease with a suffix)
         run: python3 scripts/publish_release.py release
       - name: Independently fetch and verify published distributions
         env:
