@@ -116,7 +116,7 @@ def protected_identity(h):
             h.assert_report(h.http("forged-artifact-hints"), h.probe_language, arguments=[], cwd="/app")
             h.record("actual admission-bypassing forged artifact hints are not execution authority",
                       observed, ["RUN-02", "ADM-04"])
-            h.delete("pod", "forged-artifact-hints", h.namespace)
+            h.delete("pod", "forged-artifact-hints", h.namespace, grace_seconds=1)
             h.wait("hint probe workload drains", lambda: h.get("pod", "forged-artifact-hints", h.namespace,
                                                                 absent=True) is None)
         finally:

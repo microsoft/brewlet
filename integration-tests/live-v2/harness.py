@@ -432,7 +432,7 @@ class Harness:
         require_owned(result, self.run_id, self.owned[key])
         return result
 
-    def delete(self, kind, name, namespace=None):
+    def delete(self, kind, name, namespace=None, *, grace_seconds=None):
         key = (kind.lower(), namespace or "", name)
         require(key in self.owned, "cannot delete an unrecorded Kubernetes object")
         obj = self.get(kind, name, namespace, absent=True)
@@ -447,10 +447,15 @@ class Harness:
                   "/api/v1" if kind.lower() in ("pod", "namespace", "service") else "/apis/" + API)
         if namespace:
             prefix += "/namespaces/" + namespace
+        options = {"apiVersion": "v1", "kind": "DeleteOptions",
+                   "preconditions": {"uid": self.owned[key]},
+                   "propagationPolicy": "Foreground"}
+        if grace_seconds is not None:
+            require(kind.lower() == "pod" and type(grace_seconds) is int and grace_seconds >= 1,
+                    "a shortened grace period applies only to throwaway probe pods")
+            options["gracePeriodSeconds"] = grace_seconds
         self.kubectl("delete", "--raw", prefix + "/" + resource + "/" + name, "-f", "-",
-                     input=json.dumps({"apiVersion": "v1", "kind": "DeleteOptions",
-                                       "preconditions": {"uid": self.owned[key]},
-                                       "propagationPolicy": "Foreground"}))
+                     input=json.dumps(options))
 
     def wait(self, description, predicate, timeout=None):
         deadline = time.monotonic() + (timeout or self.timeout)
@@ -1263,7 +1268,8 @@ class Harness:
             return text if reason in text else False
         evidence = self.wait(name + " exact failure " + reason, observe, timeout=timeout)
         self.record(name + " rejects start: " + reason, {"reason": reason, "observation": evidence}, requirements)
-        self.delete("pod", name, self.namespace)
+        # Refused probes never ran the application, so there is nothing to drain.
+        self.delete("pod", name, self.namespace, grace_seconds=1)
         self.wait(name + " removed", lambda: self.get("pod", name, self.namespace, absent=True) is None)
 
     def bypass_admission(self):
@@ -1494,6 +1500,7 @@ class Harness:
                     "metadata": {"name": "interceptor-config", "namespace": self.control_namespace},
                     "stringData": {"config.json": json.dumps(config)}})
         if wait:
+            nudges = iter(range(1, 1 << 30))
             def observed():
                 pods = self.get("pods", namespace=self.control_namespace)["items"]
                 matches = [p for p in pods if p["metadata"].get("labels", {}).get("app")
@@ -1501,10 +1508,17 @@ class Harness:
                            and p.get("status", {}).get("phase") == "Running"]
                 if len(matches) != 1:
                     return False
-                response = self.kubectl("-n", self.control_namespace, "exec", matches[0]["metadata"]["name"],
+                name = matches[0]["metadata"]["name"]
+                response = self.kubectl("-n", self.control_namespace, "exec", name,
                     "--", "python3", "-c",
                     "import json; print(json.load(open('/config/config.json'))['revision'])").stdout.strip()
-                return response == str(self.interceptor_revision)
+                if response == str(self.interceptor_revision):
+                    return True
+                # Kubelet refreshes Secret volumes on every pod sync; a pod
+                # update triggers one instead of waiting for the ~1m resync.
+                self.kubectl("-n", self.control_namespace, "annotate", "--overwrite", "pod", name,
+                             f"acceptance.brewlet.test/config-sync={self.interceptor_revision}-{next(nudges)}")
+                return False
             self.wait("interceptor observes configured refusal revision", observed, timeout=120)
 
     def pinned_revocation(self):

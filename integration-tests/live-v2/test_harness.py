@@ -727,6 +727,45 @@ class SafetyTests(ProjectWork):
         self.assertEqual(args[:2], ("delete", "--raw"))
         self.assertIn("/namespaces/" + instance.namespace + "/pods/test", args[2])
         self.assertEqual(json.loads(kwargs["input"])["preconditions"], {"uid": "pod-uid"})
+        self.assertNotIn("gracePeriodSeconds", json.loads(kwargs["input"]))
+
+    def test_short_delete_grace_is_only_for_probe_pods(self):
+        instance = self.harness()
+        instance.owned[("pod", instance.namespace, "probe")] = "pod-uid"
+        instance.owned[("runtimeimage", "", "fixture")] = "ri-uid"
+        instance.get = mock.Mock(side_effect=lambda kind, *_args, **_kwargs:
+                                 owned("pod-uid" if kind == "pod" else "ri-uid"))
+        instance.kubectl = mock.Mock()
+        instance.delete("pod", "probe", instance.namespace, grace_seconds=1)
+        body = json.loads(instance.kubectl.call_args.kwargs["input"])
+        self.assertEqual((body["gracePeriodSeconds"], body["preconditions"]), (1, {"uid": "pod-uid"}))
+        instance.kubectl.reset_mock()
+        for kind, name, namespace, grace in (("runtimeimage", "fixture", None, 1),
+                                             ("pod", "probe", instance.namespace, 0)):
+            with self.subTest(kind=kind, grace=grace), self.assertRaisesRegex(h.Failure, "throwaway probe pods"):
+                instance.delete(kind, name, namespace, grace_seconds=grace)
+        instance.kubectl.assert_not_called()
+
+    def test_interceptor_reconfiguration_nudges_pod_sync_until_revision_is_observed(self):
+        instance = self.harness()
+        instance.interceptor_revision = 1
+        instance.apply = mock.Mock()
+        pod = {"metadata": {"name": "interceptor-x", "labels": {"app": instance.cluster + "-interceptor"}},
+               "status": {"phase": "Running"}}
+        instance.get = mock.Mock(return_value={"items": [pod]})
+        observed = iter(["1", "1", "2"])
+        commands = []
+        def kubectl(*args, **_kwargs):
+            commands.append(args)
+            return mock.Mock(stdout=next(observed) if "exec" in args else "")
+        instance.kubectl = mock.Mock(side_effect=kubectl)
+        with mock.patch.object(h.time, "sleep"):
+            instance.configure_interceptor(["label"], True)
+        annotations = [args for args in commands if "annotate" in args]
+        self.assertEqual([args[-1] for args in annotations],
+                         ["acceptance.brewlet.test/config-sync=2-1", "acceptance.brewlet.test/config-sync=2-2"])
+        self.assertTrue(all("interceptor-x" in args for args in annotations))
+        self.assertIn("exec", commands[-1])
 
     def test_delete_foreign_or_replaced_object_does_not_issue_delete(self):
         instance = self.harness()
