@@ -23,8 +23,10 @@ make build
 
 On macOS, the producer builds locally, but the shim and node worker execute on
 Linux. Application sources with filesystem extended attributes are rejected by
-artifact policy; use the existing Linux producer environment rather than
-stripping validation checks.
+artifact policy, except the macOS host-local `com.apple.provenance` and
+`com.apple.quarantine` attributes, which the producer ignores because layers
+never carry xattrs. Remove any other attribute rather than stripping
+validation checks.
 
 ## Package a minimal application
 
