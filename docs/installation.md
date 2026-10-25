@@ -1,6 +1,6 @@
 # Source-built installation
 
-There is no published stable 1.0.0 installer yet; 0.8.0+ beta prereleases
+There is no published stable 1.0.0 installer yet; 0.8.0+ beta releases
 preview the 1.0.0 line. Use one reviewed source revision (or one beta release)
 for the CLI, chart, CRDs, control plane and provisioner.
 Do not substitute legacy Brewlet 0.7.x's released CLI, chart or application format.

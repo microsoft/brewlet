@@ -19,7 +19,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.release import DIGEST, is_prerelease, policy, require, run, sha, validate_inventory, write_json
+from scripts.release import DIGEST, is_prerelease, is_stable, policy, require, run, sha, validate_inventory, write_json
 from scripts.release_assurance import publication_ready, attest_verify
 
 
@@ -192,15 +192,15 @@ def publish_central(output):
     require(central_payloads(output), "Central reported publication without exact distributable bytes")
 
 
-def release_notes(version, prerelease, root=ROOT):
+def release_notes(version, unstable, root=ROOT):
     parts = []
     curated = root / "release-notes" / (version + ".md")
     if curated.is_file():
         parts.append(curated.read_text().strip())
-    elif prerelease:
-        parts.append("> [!WARNING]\n> **Beta prerelease, not stable.** Releases below 1.0.0 can break, "
+    elif unstable:
+        parts.append("> [!WARNING]\n> **Beta release, not stable.** Releases below 1.0.0 can break, "
                      "change incompatibly or pivot between versions. General availability will be Brewlet 1.0.0.")
-    parts.append(("Beta prerelease" if prerelease else "Release") +
+    parts.append(("Beta release" if unstable else "Release") +
                  ". Verify candidate.json, checksums and attestations before installation. See the "
                  "[release runbook](https://brewlet.sh/docs/supported-release/); "
                  "no general in-place upgrade is supported.")
@@ -219,7 +219,7 @@ def publish_release(output):
     if body is None:
         run(["ghx", "release", "create", tag, "--repo", config["repository"], "--verify-tag",
              "--draft", *channel, "--title", "Brewlet " + config["version"], "--generate-notes",
-             "--notes", release_notes(config["version"], prerelease)])
+             "--notes", release_notes(config["version"], not is_stable(config["version"]))])
     else:
         require(json.loads(body)["isPrerelease"] is prerelease, "refusing to modify a release on a different channel")
     with tempfile.TemporaryDirectory() as temp:

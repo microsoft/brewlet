@@ -14,7 +14,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.release import (SYFT, is_prerelease, members, policy, read_json, require, run, sha,
+from scripts.release import (SYFT, is_stable, members, policy, read_json, require, run, sha,
                              validate_inventory, write_json)
 
 
@@ -199,7 +199,7 @@ def publication_ready(output):
     for path in (output / "candidate.json", output / "sboms/index.json"):
         attest_verify(path, "release-build.yml", source)
     policy_value = config["publicationPolicy"]
-    if not is_prerelease(config["version"]):
+    if is_stable(config["version"]):
         legal = policy_value["legalApproval"]
         require(isinstance(legal, dict) and legal.get("approved") is True and legal.get("reference")
                 and legal.get("containerPolicy") == "no-additional-text-required",
