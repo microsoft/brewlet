@@ -1160,6 +1160,31 @@ class CallbackOrderTests(ProjectWork):
                     self.assertTrue(any(gap.startswith("INV-05 node-wide fallback fence")
                                         for gap in instance.result["gaps"]))
 
+    def test_preflight_requires_only_the_selected_fixture_toolchains(self):
+        for kwargs, absent, present in (
+                ({"scenario": "pr", "pr_language": "python"}, {"mvn", "java", "node", "dotnet"}, set()),
+                ({"scenario": "pr"}, set(), {"mvn", "java", "node", "dotnet"})):
+            with self.subTest(kwargs=kwargs):
+                if self.work.exists():
+                    shutil.rmtree(self.work)
+                instance = self.harness(**kwargs)
+                required, ran = [], []
+                def run(command, **_):
+                    ran.append(command[0])
+                    output = {"kind": "kind v0.33.0", "docker": "linux",
+                              "dotnet": "10.0.401 [/sdk]"}.get(command[0], "")
+                    if command[:2] == ["docker", "info"] and "Architecture" in command[-1]:
+                        output = "x86_64"
+                    return SimpleNamespace(stdout=output, stderr="")
+                instance.run = run
+                instance.record = mock.Mock()
+                with mock.patch.object(h.shutil, "which", side_effect=lambda tool: required.append(tool) or tool), \
+                        mock.patch.object(h, "working_identity", return_value={}):
+                    instance.preflight()
+                self.assertFalse(absent & (set(required) | set(ran)))
+                self.assertLessEqual(present, set(required) & set(ran))
+                self.assertLessEqual({"docker", "kind", "kubectl", "helm", "go", "python3"}, set(required))
+
     def test_pr_scope_cannot_use_local_selection_or_disable_pinned_checks(self):
         for kwargs in ({"pinned": False}, {"local_language": "python"}):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(h.Failure, "PR E2E requires pinned"):

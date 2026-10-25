@@ -68,45 +68,60 @@ def image_target(layout):
     return descriptor["digest"]
 
 
-def build_and_probe(work):
-    java = work / "java"
-    shutil.copytree(FIXTURES / "java", java, ignore=shutil.ignore_patterns("target"))
-    run(["mvn", "-B", "-q", "-f", java / "dependency/pom.xml", "install"])
-    run(["mvn", "-B", "-q", "-f", java / "bom/pom.xml", "install"])
-    run(["mvn", "-B", "-q", "-f", java / "app/pom.xml", "package"])
-    java_app = work / "java-app"
-    java_dependencies = work / "java-dependencies"
-    java_app.mkdir()
-    (java_app / "lib").mkdir()
-    java_dependencies.mkdir()
-    shutil.copy2(java / "app/target/fixture-java-2.0.0.jar", java_app / "app.jar")
-    shutil.copy2(java / "dependency/target/greeting-2.0.0.jar",
-                 java_dependencies / "greeting-2.0.0.jar")
+FIXTURE_LANGUAGES = ("java", "python", "node", "dotnet")
 
-    dotnet = work / "dotnet"
-    shutil.copytree(FIXTURES / "dotnet", dotnet,
-                    ignore=shutil.ignore_patterns("bin", "obj", "target"))
-    published = work / "dotnet-publish"
-    run(["dotnet", "publish", dotnet / "App/App.csproj", "--configuration", "Release",
-         "--output", published, "--nologo"], cwd=dotnet)
-    dotnet_app = work / "dotnet-app"
-    dotnet_dependencies = work / "dotnet-dependencies"
-    dotnet_app.mkdir()
-    dotnet_dependencies.mkdir()
-    for name in ("App.dll", "App.deps.json", "App.runtimeconfig.json"):
-        shutil.copy2(published / name, dotnet_app / name)
-    shutil.copy2(published / "Greeting.dll", dotnet_dependencies / "Greeting.dll")
+
+def build_and_probe(work, languages=FIXTURE_LANGUAGES):
+    languages = tuple(languages)
+    if not languages or any(language not in FIXTURE_LANGUAGES for language in languages) \
+            or len(set(languages)) != len(languages):
+        raise ValueError(f"unsupported fixture language selection: {languages!r}")
+    commands, layers, java = {}, {}, None
+    if "java" in languages:
+        java = work / "java"
+        shutil.copytree(FIXTURES / "java", java, ignore=shutil.ignore_patterns("target"))
+        run(["mvn", "-B", "-q", "-f", java / "dependency/pom.xml", "install"])
+        run(["mvn", "-B", "-q", "-f", java / "bom/pom.xml", "install"])
+        run(["mvn", "-B", "-q", "-f", java / "app/pom.xml", "package"])
+        java_app = work / "java-app"
+        java_dependencies = work / "java-dependencies"
+        java_app.mkdir()
+        (java_app / "lib").mkdir()
+        java_dependencies.mkdir()
+        shutil.copy2(java / "app/target/fixture-java-2.0.0.jar", java_app / "app.jar")
+        shutil.copy2(java / "dependency/target/greeting-2.0.0.jar",
+                     java_dependencies / "greeting-2.0.0.jar")
+        commands["java"] = ["java", "--class-path",
+                            str(java_app / "app.jar") + os.pathsep + str(java_dependencies / "*"),
+                            "sh.brewlet.fixture.Main", "--probe", "two words"]
+        layers["java"] = [("dependency", java_dependencies, "/app/lib"), ("app", java_app, "/app")]
+    if "python" in languages:
+        commands["python"] = ["python3", FIXTURES / "python/src/main.py", "--probe", "two words"]
+        layers["python"] = [("dependency", FIXTURES / "python/dependencies", "/app/dependencies"),
+                            ("app", FIXTURES / "python/src", "/app/src")]
+    if "node" in languages:
+        commands["node"] = ["node", FIXTURES / "node/src/main.mjs", "--probe", "two words"]
+        layers["node"] = [("dependency", FIXTURES / "node/dependencies", "/app/dependencies"),
+                          ("app", FIXTURES / "node/src", "/app/src")]
+    if "dotnet" in languages:
+        dotnet = work / "dotnet"
+        shutil.copytree(FIXTURES / "dotnet", dotnet,
+                        ignore=shutil.ignore_patterns("bin", "obj", "target"))
+        published = work / "dotnet-publish"
+        run(["dotnet", "publish", dotnet / "App/App.csproj", "--configuration", "Release",
+             "--output", published, "--nologo"], cwd=dotnet)
+        dotnet_app = work / "dotnet-app"
+        dotnet_dependencies = work / "dotnet-dependencies"
+        dotnet_app.mkdir()
+        dotnet_dependencies.mkdir()
+        for name in ("App.dll", "App.deps.json", "App.runtimeconfig.json"):
+            shutil.copy2(published / name, dotnet_app / name)
+        shutil.copy2(published / "Greeting.dll", dotnet_dependencies / "Greeting.dll")
+        commands["dotnet"] = ["dotnet", published / "App.dll", "--probe", "two words"]
+        layers["dotnet"] = [("dependency", dotnet_dependencies, "/app"), ("app", dotnet_app, "/app")]
 
     environment = dict(os.environ, BREWLET_TEST_VALUE="explicit-contract-value")
     reports = {}
-    commands = {
-        "java": ["java", "--class-path",
-                 str(java_app / "app.jar") + os.pathsep + str(java_dependencies / "*"),
-                 "sh.brewlet.fixture.Main", "--probe", "two words"],
-        "python": ["python3", FIXTURES / "python/src/main.py", "--probe", "two words"],
-        "node": ["node", FIXTURES / "node/src/main.mjs", "--probe", "two words"],
-        "dotnet": ["dotnet", published / "App.dll", "--probe", "two words"],
-    }
     for language, command in commands.items():
         process_environment = dict(environment)
         if language == "python":
@@ -143,14 +158,7 @@ def build_and_probe(work):
                 server.communicate(timeout=10)
         reports[language] = report
 
-    return reports, {
-        "java": [("dependency", java_dependencies, "/app/lib"), ("app", java_app, "/app")],
-        "python": [("dependency", FIXTURES / "python/dependencies", "/app/dependencies"),
-                   ("app", FIXTURES / "python/src", "/app/src")],
-        "node": [("dependency", FIXTURES / "node/dependencies", "/app/dependencies"),
-                 ("app", FIXTURES / "node/src", "/app/src")],
-        "dotnet": [("dependency", dotnet_dependencies, "/app"), ("app", dotnet_app, "/app")],
-    }, java
+    return reports, layers, java
 
 
 def main():

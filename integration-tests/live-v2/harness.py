@@ -542,8 +542,12 @@ class Harness:
 
     def preflight(self):
         self.result.update(working_identity(ROOT))
-        for tool in ("docker", "kind", "kubectl", "helm", "go", "mvn", "java", "python3",
-                     "node", "dotnet", "openssl"):
+        # Fixture toolchains are mandatory only for the languages this run builds.
+        toolchains = {"java": ("mvn", "java"), "python": (), "node": ("node",),
+                      "dotnet": ("dotnet",)}
+        fixture_tools = [tool for language in self.languages for tool in toolchains[language]]
+        for tool in ("docker", "kind", "kubectl", "helm", "go", *fixture_tools, "python3",
+                     "openssl"):
             require(shutil.which(tool), "mandatory prerequisite missing: " + tool)
         require(sys.version_info >= (3, 12), "Python 3.12+ required")
         version = self.run(["kind", "version"]).stdout.split()
@@ -555,14 +559,16 @@ class Harness:
         require(self.run(["docker", "info", "--format", "{{.OSType}}"]).stdout.strip() == "linux",
                 "Linux Docker engine required")
         self.result["architecture"] = self.arch
+        version_args = {"mvn": ["--version"], "java": ["-version"], "node": ["--version"],
+                        "dotnet": ["--info"]}
         for tool, args in (("go", ["version"]), ("kubectl", ["version", "--client", "-o", "json"]),
-                           ("helm", ["version", "--short"]), ("mvn", ["--version"]),
-                           ("java", ["-version"]), ("node", ["--version"]),
-                           ("dotnet", ["--info"])):
+                           ("helm", ["version", "--short"]),
+                           *((tool, version_args[tool]) for tool in fixture_tools)):
             result = self.run([tool, *args])
             self.result.setdefault("toolVersions", {})[tool] = result.stdout + result.stderr
-        require("10.0.401" in self.run(["dotnet", "--list-sdks"]).stdout,
-                "fixture requires .NET SDK exactly 10.0.401 (global.json disallows roll-forward)")
+        if "dotnet" in self.languages:
+            require("10.0.401" in self.run(["dotnet", "--list-sdks"]).stdout,
+                    "fixture requires .NET SDK exactly 10.0.401 (global.json disallows roll-forward)")
         pinned_files = [ROOT / "provisioner/Dockerfile", ROOT / "kubernetes/Dockerfile",
                         FIXTURES / "runtimes/rotation.json",
                         *sorted((FIXTURES / "runtimes").glob("*.Dockerfile"))]
@@ -696,10 +702,11 @@ class Harness:
                   "import importlib.util,json,sys; from pathlib import Path; "
                   "s=importlib.util.spec_from_file_location('fixtures',sys.argv[1]); "
                   "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
-                  "r,l,j=m.build_and_probe(Path(sys.argv[2])); "
+                  "r,l,j=m.build_and_probe(Path(sys.argv[2]),sys.argv[4].split(',')); "
                   "Path(sys.argv[3]).write_text(json.dumps({'reports':r,'layers':"
                   "{k:[[a,str(b),c] for a,b,c in v] for k,v in l.items()}}))",
-                  FIXTURES / "check.py", build_work, self.work / "host-reports.json"],
+                  FIXTURES / "check.py", build_work, self.work / "host-reports.json",
+                  ",".join(self.languages)],
                  timeout=900, env={"MAVEN_OPTS": "-Dmaven.repo.local=" + str(self.work / "m2"),
                                    "JAVA_TOOL_OPTIONS": "-Djava.io.tmpdir=" + str(java_temp)})
         layers = json.loads((self.work / "host-reports.json").read_text())["layers"]
