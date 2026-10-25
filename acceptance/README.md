@@ -4,7 +4,7 @@
 
 | Gate | Execution | Meaning |
 | --- | --- | --- |
-| `Brewlet validation` in `v2-ci.yml` | Contracts, native producer/kernel checks, and a real four-language Kubernetes E2E | Required PR validation, not full promotion qualification |
+| `Brewlet validation` in `v2-ci.yml` | Contracts, native producer/kernel checks, and a real Kubernetes E2E (Python fixture on pull requests, all four languages on pushes to `main`) | Required PR validation, not full promotion qualification |
 | `Brewlet promotion qualification` | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
 
 Green unit/contract checks alone cannot make `Brewlet validation` green. When

@@ -170,7 +170,7 @@ jobs:
           fi
 
   e2e:
-    name: Real four-language E2E
+    name: Real E2E
     needs: context
     if: needs.context.outputs.purpose == 'validation' && needs.context.outputs.e2e == 'true'
     uses: ./.github/workflows/e2e.yml
@@ -178,6 +178,8 @@ jobs:
       expected_sha: ${{ needs.context.outputs.source }}
       scenario: pr
       architecture: amd64
+      # Pull requests exercise only the fastest fixture; main pushes (release gate) keep all four.
+      languages: ${{ github.event_name == 'pull_request' && 'python' || 'all' }}
 
   producer-integration:
     needs: context
