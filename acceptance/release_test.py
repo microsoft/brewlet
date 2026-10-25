@@ -18,7 +18,7 @@ from scripts import release_tools as tools
 class IdentityTests(unittest.TestCase):
     def test_current_coordinates_and_metadata_agree(self):
         config = r.policy()
-        self.assertEqual("0.8.0", config["version"])
+        self.assertEqual("0.8.1", config["version"])
         self.assertTrue(r.is_prerelease(config["version"]))
         fixture = r.ET.parse(r.ROOT / "integration-tests/fixtures/java/app/pom.xml").getroot()
         plugin = next(item for item in fixture.findall("m:build/m:plugins/m:plugin", r.NS)
@@ -58,7 +58,7 @@ class IdentityTests(unittest.TestCase):
             for name in ("maven-plugin/pom.xml", "kubernetes/charts/brewlet/Chart.yaml"):
                 path = root / name
                 original = path.read_text()
-                path.write_text(original.replace("0.8.0", "0.8.0-SNAPSHOT"))
+                path.write_text(original.replace(r.policy()["version"], r.policy()["version"] + "-SNAPSHOT"))
                 with self.assertRaisesRegex(ValueError, "identity drift"):
                     r.policy(root)
                 path.write_text(original)
@@ -98,8 +98,8 @@ class PackagingTests(unittest.TestCase):
     def test_exact_payload_set_includes_every_distribution(self):
         names = r.expected_files(r.policy())
         self.assertEqual(9, len(names))
-        self.assertIn("brewlet-0.8.0.tgz", names)
-        self.assertIn("brewlet-maven-plugin-0.8.0-javadoc.jar", names)
+        self.assertIn("brewlet-0.8.1.tgz", names)
+        self.assertIn("brewlet-maven-plugin-0.8.1-javadoc.jar", names)
 
 
 class AssuranceTests(unittest.TestCase):

@@ -3,7 +3,7 @@
 Releases are automated: pushing a `vVERSION` tag that matches
 [`release.json`](https://github.com/microsoft/brewlet/blob/main/release.json)
 builds, verifies and publishes every distribution surface. The current
-release identity is **0.8.0**.
+release identity is **0.8.1**.
 
 **Any version below 1.0.0 is a beta.** Betas (`0.y.z`), and any version with an
 `-alpha.N`, `-beta.N` or `-rc.N` suffix, are published as GitHub *prereleases*
@@ -120,8 +120,8 @@ pinned fingerprint.
 3. Tag that exact commit and push the tag:
 
    ```sh
-   git tag v0.8.0 <green-main-commit>
-   git push origin v0.8.0
+   git tag v0.8.1 <green-main-commit>
+   git push origin v0.8.1
    ```
 
 The `release.yml` workflow then:

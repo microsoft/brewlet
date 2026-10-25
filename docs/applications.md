@@ -149,7 +149,7 @@ It can prepare classpath/module argv and dependency layers, or consume one
 verified complete Java layer-set graph.
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.8.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \
   -Dbrewlet.image=registry.example.com/apps/orders:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
