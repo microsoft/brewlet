@@ -244,12 +244,15 @@ def artifact_target(layout):
 
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
-                 retain_on_failure=False, local_language=None):
+                 retain_on_failure=False, local_language=None, pr_language=None):
         require(scenario in ("complete", "pr", "control", "runtime", "maven", "lifecycle",
                              "roles", "accounting", "delivery"),
                 "unsupported live scenario")
         require(scenario != "pr" or (pinned and local_language is None),
-                "PR E2E requires all four languages and pinned scenarios")
+                "PR E2E requires pinned scenarios and no local fixture selection")
+        # Pinned refusal is bound to the Python fixture, so it is the only single-language PR scope.
+        require(pr_language is None or (scenario == "pr" and pr_language == "python"),
+                "single-language selection is only the Python PR E2E")
         require(local_language is None or (
             local_language in LANGUAGES and not pinned
             and (scenario == "runtime"
@@ -262,7 +265,8 @@ class Harness:
                 "local scenario requires --local-language and --without-pinned-scenarios")
         self.scenario = scenario
         self.retain_on_failure = retain_on_failure
-        self.languages = (local_language,) if local_language else LANGUAGES
+        self.languages = ((local_language,) if local_language
+                          else (pr_language,) if pr_language else LANGUAGES)
         self.probe_language = "python" if "python" in self.languages else self.languages[0]
         self.runtime_ids = {language: IDS[language] for language in self.languages}
         self.run_id = validate_run_id(uuid.uuid4().hex[:12])
@@ -1697,12 +1701,12 @@ class Harness:
         self.result["selectedLanguages"] = list(self.languages)
         if self.languages != LANGUAGES:
             self.result["gaps"].append(
-                "Local fixture selection omits " + ", ".join(
+                ("PR" if self.scenario == "pr" else "Local") + " fixture selection omits " + ", ".join(
                     language for language in LANGUAGES if language not in self.languages)
                 + " execution and rotation")
         if self.scenario == "pr":
             self.result["gaps"].append(
-                "PR four-language E2E omits the long quarantine, accounting, managed composition, "
+                "PR E2E omits the long quarantine, accounting, managed composition, "
                 "Maven/container-role/lifecycle/controller fault callbacks and companion suites; "
                 "full promotion qualification is separate")
         elif self.scenario == "control":
@@ -1869,6 +1873,9 @@ def main():
                             "and --without-pinned-scenarios")
     local.add_argument("--local-python-only", action="store_const", const="python", dest="local_language",
                        help="select the Python fixture for smaller local debugging")
+    local.add_argument("--pr-language", choices=("python",),
+                       help="run the pinned PR scenario against only the Python fixture "
+                            "(fast pull-request validation; push/promotion run all four)")
     args = parser.parse_args()
     require(30 <= args.timeout <= 1800, "timeout must be between 30 and 1800 seconds")
     def interrupted(signum, frame):
@@ -1877,7 +1884,7 @@ def main():
     signal.signal(signal.SIGINT, interrupted)
     harness = Harness(args.work, timeout=args.timeout, pinned=not args.without_pinned_scenarios,
                       scenario=args.scenario, retain_on_failure=args.retain_on_failure,
-                      local_language=args.local_language)
+                      local_language=args.local_language, pr_language=args.pr_language)
     return harness.execute()
 
 

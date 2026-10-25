@@ -67,6 +67,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/e2e.yml", e2e)
         self.assertIn("scenario: pr", e2e)
         self.assertIn("architecture: amd64", e2e)
+        # Only pull requests narrow to Python; main pushes gating releases keep all four fixtures.
+        self.assertIn("languages: ${{ github.event_name == 'pull_request' && 'python' || 'all' }}", e2e)
         self.assertNotIn("continue-on-error", text)
         self.assertNotIn("make acceptance", text)
 
@@ -153,8 +155,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("run_check.py", text)
         self.assertNotIn("make acceptance", text)
         self.assertNotIn("unittest discover", text)
-        self.assertIn("harness.py --scenario pr", text)
-        self.assertIn("--verify-pr", text)
+        self.assertIn('harness.py --scenario pr "${selection[@]}"', text)
+        self.assertIn("selection=(--pr-language python)", text)
+        self.assertIn('--verify-pr "acceptance-export/pr-e2e-${ARCHITECTURE}.json"', text)
+        self.assertIn('--languages "$LANGUAGES"', text)
         export = text.split("      - name: Export only public PR outcomes", 1)[1].split(
             "      - name:", 1)[0]
         self.assertIn("steps.guard.outcome == 'success'", export)
@@ -168,21 +172,27 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(text.index("Seed BuildKit"), text.index("harness.py --scenario pr"))
         self.assertLess(text.index("harness.py --scenario pr"), text.index("Extract BuildKit"))
         program = block(text, "Refuse unsupported execution contexts")
-        for event, ref, head, scenario, success in (
-                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", True),
-                ("pull_request", "refs/pull/1/merge", "fork/brewlet", "pr", False),
-                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "complete", False),
-                ("push", "refs/heads/main", "microsoft/brewlet", "pr", True),
-                ("push", "refs/heads/candidate", "microsoft/brewlet", "pr", False),
-                ("push", "refs/heads/main", "microsoft/brewlet", "complete", False),
-                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", True),
-                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", True),
-                ("workflow_dispatch", "refs/tags/untrusted", "microsoft/brewlet", "pr", False)):
+        for event, ref, head, scenario, languages, success in (
+                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", "all", True),
+                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", "python", True),
+                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", "java", False),
+                ("pull_request", "refs/pull/1/merge", "fork/brewlet", "pr", "python", False),
+                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "complete", "all", False),
+                ("push", "refs/heads/main", "microsoft/brewlet", "pr", "all", True),
+                ("push", "refs/heads/main", "microsoft/brewlet", "pr", "python", False),
+                ("push", "refs/heads/candidate", "microsoft/brewlet", "pr", "all", False),
+                ("push", "refs/heads/main", "microsoft/brewlet", "complete", "all", False),
+                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", "all", True),
+                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", "python", False),
+                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", "all", True),
+                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", "python", True),
+                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", "", False),
+                ("workflow_dispatch", "refs/tags/untrusted", "microsoft/brewlet", "pr", "all", False)):
             environment = {"EVENT": event, "REF": ref, "HEAD_REPOSITORY": head, "SCENARIO": scenario,
                 "REPOSITORY": "microsoft/brewlet", "SOURCE": "a" * 40, "EXPECTED_SOURCE": "a" * 40,
-                "ARCHITECTURE": "amd64"}
+                "ARCHITECTURE": "amd64", "LANGUAGES": languages}
             result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
-            self.assertEqual(success, result.returncode == 0, (event, ref, head, scenario))
+            self.assertEqual(success, result.returncode == 0, (event, ref, head, scenario, languages))
         self.assertLess(text.index('test "$SOURCE" = "$EXPECTED_SOURCE"'), text.index("- uses: actions/checkout"))
 
     def test_dispatch_moved_head_bad_architecture_and_unknown_scope_fail_closed(self):
@@ -196,7 +206,7 @@ class WorkflowTests(unittest.TestCase):
                 environment = {"EVENT": "workflow_dispatch", "REF": "refs/heads/candidate",
                     "HEAD_REPOSITORY": "microsoft/brewlet", "REPOSITORY": "microsoft/brewlet",
                     "SOURCE": "a" * 40, "EXPECTED_SOURCE": "a" * 40, "SCENARIO": "pr",
-                    "ARCHITECTURE": "amd64"}
+                    "ARCHITECTURE": "amd64", "LANGUAGES": "all"}
                 environment[field] = value
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertNotEqual(0, result.returncode, (field, value))

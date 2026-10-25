@@ -39,6 +39,11 @@ The branch's `.github/workflows/e2e.yml` is reused by automatic PR CI and can
 also be dispatched manually at an exact `expected_sha`. Its default `pr` scenario
 is the real four-language baseline: admission/startup, execution, rotations,
 observability, operator restart, protected CRI identity and normal cleanup.
+Its `languages` input narrows that same pinned scenario to the Python fixture
+(`harness.py --scenario pr --pr-language python`, verified with
+`qualify.py --verify-pr ... --languages python`); automatic CI uses it only for
+pull requests, while pushes to `main` keep all four languages. The receipt
+records `selectedLanguages` and the omitted languages as a gap.
 It deliberately omits the long fault/accounting/companion matrix, which remains
 mandatory before promotion. The required `Brewlet validation` aggregate cannot
 pass if this E2E job fails, cancels or skips, except that pull requests changing

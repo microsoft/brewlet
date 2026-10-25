@@ -967,9 +967,10 @@ class CallbackOrderTests(ProjectWork):
         self.assertTrue(instance.result["cleanSelectedSuitePassed"])
 
     def configure(self, *, bootstrap_failure=False, cleanup_failure=False, observer_failure=False,
-                  scenario="complete", retain_on_failure=False, local_language=None):
+                  scenario="complete", retain_on_failure=False, local_language=None, pr_language=None):
         instance = self.harness(scenario=scenario, retain_on_failure=retain_on_failure,
-                                local_language=local_language, pinned=local_language is None)
+                                local_language=local_language, pinned=local_language is None,
+                                pr_language=pr_language)
         calls = []
         for name in ("preflight", "provision_cluster", "prepare_images", "install",
                      "startup", "application_execution", "barriers_and_rotation",
@@ -1061,10 +1062,28 @@ class CallbackOrderTests(ProjectWork):
         self.assertIn("destroy", calls)
         self.assertNotIn("production_cleanup", calls)
 
-    def test_pr_scope_cannot_select_one_language_or_disable_pinned_checks(self):
+    def test_python_pr_scope_keeps_pinned_identity_rotation_and_cleanup_and_records_gap(self):
+        instance, calls, modules = self.configure(scenario="pr", pr_language="python")
+        with mock.patch.dict(sys.modules, modules):
+            self.assertEqual(instance.execute(), 0)
+        self.assertEqual(instance.languages, ("python",))
+        self.assertEqual(instance.probe_language, "python")
+        self.assertEqual(instance.result["selectedLanguages"], ["python"])
+        self.assertFalse(instance.result["fullAcceptance"])
+        self.assertTrue(any(gap.startswith("PR fixture selection omits java, node, dotnet")
+                            for gap in instance.result["gaps"]))
+        for name in ("admission_contract", "startup", "application_execution", "barriers_and_rotation",
+                     "durable_generations", "protected_identity", "pinned_revocation", "production_cleanup"):
+            self.assertIn(name, calls)
+
+    def test_pr_scope_cannot_use_local_selection_or_disable_pinned_checks(self):
         for kwargs in ({"pinned": False}, {"local_language": "python"}):
-            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(h.Failure, "all four languages"):
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(h.Failure, "PR E2E requires pinned"):
                 self.harness(scenario="pr", **kwargs)
+        for scenario, language in (("pr", "java"), ("pr", "node"), ("complete", "python"), ("control", "python")):
+            with self.subTest(scenario=scenario, language=language), \
+                    self.assertRaisesRegex(h.Failure, "only the Python PR E2E"):
+                self.harness(scenario=scenario, pr_language=language)
 
     def test_observability_failure_cannot_be_reported_as_a_pass_or_skip_cleanup(self):
         instance, calls, modules = self.configure(observer_failure=True)
