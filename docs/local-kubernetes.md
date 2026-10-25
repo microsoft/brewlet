@@ -65,7 +65,7 @@ class Hello(BaseHTTPRequestHandler):
 HTTPServer(("", 8000), Hello).serve_forever()
 EOF
 cat > "$WORK/launch.json" <<'EOF'
-{"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3.13"],
+{"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3"],
  "args": ["/app/server.py"], "workingDir": "/app"}}
 EOF
 ARCH="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
@@ -114,7 +114,7 @@ metadata:
   name: python
 spec:
   source:
-    image: gcr.io/distroless/python3-debian13@sha256:f3d5ddc6c64a019fe520e7f005f2880be21e6afc461b10a3c15ef2e4edc71e33
+    image: gcr.io/distroless/python3-debian12@sha256:2fdb05402a2cf21cf78fdb3ba4c5db167241e9e498140f5bf689d7efb773731f
   user: {uid: 65532, gid: 65532}
 ---
 apiVersion: node.brewlet.sh/v1alpha1
@@ -136,8 +136,8 @@ brewlet k8s runtime status python
 The admission webhook can take a few seconds to start answering after the
 install, so the `until` loop retries the apply until it succeeds.
 
-The `python` RuntimeImage is an unchanged upstream Python image, pinned by
-digest. The `local` profile tells Brewlet to install it on the cluster's node.
+The `python` RuntimeImage is the distroless Python 3.11 image, unchanged and
+pinned by digest. The `local` profile tells Brewlet to install it on the cluster's node.
 `includeControlPlane` allows that on this one-node cluster; leave it disabled
 for control-plane nodes in a shared cluster.
 
@@ -176,12 +176,12 @@ SERVICE_IP="$(kubectl get service hello -o jsonpath='{.spec.clusterIP}')"
 docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
 ```
 
-The response shows the Python version and the runtime's UID, 65532.
+The response shows Python 3.11.2, supplied by the node, and the runtime's UID,
+65532.
 
 ## 7. Rotate the runtime, not the application
 
-Point the RuntimeImage at a newer snapshot of the same Python image, then wait
-for Brewlet to roll it out:
+Point the RuntimeImage at Python 3.13.5, then wait for Brewlet to roll it out:
 
 ```sh
 # tutorial-step: rotation
@@ -190,10 +190,11 @@ kubectl wait runtimeimage/python --for=jsonpath='{.status.generation}'=2 --timeo
 kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=5m
 kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=true --timeout=2m
 brewlet k8s runtime status python
+docker exec brewlet-control-plane curl -s "http://$SERVICE_IP:8000/"
 ```
 
-The status shows the RuntimeImage at generation 2, while the running Pod is
-still bound to generation 1. Brewlet never swaps the runtime under a running process.
+The RuntimeImage is at generation 2, but the running Pod still answers with
+Python 3.11.2. Brewlet never swaps the runtime under a running process.
 
 Restart the Deployment. The replacement Pod uses the new runtime, with the same
 application image:
@@ -207,8 +208,8 @@ kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --time
 brewlet k8s runtime status python
 ```
 
-No Pod uses generation 1 anymore, and the application image digest is the same
-one you built in step 3.
+The replacement Pod answers with Python 3.13.5. No Pod uses generation 1
+anymore, and the application image digest is the same one you built in step 3.
 
 ## 8. Clean up
 
