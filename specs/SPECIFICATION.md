@@ -1373,7 +1373,8 @@ Determinism is for identical source bytes, modes, mtimes, descriptors, and
 platform declarations: entries are sorted, ownership rendered as `0:0`, and
 compression metadata is fixed. File modes and mtimes are preserved, not silently
 normalized; invalid permissions and extended attributes are rejected before
-publish. Authors repair source permissions explicitly. This avoids changing
+publish. Layer entries never carry xattrs; on macOS the producer ignores only
+the host-local `com.apple.provenance` and `com.apple.quarantine` attributes. Authors repair source permissions explicitly. This avoids changing
 executable semantics or invalidating AppCDS metadata to make packaging pass.
 
 The CLI MUST NOT inspect application content to derive any field: it never
