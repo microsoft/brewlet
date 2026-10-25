@@ -1,5 +1,6 @@
 """Execute the actual workflow guards offline; never execute live jobs."""
 
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -102,6 +103,19 @@ class WorkflowTests(unittest.TestCase):
                     "GITHUB_OUTPUT": str(output)}
                 subprocess.run(["bash", "-eu", "-c", program], env=environment, check=True, capture_output=True)
                 self.assertEqual("e2e=" + required + "\n", output.read_text(), (event, listed, files))
+
+    def test_pull_requests_run_native_checks_on_amd64_only_and_main_keeps_both(self):
+        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
+        producer = text.split("\n  producer-integration:", 1)[1].split("\n  linux-overlay-contract:", 1)[0]
+        overlay = text.split("\n  linux-overlay-contract:", 1)[1].split("\n  archive-history:", 1)[0]
+        for job in (producer, overlay):
+            expression = job.split("${{ fromJSON(", 1)[1].split(") }}", 1)[0]
+            self.assertTrue(expression.startswith("github.event_name == 'pull_request'"), expression)
+            pr, other = (json.loads(part.strip().strip("&|").strip().strip("'"))
+                         for part in expression.split("github.event_name == 'pull_request'", 1)[1].split("||"))
+            arch = lambda entries: [e if isinstance(e, str) else e["architecture"] for e in entries]
+            self.assertEqual(arch(pr), ["amd64"])
+            self.assertEqual(arch(other), ["amd64", "arm64"])
 
     def test_evidence_only_jobs_cannot_emit_a_green_required_pr_check(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
