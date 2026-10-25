@@ -1,313 +1,235 @@
 # Your first local Kubernetes deployment
 
 Run a real HTTP application, rotate its runtime without rebuilding it, and
-remove the installation normally. This is a small reader tutorial, not the
-complete acceptance suite.
+remove the installation normally.
 
-**Scope:** one new disposable kind cluster, source-built components, one native
-CPU architecture and preimported verified OCI graphs. It does not test remote
-registry credentials/TLS, cloud autoscaling or another architecture.
-No released 1.0.0 installer or host Java/Node/.NET toolchain is needed.
+In this tutorial, you'll install Brewlet in a local kind cluster, deploy a
+Python application, and update its node-supplied runtime. You'll see how a
+running Pod keeps its original runtime while a replacement Pod uses the update,
+without changing the application image.
+
+The tutorial uses **Brewlet 0.8.1**, the latest published beta release.
 
 ## Prerequisites
 
-Use a clean checkout of `main`, Bash, Go 1.26+, Python 3.12+, Docker with
-BuildKit and Linux containers, kind **v0.33.0**, kubectl, Helm and tar.
-Allow several GB of Docker storage and time for the first source build.
-Provisioning modifies only the tutorial's new node.
+- macOS or Linux, on amd64 or arm64
+- Docker, running Linux containers
+- [kind](https://kind.sigs.k8s.io/) v0.33.0, kubectl and Helm
+- Network access to GitHub and public container registries
 
-Start in the repository root and keep the following steps in the **same
-terminal**. The private kubeconfig never uses your current cluster.
+Run every step in the **same terminal**.
 
-## 1. Create an isolated work area
+## 1. Install the Brewlet CLI
+
+Install the `brewlet` CLI into `~/.local/bin`:
+
+```sh
+# tutorial-step: cli
+curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version 0.8.1
+export PATH="$HOME/.local/bin:$PATH"
+brewlet version
+```
+
+The script downloads the release for your machine and verifies its checksum.
+
+## 2. Create a work directory
+
+The work directory holds the application and a separate kubeconfig, so the
+tutorial doesn't touch your existing clusters.
 
 ```sh
 # tutorial-step: setup
-set -euo pipefail
-WORK="$(mktemp -d "$PWD/integration-tests/live-v2/run-reader-XXXXXXXX")"
-RUN_ID="$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')"
-export CLUSTER="brewlet-reader-$RUN_ID" CONTEXT="kind-brewlet-reader-$RUN_ID"
-export KUBECONFIG="$WORK/kubeconfig" APP_NAMESPACE="app-$RUN_ID"
-export RID="python-$RUN_ID" PROFILE="profile-$RUN_ID"
-export WORK
-printf 'Retained tutorial work: %s\nOwned cluster: %s\n' "$WORK" "$CLUSTER"
-test "$(kind version | awk '{print $2}')" = v0.33.0
-test "$(docker info --format '{{.OSType}}')" = linux
-case "$(docker info --format '{{.Architecture}}')" in
-  arm64|aarch64) ARCH=arm64 ;;
-  amd64|x86_64) ARCH=amd64 ;;
-  *) echo "Unsupported Docker CPU architecture" >&2; exit 1 ;;
-esac
-export ARCH
-export DOCKER_DEFAULT_PLATFORM="linux/$ARCH"
-if kind get clusters | grep -Fxq "$CLUSTER"; then
-  echo "Refusing an existing cluster name" >&2; exit 1
-fi
-mkdir "$WORK/context"
-git archive HEAD go.mod go.sum pkg kubernetes cmd provisioner shim scripts LICENSE.txt examples/local \
-  | tar -x -C "$WORK/context"
-k() { kubectl --kubeconfig "$KUBECONFIG" --context "$CONTEXT" --request-timeout=30s "$@"; }
+WORK="$(mktemp -d)"
+export KUBECONFIG="$WORK/kubeconfig"
 ```
 
-The Docker context contains committed source, not this work area's kubeconfig
-or unrelated files. Use a committed revision containing this tutorial.
+## 3. Build the application image
 
-## 2. Build matching components and the application artifact
-
-The Linux producer avoids macOS filesystem extended attributes. Its app is a
-stdlib Python HTTP server with an explicit absolute launch path.
+The application is a small Python HTTP server. Its image contains only the
+application: Python itself will come from the node.
 
 ```sh
 # tutorial-step: build
-CONTROL="brewlet-reader-control:$RUN_ID"
-WORKER="brewlet-reader-node:$RUN_ID"
-docker build --platform "linux/$ARCH" -f "$WORK/context/kubernetes/Dockerfile" \
-  -t "$CONTROL" "$WORK/context"
-docker build --platform "linux/$ARCH" -f "$WORK/context/provisioner/Dockerfile" \
-  -t "$WORKER" "$WORK/context"
-export CONTROL_ID="$(docker image inspect --format '{{.Id}}' "$CONTROL")"
-export WORKER_ID="$(docker image inspect --format '{{.Id}}' "$WORKER")"
-printf '%s\n' "$CONTROL_ID" > "$WORK/control-image-id"
-printf '%s\n' "$WORKER_ID" > "$WORK/worker-image-id"
-docker build --platform "linux/$ARCH" -f "$WORK/context/examples/local/producer.Dockerfile" \
-  --target artifact --output "type=local,dest=$WORK/application" "$WORK/context"
-APP_DIGEST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["digest"])' "$WORK/application/push.json")"
-export APP_REF="example.invalid/brewlet/hello@$APP_DIGEST"
-printf 'Application: %s\n' "$APP_REF"
+mkdir "$WORK/app"
+cat > "$WORK/app/server.py" <<'EOF'
+import json, os, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class Hello(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = json.dumps({"python": sys.version.split()[0], "uid": os.getuid()})
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(body.encode() + b"\n")
+
+HTTPServer(("", 8000), Hello).serve_forever()
+EOF
+cat > "$WORK/launch.json" <<'EOF'
+{"schemaVersion": 1, "process": {"entrypoint": ["/usr/bin/python3"],
+ "args": ["/app/server.py"], "workingDir": "/app"}}
+EOF
+ARCH="$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
+brewlet build example.invalid/brewlet/hello:v1 --platform "linux/$ARCH" \
+  --launch "$WORK/launch.json" --layer "app=$WORK/app:/app" --store "$WORK/image"
+APP="example.invalid/brewlet/hello@$(grep -o 'sha256:[0-9a-f]*' "$WORK/image/index.json")"
+echo "$APP"
 ```
 
-## 3. Import pinned, unchanged runtime sources
+`launch.json` tells Brewlet how to start the application with the
+node-supplied Python. `brewlet build` writes the image to `$WORK/image`, and
+`APP` refers to it by digest.
 
-The source tree's OCI import helper copies verified public blobs; it does not
-run the image or derive a custom root. The matrix pins both architectures.
-These two sources preserve the same runtime/ABI promise; different root bytes
-do not necessarily imply a different reported Python version or a specific CVE fix.
+## 4. Create the cluster and load the image
 
-```sh
-# tutorial-step: sources
-export RUNTIME_BEFORE="$(python3 -c 'import json,os; print(json.load(open("integration-tests/fixtures/runtimes/upstream.json"))["python"]["previous"][os.environ["ARCH"]])')"
-export RUNTIME_AFTER="$(python3 -c 'import json,os; print(json.load(open("integration-tests/fixtures/runtimes/upstream.json"))["python"][os.environ["ARCH"]])')"
-go run ./integration-tests/live-v2/runtimeimage --source "$RUNTIME_BEFORE" \
-  --output "$WORK/runtime-before" > "$WORK/runtime-before.json"
-go run ./integration-tests/live-v2/runtimeimage --source "$RUNTIME_AFTER" \
-  --output "$WORK/runtime-after" > "$WORK/runtime-after.json"
-```
-
-## 4. Create the private node and load OCI content
+Create a one-node kind cluster and load the application image into it. The
+node image is pinned to a Kubernetes version whose containerd configuration
+Brewlet supports:
 
 ```sh
 # tutorial-step: cluster
-kind create cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG" \
-  --image kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661 \
-  --wait 180s
-export NODE="$CLUSTER-control-plane"
-export NODE_ID="$(docker inspect --format '{{.Id}}' "$NODE")"
-NODE_IMAGE_ID="$(docker inspect --format '{{.Image}}' "$NODE_ID")"
-test "$(docker image inspect --format '{{.Architecture}}' "$NODE_IMAGE_ID")" = "$ARCH"
-export NODE_UID="$(k get node "$NODE" -o jsonpath='{.metadata.uid}')"
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-keys = ("CLUSTER", "CONTEXT", "NODE", "NODE_ID", "NODE_UID", "KUBECONFIG", "APP_NAMESPACE", "RID", "PROFILE")
-(Path(os.environ["WORK"]) / "owned-fixture.json").write_text(json.dumps({k: os.environ[k] for k in keys}, indent=2))
-PY
-nodecmd() {
-  test "$(k get node "$NODE" -o jsonpath='{.metadata.uid}')" = "$NODE_UID"
-  test "$(docker inspect --format '{{.Id}} {{index .Config.Labels "io.x-k8s.kind.cluster"}}' "$NODE_ID")" = "$NODE_ID $CLUSTER"
-  docker exec "$NODE_ID" "$@"
-}
-test "$(nodecmd stat -fc %T /sys/fs/cgroup)" = cgroup2fs
-kind load docker-image --name "$CLUSTER" "$CONTROL" "$WORKER"
-for item in application runtime-before runtime-after; do
-  layout="$WORK/$item"
-  if test "$item" = application; then layout="$layout/oci"; fi
-  nodecmd true
-  tar -C "$layout" -cf - oci-layout index.json blobs \
-    | docker exec -i "$NODE_ID" ctr -n k8s.io images import --all-platforms -
-done
-nodecmd ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP_REF"
-k label node "$NODE" "brewlet.example.com/pool=$RUN_ID"
+kind create cluster --name brewlet \
+  --image kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661
+tar -C "$WORK/image" -cf - oci-layout index.json blobs \
+  | docker exec -i brewlet-control-plane ctr -n k8s.io images import -
+docker exec brewlet-control-plane ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP"
 ```
 
-This preload is deliberately local. Production publication and pulls use the
-separate [registry/trust configurations](registry-trust.md).
+Loading the image directly keeps this example local. To publish images through
+a registry instead, see [registry and trust configuration](registry-trust.md).
 
-## 5. Install and approve the infrastructure
+## 5. Install Brewlet on the cluster and offer a runtime
+
+Install the released Helm chart. It includes the CRDs and digest-pinned
+component images:
 
 ```sh
 # tutorial-step: install
-k apply -f kubernetes/deploy/crds/
-helm --kubeconfig "$KUBECONFIG" --kube-context "$CONTEXT" upgrade --install brewlet \
-  kubernetes/charts/brewlet --namespace brewlet --create-namespace \
-  --set-string "operator.image=$CONTROL" --set-string "admission.image=$CONTROL" \
-  --set-string "provisioner.image=$WORKER" --wait --timeout 5m
-k -n brewlet rollout status deployment/brewlet-admission --timeout=120s
-cat > "$WORK/runtime.yaml" <<EOF
+helm install brewlet oci://ghcr.io/microsoft/charts/brewlet --version 0.8.1 \
+  --namespace brewlet --create-namespace --wait
+
+cat > "$WORK/python.yaml" <<'EOF'
 apiVersion: node.brewlet.sh/v1alpha1
 kind: RuntimeImage
 metadata:
-  name: $RID
+  name: python
 spec:
-  source: {image: "$RUNTIME_BEFORE"}
+  source:
+    image: gcr.io/distroless/python3-debian12@sha256:2fdb05402a2cf21cf78fdb3ba4c5db167241e9e498140f5bf689d7efb773731f
   user: {uid: 65532, gid: 65532}
-EOF
-python3 examples/local/observe.py webhook --file "$WORK/runtime.yaml"
-k apply -f "$WORK/runtime.yaml"
-k wait --for=condition=Approved "runtimeimage/$RID" --timeout=120s
-export RUNTIME_UID="$(k get runtimeimage "$RID" -o jsonpath='{.metadata.uid}')"
-cat > "$WORK/profile.yaml" <<EOF
+---
 apiVersion: node.brewlet.sh/v1alpha1
 kind: NodeProfile
 metadata:
-  name: $PROFILE
+  name: local
 spec:
-  nodePool:
-    key: brewlet.example.com/pool
-    names: ["$RUN_ID"]
-    includeControlPlane: true
+  nodePool: {includeControlPlane: true}
   runtimeImages:
-    - {id: $RID, install: Eager}
+    - id: python
   tolerations:
     - {key: startup-taint.cluster-autoscaler.kubernetes.io/brewlet, operator: Equal, value: provisioning, effect: NoSchedule}
-  rollout: {maxUnavailable: 1, containerdRestart: validated}
 EOF
-k apply -f "$WORK/profile.yaml"
-k wait --for=condition=Ready "nodeprofile/$PROFILE" --timeout=5m
+until kubectl apply -f "$WORK/python.yaml"; do sleep 2; done
+kubectl wait --for=condition=Ready nodeprofile/local --timeout=5m
+brewlet k8s runtime status python
 ```
 
-Control-plane opt-in is only for this disposable single-node cluster.
-No account named `app`, runtime shell or runtime-image entrypoint is required.
-The helper's 60-second server dry-run retries only this inventory webhook's
-startup transport failures; admission denials and certificate failures fail
-immediately. Ready control-plane Pods alone do not prove webhook reachability.
+The admission webhook can take a few seconds to start answering after the
+install, so the `until` loop retries the apply until it succeeds.
+
+The `python` RuntimeImage is the distroless Python 3.11 image, unchanged and
+pinned by digest. The `local` profile tells Brewlet to install it on the cluster's node.
+`includeControlPlane` allows that on this one-node cluster; leave it disabled
+for control-plane nodes in a shared cluster.
 
 ## 6. Deploy and call the application
 
+The annotation asks for the `python` runtime, and `runtimeClassName: brewlet`
+lets Brewlet supply it:
+
 ```sh
 # tutorial-step: application
-k create namespace "$APP_NAMESPACE"
-cat > "$WORK/deployment.yaml" <<EOF
+kubectl apply -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: hello, namespace: $APP_NAMESPACE}
+metadata:
+  name: hello
 spec:
-  replicas: 1
-  selector: {matchLabels: {app: hello}}
+  selector:
+    matchLabels: {app: hello}
   template:
     metadata:
       labels: {app: hello}
-      annotations: {brewlet.sh/runtime-image: $RID}
+      annotations: {brewlet.sh/runtime-image: python}
     spec:
       runtimeClassName: brewlet
-      nodeSelector: {kubernetes.io/arch: $ARCH}
       containers:
         - name: app
-          image: $APP_REF
+          image: $APP
           imagePullPolicy: Never
           securityContext: {readOnlyRootFilesystem: true}
-          resources:
-            requests: {cpu: 10m, memory: 32Mi}
-            limits: {cpu: 500m, memory: 128Mi}
-          ports: [{containerPort: 8000}]
           readinessProbe:
             httpGet: {path: /, port: 8000}
-            periodSeconds: 2
 EOF
-k apply -f "$WORK/deployment.yaml"
-k -n "$APP_NAMESPACE" expose deployment hello --port=8000
-k -n "$APP_NAMESPACE" rollout status deployment/hello --timeout=5m
-SERVICE_IP="$(k -n "$APP_NAMESPACE" get service hello -o jsonpath='{.spec.clusterIP}')"
-nodecmd curl --fail --silent --show-error --noproxy '*' --max-time 10 "http://$SERVICE_IP:8000/" \
-  | tee "$WORK/http-before.json"
-export POD="$(k -n "$APP_NAMESPACE" get pods -l app=hello -o jsonpath='{.items[0].metadata.name}')"
-python3 examples/local/observe.py binding --source "$RUNTIME_BEFORE" > "$WORK/binding-before.json"
-k -n "$APP_NAMESPACE" exec "$POD" -- /usr/bin/python3.13 -c \
-  'import os; print(os.getuid(), os.getgid(), os.getcwd())'
+kubectl expose deployment hello --port=8000
+kubectl rollout status deployment/hello --timeout=5m
+SERVICE_IP="$(kubectl get service hello -o jsonpath='{.spec.clusterIP}')"
+docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
 ```
 
-To browse from your host, run `kubectl` with the same private kubeconfig/context
-in a second terminal and port-forward `service/hello` in the application
-namespace from `127.0.0.1:18080` to `8000`. Stop that terminal before cleanup.
+The response shows Python 3.11.2, supplied by the node, and the runtime's UID,
+65532.
 
-## 7. Rotate runtime bytes, not the application
+## 7. Rotate the runtime, not the application
 
-The update uses UID/resourceVersion tests so it cannot overwrite an unnoticed
-inventory replacement or concurrent edit.
+Point the RuntimeImage at Python 3.13.5, then wait for Brewlet to roll it out:
 
 ```sh
 # tutorial-step: rotation
-k get runtimeimage "$RID" -o json > "$WORK/inventory-before.json"
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-w = Path(os.environ["WORK"])
-image = json.loads((w / "inventory-before.json").read_text())
-assert image["metadata"]["uid"] == os.environ["RUNTIME_UID"]
-patch = [{"op":"test","path":"/metadata/uid","value":image["metadata"]["uid"]},
-         {"op":"test","path":"/metadata/resourceVersion","value":image["metadata"]["resourceVersion"]},
-         {"op":"replace","path":"/spec/source/image","value":os.environ["RUNTIME_AFTER"]}]
-(w / "rotation.json").write_text(json.dumps(patch))
-PY
-k patch runtimeimage "$RID" --type=json --patch-file "$WORK/rotation.json"
-python3 examples/local/observe.py rotation --source "$RUNTIME_AFTER" > "$WORK/rotation-result.json"
-python3 examples/local/observe.py binding --source "$RUNTIME_BEFORE" > "$WORK/binding-retained.json"
+kubectl patch runtimeimage python --type=merge -p '{"spec":{"source":{"image":"gcr.io/distroless/python3-debian13@sha256:f47f5807043391605425f2bd162b25f50cebdc90640bacc804e0177608fe5c65"}}}'
+kubectl wait runtimeimage/python --for=jsonpath='{.status.generation}'=2 --timeout=2m
+kubectl wait runtimeimage/python --for=condition=RotationComplete --timeout=5m
+kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=true --timeout=2m
+brewlet k8s runtime status python
+docker exec brewlet-control-plane curl -s "http://$SERVICE_IP:8000/"
 ```
 
-The original Pod still uses its original digest. Now perform an ordinary
-workload rollout; no automatic restarts were enabled:
+The RuntimeImage is at generation 2, but the running Pod still answers with
+Python 3.11.2. Brewlet never swaps the runtime under a running process.
+
+Restart the Deployment. The replacement Pod uses the new runtime, with the same
+application image:
 
 ```sh
 # tutorial-step: replacement
-k -n "$APP_NAMESPACE" rollout restart deployment/hello
-k -n "$APP_NAMESPACE" rollout status deployment/hello --timeout=5m
-export POD="$(k -n "$APP_NAMESPACE" get pods -l app=hello -o json | python3 -c 'import json,sys; p=[p for p in json.load(sys.stdin)["items"] if not p["metadata"].get("deletionTimestamp")]; assert len(p)==1; print(p[0]["metadata"]["name"])')"
-python3 examples/local/observe.py binding --source "$RUNTIME_AFTER" > "$WORK/binding-after.json"
-nodecmd curl --fail --silent --show-error --noproxy '*' --max-time 10 "http://$SERVICE_IP:8000/" \
-  | tee "$WORK/http-after.json"
-test "$(k -n "$APP_NAMESPACE" get deployment hello -o jsonpath='{.spec.template.spec.containers[0].image}')" = "$APP_REF"
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-w = Path(os.environ["WORK"])
-before, retained, after = [json.loads((w / f).read_text()) for f in
-    ("binding-before.json", "binding-retained.json", "binding-after.json")]
-assert before["containerID"] == retained["containerID"] and before["digest"] == retained["digest"]
-assert after["digest"] == os.environ["RUNTIME_AFTER"].split("@")[1]
-assert after["generation"] > before["generation"] and after["podUID"] != before["podUID"]
-assert json.loads((w / "http-after.json").read_text())["uid"] == 65532
-print("Verified: real HTTP, retained old lease, new runtime generation, unchanged application digest")
-PY
+kubectl rollout restart deployment/hello
+kubectl rollout status deployment/hello --timeout=5m
+docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
+kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m
+brewlet k8s runtime status python
 ```
 
-## 8. Complete normal cleanup
+The replacement Pod answers with Python 3.13.5. No Pod uses generation 1
+anymore, and the application image digest is the same one you built in step 3.
 
-Do not jump directly to destroying the node as proof of production cleanup.
-If these waits fail, retain the work directory and use
-[troubleshooting](troubleshooting.md) and [safe removal](uninstallation.md).
+## 8. Clean up
+
+Delete the application, then let Brewlet remove the runtime and restore the
+node's configuration before deleting the cluster:
 
 ```sh
 # tutorial-step: cleanup
-k -n "$APP_NAMESPACE" delete deployment hello --wait=true --timeout=120s
-k delete namespace "$APP_NAMESPACE" --wait=true --timeout=120s
-k delete nodeprofile "$PROFILE" --wait=false
-k wait --for=delete "nodeprofile/$PROFILE" --timeout=10m
-nodecmd test ! -e "/opt/brewlet/runtimes/$RID/current"
-nodecmd test ! -e /usr/local/bin/containerd-shim-brewlet-v2
-nodecmd crictl info > "$WORK/cri-after-cleanup.json"
-test -z "$(k get node "$NODE" -o jsonpath='{.metadata.labels.brewlet\.sh/owner-uid}')"
-k delete runtimeimage "$RID" --wait=true --timeout=120s
-helm --kubeconfig "$KUBECONFIG" --kube-context "$CONTEXT" uninstall brewlet \
-  --namespace brewlet --timeout 10m
-test "$(docker inspect --format '{{.Id}} {{index .Config.Labels "io.x-k8s.kind.cluster"}}' "$NODE_ID")" = "$NODE_ID $CLUSTER"
-kind delete cluster --name "$CLUSTER" --kubeconfig "$KUBECONFIG"
-test "$(docker image inspect --format '{{.Id}}' "$CONTROL")" = "$CONTROL_ID"
-test "$(docker image inspect --format '{{.Id}}' "$WORKER")" = "$WORKER_ID"
-docker image rm "$CONTROL" "$WORKER"
-printf 'Tutorial complete. Evidence retained in %s\n' "$WORK"
+kubectl delete deployment hello
+kubectl delete nodeprofile local --timeout=10m
+kubectl delete runtimeimage python
+helm uninstall brewlet --namespace brewlet
+kind delete cluster --name brewlet
+rm -rf "$WORK"
 ```
 
-Keep the evidence directory as needed. Never prune unrelated Docker resources
-or remove claims/finalizers to make a tutorial appear successful.
+To remove the CLI too, run `rm ~/.local/bin/brewlet`.
+
+If a cleanup command fails, see [troubleshooting](troubleshooting.md) and
+[safe removal](uninstallation.md).
 
 [Continue with the platform handoff](workshops/index.md), or
 [publish through a registry](applications.md).
