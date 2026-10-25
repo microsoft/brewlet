@@ -97,7 +97,7 @@ docker exec brewlet-control-plane ctr -n k8s.io images tag example.invalid/brewl
 Loading the image directly keeps this example local. To publish images through
 a registry instead, see [registry and trust configuration](registry-trust.md).
 
-## 5. Install Brewlet and offer a runtime
+## 5. Install Brewlet on the cluster and offer a runtime
 
 Install the released Helm chart. It includes the CRDs and digest-pinned
 component images:
