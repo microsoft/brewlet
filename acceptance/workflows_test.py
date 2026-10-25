@@ -117,6 +117,20 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(arch(pr), ["amd64"])
             self.assertEqual(arch(other), ["amd64", "arm64"])
 
+    def test_go_jobs_restore_per_job_caches_that_main_pushes_refresh(self):
+        text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
+        contracts = text.split("\n  contracts:", 1)[1].split("\n  validation:", 1)[0]
+        producer = text.split("\n  producer-integration:", 1)[1].split("\n  linux-overlay-contract:", 1)[0]
+        for name, job in (("contracts", contracts), ("producer", producer)):
+            self.assertIn("cache: false", job)
+            self.assertIn(f"key: go-{name}-${{{{ runner.os }}}}-${{{{ runner.arch }}}}-"
+                          "${{ hashFiles('go.sum') }}-${{ github.sha }}", job)
+            self.assertIn("actions/cache/restore@", job)
+            save = job.split(f"      - name: Save {name} Go caches", 1)[1]
+            self.assertIn("github.event_name == 'push' || steps.go-cache.outputs.cache-matched-key == ''", save)
+            self.assertIn("key: ${{ steps.go-cache.outputs.cache-primary-key }}", save)
+            self.assertLess(job.index("Restore " + name), job.index("Save " + name))
+
     def test_evidence_only_jobs_cannot_emit_a_green_required_pr_check(self):
         text = (ROOT / ".github/workflows/v2-ci.yml").read_text()
         aggregate = text.split("  validation:", 1)[1].split("\n  e2e:", 1)[0]

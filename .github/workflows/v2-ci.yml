@@ -115,7 +115,18 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+      - name: Restore contracts Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-contracts-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-contracts-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
+            go-contracts-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:
           distribution: temurin
@@ -133,6 +144,15 @@ jobs:
           GOOS=linux GOARCH=arm64 go build ./...
       - name: Current redistribution notices and packaging
         run: make legal-check
+      # Main pushes refresh the per-job cache that pull requests restore; PRs save only on a cold miss.
+      - name: Save contracts Go caches
+        if: success() && (github.event_name == 'push' || steps.go-cache.outputs.cache-matched-key == '')
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
@@ -199,6 +219,18 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Restore producer Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-producer-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-producer-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
+            go-producer-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
         with:
           distribution: temurin
@@ -221,6 +253,15 @@ jobs:
         run: python3 acceptance/run_check.py fixtures
       - name: Real registry publication (not node acceptance)
         run: python3 acceptance/run_check.py registry
+      # Main pushes refresh the per-job cache that pull requests restore; PRs save only on a cold miss.
+      - name: Save producer Go caches
+        if: success() && (github.event_name == 'push' || steps.go-cache.outputs.cache-matched-key == '')
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
