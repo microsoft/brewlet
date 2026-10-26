@@ -12,6 +12,10 @@ async function server(t, options) {
             return { active: step };
         },
         stop: async () => ({ stopped: true }),
+        setSource: async (source) => {
+            if (!["release", "checkout"].includes(source)) throw new Error("Brewlet source must be one of: release, checkout.");
+            return { brewlet: { source } };
+        },
     });
     const entry = await startServer(manager, options);
     t.after(() => entry.close());
@@ -44,6 +48,14 @@ test("only same-origin JSON mutations are accepted; bad input is surfaced", asyn
     assert.equal((await fetch(run, { method: "POST", headers, body: "{" })).status, 400);
     assert.equal((await fetch(run, { method: "POST", headers, body: "x".repeat(5000) })).status, 413);
     assert.equal((await fetch(endpoint("/api/stop"), { method: "POST", headers, body: "{}" })).status, 200);
+    const source = endpoint("/api/source");
+    const switched = await fetch(source, { method: "POST", headers, body: '{"source":"checkout"}' });
+    assert.equal(switched.status, 200);
+    assert.equal((await switched.json()).brewlet.source, "checkout");
+    assert.equal((await fetch(source, { method: "POST", headers, body: '{"source":"nightly"}' })).status, 400);
+    assert.equal((await fetch(source, { method: "POST", headers, body: '{"source":"release","version":"1"}' })).status, 400);
+    assert.equal((await fetch(source, { method: "POST", headers, body: '{"source":1}' })).status, 400);
+    assert.equal((await fetch(source, { method: "POST", headers: { ...headers, Origin: "https://evil.example" }, body: '{"source":"release"}' })).status, 403);
 });
 
 test("SSE sends initial state and live output updates", async (t) => {

@@ -13,11 +13,16 @@
         <div class="eyebrow">BREWLET / LIVE DEMO</div>
         <h1>One app. Two JDKs.<br>No image rebuild.</h1>
         <p>ShowMyJVM + Spring Boot, from your laptop to Kubernetes.<br>The application travels. The JVM is node infrastructure, like the OS.</p>
-        <div class="chips"><span>Brewlet 1.0</span><span>Plain Deployment</span><span>temurin-25 &rarr; 27 &rarr; 25</span><span id="connection" role="status">Connecting...</span></div>
+        <div class="chips"><span id="brewlet-chip">Brewlet</span><span>Plain Deployment</span><span>temurin-25 &rarr; 27 &rarr; 25</span><span id="connection" role="status">Connecting...</span></div>
     </header>
     <main>
         <section class="preparation">
-            <div><h2>Before the spotlight</h2><p>Local JDK 25, Maven, Docker (Linux engine), kind v0.33.0, Helm, kubectl, Go and Git. Brewlet itself is built from this checkout.</p></div>
+            <div><h2>Before the spotlight</h2><p>Local JDK 25, Maven, Docker (Linux engine), kind v0.33.0, Helm, kubectl and Git. By default the demo installs the latest Brewlet release: the published Helm chart and its digest-pinned component images on the cluster, and the checksum-verified Linux brewlet CLI for packaging. Building from this checkout also needs Go.</p></div>
+            <fieldset class="source" id="brewlet-source"><legend>Brewlet source</legend>
+                <label><input type="radio" name="brewlet-source" value="release"> Latest release <span class="subtle" id="release-version"></span></label>
+                <label><input type="radio" name="brewlet-source" value="checkout"> Build from this checkout</label>
+                <span class="subtle" id="source-note"></span>
+            </fieldset>
             <div class="buttons"><button data-step="preflight">Check prerequisites</button><button data-step="setup">Prepare private cluster</button><button data-step="cleanup">Remove private cluster</button></div>
             <div class="preparation-previews"><div><h3>Prerequisite checks</h3><div id="preflight-preview"></div></div><div><h3>Private cluster preparation</h3><div id="setup-preview"></div></div><div><h3>Cleanup</h3><div id="cleanup-preview"></div></div></div>
             <p class="warning">Preparation creates a disposable, session-owned kind cluster with a private kubeconfig, installs Brewlet's privileged node provisioner there, and approves digest-pinned Temurin 25 and 27 RuntimeImages. It never touches other clusters or your current kubectl context.</p>
@@ -42,7 +47,7 @@
             <div class="buttons"><a id="local-link" hidden target="_blank" rel="noreferrer">Open local app &nearr;</a><a id="cluster-link" hidden target="_blank" rel="noreferrer">Open Kubernetes app &nearr;</a><button data-step="inspect">Inspect deployment</button></div>
             <div id="inspect-preview"></div>
         </section>
-        <footer><code id="target"></code><p>No registry upload; images are imported into the private node's containerd. Stop terminates only this demo's local JVM and Service proxy; the Deployment keeps running until you remove the private cluster.</p></footer>
+        <footer><code id="target"></code><p>No registry upload; the application image is imported into the private node's containerd. Stop terminates only this demo's local JVM and Service proxy; the Deployment keeps running until you remove the private cluster.</p></footer>
     </main>
     </div>
         <section class="terminal-panel" aria-label="Live demo terminal">
