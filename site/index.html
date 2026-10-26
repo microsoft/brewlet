@@ -121,10 +121,11 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
           <button id="tab-node" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="node">Node.js</button>
           <button id="tab-dotnet" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="dotnet">.NET</button>
           <button id="tab-php" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="php">PHP</button>
+          <button id="tab-wasm" type="button" role="tab" aria-selected="false" aria-controls="example-panel" tabindex="-1" data-language="wasm">WebAssembly</button>
         </div>
         <div id="example-panel" role="tabpanel" aria-labelledby="tab-python">
           <div class="code-pair">
-            <div class="code-block"><div class="code-heading"><span>launch.json</span><button type="button" class="copy-button" data-copy="launch-code" hidden>Copy</button></div><pre tabindex="0"><code id="launch-code">{
+            <div class="code-block"><div class="code-heading"><span>launch.json</span><button type="button" class="copy-button" data-copy="launch-code" hidden>Copy</button></div><pre tabindex="0"><code id="launch-code" data-lang="json">{
   "schemaVersion": 1,
   "process": {
     "entrypoint": ["python3"],
@@ -132,7 +133,7 @@ FORM: Adapt the existing main landing structure; no invented performance or prod
     "workingDir": "/app"
   }
 }</code></pre></div>
-            <div class="code-block"><div class="code-heading"><span>Package and publish</span><button type="button" class="copy-button" data-copy="package-code" hidden>Copy</button></div><pre tabindex="0"><code id="package-code">brewlet build registry.example.com/apps/api:v2 \
+            <div class="code-block"><div class="code-heading"><span>Package and publish</span><button type="button" class="copy-button" data-copy="package-code" hidden>Copy</button></div><pre tabindex="0"><code id="package-code" data-lang="shell">brewlet build registry.example.com/apps/api:v2 \
   --platform linux/arm64 \
   --launch launch.json \
   --layer app=./src:/app/src
@@ -141,15 +142,48 @@ brewlet push registry.example.com/apps/api:v2</code></pre><p class="code-caption
         </div>
         <p class="fine-print">Examples are templates, not a live terminal. Use your registry and actual supported platforms. Java project intelligence is available in the optional <a href="docs/applications/#optional-maven-producer">Maven producer</a>; it does not select a pod runtime or generate workloads.</p>
         <div class="deployment-example">
-          <div><h3>Your workload still looks like Kubernetes.</h3><p>Keep Services, probes, resources, volumes and normal rollout strategies. Each application container in a Brewlet Pod uses the same runtime ID.</p><a href="docs/applications/">Read the application contract <span aria-hidden="true">→</span></a></div>
-          <div class="code-block"><div class="code-heading"><span>Pod template excerpt · inside a Deployment</span></div><pre tabindex="0"><code>metadata:
-  annotations:
-    brewlet.sh/runtime-image: python-3.13
+          <div class="deployment-intro"><h3>Your workload still looks like Kubernetes.</h3><p>Platform teams load an approved runtime into a node pool with a <code>NodeProfile</code>. Application teams select that runtime ID and keep Services, probes, resources, volumes and normal rollout strategies. Each application container in a Brewlet Pod uses the same runtime ID, whatever the language.</p><a href="docs/applications/">Read the application contract <span aria-hidden="true">→</span></a></div>
+          <div class="code-pair">
+            <div class="code-block"><div class="code-heading"><span>Cluster setup · RuntimeImage + NodeProfile</span></div><pre tabindex="0"><code data-lang="yaml">apiVersion: node.brewlet.sh/v1alpha1
+kind: RuntimeImage
+metadata:
+  name: app-runtime
 spec:
-  runtimeClassName: brewlet
-  containers:
-    - name: api
-      image: registry.example.com/apps/api@sha256:&lt;digest&gt;</code></pre></div>
+  source:
+    image: registry.example.com/golden/runtime@sha256:&lt;digest&gt;
+  user:
+    uid: 65532
+    gid: 65532
+---
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata:
+  name: application-pool
+spec:
+  nodePool:
+    key: brewlet.example.com/pool
+    names: [applications]
+  runtimeImages:
+    - id: app-runtime
+      install: OnDemand</code></pre><p class="code-caption">The <code>RuntimeImage</code> approves a digest-pinned runtime image (any language) as <code>app-runtime</code>. The <code>NodeProfile</code> loads that ID onto the pool.</p></div>
+            <div class="code-block"><div class="code-heading"><span>Application · Deployment</span></div><pre tabindex="0"><code data-lang="yaml">apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  selector:
+    matchLabels: {app: api}
+  template:
+    metadata:
+      labels: {app: api}
+      annotations:
+        brewlet.sh/runtime-image: app-runtime
+    spec:
+      runtimeClassName: brewlet
+      containers:
+        - name: api
+          image: registry.example.com/apps/api@sha256:&lt;digest&gt;</code></pre></div>
+          </div>
         </div>
         <p class="sr-only" id="copy-status" role="status" aria-live="polite"></p>
       </div>
@@ -165,7 +199,7 @@ spec:
     <section class="section" id="quickstart" aria-labelledby="quickstart-title">
       <div class="container quickstart">
         <div><h2 id="quickstart-title">Start with the source.<br>Evaluate in isolation.</h2><p>The implementation has verified local implementation acceptance. It is not a published stable release or a claim of cloud-provider autoscaling certification.</p><p>Run a small HTTP service on a disposable node, inspect its actual runtime binding, rotate the source without rebuilding the application, and clean up normally. <a href="docs/demo/">See the demonstration sequence</a>.</p><div class="actions"><a class="button primary" href="docs/local-kubernetes/">Follow the local tutorial</a><a href="https://github.com/microsoft/brewlet/blob/main/acceptance/RESULTS.md">Read the evidence <span aria-hidden="true">↗</span></a></div></div>
-        <div class="code-block"><div class="code-heading"><span>Build Brewlet</span><button type="button" class="copy-button" data-copy="build-code" hidden>Copy</button></div><pre tabindex="0"><code id="build-code">git clone --branch main \
+        <div class="code-block"><div class="code-heading"><span>Build Brewlet</span><button type="button" class="copy-button" data-copy="build-code" hidden>Copy</button></div><pre tabindex="0"><code id="build-code" data-lang="shell">git clone --branch main \
   https://github.com/microsoft/brewlet.git
 cd brewlet
 make build</code></pre></div>
