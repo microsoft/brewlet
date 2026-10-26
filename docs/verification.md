@@ -78,7 +78,7 @@ the [cleanup contract](operations.md#cleanup-and-revocation).
 | --- | --- | --- |
 | `PR validation` (`pr.yml`) | Pull requests | Only the checks, CodeQL languages, website build and real E2E impacted by the changed files. Native checks and E2E run on amd64; E2E uses the Python fixture; Node.js, .NET and PHP fixture changes are left to their daily workflows. Unknown paths and workflow changes select everything. |
 | `Full validation` (`full-validation.yml`) | Weekly on `main`, manual dispatch, and every release | Every check, every CodeQL language and the Python real E2E on native amd64 and arm64. |
-| `Brewlet <language> example E2E` (`language-java.yml`, `language-node.yml`, `language-dotnet.yml`, `language-php.yml`) | Daily on `main`, manual dispatch for any branch and architecture | One example fixture's real-node runtime contract and rotation through the reusable `language-e2e.yml`; Java also runs the Maven producer. Non-gating. |
+| `<language> example E2E` (`language-python.yml`, `language-java.yml`, `language-node.yml`, `language-dotnet.yml`, `language-php.yml`, `language-wasm.yml`) | Daily on `main`, manual dispatch for any branch and architecture | One fixture's real-node runtime contract and rotation through the `.github/actions/language-e2e` composite action; Java also runs the Maven producer and WebAssembly runs the Wasmtime and Spin examples. Non-gating. |
 | `Promotion qualification` (`promotion-qualification.yml`) | Manual or reusable | `make acceptance`: verifies indexed evidence for one immutable candidate. It does not run live scenarios and fails on missing or stale evidence. |
 
 The [release workflow](supported-release.md#maintainers-cutting-a-release)

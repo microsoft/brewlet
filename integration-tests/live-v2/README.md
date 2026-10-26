@@ -45,12 +45,13 @@ never build or install the Java, Node.js, .NET or PHP toolchains. The receipt
 records `selectedLanguages` and a gap for the node-wide fallback fence against
 another runtime ID (INV-05), which needs a second runtime.
 
-The Java, Node.js, .NET and PHP example fixtures run daily against `main` in
-their own non-gating workflows (`language-java.yml`, `language-node.yml`,
-`language-dotnet.yml`, `language-php.yml`). Each calls the reusable
-`language-e2e.yml`, which runs `harness.py --scenario runtime
---without-pinned-scenarios --local-language <name>` (Java uses `--scenario
-maven`, adding the Maven producer). They can be dispatched manually for any
+The Python fixture and the Java, Node.js, .NET and PHP example fixtures run
+daily against `main` in their own non-gating workflows (`language-python.yml`,
+`language-java.yml`, `language-node.yml`, `language-dotnet.yml`,
+`language-php.yml`). Each uses the `.github/actions/language-e2e` composite
+action, which runs `harness.py --scenario runtime --without-pinned-scenarios
+--local-language <name>` (Java uses `--scenario maven`, adding the Maven
+producer). `language-wasm.yml` uses the same action to run `wasm.py`. They can be dispatched manually for any
 branch and either architecture. Their results are never qualification evidence.
 It deliberately omits the long fault/accounting/companion matrix, which remains
 mandatory before promotion. Neither `PR validation` nor `Full validation`

@@ -10,9 +10,10 @@ and dependency source groups are supplied explicitly. The Java Maven producer is
 an additional route to an ordinary v1 artifact, not an alternate runtime path.
 
 Python is the qualification fixture used by pull request, full and promotion
-validation. Java, Node.js, .NET and PHP are example fixtures: each runs on a
-real node daily against `main` in its own non-gating workflow
-(`.github/workflows/language-<name>.yml`, through `language-e2e.yml`).
+validation; it also runs daily in `language-python.yml`. Java, Node.js, .NET
+and PHP are example fixtures: each runs on a real node daily against `main` in
+its own non-gating workflow (`.github/workflows/language-<name>.yml`, through
+the `.github/actions/language-e2e` composite action).
 
 Prerequisites: Go as pinned in `go.mod`, Maven 3.9+, Java 21+ and Python
 3.12+. Selected example fixtures also need Node.js 22+, .NET SDK **10.0.401**
