@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RoutingTests(unittest.TestCase):
-    def test_publisher_runs_only_from_a_version_tag_after_full_validation_and_candidate(self):
+    def test_publisher_runs_only_from_a_version_tag_after_release_gate_tests_and_candidate(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
         triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
         self.assertIn('  push:\n    tags: ["v*"]', triggers)
@@ -21,7 +21,7 @@ class RoutingTests(unittest.TestCase):
         gate = text.split("\n  validation:\n", 1)[1].split("\n\n  candidate:", 1)[0]
         self.assertIn("needs: metadata", gate)
         self.assertIn("if: ${{ github.event_name == 'push' }}", gate)
-        self.assertIn("uses: ./.github/workflows/full-validation.yml", gate)
+        self.assertIn("uses: ./.github/workflows/release-gate-tests.yml", gate)
         self.assertIn("expected_sha: ${{ github.sha }}", gate)
         self.assertIn("security-events: write", gate)
         publish = text.split("\n  publish:\n", 1)[1]
@@ -48,7 +48,7 @@ class RoutingTests(unittest.TestCase):
         harness = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(harness)
         self.assertIn("python", harness.LANGUAGES)
-        full = (ROOT / ".github/workflows/full-validation.yml").read_text()
+        full = (ROOT / ".github/workflows/release-gate-tests.yml").read_text()
         e2e = full.split("\n  e2e:\n", 1)[1].split("\n\n", 1)[0]
         self.assertIn("uses: ./.github/workflows/e2e.yml", e2e)
         self.assertIn("scenario: pr", e2e)

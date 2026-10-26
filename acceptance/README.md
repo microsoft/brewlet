@@ -5,17 +5,17 @@
 | Gate | Workflow and trigger | Execution | Meaning |
 | --- | --- | --- | --- |
 | `PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
-| `Full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; the release gate, not promotion qualification |
-| `Language example E2E` | `language-e2e.yml`, weekly on `main` and manual dispatch | A matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation (Java adds the Maven producer; WebAssembly runs the `wasm.py` Wasmtime/Spin examples) | Non-gating weekly coverage; never qualification evidence |
+| `Release Gate Tests` | `release-gate-tests.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; the release gate, not promotion qualification |
+| `Language Example E2E` | `language-e2e.yml`, weekly on `main` and manual dispatch | A matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation (Java adds the Maven producer; WebAssembly runs the `wasm.py` Wasmtime/Spin examples) | Non-gating weekly coverage; never qualification evidence |
 | `Promotion qualification` | Local `make acceptance` after `evidence_index.py fetch` (no workflow) | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Optional full immutable-candidate qualification before promotion |
 
 Both validation workflows reuse the same building blocks: `checks.yml`
 (contracts, Maven, offline Python, legal, producer and kernel checks),
 `codeql.yml`, `e2e.yml` and, for pull requests, `site-pages.yml`.
 
-Green unit/contract checks alone cannot make either aggregate green. The full
-validation aggregate requires every prerequisite to succeed; failed, skipped or
-cancelled prerequisites fail it. A manual full validation dispatch takes no inputs
+Green unit/contract checks alone cannot make either aggregate green. The Release Gate Tests
+aggregate requires every prerequisite to succeed; failed, skipped or
+cancelled prerequisites fail it. A manual Release Gate Tests dispatch takes no inputs
 and validates the head of the selected branch. The PR aggregate requires every impacted check
 to succeed and every other check to be skipped, never failed or cancelled.
 
@@ -64,20 +64,20 @@ No work is authorized merely by these instructions.
 ## Validation receipts are artifacts, not repository contents
 
 `checks.yml` executes each fixed non-live check below once and uploads its
-sanitized JSON. Only artifacts from `full-validation.yml` runs (scheduled or
+sanitized JSON. Only artifacts from `release-gate-tests.yml` runs (scheduled or
 manually dispatched) can be indexed as qualification receipts:
 
 | `checks.yml` job | Fixed checks |
 | --- | --- |
 | contracts | `go-contracts`, `maven` |
-| producer integration, native amd64 (pull requests) or both native architectures (full validation) | `fixtures`, `registry` |
-| Linux kernel contracts, native amd64 (pull requests) or both native architectures (full validation) | `native-contracts`, `go-vet` |
+| producer integration, native amd64 (pull requests) or both native architectures (Release Gate Tests) | `fixtures`, `registry` |
+| Linux kernel contracts, native amd64 (pull requests) or both native architectures (Release Gate Tests) | `native-contracts`, `go-vet` |
 
 The producer commands, scopes and assertion mappings remain fixed in
 `run_check.py`; ledger-supplied strings are never executed. The shared native
 runner still rejects emulation and skipped kernel tests. Website dependencies,
 and build stay in the separate `site-pages.yml` workflow, which pull requests call
-only when the website is impacted; it is not part of full validation. Manual website preview runs produce the
+only when the website is impacted; it is not part of Release Gate Tests. Manual website preview runs produce the
 `documentation` receipt for full qualification;
 Pages deployment continues to reuse the checked website build.
 
@@ -161,7 +161,7 @@ a fresh checkout cannot fall back to metadata when retrieval fails.
 There is no promotion-qualification workflow. Run these commands locally from a
 clean, full-history checkout of the exact approved index descendant; they never
 provision nodes, publish, merge or regenerate missing evidence. Releases do not
-depend on this step: every release runs Full validation, including the Python
+depend on this step: every release runs Release Gate Tests, including the Python
 real-node E2E on amd64 and arm64.
 
 ## Identities, history and retention

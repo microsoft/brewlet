@@ -77,11 +77,11 @@ the [cleanup contract](operations.md#cleanup-and-revocation).
 | Workflow | Trigger | What it runs |
 | --- | --- | --- |
 | `PR validation` (`pr.yml`) | Pull requests | Only the checks, CodeQL languages, website build and real E2E impacted by the changed files. Native checks and E2E run on amd64; E2E uses the Python fixture; Node.js, .NET and PHP fixture changes are left to the weekly language workflow. Unknown paths and workflow changes select everything. |
-| `Full validation` (`full-validation.yml`) | Weekly on `main`, manual dispatch, and every release | Every check, every CodeQL language and the Python real E2E on native amd64 and arm64. |
-| `Language example E2E` (`language-e2e.yml`) | Weekly on `main`, manual dispatch for any branch, architecture and language (or all) | One matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation; Java also runs the Maven producer and WebAssembly runs the Wasmtime and Spin examples. Non-gating. |
+| `Release Gate Tests` (`release-gate-tests.yml`) | Weekly on `main`, manual dispatch, and every release | Every check, every CodeQL language and the Python real E2E on native amd64 and arm64. |
+| `Language Example E2E` (`language-e2e.yml`) | Weekly on `main`, manual dispatch for any branch, architecture and language (or all) | One matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation; Java also runs the Maven producer and WebAssembly runs the Wasmtime and Spin examples. Non-gating. |
 
 The [release workflow](supported-release.md#maintainers-cutting-a-release)
-runs full validation, including the Python real E2E on both architectures, for
+runs Release Gate Tests, including the Python real E2E on both architectures, for
 the tagged commit before publishing. Strict promotion qualification
 (`make acceptance` over fetched evidence) runs locally. Evidence handling is described in the
 [acceptance README](https://github.com/microsoft/brewlet/blob/main/acceptance/README.md).

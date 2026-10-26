@@ -1,7 +1,7 @@
-name: Release candidate artifacts
+name: Release Candidate Artifacts
 
+# Called only by release.yml: a v* tag push, or a manual Release dry run.
 on:
-  workflow_dispatch:
   workflow_call:
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Require same-repository manual build or release tag
+      - name: Require same-repository Release dry run or release tag
         env:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
@@ -33,7 +33,7 @@ jobs:
         run: |
           case "$EVENT:$REF" in
             workflow_dispatch:*|push:refs/tags/v*) ;;
-            *) echo "release candidates build only from a manual dispatch or a v* tag push" >&2; exit 1 ;;
+            *) echo "release candidates build only from a Release dry run or a v* tag push" >&2; exit 1 ;;
           esac
           test "$REPOSITORY" = microsoft/brewlet
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e

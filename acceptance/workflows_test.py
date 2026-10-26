@@ -31,7 +31,7 @@ class WorkflowTests(unittest.TestCase):
     def test_routine_and_qualification_share_fail_closed_native_contract_runner(self):
         checks = (ROOT / ".github/workflows/checks.yml").read_text()
         website = (ROOT / ".github/workflows/site-pages.yml").read_text()
-        callers = [(ROOT / ".github/workflows" / name).read_text() for name in ("pr.yml", "full-validation.yml")]
+        callers = [(ROOT / ".github/workflows" / name).read_text() for name in ("pr.yml", "release-gate-tests.yml")]
         self.assertIn("python3 acceptance/run_check.py native-contracts", checks)
         self.assertEqual(["python3", "acceptance/native_contracts.py"], CHECKS["native-contracts"]["command"])
         for name in CHECKS:
@@ -160,9 +160,9 @@ class WorkflowTests(unittest.TestCase):
             expect(["docs/index.md"], everything, every, listed=listed)
         expect(["unknown/file", "integration-tests/fixtures/java/app/pom.xml"], everything, every)
 
-    def test_pull_requests_run_native_checks_on_amd64_only_and_full_validation_keeps_both(self):
+    def test_pull_requests_run_native_checks_on_amd64_only_and_release_gate_tests_keeps_both(self):
         pr = (ROOT / ".github/workflows/pr.yml").read_text()
-        full = (ROOT / ".github/workflows/full-validation.yml").read_text()
+        full = (ROOT / ".github/workflows/release-gate-tests.yml").read_text()
         checks = (ROOT / ".github/workflows/checks.yml").read_text()
         self.assertIn("architectures: '[\"amd64\"]'", pr.split("\n  checks:", 1)[1].split("\n  e2e:", 1)[0])
         self.assertIn("architectures: '[\"amd64\",\"arm64\"]'", full.split("\n  checks:", 1)[1])
@@ -185,7 +185,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: inputs.maven || inputs.legal", maven)
         self.assertLess(contracts.index("run_check.py maven"), contracts.index("make legal-check"))
 
-    def test_go_jobs_restore_per_job_caches_that_full_validation_refreshes(self):
+    def test_go_jobs_restore_per_job_caches_that_release_gate_tests_refreshes(self):
         text = (ROOT / ".github/workflows/checks.yml").read_text()
         contracts = text.split("\n  contracts:", 1)[1].split("\n  producer-integration:", 1)[0]
         producer = text.split("\n  producer-integration:", 1)[1].split("\n  linux-overlay-contract:", 1)[0]
@@ -199,8 +199,8 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("key: ${{ steps.go-cache.outputs.cache-primary-key }}", save)
             self.assertLess(job.index("Restore " + name), job.index("Save " + name))
 
-    def test_full_validation_is_weekly_manual_or_release_called_and_requires_everything(self):
-        text = (ROOT / ".github/workflows/full-validation.yml").read_text()
+    def test_release_gate_tests_is_weekly_manual_or_release_called_and_requires_everything(self):
+        text = (ROOT / ".github/workflows/release-gate-tests.yml").read_text()
         self.assertEqual(["  schedule:", "  workflow_dispatch:", "  workflow_call:"], triggers(text))
         self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"')
         dispatch = text.split("  workflow_dispatch:", 1)[1].split("  workflow_call:", 1)[0]
@@ -223,8 +223,8 @@ class WorkflowTests(unittest.TestCase):
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertEqual(value == "success", result.returncode == 0, (dependency, value))
 
-    def test_full_validation_source_guard_is_executed_before_tests(self):
-        text = (ROOT / ".github/workflows/full-validation.yml").read_text()
+    def test_release_gate_tests_source_guard_is_executed_before_tests(self):
+        text = (ROOT / ".github/workflows/release-gate-tests.yml").read_text()
         program = block(text, "Validate immutable source")
         for event, ref, expected, success in (
                 ("schedule", "refs/heads/main", "", True),
@@ -329,7 +329,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('integration-tests/live-v2/wasm.py --work "$work"', text)
         self.assertIn("--target wasm32-wasip2", text)
         # Gating PR, full and release validation never run the example languages.
-        for name in ("pr.yml", "full-validation.yml", "release.yml", "e2e.yml", "checks.yml"):
+        for name in ("pr.yml", "release-gate-tests.yml", "release.yml", "e2e.yml", "checks.yml"):
             self.assertNotIn("language-e2e", (ROOT / ".github/workflows" / name).read_text(), name)
         program = block(text, "Refuse unsupported execution contexts")
         for event, ref, language, architecture, runner, success in (

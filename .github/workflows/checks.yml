@@ -1,6 +1,6 @@
 name: Checks
 
-# Reusable non-live checks shared by the PR and full validation workflows.
+# Reusable non-live checks shared by the PR and Release Gate Tests workflows.
 # Callers choose the scope; every selected check fails closed.
 on:
   workflow_call:
@@ -93,7 +93,7 @@ jobs:
       - name: Current redistribution notices and packaging
         if: inputs.legal
         run: make legal-check
-      # Full validation refreshes the per-job cache that pull requests restore; PRs save only on a cold miss.
+      # Release Gate Tests refreshes the per-job cache that pull requests restore; PRs save only on a cold miss.
       - name: Save contracts Go caches
         if: success() && (github.event_name != 'pull_request' || steps.go-cache.outputs.cache-matched-key == '')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
@@ -155,7 +155,7 @@ jobs:
         run: python3 acceptance/run_check.py fixtures
       - name: Real registry publication (not node acceptance)
         run: python3 acceptance/run_check.py registry
-      # Full validation refreshes the per-job cache that pull requests restore; PRs save only on a cold miss.
+      # Release Gate Tests refreshes the per-job cache that pull requests restore; PRs save only on a cold miss.
       - name: Save producer Go caches
         if: success() && (github.event_name != 'pull_request' || steps.go-cache.outputs.cache-matched-key == '')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9

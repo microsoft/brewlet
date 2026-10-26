@@ -45,7 +45,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
 ```
 
 `.github/workflows/e2e.yml` runs the `pr` scenario for PR validation when a PR
-impacts runtime, fixture or harness code, and for weekly/release full validation; full promotion
+impacts runtime, fixture or harness code, and for weekly and release Release Gate Tests runs; full promotion
 qualification runs through `acceptance/qualify.py` and the promotion
 qualification workflow.
 

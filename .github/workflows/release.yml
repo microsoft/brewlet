@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing tag vX.Y.Z (matching release.json) runs the full validation workflow for the tagged
+# Pushing tag vX.Y.Z (matching release.json) runs the Release Gate Tests workflow for the tagged
 # commit, then builds, verifies and publishes the release.
 # Plain X.Y.Z versions (including 0.x betas) are published as normal releases marked latest;
 # -alpha/-beta/-rc versions are GitHub prereleases, never latest. A manual dispatch is a build-only dry run.
@@ -49,13 +49,13 @@ jobs:
           echo "Brewlet $version ($channel)" >> "$GITHUB_STEP_SUMMARY"
 
   validation:
-    name: Full validation
+    name: Release Gate Tests
     needs: metadata
     if: ${{ github.event_name == 'push' }}
     permissions:
       contents: read
       security-events: write
-    uses: ./.github/workflows/full-validation.yml
+    uses: ./.github/workflows/release-gate-tests.yml
     with:
       expected_sha: ${{ github.sha }}
 

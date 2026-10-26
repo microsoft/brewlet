@@ -34,7 +34,7 @@ class InfrastructureWorkflowTests(unittest.TestCase):
         self.assertIn("persist-credentials: false", text)
         pr = (WORKFLOWS / "pr.yml").read_text().split("\n  codeql:", 1)[1].split("\n\n", 1)[0]
         self.assertIn("languages: ${{ needs.context.outputs.codeql }}", pr)
-        for caller in (pr, (WORKFLOWS / "full-validation.yml").read_text().split("\n  codeql:", 1)[1]):
+        for caller in (pr, (WORKFLOWS / "release-gate-tests.yml").read_text().split("\n  codeql:", 1)[1]):
             self.assertIn("uses: ./.github/workflows/codeql.yml", caller)
             self.assertIn("security-events: write", caller)
 
@@ -94,7 +94,7 @@ class InfrastructureWorkflowTests(unittest.TestCase):
         self.assertIn("group: pages\n  cancel-in-progress: false", text)
 
     def test_new_workflows_pin_actions_and_do_not_expose_secrets(self):
-        for name in ("codeql.yml", "site-deploy.yml", "pr.yml", "checks.yml", "full-validation.yml",
+        for name in ("codeql.yml", "site-deploy.yml", "pr.yml", "checks.yml", "release-gate-tests.yml",
                      "language-e2e.yml"):
             text = (WORKFLOWS / name).read_text()
             self.assertIn("permissions:\n  contents: read", text)
