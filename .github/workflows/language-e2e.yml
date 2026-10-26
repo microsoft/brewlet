@@ -1,4 +1,4 @@
-name: Brewlet language example E2E
+name: Language example E2E
 
 # Real-node E2E for one example language fixture (Java, Node.js, .NET or PHP).
 # Python is the only qualification fixture (pr.yml, full-validation.yml and

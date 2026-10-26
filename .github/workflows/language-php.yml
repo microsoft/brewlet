@@ -1,4 +1,4 @@
-name: Brewlet PHP example E2E
+name: PHP example E2E
 
 # Non-gating daily real-node E2E for the PHP example fixture against main.
 on:

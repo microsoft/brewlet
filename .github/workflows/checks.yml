@@ -1,4 +1,4 @@
-name: Brewlet checks
+name: Checks
 
 # Reusable non-live checks shared by the PR and full validation workflows.
 # Callers choose the scope; every selected check fails closed.

@@ -1,4 +1,4 @@
-name: Brewlet Java example E2E
+name: Java example E2E
 
 # Non-gating daily real-node E2E for the Java example fixture against main.
 on:

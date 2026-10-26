@@ -53,7 +53,7 @@ their own non-gating workflows (`language-java.yml`, `language-node.yml`,
 maven`, adding the Maven producer). They can be dispatched manually for any
 branch and either architecture. Their results are never qualification evidence.
 It deliberately omits the long fault/accounting/companion matrix, which remains
-mandatory before promotion. Neither `Brewlet PR validation` nor `Brewlet full validation`
+mandatory before promotion. Neither `PR validation` nor `Full validation`
 can pass if a required E2E job fails, cancels or skips; pull requests that do not
 impact runtime, fixture or harness code skip it (see `acceptance/README.md`). The
 same `pr` scenario is a bounded manual debugging route that actually reaches the

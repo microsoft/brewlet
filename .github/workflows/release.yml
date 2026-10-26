@@ -1,4 +1,4 @@
-name: Brewlet release
+name: Release
 
 # Pushing tag vX.Y.Z (matching release.json) runs the full validation workflow for the tagged
 # commit, then builds, verifies and publishes the release.

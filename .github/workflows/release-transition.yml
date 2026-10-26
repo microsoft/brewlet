@@ -1,4 +1,4 @@
-name: Brewlet disposable prerelease reinstall qualification
+name: Disposable prerelease reinstall qualification
 
 on:
   workflow_call:

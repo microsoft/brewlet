@@ -72,7 +72,7 @@ resolves the exact plugin on Java 17 and 21. The build workflow never publishes
 a package or executes a node installation.
 
 To dry-run a release without publishing anything, dispatch
-`.github/workflows/release.yml` manually (Actions → *Brewlet release* → *Run
+`.github/workflows/release.yml` manually (Actions → *Release* → *Run
 workflow*) on the branch to check. A dispatch only runs the identity check and
 the candidate build; the publish job runs exclusively for a tag push.
 
@@ -121,7 +121,7 @@ pinned fingerprint.
    Optionally add curated notes in `release-notes/VERSION.md`; they are placed
    above the generated changelog. Betas without curated notes get a standard
    "not stable" warning.
-2. Merge to `main`. Optionally dispatch **Brewlet full validation** for the merge
+2. Merge to `main`. Optionally dispatch **Full validation** for the merge
    commit first; the release runs it again regardless.
 3. Tag that exact commit and push the tag:
 
@@ -133,7 +133,7 @@ pinned fingerprint.
 The `release.yml` workflow then:
 
 - checks that the tag equals `v` + `release.json` version;
-- runs the complete **Brewlet full validation** workflow (`full-validation.yml`,
+- runs the complete **Full validation** workflow (`full-validation.yml`,
   the same one that runs weekly) for the tagged commit: every check, every
   CodeQL language and the Python real E2E on amd64 and arm64;
 - builds and verifies the candidate with `release-build.yml` (tests, legal

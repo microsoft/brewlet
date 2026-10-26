@@ -1,4 +1,4 @@
-name: Brewlet Node.js example E2E
+name: Node.js example E2E
 
 # Non-gating daily real-node E2E for the Node.js example fixture against main.
 on:

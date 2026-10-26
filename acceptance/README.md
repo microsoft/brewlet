@@ -4,10 +4,10 @@
 
 | Gate | Workflow and trigger | Execution | Meaning |
 | --- | --- | --- | --- |
-| `Brewlet PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
-| `Brewlet full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; not promotion qualification |
+| `PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
+| `Full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; not promotion qualification |
 | `Brewlet <language> example E2E` | `language-java.yml`, `language-node.yml`, `language-dotnet.yml`, `language-php.yml`, daily on `main` and manual dispatch | One example fixture's real-node runtime contract and rotation through `language-e2e.yml` (Java adds the Maven producer) | Non-gating example coverage; never qualification evidence |
-| `Brewlet promotion qualification` | `promotion-qualification.yml`, manual or reusable | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
+| `Promotion qualification` | `promotion-qualification.yml`, manual or reusable | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
 
 Both validation workflows reuse the same building blocks: `checks.yml`
 (contracts, Maven, offline Python, legal, producer and kernel checks),

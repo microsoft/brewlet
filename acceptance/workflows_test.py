@@ -72,7 +72,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('test "$head" = "$SOURCE"', listing)
         self.assertIn("previous_filename", listing)
         aggregate = text.split("\n  validation:", 1)[1]
-        self.assertIn("name: Brewlet PR validation", aggregate)
+        self.assertIn("name: PR validation", aggregate)
         self.assertIn("if: always()", aggregate)
         self.assertIn("needs: [context, checks, e2e, codeql, website]", aggregate)
         program = block(aggregate, "Require every impacted check")

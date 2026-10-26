@@ -1,4 +1,4 @@
-name: Brewlet .NET example E2E
+name: .NET example E2E
 
 # Non-gating daily real-node E2E for the .NET example fixture against main.
 on:
