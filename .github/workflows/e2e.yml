@@ -1,4 +1,4 @@
-name: Real-Node E2E
+name: Kubernetes E2E
 
 on:
   workflow_call:
