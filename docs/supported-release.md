@@ -146,10 +146,10 @@ The `release.yml` workflow then:
   verifies every published surface.
 
 A failed, skipped or cancelled prerequisite is not success; there is no
-acceptance opt-out. The workflow never creates or moves tags. Strict promotion
-qualification (`promotion-qualification.yml`) and the disposable-node
-transition test (`release-transition.yml`) remain separate manual workflows for
-owners who want additional evidence before tagging.
+acceptance opt-out. The workflow never creates or moves tags. Owners who want
+additional evidence before tagging can run strict promotion qualification
+(`make acceptance` over fetched evidence) locally as described in the
+[acceptance guide](https://github.com/microsoft/brewlet/blob/main/acceptance/README.md).
 
 Image transfer preserves verified OCI digests; the chart must resolve to the
 same package bytes. Central submission signs a bundle of the prebuilt JAR/POM
@@ -180,7 +180,7 @@ attestations or credentials are failures, not optional checks.
 
 | Transition | Policy and current evidence |
 | --- | --- |
-| Same candidate, clean reinstall | The only eligible test pair, exercised by the manual `release-transition.yml`. Not required for beta publication. |
+| Same candidate, clean reinstall | The only eligible test pair. No automated drain/reinstall test exists; not required for beta publication. |
 | 0.7.x or earlier to 0.8.x | No supported in-place upgrade or state reuse. Uninstall the old release, install 0.8.x cleanly and re-package workloads. |
 | Between different betas/prereleases | Unsupported until immutable source/target artifacts, cleanup/recovery limits and genuine evidence are explicitly reviewed. |
 | Helm/binary downgrade or mixed releases | No compatibility or rollback promise. |
@@ -198,13 +198,3 @@ before a matching install. Restore data through its separately governed backup/
 recovery process. Helm rollback cannot repair incompatible persisted state.
 Reinstalling a prior release would itself require a reviewed clean-install
 procedure, not a claimed downgrade.
-
-`release-transition.yml` is an explicitly authorized disposable-node test,
-separate from ordinary CI and the existing complete/managed/Wasm live scopes.
-It consumes exact candidate archives/OCI layouts/chart, runs real workloads,
-drains and tears down through production paths, checks host reversal, retains
-schemas, reinstalls the same candidate and verifies new workload execution.
-Only its own private fixture resources may be destroyed. The manual
-`authorize-disposable-drain-reinstall` input is required per native architecture.
-Offline orchestration tests do not establish real-node support, cloud-provider
-behavior or missing-host recovery proof.

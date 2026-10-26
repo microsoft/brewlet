@@ -5,9 +5,9 @@
 | Gate | Workflow and trigger | Execution | Meaning |
 | --- | --- | --- | --- |
 | `PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
-| `Full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; not promotion qualification |
+| `Full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; the release gate, not promotion qualification |
 | `Language example E2E` | `language-e2e.yml`, weekly on `main` and manual dispatch | A matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation (Java adds the Maven producer; WebAssembly runs the `wasm.py` Wasmtime/Spin examples) | Non-gating weekly coverage; never qualification evidence |
-| `Promotion qualification` | `promotion-qualification.yml`, manual or reusable | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
+| `Promotion qualification` | Local `make acceptance` after `evidence_index.py fetch` (no workflow) | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Optional full immutable-candidate qualification before promotion |
 
 Both validation workflows reuse the same building blocks: `checks.yml`
 (contracts, Maven, offline Python, legal, producer and kernel checks),
@@ -150,19 +150,19 @@ make acceptance
 ```
 
 Retrieval requires repository access and permission to read its Actions
-artifacts; CI grants `contents: read` and `actions: read`, not write access.
+artifacts; a read-only `GITHUB_TOKEN` with `contents: read` and `actions: read` suffices.
 GitHub only permits downloads before an artifact expires
 ([artifact access and expiration](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)).
 Missing access, expired/deleted artifacts and transport failures are errors.
 An index, checksum, run URL or green status without the actual assertion bytes
 never qualifies anything. A verified local byte cache can be checked offline;
-a fresh CI checkout cannot fall back to metadata when retrieval fails.
+a fresh checkout cannot fall back to metadata when retrieval fails.
 
-The manual/reusable promotion gate does exactly this with read-only repository
-and artifact permissions. It requires the exact approved index-descendant
-`expected_sha` and full Git history. Its caller must depend on successful
-qualification; it never provisions nodes, publishes, merges or regenerates
-missing evidence. Final verification requires separate execution approval.
+There is no promotion-qualification workflow. Run these commands locally from a
+clean, full-history checkout of the exact approved index descendant; they never
+provision nodes, publish, merge or regenerate missing evidence. Releases do not
+depend on this step: every release runs Full validation, including the Python
+real-node E2E on amd64 and arm64.
 
 ## Identities, history and retention
 

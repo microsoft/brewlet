@@ -1,4 +1,4 @@
-name: Build Brewlet website preview
+name: Site Build
 
 on:
   workflow_call:

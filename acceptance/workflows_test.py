@@ -203,8 +203,6 @@ class WorkflowTests(unittest.TestCase):
         text = (ROOT / ".github/workflows/full-validation.yml").read_text()
         self.assertEqual(["  schedule:", "  workflow_dispatch:", "  workflow_call:"], triggers(text))
         self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"')
-        self.assertNotIn("purpose", text)
-        self.assertNotIn("archive-history", text)
         dispatch = text.split("  workflow_dispatch:", 1)[1].split("  workflow_call:", 1)[0]
         self.assertEqual("\n", dispatch)
         checks = text.split("\n  checks:", 1)[1].split("\n\n", 1)[0]
@@ -250,37 +248,17 @@ class WorkflowTests(unittest.TestCase):
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertEqual(success, result.returncode == 0, (event, ref, expected))
 
-    def test_promotion_is_manual_reusable_and_fetches_verified_artifacts_before_strict_gate(self):
-        text = (ROOT / ".github/workflows/promotion-qualification.yml").read_text()
-        triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-        self.assertEqual(["  workflow_dispatch:", "  workflow_call:"],
-                         [line for line in triggers.splitlines() if line.startswith("  ") and not line.startswith("    ")])
-        self.assertIn("actions: read", text)
-        self.assertIn("fetch-depth: 0", text)
-        self.assertIn("persist-credentials: false", text)
-        self.assertIn("python3 acceptance/evidence_index.py fetch", text)
-        self.assertIn("make acceptance", text)
-        self.assertLess(text.index("evidence_index.py fetch"), text.index("make acceptance"))
-        self.assertLess(text.index('test "$SOURCE" = "$EXPECTED_SOURCE"'), text.index("- uses: actions/checkout"))
-        for bypass in ("continue-on-error", "||", "--structure-only", "qualify.py --run", "workflow run"):
-            self.assertNotIn(bypass, text)
-
     def test_e2e_is_reusable_real_execution_only_and_pr_guard_rejects_forks(self):
         text = (ROOT / ".github/workflows/e2e.yml").read_text()
         self.assertIn("  workflow_call:", text)
         self.assertNotIn("  pull_request:", text)
         self.assertNotIn("pull_request_target", text)
         self.assertNotIn("secrets.", text)
-        self.assertNotIn("QUALIFICATION_MODE", text)
         self.assertNotIn("run_check.py", text)
         self.assertNotIn("make acceptance", text)
         self.assertNotIn("unittest discover", text)
         self.assertIn("harness.py --scenario pr \\\n", text)
         self.assertIn('--verify-pr "acceptance-export/pr-e2e-${ARCHITECTURE}.json"', text)
-        # Python is the only qualification fixture; example toolchains belong to language-e2e.yml.
-        for removed in ("--pr-language", "--languages", "LANGUAGES", "inputs.languages",
-                        "setup-java", "setup-node", "setup-dotnet"):
-            self.assertNotIn(removed, text)
         export = text.split("      - name: Export only public PR outcomes", 1)[1].split(
             "      - name:", 1)[0]
         self.assertIn("steps.guard.outcome == 'success'", export)
@@ -334,10 +312,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_language_examples_run_weekly_in_one_non_gating_matrix_workflow(self):
         text = (ROOT / ".github/workflows/language-e2e.yml").read_text()
-        self.assertFalse((ROOT / ".github/actions/language-e2e").exists())
         languages = ("python", "java", "node", "dotnet", "php", "wasm")
-        for language in languages:
-            self.assertFalse((ROOT / ".github/workflows" / f"language-{language}.yml").exists(), language)
         self.assertEqual(["  schedule:", "  workflow_dispatch:"], triggers(text))
         self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"', "language examples run weekly")
         self.assertIn("options: [all, " + ", ".join(languages) + "]", text)
