@@ -1,4 +1,4 @@
-name: Brewlet real-node E2E
+name: Real-node E2E
 
 on:
   workflow_call:

@@ -1901,7 +1901,7 @@ def main():
     local = parser.add_mutually_exclusive_group()
     local.add_argument("--local-language", choices=FIXTURE_LANGUAGES,
                        help="one explicit local runtime fixture (the daily per-language workflows use "
-                            "this for java, node, dotnet and php); requires a partial scenario "
+                            "this for python, java, node, dotnet and php); requires a partial scenario "
                             "and --without-pinned-scenarios")
     local.add_argument("--local-python-only", action="store_const", const="python", dest="local_language",
                        help="select the Python fixture for smaller local debugging")

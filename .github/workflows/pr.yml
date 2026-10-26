@@ -1,4 +1,4 @@
-name: Brewlet PR
+name: PR Check
 
 # Pull requests only: run just the checks impacted by the PR's changed files.
 # Classification fails closed: unknown paths or listing errors select every PR check.
@@ -187,7 +187,7 @@ jobs:
       expected_sha: ${{ needs.context.outputs.source }}
 
   validation:
-    name: Brewlet PR validation
+    name: PR validation
     if: always()
     needs: [context, checks, e2e, codeql, website]
     runs-on: ubuntu-24.04

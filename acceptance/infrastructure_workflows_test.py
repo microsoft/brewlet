@@ -95,10 +95,12 @@ class InfrastructureWorkflowTests(unittest.TestCase):
 
     def test_new_workflows_pin_actions_and_do_not_expose_secrets(self):
         for name in ("codeql.yml", "site-deploy.yml", "pr.yml", "checks.yml", "full-validation.yml",
-                     "language-e2e.yml", "language-java.yml", "language-node.yml", "language-dotnet.yml",
-                     "language-php.yml"):
+                     "language-python.yml", "language-java.yml", "language-node.yml",
+                     "language-dotnet.yml", "language-php.yml", "language-wasm.yml",
+                     "../actions/language-e2e/action.yml"):
             text = (WORKFLOWS / name).read_text()
-            self.assertIn("permissions:\n  contents: read", text)
+            if not name.endswith("action.yml"):
+                self.assertIn("permissions:\n  contents: read", text)
             self.assertNotIn("secrets.", text)
             for action in re.findall(r"uses: (\S+)", text):
                 if not action.startswith("./"):

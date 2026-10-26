@@ -1,4 +1,4 @@
-name: Brewlet release candidate artifacts
+name: Release candidate artifacts
 
 on:
   workflow_dispatch:

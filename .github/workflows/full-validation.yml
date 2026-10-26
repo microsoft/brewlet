@@ -1,4 +1,4 @@
-name: Brewlet full validation
+name: Full validation
 
 # Every check, CodeQL language and native E2E on both architectures.
 # Runs weekly on main, on manual dispatch, and is called by the release workflow
@@ -83,7 +83,7 @@ jobs:
     uses: ./.github/workflows/codeql.yml
 
   validation:
-    name: Brewlet full validation
+    name: Full validation
     if: always()
     needs: [context, checks, e2e, codeql]
     runs-on: ubuntu-24.04

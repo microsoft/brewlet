@@ -15,8 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def block(text, marker):
-    tail = text.split(marker, 1)[1].split("        run: |\n", 1)[1]
-    return "\n".join(line[10:] for line in re.match(r"(?:          [^\n]*\n)+", tail).group().splitlines()) + "\n"
+    tail = text.split(marker, 1)[1]
+    run = re.search(r"\n( *)run: \|\n", tail)
+    indent = len(run.group(1)) + 2
+    body = re.match(r"(?:" + " " * indent + r"[^\n]*\n)+", tail[run.end():]).group()
+    return "\n".join(line[indent:] for line in body.splitlines()) + "\n"
 
 
 def triggers(text):
@@ -72,7 +75,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('test "$head" = "$SOURCE"', listing)
         self.assertIn("previous_filename", listing)
         aggregate = text.split("\n  validation:", 1)[1]
-        self.assertIn("name: Brewlet PR validation", aggregate)
+        self.assertIn("name: PR validation", aggregate)
         self.assertIn("if: always()", aggregate)
         self.assertIn("needs: [context, checks, e2e, codeql, website]", aggregate)
         program = block(aggregate, "Require every impacted check")
@@ -330,44 +333,51 @@ class WorkflowTests(unittest.TestCase):
 
 
     def test_example_languages_run_daily_in_their_own_non_gating_workflows(self):
-        reusable = (ROOT / ".github/workflows/language-e2e.yml").read_text()
-        self.assertEqual(["  workflow_call:"], triggers(reusable))
-        self.assertIn("permissions:\n  contents: read", reusable)
-        self.assertIn("persist-credentials: false", reusable)
-        self.assertNotIn("secrets.", reusable)
-        self.assertNotIn("continue-on-error", reusable)
-        self.assertIn('--without-pinned-scenarios --local-language "$LANGUAGE"', reusable)
-        self.assertIn('if test "$LANGUAGE" = java; then scenario=maven; fi', reusable)
+        action = (ROOT / ".github/actions/language-e2e/action.yml").read_text()
+        self.assertFalse((ROOT / ".github/workflows/language-e2e.yml").exists())
+        self.assertIn("  using: composite", action)
+        self.assertNotIn("secrets.", action)
+        self.assertNotIn("continue-on-error", action)
+        self.assertIn('--without-pinned-scenarios --local-language "$LANGUAGE"', action)
+        self.assertIn('if test "$LANGUAGE" = java; then scenario=maven; fi', action)
+        self.assertIn('integration-tests/live-v2/wasm.py --work "$work"', action)
+        self.assertIn("--target wasm32-wasip2", action)
         crons = set()
-        for language in ("java", "node", "dotnet", "php"):
+        for language in ("python", "java", "node", "dotnet", "php", "wasm"):
             text = (ROOT / ".github/workflows" / f"language-{language}.yml").read_text()
             self.assertEqual(["  schedule:", "  workflow_dispatch:"], triggers(text), language)
             cron = re.search(r'cron: "(\d+ \d+) \* \* \*"', text)
             self.assertIsNotNone(cron, language)
             crons.add(cron.group(1))
-            self.assertIn("uses: ./.github/workflows/language-e2e.yml", text)
+            self.assertIn("uses: ./.github/actions/language-e2e\n", text)
             self.assertIn("language: " + language + "\n", text)
             self.assertIn("permissions:\n  contents: read", text)
-        self.assertEqual(4, len(crons), "daily language runs are staggered")
+            self.assertIn("persist-credentials: false", text)
+            self.assertIn("inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'", text)
+            self.assertLess(text.index("actions/checkout@"), text.index("./.github/actions/language-e2e"))
+        self.assertEqual(6, len(crons), "daily language runs are staggered")
         # Gating PR, full and release validation never run the example languages.
         for name in ("pr.yml", "full-validation.yml", "release.yml", "e2e.yml", "checks.yml"):
-            self.assertNotIn("language-e2e.yml", (ROOT / ".github/workflows" / name).read_text(), name)
-        program = block(reusable, "Refuse unsupported execution contexts")
-        for event, ref, language, architecture, success in (
-                ("schedule", "refs/heads/main", "php", "amd64", True),
-                ("schedule", "refs/heads/main", "java", "arm64", True),
-                ("schedule", "refs/heads/candidate", "node", "amd64", False),
-                ("workflow_dispatch", "refs/heads/candidate", "dotnet", "amd64", True),
-                ("workflow_dispatch", "refs/tags/v1.0.0", "dotnet", "amd64", False),
-                ("pull_request", "refs/pull/1/merge", "php", "amd64", False),
-                ("push", "refs/heads/main", "php", "amd64", False),
-                ("schedule", "refs/heads/main", "python", "amd64", False),
-                ("schedule", "refs/heads/main", "ruby", "amd64", False),
-                ("schedule", "refs/heads/main", "php", "emulated", False)):
+            self.assertNotIn("language-e2e", (ROOT / ".github/workflows" / name).read_text(), name)
+        program = block(action, "Refuse unsupported execution contexts")
+        for event, ref, language, architecture, runner, success in (
+                ("schedule", "refs/heads/main", "php", "amd64", "X64", True),
+                ("schedule", "refs/heads/main", "java", "arm64", "ARM64", True),
+                ("schedule", "refs/heads/main", "python", "amd64", "X64", True),
+                ("schedule", "refs/heads/main", "wasm", "arm64", "ARM64", True),
+                ("schedule", "refs/heads/candidate", "node", "amd64", "X64", False),
+                ("workflow_dispatch", "refs/heads/candidate", "dotnet", "amd64", "X64", True),
+                ("workflow_dispatch", "refs/tags/v1.0.0", "dotnet", "amd64", "X64", False),
+                ("pull_request", "refs/pull/1/merge", "php", "amd64", "X64", False),
+                ("push", "refs/heads/main", "php", "amd64", "X64", False),
+                ("schedule", "refs/heads/main", "ruby", "amd64", "X64", False),
+                ("schedule", "refs/heads/main", "php", "emulated", "X64", False),
+                ("schedule", "refs/heads/main", "php", "arm64", "X64", False),
+                ("schedule", "refs/heads/main", "php", "amd64", "ARM64", False)):
             environment = {"EVENT": event, "REF": ref, "REPOSITORY": "microsoft/brewlet",
-                           "LANGUAGE": language, "ARCHITECTURE": architecture}
+                           "LANGUAGE": language, "ARCHITECTURE": architecture, "RUNNER_ARCH": runner}
             result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
-            self.assertEqual(success, result.returncode == 0, (event, ref, language, architecture))
+            self.assertEqual(success, result.returncode == 0, (event, ref, language, architecture, runner))
         environment = {"EVENT": "schedule", "REF": "refs/heads/main", "REPOSITORY": "fork/brewlet",
                        "LANGUAGE": "php", "ARCHITECTURE": "amd64"}
         self.assertNotEqual(0, subprocess.run(["bash", "-eu", "-c", program], env=environment,

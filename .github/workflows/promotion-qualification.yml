@@ -1,4 +1,4 @@
-name: Brewlet promotion qualification
+name: Promotion qualification
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   qualification:
-    name: Brewlet promotion qualification
+    name: Promotion qualification
     runs-on: ubuntu-24.04
     steps:
       - name: Require the exact approved verification source

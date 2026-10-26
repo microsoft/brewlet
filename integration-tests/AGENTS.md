@@ -13,7 +13,7 @@ obligations and evidence rules live in [`acceptance/`](../acceptance/README.md).
   [`live-v2/README.md`](live-v2/README.md) for scenarios (`pr`, `control`,
   `complete` and focused suites) and `wasm.py`/`managed_wasm.py` companions.
 - `fixtures/` — the Python qualification fixture, Java/Node.js/.NET/PHP example
-  fixtures (daily `language-<name>.yml` workflows), pinned runtime inputs and
+  fixtures (daily `language-<name>.yml` workflows; `language-wasm.yml` runs `wasm.py`), pinned runtime inputs and
   `fixtures/check.py`, the producer/consumer conformance check.
 - `registry.py` — real registry delivery checks.
 - `admission.py` — real API-server admission checks; not node execution.

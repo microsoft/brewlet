@@ -1,4 +1,4 @@
-name: Brewlet .NET example E2E
+name: .NET example E2E
 
 # Non-gating daily real-node E2E for the .NET example fixture against main.
 on:
@@ -22,7 +22,15 @@ concurrency:
 
 jobs:
   e2e:
-    uses: ./.github/workflows/language-e2e.yml
-    with:
-      language: dotnet
-      architecture: ${{ inputs.architecture || 'amd64' }}
+    name: dotnet (${{ inputs.architecture || 'amd64' }})
+    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/language-e2e
+        with:
+          language: dotnet
+          architecture: ${{ inputs.architecture || 'amd64' }}
