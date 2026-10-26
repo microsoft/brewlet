@@ -106,6 +106,10 @@ export async function startServer(manager, { launchBrowser = openBrowser } = {})
                     return json(res, 202, await manager.start(input.step));
                 }
                 if (url.pathname === "/api/stop") return json(res, 200, await manager.stop());
+                if (url.pathname === "/api/source") {
+                    if (Object.keys(input).some((key) => key !== "source") || typeof input.source !== "string") return json(res, 400, { error: "Expected a Brewlet source" });
+                    return json(res, 200, await manager.setSource(input.source));
+                }
             }
             return json(res, 404, { error: "Not found" });
         } catch (error) {

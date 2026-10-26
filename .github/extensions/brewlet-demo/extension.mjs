@@ -1,5 +1,5 @@
 import { createCanvas, joinSession, CanvasError } from "@github/copilot-sdk/extension";
-import { DemoManager, STEPS } from "./runner.mjs";
+import { BREWLET_SOURCES, DemoManager, STEPS } from "./runner.mjs";
 import { startServer } from "./server.mjs";
 
 let manager;
@@ -10,6 +10,10 @@ const emptyInput = { type: "object", additionalProperties: false, properties: {}
 const runInput = {
     type: "object", additionalProperties: false, required: ["step"],
     properties: { step: { type: "string", enum: Object.keys(STEPS) } },
+};
+const sourceInput = {
+    type: "object", additionalProperties: false, required: ["source"],
+    properties: { source: { type: "string", enum: BREWLET_SOURCES } },
 };
 
 function handler(fn) {
@@ -32,7 +36,8 @@ const session = await joinSession({
         inputSchema: emptyInput,
         actions: [
             { name: "get_status", description: "Read demo steps, commands, runtime evidence and terminal output.", inputSchema: emptyInput, handler: handler(() => manager.snapshot()) },
-            { name: "run_step", description: "Run preflight, setup (builds Brewlet from this checkout and creates a session-owned kind cluster), local build/run, package, artifact inspection, deploy, upgrade to temurin-27, rollback to temurin-25, inspect, or cleanup (deletes only this session's kind cluster).", inputSchema: runInput, handler: handler(({ step }) => manager.start(step)) },
+            { name: "run_step", description: "Run preflight, setup (installs the selected Brewlet source, the latest release by default, on a session-owned kind cluster), local build/run, package, artifact inspection, deploy, upgrade to temurin-27, rollback to temurin-25, inspect, or cleanup (deletes only this session's kind cluster).", inputSchema: runInput, handler: handler(({ step }) => manager.start(step)) },
+            { name: "set_brewlet_source", description: "Choose where Brewlet comes from: 'release' (default; latest GitHub release CLI and OCI Helm chart, or BREWLET_DEMO_VERSION) or 'checkout' (build the CLI and component images from this checkout's HEAD). Requires no demo cluster; resets prerequisites, setup and packaging.", inputSchema: sourceInput, handler: handler(({ source }) => manager.setSource(source)) },
             { name: "stop", description: "Cancel the active step and stop this demo's local Java process and Service proxy. Does not delete cluster resources; use run_step cleanup for that.", inputSchema: emptyInput, handler: handler(() => manager.stop()) },
         ],
         open: async (ctx) => {

@@ -256,9 +256,24 @@ async function post(route, body = {}) {
 }
 
 function run(step) {
-    if (step === "setup" && !confirm(`Build Brewlet from this checkout and create the private kind cluster ${state.names.cluster}? This takes several minutes and uses Docker. Your current kubectl context is not changed.`)) return;
-    if (step === "cleanup" && !confirm(`Uninstall Brewlet and delete the private kind cluster ${state.names.cluster} and its component images? Application artifacts and logs are kept.`)) return;
+    const checkout = state.brewlet?.source === "checkout";
+    const install = checkout ? "Build Brewlet from this checkout" : `Install Brewlet ${state.brewlet?.version ?? "(latest release)"} from its published Helm chart`;
+    if (step === "setup" && !confirm(`${install} on the private kind cluster ${state.names.cluster}? This takes several minutes and uses Docker. Your current kubectl context is not changed.`)) return;
+    if (step === "cleanup" && !confirm(`Uninstall Brewlet and delete the private kind cluster ${state.names.cluster}${checkout ? " and its component images" : ""}? Application artifacts and logs are kept.`)) return;
     return post("/api/run", { step });
+}
+
+function renderSource() {
+    const brewlet = state.brewlet ?? { source: "release" };
+    const locked = state.cluster?.created ? "Remove the private cluster to switch." : state.active ? "Wait for the active step." : "";
+    for (const input of document.querySelectorAll('input[name="brewlet-source"]')) {
+        input.checked = input.value === brewlet.source;
+        input.disabled = Boolean(locked);
+        input.onchange = () => input.checked && post("/api/source", { source: input.value }).then(renderSource);
+    }
+    $("#release-version").textContent = brewlet.source === "release" && brewlet.version ? `(${brewlet.version})` : "";
+    $("#source-note").textContent = locked;
+    $("#brewlet-chip").textContent = brewlet.source === "checkout" ? "Brewlet from checkout" : `Brewlet ${brewlet.version ?? "latest release"}`;
 }
 
 function renderArtifactProof() {
@@ -309,6 +324,7 @@ function renderArtifactProof() {
 function render(next) {
     const artifactFocus = artifactViewer?.node.contains(document.activeElement) ? document.activeElement : null;
     state = next;
+    renderSource();
     renderManifest();
     renderArtifactProof();
     $("#steps").replaceChildren(...steps.map((id) => {

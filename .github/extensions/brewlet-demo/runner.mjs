@@ -23,22 +23,56 @@ export const RUNTIME_USER = 65532;
 export const RUNTIME_ANNOTATION = "brewlet.sh/runtime-image";
 export const BASE_RUNTIME = "temurin-25";
 export const NEXT_RUNTIME = "temurin-27";
+export const BREWLET_REPOSITORY = "microsoft/brewlet";
+export const BREWLET_CHART = "oci://ghcr.io/microsoft/charts/brewlet";
+// "release" installs published artifacts (default); "checkout" builds every component from this checkout's HEAD.
+export const BREWLET_SOURCES = ["release", "checkout"];
+const VERSION = /^v?(\d+\.\d+\.\d+)$/;
 const INSPECTION_OPENS = "jdk.management/com.sun.management.internal=ALL-UNNAMED";
 const INSPECTION_LOGGING = "logging.level.io.brunoborges.showmyjvm.core.PrintFlagsFinal";
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
 
 export const STEPS = {
-    preflight: { title: "Check prerequisites", detail: "Read-only checks: Docker (Linux engine), kind v0.33.0, kubectl, Helm, Go, Maven, Git and a local JDK 25." },
-    setup: { title: "Prepare private cluster", detail: "Explicit opt-in: build Brewlet from this checkout, create a session-owned kind cluster, install the chart, and approve Temurin 25 and 27 as RuntimeImages offered by a NodeProfile." },
+    preflight: { title: "Check prerequisites", detail: "Read-only checks: Docker (Linux engine), kind v0.33.0, kubectl, Helm, Maven, Git and a local JDK 25; resolves the latest Brewlet release (or Go when building from this checkout)." },
+    setup: { title: "Prepare private cluster", detail: "Explicit opt-in: create a session-owned kind cluster, install Brewlet (the released chart, or images built from this checkout), and approve Temurin 25 and 27 as RuntimeImages offered by a NodeProfile." },
     local: { title: "1. Build & run locally", detail: "Build ShowMyJVM's Spring Boot module with your local JDK 25 and serve it on loopback." },
-    package: { title: "2. Package app-only OCI image", detail: "Extract Spring Boot's layers and run the source-built brewlet build in a Linux producer: dependency layer, app layer and launch.json. No JDK inside." },
+    package: { title: "2. Package app-only OCI image", detail: "Extract Spring Boot's layers and run brewlet build (released CLI, or built from this checkout) in a Linux producer: dependency layer, app layer and launch.json. No JDK inside." },
     artifact: { title: "3. Inspect the OCI artifact", detail: "Verify the manifest, config and layer digests, then list every archive entry. Read-only: no extraction or rebuild." },
     deploy: { title: "4. Deploy on temurin-25", detail: "Apply a plain Deployment with runtimeClassName: brewlet and brewlet.sh/runtime-image: temurin-25. Verify the live JVM and the node's runtime binding." },
     upgrade: { title: "5. Switch to temurin-27", detail: "Patch only the runtime-image annotation. Kubernetes rolls out a new Pod with the exact same application digest on Temurin 27." },
     rollback: { title: "6. Switch back to temurin-25", detail: "Patch the annotation back. Same image, same Service, no rebuild; the node binds Temurin 25 again." },
     inspect: { title: "Inspect deployment", detail: "Show workload, RuntimeImage and NodeProfile state, recent logs, and re-verify the live runtime binding." },
-    cleanup: { title: "Remove private cluster", detail: "Explicit opt-in: remove the workload, NodeProfile, RuntimeImages and Helm release normally, then delete this session's kind cluster and component images." },
+    cleanup: { title: "Remove private cluster", detail: "Explicit opt-in: remove the workload, NodeProfile, RuntimeImages and Helm release normally, then delete this session's kind cluster (and any component images built from this checkout)." },
 };
+// Switching the Brewlet source invalidates everything that used the previous CLI or components.
+const SOURCE_DEPENDENT = ["preflight", "setup", "package", "artifact", "deploy", "upgrade", "rollback", "inspect"];
+
+// Resolves a Brewlet release: an explicit X.Y.Z (BREWLET_DEMO_VERSION) or the latest published release.
+export async function resolveRelease(fetcher, requested) {
+    if (requested) {
+        const match = String(requested).match(VERSION);
+        if (!match) throw new Error(`BREWLET_DEMO_VERSION must be X.Y.Z, got ${requested}.`);
+        return match[1];
+    }
+    const response = await fetcher(`https://github.com/${BREWLET_REPOSITORY}/releases/latest`, { signal: AbortSignal.timeout(30000) });
+    const match = response.ok && new URL(response.url).pathname.match(/\/releases\/tag\/(v\d+\.\d+\.\d+)$/);
+    if (!match) throw new Error("Could not resolve the latest Brewlet release; set BREWLET_DEMO_VERSION=X.Y.Z.");
+    return match[1].slice(1);
+}
+
+export function releaseArchive(version, arch) {
+    if (!VERSION.test(version) || !["amd64", "arm64"].includes(arch)) throw new Error("Invalid Brewlet release or architecture.");
+    const name = `brewlet_${version}_linux_${arch}.tar.gz`;
+    const base = `https://github.com/${BREWLET_REPOSITORY}/releases/download/v${version}`;
+    return { name, url: `${base}/${name}`, checksums: `${base}/checksums.txt` };
+}
+
+export function releaseChecksum(checksums, name) {
+    const line = checksums.split(/\r?\n/).map((item) => item.trim().split(/\s+/)).find((fields) => fields[1]?.replace(/^\*/, "") === name);
+    if (!/^[a-f0-9]{64}$/.test(line?.[0] ?? "")) throw new Error(`Release checksums.txt has no SHA-256 for ${name}.`);
+    return `sha256:${line[0]}`;
+}
+
 export const PREREQUISITES = { package: ["local"], artifact: ["package"], deploy: ["package", "setup"], upgrade: ["deploy"], rollback: ["upgrade"], inspect: ["deploy"] };
 const DOWNSTREAM = {
     setup: ["deploy", "upgrade", "rollback", "inspect"],
@@ -207,6 +241,9 @@ export function commandPreviews(state, runtimes = {}) {
     const image = state.image ?? `${APP_REPOSITORY}@<sha256:digest>`;
     const jar = state.jar ?? path.join(dir, "showmyjvm/spring-boot/target/showmyjvm-springboot-1.0.0-SNAPSHOT.jar");
     const source = (id) => runtimes[id]?.[arch] ?? `<${id} platform manifest>`;
+    const checkout = state.brewlet?.source === "checkout";
+    const version = state.brewlet?.version ?? "<latest>";
+    const helm = `helm --kubeconfig ${quote(kubeconfig)} --kube-context ${n.context}`;
     const patch = (from, to) => JSON.stringify([
         { op: "test", path: "/metadata/uid", value: "<deployment-uid>" },
         { op: "test", path: "/spec/template/metadata/annotations/brewlet.sh~1runtime-image", value: from },
@@ -221,29 +258,42 @@ export function commandPreviews(state, runtimes = {}) {
     });
     return {
         preflight: {
-            commands: ["docker info --format '{{.OSType}} {{.Architecture}}'", "kind version", "kubectl version --client", "helm version --short", "go version", "mvn -version", "<JDK 25>/bin/java -version"],
-            input: { kind: KIND_VERSION, localJDK: "JDK 25 (Temurin preferred; BREWLET_DEMO_JAVA_HOME overrides)", runtimes: Object.fromEntries(Object.entries(runtimes).map(([id, item]) => [id, item.tag])) },
-            note: "Read-only checks. Nothing is installed and your current kubectl context is never read or changed.",
+            commands: ["docker info --format '{{.OSType}} {{.Architecture}}'", "kind version", "kubectl version --client", "helm version --short",
+                ...(checkout ? ["go version"] : [`curl -fsSLI https://github.com/${BREWLET_REPOSITORY}/releases/latest`]), "git --version", "mvn -version", "<JDK 25>/bin/java -version"],
+            input: { brewlet: checkout ? "built from this checkout's HEAD" : `release ${version}`, kind: KIND_VERSION, localJDK: "JDK 25 (Temurin preferred; BREWLET_DEMO_JAVA_HOME overrides)", runtimes: Object.fromEntries(Object.entries(runtimes).map(([id, item]) => [id, item.tag])) },
+            note: checkout ? "Read-only checks. Nothing is installed and your current kubectl context is never read or changed."
+                : "Read-only checks. Resolves the latest Brewlet release (BREWLET_DEMO_VERSION pins one). Nothing is installed and your current kubectl context is never read or changed.",
         },
         setup: {
             commands: [
-                `git -C ${quote(REPO)} archive HEAD go.mod go.sum pkg kubernetes cmd provisioner shim scripts LICENSE.txt | tar -x -C ${quote(path.join(dir, "context"))}`,
-                `docker build --platform linux/${arch} -f context/kubernetes/Dockerfile -t ${n.control} context`,
-                `docker build --platform linux/${arch} -f context/provisioner/Dockerfile -t ${n.worker} context`,
-                ...[BASE_RUNTIME, NEXT_RUNTIME].map((id) => `go run ./integration-tests/live-v2/runtimeimage --source ${source(id)} --output ${quote(path.join(dir, `runtime-${id}`))}`),
+                ...(checkout ? [
+                    `git -C ${quote(REPO)} archive HEAD go.mod go.sum pkg kubernetes cmd provisioner shim scripts LICENSE.txt | tar -x -C ${quote(path.join(dir, "context"))}`,
+                    `docker build --platform linux/${arch} -f context/kubernetes/Dockerfile -t ${n.control} context`,
+                    `docker build --platform linux/${arch} -f context/provisioner/Dockerfile -t ${n.worker} context`,
+                    ...[BASE_RUNTIME, NEXT_RUNTIME].map((id) => `go run ./integration-tests/live-v2/runtimeimage --source ${source(id)} --output ${quote(path.join(dir, `runtime-${id}`))}`),
+                ] : []),
                 `kind create cluster --name ${n.cluster} --kubeconfig ${quote(kubeconfig)} --image ${NODE_IMAGE} --wait 180s`,
-                `kind load docker-image --name ${n.cluster} ${n.control} ${n.worker}`,
-                `tar -C runtime-<id> -cf - oci-layout index.json blobs | docker exec -i ${n.node} ctr -n k8s.io images import --all-platforms -`,
+                ...(checkout ? [
+                    `kind load docker-image --name ${n.cluster} ${n.control} ${n.worker}`,
+                    `tar -C runtime-<id> -cf - oci-layout index.json blobs | docker exec -i ${n.node} ctr -n k8s.io images import --all-platforms -`,
+                ] : []),
                 k("label", "node", n.node, `${POOL_KEY}=${n.id}`, "--overwrite"),
-                k("apply", "-f", path.join(REPO, "kubernetes/deploy/crds/")),
-                `helm --kubeconfig ${quote(kubeconfig)} --kube-context ${n.context} upgrade --install brewlet ${quote(path.join(REPO, "kubernetes/charts/brewlet"))} --namespace brewlet --create-namespace --set-string operator.image=${n.control} --set-string admission.image=${n.control} --set-string provisioner.image=${n.worker} --wait --timeout 5m`,
+                ...(checkout ? [
+                    k("apply", "-f", path.join(REPO, "kubernetes/deploy/crds/")),
+                    `${helm} upgrade --install brewlet ${quote(path.join(REPO, "kubernetes/charts/brewlet"))} --namespace brewlet --create-namespace --set-string operator.image=${n.control} --set-string admission.image=${n.control} --set-string provisioner.image=${n.worker} --wait --timeout 5m`,
+                ] : [`${helm} upgrade --install brewlet ${BREWLET_CHART} --version ${version} --namespace brewlet --create-namespace --wait --timeout 10m`]),
                 k("apply", "-f", path.join(dir, "runtimeimages.yaml")),
                 k("wait", "--for=condition=Approved", `runtimeimage/${BASE_RUNTIME}`, `runtimeimage/${NEXT_RUNTIME}`, "--timeout=120s"),
                 k("apply", "-f", path.join(dir, "nodeprofile.yaml")),
                 k("wait", "--for=condition=Ready", `nodeprofile/${PROFILE}`, "--timeout=10m"),
             ],
-            input: Object.fromEntries([BASE_RUNTIME, NEXT_RUNTIME].map((id) => [id, { source: source(id), user: { uid: RUNTIME_USER, gid: RUNTIME_USER }, volumeMountPaths: ["/tmp"] }])),
-            note: "Creates one disposable kind node with a private kubeconfig in this session's workspace. Components come from this checkout's HEAD. Provisioning modifies only that node.",
+            input: {
+                brewlet: checkout ? { source: "this checkout's HEAD", images: [n.control, n.worker] } : { chart: BREWLET_CHART, version },
+                ...Object.fromEntries([BASE_RUNTIME, NEXT_RUNTIME].map((id) => [id, { source: source(id), user: { uid: RUNTIME_USER, gid: RUNTIME_USER }, volumeMountPaths: ["/tmp"] }])),
+            },
+            note: checkout
+                ? "Creates one disposable kind node with a private kubeconfig in this session's workspace. Components are built from this checkout's HEAD and the Temurin roots are preimported. Provisioning modifies only that node."
+                : "Creates one disposable kind node with a private kubeconfig in this session's workspace and installs the released Helm chart (CRDs and digest-pinned images included). The node pulls the pinned Temurin roots. Provisioning modifies only that node.",
         },
         local: {
             commands: [
@@ -258,11 +308,14 @@ export function commandPreviews(state, runtimes = {}) {
         package: {
             commands: [
                 `java -Djarmode=tools -jar ${quote(jar)} extract --destination ${quote(path.join(dir, "layers"))}`,
-                `docker build --platform linux/${arch} -f ${quote(fileURLToPath(new URL("producer.Dockerfile", import.meta.url)))} --target artifact --output type=local,dest=${quote(path.join(dir, "application"))} ${quote(path.join(dir, "producer"))}`,
+                ...(checkout ? [] : [`curl -fsSLO https://github.com/${BREWLET_REPOSITORY}/releases/download/v${version}/brewlet_${version}_linux_${arch}.tar.gz  # SHA-256 checked against checksums.txt`]),
+                `docker build --platform linux/${arch} -f ${quote(fileURLToPath(new URL("producer.Dockerfile", import.meta.url)))} --build-arg BREWLET_CLI=${checkout ? "source" : "release"} --target artifact --output type=local,dest=${quote(path.join(dir, "application"))} ${quote(path.join(dir, "producer"))}`,
                 `brewlet build ${APP_REF} --platform linux/${arch} --launch launch.json --layer dependency=lib:/app/lib --layer app=app:/app --store oci --result push.json`,
             ],
-            input: { launch: launchDescriptor() },
-            note: "The producer builds the matching brewlet CLI from this checkout and runs it in Linux, avoiding macOS extended attributes. No registry upload; no JDK in the image.",
+            input: { brewlet: checkout ? "built from this checkout's HEAD" : `release ${version} (linux/${arch})`, launch: launchDescriptor() },
+            note: checkout
+                ? "The producer builds the matching brewlet CLI from this checkout and runs it in Linux, avoiding macOS extended attributes. No registry upload; no JDK in the image."
+                : "Downloads the released Linux brewlet CLI, verifies it against the release checksums.txt and runs it in a Linux producer, avoiding macOS extended attributes. No registry upload; no JDK in the image.",
         },
         artifact: {
             commands: [`brewlet inspect ${APP_REF} --store oci`, `tar -tvf ${quote(path.join(dir, "application/oci/blobs/sha256/<layer>"))}`],
@@ -297,7 +350,7 @@ export function commandPreviews(state, runtimes = {}) {
                 k("delete", "runtimeimage", BASE_RUNTIME, NEXT_RUNTIME, "--wait=true", "--timeout=120s", "--ignore-not-found"),
                 `helm --kubeconfig ${quote(kubeconfig)} --kube-context ${n.context} uninstall brewlet --namespace brewlet --timeout 10m`,
                 `kind delete cluster --name ${n.cluster} --kubeconfig ${quote(kubeconfig)}`,
-                `docker image rm ${n.control} ${n.worker}`,
+                ...(checkout ? [`docker image rm ${n.control} ${n.worker}`] : []),
             ],
             input: { cluster: n.cluster, retained: [path.join(dir, "application"), path.join(dir, "terminal.log")] },
             note: "Removes Brewlet the normal way before deleting this session's cluster. Never touches other clusters, contexts or Docker resources.",
@@ -336,7 +389,7 @@ export async function findJavaHome({ env = process.env, platform = process.platf
 }
 
 export class DemoManager extends EventEmitter {
-    constructor(workspace, sessionId, { command, fetcher = fetch, runtimes, javaHome } = {}) {
+    constructor(workspace, sessionId, { command, fetcher = fetch, runtimes, javaHome, env = process.env } = {}) {
         super();
         this.dir = path.join(workspace, "brewlet-demo");
         this.names = names(sessionId);
@@ -344,11 +397,12 @@ export class DemoManager extends EventEmitter {
         this.command = command;
         this.fetcher = fetcher;
         this.runtimes = runtimes;
+        this.requestedVersion = env.BREWLET_DEMO_VERSION;
         this.findJava = javaHome ? async () => javaHome : findJavaHome;
         this.children = new Map();
         this.pendingIO = Promise.resolve();
         this.cancelled = false;
-        this.state = { namespace: this.namespace, names: this.names, revision: null, steps: {}, evidence: {}, terminal: "", active: null };
+        this.state = { namespace: this.namespace, names: this.names, revision: null, brewlet: { source: "release", version: null }, steps: {}, evidence: {}, terminal: "", active: null };
     }
 
     get kubeconfig() {
@@ -392,11 +446,42 @@ export class DemoManager extends EventEmitter {
         this.state.schema = 2;
         this.state.names = this.names;
         this.state.workspace = this.dir;
+        // State saved before release mode existed was produced entirely from this checkout.
+        this.state.brewlet ??= { source: this.state.cluster || this.state.image ? "checkout" : "release", version: null };
         if (this.state.legacy) {
             delete this.state.legacy;
-            this.log("\nBrewlet 1.0 demo enabled. Progress from the 0.x JavaApplication demo was discarded; its Docker Desktop resources are not touched.\n");
+            this.log("\nBrewlet demo enabled. Progress from the 0.x JavaApplication demo was discarded; its Docker Desktop resources are not touched.\n");
         }
         await this.save();
+    }
+
+    // Chooses released artifacts or this checkout. A cluster is bound to the source that installed it.
+    async setSource(source) {
+        if (!BREWLET_SOURCES.includes(source)) throw new Error(`Brewlet source must be one of: ${BREWLET_SOURCES.join(", ")}.`);
+        if (this.state.active || this.stopping) throw new Error("A demo step is active or stopping. Wait for it to finish.");
+        if (source === this.state.brewlet.source) return this.snapshot();
+        if (this.state.cluster?.created) throw new Error("Remove the private cluster before switching the Brewlet source.");
+        this.state.brewlet = { source, version: null };
+        for (const step of SOURCE_DEPENDENT) {
+            delete this.state.steps[step];
+            delete this.state.evidence[step];
+        }
+        this.log(`\nBrewlet source: ${source === "release" ? "latest release" : "this checkout's HEAD"}. Re-run the prerequisites, preparation and packaging.\n`);
+        await this.save();
+        return this.snapshot();
+    }
+
+    // Resolves (once) the release this session installs and packages with, so the CLI and the cluster match.
+    async release() {
+        if (!this.state.brewlet.version) {
+            this.state.brewlet.version = await resolveRelease(this.fetcher, this.requestedVersion);
+            await this.save();
+        }
+        return this.state.brewlet.version;
+    }
+
+    get checkout() {
+        return this.state.brewlet.source === "checkout";
     }
 
     async save() {
@@ -606,19 +691,25 @@ export class DemoManager extends EventEmitter {
         const kind = await this.run("kind", ["version"], { quiet: true });
         this.log(kind);
         if (!kind.includes(KIND_VERSION)) throw new Error(`kind ${KIND_VERSION} is required (pinned node image).`);
-        for (const [file, args] of [["kubectl", ["version", "--client"]], ["helm", ["version", "--short"]], ["go", ["version"]], ["git", ["--version"]], ["mvn", ["-version"]]]) {
+        for (const [file, args] of [["kubectl", ["version", "--client"]], ["helm", ["version", "--short"]], ...(this.checkout ? [["go", ["version"]]] : []), ["git", ["--version"]], ["mvn", ["-version"]]]) {
             await this.run(file, args);
         }
         const java = await this.java();
         await this.run(java, ["-version"]);
         for (const id of [BASE_RUNTIME, NEXT_RUNTIME]) runtimeSource(this.runtimes, id, arch);
+        let brewlet = "built from this checkout's HEAD";
+        if (!this.checkout) {
+            // Refresh "latest" unless a cluster already runs the previously resolved release.
+            if (!this.state.cluster?.created) this.state.brewlet.version = null;
+            brewlet = `release ${await this.release()}`;
+        }
         const exists = (await this.kindClusters()).includes(this.names.cluster);
-        this.log(`\nPrerequisites OK on linux/${arch}. Cluster ${this.names.cluster}: ${exists ? "exists" : "not created yet"}. Preparation is a separate, explicit action.\n`);
-        return { arch, javaHome: this.state.javaHome, cluster: this.names.cluster, clusterExists: exists };
+        this.log(`\nPrerequisites OK on linux/${arch}. Brewlet: ${brewlet}. Cluster ${this.names.cluster}: ${exists ? "exists" : "not created yet"}. Preparation is a separate, explicit action.\n`);
+        return { arch, javaHome: this.state.javaHome, brewlet, cluster: this.names.cluster, clusterExists: exists };
     }
 
-    async setup() {
-        const arch = await this.dockerArch();
+    // Builds the control-plane and node images and imports the Temurin roots from this checkout.
+    async buildComponents(arch) {
         const n = this.names;
         const env = { ...process.env, DOCKER_DEFAULT_PLATFORM: `linux/${arch}`, COPYFILE_DISABLE: "1" };
         const context = path.join(this.dir, "context");
@@ -629,22 +720,29 @@ export class DemoManager extends EventEmitter {
         await this.run("tar", ["-x", "-f", sourceArchive, "-C", context]);
         await this.run("docker", ["build", "--platform", `linux/${arch}`, "-f", path.join(context, "kubernetes/Dockerfile"), "-t", n.control, context], { env, timeout: 1800000 });
         await this.run("docker", ["build", "--platform", `linux/${arch}`, "-f", path.join(context, "provisioner/Dockerfile"), "-t", n.worker, context], { env, timeout: 1800000 });
-        const sources = {};
         for (const id of [BASE_RUNTIME, NEXT_RUNTIME]) {
-            sources[id] = runtimeSource(this.runtimes, id, arch);
+            const source = runtimeSource(this.runtimes, id, arch);
             const layout = path.join(this.dir, `runtime-${id}`);
             let current = false;
             try {
-                current = JSON.parse(await readFile(path.join(layout, "index.json"), "utf8")).manifests?.some((item) => item.digest === sources[id].split("@")[1]);
+                current = JSON.parse(await readFile(path.join(layout, "index.json"), "utf8")).manifests?.some((item) => item.digest === source.split("@")[1]);
             } catch {
                 // Not imported yet.
             }
             if (!current) {
                 await rm(layout, { recursive: true, force: true });
-                await this.run("go", ["run", "./integration-tests/live-v2/runtimeimage", "--source", sources[id], "--output", layout], { cwd: REPO, timeout: 900000, quiet: true });
+                await this.run("go", ["run", "./integration-tests/live-v2/runtimeimage", "--source", source, "--output", layout], { cwd: REPO, timeout: 900000, quiet: true });
             }
-            this.log(`\n${id}: ${sources[id]} (unchanged upstream platform manifest)\n`);
+            this.log(`\n${id}: ${source} (unchanged upstream platform manifest)\n`);
         }
+    }
+
+    async setup() {
+        const arch = await this.dockerArch();
+        const n = this.names;
+        const version = this.checkout ? null : await this.release();
+        if (this.checkout) await this.buildComponents(arch);
+        const sources = Object.fromEntries([BASE_RUNTIME, NEXT_RUNTIME].map((id) => [id, runtimeSource(this.runtimes, id, arch)]));
         const clusters = await this.kindClusters();
         if (clusters.includes(n.cluster) && !this.state.cluster?.created) throw new Error(`kind cluster ${n.cluster} exists but was not created by this demo; refusing to adopt it.`);
         if (!clusters.includes(n.cluster)) {
@@ -659,13 +757,21 @@ export class DemoManager extends EventEmitter {
         this.state.cluster = { created: true, name: n.cluster, nodeContainer: container, nodeUID: node.metadata.uid };
         await this.save();
         if (node.status.nodeInfo.architecture !== arch) throw new Error(`Node architecture ${node.status.nodeInfo.architecture} differs from Docker ${arch}.`);
-        await this.run("kind", ["load", "docker-image", "--name", n.cluster, n.control, n.worker], { timeout: 600000 });
-        for (const id of [BASE_RUNTIME, NEXT_RUNTIME]) await this.nodeImport(path.join(this.dir, `runtime-${id}`), path.join(this.dir, `runtime-${id}.tar`));
         await this.kube(["label", "node", n.node, `${POOL_KEY}=${n.id}`, "--overwrite"]);
-        await this.kube(["apply", "-f", path.join(REPO, "kubernetes/deploy/crds/")]);
-        await this.helm(["upgrade", "--install", "brewlet", path.join(REPO, "kubernetes/charts/brewlet"), "--namespace", "brewlet", "--create-namespace",
-            "--set-string", `operator.image=${n.control}`, "--set-string", `admission.image=${n.control}`, "--set-string", `provisioner.image=${n.worker}`,
-            "--wait", "--timeout", "5m"], { timeout: 360000 });
+        if (this.checkout) {
+            await this.run("kind", ["load", "docker-image", "--name", n.cluster, n.control, n.worker], { timeout: 600000 });
+            for (const id of [BASE_RUNTIME, NEXT_RUNTIME]) await this.nodeImport(path.join(this.dir, `runtime-${id}`), path.join(this.dir, `runtime-${id}.tar`));
+            await this.kube(["apply", "-f", path.join(REPO, "kubernetes/deploy/crds/")]);
+            await this.helm(["upgrade", "--install", "brewlet", path.join(REPO, "kubernetes/charts/brewlet"), "--namespace", "brewlet", "--create-namespace",
+                "--set-string", `operator.image=${n.control}`, "--set-string", `admission.image=${n.control}`, "--set-string", `provisioner.image=${n.worker}`,
+                "--wait", "--timeout", "5m"], { timeout: 360000 });
+        } else {
+            // The released chart carries the CRDs and digest-pinned component images; the node pulls the Temurin roots.
+            await this.helm(["upgrade", "--install", "brewlet", BREWLET_CHART, "--version", version, "--namespace", "brewlet", "--create-namespace",
+                "--wait", "--timeout", "10m"], { timeout: 660000 });
+        }
+        this.state.cluster.brewlet = { ...this.state.brewlet };
+        await this.save();
         await this.kube(["-n", "brewlet", "rollout", "status", "deployment/brewlet-admission", "--timeout=120s"], { timeout: 130000 });
         const inventory = renderInventory(this.runtimes, [BASE_RUNTIME, NEXT_RUNTIME], arch, n.id, this.namespace);
         const runtimeFile = path.join(this.dir, "runtimeimages.yaml");
@@ -685,8 +791,9 @@ export class DemoManager extends EventEmitter {
         }
         this.state.cluster.runtimes = runtimes;
         await this.kube(["get", "runtimeimages,nodeprofiles"]);
-        this.log(`\nCluster ${n.cluster} ready: ${BASE_RUNTIME} and ${NEXT_RUNTIME} approved and offered on ${n.node}.\n`);
-        return { cluster: n.cluster, node: n.node, runtimes };
+        const brewlet = this.checkout ? "this checkout's HEAD" : `release ${version}`;
+        this.log(`\nCluster ${n.cluster} ready with Brewlet ${brewlet}: ${BASE_RUNTIME} and ${NEXT_RUNTIME} approved and offered on ${n.node}.\n`);
+        return { cluster: n.cluster, node: n.node, brewlet: { ...this.state.brewlet }, runtimes };
     }
 
     async waitForWebhook(file) {
@@ -754,8 +861,13 @@ export class DemoManager extends EventEmitter {
         await mkdir(path.join(producer, "input/app"), { recursive: true });
         await mkdir(path.join(producer, "input/lib"), { recursive: true });
         const sourceArchive = path.join(this.dir, "producer-source.tar");
-        await this.run("git", ["-C", REPO, "archive", "-o", sourceArchive, "HEAD", "go.mod", "go.sum", "pkg", "kubernetes/api", "kubernetes/policy", "cmd/brewlet"]);
-        await this.run("tar", ["-x", "-f", sourceArchive, "-C", producer]);
+        const version = this.checkout ? null : await this.release();
+        if (this.checkout) {
+            await this.run("git", ["-C", REPO, "archive", "-o", sourceArchive, "HEAD", "go.mod", "go.sum", "pkg", "kubernetes/api", "kubernetes/policy", "cmd/brewlet"]);
+            await this.run("tar", ["-x", "-f", sourceArchive, "-C", producer]);
+        } else {
+            await this.downloadCLI(version, arch, producer);
+        }
         await copyFile(path.join(layers, jars[0]), path.join(producer, "input/app/app.jar"));
         for (const name of libraries) await copyFile(path.join(layers, "lib", name), path.join(producer, "input/lib", name));
         const launch = launchDescriptor();
@@ -764,16 +876,40 @@ export class DemoManager extends EventEmitter {
         const output = path.join(this.dir, "application");
         await rm(output, { recursive: true, force: true });
         await this.run("docker", ["build", "--platform", `linux/${arch}`, "-f", fileURLToPath(new URL("producer.Dockerfile", import.meta.url)),
-            "--target", "artifact", "--output", `type=local,dest=${output}`, producer],
+            "--build-arg", `BREWLET_CLI=${this.checkout ? "source" : "release"}`, "--target", "artifact", "--output", `type=local,dest=${output}`, producer],
         { env: { ...process.env, DOCKER_DEFAULT_PLATFORM: `linux/${arch}`, COPYFILE_DISABLE: "1" }, timeout: 1800000 });
         const result = JSON.parse(await readFile(path.join(output, "push.json"), "utf8"));
         if (!DIGEST.test(result.digest ?? "") || result.reference !== APP_REF) throw new Error("brewlet build returned an unexpected result.");
         this.state.image = `${APP_REPOSITORY}@${result.digest}`;
         this.state.ref = APP_REF;
         this.state.store = path.join(output, "oci");
-        this.state.packaged = { dependencies: libraries.length, launch, mediaType: result.mediaType, platform: `linux/${arch}` };
-        this.log(`\n${await readFile(path.join(output, "inspect.txt"), "utf8")}\nApplication-only image: ${this.state.image}\n${libraries.length} dependency JARs in /app/lib, app.jar in /app. No JDK bundled; the node supplies the runtime.\n`);
-        return { image: this.state.image, dependencies: libraries.length };
+        this.state.packaged = { dependencies: libraries.length, launch, mediaType: result.mediaType, platform: `linux/${arch}`, brewlet: { ...this.state.brewlet } };
+        const cli = this.checkout ? "brewlet CLI built from this checkout" : `brewlet CLI ${version}`;
+        this.log(`\n${await readFile(path.join(output, "inspect.txt"), "utf8")}\nApplication-only image: ${this.state.image} (${cli})\n${libraries.length} dependency JARs in /app/lib, app.jar in /app. No JDK bundled; the node supplies the runtime.\n`);
+        return { image: this.state.image, dependencies: libraries.length, brewlet: { ...this.state.brewlet } };
+    }
+
+    // Downloads the released Linux CLI, verifies it against checksums.txt and unpacks it to <producer>/cli/brewlet.
+    async downloadCLI(version, arch, producer) {
+        const release = releaseArchive(version, arch);
+        const fetchOK = async (url) => {
+            const response = await this.fetcher(url, { signal: AbortSignal.timeout(120000) });
+            if (!response.ok) throw new Error(`Download failed (${response.status}): ${url}`);
+            return response;
+        };
+        this.log(`$ curl -fsSLO ${release.url}\n`);
+        const expected = releaseChecksum(await (await fetchOK(release.checksums)).text(), release.name);
+        const bytes = Buffer.from(await (await fetchOK(release.url)).arrayBuffer());
+        const actual = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+        if (actual !== expected) throw new Error(`${release.name} checksum mismatch: expected ${expected}, got ${actual}.`);
+        const archive = path.join(this.dir, release.name);
+        await writeFile(archive, bytes);
+        await mkdir(path.join(producer, "cli"), { recursive: true });
+        await this.run("tar", ["-x", "-z", "-f", archive, "-C", path.join(producer, "cli"), "brewlet"]);
+        await readFile(path.join(producer, "cli/brewlet")).catch(() => {
+            throw new Error(`${release.name} does not contain the brewlet binary.`);
+        });
+        this.log(`Verified ${release.name} (${actual}).\n`);
     }
 
     async artifact() {
@@ -955,7 +1091,7 @@ export class DemoManager extends EventEmitter {
             }
             await this.run("kind", ["delete", "cluster", "--name", n.cluster, "--kubeconfig", this.kubeconfig], { timeout: 300000 });
         }
-        for (const image of [n.control, n.worker]) {
+        for (const image of this.checkout ? [n.control, n.worker] : []) {
             try {
                 await this.run("docker", ["image", "rm", image]);
             } catch {

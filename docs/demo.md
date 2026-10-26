@@ -41,3 +41,6 @@ flow from the
 It builds ShowMyJVM, packages it with `brewlet build` (no JDK in the image),
 deploys it as a plain Deployment on a private kind cluster, and switches the
 node-supplied runtime from Temurin 25 to 27 and back by changing one annotation.
+By default it installs the latest Brewlet release (the OCI Helm chart and the
+checksum-verified `brewlet` CLI); presenters can switch it to build Brewlet
+from the current checkout instead.

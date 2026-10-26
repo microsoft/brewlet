@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
     artifactIdentity, BASE_RUNTIME, commandPreviews, comparison, DemoManager, findBinding, findJavaHome, launchDescriptor, loadRuntimes,
-    names, NEXT_RUNTIME, podEvidence, PREREQUISITES, renderDeploymentYaml, renderInventory, runtimeEvidence, runtimeSource, STEPS,
+    names, NEXT_RUNTIME, podEvidence, PREREQUISITES, releaseArchive, releaseChecksum, renderDeploymentYaml, renderInventory, resolveRelease,
+    runtimeEvidence, runtimeSource, STEPS,
 } from "./runner.mjs";
 
 const digest = (data) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
@@ -137,6 +138,89 @@ test("names are session-scoped and previews never use the user's current context
         for (const command of preview.commands.filter((item) => item.startsWith("kubectl") && !item.includes("--client"))) assert.match(command, /--kubeconfig \/w\/brewlet-demo\/kubeconfig --context kind-brewlet-demo-1ae13c18e593/);
     }
     assert.match(previews.upgrade.commands[0], /"op":"replace","path":"\/spec\/template\/metadata\/annotations\/brewlet.sh~1runtime-image","value":"temurin-27"/);
+});
+
+test("latest release resolves from the GitHub redirect; an explicit version overrides it", async () => {
+    const urls = [];
+    const fetcher = async (url) => { urls.push(url); return { ok: true, url: "https://github.com/microsoft/brewlet/releases/tag/v0.8.1" }; };
+    assert.equal(await resolveRelease(fetcher), "0.8.1");
+    assert.deepEqual(urls, ["https://github.com/microsoft/brewlet/releases/latest"]);
+    assert.equal(await resolveRelease(fetcher, "v0.7.0"), "0.7.0");
+    assert.equal(urls.length, 1);
+    await assert.rejects(resolveRelease(fetcher, "latest"), /X\.Y\.Z/);
+    await assert.rejects(resolveRelease(async () => ({ ok: true, url: "https://github.com/microsoft/brewlet/releases" })), /BREWLET_DEMO_VERSION/);
+    await assert.rejects(resolveRelease(async () => ({ ok: false, url: "https://github.com/microsoft/brewlet/releases/tag/v0.8.1" })), /Could not resolve/);
+});
+
+test("release archives are checksum-pinned Linux CLI tarballs", () => {
+    const archive = releaseArchive("0.8.1", "arm64");
+    assert.equal(archive.name, "brewlet_0.8.1_linux_arm64.tar.gz");
+    assert.equal(archive.url, "https://github.com/microsoft/brewlet/releases/download/v0.8.1/brewlet_0.8.1_linux_arm64.tar.gz");
+    assert.equal(archive.checksums, "https://github.com/microsoft/brewlet/releases/download/v0.8.1/checksums.txt");
+    assert.throws(() => releaseArchive("0.8.1", "386"), /Invalid/);
+    assert.throws(() => releaseArchive("../x", "amd64"), /Invalid/);
+    const sum = "a".repeat(64);
+    const checksums = `${"b".repeat(64)}  brewlet_0.8.1_linux_amd64.tar.gz\n${sum}  brewlet_0.8.1_linux_arm64.tar.gz\n`;
+    assert.equal(releaseChecksum(checksums, archive.name), `sha256:${sum}`);
+    assert.throws(() => releaseChecksum(checksums, "brewlet_0.8.1_darwin_arm64.tar.gz"), /no SHA-256/);
+});
+
+test("release previews install the OCI chart; checkout previews build from source", async () => {
+    const runtimes = await loadRuntimes();
+    const base = { names: names("s"), arch: "amd64", workspace: "/w/brewlet-demo" };
+    const release = commandPreviews({ ...base, brewlet: { source: "release", version: "0.8.1" } }, runtimes);
+    const setup = release.setup.commands.join("\n");
+    assert.match(setup, /upgrade --install brewlet oci:\/\/ghcr\.io\/microsoft\/charts\/brewlet --version 0\.8\.1/);
+    assert.doesNotMatch(setup, /docker build|go run|kind load/);
+    assert.doesNotMatch(release.preflight.commands.join("\n"), /go version/);
+    assert.match(release.package.commands.join("\n"), /brewlet_0\.8\.1_linux_amd64\.tar\.gz[\s\S]*BREWLET_CLI=release/);
+    const checkout = commandPreviews({ ...base, brewlet: { source: "checkout", version: null } }, runtimes);
+    assert.match(checkout.setup.commands.join("\n"), /docker build[\s\S]*kubernetes\/charts\/brewlet/);
+    assert.match(checkout.preflight.commands.join("\n"), /go version/);
+    assert.match(checkout.package.commands.join("\n"), /BREWLET_CLI=source/);
+});
+
+test("switching the Brewlet source resets source-dependent work and is refused with a cluster", async (t) => {
+    const dir = await workspace(t);
+    const manager = new DemoManager(dir, "s", { command: async () => "", javaHome: "/jdk", env: {} });
+    await manager.init();
+    assert.deepEqual(manager.state.brewlet, { source: "release", version: null });
+    manager.state.steps = { local: { status: "passed" }, package: { status: "passed" }, preflight: { status: "passed" } };
+    manager.state.evidence = { artifact: { image: "x" } };
+    await assert.rejects(manager.setSource("nightly"), /must be one of/);
+    const snapshot = await manager.setSource("checkout");
+    assert.equal(snapshot.brewlet.source, "checkout");
+    assert.deepEqual(Object.keys(manager.state.steps), ["local"]);
+    assert.deepEqual(manager.state.evidence, {});
+    manager.state.cluster = { created: true };
+    await assert.rejects(manager.setSource("release"), /Remove the private cluster/);
+    assert.equal((await manager.setSource("checkout")).brewlet.source, "checkout");
+    const restarted = new DemoManager(dir, "s", { command: async () => "", javaHome: "/jdk", env: {} });
+    await restarted.init();
+    assert.equal(restarted.state.brewlet.source, "checkout");
+});
+
+test("release resolution is cached per session and honors BREWLET_DEMO_VERSION", async (t) => {
+    let calls = 0;
+    const fetcher = async () => { calls++; return { ok: true, url: "https://github.com/microsoft/brewlet/releases/tag/v0.9.0" }; };
+    const manager = new DemoManager(await workspace(t), "s", { fetcher, env: {} });
+    await manager.init();
+    assert.equal(await manager.release(), "0.9.0");
+    assert.equal(await manager.release(), "0.9.0");
+    assert.equal(calls, 1);
+    const pinned = new DemoManager(await workspace(t), "s", { fetcher, env: { BREWLET_DEMO_VERSION: "0.8.1" } });
+    await pinned.init();
+    assert.equal(await pinned.release(), "0.8.1");
+    assert.equal(calls, 1);
+});
+
+test("state from before source selection keeps building an existing cluster from the checkout", async (t) => {
+    const dir = await workspace(t);
+    const manager = new DemoManager(dir, "s");
+    await mkdir(manager.dir, { recursive: true });
+    await writeFile(path.join(manager.dir, "state.json"), JSON.stringify({ schema: 2, namespace: manager.namespace, steps: {}, evidence: {}, cluster: { created: true } }));
+    await manager.init();
+    assert.equal(manager.state.brewlet.source, "checkout");
 });
 
 test("JDK discovery prefers an SDKMAN Temurin 25 and honors the override", async (t) => {
