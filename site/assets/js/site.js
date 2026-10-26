@@ -26,6 +26,69 @@
       menu.focus();
     }
   });
+  const token = (kind, text) => text ? [[kind || null, text]] : [];
+  const paint = (text, pattern, classify) => {
+    const out = [];
+    let last = 0;
+    for (const match of text.matchAll(pattern)) {
+      out.push(...token(null, text.slice(last, match.index)), ...token(classify(match), match[0]));
+      last = match.index + match[0].length;
+    }
+    return out.concat(token(null, text.slice(last)));
+  };
+  const lines = (text, mapLine) => text.split("\n").flatMap((line, index) => (index ? token(null, "\n") : []).concat(mapLine(line)));
+  const yamlValue = value => {
+    const trimmed = value.trim();
+    const lead = value.slice(0, value.length - value.trimStart().length);
+    if (!trimmed) return token(null, value);
+    if (/^[[{]/.test(trimmed)) return token(null, lead).concat(paint(trimmed, /([\w./-]+)(?=:\s)|([{}[\],:])|[^\s{}[\],:]+/g, m => m[1] ? "key" : m[2] ? "punct" : "string"));
+    return token(null, lead).concat(token(/^(-?\d+(\.\d+)?|true|false|null)$/.test(trimmed) ? "literal" : "string", trimmed));
+  };
+  const highlighters = {
+    json: text => paint(text, /("(?:\\.|[^"\\])*")(?=\s*:)|("(?:\\.|[^"\\])*")|(\b(?:true|false|null)\b|-?\d+(?:\.\d+)?)|([{}[\],:])/g,
+      m => m[1] ? "key" : m[2] ? "string" : m[3] ? "literal" : "punct"),
+    yaml: text => lines(text, line => {
+      if (/^\s*#/.test(line)) return token("comment", line);
+      if (/^---\s*$/.test(line)) return token("punct", line);
+      const entry = line.match(/^(\s*)(- )?([^\s:#][^:#]*?)(:)(?=\s|$)(.*)$/);
+      if (entry) return [...token(null, entry[1]), ...token("punct", entry[2]), ...token("key", entry[3]), ...token("punct", entry[4]), ...yamlValue(entry[5])];
+      const item = line.match(/^(\s*)(- )(.*)$/);
+      return item ? [...token(null, item[1]), ...token("punct", item[2]), ...yamlValue(item[3])] : token(null, line);
+    }),
+    shell: text => {
+      let continued = false;
+      return lines(text, line => {
+        if (/^\s*#/.test(line)) return token("comment", line);
+        let command = !continued;
+        continued = /\\\s*$/.test(line);
+        return paint(line, /--?[A-Za-z][\w-]*|\\$|\S+/g, m => {
+          if (command) {
+            command = false;
+            return "command";
+          }
+          if (m[0] === "\\") return "punct";
+          return /^--?[A-Za-z]/.test(m[0]) ? "flag" : null;
+        });
+      });
+    }
+  };
+  const highlight = code => {
+    const highlighter = highlighters[code.dataset.lang];
+    if (!highlighter) return;
+    const fragment = document.createDocumentFragment();
+    for (const [kind, text] of highlighter(code.textContent)) {
+      if (kind) {
+        const span = document.createElement("span");
+        span.className = `tok-${kind}`;
+        span.textContent = text;
+        fragment.append(span);
+      } else {
+        fragment.append(document.createTextNode(text));
+      }
+    }
+    code.replaceChildren(fragment);
+  };
+  document.querySelectorAll("code[data-lang]").forEach(highlight);
   const examples = {
     python: {entrypoint: ["python3"], args: ["/app/src/main.py"], layer: "app=./src:/app/src",
       note: "This example has no third-party dependencies. Add explicit dependency layers and lookup paths when your application needs them."},
@@ -36,7 +99,9 @@
     dotnet: {entrypoint: ["dotnet"], args: ["/app/App.dll"], layer: "app=./publish:/app",
       note: "Publish your framework-dependent application into ./publish first. Its target framework and native dependencies must match the approved runtime."},
     php: {entrypoint: ["php"], args: ["-S", "0.0.0.0:8000", "/app/index.php"], layer: "app=./src:/app",
-      note: "This example uses PHP's built-in web server. Run composer install in your pipeline and package vendor/ explicitly; extensions come from the approved runtime."}
+      note: "This example uses PHP's built-in web server. Run composer install in your pipeline and package vendor/ explicitly; extensions come from the approved runtime."},
+    wasm: {entrypoint: ["/usr/local/bin/wasmtime"], args: ["run", "/app/guest.wasm"], layer: "app=./wasm:/app",
+      note: "This example runs a WASIp1 module on an approved Wasmtime host runtime. Grant guest access explicitly, for example with --dir, and build for the Linux platforms your hosts support."}
   };
   const tabs = [...document.querySelectorAll("[data-language]")];
   const panel = document.getElementById("example-panel");
@@ -54,6 +119,8 @@
     }, null, 2);
     document.getElementById("package-code").textContent =
       `brewlet build registry.example.com/apps/api:v2 \\\n  --platform linux/arm64 \\\n  --launch launch.json \\\n  --layer ${example.layer}\nbrewlet push registry.example.com/apps/api:v2`;
+    highlight(document.getElementById("launch-code"));
+    highlight(document.getElementById("package-code"));
     document.getElementById("example-note").textContent = example.note;
   };
   tabs.forEach((tab, index) => {
