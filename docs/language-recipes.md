@@ -20,6 +20,7 @@ for a complete workflow.
 | [Python](python.md) | Import layout, resolved dependencies, interpreter ABI and read-only execution. |
 | [Node.js](nodejs.md) | ES modules/CommonJS, dependency paths and native addons. |
 | [.NET](dotnet.md) | Framework-dependent publishing, managed/native assets and runtime compatibility. |
+| [PHP](php.md) | Composer dependencies, runtime-owned extensions and patching PHP without rebuilding. |
 | [WebAssembly](webassembly.md) | Explicit Wasmtime/Spin hosts, guest interfaces, capabilities and cache isolation. |
 
 Other languages work the same way. The tested
@@ -147,6 +148,31 @@ Read the [complete .NET guide](dotnet.md). For a runtime explicitly providing
 Publish compatible framework-dependent application bytes and preserve the
 required managed/native assets. Map app and dependency layers into `/app` and select an approved runtime with
 the matching .NET major version. Check actual file paths and native ABI.
+
+## PHP
+
+Read the [complete PHP guide](php.md). The Docker Official PHP images provide
+`/usr/local/bin/php`; this descriptor uses PHP's built-in server:
+
+```json
+{
+  "schemaVersion": 1,
+  "process": {
+    "entrypoint": [
+      "/usr/local/bin/php"
+    ],
+    "args": [
+      "-S",
+      "0.0.0.0:8000",
+      "/app/index.php"
+    ],
+    "workingDir": "/app"
+  }
+}
+```
+
+Run `composer install` in your build pipeline and package `vendor/`. The PHP
+extensions come from the runtime image.
 
 ## Static/native binaries
 

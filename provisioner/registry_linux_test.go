@@ -68,6 +68,37 @@ func TestRegistryOriginTransportNeverForwardsCredentialBodiesOrHeaders(t *testin
 	}
 }
 
+func TestRegistryOriginForwardsDockerHubBearerOnlyToRegistryHost(t *testing.T) {
+	if got := registryOrigin("registry.test:5443"); got != "registry.test:5443" {
+		t.Fatalf("origin = %q", got)
+	}
+	authorized := map[string]bool{}
+	transport := registryOriginTransport{
+		authority: registryOrigin("docker.io"),
+		base: registryTestTransport(func(r *http.Request) (*http.Response, error) {
+			authorized[r.URL.Host] = r.Header.Get("Authorization") != ""
+			return &http.Response{StatusCode: 200, Header: make(http.Header), Body: http.NoBody}, nil
+		}),
+	}
+	for _, destination := range []string{
+		"https://registry-1.docker.io/v2/library/php/manifests/sha256:" + strings.Repeat("a", 64),
+		"https://auth.docker.io/token?service=registry.docker.io",
+		"https://docker.io/v2/",
+	} {
+		r, err := http.NewRequest(http.MethodHead, destination, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Header.Set("Authorization", "Bearer private-test-value")
+		if _, err := transport.RoundTrip(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !authorized["registry-1.docker.io"] || authorized["auth.docker.io"] || authorized["docker.io"] {
+		t.Fatalf("authorization forwarding = %v", authorized)
+	}
+}
+
 func TestRegistryResolverPrivateCARelativeHostMappingAndAuth(t *testing.T) {
 	manifest := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1},"layers":[]}`)
 	target := digest.FromBytes(manifest)

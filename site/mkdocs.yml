@@ -56,6 +56,7 @@ nav:
           - Python: python.md
           - Node.js: nodejs.md
           - .NET: dotnet.md
+          - PHP: php.md
           - WebAssembly: webassembly.md
       - Dependency layer sets: dependency-layer-sets.md
       - Governed composition and external scanning: managed-composition.md
