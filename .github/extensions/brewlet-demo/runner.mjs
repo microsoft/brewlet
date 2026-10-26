@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 
 export const REPO = fileURLToPath(new URL("../../../", import.meta.url));
 export const SHOWMYJVM = "https://github.com/brunoborges/showmyjvm.git";
-export const REVISION = "3bab16bf108bb9d2cdf0268fd22213870ae37408";
+export const REVISION = "HEAD";
 export const KIND_VERSION = "v0.33.0";
 export const NODE_IMAGE = "kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661";
 export const FENCE = "startup-taint.cluster-autoscaler.kubernetes.io/brewlet";
@@ -247,12 +247,13 @@ export function commandPreviews(state, runtimes = {}) {
         },
         local: {
             commands: [
-                `git -C ${quote(path.join(dir, "showmyjvm"))} checkout --detach ${REVISION}`,
+                `git -C ${quote(path.join(dir, "showmyjvm"))} fetch origin ${REVISION}`,
+                `git -C ${quote(path.join(dir, "showmyjvm"))} checkout --detach FETCH_HEAD`,
                 `mvn -B -ntp -f ${quote(path.join(dir, "showmyjvm/pom.xml"))} -pl spring-boot -am -Djib.skip=true -DskipTests package`,
                 `java --add-opens=${INSPECTION_OPENS} -D${INSPECTION_LOGGING}=WARN -jar ${quote(jar)} --server.address=127.0.0.1 --server.port=0`,
             ],
-            input: { source: SHOWMYJVM, revision: REVISION, JAVA_HOME: state.javaHome ?? "<local JDK 25>", module: "spring-boot" },
-            note: "Clones the source if absent. The JVM binds to a dynamically assigned loopback port.",
+            input: { source: SHOWMYJVM, revision: state.revision ?? "latest default branch", JAVA_HOME: state.javaHome ?? "<local JDK 25>", module: "spring-boot" },
+            note: "Clones the source if absent, then fetches and builds the latest commit of its default branch. The JVM binds to a dynamically assigned loopback port.",
         },
         package: {
             commands: [
@@ -347,7 +348,7 @@ export class DemoManager extends EventEmitter {
         this.children = new Map();
         this.pendingIO = Promise.resolve();
         this.cancelled = false;
-        this.state = { namespace: this.namespace, names: this.names, revision: REVISION, steps: {}, evidence: {}, terminal: "", active: null };
+        this.state = { namespace: this.namespace, names: this.names, revision: null, steps: {}, evidence: {}, terminal: "", active: null };
     }
 
     get kubeconfig() {
@@ -712,7 +713,9 @@ export class DemoManager extends EventEmitter {
             if (error.code !== "ENOENT") throw error;
             await this.run("git", ["clone", "--no-checkout", SHOWMYJVM, source], { timeout: 300000 });
         }
-        await this.run("git", ["-C", source, "checkout", "--detach", REVISION]);
+        await this.run("git", ["-C", source, "fetch", "origin", REVISION], { timeout: 300000 });
+        await this.run("git", ["-C", source, "checkout", "--detach", "FETCH_HEAD"]);
+        this.state.revision = (await this.run("git", ["-C", source, "rev-parse", "HEAD"], { quiet: true })).trim();
         await this.run("mvn", ["-B", "-ntp", "-f", path.join(source, "pom.xml"), "-pl", "spring-boot", "-am", "-Djib.skip=true", "-DskipTests", "package"],
             { env: this.javaEnv(), timeout: 900000 });
         this.state.jar = path.join(source, "spring-boot", "target", "showmyjvm-springboot-1.0.0-SNAPSHOT.jar");

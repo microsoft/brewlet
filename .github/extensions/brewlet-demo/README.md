@@ -17,7 +17,7 @@ Temurin 27 and back to Temurin 25 with the exact same application digest.
 | --- | --- |
 | Check prerequisites | Read-only: Docker (Linux engine), kind `v0.33.0`, kubectl, Helm, Go, Git, Maven and a local JDK 25. |
 | Prepare private cluster | Builds the control-plane and node-provisioner images from `git archive HEAD`, imports the pinned Temurin 25/27 roots, creates a session-owned kind cluster with a private kubeconfig, installs the chart, and waits for RuntimeImages `Approved` and NodeProfile `Ready`. |
-| 1. Build & run locally | Clones [ShowMyJVM](https://github.com/brunoborges/showmyjvm) at a pinned revision, builds the Spring Boot module and serves it on loopback. |
+| 1. Build & run locally | Clones [ShowMyJVM](https://github.com/brunoborges/showmyjvm) at the latest commit of its default branch (fetched on every run; the resolved commit is recorded), builds the Spring Boot module and serves it on loopback. |
 | 2. Package app-only OCI image | `java -Djarmode=tools … extract`, then [`producer.Dockerfile`](producer.Dockerfile) builds `brewlet` from this checkout and runs `brewlet build` with `dependency`, `app` and `launch` layers. |
 | 3. Inspect the OCI artifact | Hash-verifies manifest, config and layers, lists every archive entry, and fails if any layer contains `bin/java` or `libjvm.so`. |
 | 4. Deploy on temurin-25 | Imports the layout into the node's containerd, applies [`deployment.yaml`](deployment.yaml), and verifies the live JVM, Pod ownership, imageID digest and the node's `brewlet.sh/runtime-bindings` observation. |
