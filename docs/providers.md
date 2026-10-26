@@ -1,8 +1,9 @@
 # Pools, providers and startup fencing
 
-These are configuration contracts, **not executed EKS/Karpenter/AKS
-scale-from-zero certification**. Qualify your actual provider/tooling versions
-and newly created nodes before relying on templates.
+This page describes how to configure node pools and autoscalers for Brewlet.
+Brewlet has not been tested for scale-from-zero on EKS, Karpenter or AKS.
+Test your provider and tooling versions with newly created nodes before you
+rely on these templates.
 
 ## Readiness is observed, not templated into existence
 
@@ -14,29 +15,34 @@ the absence of:
 startup-taint.cluster-autoscaler.kubernetes.io/brewlet=provisioning:NoSchedule
 ```
 
-Application Pods must not tolerate this fence, including wildcard tolerations.
-Workers require explicit matching tolerations. OnDemand per-ID labels must be
-mutable during first use, failure and idle reclamation. A pinned `available`
-label is unsupported; use mutable labels or a correctly fenced Eager recipe.
+Application Pods must not tolerate this fence, including through wildcard
+tolerations. The provisioner worker needs a matching toleration in the
+`NodeProfile`. Brewlet changes OnDemand per-ID labels on first use, on failure
+and on idle reclamation, so the provider must not pin them. A pinned
+`available` label is unsupported; use mutable labels or an Eager runtime with
+the startup fence.
 
-If withdrawal is refused, the authorized worker must apply/read back a node-wide
-fence. If both operations fail, progress and cleanup stay blocked.
+If Brewlet cannot remove a capability label, the worker fences the whole node
+instead. If that also fails, provisioning and cleanup stop until the node is
+fixed.
 
 ## EKS Cluster Autoscaler: simulation tags
 
-On a reviewed Auto Scaling group, a baseline and ID `static` may be described
-to the autoscaler using simulation-only tags:
+Cluster Autoscaler can scale a node group from zero if you describe the
+labels its nodes will have. Use node-template tags on the Auto Scaling group,
+for example for runtime ID `static`:
 
 ```text
 k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/runtime = ready
 k8s.io/cluster-autoscaler/node-template/label/brewlet.sh/runtime.static = available
 ```
 
-Use `PropagateAtLaunch=false`. These tags must not become unvalidated real-node
-labels through bootstrap. Real nodes join with their pool identity; the worker
-publishes observed runtime capabilities.
+Set `PropagateAtLaunch=false`. These tags only inform the autoscaler's
+simulation; do not apply them as real node labels through bootstrap. Real nodes
+join with their pool label, and the worker publishes the runtime labels after
+it validates the node.
 
-Select the actual group through a profile such as:
+Select the node group with a profile such as:
 
 ```yaml
 apiVersion: node.brewlet.sh/v1alpha1
@@ -59,14 +65,15 @@ spec:
     containerdRestart: validated
 ```
 
-The ID must already be approved and cover actual pool platforms. This example
-does not create a node group, credentials or cloud permissions.
+The runtime ID must already be approved by a `RuntimeImage` that supports the
+pool's architectures. This example does not create a node group, credentials
+or cloud permissions.
 
 ## Karpenter: labels copied to real nodes
 
-Karpenter NodePool template labels reach NodeClaims/Nodes, unlike simulation-only
-tags. If templates predeclare readiness, they must also provide the removable
-startup fence:
+Unlike autoscaler tags, Karpenter NodePool template labels are applied to real
+nodes. If a template declares runtime labels in advance, it must also apply
+the startup fence:
 
 ```yaml
 spec:
@@ -82,38 +89,36 @@ spec:
           effect: NoSchedule
 ```
 
-This is a fragment for an existing reviewed NodePool, not a complete resource.
-Supply the actual NodeClass and OS/architecture requirements. Use the
-corresponding Brewlet profile pool selector
-`{key: karpenter.sh/nodepool, names: [<actual-pool>]}`.
-Verify that policies permit runtime capability changes.
+This is a fragment of an existing NodePool, not a complete resource. Add your
+NodeClass and OS and architecture requirements. In the `NodeProfile`, select
+the pool with `{key: karpenter.sh/nodepool, names: [<pool>]}`. Make sure your
+policies let Brewlet change the runtime labels.
 
 ## AKS: initialization, reimage and pinned labels
 
-AKS pool labels are provider-managed real-node labels. For a provider-pinned
-recipe, use Eager with matching `ready` labels and select the actual pool with
-`{key: agentpool, names: [<actual-pool>]}`.
+AKS manages node pool labels and keeps them pinned. If you set runtime labels
+on a pool, use Eager installation with matching `ready` labels, and select the
+pool with `{key: agentpool, names: [<pool>]}`.
 
-The removable startup fence must be arranged through supported node
-initialization taints before accepting templated readiness. Ordinary pinned
-`--node-taints` are not an equivalent removable initialization mechanism.
+New nodes must also start with the startup fence, using AKS node
+initialization taints, which can be removed. Ordinary `--node-taints` are
+reapplied by AKS and cannot be used as the fence.
 
-Check current AKS API/feature/tooling support. The retained contract describes
-managed-cluster-level initialization configuration, not an agent-pool request
-carrying an unsupported initialization field. Cluster CLI options may affect
-all pools; pool-scoped configuration needs a reviewed supported request.
-Brewlet does not register preview features or mutate cloud configuration.
+Check which AKS API and CLI versions support initialization taints, and whether
+a setting applies to the cluster or to a single pool. Brewlet does not register
+preview features or change cloud configuration.
 
-An initialization update alone is insufficient: roll/reimage the intended
-nodes under the platform maintenance procedure and verify that new/reimaged
-nodes actually join fenced. If this cannot be established, do not template
-ready labels; retain nonzero validated capacity instead.
+Changing the setting does not affect existing nodes. Upgrade or reimage the
+pool's nodes through your maintenance procedure, then verify that new nodes
+join with the fence. If you cannot confirm this, do not set ready labels on the
+pool; keep at least one validated node running instead of scaling to zero.
 
 ## Scale-in and removal
 
-Removing a taint from a current Node does not repair stale provider templates.
-Correct pool labels/bootstrap settings as part of decommissioning. Missing
-hosts retain original UID-bound cleanup obligations.
+Removing a taint from an existing node does not fix the provider's template.
+Correct pool labels and bootstrap settings when you decommission a pool. If a
+node is deleted before Brewlet cleans it up, its cleanup stays pending until
+you resolve it; see [safe removal](uninstallation.md).
 
 References: [EKS guidance](https://docs.aws.amazon.com/eks/latest/best-practices/cas.html),
 [Karpenter NodePools](https://karpenter.sh/docs/concepts/nodepools/),

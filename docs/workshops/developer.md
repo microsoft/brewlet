@@ -11,13 +11,14 @@ Build the program/dependencies using your normal toolchain. Choose a
 executable path and declare the supported platforms. Package only app and
 dependency bytes under `/app`.
 
-Use the [publishing guide](../applications.md) and inspect the resulting
-descriptor, evidence and digest. Do not infer platform support from a language
+Package with `brewlet build` as described in the
+[publishing guide](../applications.md), then run `brewlet inspect` to check the
+resulting launch descriptor, layers and digest. Do not infer platform support from a language
 name or depend on a runtime image entrypoint script.
 
 ## Publish and deploy separately
 
-Publish through the supplied registry policy, then update a reviewed native
+Publish with `brewlet push` under the supplied registry policy, then update a reviewed native
 Deployment manifest with the immutable application digest, approved ID,
 RuntimeClass, architecture constraints, resources, probes and any explicit
 volumes. Apply that manifest through kubectl or your normal GitOps process.
@@ -28,8 +29,9 @@ different. Do not place registry secrets in application layers.
 ## Verify and make a change
 
 Observe rollout completion and actual HTTP behavior, not just a successful
-apply. Inspect the actual runtime binding and use a compatible absolute Exec
-command when the image has no shell/PATH.
+apply. Ask the platform team for `brewlet k8s runtime status` output, or run
+it yourself if you can read RuntimeImages, to see the actual runtime binding.
+Use an absolute Exec command when the runtime has no shell.
 
 Change the application, republish to a new digest and perform a normal workload
 rollout. For a shared dependency update, use the

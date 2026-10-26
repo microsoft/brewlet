@@ -14,9 +14,9 @@ Dependencies can ship with your application or optionally come from an approved
 thin JAR with the locked dependency set into a new, verifiable application
 artifact. Compatible library updates can preserve your application JAR, but
 still require testing. The
-[optional Maven producer](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md)
-prepares Java-specific inputs; Brewlet core does not resolve Maven dependencies
-or construct your classpath.
+[optional Maven plugin](applications.md#optional-maven-producer) prepares
+Java-specific inputs; the `brewlet` CLI itself does not resolve Maven
+dependencies or construct your classpath.
 
 Updates run in new task instances, not by patching a live JVM. See the
 [architecture overview](concepts.md) and [launch contract](reference.md#launch-descriptor)
@@ -24,29 +24,30 @@ for ownership, execution and rollout details.
 The runtime root is read-only too; temporary files and caches need
 [approved writable volumes](resources.md#probes-exec-files-and-shutdown).
 
-## Tested runtime inputs
+## Tested runtimes
 
-The unchanged-runtime companion exercised pinned distroless Java 21 roots on
-arm64 using `/usr/bin/java`. The full-userland suite separately exercised
-adapted Temurin 21.0.7 and 21.0.8 roots. Exact sources are in the
-[upstream matrix](../integration-tests/fixtures/runtimes/upstream.json) and
-[full-userland matrix](../integration-tests/fixtures/runtimes/rotation.json).
-These historical test inputs are not a current security recommendation.
+Brewlet's tests run Java on unmodified distroless Java 21 images (arm64, using
+`/usr/bin/java`) and on Eclipse Temurin 21 images. The exact images are listed
+in the [upstream runtime list](https://github.com/microsoft/brewlet/blob/main/integration-tests/fixtures/runtimes/upstream.json) and
+[rotation runtime list](https://github.com/microsoft/brewlet/blob/main/integration-tests/fixtures/runtimes/rotation.json). They are test inputs, not a security
+recommendation; use the runtime images your platform team approves.
 
-Obtain the runtime ID, supported platforms and executable path from the
-[platform handoff](workshops/platform.md#give-developers-a-concrete-handoff).
-`java-21` below is an example administrator-owned ID, not a built-in catalog.
+Ask your platform team for the runtime ID, supported platforms and Java
+executable path (see the
+[platform handoff](workshops/platform.md#give-developers-a-concrete-handoff)).
+`java-21` below is an example ID chosen by an administrator; Brewlet has no
+built-in runtime catalog.
 
 ## Build the payload
 
-This complete thin-JAR example uses the same application and separate
-dependency as the qualification suite. Run from the source checkout with Git,
-Maven and JDK 21+:
+This complete thin-JAR example uses the small Java test application and its
+separate `greeting` dependency from the Brewlet repository. You need Git, Maven
+and JDK 21 or later:
 
 ```sh
 WORK="$(mktemp -d)"
-git archive HEAD integration-tests/fixtures/java | tar -x -C "$WORK"
-PROJECT="$WORK/integration-tests/fixtures/java"
+git clone --quiet --depth 1 --branch v0.8.1 https://github.com/microsoft/brewlet.git "$WORK/brewlet"
+PROJECT="$WORK/brewlet/integration-tests/fixtures/java"
 mvn -B -q -f "$PROJECT/dependency/pom.xml" install
 mvn -B -q -f "$PROJECT/bom/pom.xml" install
 mvn -B -q -f "$PROJECT/app/pom.xml" package
@@ -61,8 +62,8 @@ Do not package a JDK with the application.
 
 ## Launch descriptor
 
-Save this as `$WORK/launch.json`. It names the real fixture main class and an
-explicit executable path supplied by the selected runtime:
+Save this as `$WORK/launch.json`. It names the application's main class and
+the Java executable path in the selected runtime image:
 
 ```json
 {
@@ -82,15 +83,14 @@ explicit executable path supplied by the selected runtime:
 ```
 
 The classpath wildcard is a Java argument, not a shell expansion. Brewlet does
-not generate JVM options. Optional top-level `runtimeImages` can restrict IDs;
-omission does not remove the deployment's explicit selection requirement.
+not generate JVM options. The optional top-level `runtimeImages` list restricts
+which runtime IDs may run the artifact; the Deployment must still name one.
 
 ## Package
 
-Use the matching CLI and a Linux producer filesystem with ordinary readable
-files and searchable directories. For macOS input/producer setup, see
-[producer filesystem requirements](applications.md#producer-filesystem) and the [containerized tutorial](local-kubernetes.md).
-Replace the registry with your reviewed destination:
+Files must be world-readable and directories searchable (see
+[producer filesystem requirements](applications.md#producer-filesystem), which
+also covers macOS). Replace the registry with your own:
 
 ```sh
 brewlet build registry.example.com/apps/java-demo:v1 \
@@ -101,18 +101,21 @@ brewlet build registry.example.com/apps/java-demo:v1 \
 brewlet push registry.example.com/apps/java-demo:v1 --push-result "$WORK/push.json"
 ```
 
-This separates dependencies but does not itself publish an independent managed
-layer set. For that workflow, use [layer sets](dependency-layer-sets.md).
-The optional [Maven producer](applications.md#optional-maven-producer) can
-generate Java argv/dependency layers or consume a verified complete layer set.
-It must match this source revision and does not apply Kubernetes resources.
+This puts dependencies in their own layer but does not publish a shared,
+independently managed layer set. For that, see
+[dependency layer sets](dependency-layer-sets.md).
+
+Instead of the manual steps above, the optional
+[Maven plugin](applications.md#optional-maven-producer) can generate the Java
+arguments and dependency layers, or consume a verified layer set. Use plugin
+version 0.8.1 with the 0.8.1 CLI. The plugin does not apply Kubernetes
+resources.
 
 ## Native deployment
 
-Use the returned immutable digest. Replace the image placeholder, runtime ID,
-namespace and architecture using the platform handoff; the following is a
-template, not an immediately applicable resource. Resource sizes are examples,
-not measured JVM recommendations.
+Use the digest from `push.json`. The following is a template: replace the
+image digest, runtime ID, namespace and architecture with values from your
+platform team. Resource sizes are examples, not JVM sizing recommendations.
 
 ```yaml
 apiVersion: apps/v1
@@ -143,13 +146,14 @@ spec:
             httpGet: {path: /, port: 8000}
 ```
 
-Registry authentication, numeric defaults, capabilities and startup fencing use
-the [shared deployment contract](applications.md#native-workload-example).
-Use explicit writable volumes if the application/JDK needs temporary storage.
+Registry authentication, default non-root identity, capabilities and startup
+tolerations follow the
+[common workload rules](applications.md#native-workload-example). Mount
+writable volumes if the application or JVM needs temporary storage.
 
 ## Verify
 
-After applying the reviewed manifest in the intended context:
+After applying the manifest:
 
 ```sh
 kubectl -n apps rollout status deployment/java-demo --timeout=5m
@@ -161,17 +165,16 @@ kubectl -n apps port-forward deployment/java-demo 18080:8000
 In another terminal, `curl --fail http://127.0.0.1:18080/` should report
 `language: java`, the actual runtime and `dependency: shared-contract`.
 The Exec report also includes `--probe` and `two words` as distinct arguments.
-Inspect the [actual runtime binding](observability.md#logs-and-actual-bindings);
-rollout success alone does not identify the leased generation. Stop the
-port-forward when finished and use the workload's normal cleanup process.
+To see which runtime image generation the Pod actually uses, check the
+[actual runtime binding](observability.md#logs-and-actual-bindings); rollout
+success alone does not tell you. Stop the port-forward when finished.
 
-## Pitfalls and qualification limits
+## Pitfalls and limits
 
-- A thin JAR needs its external dependency files; an executable/fat JAR may instead use explicit `-jar` argv. Brewlet does not unpack nested libraries or discover a main class in generic core.
-- JPMS, agents, AppCDS and JVM tuning are explicit producer/application choices. Runtime rotation must preserve their compatibility; it does not repair dependency copies under `/app`.
+- A thin JAR needs its external dependency files; an executable (fat) JAR can instead use explicit `-jar` arguments. Brewlet does not unpack nested libraries or discover a main class.
+- JPMS, agents, AppCDS and JVM tuning are your choices, written explicitly in `launch.json` (or generated by the Maven plugin). Runtime rotation must stay compatible with them; it does not update dependency copies under `/app`.
 - Requests and limits are not inferred heap settings. Leave headroom for non-heap/native allocations and writable runtime data where needed.
-- The unchanged-root Java run and the Maven managed-layer-set node run are separate evidence. They do not establish managed sets across all four languages on unchanged runtimes.
-- Current local physical execution is arm64; native libraries/JNI and prebuilt archives need their own platform qualification.
+- Native libraries (JNI) and prebuilt archives such as AppCDS are platform-specific; test them on every platform you declare.
 
 See [resources](resources.md), [instrumentation](instrumentation.md) and
 [troubleshooting](troubleshooting.md) for the common operational boundaries.

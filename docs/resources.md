@@ -10,7 +10,7 @@ isolation. Shared runtime files do not create a shared memory budget or heap.
 | CPU/memory requests | Scheduling/capacity reservations; CPU request is also the utilization denominator for CPU HPA. |
 | CPU limit | Container cgroup quota, not an inferred interpreter thread count. |
 | Memory limit | Container memory ceiling, not a Brewlet-calculated heap setting. |
-| RuntimeClass overhead | An additional `50m` CPU/`64Mi` per-Pod shim/staging reservation. |
+| RuntimeClass overhead | An additional per-Pod shim/staging reservation: `50m` CPU and `64Mi` memory by default (Helm value `runtimeClass.overhead`). |
 | Ephemeral-storage request/limit | Native Kubernetes accounting/eviction policy, including managed writable container storage. |
 
 The memory limit must cover the process's full footprint: heap, native memory,

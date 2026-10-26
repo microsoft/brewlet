@@ -78,17 +78,14 @@ system mounts and read-only service-account projection are handled separately.
 
 App teams mount their `emptyDir`, PVC or configuration volumes in those
 approved locations and set any runtime-specific cache variables themselves.
-For example, the Wasm fixtures declare `/cache` and `/work`, keeping engine
-compilation caches separate from guest-writable storage. See
+For example, a WebAssembly runtime might declare `/cache` and `/work`, keeping
+engine compilation caches separate from guest-writable storage. See
 [writable storage](resources.md#probes-exec-files-and-shutdown) for the workload side.
 
 This is a template. Replace the source with your validated golden image digest.
-The IDs and numeric identities are examples, not a built-in catalog.
-
-The local unchanged-upstream companion qualifies pinned distroless Java,
-Python, Node and static sources on arm64. It is separate from the four-language
-full-userland regression, which also covers .NET; it is not a claim that every
-upstream image or architecture is compatible. See [verification](verification.md).
+The IDs and numeric identities are examples, not a built-in catalog. Brewlet
+does not guarantee that every upstream image or architecture is compatible;
+validate each image you approve.
 
 ## Place IDs on pools
 
@@ -117,7 +114,9 @@ spec:
 
 Selecting a pool authorizes privileged host modification. Use only disposable
 or explicitly controlled nodes. Control-plane nodes are excluded unless the
-profile opts in. Tolerations are explicit; there is no blanket default.
+profile opts in. `spec.tolerations` applies to the provisioner worker only, and
+there is no default; the example lets the worker run on nodes that still carry
+the startup fence.
 
 ## Installation modes
 
@@ -134,40 +133,13 @@ the runtime. Its default install wait is at most 30 seconds and remains below
 a forwarded request deadline; hosts must configure kubelet's runtime request
 timeout above that default. Failure does not authorize new markers.
 
-`idleTTL` is permitted only for OnDemand. Reclamation waits for complete lease
-and mount drain; it does not kill workloads.
+`idleTTL` is permitted only for OnDemand. Reclamation waits until no container
+uses the runtime; it does not kill workloads.
 
-## Building component images from source
-
-Releases publish matching operator/admission and provisioner images; see
-[installation](installation.md). To build them from this checkout instead:
-The host must supply containerd 2.x, systemd/systemctl, crictl, cgroup v2 and the
-supported overlayfs layout. The default containerd socket is currently required.
-
-```sh
-docker build -f kubernetes/Dockerfile \
-  -t registry.example.com/brewlet/control:<version> .
-docker build -f provisioner/Dockerfile \
-  -t registry.example.com/brewlet/node:<version> .
-docker push registry.example.com/brewlet/control:<version>
-docker push registry.example.com/brewlet/node:<version>
-```
-
-Supply reviewed values, image digests and registry access for your environment.
-Apply the current CRDs before every chart install/upgrade:
-
-```sh
-kubectl apply -f kubernetes/deploy/crds/
-helm upgrade --install brewlet kubernetes/charts/brewlet \
-  --namespace brewlet --create-namespace \
-  --set-string operator.image=registry.example.com/brewlet/control@sha256:<control-digest> \
-  --set-string admission.image=registry.example.com/brewlet/control@sha256:<control-digest> \
-  --set-string provisioner.image=registry.example.com/brewlet/node@sha256:<node-digest>
-```
-
-Replace every placeholder before running. An empty profile list intentionally
-does not provision every node. Review and apply your runtime/profile definitions
-separately, or supply named profiles through reviewed Helm values.
+Apply `RuntimeImage` and `NodeProfile` objects with `kubectl`, or supply named
+profiles through the `provisioner.profiles` Helm value (see
+[configuration](configuration.md)). With no profiles, Brewlet provisions no
+nodes.
 
 ## Startup fencing and provider labels
 
@@ -178,6 +150,6 @@ Application Pods must never tolerate the provisioning fence.
 Provider templates do not prove a real node is ready. OnDemand per-ID labels
 must be mutable. If a provider pins a stale capability, confirmed node-wide
 fencing is required; if withdrawal and fencing both fail, progress remains blocked.
-No cloud scale-from-zero execution is certified by the local kind tests.
+Cloud scale-from-zero has not been verified.
 
 [Continue to rotation and cleanup](operations.md).

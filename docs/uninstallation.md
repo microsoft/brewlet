@@ -1,74 +1,108 @@
 # Safe removal and recovery
 
-Removal is a production lifecycle operation, not deleting files until Helm
-looks successful. Preserve original Node/profile/inventory UIDs and recovery
-information before starting.
-The [prerelease transition policy](supported-release.md#bounded-transitions-and-recovery)
-does not promise in-place upgrade, downgrade or persisted-state reuse.
+Removing Brewlet reverses changes it made to your nodes. Let cleanup finish
+instead of deleting resources until Helm reports success. Brewlet does not
+support in-place downgrades or reusing state across releases; to move between
+releases, remove Brewlet with this procedure and reinstall. See
+[transitions and recovery](supported-release.md#bounded-transitions-and-recovery).
 
-## 1. Review ownership and stop new writers
+Before you start, pin the kubeconfig and context you intend to change, and
+record the UIDs of your `NodeProfile`s, `RuntimeImage`s and selected nodes.
+You need them if a node goes missing during removal.
 
-Pin the intended kubeconfig/context. Inventory the release, profiles,
-RuntimeImages, actual bindings and any missing-host obligations. Update
-Helm/GitOps source definitions so they do not recreate objects while you remove
-them. Do not delete unrelated namespaces, workloads or runtime inventory.
+## 1. Stop new changes
+
+1. List the Helm release, `NodeProfile`s and `RuntimeImage`s, and check
+   `status.taskObservations` for running containers (see
+   [rotation and cleanup](operations.md#find-workloads-still-on-an-older-generation)).
+2. Update your Helm or GitOps source so it does not recreate the objects you
+   are removing.
+3. Leave unrelated namespaces, workloads and runtime images alone.
 
 ## 2. Drain the affected workloads
 
-Use the native controller's reviewed scale/delete procedure and wait for actual
-application, Exec and mount drain. Revocation stops new starts but deliberately
-preserves running tasks. Namespace disappearance or an empty Pod list alone is
-not complete host evidence.
+Scale down or delete the Brewlet workloads through their controllers. Wait
+until their containers, Exec sessions and mounts are gone. Removing a runtime
+stops new containers from starting, but running ones keep going. An empty Pod
+list or a deleted namespace does not prove a node is drained.
 
-If a profile is deleted while tasks remain, its finalizers/claim must remain
-until production cleanup can finish. Do not clear them manually.
+If you delete a profile while containers still run, its finalizers stay until
+cleanup can finish. Do not remove them manually.
 
-## 3. Remove the reviewed profiles normally
+## 3. Remove the profiles
 
-For an unmanaged profile selected for removal:
+For a profile you created with `kubectl`:
 
 ```sh
-kubectl delete nodeprofile <reviewed-profile> --wait=false
-kubectl wait --for=delete nodeprofile/<reviewed-profile> --timeout=10m
+kubectl delete nodeprofile <profile> --wait=false
+kubectl wait --for=delete nodeprofile/<profile> --timeout=10m
 ```
 
-For chart-managed profiles, change their owning Helm/GitOps definition under
-the reviewed maintenance procedure instead of racing the controller.
+For profiles created through `provisioner.profiles`, remove them from your Helm
+values and upgrade the release.
 
-The worker must revoke original inventory obligations, prove roots drained,
-publish/read back complete receipts, reverse owned host configuration and
-remove only the owned shim. Worker teardown precedes conditional claim release.
-Uncertainty retains the obligation.
+On each node, the worker removes the installed runtimes once no container uses
+them, reverses the containerd configuration it changed and removes the shim it
+installed. It then stops, and the profile's finalizer is released. If the
+worker cannot confirm a step, the profile stays until it can.
 
 ## 4. Uninstall the control plane
-
-Only after reviewing the release's scope:
 
 ```sh
 helm uninstall brewlet --namespace brewlet --timeout 10m
 ```
 
-The pre-delete coordinator waits for production profile cleanup. Configure
-`uninstall.timeoutSeconds` beforehand; Helm's timeout must exceed the
-coordinator deadline plus startup/observation overhead.
-Do not use `--no-hooks` to bypass cleanup. A failed hook is retained evidence,
-not permission to delete its RBAC or finalizers.
+A pre-delete hook waits for profile cleanup for up to
+`uninstall.timeoutSeconds` (default 240). Set Helm's `--timeout` longer than
+that value, with some margin for the hook to start.
+
+Do not use `--no-hooks` to bypass cleanup. If the hook fails, find out why;
+do not delete its RBAC or finalizers to make the uninstall succeed.
 
 ## 5. Verify before reinstalling
 
-Check original profile/worker obligations, node claims, current capabilities,
-owned containerd reversal and actual CRI health. CRDs and unrelated inventory
-may remain after Helm; do not blindly delete shared schemas to make another
-install succeed. Apply reviewed current schemas before a matching installation.
+1. Check that the profiles are gone and that nodes no longer carry
+   `brewlet.sh/runtime` labels or the startup fence.
+2. Check that containerd's configuration is restored and that the container
+   runtime is healthy (for example, `crictl info`).
+3. Helm leaves the CRDs and any remaining `RuntimeImage`s in place. Do not
+   delete shared CRDs to make another install succeed. Apply the new release's
+   CRDs before installing it, as described in [installation](installation.md).
 
-## Blocked or missing hosts
+## Blocked or missing nodes
 
-Provider-pinned stale labels require provider configuration repair; cleanup
-cannot release a startup fence over stale capabilities. A replacement Node
-with the same name does not discharge the original Node UID's obligation.
+If a provider keeps applying stale runtime labels, fix the provider's pool
+configuration (see [providers](providers.md)); cleanup cannot remove the
+startup fence while stale labels remain. A new node with the same name does
+not complete the cleanup owed by the original node.
 
-Permanent external decommission requires the narrowly authorized
-`NodeRetirementEvidence` process, with original identities and an actual
-platform decommission record. It is not a generic force-delete switch or
-evidence to invent during a tutorial. Use the detailed
-[node runbook](../provisioner/README.md) and [failure guide](troubleshooting.md).
+If a node was permanently destroyed outside Kubernetes before its cleanup
+finished, its profile stays blocked. A platform administrator resolves this by
+creating a `NodeRetirementEvidence` that records the destruction:
+
+```yaml
+apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeRetirementEvidence
+metadata:
+  name: web-original-instance-retired
+spec:
+  profileName: web
+  profileUID: <original-profile-uid>
+  nodeName: <original-node-name>
+  nodeUID: <original-node-uid>
+  providerID: <original-provider-id>
+  systemUUID: <original-system-uuid>
+  externalInstanceID: <destroyed-instance-id>
+  platformRecord: https://audit.example.com/retirement/<record>
+  permanentlyDecommissioned: true
+```
+
+Brewlet accepts it only when the original node no longer exists and every
+identity field matches the node the profile recorded. Creating it requires the
+chart's `<release>-brewlet-retirement-attestor` ClusterRole, which is not bound
+to anyone by default; grant it only to the administrators who may attest
+permanent decommissioning. Accepted evidence cannot be deleted.
+
+This is not a force-delete mechanism. Use it only for hosts that have actually
+been destroyed. See the [node runbook](../provisioner/README.md) and
+[troubleshooting](troubleshooting.md).

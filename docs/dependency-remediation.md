@@ -2,10 +2,10 @@
 
 Use this runbook when an advisory affects a library delivered through a
 [governed dependency set](managed-composition.md). It covers the procedure
-from finding affected workloads to observing their replacement. It implements the remediation
-boundary of [specification §16.8–§16.9](../specs/SPECIFICATION.md#168-compatibility-and-dependency-only-remediation).
-Read the [verification page](verification.md) for the scopes that are actually
-qualified.
+from finding affected workloads to observing their replacement, as defined in
+[specification §16.8–§16.9](../specs/SPECIFICATION.md#168-compatibility-and-dependency-only-remediation).
+See [Verification and limitations](verification.md) for the runtimes and
+platforms that have been qualified.
 
 Each step produces evidence for the next one. Do not skip a step because an
 earlier artifact *looks* correct: a patched template, a pushed tag or a signed
@@ -89,8 +89,9 @@ brewlet bundle registry.example.com/releases/orders:candidate \
 ```
 
 Brewlet verifies the prior composition before it identifies removable dependency
-layers. Application layer bytes, launch bytes and original build evidence remain
-unchanged. Compose once per platform. Composition accepts exactly one explicit
+layers. Application layer bytes and original build evidence remain unchanged;
+the launch layer is also unchanged unless you pass an explicit `--launch FILE`.
+Compose once per platform. Composition accepts exactly one explicit
 `linux/...` platform. Composition fails if:
 
 - the prior image has no verified composition signature (for example, it was

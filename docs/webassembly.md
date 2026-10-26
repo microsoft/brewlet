@@ -1,85 +1,97 @@
-# WebAssembly through runtime infrastructure
+# WebAssembly workloads
 
 ## How it works
 
-Brewlet separates your WebAssembly application from its platform-managed host.
-You publish a `.wasm` guest, any host configuration and an explicit launch
-descriptor as an OCI artifact. The platform approves and provisions a Linux
-[runtime image](runtime-images.md) containing a compatible host such as Wasmtime
-or Spin; your Kubernetes Deployment selects its runtime ID. Brewlet runs that
-host through its existing containerd/runc path, with application files read-only
-under `/app`. It does not install runwasi or infer the guest's interface contract.
+Brewlet delivers your WebAssembly application separately from the host engine
+that runs it. You publish a `.wasm` guest, any host configuration and an
+explicit launch descriptor as an OCI image. The platform approves and
+provisions a Linux [runtime image](runtime-images.md) that contains a
+compatible host such as Wasmtime or Spin, and your Kubernetes workload selects
+it by runtime ID. Brewlet runs that host through the normal containerd/runc
+path, with application files mounted read-only under `/app`. It does not
+install runwasi or infer the guest's interface contract.
 
-Externally loaded files can ship with the guest or optionally come from an
-approved [managed bundle](managed-composition.md). Release-time composition
-combines them into a verifiable application artifact. The qualified examples
-update an external message-file asset, not linked code: libraries compiled into
-the guest require a guest rebuild. Host-engine fixes belong in the runtime image.
+Files that the guest loads at run time can ship with the guest or be published
+separately as a [dependency layer set](dependency-layer-sets.md) or
+[governed bundle](managed-composition.md). Libraries compiled into the guest
+are part of `guest.wasm` and need a guest rebuild. Host-engine fixes belong in
+the runtime image.
 
-Updates run in new task instances, not by patching a running guest. See the
-[architecture overview](concepts.md) and [launch contract](reference.md#launch-descriptor)
-for execution boundaries; the host must still match your guest format.
-The runtime root is read-only too; temporary files and caches need
-[approved writable volumes](resources.md#probes-exec-files-and-shutdown).
+An update starts new Pods; it never patches a running guest. See
+[concepts](concepts.md) and the
+[launch descriptor](reference.md#launch-descriptor) for the execution model.
+The runtime root is also read-only, so caches and temporary files need
+[explicit writable volumes](resources.md#probes-exec-files-and-shutdown).
 
-## Qualification status
+## Tested hosts and guest formats
 
-Both examples passed their 18-assertion real-node
-companion on native arm64, including source updates, held Exec recovery and
-normal cleanup. This is explicitly scoped qualification, not all WASI
-interfaces, another CPU architecture or native runwasi execution.
-The separate specification §16 managed-composition companion below adds signed
-artifact composition/replacement and observed fleet evidence; its qualification
-is tracked independently rather than inferred from that earlier run.
-
-## Tested runtime inputs
-
-| Example | Host | Guest contract | Behavior |
+| Example | Host | Guest | Behavior |
 | --- | --- | --- | --- |
-| Wasmtime | 49.0.3 to 49.0.4 | Go-built WASIp1 core module | Command/probe, exact exit code and a held process. |
-| Spin | 4.2.2 to 4.2.3 | Rust `wasm32-wasip2` component with pinned Spin SDK 7 | HTTP responses and explicit mounted dependency files. |
+| Wasmtime | 49.0.3 and 49.0.4 | Go-built WASIp1 core module | Command, probe, exact exit code and a long-running process. |
+| Spin | 4.2.2 and 4.2.3 | Rust `wasm32-wasip2` component built with Spin SDK 7 | HTTP responses and mounted dependency files. |
 
-The two guest formats are intentionally different. A Go WASIp1 command is not
-automatically a Spin HTTP component. The pinned Spin SDK determines its HTTP
-interface contract (including its WASI dependencies); the Rust target name alone
-is not a promise that arbitrary WASIp2/WASIp3 interfaces will work.
-An attempted Go/Wagi recipe trapped in Spin's preview adapter during Go startup;
-it remains failed, not relabeled as component-model proof.
+The two guest formats are different. A Go WASIp1 command is not a Spin HTTP
+component. The Spin SDK version determines the HTTP interface contract; the
+Rust target name alone does not promise that arbitrary WASIp2 or WASIp3
+interfaces work. Go guests running under Spin's Wagi/preview adapter did not
+work in testing.
 
-## Build the payload
+Both examples have been tested on arm64 and amd64 nodes. Other WASI
+interfaces and native runwasi execution are not covered.
 
-Run from the current source checkout with Go and the reviewed Rust 1.97.1
-toolchain/`wasm32-wasip2` target installed. The committed Cargo lock pins the
-Spin component's dependency graph. Build outside Brewlet core:
+## Build the guests
 
-```sh
-WORK="$(mktemp -d)"
-mkdir "$WORK/wasmtime-app" "$WORK/spin-app" "$WORK/dependencies"
-chmod 0755 "$WORK/wasmtime-app" "$WORK/spin-app" "$WORK/dependencies"
-GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -trimpath \
-  -o "$WORK/command.wasm" ./examples/wasm/guest
-install -m 0644 "$WORK/command.wasm" "$WORK/wasmtime-app/guest.wasm"
-cargo +1.97.1 build --locked --release \
-  --manifest-path examples/wasm/spin-component/Cargo.toml \
-  --target wasm32-wasip2 --target-dir "$WORK/spin-target"
-install -m 0644 "$WORK/spin-target/wasm32-wasip2/release/brewlet_spin_example.wasm" \
-  "$WORK/spin-app/guest.wasm"
-install -m 0644 examples/wasm/spin.toml "$WORK/spin-app/spin.toml"
-install -m 0644 examples/wasm/dependencies/message.txt "$WORK/dependencies/message.txt"
-```
+The examples live in the Brewlet repository under
+[`examples/wasm`](https://github.com/microsoft/brewlet/tree/v0.8.1/examples/wasm).
+You need Go and Rust 1.97.1 with the `wasm32-wasip2` target. The committed
+`Cargo.lock` pins the Spin component's dependencies.
 
-The core-module and component outputs are different artifacts, not one binary
-being relabeled. The fixture guest deliberately checks declared dependency,
-environment and filesystem boundaries.
+1. Get the example sources and create the layer directories:
 
-## Launch descriptor
+    ```sh
+    git clone --depth 1 --branch v0.8.1 https://github.com/microsoft/brewlet.git
+    cd brewlet
+    WORK="$PWD/wasm-work"
+    mkdir -p "$WORK/wasmtime-app" "$WORK/spin-app" "$WORK/dependencies"
+    chmod 0755 "$WORK/wasmtime-app" "$WORK/spin-app" "$WORK/dependencies"
+    ```
 
-Infrastructure approves an engine runtime ID, source digest and numeric
-identity. Applications package `guest.wasm`, optional host configuration and
-dependencies under `/app`. Native workloads still select one approved runtime
-ID and the Brewlet RuntimeClass.
+2. Build the Wasmtime command module:
 
-For example, the Wasmtime descriptor explicitly states:
+    ```sh
+    GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build -trimpath \
+      -o "$WORK/command.wasm" ./examples/wasm/guest
+    install -m 0644 "$WORK/command.wasm" "$WORK/wasmtime-app/guest.wasm"
+    ```
+
+3. Build the Spin component and copy its manifest:
+
+    ```sh
+    cargo +1.97.1 build --locked --release \
+      --manifest-path examples/wasm/spin-component/Cargo.toml \
+      --target wasm32-wasip2 --target-dir "$WORK/spin-target"
+    install -m 0644 "$WORK/spin-target/wasm32-wasip2/release/brewlet_spin_example.wasm" \
+      "$WORK/spin-app/guest.wasm"
+    install -m 0644 examples/wasm/spin.toml "$WORK/spin-app/spin.toml"
+    ```
+
+4. Copy the shared dependency file:
+
+    ```sh
+    install -m 0644 examples/wasm/dependencies/message.txt "$WORK/dependencies/message.txt"
+    ```
+
+The guests deliberately check their dependency, environment and filesystem
+boundaries and fail if those are violated.
+
+## Write the launch descriptors
+
+The platform approves the engine runtime image and its ID. Your application
+packages `guest.wasm`, optional host configuration and dependencies under
+`/app`.
+
+The Wasmtime descriptor,
+[`wasmtime-launch.json`](../examples/wasm/wasmtime-launch.json):
 
 ```json
 {
@@ -114,50 +126,59 @@ For example, the Wasmtime descriptor explicitly states:
 }
 ```
 
-`runtimeImages` is an optional artifact allowlist, not a selector. The Pod
-separately names `brewlet.sh/runtime-image: wasmtime-wasip1`. The removed
-`requires` wrapper is rejected.
+`runtimeImages` is an optional allowlist, not a selector. The Pod still names
+its runtime with `brewlet.sh/runtime-image: wasmtime-wasip1`. If your platform
+uses different IDs, list them here or omit `runtimeImages`.
 
-The qualification driver uses a long-running command Pod and separate
-run-to-completion Pods for exit behavior. Ordinary Jobs are a deployment option;
-this fixture does not claim a separate Job-controller test.
+The Spin descriptor,
+[`spin-launch.json`](../examples/wasm/spin-launch.json), runs
+`spin up --from /app/spin.toml` with a listener on `0.0.0.0:8000`, separate
+cache, state and temporary locations, and `--direct-mounts`. Nothing is built
+or fetched from a registry at startup. Its allowlist is `spin-http-sdk7`.
 
-Spin's full descriptor is in
-[`spin-launch.json`](../examples/wasm/spin-launch.json). It explicitly invokes
-the local manifest with a listener, separate cache/state/temp locations and
-direct file mounts. There is no build or registry resolution at startup.
+## Build and push
 
-## Package
-
-Use the matching CLI and a suitable Linux producer filesystem, with
-[registry access](registry-trust.md) configured. A reusable independent
-dependency set is composed into both application images:
+Run on Linux or macOS with [registry access](registry-trust.md) configured.
+This publishes the dependency file once as a local layer set and composes it
+into both application images:
 
 ```sh
 brewlet layer-set example.invalid/wasm-dependencies:v1 \
   --store "$WORK/dependency-set" --config examples/wasm/layerset.json \
   --layer "dependency=$WORK/dependencies:/app/dependencies"
+
 brewlet build registry.example.com/apps/wasmtime-demo:v1 \
   --platform linux/arm64 --launch examples/wasm/wasmtime-launch.json \
   --layer-set "$WORK/dependency-set" --layer "app=$WORK/wasmtime-app:/app"
 brewlet push registry.example.com/apps/wasmtime-demo:v1 --push-result "$WORK/wasmtime-push.json"
+
 brewlet build registry.example.com/apps/spin-demo:v1 \
   --platform linux/arm64 --launch examples/wasm/spin-launch.json \
   --layer-set "$WORK/dependency-set" --layer "app=$WORK/spin-app:/app"
 brewlet push registry.example.com/apps/spin-demo:v1 --push-result "$WORK/spin-push.json"
 ```
 
-Replace the registry and declare actual supported Linux host platforms.
-The qualified IDs are explicitly constrained by these descriptors; another
-compatible administrator-owned ID must be deliberately listed or the optional
-allowlist omitted. Do not infer runtime selection from the guest format.
+Replace the registry and list the Linux platforms your hosts actually support.
+Portable Wasm bytes do not make the Linux engine architecture-independent.
 
-## Native deployment
+## Host runtime images
 
-The platform must approve corresponding host images first; see
-[runtime source provenance](#runtime-source-provenance).
-Here is the Wasmtime command-Pod template. Replace the image digest, namespace,
-ID/platform choices and illustrative resources before applying:
+Your platform team must provide and approve a runtime image for each host
+before you deploy. The tested hosts are custom images, not unchanged upstream
+engine images: a pinned distroless C/C++ userland plus the checksum-verified,
+unchanged upstream release binary. The Wasmtime binary needs the GNU/Linux
+loader and unwinder, so a bare executable-only root or a minimal musl image is
+not enough. The pinned engine releases and base images are listed in
+[`runtimes.json`](https://github.com/microsoft/brewlet/blob/v0.8.1/examples/wasm/runtimes.json).
+
+Each RuntimeImage must also declare `volumeMountPaths: ["/cache", "/work"]` so
+that the workload's cache and work volumes are admitted. See
+[declare mount locations](runtime-images.md#declare-data-and-configuration-mount-locations).
+
+## Deploy
+
+Replace the image digest, namespace, runtime ID, platform and resource values.
+This Pod runs the Wasmtime command:
 
 ```yaml
 apiVersion: v1
@@ -200,185 +221,88 @@ spec:
     - {name: cache, emptyDir: {}}
 ```
 
-The command's default `hold main` invocation remains alive until normal Pod
-termination or its explicit fixture release. For Spin HTTP, use
-`spin-http-sdk7`, the Spin application digest and an HTTP probe at `/` on port
-8000, preserving the two volume mounts. The same Pod spec can be placed under
-a normal Deployment template for service operation. The earlier runtime
-qualification uses direct Pods; the managed-composition companion explicitly
-exercises native Deployment rollouts.
+The default `hold main` command keeps running until the Pod is terminated. For
+Spin, use runtime ID
+`spin-http-sdk7`, the Spin image digest and an HTTP readiness probe on `/` port
+8000, with the same two volumes. For a long-running service, put the same Pod
+spec in a Deployment template.
 
 ## Verify
 
-For the Wasmtime template in the intended context:
+1. For the Wasmtime Pod, wait for readiness and run the probe:
 
-```sh
-kubectl -n apps wait --for=condition=Ready pod/wasmtime-demo --timeout=5m
-kubectl -n apps exec wasmtime-demo -- /usr/local/bin/wasmtime run \
-  --dir /app/dependencies --dir /work --env VISIBLE=explicit \
-  /app/guest.wasm probe "two words"
-```
+    ```sh
+    kubectl -n apps wait --for=condition=Ready pod/wasmtime-demo --timeout=5m
+    kubectl -n apps exec wasmtime-demo -- /usr/local/bin/wasmtime run \
+      --dir /app/dependencies --dir /work --env VISIBLE=explicit \
+      /app/guest.wasm probe "two words"
+    ```
 
-Expect `message: Hello from Wasm`, the actual dependency content and true
-filesystem/cache exclusion checks, with the two probe arguments preserved.
-For Spin, verify the actual guest HTTP response, not only the engine's health
-endpoint. Inspect the [leased runtime binding](observability.md#logs-and-actual-bindings)
-and host version using an explicit engine `--version` Exec.
+    Expect `"message":"Hello from Wasm"`, the dependency file content,
+    `"arguments":["probe","two words"]` and `true` for
+    `runtimeFileHidden`, `dependencyWriteDenied` and `engineCacheHidden`.
 
-Use the isolated qualification below to reproduce source rotation, retained
-leases, restart recovery and normal cleanup. Producer success alone does not
-establish any of these node behaviors.
+2. For Spin, check the guest's actual HTTP response, not only the engine's
+   health.
 
-## Pitfalls and qualification limits
-
-This guide qualifies the named command/component/host combinations, not every
-WASI import, package or interface. Keep native host platforms, guest capabilities
-and runtime-version compatibility explicit. The additional boundaries below
-are specific to Wasm hosts; common [security](security.md) and
-[resource](resources.md) rules still apply.
+3. Check the [actual runtime binding](observability.md#logs-and-actual-bindings),
+   and run the engine with `--version` through `kubectl exec` to confirm the
+   host version.
 
 ## Guest access is not host access
 
-The Linux host receives the effective Pod/runtime environment. Wasmtime
-forwards only the explicit guest variable and preopens. Spin uses an explicit
-local manifest, declared file mapping, empty outbound-host allowlist and the
-standard SDK HTTP component executor. No registry source or guest build is
-resolved at startup.
+The Linux host process receives the Pod's environment. Wasmtime forwards only
+the explicit guest variable and preopened directories to the guest. Spin uses
+an explicit local manifest, a declared file mapping, an empty outbound-host
+allowlist and the standard SDK HTTP executor.
 
-The guest actually reads its dependency file, cannot read the runtime's
-`/etc/runtime-sentinel`, cannot modify its packaged dependency and does not see
-the artificial host-only environment variable. These filesystem/environment
-tests are not a complete guest-network security audit.
+The example guests read their dependency file but cannot read files from the
+runtime root, cannot modify their packaged dependency and do not see host-only
+environment variables. These checks are not a complete guest network security
+audit.
 
-`kubectl exec` starts another Linux host process; it is not a shell inside a
-Wasm instance. The examples use explicit engine/probe invocations and HTTP,
-not an inferred shell. Numeric host UID/GID, capabilities and noNewPrivileges
-are inspected from actual process evidence, not fabricated WASI user APIs.
+`kubectl exec` starts another Linux host process, not a shell inside the Wasm
+instance. Use explicit engine invocations or HTTP for probes. Host UID/GID,
+capabilities and `noNewPrivileges` apply to the host process; there is no WASI
+user identity. Common [security](security.md) and [resource](resources.md)
+rules still apply.
 
 ## Caches and immutable roots
 
 Both engines, including Spin's embedded Wasmtime compiler, need a writable
-compilation-cache location. The descriptor sets `XDG_CACHE_HOME=/cache/compiled`.
-Spin additionally receives explicit asset-cache, state and temporary paths.
-`/cache` and `/work` are separate per-Pod emptyDirs; `/app` and the selected
-runtime remain read-only. The guest receives `/work` only where required, never
-the engine's `/cache`. Both guests prove the host cache is inaccessible.
-The platform must declare `volumeMountPaths: ["/cache", "/work"]` on each
-RuntimeImage before these workload mounts are admitted; the declaration itself
-does not provision storage. See [runtime mount policy](runtime-images.md#declare-data-and-configuration-mount-locations).
-Do not put an engine's trusted compiled-code cache inside guest-writable
-preopens. No global shared JIT cache or externally supplied precompiled/AOT
-artifact workflow is introduced.
+compilation cache. The descriptors set `XDG_CACHE_HOME=/cache/compiled`, and
+Spin also gets explicit asset-cache, state and temporary paths. `/cache` and
+`/work` are separate per-Pod `emptyDir` volumes; `/app` and the runtime remain
+read-only.
 
-## Runtime source provenance
-
-These are **custom platform-built fixture images**, not unchanged upstream
-engine OCI images. They combine a pinned distroless C/C++ userland with
-checksum-verified, unchanged upstream release executable bytes. The Wasmtime
-binary needs the GNU/Linux loader and unwinder; a bare executable-only root
-or an incomplete musl image is not sufficient.
-
-The [input matrix](https://github.com/microsoft/brewlet/blob/main/examples/wasm/runtimes.json)
-pins native amd64/arm64 sources. The fixture imports verified base blobs,
-appends the exact release binary and records archive/binary/source identities.
-It never executes runtime code during root inspection or weakens set-ID,
-capability, platform or ownership policy.
-
-## Run the isolated qualification
-
-From the current source checkout, use Python 3.12+, Go, Docker Linux containers,
-kind v0.33.0, kubectl and Helm. The command is built with
-`GOOS=wasip1 GOARCH=wasm` using Go. Spin's component uses Rust **1.97.1** and the
-`wasm32-wasip2` target, Spin SDK **7.0.0** and the committed Cargo lock.
-Install that explicit target through your reviewed Rust toolchain setup; the
-driver does not replace an unsupported guest with another interface silently.
-No TinyGo, Java, Node or .NET SDK is needed.
-
-```sh
-PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/wasm.py \
-  --work integration-tests/live-v2/run-my-wasm-example
-```
-
-Use a new work directory below that folder. The driver creates its own cluster,
-kubeconfig and images. It composes a real independent dependency layer set,
-preimports OCI graphs, approves both roots and performs actual execution.
-Preimport is not remote registry TLS/authentication proof.
-
-Qualification requires source-version rotation without application rebuilding,
-old lease retention, same-generation Exec/probes, a real held guest across
-worker/containerd restarts, allowlist rejection and normal profile/host cleanup
-before exact-owned fixture destruction. Failed attempts remain failed.
-The [historical public receipt](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/wasm-runc-arm64.json)
-records pinned engine/userland inputs and both compiled guest identities.
-That receipt covers generic `--layer-set` consumption (then `brewlet push`),
-not the later `bundle` (formerly `compose`)/final-signature/replacement/fleet-export
-workflow.
+The guest receives `/work` only where needed and never the engine's `/cache`.
+Do not put an engine's compiled-code cache inside a guest-writable directory.
+Brewlet provides no shared JIT cache or precompiled/AOT artifact workflow.
 
 ## Governed external dependency replacement
 
-**Historical scope:** the managed companion passed 18 selected assertions on
-each native architecture, including normal cleanup. Separate
-[arm64](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-wasm-composition-arm64.json) and
-[amd64](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-wasm-composition-amd64.json) receipts
-record their original executions; one does not substitute for the other or
-qualify the current candidate.
+Wasm workloads use the same [governed composition](managed-composition.md)
+flow as other languages: `brewlet layer-set` publishes a signed, locked
+dependency bundle, `brewlet bundle` combines it with an app-only image,
+`brewlet verify` checks the result and `brewlet inventory` traces running
+workloads back to it. There is no Wasm-specific composer.
 
-Specification §16 explicitly requires both the Wasmtime command and Spin HTTP
-component, in addition to Java, Python, Node.js and .NET. Its
-[separate acceptance gate](../acceptance/composition-requirements.json) requires
-each native architecture independently. An earlier runtime-image test or a
-four-language pass cannot satisfy these Wasm obligations.
+In the examples, the external dependency is `message.txt`. To update it:
 
-The companion uses the existing compiled guests and fixed pinned
-Wasmtime 49.0.4 / Spin 4.2.3 platform-built hosts. It independently publishes a
-complete locked external asset bundle with CycloneDX inventory and publisher
-provenance, publishes app-only OCI inputs, and invokes the same generic
-`brewlet compose` and `brewlet verify` commands as every other workload.
+1. The platform publishes the changed `message.txt` as a new signed layer set.
+2. `brewlet bundle` replaces only the dependency layers. The guest bytes,
+   application layers, launch descriptor and selected runtime stay the same.
+3. Test the new candidate image, then roll it out. Existing Pods keep the old
+   dependency until they are replaced.
+4. Use `brewlet inventory` to confirm which dependency set the running Pods
+   use.
 
-After both original Deployments are running, the platform publishes changed
-`message.txt` bytes as a new signed bundle. Release composition replaces only
-the dependency layers from the verified prior composition. It preserves the
-guest SHA-256, application-layer descriptors/diff IDs, original/effective launch
-bytes and the selected host source/epoch/generation.
-
-Candidates must actually observe the new external bytes before deployment.
-Old workloads keep their old dependency and lease. A native rolling update
-creates new Pod/container identities; post-rollout `brewlet inventory` traces
-those actual images to the updated package/SBOM evidence. Wrong publisher
-identities and app-layer shadowing fail before an accepted output/receipt.
-Spin additionally has a controlled two-replica HTTP availability observation;
-the Wasmtime command is not reported as an HTTP service.
-
-This is deliberately an **external data-asset update**, not a dynamically linked
-library/component test or a production CVE remediation claim. A Rust/Go library
-compiled into `guest.wasm` cannot be repaired by swapping this asset bundle.
-Rebuild the guest with the reviewed toolchain/dependencies and publish a new
-application layer for compiled-in fixes. Update the RuntimeImage for engine/OS
-fixes. Bundle SBOMs do not provide exhaustive inventory or CVE coverage of
-compiled-in app code or the separate runtime.
-
-Reproduce with the same prerequisites plus OpenSSL and `htpasswd` for the
-isolated authenticated TLS registry:
-
-```sh
-PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/managed_wasm.py \
-  --work integration-tests/live-v2/run-my-managed-wasm
-```
-
-This companion uses a new owned cluster/registry and source-built production
-components. It requires actual guest behavior, security/cache exclusion,
-observed image/package identities and normal host/profile cleanup before
-exact-owned fixture destruction. Public pass/failure receipts and architecture
-status are recorded in [validation results](../acceptance/RESULTS.md).
-The manually dispatched E2E workflow's `managed-wasm` scenario passed its
-separate [native amd64 run](https://github.com/microsoft/brewlet/actions/runs/39454221579);
-a cross-build is not that evidence.
-
-For your own deployment, build and publish reviewed runtime/application images,
-use the [installation](installation.md) and [trust](registry-trust.md) guides,
-mount workload-local writable state and retain explicit native platform
-constraints. Portable Wasm bytes do not make the Linux engine architecture-free.
+This updates an external data file only. A Rust or Go library compiled into
+`guest.wasm` cannot be fixed by swapping a layer set; rebuild the guest and
+publish a new application image. Update the RuntimeImage for engine or OS
+fixes. Layer-set SBOMs do not cover code compiled into the guest or the
+runtime image.
 
 See [Wasmtime CLI options](https://docs.wasmtime.dev/cli-options.html),
-[Spin HTTP/Wagi](https://spinframework.dev/v4/http-trigger) and
-[the execution contract](concepts.md).
+[Spin HTTP trigger](https://spinframework.dev/v4/http-trigger) and
+[concepts](concepts.md).

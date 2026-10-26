@@ -1,14 +1,11 @@
-# Brewlet operations and verification
+# Brewlet operations and verification background
 
-The maintained reader journeys start at [the documentation overview](index.md):
-[local deployment](local-kubernetes.md), [installation](installation.md),
-[provider templates](providers.md), [operations](operations.md) and
-[troubleshooting](troubleshooting.md).
-This source-only background index is excluded from the built site; its useful
-provider material is now published in the dedicated, reviewed provider guide.
-The branch has scoped local implementation acceptance, not a stable release or
-cloud-provider certification. Check the current ledger and
-[verification boundaries](verification.md).
+This file is a source-only background note. It is not published on the
+documentation site. Start with [the documentation overview](index.md), then
+follow [local deployment](local-kubernetes.md), [installation](installation.md),
+[providers and fencing](providers.md), [operations](operations.md) and
+[troubleshooting](troubleshooting.md). For what has and has not been verified,
+see [verification and limitations](verification.md).
 
 ## Contracts
 
@@ -83,7 +80,8 @@ API/placement observations, not proof that a provider will create a usable node.
 All template capabilities must exactly match the approved inventory offered by
 the pool: use `brewlet.sh/runtime=ready` for the validated baseline and
 `brewlet.sh/runtime.<id>=available` for a cold OnDemand ID or `ready` for Eager.
-Do not publish the old JDK, feature, architecture, libc or Java-ABI label family.
+Do not publish any other Brewlet label family (for example JDK, feature,
+architecture, libc or Java-ABI labels).
 Workloads select native architectures explicitly with `kubernetes.io/arch`;
 template labels never replace image platform validation.
 
@@ -223,12 +221,12 @@ Provider references: [EKS Cluster Autoscaler](https://docs.aws.amazon.com/eks/la
 [Karpenter NodePools](https://karpenter.sh/docs/concepts/nodepools/), and
 [AKS node/initialization taints](https://learn.microsoft.com/en-us/azure/aks/use-node-taints).
 The governing Brewlet contract remains
-[specification §9.2](../specs/SPECIFICATION.md#92-startup-fencing-and-provider-managed-labels);
-the 0.x capability labels are not restored.
+[specification §9.2](../specs/SPECIFICATION.md#92-startup-fencing-and-provider-managed-labels).
 
 ## Validation boundaries
 
-`make test` covers portable unit/contract tests and the optional Maven producer.
+`make test` (a contributor command; see [CONTRIBUTING.md](../CONTRIBUTING.md))
+covers portable unit/contract tests and the Maven plugin.
 It is not proof of Linux mounts, real scheduling or provider behavior.
 `integration-tests/fixtures` contains four application producers exercising
 ordinary argv/dependency contracts. Host execution of a fixture proves only that
@@ -240,7 +238,8 @@ images, and build tools for Java, Python, Node.js and .NET. Never run against a
 shared current kubectl context. Pin `KUBECONFIG` and cluster/registry names; retain
 failure diagnostics and remove only invocation-owned resources.
 
-Every section 13.1 scenario needs its specified proof, including an actual
+Every [specification §13.1](../specs/SPECIFICATION.md#131-control-plane-and-node-acceptance-coverage)
+scenario needs its specified proof, including an actual
 provider/admission interceptor for label refusals. CRI filesystem usage and
 eviction need real conformance, not a file-location assertion. A skipped test,
 fake client, synthetic local authorization, pre-existing runtime installation

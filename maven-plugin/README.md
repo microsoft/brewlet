@@ -17,7 +17,7 @@ links, permissions and whiteouts) independently in Java. It does not need the
 `brewlet` executable:
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:0.8.0:conformance \
+mvn sh.brewlet:brewlet-maven-plugin:0.8.1:conformance \
   -Dbrewlet.fixtures=/path/to/conformance/artifact-v1.json \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
@@ -31,7 +31,7 @@ platform cases through the actual `push` goal.
 Package and publish in the same Maven invocation:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.8.0:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
@@ -86,7 +86,7 @@ layer set. Project version overrides outside that catalog fail closed.
 There is no guessed BOM, runtime selection, or Kubernetes integration.
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:0.8.0:layer-set \
+mvn sh.brewlet:brewlet-maven-plugin:0.8.1:layer-set \
   -Dbrewlet.layerSet=registry.example.com/dependencies/approved:2026.10 \
   -Dbrewlet.sourceBom=com.example:approved-bom:2026.10 \
   -Dbrewlet.layerSetName=approved \
@@ -106,7 +106,7 @@ CycloneDX SBOM, and optionally signs provenance. Set
 `brewlet.builderIdentity=https://example.com/builders/approved` for signing.
 These are separate argv elements, not shell fragments. The Java plugin never
 implements OCI assembly or signature verification. Signing parameters apply
-only to `layer-set`, not application `push`. The separate generic `compose`
+only to `layer-set`, not application `push`. The separate `brewlet bundle`
 command owns final-composition signing under a distinct release policy.
 
 ### App-only release inputs
@@ -119,7 +119,7 @@ payload and does not pass `--layer-set` to `push`. Configuring `layerSets` in
 this mode is rejected rather than silently composing an image.
 
 Pass that immutable payload and a complete approved set to the generic
-`brewlet compose` command in the release pipeline. Replacing the set does not
+`brewlet bundle` command in the release pipeline. Replacing the set does not
 rewrite the app's build graph or prove compatibility; test the candidate
 digest before updating a native workload.
 

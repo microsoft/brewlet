@@ -45,8 +45,9 @@ identity. Those are governance requirements, not proof that a custom shim
 is necessary.
 
 Brewlet supplies an integrated approach to those workflows and node-level
-start authorization. Its [composition tooling](managed-composition.md) also
-provides release evidence independently of dependency resolution on the node.
+start authorization. Its [composition tooling](managed-composition.md)
+(`brewlet bundle` and `brewlet verify`) also records release evidence without
+resolving dependencies on the node.
 Choose that integration when its guarantees justify the operational cost.
 
 ## Authorization, restarts and recovery

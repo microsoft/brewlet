@@ -1,16 +1,17 @@
 # Compatibility policy
 
-Brewlet is pre-GA. Use matching CLI, chart, CRDs, operator/admission,
-provisioner and shim from one release (or one source revision).
-The unchanged presence of an API version or filename does not promise arbitrary
-mixed-version operation.
+Brewlet is pre-GA. Use the CLI, Helm chart, CRDs, operator, admission webhook,
+node provisioner, shim and optional Maven plugin from the same release
+(currently 0.8.1). An unchanged API version or file name does not mean that
+components from different releases work together.
 
 ## Launch schema
 
-The current launch schema also rejects earlier rewrite snapshots' `requires`
-wrapper. Optional `runtimeImages` is now a top-level field, with omission
-unrestricted at this gate and an explicit `[]` denying all. The unchanged
-`schemaVersion: 1` is not a compatibility alias for the removed wrapper.
+`launch.json` uses `schemaVersion: 1`. Unknown fields, duplicate members and
+`null` values are rejected. The optional top-level `runtimeImages` field is an
+allowlist of runtime IDs the application accepts: omit it to accept any
+approved ID, or set `[]` to deny all. It does not select the Pod's runtime.
+See [the artifact contract](applications.md#the-artifact-contract).
 
 ## Runtime compatibility is a separate promise
 
@@ -24,17 +25,19 @@ leases and minimum-generation barriers do not become valid under the new UID.
 
 ## Updating the platform
 
-There is no general promise of cross-release in-place upgrade, downgrade,
-old persisted-state reuse or a stable release distribution. A supported path
-must explicitly name the source/target revisions, state and recovery limits.
-Otherwise plan reviewed workload drain and [safe teardown](uninstallation.md)
-before installing matching new components.
-The [prerelease support table](supported-release.md#bounded-transitions-and-recovery)
-names the initial eligible clean-reinstall test pair and its unverified status.
+Brewlet does not promise in-place upgrade, downgrade or reuse of persisted
+state across releases. The only supported transition is a clean reinstall of
+the same release:
 
-An ordinary same-contract runtime-source rotation or a reviewed Helm values
-change is not a platform-release compatibility promise. Nor does unsupported
-old state authorize dropping ownership, live-reference or cleanup evidence.
+1. Drain the affected workloads.
+2. Remove Brewlet through the [safe removal](uninstallation.md) procedure.
+3. Install the matching components of the target release.
 
-Preserve original recovery obligations even when replacing a missing host.
-See [verification limits](verification.md).
+See [bounded transitions and recovery](supported-release.md#bounded-transitions-and-recovery)
+for the status of each transition.
+
+Rotating a runtime source within the same ID, or a reviewed Helm values
+change, is not a platform-release upgrade. Unsupported old state never
+justifies removing finalizers, leases or cleanup records by hand; complete
+recovery obligations even when a host is missing. See
+[verification and limitations](verification.md).

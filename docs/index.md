@@ -24,8 +24,8 @@ approval, pools and a concrete handoff. Read
 
 ## One mechanism, multiple ecosystems
 
-Java, Python, Node.js and .NET use the same generic artifact, inventory,
-provisioning and execution path. Core does not detect languages, infer
+Java, Python, Node.js, .NET and WebAssembly use the same generic artifact,
+inventory, provisioning and execution path. Core does not detect languages, infer
 entrypoints, select interpreters or inject VM tuning.
 
 | Application workload | Runtime infrastructure |
@@ -43,22 +43,18 @@ retains its own process and resources; shared files do not imply shared heaps.
 
 Opt in using `runtimeClassName: brewlet` and the explicit
 `brewlet.sh/runtime-image` Pod annotation. Use ordinary Deployments, StatefulSets,
-DaemonSets, Services and HPAs. There is no `JavaApplication` or replacement
-workload CRD in current Brewlet.
+DaemonSets, Services and HPAs. Brewlet has no language-specific or replacement
+workload CRD.
 
 All application containers in a Brewlet Pod use the same runtime ID and version-1
-artifact contract. The infrastructure sandbox alone uses the standard runc path.
+artifact contract. Only the Pod's infrastructure (pause) container runs
+through the standard runc path.
 Existing non-Brewlet workloads continue to use their ordinary runtime.
 
 ## Know what is verified
 
-The amended local full-userland suite passed 82 selected assertions and the
-unchanged-upstream distroless companion passed 28. The baseline cold-install
-companion passed 13. A separate 18-assertion companion qualifies explicit
-[Wasmtime and Spin HTTP examples](webassembly.md). A 111-requirement ledger combines explicitly scoped
-producer, native-kernel and real-node evidence; historical acceptance is not
-relabeled as proof of the revised image-shape rules.
-
-That is not a stable release, cloud-provider autoscaling certification or a
-performance benchmark. Read the [verification boundaries](verification.md)
-before evaluating the system on an isolated node.
+Brewlet 0.8.1 is a pre-GA beta release. The workload guides and the local
+tutorial are tested examples, not a cloud-provider autoscaling certification
+or a performance benchmark. Read the
+[verification and limitations](verification.md) before evaluating the system
+on an isolated node.

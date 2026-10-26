@@ -2,61 +2,104 @@
 
 ## How it works
 
-Brewlet lets you deliver JavaScript separately from platform-managed Node.js
-runtime infrastructure. Your OCI application artifact contains code, resolved
-package files and an explicit launch descriptor, not the Node executable. The
-platform approves and provisions a Node.js [runtime image](runtime-images.md);
-your Kubernetes Deployment selects its runtime ID. Brewlet runs the declared
-command with application files mounted read-only under `/app`.
+Brewlet delivers your JavaScript separately from the Node.js runtime. Your OCI
+application image contains code, resolved package files and an explicit launch
+descriptor, but not the Node executable. The platform approves and provisions
+a Node.js [runtime image](runtime-images.md), and your Kubernetes Deployment
+selects it by runtime ID. Brewlet runs the declared command with your
+application files mounted read-only under `/app`.
 
-Dependencies can ship with the application or optionally be published as an
-approved [managed bundle](managed-composition.md). Release-time composition
-combines an app-only artifact with a locked dependency set before deployment.
-Compatible package updates can preserve your JavaScript, but still need tests
-for module layout and any native-addon ABI requirements. Brewlet does not run
-npm, discover a package entrypoint or rewrite module resolution.
+Dependencies can ship inside the application image or be published separately
+as a [dependency layer set](dependency-layer-sets.md) or
+[governed bundle](managed-composition.md). Brewlet does not run npm, discover a
+package entrypoint or rewrite module resolution.
 
-Updates create new task instances; they do not replace modules inside a running
-Node.js process. See the [architecture overview](concepts.md) and
-[launch contract](reference.md#launch-descriptor) for the execution model.
-The runtime root is read-only too; temporary files and caches need
-[approved writable volumes](resources.md#probes-exec-files-and-shutdown).
+An update starts new Pods; it never replaces modules inside a running Node.js
+process. See [concepts](concepts.md) and the
+[launch descriptor](reference.md#launch-descriptor) for the execution model.
+The runtime root is also read-only, so temporary files and caches need
+[explicit writable volumes](resources.md#probes-exec-files-and-shutdown).
 
-## Tested runtime inputs
+## Tested runtime images
 
-Unchanged distroless Node 22 roots were qualified on arm64 with
-`/nodejs/bin/node`, a path outside their ordinary upstream PATH.
-The full-userland suite separately exercised adapted Docker Official Node
-22.17.0 and 22.18.0 roots. Exact digests are in the
+Brewlet has been tested with Node.js 22 using:
+
+- unchanged distroless images (`gcr.io/distroless/nodejs22-debian13`), where
+  the executable is `/nodejs/bin/node` and is not on the default `PATH`;
+- Docker Official `node` 22 images adapted for Brewlet.
+
+The exact digests are listed in the
 [upstream](../integration-tests/fixtures/runtimes/upstream.json) and
-[full-userland](../integration-tests/fixtures/runtimes/rotation.json) matrices.
-The pinned historical versions are not a current security recommendation.
+[adapted](../integration-tests/fixtures/runtimes/rotation.json) test matrices.
+They are test inputs, not a security recommendation.
 
-Use the path and platforms supplied by the platform handoff. `node-22` below
-is an example approved ID, not an inferred Node version selector.
+Always use the runtime ID, executable path and platforms supplied by your
+platform team. `node-22` below is an example ID; Brewlet does not infer a
+Node.js version from it.
 
-## Build the payload
+## Prepare the application files
 
-The qualification fixture uses ES modules. Its `main.mjs` imports
-`../dependencies/greeting.mjs`, so the two layer destinations preserve that
-relative relationship:
+This example uses two ES modules. `src/main.mjs` imports
+`../dependencies/greeting.mjs`, so the two layers must keep that relative
+layout under `/app`.
 
-```sh
-WORK="$(mktemp -d)"
-mkdir "$WORK/src" "$WORK/dependencies"
-chmod 0755 "$WORK/src" "$WORK/dependencies"
-install -m 0644 integration-tests/fixtures/node/src/main.mjs "$WORK/src/main.mjs"
-install -m 0644 integration-tests/fixtures/node/dependencies/greeting.mjs "$WORK/dependencies/greeting.mjs"
-```
+1. Create the directories:
 
-No npm installation is needed for this fixture. For an actual npm project,
-resolve its reviewed lock outside Brewlet and package the resulting supported
+    ```sh
+    mkdir -p node-demo/src node-demo/dependencies
+    cd node-demo
+    ```
+
+2. Save the dependency as `dependencies/greeting.mjs`:
+
+    ```js
+    export function message() {
+      return 'shared-contract';
+    }
+    ```
+
+3. Save the application as `src/main.mjs`:
+
+    ```js
+    import http from 'node:http';
+    import { message } from '../dependencies/greeting.mjs';
+
+    function report() {
+      return {
+        language: 'node',
+        runtime: process.versions.node,
+        dependency: message(),
+        arguments: process.argv.slice(2),
+        uid: process.getuid(),
+        gid: process.getgid(),
+      };
+    }
+
+    if (process.argv.includes('--probe')) {
+      console.log(JSON.stringify(report()));
+    } else {
+      http.createServer((_request, response) => {
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify(report()));
+      }).listen(8000, '0.0.0.0');
+    }
+    ```
+
+4. Make the files world-readable and the directories searchable:
+
+    ```sh
+    chmod 0755 src dependencies
+    chmod 0644 src/main.mjs dependencies/greeting.mjs
+    ```
+
+This example needs no npm install. For a real npm project, install from your
+reviewed lockfile before packaging and package the resulting `node_modules`
 layout. Native addons and install-time builds must target the selected Linux
-ABI, Node ABI and architecture.
+ABI, Node ABI and CPU architecture.
 
-## Launch descriptor
+## Write the launch descriptor
 
-Save as `$WORK/launch.json`:
+Save as `launch.json`:
 
 ```json
 {
@@ -73,33 +116,34 @@ Save as `$WORK/launch.json`:
 }
 ```
 
-This fixture does not need `NODE_PATH`: the import is explicit and relative.
-Do not use `NODE_PATH` as a general ES-module resolution mechanism. A CommonJS
-project may use its documented resolution configuration, while an ESM package
-typically needs the correct package/import layout or an explicit build output.
+The import is explicit and relative, so `NODE_PATH` is not needed. Do not use
+`NODE_PATH` as a general ES-module resolution mechanism: a CommonJS project may
+use its documented resolution configuration, while an ESM package needs the
+correct package/import layout or an explicit build output.
 
-## Package
+## Build and push
 
-Use a matching CLI on a Linux producer filesystem, following
-[producer filesystem requirements](applications.md#producer-filesystem) if working on macOS. Replace the registry:
+Run on Linux or macOS. On macOS, follow the
+[producer filesystem requirements](applications.md#producer-filesystem).
+Replace the registry with your own:
 
 ```sh
 brewlet build registry.example.com/apps/node-demo:v1 \
   --platform linux/arm64 \
-  --launch "$WORK/launch.json" \
-  --layer "dependency=$WORK/dependencies:/app/dependencies" \
-  --layer "app=$WORK/src:/app/src"
-brewlet push registry.example.com/apps/node-demo:v1 --push-result "$WORK/push.json"
+  --launch launch.json \
+  --layer "dependency=./dependencies:/app/dependencies" \
+  --layer "app=./src:/app/src"
+brewlet push registry.example.com/apps/node-demo:v1 --push-result push.json
 ```
 
-These are separate dependency/app layers. For an independently published
-dependency graph, use [layer-set composition](dependency-layer-sets.md);
-the shim never resolves npm packages.
+This produces separate dependency and app layers. `push.json` records the
+pushed digest. To consume an independently published dependency set instead,
+use [dependency layer sets](dependency-layer-sets.md).
 
-## Native deployment
+## Deploy
 
-Replace every image/ID/platform/namespace choice using your platform handoff;
-do not apply the placeholder unchanged. Resource values are examples.
+Replace the image digest, runtime ID, platform and namespace with values from
+your platform team. Resource values are examples.
 
 ```yaml
 apiVersion: apps/v1
@@ -130,31 +174,44 @@ spec:
             httpGet: {path: /, port: 8000}
 ```
 
-Use normal [registry credentials, non-root defaults and explicit volumes](applications.md#native-workload-example).
-The fixture binds `0.0.0.0:8000`; declaring an OCI ExposedPort or Node image
-entrypoint does not configure that application behavior.
+Registry credentials, non-root defaults and volumes work as described in
+[Package and deploy](applications.md#native-workload-example). The application
+itself binds `0.0.0.0:8000`; an OCI `ExposedPorts` entry does not configure
+that.
 
 ## Verify
 
-After applying in the intended context:
+1. Wait for the rollout and run the probe through `kubectl exec`:
 
-```sh
-kubectl -n apps rollout status deployment/node-demo --timeout=5m
-kubectl -n apps exec deployment/node-demo -- /nodejs/bin/node \
-  /app/src/main.mjs --probe "two words"
-kubectl -n apps port-forward deployment/node-demo 18080:8000
-```
+    ```sh
+    kubectl -n apps rollout status deployment/node-demo --timeout=5m
+    kubectl -n apps exec deployment/node-demo -- /nodejs/bin/node \
+      /app/src/main.mjs --probe "two words"
+    ```
 
-Use `curl --fail http://127.0.0.1:18080/` from another terminal. Expect
-`language: node`, the actual runtime version and `dependency: shared-contract`;
-check the Exec report's argument boundaries and numeric identity. Inspect the
-[actual runtime binding](observability.md#logs-and-actual-bindings) separately
-from desired inventory. Stop the port-forward after verification.
+    The output includes `"arguments":["--probe","two words"]` and a numeric,
+    non-root `uid`.
 
-## Pitfalls and qualification limits
+2. Forward the port and query the service from another terminal:
 
-- `package.json` scripts are not Brewlet entrypoint discovery. Author the executable and complete arguments explicitly, without assuming a shell.
-- Repeated platform flags cannot make `.node` addons or OS-specific dependencies portable. Build separate platform payloads when necessary.
-- Configure application data/cache writes on explicit volumes. `/app` remains read-only; Node/runtime options are application-owned, not injected by Brewlet.
-- Separate dependency layers executed on both adapted and unchanged Node roots. A dedicated managed layer-set lifecycle on an unchanged Node root is not yet qualified.
-- Current local physical execution is arm64. Runtime-source updates do not remediate the application's own npm dependencies.
+    ```sh
+    kubectl -n apps port-forward deployment/node-demo 18080:8000
+    curl --fail http://127.0.0.1:18080/
+    ```
+
+    Expect `"language":"node"`, the actual Node.js version and
+    `"dependency":"shared-contract"`. Stop the port-forward afterwards.
+
+3. Check the [actual runtime binding](observability.md#logs-and-actual-bindings)
+   to confirm which runtime image the Pod uses.
+
+## Pitfalls and limits
+
+- `package.json` scripts are not used to find the entrypoint. Write the
+  executable and complete arguments explicitly; no shell is assumed.
+- Listing several platforms does not make `.node` addons or OS-specific
+  dependencies portable. Build separate platform payloads when needed.
+- `/app` is read-only. Put application data and caches on explicit volumes.
+  Node.js options are set by the application, not injected by Brewlet.
+- Updating the runtime image does not fix vulnerabilities in your own npm
+  dependencies; rebuild or recompose the application for that.
