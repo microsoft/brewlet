@@ -1,6 +1,6 @@
 # Private Brewlet real-node execution acceptance
 
-The explicit Wasm companion is separate from the four-language suite:
+The explicit Wasm companion is separate from the Python qualification suite:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/wasm.py \
@@ -37,17 +37,21 @@ relaxed by this readiness check.
 
 The branch's `.github/workflows/e2e.yml` is reused by PR and full validation and can
 also be dispatched manually at an exact `expected_sha`. Its default `pr` scenario
-is the real four-language baseline: admission/startup, execution, rotations,
+is the real Python baseline (`harness.py --scenario pr`, verified with
+`qualify.py --verify-pr`): admission/startup, execution, rotations,
 observability, operator restart, protected CRI identity and normal cleanup.
-Its `languages` input narrows that same pinned scenario to the Python fixture
-(`harness.py --scenario pr --pr-language python`, verified with
-`qualify.py --verify-pr ... --languages python`); automatic validation uses it only for
-pull requests that change no non-Python fixture, while full validation keeps all four languages. A Python-only
-run builds and probes only the Python host fixture, and neither requires nor
-installs the Java, Node.js or .NET toolchains. The receipt
-records `selectedLanguages` and gaps for the omitted languages and for the
-node-wide fallback fence against another runtime ID (INV-05), which needs a
-second runtime.
+Python is the only qualification fixture; PR, full and promotion validation
+never build or install the Java, Node.js, .NET or PHP toolchains. The receipt
+records `selectedLanguages` and a gap for the node-wide fallback fence against
+another runtime ID (INV-05), which needs a second runtime.
+
+The Java, Node.js, .NET and PHP example fixtures run daily against `main` in
+their own non-gating workflows (`language-java.yml`, `language-node.yml`,
+`language-dotnet.yml`, `language-php.yml`). Each calls the reusable
+`language-e2e.yml`, which runs `harness.py --scenario runtime
+--without-pinned-scenarios --local-language <name>` (Java uses `--scenario
+maven`, adding the Maven producer). They can be dispatched manually for any
+branch and either architecture. Their results are never qualification evidence.
 It deliberately omits the long fault/accounting/companion matrix, which remains
 mandatory before promotion. Neither `Brewlet PR validation` nor `Brewlet full validation`
 can pass if a required E2E job fails, cancels or skips; pull requests that do not
@@ -75,7 +79,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
 ```
 
 The workflow's `scenario` input defaults to `pr`; selecting `control`
-retains real TLS bootstrap, startup fencing, four-language execution, runtime
+retains real TLS bootstrap, startup fencing, Python execution, runtime
 rotations, observability, controller/provider-refusal cases and production
 cleanup, but omits accounting, formal remote-delivery negatives, Maven-node,
 container-role and lifecycle callbacks and the separate companion suites.
@@ -219,11 +223,11 @@ production cleanup. It builds and offers only Python runtime roots and imports
 only the selected application; the host fixture helper still requires the
 documented producer toolchains. Results explicitly retain `selectedLanguages`
 and omitted-language/pinned-case gaps. The option is rejected for the complete
-scenario or without the explicit pinned-case omission. Default runs continue
-to require all four languages; a smaller local pass is never full acceptance.
+scenario or without the explicit pinned-case omission. A smaller local pass is
+never full acceptance.
 
-To exercise the other runtime fixtures without keeping all golden roots on
-disk at once, run them **sequentially**, each in a new owned environment:
+To exercise an example fixture locally (as its daily workflow does), run it in
+a new owned environment; run several **sequentially**:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
@@ -231,7 +235,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
   --retain-on-failure --work integration-tests/live-v2/run-local-java-01
 ```
 
-Repeat with `node` and `dotnet`, after the previous environment is cleaned up.
+Repeat with `node`, `dotnet` or `php`, after the previous environment is cleaned up.
 This fixture selector belongs only to the local driver, not Brewlet's generic
 CLI or runtime selection. The runtime-only scenario still requires actual
 TLS delivery, first-use installation, launch/exec/probes, identity and mount
@@ -244,8 +248,7 @@ It explicitly omits controller/provider cases and the complete-suite callbacks;
 results preserve those omissions. A runtime-only scenario requires an explicit
 fixture and pinned-case omission and cannot silently replace complete coverage.
 
-Additional existing callbacks can run locally without retaining all four
-runtime roots:
+Additional existing callbacks can run locally with a single runtime fixture:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/harness.py \
@@ -313,7 +316,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 integration-tests/live-v2/upstream.py \
   --work integration-tests/live-v2/run-upstream-01
 ```
 
-It executes shell-free Java/Python/Node applications and a native application on
+It executes a shell-free Python application and a native application on
 unchanged distroless roots, updates each language's approved source without
 rebuilding its app, and retains old leases. A detached Python Exec retains its
 exact PID/start/executable identity across real worker and containerd restarts,
@@ -393,7 +396,7 @@ application; this does not edit production authorization, roots or receipts.
 The same focused suite checks delegated Exec output/exit status and an exact
 owned initial task's normal SIGTERM handling, logs and nonzero exit status.
 The task ID comes from its protected durable lease; unrelated processes are
-never signaled. These lifecycle checks complement the complete four-language
+never signaled. These lifecycle checks complement the complete Python
 suite's CNI, volumes, resources, probes and controller behavior.
 
 The stale-pin uninstall case creates its profile through the actual Helm chart,
@@ -503,7 +506,8 @@ application descriptor, pod overrides and approved non-root account; only the
 runtime config's `Env` contributes to execution. Generating these fixtures is
 not itself real-node proof: use a successful run at the revision containing
 these conflicting defaults.
-The IDs are `fixture-java`, `fixture-python`, `fixture-node`, `fixture-dotnet`;
+The IDs are `fixture-python`, `fixture-java`, `fixture-node`, `fixture-dotnet`
+and `fixture-php`;
 their names intentionally do not invent unverified language-version promises.
 
 ## Mandatory selected assertions
@@ -519,17 +523,18 @@ The default run fails on any missing protocol, reason, transition or evidence:
 * The actual worker establishes UID-bound ownership, installs the shim/handler,
   forwards annotations, publishes OnDemand-only baseline `available`, and
   releases the fence before **any current runtime root exists**.
-* Java, Python, Node and .NET are built and host-probed using the existing
-  fixture builder. Each is explicitly packaged by this checkout's generic CLI
-  with distinct dependency/application roles and one final launch layer.
-* The optional Maven producer separately emits both bundled and BOM-managed
+* The Python fixture is built and host-probed using the existing fixture
+  builder, then explicitly packaged by this checkout's generic CLI with
+  distinct dependency/application roles and one final launch layer.
+* In the Java daily example workflow (`--scenario maven`), not the default
+  run, the optional Maven producer separately emits both bundled and BOM-managed
   Java artifacts. Their exact OCI targets are published unchanged through the
   authenticated registry and run through the same RuntimeClass, shim, exec,
   probe and non-root/read-only checks. A further approved Java runtime update
   retains their initial leases and moves replacements to the new generation
   without republishing either application. This adds no Java behavior to core.
-* First use executes all four real HTTP applications through kubelet/containerd/
-  shim/runc, imports their separate dependencies, then passes relative-executable
+* First use executes the real Python HTTP application through kubelet/containerd/
+  shim/runc, imports its separate dependencies, then passes relative-executable
   `kubectl exec` and actual exec readiness probes.
 * Initial and exec JSON reports assert argv, default and overridden cwd,
   environment precedence, runtime-owned PATH, synthesized HOME and UID/GID.
@@ -546,7 +551,7 @@ The default run fails on any missing protocol, reason, transition or evidence:
   `/app/new-volume-target` emptyDir, **absent from every packaged layer**, remains
   writable. Both initial and exec processes have no effective capabilities and
   `NoNewPrivs=1`; `launch.json` is not mounted.
-* Every language rotates its approved source without republishing application
+* The Python fixture rotates its approved source without republishing application
   bytes. The old Pod UID/container ID and durable runtime lease stay unchanged,
   old HTTP and exec retain the old Env, an exec spans the rotation, and the
   old root survives. A new Pod carries an epoch/generation barrier and executes

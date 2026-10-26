@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Build four real applications; optionally exercise the generic OCI producer.
+"""Build real fixture applications; optionally exercise the generic and Maven producers.
 
-This is host/producer integration, never a claim of node/runtime acceptance.
+Routine producer integration packages the Python fixture with the generic CLI and
+the Java fixture through the Maven producer. The Java, Node.js, .NET and PHP
+fixtures are selectable with --languages and are exercised daily by their
+per-language workflows. This is host/producer integration, never a claim of
+node/runtime acceptance.
 """
 
 import argparse
@@ -68,21 +72,32 @@ def image_target(layout):
     return descriptor["digest"]
 
 
-FIXTURE_LANGUAGES = ("java", "python", "node", "dotnet")
+FIXTURE_LANGUAGES = ("java", "python", "node", "dotnet", "php")
+ROUTINE_LANGUAGES = ("python",)
 
 
-def build_and_probe(work, languages=FIXTURE_LANGUAGES):
+def validate_languages(languages):
     languages = tuple(languages)
     if not languages or any(language not in FIXTURE_LANGUAGES for language in languages) \
             or len(set(languages)) != len(languages):
         raise ValueError(f"unsupported fixture language selection: {languages!r}")
+    return languages
+
+
+def prepare_java(work):
+    java = work / "java"
+    shutil.copytree(FIXTURES / "java", java, ignore=shutil.ignore_patterns("target"))
+    run(["mvn", "-B", "-q", "-f", java / "dependency/pom.xml", "install"])
+    run(["mvn", "-B", "-q", "-f", java / "bom/pom.xml", "install"])
+    run(["mvn", "-B", "-q", "-f", java / "app/pom.xml", "package"])
+    return java
+
+
+def build_and_probe(work, languages=FIXTURE_LANGUAGES):
+    languages = validate_languages(languages)
     commands, layers, java = {}, {}, None
     if "java" in languages:
-        java = work / "java"
-        shutil.copytree(FIXTURES / "java", java, ignore=shutil.ignore_patterns("target"))
-        run(["mvn", "-B", "-q", "-f", java / "dependency/pom.xml", "install"])
-        run(["mvn", "-B", "-q", "-f", java / "bom/pom.xml", "install"])
-        run(["mvn", "-B", "-q", "-f", java / "app/pom.xml", "package"])
+        java = prepare_java(work)
         java_app = work / "java-app"
         java_dependencies = work / "java-dependencies"
         java_app.mkdir()
@@ -119,6 +134,11 @@ def build_and_probe(work, languages=FIXTURE_LANGUAGES):
         shutil.copy2(published / "Greeting.dll", dotnet_dependencies / "Greeting.dll")
         commands["dotnet"] = ["dotnet", published / "App.dll", "--probe", "two words"]
         layers["dotnet"] = [("dependency", dotnet_dependencies, "/app"), ("app", dotnet_app, "/app")]
+    if "php" in languages:
+        commands["php"] = ["php", "-d", "include_path=" + str(FIXTURES / "php/dependencies"),
+                           FIXTURES / "php/src/main.php", "--probe", "two words"]
+        layers["php"] = [("dependency", FIXTURES / "php/dependencies", "/app/dependencies"),
+                         ("app", FIXTURES / "php/src", "/app/src")]
 
     environment = dict(os.environ, BREWLET_TEST_VALUE="explicit-contract-value")
     reports = {}
@@ -166,13 +186,20 @@ def main():
     parser.add_argument("--brewlet", type=Path)
     parser.add_argument("--host-only", action="store_true")
     parser.add_argument("--work-parent", type=Path, default=Path(tempfile.gettempdir()))
+    parser.add_argument("--languages", default=",".join(ROUTINE_LANGUAGES),
+                        help="comma-separated generic CLI fixtures (default: %(default)s; "
+                             "choices: " + ",".join(FIXTURE_LANGUAGES) + ")")
     args = parser.parse_args()
     if not args.host_only and not args.brewlet:
         parser.error("--brewlet is required unless --host-only is explicit")
+    try:
+        languages = validate_languages(args.languages.split(","))
+    except ValueError as error:
+        parser.error(str(error))
     work = Path(tempfile.mkdtemp(prefix="brewlet-v2-fixtures-", dir=args.work_parent)).resolve()
     print(f"Retained fixture work: {work}", flush=True)
-    reports, layers, java = build_and_probe(work)
-    evidence = {"scope": "host-fixtures", "reports": reports, "images": {}}
+    reports, layers, java = build_and_probe(work, languages)
+    evidence = {"scope": "host-fixtures", "languages": list(languages), "reports": reports, "images": {}}
     if not args.host_only:
         brewlet = args.brewlet.resolve()
         for language, layer_inputs in layers.items():
@@ -189,6 +216,9 @@ def main():
                 run([brewlet, "inspect", f"fixtures/{language}:v2", "--store", layout])
             assert digests[0] == digests[1], f"{language}: nondeterministic packaging"
             evidence["images"][language] = digests[0]
+        # The Maven producer is a Java product component, so it always uses the Java fixture.
+        if java is None:
+            java = prepare_java(work)
         run(["mvn", "-B", "-q", "-f", ROOT / "maven-plugin/pom.xml", "install"])
         run(["mvn", "-B", "-q", "-f", java / "app/pom.xml",
              "package",

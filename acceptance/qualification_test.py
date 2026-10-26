@@ -17,12 +17,12 @@ class QualificationMatrixTests(unittest.TestCase):
     def setUp(self):
         self.document = qualification.load_matrix()
 
-    def test_all_five_categories_six_fixtures_and_both_architectures_are_explicit(self):
-        self.assertEqual(qualification.fixture_names(self.document, "native"),
-                         ("java", "python", "node", "dotnet"))
+    def test_python_and_webassembly_fixtures_and_both_architectures_are_explicit(self):
+        # Java, Node.js, .NET and PHP examples run in non-gating daily workflows, not qualification.
+        self.assertEqual(qualification.fixture_names(self.document, "native"), ("python",))
         self.assertEqual(qualification.fixture_names(self.document, "wasm"), ("wasmtime", "spin"))
         categories = {row["category"] for rows in self.document["fixtureGroups"].values() for row in rows}
-        self.assertEqual(categories, {"java", "python", "node", "dotnet", "webassembly"})
+        self.assertEqual(categories, {"python", "webassembly"})
         self.assertEqual(set(self.document["architectures"]), {"arm64", "amd64"})
         self.assertEqual(set(self.document["compositionScopes"]),
                          {"arm64", "amd64", "wasm-arm64", "wasm-amd64"})

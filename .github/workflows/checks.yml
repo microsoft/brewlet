@@ -146,15 +146,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: "22.22.0"
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
-        with:
-          global-json-file: integration-tests/fixtures/dotnet/global.json
       - name: Build producer
         run: make build
-      - name: Four language fixtures and optional Maven producer
+      # Java/Node.js/.NET/PHP generic fixtures run in the daily per-language workflows.
+      - name: Python fixture and Maven producer
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 acceptance/run_check.py fixtures

@@ -1,0 +1,28 @@
+name: Brewlet PHP example E2E
+
+# Non-gating daily real-node E2E for the PHP example fixture against main.
+on:
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Execute on the actual native architecture, not emulation
+        type: choice
+        required: true
+        default: amd64
+        options: [amd64, arm64]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: language-php-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/language-e2e.yml
+    with:
+      language: php
+      architecture: ${{ inputs.architecture || 'amd64' }}

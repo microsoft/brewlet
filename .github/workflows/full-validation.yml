@@ -73,7 +73,6 @@ jobs:
       expected_sha: ${{ needs.context.outputs.source }}
       scenario: pr
       architecture: ${{ matrix.architecture }}
-      languages: all
 
   codeql:
     name: CodeQL

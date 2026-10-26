@@ -28,7 +28,6 @@ jobs:
       producer: ${{ steps.scope.outputs.producer }}
       overlay: ${{ steps.scope.outputs.overlay }}
       e2e: ${{ steps.scope.outputs.e2e }}
-      e2e_languages: ${{ steps.scope.outputs.e2e_languages }}
       website: ${{ steps.scope.outputs.website }}
       codeql: ${{ steps.scope.outputs.codeql }}
     steps:
@@ -68,7 +67,7 @@ jobs:
           FILES: ${{ steps.changes.outputs.files }}
         run: |
           go=false maven=false python=false legal=false producer=false overlay=false
-          e2e=false e2e_all=false website=false everything=false
+          e2e=false website=false everything=false
           languages=" "
           runtime() { go=true legal=true producer=true overlay=true e2e=true; }
           language() { case "$languages" in *" $1 "*) ;; *) languages="$languages$1 " ;; esac; }
@@ -94,7 +93,11 @@ jobs:
                 examples/*) runtime; python=true ;;
                 maven-plugin/*) maven=true legal=true producer=true ;;
                 integration-tests/fixtures/python/*) producer=true e2e=true ;;
-                integration-tests/fixtures/*) producer=true e2e=true e2e_all=true ;;
+                # The Maven producer check packages the Java fixture.
+                integration-tests/fixtures/java/*) producer=true ;;
+                # Example fixtures run in their daily per-language workflows, not PR validation.
+                integration-tests/fixtures/node/*|integration-tests/fixtures/dotnet/*|integration-tests/fixtures/php/*) ;;
+                integration-tests/fixtures/*) producer=true e2e=true ;;
                 integration-tests/live-v2/*|integration-tests/e2e/*) python=true e2e=true ;;
                 scripts/*) go=true python=true legal=true ;;
                 *) everything=true ;;
@@ -129,14 +132,13 @@ jobs:
             echo "producer=$producer"
             echo "overlay=$overlay"
             echo "e2e=$e2e"
-            echo "e2e_languages=$(test "$e2e_all" = true && echo all || echo python)"
             echo "website=$website"
             echo "codeql=$codeql"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Impacted PR checks"
             echo "checks=$checks go=$go maven=$maven python=$python legal=$legal producer=$producer overlay=$overlay"
-            echo "e2e=$e2e ($(test "$e2e_all" = true && echo all || echo python)) website=$website codeql=$codeql"
+            echo "e2e=$e2e website=$website codeql=$codeql"
           } >> "$GITHUB_STEP_SUMMARY"
 
   checks:
@@ -164,8 +166,6 @@ jobs:
       expected_sha: ${{ needs.context.outputs.source }}
       scenario: pr
       architecture: amd64
-      # The fastest fixture unless the PR changes another language's fixture.
-      languages: ${{ needs.context.outputs.e2e_languages }}
 
   codeql:
     name: CodeQL

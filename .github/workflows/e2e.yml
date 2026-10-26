@@ -12,10 +12,6 @@ on:
       architecture:
         type: string
         default: amd64
-      languages:
-        description: PR scope only; all four fixtures, or Python alone for fast pull-request validation
-        type: string
-        default: all
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -34,12 +30,6 @@ on:
         required: true
         default: amd64
         options: [amd64, arm64]
-      languages:
-        description: PR scope only; all four fixtures, or Python alone
-        type: choice
-        required: true
-        default: all
-        options: [all, python]
 
 permissions:
   contents: read
@@ -52,7 +42,6 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       ARCHITECTURE: ${{ inputs.architecture }}
-      LANGUAGES: ${{ inputs.languages }}
     steps:
       - name: Refuse unsupported execution contexts instead of skipping
         id: guard
@@ -65,16 +54,10 @@ jobs:
           EXPECTED_SOURCE: ${{ inputs.expected_sha }}
           SCENARIO: ${{ inputs.scenario }}
           ARCHITECTURE: ${{ inputs.architecture }}
-          LANGUAGES: ${{ inputs.languages }}
         run: |
           test "$REPOSITORY" = microsoft/brewlet
           case "$SCENARIO" in pr|complete|control|managed|managed-wasm) ;; *) exit 1 ;; esac
           case "$ARCHITECTURE" in amd64|arm64) ;; *) exit 1 ;; esac
-          case "$LANGUAGES" in
-            all) ;;
-            python) test "$SCENARIO" = pr ;;
-            *) exit 1 ;;
-          esac
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           test "$SOURCE" = "$EXPECTED_SOURCE"
           case "$EVENT" in
@@ -85,13 +68,11 @@ jobs:
               ;;
             schedule)
               test "$SCENARIO" = pr
-              test "$LANGUAGES" = all
               test "$REF" = refs/heads/main
               ;;
             push)
               # Full validation called by the release workflow for a version tag.
               test "$SCENARIO" = pr
-              test "$LANGUAGES" = all
               case "$REF" in refs/tags/v*) ;; *) exit 1 ;; esac
               ;;
             workflow_dispatch)
@@ -125,23 +106,9 @@ jobs:
           path: ${{ runner.temp }}/image-go-build
           key: e2e-image-go-build-${{ inputs.architecture }}-${{ hashFiles('go.sum', 'kubernetes/Dockerfile', 'provisioner/Dockerfile') }}
           restore-keys: e2e-image-go-build-${{ inputs.architecture }}-
-      - if: inputs.languages != 'python'
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
-      - if: inputs.languages != 'python'
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: "22.22.0"
-      - if: inputs.languages != 'python'
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
-        with:
-          global-json-file: integration-tests/fixtures/dotnet/global.json
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
         with:
           version: v3.19.0
@@ -171,9 +138,7 @@ jobs:
       - name: Execute real PR E2E including protected identity and cleanup
         if: inputs.scenario == 'pr'
         run: |
-          selection=()
-          if test "$LANGUAGES" = python; then selection=(--pr-language python); fi
-          python3 integration-tests/live-v2/harness.py --scenario pr "${selection[@]}" \
+          python3 integration-tests/live-v2/harness.py --scenario pr \
             --work "integration-tests/live-v2/run-pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCHITECTURE}"
       - name: Extract BuildKit Go build cache mount after successful PR E2E
         if: success() && inputs.scenario == 'pr' && steps.image-go-cache.outputs.cache-hit != 'true'
@@ -196,7 +161,7 @@ jobs:
             "acceptance-export/pr-e2e-${ARCHITECTURE}.json"
           python3 acceptance/qualify.py \
             --verify-pr "acceptance-export/pr-e2e-${ARCHITECTURE}.json" \
-            --architecture "$ARCHITECTURE" --languages "$LANGUAGES"
+            --architecture "$ARCHITECTURE"
       - name: Execute immutable native candidate qualification
         if: inputs.scenario != 'pr'
         env:

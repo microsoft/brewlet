@@ -27,7 +27,7 @@ class EvidenceTests(unittest.TestCase):
         self.identity = working_identity(self.root)
         self.result = {**self.identity, "outcome": "passed", "scope": "real-node-execution-only",
                        "architecture": "amd64", "selectedScenario": "complete",
-                       "selectedLanguages": ["java", "python", "node", "dotnet"],
+                       "selectedLanguages": ["python"],
                        "cleanSelectedSuitePassed": True, "productionCleanupVerified": True,
                        "fixtureDestruction": {"outcome": "passed"},
                        "assertions": [{"name": "synthetic assertion", "outcome": "passed",
@@ -42,7 +42,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_valid_candidate_and_scope(self):
         self.assertEqual([], receipt_errors(self.result, ["RUN-08"], live=True, architecture="amd64",
-                                           scenario="complete", languages=["java", "python", "node", "dotnet"],
+                                           scenario="complete", languages=["python"],
                                            root=self.root))
 
     def test_production_manifest_string_keys_are_canonical_despite_path_component_order(self):
@@ -63,15 +63,15 @@ class EvidenceTests(unittest.TestCase):
             {"fixtureDestruction": {"outcome": "retained"}}, {"fixtureDestruction": None},
             {"scope": "contract"}, {"cleanSelectedSuitePassed": False},
             {"productionCleanupVerified": False}, {"selectedScenario": "control"},
-            {"architecture": "arm64"}, {"selectedLanguages": ["python"]},
-            {"selectedLanguages": [["java"], "python", "node", "dotnet"]},
+            {"architecture": "arm64"}, {"selectedLanguages": ["java", "python", "node", "dotnet"]},
+            {"selectedLanguages": ["php"]}, {"selectedLanguages": [["python"]]},
             {"productionSourceManifestSHA256": "0" * 64}, {"checkout": "0" * 40},
         ]
         for change in changes:
             with self.subTest(change=change):
                 result = {**self.result, **change}
                 self.assertTrue(receipt_errors(result, ["RUN-08"], live=True, architecture="amd64",
-                                               scenario="complete", languages=["java", "python", "node", "dotnet"],
+                                               scenario="complete", languages=["python"],
                                                root=self.root))
 
     def test_receipt_paths_missing_malformed_duplicate_and_escape(self):

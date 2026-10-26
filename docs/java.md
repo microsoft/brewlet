@@ -32,6 +32,11 @@ in the [upstream runtime list](https://github.com/microsoft/brewlet/blob/main/in
 [rotation runtime list](https://github.com/microsoft/brewlet/blob/main/integration-tests/fixtures/runtimes/rotation.json). They are test inputs, not a security
 recommendation; use the runtime images your platform team approves.
 
+The Java example fixture, including the Maven producer, runs daily against
+`main` in the [Java example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-java.yml). It does not gate
+pull requests or releases; Python is the only qualification fixture (see
+[verification](verification.md)).
+
 Ask your platform team for the runtime ID, supported platforms and Java
 executable path (see the
 [platform handoff](workshops/platform.md#give-developers-a-concrete-handoff)).

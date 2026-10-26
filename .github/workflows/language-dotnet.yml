@@ -1,0 +1,28 @@
+name: Brewlet .NET example E2E
+
+# Non-gating daily real-node E2E for the .NET example fixture against main.
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      architecture:
+        description: Execute on the actual native architecture, not emulation
+        type: choice
+        required: true
+        default: amd64
+        options: [amd64, arm64]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: language-dotnet-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/language-e2e.yml
+    with:
+      language: dotnet
+      architecture: ${{ inputs.architecture || 'amd64' }}

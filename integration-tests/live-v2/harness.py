@@ -26,6 +26,9 @@ from acceptance.evidence import PRODUCTION_INPUTS, IGNORE, production_manifest_b
 
 QUALIFICATION_MATRIX = load_matrix()
 LANGUAGES = fixture_names(QUALIFICATION_MATRIX, "native")
+# Example fixtures run only as explicit local-language selections in their daily workflows.
+EXAMPLE_LANGUAGES = ("java", "node", "dotnet", "php")
+FIXTURE_LANGUAGES = LANGUAGES + tuple(language for language in EXAMPLE_LANGUAGES if language not in LANGUAGES)
 WASM_HOSTS = fixture_names(QUALIFICATION_MATRIX, "wasm")
 HERE = Path(__file__).resolve().parent
 FIXTURES = ROOT / "integration-tests/fixtures"
@@ -36,7 +39,7 @@ CLI_USERLAND = "docker.io/library/python@sha256:34386ef0cb081344d7ec1c103ba398e6
 OWNER = "acceptance.brewlet.test/run"
 FENCE = "startup-taint.cluster-autoscaler.kubernetes.io/brewlet"
 API = "node.brewlet.sh/v1alpha1"
-IDS = {language: "fixture-" + language for language in LANGUAGES}
+IDS = {language: "fixture-" + language for language in FIXTURE_LANGUAGES}
 STORE = "/opt/brewlet/runtimes"
 UNIMPLEMENTED = [
     "E2E-05 actual late-arriving alternate-native-architecture capacity and provider scale-from-zero",
@@ -58,8 +61,8 @@ def require(value, message):
 
 
 def rotation_inputs(data):
-    require(isinstance(data, dict) and set(data) == set(LANGUAGES),
-            "rotation inputs must cover exactly the four fixture languages")
+    require(isinstance(data, dict) and set(data) == set(FIXTURE_LANGUAGES),
+            "rotation inputs must cover exactly the fixture languages")
     for language, value in data.items():
         require(isinstance(value, dict) and set(value) == {"probe", "before", "after"}
                 and isinstance(value["probe"], list) and value["probe"]
@@ -244,17 +247,14 @@ def artifact_target(layout):
 
 class Harness:
     def __init__(self, work, *, timeout=600, pinned=True, scenario="complete",
-                 retain_on_failure=False, local_language=None, pr_language=None):
+                 retain_on_failure=False, local_language=None):
         require(scenario in ("complete", "pr", "control", "runtime", "maven", "lifecycle",
                              "roles", "accounting", "delivery"),
                 "unsupported live scenario")
         require(scenario != "pr" or (pinned and local_language is None),
                 "PR E2E requires pinned scenarios and no local fixture selection")
-        # Pinned refusal is bound to the Python fixture, so it is the only single-language PR scope.
-        require(pr_language is None or (scenario == "pr" and pr_language == "python"),
-                "single-language selection is only the Python PR E2E")
         require(local_language is None or (
-            local_language in LANGUAGES and not pinned
+            local_language in FIXTURE_LANGUAGES and not pinned
             and (scenario == "runtime"
                  or (scenario in ("control", "lifecycle", "roles", "accounting", "delivery")
                      and local_language == "python")
@@ -265,8 +265,7 @@ class Harness:
                 "local scenario requires --local-language and --without-pinned-scenarios")
         self.scenario = scenario
         self.retain_on_failure = retain_on_failure
-        self.languages = ((local_language,) if local_language
-                          else (pr_language,) if pr_language else LANGUAGES)
+        self.languages = (local_language,) if local_language else LANGUAGES
         self.probe_language = "python" if "python" in self.languages else self.languages[0]
         self.runtime_ids = {language: IDS[language] for language in self.languages}
         self.run_id = validate_run_id(uuid.uuid4().hex[:12])
@@ -544,7 +543,7 @@ class Harness:
         self.result.update(working_identity(ROOT))
         # Fixture toolchains are mandatory only for the languages this run builds.
         toolchains = {"java": ("mvn", "java"), "python": (), "node": ("node",),
-                      "dotnet": ("dotnet",)}
+                      "dotnet": ("dotnet",), "php": ("php",)}
         fixture_tools = [tool for language in self.languages for tool in toolchains[language]]
         for tool in ("docker", "kind", "kubectl", "helm", "go", *fixture_tools, "python3",
                      "openssl"):
@@ -560,7 +559,7 @@ class Harness:
                 "Linux Docker engine required")
         self.result["architecture"] = self.arch
         version_args = {"mvn": ["--version"], "java": ["-version"], "node": ["--version"],
-                        "dotnet": ["--info"]}
+                        "dotnet": ["--info"], "php": ["--version"]}
         for tool, args in (("go", ["version"]), ("kubectl", ["version", "--client", "-o", "json"]),
                            ("helm", ["version", "--short"]),
                            *((tool, version_args[tool]) for tool in fixture_tools)):
@@ -1730,9 +1729,12 @@ class Harness:
         self.result["selectedLanguages"] = list(self.languages)
         if self.languages != LANGUAGES:
             self.result["gaps"].append(
-                ("PR" if self.scenario == "pr" else "Local") + " fixture selection omits " + ", ".join(
-                    language for language in LANGUAGES if language not in self.languages)
-                + " execution and rotation")
+                "Local fixture selection " + ", ".join(self.languages) + " replaces qualification fixture "
+                + ", ".join(LANGUAGES) + " execution and rotation")
+        if self.scenario == "complete":
+            self.result["gaps"].append(
+                "Java, Node.js, .NET and PHP example fixtures and the Maven node producer run in the "
+                "non-gating daily per-language workflows, not in qualification")
         if self.scenario == "pr":
             self.result["gaps"].append(
                 "PR E2E omits the long quarantine, accounting, managed composition, "
@@ -1809,7 +1811,7 @@ class Harness:
                 self.phase = "remote-delivery"
                 from delivery import execute as verify_delivery
                 verify_delivery(self)
-            if self.scenario in ("complete", "maven"):
+            if self.scenario == "maven":
                 self.phase = "maven-producer-node"
                 from maven_node import execute as verify_maven_node
                 verify_maven_node(self)
@@ -1897,14 +1899,12 @@ def main():
                         help="local debugging only: retain failed owned environment for inspection; "
                              "requires explicit owner-checked cleanup and never counts as a clean pass")
     local = parser.add_mutually_exclusive_group()
-    local.add_argument("--local-language", choices=LANGUAGES,
-                       help="one explicit local runtime fixture; requires a partial scenario "
+    local.add_argument("--local-language", choices=FIXTURE_LANGUAGES,
+                       help="one explicit local runtime fixture (the daily per-language workflows use "
+                            "this for java, node, dotnet and php); requires a partial scenario "
                             "and --without-pinned-scenarios")
     local.add_argument("--local-python-only", action="store_const", const="python", dest="local_language",
                        help="select the Python fixture for smaller local debugging")
-    local.add_argument("--pr-language", choices=("python",),
-                       help="run the pinned PR scenario against only the Python fixture "
-                            "(fast pull-request validation; push/promotion run all four)")
     args = parser.parse_args()
     require(30 <= args.timeout <= 1800, "timeout must be between 30 and 1800 seconds")
     def interrupted(signum, frame):
@@ -1913,7 +1913,7 @@ def main():
     signal.signal(signal.SIGINT, interrupted)
     harness = Harness(args.work, timeout=args.timeout, pinned=not args.without_pinned_scenarios,
                       scenario=args.scenario, retain_on_failure=args.retain_on_failure,
-                      local_language=args.local_language, pr_language=args.pr_language)
+                      local_language=args.local_language)
     return harness.execute()
 
 

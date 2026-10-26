@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from acceptance.qualification import load_matrix
 from acceptance.evidence import ROOT, load_receipt, read_json, receipt_errors, working_identity
-from acceptance.qualify import SUITES, suite_errors
+from acceptance.qualify import NATIVE, SUITES, suite_errors
 
 
 REAL_NODE_REQUIRED = {
@@ -121,8 +121,8 @@ def validate(document, root=ROOT, *, structure_only=False, expected=None):
             if evidence.get("scope") == "provider" and result.get("providerScaleFromZeroVerified") is not True:
                 problems.append("actual provider scale-from-zero evidence required")
             if identifier == "LANG-02" and live and not problems and (result.get("selectedScenario") != "complete"
-                    or set(result.get("selectedLanguages", [])) != {"java", "python", "node", "dotnet"}):
-                problems.append("complete four-language execution required")
+                    or set(result.get("selectedLanguages", [])) != set(NATIVE)):
+                problems.append("complete qualification-language execution required")
             if identifier.startswith("FS-") and live and not problems:
                 covered = {value for row in result.get("assertions", []) if isinstance(row, dict)
                            and row.get("outcome") == "passed" for value in row.get("requirements", [])}

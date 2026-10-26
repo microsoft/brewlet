@@ -116,14 +116,14 @@ class WorkflowTests(unittest.TestCase):
     def test_pr_classifier_selects_impacted_checks_and_fails_closed_to_everything(self):
         flags = ("go", "maven", "python", "legal", "producer", "overlay", "e2e", "website")
         every = ["actions", "csharp", "go", "java-kotlin", "javascript-typescript", "python"]
-        def expect(files, selected, languages=(), e2e_languages="python", listed="true"):
+        def expect(files, selected, languages=(), listed="true"):
             outputs = self.classify(files, listed)
             for flag in flags:
                 self.assertEqual("true" if flag in selected else "false", outputs[flag], (files, flag))
             checks = any(flag in selected for flag in ("go", "maven", "python", "legal", "producer", "overlay"))
             self.assertEqual("true" if checks else "false", outputs["checks"], files)
             self.assertEqual(sorted(languages), outputs["codeql"], files)
-            self.assertEqual(e2e_languages, outputs["e2e_languages"], files)
+            self.assertNotIn("e2e_languages", outputs)
         runtime = {"go", "maven", "legal", "producer", "overlay", "e2e"}
         expect(["README.md", "kubernetes/README.md"], set())
         expect(["docs/index.md", "site/index.html"], {"website"})
@@ -139,9 +139,13 @@ class WorkflowTests(unittest.TestCase):
         expect(["go.sum", "docs/index.md"], runtime | {"website"}, ["go"])
         expect(["maven-plugin/src/main/java/A.java"], {"maven", "legal", "producer"}, ["java-kotlin"])
         expect(["integration-tests/fixtures/python/app/main.py"], {"producer", "e2e"}, ["python"])
-        expect(["integration-tests/fixtures/dotnet/App/Program.cs"], {"producer", "e2e"}, ["csharp"], "all")
-        expect(["integration-tests/fixtures/node/app/index.js"], {"producer", "e2e"},
-               ["javascript-typescript"], "all")
+        expect(["integration-tests/fixtures/check.py"], {"producer", "e2e"}, ["python"])
+        expect(["integration-tests/fixtures/runtimes/python.Dockerfile"], {"producer", "e2e"})
+        # Java feeds the Maven producer check; the other examples run only in their daily workflows.
+        expect(["integration-tests/fixtures/java/app/pom.xml"], {"producer"}, ["java-kotlin"])
+        expect(["integration-tests/fixtures/dotnet/App/Program.cs"], set(), ["csharp"])
+        expect(["integration-tests/fixtures/node/src/main.mjs"], set(), ["javascript-typescript"])
+        expect(["integration-tests/fixtures/php/src/main.php"], set())
         expect(["integration-tests/live-v2/harness.py"], {"python", "e2e"}, ["python"])
         expect(["scripts/release.py"], {"go", "python", "legal", "maven"}, ["python"])
         everything = set(flags)
@@ -151,7 +155,7 @@ class WorkflowTests(unittest.TestCase):
             expect(files, everything, every)
         for listed in ("false", ""):
             expect(["docs/index.md"], everything, every, listed=listed)
-        expect(["unknown/file", "integration-tests/fixtures/java/app/pom.xml"], everything, every, "all")
+        expect(["unknown/file", "integration-tests/fixtures/java/app/pom.xml"], everything, every)
 
     def test_pull_requests_run_native_checks_on_amd64_only_and_full_validation_keeps_both(self):
         pr = (ROOT / ".github/workflows/pr.yml").read_text()
@@ -167,7 +171,7 @@ class WorkflowTests(unittest.TestCase):
         e2e = full.split("\n  e2e:", 1)[1].split("\n  codeql:", 1)[0]
         self.assertIn("architecture: [amd64, arm64]", e2e)
         self.assertIn("architecture: ${{ matrix.architecture }}", e2e)
-        self.assertIn("languages: all", e2e)
+        self.assertNotIn("languages:", e2e)
         self.assertIn("scenario: pr", e2e)
         self.assertIn("architecture: amd64", pr.split("\n  e2e:", 1)[1].split("\n  codeql:", 1)[0])
 
@@ -268,10 +272,12 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("run_check.py", text)
         self.assertNotIn("make acceptance", text)
         self.assertNotIn("unittest discover", text)
-        self.assertIn('harness.py --scenario pr "${selection[@]}"', text)
-        self.assertIn("selection=(--pr-language python)", text)
+        self.assertIn("harness.py --scenario pr \\\n", text)
         self.assertIn('--verify-pr "acceptance-export/pr-e2e-${ARCHITECTURE}.json"', text)
-        self.assertIn('--languages "$LANGUAGES"', text)
+        # Python is the only qualification fixture; example toolchains belong to language-e2e.yml.
+        for removed in ("--pr-language", "--languages", "LANGUAGES", "inputs.languages",
+                        "setup-java", "setup-node", "setup-dotnet"):
+            self.assertNotIn(removed, text)
         export = text.split("      - name: Export only public PR outcomes", 1)[1].split(
             "      - name:", 1)[0]
         self.assertIn("steps.guard.outcome == 'success'", export)
@@ -285,32 +291,25 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(text.index("Seed BuildKit"), text.index("harness.py --scenario pr"))
         self.assertLess(text.index("harness.py --scenario pr"), text.index("Extract BuildKit"))
         program = block(text, "Refuse unsupported execution contexts")
-        for event, ref, head, scenario, languages, success in (
-                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", "all", True),
-                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", "python", True),
-                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", "java", False),
-                ("pull_request", "refs/pull/1/merge", "fork/brewlet", "pr", "python", False),
-                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "complete", "all", False),
-                ("schedule", "refs/heads/main", "microsoft/brewlet", "pr", "all", True),
-                ("schedule", "refs/heads/main", "microsoft/brewlet", "pr", "python", False),
-                ("schedule", "refs/heads/candidate", "microsoft/brewlet", "pr", "all", False),
-                ("schedule", "refs/heads/main", "microsoft/brewlet", "complete", "all", False),
-                ("push", "refs/tags/v1.0.0", "microsoft/brewlet", "pr", "all", True),
-                ("push", "refs/tags/v1.0.0", "microsoft/brewlet", "pr", "python", False),
-                ("push", "refs/tags/v1.0.0", "microsoft/brewlet", "complete", "all", False),
-                ("push", "refs/heads/main", "microsoft/brewlet", "pr", "all", False),
-                ("push", "refs/tags/untrusted", "microsoft/brewlet", "pr", "all", False),
-                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", "all", True),
-                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", "python", False),
-                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", "all", True),
-                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", "python", True),
-                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", "", False),
-                ("workflow_dispatch", "refs/tags/untrusted", "microsoft/brewlet", "pr", "all", False)):
+        for event, ref, head, scenario, success in (
+                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "pr", True),
+                ("pull_request", "refs/pull/1/merge", "fork/brewlet", "pr", False),
+                ("pull_request", "refs/pull/1/merge", "microsoft/brewlet", "complete", False),
+                ("schedule", "refs/heads/main", "microsoft/brewlet", "pr", True),
+                ("schedule", "refs/heads/candidate", "microsoft/brewlet", "pr", False),
+                ("schedule", "refs/heads/main", "microsoft/brewlet", "complete", False),
+                ("push", "refs/tags/v1.0.0", "microsoft/brewlet", "pr", True),
+                ("push", "refs/tags/v1.0.0", "microsoft/brewlet", "complete", False),
+                ("push", "refs/heads/main", "microsoft/brewlet", "pr", False),
+                ("push", "refs/tags/untrusted", "microsoft/brewlet", "pr", False),
+                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "complete", True),
+                ("workflow_dispatch", "refs/heads/candidate", "microsoft/brewlet", "pr", True),
+                ("workflow_dispatch", "refs/tags/untrusted", "microsoft/brewlet", "pr", False)):
             environment = {"EVENT": event, "REF": ref, "HEAD_REPOSITORY": head, "SCENARIO": scenario,
                 "REPOSITORY": "microsoft/brewlet", "SOURCE": "a" * 40, "EXPECTED_SOURCE": "a" * 40,
-                "ARCHITECTURE": "amd64", "LANGUAGES": languages}
+                "ARCHITECTURE": "amd64"}
             result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
-            self.assertEqual(success, result.returncode == 0, (event, ref, head, scenario, languages))
+            self.assertEqual(success, result.returncode == 0, (event, ref, head, scenario))
         self.assertLess(text.index('test "$SOURCE" = "$EXPECTED_SOURCE"'), text.index("- uses: actions/checkout"))
 
     def test_dispatch_moved_head_bad_architecture_and_unknown_scope_fail_closed(self):
@@ -324,10 +323,55 @@ class WorkflowTests(unittest.TestCase):
                 environment = {"EVENT": "workflow_dispatch", "REF": "refs/heads/candidate",
                     "HEAD_REPOSITORY": "microsoft/brewlet", "REPOSITORY": "microsoft/brewlet",
                     "SOURCE": "a" * 40, "EXPECTED_SOURCE": "a" * 40, "SCENARIO": "pr",
-                    "ARCHITECTURE": "amd64", "LANGUAGES": "all"}
+                    "ARCHITECTURE": "amd64"}
                 environment[field] = value
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertNotEqual(0, result.returncode, (field, value))
+
+
+    def test_example_languages_run_daily_in_their_own_non_gating_workflows(self):
+        reusable = (ROOT / ".github/workflows/language-e2e.yml").read_text()
+        self.assertEqual(["  workflow_call:"], triggers(reusable))
+        self.assertIn("permissions:\n  contents: read", reusable)
+        self.assertIn("persist-credentials: false", reusable)
+        self.assertNotIn("secrets.", reusable)
+        self.assertNotIn("continue-on-error", reusable)
+        self.assertIn('--without-pinned-scenarios --local-language "$LANGUAGE"', reusable)
+        self.assertIn('if test "$LANGUAGE" = java; then scenario=maven; fi', reusable)
+        crons = set()
+        for language in ("java", "node", "dotnet", "php"):
+            text = (ROOT / ".github/workflows" / f"language-{language}.yml").read_text()
+            self.assertEqual(["  schedule:", "  workflow_dispatch:"], triggers(text), language)
+            cron = re.search(r'cron: "(\d+ \d+) \* \* \*"', text)
+            self.assertIsNotNone(cron, language)
+            crons.add(cron.group(1))
+            self.assertIn("uses: ./.github/workflows/language-e2e.yml", text)
+            self.assertIn("language: " + language + "\n", text)
+            self.assertIn("permissions:\n  contents: read", text)
+        self.assertEqual(4, len(crons), "daily language runs are staggered")
+        # Gating PR, full and release validation never run the example languages.
+        for name in ("pr.yml", "full-validation.yml", "release.yml", "e2e.yml", "checks.yml"):
+            self.assertNotIn("language-e2e.yml", (ROOT / ".github/workflows" / name).read_text(), name)
+        program = block(reusable, "Refuse unsupported execution contexts")
+        for event, ref, language, architecture, success in (
+                ("schedule", "refs/heads/main", "php", "amd64", True),
+                ("schedule", "refs/heads/main", "java", "arm64", True),
+                ("schedule", "refs/heads/candidate", "node", "amd64", False),
+                ("workflow_dispatch", "refs/heads/candidate", "dotnet", "amd64", True),
+                ("workflow_dispatch", "refs/tags/v1.0.0", "dotnet", "amd64", False),
+                ("pull_request", "refs/pull/1/merge", "php", "amd64", False),
+                ("push", "refs/heads/main", "php", "amd64", False),
+                ("schedule", "refs/heads/main", "python", "amd64", False),
+                ("schedule", "refs/heads/main", "ruby", "amd64", False),
+                ("schedule", "refs/heads/main", "php", "emulated", False)):
+            environment = {"EVENT": event, "REF": ref, "REPOSITORY": "microsoft/brewlet",
+                           "LANGUAGE": language, "ARCHITECTURE": architecture}
+            result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
+            self.assertEqual(success, result.returncode == 0, (event, ref, language, architecture))
+        environment = {"EVENT": "schedule", "REF": "refs/heads/main", "REPOSITORY": "fork/brewlet",
+                       "LANGUAGE": "php", "ARCHITECTURE": "amd64"}
+        self.assertNotEqual(0, subprocess.run(["bash", "-eu", "-c", program], env=environment,
+                                              capture_output=True).returncode)
 
 
 if __name__ == "__main__":
