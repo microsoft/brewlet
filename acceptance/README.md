@@ -14,7 +14,8 @@ Both validation workflows reuse the same building blocks: `checks.yml`
 
 Green unit/contract checks alone cannot make either aggregate green. The full
 validation aggregate requires every prerequisite to succeed; failed, skipped or
-cancelled prerequisites fail it. The PR aggregate requires every impacted check
+cancelled prerequisites fail it. A manual full validation dispatch takes no inputs
+and validates the head of the selected branch. The PR aggregate requires every impacted check
 to succeed and every other check to be skipped, never failed or cancelled.
 
 The PR `context` job lists the PR's files (including rename sources) from the
@@ -175,23 +176,11 @@ hashes and contain the receipt source in its Git ancestry.
 
 The index's `history` section pins the original 180 public files by Git commit,
 path, byte count and SHA-256. Their original bytes remain in Git history and a
-verified local migration backup. The first approved validation run uploads a separate
-byte-verified historical archive; until that run is verified, remote archival is
-**pending**, not claimed complete. To verify and record its artifact:
+verified local migration backup. Their one-time archive was uploaded and recorded
+by the predecessor `v2-ci.yml` workflow; history is never loaded as current
+qualification, and no current workflow re-archives it.
 
-```sh
-python3 acceptance/evidence_index.py record-history --run FULL_VALIDATION_RUN_ID
-```
-
-This checks every original byte and changes only archival metadata; history is
-never loaded as current qualification. Full validation avoids repeating the archive
-once its verified run/artifact IDs are indexed. `archive-history` is also an
-explicit `full-validation.yml` dispatch purpose and cannot emit a green
-`Brewlet full validation` check. The already recorded archive came from the
-predecessor `v2-ci.yml` workflow.
-
-Current/debug artifacts retain the existing 14-day retention; the one-time
-historical archive uses 90 days. Actions artifacts are **not permanent storage**:
+Current/debug artifacts retain the existing 14-day retention. Actions artifacts are **not permanent storage**:
 expired or unavailable current evidence fails retrieval, never turns into a
 success-shaped fallback. Retain a verified local copy when longer audit
 retention is needed; no new cloud storage or publication is configured here.
