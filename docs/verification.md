@@ -82,8 +82,7 @@ the [cleanup contract](operations.md#cleanup-and-revocation).
 
 The [release workflow](supported-release.md#maintainers-cutting-a-release)
 runs full validation, including the Python real E2E on both architectures, for
-the tagged commit before publishing. The disposable-node `release-transition.yml`
-test is a separate manual workflow. Strict promotion qualification
+the tagged commit before publishing. Strict promotion qualification
 (`make acceptance` over fetched evidence) runs locally. Evidence handling is described in the
 [acceptance README](https://github.com/microsoft/brewlet/blob/main/acceptance/README.md).
 
