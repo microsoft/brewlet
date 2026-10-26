@@ -1,4 +1,4 @@
-name: Brewlet PR
+name: PR Check
 
 # Pull requests only: run just the checks impacted by the PR's changed files.
 # Classification fails closed: unknown paths or listing errors select every PR check.
