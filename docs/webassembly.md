@@ -36,8 +36,8 @@ Rust target name alone does not promise that arbitrary WASIp2 or WASIp3
 interfaces work. Go guests running under Spin's Wagi/preview adapter did not
 work in testing.
 
-Both examples have been tested on arm64 and amd64 nodes, and run daily against
-`main` in the non-gating [WebAssembly example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-wasm.yml).
+Both examples have been tested on arm64 and amd64 nodes, and run weekly against
+`main` in the non-gating [language example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-e2e.yml).
 Other WASI interfaces and native runwasi execution are not covered.
 
 ## Build the guests

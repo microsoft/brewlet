@@ -33,7 +33,7 @@ recommendation; use the runtime images your platform team approves.
 
 Python is Brewlet's qualification fixture: pull request E2E, full validation
 and promotion run it on real nodes (see [verification](verification.md)). It
-also runs daily against `main` in the non-gating [Python example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-python.yml).
+also runs weekly against `main` in the non-gating [language example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-e2e.yml).
 
 Ask your platform team for the runtime ID, supported platforms and interpreter
 path. `python-3.13` below is an example ID. For a smaller first deployment

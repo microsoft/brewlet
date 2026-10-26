@@ -148,7 +148,7 @@ jobs:
           python-version: "3.12"
       - name: Build producer
         run: make build
-      # Java/Node.js/.NET/PHP generic fixtures run in the daily per-language workflows.
+      # Java/Node.js/.NET/PHP generic fixtures run in the weekly language example workflow.
       - name: Python fixture and Maven producer
         env:
           PYTHONDONTWRITEBYTECODE: "1"

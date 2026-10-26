@@ -18,7 +18,7 @@ class QualificationMatrixTests(unittest.TestCase):
         self.document = qualification.load_matrix()
 
     def test_python_and_webassembly_fixtures_and_both_architectures_are_explicit(self):
-        # Java, Node.js, .NET and PHP examples run in non-gating daily workflows, not qualification.
+        # Java, Node.js, .NET and PHP examples run in the non-gating weekly language-e2e.yml, not qualification.
         self.assertEqual(qualification.fixture_names(self.document, "native"), ("python",))
         self.assertEqual(qualification.fixture_names(self.document, "wasm"), ("wasmtime", "spin"))
         categories = {row["category"] for rows in self.document["fixtureGroups"].values() for row in rows}

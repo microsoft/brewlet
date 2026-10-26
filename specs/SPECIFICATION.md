@@ -1535,9 +1535,9 @@ interceptor or provider validation, not just by setting labels in a fixture.
 The qualification matrix MUST include Python, the single native-language
 qualification fixture, and WebAssembly. Java, Node.js, .NET and PHP remain
 example fixtures that use the same producer, artifact and explicit launch
-contract; each runs the real-node runtime contract in its own non-gating daily
-workflow against `main` (Java also through the Maven producer). Python and the
-WebAssembly examples also have such daily workflows. Those runs are
+contract; each runs the real-node runtime contract weekly against `main` as a
+job of one non-gating matrix workflow (Java also through the Maven producer).
+Python and the WebAssembly examples are also jobs of that workflow. Those runs are
 not qualification evidence and do not gate pull requests, promotion or
 release. A native-language result does not implicitly qualify a Wasm guest. The WebAssembly cases cover both the Wasmtime WASIp1
 command and the Spin SDK HTTP component on the existing runc-backed path,
