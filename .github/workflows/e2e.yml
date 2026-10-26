@@ -1,4 +1,4 @@
-name: Real-node E2E
+name: Real-Node E2E
 
 on:
   workflow_call:
@@ -71,7 +71,7 @@ jobs:
               test "$REF" = refs/heads/main
               ;;
             push)
-              # Full validation called by the release workflow for a version tag.
+              # Release Gate Tests, called by the release workflow for a version tag.
               test "$SCENARIO" = pr
               case "$REF" in refs/tags/v*) ;; *) exit 1 ;; esac
               ;;

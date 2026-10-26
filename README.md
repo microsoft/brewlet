@@ -1,6 +1,6 @@
 # Brewlet
 
-[![Full validation](https://github.com/microsoft/brewlet/actions/workflows/full-validation.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/full-validation.yml)
+[![Release Gate Tests](https://github.com/microsoft/brewlet/actions/workflows/release-gate-tests.yml/badge.svg?branch=main)](https://github.com/microsoft/brewlet/actions/workflows/release-gate-tests.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/microsoft/brewlet)](go.mod)
 [![License](https://img.shields.io/github/license/microsoft/brewlet)](LICENSE.txt)
 

@@ -31,7 +31,7 @@ exact images are listed in the [upstream runtime list](https://github.com/micros
 [rotation runtime list](https://github.com/microsoft/brewlet/blob/main/integration-tests/fixtures/runtimes/rotation.json). They are test inputs, not a security
 recommendation; use the runtime images your platform team approves.
 
-Python is Brewlet's qualification fixture: pull request E2E, full validation
+Python is Brewlet's qualification fixture: pull request E2E, Release Gate Tests
 and promotion run it on real nodes (see [verification](verification.md)). It
 also runs weekly against `main` in the non-gating [language example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-e2e.yml).
 

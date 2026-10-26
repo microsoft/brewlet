@@ -52,14 +52,14 @@ def index_document(path):
 
 def artifact_files(name, source):
     if name == f"checks-contracts-{source}":
-        return ".github/workflows/full-validation.yml", {"go-contracts.json", "maven.json"}
+        return ".github/workflows/release-gate-tests.yml", {"go-contracts.json", "maven.json"}
     if name == f"checks-documentation-{source}":
         return ".github/workflows/site-pages.yml", {"documentation.json"}
     for arch in ("amd64", "arm64"):
         for group, checks in (("producer", ("fixtures", "registry")),
                              ("kernel", ("native-contracts", "go-vet"))):
             if name == f"checks-{group}-{arch}-{source}":
-                return ".github/workflows/full-validation.yml", {f"{check}-{arch}.json" for check in checks}
+                return ".github/workflows/release-gate-tests.yml", {f"{check}-{arch}.json" for check in checks}
         for scenario, suites in (("complete", COMPLETE), ("managed", ("managed",)),
                                  ("managed-wasm", ("managed-wasm",))):
             if name == f"e2e-{arch}-{scenario}-{source}":
@@ -126,7 +126,7 @@ def download(actions, record, identity):
     run_id, artifact_id = positive_id(record["runId"]), positive_id(record["artifactId"])
     workflow, filenames = artifact_files(record["name"], identity["checkout"])
     run = actions.get(f"/actions/runs/{run_id}")
-    events = ("schedule", "workflow_dispatch") if workflow.endswith("full-validation.yml") else ("workflow_dispatch",)
+    events = ("schedule", "workflow_dispatch") if workflow.endswith("release-gate-tests.yml") else ("workflow_dispatch",)
     require(run.get("event") in events and run.get("head_sha") == identity["checkout"]
             and run.get("path") == workflow and run.get("status") == "completed"
             and run.get("conclusion") == "success", "run is not a successful immutable qualification invocation")

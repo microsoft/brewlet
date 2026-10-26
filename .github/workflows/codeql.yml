@@ -1,6 +1,6 @@
 name: CodeQL
 
-# Reusable: the PR workflow analyzes only impacted languages; full validation analyzes all of them.
+# Reusable: the PR workflow analyzes only impacted languages; Release Gate Tests analyzes all of them.
 on:
   workflow_call:
     inputs:

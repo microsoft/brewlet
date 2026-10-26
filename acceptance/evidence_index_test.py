@@ -45,7 +45,7 @@ class ArtifactTests(unittest.TestCase):
         record = {"runId": 11, "artifactId": 22, "name": name}
         responses = {
             "/actions/runs/11": {"event": "schedule", "head_sha": source,
-                "path": ".github/workflows/full-validation.yml", "status": "completed", "conclusion": "success"},
+                "path": ".github/workflows/release-gate-tests.yml", "status": "completed", "conclusion": "success"},
             "/actions/artifacts/22": {"name": name, "expired": False,
                 "workflow_run": {"id": 11, "head_sha": source}},
             "/actions/artifacts/22/zip": zipped(files)}
@@ -95,7 +95,7 @@ class ArtifactTests(unittest.TestCase):
                 "workflow_run": {"id": 11, "head_sha": source}},
             "/actions/artifacts/22/zip": zipped(files)}
         self.assertEqual(files, index.download(SimpleActions(responses), record, {"checkout": source}))
-        for key, value in (("path", ".github/workflows/full-validation.yml"),
+        for key, value in (("path", ".github/workflows/release-gate-tests.yml"),
                            ("event", "pull_request"), ("event", "push")):
             bad = copy.deepcopy(responses)
             bad["/actions/runs/11"][key] = value
@@ -225,7 +225,7 @@ class IndexedAcceptanceTests(unittest.TestCase):
             run_id, artifact_id, name = (artifact[key] for key in ("runId", "artifactId", "name"))
             workflow, files = index.artifact_files(name, self.identity["checkout"])
             responses[f"/actions/runs/{run_id}"] = {
-                "event": "schedule" if workflow.endswith("full-validation.yml") else "workflow_dispatch",
+                "event": "schedule" if workflow.endswith("release-gate-tests.yml") else "workflow_dispatch",
                 "head_sha": self.identity["checkout"], "path": workflow,
                 "status": "completed", "conclusion": "success"}
             responses[f"/actions/runs/{run_id}/artifacts?per_page=100"] = {

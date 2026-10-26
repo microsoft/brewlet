@@ -35,7 +35,7 @@ Admission denials, foreign destinations and TLS certificate-identity failures
 fail immediately; application assertions and installation deadlines are not
 relaxed by this readiness check.
 
-The branch's `.github/workflows/e2e.yml` is reused by PR and full validation and can
+The branch's `.github/workflows/e2e.yml` is reused by PR Check and Release Gate Tests and can
 also be dispatched manually at an exact `expected_sha`. Its default `pr` scenario
 is the real Python baseline (`harness.py --scenario pr`, verified with
 `qualify.py --verify-pr`): admission/startup, execution, rotations,
@@ -53,7 +53,7 @@ WebAssembly examples run weekly against `main` in the non-gating
 WebAssembly job runs `wasm.py`. It can be dispatched manually for any branch,
 either architecture and one or all languages. Their results are never qualification evidence.
 It deliberately omits the long fault/accounting/companion matrix, which remains
-mandatory before promotion. Neither `PR validation` nor `Full validation`
+mandatory before promotion. Neither `PR validation` nor `Release Gate Tests`
 can pass if a required E2E job fails, cancels or skips; pull requests that do not
 impact runtime, fixture or harness code skip it (see `acceptance/README.md`). The
 same `pr` scenario is a bounded manual debugging route that actually reaches the

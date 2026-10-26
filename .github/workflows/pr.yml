@@ -154,7 +154,7 @@ jobs:
       legal: ${{ needs.context.outputs.legal == 'true' }}
       producer: ${{ needs.context.outputs.producer == 'true' }}
       overlay: ${{ needs.context.outputs.overlay == 'true' }}
-      # Pull requests validate amd64 only; full validation keeps both native architectures.
+      # Pull requests validate amd64 only; Release Gate Tests keeps both native architectures.
       architectures: '["amd64"]'
 
   e2e:

@@ -1,4 +1,4 @@
-name: Full validation
+name: Release Gate Tests
 
 # Every check, CodeQL language and native E2E on both architectures.
 # Runs weekly on main, on manual dispatch, and is called by the release workflow
@@ -44,7 +44,7 @@ jobs:
               case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac
               ;;
             push)
-              # Only the release workflow calls full validation from a push: a version tag.
+              # Only the release workflow calls Release Gate Tests from a push: a version tag.
               [[ "$EXPECTED" =~ ^[0-9a-f]{40}$ ]]
               test "$SOURCE" = "$EXPECTED"
               case "$REF" in refs/tags/v*) ;; *) exit 1 ;; esac
@@ -83,7 +83,7 @@ jobs:
     uses: ./.github/workflows/codeql.yml
 
   validation:
-    name: Full validation
+    name: Release Gate Tests
     if: always()
     needs: [context, checks, e2e, codeql]
     runs-on: ubuntu-24.04

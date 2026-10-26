@@ -1,4 +1,4 @@
-name: Release candidate artifacts
+name: Release Candidate Artifacts
 
 on:
   workflow_dispatch:
