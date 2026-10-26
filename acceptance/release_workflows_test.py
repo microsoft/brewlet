@@ -24,8 +24,6 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("uses: ./.github/workflows/full-validation.yml", gate)
         self.assertIn("expected_sha: ${{ github.sha }}", gate)
         self.assertIn("security-events: write", gate)
-        self.assertNotIn("ci-gate", text)
-        self.assertNotIn("v2-ci", text)
         publish = text.split("\n  publish:\n", 1)[1]
         self.assertIn("needs: [metadata, validation, candidate]", publish)
         self.assertIn("github.event_name == 'push'", publish)

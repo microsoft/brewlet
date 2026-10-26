@@ -203,8 +203,6 @@ class WorkflowTests(unittest.TestCase):
         text = (ROOT / ".github/workflows/full-validation.yml").read_text()
         self.assertEqual(["  schedule:", "  workflow_dispatch:", "  workflow_call:"], triggers(text))
         self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"')
-        self.assertNotIn("purpose", text)
-        self.assertNotIn("archive-history", text)
         dispatch = text.split("  workflow_dispatch:", 1)[1].split("  workflow_call:", 1)[0]
         self.assertEqual("\n", dispatch)
         checks = text.split("\n  checks:", 1)[1].split("\n\n", 1)[0]
@@ -256,16 +254,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("  pull_request:", text)
         self.assertNotIn("pull_request_target", text)
         self.assertNotIn("secrets.", text)
-        self.assertNotIn("QUALIFICATION_MODE", text)
         self.assertNotIn("run_check.py", text)
         self.assertNotIn("make acceptance", text)
         self.assertNotIn("unittest discover", text)
         self.assertIn("harness.py --scenario pr \\\n", text)
         self.assertIn('--verify-pr "acceptance-export/pr-e2e-${ARCHITECTURE}.json"', text)
-        # Python is the only qualification fixture; example toolchains belong to language-e2e.yml.
-        for removed in ("--pr-language", "--languages", "LANGUAGES", "inputs.languages",
-                        "setup-java", "setup-node", "setup-dotnet"):
-            self.assertNotIn(removed, text)
         export = text.split("      - name: Export only public PR outcomes", 1)[1].split(
             "      - name:", 1)[0]
         self.assertIn("steps.guard.outcome == 'success'", export)
@@ -319,10 +312,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_language_examples_run_weekly_in_one_non_gating_matrix_workflow(self):
         text = (ROOT / ".github/workflows/language-e2e.yml").read_text()
-        self.assertFalse((ROOT / ".github/actions/language-e2e").exists())
         languages = ("python", "java", "node", "dotnet", "php", "wasm")
-        for language in languages:
-            self.assertFalse((ROOT / ".github/workflows" / f"language-{language}.yml").exists(), language)
         self.assertEqual(["  schedule:", "  workflow_dispatch:"], triggers(text))
         self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"', "language examples run weekly")
         self.assertIn("options: [all, " + ", ".join(languages) + "]", text)

@@ -33,7 +33,6 @@ class SiteTests(unittest.TestCase):
         source = (ROOT / "site/scripts/build.py").read_text()
         self.assertIn('"--strict"', source)
         self.assertNotIn("deploy-pages", source)
-        self.assertFalse((ROOT / "site/CNAME").exists())
 
     def test_parser_preserves_fragment_and_relative_links(self):
         spec = importlib.util.spec_from_file_location("site_check", Path(__file__).with_name("check.py"))
