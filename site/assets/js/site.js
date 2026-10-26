@@ -34,7 +34,9 @@
     node: {entrypoint: ["node"], args: ["/app/src/server.js"], layer: "app=./src:/app/src",
       note: "This example uses Node's built-in modules. Package node_modules explicitly when your application needs external dependencies."},
     dotnet: {entrypoint: ["dotnet"], args: ["/app/App.dll"], layer: "app=./publish:/app",
-      note: "Publish your framework-dependent application into ./publish first. Its target framework and native dependencies must match the approved runtime."}
+      note: "Publish your framework-dependent application into ./publish first. Its target framework and native dependencies must match the approved runtime."},
+    php: {entrypoint: ["php"], args: ["-S", "0.0.0.0:8000", "/app/index.php"], layer: "app=./src:/app",
+      note: "This example uses PHP's built-in web server. Run composer install in your pipeline and package vendor/ explicitly; extensions come from the approved runtime."}
   };
   const tabs = [...document.querySelectorAll("[data-language]")];
   const panel = document.getElementById("example-panel");

@@ -14,7 +14,7 @@ when a container is created.
 [enable runtime infrastructure](installation.md).
 
 Choose a [workload guide](language-recipes.md) for complete Java, Python,
-Node.js, .NET and WebAssembly workflows. These are tested examples under one
+Node.js, .NET, PHP and WebAssembly workflows. These are tested examples under one
 generic execution contract, not an exhaustive built-in runtime catalog.
 
 Choose the [developer workshop](workshops/developer.md) when a platform is
@@ -24,7 +24,7 @@ approval, pools and a concrete handoff. Read
 
 ## One mechanism, multiple ecosystems
 
-Java, Python, Node.js, .NET and WebAssembly use the same generic artifact,
+Java, Python, Node.js, .NET, PHP and WebAssembly use the same generic artifact,
 inventory, provisioning and execution path. Core does not detect languages, infer
 entrypoints, select interpreters or inject VM tuning.
 
