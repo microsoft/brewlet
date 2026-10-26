@@ -70,9 +70,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-if __name__ == "__main__":
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", 9443), Handler)
+def serve(handler=None):
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", 9443), handler or Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain("/certs/tls.crt", "/certs/tls.key")
     server.socket = context.wrap_socket(server.socket, server_side=True)
     server.serve_forever()
+
+
+if __name__ == "__main__":
+    serve()

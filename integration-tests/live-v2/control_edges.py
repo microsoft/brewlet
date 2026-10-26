@@ -467,7 +467,6 @@ def _in_cluster_api(method, path, data=None):
 
 def _serve_release_admission():
     """Entrypoint of the copied module, never run during import or offline tests."""
-    import http.server
     import interceptor
 
     engine = ReleaseAdmission(_in_cluster_api, lambda row: print(json.dumps(row), flush=True))
@@ -481,11 +480,7 @@ def _serve_release_admission():
             return False, "release CAS instrumentation failed: " + str(exc)
 
     interceptor.decision = decision
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", 9443), interceptor.Handler)
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain("/certs/tls.crt", "/certs/tls.key")
-    server.socket = context.wrap_socket(server.socket, server_side=True)
-    server.serve_forever()
+    interceptor.serve()
 
 
 class ControlEdges:

@@ -90,6 +90,7 @@ def serve(upstream, authority, directory, certificates):
     server = http.server.ThreadingHTTPServer(("0.0.0.0", int(authority.rsplit(":", 1)[1])), Handler)
     server.daemon_threads = True
     tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.minimum_version = ssl.TLSVersion.TLSv1_2
     tls.load_cert_chain(certificates / "tls.crt", certificates / "tls.key")
     server.socket = tls.wrap_socket(server.socket, server_side=True)
     (directory / "ready").touch()
