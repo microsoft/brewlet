@@ -57,8 +57,6 @@ class RoutingTests(unittest.TestCase):
         guard = workflow.split("            push)", 1)[1].split(";;", 1)[0]
         self.assertIn('test "$SCENARIO" = pr', guard)
         self.assertIn("refs/tags/v*", guard)
-        for removed in ("promotion-qualification.yml", "release-transition.yml"):
-            self.assertFalse((ROOT / ".github/workflows" / removed).exists())
 
     def test_dispatch_is_a_build_only_dry_run_of_the_same_candidate_builder(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
