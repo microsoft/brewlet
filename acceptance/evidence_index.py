@@ -16,7 +16,7 @@ import urllib.request
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from acceptance.evidence import ROOT, candidate_errors, git, input_hashes, read_json, working_identity
+from acceptance.evidence import ROOT, candidate_errors, input_hashes, read_json, working_identity
 from acceptance.qualify import COMPLETE, SUITES
 from acceptance.run_check import CHECKS
 
@@ -176,63 +176,6 @@ def candidate_records(actions, candidate, expected):
     return records
 
 
-def export_history(root, history, output):
-    require(isinstance(history, dict) and isinstance(history.get("files"), list),
-            "historical evidence manifest required")
-    revision = history.get("commit", "")
-    require(isinstance(revision, str) and re.fullmatch(r"[0-9a-f]{40}", revision), "immutable archive commit required")
-    subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", revision, "HEAD"],
-                   check=True, capture_output=True)
-    payloads = {}
-    for record in history["files"]:
-        path = record["path"]
-        require(isinstance(path, str), "historical path must be a string")
-        parsed = PurePosixPath(path)
-        require(path.startswith("acceptance/results/")
-                and path.endswith(".json") and ".." not in parsed.parts and "\\" not in path
-                and str(parsed) == path and path not in payloads, "invalid historical public path")
-        payload = git(root, "show", revision + ":" + path)
-        require(len(payload) == record["size"] and hashlib.sha256(payload).hexdigest() == record["sha256"],
-                "historical public bytes differ: " + path)
-        payloads[path] = payload
-    tracked = git(root, "ls-tree", "-r", "--name-only", revision, "--", "acceptance/results").decode().splitlines()
-    require(set(payloads) == {path for path in tracked if path.endswith(".json")},
-            "historical index must preserve every public receipt at its pinned revision")
-    output = Path(output)
-    output.mkdir(parents=True, exist_ok=False)
-    for path, payload in payloads.items():
-        target = output / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(payload)
-    (output / "index.json").write_text(json.dumps(history, indent=2) + "\n")
-    return len(payloads)
-
-
-def record_history(actions, document, run_id):
-    run_id = positive_id(run_id)
-    run = actions.get(f"/actions/runs/{run_id}")
-    source = run.get("head_sha", "")
-    require(run.get("path") == ".github/workflows/full-validation.yml"
-            and isinstance(source, str) and re.fullmatch(r"[0-9a-f]{40}", source),
-            "historical archive must belong to the full validation workflow")
-    listing = actions.get(f"/actions/runs/{run_id}/artifacts?per_page=100")
-    matches = [item for item in listing["artifacts"]
-               if item["name"] == "historical-acceptance-receipts-" + source and item["expired"] is False]
-    require(len(matches) == 1, "one unexpired historical archive is required")
-    artifact_id = positive_id(matches[0]["id"])
-    history = document["history"]
-    expected = {row["path"] for row in history["files"]}
-    records = unpack(actions.get(f"/actions/artifacts/{artifact_id}/zip", binary=True), expected | {"index.json"})
-    original = json.loads(records.pop("index.json"))
-    require(original.get("commit") == history["commit"] and original.get("files") == history["files"],
-            "historical archive manifest differs")
-    for row in history["files"]:
-        payload = records[row["path"]]
-        require(len(payload) == row["size"] and hashlib.sha256(payload).hexdigest() == row["sha256"],
-                "historical archive checksum mismatch: " + row["path"])
-    return dict(document, history=dict(history, artifactRunId=run_id, artifactId=artifact_id))
-
-
 def record_candidate(actions, root, document, runs, expected):
     records, artifacts = {}, []
     identity = None
@@ -273,39 +216,19 @@ def main():
     commands.add_parser("fetch")
     record = commands.add_parser("record-candidate", help="only after reviewing successful workflow runs")
     record.add_argument("--run", type=int, action="append", required=True)
-    history = commands.add_parser("export-history")
-    history.add_argument("--output", type=Path, required=True)
-    history.add_argument("--if-needed", action="store_true")
-    record_archive = commands.add_parser("record-history", help="record only after downloading and verifying every original byte")
-    record_archive.add_argument("--run", type=int, required=True)
     args = parser.parse_args()
     try:
         path = ROOT / "acceptance/evidence-index.json"
         document = index_document(path)
-        if args.command == "export-history":
-            needed = not (args.if_needed and document["history"].get("artifactRunId") is not None)
-            if needed:
-                print(f"Archived {export_history(ROOT, document['history'], args.output)} byte-verified original records")
-            else:
-                positive_id(document["history"]["artifactRunId"])
-                positive_id(document["history"].get("artifactId"))
-                print("Historical records already indexed as CI artifacts; no repeated archive")
-            if os.environ.get("GITHUB_OUTPUT"):
-                with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
-                    output.write("written=" + ("true" if needed else "false") + "\n")
-            return 0
         expected = working_identity()
         actions = Actions(os.environ.get("GITHUB_TOKEN"))
         if args.command == "fetch":
             materialize(ROOT, candidate_records(actions, document["candidate"], expected))
             print("Retrieved all 34 indexed current receipts; strict acceptance must still pass")
-        elif args.command == "record-candidate":
+        else:
             updated = record_candidate(actions, ROOT, document, args.run, expected)
             path.write_text(json.dumps(updated, indent=2) + "\n")
             print("Recorded reviewed evidence index; commit this evidence-only change before strict acceptance")
-        else:
-            path.write_text(json.dumps(record_history(actions, document, args.run), indent=2) + "\n")
-            print("Recorded byte-verified historical archive; commit this evidence-only index change")
         return 0
     except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         print("evidence operation failed: " + str(error), file=sys.stderr)

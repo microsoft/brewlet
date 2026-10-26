@@ -196,9 +196,10 @@ class WorkflowTests(unittest.TestCase):
         text = (ROOT / ".github/workflows/full-validation.yml").read_text()
         self.assertEqual(["  schedule:", "  workflow_dispatch:", "  workflow_call:"], triggers(text))
         self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"')
-        for job in ("checks", "e2e", "codeql"):
-            section = text.split("\n  " + job + ":", 1)[1].split("\n\n", 1)[0]
-            self.assertIn("if: needs.context.outputs.purpose == 'validation'", section)
+        self.assertNotIn("purpose", text)
+        self.assertNotIn("archive-history", text)
+        dispatch = text.split("  workflow_dispatch:", 1)[1].split("  workflow_call:", 1)[0]
+        self.assertEqual("\n", dispatch)
         checks = text.split("\n  checks:", 1)[1].split("\n\n", 1)[0]
         for scope in ("go", "maven", "python", "legal", "producer", "overlay"):
             self.assertNotIn("      " + scope + ":", checks)
@@ -206,12 +207,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("security-events: write", codeql)
         self.assertNotIn("languages:", codeql)
         aggregate = text.split("\n  validation:", 1)[1]
-        self.assertIn("needs: [context, checks, e2e, codeql, archive-history]", aggregate)
-        self.assertIn("needs.context.outputs.purpose == 'validation' || needs.context.result != 'success'", aggregate)
-        self.assertIn("== 'archive-history' && 'Archive-only status' || 'Brewlet full validation'", aggregate)
-        self.assertIn("export-history --if-needed", text)
+        self.assertIn("needs: [context, checks, e2e, codeql]", aggregate)
+        self.assertIn("if: always()", aggregate)
         program = block(aggregate, "Require every prerequisite")
-        dependencies = ("CONTEXT", "CHECKS", "E2E", "CODEQL", "HISTORY")
+        dependencies = ("CONTEXT", "CHECKS", "E2E", "CODEQL")
         for dependency in dependencies:
             for value in ("success", "failure", "skipped", "cancelled", ""):
                 environment = dict.fromkeys(dependencies, "success")
@@ -219,34 +218,30 @@ class WorkflowTests(unittest.TestCase):
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertEqual(value == "success", result.returncode == 0, (dependency, value))
 
-    def test_full_validation_source_and_purpose_guards_are_executed_before_tests(self):
+    def test_full_validation_source_guard_is_executed_before_tests(self):
         text = (ROOT / ".github/workflows/full-validation.yml").read_text()
         program = block(text, "Validate immutable source")
-        for event, ref, purpose, expected, success in (
-                ("schedule", "refs/heads/main", "validation", "", True),
-                ("schedule", "refs/heads/candidate", "validation", "", False),
-                ("schedule", "refs/heads/main", "archive-history", "", False),
-                ("schedule", "refs/heads/main", "validation", "a" * 40, False),
-                ("workflow_dispatch", "refs/heads/candidate", "validation", "a" * 40, True),
-                ("workflow_dispatch", "refs/heads/candidate", "archive-history", "a" * 40, True),
-                ("workflow_dispatch", "refs/heads/candidate", "qualification-non-live", "a" * 40, False),
-                ("workflow_dispatch", "refs/heads/candidate", "publish", "a" * 40, False),
-                ("workflow_dispatch", "refs/heads/candidate", "validation", "b" * 40, False),
-                ("workflow_dispatch", "refs/heads/candidate", "validation", "", False),
-                ("workflow_dispatch", "refs/tags/v1.0.0", "validation", "a" * 40, False),
-                ("push", "refs/tags/v1.0.0", "validation", "a" * 40, True),
-                ("push", "refs/tags/v1.0.0", "validation", "b" * 40, False),
-                ("push", "refs/tags/v1.0.0", "validation", "", False),
-                ("push", "refs/tags/v1.0.0", "archive-history", "a" * 40, False),
-                ("push", "refs/heads/main", "validation", "a" * 40, False),
-                ("pull_request", "refs/pull/1/merge", "validation", "", False),
-                ("pull_request", "refs/pull/1/merge", "validation", "a" * 40, False)):
+        for event, ref, expected, success in (
+                ("schedule", "refs/heads/main", "", True),
+                ("schedule", "refs/heads/candidate", "", False),
+                ("schedule", "refs/heads/main", "a" * 40, False),
+                ("workflow_dispatch", "refs/heads/candidate", "", True),
+                ("workflow_dispatch", "refs/heads/main", "", True),
+                ("workflow_dispatch", "refs/heads/candidate", "a" * 40, False),
+                ("workflow_dispatch", "refs/tags/v1.0.0", "", False),
+                ("workflow_dispatch", "refs/tags/v1.0.0", "a" * 40, False),
+                ("push", "refs/tags/v1.0.0", "a" * 40, True),
+                ("push", "refs/tags/v1.0.0", "b" * 40, False),
+                ("push", "refs/tags/v1.0.0", "", False),
+                ("push", "refs/heads/main", "a" * 40, False),
+                ("pull_request", "refs/pull/1/merge", "", False),
+                ("pull_request", "refs/pull/1/merge", "a" * 40, False)):
             with tempfile.TemporaryDirectory() as temporary:
-                environment = {"EVENT": event, "PURPOSE": purpose, "EXPECTED": expected,
+                environment = {"EVENT": event, "EXPECTED": expected,
                     "SOURCE": "a" * 40, "REPOSITORY": "microsoft/brewlet", "REF": ref,
                     "GITHUB_OUTPUT": str(Path(temporary) / "output")}
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
-                self.assertEqual(success, result.returncode == 0, (event, ref, purpose, expected))
+                self.assertEqual(success, result.returncode == 0, (event, ref, expected))
 
     def test_promotion_is_manual_reusable_and_fetches_verified_artifacts_before_strict_gate(self):
         text = (ROOT / ".github/workflows/promotion-qualification.yml").read_text()

@@ -143,54 +143,6 @@ class ArtifactTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 index.materialize(root, {"go-contracts.json": b"replacement"})
 
-    def test_history_export_checks_original_bytes_and_recording_archive_is_not_qualification(self):
-        fixture = evidence_test.EvidenceTests()
-        fixture.setUp()
-        self.addCleanup(fixture.doCleanups)
-        relative = "acceptance/results/original.json"
-        original = b'{"outcome":"failed","original":true}\n'
-        (fixture.root / relative).write_bytes(original)
-        fixture.commit()
-        source = working_identity(fixture.root)["checkout"]
-        history = {"commit": source, "files": [{"path": relative, "size": len(original),
-            "sha256": hashlib.sha256(original).hexdigest()}], "artifactRunId": None}
-        output = fixture.root / "archive"
-        self.assertEqual(1, index.export_history(fixture.root, history, output))
-        self.assertEqual(original, (output / relative).read_bytes())
-        with self.assertRaises(FileExistsError):
-            index.export_history(fixture.root, history, output)
-        bad = copy.deepcopy(history)
-        bad["files"][0]["sha256"] = "0" * 64
-        with self.assertRaises(ValueError):
-            index.export_history(fixture.root, bad, fixture.root / "bad")
-        document = {"schemaVersion": 1, "history": history, "candidate": None}
-        actions = SimpleActions({
-            "/actions/runs/11": {"path": ".github/workflows/full-validation.yml", "head_sha": "a" * 40},
-            "/actions/runs/11/artifacts?per_page=100": {"artifacts": [{
-                "id": 22, "name": "historical-acceptance-receipts-" + "a" * 40, "expired": False}]},
-            "/actions/artifacts/22/zip": zipped({relative: original,
-                "index.json": json.dumps(history).encode()})})
-        recorded = index.record_history(actions, document, 11)
-        self.assertEqual(11, recorded["history"]["artifactRunId"])
-        self.assertIsNone(recorded["candidate"])
-        self.assertIsNone(document["history"]["artifactRunId"])
-        self.assertTrue(verify_evidence.validate(fixture.root, recorded, expected=fixture.identity))
-
-    def test_recorded_history_does_not_require_original_git_objects_on_later_ci(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "acceptance").mkdir()
-            document = {"schemaVersion": 1, "candidate": None,
-                        "history": {"artifactRunId": 11, "artifactId": 22, "commit": "a" * 40, "files": []}}
-            (root / "acceptance/evidence-index.json").write_text(json.dumps(document))
-            output = root / "step-output"
-            with patch.object(index, "ROOT", root), patch.dict("os.environ", {"GITHUB_OUTPUT": str(output)}), \
-                    patch("sys.argv", ["evidence_index.py", "export-history", "--if-needed",
-                                       "--output", str(root / "not-created")]):
-                self.assertEqual(0, index.main())
-            self.assertEqual("written=false\n", output.read_text())
-            self.assertFalse((root / "not-created").exists())
-
 
 class SimpleActions:
     def __init__(self, responses):
