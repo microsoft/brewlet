@@ -41,8 +41,13 @@ class RoutingTests(unittest.TestCase):
         self.assertNotIn("secrets.", text.split("\n  publish:\n", 1)[0])
 
     def test_every_release_runs_the_python_real_node_e2e_on_both_architectures(self):
-        from acceptance.qualification import fixture_names, load_matrix
-        self.assertIn("python", fixture_names(load_matrix(), "native"))
+        import importlib.util
+        import sys
+        sys.path.insert(0, str(ROOT / "integration-tests/live-v2"))
+        spec = importlib.util.spec_from_file_location("harness", ROOT / "integration-tests/live-v2/harness.py")
+        harness = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(harness)
+        self.assertIn("python", harness.LANGUAGES)
         full = (ROOT / ".github/workflows/full-validation.yml").read_text()
         e2e = full.split("\n  e2e:\n", 1)[1].split("\n\n", 1)[0]
         self.assertIn("uses: ./.github/workflows/e2e.yml", e2e)
