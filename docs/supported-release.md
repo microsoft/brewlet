@@ -135,7 +135,7 @@ The `release.yml` workflow then:
 - checks that the tag equals `v` + `release.json` version;
 - runs the complete **Brewlet full validation** workflow (`full-validation.yml`,
   the same one that runs weekly) for the tagged commit: every check, every
-  CodeQL language and the four-language real E2E on amd64 and arm64;
+  CodeQL language and the Python real E2E on amd64 and arm64;
 - builds and verifies the candidate with `release-build.yml` (tests, legal
   checks, reproducibility, SBOMs, provenance, native CLI and Maven consumer
   smoke tests);

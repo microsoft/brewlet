@@ -523,7 +523,7 @@ class SafetyTests(ProjectWork):
         instance.load_image = mock.Mock(side_effect=AssertionError("unused runtime imported"))
         instance.ctr = mock.Mock(side_effect=AssertionError("unused runtime alias created"))
         instance.build_runtime_images()
-        self.assertEqual(instance.build.call_count, 16)
+        self.assertEqual(instance.build.call_count, 4 * len(h.LANGUAGES))
         self.assertEqual(instance.runtime_images, {language: {} for language in h.LANGUAGES})
         self.assertEqual(set(instance.runtime_paths), set(h.LANGUAGES))
         for language in h.LANGUAGES:
@@ -1006,10 +1006,9 @@ class CallbackOrderTests(ProjectWork):
         self.assertTrue(instance.result["cleanSelectedSuitePassed"])
 
     def configure(self, *, bootstrap_failure=False, cleanup_failure=False, observer_failure=False,
-                  scenario="complete", retain_on_failure=False, local_language=None, pr_language=None):
+                  scenario="complete", retain_on_failure=False, local_language=None):
         instance = self.harness(scenario=scenario, retain_on_failure=retain_on_failure,
-                                local_language=local_language, pinned=local_language is None,
-                                pr_language=pr_language)
+                                local_language=local_language, pinned=local_language is None)
         calls = []
         for name in ("preflight", "provision_cluster", "prepare_images", "install",
                      "startup", "application_execution", "barriers_and_rotation",
@@ -1068,17 +1067,26 @@ class CallbackOrderTests(ProjectWork):
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
             "install", "admission_contract", "initial_fence", "startup", "observer_start", "application_execution", "barriers_and_rotation",
             "observability", "observer_stop", "durable_generations", "protected_identity", "rotation_participants",
-            "filesystem", "accounting", "delivery", "maven_node", "container_roles", "lifecycle",
+            "filesystem", "accounting", "delivery", "container_roles", "lifecycle",
             "control_edges", "pinned_revocation",
             "before_cleanup", "production_cleanup", "after_cleanup",
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
         self.assertEqual(instance.result["outcome"], "passed")
+        # The Maven node producer and example languages run in the daily per-language workflows.
+        self.assertTrue(any(gap.startswith("Java, Node.js, .NET and PHP example fixtures")
+                            for gap in instance.result["gaps"]))
+        self.assertFalse(any("fixture selection" in gap for gap in instance.result["gaps"]))
 
-    def test_pr_scope_requires_four_languages_identity_rotations_and_normal_cleanup(self):
+    def test_pr_scope_requires_python_identity_rotations_and_normal_cleanup(self):
         instance, calls, modules = self.configure(scenario="pr")
         with mock.patch.dict(sys.modules, modules):
             self.assertEqual(instance.execute(), 0)
-        self.assertEqual(instance.languages, h.LANGUAGES)
+        self.assertEqual(h.LANGUAGES, ("python",))
+        self.assertEqual(instance.languages, ("python",))
+        self.assertEqual(instance.probe_language, "python")
+        self.assertEqual(instance.result["selectedLanguages"], ["python"])
+        self.assertFalse(any("fixture selection" in gap or "example fixtures" in gap
+                             for gap in instance.result["gaps"]))
         self.assertEqual(instance.result["selectedScenario"], "pr")
         self.assertFalse(instance.result["fullAcceptance"])
         for name in ("admission_contract", "initial_fence", "startup", "application_execution",
@@ -1101,22 +1109,8 @@ class CallbackOrderTests(ProjectWork):
         self.assertIn("destroy", calls)
         self.assertNotIn("production_cleanup", calls)
 
-    def test_python_pr_scope_keeps_pinned_identity_rotation_and_cleanup_and_records_gap(self):
-        instance, calls, modules = self.configure(scenario="pr", pr_language="python")
-        with mock.patch.dict(sys.modules, modules):
-            self.assertEqual(instance.execute(), 0)
-        self.assertEqual(instance.languages, ("python",))
-        self.assertEqual(instance.probe_language, "python")
-        self.assertEqual(instance.result["selectedLanguages"], ["python"])
-        self.assertFalse(instance.result["fullAcceptance"])
-        self.assertTrue(any(gap.startswith("PR fixture selection omits java, node, dotnet")
-                            for gap in instance.result["gaps"]))
-        for name in ("admission_contract", "startup", "application_execution", "barriers_and_rotation",
-                     "durable_generations", "protected_identity", "pinned_revocation", "production_cleanup"):
-            self.assertIn(name, calls)
-
     def test_pinned_fence_uses_another_runtime_or_records_single_language_gap(self):
-        for kwargs, pending in (({}, "node"), ({"pr_language": "python"}, None)):
+        for kwargs, pending in (({}, None),):
             with self.subTest(kwargs=kwargs):
                 if self.work.exists():
                     shutil.rmtree(self.work)
@@ -1162,8 +1156,15 @@ class CallbackOrderTests(ProjectWork):
 
     def test_preflight_requires_only_the_selected_fixture_toolchains(self):
         for kwargs, absent, present in (
-                ({"scenario": "pr", "pr_language": "python"}, {"mvn", "java", "node", "dotnet"}, set()),
-                ({"scenario": "pr"}, set(), {"mvn", "java", "node", "dotnet"})):
+                ({"scenario": "pr"}, {"mvn", "java", "node", "dotnet", "php"}, set()),
+                ({"scenario": "maven", "pinned": False, "local_language": "java"},
+                 {"node", "dotnet", "php"}, {"mvn", "java"}),
+                ({"scenario": "runtime", "pinned": False, "local_language": "node"},
+                 {"mvn", "java", "dotnet", "php"}, {"node"}),
+                ({"scenario": "runtime", "pinned": False, "local_language": "dotnet"},
+                 {"mvn", "java", "node", "php"}, {"dotnet"}),
+                ({"scenario": "runtime", "pinned": False, "local_language": "php"},
+                 {"mvn", "java", "node", "dotnet"}, {"php"})):
             with self.subTest(kwargs=kwargs):
                 if self.work.exists():
                     shutil.rmtree(self.work)
@@ -1189,10 +1190,11 @@ class CallbackOrderTests(ProjectWork):
         for kwargs in ({"pinned": False}, {"local_language": "python"}):
             with self.subTest(kwargs=kwargs), self.assertRaisesRegex(h.Failure, "PR E2E requires pinned"):
                 self.harness(scenario="pr", **kwargs)
-        for scenario, language in (("pr", "java"), ("pr", "node"), ("complete", "python"), ("control", "python")):
-            with self.subTest(scenario=scenario, language=language), \
-                    self.assertRaisesRegex(h.Failure, "only the Python PR E2E"):
-                self.harness(scenario=scenario, pr_language=language)
+        for language in h.EXAMPLE_LANGUAGES:
+            with self.subTest(language=language), self.assertRaisesRegex(h.Failure, "PR E2E requires pinned"):
+                self.harness(scenario="pr", local_language=language)
+        with self.assertRaises(TypeError):
+            self.harness(scenario="pr", pr_language="python")
 
     def test_observability_failure_cannot_be_reported_as_a_pass_or_skip_cleanup(self):
         instance, calls, modules = self.configure(observer_failure=True)
@@ -1250,14 +1252,16 @@ class CallbackOrderTests(ProjectWork):
         self.assertIn("control_edges", calls)
         self.assertIn("production_cleanup", calls)
         self.assertNotIn("pinned_revocation", calls)
-        self.assertTrue(any("omits java, node, dotnet" in gap
-                            for gap in instance.result["gaps"]))
+        self.assertFalse(any("fixture selection" in gap for gap in instance.result["gaps"]))
+        self.assertTrue(any("Focused control execution omits" in gap for gap in instance.result["gaps"]))
 
     def test_runtime_only_scope_keeps_execution_and_production_cleanup_without_control_hooks(self):
         instance, calls, modules = self.configure(scenario="runtime", local_language="java")
         with mock.patch.dict(sys.modules, modules):
             self.assertEqual(instance.execute(), 0)
         self.assertEqual(instance.result["selectedLanguages"], ["java"])
+        self.assertTrue(any(gap.startswith("Local fixture selection java replaces qualification fixture python")
+                            for gap in instance.result["gaps"]))
         self.assertFalse(instance.result["fullAcceptance"])
         for required in ("bootstrap_delivery", "startup", "application_execution",
                          "barriers_and_rotation", "observability", "production_cleanup", "destroy"):

@@ -33,6 +33,11 @@ The exact digests are listed in the
 [adapted](../integration-tests/fixtures/runtimes/rotation.json) test matrices.
 They are test inputs, not a security recommendation.
 
+The Node.js example fixture runs daily against `main` in the
+[Node.js example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-node.yml). It does not gate pull
+requests or releases; Python is the only qualification fixture (see
+[verification](verification.md)).
+
 Always use the runtime ID, executable path and platforms supplied by your
 platform team. `node-22` below is an example ID; Brewlet does not infer a
 Node.js version from it.

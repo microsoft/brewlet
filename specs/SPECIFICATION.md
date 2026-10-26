@@ -215,7 +215,8 @@ Producers require explicit platform declarations (§11.1); content neutrality
 is an author assertion, never inferred by the CLI.
 
 The named workload examples include **Java, Python, Node.js, .NET and
-WebAssembly**, all using this same artifact and explicit launch contract:
+WebAssembly**, all using this same artifact and explicit launch contract (§13.2
+defines which of them are qualification fixtures):
 
 | Workload | Application contribution | Approved Linux runtime infrastructure |
 | --- | --- | --- |
@@ -1531,9 +1532,13 @@ interceptor or provider validation, not just by setting labels in a fixture.
 
 ### 13.2 Language-neutral workload acceptance
 
-The workload examples and qualification matrix MUST include Java, Python,
-Node.js, .NET and WebAssembly. A native-language result does not implicitly
-qualify a Wasm guest. The WebAssembly cases cover both the Wasmtime WASIp1
+The qualification matrix MUST include Python, the single native-language
+qualification fixture, and WebAssembly. Java, Node.js, .NET and PHP remain
+example fixtures that use the same producer, artifact and explicit launch
+contract; each runs the real-node runtime contract in its own non-gating daily
+workflow against `main` (Java also through the Maven producer). Those runs are
+not qualification evidence and do not gate pull requests, promotion or
+release. A native-language result does not implicitly qualify a Wasm guest. The WebAssembly cases cover both the Wasmtime WASIp1
 command and the Spin SDK HTTP component on the existing runc-backed path,
 including actual guest execution, declared dependency reads, non-root host
 identity, read-only payloads, guest access boundaries and explicit Exec/probe
@@ -1680,8 +1685,9 @@ two-published-artifact composition command.
   image traceable and independently verifiable.
 - Separate content integrity, publisher authorization, composition and
   application compatibility; none implies the others.
-- Qualify Java, Python, Node.js and .NET with real independently published sets
-  and compatible unchanged upstream runtime images.
+- Qualify the Python fixture with real independently published sets and a
+  compatible unchanged upstream runtime image; other native languages are
+  examples, not qualification scopes (§13.2).
 - Qualify WebAssembly through both Wasmtime and Spin, preserving explicit guest
   capabilities and actual platform-built host provenance in a separate companion
   scope (§16.11.1); do not treat native-language receipts as implicit Wasm proof.
@@ -1936,7 +1942,7 @@ No parallel orchestration or credit budget is authorized by this plan.
 ### 16.11 Required acceptance matrix
 
 The final feature is not qualified by separate tests of its constituent parts.
-For **each** Java, Python, Node.js and .NET case:
+For the native-language qualification case (Python, §13.2):
 
 1. Publish an independent locked dependency set, SBOM and publisher provenance.
 2. Publish an immutable application payload through its normal external
@@ -1952,15 +1958,15 @@ For **each** Java, Python, Node.js and .NET case:
 7. Complete normal workload/profile cleanup and exact-owned fixture destruction.
 
 Native arm64 local proof and native amd64 CI proof are separate scopes.
-Cross-builds do not substitute for either. The unchanged .NET runtime input
-must be discovered and policy-qualified (for example, a reviewed chiseled
-candidate); an adapted root must not be relabeled unchanged.
+Cross-builds do not substitute for either. An unchanged runtime input must be
+discovered and policy-qualified (for example, a reviewed chiseled candidate);
+an adapted root must not be relabeled unchanged.
 An unavailable compliant input remains an explicit matrix blocker.
 
 #### 16.11.1 WebAssembly composition companion
 
 WebAssembly is a required additional workload category, not implicitly covered
-by the four native-language cases. Qualify **both** the Wasmtime WASIp1 command
+by the native-language case. Qualify **both** the Wasmtime WASIp1 command
 and the Spin SDK HTTP component on native arm64 and native amd64 separately:
 
 1. Publish a complete locked external dependency payload, CycloneDX SBOM and
@@ -1984,7 +1990,7 @@ and the Spin SDK HTTP component on native arm64 and native amd64 separately:
 Record the host images' actual provenance. The existing examples use
 platform-built roots combining pinned distroless C/C++ userland with unchanged,
 checksum-pinned engine binaries; do not call these unchanged upstream engine
-OCI images or weaken the four native-language unchanged-root requirement.
+OCI images or weaken the native-language unchanged-root requirement.
 
 Replacing external files/components that a guest explicitly consumes is not a
 patch for code statically linked into a `.wasm` file. Compiled-in dependency

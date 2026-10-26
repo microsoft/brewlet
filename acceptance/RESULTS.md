@@ -5,7 +5,7 @@ is indexed. Green unit/contract checks, partial live assertions and historical
 declarations do not satisfy the 115 baseline obligations, 29 composition
 obligations or 22-suite native matrix.
 
-The PR gate includes real four-language application execution,
+The PR gate includes real Python application execution,
 rotations, protected CRI identity and normal production cleanup. It is distinct
 from full promotion qualification. Actual execution and current run URLs are reported by the required GitHub
 `Brewlet validation` check, not by updates to this versioned report. Offline

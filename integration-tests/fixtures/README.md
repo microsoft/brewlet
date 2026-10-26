@@ -1,4 +1,4 @@
-# Four-language contract fixtures
+# Language contract fixtures
 
 Each fixture serves JSON on port 8000 and supports `--probe` to print the same
 JSON once. All report runtime version, a value from a separate dependency layer,
@@ -9,19 +9,28 @@ Every `launch.json` is hand-written. No CLI inference is involved. Application
 and dependency source groups are supplied explicitly. The Java Maven producer is
 an additional route to an ordinary v1 artifact, not an alternate runtime path.
 
-Prerequisites: Go as pinned in `go.mod`, Maven 3.9+, Java 21+, Python 3.12+,
-Node.js 22+ and .NET SDK **10.0.401**. The .NET SDK does not roll forward.
+Python is the qualification fixture used by pull request, full and promotion
+validation. Java, Node.js, .NET and PHP are example fixtures: each runs on a
+real node daily against `main` in its own non-gating workflow
+(`.github/workflows/language-<name>.yml`, through `language-e2e.yml`).
+
+Prerequisites: Go as pinned in `go.mod`, Maven 3.9+, Java 21+ and Python
+3.12+. Selected example fixtures also need Node.js 22+, .NET SDK **10.0.401**
+(it does not roll forward) or PHP 8.3+ with the `posix` extension.
 Java compiler/plugin versions and deterministic JAR timestamps are pinned in
-the fixture POMs. All four CLI artifacts explicitly declare `linux/amd64` and
+the fixture POMs. All CLI artifacts explicitly declare `linux/amd64` and
 `linux/arm64`; the supplied code is managed/neutral and contains no native
 dependencies.
 
 ```sh
 make build
 python3 integration-tests/fixtures/check.py --brewlet ./bin/brewlet
+python3 integration-tests/fixtures/check.py --brewlet ./bin/brewlet --languages python,php
 ```
 
-The harness builds and runs all four on the **host**, packages each twice,
+`--languages` takes a comma-separated selection of `python`, `java`, `node`,
+`dotnet` and `php` (default `python`). The Maven producer checks always run.
+The harness builds and runs the selected fixtures on the **host**, packages each twice,
 checks deterministic OCI targets and layer deduplication across declared
 platforms, and packages Java again through Maven. Java additionally publishes
 an explicitly BOM-governed layer set, consumes it without duplicate dependency

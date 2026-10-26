@@ -110,19 +110,23 @@ class SuiteTests(unittest.TestCase):
                 qualify.run("complete", "arm64", self.directory)
             command.assert_not_called()
 
-    def test_pr_requires_actual_each_language_start_rotation_identity_and_cleanup_but_is_not_core(self):
-        result = {**self.fixture.result, **self.identity, "selectedScenario": "pr", "fullAcceptance": False}
-        names = [language + suffix for language in qualify.NATIVE for suffix in (
+    def test_python_pr_requires_actual_start_rotation_identity_and_cleanup_but_is_not_core(self):
+        self.assertEqual(("python",), qualify.NATIVE)
+        result = {**self.fixture.result, **self.identity, "selectedScenario": "pr", "fullAcceptance": False,
+                  "selectedLanguages": ["python"]}
+        result["assertions"] = [{"name": "python" + suffix, "outcome": "passed", "requirements": []} for suffix in (
             " real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
             " source rotation, unchanged app, retained task/exec lease, new barrier",
             " actual protected CRI identity resolves verified native descriptors and config")]
-        result["assertions"] = [{"name": name, "outcome": "passed", "requirements": []} for name in names]
         self.assertEqual([], qualify.pr_errors(result, "amd64", self.root, self.identity))
         self.assertTrue(qualify.suite_errors(result, "core", "amd64", self.root, self.identity))
-        for change in ("missing-language", "missing-identity", "cleanup", "destruction", "full-claim", "failed"):
+        for change in ("example-languages", "other-language", "missing-identity", "cleanup", "destruction",
+                       "full-claim", "failed"):
             value = copy.deepcopy(result)
-            if change == "missing-language":
-                value["selectedLanguages"] = ["python"]
+            if change == "example-languages":
+                value["selectedLanguages"] = ["java", "python", "node", "dotnet"]
+            elif change == "other-language":
+                value["selectedLanguages"] = ["php"]
             elif change == "missing-identity":
                 value["assertions"].pop()
             elif change == "cleanup":
@@ -137,27 +141,7 @@ class SuiteTests(unittest.TestCase):
                 self.assertTrue(qualify.pr_errors(value, "amd64", self.root, self.identity))
         for value in ([], {}, {"assertions": None}, {"assertions": [{"name": [], "outcome": "passed"}]}):
             self.assertTrue(qualify.pr_errors(value, "amd64", self.root, self.identity))
-        self.assertTrue(qualify.pr_errors(result, "amd64", self.root, self.identity, languages="java"))
 
-    def test_python_pr_selection_requires_exactly_python_and_its_assertions(self):
-        result = {**self.fixture.result, **self.identity, "selectedScenario": "pr", "fullAcceptance": False,
-                  "selectedLanguages": ["python"]}
-        result["assertions"] = [{"name": "python" + suffix, "outcome": "passed", "requirements": []} for suffix in (
-            " real startup, HTTP, dependency, exec/probe, identity and readonly mounts",
-            " source rotation, unchanged app, retained task/exec lease, new barrier",
-            " actual protected CRI identity resolves verified native descriptors and config")]
-        self.assertEqual([], qualify.pr_errors(result, "amd64", self.root, self.identity, languages="python"))
-        self.assertTrue(qualify.pr_errors(result, "amd64", self.root, self.identity))
-        for change in ("four-languages", "missing-identity", "full-claim"):
-            value = copy.deepcopy(result)
-            if change == "four-languages":
-                value["selectedLanguages"] = list(qualify.NATIVE)
-            elif change == "missing-identity":
-                value["assertions"].pop()
-            else:
-                value["fullAcceptance"] = True
-            with self.subTest(change=change):
-                self.assertTrue(qualify.pr_errors(value, "amd64", self.root, self.identity, languages="python"))
     def test_recorded_command_failure_never_exports_success(self):
         output = self.root / "receipt.json"
         with patch.object(run_check, "working_identity", return_value=self.identity), \

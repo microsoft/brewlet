@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "process": {
+    "entrypoint": ["php"],
+    "args": ["-d", "include_path=/app/dependencies", "/app/src/main.php"],
+    "workingDir": "/app"
+  }
+}

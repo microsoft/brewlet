@@ -23,7 +23,7 @@ SUITES = {
     "cold": ("cold_install.py", "cold-install", NATIVE),
     "tutorial": (None, "reader-tutorial", ("python",)),
     "wasm": ("wasm.py", "wasm-runc-examples", WASM),
-    "upstream": ("upstream.py", "unchanged-upstream-distroless", ("java", "python", "node")),
+    "upstream": ("upstream.py", "unchanged-upstream-distroless", ("python",)),
     "native": ("native_capacity.py", "native-capacity", NATIVE),
     "uninstall": ("pinned_uninstall.py", "pinned-uninstall", NATIVE),
     "retirement": ("retirement.py", "retirement", NATIVE),
@@ -35,15 +35,10 @@ COMPLETE = tuple(name for name in SUITES if name not in ("managed", "managed-was
 DEBUG_SUITES = {"control": ("harness.py", "control", NATIVE)}
 
 
-PR_LANGUAGES = {"all": NATIVE, "python": ("python",)}
-
-
-def pr_errors(result, architecture, root=ROOT, expected=None, languages="all"):
+def pr_errors(result, architecture, root=ROOT, expected=None):
     if not isinstance(result, dict):
         return ["PR receipt must be an object"]
-    if languages not in PR_LANGUAGES:
-        return ["unsupported PR language selection"]
-    selected = PR_LANGUAGES[languages]
+    selected = NATIVE
     errors = receipt_errors(result, live=True, architecture=architecture, scenario="pr",
                             languages=selected, root=root, expected=expected)
     assertions = result.get("assertions")
@@ -178,13 +173,11 @@ def main():
     mode.add_argument("--verify-pr", type=Path, help="verify actual PR E2E execution, never promotion evidence")
     parser.add_argument("--scenario", choices=("complete", "control", "managed", "managed-wasm"), default="complete")
     parser.add_argument("--architecture", choices=("amd64", "arm64"), default="amd64")
-    parser.add_argument("--languages", choices=tuple(PR_LANGUAGES), default="all",
-                        help="--verify-pr language selection: all four (default) or the Python-only PR scope")
     parser.add_argument("--results", type=Path, default=ROOT / "acceptance/results")
     args = parser.parse_args()
     try:
         if args.verify_pr:
-            errors = pr_errors(read_json(args.verify_pr), args.architecture, languages=args.languages)
+            errors = pr_errors(read_json(args.verify_pr), args.architecture)
             for error in errors:
                 print(error, file=sys.stderr)
             return int(bool(errors))

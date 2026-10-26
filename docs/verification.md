@@ -20,8 +20,13 @@ arm64 runners. The real-node end-to-end suite covers:
 - CRI filesystem accounting and eviction, revocation, uninstall and normal host
   cleanup.
 - WebAssembly with Wasmtime and Spin, and
-  [governed dependency composition](managed-composition.md) for all four
-  languages and for WebAssembly.
+  [governed dependency composition](managed-composition.md) for Python and
+  WebAssembly.
+
+Python is the only native-language qualification fixture. The Java (with the
+Maven producer), Node.js, .NET and PHP example fixtures each run the real-node
+runtime contract and a runtime rotation daily against `main` in their own
+non-gating workflow; their results are not qualification evidence.
 
 The [first local deployment](local-kubernetes.md) guide is also executed end to
 end as part of the real-node suite.
@@ -71,8 +76,9 @@ the [cleanup contract](operations.md#cleanup-and-revocation).
 
 | Workflow | Trigger | What it runs |
 | --- | --- | --- |
-| `Brewlet PR validation` (`pr.yml`) | Pull requests | Only the checks, CodeQL languages, website build and real E2E impacted by the changed files. Native checks and E2E run on amd64; E2E uses the Python fixture unless another fixture changed. Unknown paths and workflow changes select everything. |
-| `Brewlet full validation` (`full-validation.yml`) | Weekly on `main`, manual dispatch, and every release | Every check, every CodeQL language and the four-language real E2E on native amd64 and arm64. |
+| `Brewlet PR validation` (`pr.yml`) | Pull requests | Only the checks, CodeQL languages, website build and real E2E impacted by the changed files. Native checks and E2E run on amd64; E2E uses the Python fixture; Node.js, .NET and PHP fixture changes are left to their daily workflows. Unknown paths and workflow changes select everything. |
+| `Brewlet full validation` (`full-validation.yml`) | Weekly on `main`, manual dispatch, and every release | Every check, every CodeQL language and the Python real E2E on native amd64 and arm64. |
+| `Brewlet <language> example E2E` (`language-java.yml`, `language-node.yml`, `language-dotnet.yml`, `language-php.yml`) | Daily on `main`, manual dispatch for any branch and architecture | One example fixture's real-node runtime contract and rotation through the reusable `language-e2e.yml`; Java also runs the Maven producer. Non-gating. |
 | `Brewlet promotion qualification` (`promotion-qualification.yml`) | Manual or reusable | `make acceptance`: verifies indexed evidence for one immutable candidate. It does not run live scenarios and fails on missing or stale evidence. |
 
 The [release workflow](supported-release.md#maintainers-cutting-a-release)

@@ -94,7 +94,9 @@ class InfrastructureWorkflowTests(unittest.TestCase):
         self.assertIn("group: pages\n  cancel-in-progress: false", text)
 
     def test_new_workflows_pin_actions_and_do_not_expose_secrets(self):
-        for name in ("codeql.yml", "site-deploy.yml", "pr.yml", "checks.yml", "full-validation.yml"):
+        for name in ("codeql.yml", "site-deploy.yml", "pr.yml", "checks.yml", "full-validation.yml",
+                     "language-e2e.yml", "language-java.yml", "language-node.yml", "language-dotnet.yml",
+                     "language-php.yml"):
             text = (WORKFLOWS / name).read_text()
             self.assertIn("permissions:\n  contents: read", text)
             self.assertNotIn("secrets.", text)

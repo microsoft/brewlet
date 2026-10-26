@@ -7,7 +7,7 @@ from pathlib import Path
 MATRIX_PATH = Path(__file__).with_name("qualification-matrix.json")
 REQUIRED_ARCHITECTURES = {"arm64", "amd64"}
 REQUIRED_FIXTURES = {
-    "native": {"java": "java", "python": "python", "node": "node", "dotnet": "dotnet"},
+    "native": {"python": "python"},
     "wasm": {"wasmtime": "webassembly", "spin": "webassembly"},
 }
 

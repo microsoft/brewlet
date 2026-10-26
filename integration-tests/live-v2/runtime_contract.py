@@ -60,7 +60,7 @@ def publication(h, language):
 
 
 def generic_launches(h):
-    require(tuple(h.languages) == LANGUAGES, "generic qualification requires all four explicit language fixtures")
+    require(tuple(h.languages) == LANGUAGES, "generic qualification requires every qualification language fixture")
     kinds = {obj["spec"]["names"]["kind"] for obj in h.get("customresourcedefinitions")["items"]
              if obj["spec"]["group"] == "brewlet.sh" or obj["spec"]["group"].endswith(".brewlet.sh")}
     require(kinds == {"RuntimeImage", "NodeProfile", "NodeRetirementEvidence"},
@@ -74,7 +74,7 @@ def generic_launches(h):
         h.assert_report(h.http(language + "-old"), language, arguments=[], cwd="/app")
         h.assert_report(json.loads(h.exec(language + "-old", h.probe(language)).stdout), language,
                         arguments=["--probe", "two words"], cwd="/app")
-    h.record("same generic producer and shim execute all four explicit published launch contracts",
+    h.record("same generic producer and shim execute every qualification fixture's explicit published launch contract",
              {"languages": list(LANGUAGES), "applicationImages": dict(h.app_images),
               "noWorkloadCRD": True}, ["ARCH-01", "UP-06"])
 

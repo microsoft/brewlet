@@ -5,7 +5,8 @@
 | Gate | Workflow and trigger | Execution | Meaning |
 | --- | --- | --- | --- |
 | `Brewlet PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
-| `Brewlet full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and four-language real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; not promotion qualification |
+| `Brewlet full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; not promotion qualification |
+| `Brewlet <language> example E2E` | `language-java.yml`, `language-node.yml`, `language-dotnet.yml`, `language-php.yml`, daily on `main` and manual dispatch | One example fixture's real-node runtime contract and rotation through `language-e2e.yml` (Java adds the Maven producer) | Non-gating example coverage; never qualification evidence |
 | `Brewlet promotion qualification` | `promotion-qualification.yml`, manual or reusable | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
 
 Both validation workflows reuse the same building blocks: `checks.yml`
@@ -24,8 +25,10 @@ head, 3000 or more files, an empty list, unknown paths, and changes to `pr.yml`,
 `checks.yml`, `e2e.yml`, `codeql.yml`, `Makefile` or `acceptance/` all select
 everything. Documentation-only changes run at most the website build; runtime
 source selects Go, legal, producer, kernel and E2E checks; CodeQL analyzes only
-the languages of the changed files. PR E2E uses the Python fixture unless a
-non-Python fixture changed.
+the languages of the changed files. PR E2E always uses only the Python fixture.
+Java fixture changes run the producer check (the Maven producer packages it);
+Node.js, .NET and PHP fixture changes are covered by their daily example
+workflows, which can also be dispatched on the PR branch.
 Fork PRs cannot enter the trusted privileged runner: a maintainer must explicitly
 test the commit through a trusted repository branch. This is a failure, not a
 skipped green check. No `pull_request_target` or write credentials are used.
@@ -35,7 +38,7 @@ there are no non-live or verify-only modes in that workflow.
 
 ## Establish a working E2E baseline before full qualification
 
-The `pr` scenario runs all four native languages, real API admission and startup
+The `pr` scenario runs the Python qualification fixture, real API admission and startup
 fencing, application HTTP/exec/identity checks, rotations, observability, operator
 restart/durable generations, actual protected CRI identity and normal cleanup.
 It includes the protected-identity phase; `control` does not. Use `pr` on one
@@ -43,8 +46,8 @@ native architecture when debugging that path instead of restarting the entire
 qualification matrix.
 
 The PR verifier requires actual successful startup/rotation/protected-identity
-assertions for **each** language, successful production cleanup and exact-owned
-fixture destruction. It rejects reduced language selection and a claim of full
+assertions for the Python fixture, successful production cleanup and exact-owned
+fixture destruction. It rejects any other language selection and a claim of full
 promotion acceptance. A PR receipt cannot substitute for a complete receipt.
 Long quarantine/accounting/controller fault scenarios and companion suites stay
 in full qualification. Source repairs need ordinary validation and a new source

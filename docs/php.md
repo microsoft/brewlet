@@ -16,7 +16,14 @@ application image digest stays the same. See
 
 ## Tested runtimes
 
-PHP is not part of Brewlet's automated fixtures. The workflow on this page was
+Brewlet's [PHP example fixture](https://github.com/microsoft/brewlet/tree/main/integration-tests/fixtures/php)
+runs daily against `main` in the [PHP example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-php.yml).
+That workflow packages the fixture, runs it on a real node with Docker Official
+`php:8.4.26-cli-alpine` and `php:8.4.27-cli-alpine` runtime images, and rotates
+between them. It does not gate pull requests or releases; Python is the only
+qualification fixture (see [verification](verification.md)).
+
+The workflow on this page was also
 verified manually with Brewlet 0.8.1 on a single-node arm64 kind cluster,
 following the [local tutorial](local-kubernetes.md), using the unmodified Docker
 Official `php:8.4.26-cli-alpine` and `php:8.4.27-cli-alpine` images:

@@ -3,10 +3,7 @@
   "architectures": ["arm64", "amd64"],
   "fixtureGroups": {
     "native": [
-      {"id": "java", "category": "java"},
-      {"id": "python", "category": "python"},
-      {"id": "node", "category": "node"},
-      {"id": "dotnet", "category": "dotnet"}
+      {"id": "python", "category": "python"}
     ],
     "wasm": [
       {"id": "wasmtime", "category": "webassembly"},

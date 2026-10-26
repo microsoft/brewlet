@@ -351,7 +351,7 @@ def exercise(h):
 
 def run(work):
     h = Harness(work, pinned=False)
-    h.languages = ("java", "python", "node")
+    h.languages = ("python",)
     h.runtime_ids = {language: IDS[language] for language in h.languages}
     h.result.update(selectedScenario="unchanged-upstream-distroless", selectedLanguages=list(h.languages))
     h.result["gaps"].append("Focused upstream suite; full-userland controls and complete proposal are separate.")

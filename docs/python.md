@@ -31,6 +31,9 @@ exact images are listed in the [upstream runtime list](https://github.com/micros
 [rotation runtime list](https://github.com/microsoft/brewlet/blob/main/integration-tests/fixtures/runtimes/rotation.json). They are test inputs, not a security
 recommendation; use the runtime images your platform team approves.
 
+Python is Brewlet's qualification fixture: pull request E2E, full validation
+and promotion run it on real nodes (see [verification](verification.md)).
+
 Ask your platform team for the runtime ID, supported platforms and interpreter
 path. `python-3.13` below is an example ID. For a smaller first deployment
 without dependencies, follow the [local tutorial](local-kubernetes.md).
