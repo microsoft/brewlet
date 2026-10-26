@@ -3,8 +3,8 @@
 
 Routine producer integration packages the Python fixture with the generic CLI and
 the Java fixture through the Maven producer. The Java, Node.js, .NET and PHP
-fixtures are selectable with --languages and are exercised daily by their
-per-language workflows. This is host/producer integration, never a claim of
+fixtures are selectable with --languages and are exercised weekly by the
+language-e2e.yml workflow. This is host/producer integration, never a claim of
 node/runtime acceptance.
 """
 

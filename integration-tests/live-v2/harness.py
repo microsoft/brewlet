@@ -26,7 +26,7 @@ from acceptance.evidence import PRODUCTION_INPUTS, IGNORE, production_manifest_b
 
 QUALIFICATION_MATRIX = load_matrix()
 LANGUAGES = fixture_names(QUALIFICATION_MATRIX, "native")
-# Example fixtures run only as explicit local-language selections in their daily workflows.
+# Example fixtures run only as explicit local-language selections in the weekly language-e2e.yml.
 EXAMPLE_LANGUAGES = ("java", "node", "dotnet", "php")
 FIXTURE_LANGUAGES = LANGUAGES + tuple(language for language in EXAMPLE_LANGUAGES if language not in LANGUAGES)
 WASM_HOSTS = fixture_names(QUALIFICATION_MATRIX, "wasm")
@@ -1734,7 +1734,7 @@ class Harness:
         if self.scenario == "complete":
             self.result["gaps"].append(
                 "Java, Node.js, .NET and PHP example fixtures and the Maven node producer run in the "
-                "non-gating daily per-language workflows, not in qualification")
+                "non-gating weekly language-e2e.yml workflow, not in qualification")
         if self.scenario == "pr":
             self.result["gaps"].append(
                 "PR E2E omits the long quarantine, accounting, managed composition, "
@@ -1900,7 +1900,7 @@ def main():
                              "requires explicit owner-checked cleanup and never counts as a clean pass")
     local = parser.add_mutually_exclusive_group()
     local.add_argument("--local-language", choices=FIXTURE_LANGUAGES,
-                       help="one explicit local runtime fixture (the daily per-language workflows use "
+                       help="one explicit local runtime fixture (the weekly language-e2e.yml uses "
                             "this for python, java, node, dotnet and php); requires a partial scenario "
                             "and --without-pinned-scenarios")
     local.add_argument("--local-python-only", action="store_const", const="python", dest="local_language",

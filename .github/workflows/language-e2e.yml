@@ -1,0 +1,144 @@
+name: Language example E2E
+
+# Non-gating weekly real-node E2E for every language fixture against main: the
+# Python qualification fixture, the Java, Node.js, .NET and PHP examples, and
+# the Wasmtime/Spin WebAssembly examples. Python remains the qualification
+# fixture in pr.yml, full-validation.yml and promotion; these results are never
+# qualification evidence.
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      language:
+        description: One language, or all of them
+        type: choice
+        required: true
+        default: all
+        options: [all, python, java, node, dotnet, php, wasm]
+      architecture:
+        description: Execute on the actual native architecture, not emulation
+        type: choice
+        required: true
+        default: amd64
+        options: [amd64, arm64]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: language-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ARCHITECTURE: ${{ inputs.architecture || 'amd64' }}
+
+jobs:
+  e2e:
+    name: ${{ matrix.language }} (${{ inputs.architecture || 'amd64' }})
+    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON((inputs.language == '' || inputs.language == 'all') && '["python","java","node","dotnet","php","wasm"]' || format('["{0}"]', inputs.language)) }}
+    steps:
+      - name: Refuse unsupported execution contexts instead of skipping
+        id: guard
+        env:
+          EVENT: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          LANGUAGE: ${{ matrix.language }}
+        run: |
+          test "$REPOSITORY" = microsoft/brewlet
+          case "$LANGUAGE" in java|node|dotnet|php|python|wasm) ;; *) exit 1 ;; esac
+          case "$ARCHITECTURE/$RUNNER_ARCH" in amd64/X64|arm64/ARM64) ;; *) exit 1 ;; esac
+          case "$EVENT" in
+            schedule) test "$REF" = refs/heads/main ;;
+            workflow_dispatch) case "$REF" in refs/heads/*) ;; *) exit 1 ;; esac ;;
+            *) exit 1 ;;
+          esac
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - if: matrix.language == 'java'
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - if: matrix.language == 'node'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22.22.0"
+      - if: matrix.language == 'dotnet'
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          global-json-file: integration-tests/fixtures/dotnet/global.json
+      - name: Install host PHP CLI for the fixture probe
+        if: matrix.language == 'php'
+        run: |
+          if ! command -v php > /dev/null; then
+            sudo apt-get update -q
+            sudo apt-get install -y -q php-cli
+          fi
+          php -r 'exit(function_exists("posix_getuid") ? 0 : 1);'
+      - name: Install the pinned Rust toolchain for the Spin guest
+        if: matrix.language == 'wasm'
+        run: |
+          toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' examples/wasm/spin-component/rust-toolchain.toml)"
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target wasm32-wasip2
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
+        with:
+          version: v3.19.0
+      - uses: Azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e
+        with:
+          version: v1.35.0
+      - name: Install pinned native suite tools
+        run: |
+          go install sigs.k8s.io/kind@v0.33.0
+          command -v htpasswd
+      - name: Execute real-node example E2E
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          LANGUAGE: ${{ matrix.language }}
+        run: |
+          work="integration-tests/live-v2/run-${LANGUAGE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCHITECTURE}"
+          if test "$LANGUAGE" = wasm; then
+            # Wasmtime WASIp1 command and Spin SDK HTTP component on the runc path.
+            python3 integration-tests/live-v2/wasm.py --work "$work"
+          else
+            # Java also exercises the Maven producer on a real node.
+            scenario=runtime
+            if test "$LANGUAGE" = java; then scenario=maven; fi
+            python3 integration-tests/live-v2/harness.py --scenario "$scenario" \
+              --without-pinned-scenarios --local-language "$LANGUAGE" --work "$work"
+          fi
+      - name: Export only public outcomes
+        if: always() && steps.guard.outcome == 'success'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          LANGUAGE: ${{ matrix.language }}
+        run: |
+          result="integration-tests/live-v2/run-${LANGUAGE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${ARCHITECTURE}/result.json"
+          mkdir -p acceptance-export
+          if test -f "$result"; then
+            python3 acceptance/export_result.py "$result" "acceptance-export/language-${LANGUAGE}-${ARCHITECTURE}.json"
+          fi
+      - name: Retain public identities/outcomes only, never private work files
+        if: always() && steps.guard.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: language-${{ matrix.language }}-${{ env.ARCHITECTURE }}-${{ github.sha }}
+          path: acceptance-export/*.json
+          if-no-files-found: warn
+          retention-days: 14

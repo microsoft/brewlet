@@ -45,14 +45,13 @@ never build or install the Java, Node.js, .NET or PHP toolchains. The receipt
 records `selectedLanguages` and a gap for the node-wide fallback fence against
 another runtime ID (INV-05), which needs a second runtime.
 
-The Python fixture and the Java, Node.js, .NET and PHP example fixtures run
-daily against `main` in their own non-gating workflows (`language-python.yml`,
-`language-java.yml`, `language-node.yml`, `language-dotnet.yml`,
-`language-php.yml`). Each uses the `.github/actions/language-e2e` composite
-action, which runs `harness.py --scenario runtime --without-pinned-scenarios
---local-language <name>` (Java uses `--scenario maven`, adding the Maven
-producer). `language-wasm.yml` uses the same action to run `wasm.py`. They can be dispatched manually for any
-branch and either architecture. Their results are never qualification evidence.
+The Python fixture, the Java, Node.js, .NET and PHP example fixtures and the
+WebAssembly examples run weekly against `main` in the non-gating
+`language-e2e.yml` workflow, one matrix job each. Each fixture job runs
+`harness.py --scenario runtime --without-pinned-scenarios --local-language
+<name>` (Java uses `--scenario maven`, adding the Maven producer); the
+WebAssembly job runs `wasm.py`. It can be dispatched manually for any branch,
+either architecture and one or all languages. Their results are never qualification evidence.
 It deliberately omits the long fault/accounting/companion matrix, which remains
 mandatory before promotion. Neither `PR validation` nor `Full validation`
 can pass if a required E2E job fails, cancels or skips; pull requests that do not
@@ -227,7 +226,7 @@ and omitted-language/pinned-case gaps. The option is rejected for the complete
 scenario or without the explicit pinned-case omission. A smaller local pass is
 never full acceptance.
 
-To exercise an example fixture locally (as its daily workflow does), run it in
+To exercise an example fixture locally (as the weekly language workflow does), run it in
 a new owned environment; run several **sequentially**:
 
 ```sh
@@ -527,7 +526,7 @@ The default run fails on any missing protocol, reason, transition or evidence:
 * The Python fixture is built and host-probed using the existing fixture
   builder, then explicitly packaged by this checkout's generic CLI with
   distinct dependency/application roles and one final launch layer.
-* In the Java daily example workflow (`--scenario maven`), not the default
+* In the Java job of the weekly language workflow (`--scenario maven`), not the default
   run, the optional Maven producer separately emits both bundled and BOM-managed
   Java artifacts. Their exact OCI targets are published unchanged through the
   authenticated registry and run through the same RuntimeClass, shim, exec,

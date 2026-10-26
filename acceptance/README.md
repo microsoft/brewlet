@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | `PR validation` | `pr.yml`, pull requests only | Only the checks, CodeQL languages, real E2E and website build impacted by the PR's changed files; native checks and E2E on amd64 | Fast required PR validation |
 | `Full validation` | `full-validation.yml`, weekly on `main`, manual dispatch, and called by every release | Every check, every CodeQL language, native producer/kernel checks and Python real E2E on both amd64 and arm64 | Complete end-to-end validation of one immutable commit; not promotion qualification |
-| `<language> example E2E` | `language-python.yml`, `language-java.yml`, `language-node.yml`, `language-dotnet.yml`, `language-php.yml`, `language-wasm.yml`, daily on `main` and manual dispatch | One fixture's real-node runtime contract and rotation through the `.github/actions/language-e2e` composite action (Java adds the Maven producer; WebAssembly runs the `wasm.py` Wasmtime/Spin examples) | Non-gating daily coverage; never qualification evidence |
+| `Language example E2E` | `language-e2e.yml`, weekly on `main` and manual dispatch | A matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation (Java adds the Maven producer; WebAssembly runs the `wasm.py` Wasmtime/Spin examples) | Non-gating weekly coverage; never qualification evidence |
 | `Promotion qualification` | `promotion-qualification.yml`, manual or reusable | All current indexed receipts, all 115 baseline and 29 composition obligations, all 22 native suites | Full immutable-candidate qualification before promotion |
 
 Both validation workflows reuse the same building blocks: `checks.yml`
@@ -27,8 +27,8 @@ everything. Documentation-only changes run at most the website build; runtime
 source selects Go, legal, producer, kernel and E2E checks; CodeQL analyzes only
 the languages of the changed files. PR E2E always uses only the Python fixture.
 Java fixture changes run the producer check (the Maven producer packages it);
-Node.js, .NET and PHP fixture changes are covered by their daily example
-workflows, which can also be dispatched on the PR branch.
+Node.js, .NET and PHP fixture changes are covered by the weekly
+`language-e2e.yml` workflow, which can also be dispatched on the PR branch.
 Fork PRs cannot enter the trusted privileged runner: a maintainer must explicitly
 test the commit through a trusted repository branch. This is a failure, not a
 skipped green check. No `pull_request_target` or write credentials are used.

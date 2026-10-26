@@ -17,7 +17,7 @@ application image digest stays the same. See
 ## Tested runtimes
 
 Brewlet's [PHP example fixture](https://github.com/microsoft/brewlet/tree/main/integration-tests/fixtures/php)
-runs daily against `main` in the [PHP example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-php.yml).
+runs weekly against `main` in the [language example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-e2e.yml).
 That workflow packages the fixture, runs it on a real node with Docker Official
 `php:8.4.26-cli-alpine` and `php:8.4.27-cli-alpine` runtime images, and rotates
 between them. It does not gate pull requests or releases; Python is the only

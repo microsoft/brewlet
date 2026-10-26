@@ -144,7 +144,7 @@ class WorkflowTests(unittest.TestCase):
         expect(["integration-tests/fixtures/python/app/main.py"], {"producer", "e2e"}, ["python"])
         expect(["integration-tests/fixtures/check.py"], {"producer", "e2e"}, ["python"])
         expect(["integration-tests/fixtures/runtimes/python.Dockerfile"], {"producer", "e2e"})
-        # Java feeds the Maven producer check; the other examples run only in their daily workflows.
+        # Java feeds the Maven producer check; the other examples run only in the weekly language-e2e.yml.
         expect(["integration-tests/fixtures/java/app/pom.xml"], {"producer"}, ["java-kotlin"])
         expect(["integration-tests/fixtures/dotnet/App/Program.cs"], set(), ["csharp"])
         expect(["integration-tests/fixtures/node/src/main.mjs"], set(), ["javascript-typescript"])
@@ -332,34 +332,31 @@ class WorkflowTests(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode, (field, value))
 
 
-    def test_example_languages_run_daily_in_their_own_non_gating_workflows(self):
-        action = (ROOT / ".github/actions/language-e2e/action.yml").read_text()
-        self.assertFalse((ROOT / ".github/workflows/language-e2e.yml").exists())
-        self.assertIn("  using: composite", action)
-        self.assertNotIn("secrets.", action)
-        self.assertNotIn("continue-on-error", action)
-        self.assertIn('--without-pinned-scenarios --local-language "$LANGUAGE"', action)
-        self.assertIn('if test "$LANGUAGE" = java; then scenario=maven; fi', action)
-        self.assertIn('integration-tests/live-v2/wasm.py --work "$work"', action)
-        self.assertIn("--target wasm32-wasip2", action)
-        crons = set()
-        for language in ("python", "java", "node", "dotnet", "php", "wasm"):
-            text = (ROOT / ".github/workflows" / f"language-{language}.yml").read_text()
-            self.assertEqual(["  schedule:", "  workflow_dispatch:"], triggers(text), language)
-            cron = re.search(r'cron: "(\d+ \d+) \* \* \*"', text)
-            self.assertIsNotNone(cron, language)
-            crons.add(cron.group(1))
-            self.assertIn("uses: ./.github/actions/language-e2e\n", text)
-            self.assertIn("language: " + language + "\n", text)
-            self.assertIn("permissions:\n  contents: read", text)
-            self.assertIn("persist-credentials: false", text)
-            self.assertIn("inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'", text)
-            self.assertLess(text.index("actions/checkout@"), text.index("./.github/actions/language-e2e"))
-        self.assertEqual(6, len(crons), "daily language runs are staggered")
+    def test_language_examples_run_weekly_in_one_non_gating_matrix_workflow(self):
+        text = (ROOT / ".github/workflows/language-e2e.yml").read_text()
+        self.assertFalse((ROOT / ".github/actions/language-e2e").exists())
+        languages = ("python", "java", "node", "dotnet", "php", "wasm")
+        for language in languages:
+            self.assertFalse((ROOT / ".github/workflows" / f"language-{language}.yml").exists(), language)
+        self.assertEqual(["  schedule:", "  workflow_dispatch:"], triggers(text))
+        self.assertRegex(text, r'cron: "\d+ \d+ \* \* [0-6]"', "language examples run weekly")
+        self.assertIn("options: [all, " + ", ".join(languages) + "]", text)
+        self.assertIn("'" + json.dumps(list(languages), separators=(",", ":")) + "'", text)
+        self.assertIn("fail-fast: false", text)
+        self.assertIn("permissions:\n  contents: read", text)
+        self.assertIn("persist-credentials: false", text)
+        self.assertNotIn("secrets.", text)
+        self.assertNotIn("continue-on-error", text)
+        self.assertIn("inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04'", text)
+        self.assertLess(text.index("Refuse unsupported execution contexts"), text.index("actions/checkout@"))
+        self.assertIn('--without-pinned-scenarios --local-language "$LANGUAGE"', text)
+        self.assertIn('if test "$LANGUAGE" = java; then scenario=maven; fi', text)
+        self.assertIn('integration-tests/live-v2/wasm.py --work "$work"', text)
+        self.assertIn("--target wasm32-wasip2", text)
         # Gating PR, full and release validation never run the example languages.
         for name in ("pr.yml", "full-validation.yml", "release.yml", "e2e.yml", "checks.yml"):
             self.assertNotIn("language-e2e", (ROOT / ".github/workflows" / name).read_text(), name)
-        program = block(action, "Refuse unsupported execution contexts")
+        program = block(text, "Refuse unsupported execution contexts")
         for event, ref, language, architecture, runner, success in (
                 ("schedule", "refs/heads/main", "php", "amd64", "X64", True),
                 ("schedule", "refs/heads/main", "java", "arm64", "ARM64", True),
@@ -371,6 +368,7 @@ class WorkflowTests(unittest.TestCase):
                 ("pull_request", "refs/pull/1/merge", "php", "amd64", "X64", False),
                 ("push", "refs/heads/main", "php", "amd64", "X64", False),
                 ("schedule", "refs/heads/main", "ruby", "amd64", "X64", False),
+                ("schedule", "refs/heads/main", "all", "amd64", "X64", False),
                 ("schedule", "refs/heads/main", "php", "emulated", "X64", False),
                 ("schedule", "refs/heads/main", "php", "arm64", "X64", False),
                 ("schedule", "refs/heads/main", "php", "amd64", "ARM64", False)):

@@ -95,7 +95,7 @@ jobs:
                 integration-tests/fixtures/python/*) producer=true e2e=true ;;
                 # The Maven producer check packages the Java fixture.
                 integration-tests/fixtures/java/*) producer=true ;;
-                # Example fixtures run in their daily per-language workflows, not PR validation.
+                # Example fixtures run in the weekly language example workflow, not PR validation.
                 integration-tests/fixtures/node/*|integration-tests/fixtures/dotnet/*|integration-tests/fixtures/php/*) ;;
                 integration-tests/fixtures/*) producer=true e2e=true ;;
                 integration-tests/live-v2/*|integration-tests/e2e/*) python=true e2e=true ;;

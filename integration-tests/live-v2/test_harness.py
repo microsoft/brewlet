@@ -1072,7 +1072,7 @@ class CallbackOrderTests(ProjectWork):
             "before_cleanup", "production_cleanup", "after_cleanup",
             "stop_helpers", "diagnostics", "cleanup_delivery", "destroy", "save"])
         self.assertEqual(instance.result["outcome"], "passed")
-        # The Maven node producer and example languages run in the daily per-language workflows.
+        # The Maven node producer and example languages run in the weekly language-e2e.yml.
         self.assertTrue(any(gap.startswith("Java, Node.js, .NET and PHP example fixtures")
                             for gap in instance.result["gaps"]))
         self.assertFalse(any("fixture selection" in gap for gap in instance.result["gaps"]))

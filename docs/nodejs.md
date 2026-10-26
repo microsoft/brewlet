@@ -33,8 +33,8 @@ The exact digests are listed in the
 [adapted](../integration-tests/fixtures/runtimes/rotation.json) test matrices.
 They are test inputs, not a security recommendation.
 
-The Node.js example fixture runs daily against `main` in the
-[Node.js example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-node.yml). It does not gate pull
+The Node.js example fixture runs weekly against `main` in the
+[language example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-e2e.yml). It does not gate pull
 requests or releases; Python is the only qualification fixture (see
 [verification](verification.md)).
 

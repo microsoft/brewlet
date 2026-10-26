@@ -35,8 +35,8 @@ Brewlet has been tested with .NET 10 using:
 
 These are test inputs, not a security recommendation.
 
-The .NET example fixture runs daily against `main` in the
-[.NET example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-dotnet.yml). It does not gate pull
+The .NET example fixture runs weekly against `main` in the
+[language example workflow](https://github.com/microsoft/brewlet/blob/main/.github/workflows/language-e2e.yml). It does not gate pull
 requests or releases; Python is the only qualification fixture (see
 [verification](verification.md)).
 

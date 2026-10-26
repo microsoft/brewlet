@@ -25,8 +25,8 @@ arm64 runners. The real-node end-to-end suite covers:
 
 Python is the only native-language qualification fixture. The Java (with the
 Maven producer), Node.js, .NET and PHP example fixtures each run the real-node
-runtime contract and a runtime rotation daily against `main` in their own
-non-gating workflow; their results are not qualification evidence.
+runtime contract and a runtime rotation weekly against `main` in the
+non-gating `language-e2e.yml` workflow; their results are not qualification evidence.
 
 The [first local deployment](local-kubernetes.md) guide is also executed end to
 end as part of the real-node suite.
@@ -76,9 +76,9 @@ the [cleanup contract](operations.md#cleanup-and-revocation).
 
 | Workflow | Trigger | What it runs |
 | --- | --- | --- |
-| `PR validation` (`pr.yml`) | Pull requests | Only the checks, CodeQL languages, website build and real E2E impacted by the changed files. Native checks and E2E run on amd64; E2E uses the Python fixture; Node.js, .NET and PHP fixture changes are left to their daily workflows. Unknown paths and workflow changes select everything. |
+| `PR validation` (`pr.yml`) | Pull requests | Only the checks, CodeQL languages, website build and real E2E impacted by the changed files. Native checks and E2E run on amd64; E2E uses the Python fixture; Node.js, .NET and PHP fixture changes are left to the weekly language workflow. Unknown paths and workflow changes select everything. |
 | `Full validation` (`full-validation.yml`) | Weekly on `main`, manual dispatch, and every release | Every check, every CodeQL language and the Python real E2E on native amd64 and arm64. |
-| `<language> example E2E` (`language-python.yml`, `language-java.yml`, `language-node.yml`, `language-dotnet.yml`, `language-php.yml`, `language-wasm.yml`) | Daily on `main`, manual dispatch for any branch and architecture | One fixture's real-node runtime contract and rotation through the `.github/actions/language-e2e` composite action; Java also runs the Maven producer and WebAssembly runs the Wasmtime and Spin examples. Non-gating. |
+| `Language example E2E` (`language-e2e.yml`) | Weekly on `main`, manual dispatch for any branch, architecture and language (or all) | One matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation; Java also runs the Maven producer and WebAssembly runs the Wasmtime and Spin examples. Non-gating. |
 | `Promotion qualification` (`promotion-qualification.yml`) | Manual or reusable | `make acceptance`: verifies indexed evidence for one immutable candidate. It does not run live scenarios and fails on missing or stale evidence. |
 
 The [release workflow](supported-release.md#maintainers-cutting-a-release)
