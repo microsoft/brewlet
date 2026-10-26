@@ -26,38 +26,38 @@
       menu.focus();
     }
   });
-  const escapeHtml = text => text.replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"})[c]);
-  const token = (kind, text) => kind ? `<span class="tok-${kind}">${escapeHtml(text)}</span>` : escapeHtml(text);
+  const token = (kind, text) => text ? [[kind || null, text]] : [];
   const paint = (text, pattern, classify) => {
-    let out = "";
+    const out = [];
     let last = 0;
     for (const match of text.matchAll(pattern)) {
-      out += escapeHtml(text.slice(last, match.index)) + token(classify(match), match[0]);
+      out.push(...token(null, text.slice(last, match.index)), ...token(classify(match), match[0]));
       last = match.index + match[0].length;
     }
-    return out + escapeHtml(text.slice(last));
+    return out.concat(token(null, text.slice(last)));
   };
+  const lines = (text, mapLine) => text.split("\n").flatMap((line, index) => (index ? token(null, "\n") : []).concat(mapLine(line)));
   const yamlValue = value => {
     const trimmed = value.trim();
     const lead = value.slice(0, value.length - value.trimStart().length);
-    if (!trimmed) return escapeHtml(value);
-    if (/^[[{]/.test(trimmed)) return lead + paint(trimmed, /([\w./-]+)(?=:\s)|([{}[\],:])|[^\s{}[\],:]+/g, m => m[1] ? "key" : m[2] ? "punct" : "string");
-    return lead + token(/^(-?\d+(\.\d+)?|true|false|null)$/.test(trimmed) ? "literal" : "string", trimmed);
+    if (!trimmed) return token(null, value);
+    if (/^[[{]/.test(trimmed)) return token(null, lead).concat(paint(trimmed, /([\w./-]+)(?=:\s)|([{}[\],:])|[^\s{}[\],:]+/g, m => m[1] ? "key" : m[2] ? "punct" : "string"));
+    return token(null, lead).concat(token(/^(-?\d+(\.\d+)?|true|false|null)$/.test(trimmed) ? "literal" : "string", trimmed));
   };
   const highlighters = {
     json: text => paint(text, /("(?:\\.|[^"\\])*")(?=\s*:)|("(?:\\.|[^"\\])*")|(\b(?:true|false|null)\b|-?\d+(?:\.\d+)?)|([{}[\],:])/g,
       m => m[1] ? "key" : m[2] ? "string" : m[3] ? "literal" : "punct"),
-    yaml: text => text.split("\n").map(line => {
+    yaml: text => lines(text, line => {
       if (/^\s*#/.test(line)) return token("comment", line);
       if (/^---\s*$/.test(line)) return token("punct", line);
       const entry = line.match(/^(\s*)(- )?([^\s:#][^:#]*?)(:)(?=\s|$)(.*)$/);
-      if (entry) return entry[1] + token(entry[2] && "punct", entry[2] || "") + token("key", entry[3]) + token("punct", entry[4]) + yamlValue(entry[5]);
+      if (entry) return [...token(null, entry[1]), ...token("punct", entry[2]), ...token("key", entry[3]), ...token("punct", entry[4]), ...yamlValue(entry[5])];
       const item = line.match(/^(\s*)(- )(.*)$/);
-      return item ? item[1] + token("punct", item[2]) + yamlValue(item[3]) : escapeHtml(line);
-    }).join("\n"),
+      return item ? [...token(null, item[1]), ...token("punct", item[2]), ...yamlValue(item[3])] : token(null, line);
+    }),
     shell: text => {
       let continued = false;
-      return text.split("\n").map(line => {
+      return lines(text, line => {
         if (/^\s*#/.test(line)) return token("comment", line);
         let command = !continued;
         continued = /\\\s*$/.test(line);
@@ -69,12 +69,24 @@
           if (m[0] === "\\") return "punct";
           return /^--?[A-Za-z]/.test(m[0]) ? "flag" : null;
         });
-      }).join("\n");
+      });
     }
   };
   const highlight = code => {
     const highlighter = highlighters[code.dataset.lang];
-    if (highlighter) code.innerHTML = highlighter(code.textContent);
+    if (!highlighter) return;
+    const fragment = document.createDocumentFragment();
+    for (const [kind, text] of highlighter(code.textContent)) {
+      if (kind) {
+        const span = document.createElement("span");
+        span.className = `tok-${kind}`;
+        span.textContent = text;
+        fragment.append(span);
+      } else {
+        fragment.append(document.createTextNode(text));
+      }
+    }
+    code.replaceChildren(fragment);
   };
   document.querySelectorAll("code[data-lang]").forEach(highlight);
   const examples = {
