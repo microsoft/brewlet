@@ -33,12 +33,22 @@ func registryResolver(ctx context.Context, root string) (remotes.Resolver, error
 			HostDir:     registryconfig.HostDirFromRoot(root),
 			Credentials: registryCredentials(root),
 			UpdateClient: func(client *http.Client) error {
-				client.Transport = registryOriginTransport{authority: authority, base: client.Transport}
+				client.Transport = registryOriginTransport{authority: registryOrigin(authority), base: client.Transport}
 				return nil
 			},
 		})(authority)
 	}
 	return docker.NewResolver(docker.ResolverOptions{Hosts: hosts}), nil
+}
+
+// registryOrigin returns the HTTPS host that containerd contacts by default for
+// an image authority. Docker Hub images named docker.io are served from
+// registry-1.docker.io; without this mapping its bearer token is stripped.
+func registryOrigin(authority string) string {
+	if authority == "docker.io" {
+		return "registry-1.docker.io"
+	}
+	return authority
 }
 
 type registryOriginTransport struct {
