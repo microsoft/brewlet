@@ -1,15 +1,15 @@
 # Multi-architecture fleets
 
-There are three independent declarations. All must agree:
+Three separate declarations must agree:
 
 | Declaration | Meaning |
 | --- | --- |
-| Application OCI platforms | The packaged bytes are asserted runnable on those platforms. |
-| Approved runtime image platforms | Runtime roots cover every actual architecture of the offering pools. |
-| Native workload scheduling constraints | Kubernetes places the workload only on a supported architecture. |
+| Application image platforms | The platforms the packaged application runs on. |
+| Approved runtime image platforms | The runtime image must support every architecture in the pools that offer it. |
+| Workload scheduling constraints | Kubernetes places the workload only on a supported architecture. |
 
-An OCI index is not a scheduler constraint. Brewlet does not infer platforms
-from source files or language names.
+An OCI image index does not constrain scheduling. Brewlet does not infer
+platforms from source files or language names.
 
 ## Portable and native payloads
 
@@ -52,18 +52,28 @@ nodeSelector:
   kubernetes.io/arch: arm64
 ```
 
-For multi-architecture workloads, author the appropriate native affinity.
-Admission preserves existing selectors/required alternatives and adds runtime
-capability constraints; it does not turn an application index into architecture
-affinity. Standard normalized platform aliases are supported, but ambiguous
-equivalent index entries and conflicting declarations fail.
+For a multi-architecture image, list the supported architectures in a node
+affinity:
 
-The worker checks known Nodes and valid offering profiles. It cannot qualify
-future autoscaler hardware merely from a template; real platforms are checked
-when nodes arrive. [Provider labels](providers.md) are not image validation.
+```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/arch
+              operator: In
+              values: [amd64, arm64]
+```
 
-## Qualification scope
+Admission keeps your selectors and affinity, and adds a requirement for nodes
+that offer the Pod's runtime ID. It does not derive architecture affinity from
+the application image. Standard platform aliases are normalized; ambiguous
+index entries and conflicting declarations fail.
 
-Current local physical execution is arm64. Linux amd64 cross-builds and pinned
-amd64 upstream inputs are not physical amd64 node proof. Keep test claims
-separate from a platform's own fleet qualification and region/capacity support.
+The worker checks the architecture of existing nodes against the runtime
+images their profiles offer. Nodes that an autoscaler has not created yet are
+checked when they join; [provider labels](providers.md) do not validate images.
+
+Brewlet's own tests run on physical arm64 nodes only. Qualify amd64 and any
+other architecture on your own fleet before relying on it.

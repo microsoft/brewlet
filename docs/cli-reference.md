@@ -16,7 +16,7 @@ the built-in reference.
 | `brewlet run REF` | Run a local build on an explicitly chosen runtime image with Docker or Podman. |
 | `brewlet k8s ...` | Manage runtimes on a Brewlet cluster: list, status, add, rotate, remove, doctor. |
 | `brewlet inventory` | Export observed workload/dependency facts for external scanning; never mutate workloads or scan CVEs. |
-| `brewlet version` | Print JSON with build version, immutable source commit and native platform; unstamped source builds report `dev`/`unknown`. |
+| `brewlet version` | Print JSON with the release version, source commit and native platform (for example `{"version":"0.8.1",...}`). |
 
 Usage errors exit with status 2, `--help` with 0, and `brewlet run` passes the
 container's exit status through.
@@ -50,7 +50,7 @@ brewlet push registry.example.com/apps/api:v2 --push-result push.json
 | --- | --- |
 | `--store DIRECTORY` | Source layout instead of `.brewlet/images/<REF>`; any existing OCI layout works. |
 | `--source REF_OR_DIGEST` | Choose one root when the layout holds several; defaults to REF, then the only root. |
-| `--push-result FILE` | Write a machine-readable immutable publication handoff. |
+| `--push-result FILE` | Also write the JSON result (reference, digest, media type, size) to FILE. |
 
 `push` verifies every blob digest before contacting the registry, then copies
 bytes unchanged. It does not apply Brewlet launch/layer policy: consumers still
@@ -65,23 +65,14 @@ platform-scoped native layers.
 | `layer-set --config FILE --lock FILE` | Neutral identity/config and optional file lock; producer computes layer bindings. |
 | `layer-set --sbom FILE` | Supply the supported CycloneDX inventory instead of generating it from inputs. |
 | `layer-set --signing-key FILE --builder-identity VALUE` | PKCS#8 ECDSA-P256 signing key and explicit builder identity. Never put private keys in app layers. |
-| `--trust-key FILE` (repeatable), `--signer-identity VALUE`, `--require-provenance` | Layer-set consumption/inspection trust policy (`build`, `inspect`). |
+| `layer-set --store DIRECTORY` | Write the set to a local OCI layout instead of publishing it to REF. |
+| `--trust-key FILE` (repeatable), `--signer-identity VALUE`, `--require-provenance` | Trust policy for consuming or inspecting layer sets (`build`, `inspect`, `layer-set`). `--trust-key` and `--signer-identity` must be used together. |
 | `--registry-scheme https`, `--insecure` | Explicit transport choices; HTTP is an opt-in, not an insecure-TLS mode. |
 
-Do not treat layer-set trust flags as a general application signing facility.
-Invalid/unsupported inputs return a nonzero status; there is no success-shaped
-compatibility fallback.
-
-## Layer-set governance
-
-`layer-set` takes an explicit `--config`, payload layers and optional `--lock`.
-CycloneDX inventory is generated from the lock/files or supplied via `--sbom`.
-Optional `--signing-key` and `--builder-identity` sign layer-set provenance.
-Consumption/inspection can use repeated `--trust-key`, `--signer-identity` and
-`--require-provenance`.
-
-These are layer-set trust options, not a general application signing command.
-Maven/BOM metadata is producer-owned and not interpreted by generic core.
+The layer-set trust flags are not a general application signing facility.
+Maven/BOM metadata is producer-owned and not interpreted by the CLI.
+Invalid or unsupported inputs return a nonzero status; there is no
+success-shaped compatibility fallback.
 
 ## Governed composition and observation
 
@@ -93,9 +84,10 @@ atomic successful handoff.
 
 `verify REF --platform PLATFORM --policy FILE` checks a digest-pinned
 bundle without publication. `inventory` requires explicit `--kubeconfig`,
-`--context`, repeated `--namespace`, and `--policy`; use `--output` for the JSON
-report and optional repeated `--workload Kind/namespace/name` selectors.
-Incomplete evidence produces a partial report and nonzero exit.
+`--context`, repeated `--namespace`, and `--policy`; use `--output FILE` for the
+JSON report (stdout otherwise), optional repeated `--workload Kind/namespace/name`
+selectors and `--max-age` (default and maximum `2m`) for node observation
+freshness. Incomplete evidence produces a partial report and nonzero exit.
 See [governed composition](managed-composition.md) for policy, provenance and
 external scanning examples.
 
@@ -134,22 +126,23 @@ entry, and volume-zone rules except `--tmpfs` with `--from-cluster`.
 ## Cluster runtime management with `brewlet k8s`
 
 Administrative commands for cluster operators. They use standard kubeconfig
-loading; `--kubeconfig` and `--context` may appear before or after the
-subcommand. `-o` is shorthand for `--output`.
+loading (`$KUBECONFIG`, then `~/.kube/config`); `--kubeconfig` and `--context`
+may appear before or after the subcommand. `-o` is shorthand for `--output`.
 
 | Command | Purpose |
 | --- | --- |
-| `runtime list [-o table\|wide\|json\|yaml]` | RuntimeImages with approval, generation, digest, rotation and offering profiles. |
-| `runtime status ID [-o ...]` | Conditions, rotation progress, restart summary, nodes, pods and lease bindings. |
-| `runtime add ID --image REF [--profile P ...] [--install Eager\|OnDemand]` | Resolve tag to digest, check platforms and golden-image rules, create the RuntimeImage and place it in profiles. |
+| `runtime list [--output table\|wide\|json\|yaml]` | RuntimeImages with approval, generation, digest, rotation and offering profiles. |
+| `runtime status ID [--output table\|json\|yaml]` | Conditions, rotation progress, restart summary, nodes, pods and lease bindings. |
+| `runtime add ID --image REF [--profile P ...] [--install Eager\|OnDemand] [--idle-ttl DURATION]` | Resolve tag to digest, check platforms and golden-image rules, create the RuntimeImage and place it in profiles. Also accepts `--platform`, `--volume-mount-path`, `--uid`, `--gid`, `--description`, `--ecosystem`, `--abi`, `--skip-image-checks` and `--insecure`. |
 | `runtime rotate ID --image REF [--yes]` | Show affected nodes, workloads and pods, then patch `spec.source.image`. |
 | `runtime remove ID [--force --yes]` | Refuse while referenced; `--force` removes profile entries and deletes the RuntimeImage. |
-| `doctor [--namespace brewlet]` | Check CRDs, operator/admission, RuntimeClass, approvals and profiles; nonzero exit on failure. |
+| `doctor [--namespace brewlet] [--output table\|json]` | Check CRDs, operator/admission, RuntimeClass, approvals and profiles; nonzero exit on failure. |
 
-Every mutating command accepts `--dry-run` and prints the resulting manifests
-(YAML, or JSON with `-o json`) without changing the cluster, so the output can
-go into a GitOps repository. Mutations with a non-empty impact require `--yes`;
-there is no interactive prompt. Removal revokes new starts only: running
+Every mutating command (`add`, `rotate`, `remove`) accepts `--dry-run` and
+prints the resulting manifests (YAML, or JSON with `--output json`) without
+changing the cluster, so the output can go into a GitOps repository. `rotate`
+and a forced `remove` with a non-empty impact require `--yes`; there is no
+interactive prompt. Removal revokes new starts only: running
 containers keep their leases until they exit. Editing a Helm-managed profile
 prints a warning because the next upgrade will revert it.
 
@@ -165,16 +158,10 @@ The producer honors `BREWLET_REGISTRY_USERNAME`, `BREWLET_REGISTRY_PASSWORD` and
 an additional CA through `SSL_CERT_FILE`. Credentials are origin-bound.
 The release/observation commands require `BREWLET_REGISTRY_ORIGIN` with these
 environment credentials, or `--registry-auth FILE` for exact-origin mappings.
-Use `--registry-scheme https` for explicit TLS, including loopback registries.
-`--insecure` explicitly opts into HTTP; it is not a TLS verification bypass.
+Use `--registry-scheme https` (`--registry-https` for `inventory`) for explicit
+TLS, including loopback registries. `--insecure` explicitly opts into HTTP; it
+is not a TLS verification bypass.
 
 Kubelet imagePullSecrets and runtime-source containerd registry configuration
 are separate from producer credentials. No example on this site grants blanket
 credential forwarding or recommends embedding secrets in artifacts.
-
-## Deliberately absent commands
-
-The current CLI does not provide Brewlet 0.x's runc-bundle export, `stage-gc` or
-`keygen` commands, or its `JavaApplication`-specific `k8s` helpers. Use the
-[native operations workflow](operations.md) instead of applying old command
-examples to this branch.

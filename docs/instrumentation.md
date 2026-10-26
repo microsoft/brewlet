@@ -20,15 +20,19 @@ instrument an otherwise uninstrumented process.
 
 ## Java example
 
-A Java producer can explicitly author an entrypoint prefix such as
-`["/usr/bin/java", "-javaagent:/app/agents/otel.jar", "-jar"]` and app arguments
-such as `["/app/app.jar"]`. Package a reviewed agent separately under `/app`,
-or deliberately use a compatible platform runtime with its own documented
-agent path. Verify compatibility and overhead.
+Add the agent to the launch descriptor yourself. For example, a hand-written
+`launch.json` can set `process.entrypoint` to
+`["/usr/bin/java", "-javaagent:/app/agents/otel.jar", "-jar"]` and
+`process.args` to `["/app/app.jar"]`. Package a reviewed agent separately under
+`/app` (for example as its own `--layer app=./agents:/app/agents`), or
+deliberately use a compatible platform runtime with its own documented agent
+path. Verify compatibility and overhead.
 
-The optional Maven producer owns Java-specific argv knowledge; generic core
-does not add `-javaagent`. A Pod `args` override replaces arguments and must
-preserve the complete intended launch semantics.
+With the [Maven plugin](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md),
+put `-javaagent:/app/agents/otel.jar` in the `javaArgs` configuration list; the
+generated argv places `javaArgs` before the class path and main class. Brewlet
+itself never adds `-javaagent`. A Pod `args` override replaces the descriptor's
+arguments and must preserve the complete intended invocation.
 
 ## Python, Node and .NET
 

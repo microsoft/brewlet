@@ -11,14 +11,13 @@ released components. It does not require Java, Maven, Node or .NET SDKs.
 | Approve infrastructure | A RuntimeImage identifies exact upstream bytes; a NodeProfile offers the ID on the private node. |
 | Package the app | The artifact contains explicit launch metadata and app bytes, not a Python/OS root. |
 | Start a native Deployment | HTTP returns process identity and interpreter information from the real application. |
-| Inspect the binding | Pod/container identity maps to an actual inventory epoch, generation and digest. |
+| Inspect the binding | `brewlet k8s runtime status` maps Pod/container identity to an actual inventory epoch, generation and digest. |
 | Update the approved source | Node convergence completes; the original application process retains its old lease. |
 | Roll the Deployment | New Pods use the updated source with the exact same application digest. |
 | Remove normally | Workloads drain, profile/host cleanup completes, then the owned cluster is destroyed. |
 
 This is a demonstration script, not a prerecorded video or a performance
-benchmark. Capture a recording only from an actual run. The older Java/main
-conference material is historical context, not current execution evidence.
+benchmark. Capture a recording only from an actual run.
 
 ## Boundaries to say out loud
 
@@ -30,8 +29,8 @@ Existing processes change only through normal workload replacement.
 
 For classroom use, split the tasks between the
 [platform](workshops/platform.md) and [developer](workshops/developer.md)
-workshops. For formal qualification, use the separately scoped
-[acceptance procedures](verification.md).
+workshops. Before a formal evaluation, read
+[verification and limitations](verification.md).
 
 ## Java canvas demo
 
@@ -41,6 +40,5 @@ flow from the
 It builds ShowMyJVM, packages it with `brewlet build` (no JDK in the image),
 deploys it as a plain Deployment on a private kind cluster, and switches the
 node-supplied runtime from Temurin 25 to 27 and back by changing one annotation.
-By default it installs the latest Brewlet release (the OCI Helm chart and the
-checksum-verified `brewlet` CLI); presenters can switch it to build Brewlet
-from the current checkout instead.
+It installs the latest Brewlet release: the OCI Helm chart and the
+checksum-verified `brewlet` CLI.

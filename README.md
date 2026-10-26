@@ -138,26 +138,12 @@ curl -fsSL https://brewlet.sh/install.sh | sh
 brewlet version
 ```
 
-### Build the CLI from source
-
-Use Go 1.26 or newer:
-
-```bash
-git clone https://github.com/microsoft/brewlet.git
-cd brewlet
-make build
-export PATH="$PWD/bin:$PATH"
-brewlet version
-```
-
-The build places the CLI, license and generated third-party notices in `bin/`.
-Unstamped source builds report `dev`/`unknown`, not a release.
 See the [CLI reference](docs/cli-reference.md) for commands and artifact options.
 
 ### Run your first Kubernetes application
 
 Follow the [local Kubernetes tutorial](docs/local-kubernetes.md) to create a new
-disposable kind cluster, build matching components, run a real Python HTTP
+disposable kind cluster, install released components, run a real Python HTTP
 application, rotate its runtime without rebuilding the application, and remove
 the installation normally. The tutorial uses a private kubeconfig and does not
 require host Java, Node.js or .NET toolchains.
@@ -193,59 +179,11 @@ Use `--registry-scheme https` for a TLS-enabled loopback registry. TLS verificat
 remains enabled; `--insecure` explicitly selects HTTP instead. See
 [registry trust](docs/registry-trust.md) for configuration.
 
-## Build and test
-
-Development requires Go 1.26 or newer. The optional Maven producer requires
-Maven and JDK 17+; Python 3.12+ is used by the validation tooling.
-
-Run the portable unit and contract checks, Maven verification, and ledger
-structure checks:
-
-```bash
-make test
-```
-
-Build the CLI and its redistribution notices:
-
-```bash
-make build
-```
-
-Strict promotion qualification is separate from routine checks:
-
-```bash
-make acceptance
-```
-
-`make acceptance` is deliberately a strict release gate, not a smoke-test alias.
-It fails when required behavior lacks verified evidence. Portable tests alone
-do not prove Linux mounts, real scheduling or provider behavior. See the
-[acceptance guide](acceptance/README.md) and
-[operations and verification](docs/README.md) for scope and prerequisites.
-
-Build the static website and searchable documentation with `make site-build`.
-The [website workflow](.github/workflows/site-pages.yml) uploads a checked preview
-artifact; the separate [Pages deployment workflow](.github/workflows/site-deploy.yml)
-publishes that artifact to `brewlet.sh` after website/docs changes reach `main`,
-or on manual dispatch from `main`. Pull requests cannot deploy, and the site
-does not advertise the old release installer. See the [website guide](site/README.md).
-
-CodeQL scans Actions, Go, Java, C#, JavaScript/TypeScript and Python on pull
-requests, pushes to `main`, and a weekly schedule. Dependabot
-checks Actions, Go, Maven, npm, pip and NuGet dependencies weekly using the
-current repository and fixture manifests.
-
 ## Contributing and support
 
 Use [GitHub Issues](https://github.com/microsoft/brewlet/issues) for bugs and
-feature requests. Include the source revision, relevant configuration, and
-reproduction steps without credentials or application secrets.
-
-For implementation changes, follow the
-[specification](specs/SPECIFICATION.md), keep directly related documentation
-current, and distinguish portable contract results from real-node evidence.
-See the [security guidance](docs/security.md) for trust boundaries and
-[troubleshooting](docs/troubleshooting.md) for operational diagnostics.
+feature requests. See the [contributing guide](CONTRIBUTING.md) for building
+from source, running tests, and contribution expectations.
 
 ## Releases
 

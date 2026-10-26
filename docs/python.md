@@ -23,35 +23,38 @@ See the [architecture overview](concepts.md) and
 The runtime root is read-only too; temporary files and caches need
 [approved writable volumes](resources.md#probes-exec-files-and-shutdown).
 
-## Tested runtime inputs
+## Tested runtimes
 
-The unchanged-runtime companion exercised pinned distroless Python sources
-using `/usr/bin/python3.13` on arm64. The full-userland suite separately used
-adapted Docker Official Python 3.13.5 and 3.13.6 roots.
-See the [upstream](../integration-tests/fixtures/runtimes/upstream.json) and
-[full-userland](../integration-tests/fixtures/runtimes/rotation.json) matrices.
-Historical test versions are not security recommendations.
+Brewlet's tests run Python on unmodified distroless Python 3.13 images (arm64,
+using `/usr/bin/python3.13`) and on Docker Official Python 3.13 images. The
+exact images are listed in the [upstream runtime list](https://github.com/microsoft/brewlet/blob/main/integration-tests/fixtures/runtimes/upstream.json) and
+[rotation runtime list](https://github.com/microsoft/brewlet/blob/main/integration-tests/fixtures/runtimes/rotation.json). They are test inputs, not a security
+recommendation; use the runtime images your platform team approves.
 
-Confirm the actual path/platforms with the platform; `python-3.13` below is an
-example approved ID. For a first end-to-end deployment without dependencies,
-the [local tutorial](local-kubernetes.md) is the smaller path.
+Ask your platform team for the runtime ID, supported platforms and interpreter
+path. `python-3.13` below is an example ID. For a smaller first deployment
+without dependencies, follow the [local tutorial](local-kubernetes.md).
 
 ## Build the payload
 
-This stdlib HTTP fixture imports a real separate `greeting.py` dependency.
-No pip installation is needed:
+This example uses the small Python test application from the Brewlet
+repository. It is a standard-library HTTP server that imports a separate
+`greeting.py` dependency, so no pip installation is needed:
 
 ```sh
 WORK="$(mktemp -d)"
+git clone --quiet --depth 1 --branch v0.8.1 https://github.com/microsoft/brewlet.git "$WORK/brewlet"
+FIXTURE="$WORK/brewlet/integration-tests/fixtures/python"
 mkdir "$WORK/src" "$WORK/dependencies"
 chmod 0755 "$WORK/src" "$WORK/dependencies"
-install -m 0644 integration-tests/fixtures/python/src/main.py "$WORK/src/main.py"
-install -m 0644 integration-tests/fixtures/python/dependencies/greeting.py "$WORK/dependencies/greeting.py"
+install -m 0644 "$FIXTURE/src/main.py" "$WORK/src/main.py"
+install -m 0644 "$FIXTURE/dependencies/greeting.py" "$WORK/dependencies/greeting.py"
 ```
 
-For your own project, resolve a reviewed lock into the intended dependency
-directory before packaging. Build/install native wheels for the actual target
-Python ABI, Linux libc and CPU architecture, not the producer host by accident.
+For your own project, install your locked dependencies into the dependency
+directory before packaging (for example with `pip install --target`). Native
+wheels must match the target Python version, Linux libc and CPU architecture,
+not your build machine.
 Do not copy a host virtualenv and assume its interpreter paths are portable.
 
 ## Launch descriptor
@@ -89,9 +92,9 @@ payload; other application writes need a separately mounted destination.
 
 ## Package
 
-Use the matching CLI on a suitable Linux producer filesystem. Follow the
-[producer filesystem requirements](applications.md#producer-filesystem) for macOS rather than dropping filesystem
-validation. Replace the registry and declare your actual platform:
+Files must be world-readable and directories searchable (see
+[producer filesystem requirements](applications.md#producer-filesystem), which
+also covers macOS). Replace the registry and declare your actual platform:
 
 ```sh
 brewlet build registry.example.com/apps/python-demo:v1 \
@@ -102,14 +105,16 @@ brewlet build registry.example.com/apps/python-demo:v1 \
 brewlet push registry.example.com/apps/python-demo:v1 --push-result "$WORK/push.json"
 ```
 
-For reusable independent dependency publication, see [layer sets](dependency-layer-sets.md).
-It is a producer composition workflow, not runtime pip installation.
+To publish dependencies once and share them across applications, see
+[dependency layer sets](dependency-layer-sets.md). Dependencies are still
+resolved at build time, never installed on the node.
 
 ## Native deployment
 
-Replace the digest, ID, namespace and architecture using the platform handoff.
-These resources are illustrative; configure [registry access](registry-trust.md)
-and choose measured resource sizes for your workload.
+Use the digest from `push.json`. The following is a template: replace the
+image digest, runtime ID, namespace and architecture with values from your
+platform team. Configure [registry access](registry-trust.md) and size
+resources for your workload.
 
 ```yaml
 apiVersion: apps/v1
@@ -140,13 +145,14 @@ spec:
             httpGet: {path: /, port: 8000}
 ```
 
-HTTP probes do not require a shell. If an Exec probe is preferable, name the
-interpreter and full script arguments explicitly. Apply shared
-[non-root and volume policy](applications.md#native-workload-example).
+HTTP probes do not require a shell. For an Exec probe, name the interpreter
+and full script arguments explicitly. The
+[common workload rules](applications.md#native-workload-example) for non-root
+identity and volumes apply.
 
 ## Verify
 
-In the intended cluster/context:
+After applying the manifest:
 
 ```sh
 kubectl -n apps rollout status deployment/python-demo --timeout=5m
@@ -157,18 +163,20 @@ kubectl -n apps port-forward deployment/python-demo 18080:8000
 
 From another terminal, `curl --fail http://127.0.0.1:18080/` should report
 `language: python`, the interpreter version and `dependency: shared-contract`.
-The Exec report must retain the two distinct arguments. Check its numeric
-identity and [actual leased runtime](observability.md#logs-and-actual-bindings),
-then stop the port-forward when finished.
+The Exec output shows `--probe` and `two words` as two distinct arguments and
+the non-root numeric user. To see which runtime image generation the Pod
+actually uses, check the
+[actual runtime binding](observability.md#logs-and-actual-bindings). Stop the
+port-forward when finished.
 
-## Pitfalls and qualification limits
+## Pitfalls and limits
 
 - Python source portability does not make native extension wheels portable across CPython ABIs, libc or CPU architectures.
 - HOME is metadata, not a writable-directory guarantee. Libraries using temporary/cache files need explicit writable volumes/configuration.
-- Never install dependencies into read-only `/app` during startup, add a shell assumption or use a Pod PATH override as an interpreter fallback.
-- Python signed layer-set publication/trust/reuse has registry integration evidence. The unchanged-runtime node run uses separate dependency layers; it is not the combined managed-set/unchanged-runtime matrix.
-- Physical local qualification is arm64. The fixture HTTP server is an evaluation example, not a production Python web-server recommendation.
+- Never install dependencies into read-only `/app` at startup, assume a shell exists, or set PATH in the Pod to find the interpreter (Pod PATH is ignored).
+- The example HTTP server is for evaluation, not a production Python web server.
 
-For application dependency changes, recompose and roll the application.
+When application dependencies change, rebuild (or recompose) the application
+and roll it out.
 A [runtime-only update](operations.md#rotate-without-rebuilding-application-bytes)
 does not update packaged Python libraries.

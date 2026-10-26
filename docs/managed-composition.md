@@ -6,10 +6,10 @@ digests** into an ordinary Brewlet application image before Kubernetes sees it.
 There is no deployment-time dependency resolver, second shim pull, workload
 CRD or hot replacement of libraries.
 
-This implements the producer/release boundary of
-[specification §16](../specs/SPECIFICATION.md#16-managed-dependency-composition). See the
-[verification page](verification.md) for qualified execution scopes; the
-presence of a command is not evidence that every runtime/platform is qualified.
+This page covers the producer and release steps defined in
+[specification §16](../specs/SPECIFICATION.md#16-managed-dependency-composition).
+See [Verification and limitations](verification.md) for the runtimes and
+platforms that have been qualified.
 
 ## Platform: publish the complete dependency closure
 
@@ -31,8 +31,9 @@ The generic producer never guesses package versions or resolves dependencies.
 
 Use the [optional Maven producer](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md) for a source-BOM
 and scoped Maven graph rather than putting Java knowledge in the composer.
-The checked-in `integration-tests/fixtures/java/bom`, `dependency` and `app`
-projects provide a concrete platform BOM, library and consuming thin-JAR app.
+The repository's `integration-tests/fixtures/java` projects (`bom`,
+`dependency` and `app`) show a concrete platform BOM, library and consuming
+thin-JAR app.
 
 ## Application: retain an app-only immutable input
 
@@ -65,8 +66,7 @@ The producer validates the actual source BOM, requires a thin JAR, excludes
 dependency payloads and retains the original scoped graph as the ordinary
 application file `/app/.brewlet/application-build.json`. Release composition
 cannot rewrite that build history to pretend the app was compiled against a
-new bundle. Existing direct Maven managed-consumption checks remain applicable
-to that publication workflow.
+new bundle.
 
 ## Release: compose, verify, test, deploy
 
@@ -98,8 +98,10 @@ with files/symlinks, hide them with whiteouts, or make them opaque. This is
 filesystem integrity, **not** proof that app code contains no shaded/vendored
 copies or that it executes only approved code.
 
-The successful receipt contains the exact output digest and separate
-`structural`, `publisherProvenance` and `compositionSignature` observations.
+The JSON result (printed, and written atomically to the `--push-result` file)
+contains the exact output `digest` and a `verification` object with separate
+`structural`, `publisherProvenance` and `compositionSignature` results.
+`brewlet verify` prints the same `verification` object for a published bundle.
 `testReleaseApproval: not-evaluated` means this verifier did not verify a test
 or release approval. A signature is not a compatibility test.
 
@@ -202,8 +204,9 @@ brewlet inventory --kubeconfig "$KUBECONFIG" --context production \
 Repeat `--workload Kind/namespace/name` to narrow native workloads.
 `--max-age` bounds node observation age (at most two minutes). The reader needs
 get/list Pods, get native controller owners, get Nodes and get NodeProfiles.
-See `examples/managed-dependencies/inventory-rbac.yaml`; it creates no binding
-and grants no Secret, workload-write, host-exec or inventory-write permission.
+See [`examples/managed-dependencies/inventory-rbac.yaml`](../examples/managed-dependencies/inventory-rbac.yaml);
+it creates no binding and grants no Secret, workload-write, host-exec or
+inventory-write permission.
 
 The exporter correlates Pod UID/container ID, protected shim-recorded
 application root/manifest/config identities and fresh worker observations.
@@ -230,17 +233,15 @@ actual module loading or absence of embedded copies. Managed-set coverage is
 not exhaustive application or infrastructure-runtime coverage. An unavailable
 SBOM or scan result is unknown, never a clean bill of health.
 
-## WebAssembly is a separate required workload scope
+## WebAssembly workloads
 
-The [WebAssembly companion](webassembly.md#governed-external-dependency-replacement)
-exercises the same producer, release policy, signed final image, replacement
-and fleet-export path for both Wasmtime and Spin. Its native arm64/amd64
-receipts are required separately from the four native-language receipts.
-Neither language detection nor a Wasm-specific composer is added.
+The [WebAssembly guide](webassembly.md#governed-external-dependency-replacement)
+uses the same producer, release policy, signed final image, replacement and
+inventory path for both Wasmtime and Spin. There is no language detection and
+no Wasm-specific composer.
 
-Its dependency update changes a declared external data file that both real
-guests consume, preserving the compiled `.wasm` hashes and fixed host images.
-It is not evidence that compiled-in libraries can be patched without rebuilding
-the guest, or that dynamic component linking has been qualified. Engine/OS
-remediation remains a RuntimeImage update. Platform-built host roots must not
-be called unchanged upstream engine OCI images.
+A Wasm dependency update replaces a declared external data file that the guest
+reads; the compiled `.wasm` files and the host runtime images stay unchanged.
+Libraries compiled into a guest still require rebuilding the guest, and dynamic
+component linking is not qualified. Engine or OS fixes are delivered as a
+RuntimeImage update.

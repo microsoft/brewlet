@@ -73,7 +73,7 @@ webhook, controller and host failures may carry additional diagnostics.
 | --- | --- |
 | `RuntimeClass/brewlet` | Selects containerd handler `brewlet`. |
 | `io.containerd.brewlet.v2` | Containerd runtime identifier; not a product release selector. |
-| `containerd-shim-brewlet-v2` | Conventional executable discovery name, not a 0.x compatibility layer. |
+| `containerd-shim-brewlet-v2` | Shim executable name that containerd derives from the runtime identifier. |
 | `/opt/brewlet/runtimes` | Root-owned runtime generations, authority and task lease state. |
 | `/var/lib/brewlet/layers` | Immutable verified application-layer cache. |
 

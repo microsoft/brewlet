@@ -36,10 +36,21 @@ TLS.
 
 ## Runtime sources and mirrors
 
-Configure the node's reviewed containerd registry hosts/authentication before
-offering private runtime sources. The current worker supports the registry
-hosts configuration described in [the node runbook](../provisioner/README.md).
-Do not distribute registry credentials through application environment variables.
+Configure node registry access before offering private runtime sources. The
+node provisioner resolves runtime sources through the node's containerd hosts
+directory, `/etc/containerd/certs.d`:
+
+1. Put registry host settings in `/etc/containerd/certs.d/<registry>/hosts.toml`.
+   Reference CA files with paths relative to that directory, so they still
+   resolve when the provisioner reads the host filesystem.
+2. For an authenticated registry, add
+   `/etc/containerd/certs.d/<registry>/credentials.json` containing exactly
+   `{"username": "...", "password": "..."}`. The file must be a regular file of
+   at most 64 KiB, with no group or other permissions (for example mode `0600`).
+   Credentials under `_default` are never used.
+
+Credentials are sent only to the registry's own HTTPS origin. Do not distribute
+registry credentials through application environment variables.
 
 `NodeProfile.spec.registry.mirrors` is governed by
 `security.allowedSourceMirrorHosts`. Destination authorities must be explicit,

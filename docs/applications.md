@@ -1,8 +1,9 @@
 # Package and deploy applications
 
-The generic producer accepts explicit source directories, a versioned launch
-descriptor and OCI platforms. It does not compile your program, discover
-dependencies or choose a runtime ID.
+The `brewlet` CLI packages applications for any language. You supply the
+built files, a launch descriptor (`launch.json`) and the target OCI platforms.
+Brewlet does not compile your program, discover dependencies or choose a
+runtime ID.
 
 ## The artifact contract
 
@@ -47,8 +48,8 @@ explicit producer assertion, not evidence that a native dependency is portable.
 
 The optional top-level `runtimeImages` is an allowlist, not a selector. The
 workload must still name an approved runtime explicitly.
-Omission imposes no artifact-level ID restriction; an explicit empty array
-denies all IDs. Null and the former `requires` wrapper are rejected.
+Omitting it allows any runtime ID; an explicit empty array denies all IDs.
+`null` is rejected.
 
 ```sh
 brewlet build registry.example.com/apps/api:v2 \
@@ -78,9 +79,10 @@ other extended attribute rather than stripping validation checks.
 ## Independent dependency layer sets
 
 `brewlet layer-set` publishes neutral dependency layers, a config and optional
-lock. Consumption with `--layer-set` reuses the compressed layers byte-for-byte.
-Manifest evidence binds their identities. Optional signed provenance and
-CycloneDX inventory govern the layer set, not every final application.
+lock. Passing it to `brewlet build --layer-set` reuses the compressed layers
+byte-for-byte, and the application manifest records which layer set they came
+from. Optional signed provenance and the CycloneDX inventory describe the layer
+set, not every application built from it.
 
 The kubelet still pulls one application image per container. The shim never
 resolves dependencies from a package manager or pulls a layer set itself.
@@ -166,8 +168,9 @@ mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \
   -Dbrewlet.mainClass=example.Main
 ```
 
-Until this candidate is actually published, build/install the matching source plugin.
-The matching Brewlet CLI must be available explicitly. The plugin does not
-generate Kubernetes manifests, choose Pod runtime annotations or apply workloads.
-Managed dependency consumption requires a genuinely thin JAR, not a nested-JAR
-application. See the [producer's complete contracts and source instructions](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md).
+The plugin requires Java 17 or later and a matching `brewlet` CLI on the
+`PATH` (or set `-Dbrewlet.executable`). It does not generate Kubernetes
+manifests, choose Pod runtime annotations or apply workloads. Consuming a
+managed dependency layer set requires a thin JAR, not a nested-JAR (fat JAR)
+application. See [Java applications](java.md) and the
+[Maven plugin reference](https://github.com/microsoft/brewlet/blob/main/maven-plugin/README.md).

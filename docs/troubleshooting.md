@@ -20,7 +20,8 @@ conditions and events before changing anything.
 
 ## Collect a useful snapshot
 
-Replace names and namespace with the actual workload:
+Replace `apps`, `<pod>` and `<deployment>` with your workload, and `brewlet`
+with the namespace Brewlet is installed in:
 
 ```sh
 kubectl get runtimeimages,nodeprofiles -o yaml
@@ -30,9 +31,12 @@ kubectl -n apps get deployment <deployment> -o yaml
 kubectl -n apps get events --sort-by=.metadata.creationTimestamp
 kubectl -n brewlet logs deployment/brewlet-operator --tail=200
 kubectl -n brewlet get pods -o wide
+kubectl -n brewlet get pods -l app.kubernetes.io/name=brewlet-worker -o wide
+kubectl -n brewlet logs <worker-pod-on-the-affected-node> --tail=200
+kubectl get node <node> -o jsonpath='{.metadata.annotations.brewlet\.sh/runtime-bindings}'
 ```
 
-Read the selected worker's logs and the node's protected
+Read the worker logs for the affected node and the node's
 `brewlet.sh/runtime-bindings` observation. Check UID, completeness and freshness;
 the annotation is diagnostics, not cleanup authority. Host containerd journals
 require administrator access. Do not dump registry credentials or private keys
@@ -61,7 +65,7 @@ does not guarantee that an old `kubectl exec` stream reconnects.
 
 ## Still blocked
 
-Preserve diagnostics, source revision and original identities. Use
+Preserve diagnostics, the Brewlet version (`brewlet version`) and original identities. Use
 [safe removal/recovery](uninstallation.md) and the
 [verified scenario boundaries](verification.md). Do not manually rewrite
 authorization, clocks, claims, generation barriers or cleanup receipts.

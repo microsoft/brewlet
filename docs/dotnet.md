@@ -2,79 +2,78 @@
 
 ## How it works
 
-Brewlet separates application delivery from platform-managed runtime
-infrastructure. For a framework-dependent .NET application, you publish
-assemblies, required configuration and an explicit launch descriptor as an OCI
-artifact, without the .NET runtime. The platform approves and provisions a
-compatible [runtime image](runtime-images.md); your Kubernetes Deployment
-selects its runtime ID. Brewlet runs the declared `dotnet` command with
-application files read-only under `/app`. Self-contained builds carry their own
-runtime and do not provide that same runtime separation.
+Brewlet delivers your application separately from the .NET runtime. For a
+framework-dependent .NET application, you publish assemblies, required
+configuration and an explicit launch descriptor as an OCI image, without the
+.NET runtime. The platform approves and provisions a compatible
+[runtime image](runtime-images.md), and your Kubernetes Deployment selects it
+by runtime ID. Brewlet runs the declared `dotnet` command with your
+application files mounted read-only under `/app`.
 
-Dependencies can ship with the application or optionally come from an approved
-[managed bundle](managed-composition.md). Release-time composition combines
-app-only files and a locked dependency set into a verifiable artifact.
-Compatible assembly updates can preserve your application assembly, but require
-testing against its dependency manifests, loading layout and native libraries.
-Brewlet does not run NuGet or infer your publishing model.
+Self-contained builds carry their own runtime, so they do not get this
+separation.
 
-Updates run in new task instances, not by patching a live CLR process. See the
-[architecture overview](concepts.md) and [launch contract](reference.md#launch-descriptor)
-for the complete workflow.
-The runtime root is read-only too; temporary files and caches need
-[approved writable volumes](resources.md#probes-exec-files-and-shutdown).
+Dependencies can ship inside the application image or be published separately
+as a [dependency layer set](dependency-layer-sets.md) or
+[governed bundle](managed-composition.md). Brewlet does not run NuGet or infer
+your publishing model.
 
-## Tested runtime inputs
+An update starts new Pods; it never patches a running CLR process. See
+[concepts](concepts.md) and the
+[launch descriptor](reference.md#launch-descriptor) for the execution model.
+The runtime root is also read-only, so temporary files and caches need
+[explicit writable volumes](resources.md#probes-exec-files-and-shutdown).
 
-The full-userland suite exercised adapted MCR .NET runtime **10.0.0** and
-**10.0.1** sources on arm64, with a framework-dependent application and a
-separate `Greeting.dll`. Source pins are in the
-[full-userland matrix](../integration-tests/fixtures/runtimes/rotation.json).
-These historical inputs are not security recommendations.
+## Tested runtime images
 
-The separate [managed-composition matrix](managed-composition.md) now covers
-an **unchanged Canonical OCI .NET 10 runtime** on native arm64 and amd64, including an
-independently signed dependency bundle, actual `Greeting.dll` replacement,
-HTTP/Exec parity, two-replica rollout and normal cleanup. Exact source pins are
-in the [managed .NET inputs](../integration-tests/fixtures/runtimes/managed-dotnet.json);
-separate historical [arm64](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-composition-arm64.json) and
-[amd64](https://github.com/microsoft/brewlet/blob/4c93db4e6c4affd3a1f2deb6a5099fffda3de8e5/acceptance/results/managed-composition-amd64.json) receipts preserve
-their original native execution scopes, not current-candidate qualification.
-The earlier unchanged distroless matrix's fourth root remains static/native.
-Confirm the actual `dotnet` path with the platform. This recipe explicitly
-targets a root providing `/usr/bin/dotnet` and an example ID `dotnet-10`.
+Brewlet has been tested with .NET 10 using:
 
-## Build the payload
+- unchanged Canonical `ubuntu/dotnet-runtime:10.0` images on arm64 and amd64
+  ([digests](../integration-tests/fixtures/runtimes/managed-dotnet.json));
+- Microsoft `mcr.microsoft.com/dotnet/runtime` 10.0 images adapted for Brewlet
+  ([digests](../integration-tests/fixtures/runtimes/rotation.json)).
 
-The fixture pins SDK **10.0.401** in
-[`global.json`](../integration-tests/fixtures/dotnet/global.json).
-Publish from the copied project directory so that SDK selection is honored:
+These are test inputs, not a security recommendation.
 
-```sh
-WORK="$(mktemp -d)"
-git archive HEAD integration-tests/fixtures/dotnet | tar -x -C "$WORK"
-PROJECT="$WORK/integration-tests/fixtures/dotnet"
-(
-  cd "$PROJECT"
-  dotnet publish App/App.csproj --configuration Release \
-    --output "$WORK/published" --self-contained false --nologo
-)
-mkdir "$WORK/application" "$WORK/dependencies"
-chmod 0755 "$WORK/application" "$WORK/dependencies"
-install -m 0644 "$WORK/published/App.dll" "$WORK/application/App.dll"
-install -m 0644 "$WORK/published/App.deps.json" "$WORK/application/App.deps.json"
-install -m 0644 "$WORK/published/App.runtimeconfig.json" "$WORK/application/App.runtimeconfig.json"
-install -m 0644 "$WORK/published/Greeting.dll" "$WORK/dependencies/Greeting.dll"
-```
+Always use the runtime ID, `dotnet` path and platforms supplied by your
+platform team. This guide assumes a runtime that provides `/usr/bin/dotnet`
+under the example ID `dotnet-10`.
 
-The runtime configuration/dependency manifests belong with the application.
-This controlled fixture intentionally separates one managed assembly; do not
-partition arbitrary publish directories blindly. Include all required native,
-configuration and content files for your actual application.
+## Publish the application
 
-## Launch descriptor
+This guide uses the sample application from the Brewlet repository. It has a
+main `App.dll` and a separate `Greeting.dll` dependency, and pins .NET SDK
+10.0.401 in `global.json`.
 
-Save as `$WORK/launch.json`:
+1. Get the sample and publish it framework-dependent. Run `dotnet publish`
+   from the project directory so the pinned SDK is used:
+
+    ```sh
+    git clone --depth 1 --branch v0.8.1 https://github.com/microsoft/brewlet.git
+    cp -R brewlet/integration-tests/fixtures/dotnet dotnet-demo
+    cd dotnet-demo
+    dotnet publish App/App.csproj --configuration Release \
+      --output published --self-contained false --nologo
+    ```
+
+2. Split the output into an application layer and a dependency layer:
+
+    ```sh
+    mkdir application dependencies
+    chmod 0755 application dependencies
+    install -m 0644 published/App.dll published/App.deps.json \
+      published/App.runtimeconfig.json application/
+    install -m 0644 published/Greeting.dll dependencies/
+    ```
+
+The `.deps.json` and `.runtimeconfig.json` files belong with the application.
+This sample deliberately moves one assembly into its own layer; do not split
+arbitrary publish directories blindly. For a real application, include every
+required native, configuration and content file.
+
+## Write the launch descriptor
+
+Save as `launch.json`:
 
 ```json
 {
@@ -91,33 +90,34 @@ Save as `$WORK/launch.json`:
 }
 ```
 
-For this fixture, `Greeting.dll` must resolve beside `App.dll`; both layers map
-to `/app`. A self-contained executable would use its own explicit path instead,
-with separately reviewed loader/native-library/platform requirements.
+`Greeting.dll` must resolve beside `App.dll`, so both layers map to `/app`. A
+self-contained executable would use its own path as the entrypoint and has its
+own loader, native-library and platform requirements.
 
-## Package
+## Build and push
 
-Use the matching CLI on a suitable Linux producer filesystem; consult
-[producer filesystem requirements](applications.md#producer-filesystem) for macOS. Replace the registry:
+Run on Linux or macOS. On macOS, follow the
+[producer filesystem requirements](applications.md#producer-filesystem).
+Replace the registry with your own:
 
 ```sh
 brewlet build registry.example.com/apps/dotnet-demo:v1 \
   --platform linux/arm64 \
-  --launch "$WORK/launch.json" \
-  --layer "dependency=$WORK/dependencies:/app" \
-  --layer "app=$WORK/application:/app"
-brewlet push registry.example.com/apps/dotnet-demo:v1 --push-result "$WORK/push.json"
+  --launch launch.json \
+  --layer "dependency=./dependencies:/app" \
+  --layer "app=./application:/app"
+brewlet push registry.example.com/apps/dotnet-demo:v1 --push-result push.json
 ```
 
 A .NET assembly is not automatically platform-independent: RID-specific
 assets, P/Invoke and native libraries still need compatible Linux targets.
-Independent [layer sets](dependency-layer-sets.md) are a producer feature,
-not NuGet restore at container startup.
+[Dependency layer sets](dependency-layer-sets.md) are assembled when you build
+the image; Brewlet never runs NuGet restore at container startup.
 
-## Native deployment
+## Deploy
 
-Replace the digest, approved ID, namespace and platform using the handoff.
-The following template uses illustrative resource values, not a CLR memory budget:
+Replace the image digest, runtime ID, platform and namespace with values from
+your platform team. Resource values are examples, not a CLR memory budget.
 
 ```yaml
 apiVersion: apps/v1
@@ -142,38 +142,54 @@ spec:
           image: registry.example.com/apps/dotnet-demo@sha256:<application-digest>
           securityContext: {readOnlyRootFilesystem: true}
           resources:
-            requests: {cpu: 100m, memory: 64Mi}
-            limits: {cpu: "1", memory: 256Mi}
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 768Mi}
           readinessProbe:
             httpGet: {path: /, port: 8000}
 ```
 
-Apply the [shared non-root/registry/volume contract](applications.md#native-workload-example).
-The fixture provides its own HTTP listener and needs no ASP.NET runtime.
-An ASP.NET application must select a runtime that actually includes its
-framework; a runtime-only source is not interchangeable with an ASP.NET source.
+Registry credentials, non-root defaults and volumes work as described in
+[Package and deploy](applications.md#native-workload-example).
+
+The sample has its own HTTP listener and does not need ASP.NET Core. An
+ASP.NET Core application must select a runtime image that includes the
+ASP.NET Core framework; a plain .NET runtime image is not interchangeable with
+it.
 
 ## Verify
 
-In the intended context:
+1. Wait for the rollout and run the probe through `kubectl exec`:
 
-```sh
-kubectl -n apps rollout status deployment/dotnet-demo --timeout=5m
-kubectl -n apps exec deployment/dotnet-demo -- /usr/bin/dotnet \
-  /app/App.dll --probe "two words"
-kubectl -n apps port-forward deployment/dotnet-demo 18080:8000
-```
+    ```sh
+    kubectl -n apps rollout status deployment/dotnet-demo --timeout=5m
+    kubectl -n apps exec deployment/dotnet-demo -- /usr/bin/dotnet \
+      /app/App.dll --probe "two words"
+    ```
 
-In another terminal, `curl --fail http://127.0.0.1:18080/` should report
-`language: dotnet`, the CLR version and `dependency: shared-contract`.
-Check identity and Exec argument boundaries, inspect the
-[actual leased generation](observability.md#logs-and-actual-bindings), then stop
-the port-forward after verification.
+    The output includes `"arguments":["--probe","two words"]` and a numeric,
+    non-root `uid`.
 
-## Pitfalls and qualification limits
+2. Forward the port and query the service from another terminal:
 
-- SDK choice, framework references and deployment runtime compatibility are separate decisions. Pin the producer SDK and select a compatible approved runtime line explicitly.
-- Framework-dependent, self-contained, single-file and Native AOT outputs have different loader/native-asset needs. Only the documented fixture is covered by this recipe's evidence.
-- Shared files do not imply shared CLR heaps or automatic GC settings. Size resources and mount writable data/temp locations deliberately.
-- The separate managed-set/unchanged-runtime matrix uses a reviewed 768Mi workload limit for the main CLR plus real Exec readiness processes. Its earlier 256Mi attempt OOMed and remains recorded as failed; core injects no CLR/GC tuning.
-- Native local arm64 and CI amd64 receipts qualify the pinned inputs, not every .NET publishing model or mixed-fleet deployment.
+    ```sh
+    kubectl -n apps port-forward deployment/dotnet-demo 18080:8000
+    curl --fail http://127.0.0.1:18080/
+    ```
+
+    Expect `"language":"dotnet"`, the actual CLR version and
+    `"dependency":"shared-contract"`. Stop the port-forward afterwards.
+
+3. Check the [actual runtime binding](observability.md#logs-and-actual-bindings)
+   to confirm which runtime image the Pod uses.
+
+## Pitfalls and limits
+
+- The SDK used to publish and the runtime used to deploy are separate choices.
+  Pin the SDK and select a compatible runtime ID explicitly.
+- Framework-dependent, self-contained, single-file and Native AOT outputs have
+  different loader and native-asset needs. This guide covers only the
+  framework-dependent case.
+- Shared runtime files do not mean a shared CLR heap. Brewlet injects no
+  CLR or GC tuning. Size memory from your own tests (the sample's process plus
+  `kubectl exec` probes ran out of memory at a 256Mi limit), and mount writable
+  data and temp locations explicitly.

@@ -31,7 +31,8 @@ them or author reviewed discovery/scrape configuration. The node Service is
 headless and publishes not-ready addresses; scraping it does not assert readiness.
 The current chart does not bundle a ServiceMonitor or Grafana dashboard switch.
 
-For local inspection, run in a dedicated terminal:
+For local inspection, run in a dedicated terminal, using the namespace you
+installed Brewlet into (`brewlet` in [installation](installation.md)):
 
 ```sh
 kubectl -n brewlet port-forward service/brewlet-operator-metrics 18081:8080
@@ -51,11 +52,12 @@ platform network policy; do not expose inventory metrics publicly by default.
 | `brewlet_container_runtime_image_info` | `namespace`, `pod`, `pod_uid`, `container`, `container_id`, `id`, `inventory_uid`, `generation`, `digest` | Actual live container/runtime binding, value 1. |
 | `brewlet_runtime_image_rotation_complete` | `id`, `inventory_uid`, `generation`, `digest` | Node-target convergence, not completed workload remediation. |
 | `brewlet_runtime_image_restarts` | `id`, `inventory_uid`, `state` | Current target restart outcome counts. |
-| `brewlet_runtime_image_restart_info` | workload identity, epoch/generation, `state` | Per-workload restart observation. |
+| `brewlet_runtime_image_restart_info` | `id`, `inventory_uid`, `generation`, `namespace`, `kind`, `name`, `workload_uid`, `state` | Per-workload restart observation. |
 | `brewlet_node_profile_nodes` | `profile`, `state` | Assigned/effectively ready target observations. |
 | `brewlet_runtime_image_excluded_nodes` | `id`, `inventory_uid`, `reason` | Rotation exclusions, including fence failures. |
 
-Collection errors are surfaced as scrape/metric errors, not fabricated zero
+If the operator cannot read fresh inventory, the scrape fails with a
+`brewlet_control_inventory_collection` error instead of reporting zero
 inventory. Watch scrape health as well as business metrics.
 
 ## PromQL starting points
@@ -94,6 +96,5 @@ application error rate and native rollout availability. Review aggregation:
 the same Pod/container binding is a high-cardinality operational identity, not
 a label to copy into every application metric.
 
-Do not copy Brewlet 0.x's JDK metric names or assume its dashboard is compatible.
 See [instrumentation recipes](instrumentation.md) and
 [failure diagnosis](troubleshooting.md).

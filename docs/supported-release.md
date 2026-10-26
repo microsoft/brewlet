@@ -1,17 +1,19 @@
 # Release distribution and recovery
 
+This page describes what a Brewlet release contains, how to verify it and
+which upgrade and recovery paths are supported. The current release is
+**0.8.1**. To install it, follow [installation](installation.md). The sections
+on building candidates and cutting a release are for project maintainers.
+
 Releases are automated: pushing a `vVERSION` tag that matches
 [`release.json`](https://github.com/microsoft/brewlet/blob/main/release.json)
-builds, verifies and publishes every distribution surface. The current
-release identity is **0.8.1**.
+builds, verifies and publishes every distribution surface.
 
 **Any version below 1.0.0 is a beta.** Betas (`0.y.z`) are not stable, but are
 published as normal GitHub releases and marked latest, so
 `https://github.com/microsoft/brewlet/releases/latest` resolves to the newest
 release. Only versions with an `-alpha.N`, `-beta.N` or `-rc.N` suffix are
-published as GitHub *prereleases* and are never marked latest. The 0.8.0+ betas preview the Brewlet 1.0.0
-product line described in this documentation; "legacy 0.x" refers to the
-0.7.x and earlier releases from the `brewlet-0.x-java` branch. A plain `X.Y.Z`
+published as GitHub *prereleases* and are never marked latest. A plain `X.Y.Z`
 version at or above 1.0.0 is a stable release and is marked latest.
 
 ## One identity, explicit distribution surfaces
@@ -21,8 +23,8 @@ is authoritative. Its version maps unchanged to chart version/appVersion,
 Maven version and component image tags; Git tags add `v`. A candidate manifest
 records the immutable source commit, production/qualification-input hashes,
 payload hashes, image index/child digests and actual build tools. `brewlet version`
-reports JSON with version, commit and native platform. Unstamped source builds
-report `dev`/`unknown`, not a release.
+reports JSON with version, commit and native platform. A version of `dev` and
+commit `unknown` means the binary is not a release build.
 
 | Surface | Intended coordinate | Targets |
 | --- | --- | --- |
@@ -33,15 +35,16 @@ report `dev`/`unknown`, not a release.
 | Helm | `oci://ghcr.io/microsoft/charts/brewlet`, version `VERSION` | Matching CRDs and digest-pinned component images |
 | Optional Maven producer | `sh.brewlet:brewlet-maven-plugin:VERSION` | Java 17+; matching Brewlet CLI |
 
-These are intended coordinates, not evidence that a version exists there.
 There are no Windows archives, floating GA/latest aliases, or supported Go
 library/module API. The `v1alpha1` Kubernetes API does not promise arbitrary
 cross-release state compatibility.
 
-## Build and inspect without publishing
+## Maintainers: build and inspect a candidate without publishing
 
-From a clean committed checkout, with Go, Maven, Helm, Docker Buildx and the
-pinned Syft tool available:
+Users do not need this section; install published releases instead. For the
+development setup, see [CONTRIBUTING.md](../CONTRIBUTING.md). From a clean
+committed checkout, with Go, Maven, Helm, Docker Buildx and the pinned Syft
+tool available:
 
 ```sh
 make release-check
@@ -103,14 +106,14 @@ is supplied and its packaging is implemented and verified. Do not manufacture
 an approval record. Betas do not require this record.
 
 `publicationPolicy.mavenSigningFingerprint` pins the existing Maven Central
-signing key (the same key that signed the legacy 0.x plugin releases). The
+signing key. The
 publish job runs in the `maven-central` GitHub environment, which supplies
 `MAVEN_GPG_KEY`, `MAVEN_GPG_PASSPHRASE`, `MAVEN_CENTRAL_USERNAME` and
 `MAVEN_CENTRAL_PASSWORD`. No secret values belong in source; the job imports
 the key into an ephemeral keyring and refuses a key that does not match the
 pinned fingerprint.
 
-## Cutting a release
+## Maintainers: cutting a release
 
 1. Update the version in `release.json`, `maven-plugin/pom.xml`, the chart
    `version`/`appVersion` and image tags in `values.yaml` (plus documented
@@ -178,7 +181,7 @@ attestations or credentials are failures, not optional checks.
 | Transition | Policy and current evidence |
 | --- | --- |
 | Same candidate, clean reinstall | The only eligible test pair, exercised by the manual `release-transition.yml`. Not required for beta publication. |
-| Legacy 0.7.x and earlier to 0.8.0+ | No supported in-place transition or old-state reuse. Re-author workloads and review a separate migration. |
+| 0.7.x or earlier to 0.8.x | No supported in-place upgrade or state reuse. Uninstall the old release, install 0.8.x cleanly and re-package workloads. |
 | Between different betas/prereleases | Unsupported until immutable source/target artifacts, cleanup/recovery limits and genuine evidence are explicitly reviewed. |
 | Helm/binary downgrade or mixed releases | No compatibility or rollback promise. |
 

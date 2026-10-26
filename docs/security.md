@@ -52,9 +52,9 @@ final image and preserves original application build inputs. Its verifier
 distinguishes publisher evidence from release-composition signatures and
 does not claim application tests passed or hidden code was discovered.
 
-Current Brewlet does not restore Brewlet 0.x's complete application Ratify integration.
-Enforce any additional application admission/signature policy through separately
-reviewed platform tooling; do not describe it as built into the shim.
+Brewlet does not verify application image signatures at admission. Enforce
+any application signature or admission policy with separate platform tooling;
+it is not built into the shim.
 
 ## Operational checklist
 

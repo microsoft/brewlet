@@ -25,8 +25,9 @@ and [writable storage](../resources.md#probes-exec-files-and-shutdown).
 
 ## Verify the infrastructure
 
-Check current inventory approval, profile/Node UIDs, effective readiness without
-the startup fence, and actual first-use installation where applicable.
+Check that each RuntimeImage is `Approved`, each NodeProfile is `Ready`, nodes
+are ready without the startup taint, and OnDemand runtimes install on first use.
+`brewlet k8s runtime status ID` and `brewlet k8s doctor` summarize this state.
 Exercise a real application before calling the handoff complete.
 Do not certify a cloud provider from local-kind success.
 
@@ -34,7 +35,7 @@ Do not certify a cloud provider from local-kind success.
 
 | Item | Required answer |
 | --- | --- |
-| Source revision/tooling | Reviewed CLI and producer source; matching optional Maven build. |
+| Brewlet release | The installed release (0.8.1): matching `brewlet` CLI and, optionally, `sh.brewlet:brewlet-maven-plugin`. |
 | Namespace and permissions | Publishing/application access without runtime approval or profile-edit privileges. |
 | Runtime ID | Approved compatibility ID, documented absolute executable and tool paths. |
 | Platforms | Actual supported OS/architectures and required scheduling constraints. |

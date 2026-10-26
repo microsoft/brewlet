@@ -10,7 +10,5 @@ application tasks, not two owners of that workload.
 | [Developer workshop](developer.md) | An explicit application artifact deployed as a native workload and verified over HTTP. |
 | [Guided local demonstration](../demo.md) | One operator completes both paths, rotates a runtime and cleans up normally. |
 
-Pin one Brewlet release throughout; do not substitute Brewlet 0.x's released
-installer or Maven plugin.
-The complete acceptance suite remains maintainer qualification, not the
-required student path.
+Use one Brewlet release (0.8.1) throughout: the same version of the CLI, the
+Helm chart and, if used, the Maven plugin.

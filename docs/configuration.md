@@ -1,51 +1,48 @@
 # Configuration reference
 
-Configure the source of truth, not its generated child resources.
+Each layer of Brewlet configuration has one source of truth. Change the source,
+not the resources Brewlet generates from it.
 
-```text
-Helm values -> control-plane options and optional NodeProfiles
-RuntimeImage -> approved source, identity and inventory epoch
-NodeProfile -> offering pools, installation policy, mirrors and worker authority
-Pod/controller -> runtime ID, application image, resources and rollout policy
-Fenced worker -> trusted local roots, authorization, leases and observations
-```
+| Layer | Configures |
+| --- | --- |
+| Helm values | Control-plane options and optional `NodeProfile`s. |
+| `RuntimeImage` | Approved runtime source, default user and compatibility metadata. |
+| `NodeProfile` | Node pools, runtime offerings, installation policy, mirrors and worker rollout. |
+| Pod or workload controller | Runtime ID, application image, resources and rollout policy. |
 
-Use Helm/GitOps source changes for managed objects. Do not mix manual edits to
-worker DaemonSets with operator reconciliation.
-The standalone operator requires an explicit `--worker-image`; the chart supplies
-the matching configured image rather than relying on an unqualified default.
+Manage these objects through Helm or GitOps. Do not edit the worker DaemonSets
+that the operator generates; the operator reconciles them.
 
-## Current Helm values
+## Helm values
 
-These are the current chart keys, not Brewlet 0.x's values schema. Source-chart defaults
-name candidate coordinates, not a promise of published images. Release packages
-replace these tags with verified immutable image digests.
+The published chart pins each component image to the digest of the release.
+The tags below show which release those digests belong to.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `operator.image` | `ghcr.io/microsoft/brewlet-operator:0.8.1` | Operator and uninstall-coordinator image. |
-| `admission.image` | `ghcr.io/microsoft/brewlet-admission:0.8.1` | Admission server image; source-built control image also contains this binary. |
-| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:0.8.1` | Matching privileged node worker and bundled shim. |
-| `provisioner.profiles` | `[]` | Named `{name, spec}` profiles; chart entries require nonempty pool names. |
-| `provisioner.gc.grace` | `1h` | Positive reference-drain grace for collection. |
-| `provisioner.gc.sweepInterval` | `1m` | Positive collection interval. |
-| `security.allowedSourceMirrorHosts` | `[]` | Exact permitted runtime-source mirror authorities. |
+| `admission.image` | `ghcr.io/microsoft/brewlet-admission:0.8.1` | Admission webhook image. |
+| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:0.8.1` | Privileged node worker image, including the shim. |
+| `provisioner.profiles` | `[]` | `NodeProfile`s to create, as `{name, spec}` entries. Each must set `spec.nodePool.names`. |
+| `provisioner.gc.grace` | `1h` | How long an unused runtime generation is kept before collection. |
+| `provisioner.gc.sweepInterval` | `1m` | How often unused generations are collected. |
+| `security.allowedSourceMirrorHosts` | `[]` | Registry hosts allowed as runtime-source mirrors (exact match). |
 | `admission.enabled` | `true` | Deploy admission; disabling it does not disable shim enforcement. |
-| `admission.nodeProfileFailurePolicy` | `Fail` | Failure policy for inventory/profile validation webhooks. |
-| `operator.rotationRestarts.enabled` | `false` | Enable optional native-controller restarts, the corresponding RBAC and the restart `ValidatingAdmissionPolicy`. |
-| `operator.rotationRestarts.maxConcurrent` | `5` | Concurrent restart coordination bound. |
+| `admission.nodeProfileFailurePolicy` | `Fail` | Failure policy for the `RuntimeImage` and `NodeProfile` validation webhooks. |
+| `operator.rotationRestarts.enabled` | `false` | Let the operator restart opted-in workloads after a runtime rotation. Also installs the required RBAC and `ValidatingAdmissionPolicy`. |
+| `operator.rotationRestarts.maxConcurrent` | `5` | Maximum workloads restarted at once. |
 | `operator.rotationRestarts.nodeProgressDeadline` | `10m` | Node-rotation progress deadline. |
 | `operator.rotationRestarts.workloadProgressDeadline` | `10m` | Workload restart progress deadline. |
 | `operator.rotationRestarts.namespaces` | `[]` | Optional restart namespace allowlist; when set, patch rights use a Role per namespace instead of the ClusterRole. Namespaces must exist and cannot be the release or a protected namespace. |
 | `operator.rotationRestarts.protectedNamespaces` | `[kube-system, kube-public, kube-node-lease]` | Namespaces the restart admission policy always refuses. |
 | `operator.rotationRestarts.requireAdmissionPolicy` | `true` | Fail installation with restarts enabled when `ValidatingAdmissionPolicy` v1 (Kubernetes 1.30+) is unavailable; `false` accepts RBAC as the only bound. |
-| `uninstall.timeoutSeconds` | `240` | Cleanup coordinator timeout, integer 1 through 86400. |
+| `uninstall.timeoutSeconds` | `240` | Uninstall cleanup timeout, a whole number from 1 to 86400. |
 | `metrics.enabled` | `false` | Enable operator and node Prometheus endpoints. |
 | `metrics.nodePort` | `9090` | Node metrics listener/service port; this is not a NodePort service type. |
 
-The Pod mutating webhook has its own chart-defined fail-open policy. Inventory
-and retirement validation have different policies; there is no generic
-`admission.failurePolicy` value in this chart.
+The Pod mutating webhook always fails open (`Ignore`), and the
+`NodeRetirementEvidence` webhook always fails closed (`Fail`). There is no
+generic `admission.failurePolicy` value.
 
 ## RuntimeImage
 
@@ -53,65 +50,70 @@ and retirement validation have different policies; there is no generic
 
 | Field | Meaning |
 | --- | --- |
-| `spec.source.image` | Canonical digest-pinned OCI source, not a mutable tag. |
-| `spec.user.uid`, `spec.user.gid` | Immutable usable non-root numeric defaults; zero and the reserved maximum are rejected. |
-| `spec.description` | Human-readable information. |
-| `spec.compatibility.ecosystem`, `spec.compatibility.abi` | Declared compatibility metadata, not executable discovery or a version solver. |
+| `spec.source.image` | Digest-pinned OCI image reference. Tags are rejected. |
+| `spec.user.uid`, `spec.user.gid` | Default non-root numeric user and group. Immutable; `0` and the reserved maximum are rejected. |
+| `spec.description` | Human-readable description. |
+| `spec.compatibility.ecosystem`, `spec.compatibility.abi` | Informational compatibility metadata. Brewlet does not resolve versions from it. |
+| `spec.volumeMountPaths` | Immutable list of paths outside `/app/` where workloads may mount volumes. See [mount locations](runtime-images.md#declare-data-and-configuration-mount-locations). |
 
-The Kubernetes UID is the inventory epoch. `status.generation` is Brewlet's
-allocated runtime generation; it is not interchangeable with the Kubernetes
-resource's `metadata.generation`.
+The object's Kubernetes UID identifies the inventory epoch. `status.generation`
+is the runtime generation Brewlet allocated. It is not the same as
+`metadata.generation`.
 
 ## NodeProfile
 
 | Field | Meaning |
 | --- | --- |
-| `spec.nodePool.key`, `names` | Pool label and selected names. Explicit named pools are recommended. |
-| `spec.nodePool.includeControlPlane` | Explicit opt-in, normally false. |
+| `spec.nodePool.key`, `spec.nodePool.names` | Node label key and the pool names it selects. Name pools explicitly. |
+| `spec.nodePool.includeControlPlane` | Opt in to control-plane nodes. Defaults to `false`. |
 | `spec.runtimeImages[].id` | Approved runtime ID offered on this pool. |
-| `spec.runtimeImages[].install` | `Eager` by default, or `OnDemand`. |
-| `spec.runtimeImages[].idleTTL` | Optional idle retention for OnDemand only. |
-| `spec.tolerations` | Explicit worker tolerations; no blanket default. |
-| `spec.registry.mirrors` | Source-to-mirror mapping under the shared allowlist policy. |
-| `spec.rollout.maxUnavailable` | Bound worker rollout availability. |
-| `spec.rollout.containerdRestart` | `validated` by default, or `none`. |
+| `spec.runtimeImages[].install` | `Eager` (default) or `OnDemand`. |
+| `spec.runtimeImages[].idleTTL` | `OnDemand` only. Uninstall the runtime after it is unused for this long. |
+| `spec.tolerations` | Tolerations for the worker. None are added by default. |
+| `spec.registry.mirrors` | Source-to-mirror registry mapping. Mirrors must be in `security.allowedSourceMirrorHosts`. |
+| `spec.rollout.maxUnavailable` | Maximum nodes updated at once during a worker rollout. |
+| `spec.rollout.containerdRestart` | `validated` (default) or `none`. |
 
-`none` requires operator-provided, already-correct host configuration. It cannot
-repair missing packed-layer retention or handler configuration, and does not
-erase an earlier activation transaction's cleanup obligation.
+With `none`, Brewlet never restarts containerd, so the host's containerd
+configuration must already be correct. Brewlet cannot then repair missing
+layer-retention or runtime-handler settings, and cleanup of earlier changes is
+still required.
 
 ## Pod and controller settings
 
-Use `runtimeClassName: brewlet` and the Pod annotation
-`brewlet.sh/runtime-image: <id>`. All application containers use the same ID.
-Native architecture constraints remain explicit.
+Set `runtimeClassName: brewlet` and the Pod annotation
+`brewlet.sh/runtime-image: <id>`. All containers in the Pod use the same
+runtime ID. Brewlet does not add architecture constraints; set node affinity
+yourself (see [multi-architecture fleets](multi-arch.md)).
 
-Every application/init/sidecar/ephemeral container requires
-`securityContext.readOnlyRootFilesystem: true`. Omission is defaulted by
-admission; explicit false is rejected. The shim also rejects a writable OCI
-root if admission was bypassed or unavailable.
-Workload volume/device mounts outside `/app/` require the platform's immutable
-`RuntimeImage.spec.volumeMountPaths` declaration. See
-[runtime mount policy](runtime-images.md#declare-data-and-configuration-mount-locations).
+Every container (application, init, sidecar and ephemeral) must use
+`securityContext.readOnlyRootFilesystem: true`. Admission sets it when it is
+omitted and rejects an explicit `false`. The shim also refuses a writable root
+filesystem if admission was bypassed.
 
-`brewlet.sh/restart-on-rotation: "true"` belongs on the workload controller's
-metadata, not its Pod template, and requires cluster restart enablement.
-`brewlet.sh/rotated-to-generation` is a strict JSON inventory-epoch/minimum
-barrier, not a free-form version string. See [reference](reference.md).
+Volume and device mounts outside `/app/` must be listed in the runtime's
+`RuntimeImage.spec.volumeMountPaths`. See
+[mount locations](runtime-images.md#declare-data-and-configuration-mount-locations).
+
+To have the operator restart a workload after a runtime rotation, set
+`brewlet.sh/restart-on-rotation: "true"` on the workload controller's metadata
+(not on its Pod template) and enable `operator.rotationRestarts.enabled`.
+`brewlet.sh/rotated-to-generation` is a JSON minimum-generation barrier, not a
+free-form version string. See [public workload annotations](reference.md#public-workload-annotations).
 
 ### RuntimeClass overhead
 
-The raw RuntimeClass manifest and the chart defaults reserve `50m` CPU and
-`64Mi` memory per Pod for shim/staging overhead. These are declared scheduling
-reservations, not measured consumption or language runtime heap reservations.
+The `brewlet` RuntimeClass reserves `50m` CPU and `64Mi` memory per Pod for
+shim and staging overhead. These are scheduling reservations, not measured
+usage, and they do not include the language runtime's own memory.
 
 | Helm value | Default | Meaning |
 | --- | --- | --- |
 | `runtimeClass.overhead.cpu` | `"50m"` | Nonnegative Kubernetes CPU quantity string per Pod. |
 | `runtimeClass.overhead.memory` | `"64Mi"` | Nonnegative Kubernetes memory quantity string per Pod. |
 
-Set these at installation according to measurements of your deployment, for
-example by supplying this values file to `helm install ... -f overhead.yaml`:
+Set these at installation, based on measurements of your own workloads. For
+example, pass this file with `--values overhead.yaml`:
 
 ```yaml
 runtimeClass:
@@ -120,25 +122,24 @@ runtimeClass:
     memory: "96Mi"
 ```
 
-These example overrides are not sizing recommendations. The chart checks
-quantity-string syntax and rejects invalid types, negative or empty values;
-Kubernetes remains authoritative for resource validation. Use `--set-string`
-when passing plain numeric quantities on the command line. Raw-manifest users
-edit `overhead.podFixed` explicitly; the shipped raw defaults remain unchanged.
+These values are an example, not a sizing recommendation. The chart rejects
+empty, negative or non-string values. When passing a plain number on the
+command line, use `--set-string`.
 
 [Pod overhead](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/)
 affects scheduling and quota accounting and is recorded when Pods are admitted.
-At the defaults, 1,000 Pods declare an additional 50 CPU cores and 62.5 GiB of
-memory reservation; that is not an observation of actual resource use.
-Do not remove the reservation or claim density improvements without evidence.
-Choose these defaults at installation. Later RuntimeClass changes are policy
-for newly admitted Pods, not live resource tuning: existing Pods retain their
-admitted overhead values until replaced.
+At the defaults, 1,000 Pods reserve an extra 50 CPU cores and 62.5 GiB of
+memory. Do not remove the reservation without measurements that justify it.
+Changing the overhead affects only newly admitted Pods; existing Pods keep
+their values until they are replaced.
 
 ## Registry and environment precedence
 
-Producer credentials, kubelet application pulls, node runtime-source pulls and
-application outbound TLS are separate configurations. See [trust](registry-trust.md).
-Runtime Env supplies defaults; final CRI Env overrides ordinary names. PATH
-always remains runtime-owned. Initial effective state is retained for Exec,
-probes and hooks. See [launch reference](reference.md#launch-descriptor).
+Credentials for pushing artifacts, kubelet pulls of application images, node
+pulls of runtime sources, and application outbound TLS are configured
+separately. See [registry and certificate trust](registry-trust.md).
+
+The runtime image's environment provides defaults. Environment variables set in
+the container spec override them, except `PATH`, which the runtime always
+controls. Exec sessions, probes and hooks use the same environment as the main
+process. See [launch descriptor](reference.md#launch-descriptor).
