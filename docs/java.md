@@ -89,7 +89,7 @@ omission does not remove the deployment's explicit selection requirement.
 
 Use the matching CLI and a Linux producer filesystem with ordinary readable
 files and searchable directories. For macOS input/producer setup, see
-[getting started](getting-started.md) and the [containerized tutorial](local-kubernetes.md).
+[producer filesystem requirements](applications.md#producer-filesystem) and the [containerized tutorial](local-kubernetes.md).
 Replace the registry with your reviewed destination:
 
 ```sh

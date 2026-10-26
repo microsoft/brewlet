@@ -1,4 +1,4 @@
-site_name: Brewlet 1.0.0
+site_name: Brewlet
 site_description: Language-neutral application artifacts and platform-managed runtimes on Kubernetes.
 docs_dir: ../docs
 site_dir: _site/docs
@@ -42,7 +42,6 @@ nav:
       - When to use Brewlet: choosing-brewlet.md
       - Compatibility policy: compatibility-policy.md
   - Try:
-      - Build and package: getting-started.md
       - First local deployment: local-kubernetes.md
       - Guided demonstration: demo.md
   - Workshops:
@@ -63,7 +62,7 @@ nav:
       - Resources and lifecycle: resources.md
       - Instrumentation: instrumentation.md
   - Enable infrastructure:
-      - Source-built installation: installation.md
+      - Installation: installation.md
       - Configuration: configuration.md
       - Runtime images and pools: runtime-images.md
       - Providers and fencing: providers.md
@@ -82,6 +81,5 @@ nav:
       - Contracts and glossary: reference.md
       - CLI reference: cli-reference.md
       - Third-party notices: third-party-notices.md
-      - Brewlet 0.x vs. 1.0.0: legacy-comparison.md
       - Specification: https://github.com/microsoft/brewlet/blob/main/specs/SPECIFICATION.md
       - Source code: https://github.com/microsoft/brewlet/tree/main

@@ -98,7 +98,7 @@ with separately reviewed loader/native-library/platform requirements.
 ## Package
 
 Use the matching CLI on a suitable Linux producer filesystem; consult
-[producer setup](getting-started.md) for macOS. Replace the registry:
+[producer filesystem requirements](applications.md#producer-filesystem) for macOS. Replace the registry:
 
 ```sh
 brewlet build registry.example.com/apps/dotnet-demo:v1 \

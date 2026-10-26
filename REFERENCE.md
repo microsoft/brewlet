@@ -1,4 +1,4 @@
-# Brewlet 1.0.0 reference
+# Brewlet reference
 
 The implementation contract is
 [`specs/SPECIFICATION.md`](specs/SPECIFICATION.md), which consolidates the

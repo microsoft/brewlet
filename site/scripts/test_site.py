@@ -13,9 +13,9 @@ ROOT = Path(__file__).resolve().parents[2]
 class SiteTests(unittest.TestCase):
     def test_source_links_become_branch_links_without_modifying_draft(self):
         from types import SimpleNamespace
-        source = ROOT / "docs/legacy-comparison.md"
+        source = ROOT / "docs/index.md"
         original = source.read_text()
-        rendered = HOOKS.on_page_markdown(original, SimpleNamespace(
+        rendered = HOOKS.on_page_markdown("[process policy](../pkg/node/process.go)", SimpleNamespace(
             file=SimpleNamespace(abs_src_path=str(source))), {"docs_dir": str(ROOT / "docs")}, None)
         self.assertIn("blob/main/pkg/node/process.go", rendered)
         self.assertNotIn("](../pkg/node/process.go)", rendered)

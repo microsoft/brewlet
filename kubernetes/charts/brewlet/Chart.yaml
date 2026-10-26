@@ -1,6 +1,6 @@
 apiVersion: v2
 name: brewlet
-description: Brewlet 1.0.0 language-neutral runtime inventory and admission
+description: Brewlet language-neutral runtime inventory and admission
 type: application
 version: 0.8.1
 appVersion: 0.8.1

@@ -90,7 +90,7 @@ payload; other application writes need a separately mounted destination.
 ## Package
 
 Use the matching CLI on a suitable Linux producer filesystem. Follow the
-[producer setup](getting-started.md) for macOS rather than dropping filesystem
+[producer filesystem requirements](applications.md#producer-filesystem) for macOS rather than dropping filesystem
 validation. Replace the registry and declare your actual platform:
 
 ```sh

@@ -1,4 +1,4 @@
-Brewlet 1.0.0 control-plane verification boundaries
+Brewlet control-plane verification boundaries
 Reference: fa7085335b220e29df6affbece4558c5f1259ecb
 
 Implemented production paths

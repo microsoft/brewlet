@@ -1,8 +1,8 @@
-# Brewlet 1.0.0 integration tests
+# Brewlet integration tests
 
-Brewlet 1.0.0 is a rewrite; 0.x E2E tiers, `core/` paths and JDK-specific
+Current Brewlet is a rewrite; 0.x E2E tiers, `core/` paths and JDK-specific
 runbooks do not apply to this branch. The contract is the
-[Brewlet 1.0.0 specification](../specs/SPECIFICATION.md);
+[Brewlet specification](../specs/SPECIFICATION.md);
 obligations and evidence rules live in [`acceptance/`](../acceptance/README.md).
 
 ## Layout

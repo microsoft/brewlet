@@ -137,19 +137,20 @@ timeout above that default. Failure does not authorize new markers.
 `idleTTL` is permitted only for OnDemand. Reclamation waits for complete lease
 and mount drain; it does not kill workloads.
 
-## Source-built component installation
+## Building component images from source
 
-Install matching operator/admission and provisioner images from this checkout.
+Releases publish matching operator/admission and provisioner images; see
+[installation](installation.md). To build them from this checkout instead:
 The host must supply containerd 2.x, systemd/systemctl, crictl, cgroup v2 and the
 supported overlayfs layout. The default containerd socket is currently required.
 
 ```sh
 docker build -f kubernetes/Dockerfile \
-  -t registry.example.com/brewlet/control:1.0.0 .
+  -t registry.example.com/brewlet/control:<version> .
 docker build -f provisioner/Dockerfile \
-  -t registry.example.com/brewlet/node:1.0.0 .
-docker push registry.example.com/brewlet/control:1.0.0
-docker push registry.example.com/brewlet/node:1.0.0
+  -t registry.example.com/brewlet/node:<version> .
+docker push registry.example.com/brewlet/control:<version>
+docker push registry.example.com/brewlet/node:<version>
 ```
 
 Supply reviewed values, image digests and registry access for your environment.

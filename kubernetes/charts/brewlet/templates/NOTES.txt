@@ -1,4 +1,4 @@
-Brewlet 1.0.0 inventory and admission are installed.
+Brewlet inventory and admission are installed.
 
 * Rotation-triggered workload restarts require both the cluster/chart opt-in
   and brewlet.sh/restart-on-rotation=true on the workload object.

@@ -1,4 +1,4 @@
-# Brewlet 1.0.0 operations and verification
+# Brewlet operations and verification
 
 The maintained reader journeys start at [the documentation overview](index.md):
 [local deployment](local-kubernetes.md), [installation](installation.md),

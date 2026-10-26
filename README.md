@@ -20,7 +20,7 @@ developers retain explicit control over their application's command and
 dependencies. Java, Python, Node.js and .NET use the same language-neutral
 contract; Java project intelligence belongs only to the optional Maven producer.
 
-This repository contains the complete Brewlet 1.0.0 implementation: the CLI and
+This repository contains the complete Brewlet implementation: the CLI and
 runtime, Kubernetes platform, node provisioner, Maven plugin, specifications,
 integration tests, website, and user-facing documentation.
 
@@ -31,17 +31,17 @@ integration tests, website, and user-facing documentation.
 > governance solution. It still does most of what the Java-specific 0.7.x line
 > did, now tracked in the
 > [`brewlet-0.x-java`](https://github.com/microsoft/brewlet/tree/brewlet-0.x-java)
-> branch, but it is no longer specific to Java. See
-> [Brewlet 0.x vs. 1.0.0](https://brewlet.sh/docs/legacy-comparison/).
+> branch, but it is no longer specific to Java.
 >
 > **All 0.x releases are betas and are not stable.** They can break, change
 > incompatibly or pivot again between versions. General availability (GA)
 > will be 1.0.0.
 
-Brewlet 1.0.0 is a clean-slate, pre-GA implementation under active development.
-There is no published stable 1.0.0 installer in this workflow. Evaluate matching
-source-built components in a disposable environment, not a production or shared
-cluster. Do not substitute the 0.x CLI, chart, artifact format or runbooks.
+Brewlet is a clean-slate, pre-GA implementation under active development.
+Beta releases are published on
+[GitHub Releases](https://github.com/microsoft/brewlet/releases). Evaluate them
+in a disposable environment, not a production or shared cluster. Do not
+substitute the 0.x CLI, chart, artifact format or runbooks.
 
 The [acceptance ledger](acceptance/requirements.json) records scoped successful
 local evidence for all 111 requirements. This is not cloud-provider autoscaling
@@ -131,10 +131,16 @@ process, including its interpreter or VM.
 
 ## Quick start
 
+### Install the CLI
+
+```bash
+curl -fsSL https://brewlet.sh/install.sh | sh
+brewlet version
+```
+
 ### Build the CLI from source
 
-Use Go 1.26 or newer and a reviewed source revision containing this 1.0.0
-implementation:
+Use Go 1.26 or newer:
 
 ```bash
 git clone https://github.com/microsoft/brewlet.git
@@ -263,7 +269,7 @@ passed CI on `main` builds, verifies and publishes every artifact automatically.
 See the [release distribution runbook](docs/supported-release.md) and
 [compatibility policy](docs/compatibility-policy.md).
 
-The 1.0.0 rewrite is inspired by Brewlet 0.x at
+The current rewrite is inspired by Brewlet 0.x at
 `fa7085335b220e29df6affbece4558c5f1259ecb`; its specification, label contract
 and runbooks are not carried forward. See [reference provenance](REFERENCE.md).
 

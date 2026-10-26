@@ -52,7 +52,7 @@ final image and preserves original application build inputs. Its verifier
 distinguishes publisher evidence from release-composition signatures and
 does not claim application tests passed or hidden code was discovered.
 
-1.0.0 does not currently restore Brewlet 0.x's complete application Ratify integration.
+Current Brewlet does not restore Brewlet 0.x's complete application Ratify integration.
 Enforce any additional application admission/signature policy through separately
 reviewed platform tooling; do not describe it as built into the shim.
 

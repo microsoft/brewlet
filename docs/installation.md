@@ -1,8 +1,7 @@
-# Source-built installation
+# Installation
 
-There is no published stable 1.0.0 installer yet; 0.8.0+ beta releases
-preview the 1.0.0 line. Use one reviewed source revision (or one beta release)
-for the CLI, chart, CRDs, control plane and provisioner.
+Install Brewlet from [GitHub Releases](https://github.com/microsoft/brewlet/releases).
+Use one release for the CLI, chart, CRDs, control plane and provisioner.
 Do not substitute legacy Brewlet 0.7.x's released CLI, chart or application format.
 The [release distribution runbook](supported-release.md) describes release
 coordinates, exact-artifact verification and the automated publication flow.
@@ -32,7 +31,23 @@ export NAMESPACE=brewlet
 kubectl --context "$CONTEXT" cluster-info
 ```
 
-## Build and deliver matching images
+## Install the CLI
+
+```sh
+curl -fsSL https://brewlet.sh/install.sh | sh
+brewlet version
+```
+
+The script downloads the CLI from the latest release and verifies its checksum.
+
+## Choose component images
+
+The released chart already references the matching operator, admission and
+node provisioner images. Skip to
+[installing the chart](#apply-schemas-then-install) unless you need to mirror
+or build images.
+
+### Optional: build images from source
 
 Build from a clean checkout without credentials or private work directories in
 the Docker build context. The local tutorial constructs a committed-source
@@ -64,14 +79,20 @@ does not expose every field from Brewlet 0.x's chart.
 
 ## Apply schemas, then install
 
+Install the latest released chart. Helm does not upgrade CRDs, so apply the
+chart's CRDs first; this also keeps them current on every upgrade:
+
 ```sh
-kubectl --context "$CONTEXT" apply -f kubernetes/deploy/crds/
-helm --kube-context "$CONTEXT" upgrade --install brewlet kubernetes/charts/brewlet \
+helm show crds oci://ghcr.io/microsoft/charts/brewlet \
+  | kubectl --context "$CONTEXT" apply -f -
+helm --kube-context "$CONTEXT" upgrade --install brewlet \
+  oci://ghcr.io/microsoft/charts/brewlet \
   --namespace "$NAMESPACE" --create-namespace --values reviewed-values.yaml \
   --wait --timeout 5m
 ```
 
-Apply current CRDs before every chart upgrade as well. Helm installation does
+When installing from a source checkout instead, apply `kubernetes/deploy/crds/` and
+use `kubernetes/charts/brewlet` as the chart. Helm installation does
 not by itself mean a node runtime is provisioned.
 
 Approve [runtime images](runtime-images.md), then create a reviewed
@@ -98,11 +119,11 @@ Deployment. See [troubleshooting](troubleshooting.md) and
 
 ## Upgrades and reversal
 
-Keep previous source/image digests and recovery information. The node's owned
+Keep previous image digests and recovery information. The node's owned
 activation transaction validates configuration, restarts/read-checks when
 authorized and retains reversal obligations across upgrades. Do not replace
 its journal or delete roots to force progress.
 
 Follow [safe removal](uninstallation.md) before uninstalling or reinstalling.
-Pre-GA schema compatibility is governed by the [1.0.0 policy](compatibility-policy.md),
+Pre-GA schema compatibility is governed by the [compatibility policy](compatibility-policy.md),
 not an assumption that Brewlet 0.x's release upgrade commands apply.

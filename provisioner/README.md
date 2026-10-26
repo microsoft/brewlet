@@ -1,4 +1,4 @@
-# Brewlet 1.0.0 node execution
+# Brewlet node execution
 
 The Linux binaries are built from the repository root:
 

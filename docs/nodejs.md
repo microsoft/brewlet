@@ -81,7 +81,7 @@ typically needs the correct package/import layout or an explicit build output.
 ## Package
 
 Use a matching CLI on a Linux producer filesystem, following
-[producer setup](getting-started.md) if working on macOS. Replace the registry:
+[producer filesystem requirements](applications.md#producer-filesystem) if working on macOS. Replace the registry:
 
 ```sh
 brewlet build registry.example.com/apps/node-demo:v1 \

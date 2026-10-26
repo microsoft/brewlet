@@ -136,7 +136,7 @@ kernel case must not be called real-node proof.
 
 ## What these results do not claim
 
-- A stable production release or available 1.0.0 installer.
+- A stable production release or installer.
 - Executed EKS/Karpenter/AKS provider scale-from-zero.
 - Physical alternate-CPU node joins; final local physical execution is arm64.
 - Better throughput, memory use or startup time than conventional containers.

@@ -1,6 +1,6 @@
 # Ship the app. Not the runtime.
 
-Brewlet 1.0.0 brings language runtimes back to the infrastructure level, like the
+Brewlet brings language runtimes back to the infrastructure level, like the
 OS or Kubernetes. The application remains the workload; its runtime is supplied
 by infrastructure instead of being bundled into every application image.
 
@@ -44,7 +44,7 @@ retains its own process and resources; shared files do not imply shared heaps.
 Opt in using `runtimeClassName: brewlet` and the explicit
 `brewlet.sh/runtime-image` Pod annotation. Use ordinary Deployments, StatefulSets,
 DaemonSets, Services and HPAs. There is no `JavaApplication` or replacement
-workload CRD in 1.0.0.
+workload CRD in current Brewlet.
 
 All application containers in a Brewlet Pod use the same runtime ID and version-1
 artifact contract. The infrastructure sandbox alone uses the standard runc path.
@@ -62,9 +62,3 @@ relabeled as proof of the revised image-shape rules.
 That is not a stable release, cloud-provider autoscaling certification or a
 performance benchmark. Read the [verification boundaries](verification.md)
 before evaluating the system on an isolated node.
-
-[What changes from Brewlet 0.x?](legacy-comparison.md)
-
-The comparison is revision-pinned. Its website/distribution gaps describe that
-baseline; this source-built website preview was added afterward and does not
-restore a stable-release installer or publication pipeline.

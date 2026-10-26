@@ -231,7 +231,7 @@ class PublicationTests(unittest.TestCase):
 
     def test_release_notes_flag_betas_as_unstable_and_explain_the_0_8_0_pivot(self):
         notes = p.release_notes("0.8.0", True)
-        for expected in ("language-agnostic", "brewlet-0.x-java", "https://brewlet.sh/docs/legacy-comparison/",
+        for expected in ("language-agnostic", "brewlet-0.x-java", "docs/legacy-comparison.md",
                          "not stable", "Brewlet 1.0.0"):
             self.assertIn(expected, notes)
         with tempfile.TemporaryDirectory() as temp:

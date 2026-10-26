@@ -174,8 +174,7 @@ credential forwarding or recommends embedding secrets in artifacts.
 
 ## Deliberately absent commands
 
-The current 1.0.0 CLI does not provide Brewlet 0.x's runc-bundle export, `stage-gc` or
+The current CLI does not provide Brewlet 0.x's runc-bundle export, `stage-gc` or
 `keygen` commands, or its `JavaApplication`-specific `k8s` helpers. Use the
-[native operations workflow](operations.md) and the
-[comparison's equivalent-workflow analysis](legacy-comparison.md) instead
-of applying old command examples to this branch.
+[native operations workflow](operations.md) instead of applying old command
+examples to this branch.

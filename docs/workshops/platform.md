@@ -5,7 +5,7 @@ handoff, not merely healthy operator Pods.
 
 ## Prepare and approve
 
-Use [source-built installation](../installation.md), or the
+Use [installation](../installation.md), or the
 [disposable local tutorial](../local-kubernetes.md) for a single-person session.
 Review node mutation authority and matching components before selecting pools.
 

@@ -6,7 +6,7 @@ array, not a shell. Launch descriptors, runtime image IDs and platforms are
 validated by an independent Java implementation of the shared artifact contract
 before the CLI runs; failures report the same reason codes (for example
 `InvalidLaunchConfig: ...`). The CLI still enforces the contract when publishing.
-The matching Brewlet 1.0.0 CLI must be installed explicitly.
+The matching Brewlet CLI must be installed explicitly.
 The candidate version is governed by `release.json`; it is not a claim that
 these coordinates have been published. Build/install from matching source
 until a qualified prerelease is available. Java 17 or later is required.

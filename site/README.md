@@ -1,7 +1,7 @@
-# Brewlet 1.0.0 website
+# Brewlet website
 
 The static landing page preserves main's Brewlet brand/story structure while
-replacing Java-specific claims and unsupported release commands with the 1.0.0
+replacing Java-specific claims and unsupported release commands with the current
 contracts. A single light theme, keyboard-accessible language examples, copy controls
 and responsive navigation require no npm runtime package, remote font or CDN.
 
@@ -14,7 +14,7 @@ draft is rendered without modifying its source; repository-file links become
 branch-specific GitHub source links through the documented hook.
 
 The landing page includes responsive desktop/mobile SVG architecture diagrams,
-in main's schematic style but with the 1.0.0 runtime-infrastructure contract.
+in main's schematic style but with the current runtime-infrastructure contract.
 They distinguish CRI application pulls, operator reconciliation of node workers,
 fenced runtime provisioning and the shim's local validation/lease/composition.
 `assets/images/architecture.excalidraw` is the editable desktop topology source;
@@ -60,4 +60,4 @@ or forks cannot deploy.
 The repository must keep Pages configured to use GitHub Actions and retain its
 existing custom-domain configuration; this workflow does not change the domain
 or create a CNAME file. No old-release installer or release smoke test is
-presented as a working 1.0.0 release workflow.
+presented as a working release workflow.

@@ -1,4 +1,4 @@
-# Brewlet 1.0.0 specification
+# Brewlet specification
 
 - **Status:** authoritative contract for the **breaking** Brewlet 1.0.0 implementation,
   not an additive mode of Brewlet 0.x. Implementation and qualification are

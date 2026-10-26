@@ -64,6 +64,17 @@ Repeated platforms mean the supplied bytes work unchanged on each platform.
 Different native payloads require separate platform manifests and an explicitly
 authored index descriptor.
 
+## Producer filesystem
+
+Use regular world-readable files and searchable directories. The packager
+rejects unsafe modes, extended attributes and escaping paths instead of
+silently sanitizing them.
+
+On macOS, the producer runs locally, but the shim and node worker execute on
+Linux. The producer ignores the host-local `com.apple.provenance` and
+`com.apple.quarantine` attributes because layers never carry xattrs; remove any
+other extended attribute rather than stripping validation checks.
+
 ## Independent dependency layer sets
 
 `brewlet layer-set` publishes neutral dependency layers, a config and optional

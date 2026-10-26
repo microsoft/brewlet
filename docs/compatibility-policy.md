@@ -1,17 +1,11 @@
-# 1.0.0 compatibility policy
+# Compatibility policy
 
-Brewlet 1.0.0 is a source-built pre-GA evaluation. Use matching CLI, chart, CRDs,
-operator/admission, provisioner and shim from one reviewed source revision.
+Brewlet is pre-GA. Use matching CLI, chart, CRDs, operator/admission,
+provisioner and shim from one release (or one source revision).
 The unchanged presence of an API version or filename does not promise arbitrary
-mixed-revision operation.
+mixed-version operation.
 
-## No 0.x compatibility layer
-
-Main's old artifact/launch formats, `JavaApplication`, JDK selection labels,
-JVM-specific APIs and removed CLI commands are not supported 1.0.0 interfaces.
-Re-author application descriptors and native workload manifests under the
-current contract. The [comparison](legacy-comparison.md) explains equivalents;
-it is revision-pinned history, not an in-place migration guarantee.
+## Launch schema
 
 The current launch schema also rejects earlier rewrite snapshots' `requires`
 wrapper. Optional `runtimeImages` is now a top-level field, with omission
