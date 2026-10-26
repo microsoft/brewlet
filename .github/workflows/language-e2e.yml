@@ -3,7 +3,7 @@ name: Language example E2E
 # Non-gating weekly real-node E2E for every language fixture against main: the
 # Python qualification fixture, the Java, Node.js, .NET and PHP examples, and
 # the Wasmtime/Spin WebAssembly examples. Python remains the qualification
-# fixture in pr.yml, full-validation.yml and promotion; these results are never
+# fixture in pr.yml and full-validation.yml (and so every release); these results are never
 # qualification evidence.
 on:
   schedule:

@@ -250,21 +250,6 @@ class WorkflowTests(unittest.TestCase):
                 result = subprocess.run(["bash", "-eu", "-c", program], env=environment, capture_output=True)
                 self.assertEqual(success, result.returncode == 0, (event, ref, expected))
 
-    def test_promotion_is_manual_reusable_and_fetches_verified_artifacts_before_strict_gate(self):
-        text = (ROOT / ".github/workflows/promotion-qualification.yml").read_text()
-        triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-        self.assertEqual(["  workflow_dispatch:", "  workflow_call:"],
-                         [line for line in triggers.splitlines() if line.startswith("  ") and not line.startswith("    ")])
-        self.assertIn("actions: read", text)
-        self.assertIn("fetch-depth: 0", text)
-        self.assertIn("persist-credentials: false", text)
-        self.assertIn("python3 acceptance/evidence_index.py fetch", text)
-        self.assertIn("make acceptance", text)
-        self.assertLess(text.index("evidence_index.py fetch"), text.index("make acceptance"))
-        self.assertLess(text.index('test "$SOURCE" = "$EXPECTED_SOURCE"'), text.index("- uses: actions/checkout"))
-        for bypass in ("continue-on-error", "||", "--structure-only", "qualify.py --run", "workflow run"):
-            self.assertNotIn(bypass, text)
-
     def test_e2e_is_reusable_real_execution_only_and_pr_guard_rejects_forks(self):
         text = (ROOT / ".github/workflows/e2e.yml").read_text()
         self.assertIn("  workflow_call:", text)

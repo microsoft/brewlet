@@ -79,12 +79,12 @@ the [cleanup contract](operations.md#cleanup-and-revocation).
 | `PR validation` (`pr.yml`) | Pull requests | Only the checks, CodeQL languages, website build and real E2E impacted by the changed files. Native checks and E2E run on amd64; E2E uses the Python fixture; Node.js, .NET and PHP fixture changes are left to the weekly language workflow. Unknown paths and workflow changes select everything. |
 | `Full validation` (`full-validation.yml`) | Weekly on `main`, manual dispatch, and every release | Every check, every CodeQL language and the Python real E2E on native amd64 and arm64. |
 | `Language example E2E` (`language-e2e.yml`) | Weekly on `main`, manual dispatch for any branch, architecture and language (or all) | One matrix job per fixture (Python, Java, Node.js, .NET, PHP, WebAssembly) running its real-node runtime contract and rotation; Java also runs the Maven producer and WebAssembly runs the Wasmtime and Spin examples. Non-gating. |
-| `Promotion qualification` (`promotion-qualification.yml`) | Manual or reusable | `make acceptance`: verifies indexed evidence for one immutable candidate. It does not run live scenarios and fails on missing or stale evidence. |
 
 The [release workflow](supported-release.md#maintainers-cutting-a-release)
-runs full validation for the tagged commit before publishing. Promotion
-qualification and the disposable-node `release-transition.yml` test are
-separate manual workflows. Evidence handling is described in the
+runs full validation, including the Python real E2E on both architectures, for
+the tagged commit before publishing. The disposable-node `release-transition.yml`
+test is a separate manual workflow. Strict promotion qualification
+(`make acceptance` over fetched evidence) runs locally. Evidence handling is described in the
 [acceptance README](https://github.com/microsoft/brewlet/blob/main/acceptance/README.md).
 
 ## Contributors: local checks

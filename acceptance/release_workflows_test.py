@@ -45,6 +45,23 @@ class RoutingTests(unittest.TestCase):
         self.assertNotIn("contents: write", text.split("\n  publish:\n", 1)[0])
         self.assertNotIn("secrets.", text.split("\n  publish:\n", 1)[0])
 
+    def test_every_release_runs_the_python_real_node_e2e_on_both_architectures(self):
+        from acceptance.qualification import fixture_names, load_matrix
+        self.assertIn("python", fixture_names(load_matrix(), "native"))
+        full = (ROOT / ".github/workflows/full-validation.yml").read_text()
+        e2e = full.split("\n  e2e:\n", 1)[1].split("\n\n", 1)[0]
+        self.assertIn("uses: ./.github/workflows/e2e.yml", e2e)
+        self.assertIn("scenario: pr", e2e)
+        self.assertIn("architecture: [amd64, arm64]", e2e)
+        self.assertNotIn("if:", e2e)
+        self.assertIn('test "$E2E" = success', full)
+        workflow = (ROOT / ".github/workflows/e2e.yml").read_text()
+        self.assertIn("harness.py --scenario pr", workflow)
+        guard = workflow.split("            push)", 1)[1].split(";;", 1)[0]
+        self.assertIn('test "$SCENARIO" = pr', guard)
+        self.assertIn("refs/tags/v*", guard)
+        self.assertFalse((ROOT / ".github/workflows/promotion-qualification.yml").exists())
+
     def test_dispatch_is_a_build_only_dry_run_of_the_same_candidate_builder(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
         candidate = text.split("\n  candidate:\n", 1)[1].split("\n\n", 1)[0]

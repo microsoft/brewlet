@@ -146,10 +146,11 @@ The `release.yml` workflow then:
   verifies every published surface.
 
 A failed, skipped or cancelled prerequisite is not success; there is no
-acceptance opt-out. The workflow never creates or moves tags. Strict promotion
-qualification (`promotion-qualification.yml`) and the disposable-node
-transition test (`release-transition.yml`) remain separate manual workflows for
-owners who want additional evidence before tagging.
+acceptance opt-out. The workflow never creates or moves tags. Owners who want
+additional evidence before tagging can run the disposable-node transition test
+(`release-transition.yml`) manually, or strict promotion qualification
+(`make acceptance` over fetched evidence) locally as described in the
+[acceptance guide](https://github.com/microsoft/brewlet/blob/main/acceptance/README.md).
 
 Image transfer preserves verified OCI digests; the chart must resolve to the
 same package bytes. Central submission signs a bundle of the prebuilt JAR/POM
