@@ -9,6 +9,8 @@ import subprocess
 import sys
 import re
 
+from social_card import render as render_social_card
+
 ROOT = Path(__file__).resolve().parents[2]
 SITE = ROOT / "site"
 OUTPUT = SITE / "_site"
@@ -16,7 +18,7 @@ OUTPUT = SITE / "_site"
 
 def notices():
     distributions = {}
-    pending = ["mkdocs", "mkdocs-material"]
+    pending = ["mkdocs", "mkdocs-material", "Pillow"]
     while pending:
         distribution = metadata.distribution(pending.pop())
         name = distribution.metadata["Name"]
@@ -32,6 +34,10 @@ def notices():
              "Brewlet source is MIT licensed; see LICENSE.txt.\n"
              "The generated documentation bundles the following dependencies.\n"
              "Versions and license text come from the installed build environment.\n",
+             "The social preview uses Pillow's bundled Aileron Regular font.\n"
+             "Aileron by dot colon is dedicated to the public domain under CC0 1.0.\n"
+             "https://dotcolon.net/fonts/aileron/\n"
+             "https://creativecommons.org/publicdomain/zero/1.0/\n",
              "The main website's attribution snapshot below covers vendor browser\n"
              "assets of the same pinned Material version. Some listed assets are\n"
              "not used by this preview (no external fonts or Mermaid are loaded).\n",
@@ -54,6 +60,7 @@ def main():
                     "-f", str(SITE / "mkdocs.yml")], cwd=ROOT, check=True,
                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
     shutil.copytree(SITE / "assets", OUTPUT / "assets", dirs_exist_ok=True)
+    render_social_card(OUTPUT / "assets/images/social-card.png")
     shutil.copy2(SITE / "index.html", OUTPUT / "index.html")
     shutil.copy2(SITE / "install.sh", OUTPUT / "install.sh")
     shutil.copy2(ROOT / "LICENSE.txt", OUTPUT / "LICENSE.txt")
