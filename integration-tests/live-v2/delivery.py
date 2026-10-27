@@ -459,8 +459,9 @@ auth:
         execute("chmod", "0700", directory)
         execute("sh", "-ec", 'umask 077; cat > "$1"', "delivery",
                 directory + "/" + name, input=data)
-        observed = execute("sha256sum", directory + "/" + name).stdout.split()
-        require(observed and observed[0] == hashlib.sha256(data.encode()).hexdigest(),
+        # Compare bytes on the node instead of hashing: the payload may hold credentials.
+        observed = execute("cmp", "-s", "-", directory + "/" + name, input=data, check=False)
+        require(observed.returncode == 0,
                 "node registry file readback differs from the supplied bytes")
 
     def configure_node(self, node=None):

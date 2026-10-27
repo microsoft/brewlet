@@ -2,7 +2,6 @@
 
 import base64
 import gzip
-import hashlib
 import io
 import json
 import os
@@ -357,14 +356,14 @@ class CommandTests(unittest.TestCase):
     def test_node_trust_transfer_checks_bytes_without_logging_secret(self):
         h, state = self.state()
         payload = '{"password":"test-only-private-value"}'
-        expected = hashlib.sha256(payload.encode()).hexdigest()
-        h.node_exec = Mock(return_value=subprocess.CompletedProcess([], 0, expected + "  credentials.json\n", ""))
+        h.node_exec = Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
         state.node_private_file(state.authority, "credentials.json", payload)
         calls = h.node_exec.call_args_list
         self.assertEqual(calls[-2].kwargs["input"], payload)
-        self.assertEqual(calls[-1].args[0], "sha256sum")
+        self.assertEqual(calls[-1].args[:3], ("cmp", "-s", "-"))
+        self.assertEqual(calls[-1].kwargs, {"input": payload, "check": False})
         self.assertNotIn(payload, str([call.args for call in calls]))
-        h.node_exec.return_value = subprocess.CompletedProcess([], 0, "0" * 64 + "  credentials.json\n", "")
+        h.node_exec.return_value = subprocess.CompletedProcess([], 1, "", "")
         with self.assertRaisesRegex(Failure, "readback differs"):
             state.node_private_file(state.authority, "credentials.json", payload)
 
