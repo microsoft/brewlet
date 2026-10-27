@@ -11,9 +11,9 @@
     <div class="demo-guide" tabindex="0" aria-label="Scrollable demo guide">
     <header>
         <div class="eyebrow">BREWLET / LIVE DEMO</div>
-        <h1>One app. Two JDKs.<br>No image rebuild.</h1>
-        <p>ShowMyJVM + Spring Boot, from your laptop to Kubernetes.<br>Update the node-supplied JVM and its CA roots without rebuilding the app.</p>
-        <div class="chips"><span id="brewlet-chip">Brewlet</span><span>Plain Deployment</span><span>25.0.4.1 &rarr; 25.0.5 &rarr; rollback</span><span id="connection" role="status">Connecting...</span></div>
+        <h1>One app. One runtime ID.<br>No image rebuild.</h1>
+        <p>ShowMyJVM + Spring Boot, from your laptop to Kubernetes.<br>Rotate the node-supplied JVM digest and its CA roots without changing the app or runtime ID.</p>
+        <div class="chips"><span id="brewlet-chip">Brewlet</span><span>Plain Deployment</span><span>temurin-25: 25.0.4.1 &rarr; 25.0.5 &rarr; rollback</span><span id="connection" role="status">Connecting...</span></div>
     </header>
     <main>
         <section id="golden-stage" aria-label="Platform team golden runtime image build"></section>
@@ -26,7 +26,7 @@
             </fieldset>
             <div class="buttons"><button data-step="preflight">Check prerequisites</button><button data-step="setup">Prepare private cluster</button><button data-step="cleanup">Remove private cluster</button></div>
             <div class="preparation-previews"><div><h3>Prerequisite checks</h3><div id="preflight-preview"></div></div><div><h3>Private cluster preparation</h3><div id="setup-preview"></div></div><div><h3>Cleanup</h3><div id="cleanup-preview"></div></div></div>
-            <p class="warning">Build the platform team's golden JDK image above first. Preparation consumes that exact digest, creates a disposable, session-owned kind cluster, installs Brewlet's privileged node provisioner there, and approves two digest-pinned Temurin 25 patch builds. It never touches other clusters or your current kubectl context. The older build is for demonstration only; rollback restores its older CA trust store.</p>
+            <p class="warning">Build the platform team's golden JDK image above first. Preparation consumes that exact digest, creates a disposable, session-owned kind cluster, installs Brewlet's privileged node provisioner with rotation restarts enabled, and approves the initial temurin-25 digest. The updated digest is preimported for rotation on the same RuntimeImage ID. It never touches other clusters or your current kubectl context. The older build is for demonstration only; rollback restores its older CA trust store.</p>
             <div id="preparation-status" role="status"></div>
         </section>
         <section class="steps" id="steps" aria-label="Demo stages"></section>
@@ -41,7 +41,7 @@
             </div>
         </section>
         <section class="evidence">
-            <h2>Same artifact, different runtime</h2>
+            <h2>Same artifact, same runtime ID</h2>
             <div id="artifact-proof" aria-live="polite"></div>
             <h2>Runtime proof</h2>
             <div id="evidence">Run the stages to compare the actual JVM vendor, version and unchanged application digest.</div>

@@ -22,7 +22,7 @@ export const PROFILE = "brewlet-demo";
 export const RUNTIME_USER = 65532;
 export const RUNTIME_ANNOTATION = "brewlet.sh/runtime-image";
 export const BASE_RUNTIME = "temurin-25";
-export const NEXT_RUNTIME = "temurin-25-updated";
+export const UPDATED_BUILD = "temurin-25-updated";
 export const UPDATED_RUNTIME_REPOSITORY = "example.invalid/brewlet-demo/temurin-25-updated";
 export const EMSIGN_ROOTS = ["emSign Root CA - G1", "emSign ECC Root CA - G3", "emSign Root CA - C1", "emSign ECC Root CA - C3"];
 export const BREWLET_REPOSITORY = "microsoft/brewlet";
@@ -37,13 +37,13 @@ const DIGEST = /^sha256:[a-f0-9]{64}$/;
 export const STEPS = {
     preflight: { title: "Check prerequisites", detail: "Read-only checks: Docker (Linux engine) with Buildx, kind v0.33.0, kubectl, Helm, Maven, Git and a local JDK 25; resolves the latest Brewlet release (or Go when building from this checkout)." },
     golden: { title: "Platform team: build the golden JDK image", detail: "Verify the official JDK 25.0.5+8 archive, replace the base image's Java installation, and check the full JDK and its bundled CA roots during the build. Export the platform team's golden runtime by immutable digest, separately from the app." },
-    setup: { title: "Prepare private cluster", detail: "Import the platform team's verified golden runtime, create a session-owned kind cluster, install Brewlet and approve both Temurin 25 patch builds." },
+    setup: { title: "Prepare private cluster", detail: "Import the platform team's verified golden runtime, create a session-owned kind cluster, install Brewlet with opted-in rotation restarts, and approve Temurin 25.0.4.1+1 as temurin-25." },
     local: { title: "1. Build & run locally", detail: "Build ShowMyJVM's Spring Boot module with your local JDK 25 and serve it on loopback." },
     package: { title: "2. Package app-only OCI image", detail: "Extract Spring Boot's layers and run brewlet build (released CLI, or built from this checkout) in a Linux producer: dependency layer, app layer and launch.json. No JDK inside." },
     artifact: { title: "3. Inspect the OCI artifact", detail: "Verify the manifest, config and layer digests, then list every archive entry. Read-only: no extraction or rebuild." },
     deploy: { title: "4. Deploy on Temurin 25.0.4.1+1", detail: "Apply a plain Deployment selecting temurin-25. Capture the live JVM, node binding and bundled emSign roots: G1, G3, C1 and C3." },
-    upgrade: { title: "5. Update to Temurin 25.0.5+8", detail: "Patch only the runtime-image annotation to temurin-25-updated. Same application digest; verify G3, C1 and C3 are absent from cacerts while G1 remains." },
-    rollback: { title: "6. Roll back to Temurin 25.0.4.1+1", detail: "Patch the annotation back. Capture G3, C1 and C3 returning with the older runtime. Demonstration only: rollback restores the old trust store too." },
+    upgrade: { title: "5. Rotate temurin-25 to Temurin 25.0.5+8", detail: "Update spec.source.image on the existing temurin-25 RuntimeImage. Brewlet installs a new generation and restarts the opted-in Deployment; verify G3, C1 and C3 are absent while G1 remains." },
+    rollback: { title: "6. Rotate temurin-25 back to Temurin 25.0.4.1+1", detail: "Restore the old digest on the same RuntimeImage. Brewlet installs another generation and rolls the opted-in Deployment back. Demonstration only: rollback restores the old trust store too." },
     inspect: { title: "Inspect deployment", detail: "Show workload, RuntimeImage and NodeProfile state, recent logs, and re-verify the live runtime binding." },
     cleanup: { title: "Remove private cluster", detail: "Explicit opt-in: remove the workload, NodeProfile, RuntimeImages and Helm release normally, then delete this session's kind cluster (and any component images built from this checkout)." },
 };
@@ -240,8 +240,11 @@ export function comparison(evidence, image) {
     const rows = ["deploy", "upgrade", "rollback"].map((step) => ({ step, proof: evidence[step] }));
     const proofs = rows.filter(({ proof }) => proof);
     const baseline = rows[0].proof;
-    const mismatch = proofs.some(({ proof }) => proof.image !== image || (baseline && proof.artifact?.manifestDigest !== baseline.artifact?.manifestDigest));
-    const switched = baseline && rows[1].proof && rows[1].proof.binding?.digest !== baseline.binding?.digest &&
+    const mismatch = proofs.some(({ proof }) => proof.image !== image || (baseline &&
+        (proof.artifact?.manifestDigest !== baseline.artifact?.manifestDigest || proof.binding?.id !== baseline.binding?.id)));
+    const switched = baseline && rows[1].proof && baseline.binding?.id === BASE_RUNTIME &&
+        rows[1].proof.binding?.id === baseline.binding.id && rows[1].proof.binding?.digest !== baseline.binding?.digest &&
+        rows[1].proof.binding?.generation > baseline.binding?.generation &&
         baseline.trustStore && rows[1].proof.trustStore;
     return { status: mismatch ? "mismatch" : switched ? "verified" : "pending", rows };
 }
@@ -266,21 +269,23 @@ export function commandPreviews(state, runtimes = {}) {
     const k = (...args) => ["kubectl", "--kubeconfig", kubeconfig, "--context", n.context, ...args].map(quote).join(" ");
     const image = state.image ?? `${APP_REPOSITORY}@<sha256:digest>`;
     const jar = state.jar ?? path.join(dir, "showmyjvm/spring-boot/target/showmyjvm-springboot-1.0.0-SNAPSHOT.jar");
-    const source = (id) => state.privateRuntime && id === NEXT_RUNTIME ? state.privateRuntime.source : runtimes[id]?.[arch] ?? `<${id} private platform manifest>`;
+    const source = (id) => state.privateRuntime && id === UPDATED_BUILD ? state.privateRuntime.source : runtimes[id]?.[arch] ?? `<${id} private platform manifest>`;
     const checkout = state.brewlet?.source === "checkout";
     const version = state.brewlet?.version ?? "<latest>";
     const helm = `helm --kubeconfig ${quote(kubeconfig)} --kube-context ${n.context}`;
-    const patch = (from, to) => JSON.stringify([
-        { op: "test", path: "/metadata/uid", value: "<deployment-uid>" },
-        { op: "test", path: "/spec/template/metadata/annotations/brewlet.sh~1runtime-image", value: from },
-        { op: "replace", path: "/spec/template/metadata/annotations/brewlet.sh~1runtime-image", value: to },
+    const rotationPatch = (from, to) => JSON.stringify([
+        { op: "test", path: "/metadata/uid", value: "<runtimeimage-uid>" },
+        { op: "test", path: "/spec/source/image", value: source(from) },
+        { op: "replace", path: "/spec/source/image", value: source(to) },
     ]);
-    const switchPreview = (from, to) => ({
-        commands: [k("-n", n.namespace, "patch", "deployment", APP, "--type=json", "-p", patch(from, to)),
+    const rotationPreview = (from, to) => ({
+        commands: [k("patch", "runtimeimage", BASE_RUNTIME, "--type=json", "-p", rotationPatch(from, to)),
+            k("get", "runtimeimage", BASE_RUNTIME, "-o", "json"),
+            k("-n", n.namespace, "get", "deployment", APP, "-o", "jsonpath={.spec.template.metadata.annotations.brewlet\\.sh/rotated-to-generation}"),
             k("-n", n.namespace, "rollout", "status", `deployment/${APP}`, "--timeout=5m")],
-        input: { annotation: { [RUNTIME_ANNOTATION]: to }, unchangedImage: image, runtimeSource: source(to),
-            verification: `/jvm/inspect.json reports Temurin ${runtimes[to]?.version ?? ""} and its bundled caCertificates; node brewlet.sh/runtime-bindings binds the new Pod to ${to}` },
-        note: "Only the Pod template's runtime-image annotation changes. The application digest, Service and launch.json stay the same; the node supplies a different approved runtime.",
+        input: { runtimeImage: BASE_RUNTIME, from: source(from), to: source(to), unchangedImage: image,
+            verification: `/jvm/inspect.json reports Temurin ${runtimes[to]?.version ?? ""}; node brewlet.sh/runtime-bindings shows ${BASE_RUNTIME} on the new digest and generation` },
+        note: "Only spec.source.image changes on the existing RuntimeImage. The Deployment keeps selecting temurin-25; the runner waits for Approved and RotationComplete on the new generation, then the matching workload barrier and rollout. The app digest and launch.json stay unchanged.",
     });
     return {
         preflight: {
@@ -292,17 +297,17 @@ export function commandPreviews(state, runtimes = {}) {
         },
         golden: {
             commands: [
-                `curl -fSL ${runtimes[NEXT_RUNTIME]?.archives?.[arch]?.url ?? "<official Temurin JDK 25.0.5+8 musl archive>"} -o runtime-build/runtime.tar.gz`,
+                `curl -fSL ${runtimes[UPDATED_BUILD]?.archives?.[arch]?.url ?? "<official Temurin JDK 25.0.5+8 musl archive>"} -o runtime-build/runtime.tar.gz`,
                 `shasum -a 256 runtime-build/runtime.tar.gz  # runner rejects a mismatch with the pinned SHA-256`,
                 `docker buildx build --platform linux/${arch} --provenance=false --target runtime --build-arg BASE_RUNTIME=${source(BASE_RUNTIME)} -f runtime-build/Dockerfile --tag ${UPDATED_RUNTIME_REPOSITORY}:demo --output type=oci,dest=runtime-updated.tar runtime-build`,
                 `docker buildx build --platform linux/${arch} --target evidence --build-arg BASE_RUNTIME=${source(BASE_RUNTIME)} -f runtime-build/Dockerfile --output type=local,dest=runtime-verification runtime-build`,
                 "cat runtime-verification/golden-runtime-verification.json",
             ],
-            input: { owner: "Hypothetical platform team", base: source(BASE_RUNTIME), archive: runtimes[NEXT_RUNTIME]?.archives?.[arch],
-                version: runtimes[NEXT_RUNTIME]?.version, expectedPresent: runtimes[NEXT_RUNTIME]?.emSignRoots,
-                expectedAbsent: EMSIGN_ROOTS.filter((name) => !runtimes[NEXT_RUNTIME]?.emSignRoots?.includes(name)),
-                output: source(NEXT_RUNTIME) },
-            note: "The platform team builds the infrastructure runtime independently of the application. This full JDK already omits the distrusted G3/C1/C3 roots; no manual certificate deletion. Build-time checks fail if they return or G1 is missing. The demo exports locally; a real team would publish and approve this digest in its registry.",
+            input: { owner: "Hypothetical platform team", base: source(BASE_RUNTIME), archive: runtimes[UPDATED_BUILD]?.archives?.[arch],
+                version: runtimes[UPDATED_BUILD]?.version, expectedPresent: runtimes[UPDATED_BUILD]?.emSignRoots,
+                expectedAbsent: EMSIGN_ROOTS.filter((name) => !runtimes[UPDATED_BUILD]?.emSignRoots?.includes(name)),
+                output: source(UPDATED_BUILD) },
+            note: "The platform team builds the infrastructure runtime independently of the application. This full JDK already omits the distrusted G3/C1/C3 roots; no manual certificate deletion. Build-time checks fail if they return or G1 is missing. The demo exports locally; a real team would publish and rotate the existing temurin-25 RuntimeImage to this digest.",
         },
         setup: {
             commands: [
@@ -314,7 +319,7 @@ export function commandPreviews(state, runtimes = {}) {
                 ] : []),
                 `kind create cluster --name ${n.cluster} --kubeconfig ${quote(kubeconfig)} --image ${NODE_IMAGE} --wait 180s`,
                 `tar -C runtime-updated -cf - oci-layout index.json blobs | docker exec -i ${n.node} ctr -n k8s.io images import --all-platforms -`,
-                `docker exec ${n.node} ctr -n k8s.io images tag --force ${UPDATED_RUNTIME_REPOSITORY}:demo ${source(NEXT_RUNTIME)}`,
+                `docker exec ${n.node} ctr -n k8s.io images tag --force ${UPDATED_RUNTIME_REPOSITORY}:demo ${source(UPDATED_BUILD)}`,
                 ...(checkout ? [
                     `kind load docker-image --name ${n.cluster} ${n.control} ${n.worker}`,
                     `tar -C runtime-<id> -cf - oci-layout index.json blobs | docker exec -i ${n.node} ctr -n k8s.io images import --all-platforms -`,
@@ -322,22 +327,23 @@ export function commandPreviews(state, runtimes = {}) {
                 k("label", "node", n.node, `${POOL_KEY}=${n.id}`, "--overwrite"),
                 ...(checkout ? [
                     k("apply", "-f", path.join(REPO, "kubernetes/deploy/crds/")),
-                    `${helm} upgrade --install brewlet ${quote(path.join(REPO, "kubernetes/charts/brewlet"))} --namespace brewlet --create-namespace --set-string operator.image=${n.control} --set-string admission.image=${n.control} --set-string provisioner.image=${n.worker} --wait --timeout 5m`,
-                ] : [`${helm} upgrade --install brewlet ${BREWLET_CHART} --version ${version} --namespace brewlet --create-namespace --wait --timeout 10m`]),
+                    `${helm} upgrade --install brewlet ${quote(path.join(REPO, "kubernetes/charts/brewlet"))} --namespace brewlet --create-namespace --set-string operator.image=${n.control} --set-string admission.image=${n.control} --set-string provisioner.image=${n.worker} --set operator.rotationRestarts.enabled=true --wait --timeout 5m`,
+                ] : [`${helm} upgrade --install brewlet ${BREWLET_CHART} --version ${version} --namespace brewlet --create-namespace --set operator.rotationRestarts.enabled=true --wait --timeout 10m`]),
                 k("apply", "-f", path.join(dir, "runtimeimages.yaml")),
-                k("wait", "--for=condition=Approved", `runtimeimage/${BASE_RUNTIME}`, `runtimeimage/${NEXT_RUNTIME}`, "--timeout=120s"),
+                k("wait", "--for=condition=Approved", `runtimeimage/${BASE_RUNTIME}`, "--timeout=120s"),
                 k("apply", "-f", path.join(dir, "nodeprofile.yaml")),
                 k("wait", "--for=condition=Ready", `nodeprofile/${PROFILE}`, "--timeout=10m"),
             ],
             input: {
                 brewlet: checkout ? { source: "this checkout's HEAD", images: [n.control, n.worker] } : { chart: BREWLET_CHART, version },
-                ...Object.fromEntries([BASE_RUNTIME, NEXT_RUNTIME].map((id) => [id, { source: source(id), version: runtimes[id]?.version,
-                    emSignRoots: runtimes[id]?.emSignRoots, ...(id === NEXT_RUNTIME ? { archive: runtimes[id]?.archives?.[arch] } : {}),
-                    user: { uid: RUNTIME_USER, gid: RUNTIME_USER }, volumeMountPaths: ["/tmp"] }])),
+                runtimeImage: { id: BASE_RUNTIME, initial: { source: source(BASE_RUNTIME), version: runtimes[BASE_RUNTIME]?.version,
+                    emSignRoots: runtimes[BASE_RUNTIME]?.emSignRoots, user: { uid: RUNTIME_USER, gid: RUNTIME_USER }, volumeMountPaths: ["/tmp"] },
+                    rotation: { source: source(UPDATED_BUILD), version: runtimes[UPDATED_BUILD]?.version, emSignRoots: runtimes[UPDATED_BUILD]?.emSignRoots,
+                        archive: runtimes[UPDATED_BUILD]?.archives?.[arch] } },
             },
             note: checkout
-                ? "Consumes the platform team's already-built golden image without rebuilding it. Components are built from this checkout's HEAD. Runtime layouts are preimported into one disposable node."
-                : "Consumes the platform team's already-built golden image without rebuilding it. Installs the released Helm chart. The old runtime is pulled upstream; the golden runtime layout is preimported.",
+                ? "Consumes the platform team's already-built golden image without rebuilding it. Components are built from this checkout's HEAD. Both runtime layouts are preimported into one disposable node; only temurin-25 is approved initially."
+                : "Consumes the platform team's already-built golden image without rebuilding it. Installs the released Helm chart with rotation restarts enabled. The node pulls the initial Temurin digest; the updated golden digest is preimported for rotation on the same ID.",
         },
         local: {
             commands: [
@@ -378,8 +384,8 @@ export function commandPreviews(state, runtimes = {}) {
             input: { file: path.join(dir, "deployment.yaml"), template: ".github/extensions/brewlet-demo/deployment.yaml", image, [RUNTIME_ANNOTATION]: BASE_RUNTIME },
             note: "Preimports the verified OCI layout into the node's containerd (no registry), then applies an ordinary Deployment and Service. Use Show Deployment YAML to present the exact file.",
         },
-        upgrade: switchPreview(BASE_RUNTIME, NEXT_RUNTIME),
-        rollback: switchPreview(NEXT_RUNTIME, BASE_RUNTIME),
+        upgrade: rotationPreview(BASE_RUNTIME, UPDATED_BUILD),
+        rollback: rotationPreview(UPDATED_BUILD, BASE_RUNTIME),
         inspect: {
             commands: [k("-n", n.namespace, "get", "deployment,replicasets,pods", "-o", "wide"), k("get", "runtimeimages,nodeprofiles"),
                 k("-n", n.namespace, "logs", `deployment/${APP}`, "--tail=40")],
@@ -391,7 +397,7 @@ export function commandPreviews(state, runtimes = {}) {
                 k("delete", "namespace", n.namespace, "--wait=true", "--timeout=120s", "--ignore-not-found"),
                 k("delete", "nodeprofile", PROFILE, "--wait=false", "--ignore-not-found"),
                 k("wait", "--for=delete", `nodeprofile/${PROFILE}`, "--timeout=10m"),
-                k("delete", "runtimeimage", BASE_RUNTIME, NEXT_RUNTIME, "--wait=true", "--timeout=120s", "--ignore-not-found"),
+                k("delete", "runtimeimage", BASE_RUNTIME, "--wait=true", "--timeout=120s", "--ignore-not-found"),
                 `helm --kubeconfig ${quote(kubeconfig)} --kube-context ${n.context} uninstall brewlet --namespace brewlet --timeout 10m`,
                 `kind delete cluster --name ${n.cluster} --kubeconfig ${quote(kubeconfig)}`,
                 ...(checkout ? [`docker image rm ${n.control} ${n.worker}`] : []),
@@ -494,15 +500,16 @@ export class DemoManager extends EventEmitter {
         this.state.workspace = this.dir;
         // State saved before release mode existed was produced entirely from this checkout.
         this.state.brewlet ??= { source: this.state.cluster || this.state.image ? "checkout" : "release", version: null };
-        if (this.state.scenario !== "temurin-25-golden-jdk") {
+        if (this.state.scenario !== "temurin-25-same-id-rotation") {
+            const previousScenario = this.state.scenario;
             for (const step of ["golden", "setup", "deploy", "upgrade", "rollback", "inspect"]) {
                 delete this.state.steps[step];
                 delete this.state.evidence[step];
             }
             this.state.appliedDeployment = null;
-            this.state.privateRuntime = null;
-            this.state.scenario = "temurin-25-golden-jdk";
-            if (this.state.cluster?.created) this.log("\nDemo now builds a platform-owned golden JDK image explicitly. Remove the existing private cluster, build the golden runtime and prepare again.\n");
+            if (previousScenario !== "temurin-25-golden-jdk") this.state.privateRuntime = null;
+            this.state.scenario = "temurin-25-same-id-rotation";
+            if (this.state.cluster?.created) this.log("\nDemo now rotates the existing temurin-25 RuntimeImage by digest. Remove the existing private cluster, then prepare again. Rebuild the golden runtime only if it is not already verified.\n");
         }
         if (this.state.legacy) {
             delete this.state.legacy;
@@ -706,7 +713,8 @@ export class DemoManager extends EventEmitter {
         const end = Date.now() + timeout;
         while (Date.now() < end) {
             if (this.cancelled) throw new Error("Demo stopped.");
-            if (await check()) return;
+            const result = await check();
+            if (result) return result;
             await new Promise((resolve) => setTimeout(resolve, this.command ? 1 : 1000));
         }
         throw new Error(`${label} timed out. Check the terminal output.`);
@@ -757,7 +765,7 @@ export class DemoManager extends EventEmitter {
         const java = await this.java();
         await this.run(java, ["-version"]);
         runtimeSource(this.runtimes, BASE_RUNTIME, arch);
-        if (!this.runtimes[NEXT_RUNTIME]?.archives?.[arch]) throw new Error(`No updated Temurin archive for ${arch}.`);
+        if (!this.runtimes[UPDATED_BUILD]?.archives?.[arch]) throw new Error(`No updated Temurin archive for ${arch}.`);
         let brewlet = "built from this checkout's HEAD";
         if (!this.checkout) {
             // Refresh "latest" unless a cluster already runs the previously resolved release.
@@ -799,7 +807,7 @@ export class DemoManager extends EventEmitter {
     }
 
     async buildUpdatedRuntime(arch) {
-        const upstream = this.runtimes[NEXT_RUNTIME];
+        const upstream = this.runtimes[UPDATED_BUILD];
         const archive = upstream.archives[arch];
         if (!archive || !/^[a-f0-9]{64}$/.test(archive.sha256)) throw new Error(`No checksum-pinned updated Temurin archive for ${arch}.`);
         const context = path.join(this.dir, "runtime-build");
@@ -852,8 +860,11 @@ export class DemoManager extends EventEmitter {
     async setup() {
         const arch = await this.dockerArch();
         const n = this.names;
-        if (this.state.cluster?.runtimes && !this.state.cluster.runtimes[NEXT_RUNTIME]) {
-            throw new Error("Remove the existing private cluster before preparing the Temurin 25 patch-update demo.");
+        if (this.state.cluster?.created && this.state.cluster.rotationModel !== "same-id") {
+            throw new Error("Remove the existing private cluster before preparing the same-ID Temurin 25 rotation demo.");
+        }
+        if (this.state.cluster?.created && this.state.cluster.runtimes) {
+            throw new Error("The private cluster is already prepared; remove it before running setup again.");
         }
         const version = this.checkout ? null : await this.release();
         const golden = this.state.privateRuntime;
@@ -861,8 +872,8 @@ export class DemoManager extends EventEmitter {
         const updated = { source: golden.source, layout: path.join(this.dir, "runtime-updated") };
         await artifactIdentity(updated.layout, updated.source, "linux", arch);
         if (this.checkout) await this.buildComponents(arch);
-        const resolvedRuntimes = { ...this.runtimes, [NEXT_RUNTIME]: { ...this.runtimes[NEXT_RUNTIME], [arch]: updated.source } };
-        const sources = Object.fromEntries([BASE_RUNTIME, NEXT_RUNTIME].map((id) => [id, runtimeSource(resolvedRuntimes, id, arch)]));
+        const resolvedRuntimes = { ...this.runtimes, [UPDATED_BUILD]: { ...this.runtimes[UPDATED_BUILD], [arch]: updated.source } };
+        const sources = { [BASE_RUNTIME]: runtimeSource(this.runtimes, BASE_RUNTIME, arch), [UPDATED_BUILD]: runtimeSource(resolvedRuntimes, UPDATED_BUILD, arch) };
         const clusters = await this.kindClusters();
         if (clusters.includes(n.cluster) && !this.state.cluster?.created) throw new Error(`kind cluster ${n.cluster} exists but was not created by this demo; refusing to adopt it.`);
         if (!clusters.includes(n.cluster)) {
@@ -874,7 +885,7 @@ export class DemoManager extends EventEmitter {
         if (label !== n.cluster) throw new Error("kind node container is not labeled for this demo cluster.");
         const node = await this.json(["get", "node", n.node]);
         if (this.state.cluster.nodeUID && this.state.cluster.nodeUID !== node.metadata.uid) throw new Error("Demo Node UID changed; run cleanup and prepare again.");
-        this.state.cluster = { created: true, name: n.cluster, nodeContainer: container, nodeUID: node.metadata.uid };
+        this.state.cluster = { created: true, name: n.cluster, nodeContainer: container, nodeUID: node.metadata.uid, rotationModel: "same-id" };
         await this.save();
         if (node.status.nodeInfo.architecture !== arch) throw new Error(`Node architecture ${node.status.nodeInfo.architecture} differs from Docker ${arch}.`);
         await this.nodeImport(updated.layout, path.join(this.dir, "runtime-updated-import.tar"));
@@ -887,36 +898,42 @@ export class DemoManager extends EventEmitter {
             await this.kube(["apply", "-f", path.join(REPO, "kubernetes/deploy/crds/")]);
             await this.helm(["upgrade", "--install", "brewlet", path.join(REPO, "kubernetes/charts/brewlet"), "--namespace", "brewlet", "--create-namespace",
                 "--set-string", `operator.image=${n.control}`, "--set-string", `admission.image=${n.control}`, "--set-string", `provisioner.image=${n.worker}`,
+                "--set", "operator.rotationRestarts.enabled=true",
                 "--wait", "--timeout", "5m"], { timeout: 360000 });
         } else {
             // The released chart carries the CRDs and digest-pinned component images; the node pulls the Temurin roots.
             await this.helm(["upgrade", "--install", "brewlet", BREWLET_CHART, "--version", version, "--namespace", "brewlet", "--create-namespace",
+                "--set", "operator.rotationRestarts.enabled=true",
                 "--wait", "--timeout", "10m"], { timeout: 660000 });
         }
         this.state.cluster.brewlet = { ...this.state.brewlet };
         await this.save();
         await this.kube(["-n", "brewlet", "rollout", "status", "deployment/brewlet-admission", "--timeout=120s"], { timeout: 130000 });
-        const inventory = renderInventory(resolvedRuntimes, [BASE_RUNTIME, NEXT_RUNTIME], arch, n.id, this.namespace);
+        const inventory = renderInventory(resolvedRuntimes, [BASE_RUNTIME], arch, n.id, this.namespace);
         const runtimeFile = path.join(this.dir, "runtimeimages.yaml");
         const profileFile = path.join(this.dir, "nodeprofile.yaml");
         await writeFile(runtimeFile, inventory.runtimeImages);
         await writeFile(profileFile, inventory.profile);
         await this.waitForWebhook(runtimeFile);
         await this.kube(["apply", "-f", runtimeFile]);
-        await this.kube(["wait", "--for=condition=Approved", `runtimeimage/${BASE_RUNTIME}`, `runtimeimage/${NEXT_RUNTIME}`, "--timeout=120s"], { timeout: 130000 });
+        await this.kube(["wait", "--for=condition=Approved", `runtimeimage/${BASE_RUNTIME}`, "--timeout=120s"], { timeout: 130000 });
         await this.kube(["apply", "-f", profileFile]);
         await this.kube(["wait", "--for=condition=Ready", `nodeprofile/${PROFILE}`, "--timeout=10m"], { timeout: 610000 });
-        const runtimes = {};
-        for (const id of [BASE_RUNTIME, NEXT_RUNTIME]) {
-            const item = await this.json(["get", "runtimeimage", id]);
-            if (item.spec.source.image !== sources[id] || item.status?.digest !== sources[id].split("@")[1]) throw new Error(`RuntimeImage ${id} does not approve the pinned source.`);
-            const { feature, version: runtimeVersion, emSignRoots } = this.runtimes[id];
-            runtimes[id] = { source: sources[id], digest: item.status.digest, uid: item.metadata.uid, feature, version: runtimeVersion, emSignRoots };
+        const item = await this.json(["get", "runtimeimage", BASE_RUNTIME]);
+        if (item.spec.source.image !== sources[BASE_RUNTIME] || item.status?.digest !== sources[BASE_RUNTIME].split("@")[1]) {
+            throw new Error(`RuntimeImage ${BASE_RUNTIME} does not approve its initial pinned source.`);
         }
+        const initial = { source: sources[BASE_RUNTIME], digest: item.status.digest, uid: item.metadata.uid,
+            generation: item.status.generation, feature: this.runtimes[BASE_RUNTIME].feature, version: this.runtimes[BASE_RUNTIME].version,
+            emSignRoots: this.runtimes[BASE_RUNTIME].emSignRoots };
+        const { feature, version: runtimeVersion, emSignRoots } = this.runtimes[UPDATED_BUILD];
+        const runtimes = { [BASE_RUNTIME]: initial, [UPDATED_BUILD]: { source: sources[UPDATED_BUILD], digest: sources[UPDATED_BUILD].split("@")[1],
+            uid: item.metadata.uid, feature, version: runtimeVersion, emSignRoots, runtimeID: BASE_RUNTIME } };
         this.state.cluster.runtimes = runtimes;
+        this.state.cluster.currentBuild = BASE_RUNTIME;
         await this.kube(["get", "runtimeimages,nodeprofiles"]);
         const brewlet = this.checkout ? "this checkout's HEAD" : `release ${version}`;
-        this.log(`\nCluster ${n.cluster} ready with Brewlet ${brewlet}: ${BASE_RUNTIME} and ${NEXT_RUNTIME} approved and offered on ${n.node}.\n`);
+        this.log(`\nCluster ${n.cluster} ready with Brewlet ${brewlet}: ${BASE_RUNTIME} approved at Temurin ${initial.version}; the golden Temurin ${runtimeVersion} digest is ready to rotate into the same ID on ${n.node}.\n`);
         return { cluster: n.cluster, node: n.node, brewlet: { ...this.state.brewlet }, runtimes };
     }
 
@@ -1130,9 +1147,10 @@ export class DemoManager extends EventEmitter {
         this.state.clusterURL = `http://127.0.0.1:${port}/api/v1/namespaces/${this.namespace}/services/http:${APP}:http/proxy`;
     }
 
-    async verifyCluster(runtime) {
-        const expected = this.state.cluster?.runtimes?.[runtime];
-        if (!expected) throw new Error(`RuntimeImage ${runtime} is not approved in this cluster; run Prepare private cluster.`);
+    async verifyCluster(build = this.state.cluster?.currentBuild ?? BASE_RUNTIME) {
+        const runtime = BASE_RUNTIME;
+        const expected = this.state.cluster?.runtimes?.[build];
+        if (!expected) throw new Error(`Runtime build ${build} is not available in this cluster; run Prepare private cluster.`);
         const deployment = await this.deployment();
         if (deployment.spec.template.metadata.annotations?.[RUNTIME_ANNOTATION] !== runtime) throw new Error(`Deployment does not select ${runtime}.`);
         const result = await this.probe(this.state.clusterURL, expected, "forward");
@@ -1153,7 +1171,7 @@ export class DemoManager extends EventEmitter {
         }, 180000, `Waiting for the node to report ${serving.name} bound to ${runtime}`);
         const baseline = this.state.evidence.deploy?.artifact;
         if (baseline && baseline.manifestDigest !== artifact.manifestDigest) throw new Error("Application artifact differs from the verified initial rollout.");
-        const proof = { ...result, runtime, image: this.state.image, node: serving.node, pod: serving.name, podUID: serving.uid,
+        const proof = { ...result, runtime, runtimeBuild: build, image: this.state.image, node: serving.node, pod: serving.name, podUID: serving.uid,
             binding: { id: binding.id, digest: binding.digest, generation: binding.generation, containerID: binding.containerID, source: expected.source },
             artifact: { ...artifact, imageID: serving.imageID, imageDigestKind: serving.imageDigestKind }, verifiedAt: new Date().toISOString() };
         this.log(`\nPod ${serving.name} (uid ${serving.uid})\nApplication: ${artifact.manifestDigest} (${serving.imageDigestKind})\nNode binding: ${runtime} -> ${binding.digest} generation ${binding.generation}\n`);
@@ -1161,28 +1179,74 @@ export class DemoManager extends EventEmitter {
         return proof;
     }
 
-    async switchRuntime(runtime, step) {
+    async rotateRuntime(build, step) {
         await this.owned();
-        const current = await this.deployment();
-        const from = current.spec.template.metadata.annotations?.[RUNTIME_ANNOTATION];
-        if (![BASE_RUNTIME, NEXT_RUNTIME].includes(from)) throw new Error(`Unexpected runtime selection: ${from}`);
-        const pointer = "/spec/template/metadata/annotations/brewlet.sh~1runtime-image";
-        const patch = [{ op: "test", path: "/metadata/uid", value: current.metadata.uid }, { op: "test", path: pointer, value: from }, { op: "replace", path: pointer, value: runtime }];
+        if (![BASE_RUNTIME, UPDATED_BUILD].includes(build)) throw new Error(`Unexpected runtime build: ${build}`);
+        const currentBuild = this.state.cluster?.currentBuild ?? BASE_RUNTIME;
+        const previous = this.state.cluster?.runtimes?.[currentBuild];
+        const target = this.state.cluster?.runtimes?.[build];
+        if (!previous || !target) throw new Error("Runtime rotation state is incomplete; prepare the private cluster again.");
+        if (build === currentBuild) {
+            this.state.evidence[step] = await this.verifyCluster(build);
+            return this.state.evidence[step];
+        }
+        const current = await this.json(["get", "runtimeimage", BASE_RUNTIME]);
+        if (current.metadata.uid !== previous.uid || ![previous.source, target.source].includes(current.spec.source.image)) {
+            throw new Error("The live RuntimeImage no longer matches the demo's recorded rotation source.");
+        }
         await this.forward();
-        await this.kube(["-n", this.namespace, "patch", "deployment", APP, "--type=json", "-p", JSON.stringify(patch)]);
+        if (current.spec.source.image === previous.source) {
+            if (current.status?.generation !== previous.generation || current.status?.digest !== previous.digest) {
+                throw new Error("The live RuntimeImage status no longer matches the demo's recorded rotation generation.");
+            }
+            const patch = [
+                { op: "test", path: "/metadata/uid", value: current.metadata.uid },
+                { op: "test", path: "/spec/source/image", value: previous.source },
+                { op: "replace", path: "/spec/source/image", value: target.source },
+            ];
+            await this.kube(["patch", "runtimeimage", BASE_RUNTIME, "--type=json", "-p", JSON.stringify(patch)]);
+        }
+        const approved = await this.until(async () => {
+            const item = await this.json(["get", "runtimeimage", BASE_RUNTIME]);
+            if (item.metadata.uid !== current.metadata.uid) throw new Error("RuntimeImage inventory UID changed during rotation.");
+            const condition = item.status?.conditions?.find((entry) => entry.type === "Approved");
+            if (item.spec.source.image !== target.source || item.status?.sourceImage !== target.source ||
+                item.status?.digest !== target.digest || item.status?.generation <= previous.generation ||
+                condition?.status !== "True" || condition.observedGeneration !== item.metadata.generation) return null;
+            return item;
+        }, 180000, `Waiting for ${BASE_RUNTIME} to approve the new digest`);
+        await this.until(async () => {
+            const item = await this.json(["get", "runtimeimage", BASE_RUNTIME]);
+            const condition = item.status?.conditions?.find((entry) => entry.type === "RotationComplete");
+            return item.metadata.uid === current.metadata.uid && item.status?.generation === approved.status.generation &&
+                item.status?.rotation?.generation === approved.status.generation && item.status?.rotation?.digest === target.digest &&
+                condition?.status === "True" && condition.observedGeneration === item.metadata.generation;
+        }, 600000, `Waiting for nodes to install ${BASE_RUNTIME} generation ${approved.status.generation}`);
+        const rotated = await this.until(async () => {
+            const deployment = await this.deployment();
+            try {
+                const barrier = JSON.parse(deployment.spec.template.metadata.annotations?.["brewlet.sh/rotated-to-generation"] ?? "null");
+                return barrier?.id === BASE_RUNTIME && barrier.inventoryUID === current.metadata.uid &&
+                    barrier.generation === approved.status.generation ? barrier : false;
+            } catch {
+                return false;
+            }
+        }, 180000, `Waiting for the opted-in Deployment to receive the ${BASE_RUNTIME} generation barrier`);
         await this.kube(["-n", this.namespace, "rollout", "status", `deployment/${APP}`, "--timeout=5m"], { timeout: 330000 });
         await this.forward();
-        this.state.evidence[step] = await this.verifyCluster(runtime);
-        this.log("\nSame application digest. Different node-supplied runtime. No rebuild, no repackaging.\n");
+        this.state.cluster.runtimes[build] = { ...target, uid: current.metadata.uid, generation: approved.status.generation };
+        this.state.cluster.currentBuild = build;
+        this.state.evidence[step] = await this.verifyCluster(build);
+        this.log(`\nSame application digest. Same runtime ID (${BASE_RUNTIME}). New digest and generation ${rotated.generation}. No rebuild, no repackaging.\n`);
         return this.state.evidence[step];
     }
 
     upgrade() {
-        return this.switchRuntime(NEXT_RUNTIME, "upgrade");
+        return this.rotateRuntime(UPDATED_BUILD, "upgrade");
     }
 
     rollback() {
-        return this.switchRuntime(BASE_RUNTIME, "rollback");
+        return this.rotateRuntime(BASE_RUNTIME, "rollback");
     }
 
     async inspect() {
@@ -1192,7 +1256,8 @@ export class DemoManager extends EventEmitter {
         await this.kube(["-n", this.namespace, "logs", `deployment/${APP}`, "--tail=40"]);
         await this.forward();
         const runtime = (await this.deployment()).spec.template.metadata.annotations?.[RUNTIME_ANNOTATION];
-        this.state.evidence.inspect = await this.verifyCluster(runtime);
+        if (runtime !== BASE_RUNTIME) throw new Error(`Deployment unexpectedly selects runtime ID ${runtime}.`);
+        this.state.evidence.inspect = await this.verifyCluster();
         return this.state.evidence.inspect;
     }
 
@@ -1210,8 +1275,7 @@ export class DemoManager extends EventEmitter {
                 await this.kube(["wait", "--for=delete", `nodeprofile/${PROFILE}`, "--timeout=10m"], { timeout: 610000 }).catch((error) => {
                     if (!/not found/i.test(this.state.terminal.slice(-2000))) throw error;
                 });
-                const runtimeIDs = [...new Set([BASE_RUNTIME, NEXT_RUNTIME, ...Object.keys(this.state.cluster.runtimes ?? {})])];
-                await this.kube(["delete", "runtimeimage", ...runtimeIDs, "--wait=true", "--timeout=120s", "--ignore-not-found"], { timeout: 130000 });
+                await this.kube(["delete", "runtimeimage", BASE_RUNTIME, "--wait=true", "--timeout=120s", "--ignore-not-found"], { timeout: 130000 });
                 await this.helm(["uninstall", "brewlet", "--namespace", "brewlet", "--ignore-not-found", "--timeout", "10m"], { timeout: 610000 });
                 await this.ownedNode();
             }

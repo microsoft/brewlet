@@ -8,6 +8,8 @@ metadata:
   labels:
     app: showmyjvm
     brewlet-demo-owner: __NAMESPACE__
+  annotations:
+    brewlet.sh/restart-on-rotation: "true"
 spec:
   replicas: 1
   selector:
