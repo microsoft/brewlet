@@ -1168,6 +1168,12 @@ and `brewlet.sh/arch` annotations are removed and
 MUST be rejected on a 1.0.0 pod (`UnsupportedAnnotation`) so a stale manifest
 fails loudly instead of silently losing its intent.
 
+*Non-normative:* `brewlet-admission` does not restrict which namespaces may
+use an approved ID. Platforms that need this (licensing, compliance tiers,
+pilots) can add a standard admission policy; see the recipe in
+`docs/runtime-image-namespaces.md`. It restricts use, not presence: runtime
+bytes remain on shared nodes, and hard isolation requires separate node pools.
+
 ### 9.1 Capability labels
 
 The provisioner publishes, per node:

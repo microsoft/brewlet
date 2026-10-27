@@ -67,6 +67,7 @@ nav:
       - Installation: installation.md
       - Configuration: configuration.md
       - Runtime images and pools: runtime-images.md
+      - Restrict runtime images by namespace: runtime-image-namespaces.md
       - Providers and fencing: providers.md
       - Multi-architecture fleets: multi-arch.md
   - Operate:

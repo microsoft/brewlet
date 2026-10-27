@@ -141,6 +141,13 @@ profiles through the `provisioner.profiles` Helm value (see
 [configuration](configuration.md)). With no profiles, Brewlet provisions no
 nodes.
 
+## Restrict IDs by namespace
+
+Any namespace can select any approved, placed ID. To limit which namespaces may
+use which IDs, for licensing, compliance tiers or pilots, follow the
+[namespace admission-policy recipe](runtime-image-namespaces.md). It restricts
+use, not presence: hard tenant isolation still requires separate node pools.
+
 ## Startup fencing and provider labels
 
 `brewlet.sh/runtime=ready` is only usable readiness when the startup fence is
