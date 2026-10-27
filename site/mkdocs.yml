@@ -56,6 +56,7 @@ nav:
           - Python: python.md
           - Node.js: nodejs.md
           - .NET: dotnet.md
+          - Native (Go, Rust, etc): native.md
           - PHP: php.md
           - WebAssembly: webassembly.md
       - Dependency layer sets: dependency-layer-sets.md

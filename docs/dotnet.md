@@ -11,7 +11,13 @@ by runtime ID. Brewlet runs the declared `dotnet` command with your
 application files mounted read-only under `/app`.
 
 Self-contained builds carry their own runtime, so they do not get this
-separation.
+separation of the .NET runtime. Their Linux userspace can still be
+platform-managed.
+
+.NET Native AOT applications are considered native workloads: they launch a
+compiled executable directly rather than using a platform-supplied `dotnet`
+runtime. See [Native (Go, Rust, etc)](native.md) for the platform-managed golden
+image model and its maintenance boundaries.
 
 Dependencies can ship inside the application image or be published separately
 as a [dependency layer set](dependency-layer-sets.md) or
