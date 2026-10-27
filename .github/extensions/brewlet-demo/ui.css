@@ -30,6 +30,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .steps { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .step { --phase-color: var(--demo-blue); border: 1px solid color-mix(in srgb, var(--phase-color) 28%, var(--border-color-default, #d1d9e0)); border-left: 4px solid var(--phase-color); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; min-width: 0; background: linear-gradient(110deg, color-mix(in srgb, var(--phase-color) 8%, var(--background-color-default, #fff)), var(--background-color-default, #fff)); }
 .step[data-phase="package"] { --phase-color: var(--demo-purple); }
+.step[data-phase="golden"] { --phase-color: var(--demo-amber); }
 .step[data-phase="artifact"] { --phase-color: var(--demo-teal); }
 .step[data-phase="deploy"] { --phase-color: var(--demo-blue); }
 .step[data-phase="upgrade"] { --phase-color: var(--demo-amber); }

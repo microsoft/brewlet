@@ -1,16 +1,27 @@
 {
   "temurin-25": {
     "feature": 25,
-    "tag": "docker.io/library/eclipse-temurin:25-jre-alpine",
+    "version": "25.0.4.1+1",
+    "emSignRoots": ["emSign Root CA - G1", "emSign ECC Root CA - G3", "emSign Root CA - C1", "emSign ECC Root CA - C3"],
+    "tag": "docker.io/library/eclipse-temurin:25.0.4.1_1-jre-alpine",
     "index": "registry-1.docker.io/library/eclipse-temurin@sha256:b7528962e65d43064d8a8b67ba175367896bc948363ea2d3fcd7f10d34e1f048",
     "arm64": "registry-1.docker.io/library/eclipse-temurin@sha256:44bb330839ef257f02316c5981f3c5e8e32370c61c42f34e19d414fb0542aacd",
     "amd64": "registry-1.docker.io/library/eclipse-temurin@sha256:bbac3ddfa46001d64812f93db61d4bf13b2e8d099318e5a5d863e2447f3fcc33"
   },
-  "temurin-27": {
-    "feature": 27,
-    "tag": "docker.io/library/eclipse-temurin:27-jre-alpine",
-    "index": "registry-1.docker.io/library/eclipse-temurin@sha256:0faf24c1d1e778bbc0700fc71c53b081c9432f1e51e6e41c86c63840e8b89ac1",
-    "arm64": "registry-1.docker.io/library/eclipse-temurin@sha256:5e77a17047bb645d6d655061d2124f1964bbe52e28231c2a4f708e2e7fd24cbd",
-    "amd64": "registry-1.docker.io/library/eclipse-temurin@sha256:3a8ee2b171d068557db53db81395a8c0df49d3b918d878a9611f63b51d7d548f"
+  "temurin-25-updated": {
+    "feature": 25,
+    "version": "25.0.5+8",
+    "emSignRoots": ["emSign Root CA - G1"],
+    "tag": "Platform team's golden runtime from the official Temurin JDK 25.0.5+8 musl archive",
+    "archives": {
+      "arm64": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_aarch64_alpine-linux_hotspot_25.0.5_8.tar.gz",
+        "sha256": "d02eadc0a0f93faba4be38c8657eb8eef842103a4c7c2400f5827dbd90fc21c9"
+      },
+      "amd64": {
+        "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jdk_x64_alpine-linux_hotspot_25.0.5_8.tar.gz",
+        "sha256": "efc86581260b73c340c313e7577c4c85d6a8a899edc3748d78bee5238fe44a4e"
+      }
+    }
   }
 }

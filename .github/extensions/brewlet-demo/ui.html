@@ -12,12 +12,13 @@
     <header>
         <div class="eyebrow">BREWLET / LIVE DEMO</div>
         <h1>One app. Two JDKs.<br>No image rebuild.</h1>
-        <p>ShowMyJVM + Spring Boot, from your laptop to Kubernetes.<br>The application travels. The JVM is node infrastructure, like the OS.</p>
-        <div class="chips"><span id="brewlet-chip">Brewlet</span><span>Plain Deployment</span><span>temurin-25 &rarr; 27 &rarr; 25</span><span id="connection" role="status">Connecting...</span></div>
+        <p>ShowMyJVM + Spring Boot, from your laptop to Kubernetes.<br>Update the node-supplied JVM and its CA roots without rebuilding the app.</p>
+        <div class="chips"><span id="brewlet-chip">Brewlet</span><span>Plain Deployment</span><span>25.0.4.1 &rarr; 25.0.5 &rarr; rollback</span><span id="connection" role="status">Connecting...</span></div>
     </header>
     <main>
+        <section id="golden-stage" aria-label="Platform team golden runtime image build"></section>
         <section class="preparation">
-            <div><h2>Before the spotlight</h2><p>Local JDK 25, Maven, Docker (Linux engine), kind v0.33.0, Helm, kubectl and Git. By default the demo installs the latest Brewlet release: the published Helm chart and its digest-pinned component images on the cluster, and the checksum-verified Linux brewlet CLI for packaging. Building from this checkout also needs Go.</p></div>
+            <div><h2>Before the spotlight</h2><p>Local JDK 25, Maven, Docker (Linux engine) with Buildx, kind v0.33.0, Helm, kubectl and Git. By default the demo installs the latest Brewlet release: the published Helm chart and its digest-pinned component images on the cluster, and the checksum-verified Linux brewlet CLI for packaging. Building from this checkout also needs Go.</p></div>
             <fieldset class="source" id="brewlet-source"><legend>Brewlet source</legend>
                 <label><input type="radio" name="brewlet-source" value="release"> Latest release <span class="subtle" id="release-version"></span></label>
                 <label><input type="radio" name="brewlet-source" value="checkout"> Build from this checkout</label>
@@ -25,7 +26,7 @@
             </fieldset>
             <div class="buttons"><button data-step="preflight">Check prerequisites</button><button data-step="setup">Prepare private cluster</button><button data-step="cleanup">Remove private cluster</button></div>
             <div class="preparation-previews"><div><h3>Prerequisite checks</h3><div id="preflight-preview"></div></div><div><h3>Private cluster preparation</h3><div id="setup-preview"></div></div><div><h3>Cleanup</h3><div id="cleanup-preview"></div></div></div>
-            <p class="warning">Preparation creates a disposable, session-owned kind cluster with a private kubeconfig, installs Brewlet's privileged node provisioner there, and approves digest-pinned Temurin 25 and 27 RuntimeImages. It never touches other clusters or your current kubectl context.</p>
+            <p class="warning">Build the platform team's golden JDK image above first. Preparation consumes that exact digest, creates a disposable, session-owned kind cluster, installs Brewlet's privileged node provisioner there, and approves two digest-pinned Temurin 25 patch builds. It never touches other clusters or your current kubectl context. The older build is for demonstration only; rollback restores its older CA trust store.</p>
             <div id="preparation-status" role="status"></div>
         </section>
         <section class="steps" id="steps" aria-label="Demo stages"></section>
@@ -54,7 +55,7 @@
             <div class="terminal-toolbar"><h2>Live terminal <span class="subtle">/ stdout + stderr</span></h2><div class="buttons"><button id="live-app-link" disabled>Open live app &nearr;</button><button id="reconnect-app" data-step="inspect" hidden>Reconnect app</button><button id="stop">Stop processes</button></div></div>
             <div id="error" role="alert" hidden></div>
             <pre id="terminal" tabindex="0" aria-label="Live command output"></pre>
-            <form id="command-form"><label for="command">&gt;</label><input id="command" autocomplete="off" spellcheck="false" placeholder="local, package, artifact, deploy, upgrade, rollback, inspect, cleanup, stop, help" aria-label="Demo command"><button type="submit">Run</button></form>
+            <form id="command-form"><label for="command">&gt;</label><input id="command" autocomplete="off" spellcheck="false" placeholder="golden, setup, local, package, artifact, deploy, upgrade, rollback, inspect, cleanup, stop, help" aria-label="Demo command"><button type="submit">Run</button></form>
             <p class="terminal-note">Guided commands, not an unrestricted shell. Output streams live; logs survive reloads. Closing this panel does not stop the demo.</p>
         </section>
 </body>

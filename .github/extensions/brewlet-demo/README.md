@@ -8,8 +8,42 @@ contributor/presenter tool, not part of the product.
 The application travels as an OCI image containing only ShowMyJVM's dependency
 JARs, its application JAR and `launch.json`. The Java runtime is node
 infrastructure: an approved RuntimeImage offered by a NodeProfile. Switching the
-`brewlet.sh/runtime-image` annotation on an ordinary Deployment rolls Pods onto
-Temurin 27 and back to Temurin 25 with the exact same application digest.
+`brewlet.sh/runtime-image` annotation on an ordinary Deployment rolls Pods from
+Temurin **25.0.4.1+1 to 25.0.5+8 and back** with the exact same application digest.
+The canvas captures the bundled `cacerts` from ShowMyJVM's live
+`/jvm/inspect.json` response alongside the JVM version and Pod identity.
+**emSign ECC Root CA - G3, emSign Root CA - C1 and emSign ECC Root CA - C3**
+are present before the update, absent afterward, and return on rollback.
+**emSign Root CA - G1 remains present throughout.** This is a root-store
+comparison, not a TLS exploit test or a claim that every emSign root was removed.
+The older runtime and rollback are for demonstration only.
+
+The removal landed in [adoptium/temurin-build#4587](https://github.com/adoptium/temurin-build/pull/4587)
+on October 21, 2026. The explicit **Platform team: build the golden JDK image**
+stage (`golden`) shows a hypothetical platform team's build pipeline independently
+of application packaging. The canvas displays pinned inputs, the actual
+[`runtime.Dockerfile`](runtime.Dockerfile), verification source, commands,
+build-time root evidence and the resulting immutable runtime digest.
+It builds a **private demo golden runtime**, not
+an official Temurin container: it keeps the pinned older container's Alpine OS,
+replaces `/opt/java/openjdk` entirely with the official full JDK 25.0.5+8 musl archive,
+and preserves that archive's bundled `cacerts` unchanged. The archive SHA-256
+is pinned per architecture in `runtimes.json` and checked before building.
+The Dockerfile runs [`VerifyRuntime.java`](VerifyRuntime.java) against the new
+JDK. It fails unless the exact vendor/build and JDK compiler are present,
+G3/C1/C3 are absent from bundled `cacerts`, and G1 remains present. The updated
+archive already omits the distrusted roots; no manual certificate deletion is
+performed. Buildx exports the measured evidence from the same runtime stage.
+The runner validates it before recording a successful golden build.
+
+Buildx exports an OCI layout; the runner verifies its manifest/config hashes
+and platform, imports it into the private node and approves its resulting digest.
+Nothing is uploaded to a registry. Do not compare the two builds by major
+version alone: both are Java 25. In a real platform pipeline, the team would
+publish, sign, qualify and approve its runtime digest in its registry. This demo
+does not perform those production steps or claim that the image is hardened.
+Cluster preparation requires the golden build and consumes its exact digest
+without rebuilding it. Rebuilding is refused while the demo cluster exists.
 
 ## Brewlet source
 
@@ -19,8 +53,8 @@ prerequisites, preparation and packaging.
 
 | Source | Cluster | `brewlet` CLI used for packaging |
 | --- | --- | --- |
-| Latest release (default) | `helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet --version X.Y.Z` (CRDs and digest-pinned images from `ghcr.io/microsoft`); the node provisioner pulls the Temurin roots. | `brewlet_X.Y.Z_linux_<arch>.tar.gz` from the GitHub release, verified against `checksums.txt`. |
-| This checkout | Control-plane and node-provisioner images built from `git archive HEAD`, Temurin roots pre-imported, local chart and CRDs. Requires Go. | Built from `git archive HEAD` inside the producer. |
+| Latest release (default) | `helm upgrade --install brewlet oci://ghcr.io/microsoft/charts/brewlet --version X.Y.Z` (CRDs and digest-pinned images from `ghcr.io/microsoft`); the node pulls the older Temurin runtime; the private updated runtime is pre-imported. | `brewlet_X.Y.Z_linux_<arch>.tar.gz` from the GitHub release, verified against `checksums.txt`. |
+| This checkout | Control-plane and node-provisioner images built from `git archive HEAD`, both runtime layouts pre-imported, local chart and CRDs. Requires Go. | Built from `git archive HEAD` inside the producer. |
 
 "Latest" is resolved from `https://github.com/microsoft/brewlet/releases/latest`
 when prerequisites are checked without a cluster, then kept for the session so
@@ -30,19 +64,27 @@ the cluster and CLI match. Set `BREWLET_DEMO_VERSION=X.Y.Z` to pin a release.
 
 | Stage | What runs |
 | --- | --- |
-| Check prerequisites | Read-only: Docker (Linux engine), kind `v0.33.0`, kubectl, Helm, Git, Maven, a local JDK 25, and Go (checkout source only). Resolves the release to install. |
-| Prepare private cluster | Creates a session-owned kind cluster with a private kubeconfig, installs Brewlet from the selected source (see above), applies the pinned Temurin 25/27 RuntimeImages and the NodeProfile, and waits for RuntimeImages `Approved` and NodeProfile `Ready`. |
+| Check prerequisites | Read-only: Docker (Linux engine) with Buildx, kind `v0.33.0`, kubectl, Helm, Git, Maven, a local JDK 25, and Go (checkout source only). Resolves the release to install. |
+| Platform team: build the golden JDK image | Downloads and checksum-verifies the official full JDK archive, builds and checks the golden runtime, exports OCI layout and measured trust-store evidence, and records the image digest. Independent of application packaging and Brewlet source. |
+| Prepare private cluster | Requires the golden build; imports that exact runtime, creates a session-owned kind cluster with a private kubeconfig, installs Brewlet, applies both Temurin 25 RuntimeImages and the NodeProfile, and waits for RuntimeImages `Approved` and NodeProfile `Ready`. |
 | 1. Build & run locally | Clones [ShowMyJVM](https://github.com/brunoborges/showmyjvm) at the latest commit of its default branch (fetched on every run; the resolved commit is recorded), builds the Spring Boot module and serves it on loopback. |
 | 2. Package app-only OCI image | `java -Djarmode=tools … extract`, then [`producer.Dockerfile`](producer.Dockerfile) obtains the released `brewlet` CLI (or builds it from this checkout) and runs `brewlet build` with `dependency`, `app` and `launch` layers. |
 | 3. Inspect the OCI artifact | Hash-verifies manifest, config and layers, lists every archive entry, and fails if any layer contains `bin/java` or `libjvm.so`. |
-| 4. Deploy on temurin-25 | Imports the layout into the node's containerd, applies [`deployment.yaml`](deployment.yaml), and verifies the live JVM, Pod ownership, imageID digest and the node's `brewlet.sh/runtime-bindings` observation. |
-| 5. Switch to temurin-27 | JSON-patches only the runtime-image annotation (guarded by `test` operations) and re-verifies. |
-| 6. Switch back to temurin-25 | Patches the annotation back and re-verifies. |
+| 4. Deploy on Temurin 25.0.4.1+1 (`temurin-25`) | Imports the app layout into the node's containerd, applies [`deployment.yaml`](deployment.yaml), and verifies the exact live JVM build, Pod ownership, imageID digest, node binding and four bundled emSign roots with SHA-256 fingerprints. |
+| 5. Update to Temurin 25.0.5+8 (`temurin-25-updated`) | JSON-patches only the runtime-image annotation (guarded by `test` operations); re-verifies the same app digest, exact JVM build, G3/C1/C3 absence and G1 presence. |
+| 6. Roll back to Temurin 25.0.4.1+1 | Patches the annotation back and captures the roots returning with the older runtime. |
 | Inspect deployment | Shows workload, RuntimeImage and NodeProfile state, logs, and re-verifies the binding. |
 | Remove private cluster | Deletes the namespace, NodeProfile (waiting for host cleanup), RuntimeImages and Helm release, then the kind cluster (and, for the checkout source, the component images). |
 
-The runtime pins live in [`runtimes.json`](runtimes.json). Update the index and
-per-architecture platform-manifest digests together.
+The runtime pins live in [`runtimes.json`](runtimes.json). Keep the older runtime's
+index and per-architecture platform-manifest digests together; update the private
+runtime's official archive URL, SHA-256, Dockerfile extraction path, exact JVM
+version and expected roots together. Missing/empty certificate data, a wrong
+patch build or unexpected root presence fails the rollout stage rather than
+displaying an inferred success. Existing 25-to-27 demo clusters must be removed
+and prepared again; their historical rollout evidence is invalidated on reload.
+The earlier implicit JRE-build demo is likewise invalidated: build the new full
+JDK golden image explicitly before preparing the cluster.
 
 ## Safety
 
