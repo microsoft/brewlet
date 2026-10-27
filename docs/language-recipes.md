@@ -6,10 +6,12 @@ Brewlet has no built-in language modes. For every language you:
 2. Write a `launch.json` with explicit executable and file paths.
 3. Package and push with `brewlet build` and `brewlet push`, declaring only
    platforms on which your files actually work.
-4. Deploy with an approved runtime ID that provides the executable you named.
+4. Deploy with an approved runtime ID that provides a compatible execution
+   environment.
 
 Brewlet infers no paths. Check that the executable path in your launch
-descriptor exists in the runtime image you select.
+descriptor exists in the runtime image you select or in your packaged
+application under `/app`.
 
 This page shows a launch descriptor for each language. Use the dedicated guides
 for a complete workflow.
@@ -20,6 +22,7 @@ for a complete workflow.
 | [Python](python.md) | Import layout, resolved dependencies, interpreter ABI and read-only execution. |
 | [Node.js](nodejs.md) | ES modules/CommonJS, dependency paths and native addons. |
 | [.NET](dotnet.md) | Framework-dependent publishing, managed/native assets and runtime compatibility. |
+| [Native (Go, Rust, etc)](native.md) | Platform-managed golden userspace, native compatibility and direct executable launch, with a Rust example. |
 | [PHP](php.md) | Composer dependencies, runtime-owned extensions and patching PHP without rebuilding. |
 | [WebAssembly](webassembly.md) | Explicit Wasmtime/Spin hosts, guest interfaces, capabilities and cache isolation. |
 
@@ -175,6 +178,10 @@ Run `composer install` in your build pipeline and package `vendor/`. The PHP
 extensions come from the runtime image.
 
 ## Static/native binaries
+
+Read the [native workload guide](native.md) for platform-managed golden images
+and native executable requirements across languages, with a basic Rust HTTP
+application as a worked example.
 
 Package the correct Linux binary at an explicit path such as `/app/bin/server`.
 A compatible static root may have no shell, account files or PATH.
