@@ -1,4 +1,4 @@
-name: PR Check
+name: Pull Request Validation
 
 # Pull requests only: run just the checks impacted by the PR's changed files.
 # Classification fails closed: unknown paths or listing errors select every PR check.
@@ -142,7 +142,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   checks:
-    name: Checks
+    name: Build and Contract Checks
     needs: context
     if: needs.context.outputs.checks == 'true'
     uses: ./.github/workflows/checks.yml
@@ -158,7 +158,7 @@ jobs:
       architectures: '["amd64"]'
 
   e2e:
-    name: Real E2E
+    name: Kubernetes E2E (kind)
     needs: context
     if: needs.context.outputs.e2e == 'true'
     uses: ./.github/workflows/e2e.yml
