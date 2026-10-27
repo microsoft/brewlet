@@ -103,7 +103,7 @@ this same-ID rotation demo.
   same-origin JSON mutations and serves a strict CSP. The guided command box is
   not a shell.
 - State, terminal output and artifacts are kept in the session workspace under
-  `brewlet-demo/`. Progress from the 0.x JavaApplication demo is discarded.
+  `brewlet-demo/`.
 
 Set `BREWLET_DEMO_JAVA_HOME` to choose the local JDK 25. Otherwise the runner
 uses `JAVA_HOME`, `/usr/libexec/java_home -v 25` on macOS, then SDKMAN,
