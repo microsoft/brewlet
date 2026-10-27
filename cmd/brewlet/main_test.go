@@ -10,11 +10,6 @@ import (
 	"github.com/microsoft/brewlet/pkg/artifact"
 )
 
-func TestSharedConformanceCommand(t *testing.T) {
-	if e := run(context.Background(), []string{"conformance", "../../conformance/artifact-v1.json"}); e != nil {
-		t.Fatal(e)
-	}
-}
 func TestExplicitProducerInputs(t *testing.T) {
 	dir, e := os.MkdirTemp(".", ".test-cli-")
 	if e != nil {
@@ -50,7 +45,7 @@ func TestHelpAndDispatch(t *testing.T) {
 			t.Errorf("help missing %q:\n%s", want, out.String())
 		}
 	}
-	for _, hidden := range []string{"conformance", "imagepush", "compose"} {
+	for _, hidden := range []string{"imagepush", "compose"} {
 		if strings.Contains(out.String(), hidden) {
 			t.Errorf("help lists %q", hidden)
 		}

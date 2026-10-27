@@ -12,8 +12,7 @@ import java.util.function.Consumer;
 
 /**
  * Evaluates the published conformance fixtures with the Java contract
- * implementation and reports results in the same normalized shape as
- * {@code brewlet conformance FILE}.
+ * implementation and reports results in the normalized shared fixture schema.
  */
 final class Conformance {
     private static final ObjectMapper JSON = new ObjectMapper();

@@ -13,8 +13,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 
 /**
  * Evaluates the shared conformance fixtures with the plugin's independent Java
- * contract implementation. Results use the CLI's normalized shape so harnesses
- * can require equality with {@code brewlet conformance FILE}.
+ * contract implementation using the normalized shared fixture result schema.
  */
 @Mojo(name = "conformance", threadSafe = true)
 public class ConformanceMojo extends AbstractMojo {

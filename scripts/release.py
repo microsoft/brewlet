@@ -420,7 +420,6 @@ def smoke_cli(output, target, config):
         require(json.loads(run([binary, "version"])) ==
                 {"version": config["version"], "commit": document["candidate"]["checkout"], "platform": target},
                 "native CLI build identity mismatch")
-        run([binary, "conformance", ROOT / "conformance/artifact-v1.json"])
     return document, name
 
 

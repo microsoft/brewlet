@@ -39,8 +39,7 @@ type FixtureResult struct {
 	Passed  bool     `json:"passed"`
 }
 
-// EvaluateFixture is shared by producer and shim conformance tests; non-Go
-// producers can invoke "brewlet conformance FILE" rather than duplicate parsing.
+// EvaluateFixture is shared by producer, shim, and cross-language conformance tests.
 func EvaluateFixture(ctx context.Context, f Fixture) (FixtureResult, error) {
 	result := FixtureResult{Name: f.Name}
 	var err error
