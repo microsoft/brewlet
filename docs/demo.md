@@ -38,7 +38,9 @@ Contributors using the GitHub Copilot app can run a Java version of the same
 flow from the
 [`brewlet-demo` canvas extension](https://github.com/microsoft/brewlet/tree/main/.github/extensions/brewlet-demo).
 It builds ShowMyJVM, packages it with `brewlet build` (no JDK in the image),
-deploys it as a plain Deployment on a private kind cluster, and switches the
-node-supplied runtime from Temurin 25 to 27 and back by changing one annotation.
-It installs the latest Brewlet release: the OCI Helm chart and the
+deploys it as a plain Deployment on a private kind cluster, and rotates the existing
+`temurin-25` RuntimeImage from Temurin 25.0.4.1+1 to 25.0.5+8 and back by
+changing its approved source digest. The Deployment keeps the same runtime ID;
+Brewlet waits for node convergence and restarts the opted-in workload. It
+installs the latest Brewlet release: the OCI Helm chart and the
 checksum-verified `brewlet` CLI.

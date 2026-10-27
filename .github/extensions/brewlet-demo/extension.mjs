@@ -47,7 +47,7 @@ const session = await joinSession({
                 entry = await startServer(manager);
                 servers.set(ctx.instanceId, entry);
             }
-            return { title: "Brewlet | One app, two JDKs", url: entry.url };
+            return { title: "Brewlet | One app, one runtime ID", url: entry.url };
         },
         onClose: async (ctx) => {
             const entry = servers.get(ctx.instanceId);

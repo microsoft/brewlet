@@ -8,8 +8,8 @@ const snippets = {
     package: "java -Djarmode=tools -jar app.jar extract\nbrewlet build <ref> --launch launch.json \\\n  --layer dependency=lib:/app/lib --layer app=app:/app",
     artifact: "brewlet inspect <ref> --store <oci>\ntar -tvf <layer-blob>",
     deploy: 'kubectl apply -f deployment.yaml\nruntimeClassName: brewlet\nbrewlet.sh/runtime-image: temurin-25',
-    upgrade: 'kubectl patch deployment showmyjvm\nbrewlet.sh/runtime-image: temurin-25-updated',
-    rollback: 'kubectl patch deployment showmyjvm\nbrewlet.sh/runtime-image: temurin-25',
+    upgrade: 'kubectl patch runtimeimage temurin-25\nspec.source.image: <golden JDK digest>',
+    rollback: 'kubectl patch runtimeimage temurin-25\nspec.source.image: <original JDK digest>',
 };
 const blocked = (step) => (state.prerequisites[step] ?? []).find((item) => state.steps[item]?.status !== "passed");
 let state;
@@ -196,7 +196,7 @@ function renderManifest() {
     $("#manifest-path").textContent = manifestTemplate ? manifest.file : manifest.path;
     $("#manifest-note").textContent = manifestTemplate ?
         "Source file on disk. Only __NAMESPACE__, __IMAGE__, __RUNTIME__ and __ARCH__ are substituted for deployment." :
-        `${manifest.applied ? "Captured exact stage 4 input" : manifest.ready ? "Ready-to-apply preview" : "Preview - package stage 2 first to resolve the image digest"}. Stages 5 and 6 patch only the live brewlet.sh/runtime-image annotation to temurin-25-updated and back; they do not rewrite this initial YAML. Viewing does not deploy.`;
+        `${manifest.applied ? "Captured exact stage 4 input" : manifest.ready ? "Ready-to-apply preview" : "Preview - package stage 2 first to resolve the image digest"}. Stages 5 and 6 rotate the approved source digest on the existing temurin-25 RuntimeImage; the Deployment YAML keeps the same runtime ID. Viewing does not deploy.`;
     $("#manifest-content").textContent = manifestTemplate ? manifest.template : manifest.rendered;
 }
 
@@ -296,7 +296,7 @@ function goldenRuntimeRecipe() {
             element("p", `Verified full JDK ${build.verification.version} / linux/${build.arch} / ${build.verifiedAt}`));
         for (const root of build.verification.trustStore.roots) panel.append(element("p",
             `${root.present ? "PRESENT" : "ABSENT"}: ${root.name}${root.present ? ` / SHA-256 ${root.fingerprints.join(", ")}` : ""}`));
-        panel.append(element("p", "Next: Prepare private cluster imports this exact runtime digest and approves it as temurin-25-updated. The demo does not push to a registry; a real platform team would publish and approve this digest in its own registry."));
+        panel.append(element("p", "Next: Prepare private cluster imports this exact runtime digest. The initial temurin-25 RuntimeImage is approved first; the upgrade stage rotates that same ID to this digest. The demo does not push to a registry; a real platform team would publish and approve this digest in its own registry."));
     } else panel.append(element("p", "Not built yet. Run this stage to produce real JDK/trust-store evidence and an image digest before cluster preparation."));
     return panel;
 }
@@ -306,7 +306,7 @@ function renderArtifactProof() {
     const comparison = state.comparison;
     panel.replaceChildren();
     const status = comparison?.status ?? "pending";
-    panel.append(element("strong", status === "verified" ? "Same artifact, different node runtime" :
+    panel.append(element("strong", status === "verified" ? "Same artifact, same runtime ID; digest rotated" :
         status === "mismatch" ? "Artifact mismatch - verification failed" : "Awaiting verified rollout comparison", `artifact-status ${status}`));
     if (state.image) {
         const details = element("details");
@@ -337,8 +337,8 @@ function renderArtifactProof() {
     table.append(thead, body);
     const scroll = element("div", null, "artifact-table-scroll");
     scroll.append(table);
-    panel.append(scroll, element("p", "Captured after each rollout: the ready Pod owned by the Deployment, the live JVM answering through the Service, its container imageID linked by SHA-256 to the local OCI artifact, and the node's runtime-bindings observation for that Pod."));
-    panel.append(element("h3", "The runtime update changes the trust store, not the application"),
+    panel.append(scroll, element("p", "Captured after each rollout: the ready Pod owned by the Deployment, the live JVM answering through the Service, its container imageID linked by SHA-256 to the local OCI artifact, and the node's runtime-bindings observation for temurin-25. The runtime ID stays constant while its digest and generation advance."));
+    panel.append(element("h3", "The runtime digest changes the trust store, not the application"),
         element("p", "Actual bundled cacerts reported by the same live JVM response as the version and Pod identity. G3, C1 and C3 disappear on update; G1 remains. Rollback restores the older trust store too - this is a demonstration, not a security recommendation."));
     const trustTable = element("table", null, "artifact-table");
     const trustHead = element("tr");
@@ -371,8 +371,8 @@ function renderArtifactProof() {
     if (state.evidence.inspect?.artifact) panel.append(element("p",
         `Latest inspection (not historical rollout evidence): ${state.evidence.inspect.vendor} ${state.evidence.inspect.version} | Pod ${state.evidence.inspect.pod} | ${state.evidence.inspect.runtime}`));
     const diff = element("details");
-    diff.append(element("summary", "Only intended change: one Pod template annotation"),
-        element("pre", 'spec.template.metadata.annotations:\n- brewlet.sh/runtime-image: temurin-25\n+ brewlet.sh/runtime-image: temurin-25-updated\n\nSwitch back:\n- brewlet.sh/runtime-image: temurin-25-updated\n+ brewlet.sh/runtime-image: temurin-25\n\nspec.template.spec.containers[0].image: unchanged\nKubernetes rolls the Deployment; the node binds the approved runtime.', "preview-code"));
+    diff.append(element("summary", "Only intended change: RuntimeImage source digest"),
+        element("pre", 'RuntimeImage/temurin-25:\n- spec.source.image: <Temurin 25.0.4.1+1 digest>\n+ spec.source.image: <Temurin 25.0.5+8 digest>\n\nRollback restores the original digest on the same RuntimeImage object.\nThe Deployment keeps brewlet.sh/runtime-image: temurin-25.\nBrewlet waits for node rotation, then advances the opted-in workload barrier.\nThe application image and its digest remain unchanged.', "preview-code"));
     panel.append(diff);
 }
 
