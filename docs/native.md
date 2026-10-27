@@ -254,7 +254,7 @@ kubectl apply -f "$WORK/rust-deployment.yaml"
 
 The common [workload rules](applications.md#native-workload-example) for
 non-root identity, registry credentials and volumes apply. This example
-needs a writable root or a shell.
+needs neither a writable root nor a shell.
 
 ## Verify
 
