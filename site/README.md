@@ -9,7 +9,10 @@ The Devoxx Belgium 2026 section carries over the recording, slides and local
 thumbnail from `brewlet-0.x-java`.
 
 MkDocs Material supplies the searchable documentation at `/docs/`. Its direct
-dependencies are pinned in `site/requirements.txt`. The comparison
+dependencies are pinned in `site/requirements.txt`. The configured production
+`site_url` also generates canonical page URLs and the documentation sitemap at
+`https://brewlet.sh/docs/sitemap.xml`, which can be submitted to Google Search
+Console after deployment. The comparison
 draft is rendered without modifying its source; repository-file links become
 branch-specific GitHub source links through the documented hook.
 
@@ -43,6 +46,20 @@ installed dependency license texts, removes unused non-English search
 extensions as main does, and verifies every built local link/fragment.
 Contract checks cover the build tooling (source-link hook, link parser,
 tutorial observer) and notices, not the wording of the site content.
+
+## Social previews
+
+The site build renders a shared 1200 x 630 PNG at
+`/assets/images/social-card.png` using `scripts/social_card.py`, Pillow's bundled
+font and the site's coffee/cream/blue palette. No font downloads or external
+rendering service are needed. The generated notices include Pillow's licenses
+and attribution for the bundled CC0 Aileron font.
+
+The landing page and documentation supply Open Graph and Twitter large-image
+metadata with absolute production URLs. Documentation previews use each page's
+title and its front-matter `description` when provided, otherwise the site
+description. Edit the renderer to update the shared artwork; `make site-build`
+regenerates it with the rest of the site.
 
 ## Deployment
 

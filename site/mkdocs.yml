@@ -1,5 +1,6 @@
 site_name: Brewlet
 site_description: Language-neutral application artifacts and platform-managed runtimes on Kubernetes.
+site_url: https://brewlet.sh/docs/
 docs_dir: ../docs
 site_dir: _site/docs
 repo_url: https://github.com/microsoft/brewlet/tree/main
