@@ -1,6 +1,5 @@
 """Actual authenticated TLS runtime-layer transfer gate; no protected-state edits."""
 
-import hashlib
 import http.server
 import json
 from pathlib import Path
@@ -183,9 +182,10 @@ class TransferGate:
             self.h.node_exec_on(node, "chmod", "0700", directory)
             self.h.node_exec_on(node, "sh", "-ec", 'umask 077; cat > "$1"', "transfer",
                                 directory + "/" + name, input=data)
-            observed = self.h.node_exec_on(node, "sha256sum", directory + "/" + name).stdout.split()
-            require(observed and observed[0] == hashlib.sha256(data.encode()).hexdigest(),
-                    "transfer-gate registry file readback mismatch")
+            # Compare bytes on the node instead of hashing: the payload may hold credentials.
+            observed = self.h.node_exec_on(node, "cmp", "-s", "-", directory + "/" + name,
+                                           input=data, check=False)
+            require(observed.returncode == 0, "transfer-gate registry file readback mismatch")
 
     def started(self):
         return (self.work / "started").exists()
