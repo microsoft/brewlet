@@ -1,4 +1,4 @@
-name: Checks
+name: Build and Contract Checks
 
 # Reusable non-live checks shared by the PR and Release Gate Tests workflows.
 # Callers choose the scope; every selected check fails closed.
@@ -111,6 +111,7 @@ jobs:
           retention-days: 14
 
   producer-integration:
+    name: Producer and Registry Integration
     if: inputs.producer
     strategy:
       fail-fast: false
@@ -153,7 +154,7 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: python3 acceptance/run_check.py fixtures
-      - name: Real registry publication (not node acceptance)
+      - name: Publish and verify OCI artifacts in a registry
         run: python3 acceptance/run_check.py registry
       # Release Gate Tests refreshes the per-job cache that pull requests restore; PRs save only on a cold miss.
       - name: Save producer Go caches

@@ -13,6 +13,7 @@ concurrency:
 
 jobs:
   build:
+    name: Candidate Build and Attestation
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -94,6 +95,7 @@ jobs:
           retention-days: 30
 
   native-cli:
+    name: Native CLI Artifact Smoke Tests
     needs: build
     strategy:
       fail-fast: false

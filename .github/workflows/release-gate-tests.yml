@@ -54,7 +54,7 @@ jobs:
           echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
 
   checks:
-    name: Checks
+    name: Build and Contract Checks
     needs: context
     uses: ./.github/workflows/checks.yml
     with:
@@ -62,7 +62,7 @@ jobs:
       architectures: '["amd64","arm64"]'
 
   e2e:
-    name: Real E2E
+    name: Kubernetes E2E (kind)
     needs: context
     strategy:
       fail-fast: false
