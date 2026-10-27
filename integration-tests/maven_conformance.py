@@ -91,11 +91,8 @@ def run(executable, project, work, fixture_file, workers=WORKERS):
         f"-Dbrewlet.conformanceResult={report.resolve()}",
     ], check=True)
     actual = json.loads(report.read_text())
-    expected = json.loads(subprocess.check_output(
-        [str(executable), "conformance", str(shared.resolve())], text=True))
-    assert actual == expected, "Maven and CLI normalized fixture results differ"
     assert len(actual) == len(fixture["cases"]) and all(item["passed"] for item in actual)
-    print(f"Passed all {len(actual)} shared Maven/CLI validator cases")
+    print(f"Passed all {len(actual)} shared Maven validator cases")
     cases = [dict(encoded) for encoded in fixture["cases"]]
     cases = [case for case in cases if case["kind"] in ("launch", "id", "platform")]
     assert cases, "No shared producer conformance fixtures executed"

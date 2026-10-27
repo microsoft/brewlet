@@ -22,11 +22,10 @@ mvn sh.brewlet:brewlet-maven-plugin:0.8.1:conformance \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
 
-The result file has the same shape as `brewlet conformance` output: normalized
-process fields and reason codes per case. Any failing case fails Maven without
-replacing an existing result. The integration harness compares this result with
-the CLI's output, and also publishes the applicable launch, runtime-ID and
-platform cases through the actual `push` goal.
+The result file contains normalized process fields and reason codes per case.
+Any failing case fails Maven without replacing an existing result. The
+integration harness checks every fixture and also publishes the applicable
+launch, runtime-ID and platform cases through the actual CLI `push` goal.
 
 Package and publish in the same Maven invocation:
 

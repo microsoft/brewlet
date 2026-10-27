@@ -44,7 +44,6 @@ var errUsage = errors.New("usage")
 type command struct {
 	name, summary string
 	group         string
-	hidden        bool
 	run           func(ctx context.Context, args []string, stdout, stderr io.Writer) error
 }
 
@@ -60,23 +59,22 @@ var groups = []string{groupBuild, groupRelease, groupLocal, groupCluster, groupO
 
 func commands() []command {
 	return []command{
-		{"build", "Package app/dependency layers and launch.json into a local OCI layout", groupBuild, false, runBuild},
-		{"push", "Upload a local build to a registry, byte for byte", groupBuild, false, runPush},
-		{"inspect", "Show the effective launch.json and layer table of an image or layer set", groupBuild, false, runInspect},
-		{"index", "Advanced: combine separately built platform manifests into one index", groupBuild, false, runIndex},
-		{"layer-set", "Publish an independently governed dependency layer set", groupRelease, false, runLayerSet},
-		{"bundle", "Bundle a pinned application with one approved layer set into a signed release image", groupRelease, false, releaseCommand("bundle")},
-		{"verify", "Verify a pinned release bundle against a release policy", groupRelease, false, releaseCommand("verify")},
-		{"run", "Run a local build on a chosen runtime image with Docker or Podman", groupLocal, false, runLocal},
-		{"k8s", "Manage runtimes on a Brewlet cluster (list, add, rotate, remove, doctor)", groupCluster, false, runK8s},
-		{"inventory", "Report which dependency sets running workloads were built from", groupCluster, false, func(ctx context.Context, args []string, _, _ io.Writer) error {
+		{"build", "Package app/dependency layers and launch.json into a local OCI layout", groupBuild, runBuild},
+		{"push", "Upload a local build to a registry, byte for byte", groupBuild, runPush},
+		{"inspect", "Show the effective launch.json and layer table of an image or layer set", groupBuild, runInspect},
+		{"index", "Advanced: combine separately built platform manifests into one index", groupBuild, runIndex},
+		{"layer-set", "Publish an independently governed dependency layer set", groupRelease, runLayerSet},
+		{"bundle", "Bundle a pinned application with one approved layer set into a signed release image", groupRelease, releaseCommand("bundle")},
+		{"verify", "Verify a pinned release bundle against a release policy", groupRelease, releaseCommand("verify")},
+		{"run", "Run a local build on a chosen runtime image with Docker or Podman", groupLocal, runLocal},
+		{"k8s", "Manage runtimes on a Brewlet cluster (list, add, rotate, remove, doctor)", groupCluster, runK8s},
+		{"inventory", "Report which dependency sets running workloads were built from", groupCluster, func(ctx context.Context, args []string, _, _ io.Writer) error {
 			return runInventory(ctx, args)
 		}},
-		{"version", "Print version, commit and platform as JSON", groupOther, false, func(_ context.Context, args []string, stdout, _ io.Writer) error {
+		{"version", "Print version, commit and platform as JSON", groupOther, func(_ context.Context, args []string, stdout, _ io.Writer) error {
 			return writeVersion(stdout, args)
 		}},
-		{"help", "Show help for a command", groupOther, false, nil},
-		{"conformance", "Run shared producer/shim conformance fixtures (maintainers)", groupOther, true, runConformance},
+		{"help", "Show help for a command", groupOther, nil},
 	}
 }
 
@@ -92,7 +90,7 @@ Usage:
 	for _, group := range groups {
 		fmt.Fprintf(out, "%s:\n", group)
 		for _, c := range all {
-			if c.group == group && !c.hidden {
+			if c.group == group {
 				fmt.Fprintf(out, "  %-10s %s\n", c.name, c.summary)
 			}
 		}
@@ -133,9 +131,7 @@ func dispatch(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		if c.name == name && c.run != nil {
 			return c.run(ctx, args[1:], stdout, stderr)
 		}
-		if !c.hidden {
-			known = append(known, c.name)
-		}
+		known = append(known, c.name)
 	}
 	sort.Strings(known)
 	return fmt.Errorf("unknown command %q; available: %s (see brewlet --help)", name, strings.Join(known, ", "))
@@ -706,35 +702,4 @@ func inspectTarget(ctx context.Context, stdout io.Writer, store artifact.Store, 
 		Launch json.RawMessage `json:"launch"`
 		Layers []v1.Descriptor `json:"layers"`
 	}{target.Digest.String(), json.RawMessage(resolved.LaunchJSON), resolved.Manifest.Layers})
-}
-
-const conformanceSynopsis = `Usage: brewlet conformance FILE
-
-Maintainer command: executes shared producer/shim conformance fixtures.`
-
-func runConformance(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	fs := newFlagSet("conformance", conformanceSynopsis, stdout)
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: brewlet conformance FILE")
-	}
-	b, e := os.ReadFile(fs.Arg(0))
-	if e != nil {
-		return e
-	}
-	results, e := artifact.RunFixtures(ctx, b)
-	if e != nil {
-		return e
-	}
-	if e = json.NewEncoder(stdout).Encode(results); e != nil {
-		return e
-	}
-	for _, r := range results {
-		if !r.Passed {
-			return fmt.Errorf("conformance fixture failed: %s", r.Name)
-		}
-	}
-	return nil
 }
