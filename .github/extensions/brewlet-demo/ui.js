@@ -3,11 +3,12 @@ const api = (route) => `${route}?token=${encodeURIComponent(token)}`;
 const $ = (selector) => document.querySelector(selector);
 const steps = ["local", "package", "artifact", "deploy", "upgrade", "rollback"];
 const snippets = {
+    golden: "Platform team: verified JDK archive + pinned OS base\nDockerfile -> build-time CA checks -> golden OCI digest",
     local: "mvn -pl spring-boot -am -Djib.skip=true package\njava -jar showmyjvm-springboot.jar",
     package: "java -Djarmode=tools -jar app.jar extract\nbrewlet build <ref> --launch launch.json \\\n  --layer dependency=lib:/app/lib --layer app=app:/app",
     artifact: "brewlet inspect <ref> --store <oci>\ntar -tvf <layer-blob>",
     deploy: 'kubectl apply -f deployment.yaml\nruntimeClassName: brewlet\nbrewlet.sh/runtime-image: temurin-25',
-    upgrade: 'kubectl patch deployment showmyjvm\nbrewlet.sh/runtime-image: temurin-27',
+    upgrade: 'kubectl patch deployment showmyjvm\nbrewlet.sh/runtime-image: temurin-25-updated',
     rollback: 'kubectl patch deployment showmyjvm\nbrewlet.sh/runtime-image: temurin-25',
 };
 const blocked = (step) => (state.prerequisites[step] ?? []).find((item) => state.steps[item]?.status !== "passed");
@@ -195,7 +196,7 @@ function renderManifest() {
     $("#manifest-path").textContent = manifestTemplate ? manifest.file : manifest.path;
     $("#manifest-note").textContent = manifestTemplate ?
         "Source file on disk. Only __NAMESPACE__, __IMAGE__, __RUNTIME__ and __ARCH__ are substituted for deployment." :
-        `${manifest.applied ? "Captured exact stage 4 input" : manifest.ready ? "Ready-to-apply preview" : "Preview - package stage 2 first to resolve the image digest"}. Stages 5 and 6 patch only the live brewlet.sh/runtime-image annotation to temurin-27 and back; they do not rewrite this initial YAML. Viewing does not deploy.`;
+        `${manifest.applied ? "Captured exact stage 4 input" : manifest.ready ? "Ready-to-apply preview" : "Preview - package stage 2 first to resolve the image digest"}. Stages 5 and 6 patch only the live brewlet.sh/runtime-image annotation to temurin-25-updated and back; they do not rewrite this initial YAML. Viewing does not deploy.`;
     $("#manifest-content").textContent = manifestTemplate ? manifest.template : manifest.rendered;
 }
 
@@ -276,6 +277,30 @@ function renderSource() {
     $("#brewlet-chip").textContent = brewlet.source === "checkout" ? "Brewlet from checkout" : `Brewlet ${brewlet.version ?? "latest release"}`;
 }
 
+function goldenRuntimeRecipe() {
+    const panel = element("div", null, "command-preview");
+    panel.append(element("h3", "A hypothetical platform team's golden-image pipeline"),
+        element("p", "1. Select the pinned Alpine base and checksum-verified full Temurin JDK 25.0.5+8 archive. 2. Replace the old Java installation. 3. Fail the build unless the JDK compiler exists, G3/C1/C3 are absent and G1 remains. 4. Hand the immutable runtime digest to Brewlet. Application teams keep their app-only image unchanged."),
+        element("p", "The updated upstream cacerts already excludes those three distrusted roots; this Dockerfile does not delete certificates manually. This is a demo golden image, not a claim of production hardening, signing or security certification."));
+    const inputs = state.commandPreviews.golden.input;
+    panel.append(element("h4", "Pinned build inputs"), element("pre", JSON.stringify(inputs, null, 2), "preview-code"),
+        element("h4", state.goldenRecipe.file), element("pre", state.goldenRecipe.dockerfile, "preview-code"));
+    const verifier = element("details");
+    verifier.append(element("summary", "Build-time JDK and CA-root verification source"),
+        element("p", state.goldenRecipe.verifierFile), element("pre", state.goldenRecipe.verifier, "preview-code"));
+    panel.append(verifier);
+    const build = state.privateRuntime;
+    if (build?.verification) {
+        panel.append(element("h4", "Built golden runtime / platform-team handoff"),
+            element("code", build.source),
+            element("p", `Verified full JDK ${build.verification.version} / linux/${build.arch} / ${build.verifiedAt}`));
+        for (const root of build.verification.trustStore.roots) panel.append(element("p",
+            `${root.present ? "PRESENT" : "ABSENT"}: ${root.name}${root.present ? ` / SHA-256 ${root.fingerprints.join(", ")}` : ""}`));
+        panel.append(element("p", "Next: Prepare private cluster imports this exact runtime digest and approves it as temurin-25-updated. The demo does not push to a registry; a real platform team would publish and approve this digest in its own registry."));
+    } else panel.append(element("p", "Not built yet. Run this stage to produce real JDK/trust-store evidence and an image digest before cluster preparation."));
+    return panel;
+}
+
 function renderArtifactProof() {
     const panel = $("#artifact-proof");
     const comparison = state.comparison;
@@ -291,7 +316,7 @@ function renderArtifactProof() {
     }
     const table = element("table", null, "artifact-table");
     const head = element("tr");
-    for (const title of ["Evidence", "Initial / temurin-25", "Switch / temurin-27", "Back / temurin-25"]) head.append(element("th", title));
+    for (const title of ["Evidence", "Initial / 25.0.4.1+1", "Update / 25.0.5+8", "Rollback / 25.0.4.1+1"]) head.append(element("th", title));
     const thead = element("thead");
     thead.append(head);
     const body = element("tbody");
@@ -313,11 +338,41 @@ function renderArtifactProof() {
     const scroll = element("div", null, "artifact-table-scroll");
     scroll.append(table);
     panel.append(scroll, element("p", "Captured after each rollout: the ready Pod owned by the Deployment, the live JVM answering through the Service, its container imageID linked by SHA-256 to the local OCI artifact, and the node's runtime-bindings observation for that Pod."));
+    panel.append(element("h3", "The runtime update changes the trust store, not the application"),
+        element("p", "Actual bundled cacerts reported by the same live JVM response as the version and Pod identity. G3, C1 and C3 disappear on update; G1 remains. Rollback restores the older trust store too - this is a demonstration, not a security recommendation."));
+    const trustTable = element("table", null, "artifact-table");
+    const trustHead = element("tr");
+    for (const title of ["Bundled emSign root", "25.0.4.1+1", "25.0.5+8", "Rollback"]) trustHead.append(element("th", title));
+    const trustThead = element("thead");
+    trustThead.append(trustHead);
+    const trustBody = element("tbody");
+    const roots = state.runtimes["temurin-25"].emSignRoots;
+    for (const name of roots) {
+        const row = element("tr");
+        row.append(element("th", name));
+        for (const { proof } of rows) {
+            const root = proof?.trustStore?.roots.find((item) => item.name === name);
+            const cell = element("td");
+            cell.append(element("strong", root ? root.present ? "Present / trusted root" : "Not in cacerts" : "Not captured"));
+            if (root?.present) {
+                const fingerprints = element("details");
+                fingerprints.append(element("summary", "SHA-256"), element("code", root.fingerprints.join("\n")));
+                cell.append(fingerprints);
+            }
+            row.append(cell);
+        }
+        trustBody.append(row);
+    }
+    trustTable.append(trustThead, trustBody);
+    const trustScroll = element("div", null, "artifact-table-scroll");
+    trustScroll.append(trustTable);
+    panel.append(trustScroll, element("p", "Presence is measured from ${java.home}/lib/security/cacerts, not from the OS store or version labels. This demonstrates root-store contents, not a live TLS vulnerability test."));
+    if (state.privateRuntime) panel.append(element("p", `Platform team's golden runtime built from the official full Temurin JDK musl archive (no registry upload). Verified archive SHA-256: ${state.privateRuntime.archive.sha256}`));
     if (state.evidence.inspect?.artifact) panel.append(element("p",
         `Latest inspection (not historical rollout evidence): ${state.evidence.inspect.vendor} ${state.evidence.inspect.version} | Pod ${state.evidence.inspect.pod} | ${state.evidence.inspect.runtime}`));
     const diff = element("details");
     diff.append(element("summary", "Only intended change: one Pod template annotation"),
-        element("pre", 'spec.template.metadata.annotations:\n- brewlet.sh/runtime-image: temurin-25\n+ brewlet.sh/runtime-image: temurin-27\n\nSwitch back:\n- brewlet.sh/runtime-image: temurin-27\n+ brewlet.sh/runtime-image: temurin-25\n\nspec.template.spec.containers[0].image: unchanged\nKubernetes rolls the Deployment; the node binds the approved runtime.', "preview-code"));
+        element("pre", 'spec.template.metadata.annotations:\n- brewlet.sh/runtime-image: temurin-25\n+ brewlet.sh/runtime-image: temurin-25-updated\n\nSwitch back:\n- brewlet.sh/runtime-image: temurin-25-updated\n+ brewlet.sh/runtime-image: temurin-25\n\nspec.template.spec.containers[0].image: unchanged\nKubernetes rolls the Deployment; the node binds the approved runtime.', "preview-code"));
     panel.append(diff);
 }
 
@@ -327,7 +382,7 @@ function render(next) {
     renderSource();
     renderManifest();
     renderArtifactProof();
-    $("#steps").replaceChildren(...steps.map((id) => {
+    const cards = ["golden", ...steps].map((id) => {
         const definition = state.definitions[id];
         const status = state.steps[id]?.status ?? "ready";
         const card = element("article", null, "step");
@@ -338,6 +393,7 @@ function render(next) {
         const button = element("button", status === "passed" ? "Run again" : "Run stage");
         button.dataset.step = id;
         card.append(top, element("p", definition.detail), code, button, previewControl(id));
+        if (id === "golden") card.append(goldenRuntimeRecipe());
         if (id === "artifact" && state.evidence.artifact && state.evidence.artifact.image === state.image) {
             card.classList.add("artifact-step");
             card.append(artifactExplorer(state.evidence.artifact));
@@ -353,25 +409,29 @@ function render(next) {
         }
         if (state.steps[id]?.error) card.append(element("p", state.steps[id].error, "failure"));
         return card;
-    }));
+    });
+    $("#golden-stage").replaceChildren(cards[0]);
+    $("#steps").replaceChildren(...cards.slice(1));
     for (const id of ["preflight", "setup", "inspect", "cleanup"]) {
         $(`#${id}-preview`).replaceChildren(previewControl(id));
     }
     for (const button of document.querySelectorAll("[data-step]")) {
         const step = button.dataset.step;
         const missing = blocked(step) ?? (step === "cleanup" && !state.cluster?.created ? "setup" : null);
-        button.disabled = Boolean(state.active || missing);
-        button.title = missing ? `Complete ${state.definitions[missing].title} first.` : state.definitions[step].detail;
+        const goldenLocked = step === "golden" && state.cluster?.created;
+        button.disabled = Boolean(state.active || missing || goldenLocked);
+        button.title = goldenLocked ? "Remove the private cluster before rebuilding its golden runtime." :
+            missing ? `Complete ${state.definitions[missing].title} first.` : state.definitions[step].detail;
         button.onclick = () => run(step);
     }
     const preparation = ["preflight", "setup", "cleanup"].filter((key) => state.steps[key]).map((key) => {
         const step = state.steps[key];
-        const verified = key === "setup" && step.status === "passed" ? ` - ${step.result.node}: temurin-25 + temurin-27 approved` : "";
+        const verified = key === "setup" && step.status === "passed" ? ` - ${step.result.node}: Temurin 25.0.4.1+1 + 25.0.5+8 approved` : "";
         return `${state.definitions[key].title}: ${step.status}${verified}${step.error ? ` - ${step.error}` : ""}`;
     });
     $("#preparation-status").textContent = preparation.join(" | ");
     $("#evidence").replaceChildren();
-    for (const [key, label] of [["local", "Local JVM"], ["deploy", "Kubernetes / temurin-25"], ["upgrade", "Kubernetes / temurin-27"], ["rollback", "Kubernetes / back on temurin-25"]]) {
+    for (const [key, label] of [["local", "Local JVM"], ["deploy", "Kubernetes / initial"], ["upgrade", "Kubernetes / updated"], ["rollback", "Kubernetes / rollback"]]) {
         const proof = state.evidence[key];
         if (!proof) continue;
         const line = element("div", null, "proof");
@@ -419,7 +479,7 @@ $("#command-form").onsubmit = (event) => {
     event.preventDefault();
     const command = $("#command").value.trim().toLowerCase();
     $("#command").value = "";
-    if (command === "help") return showError("Commands: preflight, setup, local, package, artifact, deploy, upgrade, rollback, inspect, cleanup, stop. Stages run real commands; no arbitrary shell execution.");
+    if (command === "help") return showError("Commands: preflight, golden, setup, local, package, artifact, deploy, upgrade, rollback, inspect, cleanup, stop. Stages run real commands; no arbitrary shell execution.");
     if (command === "stop") return post("/api/stop");
     if (!state || !Object.hasOwn(state.definitions, command)) return showError("Unknown command. Enter help for the guided command list.");
     return run(command);

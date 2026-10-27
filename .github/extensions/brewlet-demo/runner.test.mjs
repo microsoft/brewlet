@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
     artifactIdentity, BASE_RUNTIME, commandPreviews, comparison, DemoManager, findBinding, findJavaHome, launchDescriptor, loadRuntimes,
     names, NEXT_RUNTIME, podEvidence, PREREQUISITES, releaseArchive, releaseChecksum, renderDeploymentYaml, renderInventory, resolveRelease,
-    runtimeEvidence, runtimeSource, STEPS,
+    runtimeEvidence, runtimeSource, STEPS, trustStoreEvidence, EMSIGN_ROOTS, UPDATED_RUNTIME_REPOSITORY,
 } from "./runner.mjs";
 
 const digest = (data) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
@@ -42,21 +42,53 @@ test("runtime evidence requires the selected Temurin feature release", () => {
 
 test("pinned runtimes resolve to immutable platform manifests and render 1.0 inventory", async () => {
     const runtimes = await loadRuntimes();
-    for (const id of [BASE_RUNTIME, NEXT_RUNTIME]) {
-        for (const arch of ["arm64", "amd64"]) assert.match(runtimeSource(runtimes, id, arch), /^registry-1\.docker\.io\/library\/eclipse-temurin@sha256:[a-f0-9]{64}$/);
+    for (const arch of ["arm64", "amd64"]) {
+        assert.match(runtimeSource(runtimes, BASE_RUNTIME, arch), /^registry-1\.docker\.io\/library\/eclipse-temurin@sha256:[a-f0-9]{64}$/);
+        assert.match(runtimes[NEXT_RUNTIME].archives[arch].url, /jdk-25\.0\.5%2B8\/OpenJDK25U-jdk_.*_alpine-linux_hotspot_25\.0\.5_8\.tar\.gz$/);
+        assert.match(runtimes[NEXT_RUNTIME].archives[arch].sha256, /^[a-f0-9]{64}$/);
     }
+    const resolved = { ...runtimes, [NEXT_RUNTIME]: { ...runtimes[NEXT_RUNTIME], arm64: `${UPDATED_RUNTIME_REPOSITORY}@sha256:${"a".repeat(64)}` } };
     assert.throws(() => runtimeSource(runtimes, BASE_RUNTIME, "s390x"), /No pinned/);
     assert.throws(() => runtimeSource({ x: { arm64: "eclipse-temurin:25" } }, "x", "arm64"), /No pinned/);
-    const inventory = renderInventory(runtimes, [BASE_RUNTIME, NEXT_RUNTIME], "arm64", "abc", "owner");
+    const inventory = renderInventory(resolved, [BASE_RUNTIME, NEXT_RUNTIME], "arm64", "abc", "owner");
     const [first, second] = inventory.runtimeImages.split("\n---\n").map((item) => JSON.parse(item));
     assert.equal(first.kind, "RuntimeImage");
     assert.equal(first.spec.source.image, runtimes[BASE_RUNTIME].arm64);
     assert.deepEqual(first.spec.user, { uid: 65532, gid: 65532 });
     assert.deepEqual(first.spec.volumeMountPaths, ["/tmp"]);
     assert.equal(second.metadata.name, NEXT_RUNTIME);
+    assert.equal(second.spec.source.image, resolved[NEXT_RUNTIME].arm64);
     const profile = JSON.parse(inventory.profile);
     assert.deepEqual(profile.spec.nodePool, { key: "brewlet.example.com/pool", names: ["abc"], includeControlPlane: true });
     assert.deepEqual(profile.spec.runtimeImages.map((item) => item.install), ["Eager", "Eager"]);
+});
+
+const fingerprint = "AB:".repeat(31) + "AB";
+function inspection(expected) {
+    return { vmVersion: `${expected.version}-LTS`, vmVendor: "Eclipse Adoptium", vmName: "OpenJDK 64-Bit Server VM", pidHostname: "1@pod",
+        caCertificates: expected.emSignRoots.map((name) => ({ name, sha256Fingerprint: fingerprint })) };
+}
+
+test("trust-store evidence requires the exact patch build and measured roots for deploy, update and rollback", async () => {
+    const runtimes = await loadRuntimes();
+    for (const id of [BASE_RUNTIME, NEXT_RUNTIME, BASE_RUNTIME]) {
+        const expected = runtimes[id];
+        const proof = trustStoreEvidence(inspection(expected), expected);
+        assert.equal(proof.process, "1@pod");
+        assert.equal(proof.trustStore.certificateCount, expected.emSignRoots.length);
+        assert.deepEqual(proof.trustStore.roots.map(({ name, present }) => [name, present]),
+            EMSIGN_ROOTS.map((name) => [name, expected.emSignRoots.includes(name)]));
+        assert.deepEqual(proof.trustStore.roots[0].fingerprints, [fingerprint]);
+    }
+    const old = runtimes[BASE_RUNTIME];
+    const updated = runtimes[NEXT_RUNTIME];
+    assert.throws(() => trustStoreEvidence(inspection(old), updated), /Expected Temurin 25\.0\.5\+8/);
+    assert.throws(() => trustStoreEvidence({ ...inspection(old), caCertificates: [] }, old), /no CA certificates/);
+    assert.throws(() => trustStoreEvidence({ ...inspection(old), caCertificates: undefined }, old), /no CA certificates/);
+    assert.throws(() => trustStoreEvidence({ ...inspection(old), caCertificates: [{ name: "x", sha256Fingerprint: "bad" }] }, old), /invalid CA/);
+    assert.throws(() => trustStoreEvidence({ ...inspection(updated), caCertificates: inspection(old).caCertificates }, updated), /G3 is present/);
+    assert.throws(() => trustStoreEvidence({ ...inspection(old), caCertificates: inspection(updated).caCertificates }, old), /G3 is absent/);
+    assert.throws(() => trustStoreEvidence({ ...inspection(updated), caCertificates: [{ name: "Other CA", sha256Fingerprint: fingerprint }] }, updated), /G1 is absent/);
 });
 
 test("deployment template is a plain Deployment selecting a runtime by annotation", async () => {
@@ -121,9 +153,10 @@ test("runtime binding proof requires a fresh, complete node observation", () => 
 });
 
 test("comparison verifies an unchanged artifact on a different runtime digest", () => {
-    const proof = (runtime) => ({ image: "img", artifact: { manifestDigest: "m" }, binding: { digest: runtime } });
+    const proof = (runtime) => ({ image: "img", artifact: { manifestDigest: "m" }, binding: { digest: runtime }, trustStore: { roots: [] } });
     assert.equal(comparison({}, "img").status, "pending");
     assert.equal(comparison({ deploy: proof("r25"), upgrade: proof("r27") }, "img").status, "verified");
+    assert.equal(comparison({ deploy: proof("r25"), upgrade: { ...proof("r27"), trustStore: undefined } }, "img").status, "pending");
     assert.equal(comparison({ deploy: proof("r25"), upgrade: { ...proof("r27"), artifact: { manifestDigest: "other" } } }, "img").status, "mismatch");
 });
 
@@ -137,7 +170,7 @@ test("names are session-scoped and previews never use the user's current context
     for (const preview of Object.values(previews)) {
         for (const command of preview.commands.filter((item) => item.startsWith("kubectl") && !item.includes("--client"))) assert.match(command, /--kubeconfig \/w\/brewlet-demo\/kubeconfig --context kind-brewlet-demo-1ae13c18e593/);
     }
-    assert.match(previews.upgrade.commands[0], /"op":"replace","path":"\/spec\/template\/metadata\/annotations\/brewlet.sh~1runtime-image","value":"temurin-27"/);
+    assert.match(previews.upgrade.commands[0], /"op":"replace","path":"\/spec\/template\/metadata\/annotations\/brewlet.sh~1runtime-image","value":"temurin-25-updated"/);
 });
 
 test("latest release resolves from the GitHub redirect; an explicit version overrides it", async () => {
@@ -171,13 +204,188 @@ test("release previews install the OCI chart; checkout previews build from sourc
     const release = commandPreviews({ ...base, brewlet: { source: "release", version: "0.8.1" } }, runtimes);
     const setup = release.setup.commands.join("\n");
     assert.match(setup, /upgrade --install brewlet oci:\/\/ghcr\.io\/microsoft\/charts\/brewlet --version 0\.8\.1/);
-    assert.doesNotMatch(setup, /docker build|go run|kind load/);
+    assert.match(release.golden.commands.join("\n"), /docker buildx build[\s\S]*--target runtime[\s\S]*type=oci/);
+    assert.match(release.golden.commands.join("\n"), /--target evidence/);
+    assert.doesNotMatch(setup, /go run|kind load/);
     assert.doesNotMatch(release.preflight.commands.join("\n"), /go version/);
     assert.match(release.package.commands.join("\n"), /brewlet_0\.8\.1_linux_amd64\.tar\.gz[\s\S]*BREWLET_CLI=release/);
     const checkout = commandPreviews({ ...base, brewlet: { source: "checkout", version: null } }, runtimes);
     assert.match(checkout.setup.commands.join("\n"), /docker build[\s\S]*kubernetes\/charts\/brewlet/);
     assert.match(checkout.preflight.commands.join("\n"), /go version/);
     assert.match(checkout.package.commands.join("\n"), /BREWLET_CLI=source/);
+});
+
+test("private runtime verifies the archive, OCI descriptor and architecture before recording its source", async (t) => {
+    const runtimes = await loadRuntimes();
+    const bytes = Buffer.from("official archive fixture");
+    runtimes[NEXT_RUNTIME].archives.arm64.sha256 = digest(bytes).slice(7);
+    const fixture = await layout(t);
+    const calls = [];
+    let verificationData = { ...inspection(runtimes[NEXT_RUNTIME]), jdkCompiler: true };
+    const manager = new DemoManager(await workspace(t), "s", {
+        runtimes, fetcher: async () => ({ ok: true, arrayBuffer: async () => bytes }),
+        command: async (file, args) => {
+            calls.push([file, ...args]);
+            if (file === "docker" && args.includes("evidence")) {
+                const output = args[args.indexOf("--output") + 1].split("dest=")[1];
+                await mkdir(output, { recursive: true });
+                await writeFile(path.join(output, "golden-runtime-verification.json"),
+                    JSON.stringify(verificationData));
+            }
+            if (file === "tar" && args[0] === "-xf") {
+                const output = args[3];
+                await mkdir(path.join(output, "blobs/sha256"), { recursive: true });
+                for (const id of [fixture.config.digest, fixture.manifest.digest]) {
+                    await writeFile(path.join(output, "blobs/sha256", id.slice(7)), await readFile(path.join(fixture.store, "blobs/sha256", id.slice(7))));
+                }
+                await writeFile(path.join(output, "index.json"), await readFile(path.join(fixture.store, "index.json")));
+            }
+            return "";
+        },
+    });
+    await manager.init();
+    assert.equal((await manager.buildUpdatedRuntime("arm64")).source, `${UPDATED_RUNTIME_REPOSITORY}@${fixture.manifest.digest}`);
+    assert.equal(manager.state.privateRuntime.archive.sha256, digest(bytes).slice(7));
+    assert.equal(manager.state.privateRuntime.verification.trustStore.roots[1].present, false);
+    assert.match(manager.snapshot().goldenRecipe.dockerfile, /java \/tmp\/VerifyRuntime.java/);
+    assert.equal(manager.state.privateRuntime.dockerfile, manager.snapshot().goldenRecipe.dockerfile);
+    assert.ok(calls.some((call) => call.includes("--provenance=false") && call.includes("linux/arm64")));
+    const restarted = new DemoManager(path.dirname(manager.dir), "s", { runtimes });
+    await restarted.init();
+    assert.deepEqual(restarted.state.privateRuntime, manager.state.privateRuntime);
+    await assert.rejects(manager.buildUpdatedRuntime("amd64"), /SHA-256 mismatch/);
+    manager.fetcher = async () => ({ ok: false, status: 404 });
+    await assert.rejects(manager.buildUpdatedRuntime("arm64"), /HTTP 404/);
+    manager.fetcher = async () => ({ ok: true, arrayBuffer: async () => bytes });
+    runtimes[NEXT_RUNTIME].archives.amd64.sha256 = digest(bytes).slice(7);
+    await assert.rejects(manager.buildUpdatedRuntime("amd64"), /platform does not match/);
+    verificationData = { ...inspection(runtimes[NEXT_RUNTIME]), jdkCompiler: false };
+    await assert.rejects(manager.buildUpdatedRuntime("arm64"), /not a full JDK/);
+    verificationData = { ...inspection(runtimes[NEXT_RUNTIME]), jdkCompiler: true, caCertificates: inspection(runtimes[BASE_RUNTIME]).caCertificates };
+    await assert.rejects(manager.buildUpdatedRuntime("arm64"), /G3 is present/);
+});
+
+test("golden build is an explicit prerequisite, survives reload and cannot rebuild an active cluster's runtime", async (t) => {
+    const manager = new DemoManager(await workspace(t), "s", { command: async () => "" });
+    await manager.init();
+    await assert.rejects(manager.start("setup"), /Complete Platform team/);
+    manager.dockerArch = async () => "arm64";
+    manager.buildUpdatedRuntime = async (arch) => {
+        manager.state.privateRuntime = { source: "golden-digest", arch, verification: { version: "25.0.5+8-LTS" } };
+    };
+    await manager.start("golden");
+    await manager.task;
+    assert.equal(manager.state.steps.golden.status, "passed");
+    assert.equal(manager.state.steps.golden.result.source, "golden-digest");
+    const restarted = new DemoManager(path.dirname(manager.dir), "s");
+    await restarted.init();
+    assert.equal(restarted.snapshot().steps.golden.status, "passed");
+    assert.equal(restarted.snapshot().privateRuntime.source, "golden-digest");
+    manager.state.cluster = { created: true };
+    await assert.rejects(manager.golden(), /Remove the private cluster/);
+    assert.equal(manager.state.privateRuntime.source, "golden-digest");
+});
+
+test("preflight checks Buildx and archive configuration without requiring a published updated container", async (t) => {
+    const calls = [];
+    const manager = new DemoManager(await workspace(t), "s", {
+        javaHome: "/jdk", env: { BREWLET_DEMO_VERSION: "0.8.1" },
+        command: async (file, args) => {
+            calls.push([file, ...args]);
+            if (file === "docker" && args[0] === "info") return "linux arm64";
+            if (file === "kind" && args[0] === "version") return "kind v0.33.0";
+            return "";
+        },
+    });
+    await manager.init();
+    assert.equal((await manager.preflight()).arch, "arm64");
+    assert.ok(calls.some((call) => call.join(" ") === "docker buildx version"));
+});
+
+test("setup preimports the private digest before approving both exact runtime builds", async (t) => {
+    const runtimes = await loadRuntimes();
+    const fixture = await layout(t);
+    const privateSource = `${UPDATED_RUNTIME_REPOSITORY}@${fixture.manifest.digest}`;
+    const calls = [];
+    const manager = new DemoManager(await workspace(t), "s", {
+        runtimes, env: { BREWLET_DEMO_VERSION: "0.8.1" },
+        command: async (file, args) => {
+            calls.push([file, ...args]);
+            if (file === "docker" && args[0] === "info") return "linux arm64";
+            if (file === "docker" && args[0] === "inspect") return `container ${manager.names.cluster}`;
+            return "";
+        },
+    });
+    await manager.init();
+    await cp(fixture.store, path.join(manager.dir, "runtime-updated"), { recursive: true });
+    manager.state.privateRuntime = { source: privateSource, arch: "arm64", verification: trustStoreEvidence(inspection(runtimes[NEXT_RUNTIME]), runtimes[NEXT_RUNTIME]) };
+    manager.nodeImport = async (layout) => calls.push(["import", layout]);
+    manager.helm = async (...args) => calls.push(["helm", ...args[0]]);
+    manager.kube = async (args) => { calls.push(["kubectl", ...args]); return ""; };
+    manager.waitForWebhook = async () => {};
+    manager.json = async (args) => {
+        if (args[1] === "node") return { metadata: { uid: "node-uid" }, status: { nodeInfo: { architecture: "arm64" } } };
+        const source = args[2] === NEXT_RUNTIME ? privateSource : runtimes[BASE_RUNTIME].arm64;
+        return { spec: { source: { image: source } }, status: { digest: source.split("@")[1] }, metadata: { uid: args[2] } };
+    };
+    const result = await manager.setup();
+    assert.equal(result.runtimes[NEXT_RUNTIME].source, privateSource);
+    assert.equal(result.runtimes[NEXT_RUNTIME].version, "25.0.5+8");
+    assert.deepEqual(result.runtimes[NEXT_RUNTIME].emSignRoots, ["emSign Root CA - G1"]);
+    assert.equal(result.runtimes[BASE_RUNTIME].version, "25.0.4.1+1");
+    const inventory = (await readFile(path.join(manager.dir, "runtimeimages.yaml"), "utf8")).split("\n---\n").map((item) => JSON.parse(item));
+    assert.equal(inventory[1].spec.source.image, privateSource);
+    assert.ok(calls.findIndex((call) => call[0] === "import") < calls.findIndex((call) => call.includes("--for=condition=Approved")));
+    assert.ok(calls.some((call) => call.includes("tag") && call.at(-1) === privateSource));
+});
+
+test("verified rollouts bind measured trust-store evidence to the unchanged app and the serving Pod", async (t) => {
+    const runtimes = await loadRuntimes();
+    const fixture = await layout(t);
+    const manager = new DemoManager(await workspace(t), "s", { command: async () => "" });
+    await manager.init();
+    manager.state.image = fixture.image;
+    manager.state.store = fixture.store;
+    let runtime = BASE_RUNTIME;
+    const expected = () => ({ ...runtimes[runtime], uid: runtime, digest: `sha256:${runtime}`, source: runtime });
+    manager.state.cluster = { nodeUID: "node", runtimes: Object.fromEntries([BASE_RUNTIME, NEXT_RUNTIME].map((id) => [id, {
+        ...runtimes[id], uid: id, digest: `sha256:${id}`, source: id,
+    }])) };
+    manager.fetcher = async () => ({ ok: true, json: async () => inspection(expected()) });
+    manager.deployment = async () => ({ metadata: { uid: "deployment" }, spec: { template: {
+        metadata: { annotations: { "brewlet.sh/runtime-image": runtime } }, spec: { containers: [{ name: "app" }] },
+    } } });
+    const node = () => ({ metadata: { uid: "node", annotations: { "brewlet.sh/runtime-bindings": JSON.stringify({
+        complete: true, nodeUID: "node", observedAt: new Date().toISOString(),
+        bindings: [{ podUID: "pod-uid", id: runtime, inventoryUID: runtime, digest: expected().digest, state: "running", generation: 1, containerID: "container" }],
+    }) } }, status: { nodeInfo: { architecture: "arm64", operatingSystem: "linux" } } });
+    manager.owned = async () => node();
+    manager.json = async (args) => {
+        if (args[1] === "node") return node();
+        if (args[1] === "replicasets") return { items: [{ metadata: { uid: "rs", ownerReferences: [{ controller: true, kind: "Deployment", uid: "deployment" }] } }] };
+        return { items: [{
+            metadata: { name: "pod", uid: "pod-uid", annotations: { "brewlet.sh/runtime-image": runtime },
+                ownerReferences: [{ controller: true, kind: "ReplicaSet", uid: "rs" }] },
+            spec: { nodeName: "node", runtimeClassName: "brewlet", containers: [{ name: "app", image: fixture.image }] },
+            status: { phase: "Running", conditions: [{ type: "Ready", status: "True" }],
+                containerStatuses: [{ name: "app", ready: true, state: { running: {} }, imageID: `x@${fixture.config.digest}` }] },
+        }] };
+    };
+    for (const [step, id] of [["deploy", BASE_RUNTIME], ["upgrade", NEXT_RUNTIME], ["rollback", BASE_RUNTIME]]) {
+        runtime = id;
+        manager.state.evidence[step] = await manager.verifyCluster(id);
+        assert.equal(manager.state.evidence[step].podUID, "pod-uid");
+        assert.equal(manager.state.evidence[step].artifact.manifestDigest, fixture.manifest.digest);
+        assert.equal(manager.state.evidence[step].trustStore.roots[1].present, id === BASE_RUNTIME);
+    }
+    assert.equal(manager.snapshot().comparison.status, "verified");
+    await manager.save();
+    const restarted = new DemoManager(path.dirname(manager.dir), "s");
+    await restarted.init();
+    assert.deepEqual(restarted.state.evidence, manager.state.evidence);
+    runtime = NEXT_RUNTIME;
+    manager.fetcher = async () => ({ ok: true, json: async () => inspection(runtimes[BASE_RUNTIME]) });
+    await assert.rejects(manager.verifyCluster(runtime), /Expected Temurin 25\.0\.5\+8/);
 });
 
 test("switching the Brewlet source resets source-dependent work and is refused with a cluster", async (t) => {

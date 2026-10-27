@@ -32,11 +32,11 @@ const session = await joinSession({
     canvases: [createCanvas({
         id: "brewlet-demo",
         displayName: "Brewlet live demo",
-        description: "Build ShowMyJVM, package it as an app-only OCI image with brewlet build, deploy it as a plain Deployment on a private kind cluster, and switch the node-supplied Temurin runtime 25 -> 27 -> 25 by changing one annotation.",
+        description: "Show a platform team building a verified golden JDK image, deploy ShowMyJVM app-only, and update the node runtime to demonstrate emSign root removal without rebuilding the app.",
         inputSchema: emptyInput,
         actions: [
             { name: "get_status", description: "Read demo steps, commands, runtime evidence and terminal output.", inputSchema: emptyInput, handler: handler(() => manager.snapshot()) },
-            { name: "run_step", description: "Run preflight, setup (installs the selected Brewlet source, the latest release by default, on a session-owned kind cluster), local build/run, package, artifact inspection, deploy, upgrade to temurin-27, rollback to temurin-25, inspect, or cleanup (deletes only this session's kind cluster).", inputSchema: runInput, handler: handler(({ step }) => manager.start(step)) },
+            { name: "run_step", description: "Run preflight, golden (platform-team full JDK 25.0.5+8 image build with build-time CA-root checks), setup (imports that golden digest and installs Brewlet on a private kind cluster), local build/run, package, artifact inspection, deploy, upgrade, rollback, inspect, or cleanup.", inputSchema: runInput, handler: handler(({ step }) => manager.start(step)) },
             { name: "set_brewlet_source", description: "Choose where Brewlet comes from: 'release' (default; latest GitHub release CLI and OCI Helm chart, or BREWLET_DEMO_VERSION) or 'checkout' (build the CLI and component images from this checkout's HEAD). Requires no demo cluster; resets prerequisites, setup and packaging.", inputSchema: sourceInput, handler: handler(({ source }) => manager.setSource(source)) },
             { name: "stop", description: "Cancel the active step and stop this demo's local Java process and Service proxy. Does not delete cluster resources; use run_step cleanup for that.", inputSchema: emptyInput, handler: handler(() => manager.stop()) },
         ],
