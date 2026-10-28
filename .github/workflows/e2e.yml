@@ -106,7 +106,7 @@ jobs:
           path: ${{ runner.temp }}/image-go-build
           key: e2e-image-go-build-${{ inputs.architecture }}-${{ hashFiles('go.sum', 'kubernetes/Dockerfile', 'provisioner/Dockerfile') }}
           restore-keys: e2e-image-go-build-${{ inputs.architecture }}-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.12"
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310
