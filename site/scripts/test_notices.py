@@ -22,11 +22,11 @@ class NoticeTests(unittest.TestCase):
         self.root = Path(directory.name)
         self.inputs = self.root / "site/notices"
         self.inputs.mkdir(parents=True)
-        (self.root / "site/requirements.txt").write_text("mkdocs-material==9.7.7\n")
+        (self.root / "site/requirements.txt").write_text("mkdocs-material==9.8.0\n")
         license = self.root / "material.dist-info/licenses/LICENSE"
         license.parent.mkdir(parents=True)
         license.write_text("Material license\n")
-        material = SimpleNamespace(version="9.7.7", files=[license.relative_to(self.root)],
+        material = SimpleNamespace(version="9.8.0", files=[license.relative_to(self.root)],
                                    locate_file=lambda path: self.root / path)
         mock = patch.object(NOTICES.importlib.metadata, "distribution", return_value=material)
         mock.start()
@@ -59,7 +59,7 @@ class NoticeTests(unittest.TestCase):
         self.write_manifests()
         generated = NOTICES.generate(self.root)
         self.assertEqual(generated, NOTICES.generate(self.root))
-        for text in ("Material for MkDocs 9.7.7", "fixture 1.2.3", "@scope/transitive 4.5.6",
+        for text in ("Material for MkDocs 9.8.0", "fixture 1.2.3", "@scope/transitive 4.5.6",
                      "license for @scope/transitive", "attribution for fixture"):
             self.assertIn(text, generated)
         self.assertNotIn(str(self.root), generated)
@@ -106,9 +106,9 @@ class NoticeTests(unittest.TestCase):
             NOTICES.generate(self.root)
 
     def test_material_upgrade_requires_browser_inventory_review(self):
-        (self.root / "site/requirements.txt").write_text("mkdocs-material==9.8.0\n")
+        (self.root / "site/requirements.txt").write_text("mkdocs-material==9.9.0\n")
         material = NOTICES.importlib.metadata.distribution.return_value
-        material.version = "9.8.0"
+        material.version = "9.9.0"
         with self.assertRaisesRegex(ValueError, "review the browser dependency inventory"):
             NOTICES.generate(self.root)
 
