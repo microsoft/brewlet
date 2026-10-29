@@ -16,11 +16,11 @@ require (
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/opencontainers/runtime-spec v1.3.0
-	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
 	golang.org/x/sys v0.49.0
-	google.golang.org/grpc v1.83.2
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 	k8s.io/api v0.37.1
 	k8s.io/apiextensions-apiserver v0.37.1
@@ -54,7 +54,7 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
-	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

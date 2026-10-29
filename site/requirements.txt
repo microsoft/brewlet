@@ -1,4 +1,4 @@
 --index-url https://pypi.org/simple
 mkdocs==1.6.1
 mkdocs-material==9.8.0
-Pillow==11.3.0
+Pillow==13.0.0
