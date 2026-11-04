@@ -14,6 +14,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # containerd/v2 >= 2.3 shims require the new bootstrap protocol and fail
+      # on nodes running containerd < 2.3 (current AKS, GKE and EKS images).
+      - dependency-name: github.com/containerd/containerd/v2
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
+      - dependency-name: github.com/containerd/containerd/api
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
     groups:
       go-dependencies:
         patterns: ["*"]
