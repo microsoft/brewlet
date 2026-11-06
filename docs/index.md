@@ -13,6 +13,9 @@ when a container is created.
 [package an application](applications.md), or
 [enable runtime infrastructure](installation.md).
 
+For a quick command and deployment reference, see the
+[Brewlet cheat sheet](cheat-sheet.md).
+
 Choose a [workload guide](language-recipes.md) for complete Java, Python,
 Node.js, .NET, PHP and WebAssembly workflows. These are tested examples under one
 generic execution contract, not an exhaustive built-in runtime catalog.
