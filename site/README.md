@@ -47,6 +47,30 @@ extensions as main does, and verifies every built local link/fragment.
 Contract checks cover the build tooling (source-link hook, link parser,
 tutorial observer) and notices, not the wording of the site content.
 
+## Printable cheat sheet
+
+The landing page links to the online cheat sheet and a one-page, A3 landscape
+infographic PDF. The editable source is `docs/assets/cheat-sheet/print.html`.
+It is self-contained, uses the site's coffee/cream/blue palette, and has no
+remote fonts or rendering dependencies. Edit the source and regenerate the
+checked-in PDF and PNG preview with a local Chromium or Google Chrome:
+
+```sh
+make cheat-sheet-pdf SITE_PYTHON=site/.venv/bin/python
+```
+
+Pillow is already included in the site requirements. If the browser is not
+discovered automatically, run the renderer with an explicit executable:
+
+```sh
+site/.venv/bin/python site/scripts/cheat_sheet.py --browser /path/to/chromium
+```
+
+Review the PDF at full size after editing; it must remain one page with no
+clipped code. The regular site build copies the checked-in assets into
+`docs/assets/cheat-sheet/` without requiring a browser or regenerating the PDF.
+The source HTML is also published there for direct printing.
+
 ## Social previews
 
 The site build renders a shared 1200 x 630 PNG at

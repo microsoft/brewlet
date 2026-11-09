@@ -118,7 +118,12 @@ pre { margin: 0; padding: 1.5rem; overflow-x: auto; font-size: .8125rem; line-he
 .guarantees div { padding-block: 1.5rem; border-top: 1px solid var(--cp-border); }
 .guarantees dt { font-size: 1.125rem; font-weight: 650; margin-bottom: .5rem; }
 .guarantees dd { margin-left: 0; color: var(--cp-text-muted); }
-.faq-section { padding-top: 0; }
+.cheat-sheet-layout { display: grid; grid-template-columns: .9fr 1.1fr; gap: 4rem; align-items: center; }
+.cheat-sheet-layout > div > p { color: var(--cp-text-muted); }
+.cheat-sheet-preview { margin: 0; min-width: 0; }
+.cheat-sheet-preview > a { display: block; border: 1px solid var(--cp-border-strong); border-radius: .625rem; overflow: hidden; box-shadow: var(--cp-shadow); }
+.cheat-sheet-preview img { display: block; width: 100%; height: auto; }
+.cheat-sheet-preview figcaption { margin-top: 1rem; color: var(--cp-text-muted); font-size: .8125rem; }
 .faq-layout { display: grid; grid-template-columns: 1fr 1.5fr; gap: 4rem; }
 .faq details { border-top: 1px solid var(--cp-border); }
 .faq details:last-child { border-bottom: 1px solid var(--cp-border); }
@@ -143,7 +148,7 @@ pre { margin: 0; padding: 1.5rem; overflow-x: auto; font-size: .8125rem; line-he
   .menu-toggle:not([hidden]) { display: block; }
   .navigation nav { flex-basis: 100%; flex-wrap: wrap; padding-bottom: .5rem; }
   .navigation[data-enhanced] nav:not([data-open]) { display: none; }
-  .hero-grid, .ownership-comparison, .devoxx-layout, .code-pair, .deployment-example, .rotation-layout, .quickstart, .faq-layout { grid-template-columns: 1fr; }
+  .hero-grid, .ownership-comparison, .devoxx-layout, .code-pair, .deployment-example, .rotation-layout, .quickstart, .cheat-sheet-layout, .faq-layout { grid-template-columns: 1fr; }
   .devoxx-layout { gap: 2rem; }
   .hero-grid { gap: 2.5rem; }
   .hero h1 { font-size: clamp(2.8rem, 9.5vw, 4rem); }
@@ -158,6 +163,7 @@ pre { margin: 0; padding: 1.5rem; overflow-x: auto; font-size: .8125rem; line-he
   .architecture-note { grid-template-columns: 1fr; gap: .5rem; }
   .architecture-note a { grid-column: 1; }
   .deployment-example { gap: 1.5rem; margin-top: 2.5rem; }
+  .cheat-sheet-layout { gap: 2rem; }
   .faq-layout { gap: 1rem; }
   .site-footer { grid-template-columns: 1fr; }
   .site-footer nav { justify-content: start; }

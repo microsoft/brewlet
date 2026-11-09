@@ -1,0 +1,205 @@
+<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A printable Brewlet field guide: cluster installation, application delivery, runtime rotation and historical bindings.">
+  <title>Brewlet CLI + Kubernetes cheat sheet</title>
+  <style>
+    @page { size: A3 landscape; margin: 0; }
+    * { box-sizing: border-box; }
+    html { color-scheme: light; background: #fffdf9; }
+    body { margin: 0; color: #2a1f18; font: 9pt/1.3 Arial, Helvetica, sans-serif; }
+    a { color: #2350b8; text-decoration: none; }
+    .sheet { width: 420mm; height: 297mm; padding: 9mm 11mm; display: grid; grid-template-rows: auto auto 1fr auto; gap: 4mm; }
+    .masthead { display: flex; justify-content: space-between; align-items: center; gap: 8mm; }
+    .identity { display: flex; align-items: center; gap: 4mm; }
+    .bean { width: 12mm; height: 15mm; flex: none; }
+    .brand { font-size: 25pt; font-weight: 750; letter-spacing: -1pt; line-height: 1; }
+    .brand span { color: #326ce5; }
+    h1 { margin: 1.5mm 0 0; font-size: 14pt; font-weight: 400; }
+    .tagline { text-align: right; }
+    .tagline strong { display: block; font-size: 18pt; line-height: 1.1; letter-spacing: -.5pt; }
+    .tagline span { display: block; margin-top: 1.5mm; color: #6b5d51; font-size: 8pt; }
+    .flow { display: grid; grid-template-columns: 1fr 8mm 1fr 8mm 1fr; align-items: center; }
+    .flow-card { padding: 3mm 4mm; border: 1px solid #e7dcc9; border-radius: 2mm; background: #fbf4e6; }
+    .flow-card strong { display: block; font-size: 10pt; margin-bottom: 1mm; }
+    .flow-card p { margin: 0; font-size: 8.5pt; }
+    .flow-card.app { color: white; background: #6f4e37; border-color: #6f4e37; }
+    .flow-card.runtime { background: #eaf1ff; border-color: #c4d5f7; }
+    .connector { width: 6mm; height: 6mm; justify-self: center; }
+    .columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4mm; min-height: 0; }
+    .column { background: white; border: 1px solid #e7dcc9; border-top: 1.2mm solid #6f4e37; border-radius: 2.5mm; padding: 4mm; min-width: 0; }
+    .column.application { border-top-color: #326ce5; }
+    .column.operations { border-top-color: #2a1f18; }
+    .column-heading { display: flex; gap: 3mm; align-items: center; margin-bottom: 2.5mm; }
+    .number { width: 9mm; height: 9mm; border-radius: 50%; display: grid; place-items: center; background: #f5e6c8; color: #6f4e37; font-weight: 700; font-size: 11pt; flex: none; }
+    .application .number { background: #eaf1ff; color: #2350b8; }
+    .operations .number { background: #2a1f18; color: white; }
+    h2 { font-size: 17pt; line-height: 1; margin: 0 0 1mm; letter-spacing: -.5pt; }
+    .column-heading p { color: #6b5d51; font-size: 8pt; margin: 0; }
+    h3 { font-size: 10pt; margin: 3mm 0 1.5mm; line-height: 1.15; }
+    p { margin: 1.5mm 0; }
+    .note { color: #6b5d51; font-size: 8pt; line-height: 1.3; }
+    code, pre { font-family: Menlo, Consolas, "Liberation Mono", monospace; }
+    p code { font-size: .95em; color: #553524; }
+    pre { margin: 0; padding: 2mm 2.5mm; border: 1px solid #e7dcc9; border-radius: 1.5mm; background: #fffdf9; font-size: 8.1pt; line-height: 1.27; white-space: pre; tab-size: 2; }
+    .policies { display: flex; gap: 2mm; margin-top: 2mm; }
+    .policies p { flex: 1; margin: 0; padding: 2mm; background: #fbf4e6; border-radius: 1.5mm; font-size: 8pt; }
+    .policies strong { display: block; }
+    .generation { display: grid; grid-template-columns: 1fr 7mm 1fr; gap: 1mm; align-items: center; margin: 2mm 0; }
+    .generation div { padding: 2.5mm; border: 1px solid #e7dcc9; border-radius: 1.5mm; text-align: center; font-size: 8pt; background: #fbf4e6; }
+    .generation .next { background: #eaf1ff; border-color: #c4d5f7; }
+    .generation strong { display: block; margin-bottom: 1mm; font-size: 10pt; }
+    .pipeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5mm; list-style: none; padding: 0; margin: 1.5mm 0; counter-reset: step; }
+    .pipeline li { counter-increment: step; border: 1px solid #e7dcc9; border-radius: 1.5mm; padding: 2mm; font-size: 8pt; }
+    .pipeline li::before { content: counter(step) " / "; color: #6f4e37; font-weight: 700; }
+    .footer { display: grid; grid-template-columns: 1fr auto; gap: 6mm; padding-top: 2.5mm; border-top: 1px solid #e7dcc9; align-items: center; font-size: 8pt; }
+    .footer p { margin: 0; }
+    .footer strong { color: #6f4e37; }
+    .footer a { font-weight: 700; }
+    .footer small { display: block; color: #6b5d51; margin-top: 1mm; font-size: 7pt; }
+    @media print {
+      html, body { width: 420mm; height: 297mm; }
+      * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <header class="masthead">
+      <div class="identity">
+        <svg class="bean" viewBox="0 0 48 60" aria-hidden="true">
+          <ellipse cx="24" cy="30" rx="17" ry="25" transform="rotate(24 24 30)" fill="#6f4e37"/>
+          <path d="M30 7C12 26 38 32 19 53" fill="none" stroke="#fffdf9" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <div><div class="brand">brew<span>let</span></div><h1>CLI + Kubernetes cheat sheet</h1></div>
+      </div>
+      <div class="tagline"><strong>Ship the app. Not the runtime.</strong><span>Brewlet 0.x | Pre-GA beta | linux/amd64 examples | A3 landscape</span></div>
+    </header>
+
+    <section class="flow" aria-label="Applications and platform runtimes are composed on the node">
+      <div class="flow-card app"><strong>Your application is the workload</strong><p>Code + dependencies under /app + explicit launch.json</p></div>
+      <svg class="connector" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="#6f4e37" stroke-width="2"/></svg>
+      <div class="flow-card runtime"><strong>The runtime is infrastructure</strong><p>RuntimeImage approves a digest; NodeProfile offers a pool</p></div>
+      <svg class="connector" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h17M13 5l7 7-7 7" fill="none" stroke="#6f4e37" stroke-width="2"/></svg>
+      <div class="flow-card"><strong>Composed at container creation</strong><p>containerd + Brewlet shim + runc | Separate app processes</p></div>
+    </section>
+
+    <div class="columns">
+      <section class="column platform" aria-labelledby="platform">
+        <div class="column-heading"><span class="number">01</span><div><h2 id="platform">Install + configure</h2><p>Platform team | controlled node pools</p></div></div>
+        <p class="note">Isolated Linux nodes: systemd, cgroup v2, containerd 2.x, runc and crictl. Provisioning is privileged. Current kube context assumed.</p>
+        <h3>Install the latest CLI + control plane</h3>
+        <pre>curl -fsSL https://brewlet.sh/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+CHART=oci://ghcr.io/microsoft/charts/brewlet
+helm show crds "$CHART" | kubectl apply -f -
+helm upgrade --install brewlet "$CHART" \
+  -n brewlet --create-namespace --wait</pre>
+        <p class="note">Unset <code>BREWLET_VERSION</code> if set. Keep the CLI, CRDs, chart and component images on the same release. No nodes are provisioned yet.</p>
+        <h3>Approve a runtime first</h3>
+        <pre>brewlet k8s runtime add python-3.13 \
+  --image registry.example.com/golden/python:3.13 \
+  --platform linux/amd64 --dry-run</pre>
+        <p class="note">Review, then repeat without <code>--dry-run</code>. The CLI pins the digest and infers numeric non-root UID/GID; pass <code>--uid</code>/<code>--gid</code> if needed.</p>
+        <h3>Offer it on a pool: node-profile.yaml</h3>
+        <pre>apiVersion: node.brewlet.sh/v1alpha1
+kind: NodeProfile
+metadata: {name: application-pool}
+spec:
+  nodePool:
+    key: brewlet.example.com/pool
+    names: [applications]
+  runtimeImages:
+    - {id: python-3.13, install: OnDemand}
+  rollout:
+    containerdRestart: validated
+    maxUnavailable: 1</pre>
+        <p class="note">Use labels already on the intended nodes. Startup-fenced nodes also need worker tolerations: see the <a href="https://brewlet.sh/docs/cheat-sheet/#install-brewlet-on-a-cluster">full installation recipe</a>.</p>
+        <pre>kubectl apply -f node-profile.yaml
+kubectl wait --for=condition=Ready \
+  nodeprofile/application-pool --timeout=5m</pre>
+        <div class="policies"><p><strong>Eager (default)</strong>Install roots before readiness.</p><p><strong>OnDemand</strong>Validate baseline; fetch at first use.</p></div>
+      </section>
+
+      <section class="column application" aria-labelledby="application">
+        <div class="column-heading"><span class="number">02</span><div><h2 id="application">Build + deploy</h2><p>Application team | ordinary Kubernetes</p></div></div>
+        <h3>Describe the process: launch.json</h3>
+        <pre>{"schemaVersion":1,"process":{
+  "entrypoint":["python3"],
+  "args":["/app/src/main.py"],
+  "workingDir":"/app"
+}}</pre>
+        <p class="note">Explicit executable, arguments and platforms. No language detection or dependency resolution. Use an absolute executable if the runtime has no PATH.</p>
+        <h3>Package, publish + exercise locally</h3>
+        <pre>APP=registry.example.com/apps/api:v2
+brewlet build "$APP" --platform linux/amd64 \
+  --launch launch.json --layer app=./src:/app/src
+brewlet inspect "$APP"
+brewlet push "$APP" --push-result push.json
+brewlet run "$APP" --platform linux/amd64 \
+  --runtime python-3.13 --from-cluster</pre>
+        <p class="note"><code>build</code> writes a local OCI layout; <code>push</code> publishes it. Add explicit dependency layers as needed. Local <code>run</code> uses Docker (or <code>--engine podman</code>), not cluster admission.</p>
+        <h3>Select the runtime in your workload</h3>
+        <p class="note">Merge this fragment into <code>Deployment.spec.template</code>. Keep your labels, probes, resources and volumes.</p>
+        <pre>metadata:
+  annotations:
+    brewlet.sh/runtime-image: python-3.13
+spec:
+  runtimeClassName: brewlet
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  containers:
+    - name: api
+      image: &gt;-
+        registry.example.com/apps/api@sha256:&lt;digest&gt;</pre>
+        <p class="note">Use the actual published digest and a runtime approved for your architecture. All application containers in a Pod use the same runtime ID.</p>
+        <pre>kubectl -n apps apply -f deployment.yaml
+kubectl -n apps rollout status deployment/api</pre>
+        <p class="note">Use an existing application namespace. Admission defaults the required read-only root to <code>true</code>; explicit <code>false</code> is rejected.</p>
+        <div class="policies"><p><strong>Direct delivery</strong>build / push / apply</p><p><strong>Governed delivery</strong>Separate app + dependency approval.</p></div>
+      </section>
+
+      <section class="column operations" aria-labelledby="operations">
+        <div class="column-heading"><span class="number">03</span><div><h2 id="operations">Operate + rotate</h2><p>Operations team | actual runtime bindings</p></div></div>
+        <h3>Inspect the cluster</h3>
+        <pre>brewlet k8s runtime list
+brewlet k8s runtime status python-3.13
+brewlet k8s doctor --namespace brewlet</pre>
+        <h3>Preview a runtime change</h3>
+        <pre>brewlet k8s runtime rotate python-3.13 \
+  --image registry.example.com/golden/python:3.13.1 \
+  --dry-run
+brewlet k8s runtime remove python-3.13 --dry-run</pre>
+        <p class="note">Review rotation, then repeat without <code>--dry-run</code> and add <code>--yes</code>. Application bytes are unchanged; running tasks are not hot-patched.</p>
+        <div class="generation" aria-label="After rotation, existing tasks retain generation one; new tasks use generation two">
+          <div><strong>generation 1</strong>Existing tasks retain their lease</div>
+          <svg class="connector" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h17M13 5l7 7-7 7" fill="none" stroke="#6f4e37" stroke-width="2"/></svg>
+          <div class="next"><strong>generation 2</strong>New tasks use the approved runtime</div>
+        </div>
+        <h3>Compare approved + observed generations</h3>
+        <pre>brewlet k8s runtime status python-3.13 -o json \
+  | jq '{generation, digest,
+    taskObservations: .status.taskObservations}'</pre>
+        <p class="note">This is a snapshot, not an audit history. Check <code>current</code> and <code>observedAt</code>; stale observations can be retained.</p>
+        <h3>Which generation was running at time T?</h3>
+        <pre>brewlet_container_runtime_image_info{
+  namespace="apps", pod="api-&lt;suffix&gt;"
+}</pre>
+        <p class="note">Run this as a Prometheus instant query at time T. First enable <code>metrics.enabled: true</code> and scrape node metrics. History is limited by retention and scrape gaps; short-lived containers can be missed. <a href="https://brewlet.sh/docs/observability/#look-up-historical-runtime-bindings">Historical lookup guide</a>.</p>
+        <h3>Govern dependencies separately</h3>
+        <ol class="pipeline"><li><code>layer-set</code></li><li>app-only <code>build</code></li><li><code>bundle</code></li><li><code>verify</code></li><li>test candidate</li><li>deploy digest</li></ol>
+        <p class="note">Compose immutable app + layer-set digests. Verify, test and deploy the same candidate digest. Runtime rotation does not patch dependencies packaged in the app.</p>
+        <p class="note"><strong>More commands:</strong> <code>brewlet &lt;command&gt; --help</code><br><a href="https://brewlet.sh/docs/cli-reference/">Full CLI reference</a> | <a href="https://brewlet.sh/docs/operations/">Rotation + cleanup</a></p>
+      </section>
+    </div>
+
+    <footer class="footer">
+      <p><strong>Keep the boundaries explicit.</strong> /app is read-only and world-readable: never package secrets there. Use scoped volumes for data.<br>Digest-pin workloads. runc isolation, not a hostile-tenant sandbox. Evaluate pre-GA software on isolated infrastructure.</p>
+      <p><a href="https://brewlet.sh/docs/cheat-sheet/">brewlet.sh/docs/cheat-sheet/</a><small>Complete recipes, prerequisites and safe removal online.<br>Copyright (c) Microsoft Corporation. MIT License.</small></p>
+    </footer>
+  </main>
+</body>
+</html>
