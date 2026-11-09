@@ -102,11 +102,15 @@ Strict promotion qualification is separate from routine checks:
 make acceptance
 ```
 
-`make acceptance` is deliberately a strict release gate, not a smoke-test alias.
-It fails when required behavior lacks verified evidence. Portable tests alone
-do not prove Linux mounts, real scheduling or provider behavior. See the
+`make acceptance` strictly verifies full promotion evidence; it is not a
+smoke-test alias or a prerequisite for the tag-triggered release workflow. It
+fails when required behavior lacks verified evidence. Portable tests alone do
+not prove Linux mounts, real scheduling or provider behavior. See the
 [acceptance guide](acceptance/README.md) and
 [operations and verification](docs/README.md) for scope and prerequisites.
+
+Maintainers can follow the [release checklist](RELEASE.md) for version
+preparation, required release tests and publication.
 
 Build the static website and searchable documentation with `make site-build`.
 The [website workflow](.github/workflows/site-pages.yml) uploads a checked preview
