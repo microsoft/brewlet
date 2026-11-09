@@ -49,6 +49,30 @@ class SiteTests(unittest.TestCase):
         page = module.Page('<source srcset="assets/mobile.svg"><img src="assets/desktop.svg">')
         self.assertEqual(page.links, [("source", "assets/mobile.svg"), ("img", "assets/desktop.svg")])
 
+    def test_landing_page_links_to_online_and_printable_cheat_sheets(self):
+        spec = importlib.util.spec_from_file_location("site_check", Path(__file__).with_name("check.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        page = module.Page((ROOT / "site/index.html").read_text())
+        self.assertIn("cheat-sheet", page.ids)
+        self.assertIn(("a", "#cheat-sheet"), page.links)
+        self.assertIn(("a", "docs/cheat-sheet/"), page.links)
+        self.assertIn(("a", "docs/assets/cheat-sheet/brewlet-cheat-sheet.pdf"), page.links)
+        self.assertIn(("img", "docs/assets/cheat-sheet/preview.png"), page.links)
+        assets = ROOT / "docs/assets/cheat-sheet"
+        self.assertTrue((assets / "brewlet-cheat-sheet.pdf").read_bytes().startswith(b"%PDF-"))
+        self.assertTrue((assets / "preview.png").read_bytes().startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_printable_cheat_sheet_is_self_contained(self):
+        spec = importlib.util.spec_from_file_location("site_check", Path(__file__).with_name("check.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        source = (ROOT / "docs/assets/cheat-sheet/print.html").read_text()
+        page = module.Page(source)
+        self.assertIn("size: A3 landscape", source)
+        self.assertEqual({tag for tag, _ in page.links}, {"a"})
+        self.assertTrue({"platform", "application", "operations"}.issubset(page.ids))
+
 
 if __name__ == "__main__":
     unittest.main()

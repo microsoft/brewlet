@@ -1,4 +1,4 @@
-.PHONY: test test-python build acceptance composition-acceptance ledger site-build site-contract-check notices go-notices maven-notices site-notices site-notices-check legal-check release-check release-candidate
+.PHONY: test test-python build acceptance composition-acceptance ledger site-build site-contract-check cheat-sheet-pdf notices go-notices maven-notices site-notices site-notices-check legal-check release-check release-candidate
 
 SITE_PYTHON ?= python3
 
@@ -67,3 +67,6 @@ site-contract-check:
 
 site-build: site-contract-check
 	$(SITE_PYTHON) site/scripts/build.py
+
+cheat-sheet-pdf:
+	$(SITE_PYTHON) site/scripts/cheat_sheet.py

@@ -5,6 +5,9 @@ is pre-GA beta software; evaluate it in an isolated environment. This page
 does not replace the [full CLI reference](cli-reference.md) or deployment
 guides. Select a diagram to open it at full size.
 
+Prefer a printable reference? [Download the one-page infographic (PDF, A3 landscape)](assets/cheat-sheet/brewlet-cheat-sheet.pdf).
+It condenses the core workflows; use the recipes below for complete details.
+
 ## The short version
 
 [![Developers publish application artifacts, while the platform approves and installs runtimes. On the node, a workload selects an image and runtime ID; the shim starts the app with the approved runtime.](assets/cheat-sheet/architecture.svg)](assets/cheat-sheet/architecture.svg)
