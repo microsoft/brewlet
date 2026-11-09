@@ -96,5 +96,56 @@ application error rate and native rollout availability. Review aggregation:
 the same Pod/container binding is a high-cardinality operational identity, not
 a label to copy into every application metric.
 
+## Look up historical runtime bindings
+
+Brewlet does not keep a durable history of which generation each container
+used. `RuntimeImage.status.taskObservations`, `brewlet k8s runtime status` and
+the Node `brewlet.sh/runtime-bindings` annotation describe the present only.
+Source-controlled `RuntimeImage` changes record intended configuration, not
+what each container actually ran. To answer "which generation was this
+workload using at time T?", query retained samples of
+`brewlet_container_runtime_image_info`.
+
+Run an instant query evaluated at the time of interest (for example with the
+Prometheus `time` API parameter or the dashboard time picker):
+
+```promql
+brewlet_container_runtime_image_info{namespace="apps", pod="api-7d9c8f6b5-x2kqz"}
+```
+
+Over a window, list every generation and digest a workload's containers were
+seen on:
+
+```promql
+max by (namespace, pod, container, id, generation, digest) (
+  max_over_time(brewlet_container_runtime_image_info{namespace="apps", pod=~"api-.*"}[24h])
+)
+```
+
+To group by owner rather than Pod name, join on namespace and Pod with an
+ownership metric such as kube-state-metrics `kube_pod_owner`, if you collect
+it. Deployment Pods report their ReplicaSet as owner:
+
+```promql
+max by (namespace, owner_kind, owner_name, id, generation, digest) (
+  brewlet_container_runtime_image_info
+  * on (namespace, pod) group_left (owner_kind, owner_name)
+  max by (namespace, pod, owner_kind, owner_name) (kube_pod_owner)
+)
+```
+
+Limits:
+
+- History exists only while `metrics.enabled: true` and your collector scrapes
+  the node metrics Service. Nothing is recorded retroactively.
+- The lookback is bounded by the time-series store's retention. Use
+  remote-write or long-term storage when audits need more than the local
+  Prometheus retention.
+- The metric is sampled. Containers shorter-lived than the scrape interval can
+  be missed, and failed or missing scrapes leave gaps. Check `up` for the
+  node metrics targets over the same window before treating absence as proof.
+- A Deployment rollout creates new Pod names; filter by name pattern or join on
+  ownership as above.
+
 See [instrumentation recipes](instrumentation.md) and
 [failure diagnosis](troubleshooting.md).

@@ -112,6 +112,10 @@ Node metrics are optional (`metrics.enabled=true`); see
 `brewlet_shared_storage_bytes`. Binding metrics identify the Pod and
 container, inventory epoch, generation and digest.
 
+`taskObservations` is a current snapshot, not history. To find which generation
+a workload used at a past time, query retained binding metrics; see
+[look up historical runtime bindings](observability.md#look-up-historical-runtime-bindings).
+
 ## Security boundary
 
 Brewlet uses runc isolation and a privileged provisioner that you must trust.

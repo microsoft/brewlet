@@ -310,7 +310,8 @@ The metric labels include the Pod and container identities, runtime ID,
 inventory UID, generation, and digest. Samples can miss short-lived containers
 or collection gaps. Source-controlled `RuntimeImage` changes record intended
 configuration, not which generation each container actually used. See
-[observability](observability.md) for setup.
+[look up historical runtime bindings](observability.md#look-up-historical-runtime-bindings)
+for range queries, ownership joins and retention limits.
 
 `add` resolves a tag to a digest. Prefer digest-pinned inputs in reviewed
 configuration. Mutations support `--dry-run`; `rotate` and impactful forced
