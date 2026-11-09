@@ -113,37 +113,56 @@ Prometheus `time` API parameter or the dashboard time picker):
 brewlet_container_runtime_image_info{namespace="apps", pod="api-7d9c8f6b5-x2kqz"}
 ```
 
-Over a window, list every generation and digest a workload's containers were
-seen on:
+The returned labels include the Pod UID, container ID, inventory UID, generation
+and digest. Prometheus selects the most recent sample within its lookback
+window unless the series is stale. Use `timestamp()` on the same selector to
+inspect the sample's Unix timestamp, and check scrape health before treating
+the result as the binding at that exact time.
+
+To list the bindings observed during the 24 hours ending at the query time:
 
 ```promql
-max by (namespace, pod, container, id, generation, digest) (
+max by (namespace, pod, pod_uid, container, container_id, id, inventory_uid, generation, digest) (
   max_over_time(brewlet_container_runtime_image_info{namespace="apps", pod=~"api-.*"}[24h])
 )
 ```
 
-To group by owner rather than Pod name, join on namespace and Pod with an
-ownership metric such as kube-state-metrics `kube_pod_owner`, if you collect
-it. Deployment Pods report their ReplicaSet as owner:
+This lists distinct observed bindings, not their exact start or end times.
+
+To group by immediate controller, evaluate this query at the time of interest.
+It joins the binding to kube-state-metrics `kube_pod_owner` by Pod UID as well
+as namespace and Pod name, avoiding a match to a different Pod with a reused
+name:
 
 ```promql
-max by (namespace, owner_kind, owner_name, id, generation, digest) (
-  brewlet_container_runtime_image_info
-  * on (namespace, pod) group_left (owner_kind, owner_name)
-  max by (namespace, pod, owner_kind, owner_name) (kube_pod_owner)
+max by (namespace, owner_kind, owner_name, id, inventory_uid, generation, digest) (
+  brewlet_container_runtime_image_info{namespace="apps"}
+  * on (namespace, pod, pod_uid) group_left (owner_kind, owner_name)
+  label_replace(
+    max by (namespace, pod, uid, owner_kind, owner_name) (
+      kube_pod_owner{namespace="apps", owner_is_controller="true"}
+    ),
+    "pod_uid", "$1", "uid", "(.+)"
+  )
 )
 ```
 
+The join requires retained samples of both metrics at that time and excludes
+Pods without a controller owner. Deployment Pods identify their ReplicaSet as
+the immediate owner, not the Deployment.
+
 Limits:
 
-- History exists only while `metrics.enabled: true` and your collector scrapes
-  the node metrics Service. Nothing is recorded retroactively.
-- The lookback is bounded by the time-series store's retention. Use
-  remote-write or long-term storage when audits need more than the local
+- Samples are recorded only while `metrics.enabled: true` and your collector
+  successfully scrapes the node metrics Service; earlier samples cannot be
+  recovered by enabling it later.
+- The historical query horizon is bounded by the time-series store's retention.
+  Use remote-write or long-term storage when audits need more than the local
   Prometheus retention.
 - The metric is sampled. Containers shorter-lived than the scrape interval can
   be missed, and failed or missing scrapes leave gaps. Check `up` for the
-  node metrics targets over the same window before treating absence as proof.
+  node metrics targets and target discovery over the same window before
+  treating absence as proof.
 - A Deployment rollout creates new Pod names; filter by name pattern or join on
   ownership as above.
 
