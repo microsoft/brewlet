@@ -204,7 +204,8 @@ GA will be 1.0.0.
 Targets are Linux and macOS `amd64`/`arm64` for the CLI and Linux
 `amd64`/`arm64` for component images. Pushing a `vVERSION` tag on a commit that
 passed CI on `main` builds, verifies and publishes every artifact automatically.
-See the [release distribution runbook](docs/supported-release.md) and
+See the [maintainer release checklist](RELEASE.md), the
+[release distribution runbook](docs/supported-release.md) and the
 [compatibility policy](docs/compatibility-policy.md).
 
 The current rewrite is inspired by Brewlet 0.x at

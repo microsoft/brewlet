@@ -3,7 +3,8 @@
 This page describes what a Brewlet release contains, how to verify it and
 which upgrade and recovery paths are supported. The current release is
 **0.8.1**. To install it, follow [installation](installation.md). The sections
-on building candidates and cutting a release are for project maintainers.
+on building candidates and cutting a release are for project maintainers; see
+the [release checklist](../RELEASE.md) for the full procedure and test matrix.
 
 Releases are automated: pushing a `vVERSION` tag that matches
 [`release.json`](https://github.com/microsoft/brewlet/blob/main/release.json)
@@ -116,19 +117,18 @@ pinned fingerprint.
 ## Maintainers: cutting a release
 
 1. Update the version in `release.json`, `maven-plugin/pom.xml`, the chart
-   `version`/`appVersion` and image tags in `values.yaml` (plus documented
-   coordinates). `make release-check` fails on any identity drift.
+   `version`/`appVersion`, image tags in `values.yaml`, the Java fixture and
+   release-test expectations. Review transition metadata and documented
+   coordinates. `make release-check` catches identity drift and runs the
+   offline release tests.
    Optionally add curated notes in `release-notes/VERSION.md`; they are placed
    above the generated changelog. Betas without curated notes get a standard
    "not stable" warning.
 2. Merge to `main`. Optionally dispatch **Release Gate Tests** for the merge
    commit first; the release runs it again regardless.
-3. Tag that exact commit and push the tag:
-
-   ```sh
-   git tag v0.8.1 <main-commit>
-   git push origin v0.8.1
-   ```
+3. Tag that exact commit and push the matching `vVERSION` tag. Use the
+   [release checklist](../RELEASE.md#3-tag-the-reviewed-commit) for the
+   preflight and commands.
 
 The `release.yml` workflow then:
 
@@ -146,7 +146,7 @@ The `release.yml` workflow then:
   verifies every published surface.
 
 A failed, skipped or cancelled prerequisite is not success; there is no
-acceptance opt-out. The workflow never creates or moves tags. Owners who want
+release-gate opt-out. The workflow never creates or moves tags. Owners who want
 additional evidence before tagging can run strict promotion qualification
 (`make acceptance` over fetched evidence) locally as described in the
 [acceptance guide](https://github.com/microsoft/brewlet/blob/main/acceptance/README.md).
