@@ -18,3 +18,19 @@ Helm's timeout must exceed uninstall.timeoutSeconds + 30 seconds.
 The unprivileged pre-delete coordinator never strips finalizers.
 CRDs, shared RuntimeClass, and the component namespace are retained.
 Fake-client tests do not prove real-node scheduling, startup fencing or execution.
+{{ if .Values.dashboard.enabled }}
+
+Brewlet Dashboard is installed (ClusterIP, read-only unless explicitly enabled).
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/brewlet-dashboard 8088:8088
+
+Open http://127.0.0.1:8088 and sign in with a short-lived Kubernetes bearer token.
+Requests use that caller's Kubernetes RBAC, never the dashboard pod's identity.
+The {{ .Release.Name }}-dashboard-viewer role is intentionally unbound.
+{{ if .Values.dashboard.allowWrite }}
+Rotation also requires the {{ .Release.Name }}-dashboard-operator role
+or equivalent runtime patch permission, in addition to the viewer role.
+{{ end }}
+Use your platform's TLS ingress/proxy plus dashboard.publicURL for shared access.
+Never expose bearer-token sign-in over public HTTP.
+{{ end }}

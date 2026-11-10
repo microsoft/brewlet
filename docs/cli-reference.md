@@ -14,7 +14,7 @@ the built-in reference.
 | `brewlet bundle REF` | Bundle one pinned application with one approved layer set under an explicit release policy. |
 | `brewlet verify REF` | Verify a pinned bundle, keeping structural, publisher and release-signature evidence distinct. |
 | `brewlet run REF` | Run a local build on an explicitly chosen runtime image with Docker or Podman. |
-| `brewlet k8s ...` | Manage runtimes on a Brewlet cluster: list, status, add, rotate, remove, doctor. |
+| `brewlet k8s ...` | Manage runtimes on a Brewlet cluster: dashboard, list, status, add, rotate, remove, doctor. |
 | `brewlet inventory` | Export observed workload/dependency facts for external scanning; never mutate workloads or scan CVEs. |
 | `brewlet version` | Print JSON with the release version, source commit and native platform (for example `{"version":"0.8.1",...}`). |
 
@@ -131,6 +131,8 @@ may appear before or after the subcommand. `-o` is shorthand for `--output`.
 
 | Command | Purpose |
 | --- | --- |
+| `dashboard [--port 8088] [--allow-write] [--namespace brewlet]` | Serve the local [Brewlet Dashboard](dashboard.md): inventory, evidence export, and optional confirmed runtime rotation. Loopback-only and read-only by default. |
+| `dashboard --in-cluster [--public-url https://runtimes.example.com]` | Container entry point for the [Helm-installed dashboard](dashboard.md#install-on-the-cluster). Listens on pod interfaces and uses each caller's bearer token, not pod privileges. |
 | `runtime list [--output table\|wide\|json\|yaml]` | RuntimeImages with approval, generation, digest, rotation and offering profiles. |
 | `runtime status ID [--output table\|json\|yaml]` | Conditions, rotation progress, restart summary, nodes, pods and lease bindings. |
 | `runtime add ID --image REF [--profile P ...] [--install Eager\|OnDemand] [--idle-ttl DURATION]` | Resolve tag to digest, check platforms and golden-image rules, create the RuntimeImage and place it in profiles. Also accepts `--platform`, `--volume-mount-path`, `--uid`, `--gid`, `--description`, `--ecosystem`, `--abi`, `--skip-image-checks` and `--insecure`. |
@@ -138,7 +140,7 @@ may appear before or after the subcommand. `-o` is shorthand for `--output`.
 | `runtime remove ID [--force --yes]` | Refuse while referenced; `--force` removes profile entries and deletes the RuntimeImage. |
 | `doctor [--namespace brewlet] [--output table\|json]` | Check CRDs, operator/admission, RuntimeClass, approvals and profiles; nonzero exit on failure. |
 
-Every mutating command (`add`, `rotate`, `remove`) accepts `--dry-run` and
+Every mutating runtime command (`add`, `rotate`, `remove`) accepts `--dry-run` and
 prints the resulting manifests (YAML, or JSON with `--output json`) without
 changing the cluster, so the output can go into a GitOps repository. `rotate`
 and a forced `remove` with a non-empty impact require `--yes`; there is no

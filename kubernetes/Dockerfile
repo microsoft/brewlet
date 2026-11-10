@@ -13,6 +13,20 @@ RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/admission ./kubernetes/cmd/admission && \
     CGO_ENABLED=0 go run ./scripts/notice --goos $TARGETOS --goarch $TARGETARCH --output /out/NOTICE.txt ./kubernetes/cmd/operator ./kubernetes/cmd/admission && \
     CGO_ENABLED=0 go run ./scripts/notice --goos $TARGETOS --goarch $TARGETARCH --output /out/admission-NOTICE.txt ./kubernetes/cmd/admission
+FROM build AS dashboard-build
+COPY cmd/brewlet ./cmd/brewlet
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -o /out/dashboard ./cmd/brewlet && \
+    CGO_ENABLED=0 go run ./scripts/notice --goos $TARGETOS --goarch $TARGETARCH --output /out/dashboard-NOTICE.txt ./cmd/brewlet
+
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS dashboard
+COPY --from=dashboard-build /out/dashboard /dashboard
+COPY --from=build /src/LICENSE.txt /LICENSE.txt
+COPY --from=dashboard-build /out/dashboard-NOTICE.txt /NOTICE.txt
+USER 65532:65532
+EXPOSE 8088
+ENTRYPOINT ["/dashboard"]
+CMD ["k8s", "dashboard", "--in-cluster"]
+
 # Debian 12 distroless nonroot; explicit release target without changing local default.
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab AS admission
 COPY --from=build /out/admission /admission

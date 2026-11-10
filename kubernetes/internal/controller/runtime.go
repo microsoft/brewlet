@@ -17,10 +17,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	runtimecontroller "sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -31,6 +33,8 @@ type RuntimeReconciler struct {
 	Now                  func() time.Time
 	AllowedMirrorHosts   []string
 	Restarts             *RestartEngine
+	Recorder             record.EventRecorder
+	owners               workloadOwners
 }
 
 func runtimeCondition(im *api.RuntimeImage, kind, reason, msg string, status metav1.ConditionStatus) {
@@ -125,7 +129,9 @@ func (r *RuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		j.Source = im.Spec.Source.Image
 		return ctrl.Result{RequeueAfter: time.Second}, r.persistJournal(ctx, im, j)
 	}
-	if im.Status.SourceImage != im.Spec.Source.Image || im.Status.Digest != digest || im.Status.Generation != j.Generation || im.Status.ApprovedUser == nil || im.Status.ApprovedCompatibility == nil {
+	targetChanged := im.Status.SourceImage != im.Spec.Source.Image || im.Status.Digest != digest || im.Status.Generation != j.Generation
+	if targetChanged || im.Status.ApprovedUser == nil || im.Status.ApprovedCompatibility == nil {
+		previousGeneration, previousDigest := im.Status.Generation, im.Status.Digest
 		im.Status.Generation = j.Generation
 		u, compat := im.Spec.User, im.Spec.Compatibility
 		im.Status.ApprovedUser = &u
@@ -150,6 +156,13 @@ func (r *RuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		if fresh.UID != im.UID || fresh.Status.Generation != im.Status.Generation || fresh.Status.Digest != digest || !slices.Equal(fresh.Status.RevocationTargets, im.Status.RevocationTargets) {
 			return ctrl.Result{}, fmt.Errorf("inventory checkpoint not observed")
 		}
+		if r.Recorder != nil && targetChanged {
+			if previousGeneration == 0 {
+				r.Recorder.Eventf(im, corev1.EventTypeNormal, "RuntimeApproved", "Runtime generation %d digest %s approved; awaiting node convergence", im.Status.Generation, digest)
+			} else {
+				r.Recorder.Eventf(im, corev1.EventTypeNormal, "RotationStarted", "Rotating runtime from generation %d digest %s to generation %d digest %s; awaiting node convergence", previousGeneration, previousDigest, im.Status.Generation, digest)
+			}
+		}
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 	if im.Status.Generation != j.Generation {
@@ -172,11 +185,22 @@ func (r *RuntimeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if _, err := r.observeTasks(ctx, im); err != nil {
 		return ctrl.Result{}, err
 	}
+	// Workload generation evidence is diagnostic; failing to read it must not
+	// stall rotation, so its records are simply retained until the next pass.
+	generationChanges, err := r.observeWorkloadGenerations(ctx, im)
+	if err != nil {
+		log.FromContext(ctx).Error(err, "workload runtime generation observation skipped")
+	}
+	wasComplete := meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete")
 	if err := r.rotation(ctx, im); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.revocationCheckpoint(ctx, im); err != nil {
 		return ctrl.Result{}, err
+	}
+	r.recordWorkloadGenerationChanges(generationChanges)
+	if r.Recorder != nil && !wasComplete && meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete") {
+		r.Recorder.Eventf(im, corev1.EventTypeNormal, "RotationComplete", "Runtime generation %d digest %s converged on %d participating node(s); %d excluded node(s). Existing workloads may retain older generations", im.Status.Generation, im.Status.Digest, len(im.Status.Rotation.Participants), len(im.Status.Rotation.ExcludedNodes))
 	}
 	if r.Restarts != nil {
 		if err := r.Restarts.Reconcile(ctx, im); err != nil {

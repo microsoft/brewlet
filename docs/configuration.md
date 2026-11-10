@@ -39,6 +39,12 @@ The tags below show which release those digests belong to.
 | `uninstall.timeoutSeconds` | `240` | Uninstall cleanup timeout, a whole number from 1 to 86400. |
 | `metrics.enabled` | `false` | Enable operator and node Prometheus endpoints. |
 | `metrics.nodePort` | `9090` | Node metrics listener/service port; this is not a NodePort service type. |
+| `dashboard.enabled` | `false` | Install the optional [cluster dashboard](dashboard.md#install-on-the-cluster); available in releases that include the component. |
+| `dashboard.image` | Release-matched dashboard image digest | Override only when mirroring the image; use an image from the same Brewlet release as the chart. |
+| `dashboard.imagePullPolicy` | `IfNotPresent` | Dashboard image pull policy. |
+| `dashboard.allowWrite` | `false` | Enable confirmed runtime rotations; caller patch RBAC is still required. |
+| `dashboard.publicURL` | `""` | Exact trusted HTTPS origin for your ingress/proxy. Empty means loopback port-forward access only. |
+| `dashboard.resources` | Requests `50m`/`64Mi`, limits `500m`/`256Mi` | Dashboard CPU/memory requests and limits. |
 
 The Pod mutating webhook always fails open (`Ignore`), and the
 `NodeRetirementEvidence` webhook always fails closed (`Fail`). There is no

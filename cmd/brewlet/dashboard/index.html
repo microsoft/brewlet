@@ -1,0 +1,67 @@
+<!doctype html>
+<!--
+THESIS: Runtime governance is infrastructure work. Put the approved source, placement and convergence in one resource ledger, not decorative charts.
+OWN-WORLD: Brewlet's warm paper, coffee-brown identity and Kubernetes blue; system typography, compact tables and explicit status labels.
+STORY: Find a runtime, inspect its generation and node evidence, then preview and confirm a source rotation.
+FIRST VIEWPORT: Persistent navigation at left, connection and access boundary above, inventory ledger at center; resource evidence expands below.
+FORM: KubeRay-inspired resource lists and drill-downs, adapted to Brewlet's RuntimeImage and NodeProfile APIs.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Brewlet Dashboard</title>
+  <link rel="stylesheet" href="/dashboard.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to runtime inventory</a>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Dashboard navigation">
+      <a class="brand" href="#main" aria-label="Brewlet Dashboard home"><span>brew<span class="brand-let">let</span><small>Runtime operations</small></span></a>
+      <nav aria-label="Resources">
+        <button data-view="runtimes" aria-current="page"><span aria-hidden="true">▤</span>Runtime images <span class="nav-count" id="runtimes-count">—</span></button>
+        <button data-view="profiles"><span aria-hidden="true">▦</span>Node profiles <span class="nav-count" id="profiles-count">—</span></button>
+        <button data-view="nodes"><span aria-hidden="true">▣</span>Nodes <span class="nav-count" id="nodes-count">—</span></button>
+        <button data-view="events"><span aria-hidden="true">≡</span>Events <span class="nav-count" id="events-count">—</span></button>
+      </nav>
+      <div class="sidebar-note"><strong>Runtimes are infrastructure.</strong><p>Approve once. Place on nodes. Rotate without rebuilding applications.</p><a href="https://brewlet.sh/docs/" target="_blank" rel="noreferrer">Brewlet documentation ↗</a></div>
+      <div class="local-boundary"><span class="connection-dot" aria-hidden="true"></span><span id="session-boundary">Local kubeconfig session</span></div>
+    </aside>
+    <div class="workspace">
+      <header class="connection-bar">
+        <div class="context"><span class="context-symbol" aria-hidden="true">⎈</span><div><span class="muted">Kubernetes context</span><strong id="context-name">Connecting…</strong></div></div>
+        <div class="header-actions"><span class="badge neutral" id="access-mode">Read-only</span><button id="export" disabled>Export evidence</button><button id="refresh" disabled>Refresh</button><button id="sign-out" hidden>Sign out</button></div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div class="page-heading"><div><h1 id="page-title">Runtime images</h1><p id="page-description">Approved sources, node placement, and runtime generations across your cluster.</p></div><div class="freshness"><span id="collected">Waiting for cluster data</span><label><input id="auto-refresh" type="checkbox" checked> Refresh every 30s</label></div></div>
+        <div id="notice" role="status" aria-live="polite"></div>
+        <div id="errors" role="alert"></div>
+        <section id="authentication" class="authentication" aria-labelledby="sign-in-title" hidden>
+          <h2 id="sign-in-title">Sign in with your Kubernetes identity</h2>
+          <p>Use a short-lived bearer token issued by your platform team. Every request uses your Kubernetes permissions, not the dashboard pod's identity.</p>
+          <form id="sign-in-form">
+            <label for="kubernetes-token">Kubernetes bearer token</label>
+            <input id="kubernetes-token" type="password" required autocomplete="off" spellcheck="false" aria-describedby="token-help">
+            <p id="token-help">Kept only in this page's memory. Reloading or signing out clears the session. Never use an administrator token for routine viewing.</p>
+            <div id="sign-in-error" class="error-message" role="alert" hidden></div>
+            <button id="sign-in" type="submit" class="primary">Sign in</button>
+          </form>
+        </section>
+        <section id="summary" class="summary" aria-label="Inventory summary"></section>
+        <section class="resource-ledger" aria-label="Cluster resources" aria-busy="true">
+          <div class="toolbar">
+            <label class="search"><span>Search resources</span><input id="search" type="search" placeholder="Search runtime, source, or profile…" autocomplete="off"></label>
+            <label class="filter"><span>State</span><select id="state-filter"><option value="">All states</option><option value="attention">Needs attention</option><option value="healthy">Healthy</option></select></label>
+            <span class="result-count" id="result-count"></span>
+          </div>
+          <div id="resources" class="table-scroll"><div class="empty"><h2>Connecting to Kubernetes</h2><p>Loading runtime inventory and operational evidence…</p></div></div>
+        </section>
+        <section id="detail" class="detail" aria-label="Resource details" hidden></section>
+        <footer class="main-footer"><span>Brewlet Dashboard · Experimental</span><span>Observed state, not a compliance attestation. Kubernetes RBAC applies.</span></footer>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

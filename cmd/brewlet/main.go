@@ -67,7 +67,7 @@ func commands() []command {
 		{"bundle", "Bundle a pinned application with one approved layer set into a signed release image", groupRelease, releaseCommand("bundle")},
 		{"verify", "Verify a pinned release bundle against a release policy", groupRelease, releaseCommand("verify")},
 		{"run", "Run a local build on a chosen runtime image with Docker or Podman", groupLocal, runLocal},
-		{"k8s", "Manage runtimes on a Brewlet cluster (list, add, rotate, remove, doctor)", groupCluster, runK8s},
+		{"k8s", "Manage runtimes on a Brewlet cluster (dashboard, list, add, rotate, remove, doctor)", groupCluster, runK8s},
 		{"inventory", "Report which dependency sets running workloads were built from", groupCluster, func(ctx context.Context, args []string, _, _ io.Writer) error {
 			return runInventory(ctx, args)
 		}},

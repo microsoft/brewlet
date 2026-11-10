@@ -107,7 +107,7 @@ func main() {
 		metricregistry.Registry.MustRegister(controller.NewRuntimeMetrics(m.GetAPIReader()))
 	}
 	must((&controller.ProfileReconciler{Client: m.GetClient(), Reader: m.GetAPIReader(), Namespace: namespace, WorkerImage: image, AllowedMirrorHosts: allowed, Recorder: m.GetEventRecorderFor("brewlet-nodeprofile"), NodeMetricsAddress: nodeMetrics, GCGrace: gcGrace, GCSweepInterval: gcSweep}).SetupWithManager(m))
-	runtimeReconciler := &controller.RuntimeReconciler{Client: m.GetClient(), Reader: m.GetAPIReader(), NodeProgressDeadline: nodeDeadline, AllowedMirrorHosts: allowed}
+	runtimeReconciler := &controller.RuntimeReconciler{Client: m.GetClient(), Reader: m.GetAPIReader(), NodeProgressDeadline: nodeDeadline, AllowedMirrorHosts: allowed, Recorder: m.GetEventRecorderFor("brewlet-runtime")}
 	if restarts {
 		global := &controller.RestartLeadership{Config: m.GetConfig()}
 		must(m.Add(global))

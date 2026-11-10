@@ -14,6 +14,7 @@ describes the current release outputs.
 | `ghcr.io/microsoft/brewlet-operator` | `/LICENSE.txt` and `/NOTICE.txt` in the image, covering the operator and admission binaries. |
 | `ghcr.io/microsoft/brewlet-admission` | `/LICENSE.txt` and `/NOTICE.txt` in the image, covering the admission binary only. |
 | `ghcr.io/microsoft/brewlet-node-provisioner` | `/LICENSE.txt` and `/NOTICE.txt` in the image, covering the node worker and the containerd shim. |
+| `ghcr.io/microsoft/brewlet-dashboard` | `/LICENSE.txt` and `/NOTICE.txt`, covering the embedded CLI; browser assets are first-party and require no CDN dependencies. |
 | Helm chart `oci://ghcr.io/microsoft/charts/brewlet` | `LICENSE.txt` and `NOTICE.txt` in the chart package. |
 | Maven plugin `sh.brewlet:brewlet-maven-plugin` | `META-INF/LICENSE.txt` and `META-INF/NOTICE.txt` in the binary, sources and Javadoc JARs. |
 | Website | [`NOTICE.txt`](https://brewlet.sh/NOTICE.txt) for the browser and documentation dependencies. |

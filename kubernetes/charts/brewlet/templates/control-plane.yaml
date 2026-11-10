@@ -33,6 +33,14 @@ rules:
   - apiGroups: [apps]
     resources: [daemonsets]
     verbs: [get, list, watch]
+  # Read-only owner metadata for attributing pods to workloads in
+  # RuntimeImage status.workloadGenerations.
+  - apiGroups: [apps]
+    resources: [replicasets, deployments, statefulsets]
+    verbs: [get]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get]
 {{- if .Values.operator.rotationRestarts.enabled }}
   - apiGroups: [apps]
     resources: [deployments, statefulsets, daemonsets]

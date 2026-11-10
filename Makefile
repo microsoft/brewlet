@@ -1,4 +1,4 @@
-.PHONY: test test-python build acceptance composition-acceptance ledger site-build site-contract-check cheat-sheet-pdf notices go-notices maven-notices site-notices site-notices-check legal-check release-check release-candidate
+.PHONY: test test-python test-dashboard build acceptance composition-acceptance ledger site-build site-contract-check cheat-sheet-pdf notices go-notices maven-notices site-notices site-notices-check legal-check release-check release-candidate
 
 SITE_PYTHON ?= python3
 
@@ -6,6 +6,10 @@ test:
 	go test -race ./...
 	mvn -B -q -f maven-plugin/pom.xml verify
 	$(MAKE) test-python
+	$(MAKE) test-dashboard
+
+test-dashboard:
+	node --test cmd/brewlet/dashboard/*.test.mjs
 
 test-python:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s acceptance -p '*_test.py' -v
@@ -27,6 +31,7 @@ go-notices:
 	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/cli-$$arch.txt ./cmd/brewlet; \
 	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/control-$$arch.txt ./kubernetes/cmd/operator ./kubernetes/cmd/admission; \
 	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/admission-$$arch.txt ./kubernetes/cmd/admission; \
+	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/dashboard-$$arch.txt ./cmd/brewlet; \
 	  go run ./scripts/notice --goos linux --goarch $$arch --output bin/notices/worker-$$arch.txt ./cmd/brewlet-node ./shim/cmd/containerd-shim-brewlet-v2; \
 	done
 

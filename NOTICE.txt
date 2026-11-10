@@ -18,6 +18,11 @@ Control container (default operator/admission image and explicit admission targe
       --output bin/control-notice.txt ./kubernetes/cmd/operator ./kubernetes/cmd/admission
     The admission-only image target generates notices for admission alone.
 
+Dashboard container
+    The dashboard target in kubernetes/Dockerfile embeds the CLI and its
+    first-party browser assets. It generates /NOTICE.txt for ./cmd/brewlet
+    and copies Brewlet's license to /LICENSE.txt. No CDN assets are loaded.
+
 Worker container (brewlet-node and containerd shim)
     provisioner/Dockerfile generates /NOTICE.txt for both linked executables
     and copies Brewlet's license to /LICENSE.txt. This image does not download

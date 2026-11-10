@@ -9,10 +9,125 @@ import (
 	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
+
+func TestRuntimeRotationEventsMatchPersistedTransitions(t *testing.T) {
+	r, im := runtimeFixture(t)
+	ctx := context.Background()
+	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(im)}
+	recorder := record.NewFakeRecorder(16)
+	r.Recorder = recorder
+	reconcile := func() {
+		t.Helper()
+		if _, err := r.Reconcile(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Get(ctx, req.NamespacedName, im); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expectEvent := func(reason string, fragments ...string) {
+		t.Helper()
+		select {
+		case event := <-recorder.Events:
+			if !strings.HasPrefix(event, "Normal "+reason+" ") {
+				t.Fatalf("unexpected runtime event: %s", event)
+			}
+			for _, fragment := range fragments {
+				if !strings.Contains(event, fragment) {
+					t.Fatalf("event %q omits %q", event, fragment)
+				}
+			}
+		default:
+			t.Fatalf("persisted transition omitted %s", reason)
+		}
+	}
+	expectQuiet := func() {
+		t.Helper()
+		select {
+		case event := <-recorder.Events:
+			t.Fatalf("unchanged or uncommitted rotation emitted an event: %s", event)
+		default:
+		}
+	}
+
+	reconcile()
+	oldDigest := im.Status.Digest
+	if im.Status.Generation != 1 || meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete") {
+		t.Fatal("approval event must match the persisted, unconverged target", im.Status)
+	}
+	expectEvent("RuntimeApproved", "generation 1", oldDigest)
+	reconcile()
+	if !meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete") {
+		t.Fatal("completion event preceded persisted convergence", im.Status)
+	}
+	expectEvent("RotationComplete", "generation 1", oldDigest, "0 participating node(s)", "0 excluded node(s)", "Existing workloads may retain older generations")
+	reconcile()
+	expectQuiet()
+
+	im.Spec.Source.Image = "registry.example.com/python@sha256:" + strings.Repeat("b", 64)
+	im.Generation++
+	if err := r.Update(ctx, im); err != nil {
+		t.Fatal(err)
+	}
+	reconcile()
+	expectQuiet()
+	reconcile()
+	if im.Status.Generation != 2 || meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete") {
+		t.Fatal("rotation event must match the persisted, unconverged target", im.Status)
+	}
+	expectEvent("RotationStarted", "generation 1 digest "+oldDigest, "generation 2 digest "+im.Status.Digest)
+	reconcile()
+	if !meta.IsStatusConditionTrue(im.Status.Conditions, "RotationComplete") {
+		t.Fatal("rotation completion event preceded persisted convergence", im.Status)
+	}
+	expectEvent("RotationComplete", "generation 2", im.Status.Digest)
+	reconcile()
+	reconcile()
+	expectQuiet()
+
+	im.Status.ApprovedUser = nil
+	if err := r.Status().Update(ctx, im); err != nil {
+		t.Fatal(err)
+	}
+	reconcile()
+	expectQuiet()
+}
+
+func TestRuntimeRotationEventsRequireStatusCheckpoint(t *testing.T) {
+	for _, phase := range []string{"approval", "completion"} {
+		t.Run(phase, func(t *testing.T) {
+			r, im := runtimeFixture(t)
+			ctx := context.Background()
+			req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(im)}
+			if phase == "completion" {
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatal(err)
+				}
+			}
+			recorder := record.NewFakeRecorder(8)
+			r.Recorder = recorder
+			r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
+				SubResourceUpdate: func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
+					return fmt.Errorf("status unavailable")
+				},
+			})
+			if _, err := r.Reconcile(ctx, req); err == nil {
+				t.Fatal("failed status persistence was ignored")
+			}
+			select {
+			case event := <-recorder.Events:
+				t.Fatalf("uncommitted transition emitted an event: %s", event)
+			default:
+			}
+		})
+	}
+}
 
 func TestRestartOutcomeEventsMatchStatusAndAreNotRepeatedWithoutChange(t *testing.T) {
 	f := restartSetup(t)

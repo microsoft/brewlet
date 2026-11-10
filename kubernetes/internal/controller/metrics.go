@@ -14,19 +14,20 @@ import (
 )
 
 type RuntimeMetrics struct {
-	Reader                                                     client.Reader
-	rotation, restarts, workloads, profiles, failure, excluded *prometheus.Desc
+	Reader                                                                  client.Reader
+	rotation, restarts, workloads, profiles, failure, excluded, generations *prometheus.Desc
 }
 
 func NewRuntimeMetrics(reader client.Reader) *RuntimeMetrics {
 	return &RuntimeMetrics{
-		Reader:    reader,
-		rotation:  prometheus.NewDesc("brewlet_runtime_image_rotation_complete", "Whether current approved target converged on participating nodes (not running tasks).", []string{"id", "inventory_uid", "generation", "digest"}, nil),
-		restarts:  prometheus.NewDesc("brewlet_runtime_image_restarts", "Current target workload restart outcomes.", []string{"id", "inventory_uid", "state"}, nil),
-		workloads: prometheus.NewDesc("brewlet_runtime_image_restart_info", "Current UID/epoch/generation workload restart observation.", []string{"id", "inventory_uid", "generation", "namespace", "kind", "name", "workload_uid", "state"}, nil),
-		profiles:  prometheus.NewDesc("brewlet_node_profile_nodes", "Controller-observed assigned and effectively ready NodeProfile targets.", []string{"profile", "state"}, nil),
-		failure:   prometheus.NewDesc("brewlet_control_inventory_collection", "Fresh API inventory collection failure.", nil, nil),
-		excluded:  prometheus.NewDesc("brewlet_runtime_image_excluded_nodes", "Rotation exclusions, retaining blocked fence failures in their reason category.", []string{"id", "inventory_uid", "reason"}, nil),
+		Reader:      reader,
+		rotation:    prometheus.NewDesc("brewlet_runtime_image_rotation_complete", "Whether current approved target converged on participating nodes (not running tasks).", []string{"id", "inventory_uid", "generation", "digest"}, nil),
+		restarts:    prometheus.NewDesc("brewlet_runtime_image_restarts", "Current target workload restart outcomes.", []string{"id", "inventory_uid", "state"}, nil),
+		workloads:   prometheus.NewDesc("brewlet_runtime_image_restart_info", "Current UID/epoch/generation workload restart observation.", []string{"id", "inventory_uid", "generation", "namespace", "kind", "name", "workload_uid", "state"}, nil),
+		profiles:    prometheus.NewDesc("brewlet_node_profile_nodes", "Controller-observed assigned and effectively ready NodeProfile targets.", []string{"profile", "state"}, nil),
+		failure:     prometheus.NewDesc("brewlet_control_inventory_collection", "Fresh API inventory collection failure.", nil, nil),
+		excluded:    prometheus.NewDesc("brewlet_runtime_image_excluded_nodes", "Rotation exclusions, retaining blocked fence failures in their reason category.", []string{"id", "inventory_uid", "reason"}, nil),
+		generations: prometheus.NewDesc("brewlet_runtime_workload_generation_pods", "Pods of a workload last observed with running containers bound to a runtime generation.", []string{"id", "inventory_uid", "generation", "digest", "namespace", "kind", "name", "workload_uid"}, nil),
 	}
 }
 func (m *RuntimeMetrics) Describe(ch chan<- *prometheus.Desc) {
@@ -36,6 +37,7 @@ func (m *RuntimeMetrics) Describe(ch chan<- *prometheus.Desc) {
 	ch <- m.profiles
 	ch <- m.failure
 	ch <- m.excluded
+	ch <- m.generations
 }
 func (m *RuntimeMetrics) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -63,6 +65,13 @@ func (m *RuntimeMetrics) Collect(ch chan<- prometheus.Metric) {
 		for _, w := range s.Workloads {
 			if w.InventoryUID == im.UID && w.Generation == im.Status.Generation {
 				ch <- prometheus.MustNewConstMetric(m.workloads, prometheus.GaugeValue, 1, im.Name, string(im.UID), strconv.FormatInt(w.Generation, 10), w.Namespace, w.Kind, w.Name, string(w.UID), w.Phase)
+			}
+		}
+		for _, w := range im.Status.WorkloadGenerations {
+			for _, g := range w.Generations {
+				if g.Pods > 0 {
+					ch <- prometheus.MustNewConstMetric(m.generations, prometheus.GaugeValue, float64(g.Pods), im.Name, string(im.UID), strconv.FormatInt(g.Generation, 10), g.Digest, w.Namespace, w.Kind, w.Name, string(w.UID))
+				}
 			}
 		}
 		reasons := map[string]int{}

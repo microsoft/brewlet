@@ -10,6 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RoutingTests(unittest.TestCase):
+    def test_every_component_image_has_publication_provenance(self):
+        from scripts import release
+        text = (ROOT / ".github/workflows/release.yml").read_text()
+        for component, coordinate in release.policy()["images"].items():
+            self.assertIn("subject-name: " + coordinate, text)
+            self.assertIn("subject-digest: ${{ steps.images.outputs." + component + "_digest }}", text)
+
     def test_publisher_runs_only_from_a_version_tag_after_release_gate_tests_and_candidate(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
         triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]

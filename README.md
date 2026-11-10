@@ -54,6 +54,7 @@ distinct from real-node evidence. See the
 - [Documentation](docs/index.md)
 - [Getting started](docs/local-kubernetes.md)
 - [Ops workshop](docs/workshops/platform.md)
+- [Runtime dashboard](docs/dashboard.md)
 - [Developer workshop](docs/workshops/developer.md)
 - [Prerelease distribution and recovery](docs/supported-release.md)
 - [Specification](specs/SPECIFICATION.md)
