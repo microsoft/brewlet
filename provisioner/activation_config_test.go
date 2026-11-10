@@ -9,11 +9,11 @@ import (
 )
 
 func TestConfiguredRuntimeEnforcesExactVersionedPackedLayerRetention(t *testing.T) {
-	for _, version := range []string{"2", "3"} {
+	for _, version := range []string{"2", "3", "4"} {
 		t.Run(version, func(t *testing.T) {
 			plugin := "io.containerd.grpc.v1.cri"
 			section := `plugins."` + plugin + `".containerd`
-			if version == "3" {
+			if version != "2" {
 				plugin = "io.containerd.cri.v1.runtime"
 				section = `plugins."io.containerd.cri.v1.images"`
 			}
@@ -38,7 +38,7 @@ func TestConfiguredRuntimeEnforcesExactVersionedPackedLayerRetention(t *testing.
 			if configAt(config, "debug")["level"] != "warn" || configAt(config, "plugins", plugin, "containerd", "runtimes", "brewlet", "options")["SystemdCgroup"] != true {
 				t.Fatal("unrelated config or original runc options lost")
 			}
-			if version == "3" {
+			if version != "2" {
 				if _, wrong := configAt(config, "plugins", plugin, "containerd")["discard_unpacked_layers"]; wrong {
 					t.Fatal("retention incorrectly written into v3 runtime plugin")
 				}

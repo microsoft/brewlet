@@ -24,7 +24,7 @@ func TestLiveCRIConfigurationRequiresHandlerAndBothAnnotations(t *testing.T) {
 	}
 }
 func TestEffectiveBaselineDeniesMissingOrUnsafePackedLayerRetention(t *testing.T) {
-	for _, version := range []string{"2", "3"} {
+	for _, version := range []string{"2", "3", "4"} {
 		desired, err := configuredRuntime([]byte("version=" + version))
 		if err != nil {
 			t.Fatal(err)
@@ -57,5 +57,32 @@ func TestLiveCRIRetentionCheckedOnlyWhenExposed(t *testing.T) {
 				t.Fatalf("live %s value %s: %v", section, value, err)
 			}
 		}
+	}
+}
+
+// containerd 2.x accepts an on-disk version 2 file but dumps the migrated
+// effective configuration as version 4, as observed on AKS Ubuntu 24.04.
+func TestEffectiveBaselineAcceptsMigratedVersion4Dump(t *testing.T) {
+	dump := []byte(`version = 4
+
+[plugins]
+  [plugins.'io.containerd.cri.v1.images']
+    snapshotter = 'overlayfs'
+    discard_unpacked_layers = false
+
+  [plugins.'io.containerd.cri.v1.runtime']
+    [plugins.'io.containerd.cri.v1.runtime'.containerd]
+      default_runtime_name = 'runc'
+
+      [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes]
+        [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.brewlet]
+          runtime_type = 'io.containerd.brewlet.v2'
+          pod_annotations = ['brewlet.sh/runtime-image', 'brewlet.sh/rotated-to-generation']
+`)
+	if err := validateEffectiveConfig(dump); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateEffectiveConfig(bytes.ReplaceAll(dump, []byte("discard_unpacked_layers = false"), []byte("discard_unpacked_layers = true"))); err == nil {
+		t.Fatal("version 4 dump accepted unsafe packed-layer retention")
 	}
 }

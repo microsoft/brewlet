@@ -50,12 +50,14 @@ closed. Pending valid rotations preserve bounded existing authorization; they
 never install a new source under an old generation.
 
 Before baseline readiness, the worker installs its bundled shim and configures
-containerd config version 2 or 3. A root-owned `.host` transaction records the
+containerd config version 2, 3 or 4. A root-owned `.host` transaction records the
 original configuration, desired bytes/digests, profile/Node UIDs, and
 Prepared/Applied/Committed phases before changing host files. Validated policy
 sets `discard_unpacked_layers=false` at
 `plugins."io.containerd.grpc.v1.cri".containerd` for version 2, or
-`plugins."io.containerd.cri.v1.images"` for version 3. This mandatory packed-layer
+`plugins."io.containerd.cri.v1.images"` for versions 3 and 4. containerd 2.x
+migrates an on-disk version 2 file and reports the effective `config dump` as
+version 4, so validation accepts that layout. This mandatory packed-layer
 retention prevents GC between CRI unpack and the first verified shim stage;
 an unpacked snapshot or a warm cache is not a substitute for cold source bytes
 (specification §8.2 / retained 0.x SPEC §6.4).
@@ -65,6 +67,9 @@ An exposed live CRI `discardUnpackedLayers` must also be false; its absence
 does not supply an invented default or replace the effective-config check.
 `none` cannot repair retention: missing or enabled discard fails closed without
 editing the config, installing a shim or claiming readiness.
+Every Brewlet-issued containerd restart first runs `systemctl reset-failed` so
+back-to-back activation and rollback restarts cannot leave the unit stopped in
+systemd's `start-limit-hit` state.
 Failure rolls back while authority remains
 valid; lost authority leaves the journal for the authorized successor.
 Cleanup drains Brewlet tasks (including infrastructure sandboxes), restores the

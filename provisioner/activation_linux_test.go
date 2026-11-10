@@ -13,7 +13,7 @@ import (
 )
 
 func TestConfigureContainerdVersions(t *testing.T) {
-	for _, version := range []string{"2", "3"} {
+	for _, version := range []string{"2", "3", "4"} {
 		config := []byte("version = " + version + "\n")
 		desired, err := configuredRuntime(config)
 		if err != nil {
@@ -99,9 +99,12 @@ func TestActivationJournalCommitAndRestorationUnit(t *testing.T) {
 		t.Fatal("restored journal not archived", err)
 	}
 	restarts := 0
-	for _, call := range *calls {
+	for i, call := range *calls {
 		if call == "systemctl restart containerd" {
 			restarts++
+			if i == 0 || (*calls)[i-1] != "systemctl reset-failed containerd" {
+				t.Fatal("restart not preceded by start-limit reset", *calls)
+			}
 		}
 	}
 	if restarts != 2 {
@@ -109,12 +112,12 @@ func TestActivationJournalCommitAndRestorationUnit(t *testing.T) {
 	}
 }
 func TestNonePolicyRejectsUnsafeRetentionWithoutMutationUnit(t *testing.T) {
-	for _, version := range []string{"2", "3"} {
+	for _, version := range []string{"2", "3", "4"} {
 		for _, state := range []string{"true", "missing"} {
 			t.Run(version+"/"+state, func(t *testing.T) {
 				a, _, calls := activationFixture(t)
 				section := `plugins."io.containerd.grpc.v1.cri".containerd`
-				if version == "3" {
+				if version != "2" {
 					section = `plugins."io.containerd.cri.v1.images"`
 				}
 				original := []byte("# operator managed\nversion=" + version + "\n")
@@ -147,12 +150,12 @@ func TestNonePolicyRejectsUnsafeRetentionWithoutMutationUnit(t *testing.T) {
 }
 
 func TestVersionedRetentionActivationRestoresAndRollsBackExactBytesUnit(t *testing.T) {
-	for _, version := range []string{"2", "3"} {
+	for _, version := range []string{"2", "3", "4"} {
 		for _, rollback := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/rollback=%t", version, rollback), func(t *testing.T) {
 				a, _, _ := activationFixture(t)
 				section := `plugins."io.containerd.grpc.v1.cri".containerd`
-				if version == "3" {
+				if version != "2" {
 					section = `plugins."io.containerd.cri.v1.images"`
 				}
 				original := []byte("# exact formatting preserved\nversion=" + version + "\n[" + section + "]\ndiscard_unpacked_layers=true\n")

@@ -71,6 +71,13 @@ func (a HostActivation) host(ctx context.Context, args ...string) error {
 	}
 	return nil
 }
+
+// restartContainerd clears systemd's start rate limit first so back-to-back
+// activation and rollback restarts cannot leave containerd in start-limit-hit.
+func (a HostActivation) restartContainerd(ctx context.Context) error {
+	_ = a.host(ctx, "systemctl", "reset-failed", "containerd")
+	return a.host(ctx, "systemctl", "restart", "containerd")
+}
 func fileHash(path string) (string, error) {
 	if err := trustedFile(path); err != nil {
 		return "", err
@@ -389,7 +396,7 @@ func (a HostActivation) Ensure(ctx context.Context, policy string, fence func(co
 			if err := fence(ctx); err != nil {
 				return err
 			}
-			if err := a.host(ctx, "systemctl", "restart", "containerd"); err != nil {
+			if err := a.restartContainerd(ctx); err != nil {
 				return err
 			}
 		}
@@ -447,7 +454,7 @@ func (a HostActivation) restorePrevious(ctx context.Context, record activationRe
 		if err := fence(ctx); err != nil {
 			return err
 		}
-		if err := a.host(ctx, "systemctl", "restart", "containerd"); err != nil {
+		if err := a.restartContainerd(ctx); err != nil {
 			return err
 		}
 	}
@@ -524,7 +531,7 @@ func (a HostActivation) Restore(ctx context.Context, fence func(context.Context)
 		if err := fence(ctx); err != nil {
 			return err
 		}
-		if err := a.host(ctx, "systemctl", "restart", "containerd"); err != nil {
+		if err := a.restartContainerd(ctx); err != nil {
 			return err
 		}
 		if err := a.host(ctx, "systemctl", "is-active", "--quiet", "containerd"); err != nil {

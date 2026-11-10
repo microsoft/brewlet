@@ -20,13 +20,13 @@ from lifecycle import daemon_signal_command, orphan_signal_command
 def unsafe_retention_config(dumped):
     config = tomllib.loads(dumped)
     version = config.get("version")
-    require(version in (2, 3), "unsupported fixture containerd config version")
+    require(version in (2, 3, 4), "unsupported fixture containerd config version")
     text, count = re.subn(r"(?m)^([ \t]*discard_unpacked_layers[ \t]*=[ \t]*)(true|false)([ \t]*)$",
                          r"\g<1>true\g<3>", dumped)
     require(count == 1, "effective fixture config has ambiguous packed-layer retention")
     result = "# exact pre-Brewlet fixture bytes and formatting\n" + text
     parsed = tomllib.loads(result)
-    section = (parsed["plugins"]["io.containerd.cri.v1.images"] if version == 3
+    section = (parsed["plugins"]["io.containerd.cri.v1.images"] if version != 2
                else parsed["plugins"]["io.containerd.grpc.v1.cri"]["containerd"])
     require(section.get("discard_unpacked_layers") is True, "fixture did not enable actual discard")
     return result

@@ -19,10 +19,12 @@ func runtimePlugin(version int64) (string, error) {
 	switch version {
 	case 2:
 		return "io.containerd.grpc.v1.cri", nil
-	case 3:
+	case 3, 4:
+		// containerd 2.x migrates version 2 files and dumps version 4, which
+		// keeps the version 3 split CRI runtime and image plugin layout.
 		return "io.containerd.cri.v1.runtime", nil
 	default:
-		return "", fmt.Errorf("containerd config version 2 or 3 required")
+		return "", fmt.Errorf("containerd config version 2, 3 or 4 required")
 	}
 }
 
@@ -77,7 +79,7 @@ func validatePackedLayerRetention(config map[string]any) error {
 		return err
 	}
 	imageConfig := configAt(config, "plugins", plugin, "containerd")
-	if version == 3 {
+	if version != 2 {
 		imageConfig = configAt(config, "plugins", "io.containerd.cri.v1.images")
 	}
 	discard, exposed := imageConfig["discard_unpacked_layers"].(bool)
