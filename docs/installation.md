@@ -32,28 +32,35 @@ context:
 export KUBECONFIG=/absolute/path/to/reviewed-kubeconfig
 export CONTEXT=reviewed-context
 export NAMESPACE=brewlet
+export BREWLET_VERSION='<published-release-version>'
 kubectl --context "$CONTEXT" cluster-info
 ```
+
+Replace the version placeholder with the same published release for every
+component. An existing installation must already use that release; changing
+releases is not a supported in-place upgrade.
 
 ## 1. Install the CLI
 
 ```sh
-curl -fsSL https://brewlet.sh/install.sh | sh
+curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version "$BREWLET_VERSION"
 brewlet version
 ```
 
-The script downloads the CLI from the latest release and verifies its checksum.
+The script downloads the selected release and verifies its checksum.
 
 ## 2. Install the control plane
 
-Helm does not upgrade CRDs, so apply the chart's CRDs first, on every install
-and upgrade. Then install the chart:
+Helm does not upgrade CRDs, so apply the chart's CRDs first, on a fresh install
+or a reviewed change within the same release. Then install the chart:
 
 ```sh
 helm show crds oci://ghcr.io/microsoft/charts/brewlet \
+  --version "$BREWLET_VERSION" \
   | kubectl --context "$CONTEXT" apply -f -
 helm --kube-context "$CONTEXT" upgrade --install brewlet \
   oci://ghcr.io/microsoft/charts/brewlet \
+  --version "$BREWLET_VERSION" \
   --namespace "$NAMESPACE" --create-namespace \
   --wait --timeout 5m
 ```
@@ -122,16 +129,15 @@ A ready control plane does not prove that applications run. Deploy a reviewed
 application and confirm its HTTP responses, probes and runtime binding. See
 [packaging and deploying applications](applications.md) and [troubleshooting](troubleshooting.md).
 
-## Upgrades
+## Changing platform releases
 
-Apply the new release's CRDs, then run the same `helm upgrade --install`
-command with the new chart version. Keep the previous image digests so you can
-roll back. The provisioner validates each node change and retains what it
-needs to reverse it; do not edit its journal or delete runtime roots to force
-progress.
-
-Brewlet is pre-GA; see the [compatibility policy](compatibility-policy.md) for
-what may change between releases.
+Brewlet does not currently promise in-place upgrades, downgrades or reuse of
+persisted state across releases. A reviewed Helm values change within the same
+release is not a platform-release upgrade. See the
+[compatibility policy](compatibility-policy.md) and
+[bounded transitions](supported-release.md#bounded-transitions-and-recovery)
+before changing releases. Do not edit the provisioner's journal or delete
+runtime roots to force progress.
 
 ## Uninstall
 

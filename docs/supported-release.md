@@ -1,10 +1,12 @@
 # Release distribution and recovery
 
 This page describes what a Brewlet release contains, how to verify it and
-which upgrade and recovery paths are supported. The current release is
-**0.8.1**. To install it, follow [installation](installation.md). The sections
-on building candidates and cutting a release are for project maintainers; see
-the [release checklist](../RELEASE.md) for the full procedure and test matrix.
+which upgrade and recovery paths are supported. See
+[GitHub Releases](https://github.com/microsoft/brewlet/releases) for published
+versions, and follow [installation](installation.md) to install one. The
+sections on building candidates and cutting a release are for project
+maintainers; see the [release checklist](../RELEASE.md) for the full procedure
+and test matrix.
 
 Releases are automated: pushing a `vVERSION` tag that matches
 [`release.json`](https://github.com/microsoft/brewlet/blob/main/release.json)
@@ -182,7 +184,7 @@ attestations or credentials are failures, not optional checks.
 | Transition | Policy and current evidence |
 | --- | --- |
 | Same candidate, clean reinstall | The only eligible test pair. No automated drain/reinstall test exists; not required for beta publication. |
-| 0.7.x or earlier to 0.8.x | No supported in-place upgrade or state reuse. Uninstall the old release, install 0.8.x cleanly and re-package workloads. |
+| 0.7.x or earlier to 0.8.x | No supported in-place upgrade or state reuse. Re-packaging is necessary for a clean 0.8.x installation; cross-release transitions remain unsupported. |
 | Between different betas/prereleases | Unsupported until immutable source/target artifacts, cleanup/recovery limits and genuine evidence are explicitly reviewed. |
 | Helm/binary downgrade or mixed releases | No compatibility or rollback promise. |
 

@@ -17,7 +17,7 @@ links, permissions and whiteouts) independently in Java. It does not need the
 `brewlet` executable:
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:0.8.1:conformance \
+mvn sh.brewlet:brewlet-maven-plugin:0.9.0:conformance \
   -Dbrewlet.fixtures=/path/to/conformance/artifact-v1.json \
   -Dbrewlet.conformanceResult=/path/to/results.json
 ```
@@ -30,7 +30,7 @@ launch, runtime-ID and platform cases through the actual CLI `push` goal.
 Package and publish in the same Maven invocation:
 
 ```sh
-mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \
+mvn package sh.brewlet:brewlet-maven-plugin:0.9.0:push \
   -Dbrewlet.image=registry.example.com/apps/example:v2 \
   -Dbrewlet.platforms=linux/amd64,linux/arm64 \
   -Dbrewlet.mainClass=example.Main
@@ -85,7 +85,7 @@ layer set. Project version overrides outside that catalog fail closed.
 There is no guessed BOM, runtime selection, or Kubernetes integration.
 
 ```sh
-mvn sh.brewlet:brewlet-maven-plugin:0.8.1:layer-set \
+mvn sh.brewlet:brewlet-maven-plugin:0.9.0:layer-set \
   -Dbrewlet.layerSet=registry.example.com/dependencies/approved:2026.10 \
   -Dbrewlet.sourceBom=com.example:approved-bom:2026.10 \
   -Dbrewlet.layerSetName=approved \

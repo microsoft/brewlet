@@ -16,13 +16,14 @@ that the operator generates; the operator reconciles them.
 ## Helm values
 
 The published chart pins each component image to the digest of the release.
-The tags below show which release those digests belong to.
+The source chart defaults to matching image tags; `VERSION` below is the chart's
+release version.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `operator.image` | `ghcr.io/microsoft/brewlet-operator:0.8.1` | Operator and uninstall-coordinator image. |
-| `admission.image` | `ghcr.io/microsoft/brewlet-admission:0.8.1` | Admission webhook image. |
-| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:0.8.1` | Privileged node worker image, including the shim. |
+| `operator.image` | `ghcr.io/microsoft/brewlet-operator:VERSION` | Operator and uninstall-coordinator image. |
+| `admission.image` | `ghcr.io/microsoft/brewlet-admission:VERSION` | Admission webhook image. |
+| `provisioner.image` | `ghcr.io/microsoft/brewlet-node-provisioner:VERSION` | Privileged node worker image, including the shim. |
 | `provisioner.profiles` | `[]` | `NodeProfile`s to create, as `{name, spec}` entries. Each must set `spec.nodePool.names`. |
 | `provisioner.gc.grace` | `1h` | How long an unused runtime generation is kept before collection. |
 | `provisioner.gc.sweepInterval` | `1m` | How often unused generations are collected. |

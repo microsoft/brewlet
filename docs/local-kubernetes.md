@@ -8,7 +8,7 @@ Python application, and update its node-supplied runtime. You'll see how a
 running Pod keeps its original runtime while a replacement Pod uses the update,
 without changing the application image.
 
-The tutorial uses **Brewlet 0.8.1**, the latest published beta release.
+The tutorial uses **Brewlet 0.8.1**, the beta release it was tested with.
 
 ## Prerequisites
 

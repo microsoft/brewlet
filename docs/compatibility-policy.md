@@ -1,9 +1,9 @@
 # Compatibility policy
 
 Brewlet is pre-GA. Use the CLI, Helm chart, CRDs, operator, admission webhook,
-node provisioner, shim and optional Maven plugin from the same release
-(currently 0.8.1). An unchanged API version or file name does not mean that
-components from different releases work together.
+node provisioner, shim and optional Maven plugin from the same release. An
+unchanged API version or file name does not mean that components from different
+releases work together.
 
 ## Launch schema
 
@@ -26,12 +26,13 @@ leases and minimum-generation barriers do not become valid under the new UID.
 ## Updating the platform
 
 Brewlet does not promise in-place upgrade, downgrade or reuse of persisted
-state across releases. The only supported transition is a clean reinstall of
-the same release:
+state across releases. A clean reinstall of the same release is the only
+transition eligible for release testing; it is not automatically tested for
+beta publication:
 
 1. Drain the affected workloads.
 2. Remove Brewlet through the [safe removal](uninstallation.md) procedure.
-3. Install the matching components of the target release.
+3. Install the matching components of the same release.
 
 See [bounded transitions and recovery](supported-release.md#bounded-transitions-and-recovery)
 for the status of each transition.

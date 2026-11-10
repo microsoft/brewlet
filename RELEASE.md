@@ -36,7 +36,7 @@ or `-rc.N`. Choose the next version explicitly:
   candidate version; updating metadata alone does not prove a transition has
   been tested.
 - [ ] Update `maven-plugin/pom.xml`, the `version` and `appVersion` in
-  `kubernetes/charts/brewlet/Chart.yaml`, and all three component image tags in
+  `kubernetes/charts/brewlet/Chart.yaml`, and all four component image tags in
   `kubernetes/charts/brewlet/values.yaml`.
 - [ ] Update the plugin version in
   `integration-tests/fixtures/java/app/pom.xml` and review the version,

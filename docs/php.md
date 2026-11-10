@@ -46,7 +46,7 @@ Choose the runtime image carefully:
 - **Brewlet 0.8.1 cannot pull runtime images from `docker.io`.** The node
   provisioner fails with `401 Unauthorized`. Use the same digest from the
   Docker Official Images mirror at `public.ecr.aws/docker/library/php`, or
-  copy the image into your platform registry.
+  copy the image into your platform registry. This issue was fixed after 0.8.1.
 
 These images are test inputs, not a security recommendation. Use the runtime
 images your platform team approves. Extensions are part of the runtime: check
