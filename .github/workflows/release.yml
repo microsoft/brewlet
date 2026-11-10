@@ -142,6 +142,11 @@ jobs:
           push-to-registry: true
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
+          subject-name: ghcr.io/microsoft/brewlet-dashboard
+          subject-digest: ${{ steps.images.outputs.dashboard_digest }}
+          push-to-registry: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
           subject-name: ghcr.io/microsoft/charts/brewlet
           subject-digest: ${{ steps.images.outputs.chart_digest }}
           push-to-registry: true

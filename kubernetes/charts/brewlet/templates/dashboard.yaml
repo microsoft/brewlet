@@ -1,0 +1,98 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: brewlet-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/name: brewlet-dashboard}
+# The projected token supplies in-cluster API discovery and CA configuration.
+# It is never used for dashboard API operations and has no role bindings.
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: brewlet-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/name: brewlet-dashboard}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: brewlet-dashboard}
+  ports:
+    - {name: http, port: 8088, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brewlet-dashboard
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/name: brewlet-dashboard}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: brewlet-dashboard}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: brewlet-dashboard}
+    spec:
+      serviceAccountName: brewlet-dashboard
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: dashboard
+          image: {{ .Values.dashboard.image | quote }}
+          imagePullPolicy: {{ .Values.dashboard.imagePullPolicy }}
+          command: [/dashboard]
+          args:
+            - k8s
+            - dashboard
+            - --in-cluster
+            - --port=8088
+            - --namespace={{ .Release.Namespace }}
+{{- if .Values.dashboard.allowWrite }}
+            - --allow-write
+{{- end }}
+{{- if .Values.dashboard.publicURL }}
+            - {{ printf "--public-url=%s" .Values.dashboard.publicURL | quote }}
+{{- end }}
+          ports: [{name: http, containerPort: 8088}]
+          readinessProbe: {httpGet: {path: /readyz, port: http}}
+          livenessProbe: {httpGet: {path: /healthz, port: http}}
+          resources:
+            {{- toYaml .Values.dashboard.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+---
+# Bind these roles to reviewed operator identities, never to the dashboard pod.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-dashboard-viewer
+rules:
+  - apiGroups: [node.brewlet.sh]
+    resources: [runtimeimages, nodeprofiles]
+    verbs: [get, list]
+  - apiGroups: [""]
+    resources: [nodes, pods, events]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [get, list]
+{{- if .Values.dashboard.allowWrite }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-dashboard-operator
+rules:
+  - apiGroups: [node.brewlet.sh]
+    resources: [runtimeimages]
+    verbs: [patch]
+{{- end }}
+{{- end }}

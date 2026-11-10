@@ -79,6 +79,26 @@ type RuntimeImageStatus struct {
 	Restarts              RestartSummary           `json:"restarts,omitzero"`
 	RevocationTargets     []InventoryTarget        `json:"revocationTargets,omitempty"`
 	TaskObservations      []RuntimeTaskObservation `json:"taskObservations,omitempty"`
+	// WorkloadGenerations is an audit summary of which generations of this
+	// inventory epoch each owning workload's running containers were last
+	// observed bound to. It is diagnostic evidence, never cleanup authority.
+	WorkloadGenerations []WorkloadGeneration `json:"workloadGenerations,omitempty"`
+}
+type WorkloadGenerationCount struct {
+	Generation int64  `json:"generation"`
+	Digest     string `json:"digest"`
+	Pods       int32  `json:"pods"`
+}
+type WorkloadGeneration struct {
+	APIVersion          string                    `json:"apiVersion"`
+	Kind                string                    `json:"kind"`
+	Name                string                    `json:"name"`
+	Namespace           string                    `json:"namespace"`
+	UID                 types.UID                 `json:"uid"`
+	Generations         []WorkloadGenerationCount `json:"generations"`
+	PreviousGenerations []WorkloadGenerationCount `json:"previousGenerations,omitempty"`
+	FirstObservedAt     metav1.Time               `json:"firstObservedAt"`
+	ChangedAt           *metav1.Time              `json:"changedAt,omitempty"`
 }
 type RuntimeTaskObservation struct {
 	NodeName          string               `json:"nodeName"`

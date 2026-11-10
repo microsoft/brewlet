@@ -15,6 +15,8 @@ when a container is created.
 
 For a quick command and deployment reference, see the
 [Brewlet cheat sheet](cheat-sheet.md).
+Operators can inspect runtime approvals, placement, node evidence and events in
+the [Brewlet Dashboard](dashboard.md), installed on the cluster or run locally.
 
 Choose a [workload guide](language-recipes.md) for complete Java, Python,
 Node.js, .NET, PHP and WebAssembly workflows. These are tested examples under one

@@ -134,6 +134,31 @@ spec:
                             generation: {type: integer, format: int64, minimum: 1}
                             digest: {type: string}
                             state: {type: string}
+                workloadGenerations:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [uid]
+                  items:
+                    type: object
+                    required: [apiVersion, kind, name, namespace, uid, generations, firstObservedAt]
+                    properties:
+                      apiVersion: {type: string}
+                      kind: {type: string}
+                      name: {type: string}
+                      namespace: {type: string}
+                      uid: {type: string}
+                      generations: &workloadGenerationCounts
+                        type: array
+                        items:
+                          type: object
+                          required: [generation, digest, pods]
+                          properties:
+                            generation: {type: integer, format: int64, minimum: 1}
+                            digest: {type: string}
+                            pods: {type: integer, format: int32, minimum: 0}
+                      previousGenerations: *workloadGenerationCounts
+                      firstObservedAt: {type: string, format: date-time}
+                      changedAt: {type: string, format: date-time}
                 revocationTargets:
                   type: array
                   x-kubernetes-list-type: map

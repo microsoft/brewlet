@@ -3,6 +3,26 @@
   "type": "object",
   "required": ["runtimeClass"],
   "properties": {
+    "dashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "imagePullPolicy", "allowWrite", "publicURL", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"type": "string", "minLength": 1},
+        "imagePullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]},
+        "allowWrite": {"type": "boolean"},
+        "publicURL": {"type": "string", "pattern": "^$|^https://[^/@?#\\s]+/?$"},
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {"type": "object", "additionalProperties": {"$ref": "#/definitions/nonnegativeQuantity"}},
+            "limits": {"type": "object", "additionalProperties": {"$ref": "#/definitions/nonnegativeQuantity"}}
+          }
+        }
+      }
+    },
     "runtimeClass": {
       "type": "object",
       "additionalProperties": false,

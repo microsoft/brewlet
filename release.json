@@ -8,7 +8,8 @@
   "images": {
     "operator": "ghcr.io/microsoft/brewlet-operator",
     "admission": "ghcr.io/microsoft/brewlet-admission",
-    "node": "ghcr.io/microsoft/brewlet-node-provisioner"
+    "node": "ghcr.io/microsoft/brewlet-node-provisioner",
+    "dashboard": "ghcr.io/microsoft/brewlet-dashboard"
   },
   "chart": "ghcr.io/microsoft/charts/brewlet",
   "maven": {

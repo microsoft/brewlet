@@ -25,6 +25,7 @@ Usage:
   brewlet k8s [--kubeconfig FILE] [--context NAME] <command> [flags]
 
 Commands:
+  dashboard                  open a local runtime inventory and operations dashboard
   runtime list               list approved RuntimeImages (table|wide|json|yaml)
   runtime status ID          approval, generation/digest, rotation, restarts, nodes and bound pods
   runtime add ID --image REF resolve, preflight and approve a runtime; optionally place it in profiles
@@ -37,7 +38,7 @@ Connection flags (before the command or on it):
   --kubeconfig FILE   kubeconfig path (default: $KUBECONFIG, then ~/.kube/config)
   --context NAME      kubeconfig context (default: current-context)
 
-Every mutating command accepts --dry-run, which runs all checks and prints the
+Every mutating runtime command accepts --dry-run, which runs all checks and prints the
 resulting manifest(s) as YAML (or --output json) without changing the cluster.
 
 Run 'brewlet k8s <command> --help' for command flags and examples.
@@ -111,6 +112,8 @@ func runK8s(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		return err
 	}
 	switch rest[0] {
+	case "dashboard":
+		return runK8sDashboard(ctx, &conn, rest[1:], stdout)
 	case "runtime", "runtimes", "ri":
 		return runK8sRuntime(ctx, &conn, rest[1:], stdout, stderr)
 	case "doctor":

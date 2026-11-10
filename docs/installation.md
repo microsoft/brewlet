@@ -63,6 +63,16 @@ using the component images of the same release. By default it provisions no
 node pool. To customize the installation, pass a values file with
 `--values values.yaml`; see [configuration](configuration.md).
 
+### Optional cluster dashboard
+
+The chart's optional `dashboard.enabled=true` component installs a ClusterIP
+dashboard for platform teams. It uses each operator's Kubernetes bearer token,
+not a privileged shared pod identity. Use a release that includes the dashboard;
+its published chart contains the matching digest-pinned image. See
+[dashboard installation and RBAC](dashboard.md#install-on-the-cluster) for
+version-pinned Helm installation, port-forward, HTTPS ingress and access
+instructions.
+
 ### Mirrored images
 
 If your cluster pulls from a private registry, mirror the release images and
@@ -75,8 +85,11 @@ admission:
   image: registry.example.com/brewlet/brewlet-admission@sha256:<admission-digest>
 provisioner:
   image: registry.example.com/brewlet/brewlet-node-provisioner@sha256:<node-digest>
+dashboard:
+  image: registry.example.com/brewlet/brewlet-dashboard@sha256:<dashboard-digest>
 ```
 
+The dashboard coordinate applies only to releases that include that component.
 Configure registry access through your platform's namespace and
 service-account policy.
 

@@ -53,6 +53,7 @@ platform network policy; do not expose inventory metrics publicly by default.
 | `brewlet_runtime_image_rotation_complete` | `id`, `inventory_uid`, `generation`, `digest` | Node-target convergence, not completed workload remediation. |
 | `brewlet_runtime_image_restarts` | `id`, `inventory_uid`, `state` | Current target restart outcome counts. |
 | `brewlet_runtime_image_restart_info` | `id`, `inventory_uid`, `generation`, `namespace`, `kind`, `name`, `workload_uid`, `state` | Per-workload restart observation. |
+| `brewlet_runtime_workload_generation_pods` | `id`, `inventory_uid`, `generation`, `digest`, `namespace`, `kind`, `name`, `workload_uid` | Pods of a workload last observed running on each runtime generation; history of when workloads changed generation. |
 | `brewlet_node_profile_nodes` | `profile`, `state` | Assigned/effectively ready target observations. |
 | `brewlet_runtime_image_excluded_nodes` | `id`, `inventory_uid`, `reason` | Rotation exclusions, including fence failures. |
 

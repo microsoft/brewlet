@@ -79,6 +79,13 @@ jobs:
       - name: Execute Go contracts once and retain a public receipt
         if: inputs.go
         run: python3 acceptance/run_check.py go-contracts
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: inputs.go
+        with:
+          node-version: "24"
+      - name: Dashboard interface contracts
+        if: inputs.go
+        run: make test-dashboard
       - name: Execute Maven contracts once and retain a public receipt
         if: inputs.maven || inputs.legal
         run: python3 acceptance/run_check.py maven

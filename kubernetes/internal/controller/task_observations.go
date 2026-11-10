@@ -23,6 +23,20 @@ const (
 	observationMaxAge     = 2 * time.Minute
 )
 
+// freshBindingSnapshot returns a node's binding observation only when it is
+// complete, identity-bound to the node's current profile claim and fresh.
+func freshBindingSnapshot(n *corev1.Node, now time.Time) (noderuntime.BindingObservation, bool) {
+	var snapshot noderuntime.BindingObservation
+	raw := n.Annotations[noderuntime.BindingsAnnotation]
+	if raw == "" || json.Unmarshal([]byte(raw), &snapshot) != nil {
+		return snapshot, false
+	}
+	if !snapshot.Complete || snapshot.NodeUID != string(n.UID) || snapshot.ProfileUID != n.Labels[api.OwnerUID] || n.Labels[api.OwnerNodeUID] != string(n.UID) || snapshot.ProfileGeneration <= 0 || snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(now.Add(observationFutureSkew)) || now.Sub(snapshot.ObservedAt) > observationMaxAge {
+		return snapshot, false
+	}
+	return snapshot, true
+}
+
 // Task observations are diagnostics from genuine leases/tasks, never writer
 // authority or cleanup receipts. Missing/failed observations retain old tuples.
 func (r *RuntimeReconciler) observeTasks(ctx context.Context, im *api.RuntimeImage) (bool, error) {
@@ -40,15 +54,8 @@ func (r *RuntimeReconciler) observeTasks(ctx context.Context, im *api.RuntimeIma
 		now = r.Now()
 	}
 	for _, n := range nodes.Items {
-		raw := n.Annotations[noderuntime.BindingsAnnotation]
-		if raw == "" {
-			continue
-		}
-		var snapshot noderuntime.BindingObservation
-		if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
-			continue
-		}
-		if !snapshot.Complete || snapshot.NodeUID != string(n.UID) || snapshot.ProfileUID != n.Labels[api.OwnerUID] || n.Labels[api.OwnerNodeUID] != string(n.UID) || snapshot.ProfileGeneration <= 0 || snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(now.Add(observationFutureSkew)) || now.Sub(snapshot.ObservedAt) > observationMaxAge {
+		snapshot, ok := freshBindingSnapshot(&n, now)
+		if !ok {
 			continue
 		}
 		if !slices.ContainsFunc(im.Status.RevocationTargets, func(t api.InventoryTarget) bool {

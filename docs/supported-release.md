@@ -33,6 +33,7 @@ commit `unknown` means the binary is not a release build.
 | Operator | `ghcr.io/microsoft/brewlet-operator:VERSION` | Linux amd64/arm64 |
 | Admission | `ghcr.io/microsoft/brewlet-admission:VERSION` | Linux amd64/arm64 |
 | Node worker and shim | `ghcr.io/microsoft/brewlet-node-provisioner:VERSION` | Linux amd64/arm64 |
+| Optional dashboard | `ghcr.io/microsoft/brewlet-dashboard:VERSION` | Linux amd64/arm64; available in releases that include the component |
 | Helm | `oci://ghcr.io/microsoft/charts/brewlet`, version `VERSION` | Matching CRDs and digest-pinned component images |
 | Optional Maven producer | `sh.brewlet:brewlet-maven-plugin:VERSION` | Java 17+; matching Brewlet CLI |
 

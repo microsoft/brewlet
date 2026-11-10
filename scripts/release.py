@@ -74,7 +74,8 @@ def policy(root=ROOT):
     require(config["images"] == {
         "operator": "ghcr.io/microsoft/brewlet-operator",
         "admission": "ghcr.io/microsoft/brewlet-admission",
-        "node": "ghcr.io/microsoft/brewlet-node-provisioner"},
+        "node": "ghcr.io/microsoft/brewlet-node-provisioner",
+        "dashboard": "ghcr.io/microsoft/brewlet-dashboard"},
         "image coordinate change requires a reviewed release-policy change")
     require(config["chart"] == "ghcr.io/microsoft/charts/brewlet", "unexpected chart coordinate")
     require(config["maven"] == {"groupId": "sh.brewlet", "artifactId": "brewlet-maven-plugin",
@@ -240,7 +241,8 @@ def image_identity(layout, component, config):
         # Read the final merged legal files, accounting for normal OCI whiteouts.
         final = {}
         binaries = {"operator": ("operator", "admission"), "admission": ("admission",),
-                    "node": ("brewlet-node", "containerd-shim-brewlet-v2")}[component]
+                    "node": ("brewlet-node", "containerd-shim-brewlet-v2"),
+                    "dashboard": ("dashboard",)}[component]
         selected = {"LICENSE.txt", "NOTICE.txt", *binaries}
         for layer in manifest["layers"]:
             with tarfile.open(fileobj=io.BytesIO(read_blob(layout, layer))) as tar:
@@ -305,7 +307,7 @@ def build_chart(output, config):
         chart = Path(temp) / "brewlet"
         shutil.copytree(ROOT / "kubernetes/charts/brewlet", chart)
         values = (chart / "values.yaml").read_text()
-        for component, key in (("operator", "operator"), ("admission", "admission"), ("node", "provisioner")):
+        for component, key in (("operator", "operator"), ("admission", "admission"), ("node", "provisioner"), ("dashboard", "dashboard")):
             image = image_identity(output / ("image-" + component), component, config)
             old = config["images"][component] + ":" + config["version"]
             require(values.count(old) == 1, "chart image coordinate drift: " + key)
@@ -355,10 +357,12 @@ def validate_payloads(output, config):
     require(contents["brewlet/LICENSE.txt"][0] == (ROOT / "LICENSE.txt").read_bytes(), "chart license mismatch")
     for source in (ROOT / "kubernetes/charts/brewlet/crds").glob("*.yaml"):
         require(contents["brewlet/crds/" + source.name][0] == source.read_bytes(), "packaged CRD mismatch")
-    for args in ([], ["--set", "admission.enabled=false"],
+    for args in ([], ["--set", "admission.enabled=false"], ["--set", "dashboard.enabled=true"],
                  ["--set-json", 'provisioner.profiles=[{"name":"render-check","spec":{"nodePool":{"key":"release.test/pool","names":["isolated"]},"runtimeImages":[]}}]']):
         rendered = run(["helm", "template", "brewlet", chart, *args])
         for component in config["images"]:
+            if component == "dashboard" and args != ["--set", "dashboard.enabled=true"]:
+                continue
             if component == "admission" and args == ["--set", "admission.enabled=false"]:
                 continue
             image = image_identity(output / ("image-" + component), component, config)
