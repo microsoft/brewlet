@@ -22,48 +22,40 @@ CLI or GitOps operations.
 
 ## Install on the cluster
 
-The examples and screenshots in this article use **Brewlet 0.9.0**, whose
-published OCI chart includes the dashboard. Use matching CLI, chart and
-component releases. The chart contains the matching CRDs and a digest-pinned
-dashboard image, so no separate image build or override is needed.
+The dashboard ships in the published chart (Brewlet 0.9.0 and later), which
+contains the matching CRDs and a digest-pinned dashboard image, so no separate
+image build or override is needed. The commands below install the latest
+release into the cluster selected by your current kubectl context; review the
+prerequisites in [installation](installation.md) first. Use them for a fresh
+installation, not to upgrade an older release. Helm does not upgrade CRDs, so
+apply them before installing the chart:
 
 ```sh
-export CONTEXT=my-cluster
-export NAMESPACE=brewlet
-export BREWLET_VERSION=0.9.0
-```
-
-If selecting another release, verify that it includes the dashboard. Review
-the target cluster and install prerequisites as described in
-[installation](installation.md). Use these commands for a fresh install or a
-configuration change on an existing installation of the same release; in-place
-upgrades between releases are unsupported. Helm does not upgrade CRDs, so apply
-the CRDs from that chart version first:
-
-```sh
-helm show crds oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$BREWLET_VERSION" \
-  | kubectl --context "$CONTEXT" apply -f -
-helm --kube-context "$CONTEXT" upgrade --install brewlet \
+helm show crds oci://ghcr.io/microsoft/charts/brewlet | kubectl apply -f -
+helm upgrade --install brewlet \
   oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$BREWLET_VERSION" \
-  --namespace "$NAMESPACE" --create-namespace \
+  --namespace brewlet --create-namespace \
   --set dashboard.enabled=true \
   --wait --timeout 5m
 ```
 
-For an existing Helm installation already using that release, use the same CRD
-step, then update it while preserving its configured values:
+To enable the dashboard on an existing installation, use the same chart
+version. For an installation already on the latest release, preserve its
+configured values:
 
 ```sh
-helm --kube-context "$CONTEXT" upgrade brewlet \
+helm upgrade brewlet \
   oci://ghcr.io/microsoft/charts/brewlet \
-  --version "$BREWLET_VERSION" \
-  --namespace "$NAMESPACE" \
+  --namespace brewlet \
   --reset-then-reuse-values \
   --set dashboard.enabled=true \
   --wait --timeout 5m
 ```
+
+For an older release that includes the dashboard, add
+`--version <installed-chart-version>` to the upgrade command instead.
+Find the installed chart version with `helm list -n brewlet`; in-place upgrades
+between releases are unsupported.
 
 The chart installs the dashboard as a ClusterIP service, disabled by default.
 For private-registry mirroring, set `dashboard.image` to your mirrored,
@@ -72,8 +64,7 @@ digest-pinned image. Keep the image from the same Brewlet release as the chart.
 To open it from your workstation, port-forward the service:
 
 ```sh
-kubectl --context "$CONTEXT" -n "$NAMESPACE" \
-  port-forward service/brewlet-dashboard 8088:8088
+kubectl -n brewlet port-forward service/brewlet-dashboard 8088:8088
 ```
 
 Open **http://127.0.0.1:8088**. This deployment is a hardened, single-replica
@@ -98,7 +89,7 @@ identity. If the platform's Kubernetes authentication issues bearer tokens for
 users in a group, an administrator can bind that group:
 
 ```sh
-kubectl --context "$CONTEXT" create clusterrolebinding brewlet-dashboard-viewers \
+kubectl create clusterrolebinding brewlet-dashboard-viewers \
   --clusterrole=brewlet-dashboard-viewer \
   --group=platform-operators
 ```
@@ -107,12 +98,11 @@ Alternatively, an administrator can create a dedicated reader ServiceAccount
 and issue a short-lived token for it:
 
 ```sh
-kubectl --context "$CONTEXT" -n "$NAMESPACE" create serviceaccount runtime-reader
-kubectl --context "$CONTEXT" create clusterrolebinding runtime-reader-view \
+kubectl -n brewlet create serviceaccount runtime-reader
+kubectl create clusterrolebinding runtime-reader-view \
   --clusterrole=brewlet-dashboard-viewer \
-  --serviceaccount="$NAMESPACE:runtime-reader"
-kubectl --context "$CONTEXT" -n "$NAMESPACE" \
-  create token runtime-reader --duration=15m
+  --serviceaccount=brewlet:runtime-reader
+kubectl -n brewlet create token runtime-reader --duration=15m
 ```
 
 Obtain each operator's token through your platform's approved identity process.
@@ -157,7 +147,7 @@ RuntimeImages only. Bind it to the appropriate operator group or identity, in
 addition to viewer access:
 
 ```sh
-kubectl --context "$CONTEXT" create clusterrolebinding brewlet-dashboard-operators \
+kubectl create clusterrolebinding brewlet-dashboard-operators \
   --clusterrole=brewlet-dashboard-operator \
   --group=platform-sre
 ```
