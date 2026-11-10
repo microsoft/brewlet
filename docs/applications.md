@@ -160,6 +160,8 @@ All app/init/sidecar/ephemeral containers in the Pod require v1 artifacts.
 Java-specific project knowledge lives in the separately packaged Maven plugin.
 It can prepare classpath/module argv and dependency layers, or consume one
 verified complete Java layer-set graph.
+Replace the example plugin version with the release reported by
+`brewlet version`.
 
 ```sh
 mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \

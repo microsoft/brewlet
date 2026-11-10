@@ -25,8 +25,10 @@ export BREWLET_VERSION='<release-version-including-dashboard>'
 
 Replace the version placeholder with the exact published chart version. Review
 the target cluster and install prerequisites as described in
-[installation](installation.md). Helm does not upgrade CRDs, so apply the CRDs
-from the same chart version before installing or upgrading:
+[installation](installation.md). Use these commands for a fresh install or a
+configuration change on an existing installation of the same release; in-place
+upgrades between releases are unsupported. Helm does not upgrade CRDs, so apply
+the CRDs from that chart version first:
 
 ```sh
 helm show crds oci://ghcr.io/microsoft/charts/brewlet \
@@ -40,8 +42,8 @@ helm --kube-context "$CONTEXT" upgrade --install brewlet \
   --wait --timeout 5m
 ```
 
-For an existing Helm release, use the same CRD step, then upgrade while
-preserving its configured values and adopting defaults from the new chart:
+For an existing Helm installation already using that release, use the same CRD
+step, then update it while preserving its configured values:
 
 ```sh
 helm --kube-context "$CONTEXT" upgrade brewlet \

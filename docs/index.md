@@ -58,7 +58,7 @@ Existing non-Brewlet workloads continue to use their ordinary runtime.
 
 ## Know what is verified
 
-Brewlet 0.8.1 is a pre-GA beta release. The workload guides and the local
+Brewlet is pre-GA beta software. The workload guides and the local
 tutorial are tested examples, not a cloud-provider autoscaling certification
 or a performance benchmark. Read the
 [verification and limitations](verification.md) before evaluating the system

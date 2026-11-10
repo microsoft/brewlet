@@ -52,7 +52,8 @@ dependencies are added at release time. Initial composition rejects
 dependency-role layers; it does not guess which arbitrary bundled files to
 strip out.
 
-For an app-only Maven publication:
+For an app-only Maven publication, replace the example plugin version with the
+release reported by `brewlet version`:
 
 ```sh
 mvn package sh.brewlet:brewlet-maven-plugin:0.8.1:push \

@@ -2,8 +2,9 @@
 
 Removing Brewlet reverses changes it made to your nodes. Let cleanup finish
 instead of deleting resources until Helm reports success. Brewlet does not
-support in-place downgrades or reusing state across releases; to move between
-releases, remove Brewlet with this procedure and reinstall. See
+promise in-place upgrades, downgrades or reuse of state across releases. A
+clean teardown is necessary before reinstalling, but does not by itself qualify
+a transition between releases. See
 [transitions and recovery](supported-release.md#bounded-transitions-and-recovery).
 
 Before you start, pin the kubeconfig and context you intend to change, and
@@ -66,8 +67,9 @@ do not delete its RBAC or finalizers to make the uninstall succeed.
 2. Check that containerd's configuration is restored and that the container
    runtime is healthy (for example, `crictl info`).
 3. Helm leaves the CRDs and any remaining `RuntimeImage`s in place. Do not
-   delete shared CRDs to make another install succeed. Apply the new release's
-   CRDs before installing it, as described in [installation](installation.md).
+   delete shared CRDs to make another install succeed. Apply the chosen
+   release's CRDs before a reviewed reinstall, as described in
+   [installation](installation.md).
 
 ## Blocked or missing nodes
 

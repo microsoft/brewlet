@@ -18,7 +18,7 @@ from scripts import release_tools as tools
 class IdentityTests(unittest.TestCase):
     def test_current_coordinates_and_metadata_agree(self):
         config = r.policy()
-        self.assertEqual("0.8.1", config["version"])
+        self.assertEqual("0.9.0", config["version"])
         self.assertFalse(r.is_prerelease(config["version"]))
         self.assertFalse(r.is_stable(config["version"]))
         fixture = r.ET.parse(r.ROOT / "integration-tests/fixtures/java/app/pom.xml").getroot()
@@ -104,8 +104,8 @@ class PackagingTests(unittest.TestCase):
     def test_exact_payload_set_includes_every_distribution(self):
         names = r.expected_files(r.policy())
         self.assertEqual(9, len(names))
-        self.assertIn("brewlet-0.8.1.tgz", names)
-        self.assertIn("brewlet-maven-plugin-0.8.1-javadoc.jar", names)
+        self.assertIn("brewlet-0.9.0.tgz", names)
+        self.assertIn("brewlet-maven-plugin-0.9.0-javadoc.jar", names)
 
 
 class AssuranceTests(unittest.TestCase):
