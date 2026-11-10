@@ -112,6 +112,29 @@ not prove Linux mounts, real scheduling or provider behavior. See the
 Maintainers can follow the [release checklist](RELEASE.md) for version
 preparation, required release tests and publication.
 
+## Dashboard development and tests
+
+The dashboard HTTP integration tests use a fake Kubernetes client and a local
+OCI test registry. The frontend uses native browser modules and Node's built-in
+test runner, with no npm dependencies:
+
+```sh
+go test ./cmd/brewlet -run TestDashboard
+make test-dashboard
+```
+
+For an explicitly synthetic browser preview without a cluster:
+
+```sh
+BREWLET_DASHBOARD_PREVIEW=1 go test ./cmd/brewlet \
+  -run '^TestDashboardBrowserFixture$' -v -timeout 16m
+```
+
+Open the fixture's printed URL. The context clearly identifies the synthetic
+data, and the printed image reference can exercise rotation against the local
+test registry. The fixture stops after 15 minutes or when interrupted. For the
+operator-facing guide, see the [runtime dashboard documentation](docs/dashboard.md).
+
 Build the static website and searchable documentation with `make site-build`.
 The [website workflow](.github/workflows/site-pages.yml) uploads a checked preview
 artifact; the separate [Pages deployment workflow](.github/workflows/site-deploy.yml)
