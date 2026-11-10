@@ -201,10 +201,10 @@ Release Gate Tests.
   GitHub release has the intended version, notes, prerelease/latest status and
   assets, including CLI archives, checksums, candidate metadata, SBOMs and
   attestations.
-- [ ] Confirm the versioned operator, admission and node-provisioner images and
-  Helm chart are available in GHCR, and the matching Maven plugin is available
-  in Central. The CLI targets Linux/macOS amd64 and arm64; images target Linux
-  amd64 and arm64.
+- [ ] Confirm the versioned operator, admission, node-provisioner and dashboard
+  images and Helm chart are available in GHCR, and the matching Maven plugin is
+  available in Central. The CLI targets Linux/macOS amd64 and arm64; images
+  target Linux amd64 and arm64.
 - [ ] If independently repeating verification, use the trusted source checkout,
   the reviewed full commit SHA in `SOURCE`, ghx, ORAS, Helm, Go and the trusted
   Maven public key:

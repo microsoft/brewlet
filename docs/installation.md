@@ -129,7 +129,7 @@ A ready control plane does not prove that applications run. Deploy a reviewed
 application and confirm its HTTP responses, probes and runtime binding. See
 [packaging and deploying applications](applications.md) and [troubleshooting](troubleshooting.md).
 
-## Changing platform releases
+## Upgrades
 
 Brewlet does not currently promise in-place upgrades, downgrades or reuse of
 persisted state across releases. A reviewed Helm values change within the same
