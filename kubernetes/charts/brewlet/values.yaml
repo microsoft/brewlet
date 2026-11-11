@@ -1,5 +1,5 @@
 operator:
-  image: ghcr.io/microsoft/brewlet-operator:0.9.1
+  image: ghcr.io/microsoft/brewlet-operator:0.9.2
   rotationRestarts:
     enabled: false
     maxConcurrent: 5
@@ -19,7 +19,7 @@ runtimeClass:
     cpu: "50m"
     memory: "64Mi"
 provisioner:
-  image: ghcr.io/microsoft/brewlet-node-provisioner:0.9.1
+  image: ghcr.io/microsoft/brewlet-node-provisioner:0.9.2
   profiles: []
   gc:
     grace: 1h
@@ -28,11 +28,11 @@ security:
   allowedSourceMirrorHosts: []
 admission:
   enabled: true
-  image: ghcr.io/microsoft/brewlet-admission:0.9.1
+  image: ghcr.io/microsoft/brewlet-admission:0.9.2
   nodeProfileFailurePolicy: Fail
 dashboard:
   enabled: false
-  image: ghcr.io/microsoft/brewlet-dashboard:0.9.1
+  image: ghcr.io/microsoft/brewlet-dashboard:0.9.2
   imagePullPolicy: IfNotPresent
   allowWrite: false
   # Empty means port-forward access only. Set an HTTPS origin for your TLS proxy.

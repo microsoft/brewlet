@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "0.9.1",
+  "version": "0.9.2",
   "repository": "microsoft/brewlet",
   "workflow": ".github/workflows/release.yml",
   "cliTargets": ["linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"],
@@ -21,7 +21,7 @@
     "legalApproval": null,
     "mavenSigningFingerprint": "2FF61160B931430B78AEB59551E003AB27AE3E0F",
     "supportedTransitions": [
-      {"sourceVersion": "0.9.1", "targetVersion": "0.9.1", "method": "drain-teardown-reinstall"}
+      {"sourceVersion": "0.9.2", "targetVersion": "0.9.2", "method": "drain-teardown-reinstall"}
     ]
   }
 }
