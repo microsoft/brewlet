@@ -58,8 +58,7 @@ func validateEffectiveConfig(data []byte) error {
 	if err := validatePackedLayerRetention(config); err != nil {
 		return err
 	}
-	version, _ := config["version"].(int64)
-	plugin, err := runtimePlugin(version)
+	plugin, err := runtimePluginForConfig(config)
 	if err != nil {
 		return err
 	}

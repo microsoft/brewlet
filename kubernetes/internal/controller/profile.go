@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -700,6 +701,43 @@ func (r *ProfileReconciler) retire(ctx context.Context, p *api.NodeProfile) (ctr
 			}
 			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 		}
+		if c := meta.FindStatusCondition(p.Status.Conditions, "CleanupComplete"); c != nil && c.Reason == "ReceiptRecoveryPending" && c.Status == metav1.ConditionFalse {
+			for _, t := range d.Targets {
+				n := new(corev1.Node)
+				err := r.Reader.Get(ctx, client.ObjectKey{Name: t.Name}, n)
+				if apierrors.IsNotFound(err) || err == nil && n.UID != t.UID {
+					continue
+				}
+				if err != nil {
+					return r.blocked(ctx, p, "CleanupBlocked", err)
+				}
+				if !t.Claimed || n.Labels[api.OwnerUID] != string(p.UID) ||
+					n.Labels[api.OwnerNodeUID] != string(t.UID) || n.Annotations[api.OwnerName] != p.Name ||
+					(t.ProviderID != "" && t.ProviderID != n.Spec.ProviderID) ||
+					(t.SystemUUID != "" && t.SystemUUID != n.Status.NodeInfo.SystemUUID) {
+					return r.blocked(ctx, p, "CleanupBlocked", fmt.Errorf("cannot replay cleanup for changed Node %s/%s", t.Name, t.UID))
+				}
+				marker := n.Annotations["brewlet.sh/cleanup-complete"]
+				if marker == "" {
+					continue
+				}
+				if marker != fmt.Sprintf("%s/%d", p.UID, d.Generation) {
+					return r.blocked(ctx, p, "CleanupBlocked", fmt.Errorf("cannot replace foreign cleanup checkpoint for Node %s", t.Name))
+				}
+				base := n.DeepCopy()
+				delete(n.Annotations, "brewlet.sh/cleanup-complete")
+				if err := r.Patch(ctx, n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+					return ctrl.Result{}, err
+				}
+				fresh := new(corev1.Node)
+				if err := r.Reader.Get(ctx, client.ObjectKey{Name: t.Name}, fresh); err != nil {
+					return ctrl.Result{}, err
+				}
+				if fresh.UID != t.UID || fresh.Annotations["brewlet.sh/cleanup-complete"] != "" {
+					return r.blocked(ctx, p, "CleanupBlocked", fmt.Errorf("cleanup checkpoint withdrawal not observed for Node %s", t.Name))
+				}
+			}
+		}
 		missing := []api.Target{}
 		for _, t := range d.Targets {
 			n := new(corev1.Node)
@@ -769,6 +807,9 @@ func (r *ProfileReconciler) retire(ctx context.Context, p *api.NodeProfile) (ctr
 			setCondition(p, "Ready", "CleanupBlocked", "waiting for fenced worker revocation, lease drain, host cleanup and advertisement withdrawal; pinned stale labels require provider repair", metav1.ConditionFalse)
 			return r.save(ctx, p)
 		}
+		if err := inventoryTargetsResolved(ctx, r.Reader, p, d.Targets); err != nil {
+			return r.blocked(ctx, p, "CleanupBlocked", err)
+		}
 		d.Phase = "Teardown"
 		if !p.DeletionTimestamp.IsZero() {
 			setCondition(p, "CleanupComplete", "CleanupSucceeded", "host cleanup completed; worker teardown remains", metav1.ConditionTrue)
@@ -776,6 +817,34 @@ func (r *ProfileReconciler) retire(ctx context.Context, p *api.NodeProfile) (ctr
 		return r.save(ctx, p)
 	case "Teardown":
 		if err := inventoryTargetsResolved(ctx, r.Reader, p, d.Targets); err != nil {
+			var pending *inventoryTargetPending
+			if errors.As(err, &pending) {
+				n := new(corev1.Node)
+				if e := r.Reader.Get(ctx, client.ObjectKey{Name: pending.target.NodeName}, n); e != nil {
+					return r.blocked(ctx, p, "CleanupBlocked", e)
+				}
+				target := pending.target
+				verifier := &RuntimeReconciler{Reader: r.Reader}
+				if verifier.verifyReceipt(ctx, &pending.image, &target, n) == nil {
+					return r.blocked(ctx, p, "CleanupBlocked", err)
+				}
+				for _, t := range d.Targets {
+					n := new(corev1.Node)
+					if e := r.Reader.Get(ctx, client.ObjectKey{Name: t.Name}, n); e != nil {
+						return r.blocked(ctx, p, "CleanupBlocked", e)
+					}
+					if !t.Claimed || n.UID != t.UID || n.Labels[api.OwnerUID] != string(p.UID) ||
+						n.Labels[api.OwnerNodeUID] != string(t.UID) || n.Annotations[api.OwnerName] != p.Name ||
+						n.Annotations["brewlet.sh/cleanup-complete"] != fmt.Sprintf("%s/%d", p.UID, d.Generation) ||
+						(t.ProviderID != "" && t.ProviderID != n.Spec.ProviderID) ||
+						(t.SystemUUID != "" && t.SystemUUID != n.Status.NodeInfo.SystemUUID) {
+						return r.blocked(ctx, p, "CleanupBlocked", fmt.Errorf("cannot replay cleanup for changed Node %s/%s", t.Name, t.UID))
+					}
+				}
+				d.Phase = "Stopping"
+				setCondition(p, "CleanupComplete", "ReceiptRecoveryPending", "replaying fenced cleanup for unresolved inventory receipts", metav1.ConditionFalse)
+				return r.save(ctx, p)
+			}
 			return r.blocked(ctx, p, "CleanupBlocked", err)
 		}
 		if err := r.stopWorkers(ctx, p); err != nil {

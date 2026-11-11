@@ -6,6 +6,12 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+const (
+	legacyCRIPlugin  = "io.containerd.grpc.v1.cri"
+	splitCRIPlugin   = "io.containerd.cri.v1.runtime"
+	splitImagePlugin = "io.containerd.cri.v1.images"
+)
+
 func mapAt(parent map[string]any, key string) map[string]any {
 	child, _ := parent[key].(map[string]any)
 	if child == nil {
@@ -18,14 +24,31 @@ func mapAt(parent map[string]any, key string) map[string]any {
 func runtimePlugin(version int64) (string, error) {
 	switch version {
 	case 2:
-		return "io.containerd.grpc.v1.cri", nil
+		return legacyCRIPlugin, nil
 	case 3, 4:
 		// containerd 2.x migrates version 2 files and dumps version 4, which
 		// keeps the version 3 split CRI runtime and image plugin layout.
-		return "io.containerd.cri.v1.runtime", nil
+		return splitCRIPlugin, nil
 	default:
 		return "", fmt.Errorf("containerd config version 2, 3 or 4 required")
 	}
+}
+
+func runtimePluginForConfig(config map[string]any) (string, error) {
+	version, _ := config["version"].(int64)
+	plugin, err := runtimePlugin(version)
+	if err != nil {
+		return "", err
+	}
+	if version == 2 && configAt(config, "plugins", splitCRIPlugin) != nil {
+		return splitCRIPlugin, nil
+	}
+	return plugin, nil
+}
+
+func splitImageConfig(config map[string]any, plugin string) bool {
+	version, _ := config["version"].(int64)
+	return version != 2 || plugin == splitCRIPlugin && configAt(config, "plugins", splitImagePlugin) != nil
 }
 
 func configuredRuntime(original []byte) ([]byte, error) {
@@ -33,17 +56,19 @@ func configuredRuntime(original []byte) ([]byte, error) {
 	if err := toml.Unmarshal(original, &config); err != nil {
 		return nil, err
 	}
-	version, _ := config["version"].(int64)
-	plugin, err := runtimePlugin(version)
+	plugin, err := runtimePluginForConfig(config)
 	if err != nil {
 		return nil, err
 	}
+	for _, name := range []string{legacyCRIPlugin, splitCRIPlugin} {
+		if _, exists := configAt(config, "plugins", name, "containerd", "runtimes")["brewlet"]; exists {
+			return nil, fmt.Errorf("unmanaged brewlet handler cannot be adopted")
+		}
+	}
+	useSplitImages := splitImageConfig(config, plugin)
 	plugins := mapAt(config, "plugins")
 	containerd := mapAt(mapAt(plugins, plugin), "containerd")
 	runtimes := mapAt(containerd, "runtimes")
-	if _, exists := runtimes["brewlet"]; exists {
-		return nil, fmt.Errorf("unmanaged brewlet handler cannot be adopted")
-	}
 	options := map[string]any{}
 	if runc, ok := runtimes["runc"].(map[string]any); ok {
 		if existing, ok := runc["options"].(map[string]any); ok {
@@ -57,10 +82,10 @@ func configuredRuntime(original []byte) ([]byte, error) {
 		"pod_annotations": []string{"brewlet.sh/runtime-image", "brewlet.sh/rotated-to-generation"},
 		"options":         options,
 	}
-	if version == 2 {
-		containerd["discard_unpacked_layers"] = false
+	if useSplitImages {
+		mapAt(plugins, splitImagePlugin)["discard_unpacked_layers"] = false
 	} else {
-		mapAt(plugins, "io.containerd.cri.v1.images")["discard_unpacked_layers"] = false
+		mapAt(mapAt(plugins, legacyCRIPlugin), "containerd")["discard_unpacked_layers"] = false
 	}
 	return toml.Marshal(config)
 }
@@ -73,14 +98,13 @@ func configAt(parent map[string]any, keys ...string) map[string]any {
 }
 
 func validatePackedLayerRetention(config map[string]any) error {
-	version, _ := config["version"].(int64)
-	plugin, err := runtimePlugin(version)
+	plugin, err := runtimePluginForConfig(config)
 	if err != nil {
 		return err
 	}
-	imageConfig := configAt(config, "plugins", plugin, "containerd")
-	if version != 2 {
-		imageConfig = configAt(config, "plugins", "io.containerd.cri.v1.images")
+	imageConfig := configAt(config, "plugins", legacyCRIPlugin, "containerd")
+	if splitImageConfig(config, plugin) {
+		imageConfig = configAt(config, "plugins", splitImagePlugin)
 	}
 	discard, exposed := imageConfig["discard_unpacked_layers"].(bool)
 	if !exposed || discard {

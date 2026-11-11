@@ -57,7 +57,9 @@ sets `discard_unpacked_layers=false` at
 `plugins."io.containerd.grpc.v1.cri".containerd` for version 2, or
 `plugins."io.containerd.cri.v1.images"` for versions 3 and 4. containerd 2.x
 migrates an on-disk version 2 file and reports the effective `config dump` as
-version 4, so validation accepts that layout. This mandatory packed-layer
+version 4, so validation accepts that layout. If a version 2 file already
+contains split CRI runtime and image plugin tables, activation updates those
+tables instead of adding a handler to the ignored legacy table. This mandatory packed-layer
 retention prevents GC between CRI unpack and the first verified shim stage;
 an unpacked snapshot or a warm cache is not a substitute for cold source bytes
 (specification §8.2 / retained 0.x SPEC §6.4).
@@ -80,7 +82,15 @@ Each original inventory identity must first have a complete, independently
 read-back per-ID revocation receipt. A deferred staging/task/mount check publishes
 incomplete evidence and retains its revoked authorization for retry; a later
 successful removal must never discard that identity behind an incomplete receipt.
-Only then may profile cleanup certify completion and permit controller teardown.
+Offered or historical runtime IDs that were never authorized still require a
+receipt proving that their local roots, leases and mounts are absent. Only
+after the inventory controller resolves those receipts may profile cleanup
+certify completion and permit controller teardown. If an earlier cleanup
+entered teardown without a required receipt, the controller replays fenced
+cleanup only while the original node identity and claim still match. If the
+prior cleanup already removed the installed shim, the cleanup worker runs its
+trusted bundled evidence collector in the host namespace without reinstalling
+the shim or relaxing evidence requirements.
 Deferred causes are reported with the ID, inventory epoch/generation, profile UID
 and Node UID, rather than being hidden behind a generic stalled finalizer.
 Owned shim upgrades retain the original cleanup backup and a prior-committed

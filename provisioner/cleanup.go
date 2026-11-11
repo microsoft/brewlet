@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	"github.com/microsoft/brewlet/pkg/control"
@@ -15,7 +16,8 @@ func (w *Worker) Cleanup(ctx context.Context, evidence node.Evidence) error {
 	if w.Authority.Mode != "cleanup" {
 		return fmt.Errorf("cleanup authority required")
 	}
-	if _, err := w.check(ctx); err != nil {
+	snapshot, err := w.check(ctx)
+	if err != nil {
 		return err
 	}
 	defer func() {
@@ -27,20 +29,46 @@ func (w *Worker) Cleanup(ctx context.Context, evidence node.Evidence) error {
 	if err != nil {
 		return err
 	}
+	ids := map[string]bool{}
+	for _, entry := range snapshot.Spec.RuntimeImages {
+		ids[entry.ID] = true
+	}
+	var images api.RuntimeImageList
+	if err := w.Reader.List(ctx, &images); err != nil {
+		return err
+	}
+	for _, image := range images.Items {
+		for _, target := range image.Status.RevocationTargets {
+			if !target.Resolved && target.NodeUID == w.Authority.NodeUID && target.ProfileUID == w.Authority.ProfileUID {
+				ids[image.Name] = true
+			}
+		}
+	}
+	authorized := map[string]bool{}
 	var keys = []string{api.RuntimeLabel}
 	var revocationErrors []error
 	for _, a := range authorizations {
 		if a.ProfileUID != string(w.Authority.ProfileUID) {
 			return fmt.Errorf("ownership-fence-failed: foreign inventory")
 		}
+		ids[a.ID] = true
+		authorized[a.ID] = true
 		if _, err := w.check(ctx); err != nil {
 			return err
 		}
 		if err := w.Store.Revoke(ctx, a.ID, string(w.Authority.ProfileUID)); err != nil {
 			revocationErrors = append(revocationErrors, err)
 		}
-		keys = append(keys, "brewlet.sh/runtime."+a.ID)
 	}
+	runtimeIDs := make([]string, 0, len(ids))
+	for id := range ids {
+		if err := node.ValidateID(id); err != nil {
+			return err
+		}
+		runtimeIDs = append(runtimeIDs, id)
+		keys = append(keys, "brewlet.sh/runtime."+id)
+	}
+	slices.Sort(runtimeIDs)
 	if _, err := control.Withdraw(ctx, w.Client, w.Reader, w.Authority, keys); err != nil {
 		return errors.Join(append(revocationErrors, err)...)
 	}
@@ -60,21 +88,23 @@ func (w *Worker) Cleanup(ctx context.Context, evidence node.Evidence) error {
 	if err := w.Store.Recover(ctx, evidence); err != nil {
 		return err
 	}
-	for _, a := range authorizations {
+	for _, id := range runtimeIDs {
 		if _, err := w.check(ctx); err != nil {
 			return err
 		}
-		if err := w.revokeRuntime(ctx, a.ID); err != nil {
+		if err := w.revokeRuntime(ctx, id); err != nil {
 			return err
 		}
-		fence := func(ctx context.Context) error { _, err := w.check(ctx); return err }
-		if err := w.Store.Retire(ctx, a.ID, string(w.Authority.ProfileUID), evidence, fence); err != nil {
-			return err
+		if authorized[id] {
+			fence := func(ctx context.Context) error { _, err := w.check(ctx); return err }
+			if err := w.Store.Retire(ctx, id, string(w.Authority.ProfileUID), evidence, fence); err != nil {
+				return err
+			}
 		}
 		if _, err := w.check(ctx); err != nil {
 			return err
 		}
-		if err := w.Store.RemoveRequest(a.ID); err != nil {
+		if err := w.Store.RemoveRequest(id); err != nil {
 			return err
 		}
 	}

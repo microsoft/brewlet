@@ -2,13 +2,89 @@ package controller
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
 	api "github.com/microsoft/brewlet/kubernetes/api/v1alpha1"
 	noderuntime "github.com/microsoft/brewlet/pkg/node"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+func TestProfileReplaysCleanupForMissingInventoryReceipts(t *testing.T) {
+	for _, changedClaim := range []bool{false, true} {
+		t.Run(strconv.FormatBool(changedClaim), func(t *testing.T) {
+			r, im, p, n := revocationSetup(t)
+			ctx := context.Background()
+			revokeStep(t, r, im)
+			if err := r.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+				t.Fatal(err)
+			}
+			p.Status.Retirement = &api.Retirement{Targets: p.Status.Targets, Generation: 1, Spec: p.Spec, Phase: "Teardown"}
+			setCondition(p, "CleanupComplete", "CleanupSucceeded", "host cleanup completed", metav1.ConditionTrue)
+			if err := r.Status().Update(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(n), n); err != nil {
+				t.Fatal(err)
+			}
+			delete(n.Labels, "brewlet.sh/runtime."+im.Name)
+			n.Annotations["brewlet.sh/cleanup-complete"] = "profile/1"
+			if changedClaim {
+				n.Labels[api.OwnerUID] = "replacement"
+			}
+			if err := r.Update(ctx, n); err != nil {
+				t.Fatal(err)
+			}
+			pr := &ProfileReconciler{Client: r.Client, Reader: r.Reader, Namespace: "brewlet-system", WorkerImage: "worker"}
+			if _, err := pr.retire(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+				t.Fatal(err)
+			}
+			if changedClaim {
+				if p.Status.Retirement.Phase != "Teardown" {
+					t.Fatal("cleanup replay accepted a changed node claim")
+				}
+				return
+			}
+			if p.Status.Retirement.Phase != "Stopping" || meta.IsStatusConditionTrue(p.Status.Conditions, "CleanupComplete") {
+				t.Fatal("missing receipts did not safely reopen cleanup")
+			}
+			if _, err := pr.retire(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+				t.Fatal(err)
+			}
+			if p.Status.Retirement.Phase != "Cleaning" {
+				t.Fatal("cleanup replay did not reach the fenced cleaning phase")
+			}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(n), n); err != nil {
+				t.Fatal(err)
+			}
+			if n.Labels[api.OwnerUID] != string(p.UID) || n.Annotations["brewlet.sh/cleanup-complete"] != "" {
+				t.Fatal("cleanup replay released the original claim")
+			}
+			n.Annotations["brewlet.sh/cleanup-complete"] = "profile/1"
+			if err := r.Update(ctx, n); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pr.retire(ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+				t.Fatal(err)
+			}
+			if p.Status.Retirement.Phase != "Cleaning" {
+				t.Fatal("cleanup advanced before the inventory receipts were resolved")
+			}
+		})
+	}
+}
 
 func TestEpochObligationSurvivesProfileEntryRemovalAndReauthorization(t *testing.T) {
 	r, im, p, n := revocationSetup(t)
@@ -105,6 +181,12 @@ func TestProfileTeardownWaitsForIndependentInventoryReceiptCheckpoint(t *testing
 		t.Fatal("retired authorization ceiling was silently advanced by a later global target")
 	}
 	_ = r.Get(ctx, client.ObjectKeyFromObject(p), p)
+	if p.Status.Retirement.Phase == "Cleaning" {
+		if _, err := pr.retire(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		_ = r.Get(ctx, client.ObjectKeyFromObject(p), p)
+	}
 	if _, err := pr.retire(ctx, p); err != nil {
 		t.Fatal(err)
 	}

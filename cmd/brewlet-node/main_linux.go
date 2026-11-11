@@ -112,10 +112,15 @@ func run() error {
 	installer.NodeUID = string(a.NodeUID)
 	installer.ProfileGeneration = a.Generation
 	installer.Fence = func(ctx context.Context) error { _, err := control.Check(ctx, c, a); return err }
-	installer.MountEvidence = provisioner.HostEvidence{HostRoot: host, Client: cd}
+	evidence := provisioner.HostEvidence{HostRoot: host, Client: cd}
+	if a.Mode == "cleanup" {
+		// A prior cleanup may already have removed the installed shim.
+		evidence.FallbackBinary = "/containerd-shim-brewlet-v2"
+	}
+	installer.MountEvidence = evidence
 	worker := &provisioner.Worker{Client: c, Reader: c, Authority: a, Store: store, Installer: installer, Baseline: provisioner.HostBaseline{HostRoot: host}}
 	worker.Activation = provisioner.HostActivation{HostRoot: host, InventoryRoot: store.Root, SourceBinary: "/containerd-shim-brewlet-v2", ProfileUID: string(a.ProfileUID), NodeUID: string(a.NodeUID)}
-	worker.Evidence = provisioner.HostEvidence{HostRoot: host, Client: cd}
+	worker.Evidence = evidence
 	worker.Tasks = cd
 	worker.GCGrace, err = productionDuration("BREWLET_GC_GRACE", time.Hour)
 	if err != nil {
@@ -164,7 +169,7 @@ func run() error {
 		}
 		if a.Mode == "cleanup" {
 			if !cleanupDone {
-				if err := worker.Cleanup(ctx, provisioner.HostEvidence{HostRoot: host, Client: cd}); err != nil {
+				if err := worker.Cleanup(ctx, evidence); err != nil {
 					return err
 				}
 				cleanupDone = true

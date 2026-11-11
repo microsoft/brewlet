@@ -78,3 +78,53 @@ discard_unpacked_layers=false`,
 		t.Fatal("missing config did not receive explicit retention", string(desired), err)
 	}
 }
+
+func TestConfiguredRuntimeUsesSplitPluginsInVersion2Config(t *testing.T) {
+	original := []byte(`version = 2
+[plugins."io.containerd.grpc.v1.cri".containerd]
+discard_unpacked_layers = false
+[plugins."io.containerd.cri.v1.images"]
+discard_unpacked_layers = true
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options]
+SystemdCgroup = true
+`)
+	desired, err := configuredRuntime(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := toml.Unmarshal(desired, &config); err != nil {
+		t.Fatal(err)
+	}
+	handler := configAt(config, "plugins", "io.containerd.cri.v1.runtime", "containerd", "runtimes", "brewlet")
+	if handler["runtime_type"] != "io.containerd.brewlet.v2" ||
+		configAt(handler, "options")["SystemdCgroup"] != true {
+		t.Fatal("split runtime handler or runc options missing", handler)
+	}
+	if configAt(config, "plugins", "io.containerd.cri.v1.images")["discard_unpacked_layers"] != false {
+		t.Fatal("split image plugin did not receive retention setting")
+	}
+	if err := validatePackedLayerConfig(desired); err != nil {
+		t.Fatal(err)
+	}
+	configAt(config, "plugins", "io.containerd.cri.v1.images")["discard_unpacked_layers"] = true
+	unsafe, err := toml.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePackedLayerConfig(unsafe); err == nil {
+		t.Fatal("ignored unsafe split image retention setting")
+	}
+}
+
+func TestConfiguredRuntimeRejectsLegacyHandlerInSplitVersion2Config(t *testing.T) {
+	original := []byte(`version = 2
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc]
+runtime_type = "io.containerd.runc.v2"
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.brewlet]
+runtime_type = "unmanaged"
+`)
+	if _, err := configuredRuntime(original); err == nil {
+		t.Fatal("unmanaged legacy handler was silently adopted")
+	}
+}

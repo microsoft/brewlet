@@ -5,6 +5,7 @@ package provisioner
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -20,6 +21,70 @@ func (e *drainingCleanupEvidence) Gone(context.Context, node.Lease) (bool, error
 	return e.calls > 1, nil
 }
 func (*drainingCleanupEvidence) MountsGone(context.Context, string) (bool, error) { return true, nil }
+
+type uninstalledCleanupEvidence struct{ mountsGone bool }
+
+func (uninstalledCleanupEvidence) Gone(context.Context, node.Lease) (bool, error) {
+	return true, nil
+}
+func (e uninstalledCleanupEvidence) MountsGone(context.Context, string) (bool, error) {
+	return e.mountsGone, nil
+}
+
+func TestCleanupReceiptsForUninstalledRuntimeObligations(t *testing.T) {
+	for _, historical := range []bool{false, true} {
+		for _, mountsGone := range []bool{false, true} {
+			name := "offered"
+			if historical {
+				name = "historical"
+			}
+			t.Run(name+"/mountsGone="+strconv.FormatBool(mountsGone), func(t *testing.T) {
+				w, _ := authorityFixture(t)
+				requireRootWorkdir(t, w)
+				approveStatic(t, w)
+				ctx := context.Background()
+				p := new(api.NodeProfile)
+				if err := w.Client.Get(ctx, client.ObjectKey{Name: w.Authority.ProfileName}, p); err != nil {
+					t.Fatal(err)
+				}
+				if historical {
+					p.Spec.RuntimeImages = nil
+				}
+				p.Status.Retirement = &api.Retirement{Generation: w.Authority.Generation, Spec: p.Spec,
+					Targets: p.Status.Targets, Phase: "Cleaning"}
+				if err := w.Client.Update(ctx, p); err != nil {
+					t.Fatal(err)
+				}
+				w.Authority.Mode = "cleanup"
+				evidence := uninstalledCleanupEvidence{mountsGone: mountsGone}
+				w.Evidence = evidence
+				err := w.Cleanup(ctx, evidence)
+				n := readinessNode(t, w)
+				if !mountsGone {
+					if err == nil || n.Annotations["brewlet.sh/cleanup-complete"] != "" {
+						t.Fatalf("cleanup certified an unproven runtime: %v", err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				var receipts map[string]node.RevocationReceipt
+				if err := json.Unmarshal([]byte(n.Annotations[node.RevocationsAnnotation]), &receipts); err != nil {
+					t.Fatal(err)
+				}
+				receipt := receipts["static"]
+				if !receipt.RootsCleaned || receipt.InventoryUID != "epoch-one" ||
+					receipt.ProfileUID != string(w.Authority.ProfileUID) || receipt.NodeUID != string(w.Authority.NodeUID) {
+					t.Fatalf("missing genuine uninstalled-runtime receipt: %+v", receipt)
+				}
+				if n.Annotations["brewlet.sh/cleanup-complete"] == "" {
+					t.Fatal("completed cleanup was not recorded")
+				}
+			})
+		}
+	}
+}
 
 func TestCleanupCannotForgetAuthorizationBeforeCompleteRevocationReceipt(t *testing.T) {
 	w, _ := recoveryFixture(t, map[string]string{"static": "OnDemand"}, false)
