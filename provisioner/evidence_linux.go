@@ -17,6 +17,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var evidenceCommand = exec.CommandContext
+
 // HostEvidence executes the maintenance entrypoint in the initial host mount
 // namespace, without weakening the collector's namespace checks.
 type HostEvidence struct {
@@ -52,7 +54,7 @@ func (e HostEvidence) query(ctx context.Context, request node.EvidenceRequest) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "nsenter", "--mount="+e.HostRoot+"/proc/1/ns/mnt", "--root="+e.HostRoot+"/proc/1/root", "--wd=/", "--", binary, "--brewlet-evidence")
+	cmd := evidenceCommand(ctx, "nsenter", "--mount="+e.HostRoot+"/proc/1/ns/mnt", "--root="+e.HostRoot+"/proc/1/root", "--wd=/", "--", binary, "--brewlet-evidence")
 	if fallback != nil {
 		cmd.ExtraFiles = []*os.File{fallback}
 	}

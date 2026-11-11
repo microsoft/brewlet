@@ -4,24 +4,53 @@ package provisioner
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
+const bundledCollectorMarker = "bundled-collector"
+
+// TestEvidenceHelperProcess stands in for nsenter running the collector passed
+// as fd 3, so the test never executes files from noexec temporary mounts.
+func TestEvidenceHelperProcess(t *testing.T) {
+	if os.Getenv("BREWLET_EVIDENCE_HELPER") != "1" {
+		return
+	}
+	args := os.Args
+	for len(args) > 0 && args[0] != "--" {
+		args = args[1:]
+	}
+	content, err := io.ReadAll(os.NewFile(3, "collector"))
+	if err != nil || string(content) != bundledCollectorMarker || len(args) != 3 || args[1] != "/proc/self/fd/3" || args[2] != "--brewlet-evidence" {
+		fmt.Println(`{"error":"unexpected collector invocation"}`)
+		os.Exit(0)
+	}
+	fmt.Println(`{"gone":true}`)
+	os.Exit(0)
+}
+
 func TestHostEvidenceFallbackAfterShimRemoval(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("trusted evidence collectors must be root-owned")
 	}
-	dir := t.TempDir()
-	nsenter := filepath.Join(dir, "nsenter")
-	if err := os.WriteFile(nsenter, []byte("#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n"), 0755); err != nil {
-		t.Fatal(err)
+	original := evidenceCommand
+	t.Cleanup(func() { evidenceCommand = original })
+	evidenceCommand = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if name != "nsenter" {
+			t.Fatalf("unexpected evidence command %q", name)
+		}
+		cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestEvidenceHelperProcess$", "--"}, args[len(args)-2:]...)...)
+		cmd.Env = append(os.Environ(), "BREWLET_EVIDENCE_HELPER=1")
+		return cmd
 	}
-	t.Setenv("PATH", dir)
+	dir := t.TempDir()
 	bundled := filepath.Join(dir, "collector")
-	if err := os.WriteFile(bundled, []byte("#!/bin/sh\nprintf '{\"gone\":true}\\n'\n"), 0755); err != nil {
+	if err := os.WriteFile(bundled, []byte(bundledCollectorMarker), 0755); err != nil {
 		t.Fatal(err)
 	}
 	host := filepath.Join(dir, "host")
