@@ -14,7 +14,6 @@ theme:
   font: false
   favicon: ../assets/images/favicon.svg
   features:
-    - navigation.sections
     - navigation.top
     - content.code.copy
     - content.action.edit
@@ -26,6 +25,8 @@ hooks:
 extra_css:
   - ../assets/css/theme.css
   - stylesheets/brewlet-docs.css
+extra:
+  homepage: ../
 markdown_extensions:
   - admonition
   - attr_list

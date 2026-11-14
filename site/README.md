@@ -16,6 +16,10 @@ Console after deployment. The comparison
 draft is rendered without modifying its source; repository-file links become
 branch-specific GitHub source links through the documented hook.
 
+Documentation navigation state lives in `docs/javascripts/brewlet-nav.js`.
+`site/overrides/main.html` loads it synchronously after the navigation markup,
+before Material initializes, to preserve expanded sections between pages.
+
 The landing page includes responsive desktop/mobile SVG architecture diagrams,
 in main's schematic style but with the current runtime-infrastructure contract.
 They distinguish CRI application pulls, operator reconciliation of node workers,

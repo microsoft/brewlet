@@ -5,6 +5,9 @@ the "One app. One runtime ID. No image rebuild." demonstration against the lates
 Brewlet release, or optionally against Brewlet built from this checkout. It is a
 contributor/presenter tool, not part of the product.
 
+Follow the [illustrated Java canvas walkthrough](https://brewlet.sh/docs/demo/)
+for opening the panel, running each stage and reading the live evidence.
+
 The application travels as an OCI image containing only ShowMyJVM's dependency
 JARs, its application JAR and `launch.json`. The Java runtime is node
 infrastructure: the approved `temurin-25` RuntimeImage offered by a NodeProfile.

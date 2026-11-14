@@ -8,7 +8,9 @@ Python application, and update its node-supplied runtime. You'll see how a
 running Pod keeps its original runtime while a replacement Pod uses the update,
 without changing the application image.
 
-The tutorial uses **Brewlet 0.8.1**, the beta release it was tested with.
+The tutorial installs the latest Brewlet release. To use a specific release
+instead, pass the same `--version VERSION` to the install script and to
+`helm install`.
 
 ## Prerequisites
 
@@ -25,12 +27,13 @@ Install the `brewlet` CLI into `~/.local/bin`:
 
 ```sh
 # tutorial-step: cli
-curl -fsSL https://brewlet.sh/install.sh | sh -s -- --version 0.8.1
+curl -fsSL https://brewlet.sh/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 brewlet version
 ```
 
-The script downloads the release for your machine and verifies its checksum.
+The script downloads the latest release for your machine and verifies its
+checksum.
 
 ## 2. Create a work directory
 
@@ -81,14 +84,12 @@ node-supplied Python. `brewlet build` writes the image to `$WORK/image`, and
 
 ## 4. Create the cluster and load the image
 
-Create a one-node kind cluster and load the application image into it. The
-node image is pinned to a Kubernetes version whose containerd configuration
-Brewlet supports:
+Create a one-node kind cluster and load the application image into it. kind's
+default node image runs containerd 2.x, which Brewlet requires:
 
 ```sh
 # tutorial-step: cluster
-kind create cluster --name brewlet \
-  --image kindest/node@sha256:4613778f3cfcd10e615029370f5786704559103cf27bef934597ba562b269661
+kind create cluster --name brewlet
 tar -C "$WORK/image" -cf - oci-layout index.json blobs \
   | docker exec -i brewlet-control-plane ctr -n k8s.io images import -
 docker exec brewlet-control-plane ctr -n k8s.io images tag example.invalid/brewlet/hello:v1 "$APP"
@@ -99,12 +100,12 @@ a registry instead, see [registry and trust configuration](registry-trust.md).
 
 ## 5. Install Brewlet on the cluster and offer a runtime
 
-Install the released Helm chart. It includes the CRDs and digest-pinned
-component images:
+Install the latest released Helm chart. It includes the CRDs and
+digest-pinned component images:
 
 ```sh
 # tutorial-step: install
-helm install brewlet oci://ghcr.io/microsoft/charts/brewlet --version 0.8.1 \
+helm install brewlet oci://ghcr.io/microsoft/charts/brewlet \
   --namespace brewlet --create-namespace --wait
 
 cat > "$WORK/python.yaml" <<'EOF'
@@ -197,14 +198,15 @@ The RuntimeImage is at generation 2, but the running Pod still answers with
 Python 3.11.2. Brewlet never swaps the runtime under a running process.
 
 Restart the Deployment. The replacement Pod uses the new runtime, with the same
-application image:
+application image. Waiting for `OldGenerationTasks=false` ensures the old Pod
+has stopped before you call the Service:
 
 ```sh
 # tutorial-step: replacement
 kubectl rollout restart deployment/hello
 kubectl rollout status deployment/hello --timeout=5m
-docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
 kubectl wait runtimeimage/python --for=condition=OldGenerationTasks=false --timeout=2m
+docker exec brewlet-control-plane curl -s --retry 5 --retry-connrefused "http://$SERVICE_IP:8000/"
 brewlet k8s runtime status python
 ```
 

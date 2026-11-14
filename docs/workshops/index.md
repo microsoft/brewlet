@@ -8,7 +8,8 @@ application tasks, not two owners of that workload.
 | --- | --- |
 | [Platform workshop](platform.md) | Approved runtime inventory, a validated offering pool and a documented developer handoff. |
 | [Developer workshop](developer.md) | An explicit application artifact deployed as a native workload and verified over HTTP. |
-| [Guided local demonstration](../demo.md) | One operator completes both paths, rotates a runtime and cleans up normally. |
+| [Guided Java canvas demonstration](../demo.md) | Run the Copilot app extension: build a golden JDK, package ShowMyJVM app-only, and compare runtime rotation and rollback. |
 
-Use one Brewlet release (0.8.1) throughout: the same version of the CLI, the
-Helm chart and, if used, the Maven plugin.
+For the platform and developer workshops, use one Brewlet release (0.8.1)
+throughout: the same version of the CLI, the Helm chart and, if used, the Maven
+plugin. The canvas demonstration resolves its own matching release CLI and chart.
