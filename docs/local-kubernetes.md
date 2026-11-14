@@ -233,5 +233,5 @@ To remove the CLI too, run `rm ~/.local/bin/brewlet`.
 If a cleanup command fails, see [troubleshooting](troubleshooting.md) and
 [safe removal](uninstallation.md).
 
-[Continue with the platform handoff](workshops/index.md), or
+Explore [runtime images and pools](runtime-images.md), or
 [publish through a registry](applications.md).
