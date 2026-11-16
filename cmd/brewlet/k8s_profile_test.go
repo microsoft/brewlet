@@ -164,6 +164,27 @@ func TestK8sProfileDeleteUnassignedNeedsNoConfirmation(t *testing.T) {
 	}
 }
 
+func TestK8sProfileDeleteWaitsForOwnershipInitialization(t *testing.T) {
+	p := k8sPooledProfile("fresh", []string{"p"}, api.RuntimeEntry{ID: "python-3.12"})
+	p.Status.Targets = nil
+	p.Finalizers = []string{api.CleanupFinalizer}
+	c := k8sFakeClient(t, p)
+	if _, _, err := k8sRun("profile", "delete", "fresh", "--yes"); err == nil || !strings.Contains(err.Error(), "not initialized") {
+		t.Fatalf("delete before initialization: %v", err)
+	}
+	got := new(api.NodeProfile)
+	if err := c.Get(t.Context(), client.ObjectKey{Name: "fresh"}, got); err != nil || !got.DeletionTimestamp.IsZero() {
+		t.Fatalf("profile was deleted: %v %+v", err, got.ObjectMeta)
+	}
+	got.Status.OwnershipInitialized = true
+	if err := c.Status().Update(t.Context(), got); err != nil {
+		t.Fatal(err)
+	}
+	if out, _, err := k8sRun("profile", "delete", "fresh"); err != nil || !strings.Contains(out, "deleted") {
+		t.Fatalf("delete after initialization: %v\n%s", err, out)
+	}
+}
+
 func TestK8sProfileAddAndRemoveRuntime(t *testing.T) {
 	web := k8sPooledProfile("web", []string{"userpool"}, api.RuntimeEntry{ID: "python-3.12"})
 	objs := append(k8sWorkloads("python-3.12", false), web, k8sApproved("python-3.12", k8sOldSource), k8sApproved("node-22", k8sOldSource))

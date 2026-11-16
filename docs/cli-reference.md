@@ -157,7 +157,7 @@ may appear before or after the subcommand. `-o` is shorthand for `--output`.
 | `profile list [--output table\|wide\|json\|yaml]` | NodeProfiles with pool, runtimes, ready/assigned nodes and age. |
 | `profile status NAME [--output table\|json\|yaml]` | Pool, rollout, conditions, runtimes with approval state, and the nodes the profile targets. |
 | `profile create NAME (--pool POOL ... \| --all-nodes) --runtime ID[:INSTALL[:IDLE-TTL]] ...` | Create a NodeProfile. Also accepts `--pool-key`, `--include-control-plane`, `--toleration KEY[=VALUE][:EFFECT]`, `--max-unavailable` and `--containerd-restart validated\|none`. |
-| `profile delete NAME [--yes]` | Show affected nodes and pods, then delete. `--yes` is required when nodes are assigned or pods are running. Cleanup is asynchronous. |
+| `profile delete NAME [--yes]` | Show affected nodes and pods, then delete. `--yes` is required when nodes are assigned or pods are running. Cleanup is asynchronous. A just-created profile can be deleted only after the operator has reconciled it. |
 | `profile add-runtime NAME ID [--install Eager\|OnDemand] [--idle-ttl DURATION]` | Offer an approved runtime on an existing profile. |
 | `profile remove-runtime NAME ID [--yes]` | Stop offering a runtime. A profile always keeps at least one runtime. |
 | `doctor [--namespace brewlet] [--output table\|json]` | Check CRDs, operator/admission, RuntimeClass, approvals and profiles; nonzero exit on failure. |

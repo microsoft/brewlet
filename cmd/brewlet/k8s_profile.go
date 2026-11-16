@@ -121,7 +121,9 @@ delete prints the impact first: the nodes assigned to the profile and the live
 pods on them that use the profile's runtimes. There is no interactive prompt:
 when nodes are assigned or pods are affected, delete refuses unless --yes is
 given. Profiles installed through Helm values are re-created by the next
-'helm upgrade'; remove them from the values too.
+'helm upgrade'; remove them from the values too. A new profile cannot be
+deleted while the operator is still initializing it, because the operator
+would otherwise keep its finalizer; retry once it has reconciled.
 
 Examples:
   brewlet k8s profile delete staging
@@ -722,6 +724,12 @@ func k8sProfileDelete(ctx context.Context, conn *k8sConn, args []string, stdout,
 		fmt.Fprintf(stdout, "NodeProfile %s is already being deleted; follow it with 'brewlet k8s profile status %s'\n", p.Name, p.Name)
 		return nil
 	}
+	// Once the operator holds the cleanup finalizer it releases it only for an
+	// initialized ownership ledger, so deleting in between would block forever.
+	finalized := slices.Contains(p.Finalizers, api.CleanupFinalizer)
+	if finalized && !p.Status.OwnershipInitialized {
+		return fmt.Errorf("NodeProfile %s is not initialized by the operator yet; deleting it now would leave it blocked (CleanupBlocked) with its finalizer. Retry once 'brewlet k8s profile status %s' shows it reconciled", p.Name, p.Name)
+	}
 	pods, err := profileLivePods(ctx, c, p, profileRuntimeIDs(p))
 	if err != nil {
 		return err
@@ -743,7 +751,16 @@ func k8sProfileDelete(ctx context.Context, conn *k8sConn, args []string, stdout,
 	if !impact.empty() && !*yes {
 		return fmt.Errorf("deleting NodeProfile %s affects the nodes/pods above; re-run with --yes to apply (or --dry-run to preview)", p.Name)
 	}
-	if err := c.Delete(ctx, p, client.Preconditions{UID: &p.UID}); err != nil && !apierrors.IsNotFound(err) {
+	pre := client.Preconditions{UID: &p.UID}
+	if !finalized {
+		// Without the finalizer deletion is immediate; fail instead if the
+		// operator adds it (and so becomes responsible) after this read.
+		pre.ResourceVersion = &p.ResourceVersion
+	}
+	if err := c.Delete(ctx, p, pre); err != nil && !apierrors.IsNotFound(err) {
+		if apierrors.IsConflict(err) {
+			return fmt.Errorf("delete NodeProfile %s: it changed while deleting; retry: %w", p.Name, err)
+		}
 		return fmt.Errorf("delete NodeProfile %s: %w", p.Name, err)
 	}
 	fmt.Fprintf(stdout, "nodeprofile.node.brewlet.sh/%s deleted; the operator cleans up the nodes and releases the finalizer once they confirm (brewlet k8s profile status %s)\n", p.Name, p.Name)

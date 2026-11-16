@@ -1782,6 +1782,10 @@ class Harness:
                 initial_fence(self)
             self.phase = "startup"
             self.startup()
+            if self.scenario in ("complete", "pr"):
+                self.phase = "profile-cli"
+                from profile_cli import exercise as verify_profile_cli
+                verify_profile_cli(self)
             self.phase = "execution"
             from observability import Observer
             with Observer(self) as observer:

@@ -38,7 +38,9 @@ relaxed by this readiness check.
 The branch's `.github/workflows/e2e.yml` is reused by PR Check and Release Gate Tests and can
 also be dispatched manually at an exact `expected_sha`. Its default `pr` scenario
 is the real Python baseline (`harness.py --scenario pr`, verified with
-`qualify.py --verify-pr`): admission/startup, execution, rotations,
+`qualify.py --verify-pr`): admission/startup, the `brewlet k8s profile` CLI
+(list, status, create, add-runtime, remove-runtime and delete against the live
+operator and admission webhook), execution, rotations,
 observability, operator restart, protected CRI identity and normal cleanup.
 Python is the only qualification fixture; PR, full and promotion validation
 never build or install the Java, Node.js, .NET or PHP toolchains. The receipt
