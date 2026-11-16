@@ -50,7 +50,7 @@ func runInventory(ctx context.Context, args []string, stdout, _ io.Writer) error
 		return err
 	}
 	if err := checkTextOutput("inventory", *output); err != nil {
-		return fmt.Errorf("%w; write the JSON report to a file with --report FILE", err)
+		return err
 	}
 	if fs.NArg() != 0 || *kubeconfig == "" || *contextName == "" || *policyFile == "" || len(namespaces) == 0 ||
 		*maxAge <= 0 || *maxAge > 2*time.Minute || *insecure && *https {
