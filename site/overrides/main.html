@@ -24,3 +24,9 @@
     <meta name="twitter:image:alt" content="{{ social_alt | e }}">
   {% endif %}
 {% endblock %}
+
+{% block site_nav %}
+  {{ super() }}
+  {#- Restore state after the navigation markup, before Material initializes. -#}
+  <script src="{{ 'javascripts/brewlet-nav.js' | url }}"></script>
+{% endblock %}

@@ -53,9 +53,9 @@ distinct from real-node evidence. See the
 
 - [Documentation](docs/index.md)
 - [Getting started](docs/local-kubernetes.md)
-- [Ops workshop](docs/workshops/platform.md)
+- [Installation](docs/installation.md)
 - [Runtime dashboard](docs/dashboard.md)
-- [Developer workshop](docs/workshops/developer.md)
+- [Package and deploy applications](docs/applications.md)
 - [Prerelease distribution and recovery](docs/supported-release.md)
 - [Specification](specs/SPECIFICATION.md)
 - [Reference provenance](REFERENCE.md)
@@ -128,7 +128,7 @@ process, including its interpreter or VM.
 | Integration tests | [`integration-tests/`](integration-tests/) | Exercises application producers, runtime execution, Kubernetes placement, provisioning, rotation and cleanup. |
 | Acceptance | [`acceptance/`](acceptance/) | Tracks requirements, scoped evidence, and strict promotion qualification. |
 | Website | [`site/`](site/) | Contains the static landing page, branding assets, and searchable MkDocs documentation preview. |
-| User documentation | [`docs/`](docs/) | Contains installation, configuration, operations, workload deployment, troubleshooting, and workshop guidance. |
+| User documentation | [`docs/`](docs/) | Contains installation, configuration, operations, workload deployment, and troubleshooting guidance. |
 
 ## Quick start
 

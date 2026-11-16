@@ -38,8 +38,7 @@ pull requests or releases; Python is the only qualification fixture (see
 [verification](verification.md)).
 
 Ask your platform team for the runtime ID, supported platforms and Java
-executable path (see the
-[platform handoff](workshops/platform.md#give-developers-a-concrete-handoff)).
+executable path.
 `java-21` below is an example ID chosen by an administrator; Brewlet has no
 built-in runtime catalog.
 
