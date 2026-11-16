@@ -17,7 +17,7 @@
 
   <properties>
     <!-- Affected by CVE-2021-44228 (Log4Shell), CVE-2021-45046, CVE-2021-45105 and CVE-2021-44832. -->
-    <log4j.version>2.14.1</log4j.version>
+    <log4j.version>2.25.4</log4j.version>
   </properties>
 
   <!-- The BOM: the exact versions the platform team approves. -->
