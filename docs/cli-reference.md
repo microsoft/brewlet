@@ -14,7 +14,7 @@ the built-in reference.
 | `brewlet bundle REF` | Bundle one pinned application with one approved layer set under an explicit release policy. |
 | `brewlet verify REF` | Verify a pinned bundle, keeping structural, publisher and release-signature evidence distinct. |
 | `brewlet run REF` | Run a local build on an explicitly chosen runtime image with Docker or Podman. |
-| `brewlet k8s ...` | Manage runtimes on a Brewlet cluster: dashboard, list, status, add, rotate, remove, doctor. |
+| `brewlet k8s ...` | Manage runtimes and node profiles on a Brewlet cluster: dashboard, runtime, profile, doctor. |
 | `brewlet inventory` | Export observed workload/dependency facts for external scanning; never mutate workloads or scan CVEs. |
 | `brewlet version` | Print JSON with the release version, source commit and native platform (for example `{"version":"0.8.1",...}`). |
 
@@ -123,7 +123,7 @@ Not reproduced locally: node authorization, runtime installation and rotation,
 admission defaults, exec parity, `HOME` synthesis for UIDs without a passwd
 entry, and volume-zone rules except `--tmpfs` with `--from-cluster`.
 
-## Cluster runtime management with `brewlet k8s`
+## Cluster management with `brewlet k8s`
 
 Administrative commands for cluster operators. They use standard kubeconfig
 loading (`$KUBECONFIG`, then `~/.kube/config`); `--kubeconfig` and `--context`
@@ -138,9 +138,15 @@ may appear before or after the subcommand. `-o` is shorthand for `--output`.
 | `runtime add ID --image REF [--profile P ...] [--install Eager\|OnDemand] [--idle-ttl DURATION]` | Resolve tag to digest, check platforms and golden-image rules, create the RuntimeImage and place it in profiles. Also accepts `--platform`, `--volume-mount-path`, `--uid`, `--gid`, `--description`, `--ecosystem`, `--abi`, `--skip-image-checks` and `--insecure`. |
 | `runtime rotate ID --image REF [--yes]` | Show affected nodes, workloads and pods, then patch `spec.source.image`. |
 | `runtime remove ID [--force --yes]` | Refuse while referenced; `--force` removes profile entries and deletes the RuntimeImage. |
+| `profile list [--output table\|wide\|json\|yaml]` | NodeProfiles with pool, runtimes, ready/assigned nodes and age. |
+| `profile status NAME [--output table\|json\|yaml]` | Pool, rollout, conditions, runtimes with approval state, and the nodes the profile targets. |
+| `profile create NAME (--pool POOL ... \| --all-nodes) --runtime ID[:INSTALL[:IDLE-TTL]] ...` | Create a NodeProfile. Also accepts `--pool-key`, `--include-control-plane`, `--toleration KEY[=VALUE][:EFFECT]`, `--max-unavailable` and `--containerd-restart validated\|none`. |
+| `profile delete NAME [--yes]` | Show affected nodes and pods, then delete. `--yes` is required when nodes are assigned or pods are running. Cleanup is asynchronous. |
+| `profile add-runtime NAME ID [--install Eager\|OnDemand] [--idle-ttl DURATION]` | Offer an approved runtime on an existing profile. |
+| `profile remove-runtime NAME ID [--yes]` | Stop offering a runtime. A profile always keeps at least one runtime. |
 | `doctor [--namespace brewlet] [--output table\|json]` | Check CRDs, operator/admission, RuntimeClass, approvals and profiles; nonzero exit on failure. |
 
-Every mutating runtime command (`add`, `rotate`, `remove`) accepts `--dry-run` and
+Every mutating runtime and profile command accepts `--dry-run` and
 prints the resulting manifests (YAML, or JSON with `--output json`) without
 changing the cluster, so the output can go into a GitOps repository. `rotate`
 and a forced `remove` with a non-empty impact require `--yes`; there is no
@@ -148,7 +154,16 @@ interactive prompt. Removal revokes new starts only: running
 containers keep their leases until they exit. Editing a Helm-managed profile
 prints a warning because the next upgrade will revert it.
 
+A NodeProfile must always list at least one runtime, so `profile create` needs
+`--runtime`, and a catch-all profile that selects every worker node needs an explicit
+`--all-nodes`. A runtime that is missing or not yet approved is a warning, not an
+error: the profile reports `UnknownRuntimeImage` until `runtime add` approves it.
+`profile` does not edit an existing profile's pools, tolerations, rollout or mirrors;
+use `kubectl edit` for those. Deleting a profile removes its runtimes from the nodes
+once no pod uses them.
+
 ```sh
+brewlet k8s profile create web --pool userpool --runtime python-3.12 --runtime java-25:OnDemand:72h
 brewlet k8s runtime add python-3.12 --image registry.example.com/golden/python:3.12 --profile web
 brewlet k8s runtime rotate python-3.12 --image registry.example.com/golden/python:3.12.7 --yes
 brewlet k8s doctor

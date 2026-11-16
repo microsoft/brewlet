@@ -356,7 +356,7 @@ both operator configuration and workload opt-in; OnDemand roots not yet
 installed are excluded from the participating nodes.
 
 Approval creation, placement edits and runtime removal remain
-[CLI](cli-reference.md#cluster-runtime-management-with-brewlet-k8s) or GitOps
+[CLI](cli-reference.md#cluster-management-with-brewlet-k8s) or GitOps
 operations. For a Helm-managed runtime, update chart values as well, or a later
 Helm upgrade may revert the source.
 
