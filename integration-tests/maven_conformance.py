@@ -70,7 +70,7 @@ def publication_case(executable, project, work, case):
         assert result.returncode == 0, f'{case["name"]}: {result.stdout}'
         output = subprocess.check_output([
             str(executable), "inspect", f'fixtures/conformance-{case["name"]}:v2',
-            "--store", str(layout),
+            "--store", str(layout), "-o", "json",
         ], text=True)
         inspected = json.loads(output)["platforms"][0]["launch"]["process"]
         if kind == "launch":

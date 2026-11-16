@@ -99,10 +99,10 @@ with files/symlinks, hide them with whiteouts, or make them opaque. This is
 filesystem integrity, **not** proof that app code contains no shaded/vendored
 copies or that it executes only approved code.
 
-The JSON result (printed, and written atomically to the `--push-result` file)
+The JSON result (printed with `-o json`, and written atomically to the `--push-result` file)
 contains the exact output `digest` and a `verification` object with separate
 `structural`, `publisherProvenance` and `compositionSignature` results.
-`brewlet verify` prints the same `verification` object for a published bundle.
+`brewlet verify -o json` prints the same `verification` object for a published bundle.
 `testReleaseApproval: not-evaluated` means this verifier did not verify a test
 or release approval. A signature is not a compatibility test.
 
@@ -199,7 +199,7 @@ For the end-to-end response to an advisory, follow the
 ```sh
 brewlet inventory --kubeconfig "$KUBECONFIG" --context production \
   --namespace payments --namespace orders \
-  --policy release-policy.yaml --output dependencies.json
+  --policy release-policy.yaml --report dependencies.json
 ```
 
 Repeat `--workload Kind/namespace/name` to narrow native workloads.

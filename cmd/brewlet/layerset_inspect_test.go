@@ -80,7 +80,7 @@ func TestInspectLayerSetExposesOnlyVerifiedNeutralLock(t *testing.T) {
 		os.Stdout = writer
 		defer func() { os.Stdout = previous; writer.Close(); reader.Close() }()
 		if len(arguments) == 0 {
-			arguments = []string{"inspect", "explicit", "--store", store.Dir}
+			arguments = []string{"inspect", "explicit", "--store", store.Dir, "-o", "json"}
 		}
 		err = run(context.Background(), arguments)
 		writer.Close()
@@ -102,7 +102,14 @@ func TestInspectLayerSetExposesOnlyVerifiedNeutralLock(t *testing.T) {
 	if result.Digest != root.Digest.String() || len(result.Lock.Entries) != 1 || result.Lock.Entries[0].Path != filePath || result.Lock.Entries[0].SHA256 != hash || result.Evidence.LockDigest != lockDescriptor.Digest {
 		t.Fatalf("verified neutral lock missing from response: %s", out)
 	}
-	out, err = inspect("inspect", store.Dir)
+	text, err := inspect("inspect", "explicit", "--store", store.Dir)
+	check(err)
+	for _, want := range []string{"Layer set " + root.Digest.String(), "Packages (1):", "Lock:", lockDescriptor.Digest.String()} {
+		if !bytes.Contains(text, []byte(want)) {
+			t.Fatalf("text inspect missing %q:\n%s", want, text)
+		}
+	}
+	out, err = inspect("inspect", store.Dir, "-o", "json")
 	check(err)
 	check(json.Unmarshal(out, &result))
 	if result.Digest != root.Digest.String() {
@@ -120,8 +127,8 @@ func TestInspectLayerSetExposesOnlyVerifiedNeutralLock(t *testing.T) {
 		t.Fatalf("unverified lock exposed: err=%v output=%s", err, out)
 	}
 	for _, arguments := range [][]string{
-		{"inspect", store.Dir + "@" + root.Digest.String()},
-		{"inspect", root.Digest.String(), "--store", store.Dir},
+		{"inspect", store.Dir + "@" + root.Digest.String(), "-o", "json"},
+		{"inspect", root.Digest.String(), "--store", store.Dir, "-o", "json"},
 	} {
 		out, err = inspect(arguments...)
 		check(err)

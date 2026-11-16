@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +78,7 @@ func TestBuildDefaultsToPerReferenceLayoutAndPushFindsIt(t *testing.T) {
 	if e := os.WriteFile("launch.json", []byte(`{"schemaVersion":1,"process":{"entrypoint":["/bin/sh","/app/main.sh"]}}`), 0644); e != nil {
 		t.Fatal(e)
 	}
-	var out, errOut strings.Builder
+	var out, errOut, jsonOut strings.Builder
 	ref := "registry.example.test/apps/demo:v1"
 	if e := dispatch(context.Background(), []string{"build", ref, "--platform", "linux/amd64", "--launch", "launch.json", "--layer", "app=src:/app"}, &out, &errOut); e != nil {
 		if artifact.Reason(e) == "LayerPathViolation" && strings.Contains(e.Error(), "extended attributes") {
@@ -86,8 +87,15 @@ func TestBuildDefaultsToPerReferenceLayoutAndPushFindsIt(t *testing.T) {
 		t.Fatal(e)
 	}
 	want := filepath.Join(".brewlet", "images", "registry.example.test_apps_demo_v1")
-	if !strings.Contains(out.String(), `"store":"`+want+`"`) {
+	if !strings.Contains(out.String(), "Built image "+ref) || !strings.Contains(out.String(), want) || strings.HasPrefix(out.String(), "{") {
 		t.Fatalf("unexpected build result: %s", out.String())
+	}
+	if e := dispatch(context.Background(), []string{"build", ref, "--platform", "linux/amd64", "--launch", "launch.json", "--layer", "app=src:/app", "-o", "json"}, &jsonOut, &errOut); e != nil {
+		t.Fatal(e)
+	}
+	var result struct{ Reference, Store string }
+	if e := json.Unmarshal([]byte(jsonOut.String()), &result); e != nil || result.Reference != ref || result.Store != want {
+		t.Fatalf("unexpected JSON build result (%v): %s", e, jsonOut.String())
 	}
 	if _, e := os.Stat(filepath.Join(want, "index.json")); e != nil {
 		t.Fatal(e)
