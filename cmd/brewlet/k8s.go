@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-const k8sHelp = `brewlet k8s - manage Brewlet runtime images on a Kubernetes cluster
+const k8sHelp = `brewlet k8s - manage Brewlet runtime images and node profiles on a Kubernetes cluster
 
 Usage:
   brewlet k8s [--kubeconfig FILE] [--context NAME] <command> [flags]
@@ -32,14 +32,23 @@ Commands:
   runtime rotate ID --image REF
                              roll an ID to a new digest after showing the impact (requires --yes)
   runtime remove ID          revoke a runtime; refuses while profiles or pods reference it
+  profile list               list NodeProfiles (table|wide|json|yaml)
+  profile status NAME        pool, runtimes, conditions and nodes of one NodeProfile
+  profile create NAME --pool POOL --runtime ID
+                             create a NodeProfile that provisions a node pool with runtimes
+  profile delete NAME        delete a NodeProfile (requires --yes when nodes or pods are affected)
+  profile add-runtime NAME ID
+                             offer an approved runtime on a profile
+  profile remove-runtime NAME ID
+                             stop offering a runtime; a profile always keeps at least one
   doctor                     check CRDs, control-plane components, RuntimeClass and inventory health
 
 Connection flags (before the command or on it):
   --kubeconfig FILE   kubeconfig path (default: $KUBECONFIG, then ~/.kube/config)
   --context NAME      kubeconfig context (default: current-context)
 
-Every mutating runtime command accepts --dry-run, which runs all checks and prints the
-resulting manifest(s) as YAML (or --output json) without changing the cluster.
+Every mutating runtime and profile command accepts --dry-run, which runs all checks and
+prints the resulting manifest(s) as YAML (or --output json) without changing the cluster.
 
 Run 'brewlet k8s <command> --help' for command flags and examples.
 `
@@ -116,6 +125,8 @@ func runK8s(ctx context.Context, args []string, stdout, stderr io.Writer) error 
 		return runK8sDashboard(ctx, &conn, rest[1:], stdout)
 	case "runtime", "runtimes", "ri":
 		return runK8sRuntime(ctx, &conn, rest[1:], stdout, stderr)
+	case "profile", "profiles", "np":
+		return runK8sProfile(ctx, &conn, rest[1:], stdout, stderr)
 	case "doctor":
 		return runK8sDoctor(ctx, &conn, rest[1:], stdout, stderr)
 	default:

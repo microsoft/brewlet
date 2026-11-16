@@ -183,8 +183,21 @@ kubectl wait --for=condition=Ready \
 brewlet k8s runtime list
 ```
 
+You can also create and manage profiles with the CLI instead of YAML.
+`--runtime` is `ID[:INSTALL[:IDLE-TTL]]`, and `--dry-run` prints the manifest
+without applying it:
+
+```sh
+brewlet k8s profile create userpool --pool userpool \
+  --runtime python-3:Eager --runtime java-25:OnDemand:72h \
+  --toleration startup-taint.cluster-autoscaler.kubernetes.io/brewlet=provisioning:NoSchedule
+brewlet k8s profile status userpool
+```
+
 Once a profile exists, `brewlet k8s runtime add` can offer new runtimes on it
-directly with `--profile userpool --install Eager|OnDemand`.
+directly with `--profile userpool --install Eager|OnDemand`, and
+`brewlet k8s profile add-runtime|remove-runtime` change which approved runtimes
+the profile offers.
 
 The operator generates and reconciles the provisioner worker DaemonSet; do not
 edit it. If the profile does not become ready, check the provisioner pod logs

@@ -1039,6 +1039,7 @@ class CallbackOrderTests(ProjectWork):
         modules = {
             "admission_contract": SimpleNamespace(exercise=callback("admission_contract")),
             "authority_checks": SimpleNamespace(initial_fence=callback("initial_fence")),
+            "profile_cli": SimpleNamespace(exercise=callback("profile_cli")),
             "runtime_contract": SimpleNamespace(durable_generations=callback("durable_generations"),
                                                protected_identity=callback("protected_identity"),
                                                rotation_participants=callback("rotation_participants")),
@@ -1065,7 +1066,7 @@ class CallbackOrderTests(ProjectWork):
             self.assertEqual(instance.execute(), 0)
         self.assertEqual(calls, [
             "preflight", "provision_cluster", "prepare_images", "bootstrap_delivery",
-            "install", "admission_contract", "initial_fence", "startup", "observer_start", "application_execution", "barriers_and_rotation",
+            "install", "admission_contract", "initial_fence", "startup", "profile_cli", "observer_start", "application_execution", "barriers_and_rotation",
             "observability", "observer_stop", "durable_generations", "protected_identity", "rotation_participants",
             "filesystem", "accounting", "delivery", "container_roles", "lifecycle",
             "control_edges", "pinned_revocation",
@@ -1089,7 +1090,7 @@ class CallbackOrderTests(ProjectWork):
                              for gap in instance.result["gaps"]))
         self.assertEqual(instance.result["selectedScenario"], "pr")
         self.assertFalse(instance.result["fullAcceptance"])
-        for name in ("admission_contract", "initial_fence", "startup", "application_execution",
+        for name in ("admission_contract", "initial_fence", "startup", "profile_cli", "application_execution",
                      "barriers_and_rotation", "observability", "durable_generations",
                      "protected_identity", "pinned_revocation", "production_cleanup", "destroy"):
             self.assertIn(name, calls)

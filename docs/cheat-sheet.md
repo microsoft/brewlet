@@ -281,6 +281,12 @@ brewlet k8s runtime list
 brewlet k8s runtime status python-3.13
 brewlet k8s doctor --namespace brewlet
 
+# Inspect node profiles, or create one for a node pool
+brewlet k8s profile list
+brewlet k8s profile status application-pool
+brewlet k8s profile create application-pool --pool application-pool \
+  --runtime python-3.13 --dry-run
+
 # Preview a runtime addition as manifests; review before applying
 brewlet k8s runtime add node-22 \
   --image registry.example.com/runtimes/node:22 \
