@@ -38,9 +38,10 @@ all of them on one machine, and local OCI layouts stand in for a registry.
 
 ## Prerequisites
 
-- Steps 1 to 7 of [your first local deployment](local-kubernetes.md), without
-  step 8. The `brewlet` kind cluster must still be running, with Brewlet
-  installed and the `local` NodeProfile.
+- Steps 1 to 5 of [your first local deployment](local-kubernetes.md). The
+  `brewlet` kind cluster must still be running, with Brewlet installed and the
+  `local` NodeProfile. The `hello` application from the later steps is
+  optional.
 - The tools from that tutorial: Docker, kind, kubectl, Helm and the Brewlet CLI
 - JDK 21 or later, Maven 3.9 or later and Git
 - OpenSSL or LibreSSL, such as the `openssl` included with macOS
@@ -61,13 +62,15 @@ kind get kubeconfig --name brewlet > "$DEMO/kubeconfig"
 export KUBECONFIG="$DEMO/kubeconfig"
 ARCH="$(docker info --format '{{.Architecture}}' | sed 's/x86_64/amd64/; s/aarch64/arm64/')"
 digest() { grep -o 'sha256:[0-9a-f]\{64\}' "$1/index.json" | head -1; }
-kubectl get deployment hello
+kubectl get nodeprofile local
 ```
 
-The `hello` Deployment from the first tutorial is still listed. The `digest`
-function prints the image digest of a local OCI layout. Layouts written by
-`brewlet layer-set` and `brewlet bundle` also hold signatures and SBOMs,
-listed after the image.
+The last command lists the `local` NodeProfile from the first tutorial. If it
+reports `NotFound`, complete step 5 of that tutorial before you continue.
+
+The `digest` function prints the image digest of a local OCI layout. Layouts
+written by `brewlet layer-set` and `brewlet bundle` also hold signatures and
+SBOMs, listed after the image.
 
 ## 2. Get the sample project
 
@@ -112,12 +115,14 @@ spec:
 EOF
 kubectl patch nodeprofile local --type=json \
   -p '[{"op":"add","path":"/spec/runtimeImages/-","value":{"id":"java-21"}}]'
-kubectl wait runtimeimage/java-21 --for=condition=RotationComplete --timeout=5m
+kubectl wait node --all --for=jsonpath='{.metadata.labels.brewlet\.sh/runtime\.java-21}'=ready --timeout=5m
 brewlet k8s runtime status java-21
 ```
 
 The `java-21` RuntimeImage is the distroless Java 21 image, pinned by digest,
-at generation 1. Nothing in this tutorial changes it again.
+at generation 1. Nothing in this tutorial changes it again. The node's
+`brewlet.sh/runtime.java-21=ready` label shows that it can now run Pods that
+request `java-21`.
 
 ## 4. Create the release trust policy
 
@@ -375,13 +380,13 @@ never swaps JARs in place. To roll back, set the image to `$RELEASE_1` again.
 
 ## 10. Clean up
 
-Delete both applications, then let Brewlet remove the runtimes and restore the
+Delete the applications, then let Brewlet remove the runtimes and restore the
 node's configuration before deleting the cluster. Remove the sample bundles
 from your local Maven repository too:
 
 ```sh
-kubectl delete deployment log4j-demo hello
-kubectl delete service log4j-demo hello
+kubectl delete deployment log4j-demo hello --ignore-not-found
+kubectl delete service log4j-demo hello --ignore-not-found
 kubectl delete nodeprofile local --timeout=10m
 kubectl delete runtimeimage java-21 python
 helm uninstall brewlet --namespace brewlet
